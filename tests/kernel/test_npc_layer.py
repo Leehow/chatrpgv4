@@ -482,7 +482,8 @@ def test_a_reader_s_dossier_claims_reach_the_graph_and_the_table(kernel, tmp_pat
         ("npc-lao-zhou", "believes", "secret-sailor-entered-at-night"),
     ]]
     draft = {"nodes": nodes, "claims": claims, "node_refs": [], "coverage": {}, "dependencies": [], "critical": [], "ready_nodes": [n["node_id"] for n in nodes]}
-    required = check_draft(draft, job)["required_review"]
+    # Keep the frozen shape checks and include the current source-scope review contract.
+    required = [*check_draft(draft, job)["required_review"], "/coverage"]
     write(Path(job["work_dir"])/"draft.json", draft)
     write(Path(job["work_dir"])/"review.json", {"checked": [{"paths": required, "verdict": "supported", "source_refs": [{"page": 1}]}], "missing": []})
     finish(kernel, job)

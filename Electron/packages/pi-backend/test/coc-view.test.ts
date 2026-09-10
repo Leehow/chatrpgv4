@@ -300,6 +300,9 @@ it('a bound sheet read merges every lane\'s saved words under the kernel glossar
   const client=new KernelClient({command:[process.execPath,join(repo,'build/kernel/rpc.mjs'),'--workspace',root,'--content',join(repo,'content')],cwd:repo,env:{}});
   try {await client.call('campaign.create',{id:'carried',module:'the-haunting',pregen:'thomas-hayes',play_language:'zh-Hans'});}finally{await client.close();}
   const folder=join(root,'.coc/campaigns/carried/setup/presentations');await mkdir(folder,{recursive:true});
+  const sheet=await readColdSheet(repo,{campaign:'carried',home:root,play_language:'zh-Hans'});
+  const languages=await laneWords(repo,'languages',sheet);
+  await writeFile(join(folder,'languages-zh-Hans.json'),JSON.stringify({play_language:'zh-Hans',texts:Object.fromEntries(languages.map(word=>[word,word]))}));
   // The projection may not outrank the glossary: the kernel's word for a skill stays the kernel's.
   await writeFile(join(folder,'possessions-zh-Hans.json'),JSON.stringify({play_language:'zh-Hans',texts:{intact:'完好','Spot Hidden':'不是这个'}}));
   const summary='Corbitt can form pools of blood on floor, ceiling, or walls to frighten intruders away from his secret.';

@@ -388,7 +388,7 @@ class Daemon:
         self._write_heartbeat("ready")
         self.log.write("daemon ready")
 
-    def _await_quiet(self, tq: "queue.Queue") -> None:
+    def _await_quiet(self, tq: "queue.Queue", deadline: float) -> bool:
         """Wait for the agent to be idle before a turn's prompt goes in.
 
         Opening the table is a keeper run of its own: the launcher starts it with no player input.
@@ -398,23 +398,23 @@ class Daemon:
         `events.jsonl` and nowhere else. A turn now begins from a quiet agent, so the settle it waits
         for can only be its own.
         """
-        hard_deadline = time.monotonic() + STARTUP_READY_TIMEOUT
         while True:
             now = time.monotonic()
-            wait_for = min(OPENING_QUIET, hard_deadline - now)
+            wait_for = min(OPENING_QUIET, deadline - now)
             if wait_for <= 0:
-                self.log.write("agent still busy as a turn began; its settle may not be this turn's")
-                return
+                return False
             try:
                 event = tq.get(timeout=wait_for)
             except queue.Empty:
-                # Silence for this long means the earlier run is over, or there never was one.
-                return
-            if event.get("type") == "agent_settled":
-                self.log.write("earlier run settled; this turn starts from a quiet agent")
-                return
+                event = None
             if not self.pi.alive():
-                return
+                return False
+            if event is None or event.get("type") == "agent_settled":
+                # A slow model can be silent; only the transport state establishes an idle owner.
+                state = self.pi.call({"type": "get_state"}, timeout=min(ACK_TIMEOUT, max(0.001, deadline-time.monotonic())))
+                data = (state or {}).get("data", {})
+                if state and state.get("success") and data.get("isStreaming") is False and not any(data.get(key) for key in ("isCompacting", "pendingMessageCount")):
+                    return True
 
     def _set_model(self, model: str) -> dict | None:
         if "/" not in model:
@@ -454,11 +454,16 @@ class Daemon:
         started_at = now_iso()
         tq = self.pi.begin_turn()
         try:
-            self._await_quiet(tq)
-            ack = self.pi.call({"type": "prompt", "message": text}, timeout=ACK_TIMEOUT)
-            if ack is None:
+            if not self._await_quiet(tq, started_mono + timeout):
                 return self._finalize_turn(n, text, started_at, started_mono, [], "",
-                                            "empty", "no ack for prompt within ack timeout")
+                                            "timeout", "previous Keeper run did not become idle")
+            # Pi acknowledges only after prompt preflight; cold source guidance is part of this turn.
+            remaining = max(0.001, started_mono + timeout - time.monotonic())
+            ack = self.pi.call({"type": "prompt", "message": text}, timeout=remaining)
+            if ack is None:
+                self.pi.call({"type": "abort"}, timeout=ACK_TIMEOUT)
+                return self._finalize_turn(n, text, started_at, started_mono, [], "",
+                                            "timeout", "prompt preflight exceeded turn timeout")
             if not ack.get("success", False):
                 return self._finalize_turn(n, text, started_at, started_mono, [], "",
                                             "empty", f"prompt rejected: {ack.get('error')}")

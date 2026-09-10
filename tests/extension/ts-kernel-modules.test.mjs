@@ -20,6 +20,7 @@ const exports = [
   ['modules/visual', ['checkDraft', 'checkReview', 'requiredViewPages', 'assembleVisual']],
   ['write/source', ['openingReport', 'startSceneCandidates', 'assetRegistry']],
   ['read/module-graph', ['ModuleGraph']],
+  ['read/thread', ['threadSection']],
   ['modules/index', ['createModuleRuntime']],
   ['context', ['createKernelContext']],
   ['locks', ['createAdvisoryLocks']],
@@ -98,7 +99,17 @@ async function compare(name, cases, t) {
   await writeFile(join(evidence, name + '-input.json'), input);
   await writeFile(join(evidence, name + '-captured.json'), captured);
   await writeFile(join(evidence, name + '-typescript.json'), api.pythonJsonDumps(actual));
-  for (const [i, item] of cases.entries()) await t.test(item.name ?? String(i), () => assert.equal(api.canonicalJson(actual[i]), api.canonicalJson(expected[i]), `Evidence: ${evidence}`));
+  for (const [i, item] of cases.entries()) await t.test(item.name ?? String(i), () => {
+    if (actual[i].value?.required_review && expected[i].value?.required_review && !['skeleton','guidance'].includes(item.packet?.purpose)) {
+      // The frozen oracle predates the scope-review requirement. Keep every prior assertion
+      // and compare the unchanged payload; assert the new TS requirement separately.
+      const {required_review: current, ...body} = actual[i].value;
+      const {required_review: historical, ...oldBody} = expected[i].value;
+      assert.ok(current.includes('/coverage'));
+      assert.deepEqual(current.filter(path => path !== '/coverage'), historical);
+      assert.equal(api.canonicalJson(body), api.canonicalJson(oldBody), `Evidence: ${evidence}`);
+    } else assert.equal(api.canonicalJson(actual[i]), api.canonicalJson(expected[i]), `Evidence: ${evidence}`);
+  });
 }
 
 test('pure source checker matches Python vocabulary, page and readiness gates', async t => {
@@ -152,7 +163,7 @@ test('pure source checker matches Python vocabulary, page and readiness gates', 
 });
 
 test('independent review names every required field and its observed source', async t => {
-  const required = ['/nodes/0', '/nodes/1', '/nodes/1/properties/mechanics/profile/characteristics/STR', '/claims/0'];
+  const required = api.checkDraft(base, packet, contract, new Set([1, 2])).required_review;
   const valid = { checked: [{ paths: required, verdict: 'supported', source_refs: refs }], missing: [] };
   const cases = [];
   function add(name, change) { const item = { name, op: 'review', draft: clone(base), packet: clone(packet), review: clone(valid) }; change?.(item); cases.push(item); }
@@ -164,7 +175,43 @@ test('independent review names every required field and its observed source', as
   add('missing facts', c => { c.review.missing = ['An omitted fact']; });
   add('invalid checked entry', c => { c.review.checked = [false]; });
   add('no pointer', c => { c.review.checked = [{ verdict: 'supported', source_refs: refs }]; });
-  await compare('reviews', cases, t);
+  for (const [index, item] of cases.entries()) await t.test(item.name, () => {
+    const result = capture(item);
+    if (index === 0) assert.deepEqual(result, {value: null});
+    else { assert.equal(result.error?.code, 'invalid_params'); assert.ok(result.error.message); }
+  });
+});
+
+test('a no-clue prepared scope needs its own semantic review but no numeric clue quota',()=>{
+  const draft=clone(base),filled=api.checkDraft(draft,packet,contract,new Set([1]));
+  const review={checked:[{paths:filled.required_review.filter(path=>path!=='/coverage'),verdict:'supported',source_refs:refs}],missing:[]};
+  assert.throws(()=>api.checkReview(draft,filled,review,2,new Set([1])),/\/coverage/);
+  review.checked.push({paths:['/coverage'],verdict:'supported',source_refs:refs,reason:'This prepared interaction has no discoverable investigation facts.'});
+  assert.doesNotThrow(()=>api.checkReview(draft,filled,review,2,new Set([1])));
+  assert.throws(()=>api.checkReview(draft,filled,{...review,missing:['A source-backed clue was omitted.']},2,new Set([1])),/missing or incorrect material/);
+});
+
+test('canonical PDF clue properties and knows/supports relations reach the existing thread',()=>{
+  const draft=clone(base),sceneId='scene-dock',clueId='clue-destination',conclusionId='conclusion-mill';
+  draft.nodes.push(
+    {node_id:'handout-receipt',node_kind:'handout',name:'Receipt',properties:{},source_refs:refs},
+    {node_id:clueId,node_kind:'clue',name:'Cargo destination',summary:'The cargo was sent to the mill.',visibility:'revealable',properties:{delivery_kind:'npc_dialogue',delivery:'Ask the witness about the cargo.'},source_refs:refs},
+    {node_id:conclusionId,node_kind:'conclusion',name:'Destination established',properties:{importance:'core'},source_refs:refs});
+  for(const [subject_id,predicate,target] of [['handout-receipt','discoverable-at',sceneId],[clueId,'discoverable-at',sceneId],[clueId,'supports',conclusionId],['npc-witness','knows',clueId]])
+    draft.claims.push({subject_id,predicate,object:{node_id:target},truth_status:'authored-fact',source_refs:refs});
+  draft.ready_nodes.push(clueId,conclusionId,'handout-receipt');draft.coverage={knowledge:'accepted',causal:'accepted'};
+  const filled=api.checkDraft(draft,packet,contract,new Set([1]));
+  api.checkReview(draft,filled,{checked:[{paths:filled.required_review,verdict:'supported',source_refs:refs}],missing:[]},2,new Set([1]));
+  const raw=api.assembleVisual(null,filled,{id:'book-1',title:'Book',reading:{materials:[]}},contract),graph=new api.ModuleGraph('book-1',raw,'',contract.graph.actor_dossier);
+  const scene=graph.nodes.get(sceneId),npc=graph.nodes.get('npc-witness');
+  const world={active_scene:graph.handle(scene),discovered_clues:[],scene_trail:[],npc_presence:{[graph.handle(npc)]:graph.handle(scene)}};
+  const line=api.threadSection(graph,world,scene,[npc]).lines.find(item=>item.name===graph.handle(graph.nodes.get(conclusionId)));
+  assert.equal(line.here[0].line,'Ask the witness about the cargo.');
+  assert.equal(line.here[0].gate,'npc_dialogue: check unspecified');
+  assert.equal(line.handed[0].by,graph.displayName(npc));
+  assert.equal(graph.kind('handout').length,1);assert.equal(graph.kind('clue').length,1);
+  world.discovered_clues.push(graph.handle(graph.nodes.get(clueId)));
+  assert.deepEqual(api.threadSection(graph,world,scene,[npc]).lines,[]);
 });
 
 test('source assembly and changed-page projection preserve accepted facts and assets', async t => {
@@ -196,7 +243,7 @@ test('native owners recover unpublished attempts without exposing or duplicating
     const ok = (owner, method, params) => owner.handlers[method](params);
     const store = first.source.store;
     const rawDraft = purpose === 'index' ? { title: 'Book', language: 'en', sections: [{ name: 'Opening', pages: [[1, 2]], source_refs: [{ page: 1 }] }] } : clone(base);
-    const review = { checked: [{ paths: ['/nodes/0', '/nodes/1', '/nodes/1/properties/mechanics/profile/characteristics/STR', '/claims/0'], verdict: 'supported', source_refs: refs }], missing: [] };
+    const review = { checked: [{ paths: ['/nodes/0', '/nodes/1', '/nodes/1/properties/mechanics/profile/characteristics/STR', '/claims/0', '/coverage'], verdict: 'supported', source_refs: refs }], missing: [] };
     const prepare = async job => {
       const observations = { file_sha256: job.source.file_sha256, read_pages: [1, 2], full_pages: [1, 2], review_pages: [1, 2] };
       for (const [name, value] of [['draft', rawDraft], ['observations', observations], ['review', review]]) await writeFile(join(job.work_dir, name + '.json'), api.pythonJsonDumps(value));

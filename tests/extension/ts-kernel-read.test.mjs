@@ -223,11 +223,17 @@ test('Director signals and authored scoring match the Python decision table',asy
   same(names.map(api.semanticName),oracle('semantic_names',{names}),'semantic decision names');
   const ontology=new api.Ontology(await json(join(CONTENT,'ontology/system-ontology.json')));
   const grounded=[cases[0],{...base,label:'subsystem decision grounding',session:{kind:'combat',status:'active'}},cases[1]];
-  await rows(t,grounded,oracle('grounding',{cases:grounded}),c=>{
+  // The frozen oracle predates explicit unknown-check wording; preserve its remaining projection.
+  const withoutGates=section=>({...section,...(section.reveal?{reveal:section.reveal.map(({gate,...clue})=>clue)}:{})});
+  await rows(t,grounded,oracle('grounding',{cases:grounded}).map(withoutGates),c=>{
     const selected=graph.nodes.get(c.scene),present=c.present.map(id=>graph.nodes.get(id));
     const sig=api.signals({...c,graph,scene:selected,present,undiscovered:graph.sceneClueIds(selected).filter(id=>!c.world.discovered_clues.includes(graph.handle(graph.nodes.get(id)))).length,
       conditions:s=>c.conditions[s.id]||[],sanity:s=>c.sanity[s.id]||null});
-    return api.directorSection(dg,ontology,graph,c.world,selected,sig,c.memory||[],present);
+    const section=api.directorSection(dg,ontology,graph,c.world,selected,sig,c.memory||[],present);
+    if(section.reveal)assert.deepEqual(section.reveal.map(clue=>clue.gate),[
+      'environmental: check unspecified','environmental: check unspecified','obvious: check unspecified',
+      'obvious: check unspecified','environmental: check unspecified']);
+    return withoutGates(section);
   });
 });
 

@@ -3,12 +3,44 @@ import {test} from 'node:test';
 import {mkdtemp,readFile,writeFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
-import {reviewCandidate,reviewUnits} from '../../extensions/module/reader-review.ts';
+import {reviewCandidate,reviewUnits,checkReviewEvidence} from '../../extensions/module/reader-review.ts';
 import {createRuntime} from '../../runtime/host.ts';
 
 test('review grouping retains numeric children and critical nested pointers',()=>{
  const groups=reviewUnits({nodes:[{properties:{mechanics:{HP:10},image_sources:[{page:2}]}}],claims:[],critical:['/nodes/0/properties/mechanics']});
  assert.deepEqual(groups,[['/nodes/0','/nodes/0/properties/mechanics/HP','/nodes/0/properties/mechanics']]);
+});
+
+test('prepared scopes get an independent coverage unit even without proposed investigation nodes',()=>{
+ const draft={nodes:[{node_id:'scene-room',properties:{},source_refs:[{page:1}]}],claims:[],critical:[],coverage:{},ready_nodes:['scene-room']};
+ assert.deepEqual(reviewUnits(draft),[['/nodes/0'],['/coverage']]);
+ assert.deepEqual(reviewUnits({...draft,ready_nodes:[]}),[['/nodes/0']]);
+});
+
+test('scope coverage must observe its own source pages, not only report a supported verdict',()=>{
+ const review={checked:[{path:'/coverage',verdict:'supported',source_refs:[{page:1}]}],missing:[]};
+ assert.throws(()=>checkReviewEvidence(review,['/coverage'],new Set([1]),[1,2]),/did not view every assigned source page/);
+ assert.doesNotThrow(()=>checkReviewEvidence(review,['/coverage'],new Set([1,2]),[1,2]));
+});
+
+test('the scope reviewer receives actual read pages and its omission finding survives aggregation',async()=>{
+ const cwd=await mkdtemp(join(tmpdir(),'coc-scope-review-')),tasks=[];
+ const pages=await reviewCandidate({cwd,task:{purpose:'detail',focus:'Room',review_scope_pages:[1,2]},
+ draft:{nodes:[{node_id:'scene-room',properties:{},source_refs:[{page:1}]}],claims:[],coverage:{},ready_nodes:['scene-room']},
+ instructions:'unused',round:1,model:{id:'fixture/vision'},source:{pdf:'unused',cache:'unused'},signal:new AbortController().signal,
+ record(){},progress(){},async run(request){
+  const task=JSON.parse(await readFile(join(request.cwd,'task.json'),'utf8'));tasks.push(task);
+  const scope=task.required_review.includes('/coverage'),seen=scope?[1,2]:[1];
+  request.onEvent({type:'tool_execution_end',toolCallId:'pages',isError:false,result:{details:{kind:'source_pages',observations:seen.map(page=>({page}))}}});
+  await writeFile(request.eventLog+'.images.jsonl',JSON.stringify({included:['pages']})+'\n');
+  await writeFile(join(request.cwd,'review.json'),JSON.stringify({checked:[{paths:task.required_review,verdict:'supported',source_refs:seen.map(page=>({page})),reason:'Compared this assigned scope.'}],missing:scope?['A sourced discoverable proposition is absent.']:[]}));
+  return {ok:true,ms:1,stderr:''};
+ }});
+ assert.deepEqual(pages.sort(),[1,2]);
+ assert.equal(tasks.filter(task=>task.required_review.includes('/coverage')).length,1);
+ const review=JSON.parse(await readFile(join(cwd,'review.json'),'utf8'));
+ assert.deepEqual(review.missing,['A sourced discoverable proposition is absent.']);
+ assert.ok(review.checked.some(item=>item.paths.includes('/coverage')));
 });
 
 test('a source reviewer keeps recovered provider errors as evidence without repeating the review',async t=>{

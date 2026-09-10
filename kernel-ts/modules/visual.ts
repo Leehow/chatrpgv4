@@ -174,6 +174,7 @@ export function checkDraft(draft: any, packet: Row, contract: ModuleContract, se
         mergeValue(Object.fromEntries(Object.keys(proposed).map(key => [key, known[key]])), proposed, `/nodes/${node.node_id}`);
     }
     const claimed = new Set<string>(), required = new Set<any>(filled.critical);
+    if (!skeleton && filled.ready_nodes.length) required.add('/coverage');
     for (const path of required)
         pointer(draft, path);
     for (const [i, node] of nodes.entries()) {

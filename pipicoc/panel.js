@@ -917,7 +917,7 @@ export function createComponent(React) {
         const value = language.value === null ? "" : text(language.value);
         const named = term(language.name);
         fields.push(language.own
-          ? [term("Language (Own)"), [named, value].filter(Boolean).join(" ")]
+          ? [t("language"), [named, value].filter(Boolean).join(" ")]
           : [named, value]);
       }
     }

@@ -3,9 +3,9 @@ import { join, relative, resolve, sep } from "node:path";
 import { realpath, readFile } from "node:fs/promises";
 import type { KernelContext } from "../context.js";
 import { RpcError } from "../errors.js";
-import { sha256File } from "../fileio.js";
 import { parsePythonJson } from "../json.js";
 import { ModuleGraph, dossierWith } from "./module-graph.js";
+import { readPublishedGraph } from "./published-graph.js";
 import { array, row, clone, normalize, stripPrefix, number, repr, type Row } from "./values.js";
 export class CampaignSnapshot {
     readonly dir: string;
@@ -149,7 +149,7 @@ export async function loadModule(context: KernelContext, id: string): Promise<Lo
                 throw new Error("graph_file escapes the module store");
         }
     }
-    if (!await context.snapshots.pathExists(path)) {
+    if (!await context.snapshots.pathExists(path) && (!registered || !generation)) {
         const choices = await context.snapshots.sortedChildNames(join(context.content, "starters"), child => context.snapshots.pathExists(join(child, "module-graph.json")));
         throw new RpcError("invalid_params", `unknown module ${repr(id)}`, {
             fix: `use one of details.options: ${choices.join(", ")}`,
@@ -159,9 +159,9 @@ export async function loadModule(context: KernelContext, id: string): Promise<Lo
             }
         });
     }
-    const raw = row(await context.snapshots.readJson(path)),
+    const {raw, digest} = await readPublishedGraph(context, path, meta, id),
         contract = row(await context.snapshots.readJson(join(context.content, "modules", "module-graph-contract-v3.json")));
-    const graph = new ModuleGraph(id, raw, await sha256File(path), dossierWith(row(contract.actor_dossier), row(meta.vocabulary)));
+    const graph = new ModuleGraph(id, raw, digest, dossierWith(row(contract.actor_dossier), row(meta.vocabulary)));
     const material = (name: string) => {
         if (!registered || !meta.reading_version)
             return "ready";

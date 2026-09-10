@@ -8,6 +8,7 @@ import { registerInvokeHandlers } from '../../pipicoc/host-bridge.ts';
 import { Type } from "typebox";
 import { cocHome, cocMode } from "../lanes/host.ts";
 import { playLanguageTag } from "../../runtime/ui-words.ts";
+import type { HostRuntime } from "../../runtime/host.ts";
 import { type ExtensionWords, extensionContentRoot, extensionSurface } from "../ui/words.ts";
 import {
 	allowedSteps,
@@ -71,7 +72,7 @@ export default function (pi: ExtensionAPI) {
 	let ctx: ExtensionContext | undefined;
 	let reading: { prepare(params: Record<string, unknown>, signal?: AbortSignal): Promise<Record<string, unknown>> } | undefined;
 	pi.events.on("coc:reading-bridge", value => { reading = value && typeof (value as any).prepare === "function" ? value as any : undefined; });
-	let bridge: { call: KernelCall; hello?: Record<string, unknown> } | undefined;
+	let bridge: { call: KernelCall; hello?: Record<string, unknown>; runtime?: HostRuntime } | undefined;
 	let steps: Step[] | undefined;
 	/** The `sources` the table declares; the source vocabulary comes from here, not from the steps (#32). */
 	let tableSources: string[] = [];
@@ -127,17 +128,21 @@ export default function (pi: ExtensionAPI) {
     if(!ctx || !bridge || !moduleId || !/^[a-z0-9-]{1,64}$/.test(moduleId) || !context.campaign)return;
     const home=cocHome(ctx.cwd);
     if(!existsSync(join(home,'.coc/modules',moduleId,'module.json')))return;
+    const owner=bridge;
     guidancePending=(async()=>{
       if(typeof context.guidance_key==='string') {
         characterGuidance=await acceptedGuidance(home,moduleId,context.guidance_key);
         return characterGuidance;
       }
-      const occupations=asRecord(await bridge!.call('setup.occupations',{})).occupations as any[];
+      const occupations=asRecord(await owner.call('setup.occupations',{})).occupations as any[];
+      const runtime=owner.runtime;
       characterGuidance=await prepareCharacterGuidance({home,module_id:moduleId,
+        contentRoot:runtime?.contentRoot,
         opening:asString(context.start_scene),
         play_language:await boundLanguage(),occupations,
         model:ctx?.model ? ctx.model.provider+'/'+ctx.model.id : undefined,
-        thinking:pi.getThinkingLevel(),signal:guidanceAbort.signal});
+        thinking:pi.getThinkingLevel(),signal:guidanceAbort.signal,
+        runner:runtime ? request=>runtime.runTask({kind:'reader',request},request.signal) : undefined});
       return characterGuidance;
     })().finally(()=>{guidancePending=undefined;});
     return guidancePending;
@@ -646,8 +651,8 @@ export default function (pi: ExtensionAPI) {
 
 	// The kernel extension emits the bridge in session_start; this subscribes at load time, so both load orders are caught.
 	pi.events.on("coc:kernel-bridge", (data) => {
-		const payload = asRecord(data) as { call?: KernelCall; hello?: Record<string, unknown>; campaign?: string };
-		bridge = typeof payload.call === "function" ? { call: payload.call, ...(payload.hello ? { hello: asRecord(payload.hello) } : {}) } : undefined;
+		const payload = asRecord(data) as { call?: KernelCall; hello?: Record<string, unknown>; campaign?: string; runtime?: HostRuntime };
+		bridge = typeof payload.call === "function" ? { call: payload.call, runtime:payload.runtime, ...(payload.hello ? { hello: asRecord(payload.hello) } : {}) } : undefined;
 		if (payload.campaign && context.campaign === undefined) context.campaign = payload.campaign;
 	});
 

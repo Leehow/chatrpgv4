@@ -383,11 +383,19 @@ export class ModuleGraph {
     sceneBeat(scene: Row): Row | null {
         return this.kind("beat").map(recordOf).find(r => r.scene_id === this.handle(scene)) ?? null;
     }
+    /** Canonical clue-owned metadata, with the old conclusion table retained as a fallback. */
+    clueProfile(node: Row): Row {
+        const legacy: Row = {};
+        for (const conclusion of this.kind('conclusion'))
+            for (const entry of array(recordOf(conclusion).clues))
+                if (entry.clue_id === node.node_id) Object.assign(legacy, entry);
+        return {...legacy, ...recordOf(node), ...Object.fromEntries(entries(row(node.properties)).filter(([key]) => key !== 'runtime_projection'))};
+    }
     clueView(node: Row): Row {
         return {
             name: this.handle(node),
             summary: node.summary || node.name || null,
-            delivery_kind: row(node.properties).delivery_kind ?? null
+            delivery_kind: this.clueProfile(node).delivery_kind ?? null
         };
     }
     actorProfile(node: Row): Row {

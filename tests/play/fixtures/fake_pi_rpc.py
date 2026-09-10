@@ -15,6 +15,7 @@ invokes this file itself as the launcher via `--launcher`, exactly as it
 would invoke the real `bin/pi-coc`.
 
 Env vars:
+  FAKE_PI_PREFLIGHT_DELAY  seconds before prompt acceptance; transport timeout testing only.
   FAKE_PI_NO_TEXT=1        the scripted turn still calls a tool, but never emits
                            visible assistant text -- exercises settle_class
                            "undelivered_with_tools".
@@ -86,6 +87,7 @@ def _kernel_turn_and_resume() -> tuple[int | None, int | None]:
 
 
 def handle_prompt(cmd: dict) -> None:
+    time.sleep(float(os.environ.get("FAKE_PI_PREFLIGHT_DELAY", "0")))
     emit({"id": cmd.get("id"), "type": "response", "command": "prompt", "success": True})
 
     no_text = os.environ.get("FAKE_PI_NO_TEXT") == "1"

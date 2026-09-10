@@ -1892,6 +1892,93 @@ folded by `module.read.finish` into the module's `viewed_pages` as a 0-based uni
 no per-job attribution. The telemetry `pages` above is the per-job, per-phase record; the
 queue field is left as it is rather than given a second meaning.
 
+### §22 implementation decision — verified published graph reads and canonical investigation material (2026-09-10)
+
+This is the contract for repairing published-graph integrity and source-backed investigation coverage. It is an
+integrity-consistency system, not a signature or authentication system: no TUF framework or dependency is added
+(<https://theupdateframework.github.io/specification/> remains only a useful comparison point for roles and
+metadata terms).
+
+**Verified published graph reads.** One shared read-only loader verifies every registered module's current graph
+against the module metadata and the generation manifest in the graph file's directory. A verified read captures the
+metadata and graph pointer as one binding, checks the existing path-containment rules, reads the graph bytes once,
+computes the raw SHA-256 from those exact bytes, and parses those same bytes with `parsePythonJson` for the
+`jsonDigest` canonical comparison. It must never hash one read and parse another. For registered/published graphs,
+all of these are required: metadata `graph_digest`, canonical `graph_content_digest`, manifest contract/schema,
+module identity and generation must match. Missing or malformed verification data is a failure, not proof that the
+graph is safe. Ordinary unregistered bundled starter reads keep their existing path, but once a starter is
+registered its emitted metadata and manifest are verified like any other publication.
+
+`ModuleStore.readGraph()`, `ModuleStore.graph()` and play `loadModule()` share this rule. A hot cache must revalidate
+content before reuse; a generation number alone does not authorize cache reuse. Reading or merging the current graph
+as the source for another publication must also verify it first. On failure, the caller returns `campaign_not_ready`
+with `details.reason = "module_graph_integrity"` and precise host-facing mismatch data. There is no silent fallback,
+mutation, metadata repair, new published generation, or destruction of evidence after a failed read. An incomplete
+publication leaves the prior pointer and generation in authority. Replaying a completed job is historical idempotent
+evidence, never authority to consume corrupted current bytes. Original damaged samples are retained unchanged;
+recovery or backfill must be source-supported and publish a new reviewed generation, not launder a damaged file by
+recomputing hashes. Repairs are first validated in isolated source workspaces; there is no automatic active-campaign
+migration.
+
+**Canonical investigation material.** The current ModuleGraph vocabulary remains the vocabulary: clue, conclusion,
+`supports`, `discoverable-at`, `knows`, rule nodes and `uses-rule`. No new graph/state/tool vocabulary and no
+minimum clue or conclusion quota are added. Readers distinguish a physical carrier -- an artifact, object, document
+or handout -- from a discoverable proposition. Keep the carrier when the source has one, and create a sourced `clue`
+for information the investigator can learn that matters to the prepared investigation. The clue's `summary` holds
+that proposition.
+
+**Delivery metadata contract.** `delivery_kind` is a runtime tag, not free prose or a synonym key. Source-backed
+metadata uses existing clue fields only: `skill_check` for a required skill check, with `skill`/`difficulty` when
+the source names them; `npc_dialogue` for source-authored NPC disclosure, with timing or conditions in `delivery`
+and the source-backed NPC connection as `knows`; and `obvious` for authored automatic observation. Only these tags
+have the handed/check semantics above. Other source modes keep their prose in `delivery`; existing `environmental`
+or `handout` descriptions may remain descriptive, but they are not handed tags or no-roll assertions.
+
+**Reader guidance.** Do not write aliases such as `skill` or `conversation`, do not map legacy `conversation` to
+automatic delivery, do not force a kind when the source is unclear, and do not mark a clue `npc_dialogue` merely
+because an NPC knows it. Do not populate `skill: null` as a no-roll assertion. Explicit no-roll and conditional
+rules stay in source-backed rule nodes and `uses-rule`; the `check unspecified` repair in §30.12 still applies.
+
+Place each clue in its actual discoverable scene with `discoverable-at`, connect clues to source-supported
+conclusions with `supports`, and connect a knowing NPC to a clue with `knows` when appropriate. A carrier at a scene
+is not a substitute for this chain. There are no inference keyword tables. Do not invent conclusions, arbitrary
+support edges or special content to satisfy a gate. Some prepared scopes legitimately contain no clues or
+conclusions. Existing prepared scopes may be augmented through the current detail request path with an explicit
+question, using additive review and publication; there is no all-book reparsing, and unrelated source facts and
+earlier generation bytes remain.
+
+The read projection accepts canonical clue properties first and retains legacy `conclusion.clues` entries as a
+field-by-field fallback. A small ModuleGraph clue-profile read method owns that bridge. Explicit null or empty
+canonical values mean unspecified and must not silently resurrect a legacy skill or delivery value over them. The
+Director gate and Story Thread delivery rows read the same clue profile. Director treats `skill_check` without a
+named projected skill as a required check with the skill unspecified. Story Thread handed rows come only from
+`obvious`, or from `npc_dialogue` with an actually present NPC named by legacy `source_npc_ids` or connected by
+`knows`; data must reserve that combination for source-authored disclosure, not every NPC who knows a clue. Here/next
+routing, visibility and `apply clue` semantics are unchanged.
+
+**Coverage is reviewed independently of draft nodes.** For opening/detail drafts that have material `ready_nodes`,
+`required_review` includes the existing JSON pointer `/coverage` in addition to current node, claim, numeric and
+critical requirements. Skeleton/guidance drafts with empty `ready_nodes` keep their current limited readiness rules.
+The existing host review coordinator creates one separate scope-completeness unit for `/coverage` even when the draft
+contains zero clue or conclusion nodes. That unit sees the current task intent, known accepted context, the entire
+candidate and the source pages actually read for this preparation. A host-only `review_scope_pages` record carries
+those observed physical pages, falling back to the draft's source pages only when observations are unavailable. This
+is task context, not graph vocabulary or world state. The coverage reviewer must actually view those pages in its
+own image context; observations by other reviewers do not count for that unit.
+
+The coverage reviewer compares source to candidate, not only candidate to source: discoverable propositions and
+their connections, delivery and gates, knowing NPCs, and clue propositions versus physical carriers are checked for
+the prepared task scope. It also checks that supported delivery semantics reach the existing runtime fields and tags
+(`delivery_kind`, `delivery`, `skill`, `difficulty`; `skill_check`, `npc_dialogue`, `obvious`) rather than arbitrary
+new synonym keys. Already accepted material need not be duplicated, and unprepared future material is not an
+omission. The review reuses the existing shape: a `checked` result at `path` or `paths` containing `/coverage`,
+`source_refs`, `verdict`, `reason`, plus `missing`. A supported `/coverage` result with a grounded reason can accept
+a legitimate no-clue scope; lack of that result, an unclear or contradicted verdict, or missing necessary material
+blocks affected publication. There is no numeric density target or count gate, and no claim that model review
+mathematically guarantees completeness. The current reviewer workflow and cache are reused with a review protocol
+revision; old approvals lacking scope coverage cannot be reused as new coverage evidence. Existing concurrency and
+per-unit evidence isolation stay intact.
+
 ## 23. PipiCOC local frontend (2026-09-07)
 
 The copied `Electron/` workspace is a frontend owned by this branch. Its only
@@ -3394,6 +3481,17 @@ Cold frontend table and management calls use a short-lived `check` owner from th
 same emitted host adapter. They never construct a separate Python command or
 start a Keeper merely to inspect existing state.
 
+Implementation decision for uncached setup guidance (2026-09-10): onboarding
+retains the `HostRuntime` from the existing `coc:kernel-bridge` payload and calls
+`prepareCharacterGuidance` with `contentRoot: runtime.contentRoot` plus its
+optional `runner` as `request => runtime.runTask({kind: "reader", request},
+request.signal)`. This is interface wiring only: it creates no new runtime or
+provider and no bare completion; the author and independent reviewer remain
+tool-enabled through the owner runtime, with cancellation and lifecycle owned by
+that runtime. Cached or preaccepted guidance keeps the existing behavior.
+Verification must include an uncached installed module, because bundled guidance
+can hide the missing consumer; this is not a gameplay-quality proof.
+
 ### 27.2 Runtime selection and failures
 
 Stage A keeps the existing Python implementation. The default kernel command is
@@ -3954,10 +4052,18 @@ chain organised by need changed the first turn.
   exits (§6 `where.exits`) and the way back (`scene_trail`), one entry per scene that holds an undiscovered clue of
   that line, a clue counted at the first scene that holds it; `beyond` is the remainder. `locked` is the exit's
   `unlock_when` condition when it is not known to be met; `via: back` marks a scene reached only by the trail.
-- A row's `gate` is `<delivery kind>: <check>`, and the check half is never left to be read out of its own absence
-  (2026-09-10, §30.12): the conclusion's authored skill and difficulty when the book names one, `the book names no
-  skill` for a `skill_check` delivery that names none, and `no check in the book` otherwise; unlock conditions
-  follow after `;`. Story Thread 1.0.3 says what to do with each.
+- A row's `gate` keeps the existing one-string shape: `<delivery kind>: <check>`, followed by existing unlock
+  conditions after semicolons. The check half is a projection, not source-prose parsing: a matching conclusion
+  clue entry with a nonempty authored `skill` still renders that skill and its existing difficulty; a
+  `delivery_kind` of `skill_check` with no named projected skill renders exactly
+  `check required (skill unspecified)`; every other case with no projected named check renders exactly
+  `check unspecified`. A missing
+  key, absent matching conclusion, explicit `null` or empty skill is not evidence of a no-roll instruction. The
+  kernel does not parse source prose to decide free or required checks; explicit no-roll instructions in existing
+  source/rule material and the handed-clue contract remain authoritative to the Keeper. `check unspecified`
+  instructs neither skipping a genuine risk nor inventing a roll: use current intent, existing known rule/source
+  detail, and source lookup only when necessary. Ordinary uncontested actions and plainly given clues should not
+  acquire a new check merely because this field is unspecified.
 - `handed` is structural: an undiscovered clue here whose `delivery_kind` is `obvious`, or `npc_dialogue` with one of
   its `source_npc_ids` on stage. No semantic judgement chooses it.
 - **Budget 3072 bytes**, because the `mods` section has none of its own. Over budget, the least important lines
@@ -3988,8 +4094,8 @@ chain organised by need changed the first turn.
 
 | id | requires | contributes | what it carries |
 | --- | --- | --- | --- |
-| `story-thread` | `context.thread.v1` | `instructions`, `brief` | how to read and use `thread`: land `here` with `apply clue`, put `next` in reach through the fiction and never as a menu, `handed` is not a choice, `fallback` is for a line with nothing reachable; from 1.0.2 the lines are opportunities, not a per-turn plan (§30.12) |
-| `keeper-pacing` | `context.pacing.v1` | `instructions`, `brief`, setting `stall_turns` (1–6, default 2) | fair warning below the threshold and none at it; clock symptoms shown only here and when to tick a clock (§30.9); from 1.1.0 the stalled counter is an inspection, stuck versus lingering read from the player's words (§30.11), the recovery order world → NPC → information for a stuck player with the 0.8.2a `must_not`s kept (no repeated low-agency ask, no restating, no irreversible choice, no skipped gated risk), the Idea roll as the rulebook has it, clarification free; the blanket "a recovery always costs time, exposure or alarm" is retired (§30.12) |
+| `story-thread` | `context.thread.v1` | `instructions`, `brief` | how to read and use `thread`: land `here` with `apply clue`, put `next` in reach through the fiction and never as a menu, `handed` is not a choice, `fallback` is for a line with nothing reachable; from 1.0.2 the lines are opportunities, not a per-turn plan; from 1.0.4 the gate check half is a named check, `check required (skill unspecified)` or `check unspecified`, and unknown is contextual rather than a blanket no-roll or automatic extra roll/source request (§30.12) |
+| `keeper-pacing` | `context.pacing.v1` | `instructions`, `brief`, setting `stall_turns` (1–6, default 2) | fair warning below the threshold and none at it; clock symptoms shown only here and when to tick a clock (§30.9); from 1.1.1 the stalled counter is advisory, stuck versus lingering are read from the player's expressed meaning and context rather than brevity alone (§30.11), the recovery order world → NPC → information for a stuck player with the 0.8.2a `must_not`s kept (no repeated low-agency ask, no restating, no irreversible choice, no skipped gated risk), the Idea roll as the rulebook has it, clarification free; the blanket "a recovery always costs time, exposure or alarm" is retired (§30.12) |
 | `narration-craft` | none | `instructions`, `brief`; no settings from 1.1.0 | NPC voice (news, refusals, a public failed check with a person present), crisis ordering without a handle clause, the scene-opening perception as an offer, Laws' beat words and the humour knobs, the world-assertion cost ladder, material selection from the live exchange and the dossier, friendly and cooperative outcomes, one detail serving several purposes, plain telling allowed; the 0.8.2a length ladder (eight, then four integer settings in 1.0.0–1.0.2), the own-paragraph rule, the handle before stopping and the open question are retired (§30.12) |
 | `narration-audit` | `agents.tools.v1` | `auditor` (no `audit_on_decisions`: every audited delivery) | for each receipt of the turn, the narration must realise its fictional consequence; a finding is `{reason: "<receipt id>: …", fix: "<consequence>"}`; numbers, style, length and language are explicitly outside its remit; keeper-visibility rolls need no beat |
 
@@ -4214,6 +4320,12 @@ cannot tell them apart; the Keeper can, from the player's own words, and that is
 reflecting or asking about the scene is playing and is not compressed. The `stall-1` verdict above stands for
 its case.
 
+**Brevity is not confusion (2026-09-10, pacing repair).** `stalled_turns` remains advisory. A concise but clear
+choice, yes/no answer, quiet conversation, lingering or reflection is play when the player's intent, content and
+context are clear. Recovery is for expressed confusion, explicit help-seeking, repeated low-agency action or an
+exhausted scene that needs a cut or montage; short wording alone is not the signal, and no clue or pressure is
+added just to answer a brief reply.
+
 ### 30.12 Keeper narrative quality: one owner per rule, the volume rules retired, settings that survive an upgrade (2026-09-10, #68)
 
 The spec `docs/specs/keeper-narrative-quality.md` (#68, tickets #69–#79 in
@@ -4256,9 +4368,11 @@ indicts the base style of §13.6, not them. Three layers, three diagnoses, kept 
   offer, the beat words and the humour knobs, the world-assertion cost ladder, material selection from the live
   exchange and the dossier, friendly and cooperative outcomes, one detail serving several purposes, plain
   telling allowed, hidden truth by reference to law 3.
-- *`keeper-pacing` 1.1.0 (#73).* The stalled counter as an inspection (§30.11), the recovery order for a stuck
-  player, the Idea roll as the rulebook has it, clarification free; fair warning and clocks unchanged.
-- *`story-thread` 1.0.2 (#74).* The lines as opportunities; structural semantics unchanged.
+- *`keeper-pacing` 1.1.1 (#73 plus pacing repair).* The stalled counter as an advisory inspection (§30.11);
+  concise replies are read by expressed meaning and context, not by length alone; the recovery order for a stuck
+  player, the Idea roll as the rulebook has it and clarification free remain; fair warning and clocks unchanged.
+- *`story-thread` 1.0.4 (#74/#80 repair).* The lines as opportunities; the gate check half distinguishes named
+  checks, `check required (skill unspecified)` and `check unspecified`; structural semantics unchanged.
 - *`narration-audit`, `natural-npc`, `enhanced-items`.* Unchanged.
 
 **The playable turn, which the base prompt owns (#72).** Take up the declared action, question, attitude or
@@ -4274,26 +4388,34 @@ every recovery costs time, exposure or alarm; that the thread is a per-turn plan
 event, clue, paragraph, twist or progress quotas; the verifier (§12.5) and `narration-audit` keep their remits;
 no foreground model call is added.
 
-**A clue the book gates with nothing (2026-09-10, #80, after `knq-live-1`).** The chain was whole and the Keeper
-invented a check anyway. `where.affordances` carried `force-cupboard` — *"Pry open the nailed-shut cupboard in the
-storage room and inspect the old books inside"* — naming the clue, on every one of the thirteen turns spent in that
-room; the thread's `here` row carried the clue with the book's own delivery words; and the conclusion's clue entry
-records `skill: null`, which is how a module says the book asks for no roll (nine other clues in the same book do
-name a skill and a difficulty, and `clueGate` has always projected those). The one thing no row ever said was that
-last fact. `environmental` alone had to be read as "the book writes no check", an inference from a missing second
-half, and the Keeper read it instead as room to invent: a Strength check against the cupboard, six times across
-thirteen turns, every failure treated as final, and the critical line `corbitt-is-undead-sorcerer` never opened.
+**The #80 gate wording repair (2026-09-10, after `knq-live-1`).** The historical live failure remains the
+boarded cupboard. `where.affordances` carried `force-cupboard` — *"Pry open the nailed-shut cupboard in the
+storage room and inspect the old books inside"* — naming `corbitt-diaries`, and the thread's `here` row carried
+the clue with the book's delivery words; the Keeper nevertheless invented a Strength check six times across
+thirteen turns, treated failures as final, and never opened the critical line `corbitt-is-undead-sorcerer`.
 
-So the diagnosis is an adjudication failure, and the change is the one that makes it harder: the gate states its
-check half rather than leaving it to be inferred — the authored skill when the book names one,
-`the book names no skill` for a `skill_check` delivery that names none, `no check in the book` otherwise — and
-`story-thread` 1.0.3 says what that means at the table: no roll to pass, and a cost is time, noise, a tool or
-another pair of hands rather than a check that can fail the line for good. This is not a hole in the graph, and it
-is worth saying plainly because the first diagnosis filed on #80 claimed one twice over (a clue projected as `next`
-rather than `here`, then a check no producer ever wrote) and both were wrong; the run's own capsules disprove them.
+The factual correction is narrower than the old diagnosis. The Haunting's current 39 conclusion clue entries
+contain 9 named skills and 30 missing `skill` keys, with zero explicit `skill: null` entries; the
+`corbitt-diaries` and Knott entries are missing-key entries. Earlier #80 prose said `skill:null` because absence
+had been displayed as `null`, not because the source proved a no-roll annotation. JSON Schema's object reference
+keeps required/present properties distinct from absent optional properties and present `null` values:
+<https://json-schema.org/understanding-json-schema/reference/object>.
 
-The clue entry's own `affordance.skills` — here `Spot Hidden` and `Occult` — still has no consumer, and stays that
-way on purpose: naming skills beside a clue the book leaves unrolled invites exactly the roll that closed this line.
+The repair therefore changes presentation, not evidence. The gate stays the existing single string,
+`<delivery kind>: <check>`, plus existing unlock conditions after semicolons; no field, RPC or graph vocabulary is
+added. A nonempty skill on a matching conclusion clue entry still renders with its difficulty. A `skill_check`
+delivery with no named projected skill renders exactly `check required (skill unspecified)`. Every other no named
+check case renders exactly `check unspecified`. The kernel does not parse source prose to decide free or required
+checks. The current source producer preserves semantic check/no-roll prose as rule nodes and `uses-rule` relations
+alongside legacy clue-entry data, so absence in this one projection is not absence at source. Explicit no-roll
+instructions in that material and the handed-clue contract remain authoritative; genuine risks and rules still
+call for checks. `check unspecified` is neither a skip-roll instruction nor an invitation to invent a new roll:
+use current intent, known rule/source detail and source lookup only when necessary; ordinary uncontested actions
+and plainly given clues should not acquire a new check merely because this field is unspecified. No `.coc`
+evidence, source graph or prior receipts are rewritten, and no no-roll metadata is invented.
+
+The old `affordance.skills` warning stands in its narrower form: side skills near a clue are not the gate
+projection and must not become an automatic roll.
 
 **Settings across a version change (#70).** §26 now says it: a version-only request carries forward only the
 keys the target version declares and records the retired keys in telemetry; an explicit unknown key is still
@@ -4370,6 +4492,20 @@ So the rule for any new row that invites an action: **name what it costs and wha
 Information the Keeper has to assemble from two places is information nobody gave — the 0.8.2a lesson, which
 cost two rounds of adding panels that changed nothing. `test_an_offer_row_carries_both_what_it_costs_and_what_it_yields`
 holds the four registered offers to it.
+
+### 31.4 §22 repair mapped to the three ends
+
+The §22 graph repair is deliberately a three-end seam, not a reader-only cleanup. Its producer end is the source
+reader and publication path: they write canonical clue propositions, support chains, reviewed `/coverage`, and
+same-generation graph manifests. Its projection end is the verified graph loader, the ModuleGraph clue-profile
+bridge, the play/load path, Director gates, and Story Thread rows that surface those projections. Its adoption end
+is the Keeper actually choosing offered investigation information and recording canonical `apply clue` receipts.
+The existing offer ledger and Director adoption telemetry measure the gap between what was offered and what was
+acted on. Static source and code checks can establish the producer and projection ends only; they are not proof that
+the Keeper acted, and this repair should not claim real play was tested. If producer or projection evidence is
+missing, block the publication or graph read with evidence. If an offer is merely not acted on, record and
+investigate it under §31.2's counts-never-nag law: do not block reads, add quotas, feed counts back as pressure,
+infer source facts, or rewrite damaged history.
 
 ### Name-run anchoring correction (2026-09-10)
 

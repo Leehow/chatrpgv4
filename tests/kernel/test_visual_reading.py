@@ -102,11 +102,12 @@ def test_index_publication_recovers_without_exposing_or_duplicating_partial_rows
     assert (Path(job["work_dir"]) / "index.json").exists()
 
 
-def test_review_requires_numerical_support_before_atomic_publication(kernel, tmp_path):
+@pytest.mark.parametrize("required_path", ["/nodes/2/properties/mechanics/profile/characteristics/STR", "/coverage"])
+def test_review_requires_numerical_and_scope_support_before_atomic_publication(kernel, tmp_path, required_path):
     mid, _ = indexed(kernel, tmp_path)
     job, draft, review = opening(kernel, mid)
     missing = copy.deepcopy(review)
-    missing["checked"] = [r for r in missing["checked"] if r["path"] != "/nodes/2/properties/mechanics/profile/characteristics/STR"]
+    missing["checked"] = [r for r in missing["checked"] if r["path"] != required_path]
     write(Path(job["work_dir"]) / "review.json", missing)
     params = {"module_id": mid, "job_id": job["job_id"], "lease": job["lease"], "outcome": "completed",
         "draft_path": str(Path(job["work_dir"]) / "draft.json"), "review_path": str(Path(job["work_dir"]) / "review.json")}
@@ -120,6 +121,24 @@ def test_review_requires_numerical_support_before_atomic_publication(kernel, tmp
     assert "generations" in str(store.graph_path(mid))
     graph = store.read_graph(mid)
     assert next(n for n in graph["nodes"] if n["node_id"] == "npc-lena")["source_refs"] == [{"source_id": f"pdf:{mid}", "pdf_index": 0}]
+
+
+def test_ready_material_cache_cannot_hide_changed_published_graph_bytes(kernel, tmp_path):
+    mid, _ = indexed(kernel, tmp_path)
+    job, _, _ = opening(kernel, mid)
+    finish(kernel, job)
+    assert request(kernel, mid, "detail", focus="Lena")["state"] == "ready"
+    root = kernel.workspace / ".coc" / "modules" / mid
+    metadata_bytes = (root / "module.json").read_bytes()
+    graph_path = root / json.loads(metadata_bytes)["graph_file"]
+    changed = graph_path.read_bytes() + b" "
+    graph_path.write_bytes(changed)
+    for params in ({"purpose": "opening"}, {"purpose": "detail", "focus": "Lena"}):
+        failure = kernel.err("module.read.request", {"module_id": mid, **params})
+        assert failure["code"] == "campaign_not_ready"
+        assert failure["details"]["reason"] == "module_graph_integrity"
+    assert graph_path.read_bytes() == changed
+    assert (root / "module.json").read_bytes() == metadata_bytes
 
 
 def test_existing_material_does_not_swallow_a_new_question(kernel, tmp_path):
@@ -185,7 +204,7 @@ def test_further_reading_reuses_an_existing_claim_identity_and_reason(kernel, tm
         "name": "Dock", "source_refs": [{"page": 1}]}], "claims": [{"subject_id": "scene-dock", "predicate": "route-to",
         "object": {"node_id": "scene-tower"}, "truth_status": "authored-fact", "source_refs": [{"page": 2}]}],
         "node_refs": ["scene-tower"], "coverage": {}, "dependencies": [], "critical": [], "ready_nodes": ["scene-dock"]})
-    write(Path(job["work_dir"]) / "review.json", {"checked": [{"paths": ["/nodes/0", "/claims/0"],
+    write(Path(job["work_dir"]) / "review.json", {"checked": [{"paths": ["/nodes/0", "/claims/0", "/coverage"],
         "verdict": "supported", "source_refs": [{"page": 1}, {"page": 2}]}], "missing": []})
     finish(kernel, job)
     graph = ModuleStore(kernel.workspace).read_graph(mid)
@@ -239,7 +258,9 @@ def test_distinct_regions_on_the_same_page_keep_their_own_assets_across_publicat
     next_job = claim(kernel, mid)
     observed(next_job)
     next_draft = {"nodes": [], "claims": [], "node_refs": [], "coverage": {}, "dependencies": [], "critical": [], "ready_nodes": []}
-    right = attach(next_job, next_draft, {"checked": [], "missing": []}, "right", [0.5, 0, 1, 1])
+    next_review = {"checked": [{"path": "/coverage", "verdict": "supported",
+        "source_refs": [{"page": 1}], "reason": "Only the second handout is prepared in this fixture."}], "missing": []}
+    right = attach(next_job, next_draft, next_review, "right", [0.5, 0, 1, 1])
     finish(kernel, next_job, assets=[right])
     chosen = kernel.ok("module.opening.choose", {"module_id": mid, "scene": "Dock"})
     assert chosen["generation"] == 3 and chosen["opening_ready"] is True
@@ -315,7 +336,7 @@ def test_material_preflight_precedes_the_whole_effect_batch_and_rng(kernel, tmp_
          "summary": "The tower's upper room holds a ledger.",
          "properties": {"is_final": True, "facts": ["The upper room contains a ledger."]}}],
         "claims": [], "node_refs": [], "coverage": {}, "dependencies": [], "critical": [], "ready_nodes": ["scene-tower"]})
-    write(Path(job["work_dir"]) / "review.json", {"checked": [{"paths": ["/nodes/0"], "verdict": "supported", "source_refs": [{"page": 2}]}], "missing": []})
+    write(Path(job["work_dir"]) / "review.json", {"checked": [{"paths": ["/nodes/0", "/coverage"], "verdict": "supported", "source_refs": [{"page": 2}]}], "missing": []})
     finish(kernel, job)
     current_graph = ModuleStore(kernel.workspace).read_graph(mid)
     tower = next(n for n in current_graph["nodes"] if n["node_id"] == "scene-tower")
@@ -421,7 +442,8 @@ def test_attaching_original_source_keeps_legacy_material_usable(kernel, tmp_path
     store = ModuleStore(kernel.workspace)
     directory = store.module_dir(mid)
     meta = store.module(mid)
-    shutil.copyfile(store.graph_path(mid), directory / "module-graph.json")
+    for name in ("module-graph.json", "module-graph-manifest.json"):
+        shutil.copyfile(store.graph_path(mid).parent / name, directory / name)
     for key in ("graph_file", "reading_version", "reading", "source_document"):
         meta.pop(key, None)
     write(directory / "module.json", meta)
@@ -466,7 +488,7 @@ def test_ready_npc_question_publishes_new_fields_without_recopying_the_dossier(k
         'properties': {'knowledge': ['She remembers the tower keeper.']}, 'source_refs': refs}],
         'claims': [], 'node_refs': [], 'coverage': {}, 'dependencies': [], 'critical': [], 'ready_nodes': ['npc-lena']}
     write(Path(job['work_dir']) / 'draft.json', draft)
-    write(Path(job['work_dir']) / 'review.json', {'checked': [{'path': '/nodes/0', 'verdict': 'supported',
+    write(Path(job['work_dir']) / 'review.json', {'checked': [{'paths': ['/nodes/0', '/coverage'], 'verdict': 'supported',
         'source_refs': refs, 'reason': 'New fact fixture.'}], 'missing': []})
     observed(job, read_pages=[2], review_pages=[2])
     finish(kernel, job)
@@ -570,7 +592,7 @@ def test_unrelated_detail_cannot_unlock_an_unprepared_skeleton_opening(kernel, t
         'properties': {'biography': 'A historian from the town.'}, 'source_refs': refs}],
         'ready_nodes': ['npc-lena']}
     write(Path(job['work_dir']) / 'draft.json', delta)
-    write(Path(job['work_dir']) / 'review.json', {'checked': [{'path': '/nodes/0',
+    write(Path(job['work_dir']) / 'review.json', {'checked': [{'paths': ['/nodes/0', '/coverage'],
         'verdict': 'supported', 'source_refs': refs}], 'missing': []})
     observed(job, read_pages=[1], review_pages=[1])
     assert not finish(kernel, job)['opening_ready']
@@ -582,7 +604,7 @@ def test_unrelated_detail_cannot_unlock_an_unprepared_skeleton_opening(kernel, t
     draft['ready_nodes'] = ['scene-dock']
     draft['nodes'][0]['summary'] = 'The harbor keeper welcomes the investigators at the dock.'
     write(Path(job['work_dir']) / 'draft.json', draft)
-    write(Path(job['work_dir']) / 'review.json', {'checked': [{'path': '/nodes/0',
+    write(Path(job['work_dir']) / 'review.json', {'checked': [{'paths': ['/nodes/0', '/coverage'],
         'verdict': 'supported', 'source_refs': refs}], 'missing': []})
     observed(job, read_pages=[1], review_pages=[1])
     assert finish(kernel, job)['opening_ready']
@@ -609,7 +631,7 @@ def test_later_npc_reading_adds_textual_dossier_facts_without_replacing_old_ones
         'properties': {field: addition}, 'source_refs': refs}], 'claims': [], 'node_refs': [],
         'coverage': {}, 'dependencies': [], 'critical': [], 'ready_nodes': ['npc-lena']}
     write(Path(job['work_dir']) / 'draft.json', delta)
-    write(Path(job['work_dir']) / 'review.json', {'checked': [{'path': '/nodes/0',
+    write(Path(job['work_dir']) / 'review.json', {'checked': [{'paths': ['/nodes/0', '/coverage'],
         'verdict': 'supported', 'source_refs': refs}], 'missing': []})
     observed(job, read_pages=[2], review_pages=[2])
     finish(kernel, job)
@@ -624,7 +646,7 @@ def test_later_npc_reading_adds_textual_dossier_facts_without_replacing_old_ones
     job = claim(kernel, mid)
     delta['nodes'][0]['properties'] = {'agenda': 'Destroy the ledger.'}
     write(Path(job['work_dir']) / 'draft.json', delta)
-    write(Path(job['work_dir']) / 'review.json', {'checked': [{'path': '/nodes/0',
+    write(Path(job['work_dir']) / 'review.json', {'checked': [{'paths': ['/nodes/0', '/coverage'],
         'verdict': 'supported', 'source_refs': refs}], 'missing': []})
     observed(job, read_pages=[2], review_pages=[2])
     error = kernel.err('module.read.finish', {'module_id': mid, 'job_id': job['job_id'],

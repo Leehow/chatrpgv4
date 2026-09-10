@@ -38,8 +38,7 @@ export function threadSection(graph: ModuleGraph, world: Row, scene: Row, presen
         if (!missing.length)
             continue;
         const record = recordOf(conclusion),
-            entries = new Map(array(record.clues).map(entry => [string(row(entry).clue_id), row(entry)])),
-            deliveryOf = (node: Row): string | null => { const line = entries.get(node.node_id)?.delivery; return typeof line === "string" && line ? chars(line, 120) : null; },
+            deliveryOf = (node: Row): string | null => { const line = graph.clueProfile(node).delivery; return typeof line === "string" && line ? chars(line, 120) : null; },
             hereRows = missing.filter(node => here.has(node.node_id)),
             placed = new Set(hereRows.map(n => n.node_id)),
             next: Row[] = [];
@@ -61,11 +60,10 @@ export function threadSection(graph: ModuleGraph, world: Row, scene: Row, presen
             next.push(entry);
         }
         const handed = hereRows.flatMap(node => {
-            const entry = entries.get(node.node_id) ?? {},
-                kind = string(row(node.properties).delivery_kind || entry.delivery_kind || "");
+            const entry = graph.clueProfile(node), kind = string(entry.delivery_kind || "");
             if (kind === "obvious")
                 return [{ clue: graph.handle(node), by: "obvious" }];
-            const speakers = array(entry.source_npc_ids).map(string).filter(id => presentIds.has(id));
+            const speakers = [...array(entry.source_npc_ids).map(string), ...graph.npcsKnowing(node)].filter(id => presentIds.has(id));
             return kind === "npc_dialogue" && speakers.length ? [{ clue: graph.handle(node), by: graph.displayName(graph.nodes.get(speakers[0])!) }] : [];
         });
         const line: Row = {

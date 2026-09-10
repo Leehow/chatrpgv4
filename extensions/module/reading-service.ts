@@ -337,7 +337,7 @@ export class ReadingService implements ReadingBridge {
 								}
 								catch (error) { phaseCompleted = true; throw error; }
 							}
-							observations.review_pages = await reviewCandidate({ cwd, task,
+							observations.review_pages = await reviewCandidate({ cwd, task: {...task, review_scope_pages: observations.read_pages},
 								draft: JSON.parse(await readFile(join(cwd, "draft.json"), "utf8")), instructions, round,
 								model, source: { pdf: job.source.path, cache, file_sha256:job.source.file_sha256 }, signal,
 								cacheRoot:join(cache,'..','reviews'),

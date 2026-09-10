@@ -65,7 +65,7 @@ def opening(client, mid):
               for a, r, b in [("scene-dock", "route-to", "scene-tower"), ("npc-lena", "present-in", "scene-dock")]]
     draft = {"nodes": nodes, "claims": claims, "node_refs": [], "coverage": {}, "dependencies": [],
              "critical": [], "ready_nodes": ["scene-dock", "npc-lena"]}
-    paths = ["/nodes/0", "/nodes/2", "/nodes/2/properties/mechanics/profile/characteristics/STR", "/claims/0", "/claims/1"]
+    paths = ["/nodes/0", "/nodes/2", "/nodes/2/properties/mechanics/profile/characteristics/STR", "/claims/0", "/claims/1", "/coverage"]
     review = {"checked": [{"path": p, "verdict": "supported", "source_refs": refs, "reason": "fixture support"} for p in paths], "missing": []}
     write(Path(job["work_dir"]) / "draft.json", draft)
     write(Path(job["work_dir"]) / "review.json", review)

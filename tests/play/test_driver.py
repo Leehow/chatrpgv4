@@ -13,6 +13,7 @@ hold against the real binary; it is skipped when node_modules is absent.
 from __future__ import annotations
 
 import json
+import importlib.util
 import os
 import queue
 import shutil
@@ -104,6 +105,42 @@ def test_start_writes_pid_and_heartbeat(started_run):
     heartbeat = read_json(rdir / "heartbeat.json")
     assert heartbeat["pi_alive"] is True
     assert heartbeat["turn_count"] == 0
+
+
+def test_silence_and_a_stale_settle_do_not_end_a_busy_opening():
+    spec = importlib.util.spec_from_file_location("driver_idle_probe", DRIVER)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    states = iter([{"isStreaming": True}, {"pendingMessageCount": 1}, {"isStreaming": False}])
+    calls = []
+    class Transport:
+        def alive(self): return True
+        def call(self, request, timeout):
+            calls.append(request)
+            return {"success": True, "data": next(states)}
+    class Events:
+        first = True
+        def get(self, timeout):
+            if self.first:
+                self.first = False
+                return {"type": "agent_settled"}
+            raise queue.Empty
+    daemon = module.Daemon.__new__(module.Daemon)
+    daemon.pi = Transport()
+    assert daemon._await_quiet(Events(), time.monotonic()+2)
+    assert calls == [{"type": "get_state"}] * 3
+
+
+def test_prompt_preflight_can_outlast_management_ack_timeout(started_run):
+    """Transport-only fixture: an accepted slow preflight still belongs to the requested turn."""
+    run_id, start = started_run
+    assert start({"FAKE_PI_PREFLIGHT_DELAY": "11"}).returncode == 0
+    result = run_driver("turn", "Look around.", "--run", run_id, "--timeout", "25", timeout=35)
+    assert result.returncode == 0, result.stdout + result.stderr
+    turn = read_json(run_dir(run_id) / "turn-1.json")
+    assert turn["settle_class"] == "settled"
+    assert turn["wall_seconds"] >= 11
+    assert "cellar door creaks open" in turn["final_text"]
 
 
 def test_turn_prints_text_and_writes_settled_summary(started_run):

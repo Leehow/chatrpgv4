@@ -1,7 +1,10 @@
 # Story Thread
 
+## 1.0.4
+- Updates gate wording to the repaired kernel contract: named checks stay as declared; `check required (skill unspecified)` means the delivery is a check with no projected skill name; `check unspecified` means no projected named check and is not evidence of no roll or permission to invent one. Costs stay only where rules, source or investigator actions establish them; thread structure is unchanged.
+
 ## 1.0.3
-- Says what a `here` row's `gate` is asking for. `no check in the book` is not a roll: the clue is reached by doing the thing, and a cost is time, noise, a tool or help rather than a check that can fail the line; `the book names no skill` means the book wants a check and leaves the skill to the Keeper. A live table (`knq-live-1`) spent six failed Strength checks and thirteen turns on a boarded cupboard the book gates with nothing (contract §30.12).
+- Historical #80 wording. This version tried to say what a `here` row's `gate` asked for using the now-retired phrases `no check in the book` and `the book names no skill`, after `knq-live-1` spent six failed Strength checks and thirteen turns on a boarded cupboard. Version 1.0.4 corrects the missing-key/null distinction and replaces the active guidance.
 
 ## 1.0.2
 - The lines are opportunities, not a per-turn plan (contract §30.12); structural semantics (`handed`, critical first, `fallback`) unchanged.

@@ -21,7 +21,7 @@ def test_thread_is_organised_by_what_the_story_still_needs(kernel):
     frame = next(line for line in lines if line["name"] == "commission-and-research-frame")
     assert frame["here"] and all({"clue", "gate"} <= set(entry) for entry in frame["here"])
     assert {entry["gate"].split(":")[0] for entry in frame["here"]} <= {"npc_dialogue", "obvious"}
-    assert all(entry["gate"].endswith(": no check in the book") for entry in frame["here"]), "the check half is stated, never inferred from its absence (§30.12)"
+    assert all(entry["gate"].endswith(": check unspecified") for entry in frame["here"]), "missing check metadata must not claim a source-authored waiver (§30.12)"
     assert any(entry["by"] == "Steven Knott" for entry in frame["handed"])
     assert thread["handed"].startswith("The book means these clues to happen")
     assert frame["missing"] == frame["of"] and "fallback" not in frame
@@ -32,15 +32,14 @@ def test_thread_is_organised_by_what_the_story_still_needs(kernel):
     assert len(json.dumps(thread, ensure_ascii=False).encode()) <= 3072
 
 
-def test_a_clue_the_book_gates_with_nothing_says_so_in_its_row(kernel):
-    """knq-live-1 (§30.12): the Keeper read `environmental` as a gate to invent, spent six failed Strength checks
-    on the boarded cupboard over thirteen turns, and the critical line never opened. The row now says which half
-    the book wrote."""
+def test_a_clue_without_a_declared_check_keeps_its_gate_unspecified(kernel):
+    """The retained cupboard clue has no skill key. Keep that gap explicit without inventing a source waiver;
+    the delivery words and the existing handed-clue guidance remain available to the Keeper."""
     open_turn(kernel)
     kernel.table("apply", call_id="t1-c1", effects=[{"kind": "move", "to": "corbitt-house-ground"}])
     line = next(l for l in kernel.ok("mods.context", {"campaign": CAMPAIGN})["thread"]["lines"] if l["name"] == "corbitt-is-undead-sorcerer")
     diaries = next(entry for entry in line["here"] if entry["clue"] == "corbitt-diaries")
-    assert diaries["gate"] == "environmental: no check in the book"
+    assert diaries["gate"] == "environmental: check unspecified"
     assert diaries["line"] == "boarded cupboard on the ground floor"
 
 

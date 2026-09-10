@@ -196,6 +196,8 @@ export class Reading {
             throw new RpcError('invalid_params', `purpose must be one of ${repr(PURPOSES)}`);
         return this.mutex(mid, async () => {
             const meta = await this.store.module(mid);
+            // A cached ready result cannot authorize consuming an altered published generation.
+            if (purpose !== 'index') await this.store.readGraph(mid);
             if (!Object.hasOwn(meta, 'reading'))
                 meta.reading = Reading.initialState();
             const reading = meta.reading;

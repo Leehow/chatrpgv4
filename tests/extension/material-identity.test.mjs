@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
 import { KernelClient } from '../../extensions/kernel/client.ts';
 
@@ -17,6 +18,9 @@ await build({
   format: 'esm', platform: 'node', target: 'node22', logLevel: 'silent',
 });
 const RPC = process.env.COC_MATERIAL_IDENTITY_RPC || join(output, 'rpc.mjs');
+await build({stdin: {contents: "export {createKernelContext} from './kernel-ts/context.ts'; export {ModuleStore} from './kernel-ts/modules/store.ts';", resolveDir: ROOT},
+  outfile: join(output, 'publication.mjs'), bundle: true, packages: 'external', format: 'esm', platform: 'node', target: 'node22', logLevel: 'silent'});
+const {createKernelContext, ModuleStore} = await import(pathToFileURL(join(output, 'publication.mjs')).href);
 
 function environment() {
   return {
@@ -49,9 +53,8 @@ async function preparedTable(t, sceneReady) {
 
   const campaign = join(home, '.coc/campaigns/c1');
   const world = JSON.parse(await readFile(join(campaign, 'world.json'), 'utf8'));
-  const module = join(home, '.coc/modules/the-haunting');
-  const graphPath = join(module, 'module-graph.json');
-  const graph = JSON.parse(await readFile(graphPath, 'utf8'));
+  const store = new ModuleStore(await createKernelContext({workspace: home, content: CONTENT}));
+  const graph = await store.readGraph('the-haunting');
   const current = graph.nodes.find(node => node.node_kind === 'scene' && sceneHandle(node) === world.active_scene);
   assert.ok(current, 'the fixture starter supplies the active scene');
   const edge = current.properties.runtime_projection.record.scene_edges.find(entry => typeof entry.to === 'string');
@@ -59,12 +62,11 @@ async function preparedTable(t, sceneReady) {
   assert.ok(destination, 'the fixture starter supplies a scene exit');
   const collision = { node_id: `location-${sceneHandle(destination)}`, node_kind: 'location', name: 'unready same-handle location', properties: {} };
   graph.nodes.push(collision);
-  await writeFile(graphPath, JSON.stringify(graph, null, 2) + '\n');
-  const metaPath = join(module, 'module.json');
-  const meta = JSON.parse(await readFile(metaPath, 'utf8'));
+  const meta = await store.module('the-haunting');
   meta.reading_version = 1;
   meta.reading = { materials: [{ node_ids: sceneReady ? [current.node_id, destination.node_id] : [current.node_id, collision.node_id] }] };
-  await writeFile(metaPath, JSON.stringify(meta, null, 2) + '\n');
+  await store.writeGraph(meta, graph);
+  await store.writeModule(meta);
 
   const table = client(home);
   t.after(() => table.close());

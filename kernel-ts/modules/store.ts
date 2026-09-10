@@ -10,6 +10,7 @@ import { ModuleGraph, dossierWith } from '../read/module-graph.js';
 import { buildVocabulary } from '../read/mods.js';
 import { array, clone, normalize, number, repr, row, string, truth, type Row } from '../read/values.js';
 import { assetRegistry, graphManifest, openingReport, registerStarter, startSceneCandidates } from '../write/source.js';
+import { readPublishedGraph } from '../read/published-graph.js';
 import { nowIso } from '../write/store.js';
 import { loadModuleContract, type ModuleContract } from './contract.js';
 import { childPath, inside, resolvedPath } from './paths.js';
@@ -51,9 +52,9 @@ export class ModuleStore {
     }
     async writeModule(meta: Row): Promise<void> { meta.updated_at = nowIso(); await writeJsonAtomic(this.moduleJson(string(meta.id)), meta); }
     async generation(id: string): Promise<number> { return number((await this.module(id)).generation || 0); }
-    async graphPath(id: string): Promise<string> {
-        if (await this.context.snapshots.pathExists(this.moduleJson(id))) {
-            const meta = await this.module(id);
+    async graphPath(id: string, binding?: Row): Promise<string> {
+        if (binding || await this.context.snapshots.pathExists(this.moduleJson(id))) {
+            const meta = binding ?? await this.module(id);
             if (typeof meta.graph_file === 'string') {
                 const path = await resolvedPath(childPath(this.moduleDir(id), meta.graph_file));
                 if (!inside(await resolvedPath(this.moduleDir(id)), path)) {
@@ -70,18 +71,19 @@ export class ModuleStore {
         return join(await this.exists(id) && truth((await this.module(id)).graph_file) ? dirname(await this.graphPath(id)) : this.moduleDir(id), 'assets.json');
     }
     async readGraph(id: string): Promise<Row | null> {
-        const path = await this.graphPath(id);
-        return await this.context.snapshots.pathExists(path) ? clone(row(await this.context.snapshots.readJson(path))) : null;
+        const meta = await this.module(id), path = await this.graphPath(id, meta);
+        if (!await this.context.snapshots.pathExists(path) && !number(meta.generation) && !meta.graph_file && !meta.graph_digest) return null;
+        return clone((await readPublishedGraph(this.context, path, meta, id)).raw);
     }
     async graph(id: string): Promise<ModuleGraph> {
-        const generation = await this.generation(id), cached = this.graphs.get(id);
-        if (cached?.generation === generation)
-            return cached.graph;
-        const path = await this.graphPath(id);
-        if (!await this.context.snapshots.pathExists(path))
+        const meta = await this.module(id), generation = number(meta.generation), cached = this.graphs.get(id);
+        const path = await this.graphPath(id, meta);
+        if (!number(meta.generation) && !meta.graph_file && !meta.graph_digest && !await this.context.snapshots.pathExists(path))
             throw new RpcError('campaign_not_ready', `module ${repr(id)} has no graph yet`, { fix: 'prepare the original PDF with the visual reading service' });
-        const dossier = dossierWith(row((await this.contract()).graph.actor_dossier), row((await this.module(id)).vocabulary));
-        const graph = new ModuleGraph(id, clone(row(await this.context.snapshots.readJson(path))), await sha256File(path), dossier);
+        const loaded = await readPublishedGraph(this.context, path, meta, id);
+        if (cached?.generation === generation && cached.graph.digest === loaded.digest) return cached.graph;
+        const dossier = dossierWith(row((await this.contract()).graph.actor_dossier), row(meta.vocabulary));
+        const graph = new ModuleGraph(id, clone(loaded.raw), loaded.digest, dossier);
         this.graphs.set(id, { generation, graph });
         return graph;
     }

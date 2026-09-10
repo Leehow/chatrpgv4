@@ -48,6 +48,40 @@ function setupCall(params) {
 	return fauxAssistantMessage([fauxToolCall("setup", params)], { stopReason: "toolUse" });
 }
 
+test('uncached installed-module guidance uses the bridge owner for both author and review', async t => {
+  // This is a transport fixture; the real driver regression supplies gameplay evidence separately.
+  const table = await openSetup([
+    setupCall({step:'choose-source',kind:'starter',module:'the-haunting'}),
+    setupCall({step:'create-campaign',id:'setup-fixture',title:'Prepared source',play_language:'en'}),
+    fauxAssistantMessage('Ready for the investigator.'),
+  ]);
+  t.after(() => table.dispose());
+  const folder=join(table.workspace,'.coc/modules/the-haunting');
+  mkdirSync(folder,{recursive:true});
+  writeFileSync(join(folder,'module.json'),JSON.stringify({id:'the-haunting'}));
+  writeFileSync(join(folder,'module-graph.json'),JSON.stringify({nodes:[{node_id:'module-the-haunting',node_kind:'module',name:'Prepared source',summary:'An opening meeting.'}]}));
+  const guidance={opening:'Who joins the meeting?',advice:'Choose a source-fitting investigator.',scene:'The meeting begins.',guide:'',handoff:'Continue the meeting.'};
+  const tasks=[],current=table.runtimeBridges().at(-1);
+  table.emit('coc:kernel-bridge',{...current,async call(method,params){
+    const result=await current.call(method,params);
+    if(method==='setup.occupations')table.emit('coc:kernel-bridge',{...current,runtime:{...current.runtime,
+      runTask(){throw new Error('A new bridge must not receive the previous owner task');}}});
+    return result;
+  },runtime:{...current.runtime,async runTask(task,signal){
+    tasks.push(task);assert.equal(task.kind,'reader');assert.equal(signal.aborted,false);
+    const review=task.request.systemPrompt.endsWith('character-guidance-review.md');
+    writeFileSync(join(task.request.cwd,review?'review.json':'guidance.json'),JSON.stringify(review?{approved:true,issues:[]}:guidance));
+    return {ok:true};
+  }}});
+  await table.session.prompt('Start with this prepared source.');
+  await waitForIdle(table.session);
+  const result=setupResults(table.session).find(row=>row.step==='create-campaign'||row.code==='guidance_failed');
+  assert.equal(result.ok,true,JSON.stringify(result));
+  assert.deepEqual(result.character_guidance,guidance);
+  assert.equal(tasks.length,2);
+  assert.equal(tasks[0].request.cwd,tasks[1].request.cwd);
+});
+
 /** 每次 `setup` 的结果原样解析出来，按调用顺序。 */
 function setupResults(session) {
 	return session.messages

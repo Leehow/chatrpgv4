@@ -101,7 +101,7 @@ def built_module(client, tmp_path, npc_properties):
            "critical": [], "ready_nodes": ["scene-dock", "npc-tenant"]})
     write(Path(job["work_dir"]) / "review.json",
           {"checked": [{"path": p, "verdict": "supported", "source_refs": refs, "reason": "fixture support"}
-                       for p in ["/nodes/0", "/nodes/2", "/claims/0", "/claims/1"]], "missing": []})
+                       for p in ["/nodes/0", "/nodes/2", "/claims/0", "/claims/1", "/coverage"]], "missing": []})
     finish(client, job)
     return mid, packet
 

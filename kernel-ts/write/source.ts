@@ -1,12 +1,14 @@
 /** Shared starter registration, source playability and published asset projections. */
-import { copyFile, mkdir } from 'node:fs/promises';
-import { basename, dirname, extname, join } from 'node:path';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { createHash, randomUUID } from 'node:crypto';
+import { basename, dirname, extname, join, relative } from 'node:path';
 import type { KernelContext } from '../context.js';
 import { writeJsonAtomic, sha256File } from '../fileio.js';
-import { jsonDigest, compareUnicode } from '../json.js';
+import { jsonDigest, compareUnicode, parsePythonJson } from '../json.js';
 import { RpcError } from '../errors.js';
 import { ModuleGraph, recordOf } from '../read/module-graph.js';
 import { loadModule } from '../read/campaign.js';
+import { readPublishedGraph } from '../read/published-graph.js';
 import { array, row, clone, entries, values, truth, number, string, repr, integer, sorted, equal, type Row } from '../read/values.js';
 import { nowIso } from './store.js';
 import { validSourceLanguage } from '../modules/contract.js';
@@ -375,7 +377,9 @@ export async function registerStarter(context: KernelContext, id: string): Promi
     const source = join(context.content, 'starters', id), graphFile = join(source, 'module-graph.json'), folder = join(context.stateRoot, 'modules', id), metaFile = join(folder, 'module.json');
     if (!await context.snapshots.pathExists(graphFile))
         throw new RpcError('invalid_params', `unknown starter ${repr(id)}`, { fix: `no module-graph.json under ${source}` });
-    const graph = clone(row(await context.snapshots.readJson(graphFile))), digest = await sha256File(graphFile);
+    const sourceBytes = await readFile(graphFile);
+    const graph = row(parsePythonJson(new TextDecoder('utf-8', {fatal: true, ignoreBOM: true}).decode(sourceBytes)));
+    const digest = createHash('sha256').update(sourceBytes).digest('hex');
     const existing = await context.snapshots.pathExists(metaFile) ? clone(row(await context.snapshots.readJson(metaFile))) : null;
     const contract = row(await context.snapshots.readJson(join(context.content, 'modules', 'module-graph-contract-v3.json'))), dossier = row(contract.actor_dossier);
     const view = new ModuleGraph(id, graph, digest, dossier), template = row(await context.snapshots.readJson(join(context.content, 'modules', 'module-graph-template-v1.json')));
@@ -398,17 +402,15 @@ export async function registerStarter(context: KernelContext, id: string): Promi
             recursive: true
         });
         let targetGraph = join(folder, 'module-graph.json');
-        if (typeof existing?.graph_file === 'string') {
-            targetGraph = await resolvedPath(childPath(folder, existing.graph_file));
-            if (!inside(await resolvedPath(folder), targetGraph)) {
-                const error = new Error('graph_file escapes the module store');
-                error.name = 'ValueError';
-                throw error;
-            }
+        if (existing || await context.snapshots.pathExists(targetGraph)) {
+            const generationDirectory = join(folder, 'generations', `generation-${meta.generation}-${randomUUID().replaceAll('-', '')}`);
+            await mkdir(generationDirectory, {recursive: true});
+            targetGraph = join(generationDirectory, 'module-graph.json');
+            meta.graph_file = relative(folder, targetGraph);
         }
-        await copyFile(graphFile, targetGraph);
+        await writeFile(targetGraph, sourceBytes, {flag: 'wx'});
         meta.graph_digest = digest;
-        const targetDirectory = truth(existing?.graph_file) ? dirname(targetGraph) : folder;
+        const targetDirectory = dirname(targetGraph);
         await writeJsonAtomic(join(targetDirectory, 'module-graph-manifest.json'), graphManifest(graph, id, meta.generation));
         await writeJsonAtomic(join(targetDirectory, 'assets.json'), assetRegistry(graph));
         Object.assign(meta, {
@@ -418,6 +420,8 @@ export async function registerStarter(context: KernelContext, id: string): Promi
             installed_at: nowIso(),
             status: 'installed'
         });
+        // Validate the candidate cohort before the metadata pointer can make it visible.
+        await readPublishedGraph(context, targetGraph, meta, id);
         await writeMeta();
     }
     let changed = false;
@@ -429,7 +433,8 @@ export async function registerStarter(context: KernelContext, id: string): Promi
     const installedPath = typeof meta!.graph_file === 'string' ? await resolvedPath(childPath(folder, meta!.graph_file)) : join(folder, 'module-graph.json');
     if (!await context.snapshots.pathExists(installedPath))
         throw new RpcError('campaign_not_ready', `module ${repr(id)} has no graph yet`, { fix: 'prepare the original PDF with the visual reading service' });
-    const installedView = new ModuleGraph(id, clone(row(await context.snapshots.readJson(installedPath))), await sha256File(installedPath), dossier);
+    const installed = await readPublishedGraph(context, installedPath, meta!, id);
+    const installedView = new ModuleGraph(id, clone(installed.raw), installed.digest, dossier);
     // The bundles a starter ships are whichever `character-guidance/<tag>.json` files exist: the
     // file names are the tags, and there is no list to keep in step (contract section 23).
     const bundles = join(source, 'character-guidance');

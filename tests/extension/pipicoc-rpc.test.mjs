@@ -27,9 +27,9 @@ async function contentRoot() {
  * A runtime the panel can read words through and project them with. `runTask` records what it was
  * asked, so a test can tell one background projection from none and from several.
  */
-function runtime(contentRoot, home, rounds = []) {
+function runtime(contentRoot, home, rounds = [], onTask = () => {}) {
   return {contentRoot, home, signal: new AbortController().signal,
-    async runTask(task) {rounds.push(task); return {ok: false};}, rounds};
+    async runTask(task) {rounds.push(task); onTask(task); return {ok: false};}, rounds};
 }
 
 /** The pack's invoke handlers, registered on the well-known registry the way PipiUI does. */
@@ -103,12 +103,13 @@ test('every sheet answer the pack serves carries the words it is drawn with, and
  * started for it -- one, however many times the panel reads the sheet, because the sheet is read on
  * every commit and a run per read would run the same lane a dozen times a turn.
  */
-test('a tag with no projection is answered in the authored words, and starts exactly one lane run', async () => {
+test('a tag with no projection is answered in the authored words, and starts exactly one lane run', {timeout:5000}, async () => {
   const root = await contentRoot();
   const home = await mkdtemp(join(tmpdir(), 'pipicoc-home-'));
   const {pi, sheet} = sheetHandlers();
   const rounds = [];
-  pi.events.emit('coc:kernel-bridge', {runtime: runtime(root, home, rounds),
+  const started = Promise.withResolvers();
+  pi.events.emit('coc:kernel-bridge', {runtime: runtime(root, home, rounds, started.resolve),
     call: async () => ({play_language: 'pt-BR', labels: {}})});
   pi.events.emit('coc:table-open', {campaign: 'carried', open: {campaign: {play_language: 'pt-BR'}}});
 
@@ -119,8 +120,8 @@ test('a tag with no projection is answered in the authored words, and starts exa
   assert.equal(first.ui.words.sheet.clues, 'en clues', 'the authored words stand in, never another language\'s');
   await sheet(); await sheet();
   // The lane is started, never awaited: the answer is what the panel draws now, and the projection
-  // runs behind it. Give it the ticks it needs to reach the runner before counting.
-  await new Promise(resolve => setTimeout(resolve, 50));
+  // runs behind it. Observe that runner starting instead of guessing a scheduling delay.
+  await started.promise;
   assert.equal(rounds.length, 1, 'three reads, one lane run');
   assert.equal(rounds[0].kind, 'mod');
   assert.equal(JSON.parse(await readFile(join(rounds[0].request.cwd, 'texts.json'), 'utf8')).play_language, 'pt-BR');
