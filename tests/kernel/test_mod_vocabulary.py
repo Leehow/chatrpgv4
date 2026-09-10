@@ -185,3 +185,50 @@ def test_a_word_no_package_asked_for_does_not_reach_the_table(tmp_path):
         assert "dialect" not in tenant and "Sicilian" not in json.dumps(tenant)
     finally:
         client.close()
+
+
+def words(client, campaign):
+    return {entry["key"]: entry for entry in client.ok("mods.context", {"campaign": campaign})
+            .get("vocabulary", {}).get("words", [])}
+
+
+def test_a_package_can_see_whether_its_own_word_reached_the_table(tmp_path):
+    """28.6: enabling a package does not bind its word -- the build did that, or it did not. Both
+    states put the same nothing on every actor, so a package that cannot read them apart answers
+    'nobody here speaks anything else' off a book that was never asked. `bound` is that answer."""
+    client = emitted_client(tmp_path / "ws")
+    try:
+        # Built with only Natural NPC installed: `language` was asked of this book, `dialect` never was.
+        mid, _ = built_module(client, tmp_path, {"agenda": "Keep the room.", "dialect": "Sicilian"})
+        client.ok("mods.install", {"path": str(package(tmp_path, name="dialects"))})
+        campaign = played(client, tmp_path, mid)
+
+        found = words(client, campaign)
+        assert found["language"] == {"key": "language", "label": "speaks",
+                                     "mod": "natural-npc", "bound": True}
+        # On, and its word is absent from every actor in this book -- for a reason the package can read.
+        assert found["dialect"] == {"key": "dialect", "label": "dialect",
+                                    "mod": "dialects", "bound": False}
+    finally:
+        client.close()
+
+
+def test_a_bound_word_outlives_the_package_that_asked_for_it(tmp_path):
+    """28.5/28.6: the module's provenance is the authority, not the campaign's locks. A word whose
+    package is gone still reaches the dossier, so reporting it as unbound -- or leaving it out --
+    would tell the table a word it can plainly see is not there."""
+    client = emitted_client(tmp_path / "ws")
+    try:
+        client.ok("mods.install", {"path": str(package(tmp_path, name="dialects"))})
+        mid, _ = built_module(client, tmp_path, {"agenda": "Keep the room.", "dialect": "Sicilian"})
+        campaign = played(client, tmp_path, mid)
+        assert words(client, campaign)["dialect"] == {"key": "dialect", "label": "dialect",
+                                                      "mod": "dialects", "bound": True}
+
+        client.ok("mods.configure", {"campaign": campaign, "id": "dialects", "enabled": False})
+        # The word is still on the actor (see the test above), so it is still reported -- unowned.
+        assert table_npcs(client, campaign)["Tenant"]["dialect"] == "Sicilian"
+        assert words(client, campaign)["dialect"] == {"key": "dialect", "label": "dialect",
+                                                     "mod": None, "bound": True}
+    finally:
+        client.close()

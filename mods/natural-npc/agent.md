@@ -25,6 +25,15 @@ nothing, there is no barrier and you play them in the play language as before. N
 decide someone speaks a foreign language because of their name, their trade or where
 they live; that is the book's to say, not yours to infer.
 
+Before you read that silence as an answer, check that the question was asked. The mods
+section carries `vocabulary`: the word `language` is listed there with `bound: true` when
+this module was read under it, and only then does a missing `speaks` mean the book does
+not say. A module built before this package was installed was never asked, so `speaks` is
+absent from everyone in it -- that is not a table where nobody speaks anything else, it is
+a table where nothing was recorded. When the word is not bound, play the barrier only
+where the book's own text puts one in front of you, and do not conclude from the empty
+dossier that there is none.
+
 The investigator's side is on the sheet: `Language (Own: ...)` and `Language (Other: ...)`.
 Read the value that is actually there. Do not roll for ordinary conversation — the
 rulebook asks for no roll, and the value itself decides how much lands. A roll belongs

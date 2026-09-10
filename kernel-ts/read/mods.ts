@@ -285,6 +285,32 @@ export function modProviders(active: Row[]): Row {
     }
     return slots;
 }
+/** Contract 28.2/28.5: whether a package's word actually reaches this table. Vocabulary binds when a
+ *  module is built, never when a package is enabled, so a campaign can have a package on and its word
+ *  absent from every actor -- and that absence has the same shape as a book that does not say. A
+ *  package unable to tell the two apart reads "nobody here speaks anything else" off a book that was
+ *  never asked the question, which is the one wrong answer this projection exists to prevent.
+ *
+ *  The module's own provenance is the authority (28.5), not the campaign's locks: a word stays
+ *  readable after the package that asked for it is gone, so a bound key with no active claimant is
+ *  reported as bound and unowned rather than left out. */
+export function vocabularyContext(graph: ModuleGraph, active: Row[]): Row[] {
+    const bound = new Map(array(graph.dossier.contributed).map(entry => [string(row(entry).key), string(row(entry).label)])),
+        words: Row[] = [],
+        seen = new Set<string>();
+    for (const mod of active)
+        for (const entry of array(row(row(mod.contributes).vocabulary).actor_profile_keys)) {
+            const key = string(entry.key);
+            if (!key || seen.has(key))
+                continue;
+            seen.add(key);
+            words.push({ key, label: bound.get(key) ?? string(entry.label), mod: string(mod.id), bound: bound.has(key) });
+        }
+    for (const [key, label] of bound)
+        if (!seen.has(key))
+            words.push({ key, label, mod: null, bound: true });
+    return words;
+}
 export function effectiveMods(active: Row[]): Row[] {
     const providers = modProviders(active);
     return active.filter(mod => {
@@ -398,6 +424,7 @@ export async function modContext(context: KernelContext, graph: ModuleGraph, wor
         required = new Set(active.flatMap(mod => array(mod.requires).map(string))),
         scene = graph.scene(world.active_scene);
     const unregistered = active.some(mod => truth(mod.contributes.materializer)) ? unregisteredEquipment(party, claimedEquipment(world)) : [];
+    const words = vocabularyContext(graph, active);
     const result: Row = {
         active: active.map(mod => ({
             id: mod.id,
@@ -418,6 +445,12 @@ export async function modContext(context: KernelContext, graph: ModuleGraph, wor
         relationships: relationships.slice(0, 12),
         objects: objectContext(world),
         providers,
+        ...(words.length ? {
+            vocabulary: {
+                words,
+                authority: "A bound word was asked of this book: an actor without it is a book that does not say. A word that is not bound was never asked here, so its absence on every actor is not a fact about anyone."
+            }
+        } : {}),
         unregistered_equipment: unregistered
     };
     // A section exists only while a package that reads it is on (§30): no reader, no bytes in the capsule.

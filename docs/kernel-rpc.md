@@ -3715,7 +3715,30 @@ claiming one key are settled by load order: the first keeps it, the rest are
 recorded as displaced. A collision is never allowed to fail an unrelated book's
 build, and never resolved silently.
 
-### 28.6 Out of this version
+### 28.6 A package can see whether its own word reached the table
+
+Because vocabulary binds at build and packages are enabled per campaign, a package
+can be active while its key is absent from every actor -- and that absence is the
+same shape as a book that does not say. A package that cannot tell the two apart
+reads the second as the first: Natural NPC would conclude that nobody at this table
+speaks another tongue, off a book that was never asked the question.
+
+`mods.context` therefore carries `vocabulary` whenever any word is in play, both in
+the turn capsule's `mods` section and from the RPC directly:
+
+```
+"vocabulary": {"words": [{"key": "language", "label": "speaks",
+                          "mod": "natural-npc", "bound": true}],
+               "authority": "A bound word was asked of this book: ..."}
+```
+
+`bound` is read from the module's own provenance, never from the campaign's locks,
+so a key whose package has since been removed is reported `bound: true` with `mod:
+null` -- the word still reaches the table (28.5) and the Keeper still sees it in the
+dossier. The field is omitted entirely when no active package contributes a word and
+the module records none, so an ordinary table pays nothing for it.
+
+### 28.7 Out of this version
 
 A Mod-namespaced `apply` (door 4) and call-named check values (door 3) are named
 here so they are not reinvented, and are not built in this version. A package that

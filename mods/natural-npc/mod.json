@@ -1,5 +1,5 @@
 {
-  "id": "natural-npc", "version": "1.1.1", "game_api": "pipicoc.game.v1",
+  "id": "natural-npc", "version": "1.1.2", "game_api": "pipicoc.game.v1",
   "state_version": 1, "author": "PipiCOC",
   "name": {"zh-Hans": "自然 NPC 行为", "en": "Natural NPC"},
   "description": {"zh-Hans": "人不是服务台：以外貌或信用评级留下初见印象，并且他说的话，调查员未必全听得懂。", "en": "People, not service desks: a lasting first impression from Appearance or Credit Rating, and a language the investigator may not fully share."},

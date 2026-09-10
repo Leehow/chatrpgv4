@@ -1,5 +1,16 @@
 # Natural NPC
 
+## 1.1.2
+
+A word is bound when a module is built, not when this package is enabled, so this package
+can be on and `speaks` absent from every actor in the book. That absence looked exactly
+like a book that says nothing about anyone's tongue, and reading it as one would have the
+Keeper decide the whole table shares a language on the strength of a question nobody
+asked. The turn's mods section now carries `vocabulary`, saying whether `language` was
+bound here, and the instructions read it before taking silence for an answer.
+
+Nothing about play changes on a module that was built with the word.
+
 ## 1.1.1
 
 - Adds `brief.md`, the per-turn form of the instructions (contract §30.7): the first turn a process opens for a campaign still carries the full text, later turns carry this reminder. Behaviour is unchanged; the capsule is smaller.
