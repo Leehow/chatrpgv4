@@ -1643,11 +1643,15 @@ checked-submission tool and stop; other scene material remains outside ready_nod
 normal detail/prefetch publication. The first batch includes required local interactions and
 source dependencies, not an unreviewed placeholder or a full chapter. Guidance behavior stays
 separate. Deferred handout images are not rendered as part of a batch that does not prepare them.
+The host sets opening_batch on its private check packet: the same pure kernel checker rejects
+a mismatched selected scene identity and unprepared present NPC/discoverable material before
+launching independent reviews. This does not replace final publication validation. Small task
+and candidate JSON may be supplied in context; tool-enabled source access stays available.
 
 Independent review groups combine records with the same physical source-page set, within bounded
 record and byte budgets; every previously required root, numeric and critical pointer remains
 assigned exactly once. Review success can be reused only for an identical candidate, source,
-semantic task context, model/thinking and review protocol. Reused evidence retains the original
+semantic task context, model/thinking, rendering implementation and review protocol. Reused evidence retains the original
 review path and actually observed source pages; malformed, rejected, missing or changed evidence
 is never a cache hit. A later attempt repairs/retries failed groups while unchanged successful
 groups keep their completed evidence. Cache hits do not claim fresh model calls or new reading.
