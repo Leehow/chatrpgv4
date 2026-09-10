@@ -16,6 +16,11 @@ export async function loadModuleContract(context: Pick<KernelContext, 'content' 
     return Object.freeze({ graph, template });
 }
 export const validSemanticId = (value: unknown): value is string => typeof value === 'string' && value.length <= 160 && /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(value) && !value.endsWith('\n');
+/**
+ * The one BCP-47 shape the kernel accepts for any language tag: a source's language, a campaign's
+ * `play_language`, a guidance job's tag, a bundled guidance file name. The set is open (contract
+ * section 23): the shape is checked, membership never is.
+ */
 export const validSourceLanguage = (value: unknown): value is string => typeof value === 'string' && /^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/.test(value) && !value.endsWith('\n');
 export function vocabulary(contract: ModuleContract): Row {
     const { graph, template } = contract;

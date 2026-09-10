@@ -5,9 +5,15 @@ import {fileURLToPath} from 'node:url';
 import {prepareCharacterGuidance, guidanceFingerprint} from '../extensions/module/character-guidance.ts';
 import type {ReaderRequest} from '../extensions/module/reader.ts';
 import {composeRuntimeContext, createRuntime} from '../runtime/host.ts';
-import {loadPlayLanguages} from '../runtime/ui-words.ts';
 
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
+/** The tags a picker offers first, from `content/languages.json`: the bundles a release ships (contract section 23). */
+async function suggestedPlayLanguages(contentRoot:string):Promise<string[]> {
+  const raw=JSON.parse(await readFile(join(contentRoot,'languages.json'),'utf8'));
+  const suggested=Array.isArray(raw?.suggested)?raw.suggested.filter((tag:unknown)=>typeof tag==='string' && tag.trim()):[];
+  if(!suggested.length)throw new Error('content/languages.json suggests no play language to bundle');
+  return suggested;
+}
 const [moduleId, homeArg]=process.argv.slice(2);
 if(!moduleId || !homeArg)throw new Error('Usage: node scripts/build-starter-guidance.ts MODULE_ID EVIDENCE_HOME');
 const home=resolve(homeArg);
@@ -23,9 +29,9 @@ try {
   await kernel.call('module.register',{module_id:moduleId});
   const {occupations}=await kernel.call<any>('setup.occupations');
   const meta=JSON.parse(await readFile(join(runtime.home,'.coc/modules',moduleId,'module.json'),'utf8'));
-  // One bundle per declared play language: the loop is `content/languages.json`, so adding a
-  // language publishes its starter guidance without a line changing here (contract §23).
-  for(const language of Object.keys((await loadPlayLanguages(join(root,'content'))).languages)) {
+  // One bundle per suggested play language: the set is open, so a release ships bundles only for
+  // the tags a picker offers first, and any other tag generates its guidance per campaign.
+  for(const language of await suggestedPlayLanguages(join(root,'content'))) {
     const options={home:runtime.home,contentRoot:context.contentRoot,module_id:moduleId,play_language:language,occupations,buildBundle:true,runner};
     const guidance=await prepareCharacterGuidance(options);
     const fingerprint=await guidanceFingerprint(options);

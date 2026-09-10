@@ -70,8 +70,9 @@ test('a Mods answer carries the session language words, and its refusals carry c
   globalThis[symbol]={version:1,register(_id,method,handler){handlers.set(method,handler);return()=>{};}};
   try {
     const contentRoot=await mkdtemp(join(tmpdir(),'coc-mods-words-'));
-    await writeFile(join(contentRoot,'languages.json'),JSON.stringify({default:'zz',
-      languages:{zz:{autonym:'Zz'},en:{autonym:'English'}}}));
+    // `zz` is this fixture's authored tag and its default; `en` ships a seed beside it, so both
+    // answer projected and neither reaches a lane (contract §23).
+    await writeFile(join(contentRoot,'languages.json'),JSON.stringify({source:'zz',default:'zz',suggested:['zz','en']}));
     for(const tag of ['zz','en']) {
       await mkdir(join(contentRoot,'ui',tag),{recursive:true});
       await writeFile(join(contentRoot,'ui',tag,'mods.json'),JSON.stringify({install:`${tag} install`}));

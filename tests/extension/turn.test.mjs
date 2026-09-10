@@ -231,34 +231,33 @@ test("守秘人写了台词却没调 narrate：宿主替它 narrate，正文原�
 });
 
 
-test("隐式 narrate 不是玩家语言：内核退回 play_language_mismatch，宿主不交付、催一次", async (t) => {
-	const leaked = "What does the Investigator do in the Scene?";
-	const chinese = "门框上有一道深深的抓痕。";
-	const table = await openTable({
-		responses: [fauxAssistantMessage(leaked), fauxAssistantMessage(chinese)],
-	});
+/**
+ * 契约 §23（2026-09-09，开放语言）：内核不再按脚本退回交付，宿主也不再为此催守秘人。
+ * 标签集合是开的，字符类是一种探测器，开集没有表可查。正文有没有用玩家语言，由校验车道读了以后
+ * 报 `play_language_mismatch`——是建议，不是拒绝，见 lanes.test.mjs。这里钉的是「不催」这一半：
+ * 写成系统语言的隐式 narrate 照样一回合关掉，宿主一句都不多说。
+ */
+test("隐式 narrate 用了系统语言：照样交付，宿主不催（§23 取消了脚本地板）", async (t) => {
+	const english = "A deep set of scratches runs down the door frame.";
+	const table = await openTable({ responses: [fauxAssistantMessage(english)] });
 	t.after(() => table.dispose());
 
 	await table.session.prompt("我检查地窖门的门框");
 	await waitForIdle(table.session);
 
 	const narrates = table.kernelRequests().filter((entry) => entry.method === "table.narrate");
-	assert.deepEqual(narrates.map((entry) => entry.params.text), [leaked, chinese], "第一次被退回，第二次才过");
+	assert.deepEqual(narrates.map((entry) => entry.params.text), [english], "一次就过，没有第二次重写");
 
 	const steers = customMessages(table.session, "coc-host").filter(
 		(message) => message.details?.kind === "play-language-mismatch",
 	);
-	assert.equal(steers.length, 1, "语言核失败只催一次");
-	assert.match(String(steers[0].content), /play_language_mismatch/);
-	assert.match(String(steers[0].content), /text/, "催的话里带着内核自己的 fix，点名哪个字段");
+	assert.deepEqual(steers, [], "内核不报语言拒绝，宿主也就没有催的理由");
 
 	const refused = table.telemetry().filter((row) => row.tool === "narrate" && row.ok === false);
-	assert.equal(refused.length, 1);
-	assert.equal(refused[0].code_detail, "play_language_mismatch");
+	assert.deepEqual(refused, [], "没有被拒的交付");
 
 	const texts = assistantTexts(table.session).filter((text) => text.length > 0);
-	assert.equal(texts.at(-1), chinese, "交付的是玩家语言那一版");
-	assert.ok(!texts.includes(leaked), "被内核退回的英文草稿不算交付，不留在记录里");
+	assert.equal(texts.at(-1), english, "守秘人写的那一版就是交付");
 });
 
 test("物品与现金：item、cash 原样进内核，收据只进机制投影，不进正文（#19）", async (t) => {

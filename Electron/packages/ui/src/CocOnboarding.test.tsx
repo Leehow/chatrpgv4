@@ -2,7 +2,9 @@
 /**
  * The wizard's own words (§23). It shipped in one language with an `en` option beside it that only
  * changed what the Keeper would later write, so choosing English left the whole screen in Chinese.
- * Every caption now comes from the answer's `ui`, and the picker lists `content/languages.json`.
+ * Every caption now comes from the answer's `ui`, and the picker offers `content/languages.json`'s
+ * suggestions while accepting any BCP-47-shaped tag a player types: the set is open, so a language
+ * the product has never heard of has to reach the host exactly as a suggested one does.
  */
 import React from 'react';
 import {render,screen,fireEvent,waitFor,cleanup} from '@testing-library/react';
@@ -30,18 +32,44 @@ it('shows three scenario entries and an honest empty prepared library',async()=>
 });
 
 /**
- * The picker is the language list, by each language's own name for itself, and it opens at the
- * file's declared default. A hardcoded pair of `<option>`s meant a third language could ship its
- * whole content directory and never appear.
+ * The picker suggests the tags the data names, each called what that language calls itself through
+ * `Intl.DisplayNames`, and it opens at the declared default. A hardcoded pair of `<option>`s meant
+ * a language could ship its whole content directory and never appear; a closed `<select>` meant a
+ * language nobody had shipped could never be asked for at all.
  */
-it('lists every declared play language by its autonym and opens at the declared default',async()=>{
+it('suggests the declared tags, named by Intl.DisplayNames, and opens at the declared default',async()=>{
   const invokeExtension=vi.fn(async()=>answer({presets:[],modules:[],occupations:[]}));
   render(<CocOnboarding host={{invokeExtension} as any} sessionId="new"/>);
-  const picker=await screen.findByLabelText(zh('playLanguage')) as HTMLSelectElement;
-  expect(Array.from(picker.options).map(option=>option.value)).toEqual(Object.keys(playLanguages.languages));
-  expect(Array.from(picker.options).map(option=>option.textContent))
-    .toEqual(Object.values(playLanguages.languages).map(row=>(row as {autonym:string}).autonym));
+  const picker=await screen.findByLabelText(zh('playLanguage')) as HTMLInputElement;
   expect(picker.value).toBe(DEFAULT);
+  const options=Array.from(document.querySelectorAll(`datalist#${picker.getAttribute('list')} option`));
+  expect(options.map(option=>option.getAttribute('value'))).toEqual(playLanguages.suggested);
+  // The names come from the platform's own table, in each language itself -- never from a table
+  // this product keeps. Asserting against the same call is what proves no table was written.
+  expect(options.map(option=>option.textContent))
+    .toEqual(playLanguages.suggested.map(tag=>new Intl.DisplayNames([tag],{type:'language'}).of(tag)));
+  // A name, not the tag repeated: `Intl.DisplayNames` falling through would make this pass vacuously.
+  expect(options.every(option=>option.textContent && option.textContent!==option.getAttribute('value'))).toBe(true);
+});
+
+/**
+ * The set is open: a tag the product ships nothing for reaches the host as the play language, and
+ * the screen follows the words that come back for it.
+ */
+it('accepts a tag nobody shipped, and sends it as the play language',async()=>{
+  const invokeExtension=vi.fn(async(_id:string,_method:string,p:any)=>answer({presets:[],modules:[],occupations:[]},p.play_language));
+  render(<CocOnboarding host={{invokeExtension} as any} sessionId="new"/>);
+  const picker=await screen.findByLabelText(zh('playLanguage')) as HTMLInputElement;
+  expect(playLanguages.suggested).not.toContain('pt-BR');
+  // Typed, then left: a half-typed tag must not send the host a language nobody named.
+  fireEvent.change(picker,{target:{value:'pt-'}});
+  expect(invokeExtension).not.toHaveBeenCalledWith('coc-keeper','onboarding',
+    expect.objectContaining({play_language:'pt-'}),expect.anything());
+  fireEvent.change(picker,{target:{value:'pt-BR'}});
+  fireEvent.blur(picker);
+  await waitFor(()=>expect(invokeExtension).toHaveBeenCalledWith('coc-keeper','onboarding',
+    {action:'catalog',play_language:'pt-BR'},{sessionId:'new'}));
+  expect(picker.value).toBe('pt-BR');
 });
 
 it('lists a starter by its authored blurb, not its folder slug, and re-reads the catalog in the chosen play language',async()=>{

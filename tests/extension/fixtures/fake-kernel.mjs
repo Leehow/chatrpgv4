@@ -71,28 +71,15 @@ function mechanic(row) {
 	turnMechanics.push(row);
 }
 
-/** Contract §16.3: zh-Hans player-facing fields must carry a CJK character. Bytes, not semantics. */
-const CJK =
-	/[\u2E80-\u2FDF\u3000-\u303F\u3040-\u30FF\u3100-\u31FF\u3200-\u33FF\u3400-\u4DBF\u4E00-\u9FFF\uAC00-\uD7AF\uF900-\uFAFF\uFE30-\uFE4F\uFF00-\uFFEF]/u;
+/**
+ * The campaign's play language, carried into the interactions the way the kernel carries it.
+ *
+ * There is no script check here any more. The real kernel refused a delivery whose player-facing
+ * fields carried none of the tag's character class until §23 (2026-09-09): the tag set is open, a
+ * character class is a detector, and an open set has no table to look in. Whether a delivery is in
+ * the player's language is the verifier lane's reading now, filed as an advisory finding.
+ */
 let playLanguage = "zh-Hans";
-
-function checkPlayLanguage(fields) {
-	if (playLanguage !== "zh-Hans") return undefined;
-	const missing = Object.entries(fields)
-		.filter(([, text]) => text && !CJK.test(String(text)))
-		.map(([name]) => name);
-	if (missing.length === 0) return undefined;
-	return {
-		ok: false,
-		error: {
-			code: "invalid_params",
-			code_detail: "play_language_mismatch",
-			message: "player-facing text is not in the campaign's play_language",
-			fix: `rewrite ${missing.join(", ")} in the campaign's play_language (${playLanguage}) and call again`,
-			details: { fields: missing, play_language: playLanguage },
-		},
-	};
-}
 
 /** 收据 id 里的物品 slug：只做空白归一化，语义判断不在假内核里做。 */
 function slug(name) {
@@ -775,11 +762,6 @@ function handle(method, params) {
 			};
 		}
 		case "table.ask": {
-			const refusedAskLanguage = checkPlayLanguage({
-				...(params.kind==='mechanics'?{}:{prompt:params.prompt,...Object.fromEntries((params.options??[]).map((option,i)=>[`options[${i}]`,option]))}),
-				...(params.text ? { text: params.text } : {}),
-			});
-			if (refusedAskLanguage) return refusedAskLanguage;
 			state = "asked";
 			// Delivery = text (optional) plus the prompt plus language-neutral numbered options; mechanics travel only in `mechanics`.
 			const askBody = params.kind==='mechanics' ? (params.text||'') : [
@@ -807,8 +789,6 @@ function handle(method, params) {
 			};
 		}
 		case "table.narrate": {
-			const refusedLanguage = checkPlayLanguage({ text: params.text ?? "" });
-			if (refusedLanguage) return refusedLanguage;
 			const closed = turn;
 			state = "awaiting_player";
 			const facts = process.env.FAKE_KERNEL_NO_FACTS === "1"

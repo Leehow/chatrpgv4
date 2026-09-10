@@ -144,10 +144,15 @@ async function copyGit(manifest, archive, resource, work, cache) {
 }
 async function copyResources(repo, resource, manifest) {
   const content = join(repo, 'content');
+  // The play language is open (contract §23): the authored captions are one source language and
+  // every other `content/ui/<tag>/` directory is a shipped seed of the same shape. The package checks
+  // the source's surfaces exist and that each seed carries every one of them; it keeps no list of tags.
   const languages = JSON.parse(await readFile(join(content, 'languages.json'), 'utf8'));
-  const surfaces = (await readdir(join(content, 'ui', languages.default))).filter(name => name.endsWith('.json'));
-  if (!surfaces.length) throw new Error('The default play language has no packaged UI surfaces');
-  for (const tag of Object.keys(languages.languages)) {
+  const source = typeof languages.source === 'string' && languages.source ? languages.source : languages.default;
+  const surfaces = (await readdir(join(content, 'ui', source))).filter(name => name.endsWith('.json'));
+  if (!surfaces.length) throw new Error('The authored play language has no packaged UI surfaces');
+  const seeds = (await readdir(join(content, 'ui'), { withFileTypes: true })).filter(entry => entry.isDirectory()).map(entry => entry.name);
+  for (const tag of seeds) {
     for (const surface of surfaces) await requiredFile(join(content, 'ui', tag, surface));
   }
   for (const directory of manifest.resourceDirectories) await copyTree(join(repo, directory), join(resource, directory), copiedAsset);

@@ -2,18 +2,21 @@
  * The words this product's own chrome says to a player, read from data rather than written here.
  *
  * Contract §23 (2026-09-09): every player-visible caption travels the campaign's play language by
- * mechanism. `content/languages.json` is the closed set of tags and the default; each
- * `content/ui/<tag>/extension.json` holds the captions the extensions notify with. Nothing in this
- * directory names a tag, keeps a two-column table, or guesses a language from the text it is about
- * to print: an extension says which tag the campaign carries and asks for a key.
+ * mechanism, and the tag set is open. `content/ui/<source>/extension.json` holds the authored
+ * captions the extensions notify with; any other tag reaches its own through a shipped seed or
+ * through the projection the lane cached under the home. Nothing in this directory names a tag,
+ * keeps a two-column table, or guesses a language from the text it is about to print: an extension
+ * says which tag the campaign carries and asks for a key.
  *
  * A caption with values in it is a template in the data (`"turn {turn}"`), filled by `fill` here --
- * one filler for every surface, so adding a language is adding a file. A key no language declares
- * renders as the key itself: an identifier and a visible gap, never a word from another language.
+ * one filler for every surface, so a new language is a projection and never a file to write. A key
+ * no projection carries renders as the key itself: an identifier and a visible gap, never a word
+ * from another language.
  */
-import { join, resolve } from "node:path";
+import { homedir } from "node:os";
+import { isAbsolute, join, resolve } from "node:path";
 import { resourceRootFrom } from "../../runtime/deployment.mjs";
-import { loadUiWords, loadUiWordsSync, type UiWords } from "../../runtime/ui-words.ts";
+import { resolveUiWords, resolveUiWordsSync, type UiWords } from "../../runtime/ui-words.ts";
 
 /** The surface these captions live on; every other surface belongs to a renderer. */
 const SURFACE = "extension";
@@ -30,6 +33,21 @@ export function extensionContentRoot(override?: string): string {
 }
 
 /**
+ * The workspace root `.coc/` sits under, and with it `.coc/ui-words/`: the same resolution
+ * `extensions/lanes/host.ts` makes for every other campaign file (`PI_COC_HOME`, otherwise the
+ * working directory). It is read here rather than handed down from a session because a caption may
+ * be painted inside a bus event that carries no context at all; a home holding no cache simply
+ * leaves the authored words standing until the lane has written one.
+ */
+export function extensionHome(override?: string): string {
+	if (override) return override;
+	const raw = process.env.PI_COC_HOME?.trim();
+	if (!raw) return process.cwd();
+	const expanded = raw === "~" ? homedir() : raw.startsWith("~/") ? join(homedir(), raw.slice(2)) : raw;
+	return isAbsolute(expanded) ? expanded : resolve(process.cwd(), expanded);
+}
+
+/**
  * `{name}` placeholders filled from one map. A value that is absent leaves its placeholder standing,
  * because a hole named in the output reads as the data gap it is, and a silently dropped one does not.
  */
@@ -43,7 +61,9 @@ export function fill(template: string, values: Record<string, unknown> = {}): st
 export interface ExtensionWords {
 	/** The play language these captions were read for. */
 	readonly tag: string;
-	/** The caption for `key`, or the key itself when no shipped language declares it. */
+	/** Whether they are written in it. False is the authored words standing in until the lane lands. */
+	readonly projected: boolean;
+	/** The caption for `key`, or the key itself when no surface declares it. */
 	word(key: string): string;
 	/** The caption for `key` with its `{placeholders}` filled. */
 	line(key: string, values?: Record<string, unknown>): string;
@@ -52,17 +72,25 @@ export interface ExtensionWords {
 function surface(loaded: UiWords): ExtensionWords {
 	const words = loaded.words[SURFACE] ?? {};
 	const word = (key: string) => words[key] ?? key;
-	return { tag: loaded.tag, word, line: (key, values) => fill(word(key), values) };
+	return { tag: loaded.tag, projected: loaded.projected, word, line: (key, values) => fill(word(key), values) };
 }
 
-/** The captions for one tag; an unknown or absent tag reads as the language `content/languages.json` defaults to. */
-export async function extensionWords(tag: unknown, contentRoot?: string): Promise<ExtensionWords> {
-	return surface(await loadUiWords(extensionContentRoot(contentRoot), tag));
+/** The captions for one tag; a value of no tag shape at all reads as the tag the data defaults to. */
+export async function extensionWords(tag: unknown, contentRoot?: string, home?: string): Promise<ExtensionWords> {
+	return surface(await resolveUiWords({ contentRoot: extensionContentRoot(contentRoot), home: extensionHome(home), tag }));
 }
 
 export interface ExtensionSurface {
 	/** The campaign's play language, exactly as the answer that carried it named it; anything else reads as the default. */
 	speak(tag: unknown): void;
+	/**
+	 * Forget what is held for `tag`, because the projection lane has just written it.
+	 *
+	 * The host puts `coc:ui-words {tag}` on the bus when a background projection lands. A surface
+	 * that had already settled on the authored words would otherwise go on saying them for the rest
+	 * of the session, on a table whose panels have all switched over.
+	 */
+	refresh(tag: unknown): void;
 	/** This extension's captions, read once per tag and re-read when the campaign's language changes. */
 	words(): Promise<ExtensionWords>;
 	/**
@@ -77,8 +105,12 @@ export interface ExtensionSurface {
  * One extension's handle on the surface. The files are read once per tag and held in the extension's
  * own closure rather than in a module-level cache, so two sessions in one process (the test harness,
  * a host that opens a second table) never inherit each other's language.
+ *
+ * Only a projected answer is held. The authored words are a stand-in, and holding them would pin an
+ * extension to them for the whole session -- a caption is small, and reading it again is what lets
+ * the cache take over the moment the lane has written it, even if the bus event was missed.
  */
-export function extensionSurface(contentRoot?: string): ExtensionSurface {
+export function extensionSurface(contentRoot?: string, home?: string): ExtensionSurface {
 	let requested: unknown;
 	let pending: Promise<ExtensionWords> | undefined;
 	let settled: ExtensionWords | undefined;
@@ -89,13 +121,25 @@ export function extensionSurface(contentRoot?: string): ExtensionSurface {
 			pending = undefined;
 			settled = undefined;
 		},
+		refresh(tag: unknown): void {
+			// The event names the tag that landed; a surface speaking a different one keeps what it holds.
+			if (settled && settled.tag !== tag) return;
+			pending = undefined;
+			settled = undefined;
+		},
 		wordsNow(): ExtensionWords {
 			if (settled) return settled;
-			try { return (settled = surface(loadUiWordsSync(extensionContentRoot(contentRoot), requested))); }
-			catch { return { tag: typeof requested === "string" ? requested : "", word: (key) => key, line: (key, values) => fill(key, values) }; }
+			try {
+				const loaded = surface(resolveUiWordsSync({ contentRoot: extensionContentRoot(contentRoot), home: extensionHome(home), tag: requested }));
+				return loaded.projected ? (settled = loaded) : loaded;
+			}
+			catch { return { tag: typeof requested === "string" ? requested : "", projected: false, word: (key) => key, line: (key, values) => fill(key, values) }; }
 		},
 		words(): Promise<ExtensionWords> {
-			return (pending ??= extensionWords(requested, contentRoot).catch((error) => {
+			return (pending ??= extensionWords(requested, contentRoot, home).then((loaded) => {
+				if (!loaded.projected) pending = undefined;
+				return loaded;
+			}, (error) => {
 				// A content root that could not be read is not cached as an answer: the next line tries again.
 				pending = undefined;
 				throw error;

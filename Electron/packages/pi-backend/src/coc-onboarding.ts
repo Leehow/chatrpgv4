@@ -26,8 +26,14 @@ function refusal(error: unknown, fallback: string): Refusal {
   return {code: typeof code === 'string' && code ? code : fallback,
     message: error instanceof Error ? error.message : String(error)};
 }
-/** The product's own captions for one play language: `{tag, words: {surface: {key: word}}}`. */
-export type CocUiWords = {tag: string; words: Record<string, Record<string, string>>};
+/**
+ * The product's own captions for one play language.
+ *
+ * `projected` says whether they are written in `tag` (contract §23, 2026-09-09): false is the
+ * authored words standing in while the projection lane runs, and the overlay redraws when it lands.
+ */
+export type CocUiWords = {tag: string; words: Record<string, Record<string, string>>;
+  projected: boolean; source: 'seed' | 'cache' | 'default'};
 /**
  * The play languages and their words, from the emitted runtime entry.
  *
@@ -47,15 +53,19 @@ function uiModule(repo: string): Promise<any> {
  * being read, and the words behind it never change while it does. A build whose words cannot be
  * read answers with no `ui` at all, so the overlay draws identifiers rather than a language.
  */
-function uiWords(repo: string, contentRoot: string, tag: unknown): Promise<CocUiWords | undefined> {
-  const key = JSON.stringify([repo, contentRoot, typeof tag === 'string' ? tag : null]);
+function uiWords(repo: string, contentRoot: string, home: string, tag: unknown): Promise<CocUiWords | undefined> {
+  const key = JSON.stringify([repo, contentRoot, home, typeof tag === 'string' ? tag : null]);
   let pending = WORDS.get(key);
   if (!pending) {
-    pending = uiModule(repo).then(module => module.loadUiWords(contentRoot, tag) as Promise<CocUiWords>)
+    pending = uiModule(repo).then(module => module.resolveUiWords({contentRoot, home, tag}) as Promise<CocUiWords>)
       .catch(() => {WORDS.delete(key); return undefined;});
     WORDS.set(key, pending);
   }
   return pending;
+}
+/** Drop what is held for one tag, because this host's own projection lane has just cached it. */
+function forgetUiWords(repo: string, contentRoot: string, home: string, tag: unknown): void {
+  WORDS.delete(JSON.stringify([repo, contentRoot, home, typeof tag === 'string' ? tag : null]));
 }
 export type CocOnboardingOptions = {repo:string; home:string; agentDir:string; env:NodeJS.ProcessEnv;
   layout?:'source'|'compiled';
@@ -65,6 +75,8 @@ type PreparationHost = {home:string; start(action:string,input:Row,signal?:Abort
   child:ChildProcessByStdio<null,Readable,Readable>; closed:Promise<void>; close():Promise<void>}};
 export class CocOnboardingHost {
   private presentations = new Map<string,{task:Promise<Row>;result?:Row;error?:unknown}>();
+  /** One background caption projection per tag (contract §23); a failed one waits for `retryUiWords`. */
+  private wordJobs = new Map<string,{task:Promise<void>;failed:boolean}>();
   private documentReadings = new Map<string,{result?:Row;error?:unknown}>();
   private root: string;
   private options: CocOnboardingOptions;
@@ -94,15 +106,50 @@ export class CocOnboardingHost {
   private get contentRoot(): string {
     return resolve(this.options.repo, this.options.contentRoot ?? this.options.env.PI_COC_CONTENT_ROOT ?? 'content');
   }
-  /** The chrome's words for one play language, so the overlay never has to name a language itself. */
+  /**
+   * The chrome's words for one play language, so the overlay never has to name a language itself.
+   *
+   * A tag with no projection yet answers with the authored words and `projected: false` — the
+   * overlay draws at once — and one background projection starts for it. When that lands the held
+   * answer is dropped, and the overlay's next poll carries the player's own words.
+   */
   private words(tag: unknown): Promise<CocUiWords | undefined> {
-    return uiWords(this.options.repo, this.contentRoot, tag);
+    const pending = uiWords(this.options.repo, this.contentRoot, this.options.home, tag);
+    void pending.then(ui => {if (ui && !ui.projected) void this.projectUiWords(ui.tag).catch(() => undefined);});
+    return pending;
+  }
+  /**
+   * Project this tag's captions once, in the background.
+   *
+   * Idempotent per tag for the life of this host, which is one per home: the overlay polls its
+   * status every second and the sheet is read on every commit, so a run started per read would run
+   * the same lane a dozen times a turn. A run that failed is not retried on its own -- the words on
+   * the screen are correct English, not a broken panel -- and `retryUiWords` is the player's retry.
+   * The host that asked awaits the returned promise to know when its own panels should redraw.
+   */
+  projectUiWords(tag: string): Promise<void> {
+    const running = this.wordJobs.get(tag);
+    if (running) return running.task;
+    const task = (async () => {
+      await this.presentation({ui: true, play_language: tag, home: this.options.home});
+      forgetUiWords(this.options.repo, this.contentRoot, this.options.home, tag);
+    })();
+    this.wordJobs.set(tag, {task, failed: false});
+    void task.then(() => {this.wordJobs.delete(tag);}, () => {
+      const job = this.wordJobs.get(tag);
+      if (job) job.failed = true;
+    });
+    return task;
+  }
+  /** Forget the projections that failed, so the next answer starts them again. */
+  retryUiWords(): void {
+    for (const [tag, job] of this.wordJobs) if (job.failed) this.wordJobs.delete(tag);
   }
   private async withWords(answer: Row, tag: unknown): Promise<Row> {
     const ui = await this.words(tag);
     return ui ? {...answer, ui} : answer;
   }
-  /** The declared tag for what the player asked for; the data's default when they asked for nothing. */
+  /** The tag for what the player asked for, settled by shape; the data's default when they asked for nothing. */
   private async playLanguage(tag: unknown): Promise<string> {
     const settled = await uiModule(this.options.repo)
       .then(module => module.playLanguageTag(this.contentRoot, tag) as Promise<string>).catch(() => undefined);

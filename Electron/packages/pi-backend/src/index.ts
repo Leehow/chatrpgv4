@@ -1,7 +1,9 @@
 import { CocOnboardingHost, CocOnboardingRegistry, type CocOnboardingOptions } from './coc-onboarding.js';
+import { timelineAnchors, transcriptPrefix } from './coc-timeline.js';
 export { CocOnboardingRegistry } from './coc-onboarding.js';
 import { readCocBinding, readColdSheet, callColdKernel, mechanicsEntry, draftPresentations, laneWords, laneProjection, laneLabels,
-  cocContentRoot, cocPlayLanguage, cocUiWords, cocUiWordsLoaded, SHEET_LANES, type SheetLane, type CocBinding, type CocHistoryWords } from "./coc-view.js";
+  cocContentRoot, cocForgetUiWords, cocPlayLanguage, cocUiWords, cocUiWordsLoaded, SHEET_LANES, type SheetLane, type CocBinding,
+  type CocHistoryWords, type CocUiWords } from "./coc-view.js";
 import { ChildProcessWithoutNullStreams, execFile, spawn } from "node:child_process";
 import { createExtensionHostWorkers, type ExtensionHostWorkers } from "./extension-host-workers.js";
 import { closeSync, constants as fsConstants, createReadStream, createWriteStream, existsSync, lstatSync, openSync, readFileSync, realpathSync, watch, writeSync, promises as fs, type Dirent } from "node:fs";
@@ -1291,6 +1293,9 @@ async function readSessionMeta(path: string): Promise<SessionMeta> {
 
 /** Atomically replace only the JSONL session header without loading a large transcript into memory. */
 async function rewriteSessionCwd(path: string, cwd: string): Promise<void> {
+  return rewriteSessionHeader(path, {cwd});
+}
+async function rewriteSessionHeader(path: string, patch: {cwd?:string; cocWorldline?:Session['cocWorldline']}): Promise<void> {
   const stat = await fs.stat(path);
   const handle = await fs.open(path, "r");
   let firstNewline = -1;
@@ -1308,7 +1313,7 @@ async function rewriteSessionCwd(path: string, cwd: string): Promise<void> {
   }
   const tmp = `${path}.tmp-${process.pid}-${Date.now()}-${crypto.randomUUID()}`;
   try {
-    await fs.writeFile(tmp, JSON.stringify({ ...header, cwd }) + "\n", { mode: stat.mode });
+    await fs.writeFile(tmp, JSON.stringify({ ...header, ...patch }) + "\n", { mode: stat.mode });
     if (firstNewline >= 0 && firstNewline + 1 < stat.size)
       await pipeline(createReadStream(path, { start: firstNewline + 1 }), createWriteStream(tmp, { flags: "a" }));
     await fs.rename(tmp, path);
@@ -1437,7 +1442,7 @@ function redactHistoryEntry(entry: HistoryEntry | undefined, secrets: RevealedSe
   };
 }
 /** Where a host reads its own data from, for the answers a renderer draws words out of. */
-type CocHostPaths = {repo: string; contentRoot: string};
+type CocHostPaths = {repo: string; contentRoot: string; home: string};
 function visibleHistoryEntry(entry: any, secrets: RevealedSecret[] = [], language?:string,
   presentations?: ReadonlyMap<number, Record<string, unknown>>, words: CocHistoryWords = {}): HistoryEntry | undefined {
   const mechanics = mechanicsEntry(entry, language, presentations, words);
@@ -1571,7 +1576,7 @@ async function readHistoryFallback(
   const cocPresentations = await draftPresentations(cocBinding);
   const cocWords: CocHistoryWords = {
     lanes: await laneLabels(cocBinding),
-    ...(cocHost ? {ui: await cocUiWords(cocHost.repo, cocHost.contentRoot, cocBinding?.play_language)} : {}),
+    ...(cocHost ? {ui: await cocUiWords(cocHost.repo, cocHost.contentRoot, cocBinding?.home || cocHost.home, cocBinding?.play_language)} : {}),
   };
   const lines = createInterface({
     input: jsonlSnapshotStream(path, byteEnd),
@@ -3661,7 +3666,51 @@ export class PiHostBackend implements HostBackend {
   private cocHostPaths(): CocHostPaths | undefined {
     if (!this.managedNodeModulesRoot) return undefined;
     const repo = resolve(this.managedNodeModulesRoot, "..");
-    return {repo, contentRoot: cocContentRoot(repo, this.cocRuntime, this.env)};
+    // The default home, for an answer that carries no campaign yet; a bound session's own home
+    // overrides it, because that is where its projected captions were cached.
+    return {repo, contentRoot: cocContentRoot(repo, this.cocRuntime, this.env), home: resolve(this.env.PI_COC_HOME || repo)};
+  }
+  /** One background caption projection per (home, tag), the way `cocLaneJobs` keeps one per lane. */
+  private readonly cocUiWordJobs = new Map<string, {status:"pending"|"failed"}>();
+  /**
+   * The captions for one tag, and the one projection that fills them (contract §23, 2026-09-09).
+   *
+   * A tag with a shipped seed or a cached projection answers projected. A tag with neither answers
+   * with the authored words and `projected: false` — the panel draws at once, in the system
+   * language, rather than waiting on a model round — and this starts one lane run for that tag.
+   * When it lands, the held answer is dropped and every COC panel is told to re-read.
+   */
+  private async cocWords(home: string | undefined, tag: unknown): Promise<CocUiWords | undefined> {
+    const paths = this.cocHostPaths();
+    if (!paths) return undefined;
+    const where = home || paths.home;
+    const ui = await cocUiWords(paths.repo, paths.contentRoot, where, tag);
+    if (ui && !ui.projected) this.cocProjectWords(paths, where, ui.tag);
+    return ui;
+  }
+  private cocProjectWords(paths: CocHostPaths, home: string, tag: string): void {
+    const key = JSON.stringify([home, tag]);
+    if (this.cocUiWordJobs.has(key)) return;
+    this.cocUiWordJobs.set(key, {status: "pending"});
+    try {
+      const host = this.cocOnboardingRegistry.get({...this.cocRuntime, repo: paths.repo, home,
+        agentDir: this.sharedProfileDir, env: this.env});
+      this.cocOnboarding = host;
+      void host.projectUiWords(tag).then(() => {
+        this.cocUiWordJobs.delete(key);
+        cocForgetUiWords(paths.repo, paths.contentRoot, home, tag);
+        // Both panels draw from `ui`, and the transcript's cards are folded into the history page
+        // the sheet refresh re-reads, so one pair of frames covers every surface.
+        for (const type of ["sheet_changed", "mods-changed", "timeline-changed"])
+          emitFrame(this.listeners, {protocolVersion: PIPI_HOST_PROTOCOL_VERSION, channel: "ext.coc-keeper",
+            event: {type, payload: {play_language: tag}}});
+      }, () => {this.cocUiWordJobs.set(key, {status: "failed"});});
+    } catch {this.cocUiWordJobs.set(key, {status: "failed"}); /* no runtime to project with */}
+  }
+  /** The player asking again for the caption projections that failed, alongside the sheet's lanes. */
+  private cocRetryWords(): void {
+    for (const [key, job] of this.cocUiWordJobs) if (job.status === "failed") this.cocUiWordJobs.delete(key);
+    this.cocOnboarding?.retryUiWords();
   }
   /**
    * The play language of every session this host has spawned, so a live card drawn inside the
@@ -3678,7 +3727,9 @@ export class PiHostBackend implements HostBackend {
   private cocLiveWords(sessionId: string): CocHistoryWords {
     const paths = this.cocHostPaths();
     if (!paths) return {};
-    const ui = cocUiWordsLoaded(paths.repo, paths.contentRoot, this.cocSessionBindings.get(sessionId)?.play_language);
+    const binding = this.cocSessionBindings.get(sessionId);
+    const ui = cocUiWordsLoaded(paths.repo, paths.contentRoot, binding?.home || paths.home, binding?.play_language);
+    if (ui && !ui.projected) this.cocProjectWords(paths, binding?.home || paths.home, ui.tag);
     return ui ? {ui} : {};
   }
   private async readHistoryCached(path: string, before: number | string, limit: number, sessionId?: string): Promise<HistoryEntry[]> {
@@ -4925,6 +4976,7 @@ export class PiHostBackend implements HostBackend {
   }
   private toSession(s: SessionMeta): Session {
     return {
+      ...(s.header.cocWorldline ? {cocWorldline:s.header.cocWorldline} : {}),
       id: s.header.id,
       projectId: dirId(s.header.cwd),
       name: s.name ?? "Session",
@@ -5412,6 +5464,7 @@ export class PiHostBackend implements HostBackend {
   private async spawnLive(id: string, generation = this.sessionRuntimeToken(id)): Promise<Live> {
     this.assertSessionGeneration(id, generation);
     const found = await this.locate(id);
+    if (found.header.cocWorldline) await this.activateCocConversation(found);
     this.assertSessionGeneration(id, generation);
     const rollback: Array<() => void | Promise<void>> = [];
     let rollbackLive: Live | undefined;
@@ -8516,16 +8569,128 @@ export class PiHostBackend implements HostBackend {
    * Spread into the answer rather than assigned, so a build without words produces an answer with
    * no `ui` key at all: a renderer that finds none draws its identifiers instead of a language.
    */
-  private async cocAnswerWords(tag: unknown): Promise<{ui?: unknown}> {
-    const paths = this.cocHostPaths();
-    if (!paths) return {};
-    const ui = await cocUiWords(paths.repo, paths.contentRoot, tag);
+  private async cocAnswerWords(tag: unknown, home?: string): Promise<{ui?: unknown}> {
+    const ui = await this.cocWords(home, tag);
     return ui ? {ui} : {};
   }
   /** A thrown failure's own code when it carries one; a kernel error's passes through unchanged. */
   private cocCode(error: unknown, fallback = "kernel_error"): string {
     const code = (error as {code?: unknown})?.code;
     return typeof code === "string" && code ? code : fallback;
+  }
+  private cocTimelineMutation: Promise<unknown> = Promise.resolve();
+  private async closeCocWriters(context:CocBinding):Promise<void> {
+    const writers:string[]=[];
+    for(const [id,live] of this.live) {
+      const binding=await readCocBinding(live.path);
+      if(binding?.campaign!==context.campaign || binding.home!==context.home)continue;
+      if(!this.isSessionQuiet(id)||this.sessionHasLiveAgents(id))
+        throw this.cocRefusal("operation_in_progress","Wait for this campaign's current turn to finish");
+      writers.push(id);
+    }
+    for(const id of writers)if(!await this.closeQuietSessionWriter(id))
+      throw this.cocRefusal("operation_in_progress","The campaign writer is still active");
+  }
+  private async activateCocConversation(selected:SessionMeta):Promise<void> {
+    const context=await readCocBinding(selected.path), line=selected.header.cocWorldline?.line;
+    if(!context||!line||!this.managedNodeModulesRoot)return;
+    await this.closeCocWriters(context);
+    await callColdKernel(resolve(this.managedNodeModulesRoot,".."),context.home,"table.switch",
+      {campaign:context.campaign,line},this.env,this.cocRuntime);
+  }
+  private async cocTimeline(sid:string,method:string,params:Record<string,unknown>):Promise<ExtInvokeResult> {
+    if(method!=="timeline.graph") {
+      const previous=this.cocTimelineMutation;
+      const work=previous.catch(()=>undefined).then(()=>this.cocTimelineRun(sid,method,params));
+      this.cocTimelineMutation=work;
+      return work;
+    }
+    return this.cocTimelineRun(sid,method,params);
+  }
+  private async cocTimelineRun(sid:string,method:string,params:Record<string,unknown>):Promise<ExtInvokeResult> {
+    if(!sid)return {ok:true,data:{status:"unbound",campaign:null,...await this.cocAnswerWords(undefined)}};
+    const selected=await this.locate(sid), context=await readCocBinding(selected.path);
+    if(!context)return {ok:true,data:{status:"unbound",campaign:null,...await this.cocAnswerWords(undefined)}};
+    if(!this.managedNodeModulesRoot)throw this.cocRefusal("runtime_unavailable","Runtime unavailable");
+    const repo=resolve(this.managedNodeModulesRoot,"..");
+    const call=(method:string,params:Record<string,unknown>)=>callColdKernel(repo,context.home,method,{...params,campaign:context.campaign},this.env,this.cocRuntime);
+    if(method==='timeline.select') {
+      await this.activateCocConversation(selected);
+      return {ok:true,data:{session:this.toSession(selected)}};
+    }
+    const candidates=[selected];
+    for(const candidate of await this.scanIndex()) {
+      if(candidate.header.id===sid||candidate.header.cocWorldline?.campaign!==context.campaign)continue;
+      if((await readCocBinding(candidate.path))?.home===context.home)candidates.push(candidate);
+    }
+    const records=await Promise.all(candidates.map(async session=>({session,rows:parseLines(await fs.readFile(session.path,'utf8'))})));
+    const anchors=records.flatMap(({session,rows})=>timelineAnchors(rows,session.header.id));
+    if(method==='timeline.graph') {
+      const live=this.live.get(sid);
+      let data:any;
+      if(live&&this.liveProcessUsable(live)) {
+        const answer=await this.enqueueExtInvoke(sid,'coc-keeper','timeline.graph',{});
+        if(!answer.ok)return answer;
+        data=answer.data;
+      } else data=await call('table.graph',{});
+      return {ok:true,data:{...data,anchors,sessions:candidates.map(s=>this.toSession(s)),...await this.cocAnswerWords(context.play_language,context.home)}};
+    }
+    const anchor=anchors.find(a=>typeof params.messageId==='string'?a.sessionId===sid&&a.messageId===params.messageId:a.commit===params.commit);
+    const following=method==='timeline.follow';
+    if(!anchor && !following)throw this.cocRefusal('invalid_params','This node has no recorded conversation delivery');
+    const source=records.find(r=>r.session.header.id===(anchor?.sessionId??sid))!;
+    if(method==='timeline.navigate') {
+      emitFrame(this.listeners,{protocolVersion:PIPI_HOST_PROTOCOL_VERSION,channel:'ext.coc-keeper',event:{type:'timeline-navigate',payload:{originSessionId:sid,session:this.toSession(source.session),messageId:anchor!.messageId}}});
+      return {ok:true,data:{session:this.toSession(source.session),messageId:anchor!.messageId}};
+    }
+    await this.closeCocWriters(context);
+    // Re-read after the writer stopped: the prefix must include the final durable delivery.
+    const rows=parseLines(await fs.readFile(source.session.path,'utf8'));
+    const stable=anchor && timelineAnchors(rows,anchor.sessionId).find(a=>a.commit===anchor.commit);
+    if(!stable&&!following)throw this.cocRefusal('invalid_params','The selected delivery is unavailable');
+    const prefix=following?rows.slice(1):transcriptPrefix(rows,stable!);
+    const graph:any=await call('table.graph',{});
+    if(following) {
+      const existing=candidates.find(s=>s.header.cocWorldline?.line===graph.active);
+      if(existing) {
+        if(existing.header.id!==sid)emitFrame(this.listeners,{protocolVersion:PIPI_HOST_PROTOCOL_VERSION,channel:'ext.coc-keeper',event:{type:'timeline-navigate',payload:{originSessionId:sid,session:this.toSession(existing)}}});
+        return {ok:true,data:{session:this.toSession(existing)}};
+      }
+      if(!graph.lines.some((line:any)=>line.name===params.previousLine))throw this.cocRefusal('invalid_params','The previous worldline is unavailable');
+    }
+    const activeLine=graph.lines.find((line:any)=>line.name===graph.active);
+    const data:any=following?{ok:true,active:graph.active,branched_from:activeLine?.forked_from??{line:params.previousLine,turn:activeLine?.last_turn}}:await call('table.branch',{commit:anchor!.commit});
+    if(data?.ok!==true)throw this.cocRefusal('kernel_error','The branch was not created');
+    // Keep the source header bound to the line it represented before branching.
+    if(!source.session.header.cocWorldline) {
+      const header={...rows[0],cocWorldline:{campaign:context.campaign,line:following?String(params.previousLine):graph.active}};
+      await this.sessionFileExclusive(source.session.header.id)(() => rewriteSessionHeader(source.session.path,{cocWorldline:header.cocWorldline}));
+      source.session.header=header;
+      const stat=await fs.stat(source.session.path);
+      this.rememberSessionMeta(source.session,stat.size,stat.mtimeMs);
+    }
+    const child=await this.newSession(dirId(source.session.header.cwd),data.active);
+    const model=this.sessionModelSnapshots.get(source.session.header.id);
+    if(model)this.sessionModelSnapshots.set(child.id,model);
+    else this.sessionModelSnapshots.delete(child.id);
+    const childMeta=await this.locate(child.id);
+    const header={...childMeta.header,cocWorldline:{campaign:context.campaign,line:data.active,parentSessionId:source.session.header.id}};
+    const stamp=new Date().toISOString();
+    const binding={...context,mode:'play'};
+    const tail=[
+      {type:'custom',customType:'coc-session',data:binding},
+      {type:'session_info',name:data.active},
+      ...(following?[]:[{type:'custom',customType:'coc-mechanics',data:{turn:stable!.turn,play_language:context.play_language,mechanics:[{kind:'worldline',operation:'fork',line:data.active,from_line:data.branched_from.line,from_turn:stable!.turn}]}}])
+    ];
+    let parentId=prefix.at(-1)?.id??null;
+    for(const row of tail as any[]) {row.id=crypto.randomUUID();row.parentId=parentId;row.timestamp=stamp;parentId=row.id;}
+    await fs.writeFile(childMeta.path,[header,...prefix,...tail].map(r=>JSON.stringify(r)).join('\n')+'\n');
+    await fs.writeFile(childMeta.path+'.coc.json',JSON.stringify(binding)+'\n');
+    const fresh=await readSessionMeta(childMeta.path),stat=await fs.stat(childMeta.path);
+    this.rememberSessionMeta(fresh,stat.size,stat.mtimeMs);
+    const session=this.toSession(fresh);
+    emitFrame(this.listeners,{protocolVersion:PIPI_HOST_PROTOCOL_VERSION,channel:'ext.coc-keeper',event:{type:'timeline-navigate',payload:{originSessionId:sid,session,parent:this.toSession(source.session)}}});
+    return {ok:true,data:{...data,session}};
   }
   private async invokeExtension(
     idValue: unknown,
@@ -8641,59 +8806,17 @@ export class PiHostBackend implements HostBackend {
           catch { /* Text remains editable if the optional texture asset is unavailable. */ }
         }
         // A Mods answer the panel draws from carries the words it draws them with.
-        const ui = (await this.cocAnswerWords(context?.play_language)).ui;
+        const ui = (await this.cocAnswerWords(context?.play_language, context?.home)).ui;
         return {ok:true,data:isRecord(data)&&ui?{...data,ui}:data};
       } catch(error) {return this.cocDenied(this.cocCode(error),error instanceof Error ? error.message : String(error));}
     }
-    if (id === "coc-keeper" && ["timeline.graph","timeline.branch"].includes(method)) {
-      // Contract §29: the memory-line panel. Live sessions answer through the pack's ext-invoke
-      // handlers (pipicoc/timeline.ts); without one, a short-lived kernel answers the same two
-      // methods, exactly as the Mods block above does.
-      try {
-        const sid = isRecord(optsValue) && typeof optsValue.sessionId === "string" ? optsValue.sessionId.trim() : "";
-        const active = sid ? this.live.get(sid) : undefined;
-        if (active && this.liveProcessUsable(active)) {
-          if (!this.extensions.isMounted(sid,id)) return this.cocDenied("capability_denied","extension not mounted on session");
-          return this.enqueueExtInvoke(sid,id,method,params);
-        }
-        const words = async (tag?: string) => ({...await this.cocAnswerWords(tag)});
-        if (!sid) return {ok:true,data:{status:"unbound",campaign:null,...await words(undefined)}};
-        const selected = await this.locate(sid);
-        const context = await readCocBinding(selected.path);
-        if (!context) return {ok:true,data:{status:"unbound",campaign:null,...await words(undefined)}};
-        if (!this.managedNodeModulesRoot) throw this.cocRefusal("runtime_unavailable", "Canonical runtime is unavailable");
-        const repo = resolve(this.managedNodeModulesRoot,"..");
-        const request:Record<string,unknown> = isRecord(params) ? {...params} : {};
-        delete request.campaign;
-        request.campaign = context.campaign;
-        const data:any = await callColdKernel(repo,context.home,method==="timeline.graph"?"table.graph":"table.branch",request,this.env,this.cocRuntime);
-        if (method === "timeline.branch" && isRecord(data) && data.ok === true) {
-          // The watershed belongs in the transcript (contract §16.2): the same coc-mechanics row
-          // the live path appends through the pack, written here because no live process can.
-          // The append rides the host's own per-session write barrier, and the parent id is read
-          // inside it, so a racing append cannot hand this row a stale parent.
-          const from = isRecord(data.branched_from) ? data.branched_from : {};
-          const line = isRecord(data.line) ? data.line : {};
-          const mechanics = [{kind:"worldline",operation:"fork",
-            line:typeof line.name==="string"?line.name:undefined,
-            from_line:typeof from.line==="string"?from.line:undefined,
-            from_turn:typeof from.turn==="number"?from.turn:undefined}];
-          await this.sessionFileExclusive(sid)(async () => {
-            await fs.appendFile(selected.path, `${JSON.stringify({type:"custom",customType:"coc-mechanics",
-              data:{turn:typeof from.turn==="number"?from.turn:0,mechanics,play_language:context.play_language},
-              id:crypto.randomUUID(),parentId:await lastJsonlEntryId(selected.path),timestamp:new Date().toISOString()})}\n`);
-          });
-          emitFrame(this.listeners,{protocolVersion:PIPI_HOST_PROTOCOL_VERSION,channel:'ext.coc-keeper',event:{type:'timeline-changed',payload:{campaign:context.campaign}}});
-        }
-        // A Timeline answer the panel draws from carries the words it draws them with.
-        const ui = (await this.cocAnswerWords(context.play_language)).ui;
-        return {ok:true,data:isRecord(data)&&ui?{...data,ui}:data};
-      } catch(error) {
-        // A live process mid-turn holds the campaign lock; the kernel reports the bounded wait as
-        // internal/campaign_locked, and the panel's word for it is the open-turn one.
-        const details=(error as {details?:unknown})?.details;
-        const locked=(error as {code?:unknown})?.code==="internal"&&isRecord(details)&&details.reason==="campaign_locked";
-        return this.cocDenied(locked?"operation_in_progress":this.cocCode(error),error instanceof Error?error.message:String(error));
+    if (id === "coc-keeper" && ["timeline.graph","timeline.branch","timeline.navigate","timeline.select","timeline.follow"].includes(method)) {
+      const sid = isRecord(optsValue) && typeof optsValue.sessionId === "string" ? optsValue.sessionId : "";
+      try { return await this.cocTimeline(sid,method,isRecord(params)?params:{}); }
+      catch(error) {
+        const details=(error as {details?:{reason?:string}})?.details;
+        const code=this.cocCode(error);
+        return this.cocDenied(code==='internal'&&details?.reason==='campaign_locked'?'operation_in_progress':code,error instanceof Error?error.message:String(error));
       }
     }
     if(id==='coc-keeper' && (method==='draft-previewed'||method==='draft-presentation')) {
@@ -8745,7 +8868,10 @@ export class PiHostBackend implements HostBackend {
         const read = (async (): Promise<ExtInvokeResult> => {
           const context = await readCocBinding(selected.path);
           if (!context) return {ok:true,data:{status:"unbound",view:null,campaign:null,...await this.cocAnswerWords(undefined)}};
-          const words = await this.cocAnswerWords(context.play_language);
+          // One retry word covers every projection this read starts: the sheet's vocabulary lanes
+          // and the chrome's own captions both stop after one failure and both wait for the player.
+          if (isRecord(params) && params.retry_projection === true) this.cocRetryWords();
+          const words = await this.cocAnswerWords(context.play_language, context.home);
           try {
             if (!this.managedNodeModulesRoot) throw this.cocRefusal("runtime_unavailable", "Canonical runtime is unavailable");
             const view=await readColdSheet(join(this.managedNodeModulesRoot ?? "", ".."),context,undefined,this.env,this.cocRuntime);

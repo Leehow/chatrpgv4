@@ -164,5 +164,41 @@ export function createBranchHandlers(context: KernelContext, writer: WriteRuntim
     }
     return { ok: true, line: { name, kind: "if", loop: 0, forked_from: clone(forkedFrom) }, active: name, branched_from: clone(forkedFrom) };
   }
-  return Object.freeze({ "table.branch": branch });
+  async function switchLine(params: Row): Promise<Row> {
+    const campaign = await writer.campaign(params, { requireTurn: false, requireWorld: false });
+    const wl: WorldlineContext = { kernel: context, campaign };
+    const meta = await campaign.readCampaign(), before = clone(meta);
+    const lines = clone(registry(meta)), source = activeName(meta);
+    const name = validateName(params.line, "line"), target = lines[name];
+    if (!isJsonObject(target) || target.status === "merged" || !await lineCommit(wl, name))
+      throw new RpcError("invalid_params", "The requested worldline cannot be resumed");
+    const turn = await readableTurn(campaign);
+    if (turn && turn.state !== "awaiting_player")
+      throw new RpcError("operation_in_progress", "Finish the open turn before switching worldlines");
+    if (name === source) return { ok: true, active: name };
+    try {
+      const seal = await commitIfDirty(wl, `worldline ${source}: sealed before resuming ${name}`);
+      if (isJsonObject(lines[source])) {
+        lines[source].last_commit = seal || await head(wl);
+        lines[source].status = "dormant";
+      }
+      await checkout(wl, name);
+      target.status = "active";
+      meta.worldlines = lines;
+      meta.active_worldline = name;
+      delete meta.pending_branch;
+      await campaign.writeCampaign(meta);
+      const last = number(target.last_turn);
+      const record = last > 0 ? await campaign.readTurnRecord(last) : null;
+      if (record) await writeCheckpoint(campaign, checkpointFromRecord(campaign.id, record, {}, name));
+      if (!context.seedLocked) context.rng.seed(`${string(target.seed)}:${last + 1}`);
+      await campaign.telemetry({ lane: "worldline", op: "switch", ok: true, line: name });
+      return { ok: true, active: name };
+    } catch (error) {
+      await checkout(wl, source, true);
+      await campaign.writeCampaign(before);
+      throw error;
+    }
+  }
+  return Object.freeze({ "table.branch": branch, "table.switch": switchLine });
 }

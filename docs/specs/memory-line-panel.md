@@ -2,6 +2,24 @@
 
 2026-09-09 设计稿。状态：已实现并通过验收（见文末验证记录）。契约 §29 已落笔（`docs/kernel-rpc.md`），桌级分支的决定见 `docs/adr/0004-host-level-branch.md`。
 
+## Conversation navigation revision (2026-09-09)
+
+The player's latest UI request supersedes D2, the confirmation interaction in D3, and the
+old exclusion of host-level switching: completed replies now expose Copy and Create branch;
+a fork creates and selects a child conversation with the source transcript prefix. Sidebar
+rows retain parent links. Graph nodes navigate to recorded delivery anchors and never open
+a branch dialog. The game-time axis remains, with sparse time-range captions, named line
+chips and delivery summaries. See contract §29.3 for `table.switch` and host routing.
+
+Validation of this revision: focused component/host tests and an isolated light/dark browser
+preview. The open-language implementation is now integrated, including a real tool-enabled Pi
+caption projection and the generated message-action seed. Extension tests pass (652), the
+Electron suite matches its existing baseline (196 known failures; no new failures), and the web
+build passes. The full Python run was interrupted after 787 passes, one obsolete language
+assertion (updated to the open-tag contract), and two Git timeouts; a focused rerun passed 44
+cases before pausing to avoid another task's concurrent pytest. Full Python completion remains
+unverified. This revision does not claim signed-App or live-table acceptance.
+
 ## 一、用户想达成什么
 
 右侧栏加一个「记忆线」tab：把当前战役的整条 git 记忆线（主线 + 所有世界线分支）画成一张沉浸感的图；玩家点击某个历史节点，先弹确认，确认后从那个节点创建一条新世界线并进入（桌子切换到新线，继续玩）。旧线原样保留——证据永不删除。

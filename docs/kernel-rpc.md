@@ -2083,6 +2083,72 @@ with no bundle generates its guidance per campaign as a PDF module does, never
 `system-language.test.mjs` keeps refusing a tag comparison or a table keyed by
 a tag anywhere in code. `Agents.md` states the rule for every future agent.
 
+**Kernel note (2026-09-09, the open-language kernel slice).** What the kernel
+does now, where an earlier section still says otherwise:
+
+- `kernel-ts/read/languages.ts` reads `content/languages.json` as
+  `coc.play-languages.v2`: `default` and `suggested` only, each checked by the
+  shape `validSourceLanguage` exports (the kernel's one language-tag pattern);
+  `playLanguageOf(meta)` returns the campaign's tag when it is tag-shaped, else
+  `default`.
+- `campaign.create` (§14.4 row `create-campaign`) accepts any tag-shaped
+  `play_language`. A malformed one is `invalid_params` with
+  `details.field: "play_language"`, `details.suggested` (the picker's first
+  offers, from the data) and a `fix` naming the BCP-47 shape; there is no
+  `details.options`. The guidance job (`module.read`, `purpose: "guidance"`)
+  checks the same shape.
+- The script rows of §5 (`table.ask`; `table.narrate` step 2) and of §16.3
+  ("Play-language script check") are void: `checkLanguage`, `checkScript`,
+  `SCRIPTS` and `playLanguageScript` are deleted and the kernel emits no
+  `code_detail: "play_language_mismatch"`. `narrate` and `ask` deliver any text
+  on any tag.
+- `table.warn` (§12.5) accepts the fourth kind `play_language_mismatch` beside
+  `reveal`, `uncommitted_state` and `player_agency`.
+- Starter registration reads whichever
+  `content/starters/<id>/character-guidance/<tag>.json` files exist; the file
+  name is the tag and must be tag-shaped (`invalid_params` otherwise).
+  `bundled_guidance_required` gates only the tags a bundle exists for: a listed
+  starter opened in a tag with no bundle generates its guidance per campaign
+  (`extensions/module/character-guidance.ts`), while a stale bundle still
+  answers `guidance_not_ready`. `scripts/build-starter-guidance.ts` bundles the
+  `suggested` tags.
+
+**Integration note (2026-09-09).** A shipped seed or home cache is projected only
+when it covers every authored key. Partial projections keep their existing words visible
+but start the presenter for missing coverage; the presenter always reads the English
+source, never the mixed fallback display. This includes newly added message actions.
+
+#### What the hosts landed, and where it deviates (2026-09-09)
+
+The loader, the projection lane, the two hosts, the extensions, the verifier
+finding and the picker are in. Three notes, each a decision rather than a silent
+gap:
+
+- **`content/languages.json` gained `source`.** The rule above forbids a
+  language tag literal in code, and the loader has to name the tag the authored
+  captions are written in — for the digest, for the fallback words, and for the
+  short-circuit that keeps the authored tag out of the model. `const SOURCE =
+  "en"` would be the tag table in code, one entry long, so the tag lives in the
+  data with `default` and `suggested`: `{contract, source, default, suggested}`.
+  Adding a language is still nothing; changing which language the product is
+  authored in is a data change plus a directory rename. The kernel's reader
+  ignores keys it does not read, and `system-language.test.mjs` builds its
+  forbidden-literal pattern from all three named tags.
+- **`ui` carries `projected` and `source`.** Every answer's `ui` block is now
+  `{tag, words, projected, source}` — `projected: false` is the authored words
+  standing in while the lane runs, and `source` is `seed` | `cache` |
+  `default`. The lane's request shape is documented with it: `texts.json`
+  carries `play_language`, `captions` (one `{surface, key, text}` row per place
+  a caption appears, because a key may itself contain a dot) and `texts` (the
+  distinct source strings still owed); the answer is
+  `{"texts": {source: projected}}`, and the cache is
+  `<home>/.coc/ui-words/<tag>-<digest>.json` =
+  `{play_language, digest, texts: {surface: {key: word}}}`, with `digest` the
+  full sha256 of the authored surfaces plus `content/setup/ui-presentation.md`.
+- **The retry word is shared.** A failed caption projection is not retried on
+  its own; the sheet's existing `retry_projection` parameter clears it alongside
+  the vocabulary lanes', so one button covers both.
+
 ### Host decision: RPC adapter
 
 The adapter preserves transport/session/model options, removes host persona and
@@ -3443,6 +3509,36 @@ needs a value the book never gave has the Keeper play it without state.
 - 换线通知：分支成功后下一次 `player_input` 的胶囊带一次性 `branched` 节 `{"name", "from_line", "from_turn"}`（内核置旗、胶囊读后清）；`worldlines` 节照常反映新线。宿主在会话里追加分水岭展示条目（§23 的 `coc-mechanics` 通道，投影 `{"kind": "worldline", "operation": "fork", "line", "from_line", "from_turn"}`），玩家由此在聊天流里看见分界。
 
 ### 29.3 内核的决定
+
+**2026-09-09 conversation navigation revision.** A graph click navigates to its recorded
+delivery; it never forks or opens a confirmation. Completed deliveries expose Copy and
+Create branch. The host creates a child Pi session from the selected delivery's transcript
+prefix, binds it to the new worldline, and selects it. The source transcript remains intact.
+Session headers carry `cocWorldline: {campaign, line, parentSessionId?}`; this is navigation
+metadata, never world-state authority. Old mixed-line sessions remain readable.
+
+`table.switch {campaign, line}` is a host-only idle-table operation. It refuses unknown or
+merged lines and open turns, seals the source, checks out the target, preserves the complete
+registry, reseeds RNG and rebuilds the target checkpoint. It returns `{ok, active}` and rolls
+back checkout/registry on failure. The Keeper's seven verbs do not change. The host closes
+idle campaign writers before switching and refuses while any is working. Before starting a
+bound conversation it ensures that conversation's worldline is active.
+
+`timeline.graph` adds host-only `sessions` and `anchors` (commit, messageId, sessionId).
+Anchors come from durable commit events or legacy successful narrate results, never ordinal
+message counting. `timeline.navigate {commit}` selects the recorded conversation and scrolls
+to that delivery, loading older history as needed; unavailable history returns an error.
+`timeline.branch {messageId}` resolves the commit on the host, branches and returns the child
+session. `timeline.select` activates the worldline bound to the requested session. These
+routes use the existing extension transport. No hashes are typed by a model.
+After a Keeper-driven worldline change settles, `timeline.follow {previousLine}` binds or
+selects the corresponding conversation through that same host path; it creates no worldline
+and never interrupts a running turn. This keeps model-driven and button-driven forks aligned.
+
+The sidebar nests child conversations below their parents. The relationship panel keeps the
+game-time axis, uses sparse time-range captions, visible line names and compact delivery
+summaries. Equal game times still align; exact timestamps remain in node details. Chrome
+uses the existing English source/presenter pipeline with no authored translation tables.
 
 **`table.graph` 的实现面。** `kernel-ts/read/graph.ts` 一个模块装下：战役经 `CampaignSnapshot.open(ctx, id, requireWorld=false, requireTurn=false)` 打开（setting_up 的战役也读得了，不碰桌态）。`at` 取 committer 时间（`%cI`），节点按它降序——`when` 已经是游戏内日历，「更早的历史省略」是提交时间语义。`clock` 用一次 `git cat-file --batch` 给截断后留下的每个节点读 `<sha>:world.json` 的 `clock.minutes`（每节点一次的 `git show` 不允许；读不到的继承父节点，根为 0），`when` 走 `clockSection` 投影机（模组没声明 `start_clock.local_datetime` 时为 null）。枚举全图 = 一次 `for-each-ref refs/heads/wl/` + 一次 `git log --format`，每次调用 3 个 git 进程。`kind` 按契约顺序机械判；`title` 对回合节点剥 `turn N:` 前缀；sha 用短形与注册表一致。`max_nodes` 缺省 500、超 1000 收 1000、非整数或 <1 报 `invalid_params`；截断后把缺的线 tip 补回。`generate_reference.py` 学了 TS-only 方法名单（词汇锁证据可重生成）。
 

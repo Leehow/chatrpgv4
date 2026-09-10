@@ -1,7 +1,8 @@
 """§16 system language: no Chinese in code or in the system content the kernel serves, and
-the delivery floor -- a zh-Hans turn is delivered verbatim with every receipt projected,
-a text that skips a public number is refused naming the receipt, and a player-facing field
-that carries no CJK is refused as play_language_mismatch.
+the delivery is verbatim -- a zh-Hans turn is delivered as written with every receipt
+projected, and no player-facing field is refused by its script: the play language is open
+(contract section 23), any tag-shaped play_language opens a table, and whether a delivery is
+in it is the verifier lane's finding, never a kernel refusal.
 
 The guard reads bytes, not semantics: any CJK character (ideographs, kana, hangul, CJK
 punctuation, fullwidth forms) anywhere in the file -- comments included -- fails it.
@@ -9,6 +10,7 @@ Module content and the rules glossary are data and are not scanned."""
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -128,43 +130,32 @@ def test_story_is_separate_from_roll_and_clock_json(kernel):
     assert done["mechanics"][1]["minutes"] == 10
 
 
-def test_zh_hans_player_facing_english_is_refused(kernel):
+def test_no_player_facing_field_is_refused_by_its_script(kernel):
+    """Latin-only prose, prompt and options on the zh-Hans table are delivered as written: the
+    kernel has no script table to look in (contract section 23)."""
     open_turn(kernel)
-    error = kernel.table_err(
-        "ask", call_id="t1-c1",
-        prompt="What does the Investigator do?",
-        options=["Look around", "Leave"],
-    )
-    assert error["code"] == "invalid_params" and error["code_detail"] == "play_language_mismatch"
-    assert error["details"]["play_language"] == "zh-Hans"
-    assert error["details"]["fields"] == ["prompt", "options[0]", "options[1]"]
-    assert "prompt" in error["fix"] and "zh-Hans" in error["fix"]
-    assert not CJK.search(error["message"]) and not CJK.search(error["fix"])
-    assert kernel.table("status")["state"] == "open"
-
-    one = kernel.table_err(
-        "ask", call_id="t1-c1", prompt="你要怎么做？", options=["留下", "Leave"],
-    )
-    assert one["code_detail"] == "play_language_mismatch"
-    assert one["details"]["fields"] == ["options[1]"]
-
-    prose = kernel.table_err("narrate", call_id="t1-c1", text="The Scene is quiet. The Keeper waits.")
-    assert prose["code_detail"] == "play_language_mismatch"
-    assert prose["details"]["fields"] == ["text"]
-    assert kernel.table("status")["state"] == "open"
-
-    done = kernel.table("ask", call_id="t1-c1", prompt="你要怎么做？", options=["留下", "离开"])
-    assert done["state"] == "asked"
-    assert done["rendered_text"] == ""
-    assert done["interaction"]["options"] == ["留下", "离开"]
-
-
-def test_en_delivery_is_not_script_checked(kernel):
-    kernel.ok("campaign.create", {"id": CAMPAIGN, "module": MODULE, "pregen": PREGEN, "play_language": "en"})
-    kernel.table("narrate", call_id="t0-c1", text="Boston, 1920. Knott sets a key on the desk.")
-    kernel.table("player_input", text="I look around.")
-    asked = kernel.table("ask", call_id="t1-c1", prompt="What do you do?",
-                         options=["Search the desk", "Leave"])
+    text = "The Scene is quiet. The Keeper waits."
+    prose = kernel.table("narrate", call_id="t1-c1", text=text)
+    assert prose["rendered_text"] == text
+    kernel.table("player_input", text="我四处看看。")
+    asked = kernel.table("ask", call_id="t2-c1", prompt="What does the Investigator do?", options=["Look around", "离开"])
     assert asked["state"] == "asked"
     assert asked["rendered_text"] == ""
-    assert asked["interaction"]["options"] == ["Search the desk", "Leave"]
+    assert asked["interaction"]["options"] == ["Look around", "离开"]
+
+
+def test_any_tag_shaped_play_language_opens_a_table_and_a_malformed_one_names_the_shape(kernel):
+    error = kernel.err("campaign.create", {"id": CAMPAIGN, "module": MODULE, "pregen": PREGEN, "play_language": "Not A Tag"})
+    assert error["code"] == "invalid_params" and error["details"]["field"] == "play_language"
+    assert error["details"]["suggested"] == json.loads((WORKTREE / "content/languages.json").read_text())["suggested"]
+    assert "options" not in error["details"] and "BCP-47" in error["fix"]
+    # A tag no data names, delivered in whatever script the Keeper writes.
+    kernel.ok("campaign.create", {"id": CAMPAIGN, "module": MODULE, "pregen": PREGEN, "play_language": "pt-BR"})
+    assert kernel.table("view")["play_language"] == "pt-BR"
+    kernel.table("narrate", call_id="t0-c1", text="Boston, 1920. Knott sets a key on the desk. 钥匙。")
+    kernel.table("player_input", text="I look around.")
+    asked = kernel.table("ask", call_id="t1-c1", prompt="What do you do?",
+                         options=["Search the desk", "离开"])
+    assert asked["state"] == "asked"
+    assert asked["rendered_text"] == ""
+    assert asked["interaction"]["options"] == ["Search the desk", "离开"]

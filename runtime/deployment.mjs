@@ -15,6 +15,7 @@ export const COMPILED_ENTRIES = Object.freeze({
   characterGuidance: 'build/extensions/module/character-guidance.mjs',
   characterPresentation: 'build/extensions/module/character-presentation.mjs',
   documentPresentation: 'build/extensions/mods/document-presentation.mjs',
+  uiPresentation: 'build/extensions/module/ui-presentation.mjs',
 });
 const COC_EXTENSIONS = ['kernel', 'mods', 'onboarding', 'module', 'memory', 'table'];
 export const HOST_MOUNTS = Object.freeze({

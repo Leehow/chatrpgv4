@@ -99,6 +99,8 @@ export type SessionStatus =
   | 'idle'
 
 export interface SidebarSession {
+  parentSessionId?: string
+  branchDepth?: number
   id: string
   projectId: string
   title: string
@@ -248,6 +250,19 @@ function StatusGlyph({ status, count }: { status: SessionStatus; count: number }
 
 const TOUCH_DRAG_THRESHOLD_PX = 8
 
+export function nestSidebarSessions(sessions: SidebarSession[]): SidebarSession[] {
+  const ids = new Set(sessions.map(s => s.id)), visited = new Set<string>(), result: SidebarSession[] = []
+  const visit = (session: SidebarSession, depth: number) => {
+    if (visited.has(session.id)) return
+    visited.add(session.id)
+    result.push({...session, branchDepth: depth})
+    for (const child of sessions) if (child.parentSessionId === session.id) visit(child, depth + 1)
+  }
+  for (const session of sessions) if (!session.parentSessionId || !ids.has(session.parentSessionId)) visit(session, 0)
+  for (const session of sessions) visit(session, 0)
+  return result
+}
+
 function SessionRow({ session, selected, onSelect, isPinned, onPin, onRename, onArchive, draggable, dragging, dropPlacement, onDragStart, onDragEnd, onDragOver, onDrop }: {
   session: SidebarSession
   selected: boolean
@@ -284,11 +299,14 @@ function SessionRow({ session, selected, onSelect, isPinned, onPin, onRename, on
   return (
     <div
       role="treeitem"
+      aria-level={(session.branchDepth ?? 0) + 1}
       tabIndex={0}
       className={`sb-session${selected ? ' sb-selected' : ''}`}
       data-testid="session-row"
       data-session-id={session.id}
       data-session-source={source}
+      data-branch={Boolean(session.parentSessionId) || undefined}
+      style={session.branchDepth ? {marginLeft: Math.min(session.branchDepth, 5) * 16} : undefined}
       data-status={session.status}
       draggable={renaming ? false : draggable}
       data-dragging={dragging || undefined}
@@ -395,7 +413,7 @@ function ProjectSessions({ project, query, selectedSessionId, onSelectSession, o
   onSessionDrop?: (event: DragEvent, session: SidebarSession) => void
   peekWorking?: boolean
 }) {
-  const sessions = peekWorking ? project.sessions.filter(isWorkingSession) : project.sessions
+  const sessions = nestSidebarSessions(peekWorking ? project.sessions.filter(isWorkingSession) : project.sessions)
   const isSearch = query !== ''
   const remotePaged = remoteHasMore !== undefined || remoteLoading !== undefined
   const visible = peekWorking || isSearch

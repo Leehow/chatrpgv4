@@ -3,9 +3,8 @@ import {createHash, randomUUID} from "node:crypto";
 import {mkdir, readFile, writeFile, rename} from "node:fs/promises";
 import {join} from "node:path";
 import {resourceRootFrom,runtimeEntryUrl} from "../../runtime/deployment.mjs";
-import {loadPlayLanguages} from "../../runtime/ui-words.ts";
+import {PLAY_LANGUAGE_TAG} from "../../runtime/ui-words.ts";
 import {coded} from "../ui/errors.ts";
-import {extensionContentRoot} from "../ui/words.ts";
 import type {ReaderRequest, ReaderOutcome} from "../module/reader.ts";
 
 const resourceRoot = resourceRootFrom(import.meta.url);
@@ -105,9 +104,10 @@ validateDocumentReading(JSON.parse(readFileSync("result.json","utf8")),JSON.pars
 }
 
 export async function presentDocument(options:Options, document:Row):Promise<Row> {
-  // The play languages are `content/languages.json` (contract §23), never a list written here.
-  const known = await loadPlayLanguages(options.resourceRoot ? join(options.resourceRoot, "content") : extensionContentRoot());
-  if (!known.languages[document.play_language]
+  // The tag set is open (contract §23, 2026-09-09): a reading is asked for by the shape of the tag
+  // it is asked in, never by membership of a registry. This used to load `content/languages.json`
+  // and refuse a document in any tag nobody had registered there.
+  if (typeof document.play_language !== "string" || !PLAY_LANGUAGE_TAG.test(document.play_language)
       || typeof document.name !== "string" || !document.name.trim()
       || typeof document.text !== "string" || typeof document.original !== "string"
       || document.text.length > 64000 || document.original.length > 64000) {

@@ -1,6 +1,7 @@
 {
   "contract": "coc.play-languages.v2",
-  "note": "The play language is open: any BCP-47-shaped tag a player names is a play language, and nothing in the product validates membership, authors a table for it, or guesses it from text. This file holds only `default`, the tag a host or kernel falls back to when a session carries none, and `suggested`, the tags a language picker offers first (free text is always accepted). Words reach a tag by projection: `content/ui/en/` is the one authored source, `content/ui/<tag>/` is an optional shipped seed of that projection, and the presenter lane produces every other tag on first use (contract §23, 2026-09-09).",
+  "note": "The play language is open: any BCP-47-shaped tag a player names is a play language, and nothing in the product validates membership, authors a table for it, or guesses it from text. `source` is the tag the product's own captions are written in -- `content/ui/<source>/` is the one hand-written set, and it lives here rather than in code so that no tag is named in a source file. `default` is the tag a host or kernel falls back to when a session carries none, and `suggested` are the tags a language picker offers first (free text is always accepted). Every other tag reaches words by projection: the presenter lane produces it on first use and caches it per home (contract §23, 2026-09-09).",
+  "source": "en",
   "default": "zh-Hans",
   "suggested": ["zh-Hans", "en"]
 }

@@ -21,3 +21,6 @@
 .message-action-button:disabled{cursor:default;opacity:.42}
 .message-action-button:disabled:hover,.message-action-button:disabled:active{background:transparent;color:var(--muted)}
 .message-copied-notice{color:var(--muted);font-size:11px;white-space:nowrap}
+
+.message-action-bar.has-branch{opacity:1;pointer-events:auto}
+.presentation-footer{padding-top:0;margin-top:-12px}

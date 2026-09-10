@@ -7,7 +7,6 @@ import { sha256File, writeJsonAtomic } from '../fileio.js';
 import { compareUnicode, isJsonObject, jsonDigest } from '../json.js';
 import { withExclusiveLock, type LockLease } from '../locks.js';
 import type { ModuleGraph } from '../read/module-graph.js';
-import { playLanguages } from '../read/languages.js';
 import { array, clone, equal, integer, normalize, number, repr, row, sorted, string, truth, type Row } from '../read/values.js';
 import { nowIso } from '../write/store.js';
 import { validSourceLanguage, vocabulary } from './contract.js';
@@ -208,9 +207,9 @@ export class Reading {
                 throw new RpcError('invalid_params', 'a detail reading needs a named focus', { fix: 'pass the entity or place as focus, and the unresolved question when known' });
             const result = { generation: meta.generation ?? 0, missing: [] }, guidanceKey = params.guidance_key;
             if (purpose === 'guidance') {
-                const known = await playLanguages(this.store.context);
-                if (typeof guidanceKey !== 'string' || guidanceKey.length !== 64 || !/^[a-f0-9]{64}$/.test(guidanceKey) || typeof params.play_language !== 'string' || !known.tags.includes(params.play_language) || !Array.isArray(params.occupations))
-                    throw new RpcError('invalid_params', 'guidance needs a host fingerprint, play_language and occupation catalog');
+                // Any tag-shaped play_language is accepted (contract section 23); membership is never checked.
+                if (typeof guidanceKey !== 'string' || guidanceKey.length !== 64 || !/^[a-f0-9]{64}$/.test(guidanceKey) || !validSourceLanguage(params.play_language) || !Array.isArray(params.occupations))
+                    throw new RpcError('invalid_params', 'guidance needs a host fingerprint, a tag-shaped play_language and an occupation catalog');
                 const accepted = row(meta.character_guidance)[guidanceKey];
                 if (truth(accepted))
                     return { ...result, state: 'ready', setup_ready: true, guidance_key: guidanceKey, ...accepted };

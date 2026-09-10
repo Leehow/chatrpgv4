@@ -115,6 +115,20 @@ def test_warn_anchors_quotes_as_substrings_and_drops_the_rest(kernel):
     assert len(read_json(campaign_dir(kernel.workspace) / "turns" / "0001.json")["warnings"]) == 12
 
 
+def test_warn_files_the_verifiers_play_language_finding(kernel):
+    """`play_language_mismatch` is the verifier's judgment, filed like the other three kinds: the
+    kernel refuses no delivery by its script (contract section 23), so Latin prose on the zh-Hans
+    table is delivered and the finding reaches the next capsule as advice."""
+    open_turn(kernel)
+    kernel.table("narrate", call_id="t1-c1", text="Knott slides the keys across the desk.")
+    finding = {"kind": "play_language_mismatch", "quote": "slides the keys", "why": "not zh-Hans"}
+    result = warn(kernel, 1, [finding])
+    assert result["accepted"] == 1 and result["dropped"] == []
+    assert result["warnings"] == [finding]
+    capsule = kernel.table("player_input", text="继续。")["capsule"]
+    assert capsule["warnings"] == [{"turn": 1, **finding}]
+
+
 def test_warnings_reach_the_next_capsule_only_for_the_latest_committed_turn(kernel):
     open_turn(kernel)
     kernel.table("narrate", call_id="t1-c1", text="诺特看着你。")

@@ -34,11 +34,11 @@ function fixture(t, worker) {
   if (worker) {
     writeFileSync(join(resourceRoot, 'build/pipicoc/onboarding-worker.mjs'), worker);
   } else copyFileSync(join(root, 'build/pipicoc/onboarding-worker.mjs'), join(resourceRoot, 'build/pipicoc/onboarding-worker.mjs'));
-  // A content root declares its play languages and holds the product's own captions (contract §23).
-  // `zz` is the default and authors nothing, so anything that reaches for a word has to walk the
-  // declared languages rather than assume the one the fixture happens to write.
-  writeFileSync(join(contentRoot, 'languages.json'), JSON.stringify({default: 'zz',
-    languages: {zz: {autonym: 'Zz'}, en: {autonym: 'English'}, qq: {autonym: 'Qq'}}}));
+  // A content root names the tag its captions are authored in, the tag a session with none falls
+  // back to, and the tags a picker offers first (contract §23). There is no registry: `en` is the
+  // authored source, `zz` ships a seed beside it, and any other tag is a play language the moment a
+  // player names it.
+  writeFileSync(join(contentRoot, 'languages.json'), JSON.stringify({source: 'en', default: 'zz', suggested: ['zz', 'en']}));
   for (const [tag, word] of [['zz', 'zz sheet'], ['en', 'en sheet']]) {
     mkdirSync(join(contentRoot, 'ui', tag), {recursive: true});
     writeFileSync(join(contentRoot, 'ui', tag, 'sheet.json'), JSON.stringify({clues: word}));
@@ -136,12 +136,12 @@ test('the real catalog worker uses captured Node, data, Pi and relocated content
   }
 });
 
-test('the catalog walks the declared play languages in data order for a title its own tag lacks', async t => {
+test('the catalog reads a starter listing for whatever tag it was authored under', async t => {
   const f = fixture(t);
   const host = createPreparationHost(f.home, f.options);
-  // Authored under a tag no list in code could hold, so a title only arrives if the fallback walks
-  // `languages.json` itself. `qq` is declared last, and the module node's own name is the only
-  // other candidate — a catalog that guessed at languages would answer with that name instead.
+  // Authored under a tag nothing registers, which is every tag now (§23): a title only arrives if
+  // the fallback reads the listing's own keys instead of a list of offered languages. The module
+  // node's name is the other candidate — a catalog that walked a registry would answer with that.
   writeFileSync(join(f.contentRoot, 'starters/selected-story/starter-listing.json'),
     JSON.stringify({listed: true, title: {qq: 'Authored in qq'}, blurb: {qq: 'Blurb in qq'}}));
   // No `play_language`: the worker settles on the declared default, `zz`, which authors nothing.
@@ -151,6 +151,24 @@ test('the catalog walks the declared play languages in data order for a title it
   assert.equal(output.code, 0, output.stderr);
   assert.deepEqual(output.events.find(event => event.type === 'result').data.presets,
     [{id: 'selected-story', title: 'Authored in qq', blurb: 'Blurb in qq'}]);
+});
+
+test('the real worker projects the captions, and the authored tag short-circuits without a model', async t => {
+  const f = fixture(t);
+  const host = createPreparationHost(f.home, f.options);
+  // `en` is this content root's authored tag, so the lane answers it out of the files it already
+  // has: no runner, no model, no cache written. A worker that had asked for a model round would
+  // fail here, because this fixture supplies none.
+  const task = host.start('presentation', {ui: true, play_language: 'en', home: f.home});
+  f.active.push(task);
+  const output = await observe(task).complete;
+  assert.equal(output.code, 0, output.stderr);
+  const result = output.events.find(event => event.type === 'result').data;
+  assert.equal(result.play_language, 'en');
+  assert.match(result.digest, /^[0-9a-f]{64}$/);
+  assert.equal(result.texts.sheet.clues, 'en sheet');
+  assert.equal(result.texts.onboarding.heading, 'en heading');
+  assert.equal(existsSync(join(f.home, '.coc/ui-words')), false, 'the authored tag caches nothing');
 });
 
 test('an onboarding answer carries the words for its own play language, and its refusals carry codes', async t => {
@@ -166,6 +184,8 @@ test('an onboarding answer carries the words for its own play language, and its 
   assert.equal(job.ui.tag, 'en');
   assert.equal(job.ui.words.onboarding.heading, 'en heading');
   assert.equal(job.ui.words.sheet.clues, 'en sheet');
+  assert.equal(job.ui.projected, true, 'the authored tag is its own projection');
+  assert.equal(empty.ui.projected, true, 'and the default ships a seed');
   const status = await host.invoke({action: 'status', id: job.id}, 'session-one', model);
   assert.equal(status.ui.tag, 'en');
   const code = async (params, session = 'session-one') => {
@@ -176,8 +196,14 @@ test('an onboarding answer carries the words for its own play language, and its 
   assert.equal(await code({action: 'status', id: job.id}, 'another-session'), 'import_other_session');
   assert.equal(await code({action: 'status', id: 'not-a-uuid'}), 'unknown_import');
   assert.equal(await code({action: 'begin', name: 'source.txt', size: 9}), 'upload_too_large');
-  // `ww` is not declared, so it is refused rather than quietly swapped for the default.
-  assert.equal(await code({action: 'select', source: 'starter', module_id: 'selected-story', play_language: 'ww'}), 'invalid_params');
+  // `ww` is a play language because a player named one (§23), so it is taken, not refused; only a
+  // value of no tag shape is, and it is refused rather than quietly swapped for the default.
+  assert.equal(await code({action: 'select', source: 'starter', module_id: 'selected-story', play_language: 'WW not a tag'}), 'invalid_params');
+  const opened = await host.invoke({action: 'select', source: 'starter', module_id: 'selected-story', play_language: 'ww'}, 'session-two', model);
+  assert.equal(opened.play_language, 'ww');
+  assert.equal(opened.ui.tag, 'ww');
+  assert.equal(opened.ui.projected, false, 'a tag with nothing to read draws the authored words while its projection runs');
+  assert.equal(opened.ui.words.onboarding.heading, 'en heading', 'and the authored words are the source tag\'s, never another language\'s');
   assert.equal(await code({action: 'hide', id: job.id}), 'scenario_not_ready');
   assert.equal(await code({action: 'chunk', id: job.id, offset: 7, data: 'AAAA'}), 'upload_chunk_invalid');
   assert.equal(await code({action: 'finish', id: job.id}), 'upload_incomplete');

@@ -8,9 +8,10 @@
  * any CJK character.
  *
  * §23 added a second obligation: no renderer, host or extension keeps a per-language table in code.
- * A tag is never named in a comparison and never used as an object key, because the tags are
- * `content/languages.json` and the words are `content/ui/<tag>/<surface>.json`. That is the second
- * assertion here, and it builds its pattern from the declared tags rather than naming one itself.
+ * A tag is never named in a comparison and never used as an object key, because the tag set is open
+ * -- `content/languages.json` names only the authored source, the fallback and the suggestions, and
+ * the words are `content/ui/<source>/<surface>.json` projected per tag. That is the second assertion
+ * here, and it builds its pattern from those named tags rather than writing one itself.
  *
  * The kernel side (`kernel-ts/**`, `content/setup/*.json`) is guarded by
  * `tests/kernel/test_system_language.py`; module content, the rules glossary and `content/ui/**`
@@ -88,20 +89,24 @@ function offences(path, pattern = CJK) {
 }
 
 /**
- * The declared play languages, as data. The guard names no tag of its own: it asks
- * `content/languages.json` which tags exist and then looks for any of them written into code.
+ * The tags `content/languages.json` names, as data. The guard writes no tag of its own: it asks the
+ * file which tags it names -- the authored source, the fallback, the picker's suggestions -- and
+ * then looks for any of them written into code. The set of play languages is open (§23), so this is
+ * not a registry to check membership against; it is the list of tags most likely to be hardcoded.
  */
 function declaredTags() {
 	const raw = JSON.parse(readFileSync(join(REPO, "content", "languages.json"), "utf8"));
-	const tags = Object.keys(raw?.languages ?? {});
-	assert.ok(tags.length > 0, "content/languages.json declares at least one play language");
+	assert.equal(raw?.languages, undefined, "content/languages.json registers no languages (§23)");
+	const tags = [...new Set([raw?.source, raw?.default, ...(Array.isArray(raw?.suggested) ? raw.suggested : [])]
+		.filter((tag) => typeof tag === "string" && tag))];
+	assert.ok(tags.length > 0, "content/languages.json names at least one tag");
 	return tags;
 }
 
 /**
  * A per-language table in code: a quoted tag used as an object key (`"zh-Hans": {…}`) or compared
  * against (`lang === "zh-Hans"`). Both are the shape §23 withdrew; a tag that only ever travels as
- * a value (`loadUiWords(root, tag)`) matches neither.
+ * a value (`resolveUiWords({contentRoot, home, tag})`) matches neither.
  */
 function languageTablePattern(tags) {
 	const alternatives = tags.map((tag) => tag.replace(/[.*+?^${}()|[\]\\-]/g, "\\$&")).join("|");
@@ -144,7 +149,7 @@ test("system language: the pack renderers and the Electron host's COC files hold
 });
 
 // A table keyed by a play language, or a comparison against one, is the shape §23 removed: the
-// words live in `content/ui/<tag>/` and the tags in `content/languages.json`.
+// authored words live in `content/ui/<source>/` and every other tag is projected into a cache.
 test("no per-language table survives in a renderer, an extension or a Coc component (contract §23)", () => {
 	const pattern = languageTablePattern(declaredTags());
 	const files = TABLE_SCOPE.flatMap(sourcesUnder).filter((file) => !/\/Electron\/packages\/ui\/src\/(?!Coc)/.test(file));
@@ -170,7 +175,7 @@ test("the guard's own patterns are not decoration: they still catch what they ar
 		assert.ok(pattern.test(`const zh = details.play_language === '${tag}';`), `a comparison against ${tag} is a table`);
 		assert.ok(pattern.test(`if (tag !== "${tag}") return;`), `a negative comparison against ${tag} is a table`);
 		assert.ok(pattern.test(`if ("${tag}" === tag) return;`), `a reversed comparison against ${tag} is a table`);
-		assert.ok(!pattern.test(`const words = await loadUiWords(root, "${tag}");`), `passing ${tag} as a value is not a table`);
+		assert.ok(!pattern.test(`const words = await resolveUiWords({contentRoot, home, tag: "${tag}"});`), `passing ${tag} as a value is not a table`);
 		assert.ok(!pattern.test(`// the campaign was created with ${tag} long ago`), `naming ${tag} in prose is not a table`);
 	}
 });

@@ -1,47 +1,16 @@
-/** Existing receipt facts and delivery guards, without semantic interpretation. */
-import type { KernelContext } from '../context.js';
+/**
+ * Existing receipt facts and marker binding, without semantic interpretation. No delivery guard
+ * reads the prose: whether a delivery is in the play language is the verifier lane's finding
+ * (`play_language_mismatch` through `table.warn`), never a kernel refusal (contract section 23).
+ */
 import { RpcError } from '../errors.js';
 import { pythonJsonDumps } from '../json.js';
 import { ModuleGraph, recordOf } from '../read/module-graph.js';
 import { mechanicsOf } from '../read/mechanics.js';
 import { npcsPresent } from '../read/capsule.js';
-import { playLanguageScript } from '../read/languages.js';
-import { array, row, entries, values, truth, number, string, integer, kebab, chars, words, repr, type Row } from '../read/values.js';
+import { array, row, values, truth, number, string, integer, kebab, chars, words, type Row } from '../read/values.js';
 export const asciiSlug = (text: string, limit = 24): string => text.normalize('NFKD').replace(/[^\x00-\x7f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().split(/\s+/).join('-').slice(0, limit).replace(/-+$/, '');
 const MARKER = /\{\{([a-z0-9][a-z0-9:_-]*)\}\}/g;
-/**
- * The closed table of script classes `content/languages.json` may oblige, each as the character
- * ranges a player-facing text must touch (host decision 2026-09-09, contract \u00a723). This is the
- * only place in code that knows a script; which language obliges which class is data.
- */
-const SCRIPTS: Readonly<Record<string, RegExp>> = Object.freeze({
-    cjk: /[\u2e80-\u2fdf\u3000-\u303f\u3040-\u30ff\u3100-\u31ff\u3200-\u33ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af\uf900-\ufaff\ufe30-\ufe4f\uff00-\uffef\u{20000}-\u{3134f}]/u,
-});
-/** Every non-empty field must touch the class's ranges; a language declared without a class is unchecked. */
-export function checkScript(language: string, script: string | null, fields: Row): void {
-    if (!script)
-        return;
-    const ranges = SCRIPTS[script];
-    if (!ranges)
-        throw new RpcError('campaign_not_ready', `content/languages.json obliges script class ${repr(script)} for ${language}, which the delivery guard does not know`, {
-            fix: `declare one of ${Object.keys(SCRIPTS).join(', ')} as the script of ${language}, or none`,
-            details: { language, script, known: Object.keys(SCRIPTS) },
-        });
-    const missing = entries(fields).filter(([, text]) => truth(text) && !ranges.test(text)).map(([name]) => name);
-    if (missing.length)
-        throw new RpcError('invalid_params', "player-facing text is not in the campaign's play_language", {
-            codeDetail: 'play_language_mismatch',
-            fix: `rewrite ${missing.join(', ')} in the campaign's play_language (${language}) and call again`,
-            details: {
-                fields: missing,
-                play_language: language
-            },
-        });
-}
-/** The delivery guard: the script class the campaign's language obliges, read from data. */
-export async function checkLanguage(context: KernelContext, language: string, fields: Row): Promise<void> {
-    checkScript(language, await playLanguageScript(context, language), fields);
-}
 function markerName(receipt: Row): string | null {
     const part = (prefix: string, value: any) => { const slug = kebab(string(value || '')).replace(/[^a-zA-Z0-9-]/g, '').replace(/^-+|-+$/g, ''); return slug ? `${prefix}:${slug}` : prefix; };
     switch (receipt.kind) {

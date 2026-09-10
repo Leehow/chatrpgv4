@@ -15,10 +15,9 @@ type ColdRuntime = {openKernel(options:{timeoutMs:number}):{call(method:string,p
  *
  * The tag used to be checked against a pair written here, which made adding a language a code
  * change and made an unrecognised tag read as "no campaign at all" — the sheet went blank rather
- * than saying which campaign it could not draw. The closed set lives in `content/languages.json`
- * now and is applied where a tag is used, not where a file is read: `cocUiWords` resolves an
- * undeclared tag to the data default, and the campaign's own files stay keyed by whatever tag the
- * kernel wrote them under (contract §23).
+ * than saying which campaign it could not draw. There is no set to check against at all now
+ * (contract §23, 2026-09-09): a tag is settled by shape where it is used, never where a file is
+ * read, and the campaign's own files stay keyed by whatever tag the kernel wrote them under.
  */
 function binding(value:any): CocBinding | undefined {
   return value && typeof value.campaign === 'string' && typeof value.home === 'string'
@@ -33,8 +32,15 @@ export async function readCocBinding(sessionPath:string): Promise<CocBinding | u
   if(found)return found;
   try {return binding(JSON.parse(await readFile(sessionPath+'.coc.json','utf8')));} catch {return undefined;}
 }
-/** The product's own captions for one play language: `{tag, words: {surface: {key: word}}}`. */
-export type CocUiWords={tag:string; words:Record<string,Record<string,string>>};
+/**
+ * The product's own captions for one play language.
+ *
+ * `projected` says whether they are actually written in `tag`: false is the authored words standing
+ * in while the projection lane runs, and it is what tells a panel that the language it asked for is
+ * on its way (contract §23, 2026-09-09). `source` says which of the three orders answered.
+ */
+export type CocUiWords={tag:string; words:Record<string,Record<string,string>>;
+  projected:boolean; source:'seed'|'cache'|'default'};
 /** What a card reads besides the kernel's answer: the chrome's words, and the campaign's own. */
 export type CocHistoryWords={ui?:CocUiWords; lanes?:Record<string,string>};
 /**
@@ -46,26 +52,32 @@ export function cocContentRoot(repo:string, options:CocColdRuntimeOptions={}, en
 }
 const UI_WORDS=new Map<string,Promise<CocUiWords|undefined>>();
 const UI_WORDS_LOADED=new Map<string,CocUiWords>();
-function uiWordsKey(repo:string, entrypoint:string, contentRoot:string, tag:unknown):string {
-  return JSON.stringify([repo,entrypoint,contentRoot,typeof tag==='string'?tag:null]);
+function uiWordsKey(repo:string, entrypoint:string, contentRoot:string, home:string, tag:unknown):string {
+  return JSON.stringify([repo,entrypoint,contentRoot,home,typeof tag==='string'?tag:null]);
 }
 /**
- * The words `content/ui/<tag>/*.json` holds for one play language, for the `ui` block every answer
- * a renderer draws from carries (contract §23).
+ * The captions for one play language, for the `ui` block every answer a renderer draws from
+ * carries (contract §23).
  *
  * Loaded through the emitted runtime entry the way `laneWords` loads the presenter, because this
- * package compiles with `rootDir: src` and cannot import the repository's own modules. They are
- * data that ships with the build, so one read per content root and tag is kept for the life of the
- * process. A build that has none is not a failed answer: the answer carries no `ui` at all, and a
- * renderer with no words draws its identifiers — a visible gap, never another language's words.
+ * package compiles with `rootDir: src` and cannot import the repository's own modules. The answer
+ * resolves a shipped seed, then the home's cached projection, then the authored words with
+ * `projected: false` — which is a complete answer the panel draws at once, and the host's cue to
+ * start one background projection for the tag.
+ *
+ * Kept per content root, home and tag for the life of the process, so the sheet's own read does not
+ * open the same files on every commit. `cocForgetUiWords` drops one entry when the lane has written
+ * a cache the held answer predates. A build that has no words is not a failed answer: the answer
+ * carries no `ui` at all, and a renderer with none draws its identifiers — a visible gap, never
+ * another language's words.
  */
-export function cocUiWords(repo:string, contentRoot:string, tag:unknown, entrypoint='build/runtime/ui-words.mjs'):Promise<CocUiWords|undefined> {
-  const key=uiWordsKey(repo,entrypoint,contentRoot,tag);
+export function cocUiWords(repo:string, contentRoot:string, home:string, tag:unknown, entrypoint='build/runtime/ui-words.mjs'):Promise<CocUiWords|undefined> {
+  const key=uiWordsKey(repo,entrypoint,contentRoot,home,tag);
   let pending=UI_WORDS.get(key);
   if(!pending) {
     pending=(async()=>{
       const module=await import(pathToFileURL(resolve(repo,entrypoint)).href);
-      const words=await module.loadUiWords(contentRoot,tag) as CocUiWords;
+      const words=await module.resolveUiWords({contentRoot,home,tag}) as CocUiWords;
       UI_WORDS_LOADED.set(key,words);
       return words;
     })().catch(()=>{UI_WORDS.delete(key);return undefined; /* retried on the next answer */});
@@ -78,17 +90,23 @@ export function cocUiWords(repo:string, contentRoot:string, tag:unknown, entrypo
  * synchronous stream reader. It answers from what a previous load already resolved and starts one
  * otherwise, so the first card of a session may draw before its words and every later one has them.
  */
-export function cocUiWordsLoaded(repo:string, contentRoot:string, tag:unknown, entrypoint='build/runtime/ui-words.mjs'):CocUiWords|undefined {
-  const found=UI_WORDS_LOADED.get(uiWordsKey(repo,entrypoint,contentRoot,tag));
-  if(!found)void cocUiWords(repo,contentRoot,tag,entrypoint);
+export function cocUiWordsLoaded(repo:string, contentRoot:string, home:string, tag:unknown, entrypoint='build/runtime/ui-words.mjs'):CocUiWords|undefined {
+  const found=UI_WORDS_LOADED.get(uiWordsKey(repo,entrypoint,contentRoot,home,tag));
+  if(!found)void cocUiWords(repo,contentRoot,home,tag,entrypoint);
   return found;
 }
+/** Drop what is held for one tag, because the projection lane has just written its cache. */
+export function cocForgetUiWords(repo:string, contentRoot:string, home:string, tag:unknown, entrypoint='build/runtime/ui-words.mjs'):void {
+  const key=uiWordsKey(repo,entrypoint,contentRoot,home,tag);
+  UI_WORDS.delete(key); UI_WORDS_LOADED.delete(key);
+}
 /**
- * `tag` when `content/languages.json` declares it, else the tag that file calls the default.
+ * `tag` when it has the shape of a play language, else the tag the data calls the default.
  *
- * The one place a host settles a play language. `undefined` means the build could not be read at
- * all, which a caller reports rather than papering over: a host that invented a tag here would put
- * a campaign on disk in a language nobody chose.
+ * The one place a host settles a play language. The tag set is open (contract §23, 2026-09-09), so
+ * nothing here asks whether the build knows this tag. `undefined` means the build could not be read
+ * at all, which a caller reports rather than papering over: a host that invented a tag here would
+ * put a campaign on disk in a language nobody chose.
  */
 export async function cocPlayLanguage(repo:string, contentRoot:string, tag:unknown, entrypoint='build/runtime/ui-words.mjs'):Promise<string|undefined> {
   try {

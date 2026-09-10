@@ -1,7 +1,8 @@
 import {expect,it,vi} from 'vitest';
 import {mkdtemp,mkdir,writeFile,readFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {join,resolve} from 'node:path';
+import {dirname,join,resolve} from 'node:path';
+import {pathToFileURL} from 'node:url';
 import {cocContentRoot,cocUiWords,draftPresentations,laneLabels,laneProjection,laneWords,mechanicsEntry,readCocBinding,readColdSheet} from '../src/coc-view.js';
 import {KernelClient} from '../../../../extensions/kernel/client.js';
 
@@ -167,10 +168,15 @@ it('lane words come from the built presenter, and each saved projection says wha
   expect((await laneProjection(context,'possessions',words)).missing).toEqual(words);
 });
 
-/** A content root of this build's own shape, so a test never depends on the words that ship. */
+/**
+ * A content root of this build's own shape, so a test never depends on the words that ship: `en`
+ * holds the authored captions, `zz` ships a seed beside them, and the file names which is which.
+ */
 async function words():Promise<string> {
   const root=await mkdtemp(join(tmpdir(),'coc-ui-words-'));
-  await writeFile(join(root,'languages.json'),JSON.stringify({default:'zz',languages:{zz:{autonym:'Zz'},en:{autonym:'English'}}}));
+  await writeFile(join(root,'languages.json'),JSON.stringify({source:'en',default:'zz',suggested:['zz','en']}));
+  await mkdir(join(root,'setup'),{recursive:true});
+  await writeFile(join(root,'setup/ui-presentation.md'),'project the captions');
   for(const tag of ['zz','en']) {
     await mkdir(join(root,'ui',tag),{recursive:true});
     await writeFile(join(root,'ui',tag,'sheet.json'),JSON.stringify({clues:`${tag} clues`}));
@@ -178,20 +184,44 @@ async function words():Promise<string> {
   return root;
 }
 
-it('the chrome reads its words for the tag it is given, the data default for one it is not',async()=>{
+/** A cache in the shape the projection lane writes, so a tag can be read back as projected. */
+async function cached(repo:string,contentRoot:string,home:string,tag:string,clues:string):Promise<void> {
+  const ui=await import(pathToFileURL(resolve(repo,'build/runtime/ui-words.mjs')).href);
+  const path=ui.uiWordsCachePath(home,tag,await ui.uiWordsDigest(contentRoot)) as string;
+  await mkdir(dirname(path),{recursive:true});
+  await writeFile(path,JSON.stringify({play_language:tag,digest:await ui.uiWordsDigest(contentRoot),texts:{sheet:{clues}}}));
+}
+
+it('the chrome reads its words for the tag it is given, and says whether they are in it',async()=>{
   const repo=resolve(import.meta.dirname,'../../../..'),root=await words();
+  const home=await mkdtemp(join(tmpdir(),'coc-ui-home-'));
   expect(cocContentRoot(repo,{},{})).toBe(join(repo,'content'));
   expect(cocContentRoot(repo,{},{PI_COC_CONTENT_ROOT:'/chosen/content'})).toBe('/chosen/content');
   expect(cocContentRoot(repo,{contentRoot:'/packaged/content'},{PI_COC_CONTENT_ROOT:'/chosen/content'})).toBe('/packaged/content');
-  const own=await cocUiWords(repo,root,'en');
+  // The authored tag is its own projection, and a shipped seed is already a tag's cache.
+  const own=await cocUiWords(repo,root,home,'en');
   expect(own?.tag).toBe('en');
+  expect(own?.projected).toBe(true);
   expect(own?.words.sheet.clues).toBe('en clues');
-  // A tag this build does not declare reads as the default; no host invents one.
-  const unknown=await cocUiWords(repo,root,'ww');
-  expect(unknown?.tag).toBe('zz');
-  expect(unknown?.words.sheet.clues).toBe('zz clues');
+  expect((await cocUiWords(repo,root,home,'zz'))?.source).toBe('seed');
+  // The tag set is open (§23): `ww` is a play language, it just has no words yet, so the answer is
+  // the authored ones plus the flag that tells the host to project them.
+  const fresh=await cocUiWords(repo,root,home,'ww');
+  expect(fresh?.tag).toBe('ww');
+  expect(fresh?.projected).toBe(false);
+  expect(fresh?.source).toBe('default');
+  expect(fresh?.words.sheet.clues).toBe('en clues');
+  // A value that is not a tag at all is the one thing that reads as the data default.
+  expect((await cocUiWords(repo,root,home,'WW not a tag'))?.tag).toBe('zz');
+  // A cache the lane wrote answers projected, from the home the campaign lives in.
+  const projectedHome=await mkdtemp(join(tmpdir(),'coc-ui-cached-'));
+  await cached(repo,root,projectedHome,'ww','ww clues');
+  const landed=await cocUiWords(repo,root,projectedHome,'ww');
+  expect(landed?.projected).toBe(true);
+  expect(landed?.source).toBe('cache');
+  expect(landed?.words.sheet.clues).toBe('ww clues');
   // A content root with nothing to read is not a failed answer: there is simply no `ui`.
-  expect(await cocUiWords(repo,await mkdtemp(join(tmpdir(),'coc-no-words-')),'en')).toBeUndefined();
+  expect(await cocUiWords(repo,await mkdtemp(join(tmpdir(),'coc-no-words-')),home,'en')).toBeUndefined();
 });
 
 it('a card reads the campaign words the sheet reads, with the kernel glossary on top',async()=>{

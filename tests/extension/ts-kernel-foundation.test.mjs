@@ -44,15 +44,22 @@ function decode(value) { return JSON.parse(api.pythonJsonDumps(value)); }
 
 test("the public vocabulary and error frames match the locked Python reference", async () => {
   assert.equal(reference.python, "3.14.6");
-  assert.deepEqual([...api.KNOWN_METHODS].sort(), reference.rpc.methods);
+  const currentOnly = new Set(["table.switch"]);
+  assert.deepEqual([...api.KNOWN_METHODS].filter(name => !currentOnly.has(name)).sort(), reference.rpc.methods);
+  for (const name of currentOnly) assert.ok(api.KNOWN_METHODS.includes(name), name);
   const ctx = await context("error frames");
   const handlers = api.assembleHandlers(ctx, api.foundationHandlers(ctx));
   assert.equal(Object.isFrozen(handlers), true);
   assert.equal(Object.isFrozen(ctx), true);
   assert.equal(Object.isFrozen(ctx.snapshots), true);
+  // Exercise the frozen vocabulary without rewriting its historical error frames.
+  const historicalHandlers = Object.freeze(Object.fromEntries(Object.entries(handlers)
+    .filter(([name]) => !currentOnly.has(name))));
   for (const row of reference.rpc.invalid) {
-    assert.deepEqual(decode(await api.handleLine(row.line, handlers)), row.response, row.line);
+    assert.deepEqual(decode(await api.handleLine(row.line, historicalHandlers)), row.response, row.line);
   }
+  const currentError = decode(await api.handleLine('{"id":"current","method":"unknown"}', handlers));
+  assert.deepEqual(currentError.error.details.methods, [...api.KNOWN_METHODS].sort());
   for (const name of reference.rpc.methods.filter(name => !["kernel.hello", "campaign.list"].includes(name))) {
     const response = await api.handleLine(JSON.stringify({ id: "unmigrated", method: name }), handlers);
     assert.equal(response.ok, false, name);

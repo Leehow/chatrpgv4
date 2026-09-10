@@ -99,6 +99,9 @@ export default function (pi: ExtensionAPI) {
   let completing=false;
 	/** The captions this setup speaks with (contract §23), for whatever play language the table has named so far. */
 	const surface = extensionSurface();
+	// A background projection has written this tag's captions (contract §23): drop the authored
+	// stand-in so the setup's next line is in the language the player named.
+	pi.events.on("coc:ui-words", (data) => { surface.refresh((data as { tag?: unknown } | undefined)?.tag); });
 	/** The campaign's play language as the kernel reported it; undefined until then, which reads as the data default. */
 	function playLanguage(): string | undefined {
 		return asString(context.play_language);
@@ -109,8 +112,10 @@ export default function (pi: ExtensionAPI) {
 		return surface.words();
 	}
 	/**
-	 * The play language to record and to prepare guidance in: the campaign's when it has one, and
-	 * otherwise the tag `content/languages.json` declares as the default. No tag is written here.
+	 * The play language to record and to prepare guidance in: the campaign's when it names one of
+	 * the right shape, and otherwise the tag the data calls the default. The set is open (contract
+	 * §23, 2026-09-09), so nothing here asks whether the tag is one this build knows; no tag is
+	 * written here either way.
 	 */
 	function boundLanguage(): Promise<string> {
 		return playLanguageTag(extensionContentRoot(), playLanguage());

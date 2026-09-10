@@ -1,15 +1,15 @@
 /** Shared starter registration, source playability and published asset projections. */
 import { copyFile, mkdir } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { basename, dirname, extname, join } from 'node:path';
 import type { KernelContext } from '../context.js';
 import { writeJsonAtomic, sha256File } from '../fileio.js';
 import { jsonDigest, compareUnicode } from '../json.js';
 import { RpcError } from '../errors.js';
 import { ModuleGraph, recordOf } from '../read/module-graph.js';
 import { loadModule } from '../read/campaign.js';
-import { playLanguages } from '../read/languages.js';
 import { array, row, clone, entries, values, truth, number, string, repr, integer, sorted, equal, type Row } from '../read/values.js';
 import { nowIso } from './store.js';
+import { validSourceLanguage } from '../modules/contract.js';
 import { childPath, inside, resolvedPath } from '../modules/paths.js';
 export function nodePages(node: Row): number[] {
     const pages = new Set<number>();
@@ -430,10 +430,18 @@ export async function registerStarter(context: KernelContext, id: string): Promi
     if (!await context.snapshots.pathExists(installedPath))
         throw new RpcError('campaign_not_ready', `module ${repr(id)} has no graph yet`, { fix: 'prepare the original PDF with the visual reading service' });
     const installedView = new ModuleGraph(id, clone(row(await context.snapshots.readJson(installedPath))), await sha256File(installedPath), dossier);
-    for (const language of (await playLanguages(context)).tags) {
-        const path = join(source, 'character-guidance', `${language}.json`);
-        if (!await context.snapshots.pathExists(path))
+    // The bundles a starter ships are whichever `character-guidance/<tag>.json` files exist: the
+    // file names are the tags, and there is no list to keep in step (contract section 23).
+    const bundles = join(source, 'character-guidance');
+    for (const name of await context.snapshots.sortedChildNames(bundles, path => context.snapshots.isFile(path))) {
+        if (extname(name) !== '.json')
             continue;
+        const language = basename(name, '.json'), path = join(bundles, name);
+        if (!validSourceLanguage(language))
+            throw new RpcError('invalid_params', `bundled guidance ${repr(name)} is not named by a language tag`, {
+                fix: 'name a starter guidance bundle <tag>.json with a BCP-47 language tag',
+                details: { module: id, file: name },
+            });
         const saved = clone(row(await context.snapshots.readJson(path)));
         if (saved.graph_sha256 !== meta!.graph_digest)
             continue;

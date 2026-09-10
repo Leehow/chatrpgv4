@@ -13,10 +13,10 @@ import { buildRailPrompts, isNavigationEligibleUserPrompt } from './prompt-rail'
 import { parseSubagentNotice } from './subagent-notice'
 import { parseInternalUserSignal } from './subagent-signal'
 import { TruncatedText } from './TruncatedText'
-import { foldMarkedDeliveries, type ChatMessage } from './transcript-model'
+import { foldMarkedDeliveries, withoutMechanicsMarkers, type ChatMessage } from './transcript-model'
 import { nextTranscriptFirstItemIndex, TRANSCRIPT_FIRST_ITEM_BASE, TRANSCRIPT_PIN_MAX_ATTEMPTS, transcriptDataIndex, transcriptMessageIdentity } from './transcript-scroll'
 
-export type MessageActionHandlers = { onCopy: (message: ChatMessage) => Promise<void>; onResend: (message: ChatMessage) => void; resendDisabled: boolean; copiedId: string | null }
+export type MessageActionHandlers = { onBranch?: (message: ChatMessage) => void; branchMessageIds?: ReadonlySet<string>; branchDisabled?: boolean; actionWords?: Record<string,string>; onCopy: (message: ChatMessage) => Promise<void>; onResend: (message: ChatMessage) => void; resendDisabled: boolean; copiedId: string | null }
 type DocumentOpenProps = { documentBasePath?: string; onOpenDocument?: (path: string) => void }
 type PresentationActionProps = {onChoose?: (entry:NonNullable<ChatMessage['presentation']>,option:string)=>Promise<unknown>}
 type SubagentOpenProps = { onOpenSubagents?: (agentId?: string) => void }
@@ -71,9 +71,10 @@ function assignVirtuosoRef(ref: React.RefObject<VirtuosoHandle> | undefined, val
   if (ref) (ref as React.MutableRefObject<VirtuosoHandle | null>).current = value
 }
 
-export function Transcript({ stateKey, messages: rawMessages, transcriptRef, waiting, active = true, onLoadOlder, documentBasePath, onOpenDocument, onOpenSubagents, onChoose, onCopy, onResend, resendDisabled, copiedId }: {
+export function Transcript({ stateKey, messages: rawMessages, transcriptRef, waiting, active = true, onLoadOlder, documentBasePath, onOpenDocument, onOpenSubagents, onChoose, onCopy, onResend, resendDisabled, copiedId, onBranch, branchMessageIds, branchDisabled, actionWords, navigation }: {
   /** Stable session identity used to restore Virtuoso measurements after remounting. */
   stateKey?: string
+  navigation?: {messageId:string; nonce:number}
   messages: ChatMessage[]
   /** Optional bridge used by the active transcript to expose its handle. */
   transcriptRef?: React.RefObject<VirtuosoHandle>
@@ -83,6 +84,7 @@ export function Transcript({ stateKey, messages: rawMessages, transcriptRef, wai
 } & DocumentOpenProps & SubagentOpenProps & PresentationActionProps & MessageActionHandlers) {
   const [atBottom, setAtBottom] = useState(true)
   const [seekingId, setSeekingId] = useState<string | null>(null)
+  const completedNavigation = useRef<number | null>(null)
   const activeRef = useRef(active)
   const atBottomRef = useRef(true)
   const followIntentRef = useRef(true)
@@ -219,6 +221,18 @@ export function Transcript({ stateKey, messages: rawMessages, transcriptRef, wai
     setSeekingId(id)
     virtuosoRef.current?.scrollToIndex({ index, align: 'start', behavior: 'smooth' })
   }
+  useEffect(() => {
+    if (!navigation || !active || completedNavigation.current === navigation.nonce) return
+    cancelFollow()
+    const index = messages.findIndex(message => message.id === navigation.messageId)
+    if (index < 0) { onLoadOlder?.(); return }
+    const frame = requestAnimationFrame(() => {
+      if (!virtuosoRef.current) return
+      completedNavigation.current = navigation.nonce
+      jump(index, navigation.messageId)
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [navigation, active, messages, onLoadOlder, cancelFollow])
   const returnLatest = () => {
     followIntentRef.current = true
     userDetachedRef.current = false
@@ -243,13 +257,13 @@ export function Transcript({ stateKey, messages: rawMessages, transcriptRef, wai
   }
   return <div className={waiting ? 'transcript-area is-waiting' : 'transcript-area'} ref={containerRef} onWheelCapture={handleWheel} onTouchStartCapture={handleTouchStart} onTouchMoveCapture={handleTouchMove}>
     <PromptRail prompts={prompts} activeId={activeId} onJump={jump} />
-    <MessageList ref={setVirtuosoHandle} stateKey={stateKey} messages={messages} active={active} shouldFollow={() => followIntentRef.current} onAtBottom={handleAtBottom} onListHeightChanged={requestPin} onLoadOlder={onLoadOlder} documentBasePath={documentBasePath} onOpenDocument={onOpenDocument} onOpenSubagents={onOpenSubagents} onChoose={onChoose} onCopy={onCopy} onResend={onResend} resendDisabled={resendDisabled} copiedId={copiedId} onJump={jump} />
+    <MessageList ref={setVirtuosoHandle} stateKey={stateKey} messages={messages} active={active} shouldFollow={() => followIntentRef.current} onAtBottom={handleAtBottom} onListHeightChanged={requestPin} onLoadOlder={onLoadOlder} documentBasePath={documentBasePath} onOpenDocument={onOpenDocument} onOpenSubagents={onOpenSubagents} onChoose={onChoose} onBranch={onBranch} branchMessageIds={branchMessageIds} branchDisabled={branchDisabled} actionWords={actionWords} onCopy={onCopy} onResend={onResend} resendDisabled={resendDisabled} copiedId={copiedId} onJump={jump} />
     {waiting && <WaitingPlaceholder phase={waiting.phase} startedAt={waiting.startedAt} detail={waiting.detail} onStop={waiting.onStop} />}
     {active && !atBottom && messages.length > 0 && <button className="return-latest" aria-label="回到最新" title="回到最新" onClick={returnLatest}><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg></button>}
   </div>
 }
 
-export const MessageList = memo(forwardRef<VirtuosoHandle, { stateKey?: string; messages: ChatMessage[]; active?: boolean; shouldFollow: () => boolean; onAtBottom: (value: boolean) => void; onListHeightChanged: () => void; onLoadOlder?: () => void; onJump: (index: number, id: string) => void } & DocumentOpenProps & SubagentOpenProps & PresentationActionProps & MessageActionHandlers>(function MessageList({ stateKey, messages, active = true, shouldFollow, onAtBottom, onListHeightChanged, onLoadOlder, documentBasePath, onOpenDocument, onOpenSubagents, onChoose, onCopy, onResend, resendDisabled, copiedId, onJump }, ref) {
+export const MessageList = memo(forwardRef<VirtuosoHandle, { stateKey?: string; messages: ChatMessage[]; active?: boolean; shouldFollow: () => boolean; onAtBottom: (value: boolean) => void; onListHeightChanged: () => void; onLoadOlder?: () => void; onJump: (index: number, id: string) => void } & DocumentOpenProps & SubagentOpenProps & PresentationActionProps & MessageActionHandlers>(function MessageList({ stateKey, messages, active = true, shouldFollow, onAtBottom, onListHeightChanged, onLoadOlder, documentBasePath, onOpenDocument, onOpenSubagents, onChoose, onCopy, onResend, resendDisabled, copiedId, onBranch, branchMessageIds, branchDisabled, actionWords, onJump }, ref) {
   const ids = useMemo(() => messages.map(transcriptMessageIdentity), [messages])
   const restoredStateRef = useRef<TranscriptStateRecord | undefined>(undefined)
   const restoredStateCheckedRef = useRef(false)
@@ -297,22 +311,25 @@ export const MessageList = memo(forwardRef<VirtuosoHandle, { stateKey?: string; 
       const isTurnEnd = message.role === 'user' || (!message.streaming && (!next || next.role !== 'assistant'))
       const previousUserIndex = message.role === 'assistant' ? findPreviousUserMessageIndex(messages, dataIndex) : null
       const previousUser = previousUserIndex === null ? undefined : messages[previousUserIndex]
-      return <MessageView message={message} showFooter={isTurnEnd} documentBasePath={documentBasePath} onOpenDocument={onOpenDocument} onOpenSubagents={onOpenSubagents} onChoose={onChoose} onCopy={onCopy} onResend={onResend} resendDisabled={resendDisabled} copied={copiedId === message.id} canJump={previousUser != null} onJump={previousUserIndex === null || !previousUser ? undefined : () => onJump(previousUserIndex, previousUser.id)} />
+      return <MessageView message={message} showFooter={isTurnEnd} documentBasePath={documentBasePath} onOpenDocument={onOpenDocument} onOpenSubagents={onOpenSubagents} onChoose={onChoose} onBranch={onBranch} branchMessageIds={branchMessageIds} branchDisabled={branchDisabled} actionWords={actionWords} onCopy={onCopy} onResend={onResend} resendDisabled={resendDisabled} copied={copiedId === message.id} canJump={previousUser != null} onJump={previousUserIndex === null || !previousUser ? undefined : () => onJump(previousUserIndex, previousUser.id)} />
     }}
   /></div>
 }))
 
 function messageTime(timestamp?: number): string { if (!timestamp) return ''; const date = new Date(timestamp); const pad = (value: number) => String(value).padStart(2, '0'); return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}` }
 
-export const MessageView = memo(function MessageView({ message, showFooter, documentBasePath, onOpenDocument, onOpenSubagents, onChoose, onCopy, onResend, resendDisabled, copied, canJump = false, onJump }: { message: ChatMessage; showFooter?: boolean; copied?: boolean; canJump?: boolean; onJump?: () => void } & DocumentOpenProps & SubagentOpenProps & PresentationActionProps & Omit<MessageActionHandlers, 'copiedId'>) {
+export const MessageView = memo(function MessageView({ message, showFooter, documentBasePath, onOpenDocument, onOpenSubagents, onChoose, onCopy, onResend, resendDisabled, copied, onBranch, branchMessageIds, branchDisabled, actionWords, canJump = false, onJump }: { message: ChatMessage; showFooter?: boolean; copied?: boolean; canJump?: boolean; onJump?: () => void } & DocumentOpenProps & SubagentOpenProps & PresentationActionProps & Omit<MessageActionHandlers, 'copiedId'>) {
   const signal = message.role === 'user' ? parseInternalUserSignal(message.content) : null
-  const copyDisabled = !message.content.trim()
-  const copy = () => { void onCopy(message).catch(() => undefined) }
+  const marked = (message.presentation?.details as {marked_text?:string})?.marked_text
+  const copyMessage = marked ? {...message, content:withoutMechanicsMarkers(marked)} : message
+  const copyDisabled = !copyMessage.content.trim()
+  const canBranch = Boolean(onBranch && branchMessageIds?.has(message.id))
+  const copy = () => { void onCopy(copyMessage).catch(() => undefined) }
   const time = showFooter && message.timestamp ? <time className="message-time" dateTime={new Date(message.timestamp).toISOString()}>{messageTime(message.timestamp)}</time> : null
   const alignment = message.role === 'user' ? 'trailing' : 'leading'
-  const actions = showFooter && !signal ? <MessageActionBar alignment={alignment} canCopy canResend={message.role === 'user' && Boolean(message.content.trim())} canJump={canJump && message.role === 'assistant'} copyDisabled={copyDisabled} resendDisabled={resendDisabled} onCopy={copy} onResend={() => onResend(message)} onJump={onJump} copied={copied} /> : null
+  const actions = (showFooter || canBranch) && !signal ? <MessageActionBar onBranch={canBranch ? () => onBranch?.(message) : undefined} branchDisabled={branchDisabled} words={actionWords} alignment={alignment} canCopy canResend={message.role === 'user' && Boolean(message.content.trim())} canJump={canJump && !canBranch && message.role === 'assistant'} copyDisabled={copyDisabled} resendDisabled={resendDisabled} onCopy={copy} onResend={() => onResend(message)} onJump={onJump} copied={copied} /> : null
   const footer = actions || time ? <div className="message-footer">{time}{actions}</div> : null
-  if (message.presentation) return <PresentationEntry message={message} onChoose={onChoose} />
+  if (message.presentation) return <><PresentationEntry message={message} onChoose={onChoose} />{marked && <div className="message presentation-footer">{footer}</div>}</>
   if (message.role === 'compaction') return <CompactionDivider message={message} />
   if (message.role === 'user') return signal ? <article className="message user-message subagent-signal-message"><div className="subagent-signal-stack"><SubagentSignalCard content={message.content} documentBasePath={documentBasePath} onOpenDocument={onOpenDocument} />{time}</div></article> : <article className="message user-message" data-user-prompt={message.id}><div className="user-message-stack"><UserMessageBubble text={message.content} images={message.images} /></div>{footer}</article>
   if (message.role === 'tool') { const notice = parseSubagentNotice(message.content); return notice ? <article className="message assistant-message"><CollapsibleActivityCard kind="result" label="子任务" summary={notice.name} meta={`${notice.ok ? '成功' : '失败'} · ${notice.cost}`} error={!notice.ok}><pre><TruncatedText text={message.content} /></pre></CollapsibleActivityCard>{footer}</article> : <article className="system-message tool-message"><div><TruncatedText text={message.content} /></div>{footer}</article> }

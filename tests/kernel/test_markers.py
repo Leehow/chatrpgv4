@@ -98,13 +98,14 @@ def test_the_same_marker_twice_is_refused(kernel):
     assert error["details"]["duplicate"] == ["check:spot-hidden"]
 
 
-def test_the_play_language_check_reads_the_prose_and_not_the_tokens(kernel):
-    """A marker is ASCII and is not player-facing text: a zh-Hans delivery made only of markers is
-    a delivery with no Chinese in it, and must be refused as one."""
+def test_a_delivery_of_a_marker_and_latin_prose_is_delivered_on_a_zh_hans_table(kernel):
+    """The kernel checks no script (contract section 23): a zh-Hans delivery made of a marker and
+    English prose is delivered with the marker stripped, never refused as play_language_mismatch."""
     open_turn(kernel)
     resolve_search(kernel)
-    error = kernel.table_err("narrate", call_id="t1-c3", text="{{check:spot-hidden}} nothing but english")
-    assert error["code_detail"] == "play_language_mismatch"
+    done = kernel.table("narrate", call_id="t1-c3", text="{{check:spot-hidden}} nothing but english")
+    assert done["rendered_text"] == "nothing but english"
+    assert done["marked_text"] == "{{check:spot-hidden}} nothing but english"
 
 
 def test_ask_places_markers_the_same_way(kernel):

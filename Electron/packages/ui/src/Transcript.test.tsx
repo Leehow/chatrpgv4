@@ -447,3 +447,20 @@ describe('Transcript jump to previous user', () => {
     })
   })
 })
+
+it('loads older history for a timeline anchor, jumps once, and releases later scrolling', async () => {
+  const older=vi.fn(), navigation={messageId:'target',nonce:10}
+  const recent=[{id:'recent',role:'assistant' as const,content:'Recent reply'}]
+  const view=render(<Transcript messages={recent} navigation={navigation} onLoadOlder={older} {...handlers}/>)
+  await flushPin()
+  expect(older).toHaveBeenCalled()
+  const expanded=[{id:'target',role:'assistant' as const,content:'Old reply'},...recent]
+  view.rerender(<Transcript messages={expanded} navigation={navigation} onLoadOlder={older} {...handlers}/>)
+  await flushPin()
+  const instance=virtuosoInstances.at(-1)!
+  expect(instance.scrollToIndex).toHaveBeenCalledWith({index:0,align:'start',behavior:'smooth'})
+  instance.scrollToIndex.mockClear()
+  view.rerender(<Transcript messages={[...expanded,{id:'new',role:'assistant',content:'Next reply'}]} navigation={navigation} onLoadOlder={older} {...handlers}/>)
+  await flushPin()
+  expect(instance.scrollToIndex.mock.calls.some(([call])=>call.index===0)).toBe(false)
+})

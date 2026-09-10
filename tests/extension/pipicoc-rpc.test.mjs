@@ -1,22 +1,35 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { keeperArguments } from '../../pipicoc/rpc.mjs';
 import { registerSheetPanel } from '../../pipicoc/sheet.ts';
 
-/** A content root of this build's own shape: declared languages, and one surface per language. */
+/**
+ * A content root of this build's own shape: `en` holds the authored captions, `zz` ships a seed
+ * beside them, and the file names which is which (contract §23). There is no registry of tags.
+ */
 async function contentRoot() {
   const root = await mkdtemp(join(tmpdir(), 'pipicoc-words-'));
-  await writeFile(join(root, 'languages.json'), JSON.stringify({default: 'zz',
-    languages: {zz: {autonym: 'Zz'}, en: {autonym: 'English'}}}));
+  await writeFile(join(root, 'languages.json'), JSON.stringify({source: 'en', default: 'zz', suggested: ['zz', 'en']}));
+  await mkdir(join(root, 'setup'), {recursive: true});
+  await writeFile(join(root, 'setup/ui-presentation.md'), 'project the captions');
   for (const tag of ['zz', 'en']) {
     await mkdir(join(root, 'ui', tag), {recursive: true});
     await writeFile(join(root, 'ui', tag, 'sheet.json'), JSON.stringify({clues: `${tag} clues`}));
   }
   return root;
+}
+
+/**
+ * A runtime the panel can read words through and project them with. `runTask` records what it was
+ * asked, so a test can tell one background projection from none and from several.
+ */
+function runtime(contentRoot, home, rounds = []) {
+  return {contentRoot, home, signal: new AbortController().signal,
+    async runTask(task) {rounds.push(task); return {ok: false};}, rounds};
 }
 
 /** The pack's invoke handlers, registered on the well-known registry the way PipiUI does. */
@@ -55,14 +68,15 @@ test('every sheet answer the pack serves carries the words it is drawn with, and
   // rather than one the build did not choose.
   const nothing = await sheet();
   assert.deepEqual(nothing, {view: null, campaign: null, code: 'table_not_open', reason: 'the table is not open'});
-  pi.events.emit('coc:kernel-bridge', {runtime: {contentRoot: root}, call: undefined});
+  const home = await mkdtemp(join(tmpdir(), 'pipicoc-home-'));
+  pi.events.emit('coc:kernel-bridge', {runtime: runtime(root, home), call: undefined});
   const closed = await sheet();
   assert.equal(closed.code, 'table_not_open');
   assert.equal(closed.ui.tag, 'zz', 'a session with no campaign reads in the language the data calls the default');
   assert.equal(closed.ui.words.sheet.clues, 'zz clues');
   let answer = {play_language: 'en', labels: {}};
   let failure;
-  pi.events.emit('coc:kernel-bridge', {runtime: {contentRoot: root},
+  pi.events.emit('coc:kernel-bridge', {runtime: runtime(root, home),
     call: async () => {if (failure) throw failure; return answer;}});
   const unbound = await sheet();
   assert.equal(unbound.code, 'campaign_not_open');
@@ -82,4 +96,45 @@ test('every sheet answer the pack serves carries the words it is drawn with, and
   assert.equal(refused.ui.tag, 'en', 'a failed read still says which words the panel should draw');
   failure = new Error('the kernel went away');
   assert.equal((await sheet()).code, 'kernel_error');
+});
+
+/**
+ * A tag with no words yet is answered at once with the authored ones (§23), and one projection is
+ * started for it -- one, however many times the panel reads the sheet, because the sheet is read on
+ * every commit and a run per read would run the same lane a dozen times a turn.
+ */
+test('a tag with no projection is answered in the authored words, and starts exactly one lane run', async () => {
+  const root = await contentRoot();
+  const home = await mkdtemp(join(tmpdir(), 'pipicoc-home-'));
+  const {pi, sheet} = sheetHandlers();
+  const rounds = [];
+  pi.events.emit('coc:kernel-bridge', {runtime: runtime(root, home, rounds),
+    call: async () => ({play_language: 'pt-BR', labels: {}})});
+  pi.events.emit('coc:table-open', {campaign: 'carried', open: {campaign: {play_language: 'pt-BR'}}});
+
+  const first = await sheet();
+  assert.equal(first.ui.tag, 'pt-BR', 'the answer names the tag the table asked for');
+  assert.equal(first.ui.projected, false);
+  assert.equal(first.ui.source, 'default');
+  assert.equal(first.ui.words.sheet.clues, 'en clues', 'the authored words stand in, never another language\'s');
+  await sheet(); await sheet();
+  // The lane is started, never awaited: the answer is what the panel draws now, and the projection
+  // runs behind it. Give it the ticks it needs to reach the runner before counting.
+  await new Promise(resolve => setTimeout(resolve, 50));
+  assert.equal(rounds.length, 1, 'three reads, one lane run');
+  assert.equal(rounds[0].kind, 'mod');
+  assert.equal(JSON.parse(await readFile(join(rounds[0].request.cwd, 'texts.json'), 'utf8')).play_language, 'pt-BR');
+
+  // A tag the build ships a seed for is projected already: it answers projected and starts nothing.
+  const seeded = sheetHandlers();
+  const seedRounds = [];
+  seeded.pi.events.emit('coc:kernel-bridge', {runtime: runtime(root, home, seedRounds),
+    call: async () => ({play_language: 'zz', labels: {}})});
+  seeded.pi.events.emit('coc:table-open', {campaign: 'carried', open: {campaign: {play_language: 'zz'}}});
+  const shipped = await seeded.sheet();
+  assert.equal(shipped.ui.projected, true);
+  assert.equal(shipped.ui.source, 'seed');
+  assert.equal(shipped.ui.words.sheet.clues, 'zz clues');
+  await new Promise(resolve => setTimeout(resolve, 50));
+  assert.deepEqual(seedRounds, [], 'a shipped seed pays no model call');
 });

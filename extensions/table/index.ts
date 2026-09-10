@@ -361,6 +361,10 @@ export default function (pi: ExtensionAPI) {
 		}
 	}
 
+	// A background projection has written this tag's captions (contract §23): the held words are the
+	// authored ones and must be dropped, or every later line stays in the language nobody chose.
+	pi.events.on("coc:ui-words", (data) => { surface.refresh((data as { tag?: unknown } | undefined)?.tag); });
+
 	// A bus event may arrive before this extension's session_start (the kernel extension loads first): both orders must be caught.
 	pi.events.on("coc:table-open", (data) => {
 		payload = (data ?? {}) as TableOpenEvent;

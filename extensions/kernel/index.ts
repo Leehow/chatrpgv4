@@ -111,7 +111,7 @@ interface TableState {
 	closedThisRun: boolean;
 	steeredThisTurn: boolean;
 	readingWait?: boolean;
-	/** The kernel's `fix` for a refused implicit delivery (`play_language_mismatch`); steered once at agent_end instead of delivering. */
+	/** A host note owed to the Keeper at agent_end rather than delivered as prose (the reading wait). */
 	deliveryFix?: { kind: string; text: string };
 	roundTrips: number;
 	mintedCallIds: Map<string, string>;
@@ -137,9 +137,6 @@ interface TableState {
 
 const CLOSED_STATES: ReadonlySet<TurnState> = new Set<TurnState>(["awaiting_player", "committed", "asked"]);
 const TURN_CLOSED_REASON = "the turn is closed, waiting for the player";
-/** Used when the kernel refuses a delivery that carries none of the campaign's play_language script. */
-const PLAY_LANGUAGE_MISMATCH_STEER =
-	"The kernel refused this turn's delivery: play_language_mismatch. Rewrite every player-facing word in the campaign's play_language, then deliver it again.";
 
 let table: TableState | undefined;
 /** In setup mode there is no table, so the kernel subprocess hangs here on its own (contract §14.4). */
@@ -214,7 +211,7 @@ function errorDetailLines(details: Record<string, unknown> | undefined): string[
 	}
 	const fields = details.fields;
 	if (Array.isArray(fields) && fields.length > 0) {
-		// A `play_language_mismatch` refusal (contract §16.3): rewrite these player-facing fields.
+		// A refusal that names the player-facing fields it is about: the kernel's own list, passed on.
 		lines.push(`rewrite in the campaign's play_language: ${fields.map((field) => String(field)).join(", ")}`);
 	}
 	// A batch whose definition agent ran out of time is not the same refusal as one whose agent died:
@@ -267,40 +264,21 @@ function errorText(error: unknown): string {
 	return [error.toToolText(), ...errorDetailLines(error.details)].join("\n");
 }
 
-/** The one floor §16.3 puts under a delivery: the play-language script. */
-type FloorDetail = "play_language_mismatch";
-const FLOOR_DETAILS: ReadonlySet<string> = new Set<string>(["play_language_mismatch"]);
-
 /**
- * The kernel's delivery-floor refusal (contract §5 / §16.3): `invalid_params` with a
- * `code_detail` naming the floor the delivery fell through. The detail is read from all the
- * places it can travel, because it is one contract field and not a semantic judgement.
+ * The narrower reason a kernel refusal carries, for telemetry (contract §1: `code_detail` is an
+ * authored refinement of `code`, not a judgement made here). It is read from every place it can
+ * travel, because one contract field arrives under two spellings across the RPC boundary.
  *
- * There is no figure floor. The kernel never looks for a receipt's numbers in the prose
- * (2026-09-09 user decision): they travel as the mechanics projection and the frontend draws
- * them there, so a delivery that states none of them is a correct delivery. A steer that told
- * the Keeper to write "the roll and its target, minutes passed" into the prose is what put
- * "rolled 25 against 53, 15 minutes" under every dice card.
+ * There is no floor under a delivery any more. The kernel never looks for a receipt's numbers in
+ * the prose (2026-09-09), and since §23 of the same day it no longer looks for the play language's
+ * script either: an open tag set has no character class to check, so `play_language_mismatch` is
+ * the verifier lane's advisory finding and never a refusal this loop has to answer. What is left
+ * here is a record of what the kernel said, not a reason to steer the Keeper.
  */
-function floorDetail(error: unknown): FloorDetail | undefined {
+function refusalDetail(error: unknown): string | undefined {
 	if (!isKernelError(error)) return undefined;
-	const detail =
-		FLOOR_DETAILS.has(error.code)
-			? error.code
-			: (error.codeDetail ?? (error.details as { code_detail?: unknown } | undefined)?.code_detail);
-	if (typeof detail === "string" && FLOOR_DETAILS.has(detail)) return detail as FloorDetail;
-	return undefined;
-}
-
-function floorSteer(
-	detail: FloorDetail,
-	error: unknown,
-): { kind: string; text: string } {
-	const base = PLAY_LANGUAGE_MISMATCH_STEER;
-	const kind = detail.replaceAll("_", "-");
-	const fix =
-		isKernelError(error) && error.fix ? `${base} The kernel says: ${error.fix}` : base;
-	return { kind, text: fix };
+	const detail = error.codeDetail ?? (error.details as { code_detail?: unknown } | undefined)?.code_detail;
+	return typeof detail === "string" && detail ? detail : undefined;
 }
 
 /**
@@ -339,6 +317,9 @@ export default function (pi: ExtensionAPI) {
 	let runtime: HostRuntime | undefined;
   let mods: {prepare(method: string, payload: Record<string, any>, signal?: AbortSignal): Promise<void>} | undefined;
   pi.events.on("coc:mods-bridge", value => { mods = value as typeof mods; });
+	// A background projection has written this tag's captions (contract §23): drop the authored
+	// words this extension was standing on, so the next line it notifies with is the player's.
+	pi.events.on("coc:ui-words", (data) => { surface.refresh((data as { tag?: unknown } | undefined)?.tag); });
 	let reading: { ensure(moduleId: string, params: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> } | undefined;
 	let readingModule: string | undefined;
 	pi.events.on("coc:reading-bridge", (value) => {
@@ -724,7 +705,7 @@ export default function (pi: ExtensionAPI) {
 		} catch (error) {
 			const code = isKernelError(error) ? error.code : "internal";
 			if ((error as { details?: { reason?: string } })?.details?.reason === "reading_timeout") state.readingWait = true;
-			const floor = floorDetail(error);
+			const detail = refusalDetail(error);
 			// `code` alone collapses every refusal of one family into one word. The kernel's own
 			// `reason` is a closed authored field, and without it a failure lane cannot tell a
 			// definition agent that died from a batch the Keeper simply got wrong.
@@ -737,7 +718,7 @@ export default function (pi: ExtensionAPI) {
 				ok: false,
 				code,
 				...(reason ? { reason } : {}),
-				...(floor ? { code_detail: floor } : {}),
+				...(detail ? { code_detail: detail } : {}),
 			});
 			return {
 				content: [{ type: "text", text: errorText(error) }],
@@ -1224,22 +1205,17 @@ export default function (pi: ExtensionAPI) {
 				await record({ tool, event: "turn-closed", round_trips: state.roundTrips, ok: true, implicit: true });
 				rendered = asString(result.rendered_text);
 			} catch (error) {
-				const floor = floorDetail(error);
+				const detail = refusalDetail(error);
 				await record({
 					tool, call_id: callId, started_at: startedAt, ms: Date.now() - began, ok: false, implicit: true,
 					code: isKernelError(error) ? error.code : "internal",
-					...(floor ? { code_detail: floor } : {}),
+					...(detail ? { code_detail: detail } : {}),
 				});
-				// The kernel refused the delivery (none of the play_language script):
-				// steer once with its own fix at agent_end rather than delivering, and the next run's
-				// narrate closes the turn.
-				if (floor) {
-					state.deliveryFix = floorSteer(floor, error);
-					// Player-visible text comes only from narrate and ask: prose the kernel refused is
-					// not a delivery, so it is dropped from the record rather than left standing as one.
-					const kept = blocks.filter((block) => block.type !== "text");
-					return { message: { ...event.message, content: kept } };
-				}
+				// No steer follows. The kernel refused an implicit delivery on the play language's script
+				// until §23 (2026-09-09); with the tag set open there is no character class to check, the
+				// kernel makes no such refusal, and this loop asks the Keeper for nothing. The verifier lane
+				// reads the delivered prose afterwards and files `play_language_mismatch` as an advisory
+				// finding on the turn instead (contract §12.5).
 				return;
 			}
 			if (!rendered) return;

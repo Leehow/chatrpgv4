@@ -4,8 +4,10 @@
  * Every caption comes from the snapshot's own `ui = {tag, words}` (contract §23, 2026-09-09). This
  * screen used to be written in one language outright, with an `en` option beside it that changed
  * only what the Keeper would later write -- so choosing English left the whole wizard in Chinese.
- * The picker itself lists `content/languages.json`, each language by its own `autonym`, and starts
- * at that file's `default`: adding a language is adding an entry there, never a case here.
+ * The picker offers `content/languages.json`'s `suggested` tags and accepts any other the player
+ * types: the tag set is open (contract §23, 2026-09-09), so there is no list to be on. A language
+ * is named by `Intl.DisplayNames` in that language itself, falling back to the tag, and the field
+ * starts at the file's `default`. Adding a language is nothing at all.
  *
  * Before the first answer arrives there is no `ui`, and the screen draws an ellipsis rather than
  * words in a language nobody has chosen. A failure shows its code's caption from the `errors`
@@ -32,6 +34,20 @@ function word(ui: Ui | null, surface: string, key: string, fallback?: string): s
   return typeof found === 'string' ? found : fallback === undefined ? key : fallback
 }
 
+/** The shape of a play language tag, and the only thing this screen asks about one (contract §23). */
+const PLAY_LANGUAGE_TAG = /^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/
+
+/**
+ * What to call a language, in that language.
+ *
+ * `Intl.DisplayNames` is the platform's own table, so the product keeps none; a tag it does not
+ * know comes back as itself, which is a name a player can still read and retype.
+ */
+function languageName(tag: string): string {
+  try {return new Intl.DisplayNames([tag], {type: 'language'}).of(tag) || tag}
+  catch {return tag}
+}
+
 /** A parameterised caption: `{name}` placeholders filled from `values`, order and all. */
 function fill(template: string, values: Record<string, unknown>): string {
   return template.replace(/\{([A-Za-z0-9_]+)\}/g, (whole, name) =>
@@ -55,14 +71,17 @@ function fileChunk(file: Blob): Promise<string> {
   })
 }
 export function CocOnboarding({host, sessionId}: Props) {
+  const [language,setLanguage] = useState<string>(playLanguages.default)
   const api=useMemo(()=>createExtensionHostAPI({host,sessionId,extensionId:'coc-keeper',capabilities:['invoke.agent']}),[host,sessionId])
-  const query=useMemo(()=>api.observe!('onboarding',{action:'current'}),[api])
+  const query=useMemo(()=>api.observe!('onboarding',{action:'current',play_language:language}),[api,language])
   const current=useSyncExternalStore(query.subscribe,query.snapshot,query.snapshot)
   const [section,setSection] = useState<'home'|'starter'|'module'|'pdf'>('home')
   const [catalog,setCatalog] = useState<Row | null>(null)
   const [job,setJob] = useState<Row | null>(null)
   const [busy,setBusy] = useState(false), [error,setError] = useState<Failure | null>(null)
-  const [language,setLanguage] = useState(playLanguages.default)
+  // What is in the field, which is not yet what the screen is in: a half-typed tag would ask the
+  // host for a catalog in a language nobody named. The tag is committed when it is a whole one.
+  const [typedLanguage,setTypedLanguage] = useState<string>(playLanguages.default)
   const [ui,setUi] = useState<Ui | null>(null)
   const starting=useRef(false), restored=useRef(false)
   const chooser = useRef<HTMLInputElement>(null), cancelled = useRef(false), uploadRunning = useRef(false)
@@ -70,6 +89,11 @@ export function CocOnboarding({host, sessionId}: Props) {
   const t=(key:string)=>word(ui,'onboarding',key)
   const tf=(key:string,values:Record<string,unknown>)=>fill(t(key),values)
   const said=(reason:Failure)=>word(ui,'errors',reason.code,word(ui,'errors','unknown'))
+  /** A whole tag becomes the screen's language; anything half-typed stays in the field alone. */
+  function commitLanguage(value: string): void {
+    const tag = value.trim()
+    if (PLAY_LANGUAGE_TAG.test(tag)) setLanguage(tag)
+  }
   async function call(params: Row): Promise<Row> {
     if (!host.invokeExtension) throw {code:'runtime_unavailable', message:'this host cannot prepare a scenario'}
     const reply = await host.invokeExtension('coc-keeper','onboarding',params,{sessionId})
@@ -81,7 +105,9 @@ export function CocOnboarding({host, sessionId}: Props) {
     return data
   }
   function remember(next: Row) {
-    if(next.play_language)setLanguage(next.play_language)
+    // A restored import brings its own language back; the field follows it, or it would go on
+    // showing whatever the player had typed before the page was reloaded.
+    if(next.play_language){setLanguage(next.play_language);setTypedLanguage(next.play_language)}
     setJob(next)
     void query.refresh()
     try {localStorage.setItem(storageKey,next.id)} catch { /* storage may be disabled */ }
@@ -103,7 +129,7 @@ export function CocOnboarding({host, sessionId}: Props) {
     } catch { /* no browser storage */ }
     return () => {active=false}
   },[host,sessionId])
-  useEffect(()=>{if(current?.ok){const next=(current.data as Row).current_import;if(next)setJob(next)}},[current])
+  useEffect(()=>{if(current?.ok){const data=current.data as Row;const next=data.current_import;if(next)setJob(next);if(data.ui?.tag===language)setUi(data.ui)}},[current,language])
   async function act(params:Row) {
     setError(null);setBusy(true)
     try {remember(await call({...params,id:job?.id,...(params.action==='select'?{play_language:language}:{})}))} catch(e){setError(failure(e))} finally {setBusy(false)}
@@ -140,7 +166,13 @@ export function CocOnboarding({host, sessionId}: Props) {
     <input ref={chooser} type="file" accept=".pdf,application/pdf" aria-label={t('choosePdf')} className="coc-file-input" onChange={event=>{void upload(event.target.files?.[0]);event.target.value=''}}/>
     <header className="coc-welcome"><span className="coc-eyebrow">{t('eyebrow')}</span><h1>{job?.state==='created'?t('title.created'):job?.state==='ready'?t('title.ready'):t('title.start')}</h1><p>{job?t('lede.job'):t('lede.start')}</p></header>
     {!job && <>
-        <label>{t('playLanguage')}<select value={language} onChange={e=>setLanguage(e.target.value)}>{Object.entries(playLanguages.languages).map(([tag,row])=><option key={tag} value={tag}>{(row as {autonym:string}).autonym}</option>)}</select></label>
+        {/* The suggestions sit outside the label: a datalist inside one joins its accessible name,
+            and the field would answer to the caption plus every language listed under it. */}
+        <label>{t('playLanguage')}<input list="coc-play-languages" value={typedLanguage} spellCheck={false}
+          onChange={e=>{const value=e.target.value;setTypedLanguage(value);if(playLanguages.suggested.includes(value.trim()))commitLanguage(value)}}
+          onBlur={e=>commitLanguage(e.target.value)}
+          onKeyDown={e=>{if(e.key==='Enter')commitLanguage((e.target as HTMLInputElement).value)}}/></label>
+        <datalist id="coc-play-languages">{playLanguages.suggested.map(tag=><option key={tag} value={tag}>{languageName(tag)}</option>)}</datalist>
       <div className="coc-source-cards">
         <button className={section==='starter'?'selected':''} onClick={()=>setSection('starter')}><span className="coc-source-symbol">⌘</span><strong>{t('source.starter.title')}</strong><span>{t('source.starter.hint')}</span><b>{t('source.starter.action')}</b></button>
         <button className={section==='pdf'?'selected':''} onClick={()=>{setSection('pdf');chooser.current?.click()}}><span className="coc-source-symbol">↑</span><strong>{t('source.pdf.title')}</strong><span>{t('source.pdf.hint')}</span><b>{t('source.pdf.action')}</b></button>

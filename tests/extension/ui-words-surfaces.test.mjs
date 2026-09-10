@@ -1,15 +1,16 @@
 /**
  * The surfaces the renderers read, and the tables they no longer keep (contract §23, 2026-09-09).
  *
- * `ui-words.test.mjs` pins the loader and the key parity between languages. This pins the other
- * half of the same ruling: that each player-facing surface exists for every declared language, that
- * `errors.json` has a caption for every code the contract lists, and that the renderers themselves
- * hold no word table and no character of a language they are not supposed to name. The last part is
- * a grep on purpose -- the behaviour tests in `Electron/packages/ui` prove the words arrive, and
- * this proves nobody quietly put a second copy back in code beside them.
+ * `ui-words.test.mjs` pins the loader, the digest and the key parity of every shipped seed. This
+ * pins the other half of the same ruling: that each player-facing surface exists in the authored
+ * source and in every seed shipped beside it, that `errors.json` has a caption for every code the
+ * contract lists, and that the renderers themselves hold no word table and no character of a
+ * language they are not supposed to name. The last part is a grep on purpose -- the behaviour tests
+ * in `Electron/packages/ui` prove the words arrive, and this proves nobody quietly put a second
+ * copy back in code beside them.
  */
 import { strict as assert } from "node:assert";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -45,10 +46,14 @@ const CJK = /[ᄀ-ᇿ　-〿぀-ヿ㄰-㆏㐀-䶿一-鿿가-힯豈-﫿＀-￯]/u
 const read = (path) => readFileSync(join(REPO, path), "utf8");
 const surface = (tag, name) => JSON.parse(read(`content/ui/${tag}/${name}.json`));
 
-test("every declared play language ships every player-facing surface", () => {
-	const { languages } = JSON.parse(read("content/languages.json"));
-	assert.ok(Object.keys(languages).length >= 2, "more than one language, or this proves nothing");
-	for (const tag of Object.keys(languages)) {
+/** Every directory under `content/ui/`: the authored source, and whatever seeds ship beside it. */
+const shipped = () => readdirSync(join(REPO, "content", "ui"), { withFileTypes: true })
+	.filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
+
+test("the authored source and every shipped seed carry every player-facing surface", () => {
+	const tags = shipped();
+	assert.ok(tags.length >= 2, "a source and at least one seed, or this proves nothing");
+	for (const tag of tags) {
 		for (const name of SURFACES) {
 			const words = surface(tag, name);
 			assert.ok(Object.keys(words).length > 0, `content/ui/${tag}/${name}.json is empty`);
@@ -56,14 +61,14 @@ test("every declared play language ships every player-facing surface", () => {
 	}
 });
 
-test("the languages the loader knows are exactly the ones with a directory", async () => {
+test("the tag the loader calls the source is the one with the authored directory", async () => {
 	const known = await loadPlayLanguages(join(REPO, "content"));
-	for (const tag of Object.keys(known.languages)) assert.doesNotThrow(() => surface(tag, "sheet"));
+	assert.ok(shipped().includes(known.source), `content/ui/${known.source} is the authored source`);
+	assert.doesNotThrow(() => surface(known.source, "sheet"));
 });
 
-test("every failure code the contract shows a player has a caption in every language", () => {
-	const { languages } = JSON.parse(read("content/languages.json"));
-	for (const tag of Object.keys(languages)) {
+test("every failure code the contract shows a player has a caption in the source and in every seed", () => {
+	for (const tag of shipped()) {
 		const errors = surface(tag, "errors");
 		for (const code of CODES) {
 			assert.equal(typeof errors[code], "string", `content/ui/${tag}/errors.json has no caption for ${code}`);

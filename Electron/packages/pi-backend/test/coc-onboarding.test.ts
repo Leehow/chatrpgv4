@@ -87,10 +87,15 @@ it('bounds upload bytes, acknowledges offsets and rejects another session',async
   expect(invalid.error.message).toBeTruthy();
 });
 
-/** A content root of this build's own shape, so a test never depends on the words that ship. */
+/**
+ * A content root of this build's own shape, so a test never depends on the words that ship: `en`
+ * holds the authored captions, `zz` ships a seed beside them (contract §23).
+ */
 async function contentRoot(){
   const root=await mkdtemp(join(tmpdir(),'coc-onboarding-words-'));
-  await writeFile(join(root,'languages.json'),JSON.stringify({default:'zz',languages:{zz:{autonym:'Zz'},en:{autonym:'English'}}}));
+  await writeFile(join(root,'languages.json'),JSON.stringify({source:'en',default:'zz',suggested:['zz','en']}));
+  await mkdir(join(root,'setup'),{recursive:true});
+  await writeFile(join(root,'setup/ui-presentation.md'),'project the captions');
   for(const tag of ['zz','en']){
     await mkdir(join(root,'ui',tag),{recursive:true});
     await writeFile(join(root,'ui',tag,'onboarding.json'),JSON.stringify({heading:`${tag} heading`}));
@@ -108,12 +113,22 @@ it('every onboarding answer carries its own language words, and every refusal a 
   const empty=await host.invoke({action:'current'},'one',model);
   expect(empty.current_import).toBeNull();
   expect(empty.ui.tag).toBe('zz');
+  expect(empty.ui.projected).toBe(true);
   expect(empty.ui.words.onboarding.heading).toBe('zz heading');
   const job=await host.invoke({action:'begin',name:'book.pdf',size:9,play_language:'en'},'one',model);
   expect(job.play_language).toBe('en');
   expect(job.ui.tag).toBe('en');
+  expect(job.ui.projected).toBe(true);
   expect(job.ui.words.onboarding.heading).toBe('en heading');
   expect((await host.invoke({action:'status',id:job.id},'one',model)).ui.tag).toBe('en');
+  // The tag set is open (§23): a tag nothing has registered is taken, answered in the authored
+  // words with `projected:false`, and one background projection is started for it. The runner is
+  // stubbed to reject above, so the job fails rather than hanging; the answer is unaffected.
+  const fresh=await host.invoke({action:'begin',name:'other.pdf',size:9,play_language:'pt-BR'},'three',model);
+  expect(fresh.play_language).toBe('pt-BR');
+  expect(fresh.ui.tag).toBe('pt-BR');
+  expect(fresh.ui.projected).toBe(false);
+  expect(fresh.ui.words.onboarding.heading).toBe('en heading');
   const code=async(params:any,session='one',who=model)=>
     (await host.invoke(params,session,who).then(()=>undefined,(error:any)=>error))?.code;
   expect(await code({action:'status',id:job.id},'two')).toBe('import_other_session');
@@ -121,7 +136,8 @@ it('every onboarding answer carries its own language words, and every refusal a 
   expect(await code({action:'begin',name:'book.txt',size:9})).toBe('upload_too_large');
   expect(await code({action:'begin',name:'book.pdf',size:9},'one',{...model,vision:false})).toBe('model_without_images');
   // `ww` is not declared, so it is refused rather than quietly swapped for the default.
-  expect(await code({action:'begin',name:'book.pdf',size:9,play_language:'ww'})).toBe('invalid_params');
+  // Only a value of no tag shape is refused; a tag nobody registered is a play language (§23).
+  expect(await code({action:'begin',name:'book.pdf',size:9,play_language:'WW not a tag'})).toBe('invalid_params');
   expect(await code({action:'select',source:'starter',module_id:'NOT A SLUG'})).toBe('invalid_params');
   expect(await code({action:'hide',id:job.id})).toBe('scenario_not_ready');
   expect(await code({action:'chunk',id:job.id,offset:5,data:'AAAA'})).toBe('upload_chunk_invalid');
@@ -236,4 +252,16 @@ it('the possession and clue projections are their own jobs beside the standing o
  // A done job is not kept: the next sheet read that finds a new word starts a fresh run.
  await host.presentation({...base,possessions:true});await host.presentation({...base,clues:true});
  expect(run).toHaveBeenCalledTimes(5);
+});
+
+it('keeps a failed UI projection rejected until the player explicitly retries',async()=>{
+ const {host}=await service();
+ const presentation=vi.spyOn(host,'presentation').mockRejectedValue(new Error('projection failed'));
+ await expect(host.projectUiWords('fr-CA')).rejects.toThrow('projection failed');
+ await expect(host.projectUiWords('fr-CA')).rejects.toThrow('projection failed');
+ expect(presentation).toHaveBeenCalledTimes(1);
+ host.retryUiWords();
+ presentation.mockResolvedValue({});
+ await host.projectUiWords('fr-CA');
+ expect(presentation).toHaveBeenCalledTimes(2);
 });

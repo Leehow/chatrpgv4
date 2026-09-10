@@ -103,7 +103,7 @@ const BB = Object.fromEntries(Object.entries(AA).map(([key, value]) => [key, val
 
 async function surfaces() {
 	const root = await mkdtemp(join(tmpdir(), "extension-words-"));
-	await writeFile(join(root, "languages.json"), JSON.stringify({ default: "aa", languages: { aa: { autonym: "Aa" }, bb: { autonym: "Bb" } } }));
+	await writeFile(join(root, "languages.json"), JSON.stringify({ source: "aa", default: "aa", suggested: ["aa", "bb"] }));
 	for (const [tag, words] of [["aa", AA], ["bb", BB]]) {
 		await mkdir(join(root, "ui", tag), { recursive: true });
 		await writeFile(join(root, "ui", tag, "extension.json"), JSON.stringify(words));
@@ -137,12 +137,20 @@ test("a key no shipped language declares renders as the key: an identifier and a
 	assert.equal(aa.line("a_key_nobody_wrote", { x: 1 }), "a_key_nobody_wrote");
 });
 
-test("an unknown tag reads as the language content/languages.json defaults to", async () => {
+test("a tag with no words yet keeps its own name and reads the authored ones; a non-tag reads as the default", async () => {
 	const { root, aa } = await surfaces();
-	const unknown = await extensionWords("zz", root);
-	assert.equal(unknown.tag, "aa");
-	assert.equal(unknown.word("table_open"), aa.word("table_open"));
-	assert.equal((await extensionWords(undefined, root)).tag, "aa");
+	// The set is open (§23): `zz` is a play language the moment somebody names it. It has no words
+	// yet, so it draws the authored ones and says so -- which is the host's cue to project them.
+	const fresh = await extensionWords("zz", root);
+	assert.equal(fresh.tag, "zz");
+	assert.equal(fresh.projected, false);
+	assert.equal(fresh.word("table_open"), aa.word("table_open"));
+	assert.equal(aa.projected, true, "the authored tag is its own projection");
+	// A value that is not a tag at all is the one thing that reads as the data default.
+	for (const value of [undefined, "", "ZZZZ", "zz_Hans"]) {
+		const settled = await extensionWords(value, root);
+		assert.equal(settled.tag, "aa", `${String(value)} is not a tag`);
+	}
 });
 
 test("the table's open line: the campaign's words around the kernel's title, scene and numbers", async () => {
@@ -267,8 +275,11 @@ test("the verifier always names the language it wants its findings in", async ()
 	const declared = JSON.parse(await readFile(join(REPO, "content/languages.json"), "utf8"));
 	const fallback = await verifierSystemPrompt(undefined);
 	assert.ok(fallback.includes(`Write why in ${declared.default}.`), "a kernel that named no language gets the data default, not silence");
-	const unknown = await verifierSystemPrompt("zz");
-	assert.ok(unknown.includes(`Write why in ${declared.default}.`), "a tag this build does not play in reads as the default");
+	const fresh = await verifierSystemPrompt("pt-BR");
+	assert.ok(fresh.includes("Write why in pt-BR."), "a tag nothing has registered is a play language all the same (§23)");
+	const notATag = await verifierSystemPrompt("ZZZZ");
+	assert.ok(notATag.includes(`Write why in ${declared.default}.`), "a value that is not a tag reads as the default");
+	assert.ok(named.includes("play_language_mismatch"), "the fourth finding kind is named to the lane");
 });
 
 test("the shipped languages declare exactly the keys the extensions ask for", () => {
@@ -323,26 +334,56 @@ test("character guidance refuses with invalid_params and reports readiness with 
 	await writeFile(join(folder, "module-graph.json"), JSON.stringify({ nodes: [] }));
 	const options = { home, module_id: "story", play_language: "en", occupations: [], runner: async () => ({ ok: true }) };
 	await assert.rejects(prepareCharacterGuidance({ ...options, module_id: "Not An Id" }), (error) => error.code === "invalid_params");
-	await assert.rejects(prepareCharacterGuidance({ ...options, play_language: "zz" }), (error) => error.code === "invalid_params");
 	await assert.rejects(acceptedGuidance(home, "story", "not-a-fingerprint"), (error) => error.code === "invalid_params");
-	await writeFile(join(folder, "module.json"), JSON.stringify({ id: "story", bundled_guidance_required: true }));
-	await assert.rejects(prepareCharacterGuidance(options), (error) => error.code === "guidance_not_ready");
 	assert.equal(errorCodeOf(rejectionOf(() => validateGuidance(null))), "guidance_unavailable");
+});
+
+/**
+ * Readiness under the open tag set (contract §23): a malformed tag is refused by shape; a listed
+ * starter opened in a tag it ships no bundle for generates its guidance per campaign, exactly as a
+ * PDF module does; only a bundle that exists for the tag and is stale answers guidance_not_ready.
+ */
+test("character guidance reports readiness with guidance_not_ready only for a stale shipped bundle", async () => {
+	const home = await mkdtemp(join(tmpdir(), "guidance-ready-"));
+	const folder = join(home, ".coc/modules/story");
+	await mkdir(folder, { recursive: true });
+	await writeFile(join(folder, "module-graph.json"), JSON.stringify({ nodes: [] }));
+	// A content root of our own, so a bundle can be shipped for the starter under test.
+	const content = await mkdtemp(join(tmpdir(), "guidance-content-"));
+	await mkdir(join(content, "setup"), { recursive: true });
+	for (const name of ["setup/character-guidance.md", "setup/character-guidance-review.md", "languages.json"])
+		await writeFile(join(content, name), await readFile(join(REPO, "content", name), "utf8"));
+	let runs = 0;
+	const options = { home, module_id: "story", play_language: "en", occupations: [], contentRoot: content,
+		runner: async () => { runs += 1; return { ok: false }; } };
+	await assert.rejects(prepareCharacterGuidance({ ...options, play_language: "ZZZZ" }), (error) => error.code === "invalid_params");
+	await writeFile(join(folder, "module.json"), JSON.stringify({ id: "story", bundled_guidance_required: true }));
+	// No bundle for `en`: the generation path runs (and fails here only because the fake runner declines).
+	await assert.rejects(prepareCharacterGuidance(options), (error) => error.code === "preparation_failed");
+	assert.equal(runs, 1, "a starter without a bundle for the tag generates its guidance");
+	// A bundle shipped for `en` that the fingerprint does not accept is stale: readiness, not generation.
+	await mkdir(join(content, "starters/story/character-guidance"), { recursive: true });
+	await writeFile(join(content, "starters/story/character-guidance/en.json"), JSON.stringify({ fingerprint: "stale", approved: true, guidance: {} }));
+	await assert.rejects(prepareCharacterGuidance(options), (error) => error.code === "guidance_not_ready");
+	assert.equal(runs, 1, "a stale bundle is never regenerated during selection");
 });
 
 test("the card and the document refuse with invalid_params and fail preparation with preparation_failed", async () => {
 	const home = await mkdtemp(join(tmpdir(), "presentation-codes-"));
-	const card = { home, campaign: "camp", revision: 1, play_language: "zz", runner: async () => ({ ok: true }) };
+	// A value that is not a tag shape is refused; a tag nobody registered is not (§23), so the card
+	// for `pt-BR` fails on its missing draft instead, which is what an open tag set means.
+	const card = { home, campaign: "camp", revision: 1, play_language: "ZZZZ", runner: async () => ({ ok: true }) };
 	await assert.rejects(prepareCharacterPresentation(card), (error) => error.code === "invalid_params");
+	await assert.rejects(prepareCharacterPresentation({ ...card, play_language: "pt-BR" }), (error) => /ENOENT/.test(error.message));
 	await assert.rejects(prepareCharacterPresentation({ ...card, play_language: "en", campaign: "not a campaign" }),
 		(error) => error.code === "invalid_params");
 	await assert.rejects(prepareStandingPresentation({ ...card, play_language: "en", view: { play_language: "en" }, campaign: "not a campaign" }),
 		(error) => error.code === "invalid_params");
-	await assert.rejects(prepareStandingPresentation({ ...card, play_language: "en", view: { play_language: "zz" } }),
+	await assert.rejects(prepareStandingPresentation({ ...card, play_language: "en", view: { play_language: "pt-BR" } }),
 		(error) => error.code === "invalid_params");
 	assert.equal(errorCodeOf(rejectionOf(() => validatePresentation({ texts: {} }, ["one"]))), "preparation_failed");
 	assert.equal(errorCodeOf(rejectionOf(() => validateFinanceEquipment({ finance_equipment: ["nothing"] }, []))), "preparation_failed");
-	await assert.rejects(presentDocument({ home }, { play_language: "zz", name: "a", text: "", original: "" }),
+	await assert.rejects(presentDocument({ home }, { play_language: "ZZZZ", name: "a", text: "", original: "" }),
 		(error) => error.code === "invalid_params");
 	await assert.rejects(presentDocument({ home }, { play_language: "en", name: "", text: "", original: "" }),
 		(error) => error.code === "invalid_params");
@@ -359,18 +400,21 @@ function rejectionOf(run) {
 	assert.fail("the call was supposed to refuse");
 }
 
-test("the two shipped languages agree on the extension surface's keys", async () => {
+test("every shipped seed agrees with the authored extension surface, key for key and hole for hole", async () => {
 	const read = async (tag) => JSON.parse(await readFile(join(REPO, "content/ui", tag, "extension.json"), "utf8"));
 	const declared = JSON.parse(await readFile(join(REPO, "content/languages.json"), "utf8"));
-	const base = await read(declared.default);
-	for (const tag of Object.keys(declared.languages)) {
+	const base = await read(declared.source);
+	const seeds = readdirSync(join(REPO, "content/ui"), { withFileTypes: true })
+		.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
+	assert.ok(seeds.length >= 2, "a source and at least one seed, or this proves nothing");
+	for (const tag of seeds) {
 		const own = await read(tag);
-		assert.deepEqual(Object.keys(own).sort(), Object.keys(base).sort(), `content/ui/${tag}/extension.json holds the default's keys`);
+		assert.deepEqual(Object.keys(own).sort(), Object.keys(base).sort(), `content/ui/${tag}/extension.json holds the authored keys`);
 		for (const [key, value] of Object.entries(own)) {
 			assert.ok(typeof value === "string" && value.trim(), `content/ui/${tag}/extension.json: ${key} is a word`);
 			const holes = [...value.matchAll(/\{([A-Za-z0-9_]+)\}/g)].map(([, name]) => name).sort();
 			assert.deepEqual(holes, [...base[key].matchAll(/\{([A-Za-z0-9_]+)\}/g)].map(([, name]) => name).sort(),
-				`content/ui/${tag}/extension.json: ${key} takes the same values as the default's`);
+				`content/ui/${tag}/extension.json: ${key} takes the same values as the authored one's`);
 		}
 	}
 	assert.ok(relative(REPO, join(REPO, "content/ui")) === join("content", "ui"), "the surfaces live under content/ui");

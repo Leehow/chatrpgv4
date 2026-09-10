@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {mkdtemp,mkdir,readFile,writeFile,readdir} from 'node:fs/promises';
+import {mkdtemp,mkdir,readFile,writeFile,readdir,symlink} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {join,resolve} from 'node:path';
 import {prepareCharacterGuidance,validateGuidance,guidanceFingerprint} from '../../extensions/module/character-guidance.ts';
+const REPO=resolve(import.meta.dirname,'../..');
 const occupations=[{id:'Journalist',name:'Journalist'}];
 const guide={scene:'Story',guide:'',handoff:'Continue the meeting.',opening:'Boston, 1920. What is your name, and what kind of person are you?',advice:'Suggest source-fitting occupations and respect the player choices.'};
 test('default, name, node ID and runtime handle reuse one reviewed opening',async()=>{
@@ -18,12 +19,36 @@ test('default, name, node ID and runtime handle reuse one reviewed opening',asyn
  const packet=JSON.parse(await readFile(join(folder,'character-guidance',keys[0],'attempts',attempt,'packet.json'),'utf8'));
  assert.equal(packet.opening,'The Office');
 });
-test('a listed starter cache miss never runs a reader during selection',async()=>{
+test('a listed starter: a stale bundle for the tag never runs a reader; a tag with no bundle generates per campaign',async()=>{
  const {folder,options,calls}=await fixture();
+ // The starter ships one bundle, for en, that the kernel did not accept (its graph digest is stale).
+ const contentRoot=await bundledContentRoot({'en.json':JSON.stringify({module_id:'story',play_language:'en',graph_sha256:'stale',fingerprint:'0'.repeat(64),approved:true,guidance:guide})});
  await writeFile(join(folder,'module.json'),JSON.stringify({id:'story',bundled_guidance_required:true}));
- await assert.rejects(prepareCharacterGuidance(options),/Bundled starter guidance/);
+ await assert.rejects(prepareCharacterGuidance({...options,contentRoot,play_language:'en'}),error=>error.code==='guidance_not_ready'&&/Bundled starter guidance/.test(error.message));
  assert.equal(calls(),0);
+ // A tag the starter ships no bundle for reaches the generation path, as a PDF module does.
+ assert.deepEqual(await prepareCharacterGuidance({...options,contentRoot,play_language:'pt-BR'}),guide);
+ assert.equal(calls(),2);
+ const key=await guidanceFingerprint({...options,contentRoot,play_language:'pt-BR'});
+ const [attempt]=await readdir(join(folder,'character-guidance',key,'attempts'));
+ assert.equal(JSON.parse(await readFile(join(folder,'character-guidance',key,'attempts',attempt,'packet.json'),'utf8')).play_language,'pt-BR');
+ // Once the kernel has accepted the en bundle, en is served from it without a reader.
+ const accepted=await guidanceFingerprint({...options,contentRoot,play_language:'en'});
+ await mkdir(join(folder,'character-guidance',accepted),{recursive:true});
+ await writeFile(join(folder,'character-guidance',accepted,'accepted.json'),JSON.stringify({fingerprint:accepted,approved:true,play_language:'en',guidance:guide}));
+ await writeFile(join(folder,'module.json'),JSON.stringify({id:'story',bundled_guidance_required:true,character_guidance:{[accepted]:{scene:'Story',play_language:'en'}}}));
+ assert.deepEqual(await prepareCharacterGuidance({...options,contentRoot,play_language:'en'}),guide);
+ assert.equal(calls(),2);
 });
+/** A content root with the real prompts and a starter `story` shipping exactly `files` as its guidance bundles. */
+async function bundledContentRoot(files){
+ const content=await mkdtemp(join(tmpdir(),'guidance-content-'));
+ await symlink(join(REPO,'content/setup'),join(content,'setup'),'dir');
+ const bundles=join(content,'starters/story/character-guidance');
+ await mkdir(bundles,{recursive:true});
+ for(const [name,text] of Object.entries(files))await writeFile(join(bundles,name),text);
+ return content;
+}
 async function fixture(approved=true){
  const home=await mkdtemp(join(tmpdir(),'guidance-'));const folder=join(home,'.coc/modules/story');await mkdir(folder,{recursive:true});
  await writeFile(join(folder,'module.json'),JSON.stringify({id:'story'}));
@@ -54,7 +79,9 @@ test('invalid guidance, language, traversal and cancellation are rejected',async
  assert.throws(()=>validateGuidance({opening:'',advice:'Test'}),/Invalid/);
  const {options,calls}=await fixture();
  await assert.rejects(prepareCharacterGuidance({...options,module_id:'../escape'}),/Invalid module/);
- await assert.rejects(prepareCharacterGuidance({...options,play_language:'unknown'}),/language/);
+ // A tag is accepted by shape alone: `unknown` is not one, while a tag no data names is.
+ await assert.rejects(prepareCharacterGuidance({...options,play_language:'unknown'}),error=>error.code==='invalid_params'&&/language/.test(error.message));
+ await assert.rejects(prepareCharacterGuidance({...options,play_language:'Not A Tag'}),error=>error.code==='invalid_params'&&/language/.test(error.message));
  await assert.rejects(prepareCharacterGuidance({...options,signal:AbortSignal.abort()}),/cancelled/);assert.equal(calls(),0);
 });
 test('a reviewer cannot change the draft before publication',async()=>{

@@ -1,9 +1,10 @@
 /**
- * Languages and player-visible words are data (host decision 2026-09-09, contract §23): the kernel
- * reads the language set, its default and its script obligations from content/languages.json, the
- * glossary is the union of every localized_labels row in the rules data, and no kernel prose or
- * handle reaches a player field. Each case here fails when its fix is reverted: fixture content
- * roots declare languages the code has never heard of, so a literal tag or a file list cannot pass.
+ * The play language is open and player-visible words are data (host decision 2026-09-09, contract
+ * §23): the kernel reads only the default and the suggested tags from content/languages.json,
+ * accepts any tag-shaped play_language, refuses no delivery by its script, the glossary is the
+ * union of every localized_labels row in the rules data, and no kernel prose or handle reaches a
+ * player field. Each case here fails when its fix is reverted: fixture content roots name tags the
+ * code has never heard of, so a literal tag, a membership check or a file list cannot pass.
  */
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
@@ -22,7 +23,7 @@ await symlink(join(ROOT, 'node_modules'), join(output, 'node_modules'), 'dir');
 await build({ stdin: { contents: [
   `export {createKernelContext} from ${JSON.stringify(join(ROOT, 'kernel-ts/context.ts'))};`,
   `export {playLanguages, playLanguageOf} from ${JSON.stringify(join(ROOT, 'kernel-ts/read/languages.ts'))};`,
-  `export {checkLanguage, markersFor} from ${JSON.stringify(join(ROOT, 'kernel-ts/write/text.ts'))};`,
+  `export {markersFor} from ${JSON.stringify(join(ROOT, 'kernel-ts/write/text.ts'))};`,
   `export {normalizeText, kebab} from ${JSON.stringify(join(ROOT, 'kernel-ts/read/values.ts'))};`,
   `export {playerGlossary} from ${JSON.stringify(join(ROOT, 'kernel-ts/read/handlers.ts'))};`,
   `export {manifestFrom} from ${JSON.stringify(join(ROOT, 'kernel-ts/read/mods.ts'))};`,
@@ -36,14 +37,16 @@ await build({ stdin: { contents: [
 ].join('\n'), sourcefile: 'i18n-test-api.ts', resolveDir: ROOT, loader: 'ts' }, outfile: join(output, 'api.mjs'), bundle: true, packages: 'external', platform: 'node', format: 'esm', target: 'node22', logLevel: 'silent' });
 const api = await import(pathToFileURL(join(output, 'api.mjs')).href);
 
-/** Three languages no code names: `xx` obliges the cjk class, `yy` nothing, `zz` a class the guard does not know. */
-const FIXTURE_LANGUAGES = { default: 'xx', languages: { xx: { autonym: 'Xish', script: 'cjk' }, yy: { autonym: 'Yish' }, zz: { autonym: 'Zish', script: 'runic' } } };
+/** A default and a suggestion no code names, and nothing else: the set is open, so there is no list to declare. */
+const FIXTURE_LANGUAGES = { contract: 'coc.play-languages.v2', default: 'xx', suggested: ['xx', 'yy'] };
 
 /**
  * A content root that is the real one except for languages.json and, when given, extra rules
- * files. It sits beside a link to the real mods directory, as the product's content root does.
+ * files or a starter's guidance bundles (`{ [starter]: { [fileName]: text } }` replacing its
+ * `character-guidance` directory). It sits beside a link to the real mods directory, as the
+ * product's content root does.
  */
-async function contentRoot(languages, extraRules = {}) {
+async function contentRoot(languages, extraRules = {}, bundles = {}) {
   const home = await mkdtemp(join(evidence, 'content-'));
   const content = join(home, 'content');
   await mkdir(content);
@@ -51,9 +54,22 @@ async function contentRoot(languages, extraRules = {}) {
   for (const name of await readdir(CONTENT)) {
     if (name === 'languages.json') continue;
     if (name === 'rulesets' && Object.keys(extraRules).length) continue;
+    if (name === 'starters' && Object.keys(bundles).length) continue;
     await symlink(join(CONTENT, name), join(content, name));
   }
   await writeFile(join(content, 'languages.json'), JSON.stringify(languages, null, 2));
+  if (Object.keys(bundles).length) {
+    const starters = join(content, 'starters');
+    await mkdir(starters);
+    for (const id of await readdir(join(CONTENT, 'starters'))) {
+      if (!Object.hasOwn(bundles, id)) { await symlink(join(CONTENT, 'starters', id), join(starters, id)); continue; }
+      await mkdir(join(starters, id));
+      for (const name of await readdir(join(CONTENT, 'starters', id)))
+        if (name !== 'character-guidance') await symlink(join(CONTENT, 'starters', id, name), join(starters, id, name));
+      await mkdir(join(starters, id, 'character-guidance'));
+      for (const [name, text] of Object.entries(bundles[id])) await writeFile(join(starters, id, 'character-guidance', name), text);
+    }
+  }
   if (Object.keys(extraRules).length) {
     const coc7 = join(content, 'rulesets/coc7');
     await mkdir(coc7, { recursive: true });
@@ -88,35 +104,62 @@ async function opened(t, campaign, language, content = CONTENT) {
   return { home, client };
 }
 
-test('the language set, its default and the accepted tags come from content/languages.json', async t => {
+test('the default and the suggested tags come from content/languages.json; any tag-shaped play_language opens a table', async t => {
   const content = await contentRoot(FIXTURE_LANGUAGES), ctx = await context(content);
   t.after(() => ctx.git.close());
   const known = await api.playLanguages(ctx);
   assert.equal(known.default, 'xx');
-  assert.deepEqual([...known.tags], ['xx', 'yy', 'zz']);
+  assert.deepEqual([...known.suggested], ['xx', 'yy']);
+  assert.ok(!('tags' in known) && !('languages' in known), 'the kernel keeps no accepted set');
   assert.equal(await api.playLanguageOf(ctx, {}), 'xx');
-  assert.equal(await api.playLanguageOf(ctx, { play_language: 'yy' }), 'yy');
+  assert.equal(await api.playLanguageOf(ctx, { play_language: 'pt-BR' }), 'pt-BR');
+  assert.equal(await api.playLanguageOf(ctx, { play_language: 'Not A Tag' }), 'xx');
   const { home, client } = await table(t, content);
-  await assert.rejects(client.call('campaign.create', { id: 'bad', module: 'the-haunting', pregen: 'thomas-hayes', play_language: 'fr' }),
-    error => error.code === 'invalid_params' && error.details.field === 'play_language' && assert.deepEqual(error.details.options, ['xx', 'yy', 'zz']) === undefined && error.fix.includes('xx, yy, zz'));
-  await client.call('campaign.create', { id: 'c1', module: 'the-haunting', pregen: 'thomas-hayes' });
-  assert.equal(JSON.parse(await readFile(join(home, '.coc/campaigns/c1/campaign.json'), 'utf8')).play_language, 'xx');
-  assert.equal((await client.call('table.view', { campaign: 'c1' })).play_language, 'xx');
+  // A malformed tag is refused by shape: the fix names the shape and details.suggested the picker's
+  // first offers; there is no list of accepted tags to offer.
+  await assert.rejects(client.call('campaign.create', { id: 'bad', module: 'the-haunting', pregen: 'thomas-hayes', play_language: 'Not A Tag' }),
+    error => error.code === 'invalid_params' && error.details.field === 'play_language' && assert.deepEqual(error.details.suggested, ['xx', 'yy']) === undefined
+      && !('options' in error.details) && error.fix.includes('BCP-47'));
+  // A tag no data names opens a table in that tag; a bare create takes the default.
+  await client.call('campaign.create', { id: 'c1', module: 'the-haunting', pregen: 'thomas-hayes', play_language: 'pt-BR' });
+  assert.equal(JSON.parse(await readFile(join(home, '.coc/campaigns/c1/campaign.json'), 'utf8')).play_language, 'pt-BR');
+  assert.equal((await client.call('table.view', { campaign: 'c1' })).play_language, 'pt-BR');
+  await client.call('campaign.create', { id: 'c2', module: 'the-haunting', pregen: 'thomas-hayes' });
+  assert.equal((await client.call('table.view', { campaign: 'c2' })).play_language, 'xx');
 });
 
-test('the delivery guard obliges the script class a language declares, and nothing else', async t => {
-  const ctx = await context(await contentRoot(FIXTURE_LANGUAGES));
-  t.after(() => ctx.git.close());
-  await assert.rejects(api.checkLanguage(ctx, 'xx', { text: 'nothing but latin', prompt: '中文' }),
-    error => error.codeDetail === 'play_language_mismatch' && assert.deepEqual(error.details.fields, ['text']) === undefined && error.details.play_language === 'xx');
-  await api.checkLanguage(ctx, 'xx', { text: '中文交付。' });
-  await api.checkLanguage(ctx, 'yy', { text: 'nothing but latin' });
-  await api.checkLanguage(ctx, 'unknown-tag', { text: 'nothing but latin' });
-  await assert.rejects(api.checkLanguage(ctx, 'zz', { text: 'anything' }), error => error.code === 'campaign_not_ready' && error.details.script === 'runic');
-  const real = await context(CONTENT);
-  t.after(() => real.git.close());
-  await assert.rejects(api.checkLanguage(real, 'zh-Hans', { text: 'english only' }), error => error.codeDetail === 'play_language_mismatch');
-  await api.checkLanguage(real, 'en', { text: 'english only' });
+test('no delivery is refused by its script: narrate and ask deliver any text on any tag', async t => {
+  // Latin-only prose and options on the shipped default table, which obliged a CJK script before.
+  const { client } = await opened(t, 'c1', 'zh-Hans');
+  const text = 'Nothing but Latin letters, and the Keeper is not refused.';
+  assert.equal((await client.call('table.narrate', { campaign: 'c1', call_id: 't0-c1', text })).rendered_text, text);
+  await client.call('table.player_input', { campaign: 'c1', text: 'I look around.' });
+  const asked = await client.call('table.ask', { campaign: 'c1', call_id: 't1-c1', prompt: 'What now?', options: ['留下', 'Leave'] });
+  assert.equal(asked.state, 'asked');
+  assert.deepEqual(asked.interaction.options, ['留下', 'Leave']);
+  // Han prose on a tag no data names.
+  const other = await opened(t, 'c2', 'xx-Latn', await contentRoot(FIXTURE_LANGUAGES));
+  const han = '开场。诺特把钥匙放在桌上。';
+  assert.equal((await other.client.call('table.narrate', { campaign: 'c2', call_id: 't0-c1', text: han })).rendered_text, han);
+});
+
+test('a starter registers whichever guidance bundles it ships, named by tag, with no list to keep in step', async t => {
+  const shipped = JSON.parse(await readFile(join(CONTENT, 'starters/the-haunting/character-guidance/en.json'), 'utf8'));
+  const bundle = tag => JSON.stringify({ ...shipped, play_language: tag });
+  // The real starter with its bundles replaced by one for a tag no data names, beside a file that is not a bundle.
+  const content = await contentRoot(FIXTURE_LANGUAGES, {}, { 'the-haunting': { 'pt-BR.json': bundle('pt-BR'), 'notes.md': 'not a bundle' } });
+  const { home, client } = await table(t, content);
+  await client.call('campaign.create', { id: 'c1', module: 'the-haunting', pregen: 'thomas-hayes', play_language: 'pt-BR' });
+  const meta = JSON.parse(await readFile(join(home, '.coc/modules/the-haunting/module.json'), 'utf8'));
+  assert.equal(meta.bundled_guidance_required, true);
+  assert.deepEqual(Object.values(meta.character_guidance).map(reference => reference.play_language), ['pt-BR']);
+  const [key] = Object.keys(meta.character_guidance);
+  assert.equal(JSON.parse(await readFile(join(home, '.coc/modules/the-haunting/character-guidance', key, 'accepted.json'), 'utf8')).play_language, 'pt-BR');
+  // A bundle not named by a tag is a release defect, not a language.
+  const broken = await contentRoot(FIXTURE_LANGUAGES, {}, { 'the-haunting': { 'Not A Tag.json': bundle('en') } });
+  const second = await table(t, broken);
+  await assert.rejects(second.client.call('campaign.create', { id: 'c1', module: 'the-haunting', pregen: 'thomas-hayes' }),
+    error => error.code === 'invalid_params' && error.details.file === 'Not A Tag.json');
 });
 
 test('normalizeText keeps every script, so ids, markers and aliases work beyond Latin and Han', async () => {

@@ -18,9 +18,11 @@
  * (the kernel's one-time `branched` capsule section is for the Keeper; this entry is for the
  * player). The cold path (no live session) writes the same row from the host side.
  */
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { emitToPanel, registerInvokeHandlers } from "./host-bridge.ts";
-import { loadUiWords, type UiWords } from "../runtime/ui-words.ts";
+import { uiWordsSurface } from "./ui-words.ts";
+import type { UiWords } from "../runtime/ui-words.ts";
+import type { HostRuntime } from "../runtime/host.ts";
 import { PACK_ID } from "./sheet.ts";
 
 type KernelCall = (method: string, params: Record<string, unknown>) => Promise<unknown>;
@@ -28,8 +30,8 @@ type KernelCall = (method: string, params: Record<string, unknown>) => Promise<u
 interface KernelBridgeEvent {
 	campaign?: string;
 	call?: KernelCall;
-	/** The composed runtime, for the content root its words are read from. */
-	runtime?: { contentRoot?: string };
+	/** The composed runtime: the content root the words are read from, the home they cache in, and the lane that projects them. */
+	runtime?: HostRuntime;
 }
 
 export interface TimelineAnswer {
@@ -66,23 +68,24 @@ function answerCode(error: unknown): string {
 export function registerTimelinePanel(pi: ExtensionAPI): void {
 	let bridge: KernelCall | undefined;
 	let campaign: string | undefined;
-	let contentRoot: string | undefined;
+	let runtime: HostRuntime | undefined;
+	let context: ExtensionContext | undefined;
 	let language: string | undefined;
 
-	/** The chrome's words for this table's language, one read per content root and tag (§23). */
-	const words = new Map<string, Promise<UiWords | undefined>>();
+	/**
+	 * The chrome's words for this table's language (§23): a seed or a cached projection when there
+	 * is one, and otherwise the authored words at once plus one background projection for the tag.
+	 */
+	const words = uiWordsSurface((tag) => {
+		pi.events.emit("coc:ui-words", { tag });
+		void emitToPanel(PACK_ID, "timeline-changed");
+	});
 	function chrome(): Promise<UiWords | undefined> {
-		if (!contentRoot) return Promise.resolve(undefined);
-		const key = JSON.stringify([contentRoot, language ?? null]);
-		let pending = words.get(key);
-		if (!pending) {
-			pending = loadUiWords(contentRoot, language).catch(() => {
-				words.delete(key);
-				return undefined;
-			});
-			words.set(key, pending);
-		}
-		return pending;
+		return words.words(language, runtime ? {
+			runtime,
+			model: context?.model ? `${context.model.provider}/${context.model.id}` : undefined,
+			thinking: context?.thinkingLevel,
+		} : undefined);
 	}
 	async function answer(row: TimelineAnswer): Promise<TimelineAnswer> {
 		const ui = await chrome();
@@ -99,8 +102,10 @@ export function registerTimelinePanel(pi: ExtensionAPI): void {
 		const event = (data ?? {}) as KernelBridgeEvent;
 		bridge = event.call;
 		if (event.campaign) campaign = event.campaign;
-		if (event.runtime?.contentRoot) contentRoot = event.runtime.contentRoot;
+		if (event.runtime?.contentRoot) runtime = event.runtime;
 	});
+	pi.on("session_start", async (_event, ctx) => { context = ctx; });
+	pi.on("before_agent_start", async (_event, ctx) => { context = ctx; });
 	pi.events.on("coc:table-open", (data) => {
 		const opened = (data ?? {}) as { campaign?: string; open?: { campaign?: { play_language?: string } } };
 		if (opened.campaign) campaign = opened.campaign;
@@ -178,7 +183,11 @@ export function registerTimelinePanel(pi: ExtensionAPI): void {
 	});
 
 	// A committed turn is a new node on the graph; the push carries no data, the panel re-reads.
-	pi.events.on("coc:turn-committed", () => {
+	pi.events.on("coc:turn-committed", (data) => {
+		const row = data as {commit?: string; turn?: number};
+		try {
+			if (row?.commit && Number.isInteger(row.turn)) pi.appendEntry("coc-turn-anchor", {commit: row.commit, turn: row.turn});
+		} catch { /* Legacy tool-result anchors remain available if this projection cannot append. */ }
 		void emitToPanel(PACK_ID, "timeline-changed");
 	});
 }

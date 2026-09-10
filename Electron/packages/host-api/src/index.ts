@@ -27,6 +27,7 @@ export type SessionWorkspace = {
   aheadOfMain: number | null;
 };
 export type Session = {
+  cocWorldline?: {campaign:string; line:string; parentSessionId?:string};
   id: string;
   projectId: string;
   name: string;

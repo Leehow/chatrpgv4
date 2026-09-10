@@ -81,6 +81,7 @@
     "build/extensions/module/character-guidance.mjs",
     "build/extensions/module/character-presentation.mjs",
     "build/extensions/mods/document-presentation.mjs",
+    "build/extensions/module/ui-presentation.mjs",
     "build/host/runtime/kernel/pipiui-ext-invoke.mjs",
     "build/host/runtime/kernel/pipiui-secret-vault.mjs",
     "build/host/runtime/kernel/pipiui-update-center.mjs",

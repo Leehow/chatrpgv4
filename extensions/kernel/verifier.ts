@@ -1,11 +1,17 @@
 /**
  * The verifier lane (contract §12.5). It runs after the delivery replacement is done: a
- * zero-tool subsession reads the delivered prose and the two fact lists, reports three kinds
+ * zero-tool subsession reads the delivered prose and the two fact lists, reports four kinds
  * of finding, and hands the result to `table.warn`.
  *
  * Three boundaries written down straight from the contract: everything is advisory (it changes
  * no state, blocks no delivery, reopens no turn); the lane judges with neither keywords nor
  * regexes; a failure only writes telemetry and never nags the Keeper.
+ *
+ * The fourth kind, `play_language_mismatch`, arrived with the open-language ruling (§23,
+ * 2026-09-09). The kernel used to refuse a delivery whose player-facing fields carried none of the
+ * campaign's script, which is a character-class detector and an open set has no table to look in.
+ * Whether the prose is written in the player's language is a reading, so it is this lane's reading,
+ * and it is advisory like the other three: a warning on the turn, never a refused delivery.
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -13,8 +19,8 @@ import { playLanguageTag } from "../../runtime/ui-words.ts";
 import { runLane } from "../lanes/subsession.ts";
 import { extensionContentRoot } from "../ui/words.ts";
 
-/** The closed set of three finding kinds; a row of any other kind is dropped whole. */
-const FINDING_KINDS: ReadonlySet<string> = new Set(["reveal", "uncommitted_state", "player_agency"]);
+/** The closed set of finding kinds; a row of any other kind is dropped whole. */
+const FINDING_KINDS: ReadonlySet<string> = new Set(["reveal", "uncommitted_state", "player_agency", "play_language_mismatch"]);
 
 /** The kernel takes at most 10 (§12.5), so trim here rather than have the whole batch judged invalid_params. */
 const MAX_FINDINGS = 10;
@@ -55,20 +61,21 @@ function factLines(facts: unknown[] | undefined): string {
 
 /**
  * The lane's instructions. The language its `why` is written in is always named: a campaign whose
- * `play_language` the kernel did not report reads as the language `content/languages.json` defaults
- * to, so the findings never come back in whatever language the model felt like (contract §23). No
- * tag is written here; the data says which tags exist and which one is the fallback.
+ * `play_language` the kernel did not report reads as the tag the data calls the default, so the
+ * findings never come back in whatever language the model felt like (contract §23). No tag is
+ * written here; the data says which one the fallback is, and the tag itself is passed through.
  */
 export async function verifierSystemPrompt(playLanguage?: string, contentRoot?: string): Promise<string> {
 	const tag = await playLanguageTag(extensionContentRoot(contentRoot), playLanguage);
 	return [
 		"You are doing an after-the-fact verification pass for a Call of Cthulhu Keeper. The prose you read has already been delivered to the player and cannot be changed; you only report, you never rewrite.",
-		"Look for three kinds of problem, and report none if you find none:",
+		"Look for four kinds of problem, and report none if you find none:",
 		"- reveal: the prose says something from the Keeper-only list that the player has not yet earned at the table.",
 		"- uncommitted_state: the prose claims a state change that is not on the committed-facts list — moving somewhere, gaining a clue, a number going up or down, time passing.",
 		"- player_agency: the prose makes a voluntary choice for the player that he did not declare (a choice, something he said, an action he took).",
+		`- play_language_mismatch: the player-facing prose is not written in ${tag}. Judge the prose as a reader of that language would, not by counting characters; proper names, quoted rules terms and dice notation are not a mismatch.`,
 		"Answer with one JSON object only, no code fence and no explanation:",
-		'{"findings":[{"kind":"reveal"|"uncommitted_state"|"player_agency","quote":"<the sentence from the prose, word for word, <=120 chars>","why":"<=200 chars>"}]}',
+		'{"findings":[{"kind":"reveal"|"uncommitted_state"|"player_agency"|"play_language_mismatch","quote":"<the sentence from the prose, word for word, <=120 chars>","why":"<=200 chars>"}]}',
 		'With no problems, answer {"findings":[]}.',
 		"The quote must be taken verbatim from the prose: change one character, splice two sentences, or add a mark of punctuation, and the row is dropped.",
 		`Write why in ${tag}.`,

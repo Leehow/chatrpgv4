@@ -242,3 +242,29 @@ def test_the_next_player_input_capsule_carries_the_branched_section_exactly_once
     narrate(kernel, "t2-c1", "你回到了那个下午。")
     result = kernel.table("player_input", text="再看看。")
     assert "branched" not in result["capsule"]
+
+
+def test_host_switch_restores_both_lines_and_preserves_their_turns(kernel):
+    play_to_turn(kernel, 3)
+    original = turn_commit(kernel, 2)
+    kernel.table('branch', commit=original, name='alternate')
+    assert kernel.table('switch', line='main')['active'] == 'main'
+    assert head_ref(kernel.workspace) == 'refs/heads/wl/main'
+    assert kernel.table('switch', line='alternate')['active'] == 'alternate'
+    assert head_ref(kernel.workspace) == 'refs/heads/wl/alternate'
+    assert kernel.table('switch', line='alternate')['ok'] is True
+    assert meta_of(kernel)['worldlines']['main']['status'] == 'dormant'
+    assert json.loads(blob(kernel.workspace, 'wl/main', 'turns/0003.json'))['closed_by'] == 'narrate'
+
+
+def test_host_switch_refuses_during_a_turn_without_changing_the_active_line(kernel):
+    play_to_turn(kernel, 2)
+    kernel.table('branch', commit=turn_commit(kernel, 1), name='alternate')
+    kernel.table('player_input', text='I inspect the door.')
+    try:
+        kernel.table('switch', line='main')
+    except Exception as error:
+        assert 'operation_in_progress' in str(error)
+    else:
+        raise AssertionError('An open turn must prevent switching')
+    assert head_ref(kernel.workspace) == 'refs/heads/wl/alternate'

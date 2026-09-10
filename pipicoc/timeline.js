@@ -86,26 +86,15 @@ const CSS = `
 .coc-tl-tip-time{color:var(--muted);margin-top:3px;font-size:11px}
 .coc-tl-tip-line{color:var(--subtle);margin-top:5px;padding-top:5px;border-top:1px solid var(--border);
   font-size:11px;overflow-wrap:anywhere}
-/* The branch confirmation is a card the panel draws itself: the host's confirm dialog is private
-   to the extensions pane, and a panel may not reach into it. */
-.coc-tl-branch{position:absolute;left:10px;right:10px;bottom:10px;z-index:6;padding:14px;
-  border:1px solid var(--border);border-top:3px solid var(--accent);border-radius:12px;
-  background:var(--surface-raised,var(--surface));
-  box-shadow:0 10px 30px color-mix(in srgb,var(--text) 22%,transparent)}
-.coc-tl-branch-title{font-weight:650;color:var(--text-strong)}
-.coc-tl-branch-body{margin:8px 0 0;color:var(--muted);font-size:12px;line-height:1.65}
-.coc-tl-branch input{display:block;width:100%;margin:10px 0 0;padding:7px 9px;
-  border:1px solid var(--border);border-radius:7px;background:var(--surface-input,var(--surface));
-  color:var(--text);font:inherit;font-size:12px}
-.coc-tl-branch input:focus{border-color:var(--accent);outline:none}
-.coc-tl-branch-error{margin:8px 0 0;color:var(--danger);font-size:11.5px;overflow-wrap:anywhere}
-.coc-tl-branch-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}
-.coc-tl-branch button{border:1px solid var(--border);border-radius:7px;padding:6px 12px;
-  font:inherit;font-size:12px;cursor:pointer;min-height:30px}
-.coc-tl-branch-confirm{background:var(--accent);border-color:var(--accent);
-  color:var(--surface-raised,var(--surface));font-weight:600}
-.coc-tl-branch-cancel{background:var(--surface);color:var(--text)}
-.coc-tl-branch button:disabled{opacity:.55;cursor:default}
+.coc-tl-lines{display:flex;flex-wrap:wrap;gap:6px;padding:4px 16px 14px;border-bottom:1px solid var(--border);margin-bottom:10px}
+.coc-tl-line-chip{display:inline-flex;align-items:center;gap:6px;max-width:100%;padding:4px 8px;border:1px solid var(--border);border-radius:6px;font-size:11px;background:var(--surface)}
+.coc-tl-line-chip[data-active="true"]{border-color:currentColor;background:color-mix(in srgb,currentColor 7%,var(--surface))}
+.coc-tl-line-dot{width:6px;height:6px;border-radius:50%;background:currentColor;flex:none}
+.coc-tl-line-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.coc-tl-summary{fill:var(--text);font-size:11px}
+.coc-tl-caption{fill:var(--muted);font-size:9px;letter-spacing:.02em}
+.coc-tl-hit{fill:transparent}
+.coc-tl-node:hover .coc-tl-hit,.coc-tl-node:focus .coc-tl-hit{fill:color-mix(in srgb,var(--accent) 8%,transparent)}
 `;
 
 if (typeof document !== "undefined" && !document.getElementById(STYLE_ID)) {
@@ -182,12 +171,12 @@ function whenValues(when) {
  * not eat the panel. The one exception to pure-clock y is a same-LANE same-clock stack (a seal
  * and its turn commit land together): it fans out by a small nudge inside a taller band.
  */
-const RULER_W = 112;    // width of the left time ruler
+const RULER_W = 24;    // width of the left time ruler
 const LANE_DX = 26;     // horizontal distance between two lanes
-const RIGHT_PAD = 84;   // room for the "you are here" label past the last lane
-const PAD_TOP = 18;
+const RIGHT_PAD = 204;   // room for the "you are here" label past the last lane
+const PAD_TOP = 40;
 const PAD_BOTTOM = 34;
-const MIN_STEP = 24;    // smallest vertical distance between two clock bands
+const MIN_STEP = 42;    // smallest vertical distance between two clock bands
 const SAME_STEP = 14;   // collision nudge inside a same-lane same-clock stack
 const GAP_SCALE = 0.12; // px per game minute inside an uncompressed gap
 const COMPRESS_MIN = 360; // a gap beyond six game hours compresses
@@ -400,12 +389,15 @@ export function layoutGraph(payload) {
   // The ruler labels a clock band when its calendar projection differs from the band above --
   // the label sits at the band's height, where every node at that game minute stands.
   const rulerRows = [];
-  let lastLabel = "";
+  let band;
   for (const clock of clocks) {
-    const node = ordered.find((n) => n.clock === clock && isRecord(n.when));
+    const node = ordered.find(n => n.clock === clock && isRecord(n.when));
     if (!node) continue;
-    const label = JSON.stringify(node.when);
-    if (label !== lastLabel) { rulerRows.push({ y: clockY.get(clock), when: node.when }); lastLabel = label; }
+    const y = clockY.get(clock);
+    if (!band || y - band.y >= 160 || JSON.stringify([node.when.y,node.when.mo,node.when.d]) !== JSON.stringify([band.when.y,band.when.mo,band.when.d])) {
+      band = {y,when:node.when,end:node.when};
+      rulerRows.push(band);
+    } else band.end = node.when;
   }
 
   return {
@@ -428,10 +420,6 @@ export function createComponent(React) {
     const [error, setError] = useState(null);
     const [busy, setBusy] = useState(false);
     const [hoverSha, setHoverSha] = useState(null);
-    const [branchTarget, setBranchTarget] = useState(null);
-    const [branchName, setBranchName] = useState("");
-    const [branchBusy, setBranchBusy] = useState(false);
-    const [branchError, setBranchError] = useState(null);
     const generation = useRef(0);
     // The words of the last answer that actually arrived, kept so the chrome of a failure this
     // panel raised itself stays in the language the player was reading a moment ago.
@@ -485,27 +473,6 @@ export function createComponent(React) {
     const graph = useMemo(
       () => (answer && answer.status !== "unbound" ? layoutGraph(answer) : null),
       [answer]);
-
-    async function confirmBranch() {
-      if (!branchTarget || branchBusy) return;
-      setBranchBusy(true);
-      setBranchError(null);
-      try {
-        const params = { commit: branchTarget.sha };
-        const name = branchName.trim();
-        if (name) params.name = name;
-        await request("timeline.branch", params);
-        setBranchTarget(null);
-        setBranchName("");
-        setHoverSha(null);
-        // The success push refreshes the graph; the explicit reload covers a host without push.
-        void load();
-      } catch (err) {
-        setBranchError(refusalOf(err));
-      } finally {
-        setBranchBusy(false);
-      }
-    }
 
     const landmark = { role: "region", ...(answer ? { "aria-label": t("title") } : {}) };
 
@@ -576,11 +543,8 @@ export function createComponent(React) {
       }
 
       for (const [index, row] of rulerRows.entries()) {
-        svgChildren.push(h("g", { key: `ruler:${index}` },
-          h("line", { className: "coc-tl-ruler-tick",
-            x1: RULER_W - 7, y1: row.y, x2: RULER_W - 2, y2: row.y }),
-          h("text", { className: "coc-tl-ruler", x: RULER_W - 11, y: row.y + 3.5,
-            textAnchor: "end" }, atTime(row.when))));
+        const range = `${atTime(row.when)} – ${String(row.end.hh).padStart(2,"0")}:${String(row.end.mm).padStart(2,"0")}`;
+        svgChildren.push(h("g",{key:`ruler:${index}`},h("rect",{x:12,y:row.y-32,width:graph.width-24,height:17,fill:"var(--bg)"}),h("text",{className:"coc-tl-caption",x:12,y:row.y-20},range)));
       }
 
       // The "you are here" marker rides the active line's tip.
@@ -589,36 +553,34 @@ export function createComponent(React) {
       if (activeTip) {
         svgChildren.push(h("g", { key: "here" },
           h("circle", { className: "coc-tl-here-ring", cx: activeTip.x, cy: activeTip.y, r: 9.5 }),
-          h("text", { className: "coc-tl-here-label", x: activeTip.x + 14, y: activeTip.y + 3.5 },
-            t("youAreHere"))));
+          h("title", null, t("youAreHere"))));
       }
 
-      for (const row of rows) {
+      let lastSummaryY = -Infinity;
+      const displayRows = [...rows].sort((a,b) => a.y-b.y || Number(b.line?.name===answer.active)-Number(a.line?.name===answer.active));
+      for (const row of displayRows) {
         const { node } = row;
         const kind = text(node.kind);
-        const clickable = kind === "turn" && !branchBusy;
+        const clickable = kind === "turn" && (answer?.anchors ?? []).some(a => a.commit === node.sha);
         const faded = row.line?.status === "merged" && row.lane !== 0;
         const loopMark = graph.loopTipShas.has(node.sha);
-        const openBranch = () => {
-          setBranchError(null);
-          setBranchName("");
-          setBranchTarget({ sha: node.sha, turn: node.turn, when: node.when,
-            line: row.line?.name ?? "" });
+        const navigate = () => {
+          void request("timeline.navigate", {commit:node.sha}).catch(err => setError(refusalOf(err)));
         };
         const handlers = {
           onMouseEnter: () => setHoverSha(node.sha),
           onMouseLeave: () => setHoverSha((current) => (current === node.sha ? null : current)),
           ...(clickable ? {
-            onClick: openBranch,
+            onClick: navigate,
             onKeyDown: (e) => {
-              if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openBranch(); }
+              if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(); }
             },
           } : {}),
         };
         const cls = `coc-tl-node ${laneClass(row.lane)}${clickable ? " is-clickable" : ""}`;
         const a11y = clickable ? {
           tabIndex: 0, role: "button",
-          "aria-label": `${fill(t("turn"), { n: node.turn })} · ${atTime(node.when)}`,
+          "aria-label": `${row.line?.name ?? ""} · ${fill(t("turn"), { n: node.turn })} · ${atTime(node.when)}`,
         } : {};
         const attrs = { key: node.sha, className: cls, ...(faded ? { "data-faded": "1" } : {}),
           ...a11y, ...handlers };
@@ -636,6 +598,16 @@ export function createComponent(React) {
           glyph = h("g", attrs, h("circle", { className: "coc-tl-dot", cx: row.x, cy: row.y, r: 5 }));
         }
         // A loop line's tip node carries the loop marker ring.
+        const summaryX = graph.width - RIGHT_PAD + 18;
+        if (kind === "turn" && row.y - lastSummaryY >= 22) {
+          const caption = `${fill(t("turn"),{n:node.turn})} · ${text(node.title)}`;
+          svgChildren.push(h("g", {key:`summary:${node.sha}`,onClick:clickable?navigate:undefined,style:{cursor:clickable?"pointer":"default"}},
+            h("rect",{className:"coc-tl-hit",x:summaryX-5,y:row.y-14,width:RIGHT_PAD-20,height:28,rx:5}),
+            h("foreignObject",{x:summaryX,y:row.y-9,width:RIGHT_PAD-28,height:24},h("div",{className:"coc-tl-summary",style:{color:"var(--text)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}},caption)),
+            h("title",null,caption)));
+          lastSummaryY = row.y;
+        }
+        svgChildren.push(h("g", {key:`hit:${node.sha}`,onClick:clickable?navigate:undefined}, h("circle",{className:"coc-tl-hit",cx:row.x,cy:row.y,r:12})));
         svgChildren.push(glyph);
         if (loopMark) {
           svgChildren.push(h("circle", { key: `loop:${node.sha}`,
@@ -644,7 +616,7 @@ export function createComponent(React) {
       }
 
       canvas = h("svg", { className: "coc-tl-svg", width: graph.width, height: graph.height,
-        viewBox: `0 0 ${graph.width} ${graph.height}`, role: "img" }, ...svgChildren);
+        viewBox: `0 0 ${graph.width} ${graph.height}`, role: "group", "aria-label": t("title") }, ...svgChildren);
 
       if (hoverRow) {
         const { node } = hoverRow;
@@ -666,33 +638,18 @@ export function createComponent(React) {
       }
     }
 
-    const branchCard = branchTarget && h("div", { className: "coc-tl-branch", role: "dialog",
-      "aria-label": t("branch.title") },
-      h("div", { className: "coc-tl-branch-title" }, t("branch.title")),
-      h("p", { className: "coc-tl-branch-body" }, fill(t("branch.body"), {
-        when: atTime(branchTarget.when),
-        line: branchTarget.line,
-        turn: branchTarget.turn ?? "",
-      })),
-      h("input", { type: "text", value: branchName, disabled: branchBusy,
-        placeholder: t("branch.name"), "aria-label": t("branch.name"),
-        onChange: (e) => setBranchName(e.target.value) }),
-      branchError && h("p", { className: "coc-tl-branch-error", role: "alert" }, said(branchError),
-        branchError.message ? h("details", null,
-          h("summary", null, word(ui, "errors", "details")),
-          h("p", null, branchError.message)) : null),
-      h("div", { className: "coc-tl-branch-actions" },
-        h("button", { type: "button", className: "coc-tl-branch-cancel", disabled: branchBusy,
-          onClick: () => { setBranchTarget(null); setBranchError(null); } }, t("branch.cancel")),
-        h("button", { type: "button", className: "coc-tl-branch-confirm", disabled: branchBusy,
-          onClick: () => void confirmBranch() },
-          branchBusy ? t("branch.busy") : t("branch.confirm"))));
+    const lineNames = graph && h("div",{className:"coc-tl-lines"},
+      ...(answer?.lines ?? []).map(line => {
+        const lane = graph.spines.find(spine => spine.line.name === line.name)?.lane ?? 0;
+        return h("span",{key:line.name,className:`coc-tl-line-chip coc-tl-lane-${lane % LANE_PALETTE}`,"data-active":String(line.name === answer.active),title:`${line.name} · ${t(line.status || "active")}`},
+          h("span",{className:"coc-tl-line-dot"}),h("span",{className:"coc-tl-line-name"},line.name),
+          line.name === answer.active ? h("span",null,t("youAreHere")) : null);
+      }));
 
     return h("div", { className: "coc-tl", ...landmark },
-      header,
+      header, lineNames,
       answer?.truncated ? h("div", { className: "coc-tl-truncated" }, t("truncated")) : null,
       errorBlock,
-      h("div", { className: "coc-tl-scroll" }, canvas, tooltip),
-      branchCard);
+      h("div", { className: "coc-tl-scroll" }, canvas, tooltip));
   };
 }

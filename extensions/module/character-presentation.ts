@@ -3,9 +3,8 @@ import {createHash,randomUUID} from 'node:crypto';
 import {mkdir,readFile,writeFile,rename} from 'node:fs/promises';
 import {dirname,join} from 'node:path';
 import {resourceRootFrom,runtimeEntryUrl} from '../../runtime/deployment.mjs';
-import {loadPlayLanguages} from '../../runtime/ui-words.ts';
+import {PLAY_LANGUAGE_TAG} from '../../runtime/ui-words.ts';
 import {coded} from '../ui/errors.ts';
-import {extensionContentRoot} from '../ui/words.ts';
 import type {ReaderRequest,ReaderOutcome} from './reader.ts';
 const root=resourceRootFrom(import.meta.url);
 export const CARD_TEXT = ['Character draft','Character draft — reply to confirm or describe changes.',
@@ -14,13 +13,15 @@ export const CARD_TEXT = ['Character draft','Character draft — reply to confir
   'cash','assets','spending','credit_rating','living_standard','damage','range','attacks','ammo','malfunction','skill','Yes','No'];
 type Row=Record<string,any>;
 /**
- * Whether the requested tag is one this build plays in. The set is `content/languages.json`, never a
- * list written here: adding a language is adding an entry there plus its `content/ui/<tag>/`
- * directory and its `localized_labels` rows, and no code names a tag (contract §23).
+ * Whether the requested tag has the shape of a play language -- and nothing else.
+ *
+ * The tag set is open (contract §23, 2026-09-09): the player names a language and the card is
+ * written in it. This asked `content/languages.json` for membership until that ruling, which made
+ * adding a language a data change and refused every tag nobody had registered. Shape is all a lane
+ * may ask, because a shape is not a list.
  */
-async function knownLanguage(options:{contentRoot?:string;play_language:string}):Promise<boolean> {
-  const known=await loadPlayLanguages(extensionContentRoot(options.contentRoot));
-  return Boolean(known.languages[options.play_language]);
+function shapedLanguage(options:{play_language:string}):boolean {
+  return typeof options.play_language==='string'&&PLAY_LANGUAGE_TAG.test(options.play_language);
 }
 export function cardTexts(sheet:Row):string[] {
   const texts=new Set(CARD_TEXT);
@@ -65,7 +66,7 @@ export async function creationRuleDetails(sheet:Row,contentRoot=join(root,'conte
   return details;
 }
 export async function prepareCharacterPresentation(options:TextOptions&{campaign:string;revision:number}):Promise<Row> {
-  if(!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(options.campaign)||!Number.isSafeInteger(options.revision)||options.revision<1||!await knownLanguage(options))throw coded('invalid_params','Invalid presentation request');
+  if(!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(options.campaign)||!Number.isSafeInteger(options.revision)||options.revision<1||!shapedLanguage(options))throw coded('invalid_params','Invalid presentation request');
   const draft=JSON.parse(await readFile(join(options.home,'.coc/campaigns',options.campaign,'setup/drafts',`${options.revision}.json`),'utf8'));
   if(draft.play_language!==options.play_language)throw coded('invalid_params','Draft language does not match the session');
   const calculations=await creationRuleDetails(draft.sheet,options.contentRoot);
@@ -131,7 +132,7 @@ export function prepareCluePresentation(options:TextOptions&{campaign:string;vie
 }
 /** A projection that grows with the table: what its saved file lacks is asked, what it has is kept. */
 async function prepareGrowingPresentation(options:TextOptions&{campaign:string;view:Row},kind:string,collect:(view:Row)=>string[]):Promise<Row> {
-  if(!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(options.campaign)||!await knownLanguage(options))throw coded('invalid_params','Invalid presentation request');
+  if(!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(options.campaign)||!shapedLanguage(options))throw coded('invalid_params','Invalid presentation request');
   if(options.view?.play_language!==options.play_language)throw coded('invalid_params','View language does not match the session');
   const file=`${kind}-${options.play_language}.json`;
   let previous:Record<string,string>={};

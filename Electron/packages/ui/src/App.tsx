@@ -482,6 +482,10 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
   }, [productWorkbench])
   useDeclarativeContributionLoader(host, selectedProject || undefined, applyWorkbenchFromExtensions)
   useExtensionThemeSync(host, selectedProject || undefined)
+  const [timeline, setTimeline] = useState<any>(null)
+  const [timelineRefresh, setTimelineRefresh] = useState(0)
+  const [branchBusy, setBranchBusy] = useState(false)
+  const [timelineNavigation, setTimelineNavigation] = useState<{sessionId:string; messageId:string; nonce:number} | null>(null)
   const [selectedSession, setSelectedSession] = useState('')
   const sessionsRef = useRef(sessions)
   sessionsRef.current = sessions
@@ -1000,6 +1004,45 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
     if (event?.type !== 'session_workspace_changed' || workspaceNoticeInFlightRef.current) return
     workspaceNoticeInFlightRef.current = true
     void refreshProjectsForWorkspaceRef.current().catch(() => undefined).finally(() => { workspaceNoticeInFlightRef.current = false })
+  }), [host])
+  useEffect(() => {
+    if (!selectedSession || !host.invokeExtension) { setTimeline(null); return }
+    let cancelled = false
+    setTimeline(null)
+    void host.invokeExtension('coc-keeper','timeline.graph',{}, {sessionId:selectedSession}).then(result => {
+      if (!cancelled && result.ok) setTimeline({...result.data as any, hostSessionId:selectedSession})
+    }).catch(() => undefined)
+    return () => { cancelled = true }
+  }, [host, selectedSession, timelineRefresh, historyRefreshKey])
+  const timelineLineBySession = useRef(new Map<string,string>())
+  const timelineFollowInFlight = useRef(false)
+  useEffect(() => {
+    const active = timeline?.active
+    if (!selectedSession || timeline?.hostSessionId !== selectedSession || typeof active !== 'string') return
+    const previousLine = timelineLineBySession.current.get(selectedSession)
+    if (!previousLine) { timelineLineBySession.current.set(selectedSession, active); return }
+    if (previousLine === active || sessionWorking || branchBusy || timelineFollowInFlight.current || !host.invokeExtension) return
+    timelineFollowInFlight.current = true
+    void host.invokeExtension('coc-keeper','timeline.follow',{previousLine},{sessionId:selectedSession}).then(result => {
+      if (!result.ok) throw new Error(result.error?.message || 'Could not follow the worldline')
+      timelineLineBySession.current.set(selectedSession, active)
+    }).catch(error => setProjectError(error instanceof Error ? error.message : String(error)))
+      .finally(() => { timelineFollowInFlight.current = false })
+  }, [host, selectedSession, timeline, sessionWorking, branchBusy])
+  useEffect(() => subscribeExt(host, 'coc-keeper', event => {
+    if (event.type === 'timeline-changed') setTimelineRefresh(value => value + 1)
+    if (event.type !== 'timeline-navigate') return
+    const payload = event.payload as {originSessionId:string; session:Session; parent?:Session; messageId?:string}
+    if (payload.originSessionId !== selectedSessionRef.current) return
+    const additions = [payload.session, ...(payload.parent ? [payload.parent] : [])]
+    setSessions(current => [...current.filter(s => !additions.some(a => a.id === s.id)), ...additions])
+    setSidebarSessionIdsByProject(current => ({...current,[payload.session.projectId]:[...new Set([...(current[payload.session.projectId] ?? []), ...additions.map(s => s.id)])]}))
+    setSelectedProject(payload.session.projectId)
+    setSidebarExpandedIds(current => current.includes(payload.session.projectId) ? current : [...current,payload.session.projectId])
+    setSelectedSession(payload.session.id)
+    if (payload.messageId) setTimelineNavigation({sessionId:payload.session.id,messageId:payload.messageId,nonce:Date.now()})
+    else setTimelineNavigation(null)
+    setTimelineRefresh(value => value + 1)
   }), [host])
   // A CoC apply that defines new objects spends its whole tool call on host-side Mod agents and
   // streams nothing, so the transcript has no way to say what the minutes are going into. The pack
@@ -2203,6 +2246,16 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
       copiedTimerRef.current = null
     }, 1200)
   }
+  const handleBranch = async (message: ChatMessage) => {
+    if (!selectedSession || !host.invokeExtension || branchBusy) return
+    setBranchBusy(true)
+    try {
+      const result = await host.invokeExtension('coc-keeper','timeline.branch',{messageId:message.id},{sessionId:selectedSession})
+      if (!result.ok) throw new Error(result.error?.message || 'Could not create branch')
+    } catch (error) { setProjectError(error instanceof Error ? error.message : String(error)) }
+    finally { setBranchBusy(false) }
+  }
+  const branchMessageIds = useMemo<ReadonlySet<string>>(() => new Set<string>((timeline?.anchors ?? []).filter((a:any) => a.sessionId === selectedSession).map((a:any) => a.messageId)), [timeline, selectedSession])
   const handleResend = (message: ChatMessage) => {
     // Electron has no fork/resend RPC yet: this deliberately sends a new prompt.
     const text = displaySecretPlaceholders(message.role === 'user' ? stripAttachmentPathsForDisplay(message.content) : message.content)
@@ -2347,7 +2400,7 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
     for (const session of sessions) {
       const model = sidebarModelForSession(session, selectedSession, modelState?.model ?? null, sessionModels)
       const status = sidebarStatusForSession(session.id, selectedSession, streaming, observedSessionStatuses[session.id], sidebarAgents)
-      mapped.set(session.id, { id: session.id, projectId: session.projectId, title: session.name, provider: model.provider, modelId: model.modelId, status: status.status, subagentCount: status.subagentCount, updatedAt: session.updatedAt, ...(session.workspace ? { aheadOfMain: session.workspace.aheadOfMain } : {}) })
+      mapped.set(session.id, { id: session.id, projectId: session.projectId, title: session.name, parentSessionId: session.cocWorldline?.parentSessionId, provider: model.provider, modelId: model.modelId, status: status.status, subagentCount: status.subagentCount, updatedAt: session.updatedAt, ...(session.workspace ? { aheadOfMain: session.workspace.aheadOfMain } : {}) })
     }
     return mapped
   }, [modelState, observedSessionStatuses, selectedSession, sessionModels, sessions, sidebarAgents, streaming])
@@ -2387,7 +2440,8 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
   const toggleSidebarProject = (projectId: string) => {
     setSidebarExpandedIds(current => current.includes(projectId) ? current.filter(id => id !== projectId) : [...current, projectId])
   }
-  const selectSidebarSession = (sessionId: string, options?: { expandProject?: boolean }) => {
+  const selectSidebarSessionNow = (sessionId: string, options?: { expandProject?: boolean }) => {
+    setTimelineNavigation(null)
     if (selectedSession && selectedSession !== sessionId) {
       messagesBySessionRef.current.set(selectedSession, messagesRef.current)
     }
@@ -2430,6 +2484,14 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
     if (narrowViewport) setNarrowPanes(current => ({ ...current, sidebar: false }))
   }
 
+  const selectSidebarSession = (sessionId: string, options?: { expandProject?: boolean }) => {
+    const session = sessions.find(item => item.id === sessionId)
+    if (!session?.cocWorldline || !host.invokeExtension) { selectSidebarSessionNow(sessionId, options); return }
+    void host.invokeExtension('coc-keeper','timeline.select',{}, {sessionId}).then(result => {
+      if (!result.ok) throw new Error(result.error?.message || 'Could not switch conversation')
+      selectSidebarSessionNow(sessionId, options)
+    }).catch(error => setProjectError(error instanceof Error ? error.message : String(error)))
+  }
   const applySelectedModelState = (state: ModelState) => {
     modelWriteGenRef.current += 1
     const previous = selectedSession
@@ -2751,6 +2813,11 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
                 ? <CocOnboarding host={host} sessionId={selectedSession} />
                 : <Transcript
                 stateKey={selectedSession}
+                navigation={timelineNavigation?.sessionId === selectedSession ? timelineNavigation : undefined}
+                onBranch={message => void handleBranch(message)}
+                branchMessageIds={branchMessageIds}
+                branchDisabled={branchBusy || sessionWorking}
+                actionWords={timeline?.ui?.words?.['message-actions']}
                 onChoose={async (entry,option)=>{
                   if(entry.renderer==='coc-character-draft'){const ack=await host.invokeExtension!("coc-keeper",option==='presentation'?"draft-presentation":"draft-previewed",{revision:(entry.details as any).revision},{sessionId:selectedSession});if(!ack.ok)throw new Error(ack.error?.message||"Preview acknowledgment failed");return ack.data;}
                   const result=await host.invokeExtension!("coc-keeper","choose",{choice:(entry.details as any).name,option},{sessionId:selectedSession});

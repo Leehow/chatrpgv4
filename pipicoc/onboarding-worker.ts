@@ -7,7 +7,8 @@ import { ReadingService } from '../extensions/module/reading-service.ts';
 import type { ReaderRequest } from '../extensions/module/reader.ts';
 import { prepareCharacterGuidance, guidanceFingerprint, acceptedGuidance } from '../extensions/module/character-guidance.ts';
 import { prepareCharacterPresentation, prepareCluePresentation, preparePossessionPresentation, prepareStandingPresentation } from '../extensions/module/character-presentation.ts';
-import { loadPlayLanguages, loadUiWords, playLanguageTag } from '../runtime/ui-words.ts';
+import { playLanguageTag, resolveUiWords } from '../runtime/ui-words.ts';
+import { prepareUiWords } from '../extensions/module/ui-presentation.ts';
 import { presentDocument } from '../extensions/mods/document-presentation.ts';
 
 /** A refusal the preparation overlay can show (contract §23): its code, and English for the log. */
@@ -51,12 +52,12 @@ async function withGuidance(prepared: any) {
  *  `starter-listing.json` with `listed: true`, so a folder that declares nothing — a
  *  fixture, a future build artifact — stays out instead of leaking into the picker. Title
  *  and blurb are authored per play language there; the module node's `name` is the fallback
- *  for a starter whose listing carries no title in any offered language. The offered languages
- *  are `content/languages.json` in its own order, so shipping one is a data change. */
+ *  for a starter whose listing carries no title in the table's language. The tag set is open
+ *  (contract §23, 2026-09-09), so a listing is read for whatever tags it happens to carry rather
+ *  than for a registry of offered ones: a starter opened in a tag it was never authored for shows
+ *  the first title it does have, and the presenter lanes render the rest at the table. */
 async function starterCatalog(playLanguage?: string) {
-  const known = await loadPlayLanguages(context.contentRoot);
   const language = await playLanguageTag(context.contentRoot, playLanguage);
-  const offered = Object.keys(known.languages);
   const root = join(context.contentRoot, 'starters');
   const rows: Array<{id: string; order: number; title: string; blurb: string}> = [];
   for (const id of await readdir(root)) {
@@ -70,7 +71,7 @@ async function starterCatalog(playLanguage?: string) {
     } catch {continue; /* a listing without a graph is nothing the kernel can open */}
     const authored = (field: any): string =>
       (typeof field?.[language] === 'string' && field[language]) ||
-      offered.map(other => field?.[other]).find((value: any) => typeof value === 'string') || '';
+      (field && typeof field === 'object' ? Object.values(field).find((value: any) => typeof value === 'string' && value) : undefined) as string || '';
     rows.push({id, order: Number.isFinite(listing.order) ? Number(listing.order) : Number.MAX_SAFE_INTEGER,
       title: authored(listing.title) || name || id, blurb: authored(listing.blurb)});
   }
@@ -83,6 +84,15 @@ async function main() {
     return presentDocument({...input, owner:runtime!, resourceRoot:context.resourceRoot, signal:guidanceAbort.signal, runner:runTask}, document);
   }
   if(action==='presentation') {
+    if(input.ui) {
+      // The product's own captions for one tag (contract §23). No campaign and no kernel read: the
+      // words are the same for every table in this home, so the projection is cached per home and
+      // paid for once. The host asks for it in the background after answering with the authored
+      // words, and redraws its panels when this returns.
+      return prepareUiWords({home:input.home,contentRoot:context.contentRoot,
+        play_language:await playLanguageTag(context.contentRoot,input.play_language),
+        model:input.model,thinking:input.thinking,signal:guidanceAbort.signal,runner:runTask});
+    }
     if(input.standing) {
       const view=await call('table.view',{campaign:input.campaign});
       // The current sidebar hides canonical NPC identities, even if table.view carries them.
@@ -93,7 +103,7 @@ async function main() {
       const view=await call('table.view',{campaign:input.campaign});
       // The sidebar's own captions for the kernel's item fields are settled words, never a question.
       // They are the `sheet` surface's `item.<field>` rows, under the field name the kernel uses.
-      const sheetWords=(await loadUiWords(context.contentRoot, input.play_language)).words.sheet ?? {};
+      const sheetWords=(await resolveUiWords({contentRoot:context.contentRoot,home:input.home,tag:input.play_language})).words.sheet ?? {};
       const itemFields=Object.fromEntries(Object.entries(sheetWords)
         .filter(([key])=>key.startsWith('item.')).map(([key,value])=>[key.slice('item.'.length),value]));
       const known_labels={...(view.labels||{}),...itemFields};
@@ -109,7 +119,7 @@ async function main() {
     // own turn on the campaign lock.
     const glossary=input.labels&&typeof input.labels==='object'&&!Array.isArray(input.labels)?input.labels
       :((await call('setup.steps',{campaign:input.campaign})).state?.draft?.labels||{});
-    const sheet=(await loadUiWords(context.contentRoot, input.play_language)).words.sheet ?? {};
+    const sheet=(await resolveUiWords({contentRoot:context.contentRoot,home:input.home,tag:input.play_language})).words.sheet ?? {};
     const known_labels={...glossary,Finance:sheet.finance,Equipment:sheet.equipment,Weapons:sheet.weapons,cash:sheet.cash,assets:sheet.assets,spending:sheet.spending,credit_rating:sheet.creditRating,living_standard:sheet.livingStandard};
     return prepareCharacterPresentation({...input,contentRoot:context.contentRoot,known_labels,signal:guidanceAbort.signal,runner:runTask});
   }

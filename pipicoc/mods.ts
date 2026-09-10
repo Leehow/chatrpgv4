@@ -3,7 +3,8 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { emitToPanel, registerInvokeHandlers } from "./host-bridge.ts";
 import { readFile } from "node:fs/promises";
 import { documentPresentationStatus } from "../extensions/mods/document-presentation.ts";
-import { loadUiWords, type UiWords } from "../runtime/ui-words.ts";
+import { uiWordsSurface } from "./ui-words.ts";
+import type { UiWords } from "../runtime/ui-words.ts";
 import type { HostRuntime } from "../runtime/host.ts";
 
 /**
@@ -26,18 +27,19 @@ export function registerModsPanel(pi: ExtensionAPI): void {
   let context: ExtensionContext | undefined;
   let language: string | undefined;
   const abort = new AbortController();
-  /** The chrome's words for this table's language, one read per content root and tag. */
-  const words = new Map<string, Promise<UiWords | undefined>>();
+  /**
+   * The chrome's words for this table's language (contract §23): a shipped seed or a cached
+   * projection when there is one, and otherwise the authored words at once plus one background
+   * projection for the tag. The panel redraws when that lands.
+   */
+  const words = uiWordsSurface((tag) => {
+    pi.events.emit("coc:ui-words", {tag});
+    void emitToPanel("coc-keeper", "mods-changed");
+  });
   function chrome(): Promise<UiWords | undefined> {
-    const contentRoot = runtime?.contentRoot;
-    if (!contentRoot) return Promise.resolve(undefined);
-    const key = JSON.stringify([contentRoot, language ?? null]);
-    let pending = words.get(key);
-    if (!pending) {
-      pending = loadUiWords(contentRoot, language).catch(() => {words.delete(key); return undefined;});
-      words.set(key, pending);
-    }
-    return pending;
+    return words.words(language, runtime ? {runtime,
+      model: context?.model ? `${context.model.provider}/${context.model.id}` : undefined,
+      thinking: context?.thinkingLevel, signal: abort.signal} : undefined);
   }
   pi.on("session_shutdown", async () => {abort.abort();});
   pi.on("session_start", async (_event, ctx) => {context = ctx;});

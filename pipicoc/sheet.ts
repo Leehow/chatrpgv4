@@ -17,9 +17,11 @@
  * The push carries no data on purpose. The panel re-reads, so the sheet it draws is always one
  * kernel read old at worst, never a payload that drifted from the kernel's own answer.
  */
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { emitToPanel, registerInvokeHandlers } from "./host-bridge.ts";
-import { loadUiWords, type UiWords } from "../runtime/ui-words.ts";
+import { uiWordsSurface } from "./ui-words.ts";
+import type { UiWords } from "../runtime/ui-words.ts";
+import type { HostRuntime } from "../runtime/host.ts";
 
 /** The manifest id. The invoke registry and the bridge both namespace by it. */
 export const PACK_ID = "coc-keeper";
@@ -29,8 +31,8 @@ type KernelCall = (method: string, params: Record<string, unknown>) => Promise<u
 interface KernelBridgeEvent {
 	campaign?: string;
 	call?: KernelCall;
-	/** The composed runtime, for the content root its words are read from. */
-	runtime?: { contentRoot?: string };
+	/** The composed runtime: the content root its words are read from, the home they are cached in, and the lane that projects them. */
+	runtime?: HostRuntime;
 }
 
 export interface SheetAnswer {
@@ -56,29 +58,31 @@ export interface SheetAnswer {
 export function registerSheetPanel(pi: ExtensionAPI): void {
 	let bridge: KernelCall | undefined;
 	let campaign: string | undefined;
-	let contentRoot: string | undefined;
+	let runtime: HostRuntime | undefined;
+	let context: ExtensionContext | undefined;
 	let language: string | undefined;
 
 	/**
 	 * The chrome's words for this table's language (contract §23).
 	 *
-	 * Read once per content root and tag: they are data that ships with the build, and the panel
-	 * asks for the sheet on every commit. A build whose words cannot be read answers without a `ui`
-	 * block rather than failing the read, and the panel then draws identifiers, never English.
+	 * A tag with a shipped seed or a cached projection answers projected. A tag with neither answers
+	 * with the authored words and `projected: false` -- so the sheet draws at once rather than
+	 * waiting on a model round -- and one background projection starts for it. When that lands, the
+	 * panel is told to re-read and the extensions to drop the words they were holding.
+	 *
+	 * A build whose words cannot be read answers without a `ui` block rather than failing the read,
+	 * and the panel then draws identifiers, never another language.
 	 */
-	const words = new Map<string, Promise<UiWords | undefined>>();
+	const words = uiWordsSurface((tag) => {
+		pi.events.emit("coc:ui-words", { tag });
+		void emitToPanel(PACK_ID, "sheet-changed");
+	});
 	function chrome(): Promise<UiWords | undefined> {
-		if (!contentRoot) return Promise.resolve(undefined);
-		const key = JSON.stringify([contentRoot, language ?? null]);
-		let pending = words.get(key);
-		if (!pending) {
-			pending = loadUiWords(contentRoot, language).catch(() => {
-				words.delete(key);
-				return undefined;
-			});
-			words.set(key, pending);
-		}
-		return pending;
+		return words.words(language, runtime ? {
+			runtime,
+			model: context?.model ? `${context.model.provider}/${context.model.id}` : undefined,
+			thinking: context?.thinkingLevel,
+		} : undefined);
 	}
 	async function answer(row: SheetAnswer): Promise<SheetAnswer> {
 		const ui = await chrome();
@@ -91,8 +95,10 @@ export function registerSheetPanel(pi: ExtensionAPI): void {
 		const event = (data ?? {}) as KernelBridgeEvent;
 		bridge = event.call;
 		if (event.campaign) campaign = event.campaign;
-		if (event.runtime?.contentRoot) contentRoot = event.runtime.contentRoot;
+		if (event.runtime?.contentRoot) runtime = event.runtime;
 	});
+	pi.on("session_start", async (_event, ctx) => { context = ctx; });
+	pi.on("before_agent_start", async (_event, ctx) => { context = ctx; });
 	pi.events.on("coc:table-open", (data) => {
 		const opened = (data ?? {}) as { campaign?: string; open?: { campaign?: { play_language?: string } } };
 		if (opened.campaign) campaign = opened.campaign;
@@ -135,7 +141,13 @@ export function registerSheetPanel(pi: ExtensionAPI): void {
 	}
 
 	registerInvokeHandlers(PACK_ID, {
-		sheet: () => read(),
+		// `retry_projection` is the player asking again for a lane run that failed -- the same word
+		// the sheet's own vocabulary lanes take, so one button covers both.
+		sheet: (raw: unknown) => {
+			if (raw && typeof raw === "object" && !Array.isArray(raw)
+				&& (raw as { retry_projection?: unknown }).retry_projection === true) words.retry();
+			return read();
+		},
 	});
 
 	// One push per committed turn (contract §12.8). Damage, a spent bullet, a SAN loss and a coin

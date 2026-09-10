@@ -1,15 +1,23 @@
 /** Module-owned, reviewed guidance shared by character creation sessions. */
 import {createHash, randomUUID} from 'node:crypto';
-import {mkdir, readFile, writeFile, rename} from 'node:fs/promises';
+import {access, mkdir, readFile, writeFile, rename} from 'node:fs/promises';
 import {join, resolve, relative, isAbsolute} from 'node:path';
 import {resourceRootFrom} from '../../runtime/deployment.mjs';
-import {loadPlayLanguages} from '../../runtime/ui-words.ts';
 import {coded} from '../ui/errors.ts';
-import {extensionContentRoot} from '../ui/words.ts';
 import type {ReaderRequest, ReaderOutcome} from './reader.ts';
 
 const root = resourceRootFrom(import.meta.url);
 type Row = Record<string, any>;
+/**
+ * The play language is open (contract section 23): a tag is accepted by shape alone, the same
+ * BCP-47 shape the kernel's `validSourceLanguage` checks, and never looked up in a list.
+ */
+const LANGUAGE_TAG = /^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/;
+/** Whether the starter ships a reviewed bundle for `tag`: the file `character-guidance/<tag>.json` exists, fresh or stale. */
+async function bundleShipped(content:string, moduleId:string, tag:string):Promise<boolean> {
+  try { await access(join(content,'starters',moduleId,'character-guidance',`${tag}.json`)); return true; }
+  catch { return false; }
+}
 export type Guidance = {opening:string; advice:string; scene:string; guide:string; handoff:string};
 type Options = {home:string; contentRoot?:string; module_id:string; play_language:string; opening?:string;
   buildBundle?:boolean;
@@ -71,9 +79,7 @@ export async function prepareCharacterGuidance(options:Options):Promise<Guidance
   const reviewPath = join(content, 'setup/character-guidance-review.md');
   if(options.signal?.aborted)throw coded('interrupted','Character guidance cancelled');
   if(!/^[a-z0-9-]{1,64}$/.test(options.module_id))throw coded('invalid_params','Invalid module');
-  // The play languages are `content/languages.json`, not a list written here: adding one is adding
-  // an entry there plus its `content/ui/<tag>/` directory (contract §23).
-  if(!(await loadPlayLanguages(extensionContentRoot(options.contentRoot))).languages[options.play_language])throw coded('invalid_params','Invalid play language');
+  if(typeof options.play_language!=='string'||!LANGUAGE_TAG.test(options.play_language))throw coded('invalid_params','Invalid play language: name it as a BCP-47 language tag such as pt-BR');
   const folder=resolve(options.home,'.coc/modules',options.module_id);
   const meta=JSON.parse(await readFile(join(folder,'module.json'),'utf8'));
   const graphPath=resolve(folder,meta.graph_file || 'module-graph.json');
@@ -89,8 +95,11 @@ export async function prepareCharacterGuidance(options:Options):Promise<Guidance
     const saved=await json(join(cache,'accepted.json'));
     if(saved.fingerprint===key && saved.approved===true && !saved.draft_sha256)return validateGuidance(saved.guidance,options.occupations);
   } catch { /* A missing or invalid cache is rebuilt; attempts remain on disk. */ }
-  if(meta.bundled_guidance_required && !options.buildBundle)
-    throw coded('guidance_not_ready','Bundled starter guidance is missing or stale. Rebuild the starter guidance bundle.');
+  // A listed starter ships reviewed bundles for the tags it has them for. A bundle that exists for
+  // this tag but was not accepted above is stale and is never regenerated during selection; a tag
+  // the starter ships no bundle for generates its guidance per campaign, as a PDF module does.
+  if(meta.bundled_guidance_required && !options.buildBundle && await bundleShipped(content,options.module_id,options.play_language))
+    throw coded('guidance_not_ready','Bundled starter guidance for this language is stale. Rebuild the starter guidance bundle.');
   if(options.signal?.aborted)throw coded('interrupted','Character guidance cancelled');
   const attempt=join(cache,'attempts',randomUUID());
   await mkdir(attempt,{recursive:true});

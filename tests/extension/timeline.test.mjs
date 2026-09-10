@@ -32,7 +32,8 @@ function withRegistry(run) {
 
 async function wordsFixture() {
 	const contentRoot = await mkdtemp(join(tmpdir(), "coc-timeline-words-"));
-	await writeFile(join(contentRoot, "languages.json"), JSON.stringify({ default: "zz", languages: { zz: { autonym: "Zz" } } }));
+	// `zz` is this fixture's authored tag as well as its default: nothing here is about projection.
+	await writeFile(join(contentRoot, "languages.json"), JSON.stringify({ source: "zz", default: "zz", suggested: ["zz"] }));
 	await mkdir(join(contentRoot, "ui/zz"), { recursive: true });
 	await writeFile(join(contentRoot, "ui/zz/timeline.json"), JSON.stringify({ title: "zz title" }));
 	return contentRoot;

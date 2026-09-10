@@ -491,3 +491,6 @@
   .sb-session-title{font-size:14px}
   .sb-session-action{width:32px;height:32px}
 }
+
+.sb-session[data-branch="true"]{border-left:1px solid color-mix(in srgb,var(--accent) 35%,transparent);border-radius:0 7px 7px 0;position:relative}
+.sb-session[data-branch="true"]::before{content:"";position:absolute;left:-1px;top:50%;width:9px;border-top:1px solid color-mix(in srgb,var(--accent) 50%,transparent)}

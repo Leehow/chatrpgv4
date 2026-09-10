@@ -92,16 +92,15 @@ def test_skipping_the_opening_closes_turn_zero_implicitly(kernel):
     assert kernel.table("open")["opening_needed"] is False
 
 
-def test_a_closed_vocabulary_refusal_names_what_would_have_worked(kernel):
-    """Contract §1 and §14.15: a refusal must carry something the model can act on. The
-    setup model tried play_language 'zh', then 'zh-CN', then dropped the parameter — the
-    options were never anywhere it could read them (#33)."""
+def test_language_shape_and_closed_vocabulary_refusals_are_actionable(kernel):
+    """Open language tags are checked by shape; rule enums still offer closed options."""
     refused = kernel.err("campaign.create", {"id": CAMPAIGN, "module": MODULE, "pregen": PREGEN,
-                                             "play_language": "zh"})
+                                             "play_language": "not_a_tag"})
     assert refused["code"] == "invalid_params"
     assert refused["details"]["field"] == "play_language"
-    assert refused["details"]["options"] == ["zh-Hans", "en"]
-    assert "zh-Hans" in refused["fix"] and "en" in refused["fix"]
+    assert refused["details"]["suggested"] == read_json(kernel.content / "languages.json")["suggested"]
+    assert "options" not in refused["details"]
+    assert "BCP-47" in refused["fix"]
 
     register = kernel.err("campaign.create", {"id": CAMPAIGN, "module": MODULE, "pregen": PREGEN,
                                               "register": "gonzo"})

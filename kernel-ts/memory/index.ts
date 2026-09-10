@@ -12,7 +12,8 @@ import { CampaignWriter, nowIso } from '../write/store.js';
 import { noteMemory, readNpcLedger } from '../write/contributions.js';
 import { buildJob, committedRecords, defaultJobTurn, fail, logs, openJob, parseJobId, readJob, submit } from './jobs.js';
 import { history, recallMemory, transcript } from './recall.js';
-const FINDINGS = ['reveal', 'uncommitted_state', 'player_agency'];
+/** The verifier's finding kinds, `play_language_mismatch` among them: the kernel makes no language refusal of its own (contract section 23). */
+const FINDINGS = ['reveal', 'uncommitted_state', 'player_agency', 'play_language_mismatch'];
 async function warn(campaign: CampaignWriter, params: Row): Promise<Row> {
     const turn = params.turn, lane = params.lane, findings = params.findings;
     if (!integer(turn) || number(turn) < 0)

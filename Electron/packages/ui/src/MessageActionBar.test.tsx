@@ -24,7 +24,7 @@ describe('MessageActionBar', () => {
     const copy = screen.getByRole('button', { name: '复制消息' }) as HTMLButtonElement
     const resend = screen.getByRole('button', { name: '重发消息' }) as HTMLButtonElement
     expect(copy.className).toBe(resend.className)
-    expect(copy.querySelector('.message-action-icon')).toBeTruthy()
+    expect(copy.querySelector('.message-action-icon-svg')).toBeTruthy()
     expect(resend.querySelector('.message-action-icon')).toBeTruthy()
     expect(copy.disabled).toBe(true)
     expect(resend.disabled).toBe(true)

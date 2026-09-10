@@ -22,9 +22,9 @@ import { CampaignWriter, freshTurn, nowIso, required, missingContribution, creat
 import { checked, commit, CommitFailed } from './history.js';
 import { registerStarter } from './source.js';
 import { resolveStartScene } from '../modules/visual.js';
-import { loadModuleContract } from '../modules/contract.js';
+import { loadModuleContract, validSourceLanguage } from '../modules/contract.js';
 import { defaultModPlan, preflightCampaign as validateContributions, rebuildNpcLedger, updateNpcLedger, stanceTable, writeEpisode } from './contributions.js';
-import { bindMarkers, stripMarkers, checkLanguage, asciiSlug, facts, directorAdoption } from './text.js';
+import { bindMarkers, stripMarkers, asciiSlug, facts, directorAdoption } from './text.js';
 import { readableTurn, rebuildTurn, syncCheckpoint, resumeView, checkpointFromRecord, writeCheckpoint } from './continuation.js';
 import {activeName} from '../read/worldline.js';
 import {eventOf} from '../worldline/index.js';
@@ -364,8 +364,13 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             });
         const known = await playLanguages(context);
         const moduleId = required(params, 'module')!, pregen = required(params, 'pregen', true), language = required(params, 'play_language', true) || known.default;
-        if (!known.tags.includes(language))
-            unsupported('play_language', language, [...known.tags]);
+        // The play language is open (contract section 23): any tag-shaped value is accepted as it is,
+        // and `details.suggested` is what a picker offers first, never the accepted set.
+        if (!validSourceLanguage(language))
+            throw new RpcError('invalid_params', `play_language ${repr(language)} is not a language tag`, {
+                fix: 'name the play language as a BCP-47 language tag such as pt-BR; any tag is accepted, and details.suggested lists the ones a picker offers first',
+                details: { field: 'play_language', value: language, suggested: [...known.suggested] },
+            });
         const director = await DirectorGraph.load(context), craft = await TextGraph.load(context, director.beats), register = required(params, 'register', true) || 'purist';
         const registers = [...craft.nodes.values()].filter(node => node.node_kind === 'play-register').sort((a, b) => number(a.properties.ordinal) - number(b.properties.ordinal)).map(node => node.properties.legacy_key);
         if (!registers.includes(register))
@@ -678,15 +683,6 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         if(truth(turn.worldline))throw new RpcError('invalid_params','a turn that forks or switches the worldline cannot be closed by ask',{fix:"close this turn with narrate; ask on the new line's first turn",details:{worldline:row(turn.worldline).operation??null}});
         const receipts = [...array(turn.receipts)], placed = text ? bindMarkers(text, receipts) : {}, stripped = truth(placed) ? stripMarkers(text!) : text;
         const language = await playLanguageOf(context, snapshot.meta);
-        await checkLanguage(context, language, {
-            ...(kind === 'story' ? {
-                prompt,
-                ...Object.fromEntries(options.map((value, i) => [`options[${i}]`, value]))
-            } : {}),
-            ...(stripped ? {
-                text: stripped
-            } : {})
-        });
         await stanceTable(context);
         const n = number(turn.turn), pending = {
             name: `ask-${asciiSlug(binds || '') || kind}-t${n}`,
@@ -761,12 +757,9 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         await validateMods(snapshot.world);
         const text = required(params, 'text')!, receipts = [...array(turn.receipts)], placed = bindMarkers(text, receipts), rendered = truth(placed) ? stripMarkers(text) : text;
         const language = await playLanguageOf(context, snapshot.meta);
-        // The only floor under a delivery is the play-language script. Figures are never looked
-        // for in the prose: they travel as the mechanics projection and the frontend draws them
-        // (2026-09-09 user decision, contract §16.3).
-        await checkLanguage(context, language, {
-            text: rendered
-        });
+        // Nothing is read out of the prose. Figures travel as the mechanics projection and the
+        // frontend draws them (2026-09-09 user decision, contract section 16.3); whether the words
+        // are in the play language is the verifier lane's finding, not a refusal (section 23).
         await stanceTable(context);
         report?.('validate');
         const projected = mechanics(receipts, placed, await snapshot.handoutTexts(receipts)), n = number(turn.turn), receipt = `turn:${n}`, world = tableSnapshot(snapshot, module.graph);
