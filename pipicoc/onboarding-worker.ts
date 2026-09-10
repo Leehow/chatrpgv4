@@ -6,7 +6,7 @@ import { composeRuntimeContext, createRuntime, type HostRuntime, type RuntimeCon
 import { ReadingService } from '../extensions/module/reading-service.ts';
 import type { ReaderRequest } from '../extensions/module/reader.ts';
 import { prepareCharacterGuidance, guidanceFingerprint, acceptedGuidance } from '../extensions/module/character-guidance.ts';
-import { prepareCharacterPresentation, prepareCluePresentation, preparePossessionPresentation, prepareStandingPresentation } from '../extensions/module/character-presentation.ts';
+import { prepareCharacterPresentation, prepareCluePresentation, prepareLanguagePresentation, preparePossessionPresentation, prepareStandingPresentation } from '../extensions/module/character-presentation.ts';
 import { playLanguageTag, resolveUiWords } from '../runtime/ui-words.ts';
 import { prepareUiWords } from '../extensions/module/ui-presentation.ts';
 import { presentDocument } from '../extensions/mods/document-presentation.ts';
@@ -108,6 +108,12 @@ async function main() {
         .filter(([key])=>key.startsWith('item.')).map(([key,value])=>[key.slice('item.'.length),value]));
       const known_labels={...(view.labels||{}),...itemFields};
       return preparePossessionPresentation({...input,contentRoot:context.contentRoot,view,known_labels,signal:guidanceAbort.signal,runner:runTask});
+    }
+    if(input.languages) {
+      // Only the language's own name. The number beside it is the kernel's, and `Own`/`Other` is
+      // the catalog's structure, which the rules data already names per play language.
+      const view=await call('table.view',{campaign:input.campaign});
+      return prepareLanguagePresentation({...input,contentRoot:context.contentRoot,view,known_labels:view.labels||{},signal:guidanceAbort.signal,runner:runTask});
     }
     if(input.clues) {
       // Only what table.view already shows the player: discovered rows, never the scene's unfound offer.

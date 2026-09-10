@@ -421,7 +421,7 @@ export class CocOnboardingHost {
     return job.result||{pending:true};
   }
   /** The growing lanes: each is its own job, and a finished one is not kept, so the next word starts a fresh run. */
-  private static readonly GROWING_LANES=['standing','possessions','clues'] as const;
+  private static readonly GROWING_LANES=['standing','possessions','clues','languages'] as const;
   private presentationKey(data:Row) {
     return JSON.stringify([data.campaign,data.revision,data.play_language,...CocOnboardingHost.GROWING_LANES.map(lane=>data[lane]===true)]);
   }

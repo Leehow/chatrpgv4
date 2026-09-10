@@ -112,6 +112,41 @@ export function preparePossessionPresentation(options:TextOptions&{campaign:stri
   return prepareGrowingPresentation(options,'possessions',possessionTexts);
 }
 /**
+ * The names of the languages an investigator holds, in the language the skill catalog wrote them
+ * in. A specialty is chosen when the card is built, so it can carry no authored `localized_labels`
+ * the way a fixed skill does; without this lane a zh-Hans table reads `Latin` and `Italian` on a
+ * sheet whose every other word is its own -- and language is what decides how much of an NPC's
+ * speech reaches the investigator now (Natural NPC 1.1.0), so it is the last word that should read
+ * as foreign by accident.
+ *
+ * Only the name is asked. The number is the kernel's, and `Own`/`Other` is the catalog's structure,
+ * named by the sidebar's own settled words. Two places carry a name: the required `own_language`
+ * field, and the skill keys in the three shapes the catalog writes -- all three in shipped sheets:
+ * `Language (Other: English)`, a starter's inline `Language (Latin)`, and `Language (Own: X)`. The
+ * same shapes are read in `pipicoc/panel.js` to place the row; keep the two together. They are
+ * separate because a field added to the kernel's own investigator projection cannot be represented
+ * by the frozen Python oracle, and this lane needs none.
+ */
+export function languageTexts(view:Row):string[] {
+  const texts=new Set<string>();
+  for(const sheet of Array.isArray(view?.investigators)?view.investigators:[]) {
+    // `own_language` names the tongue the investigator was raised in; the skill keys name the rest.
+    if(typeof sheet?.own_language==='string'&&sheet.own_language.trim())texts.add(sheet.own_language.trim());
+    const skills=sheet?.skills&&typeof sheet.skills==='object'&&!Array.isArray(sheet.skills)?sheet.skills:{};
+    for(const key of Object.keys(skills)) {
+      if(typeof key!=='string'||!key.startsWith('Language (')||!key.endsWith(')'))continue;
+      const inside=key.slice('Language ('.length,-1).trim();
+      const name=inside==='Own'?'':inside.startsWith('Own:')?inside.slice('Own:'.length).trim()
+        :inside.startsWith('Other:')?inside.slice('Other:'.length).trim():inside;
+      if(name)texts.add(name);
+    }
+  }
+  return [...texts].sort();
+}
+export function prepareLanguagePresentation(options:TextOptions&{campaign:string;view:Row}):Promise<Row> {
+  return prepareGrowingPresentation(options,'languages',languageTexts);
+}
+/**
  * The words a discovered clue puts on the sheet: the name the table filed it under and what the
  * book says it is. The name is the Keeper's own play-language word when `apply clue` gave one and
  * otherwise the graph's display name; the summary is always the module's, in the language the book

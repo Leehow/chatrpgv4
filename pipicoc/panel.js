@@ -310,6 +310,42 @@ function storyTime(at) {
 }
 
 /**
+ * The languages an investigator holds: which tongue, and how much of it.
+ *
+ * A language is no longer only a number in the skill list. What an investigator understands, and
+ * what they can say, decides how much of an NPC's speech reaches them (Natural NPC 1.1.0), so it
+ * belongs in the header beside occupation and era rather than a line in the background or a row
+ * among sixty skills.
+ *
+ * The two halves live apart on the sheet and are joined here: `own_language` is the required field
+ * that names the tongue the investigator was raised in, and `Language (Own)` is how much of it they
+ * hold. Every other language is a skill key, in the three shapes the catalog writes -- all three
+ * are in shipped sheets: `Language (Other: English)`, a starter's inline `Language (Latin)`, and
+ * `Language (Own: X)` for a card that names its own tongue in the key. This reads that shape and
+ * nothing else: it never decides which words are languages, and it never translates the name it
+ * finds -- that is `term`'s lane.
+ */
+function languageRows(sheet) {
+  const rows = [];
+  const own = text(isRecord(sheet) ? sheet.own_language : "");
+  for (const [key, value] of Object.entries(isRecord(sheet) && isRecord(sheet.skills) ? sheet.skills : {})) {
+    if (typeof key !== "string" || !key.startsWith("Language (") || !key.endsWith(")")) continue;
+    const inside = key.slice("Language (".length, -1).trim();
+    // `own_language` is the required field that says which tongue this is; the skill is its value.
+    if (inside === "Own") rows.push({ key, own: true, name: own, value: numberOr(value, 0) });
+    else if (inside.startsWith("Own:")) rows.push({ key, own: true, name: inside.slice("Own:".length).trim(), value: numberOr(value, 0) });
+    else if (inside.startsWith("Other:")) rows.push({ key, own: false, name: inside.slice("Other:".length).trim(), value: numberOr(value, 0) });
+    else if (inside) rows.push({ key, own: false, name: inside, value: numberOr(value, 0) });
+  }
+  // A card can name the tongue without carrying its skill row -- both shipped pregens do. The
+  // tongue is still true, so it is shown; the number is simply the one thing the sheet does not say.
+  if (own && !rows.some(row => row.own)) rows.push({ key: "", own: true, name: own, value: null });
+  // The tongue they were raised in first, then the rest by how much of one they hold.
+  return rows.sort((a, b) => Number(b.own) - Number(a.own)
+    || numberOr(b.value, -1) - numberOr(a.value, -1) || a.name.localeCompare(b.name));
+}
+
+/**
  * Project supplied item and weapon fields into read-only name, quantity and detail rows.
  */
 function itemLine(item, term = value => value) {
@@ -663,7 +699,7 @@ export function createComponent(React) {
     const {sheet,term,t}=props;
     const rows=Object.entries(isRecord(sheet.backstory)?sheet.backstory:{})
       .filter(([key,value])=>key!=="concept"&&typeof value==="string"&&value.trim());
-    if(sheet.own_language)rows.push([t("language"),text(sheet.own_language)]);
+    // The native tongue now rides in the header beside the rest of the languages, with its value.
     if(isRecord(sheet.key_connection)&&sheet.key_connection.summary)rows.push([t("keyConnection"),text(sheet.key_connection.summary)]);
     if(!rows.length)return null;
     return h(Section,{title:t("background"),icon:"scroll",anchor:"background"},h("dl",{className:"coc-background"},rows.map(([key,value])=>
@@ -868,6 +904,14 @@ export function createComponent(React) {
       if (sheet.occupation) fields.push([t("occupation"), term(text(sheet.occupation))]);
       if (sheet.era) fields.push([t("era"), term(text(sheet.era))]);
       if (sheet.age !== undefined) fields.push([t("ageKey"), text(sheet.age)]);
+      for (const language of languageRows(sheet)) {
+        // The glossary's word for the whole skill wins when the rules data carries one; otherwise
+        // the language's own name goes through the same lane, and comes back as itself until it does.
+        const labelled = language.key ? term(language.key) : "";
+        const name = labelled && labelled !== language.key ? labelled : term(language.name);
+        const shown = [name, language.value === null ? "" : text(language.value)].filter(Boolean).join(" ");
+        fields.push([t(language.own ? "nativeLanguage" : "otherLanguage"), shown]);
+      }
     }
     const concept = sheet && isRecord(sheet.backstory) ? term(text(sheet.backstory.concept)) : "";
 

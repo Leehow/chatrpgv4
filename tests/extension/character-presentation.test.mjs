@@ -180,3 +180,32 @@ test('clue words are localized once, grow with what is found, and never include 
  await assert.rejects(prepareCluePresentation({...options,view:{...view,play_language:'en'}}),/language/);
  assert.deepEqual(clueTexts({clues:{discovered:[]}}),[]);assert.deepEqual(clueTexts({}),[]);
 });
+test('a language name is asked once per language, and only the name is asked',async()=>{
+ const {prepareLanguagePresentation,languageTexts}=await import('../../extensions/module/character-presentation.ts');
+ const home=await mkdtemp(join(tmpdir(),'language-presentation-'));
+ // The three key shapes the catalog writes, beside the required field that names the native tongue.
+ const skills={'Language (Own)':80,'Language (Other: English)':40,'Language (Latin)':25,'Spot Hidden':55};
+ const view={play_language:'zh-Hans',investigators:[{name:'Helen',own_language:'Cantonese',skills}]};
+ const original=JSON.stringify(view);let calls=0;
+ const runner=async r=>{
+  calls++;
+  const input=JSON.parse(await readFile(join(r.cwd,'texts.json'),'utf8'));
+  // Every name, no number, and no skill that is not a language.
+  assert.deepEqual(input.texts,['Cantonese','English','Latin']);
+  await writeFile(join(r.cwd,'presentation.json'),JSON.stringify({texts:Object.fromEntries(input.texts.map(t=>[t,`${input.play_language}:${t}`]))}));
+  return {ok:true};
+ };
+ const options={home,campaign:'c1',play_language:'zh-Hans',view,runner};
+ const first=await prepareLanguagePresentation(options);
+ assert.equal(first.texts.Latin,'zh-Hans:Latin');
+ assert.equal(first.texts.Cantonese,'zh-Hans:Cantonese');
+ // A second read of the same words asks nothing.
+ assert.deepEqual(await prepareLanguagePresentation(options),first);
+ assert.equal(calls,1);
+ assert.equal(JSON.stringify(view),original);
+ // `Language (Own: X)` is the shape a card carries when it names its own tongue in the key.
+ assert.deepEqual(languageTexts({investigators:[{skills:{'Language (Own: Cantonese)':70}}]}),['Cantonese']);
+ // A sheet that names no tongue and holds no other language asks for nothing.
+ assert.deepEqual(languageTexts({investigators:[{skills:{'Language (Own)':80}}]}),[]);
+ assert.deepEqual(languageTexts({}),[]);
+});

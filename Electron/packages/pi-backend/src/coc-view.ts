@@ -115,7 +115,7 @@ export async function cocPlayLanguage(repo:string, contentRoot:string, tag:unkno
   } catch {return undefined;}
 }
 /** The lanes a campaign projects its own growing vocabulary into, in the order they merge. */
-export const PRESENTATION_LANES=['standing','possessions','clues'] as const;
+export const PRESENTATION_LANES=['standing','possessions','clues','languages'] as const;
 /**
  * Every word this campaign has already projected for its play language, merged in lane order.
  *
@@ -230,7 +230,7 @@ export async function readColdSheet(repo:string, context:CocBinding, previewRevi
  * discovered clue is called and says. The collector is the one definition of a lane's words,
  * read from the built presenter, so the host never counts a sheet's words a second way.
  */
-export const SHEET_LANES={possessions:'possessionTexts',clues:'clueTexts'} as const;
+export const SHEET_LANES={possessions:'possessionTexts',clues:'clueTexts',languages:'languageTexts'} as const;
 export type SheetLane=keyof typeof SHEET_LANES;
 export async function laneWords(repo:string, lane:SheetLane, view:unknown, entrypoint='build/extensions/module/character-presentation.mjs'):Promise<string[]> {
   const presenter=await import(pathToFileURL(resolve(repo,entrypoint)).href);
