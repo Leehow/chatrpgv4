@@ -8,7 +8,7 @@ import { pythonJsonDumps } from '../json.js';
 import { ModuleGraph, recordOf } from '../read/module-graph.js';
 import { mechanicsOf } from '../read/mechanics.js';
 import { npcsPresent } from '../read/capsule.js';
-import { array, row, values, truth, number, string, integer, kebab, chars, words, type Row } from '../read/values.js';
+import { array, chars, integer, kebab, normalize, number, row, string, truth, values, words, type Row } from '../read/values.js';
 export const asciiSlug = (text: string, limit = 24): string => text.normalize('NFKD').replace(/[^\x00-\x7f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().split(/\s+/).join('-').slice(0, limit).replace(/-+$/, '');
 const MARKER = /\{\{([a-z0-9][a-z0-9:_-]*)\}\}/g;
 function markerName(receipt: Row): string | null {
@@ -146,6 +146,41 @@ export function facts(graph: ModuleGraph, world: Row, party: Row[], receipts: Ro
 export function oneLine(turn: number, snapshot: Row, text: any): string {
     const session = row(snapshot.session), label = truth(session) ? `${string(session.kind ?? null)} in progress (round ${string(session.round ?? null)})` : 'no session';
     return `Turn ${turn}: ${string(row(snapshot.scene).display_name || row(snapshot.scene).name || null)}, clock ${Math.trunc(number(row(snapshot.clock).minutes))} min, ${label}; last turn: ${chars(words(typeof text === 'string' ? text : ''), 60) || '(no delivery)'}`;
+}
+/** What this turn's capsule put within reach, and what the turn actually took (contract §31).
+ *
+ *  An offer is a row that names an action and what it would yield. Counting offers against takes is the one
+ *  signal that separates a capability nobody uses from one nobody *can* use, and both have shipped here: the
+ *  0.8.2a Director advised zero times in a live run, and this tree's threat clocks were offered on every turn
+ *  of a twelve-turn table with no writer behind them. Both read the same way in this ledger -- offered, never
+ *  taken -- and that is the point: the difference costs one investigation instead of one slice.
+ *
+ *  Telemetry only, on the same law as §13.7: nothing here reaches the next capsule. An offer the Keeper keeps
+ *  declining is a fact about the offer, not a debt the Keeper owes. */
+export function offerLedger(turn: Row): Row | null {
+    const capsule = row(turn.capsule), receipts = array(turn.receipts);
+    if (!Object.keys(capsule).length)
+        return null;
+    const clues = new Set(receipts.filter(r => r.kind === "clue").flatMap(r => [r.clue, r.label].filter(truth).map(v => normalize(string(v))))),
+        moved = new Set(receipts.filter(r => r.kind === "move").flatMap(r => [r.to, r.to_label].filter(truth).map(v => normalize(string(v))))),
+        ticked = new Set(receipts.filter(r => r.kind === "threat").map(r => `${normalize(string(r.threat))}/${normalize(string(r.clock))}`));
+    const offers: Row[] = [];
+    const offer = (id: string, taken: boolean) => { if (!offers.some(o => o.id === id)) offers.push({id, taken}); };
+    for (const entry of array(row(capsule.director).reveal))
+        offer(`reveal:${string(row(entry).clue)}`, clues.has(normalize(string(row(entry).clue))));
+    const mods = row(capsule.mods);
+    for (const line of array(row(mods.thread).lines)) {
+        for (const entry of array(row(line).here))
+            offer(`clue-here:${string(row(entry).clue)}`, clues.has(normalize(string(row(entry).clue))));
+        for (const entry of array(row(line).next))
+            offer(`route:${string(row(entry).scene)}`, moved.has(normalize(string(row(entry).scene))));
+    }
+    for (const entry of array(row(mods.pacing).threat_clocks))
+        if (truth(row(entry).next))
+            offer(`clock:${string(row(entry).threat)}/${string(row(entry).clock)}`, ticked.has(`${normalize(string(row(entry).threat))}/${normalize(string(row(entry).clock))}`));
+    if (!offers.length)
+        return null;
+    return {offered: offers.map(o => string(o.id)), taken: offers.filter(o => truth(o.taken)).map(o => string(o.id))};
 }
 export function directorAdoption(graph: ModuleGraph, turn: Row, snapshot: Row, closedBy: string): Row | null {
     const director = row(row(turn.capsule).director);

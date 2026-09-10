@@ -4032,3 +4032,67 @@ closes the last doctrine §30.8 left untested. Evidence in `.coc/playtests/stall
 
 The two things still unverified after all of this are the fair-warning threshold — no table has reached three
 close calls — and the reader ask of §30.4, which needs a book rebuilt with it.
+
+## 31. The three ends of a seam: producer, projection, adoption (2026-09-10)
+
+Nine of the seventeen defects this project has recorded were one shape: something written that nothing reads, or
+read that nothing writes. Two more turned up in §30 with a third end missing — a capability that had both ends
+and that the Keeper never reached for. A seam has three, and each end has a check.
+
+| end | question | check | catches |
+| --- | --- | --- | --- |
+| producer | what changes it? | §31.1, a test over the source | a world key read with no writer |
+| projection | who sees it? | §31.1, the same test reversed | a world key written with no reader |
+| adoption | who acts on it? | §31.2, a telemetry lane | a capability offered and never taken |
+
+### 31.1 No world-state key with only one end
+
+`tests/extension/world-state-seams.test.mjs` walks `kernel-ts/**` with the TypeScript AST, pairs every property
+read on the world against every assignment to it, and fails either way round. The world reaches code as `world`
+or `<something>.world`; a file that stages it under another name declares that name, so an ordinary local is
+never mistaken for the world, and an identifier called `world` that is something else (the turn record's own
+snapshot, in `recall.ts`) is declared with what it is instead. A key a campaign is created with and no later
+path assigns goes in `SEEDED` with the reason it never changes — the table is the ledger, and an empty reason
+is not an entry.
+
+**Its blind spot, stated so nobody trusts it further than it goes:** it sees only world state. A projection that
+reads an authored graph field and presents it as if play could change it is perfectly paired to this test. That
+is exactly how §30.9's threat clocks shipped dead — `current_segments` came off the module graph, which is the
+book and does not move. The next end is what catches that.
+
+### 31.2 The offer ledger
+
+An **offer** is a capsule row that names an action and what taking it would yield. Four are registered today:
+a clue gate under `director.reveal`, a clue under a thread line's `here`, a scene under its `next`, and a threat
+clock that has a `next` segment. `offerLedger` in `kernel-ts/write/text.ts` runs where `director_adoption`
+already runs, at `narrate` and at `ask`, and writes one telemetry row per turn:
+
+```
+{"lane": "offers", "turn": n, "closed_by": "narrate"|"ask", "offered": [ids], "taken": [ids]}
+```
+
+An id is `<kind>:<handle>`; taken is decided by the turn's own receipts — a `clue` receipt for that clue, a
+`move` to that scene, a `threat` tick of that clock. `tests/play/kpi.py` aggregates a run into offered, taken and
+`never_taken` per kind.
+
+**A capability nobody uses and a capability nobody can use read the same way here**, and that is the point.
+Both have shipped in this tree: 0.8.2a's Director advised zero times across a whole live run, and this tree's
+threat clocks were offered on every turn of a twelve-turn table with no writer behind them. The ledger shows
+either within one run; telling them apart is then one investigation instead of one slice.
+
+**It counts, it never nags.** §13.7's law holds for this lane exactly as it does for adoption: nothing here
+reaches the next capsule. An offer the Keeper keeps declining is a fact about the offer, not a debt the Keeper
+owes — the moment it feeds back it becomes an obligation, and obligations are what killed the old Director and
+what retired the number check on 2026-09-09.
+
+### 31.3 An offer row carries its own cost and its own yield
+
+The thing that finally got `apply threat` used was not an instruction. It was one field: the clock row started
+saying what advancing it would put on the table. Every row that works has the same shape — a clue gate is
+`{clue, gate}`, a route is `{scene, clues, line, locked}`, a clock is `{state, next, on_full}`: what it costs and
+what it gives, in the row, where the decision is made.
+
+So the rule for any new row that invites an action: **name what it costs and what it yields, in that row.**
+Information the Keeper has to assemble from two places is information nobody gave — the 0.8.2a lesson, which
+cost two rounds of adding panels that changed nothing. `test_an_offer_row_carries_both_what_it_costs_and_what_it_yields`
+holds the four registered offers to it.

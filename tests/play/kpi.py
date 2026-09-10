@@ -179,6 +179,33 @@ def compute(rows: list[dict[str, Any]], turns: tuple[int, int] | None = None,
     return metrics
 
 
+def offers(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Contract §31.2: what the capsule put within reach, against what the turns took.
+
+    A capability nobody uses and a capability nobody *can* use read the same way here --
+    offered, never taken -- and that is the useful part: both have shipped in this project,
+    and telling them apart costs one investigation instead of one slice. Counting only;
+    nothing here reaches the next capsule (§13.7's law).
+    """
+    kinds: dict[str, dict[str, int]] = {}
+    turns = 0
+    for row in rows:
+        if row.get("lane") != "offers":
+            continue
+        turns += 1
+        taken = {str(name) for name in row.get("taken", [])}
+        for name in row.get("offered", []):
+            kind = str(name).split(":", 1)[0]
+            counts = kinds.setdefault(kind, {"offered": 0, "taken": 0})
+            counts["offered"] += 1
+            counts["taken"] += 1 if str(name) in taken else 0
+    if not turns:
+        return {}
+    return {"turns_with_offers": turns,
+            "by_kind": {kind: {**counts, "never_taken": counts["taken"] == 0}
+                        for kind, counts in sorted(kinds.items())}}
+
+
 def summarize(per_turn: dict[int, dict[str, Any]]) -> dict[str, Any]:
     if not per_turn:
         return {"turns": 0}
@@ -263,6 +290,9 @@ def main(argv: list[str] | None = None) -> int:
     rows = load_rows(path)
     per_turn = compute(rows, turns, present_names(args.workspace, campaign))
     summary = summarize(per_turn)
+    ledger = offers(rows)
+    if ledger:
+        summary["offers"] = ledger
     print(format_report(per_turn, summary, title=title))
     return 0
 

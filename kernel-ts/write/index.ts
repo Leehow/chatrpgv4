@@ -24,7 +24,7 @@ import { registerStarter } from './source.js';
 import { resolveStartScene } from '../modules/visual.js';
 import { loadModuleContract, validSourceLanguage } from '../modules/contract.js';
 import { defaultModPlan, preflightCampaign as validateContributions, rebuildNpcLedger, updateNpcLedger, stanceTable, writeEpisode } from './contributions.js';
-import { bindMarkers, stripMarkers, asciiSlug, facts, directorAdoption } from './text.js';
+import { bindMarkers, stripMarkers, asciiSlug, facts, directorAdoption, offerLedger } from './text.js';
 import { readableTurn, rebuildTurn, syncCheckpoint, resumeView, checkpointFromRecord, writeCheckpoint } from './continuation.js';
 import {activeName} from '../read/worldline.js';
 import {eventOf} from '../worldline/index.js';
@@ -654,6 +654,14 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
                 turn: number(turn.turn),
                 closed_by: closedBy,
                 ...value
+            });
+        const offers = offerLedger(turn);
+        if (offers)
+            await campaign.telemetry({
+                lane: 'offers',
+                turn: number(turn.turn),
+                closed_by: closedBy,
+                ...offers
             });
         return value;
     }

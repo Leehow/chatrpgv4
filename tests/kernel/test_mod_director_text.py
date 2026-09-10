@@ -141,3 +141,40 @@ def test_a_threat_effect_names_what_it_could_not_find(kernel):
     assert clockless["code"] == "invalid_params" and "no clock" in clockless["message"]
     world = read_json(campaign_dir(kernel.workspace) / "world.json")
     assert "threat_clocks" not in world, "a refused batch writes nothing"
+
+
+def test_the_offer_ledger_counts_what_was_within_reach_against_what_the_turn_took(kernel):
+    open_turn(kernel)
+    capsule = kernel.table("capsule")
+    here = {entry["clue"] for line in capsule["mods"]["thread"]["lines"] for entry in line["here"]}
+    routes = {entry["scene"] for line in capsule["mods"]["thread"]["lines"] for entry in line["next"]}
+    assert here and routes, "the opening scene offers both a clue and somewhere to go"
+    taken_clue = sorted(here)[0]
+    kernel.table("apply", call_id="t1-c1", effects=[{"kind": "clue", "clue": taken_clue}])
+    narrate(kernel, "t1-c2", "诺特把话说完。")
+    rows = [json.loads(line) for line in (campaign_dir(kernel.workspace) / "telemetry.jsonl").read_text().splitlines() if line.strip()]
+    ledger = next(row for row in rows if row.get("lane") == "offers" and row["turn"] == 1)
+    assert ledger["closed_by"] == "narrate"
+    assert f"clue-here:{taken_clue}" in ledger["offered"] and f"clue-here:{taken_clue}" in ledger["taken"]
+    # Every route was within reach and none was walked: offered, not taken, which is the whole signal.
+    assert {f"route:{scene}" for scene in routes} <= set(ledger["offered"])
+    assert not any(name.startswith("route:") for name in ledger["taken"])
+    assert set(ledger["taken"]) <= set(ledger["offered"])
+    # §13.7's law holds for this lane too: the ledger is telemetry and changes no later capsule.
+    kernel.table("player_input", text="我接着问。")
+    again = kernel.table("capsule")
+    assert {entry["scene"] for line in again["mods"]["thread"]["lines"] for entry in line["next"]}
+
+
+def test_an_offer_row_carries_both_what_it_costs_and_what_it_yields(kernel):
+    open_turn(kernel)
+    capsule = kernel.table("capsule")
+    for line in capsule["mods"]["thread"]["lines"]:
+        for entry in line["here"]:
+            assert entry["gate"] and entry["clue"], "a clue offer names its gate and what it is"
+        for entry in line["next"]:
+            assert entry["clues"] >= 1 and entry["scene"], "a route offer names where and how much is there"
+    kernel.table("apply", call_id="t1-c1", effects=[{"kind": "npc", "name": "Walter Corbitt", "to": "commission-briefing", "why": "fixture"}])
+    for entry in kernel.ok("mods.context", {"campaign": CAMPAIGN})["pacing"]["threat_clocks"]:
+        assert entry["state"] and (entry.get("next") or entry["state"].split("/")[0] == entry["state"].split("/")[1]), \
+            "a clock offer says where it stands and what the next segment would show, unless it is full"
