@@ -26,7 +26,9 @@ in the Mod context. It includes initial gear and equipment acquired before this
 Mod was enabled, even when the narration never mentions it. Use semantic context
 to identify weapons and other mechanically meaningful items that lack parameters.
 Generate their definitions and use object with adopt set to the exact existing
-equipment name and to set to its owner. This enriches an already-owned item; do
+equipment name and to set to its owner. Send the definitions and their adoptions
+as one apply carrying nothing else: a batch of only definitions and adoptions is
+bookkeeping, and the host registers it without holding the turn's delivery. This enriches an already-owned item; do
 not buy, award, duplicate, consume or move it, advance time, or require the player
 to request a check. Preserve any recorded quantity, ammunition and condition.
 Do not replace executable weapon rows, convert money into items, or grant a spell

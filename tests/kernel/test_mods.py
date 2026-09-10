@@ -437,3 +437,40 @@ def test_a_trait_nested_in_parameters_is_told_to_move_it_not_to_drop_it(kernel):
     draft["traits"] = measured
     Path(job["cwd"], "result.json").write_text(json.dumps(draft))
     assert kernel.ok("mods.accept", {"campaign":CAMPAIGN, "job":job["job"]})["definition"]["traits"] == measured
+
+
+def test_registration_can_be_queued_past_delivery_and_completed_afterwards(kernel):
+    open_turn(kernel)
+    rows = [entry["name"] for entry in kernel.ok("mods.context", {"campaign":CAMPAIGN})["unregistered_equipment"]]
+    assert rows, "the pregen has to carry unregistered equipment for this to mean anything"
+    target = rows[0]
+
+    draft = {"name":"Queued fixture kit", "category":"item", "description":"Fixture gear for a deferred registration."}
+    job = kernel.ok("mods.job", {"campaign":CAMPAIGN, "role":"create", "input":draft})
+    kernel.table("apply", call_id="t1-c1", effects=[
+        {"kind":"define", **draft, "_queued":job["job"], "_provenance":{"mod":job["mod"], "digest":job["digest"]}},
+        {"kind":"object", "name":draft["name"], "to":"Thomas Hayes", "adopt":target,
+         "definition":draft["name"], "why":"Fixture adoption."}])
+
+    world = read_json(campaign_dir(kernel.workspace) / "world.json")
+    # Nothing was invented on the Keeper's behalf: the marker is not a definition.
+    assert not world.get("objects", {}).get("definitions")
+    # The row is accounted for, so neither the Keeper nor the audit is asked for it a second time.
+    assert target not in [e["name"] for e in kernel.ok("mods.context", {"campaign":CAMPAIGN})["unregistered_equipment"]]
+
+    pending = kernel.ok("mods.queued", {"campaign":CAMPAIGN})
+    assert pending["effects"] == []
+    assert [entry["name"] for entry in pending["unfinished"]] == [draft["name"]]
+
+    Path(job["cwd"], "result.json").write_text(json.dumps({**draft, "basis":"Fixture basis for the deferred kit.",
+        "parameters":{"charges":None, "effects":[]}, "player_view":{"description":"一套夹具装备。", "fields":[]}}))
+    kernel.ok("mods.accept", {"campaign":CAMPAIGN, "job":job["job"]})
+
+    ready = kernel.ok("mods.queued", {"campaign":CAMPAIGN})
+    assert [effect["kind"] for effect in ready["effects"]] == ["define", "object"] and ready["unfinished"] == []
+    kernel.table("apply", call_id="t1-c2", effects=ready["effects"])
+
+    assert kernel.table("look", focus="object", name=draft["name"])["definition"]["name"] == draft["name"]
+    # The marker stops standing in for a definition that is now real, and the row stays out of the gap list.
+    assert kernel.ok("mods.queued", {"campaign":CAMPAIGN}) == {"effects":[], "unfinished":[]}
+    assert target not in [e["name"] for e in kernel.ok("mods.context", {"campaign":CAMPAIGN})["unregistered_equipment"]]

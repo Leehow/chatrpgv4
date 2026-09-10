@@ -57,7 +57,7 @@ export function turnStateError(turn: Row, method: string, allowed: string): RpcE
 }
 export const EVENT_TYPES: ReadonlySet<string> = new Set(['turn-started', 'player-declared', 'roll-resolved', 'scene-moved', 'clue-discovered', 'time-advanced',
     'turn-finalized', 'resource-changed', 'decision-settled', 'session-changed', 'choice-asked', 'memory-written', 'setup-completed',
-    'handout-shown', 'item-transferred', 'definition-created', 'ability-acquired', 'flag-set', 'note-written', 'ruling-made',
+    'handout-shown', 'item-transferred', 'definition-created', 'definition-queued', 'ability-acquired', 'flag-set', 'note-written', 'ruling-made',
     'npc-changed', 'worldline-forked', 'worldline-switched', 'worldline-merged']);
 export class CampaignWriter implements CampaignWritePort {
     readonly directory: string;

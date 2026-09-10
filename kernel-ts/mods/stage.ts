@@ -11,6 +11,7 @@ import { stagedSheet } from '../apply/inventory.js';
 import { validateDefinition } from './definition.js';
 import { initializeDocument, ownershipChanged, writeDocument } from './documents.js';
 import { defineObject, moveObject, objectInstance, objectRegistry } from './objects.js';
+import { clearRegistration, queueAdoption, queueRegistration, queuedDefinition } from './queue.js';
 import type { ModJobs } from './jobs.js';
 
 const field = (value: Row, key: string, fallback: any): any => Object.hasOwn(value, key) ? value[key] : fallback;
@@ -30,6 +31,23 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
     let effect = original;
     const kind = effect.kind, mint = (id: string) => context.mint(id);
     if (kind === 'define') {
+        // Registration the delivery does not wait on. Nothing about the object is invented here: the marker
+        // records only what the Keeper already named plus the job that will produce its parameters, and the
+        // receipt says so, so the audit that reads this turn's receipts is told the truth about what landed.
+        if (typeof effect._queued === 'string') {
+            const category = string(effect.category), name = string(effect.name);
+            if (!['weapon', 'spell', 'item'].includes(category) || !name.trim()) throw new RpcError('invalid_params', 'A queued definition needs its name and category');
+            if (!/^[0-9a-f]{64}$/.test(effect._queued)) throw new RpcError('invalid_params', 'A queued definition needs its Mod job');
+            const provenance = truth(effect._provenance) ? row(effect._provenance) : {}, active = await jobs.runtime.active(world);
+            const packageRow = active.find(mod => mod.id === provenance.mod);
+            if (!packageRow || packageRow.digest !== provenance.digest || !truth(packageRow.contributes.materializer))
+                throw new RpcError('invalid_params', 'Definition provenance is not an active materializer');
+            queueRegistration(world, packageRow.id, {name, category, job: effect._queued, turn,
+                define: {kind: 'define', name, category, ...(truth(effect.description) ? {description: effect.description} : {}), ...(truth(effect.template) ? {template: effect.template} : {})},
+                adopt: null, owner: null, object: null});
+            return {receipt: {id: mint(`definition:queued-${callId}`), kind: 'definition', name, category, queued: true, visibility: 'keeper', call_id: callId},
+                event: {type: 'definition-queued', data: {name, category}}};
+        }
         const draft = effect._definition;
         if (!isJsonObject(draft)) throw new RpcError('needs', "Definition needs the host's tool-enabled Mod creator", {details: {reason: 'mod_generation_required'}});
         validateDefinition(draft, {name: effect.name ?? null, category: effect.category ?? null});
@@ -38,6 +56,9 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
         const accepted = await jobs.accept({campaign: campaign.id, job: provenance.job});
         if (canonicalJson(accepted.definition ?? null) !== canonicalJson(draft)) throw new RpcError('invalid_params', 'Definition differs from the accepted Mod job');
         const value = defineObject(world, draft, provenance);
+        // The registration this definition was queued for is now real, so its marker stops standing in
+        // for it -- otherwise the row would stay hidden from the audit that is supposed to notice gaps.
+        clearRegistration(world, packageRow.id, string(value.name), string(value.category));
         return {receipt: {id: mint(`definition:${callId}`), kind: 'definition', name: value.name, category: value.category, definition: value.id, visibility: 'keeper', call_id: callId},
             event: {type: 'definition-created', data: {name: value.name, category: value.category}}};
     }
@@ -46,6 +67,20 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
         if (typeof name !== 'string' || !name.trim()) throw new RpcError('invalid_params', 'Object needs a name');
         const owner = await objectOwner(campaign, graph, world, effect.to), source = truth(effect.from) ? await objectOwner(campaign, graph, world, effect.from) : null;
         const prior = objectInstance(world, name); let adopted: any = null;
+        // Its definition is still queued, so the adoption is queued with it and the two are replayed
+        // together. The sheet row stays exactly where it is, which is the shape the world already had.
+        if (Object.hasOwn(effect, 'adopt') && !prior) {
+            const waiting = queuedDefinition(world, truth(effect.definition) ? effect.definition : name);
+            if (waiting) {
+                if (typeof effect.adopt !== 'string' || !effect.adopt.trim() || source || owner.kind !== 'investigator')
+                    throw new RpcError('invalid_params', 'Adopt needs an existing investigator equipment name, without from or an existing instance');
+                if (!queueAdoption(world, string(waiting.name), string(waiting.category), {...effect}))
+                    throw new RpcError('invalid_params', 'The queued definition for this adoption is no longer registered');
+                return {receipt: {id: mint(`definition:queued-adopt-${callId}`), kind: 'definition', name, category: waiting.category,
+                    queued: true, adopted: effect.adopt, subject: owner.id, visibility: 'keeper', call_id: callId},
+                    event: {type: 'definition-queued', data: {name: string(waiting.name), category: string(waiting.category)}}};
+            }
+        }
         if (!prior && !Object.hasOwn(effect, 'adopt') && owner.kind === 'investigator') {
             const sheet = sheets ? await stagedSheet(context, sheets, owner.name) : selectActor(await campaign.party() as Row[], owner.name);
             if (array(sheet.equipment).some(item => typeof item === 'string' ? item === name : isJsonObject(item) && item.name === name))

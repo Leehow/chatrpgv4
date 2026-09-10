@@ -44,7 +44,7 @@ function decode(value) { return JSON.parse(api.pythonJsonDumps(value)); }
 
 test("the public vocabulary and error frames match the locked Python reference", async () => {
   assert.equal(reference.python, "3.14.6");
-  const currentOnly = new Set(["table.switch", "setup.override"]);
+  const currentOnly = new Set(["table.switch", "setup.override", "mods.queued"]);
   assert.deepEqual([...api.KNOWN_METHODS].filter(name => !currentOnly.has(name)).sort(), reference.rpc.methods);
   for (const name of currentOnly) assert.ok(api.KNOWN_METHODS.includes(name), name);
   const ctx = await context("error frames");

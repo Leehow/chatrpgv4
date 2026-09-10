@@ -14,6 +14,7 @@ import { array, chars, clone, entries, equal, normalize, row, sorted, string, tr
 import { RuleTables } from '../rules/tables.js';
 import type { createWriteRuntime } from '../write/index.js';
 import { validateDefinition, validateDocumentSeed } from './definition.js';
+import { claimedEquipment, queuedRegistrations } from './queue.js';
 import type { ModRuntime } from './runtime.js';
 
 export interface ModSources { asset?: (moduleId: string, name: string) => Promise<Row | null>; }
@@ -93,7 +94,7 @@ export class ModJobs {
             mod_settings: Object.fromEntries(candidates.map(mod => [mod.id, (world as Row).mods.active[mod.id].settings])),
             scene: whereSection(graph, world, graph.scene(world.active_scene as string)), party, objects: objectContext(world), receipts: field(turn, 'receipts', []),
             known_handouts: (await this.knownHandouts(graph, world)).map(item => ({name: item.name, preview: chars(item.text, 240)})),
-            unregistered_equipment: unregisteredEquipment(party)};
+            unregistered_equipment: unregisteredEquipment(party, claimedEquipment(world))};
         if (role === 'create') request.catalogs = await this.presets(string(row(params.input).category));
         const identity: Row = {campaign: campaign.id, turn: turn.turn, worldline: meta.active_worldline ?? null, mod: packageRow.id, digest: packageRow.digest,
             packages: candidates.map(mod => ({id: mod.id, digest: mod.digest})), request: role === 'audit' ? request : {input: params.input ?? null, role}};
@@ -113,14 +114,43 @@ export class ModJobs {
                 }
             }
         }
-        return {enabled: true, job: key, cwd: root, system_prompt: join(root, 'prompt.md'), accepted: await this.context.snapshots.pathExists(join(root, 'accepted.json')), role};
+        return {enabled: true, job: key, cwd: root, system_prompt: join(root, 'prompt.md'), mod: packageRow.id, digest: packageRow.digest,
+            accepted: await this.context.snapshots.pathExists(join(root, 'accepted.json')), role};
+    }
+    /**
+     * The registrations whose parameters have arrived, shaped as ordinary effects. The host applies them
+     * through the same staging every other definition travels, so nothing here is a second implementation
+     * of define or adopt; an entry whose job has not finished yet is simply left for the next turn.
+     */
+    async queued(params: Row): Promise<Row> {
+        const {world} = await this.load(params), effects: Row[] = [], unfinished: Row[] = [];
+        for (const entry of queuedRegistrations(world)) {
+            const define = clone(row(entry.define));
+            const accepted = join(this.runtime.root, 'jobs', string(entry.job), 'accepted.json');
+            // A session that died between the marker and its parameters must not leave the row hidden from
+            // the audit for good, so an unfinished entry is reported as work rather than silently skipped.
+            if (!await this.context.snapshots.pathExists(accepted)) {
+                unfinished.push({name: define.name, category: define.category, ...(Object.hasOwn(define, 'description') ? {description: define.description} : {}),
+                    ...(Object.hasOwn(define, 'template') ? {template: define.template} : {})});
+                continue;
+            }
+            const value = row(await this.context.snapshots.readJson(accepted));
+            effects.push({...define, _definition: value.definition, _provenance: value.provenance});
+            if (truth(entry.object)) effects.push(clone(row(entry.object)));
+        }
+        return {effects, unfinished};
     }
     async accept(params: Row): Promise<Row> {
         const key = params.job;
         if (typeof key !== 'string' || key.length !== 64 || !/^[0-9a-f]{64}$/.test(key)) throw new RpcError('invalid_params', 'Unknown Mod job');
         const root = join(this.runtime.root, 'jobs', key), identity = row(await this.context.snapshots.readJson(join(root, 'identity.json')));
         const {campaign, graph, world, turn, meta} = await this.load(params);
-        if (identity.campaign !== campaign.id || !equal(identity.turn, turn.turn) || !equal(identity.worldline, meta.active_worldline ?? null)) throw new RpcError('invalid_params', 'Mod job belongs to another turn or worldline');
+        // A deferred registration is accepted after delivery, and narrate has already moved the turn on, so
+        // the turn is not what pins this job -- the marker the kernel itself wrote is. Campaign, worldline
+        // and the package digests below still have to match.
+        const deferred = queuedRegistrations(world).some(entry => entry.job === key);
+        if (identity.campaign !== campaign.id || (!deferred && !equal(identity.turn, turn.turn)) || !equal(identity.worldline, meta.active_worldline ?? null))
+            throw new RpcError('invalid_params', 'Mod job belongs to another turn or worldline');
         const active = new Map((await this.runtime.active(world)).map(mod => [mod.id, mod]));
         if (!active.has(identity.mod) || active.get(identity.mod)!.digest !== identity.digest) throw new RpcError('invalid_params', 'Mod changed while the job was running');
         if (array(identity.packages).some(mod => active.get(mod.id)?.digest !== mod.digest)) throw new RpcError('invalid_params', 'An audit contributor changed while the job was running');

@@ -338,12 +338,14 @@ test("Mod tasks use the existing owner check and retry the retained draft before
     async check(request) { operations.push(request.kind); return ++checks === 1 ? { ok: false, error: "repair required" } : { ok: true }; },
   }, async call(method) {
     operations.push(method);
+    // The host asks what deferred registration is ready before it writes anything.
+    if (method === "mods.queued") return { effects: [], unfinished: [] };
     if (method === "mods.job") return { enabled: true, cwd: home, system_prompt: join(home, "instructions.md"), job: "owned-job" };
     return { definition: { name: "Notebook" } };
   } });
   const payload = { campaign: "owned-campaign", effects: [{ kind: "define", name: "Notebook", category: "item" }] };
   await bridge.prepare("apply", payload);
-  assert.deepEqual(operations, ["mods.job", "mod", "mod-definition", "mod", "mod-definition", "mods.accept"]);
+  assert.deepEqual(operations, ["mods.queued", "mods.job", "mod", "mod-definition", "mod", "mod-definition", "mods.accept"]);
   assert.match(briefs[0], /coc-read-check --kind mod-definition --draft result.json/);
   assert.doesNotMatch(briefs[0], /PYTHONPATH|\buv\b|\bpython\b/);
   assert.match(briefs[1], /repair required/);

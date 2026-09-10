@@ -135,11 +135,82 @@ export default function modsExtension(pi: ExtensionAPI): void {
     }
   }
 
+
+  /**
+   * A batch of nothing but definitions and adoptions is bookkeeping: adoption enriches gear the
+   * investigator already carries, may not name a giver, and the Mod contract forbids it advancing time
+   * or moving anything. Every expensive opening batch on record has exactly this shape, and every batch
+   * that belongs to the moment being narrated carries clues, cash, handouts or time beside it.
+   */
+  const bookkeeping = (effect: Record<string, any>): boolean =>
+    effect?.kind === "define" || (effect?.kind === "object" && typeof effect?.adopt === "string" && !effect?.from);
+  const registrationOnly = (effects: Record<string, any>[]): boolean =>
+    effects.length > 0 && effects.every(bookkeeping) && effects.some(effect => effect?.kind === "define")
+    // The adoption has to be visible in the same batch. A batch of bare definitions could just as well be
+    // about to place its object in the scene, and a definition queued behind that placement would leave the
+    // Keeper holding a name the kernel cannot find yet.
+    && effects.some(effect => effect?.kind === "object" && typeof effect?.adopt === "string");
+
+  let outstanding: Promise<void> | undefined;
+
+  /**
+   * Hand the batch to the kernel as markers so the turn is delivered without waiting, then generate the
+   * parameters beside it. Nothing is invented on the Keeper's behalf: the kernel writes real receipts
+   * saying the registration is queued, and the audit that reads this turn's receipts is told the truth.
+   */
+  async function defer(campaign: string, defines: Record<string, any>[], signal?: AbortSignal): Promise<boolean> {
+    if (!call) return false;
+    const current = call;
+    const inputs = defines.map(effect => ({name:effect.name, category:effect.category, description:effect.description, template:effect.template}));
+    const handles: {index: number; job: any}[] = [];
+    for (const [index, input] of inputs.entries()) {
+      const job = await current("mods.job", {campaign, role:"create", input});
+      if (!job?.enabled || typeof job.mod !== "string") return false;
+      handles.push({index, job});
+    }
+    for (const {index, job} of handles) {
+      defines[index]._queued = job.job;
+      defines[index]._provenance = {mod: job.mod, digest: job.digest};
+    }
+    const work = inputs.map(input => ({...input}));
+    const prior = outstanding;
+    outstanding = (async () => {
+      if (prior) await prior.catch(() => undefined);
+      // The signal belongs to the tool call that is about to return, so this work does not take it: a
+      // failure here is not lost, it is what `mods.queued` reports as unfinished on the next turn.
+      await materialize(campaign, work.map(input => ({kind:"define", ...input})), undefined).catch(() => undefined);
+    })();
+    return true;
+  }
+
+  /**
+   * Complete deferred registrations at the top of the next turn, while it is open, through an ordinary
+   * apply. One turn late is late; silently unregistered forever is a hole, so an entry whose parameters
+   * never arrived is generated here rather than left behind a marker that hides its row from the audit.
+   */
+  async function resume(campaign: string, signal?: AbortSignal): Promise<void> {
+    if (!call) return;
+    const current = call;
+    if (outstanding) { const pending = outstanding; outstanding = undefined; await pending.catch(() => undefined); }
+    let queued = await current("mods.queued", {campaign});
+    const unfinished: any[] = Array.isArray(queued?.unfinished) ? queued.unfinished : [];
+    if (unfinished.length) {
+      for (const input of unfinished) await task(campaign, "create", input, signal).catch(() => undefined);
+      queued = await current("mods.queued", {campaign});
+    }
+    const effects: any[] = Array.isArray(queued?.effects) ? queued.effects : [];
+    if (effects.length) await current("table.apply", {campaign, call_id: `mods-resume-${Date.now().toString(36)}`, effects});
+  }
+
   const bridge: ModBridge = {
     async prepare(method, payload, signal) {
+      if (["apply", "resolve", "narrate", "ask"].includes(method) && typeof payload.campaign === "string")
+        await resume(payload.campaign, signal);
       if (method === "apply") {
-        const defines = (payload.effects ?? []).filter((effect: Record<string, any>) => effect?.kind === "define");
-        if (defines.length) await materialize(payload.campaign, defines, signal);
+        const effects: Record<string, any>[] = payload.effects ?? [];
+        const defines = effects.filter((effect: Record<string, any>) => effect?.kind === "define");
+        if (defines.length && !(registrationOnly(effects) && await defer(payload.campaign, defines, signal)))
+          await materialize(payload.campaign, defines, signal);
       }
       if ((method === "narrate" || method === "ask") && payload.text) {
         const result = await task(payload.campaign, "audit", {text:payload.text}, signal);

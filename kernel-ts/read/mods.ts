@@ -8,6 +8,7 @@ import { compareUnicode, jsonDigest, parsePythonJson } from "../json.js";
 import { ModuleGraph } from "./module-graph.js";
 import { npcsPresent } from "./capsule.js";
 import { entries, values, array, row, truth, string, number, integer, numeric, normalize, sorted, chars, length, clone, pick, type Row } from "./values.js";
+import { claimedEquipment } from "../mods/queue.js";
 export const MOD_CAPABILITIES = new Set(["checks.percentile.v1", "context.npc.v1", "definitions.v1", "objects.v1", "objects.state.v2", "objects.adopt.v1", "objects.documents.v1", "mods.order.v1", "ui.documents.v1", "ui.documents.language.v1", "agents.tools.v1", "weapons.v1", "weapons.profile.v2", "spells.v1", "item-effects.v1", "setup.guidance.v1", "setup.aptitude.v1"]);
 const invalid = (message: string): never => {
     throw new RpcError("invalid_params", message);
@@ -236,12 +237,13 @@ export async function setupModContext(context: KernelContext, lock: Row): Promis
         }))
     };
 }
-export function unregisteredEquipment(party: Row[]): Row[] {
+export function unregisteredEquipment(party: Row[], claimed: ReadonlySet<string> = new Set()): Row[] {
     return party.flatMap(sheet => {
         const executable = new Set(array(sheet.weapons).filter(w => truth(w.weapon_id) || truth(w.damage) || truth(w.damage_die)).map(w => normalize(w.name || w.display_name || '')));
         return array(sheet.equipment).flatMap(value => {
             const name = typeof value === 'string' ? value : row(value).name;
-            return !truth(name) || row(value).object_id || executable.has(normalize(name)) ? [] : [{ owner: sheet.name, name, row: value }];
+            return !truth(name) || row(value).object_id || executable.has(normalize(name)) || claimed.has(normalize(name))
+                ? [] : [{ owner: sheet.name, name, row: value }];
         });
     });
 }
@@ -314,7 +316,7 @@ export async function modContext(context: KernelContext, graph: ModuleGraph, wor
                     });
             }
     const effective = effectiveMods(active);
-    const unregistered = active.some(mod => truth(mod.contributes.materializer)) ? unregisteredEquipment(party) : [];
+    const unregistered = active.some(mod => truth(mod.contributes.materializer)) ? unregisteredEquipment(party, claimedEquipment(world)) : [];
     return {
         active: active.map(mod => ({
             id: mod.id,

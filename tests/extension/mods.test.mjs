@@ -36,7 +36,8 @@ test('accepted definitions are attached by the host and an audit refusal reaches
   await bridge.prepare('apply',payload);
   assert.equal(payload.effects[0]._definition.name,'Launcher');
   await assert.rejects(()=>bridge.prepare('narrate',{campaign:'c1',text:'The gun fires.'}), error=>error.details?.reason==='mod_narrative_repair');
-  assert.deepEqual(calls.map(c=>c.method),['mods.job','mods.accept','mods.job','mods.accept']);
+  // Every write verb first asks what deferred registration is ready; nothing is here, so nothing lands.
+  assert.deepEqual(calls.map(c=>c.method),['mods.queued','mods.job','mods.accept','mods.queued','mods.job','mods.accept']);
 });
 
 test('the panel adapter binds mutations to its own campaign and ignores supplied campaign ids', async () => {
@@ -106,6 +107,8 @@ test('one apply materializes its definitions together and keeps the batch order'
   const accepted = [];
   pi.events.emit('coc:kernel-bridge',{
     call:async(method,params)=>{
+      // The host asks what deferred registration is ready before it writes anything.
+      if(method==='mods.queued') return {effects:[],unfinished:[]};
       if(method==='mods.job') return {enabled:true, accepted:false, job:`job-${params.input.name}`, cwd, system_prompt:join(cwd,'prompt.md'), role:'create'};
       accepted.push(params.job);
       return {definition:{name:params.job.replace('job-','')}, provenance:{mod:'enhanced-items', job:params.job}};
@@ -141,6 +144,8 @@ test('a definition that fails is reported in batch order while its siblings stil
   const attempted = [];
   pi.events.emit('coc:kernel-bridge',{
     call:async(method,params)=>{
+      // The host asks what deferred registration is ready before it writes anything.
+      if(method==='mods.queued') return {effects:[],unfinished:[]};
       if(method==='mods.job') return {enabled:true, accepted:false, job:`job-${params.input.name}`, cwd:join(cwd, params.input.name), system_prompt:join(cwd,'prompt.md'), role:'create'};
       return {definition:{name:params.job.replace('job-','')}, provenance:{mod:'enhanced-items', job:params.job}};
     },
@@ -176,6 +181,8 @@ test('two identical defines in one batch share the single job the kernel keys th
   let runs = 0;
   pi.events.emit('coc:kernel-bridge',{
     call:async(method,params)=>{
+      // The host asks what deferred registration is ready before it writes anything.
+      if(method==='mods.queued') return {effects:[],unfinished:[]};
       if(method==='mods.job') return {enabled:true, accepted:false, job:`job-${params.input.name}`, cwd, system_prompt:join(cwd,'prompt.md'), role:'create'};
       return {definition:{name:params.job.replace('job-','')}, provenance:{mod:'enhanced-items', job:params.job}};
     },
@@ -208,6 +215,8 @@ test('the default pool clears one opening in a single wave, and the override sti
     let running = 0, peak = 0;
     pi.events.emit('coc:kernel-bridge',{
       call:async(method,params)=>{
+        // The host asks what deferred registration is ready before it writes anything.
+        if(method==='mods.queued') return {effects:[],unfinished:[]};
         if(method==='mods.job') return {enabled:true, accepted:false, job:`job-${params.input.name}`, cwd, system_prompt:join(cwd,'prompt.md'), role:'create'};
         return {definition:{name:params.job.replace('job-','')}, provenance:{mod:'enhanced-items', job:params.job}};
       },

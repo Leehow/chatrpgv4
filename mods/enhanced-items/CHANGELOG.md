@@ -1,3 +1,12 @@
+# 1.1.5
+
+Initial gear registration is asked for as one apply carrying only definitions and
+adoptions. That batch is bookkeeping -- adoption enriches gear already carried,
+names no giver, moves nothing and advances no time -- so the host registers it
+without the player waiting on generated parameters, and completes it at the top
+of the next turn. Mixed batches, which belong to the moment being narrated, are
+unchanged. Definitions and instances are unchanged when a campaign upgrades.
+
 # 1.1.4
 
 The creator's result shape names traits, and says that traits and document are
