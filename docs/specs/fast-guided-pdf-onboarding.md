@@ -376,10 +376,24 @@ allow two background scene jobs while reserving foreground job and child-process
 No two-hop prediction, scene-content changes, Python restoration or new daemon is in scope.
 Worktree codex/scene-prefetch, base d114d0eb; concurrent primary card/Mod edits are untouched.
 
-- [ ] Immediate wake on table binding, queued scene movement and committed turns; no lost drain wakeups.
-- [ ] Two background jobs plus a foreground slot; foreground-priority child budget and local promotion.
-- [ ] Focused real-kernel/scheduler tests; keep Item Enhancement off in isolated App acceptance.
-- [ ] Integrate, package, verify an actual scene transition, restore the normal profile, classify worktree.
+- [x] Immediate wake on table binding, queued scene movement and committed turns; no lost drain wakeups.
+- [x] Two background jobs plus a foreground slot; foreground-priority child budget and local promotion.
+- [x] Merged-source focused tests: 41 passed, including real TS multi-client leases. Kernel type check passed. The broader host comparison retained seven pre-existing diagnostics, with no new diagnostics.
+- [x] Integrated and installed signed standalone arm64 candidate cc582f64 at /Applications/PipiCOC.app. Its stable signing requirement matches the previous package.
+- [x] Visible App check reached round 4 in the museum, with the restaurant-to-museum movement receipt, NPC narration and normal composer. The ordinary profile was restored without player input. Worktree classified retained:locked to preserve playtest evidence and the previous installed App backup.
+
+Installed-App evidence: the isolated profile retained Item Enhancement disabled. Reader-ready
+wake occurred at 06:07:23.174Z, before turn-committed at 06:07:49.545Z. The first museum
+travel request stayed at the restaurant because the Keeper kept the museum closed that night.
+Normal composer was observed within 87 seconds; that is an observation upper bound.
+The next natural rest-and-travel request crossed 180 seconds without cancellation, with an
+explicit model request timeout and automatic recovery. Recovery asked a new museum-specific
+NPC question beyond the completed generic scene prefetch. The resulting foreground job began
+after 195 ms of queueing, read for 69.259 seconds, and ran two reviews concurrently in 17.131
+and 18.237 seconds. Narration committed at 06:17:34.906Z. This proves prompt foreground
+dispatch and preserved source review; it does not prove zero-wait scene transitions or faster
+provider responses. No cold whole-document speedup claim is supported by this cached-module run.
+Evidence is retained in .coc/playtests/scene-prefetch-20260910/ in both the primary and scene-prefetch worktrees. The test establishes actual arrival and working dispatch, not a seamless-latency result: the model timeout and the additional exact-question read remain visible limitations. No further test turns were sent.
 
 The design follows bounded concurrent requests ([xAI](https://docs.x.ai/developers/advanced-api-usage/async))
 and separate resource budgets for lower-priority work ([Microsoft bulkhead pattern](https://learn.microsoft.com/azure/architecture/patterns/bulkhead)).
