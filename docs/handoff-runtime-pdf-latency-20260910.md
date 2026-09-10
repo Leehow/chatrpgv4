@@ -66,7 +66,11 @@
 
 已知的是请求抵达 Pi 配置的 300 秒期限，不知道是等待响应头、流中断、上游推理、负载还是网络。错误响应的零 usage 不能证明上游没有做任何工作。不要默认改成 60/180 秒超时，也不要把总回合超过 180 秒当自动取消条件。
 
-**2026-09-10 续：阶段已经定下来了，没有新开局。** 读法与全部锚点在 `.coc/playtests/pdf-opening-app-20260910/provider-timeout-analysis.md`，结论并入 [pi-host-contract.md](pi-host-contract.md) 的“Provider latency evidence”小节。要点：300000 毫秒是 Pi 的 `DEFAULT_HTTP_IDLE_TIMEOUT_MS` 默认值，本产品任何 settings 都没有设过；`openai@6.40.0` 把这个计时器夹在 `fetch` 的 `finally` 里，而 `fetch` 在响应头到达时就结束，所以这 300 秒**只覆盖等响应头，永远覆盖不到流**。同一段上下文在 2.030 秒后重发，8.499 秒就正常回来了。因此可以排除：上游在推理、上下文太大、期限设得太短、内部重试堆叠（provider 级重试 `maxRetries` 落到 0，一条 `provider-request` 就是一次 HTTP 尝试）、以及宿主车道并发（停顿的最后 2 分 34 秒没有任何读者/复核在跑）。**仍然分不开的**只有「连接没建起来」与「连上了但上游一个字节没发」——Pi 没有暴露到套接字层的钩子，就这么写，不要为此打补丁。这一次的 479.028 秒里有 300.007 秒（62.6%）是这一次死等。
+**2026-09-10 续：阶段已经定下来了，没有新开局。** 读法与全部锚点在 `.coc/playtests/pdf-opening-app-20260910/provider-timeout-analysis.md`，结论并入 [pi-host-contract.md](pi-host-contract.md) 的“Provider latency evidence”小节。要点：300000 毫秒是 Pi 的 `DEFAULT_HTTP_IDLE_TIMEOUT_MS` 默认值，本产品任何 settings 都没有设过；`openai@6.40.0` 把这个计时器夹在 `fetch` 的 `finally` 里，而 `fetch` 在响应头到达时就结束，所以这 300 秒**只覆盖等响应头，永远覆盖不到流**。同一段上下文在 2.030 秒后重发，8.499 秒就正常回来了。因此可以排除：上游在推理、上下文太大、期限设得太短、内部重试堆叠（provider 级重试 `maxRetries` 落到 0，一条 `provider-request` 就是一次 HTTP 尝试）、以及宿主车道并发（停顿的最后 2 分 34 秒没有任何读者/复核在跑）。「只覆盖等响应头」不是从源码推的，是量的：`.coc/playtests/pdf-opening-app-20260910/timeout-scope-probe.mjs` 用 App 自带的受管 Node 驱动 App 里那份 `openai@6.40.0`，对本地服务器打三种故障——不发状态行的那种在期限上抛出 `APIConnectionTimeoutError "Request timed out."`，而「响应头立刻到、之后静默 3 倍期限」完全不超时。输出留在 `timeout-scope-probe.out`。（第一版探针用 Node `http` 服务器，两种都超时、看着像推翻结论，那是探针的错：`res.writeHead()` 不会把响应头送上线。重跑必须用裸 socket 那一版。）
+
+**这条请求不是直连 xAI。** 本机默认路由是 `utun4`（Surge 系统扩展，事发时已连续运行 3 天 5 小时），系统代理 `127.0.0.1:6152`；`undici` 不认代理环境变量，但躲不开路由，所以 App 的每一条 provider 连接都过它。隧道上游腿卡住、两边都不关，正好长这个样子——这让「五分钟一个字节没有」从离谱变成常见。但这只是说清了路径，**不等于判定卡在代理**。
+
+**仍然分不开的**是哪一跳握着连接。Pi 没有套接字层钩子，宿主自己答不了；Surge 的 Requests 视图给每条连接计时并显示走了哪条策略，但它**只存在内存里**（`~/Library/Application Support/com.nssurge.surge-mac` 没有请求日志），必须在慢回合还在屏幕上时就去看。06:09:59Z 那条已经过去三天，找不回了。不要为此打补丁。这一次的 479.028 秒里有 300.007 秒（62.6%）是这一次死等。
 
 下一次出现慢回合，用新增的 request/response 时间、HTTP 状态/request-id 和原有消息、工具、重试时间线区分阶段。现在这对时间戳可以直接当「到响应头的时间」读：间隔大 = 又一次开流前停顿；间隔小但回合仍慢 = 延迟在流或车道里；只有 request 行、没有 response 行、后面跟一条 `stopReason:"error"` = 又一次响应头停顿。注意**两个档里现存的 566 条 `provider-request` 行全是旧包写的，没有 `at`，也没有配对的 response 行**——第一对可用证据要等当前安装包上跑出的第一个回合。不要给瞬态供应商问题写一个猜测性的生产补丁。
 
