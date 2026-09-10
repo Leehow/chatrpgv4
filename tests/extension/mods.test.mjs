@@ -237,6 +237,38 @@ test('the default pool clears one opening in a single wave, and the override sti
   assert.equal(await peakOf(), opening.length, 'the default pool split one opening into more than one wave');
   process.env.PI_COC_MOD_CONCURRENCY = '2';
   assert.equal(await peakOf(), 2, 'the configured width no longer bounds the fan-out');
+
+test('审计超时放行交付，审计死掉照旧拒绝（契约 26.1）', async () => {
+  // A gate that cannot reach a verdict says nothing about the delivery. Refusing on a deadline sent
+  // the keeper to rewrite words it had no finding against, and one real turn spent three deadlines
+  // on words written in the first thirty seconds while the player saw none of them.
+  async function bridgeFor(outcome) {
+    const pi = piSurface();
+    let bridge;
+    pi.events.on('coc:mods-bridge', value => { bridge = value; });
+    modsExtension(pi);
+    const cwd = await mkdtemp(join(tmpdir(), 'coc-audit-'));
+    pi.events.emit('coc:kernel-bridge', {
+      call: async (method) => method === 'mods.job'
+        ? {enabled: true, accepted: false, job: 'job-audit', cwd, system_prompt: join(cwd, 'prompt.md'), role: 'audit'}
+        : {},
+      runtime: {
+        async runTask(task) { await mkdir(task.request.cwd, {recursive: true}); return outcome; },
+        async check() { return {ok: true}; },
+      },
+    });
+    return bridge;
+  }
+
+  // A deadline: the delivery goes through, and the turn is simply not audited.
+  const timedOut = await bridgeFor({ok: false, code: null, timedOut: true, ms: 180000, stderr: '', command: []});
+  await timedOut.prepare('narrate', {campaign: 'c1', text: '她把手套拧得更紧。'});
+
+  // Anything else still refuses: a dead agent has not judged the delivery either, but it says
+  // something about the run that a retry can act on.
+  const died = await bridgeFor({ok: false, code: 1, timedOut: false, ms: 40, stderr: 'boom', command: []});
+  await assert.rejects(() => died.prepare('narrate', {campaign: 'c1', text: '她把手套拧得更紧。'}),
+    error => error.details?.reason === 'mod_agent_failed' && error.details?.timed_out !== true);
 });
 
 test('deferred registration is resumed with the id the table mints, and a failure never costs the turn', async () => {

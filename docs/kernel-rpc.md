@@ -3689,3 +3689,27 @@ uses the existing English source/presenter pipeline with no authored translation
 **`table.branch` 的实现面。** `kernel-ts/worldline/branch.ts` 驱动 §15.9 原语（`worldline/history.ts` 的 checkout/createBranch/deleteBranch/commitIfDirty/head/lineCommit），回滚形状与 `transition` 同款；`forkPlan` 本身用不了（它要开着的回合与图），所以是原语级复用，这是对「复用迁移机器」的正确读法。复审修复后：回放切线路径包同款回滚（强制检出回源线 + 写回 campaign.json + `ok: false` 遥测），且回放切线也置 `pending_branch`（回放切线仍是玩家视角的开线成功，守秘人必须听到）；seal 与 `before` 快照进 try，失败遥测一律有。分叉点回合记录的 `commit` 可以是 null（回合记录从下一次提交起才带 sha），检查点断言只钉 worldline 与 turn。胶囊旗标生命周期：`pending_branch` 随注册表重写写入，下一次 `player_input` 里鲜读→删→写，不会复活。
 
 **锁码的决定（2026-09-09）。** §29.2 原写「锁占用报 `operation_in_progress`」。实现证明 handler 内 remap 不可能：`guardCampaign` 在 handler 之前拿锁，flock 按 open-file-description 计，handler 探不到竞争；而共享 guard 的 `internal` + `details.reason="campaign_locked"` 被 Python 对照（`tests/kernel/test_campaign_lock.py`）钉死，只改 TS 一侧会让两棵树在兼容性边界上分叉。定：契约接受 guard 的形状（§29.2 已改）；宿主在展示层把 `internal`+`reason:campaign_locked` 渲染成 `errors.operation_in_progress` 的玩家词（§23 的词表机制，线上代码不动）；两棵内核树都不动。
+
+### 26.1 An audit that cannot finish does not hold the delivery (2026-09-10)
+
+A Mod audit is a gate before publication, and that is the point: the player never sees a
+delivery whose consequences the package found incomplete. What was not decided is what a
+gate does when it cannot reach a verdict.
+
+It refused, with `mod_agent_failed`. The Keeper read the refusal as "this delivery is
+wrong", rewrote nothing it could find to rewrite, and retried the same narration; each
+retry started the audit again and spent another deadline. One real turn spent three of
+them -- about ten minutes -- on words that had been written in the first thirty seconds,
+and the player saw none of it. A gate that cannot decide had failed closed onto the one
+thing it was never judging.
+
+An audit that times out now lets the delivery through and records that the turn was not
+audited. A gate that reaches a verdict still gates: findings refuse exactly as before,
+and the Keeper repairs before the player sees anything. Only the undecided case changes,
+because the alternative to an unaudited delivery is not an audited one -- it is a lost
+turn. The record is evidence, not a silence: the turn carries which package's audit did
+not finish and how long it was given, so a package whose audit never finishes is visible
+as that rather than as a table that plays slowly.
+
+An audit that fails for any other reason still refuses. Only a deadline is treated this
+way, because only a deadline says nothing about the delivery.

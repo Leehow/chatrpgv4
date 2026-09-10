@@ -244,7 +244,21 @@ export default function modsExtension(pi: ExtensionAPI): void {
           await materialize(payload.campaign, defines, signal);
       }
       if ((method === "narrate" || method === "ask") && payload.text) {
-        const result = await task(payload.campaign, "audit", {text:payload.text}, signal);
+        let result: any;
+        try {
+          result = await task(payload.campaign, "audit", {text:payload.text}, signal);
+        }
+        catch (error) {
+          // Contract 26.1: a gate that cannot reach a verdict says nothing about the delivery, and
+          // refusing sent the Keeper to rewrite words it had no finding against -- three deadlines
+          // on one turn, and the player saw none of it. A deadline lets the delivery through and is
+          // recorded as an unaudited turn; every other failure still refuses.
+          if (!(isKernelError(error) && (error.details as any)?.reason === "mod_agent_failed"
+                && (error.details as any)?.timed_out === true)) throw error;
+          void emitToPanel("coc-keeper", "mods-audit-unfinished",
+            {campaign:payload.campaign, ms:Number((error.details as any)?.ms) || null});
+          return;
+        }
         if (result?.missing?.length || result?.findings?.length) throw new KernelError({code:"needs", message:"A Mod found an incomplete consequence in the unpublished draft",
           fix:"Address the missing objects or narrative findings, then retry the narration without rerolling settled actions",
           details:{reason:"mod_narrative_repair", missing:result.missing, findings:result.findings}});
