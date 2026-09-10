@@ -336,6 +336,24 @@ function refusalDetail(error: unknown): string | undefined {
 }
 
 /**
+ * A refusal that waited on source reading says which job and which target it waited for
+ * (contract §22, #65): the queue's `job_id` and the `purpose`/`focus` of the read, whichever
+ * verb was refused. Ids and names only -- the read's `question` is the Keeper's prose and stays out.
+ */
+function readingRefusalTelemetry(error: unknown): Record<string, unknown> {
+	if (!isKernelError(error) || !error.details) return {};
+	const jobId = asString(error.details.job_id);
+	const read = error.details.read as { purpose?: unknown; focus?: unknown } | undefined;
+	const purpose = asString(read?.purpose);
+	const focus = asString(read?.focus);
+	return {
+		...(jobId ? { job_id: jobId } : {}),
+		...(purpose ? { read_purpose: purpose } : {}),
+		...(focus ? { read_focus: focus } : {}),
+	};
+}
+
+/**
  * The handout attachments in an `apply` result (contract §14.8). One row or a list is accepted:
  * a single apply may show several handouts, and the contract only wrote the singular shape.
  */
@@ -778,6 +796,7 @@ export default function (pi: ExtensionAPI) {
 				code,
 				...(reason ? { reason } : {}),
 				...(detail ? { code_detail: detail } : {}),
+				...readingRefusalTelemetry(error),
 			});
 			return {
 				content: [{ type: "text", text: errorText(error) }],

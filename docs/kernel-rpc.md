@@ -1826,6 +1826,46 @@ wrapper. Pi may start its extension-owned opening before the RPC subscription
 exists; the first observed assistant message after that marker establishes a new
 normal turn epoch even though the wrapper already hosted a completed setup turn.
 
+### Host decision: reading-lane telemetry names the job it serves (2026-09-10, #65)
+
+The reading lane's rows (`.coc/reading-telemetry.jsonl`, mirrored into the campaign's
+`telemetry.jsonl` while a table is open) recorded timing and never intent: a `phase: read`
+row said how long a reader ran and how many images it saw, a `prefetch_wake` said why the
+lane woke, the refusal that stopped a player at a door said `reading_timeout` and nothing
+else. The queue (`deepen-queue.json`) carries the intent -- `job_id`, `purpose`, `focus` --
+and no row carried any of it, so a 179-row log of a real table could not be joined to its
+own queue, nor its rows to each other (`unit` restarts every round).
+
+Fields are added; no existing field is renamed or re-meant, so old logs stay readable.
+
+- Every row a job produces carries `job_id` (the queue's own value), `purpose` and `focus`
+  (as the queue spells them; `focus` may be `""`). A `phase: read` or `phase: index` row
+  also carries `pages`: the physical page numbers (1-based, the page tool's own) whose images
+  that run actually consumed -- the same set `observations.read_pages` is built from -- so a
+  finished book can answer which pages were read, and by which job.
+- The row written when the pump claims a job (`event: concurrency`) carries `job_id`,
+  `purpose`, `focus`, and `wake`: the reason of the most recent wake that had not yet been
+  answered by a claim, when there was one. A wake whose claim finds the queue empty writes
+  `{event: claim_empty, wake}`; `prefetch_wake` itself is unchanged and still says only
+  why the lane woke, because a wake does not choose a job -- the kernel's queue does, at
+  claim.
+- Verify rows carry `round` and `attempt` beside `unit`, so `(job_id, round, unit, attempt)`
+  is unique across the log, and `pages`: the pages that unit's reviewer viewed (a reused
+  review reports the pages its cached evidence names). `review_concurrency` rows carry
+  `unit` and `attempt`.
+- `reading_timeout` carries `details.job_id` beside `details.read`; the seven-verb refusal
+  row (§8) then carries `job_id`, `read_purpose` and `read_focus` for any refusal whose
+  details hold them, whichever verb waited. `question` is the Keeper's prose and is not
+  written to telemetry; `job_id` is not named by the `fix` and so does not reach the model.
+
+On the queue's `pages`: it is not an unfilled record of what was read. `module.read.request`
+sets it to a constant empty list, it is one of the inputs to the job's identity digest, and
+§22.2 never listed it in the queue row; it is a page constraint on the request that nothing
+supplies. What was read exists elsewhere -- the host's `observations.read_pages` per attempt,
+folded by `module.read.finish` into the module's `viewed_pages` as a 0-based union that keeps
+no per-job attribution. The telemetry `pages` above is the per-job, per-phase record; the
+queue field is left as it is rather than given a second meaning.
+
 ## 23. PipiCOC local frontend (2026-09-07)
 
 The copied `Electron/` workspace is a frontend owned by this branch. Its only

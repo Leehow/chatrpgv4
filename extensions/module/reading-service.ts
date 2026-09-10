@@ -67,6 +67,8 @@ export class ReadingService implements ReadingBridge {
 	private controllers = new Map<string, AbortController>();
 	private jobs = new Map<string, Row>();
 	private cancelledJobs = new Set<string>();
+	/** Per module, the reason of the most recent wake no claim has answered yet: the claim row names it (contract §22, #65). */
+	private wakes = new Map<string, string>();
 	private readonly deps: Dependencies;
 	constructor(deps: Dependencies) { this.deps = deps; }
 	private runtime(): HostRuntime {
@@ -84,6 +86,7 @@ export class ReadingService implements ReadingBridge {
 	prefetch(moduleId: string, reason = 'requested'): Promise<void> {
 		if (this.stopped) return Promise.resolve();
 		this.deps.record({lane:'reading',event:'prefetch_wake',module_id:moduleId,reason});
+		this.wakes.set(moduleId, reason);
 		return this.pump(moduleId);
 	}
 
@@ -149,7 +152,9 @@ export class ReadingService implements ReadingBridge {
 				timer = setTimeout(() => reject(error("reading_timeout", "the source is still being read",
 					params.purpose === "opening" ? "return control, then call prepare-module again to rejoin the retained preparation"
 						: "use ask to return control; on a later player turn, retry the original action or lookup kind=source with the exact focus and question in details.read; do not invent another question",
-					{ read: { purpose: params.purpose, focus: params.focus ?? "", question: params.question ?? "" } })), wait);
+					// The job handle travels beside `read` for telemetry (#65); the fix names only `read`, so the model does not see it.
+					{ read: { purpose: params.purpose, focus: params.focus ?? "", question: params.question ?? "" },
+						...(request.jobId ? { job_id: request.jobId } : {}) })), wait);
 				onAbort = () => {
 					releaseWaiter();
 					if (request.waiters === 0) {
@@ -216,7 +221,14 @@ export class ReadingService implements ReadingBridge {
 					const wake = new Promise<void>(resolve => this.pumpWakes.set(mid, () => {wakeRequested = true; resolve();}));
 					while (active.size < capacity && !this.stopped) {
 						const job = await this.deps.call("module.read.claim", { module_id: mid, owner: `host-${process.pid}` });
-						if (!job.job_id) break;
+						// A wake does not choose a job; the claim does. The row that names the job names the wake it answered,
+						// and a wake that found nothing queued says so instead of leaving no trace (#65).
+						const wake = this.wakes.get(mid);
+						this.wakes.delete(mid);
+						if (!job.job_id) {
+							if (wake !== undefined) this.deps.record({ lane: "reading", event: "claim_empty", module_id: mid, wake });
+							break;
+						}
 						capacity = Math.max(1, Number(job.concurrency) || 1);
 						const key = JSON.stringify([mid, job.job_id]);
 						const controller = new AbortController();
@@ -238,7 +250,8 @@ export class ReadingService implements ReadingBridge {
 						})();
 						const tracked = work.finally(() => active.delete(tracked));
 						active.add(tracked);
-						this.deps.record({lane: "reading", event: "concurrency", module_id: mid, active: active.size, capacity, foreground:job.foreground === true, queue_wait_ms: Number.isFinite(Date.parse(job.at)) ? Math.max(0,Date.now()-Date.parse(job.at)) : undefined});
+						this.deps.record({lane: "reading", event: "concurrency", module_id: mid, job_id: job.job_id, purpose: job.purpose, focus: job.focus ?? "", ...(wake !== undefined ? { wake } : {}),
+							active: active.size, capacity, foreground:job.foreground === true, queue_wait_ms: Number.isFinite(Date.parse(job.at)) ? Math.max(0,Date.now()-Date.parse(job.at)) : undefined});
 					}
 					if (!active.size) { if (wakeRequested) continue; return; }
 					await Promise.race([...active, wake]);
@@ -332,7 +345,8 @@ export class ReadingService implements ReadingBridge {
 								run: ({systemPrompt: _instructions, ...request}) => this.runtime().runTask({ kind: "reader", request: { ...request,
 									priority: () => job.foreground === false ? "background" : "foreground",
 									prompt: { phase: "verify", guidance: job.purpose === "guidance" } } }, request.signal),
-								record: row => this.deps.record({ module_id: job.module_id, ...row }),
+								// Every verify row names the job and round it belongs to (#65); the reviewer adds unit and attempt.
+								record: row => this.deps.record({ module_id: job.module_id, job_id: job.job_id, purpose: job.purpose, focus: job.focus ?? "", round, ...row }),
 								progress: row => this.deps.progress({ module_id: job.module_id, ...row }) });
 							await writeFile(join(cwd, "observations.json"), JSON.stringify(observations) + "\n");
 							phaseCompleted = true;
@@ -361,12 +375,24 @@ export class ReadingService implements ReadingBridge {
 							const visibility = (await readFile(join(cwd, `${phase}-${round}.jsonl.images.jsonl`), "utf8")).trim().split("\n").filter(Boolean).flatMap(line => JSON.parse(line).included ?? []);
 							for (const id of visibility) for (const path of imageCalls.get(id) ?? []) imagePaths.add(path);
 						}
-						this.deps.record({ lane: "reading", module_id: job.module_id, model: model.id, thinking: model.thinking, phase, round, ms: run.ms, ok: run.ok, image_reads: imagePaths.size });
+						// The pages this run consumed are read before the row is written, so the row can carry them (#65):
+						// the physical page numbers (1-based) behind the images the reader kept, the same set `read_pages` is built from.
+						// A page log that cannot be read still fails the job as before, after the row has landed.
+						let rows: Row[] = [], pageLogFailure: unknown;
+						if (run.ok) {
+							try {
+								const lines = (await readFile(join(cache, "requests.jsonl"), "utf8")).trim().split("\n");
+								rows = lines.map(line => JSON.parse(line)).filter(row => row.file_sha256 === job.source.file_sha256 && imagePaths.has(row.path));
+							} catch (failure) { pageLogFailure = failure; }
+						}
+						const pagesRead = [...new Set(rows.map(row => row.page))];
+						this.deps.record({ lane: "reading", module_id: job.module_id, job_id: job.job_id, purpose: job.purpose, focus: job.focus ?? "",
+							model: model.id, thinking: model.thinking, phase, round, ms: run.ms, ok: run.ok, image_reads: imagePaths.size,
+							...(run.ok && !pageLogFailure ? { pages: pagesRead } : {}) });
 						if (!run.ok) throw new Error(run.error || (run.timedOut ? "reader timed out" : run.stderr || "reader failed"));
-						const lines = (await readFile(join(cache, "requests.jsonl"), "utf8")).trim().split("\n");
-						const rows = lines.map(line => JSON.parse(line)).filter(row => row.file_sha256 === job.source.file_sha256 && imagePaths.has(row.path));
+						if (pageLogFailure) throw pageLogFailure;
 						const key = "read_pages";
-						observations[key] = [...new Set(rows.map(row => row.page))];
+						observations[key] = pagesRead;
 						if (previousDraft) {
 							const changed = editedSourcePages(previousDraft, JSON.parse(await readFile(join(cwd, "draft.json"), "utf8")));
 							const absent = [...changed].filter(page => !observations.read_pages.includes(page));

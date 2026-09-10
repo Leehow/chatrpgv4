@@ -13,9 +13,9 @@ test('review grouping retains numeric children and critical nested pointers',()=
 
 test('a source reviewer keeps recovered provider errors as evidence without repeating the review',async t=>{
  const cwd=await mkdtemp(join(tmpdir(),'coc-review-recovered-'));t.after(()=>rm(cwd,{recursive:true,force:true}));
- let runs=0;
+ let runs=0;const rows=[];
  const pages=await reviewCandidate({cwd,task:{},draft:{nodes:[{properties:{}}],claims:[]},instructions:'unused',round:1,
-  model:{id:'fixture/vision'},source:{pdf:'unused',cache:'unused'},signal:new AbortController().signal,progress(){},record(){},
+  model:{id:'fixture/vision'},source:{pdf:'unused',cache:'unused'},signal:new AbortController().signal,progress(){},record(row){rows.push(row)},
   async run(request){
    runs++;
    request.onEvent({type:'message_end',message:{role:'assistant',stopReason:'error',errorMessage:'Provider 500'}});
@@ -27,6 +27,11 @@ test('a source reviewer keeps recovered provider errors as evidence without repe
   }});
  assert.equal(runs,1);
  assert.deepEqual(pages,[1]);
+ // Each row says which unit and attempt it is, and the verify row which physical pages that reviewer viewed (#65).
+ const concurrency=rows.find(row=>row.event==='review_concurrency');
+ assert.deepEqual([concurrency.unit,concurrency.attempt],[1,1]);
+ const verified=rows.find(row=>row.phase==='verify');
+ assert.deepEqual([verified.unit,verified.attempt,verified.pages,verified.ok],[1,1,[1],true]);
 });
 
 test('forty source reviewers run concurrently and all owned children drain on cancellation',async t=>{
