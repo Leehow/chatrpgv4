@@ -1634,6 +1634,29 @@ RPC 顶层错误枚举沿用 §1；具体原因放在 `details.reason`：`bad_pd
 
 - 2026-09-07（整合到 0.9.0a）：用户授权先提交并行前端工作 `ffb6361a` 再合并视觉分支。保留 §16.3 的系统 JSON 约定；阅读等待交互与普通故事分离。内核 1038、扩展 106、前端相关测试 107 项通过；源码构建通过。原件与真桌证据保留，详细记录见 §22 规格。
 
+### Opening latency implementation update (2026-09-09)
+
+After character confirmation the selected opening still requires the existing source-backed
+readiness check. This optimization does not change that authority or grant readiness to thin
+future destinations. Opening readers submit the first playable scene through the existing
+checked-submission tool and stop; other scene material remains outside ready_nodes and uses
+normal detail/prefetch publication. The first batch includes required local interactions and
+source dependencies, not an unreviewed placeholder or a full chapter. Guidance behavior stays
+separate. Deferred handout images are not rendered as part of a batch that does not prepare them.
+
+Independent review groups combine records with the same physical source-page set, within bounded
+record and byte budgets; every previously required root, numeric and critical pointer remains
+assigned exactly once. Review success can be reused only for an identical candidate, source,
+semantic task context, model/thinking and review protocol. Reused evidence retains the original
+review path and actually observed source pages; malformed, rejected, missing or changed evidence
+is never a cache hit. A later attempt repairs/retries failed groups while unchanged successful
+groups keep their completed evidence. Cache hits do not claim fresh model calls or new reading.
+
+PDF access reuses immutable bytes and an opened PDF.js document within the owning process, with
+bounded cached document count/bytes, idle release and explicit shutdown. File identity changes
+invalidate reuse. Concurrent identical page requests share rendering; persisted page images still
+require their content hash before delivery. Publication and player-facing source gates are unchanged.
+
 ### 22.9. Early character guidance and background opening (2026-09-08)
 
 `module.read.request` additionally accepts purpose `guidance`, `play_language`

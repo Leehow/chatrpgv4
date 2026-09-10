@@ -310,3 +310,33 @@ Web 当前每连接一个 backend，关闭 backend 会 dispose 解析。仅做�
 真实证据在工作检出的 `.coc/playtests/fast-onboarding-verified/`，其中 `acceptance-summary.json` 记录来源指纹、冷/热时间、导入任务与战役身份。`first-question.png`、`revised-card.png`、`warm-card.png`、`warm-automatic-opening.png` 保留前台证据。角色先确认的暂停/恢复证据在 `.coc/playtests/fast-onboarding-browser/`。其余试验目录与全部原 PDF、页图、读取/复核请求和会话逐字稿都保留，不删除或改写为新的验收。
 
 收尾时将工作树保留为证据与验收运行环境；主检出的并行文档改动保留，不吸收进本次实现提交。
+
+
+## 2026-09-09: Confirmed character to playable opening
+
+User-authorized follow-up: reduce the wait after character confirmation. Guidance speed is not
+the target. Worktree: codex/pdf-opening-latency, base 96fa98b8. Edit source/review/reading helpers,
+opening checks and focused tests only; preserve concurrent main-branch panel edits and all evidence.
+
+- [x] Group independent reviews by shared source pages and reuse successful exact-input evidence.
+- [x] Enforce a first-scene opening batch, checked submission and deferred optional material.
+- [x] Reuse bounded PDF documents and coalesce repeated page work.
+- [x] Run focused gates, local PDF A/B and a real Pi source-preparation probe.
+- [ ] Verify the packaged App; character-confirmation-to-play UI latency remains unmeasured.
+- [ ] Integrate without absorbing concurrent work and classify the owned worktree.
+
+Existing PDF.js document lifecycle APIs support document reuse until cleanup/destroy; the owner
+must not destroy active rendering ([PDF.js](https://mozilla.github.io/pdf.js/api/draft/module-pdfjsLib-PDFDocumentProxy.html)).
+Bazel action caching binds results to inputs and execution context; this supports exact-input
+review reuse, not trusting a filename or a previous positive verdict after the draft changes
+([Bazel](https://bazel.googlesource.com/bazel/+/refs/heads/staging/src/main/java/com/google/devtools/build/lib/remote/README.md)).
+xAI concurrency remains bounded by provider throughput, so this work reduces repeated calls
+before increasing fan-out ([xAI](https://docs.x.ai/developers/advanced-api-usage/async)).
+
+Real source probe: the first per-reader 180-second test deadline interrupted a draft; the retained repair completed, and 16 grouped reviews ran successfully, but publication rejected a decorated opening name that no longer matched task.focus. Added pre-review identity validation using the current kernel scene-handle/normalization implementation. This prevents expensive review of a batch that cannot bind to the selected opening. No source facts or campaign state were manually repaired.
+
+Implementation checks: 50 focused extension tests passed; kernel and touched-host TypeScript checks passed. A retained Masks draft goes from 36 individual review jobs to 19 bounded page groups with no lost required pointers. Cache tests cover failure-only retry, changed candidate/source/version, modified original proof and unavailable advisory cache. The opening checker uses the existing kernel identity implementation, requires the first scene and its present NPC/discoverable material to be ready, and leaves final source publication gates intact. Small task/draft inputs are inlined to avoid redundant model read calls; opening submission runs the checker itself rather than asking for both a bash check and submit.
+
+Local PDF A/B, one four-page sample (59–62, 2000px JPEG): cold source pages 2909.29→2140.59 ms, two cache passes 156.76→7.00 and 148.56→9.16 ms. PDF and image hashes match. This is local source work, not end-to-end latency.
+
+Real source-only probe: first attempt used an overly short 180-second per-reader test deadline, then repaired its retained draft; 16 review groups completed but an opening-name mismatch rejected publication. The resumed attempt after early identity validation reached opening_ready in 279225 ms with 15 review groups. This is warm recovery, not a cold benchmark or App play acceptance. The subsequent present-material guard and inline-input refinements have focused coverage but were not counted as another paid full preparation run. Evidence remains under .coc/playtests/pdf-opening-latency-live/.

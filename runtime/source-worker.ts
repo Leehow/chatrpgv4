@@ -1,7 +1,7 @@
 /** Host PDF.js runs on the deployment's Node ABI, including when its caller is Electron. */
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { sourceInfo, sourcePage } from '../extensions/module/source.ts';
+import { sourceInfo, sourcePage, closeSourceDocuments } from '../extensions/module/source.ts';
 
 export async function sourceMain(args: string[]): Promise<number> {
   try {
@@ -14,7 +14,7 @@ export async function sourceMain(args: string[]): Promise<number> {
   } catch (error) {
     process.stdout.write(JSON.stringify({ok: false, error: error instanceof Error ? error.message : String(error)}) + '\n');
     return 1;
-  }
+  } finally { await closeSourceDocuments(); }
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

@@ -107,3 +107,18 @@ test('concurrent page-cache publication never exposes partial image bytes', asyn
    assert.equal(createHash('sha256').update(bytes).digest('hex'),page.image_sha256);
  }));
 });
+
+test('concurrent identical source pages share rendering and changed file identity invalidates reuse',async t=>{
+ const {file,cache}=await fixture(t);
+ const pages=await Promise.all(Array.from({length:8},()=>sourcePage(file,cache,1,{pixels:512})));
+ assert.equal(pages.filter(page=>!page.reused).length,1);
+ assert.equal(new Set(pages.map(page=>page.image_sha256)).size,1);
+ const first=await sourceInfo(file);
+ await writeFile(file,pdf(90));
+ const changed=await sourceInfo(file);assert.notEqual(changed.file_sha256,first.file_sha256);
+ const fresh=await sourcePage(file,cache,1,{pixels:512});assert.equal(fresh.reused,false);
+ assert.notEqual(fresh.image_sha256,pages[0].image_sha256);
+ const {closeSourceDocuments}=await import('../../extensions/module/source.ts');await closeSourceDocuments();
+ const again=await sourcePage(file,cache,1,{pixels:512});assert.equal(again.reused,true);assert.equal(again.image_sha256,fresh.image_sha256);
+ await closeSourceDocuments();
+});

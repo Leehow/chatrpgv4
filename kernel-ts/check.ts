@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path';
 import { snapshots } from './snapshots.js';
 import { RpcError, internalError } from './errors.js';
 import { loadModuleContract } from './modules/contract.js';
-import { checkDraft, requiredViewPages } from './modules/visual.js';
+import { checkDraft, checkOpeningBatch, requiredViewPages } from './modules/visual.js';
 import { row } from './read/values.js';
 import { validateDefinition } from './mods/definition.js';
 export { pythonJsonDumps as serializeCheckResult } from './json.js';
@@ -27,6 +27,7 @@ export async function checkSourceDraft(content: string, packetPath: string, draf
     try {
         const draft = await snapshots.readJson(draftPath), packet = row(await snapshots.readJson(packetPath));
         const filled = checkDraft(draft, packet, await loadModuleContract({ content, snapshots }));
+        if (packet.opening_batch === true && packet.purpose === 'opening') checkOpeningBatch(row(draft),packet.focus,packet.known_nodes);
         const path = join(dirname(packetPath), 'baseline.json');
         const baseline = await snapshots.pathExists(path) ? row(await snapshots.readJson(path)) : null;
         return { ok: true, required_review: filled.required_review, required_view_pages: requiredViewPages(row(draft), baseline) };

@@ -342,3 +342,24 @@ export function assembleVisual(previous: Row | null, filled: Row, meta: Row, con
         applyOpeningChoice(graph, meta.opening_choice.start_scene, contract);
     return graph;
 }
+
+/** Host first-batch check reuses the kernel's scene identity; publication remains authoritative. */
+export function checkOpeningBatch(draft: Row, focus?: string, knownNodes: Row[] = []): void {
+    const ready = new Set(array(draft.ready_nodes));
+    const scenes = array(draft.nodes).filter(node => node.node_kind === 'scene' && ready.has(node.node_id));
+    if (scenes.length !== 1) reject('An opening batch must prepare exactly the selected first scene. Keep future scenes out of ready_nodes; prepare them with later detail requests. Retain the source dependencies of the first interaction.', '/ready_nodes');
+    const knownReady = new Set(array(knownNodes).filter(node => node.ready === true).map(node => node.node_id));
+    const nodes = new Map([...array(knownNodes),...array(draft.nodes)].map(node => [node.node_id,node]));
+    const present = array(draft.claims).filter(claim => ['present-in','discoverable-at'].includes(claim.predicate)
+        && row(claim.object).node_id === scenes[0].node_id).map(claim => claim.subject_id);
+    for (const id of present) {
+        if (['npc','clue','handout','asset'].includes(nodes.get(id)?.node_kind)
+            && !ready.has(id) && !knownReady.has(id))
+            reject(`The first interaction depends on ${repr(id)}. Prepare its current-scene material and include it in ready_nodes, so the first player action does not immediately wait for detail reading. Future scene material stays deferred.`, '/ready_nodes');
+    }
+    if (focus) {
+        const view = new ModuleGraph('opening-batch', {nodes:scenes}, '', {}), scene = scenes[0];
+        if (![scene.node_id,scene.name,view.handle(scene)].some(value => typeof value === 'string' && normalize(value) === normalize(focus)))
+            reject(`The prepared scene does not preserve the selected opening ${repr(focus)}. Keep its identity from task.focus and known_nodes; put extra description in summary instead of decorating its name. Correct this before independent review.`, '/nodes');
+    }
+}
