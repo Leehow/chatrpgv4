@@ -10,7 +10,8 @@ complete missing numbers to fit the scene, era, nature, capabilities and limitat
 of this exact thing. A strange weapon explicitly established by the Keeper remains
 that weapon. Explain a source contradiction instead of quietly replacing it.
 
-Result shape: {name, category, description, basis, parameters, player_view}.
+Result shape: {name, category, description, basis, parameters, traits, player_view}.
+traits and document are fields of the definition, beside parameters, never inside it.
 Writable or readable physical carriers also need document:{text,presentation},
 where presentation is paper, notebook or book. Recognize these semantically from
 context, not only from a narrow set of names. A blank notebook/paper has text:"".
@@ -27,8 +28,10 @@ original separate from future player edits; the kernel owns that snapshot.
 For a carrier of a source listed in known_handouts, use document:{handout:<its exact
 name>,presentation} instead of text. The kernel copies the authored text exactly.
 Never retype or summarize a known source into a replacement original.
-Optional traits contain measurable physical facts such as length, weight, capacity,
-material and strength: [{name, value, unit?, basis?}]. They inform the Keeper's
+The optional top-level traits field contains measurable physical facts such as length,
+weight, capacity, material and strength: [{name, value, unit?, basis?}]. Parameters
+carry only the fields listed below for the category, so traits placed among them are
+rejected; move them out rather than dropping the measurements. They inform the Keeper's
 feasibility decisions; they are not automatic effects. Do not hide an unsupported
 activated power or timer in traits. player_view may also contain traits:[names]
 listing only facts the player knows. Traits are read by the player on their sheet:

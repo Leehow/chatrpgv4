@@ -1,5 +1,5 @@
 {
-  "id": "enhanced-items", "version": "1.1.3", "game_api": "pipicoc.game.v1",
+  "id": "enhanced-items", "version": "1.1.4", "game_api": "pipicoc.game.v1",
   "state_version": 1, "author": "PipiCOC",
   "name": {"zh-Hans": "物品增强", "en": "Enhanced Items"},
   "description": {"zh-Hans": "根据剧情生成可执行的物品参数，保留归属、弹药与使用状态。", "en": "Generate executable item parameters from the story; keep ownership and remaining uses."},

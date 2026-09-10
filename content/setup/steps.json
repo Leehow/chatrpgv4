@@ -215,7 +215,7 @@
         }
       },
       "lines": {
-        "do": "Confirm the current draft only with explicit player approval or write-now delegation. The host injects its revision. Then complete setup.",
+        "do": "Confirm the current draft only with explicit player approval or write-now delegation. The kernel confirms the campaign's current draft revision — never pass one. Then complete setup.",
         "next": "Wait for approval or modify the draft. Do not confirm on an ordinary character description."
       },
       "only_for": null

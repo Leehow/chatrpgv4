@@ -188,6 +188,13 @@ test("七步表走完：starter 那条路到 complete，交出开桌命令", asy
 	const occupationCalls = table.kernelRequests().filter((entry) => entry.method === "setup.occupations");
 	assert.equal(occupationCalls.length, 0, "this step forwards the supplied occupation without another lookup");
 
+	const confirmCall = table.kernelRequests().find((entry) => entry.method === "setup.confirm");
+	assert.ok(confirmCall, "the confirm step calls setup.confirm");
+	assert.equal(confirmCall.params.revision, undefined, "revision stays omitted: the kernel defaults it to the campaign's current draft (contract §23.4)");
+	assert.ok(confirmCall.params.input_key, "input_key is still injected");
+	assert.ok("last_exchange" in confirmCall.params, "last_exchange is still injected");
+	assert.ok(Array.isArray(confirmCall.params.player_requests), "player_requests is still injected");
+
 	assert.equal(finished.ok, true);
 	assert.match(finished.handoff_command, /^bin\/pi-coc --campaign /, "最后一步交出开桌命令（契约 §14.4）");
 	assert.equal(finished.next, "Every setup step is done.");

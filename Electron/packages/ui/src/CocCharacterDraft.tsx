@@ -1,8 +1,9 @@
 import {useEffect, useState, type ReactNode} from 'react'
+import {CocCharacterDraftEdit} from './CocCharacterDraftEdit'
 import './coc-character-draft.css'
 
 type Row = Record<string, any>
-type Props={data:Row;onRendered?:()=>Promise<void>;onPresentation?:()=>Promise<Row>}
+type Props={data:Row;onRendered?:()=>Promise<void>;onPresentation?:()=>Promise<Row>;onOverride?:(request:Row)=>Promise<Row>}
 
 /**
  * Dice notation, the one kind of value that is read rather than translated.
@@ -19,10 +20,11 @@ export function isDiceNotation(value:unknown):boolean {
   if(!written)return false
   return /^[+-]?(\d+(\.\d+)?|\d*[Dd]\d+)(\s*[+\-*/×]\s*(\d+(\.\d+)?|\d*[Dd]\d+))*$/.test(written)
 }
-export function CocCharacterDraft({data,onRendered,onPresentation}:Props) {
+export function CocCharacterDraft({data,onRendered,onPresentation,onOverride}:Props) {
   const [presentation,setPresentation]=useState<Row|null>(data.presentation||null)
   const [showDetails,setShowDetails]=useState(false)
-  useEffect(()=>setShowDetails(false),[data.revision])
+  const [editing,setEditing]=useState(false)
+  useEffect(()=>{setShowDetails(false);setEditing(false)},[data.revision])
   const [error,setError]=useState(false),[retry,setRetry]=useState(0)
   useEffect(()=>{
     let active=true
@@ -95,7 +97,7 @@ export function CocCharacterDraft({data,onRendered,onPresentation}:Props) {
   const statGrid=(rows:Row,derived=false)=><dl className={`coc-draft-stats${derived?' coc-draft-derived':''}`}>{Object.entries(rows).map(([key,value])=><div className="coc-draft-stat" key={key}><dt>{t(key)}</dt><dd>{cell(key==='DB'&&value==='none'?0:value)}</dd></div>)}</dl>
   const money=(entry:Row)=>entry?`${entry.amount} ${t(entry.currency)}`:'—'
   return <section aria-label={t('Character draft')} data-draft-revision={data.revision} className="coc-draft" data-view={showDetails?'details':'compact'}>
-    <header className="coc-draft-header"><div className="coc-draft-identity"><h2>{sheet.name}</h2><p>{sheet.occupation_stated?<>{sheet.occupation_stated} ({t(sheet.occupation)})</>:t(sheet.occupation)} · {sheet.age} · {t(sheet.era)}</p></div><div className="coc-draft-toolbar"><p className="coc-draft-guidance">{t('Character draft — reply to confirm or describe changes.')}</p><button className="coc-draft-toggle" type="button" aria-expanded={showDetails} onClick={()=>setShowDetails(value=>!value)}>{t(showDetails?'Hide calculation details':'Show calculation details')}</button></div></header>
+    <header className="coc-draft-header"><div className="coc-draft-identity"><h2>{sheet.name}</h2><p>{sheet.occupation_stated?<>{sheet.occupation_stated} ({t(sheet.occupation)})</>:t(sheet.occupation)} · {sheet.age} · {t(sheet.era)}</p></div><div className="coc-draft-toolbar"><p className="coc-draft-guidance">{t('Character draft — reply to confirm or describe changes.')}</p><button className="coc-draft-toggle" type="button" aria-expanded={showDetails} onClick={()=>setShowDetails(value=>!value)}>{t(showDetails?'Hide calculation details':'Show calculation details')}</button>{data.limits&&onOverride&&<button className="coc-draft-toggle" type="button" onClick={()=>setEditing(true)}>{t('Edit numbers')}</button>}</div></header>
     <h3>{t('Characteristics')}</h3>{showDetails?<><p className="coc-draft-method">{generated.method==='rolled'?t('Standard rolled characteristics'):generated.method==='rolled_pool_assignment'?t('Rolled characteristics assigned to the stated aptitudes'):generated.method==='quick_fire'?t('Quick-fire array'):'—'} · {age.bracket||'—'}</p>
     {calculationTable(sheet.characteristics,generation)}{calculationTable(sheet.derived,derivedCalculation)}</>:<>{statGrid(sheet.characteristics)}{statGrid(sheet.derived,true)}</>}
     {showDetails&&<><h3>{t('Point allocation')}</h3>
@@ -107,5 +109,6 @@ export function CocCharacterDraft({data,onRendered,onPresentation}:Props) {
     <h3>{t('Equipment')}</h3><ul className="coc-draft-kit">{(sheet.equipment||[]).filter((item:string)=>!presentation.finance_equipment?.includes(item)).map((item:string,i:number)=><li key={i}>{t(item)}</li>)}</ul>
     {!!sheet.weapons?.length&&<><h3>{t('Weapons')}</h3>{sheet.weapons.map((weapon:Row,i:number)=><div key={i}>{values(weapon)}</div>)}</>}
     {error&&<p role="alert">{t('Preview unavailable')} <button onClick={()=>{setError(false);if(onRendered)void onRendered().catch(()=>setError(true))}}>{t('Retry')}</button></p>}
+    {editing&&onOverride&&<CocCharacterDraftEdit data={data} t={t} onOverride={onOverride} onClose={()=>setEditing(false)}/>}
   </section>
 }

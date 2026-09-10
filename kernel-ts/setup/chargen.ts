@@ -73,6 +73,11 @@ export class Chargen {
   get characteristics(): string[] { return entries(this.dice.characteristics).map(([key]) => key).filter(key => key !== 'Luck'); }
   get multiplier(): number { return Math.trunc(number(this.dice.multiplier)); }
   get cap(): number { return Math.trunc(number(this.skillsDoc.guided_creation_policy.starting_skill_cap)); }
+  /** Rulebook creation floor/ceiling, recorded by the point-buy table; the manual override reads them (§23.4). */
+  get creationBounds(): [number, number] {
+    const block = row(row(this.dice.generation_methods).point_buy_460);
+    return [Math.trunc(number(block.minimum, 15)), Math.trunc(number(block.maximum, 90))];
+  }
   occupations(): Row[] {
     return entries(this.occupationTable).map(([id, spec]) => ({id, name: id, skill_point_formula: spec.skill_point_formula ?? null,
       occupational_skills: [...array(spec.occupational_skills)], credit_rating_range: [...array(spec.credit_rating_range)], tags: [...array(spec.tags)]}));

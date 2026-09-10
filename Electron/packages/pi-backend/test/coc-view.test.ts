@@ -3,7 +3,7 @@ import {mkdtemp,mkdir,writeFile,readFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {dirname,join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
-import {cocContentRoot,cocUiWords,draftPresentations,laneLabels,laneProjection,laneWords,mechanicsEntry,readCocBinding,readColdSheet} from '../src/coc-view.js';
+import {cocContentRoot,cocUiWords,currentDraft,draftPresentations,laneLabels,laneProjection,laneWords,mechanicsEntry,readCocBinding,readColdSheet} from '../src/coc-view.js';
 import {KernelClient} from '../../../../extensions/kernel/client.js';
 
 it('projects only public rows with stable identity and language',()=>{
@@ -140,6 +140,45 @@ it('a drawn card travels with the row, and only an unprojected draft is left to 
   expect((mechanicsEntry(row(3),'zh-Hans',saved)!.presentation?.details as any).presentation).toBeUndefined();
   expect(await draftPresentations(undefined)).toEqual(new Map());
   expect(await draftPresentations({campaign:'absent',home,play_language:'zh-Hans'})).toEqual(new Map());
+});
+
+it('a draft card draws the campaign\'s current draft, not the revision that appended the row',async()=>{
+  const home=await mkdtemp(join(tmpdir(),'coc-current-draft-'));
+  const folder=join(home,'.coc/campaigns/c1');
+  await mkdir(join(folder,'setup/drafts'),{recursive:true});
+  await mkdir(join(folder,'setup/presentations'),{recursive:true});
+  await writeFile(join(folder,'campaign.json'),JSON.stringify({setup:{draft_revision:2}}));
+  await writeFile(join(folder,'setup/drafts/2.json'),JSON.stringify({revision:2,sheet:{name:'艾琳',characteristics:{STR:50}},profile:{name:'艾琳'},play_language:'zh-Hans',limits:{characteristic_min:15}}));
+  await writeFile(join(folder,'setup/presentations/2-zh-Hans.json'),JSON.stringify({play_language:'zh-Hans',texts:{STR:'力量'}}));
+  const binding={campaign:'c1',home,play_language:'zh-Hans'};
+  const current=await currentDraft(binding);
+  expect(current?.revision).toBe(2);
+  const presentations=await draftPresentations(binding);
+  const row={type:'custom',id:'draft-row',customType:'coc-character-draft',timestamp:'2026-09-10',data:{revision:1,sheet:{name:'old'},profile:{name:'old'},labels:{STR:'力量'}}};
+  const details=mechanicsEntry(row,'zh-Hans',presentations,{},current)!.presentation!.details as any;
+  expect(details.revision).toBe(2);
+  expect(details.sheet).toEqual({name:'艾琳',characteristics:{STR:50}});
+  expect(details.profile).toEqual({name:'艾琳'});
+  expect(details.play_language).toBe('zh-Hans');
+  expect(details.limits).toEqual({characteristic_min:15});
+  // The stored row's glossary stays, and the projected text is the CURRENT revision's file.
+  expect(details.labels).toEqual({STR:'力量'});
+  expect(details.presentation.texts).toEqual({STR:'力量'});
+  // A draft store that cannot be read leaves the row's own snapshot on the card.
+  const fallback=mechanicsEntry(row,'zh-Hans',presentations,{},undefined)!.presentation!.details as any;
+  expect(fallback.revision).toBe(1);
+  expect(fallback.sheet).toEqual({name:'old'});
+  expect(fallback.presentation).toBeUndefined();
+  expect(await currentDraft(undefined)).toBeUndefined();
+  await writeFile(join(folder,'campaign.json'),'{ half written');
+  expect(await currentDraft(binding)).toBeUndefined();
+  // A pre-feature draft carries no limits; each missing field falls back to the row on its own.
+  await writeFile(join(folder,'campaign.json'),JSON.stringify({setup:{draft_revision:2}}));
+  await writeFile(join(folder,'setup/drafts/2.json'),JSON.stringify({revision:2,sheet:{name:'艾琳'},play_language:'zh-Hans'}));
+  const lean=mechanicsEntry(row,'zh-Hans',presentations,{},await currentDraft(binding))!.presentation!.details as any;
+  expect(lean.revision).toBe(2);
+  expect(lean.profile).toEqual({name:'old'});
+  expect(lean.limits).toBeUndefined();
 });
 
 it('lane words come from the built presenter, and each saved projection says what its lane still lacks',async()=>{

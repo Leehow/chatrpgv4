@@ -73,7 +73,7 @@ export default function modsExtension(pi: ExtensionAPI): void {
       try {
         if (role === "create") {
           const check = await owner.check({kind:"mod-definition", draft:join(job.cwd,"result.json")}, signal);
-          if (!check.ok) throw new Error(JSON.stringify(check.error ?? check));
+          if (!check.ok) throw new Error(JSON.stringify(check.fix ? {error: check.error, fix: check.fix} : check.error ?? check));
         }
         return await current("mods.accept", {campaign, job:job.job});
       }

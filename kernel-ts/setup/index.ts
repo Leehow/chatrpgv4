@@ -136,6 +136,7 @@ export function createSetupHandlers(context: KernelContext, writer: ReturnType<t
     'setup.draft': async params => (await setup()).drafts.draft(params),
     'setup.previewed': async params => (await setup()).drafts.previewed(params),
     'setup.confirm': async params => (await setup()).drafts.confirm(params),
+    'setup.override': async params => (await setup()).drafts.override(params),
     'setup.prologue': async params => (await setup()).drafts.prologue(params),
   });
 }
