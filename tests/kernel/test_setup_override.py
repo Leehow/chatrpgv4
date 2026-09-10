@@ -5,8 +5,15 @@ from conftest import CAMPAIGN, campaign_dir, read_json
 from test_setup_drafts import profile, begin
 
 
-def characteristics_edit(sheet, abbr, delta):
-    return {"characteristics": {abbr: sheet["characteristics"][abbr] + delta}}
+def characteristics_edit(sheet, abbr, delta, ceiling=90):
+    """An edit of `delta` points that stays inside the creation bounds.
+
+    The draft is rolled, so a fixed rise walks past the ceiling whenever the roll lands near it and
+    the whole run fails on a number nothing here is testing (CON 85 and 90 both did). Turning around
+    at the top is what the DEX case below already does; the direction is not what these tests assert.
+    """
+    value = sheet["characteristics"][abbr]
+    return {"characteristics": {abbr: value + (delta if value + delta <= ceiling else -delta)}}
 
 
 def test_draft_carries_the_limits_block_and_the_file_stores_it(kernel, tmp_path):
@@ -33,7 +40,7 @@ def test_override_one_characteristic_recomputes_derived_and_resets_currents(kern
     result = kernel.ok("setup.override", {"campaign": CAMPAIGN, "revision": draft["revision"], "edits": edits})
     assert result["revision"] == draft["revision"] + 1
     updated = result["sheet"]
-    assert updated["characteristics"]["CON"] == sheet["characteristics"]["CON"] + 10
+    assert updated["characteristics"]["CON"] == edits["characteristics"]["CON"]
     assert updated["derived"]["HP"] == (updated["characteristics"]["CON"] + updated["characteristics"]["SIZ"]) // 10
     assert updated["derived"]["SAN"] == updated["characteristics"]["POW"]
     assert updated["derived"]["MP"] == updated["characteristics"]["POW"] // 5
@@ -219,7 +226,7 @@ def test_confirm_without_a_revision_commits_the_current_overridden_draft(kernel)
     committed = kernel.ok("setup.confirm", {"campaign": CAMPAIGN, "consent": "delegated"})
     assert committed["committed"] and committed["sheet"] == overridden["sheet"]
     card = read_json(campaign_dir(kernel.workspace) / "party" / "investigator.json")
-    assert card["characteristics"]["CON"] == draft["sheet"]["characteristics"]["CON"] + 10
+    assert card["characteristics"]["CON"] == overridden["sheet"]["characteristics"]["CON"]
 
 
 def test_override_is_refused_between_confirmation_and_handoff(kernel):
