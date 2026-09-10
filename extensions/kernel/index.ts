@@ -315,7 +315,8 @@ function readMechanics(result: Record<string, unknown>): Array<Record<string, un
 
 export default function (pi: ExtensionAPI) {
 	let runtime: HostRuntime | undefined;
-  let mods: {prepare(method: string, payload: Record<string, any>, signal?: AbortSignal): Promise<void>} | undefined;
+  let mods: {prepare(method: string, payload: Record<string, any>, signal?: AbortSignal): Promise<void>;
+    after?(method: string, payload: Record<string, any>, signal?: AbortSignal): Promise<void>} | undefined;
   pi.events.on("coc:mods-bridge", value => { mods = value as typeof mods; });
 	// A background projection has written this tag's captions (contract §23): drop the authored
 	// words this extension was standing on, so the next line it notifies with is the player's.
@@ -677,6 +678,8 @@ export default function (pi: ExtensionAPI) {
 				await reading.ensure(readingModule, { ...(failure.details.read as Record<string, unknown>), foreground: true }, signal);
 				result = (await state.kernel.call<Record<string, unknown>>(spec.method, payload, onProgress)) ?? {};
 			}
+			// Deferred Mod bookkeeping completes after the verb that opened this turn, never before it.
+			if (mods?.after) await mods.after(spec.name, payload, signal);
 			if (spec.name === "lookup" && params.kind === "module" && params.question) {
 				result.note = "This is published graph material. Use lookup kind source only if an original-page recheck is needed.";
 			}

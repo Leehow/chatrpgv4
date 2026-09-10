@@ -29,6 +29,8 @@ function modPoolSize(): number {
 }
 export interface ModBridge {
   prepare(method: string, payload: Record<string, any>, signal?: AbortSignal): Promise<void>;
+  /** After the verb landed, so deferred registration can complete in a turn the Keeper never writes in. */
+  after(method: string, payload: Record<string, any>, signal?: AbortSignal): Promise<void>;
 }
 
 export default function modsExtension(pi: ExtensionAPI): void {
@@ -217,6 +219,17 @@ export default function modsExtension(pi: ExtensionAPI): void {
   }
 
   const bridge: ModBridge = {
+    /**
+     * A turn the Keeper answers without writing anything never reaches `prepare`, and its deferred
+     * registration would then wait for whichever later turn happens to write. player_input has just
+     * opened this one, so completing here needs no write authority it does not already have.
+     */
+    async after(method, payload, signal) {
+      if (method !== "player_input" || typeof payload.campaign !== "string") return;
+      // Bookkeeping never costs a turn, so this reports rather than throws into the verb that just landed.
+      try { await resume(payload.campaign, signal); }
+      catch (error) { void emitToPanel("coc-keeper", "mods-progress", {campaign: payload.campaign, done: 0, total: 0, deferred_failed: errorText(error)}); }
+    },
     async prepare(method, payload, signal) {
       if (["apply", "resolve", "narrate", "ask"].includes(method) && typeof payload.campaign === "string")
         await resume(payload.campaign, signal);

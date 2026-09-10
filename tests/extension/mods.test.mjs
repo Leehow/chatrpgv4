@@ -273,4 +273,12 @@ test('deferred registration is resumed with the id the table mints, and a failur
   await refused.bridge.prepare('resolve', {campaign:'c1'});
   assert.ok(refused.calls.some(c=>c.method==='mods.queued' && c.params.discard === true),
     'a resume that cannot land has to drop its markers so the gear reads as unregistered again');
+
+  // A turn the Keeper answers without writing anything never reaches prepare, so player_input carries it.
+  const quiet = table(() => ({receipts:[]}));
+  await quiet.bridge.after('player_input', {campaign:'c1'});
+  assert.equal(quiet.calls.find(c=>c.method==='table.apply')?.params.call_id, 't7-c4');
+  const other = table(() => ({receipts:[]}));
+  await other.bridge.after('apply', {campaign:'c1'});
+  assert.equal(other.calls.some(c=>c.method==='table.apply'), false, 'only the verb that opens the turn resumes afterwards');
 });
