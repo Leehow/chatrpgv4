@@ -366,36 +366,6 @@
       }
     },
     {
-      "node_id": "craft-directive:crisis-scene-clarity",
-      "node_kind": "craft-directive",
-      "plane": "craft",
-      "name": "craft directive crisis-scene-clarity",
-      "evidence_class": "authored-house-doctrine",
-      "rationale": "draft urgent physical scenes through the render frame so space, force, risk and handles are clear before prose is sent",
-      "origin": "unknown-legacy-tuning",
-      "falsifiable_by": "remove the directive from the style contract for one arm of a multi-turn production-profile session and compare the drafts blind",
-      "properties": {
-        "directive_id": "crisis-scene-clarity",
-        "ordinal": 4,
-        "declares": "required_rule"
-      }
-    },
-    {
-      "node_id": "craft-directive:final-output-pass",
-      "node_kind": "craft-directive",
-      "plane": "craft",
-      "name": "craft directive final-output-pass",
-      "evidence_class": "authored-house-doctrine",
-      "rationale": "narration.review is advisory and invoked when the draft is hard, not on every routine turn",
-      "origin": "unknown-legacy-tuning",
-      "falsifiable_by": "remove the directive from the style contract for one arm of a multi-turn production-profile session and compare the drafts blind",
-      "properties": {
-        "directive_id": "final-output-pass",
-        "ordinal": 8,
-        "declares": "policy"
-      }
-    },
-    {
       "node_id": "craft-directive:final-prose-guard-before-output",
       "node_kind": "craft-directive",
       "plane": "craft",
@@ -407,21 +377,6 @@
       "properties": {
         "directive_id": "final-prose-guard-before-output",
         "ordinal": 5,
-        "declares": "required_rule"
-      }
-    },
-    {
-      "node_id": "craft-directive:npc-direct-speech",
-      "node_kind": "craft-directive",
-      "plane": "craft",
-      "name": "craft directive npc-direct-speech",
-      "evidence_class": "authored-house-doctrine",
-      "rationale": "when an NPC delivers new information or a refusal, render at least one of their utterances as direct quoted speech in their own voice instead of indirect summary; a scene where every NPC line is reported is a scene with no NPCs in it",
-      "origin": "text-quality finding, campaign pdf-coc-let-the-children-come-to-me-20260826T232901: routine turns resolved inside the budget floor with no NPC direct speech and no scene sensory anchor",
-      "falsifiable_by": "remove the directive from the style contract for one arm of a multi-turn production-profile session and compare the drafts blind",
-      "properties": {
-        "directive_id": "npc-direct-speech",
-        "ordinal": 14,
         "declares": "required_rule"
       }
     },
@@ -531,21 +486,6 @@
       }
     },
     {
-      "node_id": "craft-directive:rewrite-expository-choice-summary",
-      "node_kind": "craft-directive",
-      "plane": "craft",
-      "name": "craft directive rewrite-expository-choice-summary",
-      "evidence_class": "authored-house-doctrine",
-      "rationale": "render the spatial setup, motion, force, worsening risk and visible handles as scene prose",
-      "origin": "coc_narration_style.audit_player_visible_text, deleted in slice T4",
-      "falsifiable_by": "remove the directive from the style contract for one arm of a multi-turn production-profile session and compare the drafts blind",
-      "properties": {
-        "directive_id": "rewrite-expository-choice-summary",
-        "ordinal": 10,
-        "declares": "rewrite_guidance"
-      }
-    },
-    {
       "node_id": "craft-directive:rewrite-passive-translation-ese",
       "node_kind": "craft-directive",
       "plane": "craft",
@@ -561,21 +501,6 @@
       }
     },
     {
-      "node_id": "craft-directive:scene-sensory-anchor",
-      "node_kind": "craft-directive",
-      "plane": "craft",
-      "name": "craft directive scene-sensory-anchor",
-      "evidence_class": "authored-house-doctrine",
-      "rationale": "when the investigator enters a new scene, place at least one concrete sensory detail they can perceive before any interpretation or summary of what the scene means",
-      "origin": "text-quality finding, campaign pdf-coc-let-the-children-come-to-me-20260826T232901: routine turns resolved inside the budget floor with no NPC direct speech and no scene sensory anchor",
-      "falsifiable_by": "remove the directive from the style contract for one arm of a multi-turn production-profile session and compare the drafts blind",
-      "properties": {
-        "directive_id": "scene-sensory-anchor",
-        "ordinal": 15,
-        "declares": "required_rule"
-      }
-    },
-    {
       "node_id": "craft-directive:skill-interpretation-after-visible-evidence",
       "node_kind": "craft-directive",
       "plane": "craft",
@@ -587,21 +512,6 @@
       "properties": {
         "directive_id": "skill-interpretation-after-visible-evidence",
         "ordinal": 3,
-        "declares": "required_rule"
-      }
-    },
-    {
-      "node_id": "craft-directive:spend-budget-on-scene-texture",
-      "node_kind": "craft-directive",
-      "plane": "craft",
-      "name": "craft directive spend-budget-on-scene-texture",
-      "evidence_class": "authored-house-doctrine",
-      "rationale": "the length budget is scene room, not event count: spend it on texture, voice, space and motion; never cram extra events to fill it, and never restate the player's own action",
-      "origin": "text-quality finding, campaign pdf-coc-let-the-children-come-to-me-20260826T232901: routine turns resolved inside the budget floor with no NPC direct speech and no scene sensory anchor",
-      "falsifiable_by": "remove the directive from the style contract for one arm of a multi-turn production-profile session and compare the drafts blind",
-      "properties": {
-        "directive_id": "spend-budget-on-scene-texture",
-        "ordinal": 16,
         "declares": "required_rule"
       }
     },
@@ -1538,22 +1448,6 @@
       }
     },
     {
-      "node_id": "style-axis:prefer-concrete-sensory-detail",
-      "node_kind": "style-axis",
-      "plane": "craft",
-      "name": "prefer concrete_sensory_detail",
-      "evidence_class": "authored-house-doctrine",
-      "rationale": "register guidance: prefer concrete_sensory_detail",
-      "origin": "unknown-legacy-tuning",
-      "falsifiable_by": "remove the axis from the register for one arm of a multi-turn session and compare drafts blind",
-      "properties": {
-        "legacy_key": "concrete_sensory_detail",
-        "ordinal": 6,
-        "axis": "prefer",
-        "language_applicability": "all"
-      }
-    },
-    {
       "node_id": "style-axis:prefer-observable-behavior",
       "node_kind": "style-axis",
       "plane": "craft",
@@ -1565,38 +1459,6 @@
       "properties": {
         "legacy_key": "observable_behavior",
         "ordinal": 7,
-        "axis": "prefer",
-        "language_applicability": "all"
-      }
-    },
-    {
-      "node_id": "style-axis:prefer-open-ended-prompt",
-      "node_kind": "style-axis",
-      "plane": "craft",
-      "name": "prefer open_ended_prompt",
-      "evidence_class": "authored-house-doctrine",
-      "rationale": "register guidance: prefer open_ended_prompt",
-      "origin": "unknown-legacy-tuning",
-      "falsifiable_by": "remove the axis from the register for one arm of a multi-turn session and compare drafts blind",
-      "properties": {
-        "legacy_key": "open_ended_prompt",
-        "ordinal": 8,
-        "axis": "prefer",
-        "language_applicability": "all"
-      }
-    },
-    {
-      "node_id": "style-axis:prefer-short-sentences",
-      "node_kind": "style-axis",
-      "plane": "craft",
-      "name": "prefer short_sentences",
-      "evidence_class": "authored-house-doctrine",
-      "rationale": "register guidance: prefer short_sentences",
-      "origin": "unknown-legacy-tuning",
-      "falsifiable_by": "remove the axis from the register for one arm of a multi-turn session and compare drafts blind",
-      "properties": {
-        "legacy_key": "short_sentences",
-        "ordinal": 5,
         "axis": "prefer",
         "language_applicability": "all"
       }
@@ -1801,12 +1663,6 @@
       "relation_kind": "advises",
       "from_node_id": "craft-directive:rewrite-camera-direction-staging",
       "to_node_id": "review-rule:camera-direction-staging"
-    },
-    {
-      "relation_id": "relation:text:rewrite-expository-choice-summary:advises",
-      "relation_kind": "advises",
-      "from_node_id": "craft-directive:rewrite-expository-choice-summary",
-      "to_node_id": "review-rule:expository-choice-summary"
     },
     {
       "relation_id": "relation:text:rewrite-passive-translation-ese:advises",

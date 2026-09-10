@@ -44,8 +44,7 @@ def test_a_discovered_clue_leaves_the_thread_and_the_capsule_carries_it(kernel):
     assert capsule["mods"]["pacing"]["close_calls"] == {"count": 0, "threshold": 3, "rule": capsule["mods"]["pacing"]["close_calls"]["rule"]}
     assert any(entry["mod"] == "story-thread" for entry in capsule["mods"]["instructions"])
     craft = next(entry for entry in capsule["mods"]["instructions"] if entry["mod"] == "narration-craft")
-    assert craft["settings"]["routine_chars"] == 600
-    assert not any(key.endswith("_paragraphs") for key in craft["settings"]), "the paragraph caps were disproven by measurement (§30.8)"
+    assert craft["settings"] == {}, "narration-craft 1.1.0 retired the length ladder (§30.12)"
 
 
 def test_close_calls_count_major_wound_blows_once_per_turn(kernel):

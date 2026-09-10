@@ -671,7 +671,7 @@ RuleGraph 的每个决策声明输入槽位与归属。宿主锁定槽位由内�
 
 ### 13.6 `style`：手艺进胶囊
 
-内容目录加 `content/craft/text-graph.json`（旧树 `references/text-graph.json` 原样带过来）。只读 `play-register`、`style-axis`、`craft-directive`、`beat-type` 四类。`style` 节：`language` 取战役；`register` 取战役的 `register`（建战役时可给，缺省 `purist`）；`axes` 是九条 style-axis 的短句（play_language）；`directives` 按节拍挑：图上 craft-directive 与 Director 节拍的对应表写在 `content/craft/beat-directives.json`（每节拍 ≤ 4 条 directive id，内容团队维护的闭合表，不是模型判断）。重开进程后的第一回合给全部 directive（预算 2KB），之后只给按节拍挑的（1KB）。
+内容目录加 `content/craft/text-graph.json`（旧树 `references/text-graph.json` 原样带过来）。只读 `play-register`、`style-axis`、`craft-directive`、`beat-type` 四类。`style` 节：`language` 取战役；`register` 取战役的 `register`（建战役时可给，缺省 `purist`）；`axes` 是 style-axis 的短句（play_language；2026-09-10 起六条，退役的三条见 §30.12）；`directives` 按节拍挑：图上 craft-directive 与 Director 节拍的对应表写在 `content/craft/beat-directives.json`（每节拍 ≤ 4 条 directive id，内容团队维护的闭合表，不是模型判断）。重开进程后的第一回合给全部 directive（预算 2KB），之后只给按节拍挑的（1KB）。
 
 ### 13.7 采纳证据（无写侧）
 
@@ -702,7 +702,7 @@ RuleGraph 的每个决策声明输入槽位与归属。宿主锁定槽位由内�
 - **`threat` 的「相关」。** 模组图的 threat 节点没有指向场景的关系（只有 module `contains`），所以「相关」= 与当前场景或在场 NPC 有 `present-in`/`located-in`/`contains` 关系（任一方向），**或**其 `dangers[]` 的 `monster_ref`/`id`/`npc_id` 归一化后是某个在场 NPC 的名字。`state` 取第一只钟 `x/y`，没有钟写「无时钟；n 个危险源」；`cue` 是场景 `pressure_moves` 用「；」连起来。
 - **`rule` 与 `continuation` 同源。** 都取上一回合 resolve 结果里的 `continuations`，其源检定收据既没被 `source_receipt` 接续也没标 `continued_by` 的；前者写规则的下一步，后者标 `who: player`。`quest` 的 `state` 数该节点 `supports` / `may-lead-to` 指向的线索里已发现的条数（未开始 / 进行中 m/n / 可结束）；没有线索标记写「未开始（无线索标记）」；`who` 取 `giver`，`cue` 取 `importance`。`promise` 取 `memory.open_promises`：`kind: promise` 且 `status: candidate` 且未被接续。
 - **`promise` 的接续。** 与 `relationship` 同一条确定性规则：同 `subject` 同 `entities` 的新 `promise` 给旧的加 `valid_until_turn` / `superseded_by`；抽取指令多一句。
-- **`style` 的行。** 九条轴与十七条 directive 的 play_language 短句住在 `content/craft/beat-directives.json`（`axis_lines`、`directive_lines`），没有对应语言的行时退到 `en`，再退到图上的 `name` / `rationale`；轴按 `language_applicability` 过滤（`translationese` 只给 zh-Hans）。「重开进程后的第一回合」= 本进程第一次 `player_input` 打开的那一回合：那一回合的所有胶囊（含 `table.capsule`）都给全部 directive，2KB；之后的回合按节拍表，1KB。zh-Hans 全量 2019 字节刚好装下；`en` 全量超预算，按 `truncated` 裁尾。
+- **`style` 的行。** 轴与 directive 的 play_language 短句（2026-09-10 起六条轴、十一条 directive，§30.12）住在 `content/craft/beat-directives.json`（`axis_lines`、`directive_lines`），没有对应语言的行时退到 `en`，再退到图上的 `name` / `rationale`；轴按 `language_applicability` 过滤（`translationese` 只给 zh-Hans）。「重开进程后的第一回合」= 本进程第一次 `player_input` 打开的那一回合：那一回合的所有胶囊（含 `table.capsule`）都给全部 directive，2KB；之后的回合按节拍表，1KB。十七条时 zh-Hans 全量 2019 字节刚好装下、`en` 全量超预算按 `truncated` 裁尾；十一条之后的尺寸由 #71 记录，预算不变。
 - **采纳落两处。** `narrate` 与 `ask` 关回合时都算 `director_adoption`，写进回合记录，并在 `telemetry.jsonl` 写一行 `{lane: "director", turn, closed_by, beat, adopted, evidence}`；turn 0 没有胶囊，记录里为 `null`。`CHARACTER` 的 social 族与 `RECOVER` 的 healing/development 族从本回合 `calls` 结果的 `family` 反查收据；`MONTAGE` 看本回合 `time` 收据的总分钟数 ≥ 60；`CHOICE` 以 `ask` 关闭时 `evidence` 为空数组。
 - **`where.clock.at` 与 `day_part`** 只在模组节点声明了故事何时开场时给：`start_clock.local_datetime`（`module-meta.json` 的本地日期时间，The Haunting 是 `1920-10-12T10:00:00`）或退而求其次的 `start_time`（`HH:MM`，只有钟点没有日期，因此只有 `day_part` 没有 `at`）。`at` = 声明的开场时刻 + `world.clock.minutes`，以 `YYYY-MM-DDTHH:MM` 给出；`elapsed` 仍然是从战役开局算起的已过时间，两者不是一回事。`day_part` 的边界是**起始钟点**（5 dawn / 8 morning / 12 midday / 14 afternoon / 18 evening / 22 night，之前是 `small_hours`）。两者都不声明的模组一个都不给——不猜。`table.view` 的 `clock` 与胶囊同一份投影（§23），面板据此显示局内时间。`structure_type` 读模组节点记录的 `structure_type`，没有就 `branching_investigation`。`campaign.create` 接受 `register`（文本图 `play-register` 的 legacy key，缺省 `purist`），写进 `campaign.json`。
 - **游戏日 = 局内午夜。** 声明了开场时刻的模组，日序号是 `(开场时刻的当日分钟 + world.clock.minutes) // 1440`，与 `where.clock.at` 换日期的那一刻严格一致；两者都不声明的模组退回 `minutes // 1440`。任何推进时钟的效果都可能跨过它——`time` 是守秘人有意让时间过去，`move` 的行程同样在走——所以夜里开车跨过 0 点也算过了一天，而 `_stage_recovery` 仍然正确地不把行程当休息。
@@ -3193,8 +3193,14 @@ installed version, compatibility, active/pending versions and player-safe settin
 Unbound panels manage installation and new-campaign defaults; they never guess a
 campaign. Changes during open/acting turns or live subsystem sessions remain pending
 until a safe boundary. The whole resolved set is checked for dependencies/conflicts
-before activation. Unknown settings are rejected. A save pins version, digest,
-settings and state version in `world.mods`; no automatic latest-version selection.
+before activation. Unknown settings named in a request are rejected. When a request changes
+`version` and names no `settings`, the kernel carries the active lock's settings forward but keeps
+only the keys the target version declares; the keys it drops are written once to the campaign's
+`telemetry.jsonl` as `{"lane": "mods", "event": "settings_retired", "mod", "from", "to", "keys"}`,
+and the new lock shows the target version's settings (2026-09-10, #70, §30.12; until then the
+panel's version-only Update was refused whenever the target version had removed a setting). A save
+pins version, digest, settings and state version in `world.mods`; no automatic latest-version
+selection.
 During background opening preparation, before world.json exists, that same lock is
 staged in campaign.mods_pending. table.open promotes it after the world is ready;
 later default changes do not alter the already-created campaign's choices.
@@ -3978,9 +3984,9 @@ chain organised by need changed the first turn.
 
 | id | requires | contributes | what it carries |
 | --- | --- | --- | --- |
-| `story-thread` | `context.thread.v1` | `instructions` | how to read and use `thread`: land `here` with `apply clue`, put `next` in reach through the fiction and never as a menu, `handed` is not a choice, `fallback` is for a line with nothing reachable |
-| `keeper-pacing` | `context.pacing.v1` | `instructions`, setting `stall_turns` (1–6, default 2) | fair warning below the threshold and none at it; clock symptoms shown only here; compression with the 0.8.2a `must_not`s (no repeated low-agency ask, no restating, no irreversible choice, no skipped gated risk); the stuck-player order world → NPC → information, never a refusal; a recovery lead that always costs time, exposure or alarm (p.199) |
-| `narration-craft` | none | `instructions`, eight integer settings | the 0.8.2a length ladder as settings keyed by `director.beat` (routine 600/3, costly 750/4, reveal 900/5, climax 1500/8, the T5 retune figures), action uptake before result, keep the fact not the sentence, world-assertion cost in three steps, crisis order in seven slots, a handle before stopping, Laws' nine beat words, NPC voice openings |
+| `story-thread` | `context.thread.v1` | `instructions`, `brief` | how to read and use `thread`: land `here` with `apply clue`, put `next` in reach through the fiction and never as a menu, `handed` is not a choice, `fallback` is for a line with nothing reachable; from 1.0.2 the lines are opportunities, not a per-turn plan (§30.12) |
+| `keeper-pacing` | `context.pacing.v1` | `instructions`, `brief`, setting `stall_turns` (1–6, default 2) | fair warning below the threshold and none at it; clock symptoms shown only here and when to tick a clock (§30.9); from 1.1.0 the stalled counter is an inspection, stuck versus lingering read from the player's words (§30.11), the recovery order world → NPC → information for a stuck player with the 0.8.2a `must_not`s kept (no repeated low-agency ask, no restating, no irreversible choice, no skipped gated risk), the Idea roll as the rulebook has it, clarification free; the blanket "a recovery always costs time, exposure or alarm" is retired (§30.12) |
+| `narration-craft` | none | `instructions`, `brief`; no settings from 1.1.0 | NPC voice (news, refusals, a public failed check with a person present), crisis ordering without a handle clause, the scene-opening perception as an offer, Laws' beat words and the humour knobs, the world-assertion cost ladder, material selection from the live exchange and the dossier, friendly and cooperative outcomes, one detail serving several purposes, plain telling allowed; the 0.8.2a length ladder (eight, then four integer settings in 1.0.0–1.0.2), the own-paragraph rule, the handle before stopping and the open question are retired (§30.12) |
 | `narration-audit` | `agents.tools.v1` | `auditor` (no `audit_on_decisions`: every audited delivery) | for each receipt of the turn, the narration must realise its fictional consequence; a finding is `{reason: "<receipt id>: …", fix: "<consequence>"}`; numbers, style, length and language are explicitly outside its remit; keeper-visibility rolls need no beat |
 
 All four are `default_enabled: true`; the panel switches any of them per campaign or by default (§26). `narration-audit`
@@ -4195,6 +4201,86 @@ closes the last doctrine §30.8 left untested. Evidence in `.coc/playtests/stall
 
 The two things still unverified after all of this are the fair-warning threshold — no table has reached three
 close calls — and the reader ask of §30.4, which needs a book rebuilt with it.
+
+**Stuck and lingering read the same on the counter (2026-09-10, #68).** `stalled_turns` counts consecutive
+played turns with no `clue`, `move` or `session` receipt (`kernel-ts/read/director.ts`), so a player who talks to
+an NPC for two turns by choice and a player who does not know what to do both reach `stall_turns`. The counter
+cannot tell them apart; the Keeper can, from the player's own words, and that is the reading `keeper-pacing`
+1.1.0 asks for: a player asking what to do gets the recovery order, exactly as `stall-1` went; a player talking,
+reflecting or asking about the scene is playing and is not compressed. The `stall-1` verdict above stands for
+its case.
+
+### 30.12 Keeper narrative quality: one owner per rule, the volume rules retired, settings that survive an upgrade (2026-09-10, #68)
+
+The spec `docs/specs/keeper-narrative-quality.md` (#68, tickets #69–#79 in
+`docs/specs/keeper-narrative-quality-tickets.md`) starts from a turn a novice could not answer: Masks of
+Nyarlathotep, record 17 of the latency run, where the Keeper wrote short, textured sentences and stopped on a
+camera that would not fire. The survey behind it read that turn's own capsule and the packages active on that
+table; this section is the contract the tickets implement.
+
+**What that turn had and lacked.** The capsule carried the full scene summary (the feeders at the crack, the
+charnel pit, two assets, two endings) and complete dossiers for Larkin and de Mendoza; `dramatic_question`,
+`pressure_moves`, `exits`, `affordances` and `keeper_notes` were empty, the §30.4 reader gap of an imported
+book; the prose used the scene texture and the NPC manner and failed at the handoff; the verifier recorded three
+`uncommitted_state` findings for NPC movement narrated without `apply`. The only gameplay package on that table
+was `natural-npc` 1.0.0: the App build (`62039c9f`) predates the four packages of §30.3, so the screenshot
+indicts the base style of §13.6, not them. Three layers, three diagnoses, kept apart.
+
+**The layer map: each rule has one owner.**
+
+- *Base, every table, Mods on or off.* `prompts/keeper.md` owns the laws and the definition of a playable turn
+  (below). The capsule `style` owns readability: the six axes `avoid-translationese` (zh-Hans),
+  `avoid-ai-summary-voice`, `avoid-log-style-summary`, `avoid-semantic-repetition` (its line now allows the
+  callback placed on purpose), `avoid-abstract-psychological-explanation`, `prefer-observable-behavior` (its line:
+  observable behaviour over asserted inner states); and the eleven directives `player-action-uptake`,
+  `action-uptake-review`, `repetition-policy`, `observable-before-interpretation`,
+  `skill-interpretation-after-visible-evidence`, `rewrite-abstract-psychological-explanation`,
+  `rewrite-abstract-explanation-to-action`, `rewrite-ai-summary-voice`, `rewrite-passive-translation-ese`,
+  `rewrite-camera-direction-staging`, `final-prose-guard-before-output`.
+- *Retired from the text graph (#71).* The axes `prefer-short-sentences`, `prefer-concrete-sensory-detail`,
+  `prefer-open-ended-prompt`; the directives `spend-budget-on-scene-texture` (written in terms of the retired
+  budget), `scene-sensory-anchor` (a compulsory opening), `rewrite-expository-choice-summary` (the
+  handle-as-proof recipe), `crisis-scene-clarity` and `npc-direct-speech` (craft, now the package's),
+  `final-output-pass` (its rationale names `narration.review`, a tool this tree never had). Nodes leave the graph
+  rather than the beat table because the first-turn full form sends every directive node, not the table's picks.
+  The manifest's `graph_content_digest` is recomputed with `parsePythonJson` and `jsonDigest` from
+  `kernel-ts/json.ts` (plain `JSON.parse` does not reproduce the Director manifest, so it is not the recipe),
+  `node_counts` follows, and `beat-directives.json` drops the same ids, picking at most four of the eleven per
+  beat. No campaign pins this digest; the ontology and the Director graph reference only the two `dying-*`
+  directives, which stay; the capsule tests read the counts from the files.
+- *`narration-craft` 1.1.0 (#75).* No settings. NPC voice, crisis ordering, the scene-opening perception as an
+  offer, the beat words and the humour knobs, the world-assertion cost ladder, material selection from the live
+  exchange and the dossier, friendly and cooperative outcomes, one detail serving several purposes, plain
+  telling allowed, hidden truth by reference to law 3.
+- *`keeper-pacing` 1.1.0 (#73).* The stalled counter as an inspection (§30.11), the recovery order for a stuck
+  player, the Idea roll as the rulebook has it, clarification free; fair warning and clocks unchanged.
+- *`story-thread` 1.0.2 (#74).* The lines as opportunities; structural semantics unchanged.
+- *`narration-audit`, `natural-npc`, `enhanced-items`.* Unchanged.
+
+**The playable turn, which the base prompt owns (#72).** Take up the declared action, question, attitude or
+pause; make settled outcomes perceptible; stop at a real obstacle, a real decision, or an opportunity an
+uninformed player can understand, never at a planted object; tell plainly what the investigator perceives or
+already knows; never write the investigator's thoughts, feelings, trust, intentions or actions; clarification
+and reminders of known facts cost nothing. `ask` admits `kind=mechanics` only (the model-facing shape above); a
+story question lives in `narrate` prose, and the prompt says so once.
+
+**What no layer says any more.** That quality is length; that sentences must be short; that a sensory detail,
+an open question or a "handle" must be present before stopping; that texture should be spent over events; that
+every recovery costs time, exposure or alarm; that the thread is a per-turn plan. Nothing replaces them with
+event, clue, paragraph, twist or progress quotas; the verifier (§12.5) and `narration-audit` keep their remits;
+no foreground model call is added.
+
+**Settings across a version change (#70).** §26 now says it: a version-only request carries forward only the
+keys the target version declares and records the retired keys in telemetry; an explicit unknown key is still
+refused. Reproduced on the emitted kernel before the change: locking a fresh table to the real 1.0.1 bytes and
+configuring 1.0.2 with version only, or 1.0.2 to a copy with empty settings, both refused with `Invalid Mod
+enable state or unknown setting`; explicit `settings: {}` passed. `merged-1` is still locked to 1.0.1 for this
+reason.
+
+**Verified and not.** At the time of writing nothing below this line has run: the six implementation tickets,
+the integration and activation evidence (#76), the live regression (#77), the editorial comparison (#78) and the
+novice-human gate (#79) are separate reports, and a missing human gate blocks any claim that the novice
+experience is solved.
 
 ## 31. The three ends of a seam: producer, projection, adoption (2026-09-10)
 

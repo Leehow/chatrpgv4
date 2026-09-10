@@ -1,102 +1,93 @@
 {
   "contract_id": "coc.beat-directives.v1",
   "schema_version": 1,
-  "note": "Closed table maintained by the content team (contract §13.6, §16.1): which craft-directive nodes of content/craft/text-graph.json the capsule's `style.directives` carries for each Director beat (at most 4 per beat), plus one English line for each of the nine style axes and the seventeen directives (the keeper carries them into the player's language; `language_applicability` on the text-graph nodes stays data). Every id must exist in the text graph; the kernel validates this at load and never judges prose to pick a line.",
+  "note": "Closed table maintained by the content team (contract §13.6, §16.1): which craft-directive nodes of content/craft/text-graph.json the capsule's `style.directives` carries for each Director beat (at most 4 per beat), plus one English line for each of the six style axes and the eleven directives (the keeper carries them into the player's language; `language_applicability` on the text-graph nodes stays data). Every id must exist in the text graph; the kernel validates this at load and never judges prose to pick a line. Three axes and six directives were retired on 2026-09-10 (contract §30.12); the first-turn full form sends every directive node in the graph, so retirement means removing the node, not just the pick.",
   "beats": {
     "REVEAL": [
       "observable-before-interpretation",
       "skill-interpretation-after-visible-evidence",
-      "scene-sensory-anchor",
-      "npc-direct-speech"
+      "rewrite-ai-summary-voice",
+      "player-action-uptake"
     ],
     "PRESSURE": [
-      "crisis-scene-clarity",
-      "rewrite-expository-choice-summary",
-      "spend-budget-on-scene-texture",
-      "observable-before-interpretation"
-    ],
-    "CHOICE": [
-      "rewrite-expository-choice-summary",
-      "npc-direct-speech",
-      "spend-budget-on-scene-texture"
-    ],
-    "SUBSYSTEM": [
-      "crisis-scene-clarity",
       "player-action-uptake",
-      "rewrite-expository-choice-summary",
+      "observable-before-interpretation",
+      "rewrite-camera-direction-staging",
       "final-prose-guard-before-output"
     ],
+    "CHOICE": [
+      "rewrite-ai-summary-voice",
+      "observable-before-interpretation",
+      "player-action-uptake"
+    ],
+    "SUBSYSTEM": [
+      "player-action-uptake",
+      "rewrite-camera-direction-staging",
+      "final-prose-guard-before-output",
+      "observable-before-interpretation"
+    ],
     "CHARACTER": [
-      "npc-direct-speech",
       "observable-before-interpretation",
       "rewrite-abstract-psychological-explanation",
-      "rewrite-abstract-explanation-to-action"
+      "rewrite-abstract-explanation-to-action",
+      "skill-interpretation-after-visible-evidence"
     ],
     "RECOVER": [
       "repetition-policy",
       "rewrite-ai-summary-voice",
-      "spend-budget-on-scene-texture",
-      "player-action-uptake"
+      "player-action-uptake",
+      "action-uptake-review"
     ],
     "CUT": [
-      "scene-sensory-anchor",
-      "rewrite-camera-direction-staging",
       "repetition-policy",
-      "spend-budget-on-scene-texture"
+      "rewrite-camera-direction-staging",
+      "rewrite-passive-translation-ese",
+      "player-action-uptake"
     ],
     "ADVANCE": [
       "player-action-uptake",
       "action-uptake-review",
-      "scene-sensory-anchor",
-      "repetition-policy"
+      "repetition-policy",
+      "observable-before-interpretation"
     ],
     "MONTAGE": [
       "repetition-policy",
       "rewrite-ai-summary-voice",
-      "spend-budget-on-scene-texture",
-      "rewrite-passive-translation-ese"
+      "rewrite-passive-translation-ese",
+      "player-action-uptake"
     ],
     "DEEPEN": [
       "rewrite-abstract-psychological-explanation",
       "skill-interpretation-after-visible-evidence",
-      "npc-direct-speech",
-      "observable-before-interpretation"
+      "observable-before-interpretation",
+      "rewrite-abstract-explanation-to-action"
     ],
     "PAYOFF": [
       "repetition-policy",
       "skill-interpretation-after-visible-evidence",
-      "npc-direct-speech",
-      "rewrite-ai-summary-voice"
+      "rewrite-ai-summary-voice",
+      "observable-before-interpretation"
     ]
   },
   "axis_lines": {
     "style-axis:avoid-translationese": "avoid translationese",
     "style-axis:avoid-ai-summary-voice": "avoid summary voice",
     "style-axis:avoid-log-style-summary": "avoid log-style summary",
-    "style-axis:avoid-semantic-repetition": "avoid repetition",
+    "style-axis:avoid-semantic-repetition": "no stale repetition; an echo placed on purpose is not repetition",
     "style-axis:avoid-abstract-psychological-explanation": "avoid abstract psychology",
-    "style-axis:prefer-short-sentences": "short sentences",
-    "style-axis:prefer-concrete-sensory-detail": "concrete sensory detail",
-    "style-axis:prefer-observable-behavior": "observable behavior",
-    "style-axis:prefer-open-ended-prompt": "open-ended prompt"
+    "style-axis:prefer-observable-behavior": "observable behaviour over asserted inner states"
   },
   "directive_lines": {
     "observable-before-interpretation": "visible behaviour first, interpretation after",
     "player-action-uptake": "enact the declared action from the world's view",
     "rewrite-abstract-explanation-to-action": "inner states become action, voice, posture, gaze, evidence",
     "skill-interpretation-after-visible-evidence": "skill judgement after the visible evidence",
-    "crisis-scene-clarity": "in a crisis: space, force, risk, handles first",
     "final-prose-guard-before-output": "reread a hard draft for meaning first",
-    "repetition-policy": "compress settled facts; enact the current action yourself",
+    "repetition-policy": "compress settled facts; a callback placed on purpose is not repetition; enact the current action yourself",
     "action-uptake-review": "check the draft enacts the action, not the player's phrasing",
-    "final-output-pass": "review only when the draft was hard",
     "rewrite-ai-summary-voice": "information via scene detail or NPC speech, not report voice",
-    "rewrite-expository-choice-summary": "space, motion, risk, handles as scene, not option notes",
     "rewrite-camera-direction-staging": "one natural sentence names the person and the focus",
     "rewrite-passive-translation-ese": "active voice, clear subject, concrete action",
-    "rewrite-abstract-psychological-explanation": "visible behaviour first; explain after evidence or a skill result",
-    "npc-direct-speech": "an NPC giving news or a refusal speaks at least one line",
-    "scene-sensory-anchor": "a new scene opens on one concrete sensory detail",
-    "spend-budget-on-scene-texture": "spend length on texture, sound, space, motion, not events"
+    "rewrite-abstract-psychological-explanation": "visible behaviour first; explain after evidence or a skill result"
   }
 }

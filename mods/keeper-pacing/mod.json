@@ -1,8 +1,8 @@
 {
-  "id": "keeper-pacing", "version": "1.0.2", "game_api": "pipicoc.game.v1",
+  "id": "keeper-pacing", "version": "1.1.0", "game_api": "pipicoc.game.v1",
   "state_version": 1, "author": "PipiCOC",
   "name": {"en": "Keeper Pacing", "zh-Hans": "守秘人节奏"},
-  "description": {"en": "Fair warning before death, visible threat clocks, compression when a scene stops yielding, and recovery that still costs something.", "zh-Hans": "致死前的公平警告、威胁时钟的可见症状、场景枯竭时的压缩推进、以及有代价的卡关恢复。"},
+  "description": {"en": "Fair warning before death, visible threat clocks, a stall counter that asks what the player is doing, and recovery that costs only what the book and the rules actually charge.", "zh-Hans": "致死前的公平警告、威胁时钟的可见症状、提示去看玩家在做什么的停滞计数、以及代价只来自模组与规则实际索取的卡关恢复。"},
   "default_enabled": true, "requires": ["context.pacing.v1"],
   "dependencies": {}, "conflicts": [],
   "settings": {"stall_turns": 2},

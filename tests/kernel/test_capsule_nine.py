@@ -170,7 +170,7 @@ def test_style_gives_every_directive_on_the_first_turn_and_the_beats_pick_afterw
     first = open_turn(kernel, "我仔细观察诺特。")["capsule"]
     style = first["style"]
     assert style["language"] == "zh-Hans" and style["register"] == "purist"
-    assert len(style["axes"]) == 9 and "avoid translationese" in style["axes"]  # English lines (§16.1); zh-Hans keeps the axis
+    assert len(style["axes"]) == 6 and "avoid translationese" in style["axes"]  # English lines (§16.1); zh-Hans keeps the axis
     assert {d["id"] for d in style["directives"]} == ALL_DIRECTIVES and all(d["line"] for d in style["directives"])
     assert kernel.table("capsule")["style"] == style  # same turn, same process: still the full list
     narrate(kernel, "t1-c1", "……")
@@ -213,7 +213,7 @@ def test_axes_follow_the_language_applicability_and_the_style_budget_trims(tmp_p
         narrate_opening(client)
         capsule = client.table("player_input", text="I look around.")["capsule"]
         style = capsule["style"]
-        assert style["language"] == "en" and "avoid translationese" not in style["axes"] and len(style["axes"]) == 8
+        assert style["language"] == "en" and "avoid translationese" not in style["axes"] and len(style["axes"]) == 5
         # §16.1: the lines are English one-liners sized like the zh originals, so the full first-turn
         # set fits the §13.6 budget in every play language and nothing is trimmed
         assert size(style) <= 2048 and "style" not in capsule.get("truncated", [])
