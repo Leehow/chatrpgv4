@@ -3867,3 +3867,44 @@ Live check `mods-live-3` (fresh The Haunting, same Keeper model, two played turn
 31,975 bytes with `instructions` 12,050 (all five `full`); turn 2 capsule 22,994 with `instructions` 3,865 (all five
 `brief`: Enhanced Items 1,008, Keeper Pacing 581, Narration Craft 638, Natural NPC 557, Story Thread 404). Turn 2
 still landed the three clues the thread named and moved to the morgue.
+
+### 30.8 What is verified and what is not (2026-09-10, merged tree)
+
+§30.6 was measured before the merge with 0.9.2a's own Mod work. `merged-1` (The Haunting, zh-Hans, grok-4.6 low
+as Keeper, eleven played turns from Knott's office into the basement confrontation, evidence in
+`.coc/playtests/merged-1/` and `.coc/campaigns/merged-1/`) is the first table on the merged tree, and it was
+driven deliberately at the paths §30.6 never reached.
+
+**Verified at a real table**
+
+- **The thread routes play.** Turn 2 asked for the basement; the exit was gated on `corbitt-diaries`, which the
+  thread listed under `here` for `corbitt-is-undead-sorcerer`; the Keeper offered the cupboard, turn 3 took the
+  diaries, turn 4 walked down. Every turn 1–11 recorded `director_adoption.adopted: true`.
+- **`close_calls` counts what p.209 counts.** Turn 9's claw took HP 12 → 5, seven points against a maximum of
+  twelve, and turn 10's capsule carried `close_calls.count: 1`. Zero before it, through eight turns of play.
+- **`threat_clocks` populate exactly when the relatedness of §13.2 is satisfied.** Empty for six turns in the
+  haunted house, and populated the turn Walter Corbitt stood on stage (`corbitt-awareness 0/4`,
+  `landlord-impatience 0/3`), matched through the danger's `monster_ref`, not through the scene.
+- **The audit gate can fire, and its fixes ask for fiction.** A seeded probe (`probes/` beside the run, a probe
+  and not a playtest) put two drafts against the same three settled receipts of one open turn. The draft that
+  omitted the fall came back with one finding per receipt, each naming its receipt id and asking for a
+  perceptible consequence; the draft that told it came back empty. Across the fifteen audited deliveries of
+  §30.6 and this run the lane produced no false positive.
+
+**Not verified, and what it would take**
+
+- **`threat_clocks` never showed a `symptom`.** Both starter clocks stayed at segment 0 because no product path
+  advances a threat clock: §30.4's writer gap, unchanged, and the reason `on_tick_visible` has still never
+  reached a table.
+- **`keeper-pacing`'s compression never fired.** `stalled_turns` never reached the package's `stall_turns` in
+  eighteen played turns across two runs; the player kept moving. It needs a table that deliberately stalls.
+- **Fair warning was never observed changing an outcome.** The counter reached 1 of 3; nothing was seen at the
+  threshold, which is where the doctrine actually bites.
+- **`narration-craft`'s length budget is inert, and its paragraph caps are wrong.** Twenty deliveries across
+  three campaigns: 52–430 characters against ceilings of 600–1500, so the character budget never binds; 1–9
+  paragraphs against caps of 3–8, exceeded in eight of eleven measured deliveries. This Keeper writes short
+  paragraphs, many of them. The figures came from the 0.8.2a T5 retune, whose complaint was a Keeper hugging a
+  350-character floor; that is not this Keeper's failure mode. The honest reading is that the paragraph cap does
+  not describe how prose is written here and the character ceiling is not reached, so neither number is doing
+  work. Retuning them is a content decision and is not taken here.
+- **The reader ask of §30.4 is still unverified**: no book has been rebuilt with it.
