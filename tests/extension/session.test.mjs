@@ -139,7 +139,7 @@ test("造物代理超时：批量太大这件事要到守秘人手上，遥测�
 					code: "needs",
 					message: "The Mod agent did not finish its task",
 					fix: "Retry the same request to resume the retained job",
-					details: { reason: "mod_agent_failed", timed_out: true },
+					details: { reason: "mod_agent_failed", role: "create", timed_out: true },
 				},
 			}),
 		},
@@ -167,6 +167,40 @@ test("造物代理超时：批量太大这件事要到守秘人手上，遥测�
 	assert.equal(row.ok, false);
 	assert.equal(row.code, "needs");
 	assert.equal(row.reason, "mod_agent_failed");
+});
+
+test("审计代理超时：说的是审计，不是叫守秘人去删 define 效果", async (t) => {
+	// A real table hit this: the audit lane ran past its deadline on a turn that defined nothing, and
+	// the refusal told the Keeper to "retry with fewer define effects". It retried the same narration
+	// three times and burned the turn. What the Keeper can do about a timeout depends on which agent
+	// timed out, so the refusal has to say which.
+	const table = await openTable({
+		env: {
+			FAKE_KERNEL_ERRORS: JSON.stringify({
+				"table.narrate": {
+					code: "needs",
+					message: "The Mod agent did not finish its task",
+					fix: "Retry the same request to resume the retained job",
+					details: { reason: "mod_agent_failed", role: "audit", timed_out: true },
+				},
+			}),
+		},
+		responses: [
+			fauxAssistantMessage([fauxToolCall("narrate", { text: "她把手套拧得更紧。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage("收尾"),
+		],
+	});
+	t.after(() => table.dispose());
+
+	await table.session.prompt("我再问她一次");
+
+	const [failed] = table.session.messages.filter(
+		(message) => message.role === "toolResult" && message.toolName === "narrate",
+	);
+	assert.equal(failed.isError, true);
+	assert.match(resultText(failed), /the audit agent ran out of time/);
+	assert.match(resultText(failed), /nothing about it needs changing to retry/);
+	assert.doesNotMatch(resultText(failed), /define effects/);
 });
 
 test("回合没关时催一次，且只催一次", async (t) => {

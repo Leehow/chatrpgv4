@@ -214,12 +214,19 @@ function errorDetailLines(details: Record<string, unknown> | undefined): string[
 		// A refusal that names the player-facing fields it is about: the kernel's own list, passed on.
 		lines.push(`rewrite in the campaign's play_language: ${fields.map((field) => String(field)).join(", ")}`);
 	}
-	// A batch whose definition agent ran out of time is not the same refusal as one whose agent died:
-	// the first says the batch itself is too big to retry unchanged, and `fix` alone cannot say which.
+	// An agent that ran out of time is not the same refusal as one that died: the first says the work
+	// asked of it was too much to retry unchanged, and `fix` alone cannot say which. What to do about
+	// it depends on which agent it was -- a creator is told to ask for fewer definitions, and telling
+	// an auditor's turn the same thing sends the Keeper to trim `define` effects it never had.
 	if (details.reason === "mod_agent_failed") {
-		lines.push(details.timed_out === true
-			? "the definition agent ran out of time: retry with fewer define effects in this apply"
-			: "the definitions already accepted are retained, so the retry resumes from where this one stopped");
+		const role = typeof details.role === "string" ? details.role : "";
+		lines.push(details.timed_out !== true
+			? "the work already accepted is retained, so the retry resumes from where this one stopped"
+			: role === "create"
+				? "the definition agent ran out of time: retry with fewer define effects in this apply"
+				: role === "audit"
+					? "the audit agent ran out of time: this delivery was not audited, and nothing about it needs changing to retry"
+					: "the Mod agent ran out of time: retry the same request to resume its retained job");
 	}
 	if (details.reason === "mod_narrative_repair") {
 		// The Mod audit already validates these lists; preserve its semantic repair verbatim.

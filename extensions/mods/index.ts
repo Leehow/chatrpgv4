@@ -70,9 +70,13 @@ export default function modsExtension(pi: ExtensionAPI): void {
         throw error;
       }
       await writeFile(join(job.cwd, `run-${attempt}.json`), JSON.stringify(outcome, null, 2));
+      // Which agent ran out of time decides what the Keeper can do about it, and the roles want
+      // opposite things: a creator's batch is too big, an auditor's turn is not. A refusal that does
+      // not carry the role can only guess, and guessing sent the Keeper to trim `define` effects on
+      // a turn that defined nothing.
       if (!outcome.ok) throw new KernelError({code:"needs", message:"The Mod agent did not finish its task",
         fix:"Retry the same request to resume the retained job",
-        details:{reason:"mod_agent_failed", timed_out:outcome.timedOut, ms:outcome.ms, exit:outcome.code ?? null, signal:outcome.signal ?? null}});
+        details:{reason:"mod_agent_failed", role, timed_out:outcome.timedOut, ms:outcome.ms, exit:outcome.code ?? null, signal:outcome.signal ?? null}});
       try {
         if (role === "create") {
           const check = await owner.check({kind:"mod-definition", draft:join(job.cwd,"result.json")}, signal);
