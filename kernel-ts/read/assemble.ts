@@ -176,6 +176,6 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
         capsule.resume = options.resume;
     if (truncated.length)
         capsule.truncated = truncated;
-    capsule.mods = await modContext(context, graph, world, party);
+    capsule.mods = await modContext(context, graph, world, party, campaign.records);
     return capsule;
 }

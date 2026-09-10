@@ -72,17 +72,23 @@ export function clockPressures(situations: Row[], party: Row[], session: Row | n
     }
     return [result, near];
 }
-export function threatPressures(graph: ModuleGraph, scene: Row, present: Row[]): Row[] {
+/** Threat nodes that concern this scene or someone present: reachable by present-in / located-in / contains in
+ *  either direction, or whose danger names one of the NPCs on stage. One relatedness for pressures and for the
+ *  pacing package's clock symptoms. */
+export function relatedThreats(graph: ModuleGraph, scene: Row, present: Row[]): Row[] {
     const targets = new Set([scene.node_id, ...present.map(n => n.node_id)]),
-        keys = new Set(present.flatMap(n => [graph.handle(n), graph.displayName(n), n.node_id, n.name || ""]).map(normalize)),
-        moves = array(recordOf(scene).pressure_moves).map(string);
-    return graph.kind("threat").flatMap(threat => {
+        keys = new Set(present.flatMap(n => [graph.handle(n), graph.displayName(n), n.node_id, n.name || ""]).map(normalize));
+    return graph.kind("threat").filter(threat => {
         const outgoing = graph.out.get(threat.node_id) ?? [],
             incoming = graph.incoming.get(threat.node_id) ?? [],
             record = recordOf(threat);
-        const related = outgoing.some(r => ["present-in", "located-in", "contains"].includes(r.relation_kind) && targets.has(r.to_node_id)) || incoming.some(r => ["present-in", "located-in", "contains"].includes(r.relation_kind) && targets.has(r.from_node_id)) || array(record.dangers).some(d => ["monster_ref", "id", "npc_id"].some(k => typeof row(d)[k] === "string" && keys.has(normalize(d[k]))));
-        if (!related)
-            return [];
+        return outgoing.some(r => ["present-in", "located-in", "contains"].includes(r.relation_kind) && targets.has(r.to_node_id)) || incoming.some(r => ["present-in", "located-in", "contains"].includes(r.relation_kind) && targets.has(r.from_node_id)) || array(record.dangers).some(d => ["monster_ref", "id", "npc_id"].some(k => typeof row(d)[k] === "string" && keys.has(normalize(d[k]))));
+    });
+}
+export function threatPressures(graph: ModuleGraph, scene: Row, present: Row[]): Row[] {
+    const moves = array(recordOf(scene).pressure_moves).map(string);
+    return relatedThreats(graph, scene, present).flatMap(threat => {
+        const record = recordOf(threat);
         const clock = array(record.clocks).find(c => c && typeof c === "object" && !Array.isArray(c));
         return [{
                 kind: "threat",

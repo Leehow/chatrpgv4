@@ -97,7 +97,7 @@ export function createModRuntime(context: KernelContext, sources: ModSources = {
           return setupModContext(context, row(lock));
         }
         const {campaign, module} = await readCampaign(context, params, false, false, writer.read);
-        return modContext(context, module.graph, campaign.world, campaign.party);
+        return modContext(context, module.graph, campaign.world, campaign.party, campaign.records);
       },
     });
   }

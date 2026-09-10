@@ -3675,3 +3675,134 @@ uses the existing English source/presenter pipeline with no authored translation
 **`table.branch` 的实现面。** `kernel-ts/worldline/branch.ts` 驱动 §15.9 原语（`worldline/history.ts` 的 checkout/createBranch/deleteBranch/commitIfDirty/head/lineCommit），回滚形状与 `transition` 同款；`forkPlan` 本身用不了（它要开着的回合与图），所以是原语级复用，这是对「复用迁移机器」的正确读法。复审修复后：回放切线路径包同款回滚（强制检出回源线 + 写回 campaign.json + `ok: false` 遥测），且回放切线也置 `pending_branch`（回放切线仍是玩家视角的开线成功，守秘人必须听到）；seal 与 `before` 快照进 try，失败遥测一律有。分叉点回合记录的 `commit` 可以是 null（回合记录从下一次提交起才带 sha），检查点断言只钉 worldline 与 turn。胶囊旗标生命周期：`pending_branch` 随注册表重写写入，下一次 `player_input` 里鲜读→删→写，不会复活。
 
 **锁码的决定（2026-09-09）。** §29.2 原写「锁占用报 `operation_in_progress`」。实现证明 handler 内 remap 不可能：`guardCampaign` 在 handler 之前拿锁，flock 按 open-file-description 计，handler 探不到竞争；而共享 guard 的 `internal` + `details.reason="campaign_locked"` 被 Python 对照（`tests/kernel/test_campaign_lock.py`）钉死，只改 TS 一侧会让两棵树在兼容性边界上分叉。定：契约接受 guard 的形状（§29.2 已改）；宿主在展示层把 `internal`+`reason:campaign_locked` 渲染成 `errors.operation_in_progress` 的玩家词（§23 的词表机制，线上代码不动）；两棵内核树都不动。
+
+## 30. Director and narration packages: `context.thread.v1`, `context.pacing.v1` and four built-in Mods (2026-09-10)
+
+The 0.8.2a Director and text layers were surveyed on 2026-09-10 (report delivered to the user). Their arithmetic
+(§13.3) and their vocabulary (§13.6) were already here; what was not here is carried by four packages under
+`mods/`, on the `pipicoc.game.v1` interface of §26, and by two new read-side capabilities. Nothing below adds a
+write side, a fact about the world, a scoring number outside the graphs, or a reader of prose.
+
+### 30.1 `context.thread.v1`: the story thread
+
+A package requiring it makes the capsule's `mods` section (and `mods.context`) carry `thread`, the 0.8.2a
+`story_thread` idea re-expressed as a pure projection of the module graph and the world: what each authored
+conclusion still needs, organised by where the story can go rather than by where the party stands. The 0.8.2a
+record of why is kept in the package: four flat lists organised by place changed nothing at a live table; one
+chain organised by need changed the first turn.
+
+```
+"thread": {"lines": [{"name": "<conclusion handle>", "needs": "<the conclusion's own description, ≤110 chars>",
+                      "importance": "critical"|"core"|"major"|"supporting"|"minor"|"unknown",
+                      "missing": n, "of": m, "minimum_routes"?: k,
+                      "here":   [{"clue", "gate": <§13.3 clueGate>, "line"?: "<the book's delivery words>"}]   (≤5),
+                      "next":   [{"scene", "clues": j, "line"?: "<the book's delivery words>", "locked"?: "<condition>", "via"?: "back"}]  (≤4, most clues first),
+                      "handed"?: [{"clue", "by": "obvious" | "<present NPC>"}]   (≤4),
+                      "beyond": r,
+                      "fallback"?: "<the conclusion's fallback_policy, only when here and next are both empty>"}]   (≤6, critical first, then fewest missing),
+           "handed"?: "<one fixed sentence: the book means these clues to happen; not routes, not choices; timing is the Keeper's>",
+           "truncated"?: true}
+```
+
+- A line exists for a conclusion with at least one `supports` clue and at least one of them undiscovered (the same
+  reading as §13.3 `main_line_complete`). `here` is `sceneClueIds` of the active scene; `next` walks the scene's
+  exits (§6 `where.exits`) and the way back (`scene_trail`), one entry per scene that holds an undiscovered clue of
+  that line, a clue counted at the first scene that holds it; `beyond` is the remainder. `locked` is the exit's
+  `unlock_when` condition when it is not known to be met; `via: back` marks a scene reached only by the trail.
+- `handed` is structural: an undiscovered clue here whose `delivery_kind` is `obvious`, or `npc_dialogue` with one of
+  its `source_npc_ids` on stage. No semantic judgement chooses it.
+- **Budget 3072 bytes**, because the `mods` section has none of its own. Over budget, the least important lines
+  without clues here lose their words first (`needs`, `line`, `fallback`), then go, then the rest lose their words,
+  then the last lines go; a line with clues in this scene is the actionable part and goes last. `truncated` says so.
+- Implementation `kernel-ts/read/thread.ts`; wired in `modContext` only while an active package requires the
+  capability, so a table without the package pays no bytes.
+
+### 30.2 `context.pacing.v1`: close calls and threat clocks
+
+```
+"pacing": {"close_calls": {"count": n, "threshold": 3, "rule": "<one line naming p.209 and the counting rule>"},
+           "threat_clocks": [{"threat", "clock", "state": "x/y", "symptom"?: "<on_tick_visible at the current segment>", "on_full"?}]}
+```
+
+- `close_calls.count` is the number of closed, played turns (§13.10's reading: player text present) in which an
+  investigator took a blow of at least half their maximum hit points (Keeper Rulebook p.119, a major wound) or was
+  taken to zero or below; each turn counts once. The threshold 3 is the fair-warning ladder of p.209, one of the
+  four rule-derived values the 0.8.2a ledger could name. A party sheet without a maximum counts only drops to zero.
+- `threat_clocks` uses the same relatedness as §13.2 `pressures.threat` (`relatedThreats` in
+  `kernel-ts/read/pressures.ts`, extracted so the two cannot drift) and adds what §13.2 never projected: the
+  clock's visible symptom at its current segment, taken from the threat record's `on_tick_visible`. A scenario-wide
+  clock is still not shown in a scene the book does not connect it to; that rule is the relatedness itself.
+- Implementation `kernel-ts/read/pacing.ts`. `modContext` takes the campaign's closed records as a fifth argument;
+  `table.capsule`/`player_input` (`assemble.ts`) and `mods.context` pass them.
+
+### 30.3 The four packages
+
+| id | requires | contributes | what it carries |
+| --- | --- | --- | --- |
+| `story-thread` | `context.thread.v1` | `instructions` | how to read and use `thread`: land `here` with `apply clue`, put `next` in reach through the fiction and never as a menu, `handed` is not a choice, `fallback` is for a line with nothing reachable |
+| `keeper-pacing` | `context.pacing.v1` | `instructions`, setting `stall_turns` (1–6, default 2) | fair warning below the threshold and none at it; clock symptoms shown only here; compression with the 0.8.2a `must_not`s (no repeated low-agency ask, no restating, no irreversible choice, no skipped gated risk); the stuck-player order world → NPC → information, never a refusal; a recovery lead that always costs time, exposure or alarm (p.199) |
+| `narration-craft` | none | `instructions`, eight integer settings | the 0.8.2a length ladder as settings keyed by `director.beat` (routine 600/3, costly 750/4, reveal 900/5, climax 1500/8, the T5 retune figures), action uptake before result, keep the fact not the sentence, world-assertion cost in three steps, crisis order in seven slots, a handle before stopping, Laws' nine beat words, NPC voice openings |
+| `narration-audit` | `agents.tools.v1` | `auditor` (no `audit_on_decisions`: every audited delivery) | for each receipt of the turn, the narration must realise its fictional consequence; a finding is `{reason: "<receipt id>: …", fix: "<consequence>"}`; numbers, style, length and language are explicitly outside its remit; keeper-visibility rolls need no beat |
+
+All four are `default_enabled: true`; the panel switches any of them per campaign or by default (§26). `narration-audit`
+is a separate package on purpose: it is a gate (a finding refuses the delivery as `mod_narrative_repair`, §26) and
+sits one model judgement away from the number check §16.3 retired for good, so a table can turn the gate off and
+keep the craft. Its prompt forbids asking for a figure, a grade, elapsed minutes or an option list.
+
+### 30.4 What stays out, and why
+
+- Storylets (77 nodes, Chinese `cue`/`beat`/`variants`, 0 calls at the 0.8.2a live table), the storylet multipliers,
+  `conflict-level`, `affinity-ladder`: left in `content/director/director-graph.json` unread, as §13.10 says.
+- The 0.8.2a coverage-row protocol (nine fields per obligation, verbatim excerpt binding): a protocol the Keeper
+  would have to learn; the seven verbs are the point. `narration-audit` keeps the obligation and drops the protocol.
+- Regex or phrase-table prose matchers and the joke library: the 0.8.2a status documents record them rewriting Keeper
+  sentences and never firing; Agents.md forbids them.
+- A reader contribution from a package (§28.2 door 2 stays closed). The reader ask itself
+  (`content/setup/visual-reader.md`) now names the scene pacing fields and the `beat` node, because a book the
+  reader built carried none of them: on 2026-09-10 both PDF-built modules had 0 `dramatic_question`, 0
+  `pressure_moves`, 0 `exit_conditions`, 0 `beat`, 0 `quest` against 12/12/2/12/3 for the hand-written starter, so
+  §13.3's `dramatic_question`, `exit_condition_met` and `yielded-scene`, §13.2's `quest` and `threat` and this
+  section's `next`/`locked` were dead for every imported book. That is the same trap the 0.8.2a Director spec
+  recorded ("the sample selected the conclusion"). The reader ask is one bullet; it is not verified by a rebuild
+  in this slice.
+
+### 30.5 Acceptance
+
+- `tests/kernel/test_mod_director_text.py`: the thread is ordered critical first, names the opening scene's clues
+  with their gates and the present speaker who hands them, moves a discovered clue out, fits 3072 bytes, and both
+  sections vanish when their packages are off; `narration-audit` joins the shared audit job and leaves it when
+  disabled; a major-wound blow counts one close call. `tests/extension/ts-kernel-pacing.test.mjs` pins the
+  close-call counting rule on synthetic records. `tests/kernel/test_mod_order.py` and the Electron catalogue test
+  now list seven built-in packages.
+- The real-table method of Agents.md is the acceptance; the fixtures above are not evidence of play.
+
+### 30.6 What the first real table showed (2026-09-10, `mods-live-1`, The Haunting, zh-Hans, grok-4.6 low as Keeper)
+
+Seven played turns plus the opening, evidence under the worktree's `.coc/playtests/mods-live-1/` and
+`.coc/campaigns/mods-live-1/turns/`. Not a full acceptance run: it stopped in the upstairs bedroom after the bed
+attack, before any close call and before the basement.
+
+- **The thread was used from the first turn.** Turn 1 landed the `handed` clue (`knott-macario-summary`); turn 2,
+  to a directionless player ("一时没想好该从哪儿下手"), the Keeper put every `next` scene in Knott's mouth as
+  directions and landed the three remaining `here` clues (keys, commission, research leads) in one `apply`; turn 4
+  at the morgue landed the three clues the line named there; turn 7 in the bedroom landed the two it named. Every
+  `director_adoption` from turn 1 to 7 is `adopted: true`. The 0.8.2a judgement that a chain changes behaviour where
+  flat lists did not is consistent with this, on one table.
+- **`narration-audit` produced no false positive** across eight audited drafts (findings `[]` each time). The two
+  refusals in the run were Enhanced Items' `missing` equipment adoptions, not this package. It has not yet been seen
+  to catch a real omission; that is still to be shown.
+- **The `mods` section is the heaviest part of the capsule now**: turn 6 capsule 32,976 bytes, of which `mods`
+  22,048: `instructions` 11,970 (Enhanced Items 4,802; the four packages here 7,076 together), `objects` 6,074,
+  `thread` 2,982. Every package's instruction text is re-sent every turn (§26 shape). A budget for `mods`, or a
+  first-turn-only long form with a per-turn short form as `style` already does (§13.6), is the next contract
+  decision; nothing here changes it.
+- **`threat_clocks` stayed empty in the haunted house.** Both starter threat records have `scope: scenario`, no
+  scene reference of any kind, no `current_segments`, and no product path advances a threat clock. Relatedness (§13.2)
+  is therefore unsatisfiable on the starters until the threat's danger is on stage as an NPC. This is the data and
+  the missing writer, not the projection; the 0.8.2a refusal to show a scenario-wide clock everywhere is kept on
+  purpose. `close_calls` stayed 0 (the bed did 2 of 12).
+- Seams seen that belong to other tickets: social `resolve` refused four times for a missing `skill` (turn 1);
+  `needs_choice` re-sent unchanged three times (turn 7, the Director-grounded narrowing offered 2 candidates and the
+  Keeper chose neither); one turn took 342 s (turn 6, the first read of the upstairs scene); an English token
+  (`thrift`) appeared inside zh-Hans prose at turn 2, a model defect the verifier lane is meant to flag, and the
+  audit rightly did not.

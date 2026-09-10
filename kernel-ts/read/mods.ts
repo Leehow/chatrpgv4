@@ -7,8 +7,10 @@ import { RpcError } from "../errors.js";
 import { compareUnicode, jsonDigest, parsePythonJson } from "../json.js";
 import { ModuleGraph } from "./module-graph.js";
 import { npcsPresent } from "./capsule.js";
+import { threadSection } from "./thread.js";
+import { pacingSection } from "./pacing.js";
 import { entries, values, array, row, truth, string, number, integer, numeric, normalize, sorted, chars, length, clone, pick, type Row } from "./values.js";
-export const MOD_CAPABILITIES = new Set(["checks.percentile.v1", "context.npc.v1", "definitions.v1", "objects.v1", "objects.state.v2", "objects.adopt.v1", "objects.documents.v1", "mods.order.v1", "ui.documents.v1", "ui.documents.language.v1", "agents.tools.v1", "weapons.v1", "weapons.profile.v2", "spells.v1", "item-effects.v1", "setup.guidance.v1", "setup.aptitude.v1"]);
+export const MOD_CAPABILITIES = new Set(["checks.percentile.v1", "context.npc.v1", "definitions.v1", "objects.v1", "objects.state.v2", "objects.adopt.v1", "objects.documents.v1", "mods.order.v1", "ui.documents.v1", "ui.documents.language.v1", "agents.tools.v1", "weapons.v1", "weapons.profile.v2", "spells.v1", "item-effects.v1", "setup.guidance.v1", "setup.aptitude.v1", "context.thread.v1", "context.pacing.v1"]);
 const invalid = (message: string): never => {
     throw new RpcError("invalid_params", message);
 };
@@ -282,7 +284,8 @@ export function objectContext(world: Row): Row {
         }))
     };
 }
-export async function modContext(context: KernelContext, graph: ModuleGraph, world: Row, party: Row[]): Promise<Row> {
+/** `records` are the campaign's closed turns; only a package requiring `context.pacing.v1` reads them. */
+export async function modContext(context: KernelContext, graph: ModuleGraph, world: Row, party: Row[], records: Row[] = []): Promise<Row> {
     const active = await activeMods(context, world),
         providers = modProviders(active),
         checks = new Map<string, Row>();
@@ -313,9 +316,11 @@ export async function modContext(context: KernelContext, graph: ModuleGraph, wor
                         when: "first meaningful contact, not merely appearing in this list"
                     });
             }
-    const effective = effectiveMods(active);
+    const effective = effectiveMods(active),
+        required = new Set(active.flatMap(mod => array(mod.requires).map(string))),
+        scene = graph.scene(world.active_scene);
     const unregistered = active.some(mod => truth(mod.contributes.materializer)) ? unregisteredEquipment(party) : [];
-    return {
+    const result: Row = {
         active: active.map(mod => ({
             id: mod.id,
             version: mod.version
@@ -333,6 +338,12 @@ export async function modContext(context: KernelContext, graph: ModuleGraph, wor
         providers,
         unregistered_equipment: unregistered
     };
+    // A section exists only while a package that reads it is on (§30): no reader, no bytes in the capsule.
+    if (required.has("context.thread.v1"))
+        result.thread = threadSection(graph, world, scene, present);
+    if (required.has("context.pacing.v1"))
+        result.pacing = pacingSection(graph, scene, present, party, records);
+    return result;
 }
 export function publicItems(world: Row, ownerId: string, includeContainedDocuments = false): Row[] {
     const data = row(world.objects),

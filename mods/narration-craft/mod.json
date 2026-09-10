@@ -1,0 +1,14 @@
+{
+  "id": "narration-craft", "version": "1.0.0", "game_api": "pipicoc.game.v1",
+  "state_version": 1, "author": "PipiCOC",
+  "name": {"en": "Narration Craft", "zh-Hans": "叙述手艺"},
+  "description": {"en": "A length budget per beat, the player's action taken up before its result, crisis scenes in order, and NPCs who speak in their own voice.", "zh-Hans": "按节拍给篇幅预算、先演玩家的行动再给结果、危机场景按顺序写、NPC 用自己的声音说话。"},
+  "default_enabled": true, "requires": [],
+  "dependencies": {}, "conflicts": [],
+  "settings": {"routine_chars": 600, "routine_paragraphs": 3, "costly_chars": 750, "costly_paragraphs": 4, "reveal_chars": 900, "reveal_paragraphs": 5, "climax_chars": 1500, "climax_paragraphs": 8},
+  "settings_schema": {"routine_chars": {"minimum": 200, "maximum": 4000}, "routine_paragraphs": {"minimum": 1, "maximum": 12},
+                      "costly_chars": {"minimum": 200, "maximum": 4000}, "costly_paragraphs": {"minimum": 1, "maximum": 12},
+                      "reveal_chars": {"minimum": 200, "maximum": 4000}, "reveal_paragraphs": {"minimum": 1, "maximum": 12},
+                      "climax_chars": {"minimum": 200, "maximum": 6000}, "climax_paragraphs": {"minimum": 1, "maximum": 16}},
+  "contributes": {"instructions": "agent.md"}
+}
