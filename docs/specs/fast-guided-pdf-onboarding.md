@@ -322,8 +322,8 @@ opening checks and focused tests only; preserve concurrent main-branch panel edi
 - [x] Enforce a first-scene opening batch, checked submission and deferred optional material.
 - [x] Reuse bounded PDF documents and coalesce repeated page work.
 - [x] Run focused gates, local PDF A/B and a real Pi source-preparation probe.
-- [ ] Verify the packaged App; character-confirmation-to-play UI latency remains unmeasured.
-- [ ] Integrate without absorbing concurrent work and classify the owned worktree.
+- [x] Verify the packaged App in an isolated profile with Item Enhancement disabled. Observed confirmation-message to playable-opening interval: 105 seconds; source readiness preceded confirmation.
+- [x] Integrate without absorbing concurrent work; retain the owned worktree for immutable preparation evidence and the previous signed App.
 
 Existing PDF.js document lifecycle APIs support document reuse until cleanup/destroy; the owner
 must not destroy active rendering ([PDF.js](https://mozilla.github.io/pdf.js/api/draft/module-pdfjsLib-PDFDocumentProxy.html)).
@@ -340,3 +340,31 @@ Implementation checks: 50 focused extension tests passed; kernel and touched-hos
 Local PDF A/B, one four-page sample (59–62, 2000px JPEG): cold source pages 2909.29→2140.59 ms, two cache passes 156.76→7.00 and 148.56→9.16 ms. PDF and image hashes match. This is local source work, not end-to-end latency.
 
 Real source-only probe: first attempt used an overly short 180-second per-reader test deadline, then repaired its retained draft; 16 review groups completed but an opening-name mismatch rejected publication. The resumed attempt after early identity validation reached opening_ready in 279225 ms with 15 review groups. This is warm recovery, not a cold benchmark or App play acceptance. The subsequent present-material guard and inline-input refinements have focused coverage but were not counted as another paid full preparation run. Evidence remains under .coc/playtests/pdf-opening-latency-live/.
+
+### Installed App result (2026-09-10)
+
+Implementation integrated as 1e999a55; canonical /Applications/PipiCOC.app built from
+b487f350, including the already-committed Mod pool change. PipiUI Dev signature and
+managed runtime checks passed. LaunchServices and Spotlight resolve only the canonical
+App; the original bundle remains in the task worktree's .build.noindex backup.
+
+A sidebar project did not isolate the COC home, so the first UI attempt was preserved
+and stopped before any card input or Mod toggle. The subsequent test used the product's
+existing PIPIUI_PRODUCT_CONFIG override with a separate userDataDirname, not a code patch.
+Only the existing xAI credential was reused locally; credentials are absent from reports.
+Item Enhancement 1.1.3 was disabled before import and confirmed disabled in the actual
+new campaign. The normal profile's Mod settings were untouched.
+
+Observed fresh-profile source timing: guidance 04:50:23–04:51:51 UTC (88 s), opening
+04:51:51–04:56:24 (273 s), overlapping genuine card creation. The player sent card
+confirmation at 04:56:55; an actual playable opening was observed at 04:58:40 (105 s).
+Source readiness was already satisfied 31 s before confirmation. The first natural
+provenance question settled at 04:59:31 into round 2 using lookup/apply/narrate, with no
+needs-material or Item Enhancement generation wait. Its exact click instant was not
+separately sampled; do not infer an exact first-turn duration. Normal profile restored.
+
+This is one genuine App run, not a matched cold latency A/B or a guarantee of instant
+opening. Remaining post-confirmation delay belongs to confirmation/handoff/opening
+work and observation overhead, not outstanding PDF source preparation in this run.
+Evidence: .coc/playtests/pdf-opening-app-20260910/isolated-run-report.md and
+.coc/playtests/pdf-opening-latency-20260910/. All failed attempts remain retained.
