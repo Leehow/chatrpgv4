@@ -392,3 +392,26 @@ def test_a_definition_job_carries_only_the_table_its_category_can_use(kernel):
     # The category is pinned before the child starts, so an item can never reach either preset table.
     # It used to carry both anyway, and the packet is a file the child cannot query.
     assert catalogs("item", "Fixture pencil") == {}
+
+
+def test_a_handover_placement_is_refused_with_a_repair_the_keeper_can_follow(kernel):
+    open_turn(kernel)
+    placement = {"kind":"object", "name":"Given launcher", "definition":"Handover launcher",
+                 "to":"Thomas Hayes", "why":"Knott hands it over"}
+
+    # A handover narrated as one transfer: the batch defines the object and gives it away in the same call.
+    refused = kernel.table_err("apply", call_id="t1-c1",
+                               effects=[prepared(kernel, weapon("Handover launcher")), {**placement, "from":"Steven Knott"}])
+    assert refused["code"] == "invalid_params"
+    # Telling it to define first sent it back to drop the define it had already batched.
+    assert "define and place it first" not in refused["message"]
+    assert "without from" in refused["fix"]
+
+    # That is the second refusal it used to earn by following the old advice literally.
+    absent = kernel.table_err("apply", call_id="t1-c2", effects=[placement])
+    assert absent["code"] == "invalid_params"
+    assert "Handover launcher" in absent["message"] and "spells" not in absent["message"]
+
+    # And the repair the fix names actually lands.
+    kernel.table("apply", call_id="t1-c3", effects=[prepared(kernel, weapon("Handover launcher")), placement])
+    assert kernel.table("look", focus="object", name="Given launcher")["definition"]["name"] == "Handover launcher"

@@ -2,7 +2,7 @@
 import { RpcError } from '../errors.js';
 import { jsonDigest } from '../json.js';
 import { findNamedObject } from '../read/mods.js';
-import { clone, equal, integer, row, truth, type Row } from '../read/values.js';
+import { clone, equal, integer, repr, row, truth, type Row } from '../read/values.js';
 import { asciiSlug } from '../write/text.js';
 import { validateDefinition } from './definition.js';
 import { initializeDocument, ownershipChanged } from './documents.js';
@@ -46,9 +46,17 @@ export function moveObject(world: Row, name: string, definitionName: string | nu
         }
         prior.owner = clone(owner); prior.changed_turn = options.turn; ownershipChanged(world); return prior;
     }
-    if (source !== null) throw new RpcError('invalid_params', 'No existing instance to transfer; define and place it first');
+    // A Keeper reaches this by narrating a handover -- Knott gives you the keys -- as a single transfer.
+    // The old refusal told it to define and place first, which it had already batched, so it followed the
+    // advice literally, dropped its own define, and earned a second refusal. `from` stays a claim about an
+    // existing owner; only the repair changes.
+    if (source !== null) throw new RpcError('invalid_params', `No instance named ${repr(name)} exists yet, so it has no previous owner to transfer from`,
+        {fix: 'place it without from, in the same batch as its definition; a handover becomes a transfer only once the instance exists'});
     const template = findNamedObject(data.definitions, definitionName || name);
-    if (!template || template.category === 'spell') throw new RpcError('invalid_params', 'Place an item/weapon from an accepted definition; spells are knowledge');
+    // One message for two causes sent the Keeper looking at spells when the definition was simply absent.
+    if (!template) throw new RpcError('invalid_params', `No accepted definition named ${repr(definitionName || name)}`,
+        {fix: 'define it in this same batch, or name an existing definition exactly'});
+    if (template.category === 'spell') throw new RpcError('invalid_params', 'Place an item/weapon from an accepted definition; spells are knowledge');
     if (template.category === 'weapon' && !equal(quantity, 1)) throw new RpcError('invalid_params', 'Each weapon has one instance and its own ammunition');
     const id = `object-${asciiSlug(name) || 'item'}-${Object.keys(data.instances).length + 1}`, params = template.parameters;
     const item: Row = {id, name, definition: template.id, owner: clone(owner), quantity,
