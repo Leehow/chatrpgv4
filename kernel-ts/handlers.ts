@@ -18,7 +18,7 @@ export const KNOWN_METHODS = Object.freeze([
   "table.view", "table.graph", "table.lookup", "table.recall", "table.resolve", "table.apply", "table.ask",
   "table.narrate", "table.warn", "table.branch", "table.switch", "memory.job", "memory.submit", "memory.fail",
   "setup.steps", "setup.occupations", "setup.investigator", "setup.complete", "setup.prologue",
-  "setup.draft", "setup.previewed", "setup.confirm",
+  "setup.draft", "setup.previewed", "setup.confirm", "setup.override",
   "module.source.bind", "module.read.request", "module.read.claim", "module.read.finish",
   "module.list", "module.status", "module.register", "module.opening.choose", "module.asset",
   "investigator.list", "investigator.get", "investigator.save", "investigator.load",

@@ -405,7 +405,9 @@ export default function (pi: ExtensionAPI) {
 			}
 			const filled = fillParams(op, args, index === 0);
       if(op.method==='setup.draft'||op.method==='setup.confirm')filled.params.input_key=inputKey;
-      if(op.method==='setup.confirm') {filled.params.revision=draftRevision;filled.params.last_exchange=lastPlayerInput;filled.params.player_requests=ctx?.sessionManager.getBranch().filter((e:any)=>e.type==='message'&&e.message?.role==='user').map((e:any)=>Array.isArray(e.message.content)?e.message.content.filter((x:any)=>x.type==='text').map((x:any)=>x.text).join('\n'):typeof e.message.content==='string'?e.message.content:'')||[];}
+      // setup.confirm's revision stays omitted: the kernel defaults it to the campaign's current
+      // draft (contract §23.4), which keeps a UI-driven override confirmable without a re-draft.
+      if(op.method==='setup.confirm') {filled.params.last_exchange=lastPlayerInput;filled.params.player_requests=ctx?.sessionManager.getBranch().filter((e:any)=>e.type==='message'&&e.message?.role==='user').map((e:any)=>Array.isArray(e.message.content)?e.message.content.filter((x:any)=>x.type==='text').map((x:any)=>x.text).join('\n'):typeof e.message.content==='string'?e.message.content:'')||[];}
 			if (filled.missing.length > 0) {
 				return {
 					ok: false,

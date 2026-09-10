@@ -2545,9 +2545,11 @@ never replaces a valid draft. setup.draft returns revision, sheet, completeness 
 player-language labels. A repeated identical profile reuses the same revision.
 setup.previewed {revision} is a host-only acknowledgment after actual render; it
 rejects stale versions. setup.confirm {revision, consent: approved|delegated} commits
-that exact sheet, without random generation. approved requires the current preview
+that exact sheet, without random generation. revision may be omitted, in which case
+the campaign's current draft revision is confirmed; a pinned stale revision still
+conflicts. approved requires the current preview
 ack and a later player-input token than the draft creation input; delegated is only for explicit write-now requests and does not pretend the
-player saw a prior version. The extension injects revision and the per-input token, never the model.
+player saw a prior version. The extension injects the per-input token, never the model.
 
 Draft revisions, previews and confirmation are serialized by a campaign-local file
 lock across kernel processes. Immutable draft file publication precedes its pointer;
@@ -2723,6 +2725,107 @@ fields (damage_die, base_range_yards, uses_per_round, magazine, ammo, malfunctio
 skill, adds_damage_bonus, special) and legacy aliases when needed. Magazine
 capacity and current ammunition remain distinct; missing values are not invented.
 These UI captions use the sidebar's existing closed-language chrome exception.
+
+#### Manual numeric override from the card (2026-09-10)
+
+The card is the one draft, but until now the only way to change its numbers was to
+describe a change in chat and accept a fresh roll. `setup.override` is the
+structured path: a host-only RPC behind the card's manual-edit control, never
+called by the setup model. Conversational `setup.draft` keeps owning semantic
+changes and its rolled arithmetic is untouched; the override changes numbers on
+the existing person and says so on the record.
+
+**Call.** `setup.override {campaign, revision, edits, limits_override?, dry_run?}`.
+`revision` must equal the campaign's current `setup.draft_revision` — the same
+optimistic-concurrency rule as preview/confirm — and a stale one is
+`idempotency_conflict` with codeDetail `stale_draft`. The campaign must still be
+`setting_up`; once the card is committed the investigator belongs to the table and
+overrides are refused. The call carries no `input_key`: it is a host action, not a
+player message, so the draft it writes has a null `input_key`.
+
+**Edits.** `edits` is a partial numeric update with exactly these optional fields;
+unknown fields are `invalid_params`:
+
+- `characteristics`: object over the nine abbreviations; each value an integer.
+  Default bounds are [15, 90] — the rulebook creation range, which the point-buy
+  table in `characteristic-dice.json` records with the same floor and ceiling.
+- `skills`: object over skills already listed on the sheet; each value an integer.
+  A skill's floor is its base value recomputed on the new characteristics
+  (unlearning is not a creation edit); its ceiling is the effective starting cap
+  (default `skills.guided_creation_policy.starting_skill_cap`, 75). Skills absent
+  from the sheet cannot be added, Cthulhu Mythos stays banned, and Credit Rating
+  is not a skill edit.
+- `credit_rating`: integer within the occupation's `credit_rating_range`.
+
+Name, age, occupation, era, backstory and kit stay conversational: age is a
+one-way application of rulebook adjustments and identity fields are the setup
+model's semantic job, so the edit control edits numbers only.
+
+**Accounting.** The override rebuilds the sheet from the stored draft rather than
+patching cells:
+
+1. Named characteristics take their edited values; the rest keep the stored ones.
+2. Skill base values are recomputed from the new characteristics through the
+   existing `Chargen.skillBase`, and every skill keeps its recorded point
+   investment — final = new base + held points — before `edits.skills` is applied
+   on top of that.
+3. Budgets are charged against formulas evaluated on the new characteristics:
+   occupational spend (points above base on the occupation's skill list, plus
+   Credit Rating) against the occupation formula total, and every other skill's
+   points above base against personal interest (INT*2). An edit that breaks a
+   bound is `needs`, with details naming the pool, its total, the attempted spend
+   and the legal range of the offending field — the closed-set refusal shape the
+   frontend needs to mark the exact input. The sheet's allocation ledger
+   (`creation.skills`) is rewritten to the manual allocation it now holds:
+   per-skill points above base, each pool's budget evaluated on the new
+   characteristics, spent and remaining — so the saved card's budget table never
+   shows the rolled ledger the override replaced.
+4. Derived values are recomputed by the existing `Chargen.derive` with the stored
+   age movement penalty, and `current_hp/mp/san/luck` reset to the new values —
+   setup has taken no damage. Age does not change, so the MOV penalty is not
+   re-rolled either. A credit_rating edit also recomputes cash and finance
+   through the existing cash-assets table of the draft's era, so the card's
+   wealth line agrees with its rating.
+
+**Limits and the unlock.** Both `setup.draft` and `setup.override` results carry a
+`limits` block, also stored in the draft file, so the edit control renders the
+rules instead of hardcoding them: characteristic floor/ceiling, starting skill
+cap, the occupation formula with its evaluated total, the interest formula with
+its evaluated total, the credit rating range, and which entries an override
+supplied. `limits_override {characteristic_min?, characteristic_max?, skill_cap?,
+occupation_points?, interest_points?}` relaxes exactly those bounds: the two
+budget fields replace the evaluated formula totals while the formulas stay on the
+record. The override is stored on the draft, applies to the call that carries it,
+and persists on later drafts of the same campaign until changed — the control's
+unlocked state survives closing and reopening, and the `limits` block always says
+what is in force. Credit Rating's range is the occupation's and is not itself
+unlockable; a raised `occupation_points` is how an unlocked draft affords more of
+it.
+
+**Persistence and audit.** Without `dry_run`, the override writes the next
+immutable draft revision: the base draft's `seed` and `profile`, the rebuilt
+sheet, `creation.method` preserved (the dice evidence stays), a new
+`creation.manual` record {base_revision, edits, limits_override} and a recomputed
+`digest`. `campaign.setup.draft_revision` advances and `previewed_revision`
+clears, exactly as `setup.draft` does. `dry_run: true` runs the same rebuild and
+validation and returns the would-be result without writing anything — the
+control's live preview of derived values and budgets as fields change. Because an
+override keeps its base profile, a later `setup.draft` with an identical profile
+returns the overridden draft unchanged under its existing reuse rule; a later
+`setup.draft` with a changed profile rebuilds from the dice and supersedes the
+manual numbers — the player asked the fiction for a different person. Preview and
+confirmation are unchanged: the re-rendered card acknowledges the new revision,
+and `setup.confirm` commits exactly that sheet.
+
+**Frontend rendering.** A `coc-character-draft` transcript entry renders the bound
+campaign's current draft, read from the draft store at history time, not a
+snapshot of the revision that appended it: the entry marks where the card sits in
+the conversation, and a manual edit must neither fork the visible card from
+campaign state nor rewrite a live session file. After confirmation the current
+draft is the confirmed sheet, so cards freeze on it naturally. The edit control's
+chrome (its button, the limit captions, the budget labels) joins the card's
+existing English text keys and is projected by the same presenter lane — no
+language table and no language branch.
 
 ## 26. Gameplay mods (2026-09-08)
 

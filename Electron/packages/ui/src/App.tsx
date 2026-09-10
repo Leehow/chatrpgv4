@@ -2823,6 +2823,32 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
                   const result=await host.invokeExtension!("coc-keeper","choose",{choice:(entry.details as any).name,option},{sessionId:selectedSession});
                   if(!result.ok)throw new Error(result.error?.message || "Choice failed");
                 }}
+                onDraftOverride={async (entry,request)=>{
+                  const ack=await host.invokeExtension!("coc-keeper","draft-override",request,{sessionId:selectedSession});
+                  // A `needs` refusal is the edit control's validation answer, not a transport
+                  // failure: hand it to the modal so it can mark the offending input.
+                  if(!ack.ok){
+                    if((ack.error as any)?.code==='needs')return {ok:false,error:ack.error};
+                    throw new Error(ack.error?.message||"Draft override failed");
+                  }
+                  const result=ack.data as Record<string,any>;
+                  // A saved override returns the fresh draft payload; show it in place of the
+                  // revision the player edited. A superseded answer carries the current draft for
+                  // the same swap. The old revision's projected words must not survive the swap,
+                  // or the card would never poll the new presentation.
+                  const fresh=result?.superseded?result.draft:result;
+                  if(fresh?.sheet&&!request.dry_run)
+                    mutateLocalTranscript(current=>current.map(message=>{
+                      const presentation=message.presentation;
+                      if(presentation?.renderer!=='coc-character-draft')return message;
+                      const details=presentation.details as any;
+                      if(details?.revision!==(entry.details as any)?.revision)return message;
+                      const merged={...details,...fresh};
+                      delete merged.presentation;
+                      return {...message,presentation:{...presentation,details:merged}};
+                    }));
+                  return result;
+                }}
                 messages={messages}
                 onLoadOlder={loadOlderHistory}
                 documentBasePath={selectedProjectPath}

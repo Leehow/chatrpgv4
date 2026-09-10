@@ -1,21 +1,24 @@
 /** Immutable calculated drafts, rendered-preview acknowledgment and exact-sheet confirmation. */
 import { join } from 'node:path';
 import { RpcError } from '../errors.js';
-import { isJsonObject, jsonDigest } from '../json.js';
+import { compareUnicode, isJsonObject, jsonDigest } from '../json.js';
 import { withExclusiveLock } from '../locks.js';
 import { playerGlossary } from '../read/handlers.js';
 import { playLanguageOf } from '../read/languages.js';
 import { loadModule } from '../read/campaign.js';
-import { row, array, clone, string, number, truth, equal, repr, type Row } from '../read/values.js';
+import { row, array, clone, entries, string, number, integer, truth, equal, repr, type Row } from '../read/values.js';
 import { moduleEra } from '../library/index.js';
 import { setupModContext } from '../read/mods.js';
 const APTITUDE_CAPABILITY = 'setup.aptitude.v1';
 import type { CampaignWriter } from '../write/store.js';
 import type { Setup } from './index.js';
-import { ChargenError } from './chargen.js';
+import { ChargenError, parseFormula, evaluateFormula } from './chargen.js';
 import { BACKSTORY, completeness, nonempty } from './sheet.js';
 const FIELDS = ['name', 'occupation', 'age', 'sex', 'concept', 'occupation_skills', 'interest_skills', 'own_language', 'backstory', 'key_connection', 'equipment', 'weapons', 'era', 'aptitude', 'occupation_stated'];
 const APTITUDE = ['strong', 'weak'], APTITUDE_FIELDS = [...APTITUDE, 'origin'];
+/** The manual override edits numbers only; identity stays conversational (contract §23.4). */
+const EDIT_FIELDS = ['characteristics', 'skills', 'credit_rating'];
+const LIMITS_FIELDS = ['characteristic_min', 'characteristic_max', 'skill_cap', 'occupation_points', 'interest_points'];
 export class SetupDrafts {
   constructor(readonly setup: Setup) {}
   async locked<T>(params: Row, action: (campaign: CampaignWriter) => Promise<T>): Promise<T> {
@@ -29,7 +32,25 @@ export class SetupDrafts {
   async result(draft: Row): Promise<Row> {
     const issues = completeness(draft.sheet);
     return {revision: draft.revision, sheet: draft.sheet, profile: draft.profile,
-      labels: await playerGlossary(this.setup.context, await playLanguageOf(this.setup.context, draft)), completeness: {valid: !issues.length, issues}};
+      labels: await playerGlossary(this.setup.context, await playLanguageOf(this.setup.context, draft)), completeness: {valid: !issues.length, issues},
+      limits: draft.limits ?? await this.limits(draft)};
+  }
+  /** The rules the edit control renders, computed from Chargen and the draft's stored relaxations;
+   *  formulas are evaluated on the given (or the draft's own) characteristics (contract §23.4). */
+  async limits(draft: Row, card?: Row): Promise<Row> {
+    const sheet = card ?? row(draft.sheet), characteristics = row(sheet.characteristics);
+    const relax = isJsonObject(draft.limits_override) ? draft.limits_override : {};
+    const bound = (key: string, fallback: number): number => Object.hasOwn(relax, key) ? Math.trunc(number(relax[key])) : fallback;
+    const [minimum, maximum] = this.setup.chargen.creationBounds;
+    const [, spec] = this.setup.chargen.occupation(sheet.occupation);
+    const occupation = evaluateFormula(parseFormula(spec.skill_point_formula || ''), characteristics);
+    const interest = evaluateFormula(parseFormula(string(this.setup.chargen.policy.formulas.personal_interest_points)), characteristics);
+    return {characteristic_min: bound('characteristic_min', minimum), characteristic_max: bound('characteristic_max', maximum),
+      skill_cap: bound('skill_cap', this.setup.chargen.cap),
+      occupation_points: bound('occupation_points', occupation.total), interest_points: bound('interest_points', interest.total),
+      occupation_formula: occupation, interest_formula: interest,
+      credit_rating_range: (truth(spec.credit_rating_range) ? array(spec.credit_rating_range) : [0, 0]).map(number),
+      overridden: LIMITS_FIELDS.filter(key => Object.hasOwn(relax, key))};
   }
   async validateProfile(profile: Row): Promise<void> {
     const issues: string[] = [];
@@ -111,7 +132,10 @@ export class SetupDrafts {
       const issues = completeness(sheet);
       if (issues.length) throw new RpcError('needs', 'The card is incomplete', {details: {issues}});
       const revision = number(previous?.revision) + 1;
-      const draft = {revision, play_language: await playLanguageOf(this.setup.context, meta), seed, profile, sheet, input_key: params.input_key ?? null, receipt, digest: jsonDigest(sheet)};
+      const inherited = isJsonObject(previous?.limits_override) ? previous.limits_override : null;
+      const draft: Row = {revision, play_language: await playLanguageOf(this.setup.context, meta), seed, profile, sheet, input_key: params.input_key ?? null, receipt, digest: jsonDigest(sheet),
+        limits: await this.limits({limits_override: inherited}, sheet)};
+      if (inherited) draft.limits_override = inherited;
       await campaign.write(join('setup', 'drafts', `${revision}.json`), draft);
       meta.setup = {...row(meta.setup), draft_revision: revision, previewed_revision: null}; await campaign.writeCampaign(meta);
       return this.result(draft);
@@ -127,8 +151,8 @@ export class SetupDrafts {
   }
   async confirm(params: Row): Promise<Row> {
     return this.locked(params, async campaign => {
-      const meta = await campaign.readCampaign(), draft = await this.load(campaign, meta);
-      if (!draft || !equal(params.revision, draft.revision)) throw new RpcError('idempotency_conflict', 'Confirm the current draft; no new card was written', {codeDetail: 'stale_draft'});
+      const meta = await campaign.readCampaign(), draft = await this.load(campaign, meta), pinned = params.revision !== undefined && params.revision !== null;
+      if (!draft || (pinned && !equal(params.revision, draft.revision))) throw new RpcError('idempotency_conflict', 'Confirm the current draft; no new card was written', {codeDetail: 'stale_draft'});
       const state = meta.setup, consent = params.consent;
       if (!['approved', 'delegated'].includes(consent)) throw new RpcError('invalid_params', 'consent must be approved or explicitly delegated');
       if (jsonDigest(draft.sheet) !== draft.digest) throw new RpcError('idempotency_conflict', 'The immutable draft was altered');
@@ -148,6 +172,124 @@ export class SetupDrafts {
       if (truth(state.prologue)) { state.prologue.last_exchange = string(params.last_exchange || ''); state.prologue.introduction = {name: draft.sheet.name, occupation: draft.sheet.occupation}; }
       meta.investigators = ['investigator']; await campaign.writeCampaign(meta);
       return {...await this.result(draft), committed: true};
+    });
+  }
+  /** Structured numeric edit of the current draft, host-only behind the card's edit control (contract §23.4).
+   *  Rebuilds the sheet from the stored draft: edited characteristics, bases recomputed through
+   *  Chargen.skillBase with every skill's recorded investment held, budgets charged against formulas
+   *  evaluated on the new characteristics, derived values recomputed with the stored age MOV penalty. */
+  async override(params: Row): Promise<Row> {
+    return this.locked(params, async campaign => {
+      const meta = await campaign.readCampaign();
+      if (meta.status !== 'setting_up') throw new RpcError('invalid_params', 'the campaign is no longer accepting drafts');
+      const base = await this.load(campaign, meta);
+      if (!base || !equal(params.revision, base.revision)) throw new RpcError('idempotency_conflict', 'The override does not apply to the current draft', {codeDetail: 'stale_draft'});
+      if (truth(row(meta.setup).confirmed_revision)) throw new RpcError('campaign_not_ready', 'The confirmed card cannot be replaced during handoff');
+      const edits = params.edits;
+      if (!isJsonObject(edits) || Object.keys(edits).some(key => !EDIT_FIELDS.includes(key)))
+        throw new RpcError('invalid_params', 'edits contains unknown fields', {details: {fields: [...EDIT_FIELDS].sort()}});
+      const carried = Object.hasOwn(params, 'limits_override') ? params.limits_override : base.limits_override;
+      if (carried != null && (!isJsonObject(carried) || Object.keys(carried).some(key => !LIMITS_FIELDS.includes(key)) || Object.values(carried).some(value => !integer(value))))
+        throw new RpcError('invalid_params', 'limits_override relaxes only the declared numeric bounds', {details: {fields: [...LIMITS_FIELDS].sort()}});
+      const relax: Row = isJsonObject(carried) ? carried : {};
+      const bound = (key: string, fallback: number): number => Object.hasOwn(relax, key) ? Math.trunc(number(relax[key])) : fallback;
+      const [minimum, maximum] = this.setup.chargen.creationBounds;
+      const charMin = bound('characteristic_min', minimum), charMax = bound('characteristic_max', maximum), cap = bound('skill_cap', this.setup.chargen.cap);
+      const baseSheet = row(base.sheet), stored = row(baseSheet.characteristics), characteristics: Row = {...stored};
+      const legalCharacteristics = [...this.setup.chargen.characteristics, 'LUCK'];
+      const characteristicEdits = edits.characteristics ?? {};
+      if (!isJsonObject(characteristicEdits) || Object.keys(characteristicEdits).some(key => !legalCharacteristics.includes(key)))
+        throw new RpcError('invalid_params', 'edits.characteristics covers only the nine abbreviations', {details: {fields: [...legalCharacteristics].sort()}});
+      for (const [abbr, value] of entries(characteristicEdits)) {
+        if (!integer(value)) throw new RpcError('invalid_params', `edits.characteristics.${abbr} must be an integer`);
+        if (number(value) < charMin || number(value) > charMax)
+          throw new RpcError('needs', 'A characteristic stays within its creation bounds', {details: {field: abbr, range: [charMin, charMax], attempted: number(value)}});
+        characteristics[abbr] = Math.trunc(number(value));
+      }
+      const listed = row(baseSheet.skills), names = Object.keys(listed);
+      const bases: Row = {}, rebuilt: Row = {};
+      for (const name of names) {
+        if (name === 'Credit Rating') { rebuilt[name] = number(listed[name]); continue; }
+        bases[name] = this.setup.chargen.skillBase(name, characteristics);
+        rebuilt[name] = bases[name] + number(listed[name]) - this.setup.chargen.skillBase(name, stored);
+      }
+      const skillEdits = edits.skills ?? {};
+      if (!isJsonObject(skillEdits)) throw new RpcError('invalid_params', 'edits.skills must be an object over skills already on the sheet');
+      for (const [name, value] of entries(skillEdits)) {
+        if (name === 'Cthulhu Mythos') throw new RpcError('needs', 'Cthulhu Mythos is never a creation skill', {details: {field: name}});
+        if (name === 'Credit Rating') throw new RpcError('invalid_params', 'Credit Rating is not a skill edit; use edits.credit_rating', {details: {field: 'credit_rating'}});
+        if (!Object.hasOwn(listed, name)) throw new RpcError('needs', 'A manual edit cannot add a skill to the sheet', {details: {field: name, skills: names}});
+        if (!integer(value)) throw new RpcError('invalid_params', `edits.skills must hold integers (${repr(name)})`);
+        if (number(value) < bases[name] || number(value) > cap)
+          throw new RpcError('needs', 'A skill stays between its recomputed base and the starting cap', {details: {field: name, range: [bases[name], Math.max(cap, bases[name])], attempted: number(value)}});
+        rebuilt[name] = Math.trunc(number(value));
+      }
+      const [, spec] = this.setup.chargen.occupation(baseSheet.occupation);
+      const creditRange = (truth(spec.credit_rating_range) ? array(spec.credit_rating_range) : [0, 0]).map(number);
+      let credit = number(rebuilt['Credit Rating']);
+      if (Object.hasOwn(edits, 'credit_rating')) {
+        const value = edits.credit_rating;
+        if (!integer(value)) throw new RpcError('invalid_params', 'edits.credit_rating must be an integer');
+        if (number(value) < creditRange[0] || number(value) > creditRange[1])
+          throw new RpcError('needs', 'Credit Rating stays within the occupation range', {details: {field: 'credit_rating', range: creditRange, attempted: number(value)}});
+        credit = Math.trunc(number(value)); rebuilt['Credit Rating'] = credit;
+      }
+      let occupational = array(row(row(row(baseSheet.creation).skills).occupation).resolved).map(string).filter(name => name !== 'Credit Rating' && Object.hasOwn(rebuilt, name));
+      if (!occupational.length) {
+        for (const phrase of array(spec.occupational_skills)) {
+          const found = this.setup.chargen.catalogName(string(phrase));
+          if (found && Object.hasOwn(rebuilt, found) && !occupational.includes(found)) occupational.push(found);
+        }
+      }
+      const occupation = evaluateFormula(parseFormula(spec.skill_point_formula || ''), characteristics);
+      const interest = evaluateFormula(parseFormula(string(this.setup.chargen.policy.formulas.personal_interest_points)), characteristics);
+      const above = (name: string): number => number(rebuilt[name]) - number(bases[name]);
+      const occupationalSpend = occupational.reduce((total, name) => total + above(name), 0) + credit;
+      const others = names.filter(name => name !== 'Credit Rating' && !occupational.includes(name));
+      const interestSpend = others.reduce((total, name) => total + above(name), 0);
+      const refusePool = (pool: string, total: number, spend: number, fields: string[], creditInPool: boolean): never => {
+        const editedSkill = Object.keys(skillEdits).find(name => fields.includes(name));
+        let field: string, range: number[];
+        if (editedSkill) { field = editedSkill; range = [bases[editedSkill], cap]; }
+        else if (creditInPool && Object.hasOwn(edits, 'credit_rating')) { field = 'credit_rating'; range = creditRange; }
+        else if (fields.length) { field = fields.reduce((carry, name) => above(name) >= above(carry) ? name : carry, fields[0]); range = [bases[field], Math.max(cap, bases[field])]; }
+        else { field = creditInPool ? 'credit_rating' : `${pool}_points`; range = creditInPool ? creditRange : [0, total]; }
+        throw new RpcError('needs', `The ${pool} point budget is exceeded`, {details: {pool, total, spend, field, range}});
+      };
+      if (occupationalSpend > bound('occupation_points', occupation.total)) refusePool('occupation', bound('occupation_points', occupation.total), occupationalSpend, occupational, true);
+      if (interestSpend > bound('interest_points', interest.total)) refusePool('interest', bound('interest_points', interest.total), interestSpend, others, false);
+      // The ledger is rewritten to the manual allocation it now holds (contract §23.4): the saved
+      // card's budget table shows these numbers, never the rolled ledger this override replaced.
+      const effectiveOccupation = bound('occupation_points', occupation.total), effectiveInterest = bound('interest_points', interest.total);
+      const occupationalPoints = Math.max(0, effectiveOccupation - credit), occupationalPointsSpent = occupationalSpend - credit;
+      const ledger = row(row(baseSheet.creation).skills), occupationLedger = row(ledger.occupation), interestLedger = row(ledger.interest);
+      const skillsLedger = {...ledger,
+        occupation: {...occupationLedger, budget: {...occupation, total: effectiveOccupation}, points: occupationalPoints, spent: occupationalPointsSpent, unspent: occupationalPoints - occupationalPointsSpent,
+          credit_rating: {...row(occupationLedger.credit_rating), value: credit},
+          allocations: Object.fromEntries(occupational.filter(name => above(name) > 0).map(name => [name, above(name)]))},
+        interest: {...interestLedger, budget: {...interest, total: effectiveInterest}, spent: interestSpend, unspent: effectiveInterest - interestSpend,
+          allocations: Object.fromEntries(others.filter(name => above(name) > 0).map(name => [name, above(name)]))}};
+      // A credit_rating edit recomputes wealth through the era's cash-assets table, so the card's
+      // finance line agrees with its rating (contract §23.4); the table failing reads as no finance.
+      let finance = truth(baseSheet.finance) ? baseSheet.finance : null, cash = truth(baseSheet.cash) ? baseSheet.cash : null;
+      if (Object.hasOwn(edits, 'credit_rating')) {
+        try { finance = await this.setup.tables.cashAndAssets(credit, string(baseSheet.era)); cash = finance ? `${string(row(finance.cash).amount)} ${string(row(finance.cash).currency)}` : null; }
+        catch (error) { if (!(error instanceof Error) || error.name !== 'ValueError') throw error; finance = null; cash = null; }
+      }
+      const derived = await this.setup.chargen.derive(characteristics, number(row(row(baseSheet.creation).age).mov_penalty));
+      const sheet: Row = {...baseSheet, characteristics, derived: derived.values,
+        skills: Object.fromEntries(entries(rebuilt).sort(([a], [b]) => compareUnicode(a, b))), credit_rating: credit, cash, finance,
+        current_hp: derived.values.HP, current_mp: derived.values.MP, current_san: derived.values.SAN, current_luck: characteristics.LUCK,
+        creation: {...row(baseSheet.creation), skills: skillsLedger, manual: {base_revision: base.revision, edits: clone(edits), limits_override: Object.keys(relax).length ? clone(relax) : null}}};
+      const limits = await this.limits({limits_override: relax}, sheet);
+      const revision = number(base.revision) + 1;
+      if (truth(params.dry_run)) return this.result({revision, play_language: base.play_language, profile: base.profile, sheet, limits});
+      const draft: Row = {revision, play_language: base.play_language, seed: base.seed, profile: base.profile, sheet, input_key: null,
+        receipt: base.receipt, digest: jsonDigest(sheet), limits};
+      if (Object.keys(relax).length) draft.limits_override = relax;
+      await campaign.write(join('setup', 'drafts', `${revision}.json`), draft);
+      meta.setup = {...row(meta.setup), draft_revision: revision, previewed_revision: null}; await campaign.writeCampaign(meta);
+      return this.result(draft);
     });
   }
   async prologue(params: Row): Promise<Row> {

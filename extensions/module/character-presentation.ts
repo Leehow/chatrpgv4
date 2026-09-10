@@ -10,6 +10,7 @@ const root=resourceRootFrom(import.meta.url);
 export const CARD_TEXT = ['Character draft','Character draft — reply to confirm or describe changes.',
   'Parameter','Value','Skill','Base value','Occupation points','Interest points','Final value','Point allocation','Total points','Spent','Remaining','Skills','Finance','Background','Language','Key connection',
   'Show calculation details','Hide calculation details','Characteristics','Calculation','Rolled value','Dice results','Age adjustment','EDU improvement checks','Keep highest','Base movement','Age movement penalty','Round down','Standard rolled characteristics','Rolled characteristics assigned to the stated aptitudes','Quick-fire array','Equipment','Weapons','Preview unavailable','Retry',
+  'Edit numbers','Edit draft numbers','Derived values','Save changes','Cancel','Close','Allowed range','Calculated automatically','Rules in force','Characteristic range','Starting skill cap','Credit Rating range','Unlock limits','Hide limit overrides','Characteristic minimum','Characteristic maximum','Skill cap','Overridden','Enter a whole number.','Not enough occupation points.','Not enough interest points.','Value outside the allowed range.','The draft changed while you were editing. The latest version is shown instead.','The save failed — try again.',
   'cash','assets','spending','credit_rating','living_standard','damage','range','attacks','ammo','malfunction','skill','Yes','No'];
 type Row=Record<string,any>;
 /**

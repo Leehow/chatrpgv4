@@ -5,7 +5,7 @@ import type { ExtInvokeErrorCode, ExtensionSettingsManifest } from "./extension-
 
 export type ExtInvokeResult<T = unknown> =
   | { ok: true; data: T }
-  | { ok: false; error: { code: ExtInvokeErrorCode; message: string } };
+  | { ok: false; error: { code: ExtInvokeErrorCode; message: string; details?: unknown } };
 
 export const PROJECT_EXTENSION_SETTINGS_DIR = "ext-settings";
 
@@ -241,6 +241,6 @@ export function extensionSecretEnvs(vaultNamespace: string, keys: ReadonlySet<st
   return out;
 }
 
-export function settingsDenied(code: ExtInvokeErrorCode, message: string): ExtInvokeResult<Record<string, unknown>> {
-  return { ok: false, error: { code, message } };
+export function settingsDenied(code: ExtInvokeErrorCode, message: string, details?: unknown): ExtInvokeResult<Record<string, unknown>> {
+  return { ok: false, error: details === undefined ? { code, message } : { code, message, details } };
 }

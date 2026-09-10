@@ -137,6 +137,23 @@ export async function laneLabels(context?:CocBinding):Promise<Record<string,stri
 }
 const DRAFT_PROJECTION=/^(\d+)-(.+)\.json$/;
 /**
+ * The draft a transcript card must draw today (contract §23.4): the campaign's current revision,
+ * read from the draft store, not the revision that appended the row. `undefined` means the store
+ * could not be read — an old campaign or a half-written file — and the row's own snapshot stays
+ * what the card draws. One campaign file plus one draft file per history page, never a kernel.
+ */
+export async function currentDraft(binding?:CocBinding):Promise<Record<string,unknown>|undefined> {
+  if(!binding)return undefined;
+  const folder=join(binding.home,'.coc/campaigns',binding.campaign);
+  try {
+    const meta=JSON.parse(await readFile(join(folder,'campaign.json'),'utf8'));
+    const revision=Number(meta?.setup?.draft_revision);
+    if(!Number.isSafeInteger(revision)||revision<1)return undefined;
+    const draft=JSON.parse(await readFile(join(folder,'setup/drafts',`${revision}.json`),'utf8'));
+    return draft&&typeof draft==='object'&&!Array.isArray(draft)?draft as Record<string,unknown>:undefined;
+  } catch {return undefined;}
+}
+/**
  * The saved text projection of every draft revision in this campaign, by revision.
  *
  * The pipeline already writes each card's player-facing text to disk, but the transcript row
@@ -175,13 +192,18 @@ function wordTable(value:unknown):Record<string,string> {
  * language; without it a renderer draws identifiers rather than guessing a language.
  */
 export function mechanicsEntry(row:any, language?:string, presentations?:ReadonlyMap<number,Record<string,unknown>>,
-  words:CocHistoryWords={}): HistoryEntry | undefined {
+  words:CocHistoryWords={}, current?:Record<string,unknown>): HistoryEntry | undefined {
   const lanes=wordTable(words.lanes), chrome=words.ui?{ui:words.ui}:{};
   if(row?.type==='custom'&&row.customType==='coc-character-draft'&&row.data?.sheet) {
-    const saved=presentations?.get(Number(row.data.revision));
+    // Contract §23.4: the card draws the campaign's current draft, not the revision that appended
+    // the row; each field falls back to the row's own snapshot for a draft that predates it.
+    const data={...row.data};
+    if(current)for(const key of ['revision','sheet','profile','play_language','limits'] as const)
+      if(current[key]!==undefined)data[key]=current[key];
+    const saved=presentations?.get(Number(data.revision));
     const labels={...lanes,...wordTable(saved?.texts),...wordTable(row.data.labels)};
     return {id:row.id,role:'assistant',content:'',timestamp:Date.parse(row.timestamp)||0,
-      presentation:{renderer:'coc-character-draft',details:{...row.data,labels,...(saved?{presentation:saved}:{}),...chrome}}};
+      presentation:{renderer:'coc-character-draft',details:{...data,labels,...(saved?{presentation:saved}:{}),...chrome}}};
   }
   if(row?.type==='custom'&&row.customType==='coc-choice'&&row.data?.kind==='story')return {id:row.id,role:'assistant',content:row.data.prompt||'',timestamp:Date.parse(row.timestamp)||0};
   if(row?.type==='custom' && row.customType==='coc-choice' && Array.isArray(row.data?.options)) {

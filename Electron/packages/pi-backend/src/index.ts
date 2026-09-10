@@ -1,7 +1,7 @@
 import { CocOnboardingHost, CocOnboardingRegistry, type CocOnboardingOptions } from './coc-onboarding.js';
 import { timelineAnchors, transcriptPrefix } from './coc-timeline.js';
 export { CocOnboardingRegistry } from './coc-onboarding.js';
-import { readCocBinding, readColdSheet, callColdKernel, mechanicsEntry, draftPresentations, laneWords, laneProjection, laneLabels,
+import { readCocBinding, readColdSheet, callColdKernel, mechanicsEntry, draftPresentations, currentDraft, laneWords, laneProjection, laneLabels,
   cocContentRoot, cocForgetUiWords, cocPlayLanguage, cocUiWords, cocUiWordsLoaded, SHEET_LANES, type SheetLane, type CocBinding,
   type CocHistoryWords, type CocUiWords } from "./coc-view.js";
 import { ChildProcessWithoutNullStreams, execFile, spawn } from "node:child_process";
@@ -1444,8 +1444,9 @@ function redactHistoryEntry(entry: HistoryEntry | undefined, secrets: RevealedSe
 /** Where a host reads its own data from, for the answers a renderer draws words out of. */
 type CocHostPaths = {repo: string; contentRoot: string; home: string};
 function visibleHistoryEntry(entry: any, secrets: RevealedSecret[] = [], language?:string,
-  presentations?: ReadonlyMap<number, Record<string, unknown>>, words: CocHistoryWords = {}): HistoryEntry | undefined {
-  const mechanics = mechanicsEntry(entry, language, presentations, words);
+  presentations?: ReadonlyMap<number, Record<string, unknown>>, words: CocHistoryWords = {},
+  current?: Record<string, unknown>): HistoryEntry | undefined {
+  const mechanics = mechanicsEntry(entry, language, presentations, words, current);
   if (mechanics) return mechanics;
   if (entry?.type === "message") return redactHistoryEntry(historyEntryFromMessage(entry), secrets);
   if (isVisibleCustomMessage(entry)) {
@@ -1574,6 +1575,9 @@ async function readHistoryFallback(
   // campaign's projected vocabulary are loaded here for the same reason: every card on the page
   // reads them, and a per-row read would open the same three files once per roll.
   const cocPresentations = await draftPresentations(cocBinding);
+  // A draft card draws the campaign's current draft (contract §23.4), so the page reads the draft
+  // store's pointer once rather than trusting the revision each row happened to record.
+  const cocDraft = await currentDraft(cocBinding);
   const cocWords: CocHistoryWords = {
     lanes: await laneLabels(cocBinding),
     ...(cocHost ? {ui: await cocUiWords(cocHost.repo, cocHost.contentRoot, cocBinding?.home || cocHost.home, cocBinding?.play_language)} : {}),
@@ -1591,7 +1595,7 @@ async function readHistoryFallback(
     }
     if (!wanted.has(entry?.id)) continue;
     const secrets = vaultDir && sessionId ? revealRedactionSecrets(vaultDir, sessionId) : [];
-    const mapped = visibleHistoryEntry(entry, secrets, cocBinding?.play_language, cocPresentations, cocWords);
+    const mapped = visibleHistoryEntry(entry, secrets, cocBinding?.play_language, cocPresentations, cocWords, cocDraft);
     if (!mapped) continue;
     mappedById.set(mapped.id, mapped);
   }
@@ -8556,8 +8560,8 @@ export class PiHostBackend implements HostBackend {
    * wider than the host-api invoke codes this frame shares with every other extension. The cast is
    * that seam, in one place, rather than at every refusal.
    */
-  private cocDenied(code: string, message: string): ExtInvokeResult {
-    return settingsDenied(code as ExtInvokeErrorCode, message);
+  private cocDenied(code: string, message: string, details?: unknown): ExtInvokeResult {
+    return settingsDenied(code as ExtInvokeErrorCode, message, details);
   }
   /** The same pair, thrown: a branch's own guard reaching its branch's own catch. */
   private cocRefusal(code: string, message: string): Error {
@@ -8835,6 +8839,47 @@ export class PiHostBackend implements HostBackend {
       }
       try {return {ok:true,data:await readColdSheet(join(this.managedNodeModulesRoot,'..'),binding,Number(revision),this.env,this.cocRuntime)};}
       catch(error){if((error as any)?.code==='idempotency_conflict')return {ok:true,data:{superseded:true}};return this.cocDenied(this.cocCode(error),error instanceof Error?error.message:String(error));}
+    }
+    if(id==='coc-keeper' && method==='draft-override') {
+      const sid=isRecord(optsValue)&&typeof optsValue.sessionId==='string'?optsValue.sessionId:'';
+      if(!sid)return this.cocDenied('no_session','Select the draft session');
+      const revision=isRecord(params)?params.revision:undefined;
+      if(!Number.isSafeInteger(revision)||Number(revision)<1)return this.cocDenied('invalid_params','Invalid draft revision');
+      const edits=isRecord(params)?params.edits:undefined;
+      if(!isRecord(edits))return this.cocDenied('invalid_params','Invalid draft edits');
+      const limitsOverride=isRecord(params)?params.limits_override:undefined;
+      if(limitsOverride!==undefined&&!isRecord(limitsOverride))return this.cocDenied('invalid_params','Invalid limits override');
+      const dryRun=isRecord(params)?params.dry_run:undefined;
+      if(dryRun!==undefined&&typeof dryRun!=='boolean')return this.cocDenied('invalid_params','Invalid dry_run flag');
+      const selected=await this.locate(sid), binding=await readCocBinding(selected.path);
+      if(!binding||!this.managedNodeModulesRoot)return this.cocDenied('campaign_unbound','No campaign is bound');
+      const repo=resolve(this.managedNodeModulesRoot,'..');
+      // The campaign and its home come from the session's own binding; a client-supplied campaign
+      // or sheet is never trusted (contract §23.4). The kernel validates the edits themselves.
+      const request:Record<string,unknown>={campaign:binding.campaign,revision:Number(revision),edits};
+      if(isRecord(limitsOverride))request.limits_override=limitsOverride;
+      if(dryRun===true)request.dry_run=true;
+      try {
+        const data=await callColdKernel(repo,binding.home,'setup.override',request,this.env,this.cocRuntime);
+        if(dryRun===true)return {ok:true,data};
+        // History pages are cached against the transcript's own file, which a host-side override
+        // never touches — and a draft card now draws the campaign's current draft, so the stored
+        // page is stale the moment the kernel answers. The new revision's words start projecting
+        // before the re-rendered card asks for them.
+        this.historyCache.delete(selected.path);
+        this.startDraftPresentation(sid,data);
+        return {ok:true,data};
+      } catch(error) {
+        // Stale is not an error for the edit control: it learns the card moved and receives the
+        // current draft so the player keeps editing what is real (contract §23.4). The detail
+        // `stale_draft` lives only under idempotency_conflict; a needs refusal is validation and
+        // its details (pool/total/spend/field/range) reach the modal to mark the exact input.
+        if((error as any)?.code==='idempotency_conflict') {
+          const draft=await currentDraft(binding);
+          return {ok:true,data:{superseded:true,...(draft?{draft}:{})}};
+        }
+        return this.cocDenied(this.cocCode(error),error instanceof Error?error.message:String(error),(error as any)?.details);
+      }
     }
     if (id === "coc-keeper" && ["sheet","choose"].includes(method) && !(isRecord(optsValue) && typeof optsValue.sessionId === "string" && optsValue.sessionId.trim())) {
       return {ok:true,data:{status:"unbound",view:null,campaign:null,...await this.cocAnswerWords(undefined)}};
