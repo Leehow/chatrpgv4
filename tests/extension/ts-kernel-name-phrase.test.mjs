@@ -28,6 +28,9 @@ const NODES = [
   npc('npc-visiting-scholar', 'Professor Nemesio Sánchez', ['Prof. Sánchez', 'Prof. Nemesio Sánchez']),
   // A clue that carries the same run: the kind filter must keep it out of an npc query.
   node('clue', 'clue-scholars-letter', 'Letter from Nemesio Sánchez'),
+  // A clue whose name is a whole sentence, the shape the starters actually carry. The run sits in
+  // the middle of it, and an unanchored bridge answered `apply clue "Elena Vargas"` with this.
+  node('clue', 'clue-ledger-entry', 'The ledger records that Elena Vargas paid the fee in March and never returned.'),
   // Two people who share the bare name under different titles: both must surface.
   npc('npc-the-abbot', 'Abbot Tomás Reyes'),
   npc('npc-the-novice', 'Novice Tomás Reyes'),
@@ -80,6 +83,12 @@ async function opened(t) {
   return { client, apply, receipts };
 }
 
+/** The same table, asked for a clue by name: the kind filter is what makes the shape visible. */
+const applyClue = async (t, name) => {
+  const { client } = await opened(t);
+  return client.call('table.apply', { campaign: 'c1', call_id: 't1-c9', effects: [{ kind: 'clue', clue: name }] });
+};
+
 const refused = (promise, code, pattern) => assert.rejects(promise, error => {
   assert.equal(error.code, code, error.message);
   assert.match(error.message, pattern);
@@ -131,4 +140,15 @@ test('words only: a run broken inside a word, across other words, or a single wo
     assert.ok(error.details.candidates.some(row => row.name === 'visiting-scholar'), JSON.stringify(error.details.candidates));
     return true;
   });
+});
+
+test('a run in the middle of a sentence is not a name: the bridge is anchored at one end', async t => {
+  const { apply, receipts } = await opened(t);
+  // `clue-ledger-entry` holds "elena vargas" in its middle. A name key is not always a name -- the graph
+  // puts a whole sentence in a clue's `name` -- so an unanchored run made this a substring search over
+  // prose, and a person asked for as a clue came back as that clue instead of unknown_entity.
+  await refused(applyClue(t, 'Elena Vargas'), 'unknown_entity', /no clue named/);
+  // The qualified forms still resolve: the qualifier sits outside the name, so the run is at one end.
+  await apply('Nemesio Sánchez');
+  assert.deepEqual((await receipts()).map(row => row.handle), ['visiting-scholar']);
 });

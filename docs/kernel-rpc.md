@@ -2429,9 +2429,9 @@ Implementation decisions for the two-session report, items 7–21:
 - Whole-word contiguous-run fallback (2026-09-10, #64 second half). After both exact
   paths miss (no node's handle equals the normalised query and the `names` index has
   no such key), `resolve` splits the query into whitespace words and looks for that
-  word sequence, in order and unbroken, inside each candidate's normalised name keys:
-  `nemesio sanchez` sits inside `professor nemesio sanchez` and inside
-  `dr. nemesio sanchez jr.`; `emesio sanchez` (inside a word) and `nemesio sanch` do
+  word sequence, in order and unbroken, **at one end of** each candidate's normalised
+  name keys: `nemesio sanchez` closes `professor nemesio sanchez` and opens
+  `nemesio sanchez jr.`; `emesio sanchez` (inside a word) and `nemesio sanch` do
   not, nor does `nemesio` ... `sanchez` with other words between. No title list exists
   or is allowed: `Professor`, `Dr.`, `Padre` are just extra words to the kernel. Exactly
   one node holding the run resolves; several raise the same `unknown_entity` ambiguous
@@ -2441,7 +2441,8 @@ Implementation decisions for the two-session report, items 7–21:
   still resolves to the exact one. Bounds, as tight as the shape allows: the query must
   be at least two words (a single word stays a hint for `candidates` and `look`, not an
   identity -- otherwise free-text targets in the resolve pipeline such as `door`,
-  `key`, `professor` would start binding silently to nodes) and strictly shorter than
+  `key`, `professor` would start binding silently to nodes), must sit at one end of the
+  key, and must be strictly shorter than
   the key (equal length would have been an exact hit). What got looser, deliberately:
   every kind and every caller of `resolve`/`find` (`apply npc/clue/move/handout`,
   ruling anchors, `look npc`, the resolve pipeline's target and supporting clue, spell
@@ -4168,3 +4169,18 @@ So the rule for any new row that invites an action: **name what it costs and wha
 Information the Keeper has to assemble from two places is information nobody gave — the 0.8.2a lesson, which
 cost two rounds of adding panels that changed nothing. `test_an_offer_row_carries_both_what_it_costs_and_what_it_yields`
 holds the four registered offers to it.
+
+### Name-run anchoring correction (2026-09-10)
+
+The run was unanchored for a few hours and `apply clue "steven-knott"` — a person, asked for as a clue — resolved
+to `clue-knott-commission` instead of `unknown_entity` (`tests/kernel/test_apply.py::test_clue_here_not_here_and_duplicate`).
+The cause is that a name key is not always a name: `nameKeys` indexes whatever the graph put in `name`, and for a
+starter clue that is a whole sentence — "Landlord Steven Knott pays $20/day to examine the Corbitt House...". An
+unanchored run turned the bridge into a substring search over prose, which is the shape Agents.md forbids
+everywhere else.
+
+Anchoring is the whole fix and it needs no list: a qualified form of a name keeps the qualifier outside it
+("Professor Nemesio Sánchez", "Letter from Nemesio Sánchez", "Nemesio Sánchez, of the university"), so the run
+sits at one end; a sentence that merely mentions someone holds it in the middle. Every #64 case is a suffix or a
+prefix and is unchanged. `tests/extension/ts-kernel-name-phrase.test.mjs` gains a clue whose name is a sentence
+carrying a person's name in its middle, and asks for that person as a clue.

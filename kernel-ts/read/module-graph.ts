@@ -93,14 +93,22 @@ export function describeCondition(when: any): string {
     const slug = conditionFlag(when);
     return slug == null ? canonicalJson(when) : `flag_set: ${slug}${row(when).value != null ? ` = ${repr(when.value)}` : ""}`;
 }
-/** The phrase's words appear in the key in the same order with nothing between, and the key holds more (equal would have been an exact match). */
+/** The phrase's words open or close the key, in order with nothing between, and the key holds more (equal would
+ *  have been an exact match).
+ *
+ *  Anchored, because a name key is not always a name. `nameKeys` indexes whatever the graph put in `name`, and
+ *  for a clue that is a whole sentence: "Landlord Steven Knott pays $20/day to examine the Corbitt House...".
+ *  An unanchored run turned the bridge into a substring search over prose, and `apply clue "steven-knott"` --
+ *  a person, asked for as a clue -- came back with that clue instead of `unknown_entity`. A qualified form of a
+ *  name puts the qualifier outside it ("Professor Nemesio Sánchez", "Letter from Nemesio Sánchez", "Nemesio
+ *  Sánchez, of the university"), so the run sits at one end; a sentence that merely mentions someone holds it in
+ *  the middle. That is the whole difference, and it needs no list of titles. */
 const phraseWithin = (phrase: string[], key: string[]): boolean => {
     if (phrase.length >= key.length)
         return false;
-    for (let start = 0; start + phrase.length <= key.length; start++)
-        if (phrase.every((word, i) => key[start + i] === word))
-            return true;
-    return false;
+    const opens = phrase.every((word, i) => key[i] === word),
+        closes = phrase.every((word, i) => key[key.length - phrase.length + i] === word);
+    return opens || closes;
 };
 export class ModuleGraph {
     readonly nodes = new Map<string, Row>();
@@ -169,8 +177,8 @@ export class ModuleGraph {
             throw ambiguous(ids);
         // Both exact paths missed. The book prints "Professor Nemesio Sánchez"; the Keeper says
         // "Nemesio Sánchez". No title list exists (the rules forbid one), so the only mechanical
-        // bridge is the shape itself: the query's words, in order and unbroken, inside a name key
-        // (contract section 2). One word is a hint for candidates, not an identity, so a phrase it
+        // bridge is the shape itself: the query's words, in order and unbroken, at one end of a name
+        // key (contract section 2). One word is a hint for candidates, not an identity, so a phrase it
         // must be; and one owner it must have, or the ambiguity is reported, never resolved.
         const phrase = key.split(" ");
         if (phrase.length >= 2) {
