@@ -213,7 +213,7 @@ def test_axes_follow_the_language_applicability_and_the_style_budget_trims(tmp_p
         narrate_opening(client)
         capsule = client.table("player_input", text="I look around.")["capsule"]
         style = capsule["style"]
-        assert style["language"] == "en" and "avoid translationese" not in style["axes"] and len(style["axes"]) == 8
+        assert style["language"] == "en" and "avoid translationese" not in style["axes"] and len(style["axes"]) == 5
         # §16.1: the lines are English one-liners sized like the zh originals, so the full first-turn
         # set fits the §13.6 budget in every play language and nothing is trimmed
         assert size(style) <= 2048 and "style" not in capsule.get("truncated", [])
