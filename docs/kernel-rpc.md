@@ -3940,3 +3940,35 @@ the fiction instead. A refused batch writes nothing, as every `apply` batch does
 `narration-craft` 1.0.2 drops its paragraph caps in the same change, on the §30.8 measurement: exceeded in eight
 of eleven deliveries while the character ceiling was never approached. The character ceilings stay and are named
 as ceilings, not targets.
+
+### 30.10 A verb nobody reaches for is the panel problem again (2026-09-10)
+
+`apply threat` was implemented, unit-tested, named in `keeper-pacing` 1.0.2 with the occasions to use it, and
+visible in the tool schema. `verify-1` then played twelve turns — the whole house, a fight, a chase, an
+investigator at zero hit points — with both clocks in the capsule the entire time, and **the Keeper never called
+it once**. That is the 0.8.2a finding again, in a different costume: a capability that must be remembered is not
+reached for, and the answer is never to add an obligation.
+
+Two changes, both lowering the cost of using it rather than raising the duty to:
+
+- Each `pacing.threat_clocks` row carries `next`, the `on_tick_visible` entry one segment on (absent on a full
+  clock). The row now says what advancing it would put on the table, so a tick is an offer with something in it
+  rather than bookkeeping to remember.
+- `prompts/keeper.md`'s own list of what `apply` lands names `threat`. The tool description had it; the Keeper's
+  prose summary of its own verbs did not.
+
+`verify-2`, ten turns on the same route: the Keeper called `apply threat` on **the first turn a clock was
+visible** (`why: 入侵者闯入藏处并触碰其身`), the receipt handed back `shows`, and the next turn's capsule carried
+`corbitt-awareness 1/4` with that symptom. One run before and one after is evidence, not proof, but the change is
+the difference between never and immediately.
+
+Two things this did not settle, both honest limits rather than defects to fix here:
+
+- **The symptom did not reach the prose.** The Keeper ticked during a knife fight and wrote the fight; a knock
+  inside the walls is a poor sentence in that round. Whether a segment's symptom is worth writing is the Keeper's
+  call, and nothing gates it — the same standing as every other capsule suggestion.
+- **Relatedness is per threat, not per clock.** The Haunting hangs `landlord-impatience` — Knott losing patience
+  with the investigation — off the same front as Corbitt, so it is hidden during the research it belongs to and
+  shown during the fight it has nothing to do with. Fixing that needs clock-level scene references the data does
+  not carry; §13.2's threat-level rule stays, and the shape is noted here so it is not mistaken for a projection
+  bug.
