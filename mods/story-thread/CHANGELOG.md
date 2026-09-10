@@ -1,5 +1,8 @@
 # Story Thread
 
+## 1.0.2
+- The lines are opportunities, not a per-turn plan (contract §30.12); structural semantics (`handed`, critical first, `fallback`) unchanged.
+
 ## 1.0.1
 - Adds `brief.md`, the per-turn reminder form of the instructions (contract §30.7); the first turn of a process still carries the full text.
 
