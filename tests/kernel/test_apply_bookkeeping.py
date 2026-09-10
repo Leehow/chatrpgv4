@@ -395,3 +395,31 @@ def test_look_focus_session_returns_the_full_view_and_survives_a_restart(tmp_pat
         assert again.table("look", focus="session")["session"] == session
     finally:
         again.close()
+
+
+def test_a_ruling_can_be_anchored_on_an_investigator_and_comes_back_every_turn(kernel):
+    """The graph has never held the party, so a ruling about the person it judges -- a tongue they
+    barely hold, a hand that does not close -- was refused the only anchor that fits it. An
+    investigator is never elsewhere, so the anchor is also in scope for every turn they play; an
+    anchor that could be written and never read back would be worse than the refusal."""
+    open_turn(kernel)
+    name = kernel.table("look", focus="investigator")["name"]
+
+    kernel.table("apply", call_id="t1-c1", effects=[
+        ruling("dock-english", "his English is dock phrases; ordinary talk is not rolled", entities=[name])])
+    row = read_jsonl(campaign_dir(kernel.workspace) / "rulings.jsonl")[0]
+    investigator = kernel.table("look", focus="investigator")["id"]
+    assert row["anchor"] == {"entities": [f"investigator:{investigator}"]}
+
+    # Not a module handle: the namespaces cannot collide, so an NPC of the same name is still the NPC.
+    assert [r["name"] for r in kernel.table("capsule")["rulings"]] == ["dock-english"]
+    kernel.table("apply", call_id="t1-c2", effects=[{"kind": "npc", "name": "Steven Knott", "to": "away"}])
+    assert [r["name"] for r in kernel.table("capsule")["rulings"]] == ["dock-english"]
+
+
+def test_an_unknown_name_still_names_the_graph_and_the_party(kernel):
+    """The refusal has to say where to look now that there are two places."""
+    open_turn(kernel)
+    error = kernel.table_err("apply", call_id="t1-c1", effects=[ruling("r", entities=["Atlantis"])])
+    assert error["details"]["field"] == "entities" and error["details"]["candidates"]
+    assert "investigator" in error["fix"] and "module graph" in error["fix"]

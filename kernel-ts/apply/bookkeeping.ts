@@ -125,7 +125,16 @@ async function anchorOf(context:ApplyContext,raw:any):Promise<Row>{
     if(raw.skill!=null){const skill=typeof raw.skill==='string'&&raw.skill.trim()?resolver.resolveExplicit(raw.skill):null;if(skill==null)invalid('skill',raw.skill,resolver.optionsFor(string(raw.skill)));anchor.skill=skill;}
     if(raw.entities!=null){
         const handles:string[]=[];
-        for(const name of names(raw.entities,'anchor.entities')){try{const handle=context.graph.handle(context.graph.resolve(name));if(!handles.includes(handle))handles.push(handle);}catch(error){if(error instanceof RpcError)throw new RpcError('invalid_params',`ruling.anchor.entities: ${error.message}`,{fix:'name an entity of the module graph exactly, or one of details.candidates',details:{field:'entities',...error.details}});throw error;}}
+        // A ruling is how this table judges a thing, and plenty of things it judges are one investigator's:
+        // a tongue they barely hold, a hand that does not close, a house rule bought with a flaw. The graph
+        // has never held the party, so anchoring on the person the ruling is about was refused outright --
+        // the same name a note takes. Investigators keep their own namespace here, which no module handle
+        // can collide with, and the graph path below is untouched for everything else.
+        const index=new EntityIndex(context.graph,await context.campaign.party() as Row[]);
+        for(const name of names(raw.entities,'anchor.entities')){
+            const people=index.matches(name,{reserved:[],kinds:[]});
+            if(people.length===1){if(!handles.includes(people[0]))handles.push(people[0]);continue;}
+            try{const handle=context.graph.handle(context.graph.resolve(name));if(!handles.includes(handle))handles.push(handle);}catch(error){if(error instanceof RpcError)throw new RpcError('invalid_params',`ruling.anchor.entities: ${error.message}`,{fix:'name an investigator in the party, or an entity of the module graph exactly, or one of details.candidates',details:{field:'entities',...error.details}});throw error;}}
         if(!handles.length)throw new RpcError('invalid_params','ruling.anchor.entities must name at least one entity');anchor.entities=sorted(handles);
     }
     if(!truth(anchor))throw new RpcError('invalid_params','ruling.anchor must carry at least one of family, decision, skill, entities');

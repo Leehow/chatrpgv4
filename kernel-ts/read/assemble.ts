@@ -118,7 +118,7 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
         director,
         situations,
         worldlines,
-        rulings: rulingsForCapsule(campaign.logs.get("rulings.jsonl") ?? [], session?.kind ?? null, present.map(n => graph.handle(n)), graph.handle(scene), graph.moduleId),
+        rulings: rulingsForCapsule(campaign.logs.get("rulings.jsonl") ?? [], session?.kind ?? null, present.map(n => graph.handle(n)), graph.handle(scene), graph.moduleId, party.map(sheet => `investigator:${string(sheet.id)}`)),
         memory: capsuleMemory(memory, new EntityIndex(graph, party, row(world.scene_labels)), [...present.map(n => graph.displayName(n)), ...party.map(sheet => string(sheet.name))]),
         style: craft.style(language, string(meta.register || "purist"), director.beat, full),
         recent: campaign.records.filter(record => number(record.turn) < number(turn.turn) && (truth(record.player_text) || truth(record.rendered_text))).slice(-2).map(record => ({

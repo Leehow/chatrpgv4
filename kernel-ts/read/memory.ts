@@ -173,12 +173,16 @@ export function noteObligations(rows: Row[], present: string[], here: string[]):
         ...(array(note.entities).length ? { cue: note.entities.map(string).join(", ") } : {})
     }));
 }
-export function rulingsForCapsule(rows: Row[], session: string | null, present: string[], scene: string, module: string): Row[] {
+export function rulingsForCapsule(rows: Row[], session: string | null, present: string[], scene: string, module: string, party: string[] = []): Row[] {
     const families: Row = {
         combat: "combat",
         chase: "chase",
         sanity_bout: "sanity"
-    }, family = session ? families[session] ?? null : null, here = [...present, scene];
+    // An anchor surfaces its ruling where the thing it judges is: NPCs and scenes come and go, and a
+    // ruling about one is silent everywhere else. An investigator is never elsewhere -- they are the
+    // table -- so a ruling anchored on one is in scope for every turn they are playing, or it would
+    // be a record nobody could ever read back.
+    }, family = session ? families[session] ?? null : null, here = [...present, scene, ...party];
     const hits = latestNamed(rows, "active").filter(value => {
         if (value.scope === "scene" && value.scene !== scene || value.scope === "module" && value.module != null && value.module !== module)
             return false;
