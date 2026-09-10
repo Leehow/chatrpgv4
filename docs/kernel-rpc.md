@@ -526,6 +526,32 @@ RuleGraph 的每个决策声明输入槽位与归属。宿主锁定槽位由内�
 - 内核子进程一个会话只有一个（§1），memory 扩展没有自己的客户端：kernel 扩展在 `session_start` 于总线 `coc:kernel-bridge` 发布一个 `call(method, params)` 闭包，`session_shutdown` 时收回；memory 扩展只经它调内核。
 - 子会话的建法与模型选择写进 `docs/pi-host-contract.md` 第 3–5 节。
 
+#### 12.8.1 车道调用的四行遥测（#67 第 1 步）
+
+车道的模型调用走 `ctx.modelRegistry.complete()`，那条路**不经过扩展运行器**，所以 `before_provider_request` / `after_provider_response` 对它一行都不写（依据见 `docs/pi-host-contract.md` 第 5 节）。原有的 `lane: verifier` / `lane: memory` 只有一个 `ms`，把提示拼装、模型解析、补全、取 JSON、验形、`table.warn` 全压成一个数，拆不开。因此 `runLane` 自己记四行。
+
+新增行，**只增不改**：原有的 `lane: "verifier"`、`lane: "memory"`、`lane: "provider-request"`、`lane: "provider-response"` 四种行的字段与条数一律不动（守秘人自己的调用仍是「一条 `provider-request` = 一次 HTTP 尝试」，车道的行不混进去）。
+
+```
+{"lane": "lane-call", "subsession": "verifier" | "memory", "phase": ..., "at": "<ISO>", ...}
+```
+
+`subsession` 说这一行是哪条车道的，四行都带；`at` 是那一刻的 ISO 时间戳；除 `start` 外每行都带 `ms`，一律从 `start` 起算（不是从 `runLane` 进门起算——两者之差就是提示拼装与模型解析）。
+
+| `phase` | 记在哪一刻 | 额外字段 |
+| --- | --- | --- |
+| `start` | `complete()` 调用之前，模型已解析 | `model`（`provider/id`） |
+| `request` | 出站请求体装配完、发上线之前（`onPayload`） | `model`（请求体里的模型 id）、`reasoning_effort`、`ms` |
+| `response` | 响应头到达、响应体尚未消费之前（`onResponse`） | `status`、`request_id`（有才带）、`ms` |
+| `end` | `complete()` 落定（正常或抛错） | `ms`、`ok`、`stop_reason`（有才带） |
+
+读法与 provider 行同款：`request` 有而 `response` 无 = 等响应头时被砍（车道超时的十九次全是这个形状）；`response.ms` 就是到响应头的时间，`end.ms - response.ms` 是流那一段；`end.ms` 是补全本身的耗时，车道那一行的 `ms` 减去它就是车道自己花的时间。
+
+- **`reasoning_effort` 记的是出站请求体里真正写着的那个值**，取 `payload.reasoning.effort ?? payload.reasoning_effort ?? null`，与 `provider-request` 行同一条读法。`runLane` 不传任何 thinking 档，所以这个值是适配器按模型目录算出来的默认；`null` 表示请求体里根本没有 reasoning 字段，也就是由供应商自己定。这一行是唯一能回答「车道跑在什么 effort 上」的证据，不是推的。
+- **白名单纪律照抄 provider 行**：响应只记 `status` 与 `x-request-id` / `request-id`，不记任意头、不记凭据。请求只记模型 id 与 reasoning 档，**不记提示、不记正文、不记模型产出的任何散文或语义标签**——车道的输入是守秘人正文，出不了这条路。
+- **遥测不许弄坏回合**：四行的写入各自吞掉自己的异常，写不下去就少一行，`runLane` 的返回值不受影响。
+- 一次车道调用最多四行，最少一行（`start`；模型解析不出时连 `start` 都没有，那种情况原有的 `lane: verifier ok:false reason:model_unavailable` 行照旧交代）。适配器不实现 `onPayload`/`onResponse` 时对应的行就没有——**没有行就是没有测到，不许拿别处的数补**。
+
 ### 12.9 内核的决定（已实现）
 
 - **回合记录带世界快照。** `narrate` 与 `ask` 写的 `turns/NNNN.json` 多一个 `world` 块：`{scene: {name, display_name}, clock, present: [NPC 名], investigators: [{id, name, hp, san, mp, luck}], session, pending_choice}`，是回合关闭那一刻的状态；`narrate` 的记录另存 `facts`。检查点、episode、`memory.job` 的任务包、`history` 的时间线与 `diff` 全从这个块读，不碰可变的 `world.json`，也不读 git 对象。turn 0 被 `player_input` 隐式关闭时同样写快照。

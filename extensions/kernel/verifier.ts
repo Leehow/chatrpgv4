@@ -143,6 +143,10 @@ export async function runVerifierLane(options: VerifierLaneOptions): Promise<voi
 	const lane = await runLane<Finding[]>({
 		ctx,
 		envName: "PI_COC_VERIFIER_MODEL",
+		// The four `lane: "lane-call"` rows this round leaves (contract §12.8.1) go to the same
+		// telemetry the one `lane: "verifier"` row does, carrying this turn like it.
+		lane: "verifier",
+		record: (row) => record({ turn: payload.turn, ...row }),
 		systemPrompt: await verifierSystemPrompt(options.playLanguage),
 		input: buildVerifierInput(payload),
 		...(options.signal ? { signal: options.signal } : {}),

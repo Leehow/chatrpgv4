@@ -119,6 +119,51 @@ export function createFakeUI({ selections = [], inputs = [] } = {}) {
 }
 
 /**
+ * 把 pi-ai 的假 provider 补成真适配器的形状：**两个** provider 回调都调。
+ *
+ * `ProviderRequestOptions` 有一对回调，车道遥测（契约 §12.8.1）就是靠它们看见自己的模型调用的：
+ * `onPayload(请求体, model)` 在请求体装配完、上线之前，`onResponse({status, headers}, model)` 在
+ * 响应头到了、响应体还没消费之前。三个出货适配器都照这个顺序调
+ * （`@earendil-works/pi-ai/dist/api/` 的 `openai-completions.js`、`openai-responses.js`、
+ * `anthropic-messages.js`），而 `dist/providers/faux.js` 只调后一个，且响应头恒为 `{}`。
+ *
+ * 于是这里补上前一个，并让用例能脚本化请求体、状态码与响应头——被测的那条路仍是产品自己的
+ * `runLane → ctx.modelRegistry.complete → provider.stream → 回调`，这里换的是上游的供应商，不是遥测行。
+ */
+function withProviderCallbacks(handle) {
+	const inner = handle.provider;
+	/** 缺省就是「请求体里没有任何 reasoning 字段」——xai/grok-4.6 的 `thinkingLevelMap.off` 是 null，真实的车道请求就是这个形状。 */
+	let transport = { status: 200, headers: {}, body: undefined };
+	const wrap = (fn) => (model, context, options) => {
+		const body = transport.body ?? { model: model.id, messages: [], stream: true };
+		// 真适配器是 `await options?.onPayload?.(params, model)` **之后**才发请求，所以 onResponse 一定在它之后；
+		// 这里也必须等它，否则两行遥测的落盘顺序会打架（start → request → response → end 就是这么定的）。
+		const sent = Promise.resolve(options?.onPayload?.(body, model));
+		const scripted = options?.onResponse
+			? {
+					...options,
+					onResponse: async (_ignored, forModel) => {
+						await sent;
+						// `holdHeaders` 停在响应头到达之前，也就是真适配器 `onResponse` 之前的那一段：
+						// 这是「只有请求行、没有响应行」那种停顿唯一能造出来的地方。
+						if (transport.holdHeaders) await transport.holdHeaders;
+						return options.onResponse({ status: transport.status, headers: transport.headers }, forModel);
+					},
+				}
+			: options;
+		return fn(model, context, scripted);
+	};
+	return {
+		...handle,
+		provider: { ...inner, stream: wrap(inner.stream), streamSimple: wrap(inner.streamSimple) },
+		/** 下一次（及以后）这个假 provider 收到的请求体、状态码、响应头，以及要不要在响应头之前停住。 */
+		setTransport: (next) => {
+			transport = { status: 200, headers: {}, body: undefined, holdHeaders: undefined, ...next };
+		},
+	};
+}
+
+/**
  * 起一张桌子。
  *
  * @param {object} options
@@ -166,8 +211,8 @@ export async function openTable({
 
 	const faux = fauxProvider();
 	faux.setResponses(responses);
-	const verifierFaux = fauxProvider({ provider: "verifier", models: [{ id: "v1" }] });
-	const memoryFaux = fauxProvider({ provider: "memory", models: [{ id: "m1" }] });
+	const verifierFaux = withProviderCallbacks(fauxProvider({ provider: "verifier", models: [{ id: "v1" }] }));
+	const memoryFaux = withProviderCallbacks(fauxProvider({ provider: "memory", models: [{ id: "m1" }] }));
 	// 开桌之前就装好：补抽（#20）在 session_start 里就要模型，晚一步就抓空。
 	if (laneResponses.memory) memoryFaux.setResponses(laneResponses.memory);
 	if (laneResponses.verifier) verifierFaux.setResponses(laneResponses.verifier);
