@@ -415,3 +415,25 @@ def test_a_handover_placement_is_refused_with_a_repair_the_keeper_can_follow(ker
     # And the repair the fix names actually lands.
     kernel.table("apply", call_id="t1-c3", effects=[prepared(kernel, weapon("Handover launcher")), placement])
     assert kernel.table("look", focus="object", name="Given launcher")["definition"]["name"] == "Handover launcher"
+
+
+def test_a_trait_nested_in_parameters_is_told_to_move_it_not_to_drop_it(kernel):
+    open_turn(kernel)
+    measured = [{"name":"length", "value":91, "unit":"cm", "basis":"Fixture measurement."}]
+    draft = weapon()
+    draft["parameters"]["traits"] = measured
+    request = {"name":draft["name"], "category":draft["category"], "description":draft["description"]}
+    job = kernel.ok("mods.job", {"campaign":CAMPAIGN, "role":"create", "input":request})
+    Path(job["cwd"], "result.json").write_text(json.dumps(draft))
+
+    refused = kernel.err("mods.accept", {"campaign":CAMPAIGN, "job":job["job"]})
+    assert refused["code"] == "invalid_params"
+    # Naming neither the key nor where it belonged made deletion the cheapest repair.
+    assert "traits" in refused["message"]
+    assert "move it beside parameters" in refused["fix"]
+
+    # The repair the refusal names keeps the measurements instead of losing them.
+    del draft["parameters"]["traits"]
+    draft["traits"] = measured
+    Path(job["cwd"], "result.json").write_text(json.dumps(draft))
+    assert kernel.ok("mods.accept", {"campaign":CAMPAIGN, "job":job["job"]})["definition"]["traits"] == measured

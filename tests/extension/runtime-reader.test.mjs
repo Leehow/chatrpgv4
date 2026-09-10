@@ -352,3 +352,22 @@ test("Mod tasks use the existing owner check and retry the retained draft before
   pi.events.emit("coc:kernel-bridge", { call: undefined, runtime: undefined });
   await assert.rejects(bridge.prepare("apply", payload), /unavailable/);
 });
+
+test("the definition checker prints which key to move, because that output is the child's whole finding", async t => {
+  const home = await temporary(t), mod = join(home, "nested trait.json");
+  const measured = [{name: "length", value: 91, unit: "cm", basis: "Fixture measurement."}];
+  const base = {name: "Notebook", category: "item", description: "A notebook.", basis: "Ordinary equipment.",
+    player_view: {description: "A notebook.", fields: []}};
+  // Sixteen drafts on record nested traits inside parameters; eleven answered the refusal by deleting them.
+  await json(mod, {...base, parameters: {effects: [], traits: measured}});
+  const rejected = await command(join(ROOT, "bin", "coc-read-check"), ["--kind", "mod-definition", "--draft", mod], options().env);
+  const report = JSON.parse(rejected.stdout);
+  assert.equal(report.ok, false, rejected.stdout + rejected.stderr);
+  assert.match(report.error, /traits/);
+  assert.match(report.fix ?? "", /move it beside parameters/);
+  // A fix that never leaves the kernel cannot repair anything: this stdout is all the child gets.
+  await json(mod, {...base, parameters: {effects: []}, traits: measured});
+  const accepted = await command(join(ROOT, "bin", "coc-read-check"), ["--kind", "mod-definition", "--draft", mod], options().env);
+  assert.equal(accepted.code, 0, accepted.stdout + accepted.stderr);
+  assert.equal(JSON.parse(accepted.stdout).name, "Notebook");
+});

@@ -1,12 +1,13 @@
 /** Pure immutable definition checks shared by host feedback and later acceptance. */
 import { RpcError } from '../errors.js';
 import { isJsonObject, PythonFloat } from '../json.js';
-import { array, clone, integer, length, number, row, string, truth, type Row } from '../read/values.js';
+import { array, clone, integer, length, number, repr, row, string, truth, type Row } from '../read/values.js';
 
 const WEAPON_FIELDS = new Set(['skill', 'damage', 'base_range_yards', 'uses_per_round', 'magazine', 'malfunction', 'impale', 'adds_damage_bonus', 'initial_ammo', 'reload_rounds']);
 const SPELL_FIELDS = new Set(['cost_mp', 'cost_sanity', 'cost_pow', 'casting_time', 'effects']);
 const ITEM_FIELDS = new Set(['charges', 'effects']);
-const invalid = (message: string): never => { throw new RpcError('invalid_params', message); };
+const DEFINITION_FIELDS = ['name', 'category', 'description', 'basis', 'parameters', 'traits', 'player_view', 'document'];
+const invalid = (message: string, fix?: string): never => { throw new RpcError('invalid_params', message, fix === undefined ? {} : {fix}); };
 const exactly = (value: Row, keys: string[]): boolean => Object.keys(value).length === keys.length && keys.every(key => Object.hasOwn(value, key));
 const scalarType = (value: any): string => value instanceof PythonFloat ? 'float' : typeof value === 'bigint' ? 'int'
   : typeof value === 'number' ? Number.isInteger(value) && !Object.is(value, -0) ? 'int' : 'float' : typeof value;
@@ -49,14 +50,26 @@ export function validateDefinition(raw: any, options: {name?: string | null; cat
   if (!isJsonObject(raw)) return invalid('Definition must be an object');
   if (truth(raw.error)) throw new RpcError('needs', string(truth(raw.reason) ? raw.reason : 'Definition requires an unsupported capability'),
     {details: {reason: 'unsupported_capability', required: Object.hasOwn(raw, 'required') ? raw.required : []}});
-  if (Object.keys(raw).some(key => !['name', 'category', 'description', 'basis', 'parameters', 'traits', 'player_view', 'document'].includes(key))) return invalid('Unknown definition field');
+  // This message stays byte-identical to the retired Python reference, which tests/extension/ts-kernel-mods
+  // still pins case by case. A surplus *parameter* is the one that actually misfires, and no parity case
+  // covers it, so the repair guidance lands there instead of here.
+  if (Object.keys(raw).some(key => !DEFINITION_FIELDS.includes(key))) return invalid('Unknown definition field');
   for (const key of ['name', 'description', 'basis']) if (!nonempty(raw[key]) || length(raw[key]) > 8000) return invalid(`Definition needs a bounded ${key}`);
   if (length(raw.name as string) > 120) return invalid('Definition names are limited to 120 characters');
   if (options.name != null && raw.name !== options.name || options.category != null && raw.category !== options.category) return invalid('Definition identity differs from its request');
   const kind = raw.category;
   hashable(kind);
   const fields = kind === 'weapon' ? WEAPON_FIELDS : kind === 'spell' ? SPELL_FIELDS : kind === 'item' ? ITEM_FIELDS : null;
-  if (!fields || !isJsonObject(raw.parameters) || Object.keys(raw.parameters).some(key => !fields.has(key))) return invalid('Unsupported definition category or parameter');
+  if (!fields) return invalid(`Definition category ${repr(kind)} is not weapon, spell or item`);
+  if (!isJsonObject(raw.parameters)) return invalid('Definition parameters must be an object');
+  // A rejected parameter that is itself a definition field is a nesting slip, not surplus data. One message
+  // for every cause made deletion the cheapest repair: sixteen drafts nested `traits` inside parameters and
+  // eleven answered the refusal by dropping the measured traits entirely, which is content the Keeper asked for.
+  const surplus = Object.keys(raw.parameters).find(key => !fields.has(key));
+  if (surplus !== undefined) return invalid(`${kind} parameters have no field ${repr(surplus)}`,
+    DEFINITION_FIELDS.includes(surplus)
+      ? `${surplus} is a definition field, not a parameter: move it beside parameters and keep its value`
+      : `remove it, or use one of: ${[...fields].join(', ')}`);
   const result = clone(raw);
   if (Object.hasOwn(raw, 'document')) {
     if (kind === 'spell') return invalid('A spell is knowledge, not a writable carrier');

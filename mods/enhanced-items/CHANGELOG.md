@@ -1,3 +1,11 @@
+# 1.1.4
+
+The creator's result shape names traits, and says that traits and document are
+fields of the definition rather than parameters. Sixteen of thirty-six drafts on
+record nested traits inside parameters and were rejected; eleven answered that
+refusal by deleting the measurements instead of moving them. Definitions and
+instances are unchanged when a campaign upgrades.
+
 # 1.1.3
 
 Player-visible physical traits, each trait's name, unit and string value, are

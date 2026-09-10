@@ -17,7 +17,10 @@ export async function checkModDefinition(path: string): Promise<{ok: boolean; [k
             const message=internalError(error).message;
             return {ok:false,error:message.slice(message.indexOf(': ')+2)};
         }
-        return {ok:false,error:error instanceof Error?error.message:String(error)};
+        // The repair the child is about to attempt is only as good as what reaches it: this result is the
+        // whole of what `coc-read-check` prints, so a fix left on the RpcError never leaves the kernel.
+        return {ok:false,error:error instanceof Error?error.message:String(error),
+            ...(error instanceof RpcError && error.fix ? {fix:error.fix} : {})};
     }
 }
 export async function checkSourceDraft(content: string, packetPath: string, draftPath: string): Promise<{
