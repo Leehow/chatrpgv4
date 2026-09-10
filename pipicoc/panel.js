@@ -43,12 +43,15 @@ const CSS = `
   color:var(--accent);padding:5px 9px;font:inherit;font-size:11px;cursor:pointer;min-height:30px}
 .coc-sheet-refresh:hover{border-color:var(--accent)}
 .coc-sheet-refresh:disabled{opacity:.5;cursor:default}
-.coc-sheet-fields{margin:12px 0 0;display:flex;flex-wrap:wrap;gap:6px}
-/* Occupation, era and age wear pills, the way the table's bookkeeping does below. */
-.coc-sheet-field{display:inline-flex;align-items:baseline;gap:5px;min-width:0;padding:3px 10px;
-  border:1px solid var(--border);border-radius:999px;background:var(--surface)}
-.coc-sheet-field-key{color:var(--muted);font-size:11px}
-.coc-sheet-field-val{color:var(--text);font-size:12px;overflow-wrap:anywhere}
+/* Occupation, era, age and tongues are the dossier's record lines: a quiet label column, the
+   entry beside it, one hairline between rows -- the same ledger the lists below keep, no boxes. */
+.coc-sheet-fields{margin:13px 0 0;display:grid;grid-template-columns:max-content minmax(0,1fr);
+  align-items:baseline;border-top:1px solid var(--border)}
+.coc-sheet-field{display:contents}
+.coc-sheet-field-key,.coc-sheet-field-val{padding:7px 0;border-bottom:1px solid var(--border);line-height:1.7}
+.coc-sheet-field:last-child .coc-sheet-field-key,.coc-sheet-field:last-child .coc-sheet-field-val{border-bottom:0}
+.coc-sheet-field-key{padding-inline-end:18px;color:var(--muted);font-size:11px;letter-spacing:.03em}
+.coc-sheet-field-val{min-width:0;color:var(--text);font-size:13px;overflow-wrap:anywhere}
 .coc-sheet-concept{margin:12px 0 0;padding-top:12px;border-top:1px solid var(--border);
   color:var(--muted);font-size:12px;line-height:1.75}
 .coc-sheet-note{margin:10px 0;color:var(--muted);line-height:1.65;font-size:12px}
