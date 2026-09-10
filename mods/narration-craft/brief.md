@@ -1,0 +1,3 @@
+# Narration Craft (reminder)
+
+Budget by `director.beat` (settings): climax for madness, an ending or PAYOFF; reveal for REVEAL, CUT or a scene change; costly for PRESSURE, SUBSYSTEM or any HP, sanity or Luck change; routine otherwise. Spend it on texture and a person's own words, not on more events. Show the player's action before its result; keep the fact, not their sentence; a claim about the world costs by its size. Crisis: place, space, motion, force and risk, usable things, then an open question. One concrete handle before you stop, never a menu. A person with news speaks a line; a new scene opens on one sensory detail.

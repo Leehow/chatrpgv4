@@ -7,9 +7,11 @@ import { RpcError } from "../errors.js";
 import { compareUnicode, jsonDigest, parsePythonJson } from "../json.js";
 import { ModuleGraph } from "./module-graph.js";
 import { npcsPresent } from "./capsule.js";
+import { threadSection } from "./thread.js";
+import { pacingSection } from "./pacing.js";
 import { entries, values, array, row, truth, string, number, integer, numeric, normalize, sorted, chars, length, clone, pick, type Row } from "./values.js";
 import { claimedEquipment } from "../mods/queue.js";
-export const MOD_CAPABILITIES = new Set(["checks.percentile.v1", "context.npc.v1", "definitions.v1", "objects.v1", "objects.state.v2", "objects.adopt.v1", "objects.documents.v1", "mods.order.v1", "ui.documents.v1", "ui.documents.language.v1", "agents.tools.v1", "weapons.v1", "weapons.profile.v2", "spells.v1", "item-effects.v1", "setup.guidance.v1", "setup.aptitude.v1", "graph.vocabulary.v1"]);
+export const MOD_CAPABILITIES = new Set(["checks.percentile.v1", "context.npc.v1", "definitions.v1", "objects.v1", "objects.state.v2", "objects.adopt.v1", "objects.documents.v1", "mods.order.v1", "ui.documents.v1", "ui.documents.language.v1", "agents.tools.v1", "weapons.v1", "weapons.profile.v2", "spells.v1", "item-effects.v1", "setup.guidance.v1", "setup.aptitude.v1", "graph.vocabulary.v1", "context.thread.v1", "context.pacing.v1"]);
 const invalid = (message: string): never => {
     throw new RpcError("invalid_params", message);
 };
@@ -136,7 +138,7 @@ export function manifestFrom(files: ReadonlyMap<string, Buffer>): Row {
         invalid("Game interface v1 settings are scalar values");
     if (!plain(manifest.settings_schema ?? {}))
         invalid("settings_schema must be an object");
-    if (Object.keys(manifest.contributes).some(k => !["instructions", "setup_instructions", "checks", "materializer", "auditor", "audit_on_decisions", "audit_slot", "document_editor", "vocabulary"].includes(k)))
+    if (Object.keys(manifest.contributes).some(k => !["instructions", "setup_instructions", "checks", "materializer", "auditor", "audit_on_decisions", "audit_slot", "brief", "document_editor", "vocabulary"].includes(k)))
         invalid("Unknown Mod contribution in game interface v1");
     validateVocabulary(manifest);
     for (const [dep, ver] of entries(manifest.dependencies)) {
@@ -144,11 +146,13 @@ export function manifestFrom(files: ReadonlyMap<string, Buffer>): Row {
             invalid("Dependency ids must be semantic slugs");
         version(ver);
     }
-    for (const field of ["instructions", "setup_instructions", "materializer", "auditor"]) {
+    for (const field of ["instructions", "brief", "setup_instructions", "materializer", "auditor"]) {
         const path = manifest.contributes[field];
         if (path != null && (typeof path !== "string" || !files.has(path) || !path.endsWith(".md")))
             invalid(`contributes.${field} must name a package Markdown file`);
     }
+    if (manifest.contributes.brief != null && manifest.contributes.instructions == null)
+        invalid("contributes.brief is the per-turn form of contributes.instructions and needs it");
     const checks = array(manifest.contributes.checks);
     for (const check of checks) {
         if (!plain(check) || !/^[a-z][a-z0-9-]*:[a-z][a-z0-9-]*$/.test(string(check.name ?? "")) || check.selection !== "maximum" || check.scope !== "actor-target" || !["regular", "hard", "extreme"].includes(check.difficulty) || !Array.isArray(check.values) || !check.values.length || !plain(check.results))
@@ -356,7 +360,10 @@ export function objectContext(world: Row): Row {
         }))
     };
 }
-export async function modContext(context: KernelContext, graph: ModuleGraph, world: Row, party: Row[]): Promise<Row> {
+/** `records` are the campaign's closed turns; only a package requiring `context.pacing.v1` reads them.
+ *  `full` is the §13.6 condition: the first turn this process opens for the campaign carries every package's
+ *  `instructions`; later turns carry its `brief` when it has one (§30.7). */
+export async function modContext(context: KernelContext, graph: ModuleGraph, world: Row, party: Row[], records: Row[] = [], full = true): Promise<Row> {
     const active = await activeMods(context, world),
         providers = modProviders(active),
         checks = new Map<string, Row>();
@@ -387,26 +394,38 @@ export async function modContext(context: KernelContext, graph: ModuleGraph, wor
                         when: "first meaningful contact, not merely appearing in this list"
                     });
             }
-    const effective = effectiveMods(active);
+    const effective = effectiveMods(active),
+        required = new Set(active.flatMap(mod => array(mod.requires).map(string))),
+        scene = graph.scene(world.active_scene);
     const unregistered = active.some(mod => truth(mod.contributes.materializer)) ? unregisteredEquipment(party, claimedEquipment(world)) : [];
-    return {
+    const result: Row = {
         active: active.map(mod => ({
             id: mod.id,
             version: mod.version
         })),
         authority: "Only this active Mod set applies. Earlier instructions from disabled or replaced versions are inactive.",
-        instructions: effective.filter(mod => truth(mod.contributes.instructions)).map(mod => ({
-            mod: mod.id,
-            version: mod.version,
-            settings: world.mods.active[mod.id].settings,
-            instruction: new TextDecoder("utf-8", { fatal: true }).decode(mod.files.get(mod.contributes.instructions))
-        })),
+        instructions: effective.filter(mod => truth(mod.contributes.instructions)).map(mod => {
+            const brief = !full && truth(mod.contributes.brief);
+            return {
+                mod: mod.id,
+                version: mod.version,
+                settings: world.mods.active[mod.id].settings,
+                form: brief ? "brief" : "full",
+                instruction: new TextDecoder("utf-8", { fatal: true }).decode(mod.files.get(brief ? mod.contributes.brief : mod.contributes.instructions))
+            };
+        }),
         pending_contacts: contacts.slice(0, 12),
         relationships: relationships.slice(0, 12),
         objects: objectContext(world),
         providers,
         unregistered_equipment: unregistered
     };
+    // A section exists only while a package that reads it is on (§30): no reader, no bytes in the capsule.
+    if (required.has("context.thread.v1"))
+        result.thread = threadSection(graph, world, scene, present);
+    if (required.has("context.pacing.v1"))
+        result.pacing = pacingSection(graph, scene, present, party, records);
+    return result;
 }
 export function publicItems(world: Row, ownerId: string, includeContainedDocuments = false): Row[] {
     const data = row(world.objects),
