@@ -10,7 +10,7 @@ import { playLanguageOf } from '../read/languages.js';
 import { recordOf, type ModuleGraph } from '../read/module-graph.js';
 import { whereSection } from '../read/capsule.js';
 import { MOD_CAPABILITIES, objectContext, unregisteredEquipment, findNamedObject } from '../read/mods.js';
-import { array, chars, clone, entries, equal, normalize, row, sorted, string, truth, type Row } from '../read/values.js';
+import { array, chars, clone, entries, equal, normalize, row, sorted, string, truth, values, type Row } from '../read/values.js';
 import { RuleTables } from '../rules/tables.js';
 import type { createWriteRuntime } from '../write/index.js';
 import { validateDefinition, validateDocumentSeed } from './definition.js';
@@ -123,7 +123,16 @@ export class ModJobs {
      * of define or adopt; an entry whose job has not finished yet is simply left for the next turn.
      */
     async queued(params: Row): Promise<Row> {
-        const {world} = await this.load(params), effects: Row[] = [], unfinished: Row[] = [];
+        const {campaign, world} = await this.load(params), effects: Row[] = [], unfinished: Row[] = [];
+        // A registration the host could not complete falls back to the ordinary blocking path rather than
+        // leaving a marker that hides its row from the audit: dropped here, the gear reads as unregistered
+        // again on the next turn and the Keeper registers it the way it did before any of this existed.
+        if (truth(params.discard)) {
+            const dropped = queuedRegistrations(world).length;
+            for (const state of values(row(row(world.mods).state))) if (isJsonObject(state)) state.queued = {};
+            await campaign.writeWorld(world);
+            return {effects, unfinished, discarded: dropped};
+        }
         for (const entry of queuedRegistrations(world)) {
             const define = clone(row(entry.define));
             const accepted = join(this.runtime.root, 'jobs', string(entry.job), 'accepted.json');

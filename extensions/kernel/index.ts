@@ -904,6 +904,10 @@ export default function (pi: ExtensionAPI) {
 				campaign,
 				call: bridgeCall(kernel),
 				runtime,
+				// The call ordinal lives here, so anything that has to write on the Keeper's behalf mints its
+				// id here too instead of inventing one the kernel refuses -- and never reuses a live ordinal,
+				// which the kernel would read as a replay and answer with somebody else's result.
+				mintCallId: () => (table ? mintCallId(table) : undefined),
 			});
 			pi.events.emit("coc:table-open", { campaign, open });
 

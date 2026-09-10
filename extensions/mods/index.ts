@@ -34,8 +34,9 @@ export interface ModBridge {
 export default function modsExtension(pi: ExtensionAPI): void {
   let call: Call | undefined;
   let runtime: HostRuntime | undefined;
+  let mintCallId: (() => string | undefined) | undefined;
   let context: ExtensionContext | undefined;
-  pi.events.on("coc:kernel-bridge", (data) => { call = (data as any)?.call; runtime = (data as any)?.runtime; });
+  pi.events.on("coc:kernel-bridge", (data) => { call = (data as any)?.call; runtime = (data as any)?.runtime; mintCallId = (data as any)?.mintCallId; });
   pi.on("session_start", async (_event, ctx) => { context = ctx; });
   pi.on("before_agent_start", async (_event, ctx) => { context = ctx; });
 
@@ -199,7 +200,18 @@ export default function modsExtension(pi: ExtensionAPI): void {
       queued = await current("mods.queued", {campaign});
     }
     const effects: any[] = Array.isArray(queued?.effects) ? queued.effects : [];
-    if (effects.length) await current("table.apply", {campaign, call_id: `mods-resume-${Date.now().toString(36)}`, effects});
+    if (!effects.length) return;
+    // The kernel extension owns the call ordinal, so the id is minted there. Inventing one here failed
+    // every write verb for the rest of the session, because this runs ahead of all of them.
+    const callId = mintCallId?.();
+    if (!callId) throw new KernelError({code:"needs", message:"The table cannot mint a call id for deferred registration"});
+    try { await current("table.apply", {campaign, call_id: callId, effects}); }
+    catch (error) {
+      // Bookkeeping must never cost the player their turn. The markers go, the gear reads as unregistered
+      // again, and the Keeper registers it the ordinary blocking way on the turn after this one.
+      await current("mods.queued", {campaign, discard: true}).catch(() => undefined);
+      void emitToPanel("coc-keeper", "mods-progress", {campaign, done: 0, total: 0, deferred_failed: errorText(error)});
+    }
   }
 
   const bridge: ModBridge = {

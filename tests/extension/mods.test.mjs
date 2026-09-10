@@ -238,3 +238,39 @@ test('the default pool clears one opening in a single wave, and the override sti
   process.env.PI_COC_MOD_CONCURRENCY = '2';
   assert.equal(await peakOf(), 2, 'the configured width no longer bounds the fan-out');
 });
+
+test('deferred registration is resumed with the id the table mints, and a failure never costs the turn', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'coc-mods-'));
+  const ready = {effects:[{kind:'define', name:'Kit', category:'item', _definition:{name:'Kit'}, _provenance:{mod:'enhanced-items'}}], unfinished:[]};
+  const table = (applyResult) => {
+    const pi = piSurface();
+    let bridge;
+    pi.events.on('coc:mods-bridge', value=>{bridge=value;});
+    modsExtension(pi);
+    const calls=[];
+    pi.events.emit('coc:kernel-bridge',{
+      // The kernel extension owns the ordinal; inventing an id here is what failed every write verb.
+      mintCallId: () => 't7-c4',
+      call:async(method,params)=>{
+        calls.push({method,params});
+        if(method==='mods.queued') return params.discard ? {effects:[],unfinished:[],discarded:1} : ready;
+        if(method==='table.apply') return applyResult();
+        return {};
+      },
+      runtime:{async runTask(){return {ok:true, code:0, timedOut:false, ms:1, stderr:'', command:[]};}, async check(){return {ok:true};}},
+    });
+    return {bridge, calls, cwd};
+  };
+
+  const landed = table(() => ({receipts:[]}));
+  await landed.bridge.prepare('resolve', {campaign:'c1'});
+  const applied = landed.calls.find(c=>c.method==='table.apply');
+  assert.equal(applied.params.call_id, 't7-c4', 'the resume has to use the id the table minted');
+  assert.equal(applied.params.effects.length, 1);
+
+  const refused = table(() => { throw new Error('the deferred batch did not land'); });
+  // Bookkeeping must not cost the player their turn, and the markers must not outlive their usefulness.
+  await refused.bridge.prepare('resolve', {campaign:'c1'});
+  assert.ok(refused.calls.some(c=>c.method==='mods.queued' && c.params.discard === true),
+    'a resume that cannot land has to drop its markers so the gear reads as unregistered again');
+});
