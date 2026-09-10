@@ -7,7 +7,7 @@ from pathlib import Path
 from conftest import CAMPAIGN, WORKTREE, campaign_dir, narrate, open_turn, read_json
 
 
-def package(tmp_path, *, version="1.2.0", state_version=1, migrations=None):
+def package(tmp_path, *, version="1.3.0", state_version=1, migrations=None):
     path = tmp_path / ("package-" + version)
     shutil.copytree(WORKTREE / "mods" / "natural-npc", path)
     manifest = read_json(path / "mod.json")
@@ -25,8 +25,8 @@ def test_install_does_not_upgrade_save_and_missing_migration_retains_old_lock(ke
     kernel.ok("mods.install", {"path":str(root)})
     world_path = campaign_dir(kernel.workspace) / "world.json"
     before = read_json(world_path)["mods"]
-    assert before["active"]["natural-npc"]["version"] == "1.1.2"
-    error = kernel.err("mods.configure", {"campaign":CAMPAIGN, "id":"natural-npc", "version":"1.2.0"})
+    assert before["active"]["natural-npc"]["version"] == "1.2.0"
+    error = kernel.err("mods.configure", {"campaign":CAMPAIGN, "id":"natural-npc", "version":"1.3.0"})
     assert error["code"] == "invalid_params"
     assert read_json(world_path)["mods"] == before
 
@@ -37,13 +37,13 @@ def test_explicit_migration_runs_once_and_old_package_stays_available(kernel, tm
     root = package(tmp_path, state_version=2, migrations=[{"from":1,"to":2,
         "operations":[{"op":"default","key":"migration_note","value":"retained"}]}])
     kernel.ok("mods.install", {"path":str(root)})
-    args = {"campaign":CAMPAIGN,"id":"natural-npc","version":"1.2.0"}
+    args = {"campaign":CAMPAIGN,"id":"natural-npc","version":"1.3.0"}
     kernel.ok("mods.configure", args)
     kernel.ok("mods.configure", args)
     world = read_json(campaign_dir(kernel.workspace) / "world.json")
     assert world["mods"]["state"]["natural-npc"]["migration_note"] == "retained"
     assert world["mods"]["active"]["natural-npc"]["state_version"] == 2
-    assert (kernel.workspace / ".coc/mods/packages/natural-npc/1.1.2/mod.json").exists()
+    assert (kernel.workspace / ".coc/mods/packages/natural-npc/1.2.0/mod.json").exists()
 
 
 def test_import_rejects_escaping_archive_and_different_bytes_for_a_version(kernel, tmp_path):
@@ -66,8 +66,8 @@ def test_incompatible_mod_is_listed_but_not_activated(kernel, tmp_path):
     (root / "mod.json").write_text(json.dumps(manifest))
     kernel.ok("mods.install", {"path":str(root)})
     view = kernel.ok("mods.list", {"campaign":CAMPAIGN})
-    assert not next(r for r in view["mods"] if r["id"] == "natural-npc" and r["version"] == "1.2.0")["compatible"]
-    assert kernel.err("mods.configure", {"campaign":CAMPAIGN,"id":"natural-npc","version":"1.2.0"})["code"] == "invalid_params"
+    assert not next(r for r in view["mods"] if r["id"] == "natural-npc" and r["version"] == "1.3.0")["compatible"]
+    assert kernel.err("mods.configure", {"campaign":CAMPAIGN,"id":"natural-npc","version":"1.3.0"})["code"] == "invalid_params"
 
 
 def test_future_contributions_do_not_break_the_current_catalog(kernel,tmp_path):
@@ -80,7 +80,7 @@ def test_future_contributions_do_not_break_the_current_catalog(kernel,tmp_path):
     (root/"mod.json").write_text(json.dumps(manifest))
     kernel.ok("mods.install",{"path":str(root)})
     view=kernel.ok("mods.list",{"campaign":CAMPAIGN})
-    future=next(r for r in view["mods"] if r["id"]=="natural-npc" and r["version"]=="1.2.0")
+    future=next(r for r in view["mods"] if r["id"]=="natural-npc" and r["version"]=="1.3.0")
     assert not future["compatible"] and future["settings"]=={}
     assert kernel.ok("mods.context",{"campaign":CAMPAIGN})["active"]
 
@@ -94,7 +94,7 @@ def test_declared_setting_is_editable_and_invalid_option_is_atomic(kernel, tmp_p
     manifest["settings_schema"] = {"tone":{"enum":["balanced","restrained"]}}
     (root / "mod.json").write_text(json.dumps(manifest))
     kernel.ok("mods.install",{"path":str(root)})
-    args = {"campaign":CAMPAIGN,"id":"natural-npc","version":"1.2.0","settings":{"tone":"restrained"}}
+    args = {"campaign":CAMPAIGN,"id":"natural-npc","version":"1.3.0","settings":{"tone":"restrained"}}
     kernel.ok("mods.configure",args)
     before = read_json(campaign_dir(kernel.workspace) / "world.json")
     assert before["mods"]["active"]["natural-npc"]["settings"] == {"tone":"restrained"}
