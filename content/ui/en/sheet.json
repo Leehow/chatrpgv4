@@ -48,6 +48,7 @@
   "refreshing": "…",
   "retry": "Try again",
   "sceneKey": "Scene",
+  "sections": "Sections",
   "session": "{kind}",
   "session.round": "{kind} · round {round}",
   "sessionKey": "Bout",

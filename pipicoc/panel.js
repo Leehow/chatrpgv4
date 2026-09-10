@@ -53,6 +53,12 @@ const CSS = `
   color:var(--muted);font-size:12px;line-height:1.75}
 .coc-sheet-note{margin:10px 0;color:var(--muted);line-height:1.65;font-size:12px}
 .coc-sheet-section{margin:24px 0 0;min-width:0}
+/* The jump rail: one chip per rendered section, so nothing below the fold needs a scroll. */
+.coc-sheet-nav{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 14px}
+.coc-sheet-nav-chip{display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border:1px solid var(--border);
+  border-radius:999px;background:var(--surface-raised,var(--surface));color:var(--muted);
+  font:inherit;font-size:11px;line-height:1.4;cursor:pointer}
+.coc-sheet-nav-chip:hover{border-color:var(--accent);color:var(--accent)}
 .coc-sheet-heading{display:flex;align-items:center;gap:10px;margin:0 0 12px;color:var(--muted);
   font-size:12px;font-weight:650;line-height:1.4;letter-spacing:.025em}
 .coc-sheet-heading::after{content:"";flex:1;height:1px;background:var(--border)}
@@ -476,9 +482,15 @@ export function createComponent(React) {
   /**
    * A titled block of the sheet. A section may name a glyph from ICON_PATHS that restates what
    * it is; the caption stays the surface's own word, and a section with no glyph just draws one.
+   * An `anchor` marks the section findable: the jump rail is read off the rendered DOM, so a
+   * section that chose not to render (no finance, no backstory) simply has no chip, and the
+   * rail and the sheet can never disagree.
    */
   function Section(props) {
-    return h("section", { className: "coc-sheet-section" },
+    const anchor = props.anchor
+      ? { "data-anchor": props.anchor, "data-label": text(props.title), ...(props.icon ? { "data-icon": props.icon } : {}) }
+      : {};
+    return h("section", { className: "coc-sheet-section", ...anchor },
       h("h2", { className: "coc-sheet-heading" }, props.icon ? h(Icon, { name: props.icon }) : null, props.title),
       props.children);
   }
@@ -528,7 +540,7 @@ export function createComponent(React) {
     // Luck has no maximum on the sheet (§17.4), so it never grows a bar.
     const luck = numberOr(sheet.luck, undefined);
     if (luck !== undefined) items.push(h(Vital, { key: "luck", label: t("luck"), tone: VITAL_TONE.luck, icon: VITAL_ICON.luck, current: luck }));
-    return items.length ? h(Section, { title: t("condition"), icon: "pulse" }, h("div", { className: "coc-vitals" }, items)) : null;
+    return items.length ? h(Section, { title: t("condition"), icon: "pulse", anchor: "condition" }, h("div", { className: "coc-vitals" }, items)) : null;
   }
 
   function Characteristics(props) {
@@ -548,7 +560,7 @@ export function createComponent(React) {
       if (derived[key] !== undefined) entries.push([key, derived[key]]);
     }
     if (!entries.length) return null;
-    return h(Section, { title: t("characteristics"), icon: "gauge" },
+    return h(Section, { title: t("characteristics"), icon: "gauge", anchor: "characteristics" },
       h("div", { className: "coc-chars" }, entries.map(([key, value]) =>
         h("div", { className: "coc-char", key },
           h("span", { className: "coc-char-key", title: term(key) }, CHAR_ICON[key] ? h(Icon, { name: CHAR_ICON[key] }) : null, term(key)),
@@ -565,7 +577,7 @@ export function createComponent(React) {
       .sort((a, b) => b.value - a.value || a.name.localeCompare(b.name));
     if (!rows.length) return null;
     const shown = expanded ? rows : rows.slice(0, SKILL_PREVIEW);
-    return h(Section, { title: fill(t("skills"), { n: rows.length }), icon: "target" },
+    return h(Section, { title: fill(t("skills"), { n: rows.length }), icon: "target", anchor: "skills" },
       h(Lines, { leader: true, rows: shown.map(row => ({ name: row.name, value: text(row.value), numeric: true })) }),
       rows.length > SKILL_PREVIEW
         ? h("button", {
@@ -585,11 +597,11 @@ export function createComponent(React) {
   function ItemSection(props) {
     const list = Array.isArray(props.list) ? props.list : [];
     if (!list.length) {
-      return props.empty ? h(Section, { title: props.title, icon: props.icon }, h("p", { className: "coc-sheet-note" }, props.empty)) : null;
+      return props.empty ? h(Section, { title: props.title, icon: props.icon, anchor: props.anchor }, h("p", { className: "coc-sheet-note" }, props.empty)) : null;
     }
     const {t,term=value=>value}=props;
     const valueText=value=>typeof value==="boolean"?(value?t("itemYes"):t("itemNo")):Array.isArray(value)?value.map(valueText).join(" / "):term(text(value));
-    return h(Section, { title: props.title, icon: props.icon },
+    return h(Section, { title: props.title, icon: props.icon, anchor: props.anchor },
       h("ul",{className:"coc-inventory"},list.map((item,index)=>{
         const name=isRecord(item)?text(item.name):text(item);
         const object=(props.objects || []).find(row=>row.name===name);
@@ -643,7 +655,7 @@ export function createComponent(React) {
     const creditRating = sheet.credit_rating !== undefined ? sheet.credit_rating : finance.credit_rating;
     if (creditRating !== undefined) rows.push({ name: t("creditRating"), value: text(creditRating), numeric: true });
     if (finance.living_standard !== undefined) rows.push({ name: t("livingStandard"), value: term(text(finance.living_standard)) });
-    return rows.length ? h(Section, { title: t("finance"), icon: "landmark" }, h(Lines, { kind: "finance", rows })) : null;
+    return rows.length ? h(Section, { title: t("finance"), icon: "landmark", anchor: "finance" }, h(Lines, { kind: "finance", rows })) : null;
   }
 
   /** The investigator's own history: what the sheet's backstory carries, in the play language. */
@@ -654,7 +666,7 @@ export function createComponent(React) {
     if(sheet.own_language)rows.push([t("language"),text(sheet.own_language)]);
     if(isRecord(sheet.key_connection)&&sheet.key_connection.summary)rows.push([t("keyConnection"),text(sheet.key_connection.summary)]);
     if(!rows.length)return null;
-    return h(Section,{title:t("background"),icon:"scroll"},h("dl",{className:"coc-background"},rows.map(([key,value])=>
+    return h(Section,{title:t("background"),icon:"scroll",anchor:"background"},h("dl",{className:"coc-background"},rows.map(([key,value])=>
       h("div",{key,"data-field":key},h("dt",null,term(key)),h("dd",null,term(value))))));
   }
 
@@ -684,7 +696,7 @@ export function createComponent(React) {
       : span ? fill(t(span.days > 0 ? "elapsed.dhm" : span.hours > 0 ? "elapsed.hm" : "elapsed.m"),
           { d: span.days, hh: span.hours, mm: span.minutes })
       : null;
-    return h(Section, { title: t("time"), icon: "clock" },
+    return h(Section, { title: t("time"), icon: "clock", anchor: "time" },
       reading ? h("div", { className: "coc-clock" }, reading) : null,
       meta.length
         ? h("div", { className: "coc-standing-meta" }, meta.map((line, index) =>
@@ -710,7 +722,7 @@ export function createComponent(React) {
     // only the ones already marked discovered are named.
     const foundHere = here.filter(clue => isRecord(clue) && clue.discovered === true);
     if (!discovered.length && !foundHere.length) {
-      return h(Section, { title: t("clues"), icon: "search" }, h("p", { className: "coc-sheet-note" }, t("noClues")));
+      return h(Section, { title: t("clues"), icon: "search", anchor: "clues" }, h("p", { className: "coc-sheet-note" }, t("noClues")));
     }
     const seen = new Set();
     const rows = [];
@@ -721,7 +733,7 @@ export function createComponent(React) {
       seen.add(key);
       rows.push(line);
     }
-    return h(Section, { title: t("clues"), icon: "search" }, rows.map((row, index) =>
+    return h(Section, { title: t("clues"), icon: "search", anchor: "clues" }, rows.map((row, index) =>
       row.summary
         // The name stays on the line; what the clue says is one tap away. Both go through the
         // glossary: the Keeper's own label comes back as itself, a graph name or the book's
@@ -742,6 +754,10 @@ export function createComponent(React) {
     const [busy, setBusy] = useState(false);
     const [who, setWho] = useState(0);
     const [documentTarget, setDocumentTarget] = useState(null);
+    // The jump rail's chips are read off the rendered sheet, never computed from the data: a
+    // section that chose not to render has no chip, so the rail can never point at nothing.
+    const sheetRoot = useRef(null);
+    const [railAnchors, setRailAnchors] = useState([]);
     useEffect(()=>setDocumentTarget(null),[api]);
     useEffect(()=>{if(answer?.campaign&&documentTarget&&answer.campaign!==documentTarget.campaign)setDocumentTarget(null);},[answer?.campaign]);
     // The words of the last answer that actually arrived, kept so the chrome of a failure this
@@ -777,6 +793,16 @@ export function createComponent(React) {
     }, [api]);
 
     useEffect(() => { void load(); }, [load]);
+
+    useEffect(() => {
+      const el = sheetRoot.current;
+      if (!el) { setRailAnchors([]); return; }
+      setRailAnchors(Array.from(el.querySelectorAll("[data-anchor]")).map(node => ({
+        id: node.getAttribute("data-anchor"),
+        icon: node.getAttribute("data-icon"),
+        label: node.getAttribute("data-label") || "",
+      })));
+    }, [answer, who]);
 
     // The agent half pushes on every committed turn; any event from this pack means re-read.
     // The push carries no payload, so a shape change upstream can never desynchronise the panel.
@@ -845,7 +871,16 @@ export function createComponent(React) {
     }
     const concept = sheet && isRecord(sheet.backstory) ? term(text(sheet.backstory.concept)) : "";
 
-    return h("div", { className: "coc-sheet", role: "region", ...(props.title ? { "aria-label": props.title } : {}) },
+    return h("div", { className: "coc-sheet", role: "region", ref: sheetRoot, ...(props.title ? { "aria-label": props.title } : {}) },
+      railAnchors.length > 1
+        ? h("nav", { className: "coc-sheet-nav", "aria-label": t("sections") }, railAnchors.map(entry =>
+            h("button", { type: "button", className: "coc-sheet-nav-chip", key: entry.id,
+              onClick: () => {
+                const target = sheetRoot.current && sheetRoot.current.querySelector(`[data-anchor="${entry.id}"]`);
+                if (target && typeof target.scrollIntoView === "function") target.scrollIntoView({ behavior: "smooth", block: "start" });
+              } },
+              entry.icon ? h(Icon, { name: entry.icon }) : null, entry.label)))
+        : null,
       h("div", {className:"coc-sheet-identity"}, head,
       fields.length
         ? h("div", { className: "coc-sheet-fields" }, fields.map(([key, value], index) =>
@@ -869,13 +904,13 @@ export function createComponent(React) {
       sheet ? h(Skills, { sheet, t, term }) : null,
       documentWindow,
       h("style",null,PAPER_STYLE),
-      sheet ? h(ItemSection, { title: t("weapons"), icon: "swords", list: sheet.weapons, objects:(sheet.objects || []).filter(item=>item.category==="weapon"), t, term,
+      sheet ? h(ItemSection, { title: t("weapons"), icon: "swords", anchor: "weapons", list: sheet.weapons, objects:(sheet.objects || []).filter(item=>item.category==="weapon"), t, term,
         documents:sheet.objects, insideLabel:word(ui,"paper","inside"), paperLabel:word(ui,"paper","open"),
         onOpenDocument:name=>setDocumentTarget({name,actor:sheet.id,campaign:answer.campaign}) }) : null,
-      sheet && view.presentation_status ? h(Section,{title:t("equipment"),icon:"backpack"},
+      sheet && view.presentation_status ? h(Section,{title:t("equipment"),icon:"backpack",anchor:"equipment"},
         h("p",{className:"coc-sheet-note",role:"status"},view.presentation_status==="failed"?t("errorDetail"):t("loading")),
         view.presentation_status==="failed"?h("button",{type:"button",onClick:()=>{void load(true);}},t("retry")):null) :
-      sheet ? h(ItemSection, { title: t("equipment"), icon: "backpack", list: (sheet.equipment || []).filter(item => !view.finance_equipment?.includes(item)), objects:(sheet.objects || []).filter(item=>item.category!=="weapon"), empty: t("noEquipment"), t, term,
+      sheet ? h(ItemSection, { title: t("equipment"), icon: "backpack", anchor: "equipment", list: (sheet.equipment || []).filter(item => !view.finance_equipment?.includes(item)), objects:(sheet.objects || []).filter(item=>item.category!=="weapon"), empty: t("noEquipment"), t, term,
         documents:sheet.objects, insideLabel:word(ui,"paper","inside"), paperLabel:word(ui,"paper","open"),
         onOpenDocument:name=>setDocumentTarget({name,actor:sheet.id,campaign:answer.campaign}) }) : null,
       sheet ? h(Finance, { sheet, t, term }) : null,

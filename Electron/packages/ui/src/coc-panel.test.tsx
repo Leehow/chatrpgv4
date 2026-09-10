@@ -81,7 +81,8 @@ it('renders the key itself for a caption the language is missing', async () => {
   const gapped = ui('zh-Hans', { sheet: { clues: undefined } });
   render(<Panel api={host({ ok: true, data: { status: 'ready', view: view(), campaign: 'c1', ui: gapped } })} />);
   await screen.findByText('图书馆使用');
-  expect(screen.getByText('clues')).toBeTruthy();
+  // The jump rail's chip carries the same caption, so the assertion names the heading's role.
+  expect(screen.getByRole('heading', { name: 'clues' })).toBeTruthy();
   expect(screen.queryByText(say('en', 'sheet', 'clues'))).toBeNull();
 });
 
@@ -143,6 +144,39 @@ describe('icons restate the stable rules keys, never the words', () => {
     expect(headings).toContainEqual(['技能（2）', 'target']);
     expect(headings).toContainEqual(['物品', 'backpack']);
     expect(headings).toContainEqual(['线索', 'search']);
+  });
+});
+
+describe('the jump rail mirrors the rendered sections', () => {
+  it('offers one chip per rendered section and scrolls to it on click', async () => {
+    // The rail is read off the rendered DOM, so its chips are exactly the sections that drew:
+    // this sheet has no finance, backstory or weapons, and those chips must not exist.
+    const scrolled: string[] = [];
+    window.HTMLElement.prototype.scrollIntoView = vi.fn(function (this: HTMLElement) {
+      scrolled.push(this.getAttribute('data-anchor') || '');
+    });
+    const sheet = { ...investigator, hp: 9, derived: { HP: 9 } };
+    const { container } = render(<Panel api={host({ ok: true, data: { status: 'ready', view: view({ investigators: [sheet] }), campaign: 'c1' } })} />);
+    await screen.findByText('力量');
+    await waitFor(() => expect(container.querySelectorAll('.coc-sheet-nav-chip').length).toBeGreaterThan(0));
+    const chips = Array.from(container.querySelectorAll('.coc-sheet-nav-chip')).map(el => el.textContent);
+    expect(chips).toEqual(['时间', '状态', '属性', '技能（2）', '物品', '线索']);
+    expect(chips).not.toContain('财务');
+    expect(chips).not.toContain('背景');
+    fireEvent.click(screen.getByRole('button', { name: '线索' }));
+    expect(scrolled).toEqual(['clues']);
+  });
+
+  it('lists only what actually rendered, even on a bare sheet', async () => {
+    // Time (the turn count) and Clues (its empty state) always render; a bare sheet's rail is
+    // exactly those two, and none of the sections that chose not to draw.
+    const bare = view({ investigators: [{ id: 'inv-2', name: '空卡' }], clues: { discovered: [] } });
+    const { container } = render(<Panel api={host({ ok: true, data: { status: 'ready', view: bare, campaign: 'c1' } })} />);
+    await screen.findByText('空卡');
+    await waitFor(() => expect(container.querySelectorAll('.coc-sheet-nav-chip').length).toBeGreaterThan(0));
+    const chips = Array.from(container.querySelectorAll('.coc-sheet-nav-chip')).map(el => el.textContent);
+    // Equipment renders its empty state even on a bare sheet, so it keeps its chip.
+    expect(chips).toEqual(['时间', '物品', '线索']);
   });
 });
 
