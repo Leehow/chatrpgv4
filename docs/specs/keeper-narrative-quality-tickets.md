@@ -4,6 +4,13 @@
 
 状态：**已拆票，未开工**。实现与验收都还没有发生；这里没有任何一票可以凭"spec 写好了"算完成。
 
+## 实现进度
+
+- 2026-09-10：用户授权"尽管做"，Claude 主会话任 lead。集成分支 `claude/keeper-narrative-quality`，从 `0.9.2a@baf1b818` 开出。#69 契约（636fdb6d）、#70 内核升级语义与两条回归测试（3e435655）、#71 文本图（077968e2）、#72 底层提示词（5c51cf0a）、#73 Keeper Pacing 1.1.0（c3be075c）、#74 Story Thread 1.0.2（1d4aef30）、#75 Narration Craft 1.1.0（e2158178）全部合入；lead 另补一笔把三份 brief 修回 4000 字节上限并改英文桌的轴计数（6eac940e）。
+- 集成树验证：`check:kernel` 通过；`pytest tests/kernel tests/play` 1138 通过 1 跳过（17 分 18 秒，单进程）；`npm run test:ext` 通过。激活证据与对读记录在集成 worktree 的 `.coc/playtests/knq-activation-20260910/`。
+- 派工注意：Agent 工具自带的隔离 worktree 落在过期基底（3297356b），五张票在 lead 自建的 worktree 上重派；三张票因此各有一份等价的冗余提交未合入（见 `integration.md`）。模型按表：#70 Fable，#72/#73/#75 Opus，#71/#74 Sonnet。
+- 未完成：App 安装（正式 App 正在运行，不替换运行中的 App；候选包构建记录另见证据目录）；#77 真桌回归；#78 盲评；#79 真人门。
+
 ## 11 张工单
 
 ### 契约
