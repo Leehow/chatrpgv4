@@ -35,6 +35,7 @@ write while preserving the client draft. Hot and cold UI bridges retain these co
 ## 2. 标识法
 
 - 模型可见的一切标识都是名字或语义 id：场景用图上的 `scene_id` 去掉 `scene-` 前缀后的 kebab 名，也接受图上的 `display_name` 与 `name`；NPC、线索、物品同理接受 id 或名字，内核做归一化，歧义时报 `unknown_entity` 并给候选。
+- 归一化折叠重音（#64）：名字先做 NFKC，再去掉 Unicode 会合成到基字母上的记号（`á`→`a`、`ệ`→`e`、`ñ`→`n`）。图的 `node_id` 按 §14.11 是全 ASCII kebab 而 `name`/`aliases` 保留书的拼法，所以一个只差重音的名字两个方向都能解析到自己的节点（`Nemesio Sánchez` → `npc-nemesio-sanchez`；`padre inigo munoz` → `Padre Iñigo Muñoz`）。从不合成的记号（天城文元音符号、泰文声调、阿拉伯文短元音）不是重音，照旧参与比较，`किरण` 与 `करण` 仍是两个名字。折叠后相等的两个节点报 `unknown_entity`（歧义）并给全部候选，不静默选一个。头衔前缀（`Professor …`）不折叠：那要一张词表，是语义不是记号。
 - 回合号 `turn` 是从 1 起的整数。开桌那一回合是 0，只有 `narrate` 的开场交付，没有玩家输入。
 - `call_id` 由扩展铸造：`t<turn>-c<n>`，`n` 是该回合内会改状态的调用序号，从 1 起。模型永远不写 `call_id`。同 `call_id` 同参数返回原结果并带 `"replayed": true`；同 `call_id` 不同参数报 `idempotency_conflict`。参数比较用规范化 JSON 的 sha256。
 - 收据 id 由内核铸造，语义化，`<n>` 是该调用的 `call_id` 序号：`roll:<技能 kebab>-t<turn>-c<n>`、`move:<目的地>-t<turn>-c<n>`、`clue:<线索 kebab>-t<turn>`、`time:t<turn>-c<n>`（同批第二条起加 `-2`、`-3`）、`choice:<待决名>-t<turn>`。哈希、摘要、随机 id 不出内核。
@@ -2337,6 +2338,21 @@ Implementation decisions for the two-session report, items 7–21:
   class from an open-ended object name; refusal guidance explains this distinction.
 - Entity resolution prefers an exact canonical semantic handle before shared display
   names/aliases. Ambiguous display names return distinct handles that are resolvable.
+- Name normalisation folds composed diacritics (2026-09-10, #64). `normalize` is NFKC,
+  then every mark Unicode composes onto its base letter is dropped (`Sánchez` →
+  `sanchez`); marks the standard never composes (Devanagari vowel signs, Thai tone
+  marks, Arabic harakat) stay, so `किरण` and `करण` remain two names. Node ids are ASCII
+  kebab by the shape gate while names keep the book's spelling, so before this a name
+  differing from its own handle only by an accent could never resolve: `apply npc`
+  refused `Nemesio Sánchez` with `npc-nemesio-sanchez` in the graph. The fold applies
+  wherever `normalize` compares names (graph resolution and the name index, party
+  sheets, inventory and weapons, notes and rulings, memory `about`, material
+  readiness); two nodes that fold together are `unknown_entity` ambiguous with both
+  candidates. Two persisted digests include the folded key and shift only for accented
+  names: the Mod registration queue key and the reading-job identity. `normalizeText`
+  (markers, minted ids, `kebab`) is unchanged and keeps every mark. A title in front of
+  a name (`Professor Nemesio Sánchez`) is not folded: that needs a word list, which
+  the rules forbid; the bare name resolves through the handle.
 
 Spatial source fidelity: compact place/rule previews must explicitly indicate truncation, never imply complete connectivity from a clipped sentence. Full scene look exposes complete authored sublocation descriptions through the existing scene view; it must not invent routes from prose. Scene asset discovery includes maps depicting the scene's occurs-at location. Source readers and independent reviewers preserve explicit no-roll permissions, obstacle-specific check conditions, and spatial branches; checks attached to one obstacle must not migrate to another through summarization. Repairs of missing material use the same tool-enabled reader/review/publication path, without rewriting campaign outcomes.
 
