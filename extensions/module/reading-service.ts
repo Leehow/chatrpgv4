@@ -3,7 +3,7 @@ import { readFile, writeFile, mkdir, copyFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { basename, join, resolve } from "node:path";
 import { KernelError , isKernelError } from "../kernel/client.ts";
-import { readerInput } from "./reader.ts";
+import { readerInput, wakeReaderSlots } from "./reader.ts";
 import { reviewCandidate } from "./reader-review.ts";
 import { sourceAsset, closeSourceDocuments, sourceRenderVersion } from "./source.ts";
 import type { HostRuntime } from "../../runtime/host.ts";
@@ -65,6 +65,7 @@ export class ReadingService implements ReadingBridge {
 	private pumps = new Map<string, Promise<void>>();
 	private pumpWakes = new Map<string, () => void>();
 	private controllers = new Map<string, AbortController>();
+	private jobs = new Map<string, Row>();
 	private cancelledJobs = new Set<string>();
 	private readonly deps: Dependencies;
 	constructor(deps: Dependencies) { this.deps = deps; }
@@ -80,7 +81,11 @@ export class ReadingService implements ReadingBridge {
 
 	async close() { this.dispose(); try { await Promise.allSettled([...this.pumps.values()]); } finally { await closeSourceDocuments(); } }
 
-	prefetch(moduleId: string): Promise<void> { return this.pump(moduleId); }
+	prefetch(moduleId: string, reason = 'requested'): Promise<void> {
+		if (this.stopped) return Promise.resolve();
+		this.deps.record({lane:'reading',event:'prefetch_wake',module_id:moduleId,reason});
+		return this.pump(moduleId);
+	}
 
 	async prepare(params: Row, signal?: AbortSignal): Promise<Row> {
 		let mid = params.module_id;
@@ -174,6 +179,10 @@ export class ReadingService implements ReadingBridge {
 		let retry = params.retry === true;
 		while (!this.stopped && !request.cancelled) {
 			const response = await this.deps.call("module.read.request", { ...params, module_id: mid, retry });
+			if (params.foreground && response.job_id) {
+				const running = this.jobs.get(JSON.stringify([mid,response.job_id]));
+				if (running) { running.foreground = true; wakeReaderSlots(); }
+			}
 			request.jobId = response.job_id;
 			if (request.cancelled) {
 				if (request.jobId) this.cancelJob(mid, request.jobId);
@@ -198,11 +207,13 @@ export class ReadingService implements ReadingBridge {
 		const running = this.pumps.get(mid);
 		if (running) { this.pumpWakes.get(mid)?.(); return running; }
 		const active = new Set<Promise<void>>();
+		let wakeRequested = false;
 		const task = (async () => {
 			let capacity = 1;
 			try {
 				while (!this.stopped) {
-					const wake = new Promise<void>(resolve => this.pumpWakes.set(mid, resolve));
+					wakeRequested = false;
+					const wake = new Promise<void>(resolve => this.pumpWakes.set(mid, () => {wakeRequested = true; resolve();}));
 					while (active.size < capacity && !this.stopped) {
 						const job = await this.deps.call("module.read.claim", { module_id: mid, owner: `host-${process.pid}` });
 						if (!job.job_id) break;
@@ -210,6 +221,7 @@ export class ReadingService implements ReadingBridge {
 						const key = JSON.stringify([mid, job.job_id]);
 						const controller = new AbortController();
 						this.controllers.set(key, controller);
+						this.jobs.set(key,job);
 						if (this.stopped || this.cancelledJobs.has(key)) controller.abort();
 						const work = (async () => {
 							try {
@@ -222,17 +234,17 @@ export class ReadingService implements ReadingBridge {
 										outcome: controller.signal.aborted ? "cancelled" : "failed", detail: String(failure) });
 								} catch { /* a closed kernel releases its leases; retained attempts remain reclaimable */ }
 							}
-							finally { this.controllers.delete(key); this.cancelledJobs.delete(key); }
+							finally { this.controllers.delete(key); this.jobs.delete(key); this.cancelledJobs.delete(key); }
 						})();
 						const tracked = work.finally(() => active.delete(tracked));
 						active.add(tracked);
-						this.deps.record({lane: "reading", event: "concurrency", module_id: mid, active: active.size, capacity});
+						this.deps.record({lane: "reading", event: "concurrency", module_id: mid, active: active.size, capacity, foreground:job.foreground === true, queue_wait_ms: Number.isFinite(Date.parse(job.at)) ? Math.max(0,Date.now()-Date.parse(job.at)) : undefined});
 					}
-					if (!active.size) return;
+					if (!active.size) { if (wakeRequested) continue; return; }
 					await Promise.race([...active, wake]);
 				}
 			} finally { await Promise.allSettled([...active]); }
-		})().finally(() => { this.pumps.delete(mid); this.pumpWakes.delete(mid); });
+		})().finally(() => { this.pumps.delete(mid); this.pumpWakes.delete(mid); if(wakeRequested&&!this.stopped)void this.pump(mid).catch(()=>undefined); });
 		task.catch(() => undefined);
 		this.pumps.set(mid, task);
 		return task;
@@ -318,6 +330,7 @@ export class ReadingService implements ReadingBridge {
 								cacheRoot:join(cache,'..','reviews'),
 								reviewVersion:sha(Buffer.concat([Buffer.from(sourceRenderVersion),await readFile(join(this.runtime().contentRoot,'setup',job.purpose === 'guidance' ? 'visual-guidance.md' : 'visual-reader.md'))])),
 								run: ({systemPrompt: _instructions, ...request}) => this.runtime().runTask({ kind: "reader", request: { ...request,
+									priority: () => job.foreground === false ? "background" : "foreground",
 									prompt: { phase: "verify", guidance: job.purpose === "guidance" } } }, request.signal),
 								record: row => this.deps.record({ module_id: job.module_id, ...row }),
 								progress: row => this.deps.progress({ module_id: job.module_id, ...row }) });
@@ -332,6 +345,7 @@ export class ReadingService implements ReadingBridge {
 						const run = await this.runtime().runTask({ kind: "reader", request: { cwd, model: model.id, thinking: model.thinking,
 							...(job.purpose==="guidance"?{imageHistory:4}:{}),
 							submission:["guidance","opening"].includes(job.purpose),
+							priority: () => job.foreground === false ? "background" : "foreground",
 							prompt: { phase, guidance: job.purpose === "guidance" }, source: { pdf: job.source.path, cache },
 							eventLog: join(cwd, `${phase}-${round}.jsonl`),
 							brief: `${readerInput({task})} Your phase is ${phase}. Use page images to produce draft.json. If a draft was retained from this same interrupted request, inspect its sources and repair it instead of rewriting merely for style. ${["guidance","opening"].includes(job.purpose) ? "Use submit_reading as your sole final tool call to save/check this batch and finish without a closing reply." : ""} ${round > 1 || job.resume_from ? "Read findings.json if present and address its concrete findings." : ""}`,

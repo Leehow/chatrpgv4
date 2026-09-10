@@ -580,6 +580,8 @@ export default function (pi: ExtensionAPI) {
 				break;
 			case "apply": {
 				state.state = "acting";
+				if (readingModule && Array.isArray(result.deepen_queued) && result.deepen_queued.length)
+					pi.events.emit("coc:source-work-queued", {campaign:state.campaign,module_id:readingModule});
 				// Handouts (contract §14.8): the kernel mints the receipt, and the attachment itself is the
 				// extension's to hand on. Pi has no outbound attachment channel, so it is held until the
 				// delivery and lands as a path in the mechanics projection.

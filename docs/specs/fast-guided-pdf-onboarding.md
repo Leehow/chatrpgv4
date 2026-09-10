@@ -368,3 +368,19 @@ opening. Remaining post-confirmation delay belongs to confirmation/handoff/openi
 work and observation overhead, not outstanding PDF source preparation in this run.
 Evidence: .coc/playtests/pdf-opening-app-20260910/isolated-run-report.md and
 .coc/playtests/pdf-opening-latency-20260910/. All failed attempts remain retained.
+
+## 2026-09-10: Immediate scene prefetch and bounded background concurrency
+
+Approved scope: wake queued adjacent-scene reading before the end of the Keeper response;
+allow two background scene jobs while reserving foreground job and child-process capacity.
+No two-hop prediction, scene-content changes, Python restoration or new daemon is in scope.
+Worktree codex/scene-prefetch, base d114d0eb; concurrent primary card/Mod edits are untouched.
+
+- [ ] Immediate wake on table binding, queued scene movement and committed turns; no lost drain wakeups.
+- [ ] Two background jobs plus a foreground slot; foreground-priority child budget and local promotion.
+- [ ] Focused real-kernel/scheduler tests; keep Item Enhancement off in isolated App acceptance.
+- [ ] Integrate, package, verify an actual scene transition, restore the normal profile, classify worktree.
+
+The design follows bounded concurrent requests ([xAI](https://docs.x.ai/developers/advanced-api-usage/async))
+and separate resource budgets for lower-priority work ([Microsoft bulkhead pattern](https://learn.microsoft.com/azure/architecture/patterns/bulkhead)).
+These support capacity reservation, not an assumed linear speedup or a global provider-rate guarantee.

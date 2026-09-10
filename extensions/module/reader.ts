@@ -11,7 +11,11 @@ import { resourceRootFrom, runtimeEntrypoints } from "../../runtime/deployment.m
 const DEFAULT_TIMEOUT_MS = 60 * 60 * 1000;
 const STDERR_KEEP = 2000;
 
+export type ReaderPriority = "foreground" | "background" | (() => "foreground" | "background");
+
 export interface ReaderRequest {
+	/** Host-only scheduling priority; never sent to the model. */
+	priority?: ReaderPriority;
 	/** The working directory: the claimed attempt directory. */
 	cwd: string;
 	/** The phase instruction for the claimed reading job. */
@@ -88,36 +92,42 @@ export function readerInput(input: Record<string, unknown>): string {
 		: "Read task.json and any candidate files required by your phase.";
 }
 
-/** One host-wide budget shared by source reading and all review pools. */
-let activeReaders = 0;
-const waitingReaders: Array<() => void> = [];
-export async function acquireReaderSlot(signal?: AbortSignal): Promise<(() => void) | null> {
+/** Foreground requests retain capacity even when scene prefetch is saturated. */
+let activeReaders = 0, activeBackgroundReaders = 0;
+type WaitingReader = {priority:ReaderPriority; grant():void};
+const waitingReaders: WaitingReader[] = [];
+const background = (priority:ReaderPriority) => (typeof priority === 'function' ? priority() : priority) === 'background';
+export function wakeReaderSlots(): void {
+	while (activeReaders < 40) {
+		let index = waitingReaders.findIndex(waiter=>!background(waiter.priority));
+		if (index < 0 && activeBackgroundReaders < 8) index = waitingReaders.findIndex(waiter=>background(waiter.priority));
+		if (index < 0) return;
+		const [waiter] = waitingReaders.splice(index,1); waiter.grant();
+	}
+}
+export async function acquireReaderSlot(signal?: AbortSignal, priority: ReaderPriority = 'foreground'): Promise<(() => void) | null> {
 	if (signal?.aborted) return null;
 	return new Promise(resolve => {
 		const cancel = () => {
-			const index = waitingReaders.indexOf(grant);
-			if (index >= 0) waitingReaders.splice(index, 1);
-			resolve(null);
+			const index = waitingReaders.indexOf(waiter);
+			if (index >= 0) waitingReaders.splice(index,1);
+			resolve(null); wakeReaderSlots();
 		};
-		const grant = () => {
-			signal?.removeEventListener("abort", cancel);
-			activeReaders++;
-			let released = false;
-			resolve(() => {
-				if (released) return;
-				released = true; activeReaders--;
-				waitingReaders.shift()?.();
-			});
-		};
-		if (activeReaders < 40) grant();
-		else { waitingReaders.push(grant); signal?.addEventListener("abort", cancel, {once:true}); }
+		const waiter:WaitingReader = {priority, grant() {
+			signal?.removeEventListener('abort',cancel);
+			const wasBackground = background(priority);
+			activeReaders++; if(wasBackground)activeBackgroundReaders++;
+			let released=false;
+			resolve(()=>{if(released)return;released=true;activeReaders--;if(wasBackground)activeBackgroundReaders--;wakeReaderSlots();});
+		}};
+		waitingReaders.push(waiter);signal?.addEventListener('abort',cancel,{once:true});wakeReaderSlots();
 	});
 }
 
 /** Run one reader round. Failed or cancelled runs retain their evidence. */
 export async function runReader(request: ReaderRequest, context?: RuntimeContext): Promise<ReaderOutcome> {
 	if (!context) throw new Error("Reader execution requires a captured host runtime context");
-	const release = await acquireReaderSlot(request.signal);
+	const release = await acquireReaderSlot(request.signal,request.priority);
 	if (!release) return {ok:false,code:null,timedOut:false,ms:0,stderr:"",command:[],error:"cancelled"};
 	try { return await runOwnedReader(request, context); } finally { release(); }
 }

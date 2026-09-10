@@ -281,12 +281,14 @@ export class Reading {
                 }
             }
             const pending = queue.filter(job => job.state === 'queued').sort((a, b) => Number(!truth(a.foreground)) - Number(!truth(b.foreground)) || Number(a.purpose !== 'opening') - Number(b.purpose !== 'opening') || compareUnicode(a.at, b.at));
-            if (active.length >= 2) {
+            if (active.length >= 3) {
                 await this.store.writeQueue(mid, queue);
                 return { job_id: null };
             }
             for (const job of pending) {
-                if (active.some(other => truth(other.foreground) === truth(job.foreground) || normalize(other.focus ?? '') === normalize(job.focus ?? '')))
+                const foreground = truth(job.foreground);
+                if (active.filter(other => truth(other.foreground) === foreground).length >= (foreground ? 1 : 2)
+                    || active.some(other => normalize(other.focus ?? '') === normalize(job.focus ?? '')))
                     continue;
                 const shared = await this.store.context.locks.acquire(join(directory, '.reader.lock'), 'shared', { nonblocking: true });
                 if (!shared)
@@ -330,7 +332,7 @@ export class Reading {
                     if (!known.length)
                         known = [{ node_id: `module-${mid}`, node_kind: 'module', name: meta.title, ready: false }];
                     const contract = await this.store.contract();
-                    const packet = { ...job, module_id: mid, source, concurrency: 2, index: job.purpose === 'index' ? [] : await this.store.sections(mid), known_nodes: known, known_claims: graph.claims ?? [], vocabulary: vocabulary(contract), coverage_domains: [...array(contract.graph.coverage_domains)] };
+                    const packet = { ...job, module_id: mid, source, concurrency: 3, index: job.purpose === 'index' ? [] : await this.store.sections(mid), known_nodes: known, known_claims: graph.claims ?? [], vocabulary: vocabulary(contract), coverage_domains: [...array(contract.graph.coverage_domains)] };
                     await writeJsonAtomic(join(work, 'packet.json'), packet);
                     this.owned();
                     return packet;

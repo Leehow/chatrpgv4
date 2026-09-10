@@ -14,14 +14,25 @@ export default function (pi: ExtensionAPI) {
     let ctx: ExtensionContext | undefined;
     let bridge: { call: Call; runtime: HostRuntime; campaign?: string } | undefined;
     let reading: ReadingService | undefined;
+    const retiring = new Set<Promise<void>>();
+    function retireReader() {
+        const previous = reading; reading = undefined;
+        if (!previous) return;
+        const closed = previous.close().catch(()=>undefined).finally(()=>retiring.delete(closed));
+        retiring.add(closed);
+    }
     let moduleId: string | undefined;
     let campaign: string | undefined;
-    let visualModule = false, stopped = false, pending = false;
+    let visualModule = false, stopped = false;
     const setupMode = cocMode() === "setup";
 
+    function wake(reason:string) {
+        if (setupMode || stopped || !visualModule || !moduleId || !reading) return;
+        void reading.prefetch(moduleId,reason).catch(()=>undefined);
+    }
     function shareReader() {
         if (!ctx || !bridge) return;
-        reading?.dispose();
+        retireReader();
         const home = bridge.runtime.home, current = bridge;
         reading = new ReadingService({
             call: current.call, runtime: current.runtime, home,
@@ -40,22 +51,29 @@ export default function (pi: ExtensionAPI) {
             },
         });
         pi.events.emit("coc:reading-bridge", reading);
+        wake("reader-ready");
     }
 
     pi.events.on("coc:kernel-bridge", data => {
         const row = record(data);
+        if (row.campaign && campaign && row.campaign !== campaign) {moduleId = undefined; visualModule = false;}
         bridge = typeof row.call === "function" && row.runtime ? { call: row.call, runtime: row.runtime, campaign: row.campaign } : undefined;
         campaign = bridge?.campaign ?? campaign;
         if (bridge) shareReader();
-        else { reading?.dispose(); reading = undefined; pi.events.emit("coc:reading-bridge", null); }
+        else { retireReader(); moduleId = undefined; visualModule = false; pi.events.emit("coc:reading-bridge", null); }
     });
     pi.events.on("coc:table-open", data => {
         const row = record(data), open = record(row.open);
+        if (bridge?.campaign && row.campaign !== bridge.campaign) return;
         campaign = row.campaign ?? campaign;
-        moduleId = open.campaign?.module_id ?? moduleId;
+        moduleId = typeof open.campaign?.module_id === "string" ? open.campaign.module_id : undefined;
         visualModule = open.module_reading === true;
+        wake("table-open");
     });
-    pi.events.on("coc:turn-committed", () => { pending = true; });
+    pi.events.on("coc:turn-committed", data => {if(record(data).campaign === campaign)wake("turn-committed");});
+    pi.events.on("coc:source-work-queued", data => {
+        if(record(data).campaign === campaign && record(data).module_id === moduleId)wake("scene-queued");
+    });
     pi.events.on("coc:module-ingest", data => {
         const row = record(data);
         if ((!row.pdf && !row.module_id) || stopped) return;
@@ -71,18 +89,14 @@ export default function (pi: ExtensionAPI) {
                 ...(isKernelError(error) ? { fix: error.fix, details: error.details } : {}) }));
     });
     pi.on("before_agent_start", async (_event, current) => { ctx = current; });
-    pi.on("agent_end", async () => {
-        if (setupMode || stopped || !pending || !visualModule || !moduleId || !reading) return;
-        pending = false;
-        void reading.prefetch(moduleId).catch(() => undefined);
-    });
     pi.on("session_start", async (_event, current) => {
-        ctx = current; stopped = false; pending = false;
+        ctx = current; stopped = false;
         shareReader();
     });
     pi.on("session_shutdown", async () => {
         stopped = true;
-        reading?.dispose(); reading = undefined;
+        retireReader();
         pi.events.emit("coc:reading-bridge", null);
+        await Promise.all([...retiring]);
     });
 }
