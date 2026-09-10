@@ -130,3 +130,15 @@ def test_the_turn_record_keeps_both_readings(kernel):
     assert record["rendered_text"] == text.replace("{{check:spot-hidden}}", "")
     assert record["rendered_text"].startswith("你翻过桌上的纸。")
     assert record["marked_text"] == text
+
+
+def test_the_commit_subject_is_minted_from_the_rendered_text(kernel):
+    """The subject is chrome a player reads in the timeline; a marker in it renders raw."""
+    from conftest import git_log
+    open_turn(kernel)
+    resolve_search(kernel)
+    kernel.table("apply", call_id="t1-c2", effects=[{"kind": "time", "minutes": 10}])
+    kernel.table("narrate", call_id="t1-c3", text="你翻过桌上的纸{{check:spot-hidden}}，十分钟很快耗尽。{{time}}")
+    subjects = git_log(kernel.workspace)
+    assert subjects[0].startswith("turn 1: 你翻过桌上的纸，十分钟很快耗尽。")
+    assert "{{" not in subjects[0]

@@ -468,7 +468,10 @@ export function createComponent(React) {
     const ui = (isRecord(answer) && isRecord(answer.ui) && answer.ui) || lastUi;
     const t = (key, fallback) => word(ui, "timeline", key, fallback);
     const said = (failure) => word(ui, "errors", failure.code, word(ui, "errors", "unknown"));
-    const atTime = (when) => fill(t("at"), whenValues(when));
+    /* A module that never declared when its story opens projects `when: null` (§13.10: the
+       kernel does not guess). The caption then stays unsaid -- a raw `{y}/{mo}` pattern is the
+       template, never a reading the player should see. */
+    const atTime = (when) => (isRecord(when) ? fill(t("at"), whenValues(when)) : null);
 
     const graph = useMemo(
       () => (answer && answer.status !== "unbound" ? layoutGraph(answer) : null),
@@ -578,9 +581,10 @@ export function createComponent(React) {
           } : {}),
         };
         const cls = `coc-tl-node ${laneClass(row.lane)}${clickable ? " is-clickable" : ""}`;
+        const ariaTime = atTime(node.when);
         const a11y = clickable ? {
           tabIndex: 0, role: "button",
-          "aria-label": `${row.line?.name ?? ""} · ${fill(t("turn"), { n: node.turn })} · ${atTime(node.when)}`,
+          "aria-label": `${row.line?.name ?? ""} · ${fill(t("turn"), { n: node.turn })}${ariaTime ? ` · ${ariaTime}` : ""}`,
         } : {};
         const attrs = { key: node.sha, className: cls, ...(faded ? { "data-faded": "1" } : {}),
           ...a11y, ...handlers };
@@ -627,12 +631,13 @@ export function createComponent(React) {
         const statusWord = hoverRow.line ? t(text(hoverRow.line.status) || "active") : "";
         const loopWord = hoverRow.line && Number(hoverRow.line.loop) > 0
           ? ` · ${fill(t("loop"), { n: hoverRow.line.loop })}` : "";
+        const tipTime = atTime(node.when);
         tooltip = h("div", { className: "coc-tl-tip",
           style: { left: Math.min(hoverRow.x + 14, Math.max(8, graph.width - 208)),
                    top: Math.max(4, hoverRow.y - 14) } },
           h("div", { className: "coc-tl-tip-kind" }, kindCaption),
           h("div", { className: "coc-tl-tip-title" }, text(node.title)),
-          h("div", { className: "coc-tl-tip-time" }, atTime(node.when)),
+          tipTime ? h("div", { className: "coc-tl-tip-time" }, tipTime) : null,
           hoverRow.line ? h("div", { className: "coc-tl-tip-line" },
             `${hoverRow.line.name}${statusWord ? ` · ${statusWord}` : ""}${loopWord}`) : null);
       }

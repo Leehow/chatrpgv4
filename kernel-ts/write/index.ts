@@ -836,7 +836,9 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         report?.('write');
         let sha: string;
         try {
-            sha = await commit(context, campaign.id, `turn ${n}: ${chars(words(text), 60)}`);
+            // The subject is chrome a player reads (timeline node titles); the marked text is
+            // for consumers that mount components, so the caption is minted from the rendered one.
+            sha = await commit(context, campaign.id, `turn ${n}: ${chars(words(rendered), 60)}`);
         }
         catch (error) {
             if (!(error instanceof CommitFailed))
