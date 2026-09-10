@@ -67,7 +67,18 @@ export const length = (value: string): number => Array.from(value).length;
 export const words = (value: any): string => string(value).trim().split(/\s+/u).filter(Boolean).join(" ");
 export const sorted = (values: Iterable<string>): string[] => [...values].sort(compareUnicode);
 export const unique = <T>(values: Iterable<T>): T[] => [...new Set(values)];
-export const normalize = (value: any): string => string(value).normalize("NFKC").toLowerCase().replace(/[\s_\-]+/gu, " ").trim();
+/**
+ * A mark Unicode composes onto its base letter is an accent and folds away (a-acute to a, n-tilde
+ * to n); a mark the standard never composes (a Devanagari vowel sign, a Thai tone mark) is part of
+ * the word and stays. Node ids are ASCII kebab by the shape gate while names keep the book's
+ * spelling, so without this a name differing from its own handle only by an accent never matched.
+ */
+const foldComposed = (text: string): string => /^[\x00-\x7f]*$/.test(text) ? text : Array.from(text).map(char => {
+    const parts = char.normalize("NFKD");
+    return parts !== char && /^\P{M}\p{M}+$/u.test(parts) ? Array.from(parts)[0] : char;
+}).join("");
+/** Name comparison: NFKC, composed accents folded, lower-cased, separators collapsed (contract section 2). */
+export const normalize = (value: any): string => foldComposed(string(value).normalize("NFKC")).toLowerCase().replace(/[\s_\-]+/gu, " ").trim();
 /** Every script's letters, combining marks and digits survive (NFKC, lower-cased); anything else separates. Machine names go through asciiSlug instead. */
 export const normalizeText = (value: any): string => string(value).normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{M}\p{N}]+/gu, " ").trim();
 export const kebab = (value: any): string => normalizeText(value).split(/\s+/u).filter(Boolean).join("-");
