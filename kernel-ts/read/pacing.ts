@@ -22,9 +22,14 @@ export function threatSymptoms(graph: ModuleGraph, world: Row, scene: Row, prese
             return [];
         const current = clockSegment(world, graph.handle(threat), row(clock)),
             visible = array(clock.on_tick_visible).map(string);
-        const entry: Row = { threat: graph.handle(threat), clock: string(clock.name || clock.clock_id || clock.id || "clock"), state: `${current}/${string(clock.segments ?? "?")}` };
+        const total = Math.trunc(number(clock.segments ?? 0)),
+            entry: Row = { threat: graph.handle(threat), clock: string(clock.clock_id || clock.id || clock.name || "clock"), state: `${current}/${string(clock.segments ?? "?")}` };
         if (current > 0 && visible.length)
             entry.symptom = visible[Math.min(current, visible.length) - 1];
+        // A clock nobody moves is a number on a page. The payoff of the next segment rides beside it, so
+        // advancing one is an offer with something visible in it rather than an obligation to remember.
+        if (current < total && visible.length)
+            entry.next = visible[Math.min(current + 1, visible.length) - 1];
         if (typeof clock.on_full === "string" && clock.on_full)
             entry.on_full = clock.on_full;
         return [entry];

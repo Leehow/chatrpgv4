@@ -105,17 +105,19 @@ def test_a_threat_clock_moves_only_through_apply_and_shows_what_the_book_makes_v
     before = kernel.ok("mods.context", {"campaign": CAMPAIGN})["pacing"]["threat_clocks"]
     awareness = next(row for row in before if row["clock"] == "corbitt-awareness")
     assert awareness["state"] == "0/4" and "symptom" not in awareness, "an untouched clock stands where the book left it and shows nothing"
+    assert awareness["next"], "the next segment's payoff rides beside the clock, so advancing it is an offer"
     kernel.table("apply", call_id="t1-c2", effects=[{"kind": "threat", "name": "corbitt-haunting", "clock": "corbitt-awareness", "why": "they pried at the boards"}])
     receipt = next(r for r in kernel.table("status")["receipts"] if r["kind"] == "threat")
     assert (receipt["before"], receipt["after"], receipt["segments"], receipt["full"]) == (0, 1, 4, False)
     assert receipt["shows"] and receipt["visibility"] == "keeper" and "on_full" not in receipt
     assert not any(row["kind"] == "threat" for row in kernel.table("status")["mechanics"]), "a pacing tick is Keeper-side and draws no card"
     after = next(row for row in kernel.ok("mods.context", {"campaign": CAMPAIGN})["pacing"]["threat_clocks"] if row["clock"] == "corbitt-awareness")
-    assert after["state"] == "1/4" and after["symptom"] == receipt["shows"]
+    assert after["state"] == "1/4" and after["symptom"] == receipt["shows"] and after["next"] != after["symptom"]
     assert next(p for p in kernel.table("capsule")["pressures"] if p["kind"] == "threat")["state"] == "1/4"
     kernel.table("apply", call_id="t1-c3", effects=[{"kind": "threat", "name": "corbitt-haunting", "clock": "corbitt-awareness", "segments": 3}])
     full = next(r for r in kernel.table("status")["receipts"] if r["kind"] == "threat" and r["after"] == 4)
     assert full["full"] and full["on_full"].startswith("Corbitt commits to murder")
+    assert "next" not in next(row for row in kernel.ok("mods.context", {"campaign": CAMPAIGN})["pacing"]["threat_clocks"] if row["clock"] == "corbitt-awareness"), "a full clock has no next segment to offer"
     kernel.table("apply", call_id="t1-c4", effects=[{"kind": "threat", "name": "corbitt-haunting", "clock": "corbitt-awareness", "segments": 4}])
     assert next(r for r in kernel.table("status")["receipts"] if r["kind"] == "threat" and r["call_id"] == "t1-c4")["after"] == 4, "a clock stops at its length"
 
