@@ -246,6 +246,38 @@ result：`{"rendered_text": "<即 text，正文原样>"..., "mechanics": [...], 
 - `agent_end`：回合仍在 `acting` 且没有 `narrate`，注入一条宿主消息「回合未关闭，用 narrate 交付」并触发一轮；最多一次。
 - 遥测：每次工具调用记录 `{turn, tool, call_id?, started_at, ms, ok, code?}` 到 `.coc/campaigns/<id>/telemetry.jsonl`，每回合结束记录模型往返数。
 
+### Host decision: what a `fix` names in `details`, the model sees (2026-09-10, #66)
+
+A refusal reaches the model as text: `code: message`, `fix: ...`, then lines the host
+projects out of `details`. `details` itself never reaches the model (it holds handles,
+internal ids and candidate sets sized for the interface), so the projection used to be a
+list of the keys someone had once needed -- `needs`, `candidates`, `conflicts`, `exits`,
+`fields` -- and every producer that pointed its `fix` at another key was pointing at
+nothing. Real play (#66): `reading_timeout` said "the exact focus and question in
+details.read; do not invent another question", and `details.read` was not in the list. The
+same shape sits in the kernel: `set action.defense to one of details.options`,
+`discover one of details.clues_here`, `reveal one of details.echoes`, `name one of
+details.lines`, `details.suggested lists ...`, `details.engine_contract is ...` -- none of
+those keys was projected either.
+
+The rule, now structural rather than a list: **every `details.<key>` a `fix` text names is
+rendered to the model**, as one line `<key>: <compact JSON>` after the bespoke lines. The
+host reads the key names out of the `fix` text itself (`details.<key>`; a deeper path such
+as `details.needs.options` names `needs`), so a producer that writes a `fix` has, by
+writing it, chosen what travels -- there is no second list to keep in step, in this
+extension or in the kernel. Keys the `fix` does not name stay where they were: a
+`job_id` beside `details.read` is for telemetry, not the model. The bespoke renderers are
+kept unchanged for the keys they already cover, so no existing line changes shape; the
+generic line is added only for named keys they did not render. A named key whose value is
+absent renders nothing -- the host does not invent what the producer did not supply -- and
+that mismatch is a producer defect to fix at the producer. A long list is cut at an element
+boundary with a count of what was left out, never silently.
+
+Producers therefore keep two obligations, both already in §14.15's spirit: put the
+actionable part in `details`, and name it in `fix` by its key. Naming a key that is not
+there, or supplying a key the `fix` never names, both leave the Keeper unable to take the
+recovery path it was pointed at.
+
 ## 9. 启动器
 
 `bin/pi-coc [--campaign <id>] [pi 参数...]`：
