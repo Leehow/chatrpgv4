@@ -246,6 +246,38 @@ result：`{"rendered_text": "<即 text，正文原样>"..., "mechanics": [...], 
 - `agent_end`：回合仍在 `acting` 且没有 `narrate`，注入一条宿主消息「回合未关闭，用 narrate 交付」并触发一轮；最多一次。
 - 遥测：每次工具调用记录 `{turn, tool, call_id?, started_at, ms, ok, code?}` 到 `.coc/campaigns/<id>/telemetry.jsonl`，每回合结束记录模型往返数。
 
+### Host decision: what a `fix` names in `details`, the model sees (2026-09-10, #66)
+
+A refusal reaches the model as text: `code: message`, `fix: ...`, then lines the host
+projects out of `details`. `details` itself never reaches the model (it holds handles,
+internal ids and candidate sets sized for the interface), so the projection used to be a
+list of the keys someone had once needed -- `needs`, `candidates`, `conflicts`, `exits`,
+`fields` -- and every producer that pointed its `fix` at another key was pointing at
+nothing. Real play (#66): `reading_timeout` said "the exact focus and question in
+details.read; do not invent another question", and `details.read` was not in the list. The
+same shape sits in the kernel: `set action.defense to one of details.options`,
+`discover one of details.clues_here`, `reveal one of details.echoes`, `name one of
+details.lines`, `details.suggested lists ...`, `details.engine_contract is ...` -- none of
+those keys was projected either.
+
+The rule, now structural rather than a list: **every `details.<key>` a `fix` text names is
+rendered to the model**, as one line `<key>: <compact JSON>` after the bespoke lines. The
+host reads the key names out of the `fix` text itself (`details.<key>`; a deeper path such
+as `details.needs.options` names `needs`), so a producer that writes a `fix` has, by
+writing it, chosen what travels -- there is no second list to keep in step, in this
+extension or in the kernel. Keys the `fix` does not name stay where they were: a
+`job_id` beside `details.read` is for telemetry, not the model. The bespoke renderers are
+kept unchanged for the keys they already cover, so no existing line changes shape; the
+generic line is added only for named keys they did not render. A named key whose value is
+absent renders nothing -- the host does not invent what the producer did not supply -- and
+that mismatch is a producer defect to fix at the producer. A long list is cut at an element
+boundary with a count of what was left out, never silently.
+
+Producers therefore keep two obligations, both already in §14.15's spirit: put the
+actionable part in `details`, and name it in `fix` by its key. Naming a key that is not
+there, or supplying a key the `fix` never names, both leave the Keeper unable to take the
+recovery path it was pointed at.
+
 ## 9. 启动器
 
 `bin/pi-coc [--campaign <id>] [pi 参数...]`：
@@ -1793,6 +1825,46 @@ The backend uses it to recognize the play child's startup within the same RPC
 wrapper. Pi may start its extension-owned opening before the RPC subscription
 exists; the first observed assistant message after that marker establishes a new
 normal turn epoch even though the wrapper already hosted a completed setup turn.
+
+### Host decision: reading-lane telemetry names the job it serves (2026-09-10, #65)
+
+The reading lane's rows (`.coc/reading-telemetry.jsonl`, mirrored into the campaign's
+`telemetry.jsonl` while a table is open) recorded timing and never intent: a `phase: read`
+row said how long a reader ran and how many images it saw, a `prefetch_wake` said why the
+lane woke, the refusal that stopped a player at a door said `reading_timeout` and nothing
+else. The queue (`deepen-queue.json`) carries the intent -- `job_id`, `purpose`, `focus` --
+and no row carried any of it, so a 179-row log of a real table could not be joined to its
+own queue, nor its rows to each other (`unit` restarts every round).
+
+Fields are added; no existing field is renamed or re-meant, so old logs stay readable.
+
+- Every row a job produces carries `job_id` (the queue's own value), `purpose` and `focus`
+  (as the queue spells them; `focus` may be `""`). A `phase: read` or `phase: index` row
+  also carries `pages`: the physical page numbers (1-based, the page tool's own) whose images
+  that run actually consumed -- the same set `observations.read_pages` is built from -- so a
+  finished book can answer which pages were read, and by which job.
+- The row written when the pump claims a job (`event: concurrency`) carries `job_id`,
+  `purpose`, `focus`, and `wake`: the reason of the most recent wake that had not yet been
+  answered by a claim, when there was one. A wake whose claim finds the queue empty writes
+  `{event: claim_empty, wake}`; `prefetch_wake` itself is unchanged and still says only
+  why the lane woke, because a wake does not choose a job -- the kernel's queue does, at
+  claim.
+- Verify rows carry `round` and `attempt` beside `unit`, so `(job_id, round, unit, attempt)`
+  is unique across the log, and `pages`: the pages that unit's reviewer viewed (a reused
+  review reports the pages its cached evidence names). `review_concurrency` rows carry
+  `unit` and `attempt`.
+- `reading_timeout` carries `details.job_id` beside `details.read`; the seven-verb refusal
+  row (§8) then carries `job_id`, `read_purpose` and `read_focus` for any refusal whose
+  details hold them, whichever verb waited. `question` is the Keeper's prose and is not
+  written to telemetry; `job_id` is not named by the `fix` and so does not reach the model.
+
+On the queue's `pages`: it is not an unfilled record of what was read. `module.read.request`
+sets it to a constant empty list, it is one of the inputs to the job's identity digest, and
+§22.2 never listed it in the queue row; it is a page constraint on the request that nothing
+supplies. What was read exists elsewhere -- the host's `observations.read_pages` per attempt,
+folded by `module.read.finish` into the module's `viewed_pages` as a 0-based union that keeps
+no per-job attribution. The telemetry `pages` above is the per-job, per-phase record; the
+queue field is left as it is rather than given a second meaning.
 
 ## 23. PipiCOC local frontend (2026-09-07)
 

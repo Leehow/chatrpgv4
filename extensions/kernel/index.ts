@@ -168,22 +168,60 @@ function asString(value: unknown): string | undefined {
 	return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
+/** The `details.<key>` names a `fix` text refers to, in the order it names them, each once. A deeper path names its first segment. */
+function namedDetailKeys(fix: string | undefined): string[] {
+	const keys: string[] = [];
+	for (const match of (fix ?? "").matchAll(/\bdetails\.([A-Za-z_][A-Za-z0-9_]*)/g)) {
+		if (!keys.includes(match[1])) keys.push(match[1]);
+	}
+	return keys;
+}
+
+/** How much of one named value goes to the model on a single line. */
+const NAMED_DETAIL_LIMIT = 2_000;
+
+/** One line of compact JSON for a value the `fix` named. A long list is cut at an element and says what it left out; nothing is dropped silently. */
+function namedDetailLine(key: string, value: unknown): string {
+	const whole = JSON.stringify(value);
+	if (whole.length <= NAMED_DETAIL_LIMIT) return `${key}: ${whole}`;
+	if (Array.isArray(value)) {
+		const kept: unknown[] = [];
+		let size = 2;
+		for (const item of value) {
+			const piece = JSON.stringify(item).length + 1;
+			if (size + piece > NAMED_DETAIL_LIMIT) break;
+			kept.push(item);
+			size += piece;
+		}
+		return `${key}: ${JSON.stringify(kept)} (${value.length - kept.length} more not shown)`;
+	}
+	return `${key}: ${whole.slice(0, NAMED_DETAIL_LIMIT)} (cut)`;
+}
+
 /**
  * `details` reaches only the extension and the interface; the model sees the tool result body.
  * So the options of a `needs` and the candidates of a `needs_choice` must land in that body,
  * or the Keeper is told there are candidates while unable to see them and cannot fill in a
  * decision (contract §11.3).
+ *
+ * The bespoke lines below cover the keys that have a shape of their own. Everything else the
+ * `fix` text names (`details.<key>`) is rendered as a line of its own (contract §8, #66):
+ * the producer chose what travels by naming it, and a list here would only be a second copy
+ * of that choice to keep in step -- the copy that, for `details.read`, was never made.
  */
-function errorDetailLines(details: Record<string, unknown> | undefined): string[] {
+function errorDetailLines(details: Record<string, unknown> | undefined, fix?: string): string[] {
 	if (!details) return [];
 	const lines: string[] = [];
+	const rendered = new Set<string>();
 	const needs = details.needs as { field?: string; options?: unknown[] } | undefined;
 	if (needs?.field) {
 		const options = (needs.options ?? []).map((option) => String(option)).join(", ");
 		lines.push(options ? `missing ${needs.field}, one of: ${options}` : `missing ${needs.field}`);
+		rendered.add("needs");
 	}
 	const candidates = details.candidates;
 	if (Array.isArray(candidates) && candidates.length > 0) {
+		rendered.add("candidates");
 		lines.push("candidates:");
 		for (const candidate of candidates) {
 			if (typeof candidate === "string") {
@@ -204,15 +242,18 @@ function errorDetailLines(details: Record<string, unknown> | undefined): string[
 			return { ...summary, lines: Object.keys(values ?? {}) };
 		});
 		lines.push(`merge conflicts: ${JSON.stringify(conflicts)}`);
+		rendered.add("conflicts");
 	}
 	const exits = details.exits;
 	if (Array.isArray(exits) && exits.length > 0) {
 		lines.push(`reachable: ${exits.map((exit) => (typeof exit === "string" ? exit : JSON.stringify(exit))).join(", ")}`);
+		rendered.add("exits");
 	}
 	const fields = details.fields;
 	if (Array.isArray(fields) && fields.length > 0) {
 		// A refusal that names the player-facing fields it is about: the kernel's own list, passed on.
 		lines.push(`rewrite in the campaign's play_language: ${fields.map((field) => String(field)).join(", ")}`);
+		rendered.add("fields");
 	}
 	// An agent that ran out of time is not the same refusal as one that died: the first says the work
 	// asked of it was too much to retry unchanged, and `fix` alone cannot say which. What to do about
@@ -234,6 +275,12 @@ function errorDetailLines(details: Record<string, unknown> | undefined): string[
 			missing: Array.isArray(details.missing) ? details.missing : [],
 			findings: Array.isArray(details.findings) ? details.findings : [],
 		})}`);
+		rendered.add("missing");
+		rendered.add("findings");
+	}
+	for (const key of namedDetailKeys(fix)) {
+		if (rendered.has(key) || details[key] === undefined) continue;
+		lines.push(namedDetailLine(key, details[key]));
 	}
 	return lines;
 }
@@ -268,7 +315,7 @@ function errorText(error: unknown): string {
 	if (!(isKernelError(error))) {
 		return error instanceof Error ? error.message : String(error);
 	}
-	return [error.toToolText(), ...errorDetailLines(error.details)].join("\n");
+	return [error.toToolText(), ...errorDetailLines(error.details, error.fix)].join("\n");
 }
 
 /**
@@ -286,6 +333,24 @@ function refusalDetail(error: unknown): string | undefined {
 	if (!isKernelError(error)) return undefined;
 	const detail = error.codeDetail ?? (error.details as { code_detail?: unknown } | undefined)?.code_detail;
 	return typeof detail === "string" && detail ? detail : undefined;
+}
+
+/**
+ * A refusal that waited on source reading says which job and which target it waited for
+ * (contract §22, #65): the queue's `job_id` and the `purpose`/`focus` of the read, whichever
+ * verb was refused. Ids and names only -- the read's `question` is the Keeper's prose and stays out.
+ */
+function readingRefusalTelemetry(error: unknown): Record<string, unknown> {
+	if (!isKernelError(error) || !error.details) return {};
+	const jobId = asString(error.details.job_id);
+	const read = error.details.read as { purpose?: unknown; focus?: unknown } | undefined;
+	const purpose = asString(read?.purpose);
+	const focus = asString(read?.focus);
+	return {
+		...(jobId ? { job_id: jobId } : {}),
+		...(purpose ? { read_purpose: purpose } : {}),
+		...(focus ? { read_focus: focus } : {}),
+	};
 }
 
 /**
@@ -731,6 +796,7 @@ export default function (pi: ExtensionAPI) {
 				code,
 				...(reason ? { reason } : {}),
 				...(detail ? { code_detail: detail } : {}),
+				...readingRefusalTelemetry(error),
 			});
 			return {
 				content: [{ type: "text", text: errorText(error) }],

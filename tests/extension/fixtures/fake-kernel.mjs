@@ -623,6 +623,9 @@ function handle(method, params) {
 			};
 		}
 		case "module.read.request":
+			// FAKE_KERNEL_READING=1: the source is still being read and no host gets to claim the job,
+			// so a foreground wait runs out (contract §22.4's `reading_timeout`) on the real reading service.
+			if (process.env.FAKE_KERNEL_READING === "1") return { ok: true, result: { state: "reading", job_id: "read-7", generation } };
             return { ok: true, result: { state: "ready", generation } };
         case "module.read.claim":
             return { ok: true, result: { job_id: null } };

@@ -111,7 +111,7 @@ export async function reviewCandidate(options: {
 			const cached = cacheFile ? await cachedReview(cacheFile,key!,paths,!!guidanceBytes) : undefined;
 			if (cached) {
 				results[index] = cached.review; for (const page of cached.pages) observed.add(page); completed++;
-				options.record({lane:'reading',phase:'verify',unit:index+1,ms:0,ok:true,reused:true,evidence:cached.evidence});
+				options.record({lane:'reading',phase:'verify',unit:index+1,ms:0,ok:true,reused:true,evidence:cached.evidence,pages:[...cached.pages].sort((a,b)=>a-b)});
 				options.progress({stage:'verify',reviewed:completed,review_total:units.length,activeReaders:active});
 				continue;
 			}
@@ -125,7 +125,7 @@ export async function reviewCandidate(options: {
 			const imageCalls = new Map<string, Row[]>(), pages = new Set<number>();
 			const eventLog = join(cwd, "events.jsonl");
 			active++;
-			options.record({ lane: "reading", event: "review_concurrency", active, capacity });
+			options.record({ lane: "reading", event: "review_concurrency", unit: index + 1, attempt, active, capacity });
 			try {
 				const run = await options.run({ cwd, model: options.model.id, thinking: options.model.thinking,
 					...(guidanceBytes?{imageHistory:4}:{}),
@@ -152,7 +152,8 @@ export async function reviewCandidate(options: {
 					catch (error) { options.record({lane:'reading',event:'review_cache_unavailable',unit:index+1,detail:String(error)}); }
 				}
 				for (const page of pages) observed.add(page);
-				options.record({ lane: "reading", phase: "verify", unit: index + 1, ms: run.ms, ok: true, image_reads: pages.size });
+				// `unit` restarts every round; `attempt` and the owning job's `round` (added by the caller) make the row unique, and `pages` says which physical pages this reviewer viewed (#65).
+				options.record({ lane: "reading", phase: "verify", unit: index + 1, attempt, ms: run.ms, ok: true, image_reads: pages.size, pages: [...pages].sort((a, b) => a - b) });
 				break;
 			} catch (failure) {
 				if (attempt === 1 && !options.signal.aborted) {
