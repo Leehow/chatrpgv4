@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import CAMPAIGN, KERNEL_DIR, RpcClient, WORKTREE, create_campaign, read_json
+from conftest import CAMPAIGN, RpcClient, WORKTREE, create_campaign, read_json
 
 # A key of this fixture's own. Natural NPC ships `language`; a second package claiming it would be
 # testing the collision rule instead of the feature.
@@ -43,7 +43,7 @@ def package(tmp_path, *, name="dialects", vocabulary=DIALECT, requires=True, **m
 
 
 def emitted_client(workspace, content=None):
-    entry = KERNEL_DIR.parent / "build" / "kernel" / "rpc.mjs"
+    entry = WORKTREE / "build" / "kernel" / "rpc.mjs"
     command = json.loads(os.environ["COC_TS_MODS_COMMAND"]) if os.environ.get("COC_TS_MODS_COMMAND") \
         else ["node", str(entry)]
     if command[-1] == str(entry) and not entry.is_file():
