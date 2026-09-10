@@ -3489,7 +3489,7 @@ from that build proof.
 
 ### 28.1 The four closed doors
 
-`pipicoc.game.v1` accepts `instructions`, `checks`, `materializer`, `auditor`
+`pipicoc.game.v1` accepts `instructions` (with its per-turn `brief`, §30.7), `checks`, `materializer`, `auditor`
 with `audit_slot`, and `document_editor`. A package can change how the Keeper
 plays and can add one declarative percentile decision. It cannot add a *fact*
 about the world. Four doors are closed, in the order they cost:
@@ -3806,3 +3806,26 @@ attack, before any close call and before the basement.
   Keeper chose neither); one turn took 342 s (turn 6, the first read of the upstairs scene); an English token
   (`thrift`) appeared inside zh-Hans prose at turn 2, a model defect the verifier lane is meant to flag, and the
   audit rightly did not.
+
+### 30.7 `contributes.brief`: the first turn long, the turns after short (2026-09-10 user decision)
+
+§30.6 measured the cost: every package's `instructions` re-sent every turn, 12KB of a 33KB capsule. The user's
+decision is the §13.6 pattern. A package may add `"brief": "<file>.md"` beside `instructions` (a `brief` without
+`instructions` is refused at install). The capsule's `mods.instructions[]` rows gain `form`:
+
+- **`full`** on the first turn this process opens for the campaign, and on every `table.capsule` before it: the
+  same `styleFull` condition as §13.6 and the `module` brief, threaded into `modContext` as its `full` argument.
+  A package without a `brief` is `full` on every turn (third-party packages keep their behaviour).
+- **`brief`** afterwards: the reminder file's text.
+- `mods.context` (host-facing) is always `full`; the setup context (`setup_instructions`) is unchanged.
+
+All five built-in packages with instructions carry a brief and bump their version, because a package's bytes are
+its version (§26, `freeze`): Enhanced Items 1.1.5, Natural NPC 1.0.1, Story Thread / Keeper Pacing / Narration
+Craft 1.0.1. A campaign locked to an earlier version keeps the full text every turn until it upgrades. On a fresh
+The Haunting the five briefs together are under 4KB against 12KB of full text; the test
+`test_instructions_are_full_on_the_first_turn_and_brief_after` pins the switch, the ceiling and the host context.
+
+Live check `mods-live-3` (fresh The Haunting, same Keeper model, two played turns after the opening): turn 1 capsule
+31,975 bytes with `instructions` 12,050 (all five `full`); turn 2 capsule 22,994 with `instructions` 3,865 (all five
+`brief`: Enhanced Items 1,008, Keeper Pacing 581, Narration Craft 638, Natural NPC 557, Story Thread 404). Turn 2
+still landed the three clues the thread named and moved to the morgue.

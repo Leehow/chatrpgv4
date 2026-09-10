@@ -70,7 +70,7 @@ def test_materializer_and_editor_follow_order_and_stale_job_is_rejected(kernel,t
 
 
 def test_dependencies_and_default_order_are_preserved(kernel,tmp_path):
-    alternate(kernel,tmp_path,"natural-npc","npc-overhaul",dependencies={"natural-npc":"1.0.0"})
+    alternate(kernel,tmp_path,"natural-npc","npc-overhaul",dependencies={"natural-npc":"1.0.1"})
     create_campaign(kernel)
     kernel.ok("mods.configure",{"campaign":CAMPAIGN,"id":"npc-overhaul","enabled":True})
     prior=read_json(campaign_dir(kernel.workspace)/"world.json")

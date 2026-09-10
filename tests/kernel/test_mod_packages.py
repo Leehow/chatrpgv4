@@ -25,7 +25,7 @@ def test_install_does_not_upgrade_save_and_missing_migration_retains_old_lock(ke
     kernel.ok("mods.install", {"path":str(root)})
     world_path = campaign_dir(kernel.workspace) / "world.json"
     before = read_json(world_path)["mods"]
-    assert before["active"]["natural-npc"]["version"] == "1.0.0"
+    assert before["active"]["natural-npc"]["version"] == "1.0.1"
     error = kernel.err("mods.configure", {"campaign":CAMPAIGN, "id":"natural-npc", "version":"1.1.0"})
     assert error["code"] == "invalid_params"
     assert read_json(world_path)["mods"] == before
@@ -43,7 +43,7 @@ def test_explicit_migration_runs_once_and_old_package_stays_available(kernel, tm
     world = read_json(campaign_dir(kernel.workspace) / "world.json")
     assert world["mods"]["state"]["natural-npc"]["migration_note"] == "retained"
     assert world["mods"]["active"]["natural-npc"]["state_version"] == 2
-    assert (kernel.workspace / ".coc/mods/packages/natural-npc/1.0.0/mod.json").exists()
+    assert (kernel.workspace / ".coc/mods/packages/natural-npc/1.0.1/mod.json").exists()
 
 
 def test_import_rejects_escaping_archive_and_different_bytes_for_a_version(kernel, tmp_path):

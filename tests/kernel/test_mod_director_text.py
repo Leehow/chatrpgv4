@@ -77,3 +77,20 @@ def test_narration_audit_joins_the_shared_audit_job(kernel):
     kernel.table("player_input", text="我继续问。")
     job = kernel.ok("mods.job", {"campaign": CAMPAIGN, "role": "audit", "input": {"text": "诺特摇头。"}})
     assert not job["enabled"] or "# Realisation audit" not in Path(job["system_prompt"]).read_text()
+
+
+def test_instructions_are_full_on_the_first_turn_and_brief_after(kernel):
+    open_turn(kernel)
+    first = {row["mod"]: row for row in kernel.table("capsule")["mods"]["instructions"]}
+    assert all(row["form"] == "full" for row in first.values())
+    assert first["story-thread"]["instruction"].startswith("# Story Thread\n")
+    narrate(kernel, "t1-c1", "诺特点头。")
+    kernel.table("player_input", text="我继续问。")
+    later = {row["mod"]: row for row in kernel.table("capsule")["mods"]["instructions"]}
+    assert set(later) == set(first)
+    assert all(row["form"] == "brief" for row in later.values()), "every built-in package with instructions carries a brief"
+    assert later["story-thread"]["instruction"].startswith("# Story Thread (reminder)")
+    assert len(later["enhanced-items"]["instruction"]) < len(first["enhanced-items"]["instruction"]) / 3
+    assert sum(len(row["instruction"].encode()) for row in later.values()) < 4000
+    host = {row["mod"]: row for row in kernel.ok("mods.context", {"campaign": CAMPAIGN})["instructions"]}
+    assert all(row["form"] == "full" for row in host.values()), "the host-facing context is always the full text"

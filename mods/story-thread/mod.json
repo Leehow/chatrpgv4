@@ -1,9 +1,9 @@
 {
-  "id": "story-thread", "version": "1.0.0", "game_api": "pipicoc.game.v1",
+  "id": "story-thread", "version": "1.0.1", "game_api": "pipicoc.game.v1",
   "state_version": 1, "author": "PipiCOC",
   "name": {"en": "Story Thread", "zh-Hans": "故事线索链"},
   "description": {"en": "Each turn, what the story still needs: the clues here, the scenes one move away that hold more, and the book's own words on getting there.", "zh-Hans": "每回合把主线还缺什么、此处能拿什么、隔壁有什么、模组自己怎么说，拼成一条链给守秘人。"},
   "default_enabled": true, "requires": ["context.thread.v1"],
   "dependencies": {}, "conflicts": [], "settings": {},
-  "contributes": {"instructions": "agent.md"}
+  "contributes": {"instructions": "agent.md", "brief": "brief.md"}
 }

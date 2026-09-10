@@ -1,10 +1,10 @@
 {
-  "id": "enhanced-items", "version": "1.1.4", "game_api": "pipicoc.game.v1",
+  "id": "enhanced-items", "version": "1.1.5", "game_api": "pipicoc.game.v1",
   "state_version": 1, "author": "PipiCOC",
   "name": {"zh-Hans": "物品增强", "en": "Enhanced Items"},
   "description": {"zh-Hans": "根据剧情生成可执行的物品参数，保留归属、弹药与使用状态。", "en": "Generate executable item parameters from the story; keep ownership and remaining uses."},
   "default_enabled": true, "requires": ["definitions.v1", "objects.v1", "objects.state.v2", "objects.adopt.v1", "objects.documents.v1", "mods.order.v1", "ui.documents.v1", "ui.documents.language.v1", "agents.tools.v1", "weapons.profile.v2"],
   "dependencies": {}, "conflicts": [], "settings": {},
   "ui": {"document_editor":{"renderer":"paper"}},
-  "contributes": {"instructions": "agent.md", "materializer": "creator.md", "auditor": "auditor.md"}
+  "contributes": {"instructions": "agent.md", "brief": "brief.md", "materializer": "creator.md", "auditor": "auditor.md"}
 }

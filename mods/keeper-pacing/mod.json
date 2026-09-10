@@ -1,5 +1,5 @@
 {
-  "id": "keeper-pacing", "version": "1.0.0", "game_api": "pipicoc.game.v1",
+  "id": "keeper-pacing", "version": "1.0.1", "game_api": "pipicoc.game.v1",
   "state_version": 1, "author": "PipiCOC",
   "name": {"en": "Keeper Pacing", "zh-Hans": "守秘人节奏"},
   "description": {"en": "Fair warning before death, visible threat clocks, compression when a scene stops yielding, and recovery that still costs something.", "zh-Hans": "致死前的公平警告、威胁时钟的可见症状、场景枯竭时的压缩推进、以及有代价的卡关恢复。"},
@@ -7,5 +7,5 @@
   "dependencies": {}, "conflicts": [],
   "settings": {"stall_turns": 2},
   "settings_schema": {"stall_turns": {"minimum": 1, "maximum": 6}},
-  "contributes": {"instructions": "agent.md"}
+  "contributes": {"instructions": "agent.md", "brief": "brief.md"}
 }

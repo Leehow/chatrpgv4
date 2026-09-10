@@ -66,18 +66,20 @@ export function manifestFrom(files: ReadonlyMap<string, Buffer>): Row {
         invalid("Game interface v1 settings are scalar values");
     if (!plain(manifest.settings_schema ?? {}))
         invalid("settings_schema must be an object");
-    if (Object.keys(manifest.contributes).some(k => !["instructions", "setup_instructions", "checks", "materializer", "auditor", "audit_on_decisions", "audit_slot", "document_editor"].includes(k)))
+    if (Object.keys(manifest.contributes).some(k => !["instructions", "brief", "setup_instructions", "checks", "materializer", "auditor", "audit_on_decisions", "audit_slot", "document_editor"].includes(k)))
         invalid("Unknown Mod contribution in game interface v1");
     for (const [dep, ver] of entries(manifest.dependencies)) {
         if (!/^[a-z][a-z0-9-]{0,63}$/.test(dep))
             invalid("Dependency ids must be semantic slugs");
         version(ver);
     }
-    for (const field of ["instructions", "setup_instructions", "materializer", "auditor"]) {
+    for (const field of ["instructions", "brief", "setup_instructions", "materializer", "auditor"]) {
         const path = manifest.contributes[field];
         if (path != null && (typeof path !== "string" || !files.has(path) || !path.endsWith(".md")))
             invalid(`contributes.${field} must name a package Markdown file`);
     }
+    if (manifest.contributes.brief != null && manifest.contributes.instructions == null)
+        invalid("contributes.brief is the per-turn form of contributes.instructions and needs it");
     const checks = array(manifest.contributes.checks);
     for (const check of checks) {
         if (!plain(check) || !/^[a-z][a-z0-9-]*:[a-z][a-z0-9-]*$/.test(string(check.name ?? "")) || check.selection !== "maximum" || check.scope !== "actor-target" || !["regular", "hard", "extreme"].includes(check.difficulty) || !Array.isArray(check.values) || !check.values.length || !plain(check.results))
@@ -284,8 +286,10 @@ export function objectContext(world: Row): Row {
         }))
     };
 }
-/** `records` are the campaign's closed turns; only a package requiring `context.pacing.v1` reads them. */
-export async function modContext(context: KernelContext, graph: ModuleGraph, world: Row, party: Row[], records: Row[] = []): Promise<Row> {
+/** `records` are the campaign's closed turns; only a package requiring `context.pacing.v1` reads them.
+ *  `full` is the §13.6 condition: the first turn this process opens for the campaign carries every package's
+ *  `instructions`; later turns carry its `brief` when it has one (§30.7). */
+export async function modContext(context: KernelContext, graph: ModuleGraph, world: Row, party: Row[], records: Row[] = [], full = true): Promise<Row> {
     const active = await activeMods(context, world),
         providers = modProviders(active),
         checks = new Map<string, Row>();
@@ -326,12 +330,16 @@ export async function modContext(context: KernelContext, graph: ModuleGraph, wor
             version: mod.version
         })),
         authority: "Only this active Mod set applies. Earlier instructions from disabled or replaced versions are inactive.",
-        instructions: effective.filter(mod => truth(mod.contributes.instructions)).map(mod => ({
-            mod: mod.id,
-            version: mod.version,
-            settings: world.mods.active[mod.id].settings,
-            instruction: new TextDecoder("utf-8", { fatal: true }).decode(mod.files.get(mod.contributes.instructions))
-        })),
+        instructions: effective.filter(mod => truth(mod.contributes.instructions)).map(mod => {
+            const brief = !full && truth(mod.contributes.brief);
+            return {
+                mod: mod.id,
+                version: mod.version,
+                settings: world.mods.active[mod.id].settings,
+                form: brief ? "brief" : "full",
+                instruction: new TextDecoder("utf-8", { fatal: true }).decode(mod.files.get(brief ? mod.contributes.brief : mod.contributes.instructions))
+            };
+        }),
         pending_contacts: contacts.slice(0, 12),
         relationships: relationships.slice(0, 12),
         objects: objectContext(world),
