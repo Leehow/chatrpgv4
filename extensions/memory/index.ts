@@ -248,10 +248,15 @@ export default function (pi: ExtensionAPI) {
 		jobId: string,
 		campaign: string,
 		call: KernelCall,
+		note: (row: Record<string, unknown>) => Promise<void>,
 	): Promise<{ ok: true; candidates: number; model: string } | { ok: false; reason: string; detail: string }> {
 		const lane = await runLane<Candidate[]>({
 			ctx: ctx as ExtensionContext,
 			envName: "PI_COC_MEMORY_MODEL",
+			// The four `lane: "lane-call"` rows this round leaves (contract §12.8.1) travel the job's own
+			// telemetry, so a backfill round is marked as one there too.
+			lane: "memory",
+			record: (row) => note({ turn: packet.turn, job_id: jobId, ...row }),
 			systemPrompt: systemPrompt(packet),
 			input: userInput(packet),
 			signal: lanes.signal,
@@ -322,7 +327,7 @@ export default function (pi: ExtensionAPI) {
 
 		let last: { ok: false; reason: string; detail: string } | undefined;
 		for (let tries = 0; tries < 2 && !stopped; tries += 1) {
-			const outcome = await attempt(packet, jobId, job.campaign, current.call);
+			const outcome = await attempt(packet, jobId, job.campaign, current.call, note);
 			if (outcome.ok) {
 				await note({
 					turn: packet.turn ?? job.turn,

@@ -707,3 +707,171 @@ test("刚提交的回合插在还没跑的补抽前面：泵先挑队列，不�
 		["extract:test-camp:t3", "extract:test-camp:t1", "extract:test-camp:t4"],
 	);
 });
+
+// ---- 车道调用的四行（契约 §12.8.1，#67 第 1 步）------------------------------
+//
+// `ctx.modelRegistry.complete()` 不经过扩展运行器，所以 `before_provider_request` /
+// `after_provider_response` 对车道一行都不写（依据在 docs/pi-host-contract.md 的
+// Provider latency evidence 一节）。`runLane` 因此自己在 `complete()` 前后各记一行，
+// 并把 provider 那一跳的两个回调记成中间两行。
+
+/** 某条车道这一局留下的 `lane: "lane-call"` 行，按到达顺序。 */
+function laneCallRows(table, subsession) {
+	return table.telemetry().filter((row) => row.lane === "lane-call" && row.subsession === subsession);
+}
+
+function laneCallPhase(table, subsession, phase) {
+	return laneCallRows(table, subsession).filter((row) => row.phase === phase);
+}
+
+function waitForLaneCallPhase(table, subsession, phase) {
+	return waitFor(() => laneCallPhase(table, subsession, phase).at(-1), { label: `${subsession} 车道的 ${phase} 行` });
+}
+
+test("车道调用留四行：补全自己计时，与车道其余部分分开（#67）", async (t) => {
+	const table = await openTable({ responses: keeperTurn() });
+	t.after(() => table.dispose());
+	table.lanes.memory.setResponses([noCandidates()]);
+	table.lanes.verifier.setResponses([fauxAssistantMessage(JSON.stringify({ findings: [] }))]);
+
+	await table.session.prompt("我检查地窖门的门框");
+	const laneRow = await waitForLaneRow(table, "verifier");
+	await waitForLaneCallPhase(table, "verifier", "end");
+
+	const rows = laneCallRows(table, "verifier");
+	assert.deepEqual(
+		rows.map((row) => row.phase),
+		["start", "request", "response", "end"],
+		"一次车道调用恰好四行，顺序就是请求体上线、响应头到、补全落定",
+	);
+	for (const row of rows) {
+		assert.equal(row.subsession, "verifier", "每一行都说得出自己是哪条车道的");
+		assert.equal(row.turn, 1, "每一行都落在这一回合上");
+		assert.match(String(row.at), /^\d{4}-\d{2}-\d{2}T/, "每一行都有 ISO 时间戳");
+	}
+
+	const [start, request, response, end] = rows;
+	assert.equal(start.model, "verifier/v1", "起跑行记的是解析出来的 provider/model");
+	assert.equal(start.ms, undefined, "起跑行不记 ms：它就是 ms 的原点");
+	assert.equal(request.model, "v1", "请求行记的是请求体里的模型 id");
+	assert.equal(response.status, 200);
+	assert.equal(end.ok, true);
+	assert.equal(end.stop_reason, "stop");
+
+	for (const row of [request, response, end]) assert.equal(typeof row.ms, "number", `${row.phase} 行带 ms`);
+	assert.ok(request.ms <= response.ms, "ms 都从起跑行算起，所以请求不晚于响应");
+	assert.ok(response.ms <= end.ms, "响应头不晚于补全落定");
+
+	// 这就是拆不开的那个数被拆开：车道那一行仍然只有一个 ms，但它现在减得动了。
+	assert.equal(laneRows(table, "verifier").length, 1, "原来那一行还是恰好一行，条数与字段都没被动过");
+	assert.equal(laneRow.ok, true);
+	assert.ok(laneRow.ms >= end.ms, "车道那一行盖住补全，二者之差就是提示拼装、验形与 table.warn 那段");
+});
+
+test("reasoning 档记的是出站请求体里真写着的那个（#67）", async (t) => {
+	const table = await openTable({ responses: [...keeperTurn("第一回合的交付。"), ...keeperTurn("第二回合的交付。")] });
+	t.after(() => table.dispose());
+	table.lanes.memory.setResponses([noCandidates(), noCandidates()]);
+	table.lanes.verifier.setResponses([
+		fauxAssistantMessage(JSON.stringify({ findings: [] })),
+		fauxAssistantMessage(JSON.stringify({ findings: [] })),
+	]);
+
+	// 第一回合：请求体里根本没有 reasoning 字段。xai/grok-4.6 的 `thinkingLevelMap.off` 是 null，
+	// 而 runLane 一个 thinking 档都不传，真实的车道请求就是这个形状——档由供应商自己定。
+	await table.session.prompt("第一句");
+	await waitForLaneCallPhase(table, "verifier", "end");
+	assert.equal(laneCallPhase(table, "verifier", "request").at(-1).reasoning_effort, null, "请求体里没有 reasoning 字段就记 null，不猜");
+
+	// 第二回合：请求体里嵌套着 reasoning.effort。同一行改口，证明它读的是请求体不是常量。
+	table.lanes.verifier.setTransport({ body: { model: "v1", messages: [], stream: true, reasoning: { effort: "low" } } });
+	await table.session.prompt("第二句");
+	await waitFor(() => laneCallPhase(table, "verifier", "request").length === 2, { label: "第二回合的请求行" });
+	assert.equal(laneCallPhase(table, "verifier", "request").at(-1).reasoning_effort, "low", "嵌套的 reasoning.effort 读得到");
+});
+
+test("扁平的 reasoning_effort 也读得到，与 provider 行同一条读法（#67）", async (t) => {
+	const table = await openTable({ responses: keeperTurn() });
+	t.after(() => table.dispose());
+	table.lanes.memory.setResponses([noCandidates()]);
+	table.lanes.verifier.setResponses([fauxAssistantMessage(JSON.stringify({ findings: [] }))]);
+	table.lanes.verifier.setTransport({ body: { model: "v1", messages: [], stream: true, reasoning_effort: "medium" } });
+
+	await table.session.prompt("我检查地窖门的门框");
+	const request = await waitForLaneCallPhase(table, "verifier", "request");
+	assert.equal(request.reasoning_effort, "medium");
+});
+
+test("响应行只记状态与白名单 request-id，别的头一个字都不进遥测（#67）", async (t) => {
+	const table = await openTable({ responses: keeperTurn() });
+	t.after(() => table.dispose());
+	table.lanes.memory.setResponses([noCandidates()]);
+	table.lanes.verifier.setResponses([fauxAssistantMessage(JSON.stringify({ findings: [] }))]);
+	table.lanes.verifier.setTransport({
+		status: 429,
+		headers: {
+			"X-Request-Id": "req-42",
+			authorization: "Bearer sk-绝不能进遥测",
+			"set-cookie": "session=也不能",
+			"x-ratelimit-remaining": "9",
+		},
+	});
+
+	await table.session.prompt("我检查地窖门的门框");
+	const response = await waitForLaneCallPhase(table, "verifier", "response");
+
+	assert.equal(response.status, 429, "状态码原样");
+	assert.equal(response.request_id, "req-42", "大小写不同的 X-Request-Id 也认得");
+	const everything = JSON.stringify(laneCallRows(table, "verifier"));
+	assert.ok(!everything.includes("sk-绝不能进遥测"), "凭据不进遥测");
+	assert.ok(!everything.includes("set-cookie") && !everything.includes("session=也不能"), "cookie 不进遥测");
+	assert.ok(!everything.includes("ratelimit"), "没登记的头一律不记");
+	assert.ok(!everything.includes("门框上有一道深深的抓痕"), "车道的输入是守秘人正文，出不了这条路");
+});
+
+test("同一处埋点让两条车道都可见：记忆车道也留同样的四行（#67）", async (t) => {
+	const table = await openTable({ responses: keeperTurn() });
+	t.after(() => table.dispose());
+	table.lanes.memory.setResponses([noCandidates()]);
+	table.lanes.verifier.setResponses([fauxAssistantMessage(JSON.stringify({ findings: [] }))]);
+	table.lanes.memory.setTransport({ headers: { "request-id": "mem-7" } });
+
+	await table.session.prompt("我检查地窖门的门框");
+	await waitForLaneCallPhase(table, "memory", "end");
+
+	const rows = laneCallRows(table, "memory");
+	assert.deepEqual(
+		rows.map((row) => row.phase),
+		["start", "request", "response", "end"],
+	);
+	assert.equal(rows[0].model, "memory/m1");
+	assert.equal(rows[2].request_id, "mem-7", "另一个白名单名字也认得");
+	assert.equal(rows[3].ok, true);
+	for (const row of rows) {
+		assert.equal(row.subsession, "memory");
+		assert.equal(row.job_id, "extract:test-camp:t1", "记忆车道的行还说得出是哪个任务");
+	}
+	// 记忆车道那一行是任务收尾时才写的，比 `end` 晚：等它落，再数。
+	await waitForLaneRow(table, "memory");
+	assert.equal(laneRows(table, "memory").length, 1, "记忆车道原来那一行也还是一行");
+});
+
+test("等响应头时被砍：只有请求行、没有响应行，那就是这次超时的形状（#67）", async (t) => {
+	const held = gate();
+	const table = await openTable({ responses: keeperTurn(), env: { PI_COC_LANE_TIMEOUT_MS: "30" } });
+	t.after(() => {
+		held.open();
+		return table.dispose();
+	});
+	table.lanes.memory.setResponses([noCandidates()]);
+	table.lanes.verifier.setResponses([fauxAssistantMessage(JSON.stringify({ findings: [] }))]);
+	// 停在响应头到达之前：请求发出去了，头一直不来。
+	table.lanes.verifier.setTransport({ holdHeaders: held.promise });
+
+	await table.session.prompt("我检查地窖门的门框");
+	const row = await waitForLaneRow(table, "verifier");
+	assert.equal(row.reason, "timeout");
+
+	const phases = laneCallRows(table, "verifier").map((entry) => entry.phase);
+	assert.deepEqual(phases, ["start", "request"], "请求行有、响应行没有——这一次是在等响应头，不是在等流");
+});
