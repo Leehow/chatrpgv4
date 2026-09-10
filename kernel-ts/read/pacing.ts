@@ -16,8 +16,17 @@ export function closeCalls(records: Row[], party: Row[], before: number): number
             count++;
     return count;
 }
+/** `pressures` answers what presses here and keeps §13.2's relatedness. This is the Keeper's instrument panel,
+ *  and a front the book itself scopes to the scenario runs everywhere in it: The Haunting hangs the landlord
+ *  losing patience off the same front as Corbitt, so the relatedness alone hid the clock through the entire
+ *  investigation it paces and showed it in the knife fight it has nothing to do with. */
+export function pacingThreats(graph: ModuleGraph, scene: Row, present: Row[]): Row[] {
+    const related = relatedThreats(graph, scene, present),
+        seen = new Set(related.map(threat => threat.node_id));
+    return [...related, ...graph.kind("threat").filter(threat => !seen.has(threat.node_id) && string(recordOf(threat).scope) === "scenario")];
+}
 export function threatSymptoms(graph: ModuleGraph, world: Row, scene: Row, present: Row[]): Row[] {
-    return relatedThreats(graph, scene, present).flatMap(threat => array(recordOf(threat).clocks).flatMap(clock => {
+    return pacingThreats(graph, scene, present).flatMap(threat => array(recordOf(threat).clocks).flatMap(clock => {
         if (!clock || typeof clock !== "object" || Array.isArray(clock))
             return [];
         const current = clockSegment(world, graph.handle(threat), row(clock)),

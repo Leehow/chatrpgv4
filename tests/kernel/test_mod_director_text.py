@@ -98,10 +98,18 @@ def test_instructions_are_full_on_the_first_turn_and_brief_after(kernel):
     assert all(row["form"] == "full" for row in host.values()), "the host-facing context is always the full text"
 
 
+def test_a_scenario_scoped_clock_is_on_the_panel_before_its_danger_is_in_the_room(kernel):
+    open_turn(kernel)
+    context = kernel.ok("mods.context", {"campaign": CAMPAIGN})
+    # Nobody dangerous is present in Knott's office, and the pressure list says so.
+    assert not any(row["kind"] == "threat" for row in kernel.table("capsule")["pressures"])
+    # The book scopes this front to the scenario, so the Keeper's own instrument still carries its clocks.
+    clocks = {row["clock"] for row in context["pacing"]["threat_clocks"]}
+    assert clocks == {"corbitt-awareness", "landlord-impatience"}
+
+
 def test_a_threat_clock_moves_only_through_apply_and_shows_what_the_book_makes_visible(kernel):
     open_turn(kernel)
-    # The starter's threat concerns a scene only through a danger that names a present NPC, so put Corbitt on stage.
-    kernel.table("apply", call_id="t1-c1", effects=[{"kind": "npc", "name": "Walter Corbitt", "to": "commission-briefing", "why": "fixture"}])
     before = kernel.ok("mods.context", {"campaign": CAMPAIGN})["pacing"]["threat_clocks"]
     awareness = next(row for row in before if row["clock"] == "corbitt-awareness")
     assert awareness["state"] == "0/4" and "symptom" not in awareness, "an untouched clock stands where the book left it and shows nothing"
@@ -113,6 +121,7 @@ def test_a_threat_clock_moves_only_through_apply_and_shows_what_the_book_makes_v
     assert not any(row["kind"] == "threat" for row in kernel.table("status")["mechanics"]), "a pacing tick is Keeper-side and draws no card"
     after = next(row for row in kernel.ok("mods.context", {"campaign": CAMPAIGN})["pacing"]["threat_clocks"] if row["clock"] == "corbitt-awareness")
     assert after["state"] == "1/4" and after["symptom"] == receipt["shows"] and after["next"] != after["symptom"]
+    kernel.table("apply", call_id="t1-c9", effects=[{"kind": "npc", "name": "Walter Corbitt", "to": "commission-briefing", "why": "the pressure list needs him in the room"}])
     assert next(p for p in kernel.table("capsule")["pressures"] if p["kind"] == "threat")["state"] == "1/4"
     kernel.table("apply", call_id="t1-c3", effects=[{"kind": "threat", "name": "corbitt-haunting", "clock": "corbitt-awareness", "segments": 3}])
     full = next(r for r in kernel.table("status")["receipts"] if r["kind"] == "threat" and r["after"] == 4)

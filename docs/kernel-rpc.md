@@ -3983,8 +3983,12 @@ Two things this did not settle, both honest limits rather than defects to fix he
 - **The symptom did not reach the prose.** The Keeper ticked during a knife fight and wrote the fight; a knock
   inside the walls is a poor sentence in that round. Whether a segment's symptom is worth writing is the Keeper's
   call, and nothing gates it — the same standing as every other capsule suggestion.
-- **Relatedness is per threat, not per clock.** The Haunting hangs `landlord-impatience` — Knott losing patience
-  with the investigation — off the same front as Corbitt, so it is hidden during the research it belongs to and
-  shown during the fight it has nothing to do with. Fixing that needs clock-level scene references the data does
-  not carry; §13.2's threat-level rule stays, and the shape is noted here so it is not mistaken for a projection
-  bug.
+- **Relatedness is per threat, not per clock — fixed by separating the two lists.** The Haunting hangs
+  `landlord-impatience` — Knott losing patience with the investigation — off the same front as Corbitt, so
+  §13.2's relatedness hid it through the whole research phase it paces and showed it in the knife fight it has
+  nothing to do with. The clock-level scene references that would resolve it per clock are not in the data, but
+  the two lists answer different questions and only one of them is about here: `pressures.threat` is what presses
+  in this scene and keeps the relatedness rule exactly as it was, while `pacing.threat_clocks` is the Keeper's
+  instrument panel, and a front the book itself declares `scope: "scenario"` runs everywhere in that scenario.
+  Scenario-scoped clocks are therefore on the panel from the first turn; every other threat still has to be
+  related. A campaign whose module scopes its fronts to places is unchanged.
