@@ -4014,3 +4014,21 @@ Two things this did not settle, both honest limits rather than defects to fix he
   instrument panel, and a front the book itself declares `scope: "scenario"` runs everywhere in that scenario.
   Scenario-scoped clocks are therefore on the panel from the first turn; every other threat still has to be
   related. A campaign whose module scopes its fronts to places is unchanged.
+
+### 30.11 Compression, and where the panel's clocks now stand (2026-09-10)
+
+`stall-1`, a table played by a player who genuinely does not know what to do ("嗯", "我再想想", "我不知道该先干嘛"),
+closes the last doctrine §30.8 left untested. Evidence in `.coc/playtests/stall-1/`.
+
+- **Compression fires at the threshold and cuts.** `stalled_turns` reached `keeper-pacing`'s `stall_turns` of two
+  on turn 4; the Director's beat turned RECOVER; the Keeper did not ask the same low-agency question again but
+  had Knott take the investigator by the elbow and put them on the street, landing a `move`. The turns after it
+  keep offering concrete handles in the fiction — a newsboy with the afternoon edition, the reading room up the
+  steps, a cab at the kerb — instead of restating the same state, which is the clause the 0.8.2a compression
+  contract was written for. What was not exercised is the montage form: those turns landed no `time`, so
+  "advance until something interrupts" is still only half seen.
+- **Scenario-scoped clocks are on the panel from turn one**, as §30.10 now specifies, so a Keeper running The
+  Haunting sees the landlord's patience during the research it paces rather than only in the basement.
+
+The two things still unverified after all of this are the fair-warning threshold — no table has reached three
+close calls — and the reader ask of §30.4, which needs a book rebuilt with it.
