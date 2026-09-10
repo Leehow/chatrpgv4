@@ -85,7 +85,13 @@ export function relatedThreats(graph: ModuleGraph, scene: Row, present: Row[]): 
         return outgoing.some(r => ["present-in", "located-in", "contains"].includes(r.relation_kind) && targets.has(r.to_node_id)) || incoming.some(r => ["present-in", "located-in", "contains"].includes(r.relation_kind) && targets.has(r.from_node_id)) || array(record.dangers).some(d => ["monster_ref", "id", "npc_id"].some(k => typeof row(d)[k] === "string" && keys.has(normalize(d[k]))));
     });
 }
-export function threatPressures(graph: ModuleGraph, scene: Row, present: Row[]): Row[] {
+/** The segment a clock actually stands on: what `apply threat` has moved it to, else what the book started it at. */
+export function clockSegment(world: Row, threatHandle: string, clock: Row): number {
+    const id = string(clock.clock_id || clock.id || clock.name || ""),
+        live = row(row(row(world.threat_clocks)[threatHandle]))[id];
+    return Math.trunc(number(live ?? clock.current_segments ?? 0));
+}
+export function threatPressures(graph: ModuleGraph, world: Row, scene: Row, present: Row[]): Row[] {
     const moves = array(recordOf(scene).pressure_moves).map(string);
     return relatedThreats(graph, scene, present).flatMap(threat => {
         const record = recordOf(threat);
@@ -93,7 +99,7 @@ export function threatPressures(graph: ModuleGraph, scene: Row, present: Row[]):
         return [{
                 kind: "threat",
                 name: graph.handle(threat),
-                state: clock ? `${string(clock.current_segments ?? 0)}/${string(clock.segments ?? "?")}` : `no clock; ${array(record.dangers).length} danger(s)`,
+                state: clock ? `${clockSegment(world, graph.handle(threat), row(clock))}/${string(clock.segments ?? "?")}` : `no clock; ${array(record.dangers).length} danger(s)`,
                 ...(moves.length ? { cue: moves.join("; ") } : {})
             }];
     });

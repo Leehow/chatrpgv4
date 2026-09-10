@@ -2,7 +2,7 @@
 import json
 from pathlib import Path
 
-from conftest import CAMPAIGN, create_campaign, narrate, open_turn, read_json
+from conftest import CAMPAIGN, campaign_dir, create_campaign, narrate, open_turn, read_json
 
 PACKAGES = {"story-thread", "keeper-pacing", "narration-craft", "narration-audit"}
 RANK = ["critical", "core", "major", "supporting", "minor", "unknown"]
@@ -43,7 +43,9 @@ def test_a_discovered_clue_leaves_the_thread_and_the_capsule_carries_it(kernel):
     assert capsule["mods"]["thread"]["lines"][0]["name"] == kernel.ok("mods.context", {"campaign": CAMPAIGN})["thread"]["lines"][0]["name"]
     assert capsule["mods"]["pacing"]["close_calls"] == {"count": 0, "threshold": 3, "rule": capsule["mods"]["pacing"]["close_calls"]["rule"]}
     assert any(entry["mod"] == "story-thread" for entry in capsule["mods"]["instructions"])
-    assert next(entry for entry in capsule["mods"]["instructions"] if entry["mod"] == "narration-craft")["settings"]["routine_chars"] == 600
+    craft = next(entry for entry in capsule["mods"]["instructions"] if entry["mod"] == "narration-craft")
+    assert craft["settings"]["routine_chars"] == 600
+    assert not any(key.endswith("_paragraphs") for key in craft["settings"]), "the paragraph caps were disproven by measurement (§30.8)"
 
 
 def test_close_calls_count_major_wound_blows_once_per_turn(kernel):
@@ -94,3 +96,37 @@ def test_instructions_are_full_on_the_first_turn_and_brief_after(kernel):
     assert sum(len(row["instruction"].encode()) for row in later.values()) < 4000
     host = {row["mod"]: row for row in kernel.ok("mods.context", {"campaign": CAMPAIGN})["instructions"]}
     assert all(row["form"] == "full" for row in host.values()), "the host-facing context is always the full text"
+
+
+def test_a_threat_clock_moves_only_through_apply_and_shows_what_the_book_makes_visible(kernel):
+    open_turn(kernel)
+    # The starter's threat concerns a scene only through a danger that names a present NPC, so put Corbitt on stage.
+    kernel.table("apply", call_id="t1-c1", effects=[{"kind": "npc", "name": "Walter Corbitt", "to": "commission-briefing", "why": "fixture"}])
+    before = kernel.ok("mods.context", {"campaign": CAMPAIGN})["pacing"]["threat_clocks"]
+    awareness = next(row for row in before if row["clock"] == "corbitt-awareness")
+    assert awareness["state"] == "0/4" and "symptom" not in awareness, "an untouched clock stands where the book left it and shows nothing"
+    kernel.table("apply", call_id="t1-c2", effects=[{"kind": "threat", "name": "corbitt-haunting", "clock": "corbitt-awareness", "why": "they pried at the boards"}])
+    receipt = next(r for r in kernel.table("status")["receipts"] if r["kind"] == "threat")
+    assert (receipt["before"], receipt["after"], receipt["segments"], receipt["full"]) == (0, 1, 4, False)
+    assert receipt["shows"] and receipt["visibility"] == "keeper" and "on_full" not in receipt
+    assert not any(row["kind"] == "threat" for row in kernel.table("status")["mechanics"]), "a pacing tick is Keeper-side and draws no card"
+    after = next(row for row in kernel.ok("mods.context", {"campaign": CAMPAIGN})["pacing"]["threat_clocks"] if row["clock"] == "corbitt-awareness")
+    assert after["state"] == "1/4" and after["symptom"] == receipt["shows"]
+    assert next(p for p in kernel.table("capsule")["pressures"] if p["kind"] == "threat")["state"] == "1/4"
+    kernel.table("apply", call_id="t1-c3", effects=[{"kind": "threat", "name": "corbitt-haunting", "clock": "corbitt-awareness", "segments": 3}])
+    full = next(r for r in kernel.table("status")["receipts"] if r["kind"] == "threat" and r["after"] == 4)
+    assert full["full"] and full["on_full"].startswith("Corbitt commits to murder")
+    kernel.table("apply", call_id="t1-c4", effects=[{"kind": "threat", "name": "corbitt-haunting", "clock": "corbitt-awareness", "segments": 4}])
+    assert next(r for r in kernel.table("status")["receipts"] if r["kind"] == "threat" and r["call_id"] == "t1-c4")["after"] == 4, "a clock stops at its length"
+
+
+def test_a_threat_effect_names_what_it_could_not_find(kernel):
+    open_turn(kernel)
+    unknown = kernel.table_err("apply", call_id="t1-c1", effects=[{"kind": "threat", "name": "the weather"}])
+    assert unknown["code"] == "invalid_params" and "corbitt-haunting" in unknown["details"]["options"]
+    ambiguous = kernel.table_err("apply", call_id="t1-c1", effects=[{"kind": "threat", "name": "corbitt-haunting"}])
+    assert sorted(ambiguous["details"]["options"]) == ["corbitt-awareness", "landlord-impatience"]
+    clockless = kernel.table_err("apply", call_id="t1-c1", effects=[{"kind": "threat", "name": "cult-residue"}])
+    assert clockless["code"] == "invalid_params" and "no clock" in clockless["message"]
+    world = read_json(campaign_dir(kernel.workspace) / "world.json")
+    assert "threat_clocks" not in world, "a refused batch writes nothing"

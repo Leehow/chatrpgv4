@@ -340,6 +340,9 @@ export class ModuleGraph {
     sceneRules(scene: Row): Row[] {
         return this.listedNodes((this.out.get(scene.node_id) ?? []).filter(r => r.relation_kind === "uses-rule").map(r => r.to_node_id));
     }
+    threatClock(threat: Row, clockId: string): Row | null {
+        return array(recordOf(threat).clocks).map(row).find(clock => [clock.clock_id, clock.id, clock.name].some(value => typeof value === "string" && normalize(value) === normalize(clockId))) ?? null;
+    }
     sceneBeat(scene: Row): Row | null {
         return this.kind("beat").map(recordOf).find(r => r.scene_id === this.handle(scene)) ?? null;
     }

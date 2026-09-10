@@ -5,6 +5,7 @@ import {canonicalJson,isJsonObject,orderedObject} from '../json.js';
 import {EntityIndex} from '../read/memory.js';
 import {RuleObservations,semanticName} from '../read/rule-facts.js';
 import {array,entries,kebab,length,normalize,number,repr,row,sorted,string,truth,words,type Row} from '../read/values.js';
+import {recordOf} from '../read/module-graph.js';
 import {SkillResolver} from '../rules/skills.js';
 import {RuleTables} from '../rules/tables.js';
 import {asciiSlug} from '../write/text.js';
@@ -27,6 +28,46 @@ function names(value:any,field:string):string[]{
     if(value==null)return [];
     if(!Array.isArray(value)||!value.every(name=>typeof name==='string'&&name.trim()))throw new RpcError('invalid_params',`${field} must be a list of names`);
     return value.map(name=>name.trim());
+}
+/** A threat clock is the Keeper's pacing instrument (Agents.md: the module is a reference, the clock is theirs).
+ *  The book writes the segments, what each one shows and what a full clock means; only this effect moves one, so
+ *  `on_tick_visible` finally has a reader. The runtime count lives in `world.threat_clocks`, never on the graph. */
+export function stageThreat(context:ApplyContext,effect:Row):StagedEffect{
+    const {name,clock:clockName,segments,why:reason}=effect;
+    if(typeof name!=='string'||!name.trim())throw new RpcError('invalid_params','a threat effect names the threat to advance',{fix:'{"kind": "threat", "name": "<a threat from pressures>", "clock": "<its clock>", "why": "..."}'});
+    const threat=context.graph.find(name.trim(),['threat']);
+    if(!threat){
+        const known=context.graph.kind('threat').map(node=>context.graph.handle(node));
+        throw new RpcError('invalid_params',`no threat named ${repr(name)}`,{fix:known.length?`use one of ${repr(known)}`:'this module declares no threat',details:{options:known}});
+    }
+    const clocks=array(recordOf(threat).clocks).map(row).filter(clock=>truth(clock.clock_id||clock.id||clock.name));
+    if(!clocks.length)throw new RpcError('invalid_params',`the threat ${repr(context.graph.handle(threat))} has no clock`,{fix:'this threat paces through its dangers, not a clock; narrate the pressure or use apply time'});
+    const chosen=clockName==null&&clocks.length===1?clocks[0]:typeof clockName==='string'?context.graph.threatClock(threat,clockName):null;
+    if(!chosen){
+        const known=clocks.map(clock=>string(clock.clock_id||clock.id||clock.name));
+        throw new RpcError('invalid_params',clockName==null?'this threat has more than one clock; name the one to advance':`no clock named ${repr(clockName)} on that threat`,{fix:`use one of ${repr(known)}`,details:{options:known}});
+    }
+    const id=string(chosen.clock_id||chosen.id||chosen.name),total=Math.trunc(number(chosen.segments??0));
+    if(!(total>0))throw new RpcError('invalid_params',`the clock ${repr(id)} declares no segments`,{fix:'the book gives this clock no length; pace it in the fiction instead'});
+    let step=1;
+    if(segments!=null){
+        if(!Number.isInteger(segments)||segments===0||Math.abs(segments)>total)throw new RpcError('invalid_params','segments must be a non-zero whole number of segments, at most the clock\'s length',{fix:'omit segments to advance one, or give a small positive or negative whole number',details:{segments,length:total}});
+        step=segments;
+    }
+    const handle=context.graph.handle(threat),
+        live=row(context.world.threat_clocks),
+        current=row(live[handle]),
+        before=Math.min(total,Math.max(0,Math.trunc(number(current[id]??chosen.current_segments??0)))),
+        after=Math.min(total,Math.max(0,before+step));
+    context.world.threat_clocks=orderedObject([...entries(live).filter(([key])=>key!==handle),[handle,orderedObject([...entries(current).filter(([key])=>key!==id),[id,after]])]]);
+    const visible=array(chosen.on_tick_visible).map(string),
+        receipt:Row={id:effectId(context,'threat',`${handle}-${id}`),kind:'threat',call_id:context.callId,threat:handle,clock:id,
+            before,after,segments:total,full:after>=total,why:why(effect),visibility:'keeper',at:nowIso()};
+    if(after>0&&visible.length)receipt.shows=visible[Math.min(after,visible.length)-1];
+    if(after>=total&&typeof chosen.on_full==='string'&&chosen.on_full)receipt.on_full=chosen.on_full;
+    // The canonical event set of 12.1 is closed at twenty-four kinds and a pacing tick did not enter it; the
+    // receipt and the turn record carry it, as the sanity engine's own day_ended does.
+    return {receipt,event:null};
 }
 export function stageFlag(context:ApplyContext,effect:Row):StagedEffect{
     const slug=typeof effect.name==='string'?kebab(effect.name):'';

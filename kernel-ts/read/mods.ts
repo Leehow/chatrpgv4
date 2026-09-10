@@ -424,7 +424,7 @@ export async function modContext(context: KernelContext, graph: ModuleGraph, wor
     if (required.has("context.thread.v1"))
         result.thread = threadSection(graph, world, scene, present);
     if (required.has("context.pacing.v1"))
-        result.pacing = pacingSection(graph, scene, present, party, records);
+        result.pacing = pacingSection(graph, world, scene, present, party, records);
     return result;
 }
 export function publicItems(world: Row, ownerId: string, includeContainedDocuments = false): Row[] {

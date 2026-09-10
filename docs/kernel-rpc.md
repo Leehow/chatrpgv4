@@ -3908,3 +3908,35 @@ driven deliberately at the paths §30.6 never reached.
   not describe how prose is written here and the character ceiling is not reached, so neither number is doing
   work. Retuning them is a content decision and is not taken here.
 - **The reader ask of §30.4 is still unverified**: no book has been rebuilt with it.
+
+### 30.9 `apply threat`: the clock the Keeper runs (2026-09-10)
+
+§30.8 measured the hole: `pressures.threat` and `pacing.threat_clocks` projected a segment that nothing could
+move, so both stood at the book's starting value forever and `on_tick_visible` — written by the module authors
+for exactly this — had never reached a table. A projection without a writer is half a feature.
+
+`apply` gains a nineteenth kind. `{"kind": "threat", "name": "<threat>", "clock"?: "<clock>", "segments"?: n,
+"why"?: "..."}` moves one threat clock. `name` is the handle `pressures` and `pacing.threat_clocks` already give;
+`clock` may be omitted when the threat has exactly one; `segments` defaults to `+1` and accepts a small negative
+number to give ground back. Refusals name what they could not find: an unknown threat lists the module's threats,
+an unnamed clock on a multi-clock threat lists its clocks, a threat the book gave no clock says so and points at
+the fiction instead. A refused batch writes nothing, as every `apply` batch does.
+
+- **The count is runtime, never the graph.** `world.threat_clocks` is `{"<threat>": {"<clock>": n}}`, clamped to
+  `[0, segments]`; the module graph stays the authored source and is not rewritten. A clock with no live entry
+  reads the book's `current_segments`, so a campaign that predates this effect is unchanged.
+- **The receipt hands back what the book says.** `{before, after, segments, full}` plus `shows` — the
+  `on_tick_visible` entry for the segment it now stands on — and, when it fills, `on_full`. Visibility is
+  `keeper`: this is pacing, and `mechanicsOf` projects no card for it, so nothing is drawn for the player. The
+  symptom reaches them as fiction or not at all.
+- **No canonical event.** §12.1's set is closed at twenty-four kinds and a pacing tick did not enter it; the
+  receipt and the turn record carry it, the same way the sanity engine's own `day_ended` is recorded without
+  being a canonical event.
+- **Who decides.** The Keeper, and only the Keeper: no rule ticks it, no Director scores it, `apply time` does
+  not imply it. That is the standing reading of the module as a reference and the clock as the Keeper's pacing
+  instrument. `keeper-pacing` 1.0.2 says when to reach for it — real time spent, noise, exposure, or the danger's
+  own interest advancing — and says plainly that it is not a per-turn metronome.
+
+`narration-craft` 1.0.2 drops its paragraph caps in the same change, on the §30.8 measurement: exceeded in eight
+of eleven deliveries while the character ceiling was never approached. The character ceilings stay and are named
+as ceilings, not targets.

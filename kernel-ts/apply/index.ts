@@ -19,13 +19,13 @@ import { advanceClock } from './clock.js';
 import { stageMove } from './move.js';
 import {appendJsonl} from '../fileio.js';
 import {join} from 'node:path';
-import {stageFlag,stageNote,stageRuling} from './bookkeeping.js';
+import {stageFlag,stageNote,stageRuling,stageThreat} from './bookkeeping.js';
 import {stageClue,stageNpc,stageHandout} from './entities.js';
 import {stageItem,stageCash,commitInventorySheets} from './inventory.js';
 import type {createWorldlineRuntime} from '../worldline/index.js';
 import type {createModRuntime} from '../mods/index.js';
 import type {CampaignWriter} from '../write/store.js';
-const KINDS = ['ability', 'cash', 'clue', 'damage', 'define', 'ending', 'flag', 'fork', 'handout', 'item', 'merge', 'move', 'note', 'npc', 'object', 'ruling', 'switch', 'time'];
+const KINDS = ['ability', 'cash', 'clue', 'damage', 'define', 'ending', 'flag', 'fork', 'handout', 'item', 'merge', 'move', 'note', 'npc', 'object', 'ruling', 'switch', 'threat', 'time'];
 export interface ApplyContext {
     readonly kernel: KernelContext;
     readonly transaction: TurnTransaction;
@@ -80,7 +80,7 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                 return started.result;
             if (!Array.isArray(effects) || !effects.length)
                 throw new RpcError('invalid_params', 'params.effects must be a non-empty list');
-            const available = (kind: string) => ['clue','npc','item','cash','flag','note','ruling'].includes(kind) || (['define','object','ability'].includes(kind)?!!contributions.mods:['fork','switch','merge'].includes(kind)?!!contributions.worldlines:kind==='handout'?!!contributions.asset:['time', 'damage', 'move'].includes(kind) ? !!contributions.resources : kind === 'ending' ? !!contributions.ending : false);
+            const available = (kind: string) => ['clue','npc','item','cash','flag','note','ruling','threat'].includes(kind) || (['define','object','ability'].includes(kind)?!!contributions.mods:['fork','switch','merge'].includes(kind)?!!contributions.worldlines:kind==='handout'?!!contributions.asset:['time', 'damage', 'move'].includes(kind) ? !!contributions.resources : kind === 'ending' ? !!contributions.ending : false);
             // A partial backend refuses unimplemented batches before any domain draws or writes.
             for (const [index, effect] of effects.entries())
                 if (isJsonObject(effect) && typeof effect.kind === 'string' && KINDS.includes(effect.kind) && !available(effect.kind))
@@ -166,6 +166,7 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                         if(!contributions.weaponCatalog)throw new RpcError('not_implemented','The weapon catalog contribution is unavailable');return contributions.weaponCatalog(graph);
                     }) as {receipt:Row;event:DomainEvent});
                     else if(kind==='cash')({receipt,event}=await stageCash(context,effect,stagedSheets) as {receipt:Row;event:DomainEvent});
+                    else if(kind==='threat')({receipt,event}=stageThreat(context,effect) as {receipt:Row;event:DomainEvent});
                     else if(kind==='flag')({receipt,event}=stageFlag(context,effect) as {receipt:Row;event:DomainEvent});
                     else if(kind==='note')({receipt,event}=await stageNote(context,effect,stagedNotes) as {receipt:Row;event:DomainEvent});
                     else if(kind==='ruling')({receipt,event}=await stageRuling(context,effect,stagedRulings) as {receipt:Row;event:DomainEvent});
@@ -184,7 +185,9 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                     receipts.push(receipt);
                     ids.push(string(receipt.id));
                     taken.add(string(receipt.id));
-                    events.push({ ...event, receipt: receipt.id });
+                    // A pacing tick has no canonical event (12.1 is closed at twenty-four kinds); its receipt carries it.
+                    if (event)
+                        events.push({ ...event, receipt: receipt.id });
                     if (kind === 'move' && number(receipt.minutes) > 0)
                         events.push({ type: 'time-advanced', data: { minutes: receipt.minutes, why: 'travel', clock: clone(staged.clock) }, receipt: receipt.id });
                 }

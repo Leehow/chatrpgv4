@@ -2,7 +2,7 @@
  *  what the related threat clocks show at their current segment. Rule-derived where a page exists; never a
  *  judgement of prose. */
 import { ModuleGraph, recordOf } from "./module-graph.js";
-import { relatedThreats } from "./pressures.js";
+import { relatedThreats, clockSegment } from "./pressures.js";
 import { playedRecords } from "./director.js";
 import { array, row, number, integer, string, truth, type Row } from "./values.js";
 /** Keeper Rulebook p.209, fair warning: the ladder counts a blow that would be a major wound (p.119, half of
@@ -16,11 +16,11 @@ export function closeCalls(records: Row[], party: Row[], before: number): number
             count++;
     return count;
 }
-export function threatSymptoms(graph: ModuleGraph, scene: Row, present: Row[]): Row[] {
+export function threatSymptoms(graph: ModuleGraph, world: Row, scene: Row, present: Row[]): Row[] {
     return relatedThreats(graph, scene, present).flatMap(threat => array(recordOf(threat).clocks).flatMap(clock => {
         if (!clock || typeof clock !== "object" || Array.isArray(clock))
             return [];
-        const current = number(clock.current_segments ?? 0),
+        const current = clockSegment(world, graph.handle(threat), row(clock)),
             visible = array(clock.on_tick_visible).map(string);
         const entry: Row = { threat: graph.handle(threat), clock: string(clock.name || clock.clock_id || clock.id || "clock"), state: `${current}/${string(clock.segments ?? "?")}` };
         if (current > 0 && visible.length)
@@ -31,9 +31,9 @@ export function threatSymptoms(graph: ModuleGraph, scene: Row, present: Row[]): 
     }));
 }
 /** `records` are closed turns only, so every one of them is before the open turn. */
-export function pacingSection(graph: ModuleGraph, scene: Row, present: Row[], party: Row[], records: Row[]): Row {
+export function pacingSection(graph: ModuleGraph, world: Row, scene: Row, present: Row[], party: Row[], records: Row[]): Row {
     return {
         close_calls: { count: closeCalls(records, party, Number.MAX_SAFE_INTEGER), threshold: FAIR_WARNING_THRESHOLD, rule: "keeper-rulebook p.209 fair warning; a call is a major-wound blow or a drop to zero" },
-        threat_clocks: threatSymptoms(graph, scene, present)
+        threat_clocks: threatSymptoms(graph, world, scene, present)
     };
 }
