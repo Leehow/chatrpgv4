@@ -180,7 +180,7 @@ export default function modsExtension(pi: ExtensionAPI): void {
       // The signal belongs to the tool call that is about to return, so this work does not take it: a
       // failure here is not lost, it is what `mods.queued` reports as unfinished on the next turn.
       await materialize(campaign, work.map(input => ({kind:"define", ...input})), undefined).catch(() => undefined);
-    })();
+    })().finally(() => { outstanding = undefined; });
     return true;
   }
 
@@ -192,7 +192,9 @@ export default function modsExtension(pi: ExtensionAPI): void {
   async function resume(campaign: string, signal?: AbortSignal): Promise<void> {
     if (!call) return;
     const current = call;
-    if (outstanding) { const pending = outstanding; outstanding = undefined; await pending.catch(() => undefined); }
+    // Still generating beside the turn: there is nothing to complete yet, and waiting here would drag the
+    // cost back onto the player's critical path, which is the whole reason the batch was deferred.
+    if (outstanding) return;
     let queued = await current("mods.queued", {campaign});
     const unfinished: any[] = Array.isArray(queued?.unfinished) ? queued.unfinished : [];
     if (unfinished.length) {

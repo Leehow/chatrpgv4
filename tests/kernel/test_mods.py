@@ -458,17 +458,18 @@ def test_registration_can_be_queued_past_delivery_and_completed_afterwards(kerne
     # The row is accounted for, so neither the Keeper nor the audit is asked for it a second time.
     assert target not in [e["name"] for e in kernel.ok("mods.context", {"campaign":CAMPAIGN})["unregistered_equipment"]]
 
-    pending = kernel.ok("mods.queued", {"campaign":CAMPAIGN})
-    assert pending["effects"] == []
-    assert [entry["name"] for entry in pending["unfinished"]] == [draft["name"]]
-
     Path(job["cwd"], "result.json").write_text(json.dumps({**draft, "basis":"Fixture basis for the deferred kit.",
         "parameters":{"charges":None, "effects":[]}, "player_view":{"description":"一套夹具装备。", "fields":[]}}))
     kernel.ok("mods.accept", {"campaign":CAMPAIGN, "job":job["job"]})
 
+    # Deferral means not this turn: completing here would put the wait back one tool call later.
+    assert kernel.ok("mods.queued", {"campaign":CAMPAIGN}) == {"effects":[], "unfinished":[]}
+
+    narrate(kernel, "t1-c3", "诺特把条件说完，等你开口。")
+    kernel.table("player_input", text="我接下这单。")
     ready = kernel.ok("mods.queued", {"campaign":CAMPAIGN})
     assert [effect["kind"] for effect in ready["effects"]] == ["define", "object"] and ready["unfinished"] == []
-    kernel.table("apply", call_id="t1-c2", effects=ready["effects"])
+    kernel.table("apply", call_id="t2-c1", effects=ready["effects"])
 
     assert kernel.table("look", focus="object", name=draft["name"])["definition"]["name"] == draft["name"]
     # The marker stops standing in for a definition that is now real, and the row stays out of the gap list.

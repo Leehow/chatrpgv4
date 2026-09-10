@@ -123,7 +123,7 @@ export class ModJobs {
      * of define or adopt; an entry whose job has not finished yet is simply left for the next turn.
      */
     async queued(params: Row): Promise<Row> {
-        const {campaign, world} = await this.load(params), effects: Row[] = [], unfinished: Row[] = [];
+        const {campaign, world, turn} = await this.load(params), effects: Row[] = [], unfinished: Row[] = [];
         // A registration the host could not complete falls back to the ordinary blocking path rather than
         // leaving a marker that hides its row from the audit: dropped here, the gear reads as unregistered
         // again on the next turn and the Keeper registers it the way it did before any of this existed.
@@ -134,6 +134,9 @@ export class ModJobs {
             return {effects, unfinished, discarded: dropped};
         }
         for (const entry of queuedRegistrations(world)) {
+            // Deferral means not this turn. Completing inside the turn that queued it would put the wait
+            // back where it was, one tool call later, which is exactly what the marker exists to avoid.
+            if (equal(entry.turn, turn.turn)) continue;
             const define = clone(row(entry.define));
             const accepted = join(this.runtime.root, 'jobs', string(entry.job), 'accepted.json');
             // A session that died between the marker and its parameters must not leave the row hidden from
