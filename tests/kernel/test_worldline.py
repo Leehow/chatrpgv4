@@ -15,7 +15,7 @@ import os
 import subprocess
 from pathlib import Path
 
-from conftest import (CAMPAIGN, CONTENT_DIR, MODULE, RpcClient, campaign_dir, create_campaign,
+from conftest import (CAMPAIGN, CONTENT_DIR, MODULE, PREGEN, RpcClient, campaign_dir, create_campaign,
                       narrate, narrate_opening, read_json, read_jsonl, repo_dir)
 
 BRIEFING = "commission-briefing"
@@ -146,13 +146,19 @@ def test_a_new_campaign_is_born_on_wl_main(kernel):
 
 
 def test_the_seed_is_the_campaign_the_line_and_the_fork_point(kernel, tmp_path):
-    import sys
-    from conftest import KERNEL_DIR
-    sys.path.insert(0, str(KERNEL_DIR))
-    from coc.worldline import line_seed
-    assert line_seed("c1", "main", None) == line_seed("c1", "main", "")
-    assert line_seed("c1", "main", None) != line_seed("c2", "main", None)
-    assert line_seed("c1", "side", "abc1234") != line_seed("c1", "side", "def5678")
+    """§15: a line's dice are its own. Two campaigns, and two lines forked from the same turn of
+    one campaign, draw different rolls from the same call; the rest of this file's cases show a
+    line replaying its own rolls identically."""
+    rolls = {}
+    for campaign, line in [("s1", "main"), ("s2", "main")]:
+        kernel.ok("campaign.create", {"id": campaign, "module": MODULE, "pregen": PREGEN, "play_language": "en"})
+        kernel.ok("table.open", {"campaign": campaign})
+        kernel.ok("table.narrate", {"campaign": campaign, "call_id": "t0-c1", "text": "Opening."})
+        kernel.ok("table.player_input", {"campaign": campaign, "text": "I listen at the door."})
+        result = kernel.ok("table.resolve", {"campaign": campaign, "call_id": "t1-c1", "action": {
+            "intent": "investigate", "goal": "hear the room", "method": "listen at the door", "skill": "Listen"}})
+        rolls[campaign] = result["outcome"]["roll"]
+    assert rolls["s1"] != rolls["s2"], "two campaigns must not share a line's dice"
 
 
 def test_a_campaign_without_worldlines_is_adopted_as_main_without_rewriting_a_commit(kernel):

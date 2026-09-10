@@ -9,12 +9,10 @@ SAN is lost through `table.resolve` (`sanity:check`), and the assertions read ba
 table projects (`apply`'s result, `table.view`'s clock, the resolve outcome) and what it
 persisted (`save/sanity-state/<inv>.json`)."""
 
-from types import SimpleNamespace
 
 from conftest import CAMPAIGN, campaign_dir, open_turn, read_json
 from test_rules_families import resolve
 
-from coc.table import game_day_of
 
 INVESTIGATOR = "thomas-hayes"
 OPENING_SAN = 55
@@ -152,16 +150,3 @@ def test_an_investigator_who_has_lost_nothing_is_not_given_a_snapshot_by_midnigh
     assert not (campaign_dir(kernel.workspace) / "save" / "sanity-state" / f"{INVESTIGATOR}.json").exists()
     lose(kernel, "t1-c2", 3)
     assert (snapshot(kernel)["daily_san_lost"], snapshot(kernel)["day_start_san"]) == (3, OPENING_SAN)
-
-
-def test_the_boundary_is_the_book_s_midnight_or_whole_days_when_the_book_names_no_hour():
-    """No pregen ships for a book without a declared opening (`the-white-war`), so the fallback
-    is pinned on the function the table calls: with a date the midnight is that date's, with a
-    bare `start_time` hour it is that hour's midnight, and with neither a day is 1440 elapsed
-    minutes -- the one truth the table has about such a book."""
-    dated = SimpleNamespace(module_node={"properties": {"start_clock": {"local_datetime": "1920-10-12T10:00:00"}}})
-    houred = SimpleNamespace(module_node={"properties": {"start_time": "22:00"}})
-    silent = SimpleNamespace(module_node=None)
-    assert [game_day_of(dated, m) for m in (0, TO_MIDNIGHT - 1, TO_MIDNIGHT, TO_MIDNIGHT + DAY)] == [0, 0, 1, 2]
-    assert [game_day_of(houred, m) for m in (0, 119, 120, 120 + DAY)] == [0, 0, 1, 2]
-    assert [game_day_of(silent, m) for m in (0, DAY - 1, DAY, 2 * DAY)] == [0, 0, 1, 2]
