@@ -55,6 +55,8 @@ DEFAULT_MODEL = "xai/grok-4.5"  # docs/kernel-rpc.md section 10: "缺省 xai/gro
 
 ACK_TIMEOUT = 10.0           # seconds to wait for pi's response to get_state/set_model/prompt-accept
 STOP_SETTLE_GRACE = 1.5      # seconds to wait for agent_settled after a terminal agent_end
+STALE_SETTLE_GRACE = 20.0    # seconds to keep waiting after a settle that arrived before any work
+OPENING_QUIET = 3.0          # seconds of silence at startup that mean no opening run is in flight
 HEARTBEAT_INTERVAL = 2.0
 TOOL_RESULT_TRUNCATE_BYTES = 4096
 STARTUP_READY_TIMEOUT = 30.0
@@ -386,6 +388,34 @@ class Daemon:
         self._write_heartbeat("ready")
         self.log.write("daemon ready")
 
+    def _await_quiet(self, tq: "queue.Queue") -> None:
+        """Wait for the agent to be idle before a turn's prompt goes in.
+
+        Opening the table is a keeper run of its own: the launcher starts it with no player input.
+        Its `agent_settled` used to arrive while the first `turn` was already listening, ending that
+        turn in a tenth of a second with nothing recorded -- while the keeper went on playing it
+        unwatched. The session's turn count stopped being true and the turn's evidence lived in
+        `events.jsonl` and nowhere else. A turn now begins from a quiet agent, so the settle it waits
+        for can only be its own.
+        """
+        hard_deadline = time.monotonic() + STARTUP_READY_TIMEOUT
+        while True:
+            now = time.monotonic()
+            wait_for = min(OPENING_QUIET, hard_deadline - now)
+            if wait_for <= 0:
+                self.log.write("agent still busy as a turn began; its settle may not be this turn's")
+                return
+            try:
+                event = tq.get(timeout=wait_for)
+            except queue.Empty:
+                # Silence for this long means the earlier run is over, or there never was one.
+                return
+            if event.get("type") == "agent_settled":
+                self.log.write("earlier run settled; this turn starts from a quiet agent")
+                return
+            if not self.pi.alive():
+                return
+
     def _set_model(self, model: str) -> dict | None:
         if "/" not in model:
             raise DriverError(f"--model must be 'provider/modelId', got {model!r}")
@@ -424,6 +454,7 @@ class Daemon:
         started_at = now_iso()
         tq = self.pi.begin_turn()
         try:
+            self._await_quiet(tq)
             ack = self.pi.call({"type": "prompt", "message": text}, timeout=ACK_TIMEOUT)
             if ack is None:
                 return self._finalize_turn(n, text, started_at, started_mono, [], "",
@@ -439,20 +470,37 @@ class Daemon:
             stop_reason: str | None = None
             deadline = started_mono + timeout
             settle_deadline: float | None = None
+            # A settle belongs to whatever the agent was doing when it arrived. The turn queue opens
+            # before the prompt is accepted, so the previous run's `agent_settled` can land in it and
+            # end this turn before its own work has begun -- the turn is then recorded as empty while
+            # the keeper goes on playing it unwatched, and a session's turn count stops being true.
+            # Nothing is honoured as this turn's ending until this turn has been seen to start.
+            saw_work = False
+            stale_settles = 0
+            stale_deadline: float | None = None
 
             while True:
                 now = time.monotonic()
-                wake_at = min(settle_deadline, deadline) if settle_deadline is not None else deadline
+                wake_at = min(x for x in (settle_deadline, stale_deadline, deadline) if x is not None)
                 wait_for = wake_at - now
                 if wait_for <= 0:
-                    stop_reason = stop_reason or "timeout"
-                    break
+                    if stale_deadline is not None and now >= stale_deadline and not saw_work:
+                        stop_reason = "settled_before_any_work"
+                        break
+                    if now >= deadline or settle_deadline is not None and now >= settle_deadline:
+                        stop_reason = stop_reason or "timeout"
+                        break
+                    stale_deadline = None
+                    continue
                 try:
                     event = tq.get(timeout=wait_for)
                 except queue.Empty:
                     continue
 
                 etype = event.get("type")
+                if etype in ("turn_start", "tool_execution_start", "message_update", "message_end"):
+                    saw_work = True
+                    stale_deadline = None
                 if etype == "message_update":
                     ev = event.get("assistantMessageEvent") or {}
                     if ev.get("type") == "text_delta":
@@ -484,10 +532,15 @@ class Daemon:
                         "ms": ms, "is_error": event.get("isError", False),
                     })
                 elif etype == "agent_settled":
+                    if not saw_work:
+                        # The previous run finishing, not this turn. Keep waiting for this one.
+                        stale_settles += 1
+                        stale_deadline = time.monotonic() + STALE_SETTLE_GRACE
+                        continue
                     stop_reason = "agent_settled"
                     break
                 elif etype == "agent_end":
-                    if event.get("willRetry"):
+                    if event.get("willRetry") or not saw_work:
                         settle_deadline = None  # more automatic work coming; don't stop yet
                     else:
                         stop_reason = "agent_end"
@@ -504,6 +557,8 @@ class Daemon:
 
             if stop_reason == "timeout":
                 settle_class = "timeout"
+            elif stop_reason == "settled_before_any_work":
+                settle_class = "empty"
             elif final_text:
                 settle_class = "settled"
             elif tool_records:
@@ -512,13 +567,14 @@ class Daemon:
                 settle_class = "empty"
 
             return self._finalize_turn(n, text, started_at, started_mono, tool_records,
-                                        final_text, settle_class, stop_reason)
+                                        final_text, settle_class, stop_reason,
+                                        stale_settles=stale_settles)
         finally:
             self.pi.end_turn()
 
     def _finalize_turn(self, n: int, player_text: str, started_at: str, started_mono: float,
                         tool_records: list[dict], final_text: str,
-                        settle_class: str, stop_reason: str | None) -> dict:
+                        settle_class: str, stop_reason: str | None, stale_settles: int = 0) -> dict:
         wall_seconds = round(time.monotonic() - started_mono, 3)
         clean_tools = [
             {"name": t.get("name"), "args": t.get("args"), "result_text": t.get("result_text", ""),
@@ -530,6 +586,9 @@ class Daemon:
             "final_text": final_text, "tools": clean_tools,
             "wall_seconds": wall_seconds, "settle_class": settle_class,
             "stop_reason": stop_reason, "started_at": started_at, "ended_at": now_iso(),
+            # How many settles arrived before this turn had begun; each one would have ended the
+            # turn early and left the keeper playing it unwatched.
+            **({"stale_settles": stale_settles} if stale_settles else {}),
         }
         write_json(self.dir / f"turn-{n}.json", summary)
         self._write_heartbeat("running")
