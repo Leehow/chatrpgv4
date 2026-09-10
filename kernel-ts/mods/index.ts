@@ -69,13 +69,16 @@ export function createModRuntime(context: KernelContext, sources: ModSources = {
       'mods.defaults': async params => runtime.defaults(params.id ?? null, params.enabled ?? null),
       'mods.configure': async params => {
         const campaign = await writer.campaign(params, {requireWorld: false});
+        let change: {retired: string[], from: string | null, to: string};
         if (!await context.snapshots.pathExists(campaign.path('world.json'))) {
           const meta = await campaign.readCampaign(), config: Row = truth(meta.mods_pending) ? {mods: clone(meta.mods_pending)} : {};
-          await runtime.configure(config, params, false); meta.mods_pending = config.mods; await campaign.writeCampaign(meta);
+          change = await runtime.configure(config, params, false); meta.mods_pending = config.mods; await campaign.writeCampaign(meta);
         } else {
           const world = await campaign.readWorld(); await initializeCampaign(campaign, world);
-          await runtime.configure(world, params, await busy(campaign, world)); await campaign.writeWorld(world);
+          change = await runtime.configure(world, params, await busy(campaign, world)); await campaign.writeWorld(world);
         }
+        // The retirement is recorded once, as a diagnostic row (§26): the lock shows the target version's settings.
+        if (change.retired.length) await campaign.telemetry({lane: 'mods', event: 'settings_retired', mod: params.id, from: change.from, to: change.to, keys: change.retired});
         return listing(params);
       },
       'mods.order': async params => {

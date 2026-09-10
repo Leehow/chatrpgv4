@@ -164,14 +164,22 @@ export class ModRuntime {
     if (busy) world.mods.pending_order = [...order];
     else { world.mods.order = [...order]; delete world.mods.pending_order; }
   }
-  async configure(world: Row, change: Row, busy: boolean): Promise<void> {
+  /** Applies one lock change. The result names the keys an inherited lock had to retire across a version change
+   *  (§26, 2026-09-10): a request that carries no `settings` keeps only the keys the target version declares, so a
+   *  version that dropped a setting is still reachable from the panel's version-only Update; a request that names
+   *  an unknown key is refused as before. */
+  async configure(world: Row, change: Row, busy: boolean): Promise<{retired: string[], from: string | null, to: string}> {
     await this.initializeWorld(world);
     const id = change.id, old = row(world.mods.active[id]), version = present(change, 'version', old.version);
     const mod = typeof id === 'string' && typeof version === 'string' ? (await this.catalog()).get(`${id}\0${version}`) : null;
     if (!mod || !mod.compatible) return invalid('Choose a compatible installed Mod version');
     await this.freeze(mod);
-    const enabled = present(change, 'enabled', present(old, 'enabled', true)), requested = present(change, 'settings', present(old, 'settings', mod.settings));
+    const enabled = present(change, 'enabled', present(old, 'enabled', true));
+    const carried = present(old, 'settings', mod.settings), inherited = !Object.hasOwn(change, 'settings') && typeof old.version === 'string' && old.version !== version && isJsonObject(carried);
+    const retired = inherited ? Object.keys(carried).filter(key => !Object.hasOwn(mod.settings, key)) : [];
+    const requested = Object.hasOwn(change, 'settings') ? change.settings : inherited ? orderedObject(entries(carried).filter(([key]) => Object.hasOwn(mod.settings, key))) : carried;
     if (typeof enabled !== 'boolean' || !isJsonObject(requested) || Object.keys(requested).some(key => !Object.hasOwn(mod.settings, key))) return invalid('Invalid Mod enable state or unknown setting');
+    const outcome = {retired, from: typeof old.version === 'string' ? old.version : null, to: version as string};
     const settings = merged(mod.settings, requested);
     for (const [key, value] of entries(settings)) {
       const expected = mod.settings[key], schema = present(row(mod.settings_schema), key, {});
@@ -182,7 +190,7 @@ export class ModRuntime {
       }
     }
     const staged = clone(world); staged.mods.active[id] = this.lock(mod, enabled, settings); staged.mods.order = await this.order(staged); await this.active(staged);
-    if (busy) { world.mods.pending[id] = {id, version, enabled, settings}; return; }
+    if (busy) { world.mods.pending[id] = {id, version, enabled, settings}; return outcome; }
     let state = clone(present(staged.mods.state, id, {}));
     let before = BigInt(present(old, 'state_version', mod.state_version));
     const after = BigInt(mod.state_version);
@@ -201,6 +209,7 @@ export class ModRuntime {
       before++;
     }
     staged.mods.state[id] = state; delete staged.mods.pending[id]; world.mods = staged.mods;
+    return outcome;
   }
   async applyPending(world: Row): Promise<boolean> {
     const changes = values(row(row(world.mods).pending)), order = row(world.mods).pending_order, staged = clone(world);
