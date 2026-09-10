@@ -14,8 +14,15 @@ const errorText = (error: unknown): string => (error instanceof Error ? error.me
  * Every `define` in one apply is an independent Mod agent child, so a batch used to cost the sum of
  * all of them: seven ordinary belongings took three minutes inside a single tool call. They share
  * nothing but the campaign snapshot they read, so they run together under one bounded pool.
+ *
+ * The opening sets the width, because it registers a whole starting inventory in one batch: the
+ * openings on record carried five, seven and eight unregistered rows. A pool narrower than that
+ * splits one opening into two waves, and the short second wave pays the slowest child again for
+ * nothing — four workers turned seven belongings into 57s of wall clock where a single wave costs
+ * the 38s of its slowest member. Widening it does not unbound the fan-out: `materialize` never
+ * starts more workers than the batch has distinct jobs.
  */
-const MOD_POOL_DEFAULT = 4;
+const MOD_POOL_DEFAULT = 8;
 function modPoolSize(): number {
   const configured = Number(process.env.PI_COC_MOD_CONCURRENCY);
   return Number.isFinite(configured) && configured >= 1 ? Math.floor(configured) : MOD_POOL_DEFAULT;

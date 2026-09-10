@@ -192,3 +192,40 @@ test('two identical defines in one batch share the single job the kernel keys th
   assert.equal(runs, 1, 'one job directory must not be written by two concurrent agents');
   assert.deepEqual(payload.effects.map(effect=>effect._definition.name), ['火柴','火柴']);
 });
+
+test('the default pool clears one opening in a single wave, and the override still bounds it', async (t) => {
+  const previous = process.env.PI_COC_MOD_CONCURRENCY;
+  t.after(() => { if (previous === undefined) delete process.env.PI_COC_MOD_CONCURRENCY; else process.env.PI_COC_MOD_CONCURRENCY = previous; });
+  const cwd = await mkdtemp(join(tmpdir(), 'coc-mods-'));
+  // An opening registers the whole starting inventory at once; the runs on record carried five,
+  // seven and eight rows. A width below that pays the slowest child again in a short second wave.
+  const opening = ['折叠相机','皮面记事本','铅笔','相机胶卷','报社介绍信','行李箱','外套'];
+  const peakOf = async () => {
+    const pi = piSurface();
+    let bridge;
+    pi.events.on('coc:mods-bridge', value=>{bridge=value;});
+    modsExtension(pi);
+    let running = 0, peak = 0;
+    pi.events.emit('coc:kernel-bridge',{
+      call:async(method,params)=>{
+        if(method==='mods.job') return {enabled:true, accepted:false, job:`job-${params.input.name}`, cwd, system_prompt:join(cwd,'prompt.md'), role:'create'};
+        return {definition:{name:params.job.replace('job-','')}, provenance:{mod:'enhanced-items', job:params.job}};
+      },
+      runtime:{
+        async runTask() {
+          running += 1; peak = Math.max(peak, running);
+          await new Promise(resolve=>setTimeout(resolve, 20));
+          running -= 1;
+          return {ok:true, code:0, timedOut:false, ms:20, stderr:'', command:[]};
+        },
+        async check() { return {ok:true}; },
+      },
+    });
+    await bridge.prepare('apply', {campaign:'c1', effects:opening.map(name=>({kind:'define', name, category:'item'}))});
+    return peak;
+  };
+  delete process.env.PI_COC_MOD_CONCURRENCY;
+  assert.equal(await peakOf(), opening.length, 'the default pool split one opening into more than one wave');
+  process.env.PI_COC_MOD_CONCURRENCY = '2';
+  assert.equal(await peakOf(), 2, 'the configured width no longer bounds the fan-out');
+});
