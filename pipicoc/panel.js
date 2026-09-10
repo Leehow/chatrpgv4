@@ -907,10 +907,15 @@ export function createComponent(React) {
       for (const language of languageRows(sheet)) {
         // The glossary's word for the whole skill wins when the rules data carries one; otherwise
         // the language's own name goes through the same lane, and comes back as itself until it does.
-        const labelled = language.key ? term(language.key) : "";
-        const name = labelled && labelled !== language.key ? labelled : term(language.name);
-        const shown = [name, language.value === null ? "" : text(language.value)].filter(Boolean).join(" ");
-        fields.push([t(language.own ? "nativeLanguage" : "otherLanguage"), shown]);
+        // No caption is written here. The tongue an investigator was raised in is a skill the
+        // catalog names and localizes (§16.5), so that label is its own; every other language is
+        // named by itself, in the words the projection lane has for it. A word this panel does not
+        // have is a word that belongs in the rules data or in that lane, never in a table here.
+        const value = language.value === null ? "" : text(language.value);
+        const named = term(language.name);
+        fields.push(language.own
+          ? [term("Language (Own)"), [named, value].filter(Boolean).join(" ")]
+          : [named, value]);
       }
     }
     const concept = sheet && isRecord(sheet.backstory) ? term(text(sheet.backstory.concept)) : "";
