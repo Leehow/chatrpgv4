@@ -265,3 +265,9 @@ The branch-local Electron copy uses `pipicoc/rpc` to run `bin/pi-coc --mode rpc`
 See kernel contract §23. `pipicoc/dev` is the local UI entry point; there is no
 external writepaper checkout or embedded Pi prerequisite. JSONL stdin/stdout and
 Pi's extension UI requests remain the transport; the host does not emulate a Keeper.
+
+## 2026-09-10: Provider latency evidence
+
+The Keeper extension timestamps before_provider_request and after_provider_response; the latter records only HTTP status and x-request-id/request-id, never arbitrary headers or credentials. Pi emits after_provider_response before consuming the response stream. Together with its existing message/turn timestamps this distinguishes waiting for headers from a later streaming delay. A previous 300.007-second timeout identifies the configured transport deadline, not whether the upstream was reasoning, overloaded or unreachable. Keep the existing Pi retry policy and timeout until the phase is established; do not replace live reasoning with a blanket 180-second turn cancellation.
+
+External check: [xAI streaming guidance](https://docs.x.ai/developers/model-capabilities/text/streaming) explicitly cautions that reasoning may require longer timeouts. [OpenAI Node configuration](https://github.com/openai/openai-node/blob/main/docs/configuration.md) separates request deadlines and retries. This contradicts treating every long request as stalled; neither source justifies claiming a network root cause from a zero-usage error response. The local Pi 0.85.1 SDK/settings/dispatcher determine the actual 300-second default used here.

@@ -87,7 +87,13 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                     throw atIndex(new RpcError('not_implemented', `effect kind ${repr(effect.kind)} has no implementation in this TypeScript kernel yet`), index);
             const module = await loadModule(kernel, string((await campaign.readCampaign()).module_id)), graph = module.graph;
             const authored: Row = { move: 'to', clue: 'clue', npc: 'name', handout: 'name' };
-            const names = effects.filter(isJsonObject).filter(effect => Object.hasOwn(authored, string(effect.kind))).map(effect => effect[authored[string(effect.kind)]]);
+            const kinds: Record<string, string[]> = { move: ['scene'], clue: ['clue'], npc: ['npc'], handout: ['handout', 'asset'] };
+            const names = effects.filter(isJsonObject).filter(effect => Object.hasOwn(authored, string(effect.kind))).map(effect => {
+                const name = effect[authored[string(effect.kind)]];
+                if (typeof name !== 'string') return name;
+                const node = effect.kind === 'handout' ? graph.find(name, ['handout']) ?? graph.find(name, ['asset']) : graph.find(name, kinds[string(effect.kind)]);
+                return node?.node_id ?? name;
+            });
             if (truth(module.meta.reading_version) && (!contributions.requireMaterial || !contributions.materialReady))
                 throw new RpcError('not_implemented', 'The source material contribution is not implemented in the TypeScript apply runtime');
             if (contributions.requireMaterial)
@@ -200,7 +206,7 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
             if(effects.some(effect=>isJsonObject(effect)&&effect.kind==='object'))await contributions.mods!.projectInventory(campaign as CampaignWriter,staged);
             for(const note of stagedNotes)await appendJsonl(join(campaign.directory,'notes.jsonl'),note);
             for(const ruling of stagedRulings)await appendJsonl(join(campaign.directory,'rulings.jsonl'),ruling);
-            const material = truth(module.meta.reading_version) ? await contributions.materialReady!(graph.moduleId, graph.handle(graph.scene(staged.active_scene))) ? 'ready' : 'missing' : 'ready';
+            const material = truth(module.meta.reading_version) ? await contributions.materialReady!(graph.moduleId, graph.scene(staged.active_scene).node_id) ? 'ready' : 'missing' : 'ready';
             const result: Row = { receipts: ids, markers: markersOf({ ...turn, receipts: [...array(turn.receipts), ...receipts] }, receipts), world: { active_scene: staged.active_scene, clock: staged.clock }, material_ready: material === 'ready', material };
             if (receipts.some(receipt => receipt.kind === 'move' && !receipt.renamed)) {
                 const snapshot = new CampaignSnapshot(kernel, campaign.id);

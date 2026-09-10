@@ -51,7 +51,7 @@ export function whereSection(graph: ModuleGraph, world: Row, scene: Row, materia
                 condition: describeCondition(exit.when),
                 met: conditionStatus(exit.when, world)
             } } : {}),
-        material: material(exit.to)
+        material: material(graph.scene(exit.to).node_id)
     }));
     const affordances = array(record.affordances).map(aff => {
         const entry: Row = {
@@ -95,7 +95,7 @@ export function whereSection(graph: ModuleGraph, world: Row, scene: Row, materia
         places: graph.scenePlaces(scene),
         rules: graph.sceneRules(scene),
         endings: graph.sceneEndings(scene),
-        material: material(graph.handle(scene))
+        material: material(scene.node_id)
     };
     if (compact)
         for (const [key, limit, size] of [["places", 8, 90], ["rules", 6, 160]] as const) {
