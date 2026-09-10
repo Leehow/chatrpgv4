@@ -27,7 +27,7 @@ export interface ReaderRequest {
 	eventLog?: string;
 	source?: { pdf: string; cache: string };
 	imageHistory?: number;
-	/** Guidance-only checked artifact submission ends the tool batch without final prose. */
+	/** Checked guidance/opening artifact submission ends the tool batch without final prose. */
 	submission?: boolean;
 	onEvent?: (event: Record<string, any>) => void;
 }

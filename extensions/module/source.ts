@@ -1,6 +1,6 @@
 /** Local PDF page access. Source bytes and physical pages are the evidence; no OCR path. */
 import { createHash, randomUUID } from "node:crypto";
-import { appendFile, copyFile, mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { appendFile, copyFile, mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { createRequire } from "node:module";
 import { getDocument, version } from "pdfjs-dist/legacy/build/pdf.mjs";
@@ -8,6 +8,7 @@ import { createCanvas, loadImage, type Canvas, type SKRSContext2D } from "@napi-
 
 const require = createRequire(import.meta.url);
 const pdfRoot = dirname(require.resolve("pdfjs-dist/package.json"));
+export const sourceRenderVersion = `pdfjs-${version}:canvas-${require("@napi-rs/canvas/package.json").version}:page-v2`;
 export type Box = [number, number, number, number];
 type PdfCanvas = {canvas: Canvas; context: SKRSContext2D};
 interface PdfCanvasFactory {create(width: number, height: number): PdfCanvas; destroy(target: PdfCanvas): void}
@@ -21,7 +22,7 @@ export function validateBox(value?: number[]): Box {
 	return box as Box;
 }
 
-async function openPdf(path: string) {
+async function loadPdf(path: string) {
 	const bytes = await readFile(path);
 	const sha256 = createHash("sha256").update(bytes).digest("hex");
 	const options = {
@@ -40,6 +41,81 @@ async function openPdf(path: string) {
 	}
 }
 
+type LoadedPdf = Awaited<ReturnType<typeof loadPdf>>;
+type DocumentEntry = {path:string; stamp:string; bytes:number; users:number; lastUsed:number;
+	loaded:Promise<LoadedPdf>; timer?:ReturnType<typeof setTimeout>; disposed?:Promise<void>};
+const documents = new Map<string,DocumentEntry>();
+const documentLimit = 2, documentBytesLimit = 128 * 1024 * 1024;
+const identity = (info: Awaited<ReturnType<typeof sourceStat>>) => [info.dev,info.ino,info.size,info.mtimeNs,info.ctimeNs].join(':');
+const sourceStat = (path:string) => stat(path,{bigint:true});
+function disposeDocument(entry: DocumentEntry): Promise<void> {
+	if (entry.timer) clearTimeout(entry.timer);
+	if (documents.get(entry.path) === entry) documents.delete(entry.path);
+	return entry.disposed ??= entry.loaded.then(value=>value.close(),()=>undefined);
+}
+async function trimDocuments() {
+	let bytes = [...documents.values()].reduce((total,entry)=>total+entry.bytes,0);
+	for (const entry of [...documents.values()].sort((a,b)=>a.lastUsed-b.lastUsed)) {
+		if (documents.size <= documentLimit && bytes <= documentBytesLimit) break;
+		if (entry.users) continue;
+		bytes -= entry.bytes; await disposeDocument(entry);
+	}
+}
+async function openPdf(path: string) {
+	path = resolve(path);
+	const info = await sourceStat(path), stamp = identity(info);
+	let entry = documents.get(path);
+	if (entry && entry.stamp !== stamp) {
+		documents.delete(path);
+		if (!entry.users) await disposeDocument(entry);
+		entry = undefined;
+	}
+	if (!entry) {
+		const loaded = loadPdf(path).then(async value=>{
+			try {
+				if (identity(await sourceStat(path)) !== stamp) throw new Error('Source PDF changed while opening; retry its current bytes');
+				return value;
+			} catch(error) { await value.close(); throw error; }
+		});
+		entry = {path,stamp,bytes:Number(info.size),users:0,lastUsed:Date.now(),loaded};
+		documents.set(path,entry);
+	}
+	const owned = entry;
+	if (owned.timer) clearTimeout(owned.timer);
+	owned.users++;
+	let released = false;
+	const close = async () => {
+		if (released) return; released = true;
+		owned.users--; owned.lastUsed = Date.now();
+		if (!owned.users) {
+			if (documents.get(path) !== owned) await disposeDocument(owned);
+			else {
+				owned.timer = setTimeout(()=>{if(!owned.users)void disposeDocument(owned).catch(()=>undefined);},30_000);
+				owned.timer.unref();
+			}
+		}
+		await trimDocuments();
+	};
+	try {
+		const value = await owned.loaded;
+		return {document:value.document,sha256:value.sha256,close};
+	} catch (error) {
+		if (documents.get(path) === owned) documents.delete(path);
+		await close(); throw error;
+	}
+}
+
+/** Shutdown drops idle documents now; in-flight leases destroy theirs after rendering. */
+export async function closeSourceDocuments(): Promise<void> {
+	const pending:Promise<void>[] = [];
+	for (const entry of documents.values()) {
+		documents.delete(entry.path);
+		if (!entry.users) pending.push(disposeDocument(entry));
+	}
+	await Promise.all(pending);
+}
+
+const pageRequests = new Map<string,Promise<Record<string,unknown>>>();
 export async function sourceInfo(pdf: string) {
 	const { document, sha256, close } = await openPdf(pdf);
 	try {
@@ -61,6 +137,16 @@ export async function sourceInfo(pdf: string) {
 }
 
 export async function sourcePage(pdf: string, cache: string, page: number, options: { box?: number[]; pixels?: number; format?: "png" | "jpeg" } = {}) {
+	const stamp = identity(await sourceStat(resolve(pdf)));
+	const key = JSON.stringify([resolve(pdf),stamp,resolve(cache),page,options.box ?? [0,0,1,1],options.pixels ?? 2000,options.format ?? 'png']);
+	const existing = pageRequests.get(key);
+	if (existing) return {...await existing, reused:true};
+	const work = renderSourcePage(pdf,cache,page,options).finally(()=>{if(pageRequests.get(key)===work)pageRequests.delete(key);});
+	pageRequests.set(key,work);
+	return work;
+}
+
+async function renderSourcePage(pdf: string, cache: string, page: number, options: { box?: number[]; pixels?: number; format?: "png" | "jpeg" }) {
 	if (!Number.isInteger(page) || page < 1) throw new Error("page must be a positive physical page number");
 	const box = validateBox(options.box);
 	const pixels = options.pixels ?? 2000;
@@ -70,7 +156,7 @@ export async function sourcePage(pdf: string, cache: string, page: number, optio
 	const { document, sha256, close } = await openPdf(pdf);
 	try {
 		if (page > document.numPages) throw new Error(`page ${page} is outside this PDF (1-${document.numPages})`);
-		const key = createHash("sha256").update(JSON.stringify({ sha256, page, box, pixels, format, quality: format === "jpeg" ? 92 : undefined, version })).digest("hex");
+		const key = createHash("sha256").update(JSON.stringify({ sha256, page, box, pixels, format, quality: format === "jpeg" ? 92 : undefined, version:sourceRenderVersion })).digest("hex");
 		await mkdir(cache, { recursive: true });
 		const path = join(resolve(cache), `${key}.${suffix}`);
 		const metaPath = join(resolve(cache), `${key}.json`);

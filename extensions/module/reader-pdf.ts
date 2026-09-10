@@ -2,9 +2,10 @@
 import { createHash } from "node:crypto";
 import { Type } from "typebox";
 import { readFile } from "node:fs/promises";
-import { sourceInfo, sourcePage } from "./source.ts";
+import { sourceInfo, sourcePage, closeSourceDocuments } from "./source.ts";
 
 export default function readerPdf(pi: any) {
+	pi.on("session_shutdown", () => closeSourceDocuments());
 	pi.registerTool({ name: "pdf", label: "Read original PDF pages",
 		description: "Inspect native bookmarks and page labels when pages is omitted, or view selected physical page images. Choose pages from source references instead of scanning the book. Physical pages start at 1; box optionally zooms a normalized region.",
 		parameters: Type.Object({ pages: Type.Optional(Type.Array(Type.Integer({ minimum: 1 }), { minItems: 1, maxItems: 12 })),

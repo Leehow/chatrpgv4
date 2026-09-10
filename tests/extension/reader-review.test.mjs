@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {mkdtemp,writeFile,rm} from 'node:fs/promises';
+import {mkdtemp,readFile,writeFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {reviewCandidate,reviewUnits} from '../../extensions/module/reader-review.ts';
@@ -68,4 +68,62 @@ test('every independent reviewer attempt uses the owner timeout despite ambient 
  outcomes.length=0;process.env.PI_COC_READER_TIMEOUT_MS='0';
  await assert.rejects(reviewCandidate({...options,round:2}),/reviewer timed out/);
  assert.equal(outcomes.length,4);assert.ok(outcomes.every(result=>result.timedOut && !result.ok));
+});
+
+test('source-page groups bound work without dropping root, numeric or critical checks',()=>{
+ const nodes=Array.from({length:10},(_,i)=>({node_id:`npc-${i}`,source_refs:[{page:2}],properties:{HP:i+1}}));
+ const groups=reviewUnits({nodes,claims:[{source_refs:[{page:3}]}],critical:['/nodes/9/properties']});
+ assert.equal(groups.length,3);
+ const paths=groups.flat();assert.equal(new Set(paths).size,paths.length);
+ for(let i=0;i<10;i++){assert.ok(paths.includes(`/nodes/${i}`));assert.ok(paths.includes(`/nodes/${i}/properties/HP`));}
+ assert.ok(paths.includes('/claims/0'));assert.ok(paths.includes('/nodes/9/properties'));
+});
+
+test('unchanged source retries reuse only completed positive review groups and invalidate changed inputs',async t=>{
+ const cwd=await mkdtemp(join(tmpdir(),'coc-review-reuse-'));t.after(()=>rm(cwd,{recursive:true,force:true}));
+ const draft={nodes:[{node_id:'npc-one',source_refs:[{page:1}],properties:{}},{node_id:'npc-two',source_refs:[{page:2}],properties:{}}],claims:[]};
+ let fail=true,runs=0;const records=[];
+ const options={cwd,cacheRoot:join(cwd,'cache'),reviewVersion:'fixture-v1',task:{purpose:'opening'},draft,
+  instructions:'unused',round:1,model:{id:'fixture/vision',thinking:'low'},source:{pdf:'unused',cache:'unused',file_sha256:'a'.repeat(64)},signal:new AbortController().signal,progress(){},record(row){records.push(row)},
+  async run(request){
+   runs++;assert.match(request.brief, /input_json/);const task=JSON.parse(await readFile(join(request.cwd,'task.json'),'utf8'));const pointer=task.required_review[0];
+   const page=pointer==='/nodes/0'?1:2;
+   if(fail&&page===2)return {ok:false,stderr:'temporary source service failure'};
+   request.onEvent({type:'tool_execution_end',toolCallId:'page',isError:false,result:{details:{kind:'source_pages',observations:[{page}]}}});
+   await writeFile(request.eventLog+'.images.jsonl',JSON.stringify({included:['page']})+'\n');
+   await writeFile(join(request.cwd,'review.json'),JSON.stringify({checked:[{paths:task.required_review,source_refs:[{page}],verdict:'supported'}],missing:[]}));
+   return {ok:true,ms:1,stderr:''};
+  }};
+ await assert.rejects(reviewCandidate(options),/temporary source service failure/);assert.equal(runs,3);
+ fail=false;assert.deepEqual((await reviewCandidate({...options,round:2})).sort(),[1,2]);assert.equal(runs,4);
+ assert.equal(records.filter(row=>row.reused).length,1);
+ await reviewCandidate({...options,round:3});assert.equal(runs,4);
+ await reviewCandidate({...options,round:4,draft:{...draft,nodes:[{...draft.nodes[0],summary:'Changed source meaning'},draft.nodes[1]]}});assert.equal(runs,6);
+ await reviewCandidate({...options,round:5,source:{...options.source,file_sha256:'b'.repeat(64)}});assert.equal(runs,8);
+ await reviewCandidate({...options,round:6,reviewVersion:'fixture-v2'});assert.equal(runs,10);
+ const evidence=records.find(row=>row.reused).evidence;await writeFile(evidence,'{}');
+ await reviewCandidate({...options,round:7});assert.equal(runs,11,'changed retained proof is a cache miss');
+});
+
+test('semantic rejections are never reused as successful review results',async t=>{
+ const cwd=await mkdtemp(join(tmpdir(),'coc-review-negative-'));t.after(()=>rm(cwd,{recursive:true,force:true}));let runs=0;
+ const options={cwd,cacheRoot:join(cwd,'cache'),reviewVersion:'fixture-v1',task:{},draft:{nodes:[{properties:{},source_refs:[{page:1}]}],claims:[]},instructions:'unused',round:1,
+ model:{id:'fixture/vision'},source:{pdf:'unused',cache:'unused',file_sha256:'a'.repeat(64)},signal:new AbortController().signal,record(){},progress(){},
+ async run(request){runs++;request.onEvent({type:'tool_execution_end',toolCallId:'page',isError:false,result:{details:{kind:'source_pages',observations:[{page:1}]}}});
+ await writeFile(request.eventLog+'.images.jsonl',JSON.stringify({included:['page']})+'\n');
+ await writeFile(join(request.cwd,'review.json'),JSON.stringify({checked:[{path:'/nodes/0',source_refs:[{page:1}],verdict:'unsupported'}],missing:[]}));return {ok:true,ms:1,stderr:''};}};
+ await reviewCandidate(options);await reviewCandidate({...options,round:2});assert.equal(runs,2);
+});
+
+
+test('an unavailable advisory cache does not repeat or reject a successful source review',async t=>{
+ const cwd=await mkdtemp(join(tmpdir(),'coc-review-no-cache-'));t.after(()=>rm(cwd,{recursive:true,force:true}));
+ const cacheRoot=join(cwd,'not-a-directory');await writeFile(cacheRoot,'retained');let runs=0;const records=[];
+ const pages=await reviewCandidate({cwd,cacheRoot,reviewVersion:'fixture-v1',task:{},draft:{nodes:[{properties:{}}],claims:[]},instructions:'unused',round:1,
+ model:{id:'fixture/vision'},source:{pdf:'unused',cache:'unused',file_sha256:'a'.repeat(64)},signal:new AbortController().signal,progress(){},record(row){records.push(row)},
+ async run(request){runs++;request.onEvent({type:'tool_execution_end',toolCallId:'page',isError:false,result:{details:{kind:'source_pages',observations:[{page:1}]}}});
+ await writeFile(request.eventLog+'.images.jsonl',JSON.stringify({included:['page']})+'\n');
+ await writeFile(join(request.cwd,'review.json'),JSON.stringify({checked:[{path:'/nodes/0',source_refs:[{page:1}],verdict:'supported'}],missing:[]}));return {ok:true,ms:1,stderr:''};}});
+ assert.equal(runs,1);assert.deepEqual(pages,[1]);assert.equal(await readFile(cacheRoot,'utf8'),'retained');
+ assert.ok(records.some(row=>row.event==='review_cache_unavailable'));
 });

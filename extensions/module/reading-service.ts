@@ -5,7 +5,7 @@ import { basename, join, resolve } from "node:path";
 import { KernelError , isKernelError } from "../kernel/client.ts";
 import { readerInput } from "./reader.ts";
 import { reviewCandidate } from "./reader-review.ts";
-import { sourceAsset } from "./source.ts";
+import { sourceAsset, closeSourceDocuments, sourceRenderVersion } from "./source.ts";
 import type { HostRuntime } from "../../runtime/host.ts";
 
 type Row = Record<string, any>;
@@ -78,7 +78,7 @@ export class ReadingService implements ReadingBridge {
 		for (const controller of this.controllers.values()) controller.abort();
 	}
 
-	async close() { this.dispose(); await Promise.allSettled([...this.pumps.values()]); }
+	async close() { this.dispose(); try { await Promise.allSettled([...this.pumps.values()]); } finally { await closeSourceDocuments(); } }
 
 	prefetch(moduleId: string): Promise<void> { return this.pump(moduleId); }
 
@@ -245,7 +245,7 @@ export class ReadingService implements ReadingBridge {
 		await mkdir(cache, { recursive: true });
 		const commands = { page: `coc-source --pdf ${quote(job.source.path)} --cache ${quote(cache)} page`,
 			check: `coc-read-check --packet ${quote(join(cwd, "task.json"))} --draft ${quote(join(cwd, "draft.json"))}` };
-		const task: Row = { purpose: job.purpose, module_id: job.module_id, focus: job.focus, question: job.question, pages: job.pages,
+		const task: Row = { purpose: job.purpose, ...(job.purpose === "opening" ? {opening_batch:true} : {}), module_id: job.module_id, focus: job.focus, question: job.question, pages: job.pages,
 			...(job.purpose === "guidance" ? {play_language:job.play_language, occupations:job.occupations.map((row:Row)=>({name:row.name}))} : {}),
 			source: { page_count: job.source.page_count }, index: job.index, known_nodes: job.known_nodes,
 			known_claims: (job.known_claims ?? []).map((claim: Row) => Object.fromEntries(
@@ -284,7 +284,7 @@ export class ReadingService implements ReadingBridge {
 			for (let round = 1; round <= 2 && !signal.aborted; round++) {
 				let phaseCompleted = false;
 				try {
-					const phases = job.purpose === "index" ? (readComplete ? [] : ["index"]) : (readComplete ? ["verify"] : ["read", "verify"]);
+					const phases: Array<"index" | "read" | "verify"> = job.purpose === "index" ? (readComplete ? [] : ["index"]) : (readComplete ? ["verify"] : ["read", "verify"]);
 					for (const phase of phases) {
 						phaseCompleted = false;
 						let previousDraft: Row | undefined, previousPages: number[] = [];
@@ -305,9 +305,18 @@ export class ReadingService implements ReadingBridge {
 						const instructions = join(cwd, `instructions-${phase}.md`);
 						this.deps.progress({ module_id: job.module_id, stage: phase === "read" && job.purpose === "skeleton" ? "skeleton" : phase, focus: job.focus, of: job.source.page_count });
 						if (phase === "verify") {
+							if (job.purpose === "opening") {
+								try {
+									const checked = await this.runtime().check({kind:'source-draft',packet:join(cwd,'task.json'),draft:join(cwd,'draft.json')},signal);
+									if (!checked.ok) throw new Error(JSON.stringify(checked.error));
+								}
+								catch (error) { phaseCompleted = true; throw error; }
+							}
 							observations.review_pages = await reviewCandidate({ cwd, task,
 								draft: JSON.parse(await readFile(join(cwd, "draft.json"), "utf8")), instructions, round,
-								model, source: { pdf: job.source.path, cache }, signal,
+								model, source: { pdf: job.source.path, cache, file_sha256:job.source.file_sha256 }, signal,
+								cacheRoot:join(cache,'..','reviews'),
+								reviewVersion:sha(Buffer.concat([Buffer.from(sourceRenderVersion),await readFile(join(this.runtime().contentRoot,'setup',job.purpose === 'guidance' ? 'visual-guidance.md' : 'visual-reader.md'))])),
 								run: ({systemPrompt: _instructions, ...request}) => this.runtime().runTask({ kind: "reader", request: { ...request,
 									prompt: { phase: "verify", guidance: job.purpose === "guidance" } } }, request.signal),
 								record: row => this.deps.record({ module_id: job.module_id, ...row }),
@@ -321,10 +330,11 @@ export class ReadingService implements ReadingBridge {
 
 						const reads = new Map<string, string>();
 						const run = await this.runtime().runTask({ kind: "reader", request: { cwd, model: model.id, thinking: model.thinking,
-							...(job.purpose==="guidance"?{imageHistory:4, submission:true}:{}),
+							...(job.purpose==="guidance"?{imageHistory:4}:{}),
+							submission:["guidance","opening"].includes(job.purpose),
 							prompt: { phase, guidance: job.purpose === "guidance" }, source: { pdf: job.source.path, cache },
 							eventLog: join(cwd, `${phase}-${round}.jsonl`),
-							brief: `${job.purpose === "guidance" ? readerInput({task}) : "Read task.json."} Your phase is ${phase}. Use page images to produce draft.json. If a draft was retained from this same interrupted request, inspect its sources and repair it instead of rewriting merely for style. ${job.purpose === "guidance" ? "Use submit_reading as your sole final tool call to save/check the pair and finish without a closing reply." : ""} ${round > 1 || job.resume_from ? "Read findings.json if present and address its concrete findings." : ""}`,
+							brief: `${readerInput({task})} Your phase is ${phase}. Use page images to produce draft.json. If a draft was retained from this same interrupted request, inspect its sources and repair it instead of rewriting merely for style. ${["guidance","opening"].includes(job.purpose) ? "Use submit_reading as your sole final tool call to save/check this batch and finish without a closing reply." : ""} ${round > 1 || job.resume_from ? "Read findings.json if present and address its concrete findings." : ""}`,
 							onEvent(event) {
 								if (event.type === "tool_execution_start" && event.toolName === "read" && event.args?.path) reads.set(event.toolCallId, resolve(cwd, event.args.path));
 								if (event.type === "tool_execution_end" && !event.isError && event.result?.content?.some((c: Row) => c.type === "image")) {
@@ -362,6 +372,7 @@ export class ReadingService implements ReadingBridge {
 					if (job.purpose !== "index") {
 						const draft = JSON.parse(await readFile(join(cwd, "draft.json"), "utf8"));
 						for (const node of draft.nodes ?? []) {
+							if (job.purpose === "opening" && !draft.ready_nodes?.includes(node.node_id)) continue;
 							if (!["handout", "asset"].includes(node.node_kind) || !["player-safe", "revealable"].includes(node.visibility) || !node.properties?.image_sources?.length) continue;
 							if (typeof node.node_id !== "string" || !/^[a-z][a-z0-9-]{0,159}$/.test(node.node_id)) throw new Error("asset identifiers must be semantic kebab names");
 							const asset = await sourceAsset(job.source.path, cache, node.properties.image_sources, join(cwd, "assets", `${node.node_id}.png`));
