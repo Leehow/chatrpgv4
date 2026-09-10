@@ -9,7 +9,9 @@
 - 2026-09-10：用户授权"尽管做"，Claude 主会话任 lead。集成分支 `claude/keeper-narrative-quality`，从 `0.9.2a@baf1b818` 开出。#69 契约（636fdb6d）、#70 内核升级语义与两条回归测试（3e435655）、#71 文本图（077968e2）、#72 底层提示词（5c51cf0a）、#73 Keeper Pacing 1.1.0（c3be075c）、#74 Story Thread 1.0.2（1d4aef30）、#75 Narration Craft 1.1.0（e2158178）全部合入；lead 另补一笔把三份 brief 修回 4000 字节上限并改英文桌的轴计数（6eac940e）。
 - 集成树验证：`check:kernel` 通过；`pytest tests/kernel tests/play` 1138 通过 1 跳过（17 分 18 秒，单进程）；`npm run test:ext` 通过。激活证据与对读记录在集成 worktree 的 `.coc/playtests/knq-activation-20260910/`。
 - 派工注意：Agent 工具自带的隔离 worktree 落在过期基底（3297356b），五张票在 lead 自建的 worktree 上重派；三张票因此各有一份等价的冗余提交未合入（见 `integration.md`）。模型按表：#70 Fable，#72/#73/#75 Opus，#71/#74 Sonnet。
-- 未完成：App 安装（正式 App 正在运行，不替换运行中的 App；候选包构建记录另见证据目录）；#77 真桌回归；#78 盲评；#79 真人门。
+- #76 完成：候选 App 在独立 worktree `chatrpgv4-wt-knq-package/build/PipiCOC.app` 构建并签名（同一提交 1c0865a7），未安装，因为正式 App 全程在运行。
+- #77 完成：`knq-live-1`，建卡 6 回合、游玩 22 回合，Grok 4.6 low 当守秘人，主会话当玩家，一句一回合。全部要求的玩法种类都覆盖到；在钉死的柜子前以六次失败的 STR 真阻断收场，没有到结局。报告在集成 worktree `.coc/playtests/knq-live-1-play/report.md`。系统类缺陷一条已立票 #80（活动场景内子地点的线索投影成 `next` 不是 `here`），守秘人判定两处（帮手的力气按调查员 STR 掷；书里白给的实物线索被反复掷骰门住）记在报告里。
+- 未完成：App 安装（退出正式 App 后把候选包覆盖过去，保留旧包）；#78 盲评（可选诊断，未跑）；#79 真人门（需要没读过模组的人用真实界面）。集成分支尚未合入 `0.9.2a`：那棵共享检出上有别的会话的未提交改动，合并由用户在空闲时做。
 
 ## 11 张工单
 

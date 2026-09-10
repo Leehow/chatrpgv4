@@ -1,6 +1,6 @@
 # Keeper Narrative Quality
 
-_Date: 2026-09-10. Status: specified; the decisions of 2026-09-10 are recorded in the last section; implementation and acceptance pending._
+_Date: 2026-09-10. Status: implemented on branch claude/keeper-narrative-quality (tickets #69–#77 closed, see keeper-narrative-quality-tickets.md); one live regression run (knq-live-1) with findings filed; blind comparison (#78) not run; novice-human gate (#79) not run, so the novice experience is not claimed solved._
 
 ## Problem Statement
 
