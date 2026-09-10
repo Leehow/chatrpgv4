@@ -36,6 +36,7 @@ write while preserving the client draft. Hot and cold UI bridges retain these co
 
 - 模型可见的一切标识都是名字或语义 id：场景用图上的 `scene_id` 去掉 `scene-` 前缀后的 kebab 名，也接受图上的 `display_name` 与 `name`；NPC、线索、物品同理接受 id 或名字，内核做归一化，歧义时报 `unknown_entity` 并给候选。
 - 归一化折叠重音（#64）：名字先做 NFKC，再去掉 Unicode 会合成到基字母上的记号（`á`→`a`、`ệ`→`e`、`ñ`→`n`）。图的 `node_id` 按 §14.11 是全 ASCII kebab 而 `name`/`aliases` 保留书的拼法，所以一个只差重音的名字两个方向都能解析到自己的节点（`Nemesio Sánchez` → `npc-nemesio-sanchez`；`padre inigo munoz` → `Padre Iñigo Muñoz`）。从不合成的记号（天城文元音符号、泰文声调、阿拉伯文短元音）不是重音，照旧参与比较，`किरण` 与 `करण` 仍是两个名字。折叠后相等的两个节点报 `unknown_entity`（歧义）并给全部候选，不静默选一个。头衔前缀（`Professor …`）不折叠：那要一张词表，是语义不是记号。
+- 整词连续片段回退（#64 后半）：两条精确路都落空（handle 不等、`name`/`aliases`/id 索引无键）之后，内核把归一化后的查询按空白切成词，在每个候选节点的每个归一化名键里找**同样顺序、不间断的整词连续片段**：`nemesio sanchez` 在 `professor nemesio sanchez` 里命中，`nemesio sanchez` 在 `dr. nemesio sanchez jr.` 里也命中；`emesio sanchez`、`nemesio sanch` 都不命中（词内子串不算），`nemesio ... sanchez` 中间隔着别的词也不命中。这是机械匹配，没有头衔词表，也不会有：`Professor`、`Dr.`、`Padre` 对内核只是多出来的词。只在恰好一个节点命中时才解析；多个节点命中报同样的 `unknown_entity`（歧义）并给全部候选，零个命中报原来的 `unknown_entity`（未找到）。**今天能解析的答案一个都不变**：回退在精确路之后，一个查询精确命中 A 又是 B 名字的片段时仍解析到 A。收紧到形状允许的最小：查询至少两个词（单个词仍是给 `candidates`/`look` 的线索，不是身份，否则 `resolve` 管线里玩家自由文本的目标词 `door`、`key`、`professor` 会开始悄悄绑定到节点），且片段严格短于名键（等长本该是精确命中）。**变松的范围**：`resolve`/`find` 对所有 kind、所有调用方生效（`apply npc/clue/move/handout`、裁定锚点、`look npc`、`resolve` 管线的目标与支撑线索、法术目标、记忆 `about`），kebab id 也是名键，所以 `old house` 会解析到唯一含它的 `scene-the-old-house`；`find` 遇到歧义照旧返回 null，不会挑一个。
 - 回合号 `turn` 是从 1 起的整数。开桌那一回合是 0，只有 `narrate` 的开场交付，没有玩家输入。
 - `call_id` 由扩展铸造：`t<turn>-c<n>`，`n` 是该回合内会改状态的调用序号，从 1 起。模型永远不写 `call_id`。同 `call_id` 同参数返回原结果并带 `"replayed": true`；同 `call_id` 不同参数报 `idempotency_conflict`。参数比较用规范化 JSON 的 sha256。
 - 收据 id 由内核铸造，语义化，`<n>` 是该调用的 `call_id` 序号：`roll:<技能 kebab>-t<turn>-c<n>`、`move:<目的地>-t<turn>-c<n>`、`clue:<线索 kebab>-t<turn>`、`time:t<turn>-c<n>`（同批第二条起加 `-2`、`-3`）、`choice:<待决名>-t<turn>`。哈希、摘要、随机 id 不出内核。
@@ -2352,7 +2353,28 @@ Implementation decisions for the two-session report, items 7–21:
   names: the Mod registration queue key and the reading-job identity. `normalizeText`
   (markers, minted ids, `kebab`) is unchanged and keeps every mark. A title in front of
   a name (`Professor Nemesio Sánchez`) is not folded: that needs a word list, which
-  the rules forbid; the bare name resolves through the handle.
+  the rules forbid; the bare name reaches the node through the whole-word run below.
+- Whole-word contiguous-run fallback (2026-09-10, #64 second half). After both exact
+  paths miss (no node's handle equals the normalised query and the `names` index has
+  no such key), `resolve` splits the query into whitespace words and looks for that
+  word sequence, in order and unbroken, inside each candidate's normalised name keys:
+  `nemesio sanchez` sits inside `professor nemesio sanchez` and inside
+  `dr. nemesio sanchez jr.`; `emesio sanchez` (inside a word) and `nemesio sanch` do
+  not, nor does `nemesio` ... `sanchez` with other words between. No title list exists
+  or is allowed: `Professor`, `Dr.`, `Padre` are just extra words to the kernel. Exactly
+  one node holding the run resolves; several raise the same `unknown_entity` ambiguous
+  error with every candidate; none falls to the existing not-found error. Nothing that
+  resolves today changes: the fallback runs strictly after the exact paths, so a query
+  that is a node's exact handle or alias and also a run inside another node's name
+  still resolves to the exact one. Bounds, as tight as the shape allows: the query must
+  be at least two words (a single word stays a hint for `candidates` and `look`, not an
+  identity -- otherwise free-text targets in the resolve pipeline such as `door`,
+  `key`, `professor` would start binding silently to nodes) and strictly shorter than
+  the key (equal length would have been an exact hit). What got looser, deliberately:
+  every kind and every caller of `resolve`/`find` (`apply npc/clue/move/handout`,
+  ruling anchors, `look npc`, the resolve pipeline's target and supporting clue, spell
+  targets, memory `about`); kebab ids are name keys too, so `old house` resolves to the
+  only `scene-the-old-house`. `find` still returns null on ambiguity, never a pick.
 
 Spatial source fidelity: compact place/rule previews must explicitly indicate truncation, never imply complete connectivity from a clipped sentence. Full scene look exposes complete authored sublocation descriptions through the existing scene view; it must not invent routes from prose. Scene asset discovery includes maps depicting the scene's occurs-at location. Source readers and independent reviewers preserve explicit no-roll permissions, obstacle-specific check conditions, and spatial branches; checks attached to one obstacle must not migrate to another through summarization. Repairs of missing material use the same tool-enabled reader/review/publication path, without rewriting campaign outcomes.
 
