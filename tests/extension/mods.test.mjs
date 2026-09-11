@@ -315,3 +315,36 @@ test('deferred registration is resumed with the id the table mints, and a failur
   await other.bridge.after('apply', {campaign:'c1'});
   assert.equal(other.calls.some(c=>c.method==='table.apply'), false, 'only the verb that opens the turn resumes afterwards');
 });
+
+test('a readable carrier has its reading prepared when it is acquired, and a plain object has none', async () => {
+  const pi = piSurface();
+  let bridge;
+  pi.events.on('coc:mods-bridge', value=>{bridge=value;});
+  modsExtension(pi);
+  const calls=[];
+  pi.events.emit('coc:kernel-bridge',{
+    mintCallId: () => 't1-c1',
+    call:async(method,params)=>{
+      calls.push({method,params});
+      if(method==='mods.queued') return {effects:[],unfinished:[]};
+      // The lookup is the whole signal here; preparing the reading itself needs a runtime this mock lacks,
+      // and its failure has to stay harmless, because a reading is a projection and never a turn's business.
+      if(method==='mods.document.view') return {name:params.name, actor:params.actor};
+      return {};
+    },
+    runtime:{home:'/nowhere', resourceRoot:'/nowhere',
+      async runTask(){return {ok:false, code:1, timedOut:false, ms:1, stderr:'', command:[]};}, async check(){return {ok:true};}},
+  });
+
+  // The document rides on the definition, not the placement, which is the shape adoption actually uses.
+  await bridge.after('apply', {campaign:'c1', effects:[
+    {kind:'define', name:'Notebook', category:'item', _definition:{name:'Notebook', document:{text:'', presentation:'notebook'}}},
+    {kind:'object', name:"Hayes's notebook", to:'Thomas Hayes', definition:'Notebook', adopt:'notebook'},
+    {kind:'object', name:'Crowbar', to:'Thomas Hayes'},
+  ]});
+  const viewed = () => calls.filter(c=>c.method==='mods.document.view');
+  for (let round=0; round<60 && !viewed().length; round++) await new Promise(resolve=>setTimeout(resolve,5));
+  await new Promise(resolve=>setTimeout(resolve,40));
+  assert.deepEqual(viewed().map(c=>c.params.name), ["Hayes's notebook"]);
+  assert.equal(viewed()[0].params.actor, 'Thomas Hayes');
+});

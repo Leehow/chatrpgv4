@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { writeFile } from "node:fs/promises";
 import { KernelError, isKernelError } from "../kernel/client.ts";
 import { emitToPanel } from "../../pipicoc/host-bridge.ts";
+import { presentDocument } from "./document-presentation.ts";
 import type { HostRuntime } from "../../runtime/host.ts";
 
 type Call = (method: string, params: Record<string, unknown>) => Promise<any>;
@@ -213,13 +214,56 @@ export default function modsExtension(pi: ExtensionAPI): void {
     // every write verb for the rest of the session, because this runs ahead of all of them.
     const callId = mintCallId?.();
     if (!callId) throw new KernelError({code:"needs", message:"The table cannot mint a call id for deferred registration"});
-    try { await current("table.apply", {campaign, call_id: callId, effects}); }
+    try { await current("table.apply", {campaign, call_id: callId, effects}); warm(campaign, carriers(effects)); }
     catch (error) {
       // Bookkeeping must never cost the player their turn. The markers go, the gear reads as unregistered
       // again, and the Keeper registers it the ordinary blocking way on the turn after this one.
       await current("mods.queued", {campaign, discard: true}).catch(() => undefined);
       void emitToPanel("coc-keeper", "mods-progress", {campaign, done: 0, total: 0, deferred_failed: errorText(error)});
     }
+  }
+
+
+  /**
+   * The readable carriers a batch brought into being or wrote in. A document arrives either as a seed on
+   * the placement or on the definition behind it, and a Keeper write changes the very text a reading was
+   * cached for, so all three are worth preparing.
+   */
+  function carriers(effects: Record<string, any>[]): {actor: string; name: string}[] {
+    const documented = new Set(effects
+      .filter(effect => effect?.kind === "define" && effect._definition?.document)
+      .map(effect => String(effect.name)));
+    return effects
+      .filter(effect => effect?.kind === "object" && typeof effect.to === "string" && typeof effect.name === "string"
+        && (effect.document !== undefined || documented.has(String(effect.definition ?? effect.name))))
+      .map(effect => ({actor: String(effect.to), name: String(effect.name)}));
+  }
+
+  let warming: Promise<void> | undefined;
+  /**
+   * A document's reading is generated the first time somebody opens the paper, which is what the page
+   * spends its seconds unfolding. The reading is already kept on disk by content, so that wait is only
+   * ever the first one -- but it does not have to be the player's. Acquisition is the moment the text is
+   * known, so the reading is prepared then, beside the turn, and the open finds it already there.
+   */
+  function warm(campaign: string, papers: {actor: string; name: string}[]): void {
+    if (!papers.length || !call || !runtime) return;
+    const current = call, owner = runtime, prior = warming;
+    const model = context?.model, modelName = model ? `${model.provider}/${model.id}` : undefined;
+    const thinking = context?.thinkingLevel;
+    warming = (async () => {
+      if (prior) await prior.catch(() => undefined);
+      for (const paper of papers) {
+        try {
+          const view: any = await current("mods.document.view", {campaign, actor: paper.actor, name: paper.name});
+          if (typeof view?.text !== "string" || typeof view?.original !== "string") continue;
+          // No signal: this outlives the tool call that triggered it, exactly like deferred registration.
+          await presentDocument({home: owner.home, owner, resourceRoot: owner.resourceRoot, model: modelName, thinking,
+            runner: request => owner.runTask({kind: "mod", request}, request.signal)}, view);
+        }
+        catch { /* A reading is a projection: losing one costs the first open its wait and nothing else. */ }
+      }
+    })().finally(() => { warming = undefined; });
   }
 
   const bridge: ModBridge = {
@@ -229,7 +273,10 @@ export default function modsExtension(pi: ExtensionAPI): void {
      * opened this one, so completing here needs no write authority it does not already have.
      */
     async after(method, payload, signal) {
-      if (method !== "player_input" || typeof payload.campaign !== "string") return;
+      if (typeof payload.campaign !== "string") return;
+      // Preparing a reading can never fail a verb that already landed, so it is started, never awaited.
+      if (method === "apply") warm(payload.campaign, carriers(payload.effects ?? []));
+      if (method !== "player_input") return;
       // Bookkeeping never costs a turn, so this reports rather than throws into the verb that just landed.
       try { await resume(payload.campaign, signal); }
       catch (error) { void emitToPanel("coc-keeper", "mods-progress", {campaign: payload.campaign, done: 0, total: 0, deferred_failed: errorText(error)}); }
