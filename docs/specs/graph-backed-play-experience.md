@@ -138,6 +138,23 @@ This follows the existing authority split. ModuleGraph is immutable sourced clai
 - Lead-audited baseline gap observations at current paths, without new claims of defective graph integrity: `kernel-ts/read/capsule.ts` and `kernel-ts/read/thread.ts` project reduced cues; `kernel-ts/read/director.ts` advice uses previous played intent and is not authorization; `kernel-ts/apply/move.ts` and `kernel-ts/apply/index.ts` validate legal and bound effects, not semantic player choice; `extensions/kernel/index.ts` lacks current player-scope admission; `extensions/mods/index.ts` audits narration after effects; `extensions/kernel/verifier.ts` is post-delivery; `kernel-ts/write/text.ts` includes raw player input but has overbroad Keeper-only undiscovered-clue context. These observations preserve already-fixed live-language and onboarding boundaries.
 - External conceptual comparisons, not imported Call of Cthulhu mechanics or acceptance evidence: [The Alexandrian, “Art of Rulings – Part 2: Intention and Method”](https://thealexandrian.net/wordpress/37960/roleplaying-games/art-of-rulings-part-2-intention-and-method) supports separating intent and method from adjudication; [The Alexandrian, “The Art of Pacing”](https://thealexandrian.net/wordpress/31509/roleplaying-games/the-art-of-pacing) supports compressing non-decisions and stopping at meaningful choices; [The Alexandrian, “Is Node-Based Design Prepping a Plot?”](https://thealexandrian.net/wordpress/53341/roleplaying-games/is-node-based-design-prepping-a-plot) supports situations and connectivity rather than prescribed plot; [Blades in the Dark, “Action Roll”](https://bladesinthedark.com/action-roll) supports the comparison of player action choice versus GM position and effect, but does not import action ratings into CoC; [Sly Flourish, “Tell, Don’t Show”](https://slyflourish.com/tell_dont_show.html) supports clear usable context; [Writing Excuses 10.20, “How Do I Write a Story, Not an Encyclopedia?”](https://writingexcuses.com/writing-excuses-10-20-how-do-i-write-a-story-not-an-encyclopedia/) supports relevant exposition rather than a worldbuilding dump.
 
+## 2026-09-11 ruling: an option the delivery named, taken by name, is chosen
+
+The specification says both that a Keeper suggestion is not acceptance and that in another context the
+same words could authorize an already discussed trip, and it left the case there. Three real tables made
+the gap concrete: 「那看看报纸」 was refused on one and admitted on another, and a five-model probe over
+the product prompt split three to two. A rule two readings can satisfy is not a rule.
+
+The ruling: **where the delivery the player just read named the places to try, taking one of them by
+name chooses that destination, and its travel comes with it; where the delivery named none, the same
+words are interest in a subject and choose nothing; and in neither case do they reach the situation
+waiting there.** A gatekeeper, a price, a danger staged on arrival are proposals of their own.
+
+This keeps the motivating incident refused — nothing had been named when it happened — and it keeps the
+third table's refusal of a social check against an unmentioned clerk right, which is the half of the
+incident that actually cost the player their agency. Contract §32.2 carries it; the reviewer prompt is
+where it acts; the seven-pair probe is the evidence, with three models now agreeing on all seven.
+
 ## 2026-09-11 decisions after a code survey
 
 The sections above were written before the code was read. This pass read it — the kernel extension's

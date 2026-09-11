@@ -2366,6 +2366,35 @@ otherwise the compiled agent's relative asset reads would silently fall back.
 Electron's cold `sheet` fast path attaches the same optional block itself because
 that path deliberately bypasses the mounted agent.
 
+#### Host decision: the portrait mount generates the investigator's photo (2026-09-11, later)
+
+The blank mount stops being static once an investigator exists: clicking it asks
+the host lane for a portrait. This is a host control like Refresh — no kernel
+RPC, no turn, no receipt, no Keeper involvement, and nothing enters the offer
+ledger. The kernel never reads, writes or validates the image.
+
+- **Subject text** is `backstory.personal_description` verbatim (the field
+  reserved above for exactly this), plus the campaign era; a fixed English
+  style prefix (1920s sepia archival portrait photograph, aged paper, head and
+  shoulders) keeps every portrait on the card's own aesthetic. Style lives in
+  the lane, never in the biographical field. An investigator without the
+  description answers a refusal code and the mount stays empty.
+- **Lane**: a `sheet` invoke action (`portrait: "generate"`) handled by the
+  live agent (`pipicoc/sheet.ts`), reusing the image-gen extension's vendor
+  path (grok first, same credential resolution as `image_gen`). The cold sheet
+  fast path never generates; it only attaches an already-generated file.
+- **Storage**: one host-side file per campaign at
+  `<coc-home>/campaigns/<id>/portrait.<ext>`. It is not campaign state, not a
+  receipt and not evidence; regenerating overwrites it. Sheet reads attach it
+  as `identity_art.portrait` (same data-URL transport as the backplate), so the
+  portrait survives restarts without a second generation.
+- **Failure** (no credential, vendor error) leaves the mount empty and returns
+  an error code; the panel's caption is a sheet-surface word (English authored,
+  projected per §23), not an authored string in code.
+- The panel enables the mount only when an investigator exists, shows a busy
+  state while the lane runs, and renders the portrait beneath the seal overlay
+  (the layering the passport decision reserved).
+
 **Guard.** `tests/extension/ui-words.test.mjs` pins every shipped seed to the
 `en` keys and asserts `languages.json` has no `languages` table;
 `system-language.test.mjs` keeps refusing a tag comparison or a table keyed by
@@ -4705,6 +4734,19 @@ The refusal counts against §8's identical-resend strike like any kernel refusal
 `why`, `goal`, `method` and `stakes` are the proposal, never evidence of consent — the reviewer is told
 so, and the Keeper cannot mint authority by writing a rationale.
 
+**Picking one of the options the delivery named is a choice (2026-09-11 ruling).** The same six words,
+「那看看报纸」, were refused on one table and admitted on another, and a five-model probe split three to
+two: the rule as first written did not decide the case. It does now. Where the delivery the player just
+read named the places to try, taking one of them by name chooses that destination, and the travel it
+takes comes with it. Where the delivery named none, the same words are interest in a subject and choose
+nothing — which is the spec's own motivating incident, and it stays refused. In neither case does such a
+remark reach the situation waiting there: a gatekeeper to get past, a price, a danger staged on arrival
+are proposals of their own and are judged on their own, which is how the third table's refusal of a
+social check against a clerk the player had never been told about was already right. The rule lives in
+the reviewer's prompt; the evidence that it decides the case is the seven-pair probe, where
+deepseek-v4-flash, deepseek-v4-pro and grok-4.3 now agree on all seven, including the two that used to
+split.
+
 ### 32.3 What the reviewer reads: the player's context, not the Keeper's
 
 The input is the exact current player text (the `table.player_input` prompt; on a recovered turn,
@@ -4855,6 +4897,17 @@ Not repaired, and named here rather than patched:
 - **No imported book declares a scenario SAN reward.** The starter's are projected now (above), but
   the producer end is still open for a book the reader built: the source reader never extracts
   `conclusion_contract`. Fixing it starts at the reader ask, as §30.4 did for the pacing fields.
+- **An NPC's willingness does not move when a package settles the exchange, and that is the law, not a
+  defect.** Three of the five NPCs of `admission-e2e-4` had an interaction on their ledger and no
+  stance: the rolls that settled them were `natural-npc`'s own first-impression checks, whose receipts
+  carry `family: "mod"` and no `approach`. `npc-stance.json` says what happens then, in its own note:
+  *an approach or level absent from the table moves nothing: silence is zero, never a guess.* The kernel
+  obeyed it. What is open is a package question, not a kernel one: a first impression is the interaction
+  most likely to set where somebody stands, and it is the one interaction that cannot reach
+  `toward_party`. Closing it means `natural-npc` declaring which of the four approaches its check was,
+  so the existing table scores it — a package change with a version bump, and a number nobody has
+  authored yet. Nothing here is repaired by code in the kernel, and the ledger's own row already says
+  `social`, which is what the package declared its intent to be.
 - **The verifier lane times out on a slow model** -- eight of forty turns at `admission-e2e-4`, on
   grok-4.6, each losing its findings. `PI_COC_VERIFIER_MODEL` takes the same treatment as
   `PI_COC_ADMISSION_MODEL`: a small fast model answers a short JSON judgement in about a second.
