@@ -25,8 +25,12 @@ import { KernelError } from "./client.ts";
 export const ADMITTING_VERDICTS: ReadonlySet<string> = new Set(["authorized", "entailed", "not_player_action"]);
 export const REFUSING_VERDICTS: ReadonlySet<string> = new Set(["not_authorized", "uncertain"]);
 
-/** Cap on one review, `PI_COC_ADMISSION_TIMEOUT_MS`; the review is foreground, so it is shorter than the verifier's. */
-const DEFAULT_ADMISSION_TIMEOUT_MS = 60_000;
+/**
+ * Cap on one review, `PI_COC_ADMISSION_TIMEOUT_MS`. The first real table (`admission-e2e-1`,
+ * grok-4.6 reviewing) answered in 13–45 s and lost two turns to a 60 s cap; a cap that refuses
+ * costs the player the action, so it sits at the verifier's two minutes rather than below it.
+ */
+const DEFAULT_ADMISSION_TIMEOUT_MS = 120_000;
 
 export function admissionTimeoutMs(): number {
 	const raw = process.env.PI_COC_ADMISSION_TIMEOUT_MS?.trim();

@@ -2327,6 +2327,32 @@ starter guidance is built for the `suggested` tags; a starter opened in a tag
 with no bundle generates its guidance per campaign as a PDF module does, never
 `guidance_not_ready`.
 
+### Host decision: the identity card is a passport-style page (2026-09-11)
+
+The right sidebar keeps the investigator's identity as live HTML text on a paper
+surface. Its small `identityTitle` caption is authored once as `Investigator
+credential` in the English sheet surface and uses the existing presenter/cache
+path for the play language. Names, occupation, language skills and background
+keep their existing sheet/glossary sources; no per-language renderer is added.
+Language skills share one caption and align their names and values in separate
+columns, including the native language, without changing their values.
+The page has a blank portrait mount and an ornamental archival seal. They are
+static product artwork, not an investigator portrait, affiliation, status or
+receipt. Refresh remains an ordinary host control outside the document.
+
+The existing era is a quiet page-corner mark, without an `Era` record row.
+A canonical four-digit year or decade token (`1920`, `1920s`) displays its four
+digits; other era values use their existing projected term, never an invented
+calendar year or issue date. The host's sheet answer adds optional
+`identity_art: {paper?: data_url, portrait_mount?: data_url}` from bundled assets
+when the panel requests `include_identity_art: true`, using the same host-read
+image transport as document paper. A mounted panel retains this artwork so
+subsequent sheet refreshes do not resend it. The renderer alone
+consumes this decorative block; it causes no game action and is never written
+to campaign state. Missing artwork leaves all identity text readable. Text wraps
+with the panel width and uses HTML bidirectional isolation without language
+detection or locale-specific layout branches.
+
 **Guard.** `tests/extension/ui-words.test.mjs` pins every shipped seed to the
 `en` keys and asserts `languages.json` has no `languages` table;
 `system-language.test.mjs` keeps refusing a tag comparison or a table keyed by
@@ -4635,7 +4661,7 @@ asks that the player knew or approved a hidden danger.
 
 The review is the §12.5 pattern with a different remit: one zero-tool completion through `runLane`
 (`extensions/lanes/subsession.ts`), model `PI_COC_ADMISSION_MODEL` (`provider/model`, default the
-table's own model), cap `PI_COC_ADMISSION_TIMEOUT_MS` (default 60 s; it is foreground). It answers one
+table's own model), cap `PI_COC_ADMISSION_TIMEOUT_MS` (default 120 s, the verifier's; it was 60 s until the first real table lost two turns to it, §32.9). It answers one
 JSON object:
 
 ```
@@ -4752,7 +4778,11 @@ not reviewed; a recovered turn is reviewed against the pending turn's own words
 `affordance:` offers are pinned in `tests/kernel` (`test_facts_warn.py`, `test_capsule.py`,
 `test_mod_director_text.py`).
 
-Not verified, and what it would take: no real table has run with admission on, so its false-refusal
+**First real table (`admission-e2e-1`, 2026-09-11, The Haunting, zh-Hans, grok-4.6 as Keeper and, by default, as reviewer; evidence `.coc/campaigns/admission-e2e-1/`, `.coc/playtests/admission-e2e-1/`).** Seven played turns, stopped on the run's own rule after `admission_unavailable` twice in a row. Nine proposals were put to review: authorized 4, entailed 1, not_authorized 2, timeout 2; no false refusal and no false acceptance on a turn-by-turn reading against the source. Both motivating incidents were fixed at this table: 「科比特是什么？」 (turn 2) was answered with the public meaning and nothing was reviewed; 「那看看报纸」 (turn 3) had its move+clue batch refused with `missing` naming the destination the player had not chosen, and the Keeper put the choice in fiction without a menu and without resending. A resolve against a gatekeeper the player had not yet been told about (turn 4) was refused, which the source confirms as the authored `persuade-arty` gate reached too early. The cost was the defect: grok-4.6 answered a verdict in 13–45 s (the same order as the verifier lane, 47–120 s, on the same model) and two reviews of one clue-and-handout batch hit the 60 s cap, so admission took 338 s of the table's 660 s. The cap is now 120 s (§32.2).
+
+**Reviewer model (probe, 2026-09-11, `ModelRuntime.complete` on the product prompt, seven positive/negative pairs: bare 「那看看报纸」 with no archive mentioned, the same after Knott named the morgue, an explicit trip, look-versus-pry, pry after looking, a quiet half hour, ask-versus-bribe).** grok-4.6: six of six unambiguous cases right, refuses the arguable one, 10–51 s each. grok-4.3: six of six right, admits the arguable one (the spec's "already discussed archive trip"), 2.7–4.6 s each. grok-4.5 (relay, low): six of six right, 4.6–14 s. glm-5.2: two wrong (admits the bare newspapers as `entailed`; a malformed answer on ask-versus-bribe), 9–32 s. The recommendation is `PI_COC_ADMISSION_MODEL=xai/grok-4.3` for the tables that follow; the model is still an environment choice, not a product default, because provider names are the user's.
+
+Not verified, and what it would take: one real table has run with admission on (above), so its false-refusal
 and false-acceptance rates, its foreground cost against the same scenario without it, and whether the
 Keeper takes the `missing` line into the fiction rather than into a menu are all unmeasured — the
 canonical continuous regression of Agents.md, with the admission rows read turn by turn. The

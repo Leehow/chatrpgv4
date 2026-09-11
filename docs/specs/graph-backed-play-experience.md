@@ -264,7 +264,9 @@ section; contract §32; the harness gives every table an admitting review model 
 existing seam suite is unchanged in meaning. Full extension suite and the touched kernel files pass on
 the emitted kernel.
 
-Not done, and not claimed: the canonical continuous regression with a real Keeper and admission on (the
-false-refusal and false-acceptance rates are unmeasured); the same-scenario latency comparison; the
+Done after the first commit: one real table of seven turns (`admission-e2e-1`, contract §32.9) — no false
+refusal, no false acceptance, both motivating incidents fixed, and the cost defect it exposed (a 60 s cap
+under a 13–45 s reviewer) repaired by raising the cap and measuring a faster reviewer (grok-4.3, six of six
+right at under 5 s). Not done, and not claimed: a full-length table (twenty turns or more, combat included); the same-scenario latency comparison; the
 editor comprehension review; the uninformed-human UI gate (#79); any package or lock change. The
 Implementation Decisions' order stands: those are the last step and they have not run.
