@@ -300,7 +300,7 @@ def test_the_creation_lane_opens_by_the_player_speaking_first(tmp_path, monkeypa
 
     def status(campaign: str) -> str:
         asked.append(campaign)
-        return "setting_up" if len(asked) < 3 else "ready_for_table"
+        return "setting_up" if len(asked) < 5 else "ready_for_table"
 
     monkeypatch.setattr(bench, "start_table", lambda campaign, run_id, *a, **k: run_id)
     monkeypatch.setattr(bench, "stop_table", lambda *a, **k: None)
@@ -313,7 +313,7 @@ def test_the_creation_lane_opens_by_the_player_speaking_first(tmp_path, monkeypa
                                   {**bench.DEFAULTS, "setup_max_turns": 5, "turn_timeout": 1.0,
                                    "opening_timeout": 1.0},
                                   player, tmp_path / "trace.jsonl")
-    assert result == {"setup_steps": 3}
+    assert result["setup_steps"] == 2 and result["setup_ended_by_process_exit"] is False
     assert player.views[0] == bench.SETUP_FIRST_VIEW
     assert player.views[1].startswith("keeper heard a folklore professor")
 
@@ -358,3 +358,38 @@ def test_an_unreadable_answer_is_still_only_retried_once(tmp_path, monkeypatch):
                         lambda self, message, timeout: ("I would rather not answer in JSON.", False))
     act = player.act("The office is quiet.")
     assert act["ok"] is False and act["attempts"] == 2 and act["transient_retries"] == 0
+
+
+def test_a_finished_card_ends_the_creation_lane_even_if_the_process_is_already_gone(tmp_path, monkeypatch):
+    """The setup launcher exits the moment the card is done; a turn in flight then finds nobody."""
+    seen = {"n": 0}
+
+    def status(campaign: str) -> str:
+        seen["n"] += 1
+        return "setting_up" if seen["n"] <= 1 else "ready_for_table"
+
+    def send(run_id, text, timeout):
+        raise driver.DaemonUnavailable("daemon closed the connection without responding")
+
+    monkeypatch.setattr(bench, "start_table", lambda campaign, run_id, *a, **k: run_id)
+    monkeypatch.setattr(bench, "stop_table", lambda *a, **k: None)
+    monkeypatch.setattr(bench, "campaign_status", status)
+    monkeypatch.setattr(bench, "send_turn", send)
+    player = _ScriptedPlayer(["a folklore professor"])
+    result = bench.run_setup_lane({"campaign": "c", "run_id": "r"},
+                                  {**bench.DEFAULTS, "setup_max_turns": 5, "turn_timeout": 1.0},
+                                  player, tmp_path / "trace.jsonl")
+    assert result["setup_steps"] == 0 and result["setup_ended_by_process_exit"] is True
+
+
+def test_a_dead_setup_process_without_a_card_is_still_a_failure(tmp_path, monkeypatch):
+    monkeypatch.setattr(bench, "start_table", lambda campaign, run_id, *a, **k: run_id)
+    monkeypatch.setattr(bench, "stop_table", lambda *a, **k: None)
+    monkeypatch.setattr(bench, "campaign_status", lambda campaign: "setting_up")
+    monkeypatch.setattr(bench, "send_turn", lambda *a, **k: (_ for _ in ()).throw(
+        driver.DaemonUnavailable("gone")))
+    player = _ScriptedPlayer(["a folklore professor"])
+    with pytest.raises(driver.DaemonUnavailable):
+        bench.run_setup_lane({"campaign": "c", "run_id": "r"},
+                             {**bench.DEFAULTS, "setup_max_turns": 5, "turn_timeout": 1.0},
+                             player, tmp_path / "trace.jsonl")

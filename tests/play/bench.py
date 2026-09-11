@@ -254,6 +254,7 @@ def run_setup_lane(run: dict[str, Any], suite: dict[str, Any], player: PersonaPl
     campaign, run_id = run["campaign"], f"{run['run_id']}-setup"
     run_id = start_table(campaign, run_id, suite, launcher="bin/pi-coc-setup")
     steps = []
+    finished = False
     try:
         # Creation has no opening delivery to wait for: the campaign does not exist yet, so there
         # is no transcript to read. The player opens the app and says what they want, which is
@@ -261,14 +262,30 @@ def run_setup_lane(run: dict[str, Any], suite: dict[str, Any], player: PersonaPl
         # language, because that is the only place a language may be chosen (contract section 23).
         view = SETUP_FIRST_VIEW
         for step in range(1, int(suite.get("setup_max_turns", 20)) + 1):
+            if campaign_status(campaign) == "ready_for_table":
+                finished = True
+                break
             act = player.act(view)
             if not act["ok"]:
                 raise RunFailed(f"persona could not answer the setup lane: {act.get('error')}")
-            summary = send_turn(run_id, act["player_message"], suite["turn_timeout"])
+            try:
+                summary = send_turn(run_id, act["player_message"], suite["turn_timeout"])
+            except (RunFailed, driver.DaemonUnavailable) as exc:
+                # Creation is a process that ends: the moment the card is finished, the setup
+                # launcher exits, and a turn already on its way finds nobody home. That is the
+                # lane succeeding, not failing -- but only if the campaign really is ready.
+                if campaign_status(campaign) == "ready_for_table":
+                    append_jsonl(trace, {"phase": "setup", "step": step, "at": driver.now_iso(),
+                                         "note": "setup process ended with the card finished",
+                                         "detail": str(exc)})
+                    finished = True
+                    break
+                raise
             steps.append({"step": step, "player": act["player_message"],
                           "settle_class": summary["settle_class"]})
             append_jsonl(trace, {"phase": "setup", **steps[-1], "at": driver.now_iso()})
             if campaign_status(campaign) == "ready_for_table":
+                finished = True
                 break
             view = player_view(summary.get("delivery"), summary.get("final_text", ""),
                                summary["settle_class"])
@@ -277,7 +294,7 @@ def run_setup_lane(run: dict[str, Any], suite: dict[str, Any], player: PersonaPl
     status = campaign_status(campaign)
     if status != "ready_for_table":
         raise RunFailed(f"setup lane ended with campaign status {status!r}, not ready_for_table")
-    return {"setup_steps": len(steps)}
+    return {"setup_steps": len(steps), "setup_ended_by_process_exit": finished and not steps}
 
 
 #: What the persona is told when a creation lane begins, before anything has been delivered.
