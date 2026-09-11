@@ -161,6 +161,9 @@ interface TableState {
 	admissionRefused: string[];
 	/** What this turn has already settled through the kernel, one line each, so an entailed step is visible as such. */
 	landed: string[];
+	/** The options of the `ask` that closed the last turn, and, once the next input arrives, the ones this turn answers (contract §32.1). */
+	lastAsk?: string[];
+	answering?: string[];
 }
 
 const CLOSED_STATES: ReadonlySet<TurnState> = new Set<TurnState>(["awaiting_player", "committed", "asked"]);
@@ -747,7 +750,7 @@ export default function (pi: ExtensionAPI) {
 	 * proposal is reused, admitting and refusing alike (contract §32.4).
 	 */
 	async function admitAction(state: TableState, tool: "resolve" | "apply", payload: Record<string, unknown>, signal?: AbortSignal): Promise<void> {
-		const proposal = admissionRequest(tool, payload, { party: state.party.map((member) => member.name), scene: state.scene });
+		const proposal = admissionRequest(tool, payload, { party: state.party.map((member) => member.name), scene: state.scene, ...(state.answering ? { answered: state.answering } : {}) });
 		if (!proposal) return;
 		const digest = keyDigest(proposal.key);
 		// Lane rows name the verb as `verb`: `tool` is the tool-call row's own column, and readers
@@ -831,6 +834,11 @@ export default function (pi: ExtensionAPI) {
 			}
 			case "ask": {
 				state.state = "asked";
+				{
+					const interaction = result.interaction as { options?: unknown } | undefined;
+					const options = Array.isArray(interaction?.options) ? interaction.options : Array.isArray(result.options) ? result.options : undefined;
+					if (options) state.lastAsk = options.map(String);
+				}
 				state.openingPending = false;
 				// The pending choice has been handed back to the player, so the turn no longer owes an ask.
 				state.pendingChoice = null;
@@ -1268,6 +1276,10 @@ export default function (pi: ExtensionAPI) {
 			state.admission = new Map();
 			state.admissionRefused = [];
 			state.landed = [];
+			// This input answers the ask that closed the last turn, if one did: a resolve settling one
+			// of its options is the player's own answer and is not put to review.
+			state.answering = state.lastAsk;
+			state.lastAsk = undefined;
 			noteCapsule(state, result.capsule);
 			await record({
 				tool: "table.player_input",

@@ -58,6 +58,12 @@ export interface AdmissionScope {
 	party: string[];
 	/** The current scene's handle and player-facing label: a `move` to it is a rename, not travel. */
 	scene?: { handle?: string; label?: string };
+	/**
+	 * The closed options of the `ask` the player is answering this turn (dodge, fight_back, push,
+	 * spend_luck, ...). A `resolve` that settles one of them carries the player's own answer, in
+	 * whatever words it came, and is not a new proposal (contract §32.1).
+	 */
+	answered?: string[];
 }
 
 /**
@@ -108,6 +114,13 @@ export function admissionRequest(tool: string, payload: Record<string, unknown>,
 		const actor = text(action.actor);
 		const party = scope.party.map(norm);
 		if (actor && party.length && !party.includes(norm(actor))) return null;
+		const answered = (scope.answered ?? []).map(norm);
+		if (answered.length) {
+			const defense = norm(action.defense);
+			if (defense && answered.includes(defense)) return null;
+			if (action.push === true && answered.includes("push")) return null;
+			if (typeof action.luck === "number" && action.luck > 0 && answered.includes("spend_luck")) return null;
+		}
 		const pick = (keys: readonly string[]): Record<string, unknown> =>
 			Object.fromEntries(keys.map((k) => [k, action[k]]).filter(([, v]) => v !== undefined && v !== null && v !== ""));
 		const shown = pick(["actor", "intent", "goal", "method", "skill", "target", "weapon", "spell", "object", "stakes", "push", "luck", "defense", "outcome"]);
@@ -235,7 +248,7 @@ export function admissionRefusal(proposal: AdmissionProposal, verdict: Admission
 		message: verdict.verdict === "uncertain"
 			? "It is not clear from the player's words that they chose this action"
 			: "The player has not chosen this action",
-		fix: "Do not roll, move, spend time or money, or land clues, documents or items for it, and do not resend the same action in other words. Close the turn with narrate: take up what the player actually said, and put the choice named in details.missing in front of them in the fiction, without a menu, so that they can make it.",
+		fix: "Do not roll, move, spend time or money, or land clues, documents or items for it, and do not resend the same action in other words. Whatever this turn already settled with a receipt (a roll made, an effect that landed) did happen and is still narrated; only this refused batch is not. Close the turn with narrate: take up what the player actually said, and put the choice named in details.missing in front of them in the fiction, without a menu, so that they can make it.",
 		details: {
 			reason: "action_not_authorized",
 			verdict: verdict.verdict,
@@ -252,7 +265,7 @@ export function admissionUnavailable(proposal: AdmissionProposal, reason: string
 	return new KernelError({
 		code: "needs",
 		message: "The action review is unavailable, so this action cannot be settled now",
-		fix: "Tell the player plainly in narrate that the table cannot settle actions for the moment because a review service is unavailable — say it as a service notice, not as fiction; do not narrate the action as having happened, do not roll or land anything for it, and do not retry it this turn. The player's next input can try again.",
+		fix: "Only this batch is unsettled: whatever this turn already settled with a receipt (a roll made, an effect that landed) did happen and is narrated as usual. For this batch, do not roll or land anything, do not narrate its effects as having happened, and do not retry it this turn; tell the player plainly in narrate, as a service notice and not as fiction, that the table could not settle that part for the moment. The player's next input can try again.",
 		details: { reason: "admission_unavailable", cause: reason, detail: detail.slice(0, 200), proposed: proposal.lines, tool: proposal.tool },
 	});
 }

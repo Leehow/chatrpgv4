@@ -2339,19 +2339,25 @@ columns, including the native language, without changing their values.
 The page has a blank portrait mount and an ornamental archival seal. They are
 static product artwork, not an investigator portrait, affiliation, status or
 receipt. Refresh remains an ordinary host control outside the document.
+The approved original seal is retained as artwork, including its fixed lettering;
+it straddles the lower-right photo corner instead of sitting wholly on the photo.
 
 The existing era is a quiet page-corner mark, without an `Era` record row.
 A canonical four-digit year or decade token (`1920`, `1920s`) displays its four
 digits; other era values use their existing projected term, never an invented
 calendar year or issue date. The host's sheet answer adds optional
-`identity_art: {paper?: data_url, portrait_mount?: data_url}` from bundled assets
+`identity_art: {backplate?: data_url}` from the bundled identity backplate
 when the panel requests `include_identity_art: true`, using the same host-read
 image transport as document paper. A mounted panel retains this artwork so
 subsequent sheet refreshes do not resend it. The renderer alone
 consumes this decorative block; it causes no game action and is never written
 to campaign state. Missing artwork leaves all identity text readable. Text wraps
 with the panel width and uses HTML bidirectional isolation without language
-detection or locale-specific layout branches.
+detection or locale-specific layout branches. The paper, frame, photo mount and
+seal belong to one coherent backplate. A nine-slice border image preserves the
+upper artwork's proportions while extending only the blank lower paper for
+longer text. Live text is layered above it; no multiply blend or separately
+coloured photo patch remains.
 
 **Guard.** `tests/extension/ui-words.test.mjs` pins every shipped seed to the
 `en` keys and asserts `languages.json` has no `languages` table;
@@ -4651,6 +4657,7 @@ What is **not** put to review, decided by closed contract enums and never by rea
   `ruling`, `define`, `object`, `ability`, `dossier`, `ending`, `fork`, `switch`, `merge`, `damage` on
   their own are bookkeeping, NPC movement, pacing, world switches or consequences, not a proposed
   voluntary action;
+- a `resolve` that settles the closed option the player was just asked (`ask` offered `dodge`/`fight_back`/`push`/`spend_luck`, the player answered in their own words, the Keeper writes `defense`, `push: true` or `luck` accordingly): the answer is the player's own choice, in whatever words it came. The second real table paid a full review, and two of its four timeouts, on exactly these combat rounds before this exemption existed;
 - a turn with no player text (the opening). The skip is a telemetry row, not a silence.
 
 A batch is reviewed whole and refused whole: a `clue` beside a `move` is admitted only when the player's
@@ -4779,6 +4786,8 @@ not reviewed; a recovered turn is reviewed against the pending turn's own words
 `test_mod_director_text.py`).
 
 **First real table (`admission-e2e-1`, 2026-09-11, The Haunting, zh-Hans, grok-4.6 as Keeper and, by default, as reviewer; evidence `.coc/campaigns/admission-e2e-1/`, `.coc/playtests/admission-e2e-1/`).** Seven played turns, stopped on the run's own rule after `admission_unavailable` twice in a row. Nine proposals were put to review: authorized 4, entailed 1, not_authorized 2, timeout 2; no false refusal and no false acceptance on a turn-by-turn reading against the source. Both motivating incidents were fixed at this table: 「科比特是什么？」 (turn 2) was answered with the public meaning and nothing was reviewed; 「那看看报纸」 (turn 3) had its move+clue batch refused with `missing` naming the destination the player had not chosen, and the Keeper put the choice in fiction without a menu and without resending. A resolve against a gatekeeper the player had not yet been told about (turn 4) was refused, which the source confirms as the authored `persuade-arty` gate reached too early. The cost was the defect: grok-4.6 answered a verdict in 13–45 s (the same order as the verifier lane, 47–120 s, on the same model) and two reviews of one clue-and-handout batch hit the 60 s cap, so admission took 338 s of the table's 660 s. The cap is now 120 s (§32.2).
+
+**Second real table (`admission-e2e-2`, 2026-09-11, The Haunting, zh-Hans, grok-4.6 as Keeper, `PI_COC_ADMISSION_MODEL=xai/grok-4.3`; evidence `.coc/campaigns/admission-e2e-2/`, `.coc/playtests/admission-e2e-2/`).** Thirty played turns, 2175 s: the commission, the morgue and its gatekeeper, the boarded window, a quiet listen, the upstairs bedroom and the bed, the neighbour, the cellar boards, Corbitt's diaries, and a melee over the rusted dagger. Forty-two verdicts (authorized 29, entailed 8, not_authorized 4, not_player_action 1) and four timeouts at the 120 s cap; no false refusal and no false acceptance on a turn-by-turn reading against the source, one arguable refusal (a grab at the dagger the Keeper read as a combat manoeuvre). Every refusal was closed the way §32.2 asks: the missing choice in fiction, no menu, no resend, nothing narrated as done. Three things it exposed, two of them repaired the same day: (1) grok-4.3's tail — mean 7.3 s but 30–47 s outliers and four full-cap stalls in thirty turns, which the seven-case probe never showed; admission was 14% of table time by decisive reviews and 36% counting the stalls, against 51% on the first table; (2) a refusal or an outage on the trailing `apply` of a turn whose `resolve` had already landed sent the Keeper to narrate nothing, and `narration-audit` then rightly refused the draft for the unrealised roll — both `fix` texts now say that what already landed with a receipt did happen and is narrated, only the refused batch is not; (3) the player's answer to a dodge/fight-back `ask`, given in prose, was settled by a fresh `resolve` and reviewed each round — now exempt (§32.1). Verdict reuse was not exercised by play (no identical proposal within a turn), so §32.4 still rests on the seam tests.
 
 **Reviewer model (probe, 2026-09-11, `ModelRuntime.complete` on the product prompt, seven positive/negative pairs: bare 「那看看报纸」 with no archive mentioned, the same after Knott named the morgue, an explicit trip, look-versus-pry, pry after looking, a quiet half hour, ask-versus-bribe).** grok-4.6: six of six unambiguous cases right, refuses the arguable one, 10–51 s each. grok-4.3: six of six right, admits the arguable one (the spec's "already discussed archive trip"), 2.7–4.6 s each. grok-4.5 (relay, low): six of six right, 4.6–14 s. glm-5.2: two wrong (admits the bare newspapers as `entailed`; a malformed answer on ask-versus-bribe), 9–32 s. With a working key (added by the user the same day): deepseek-v4-flash six of six right, admits the arguable one, 0.7–1.5 s; deepseek-v4-pro six of six right, refuses the arguable one, 1.6–2.6 s. The recommendation is `PI_COC_ADMISSION_MODEL=deepseek/deepseek-v4-flash` (grok-4.3 where DeepSeek is not configured) for the tables that follow; the model is still an environment choice, not a product default, because provider names are the user's.
 

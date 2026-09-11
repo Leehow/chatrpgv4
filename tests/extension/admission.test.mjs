@@ -189,7 +189,9 @@ test("an unavailable review refuses with a service status; the Keeper is not tol
 	assert.equal(kernelCalls(table, "table.resolve").length, 0, "no authority, no roll");
 	const [text] = toolResultTexts(table.session, "resolve");
 	assert.match(text, /^needs: The action review is unavailable, so this action cannot be settled now$/m);
-	assert.match(text, /service notice, not as fiction/);
+	assert.match(text, /as a service notice and not as fiction/);
+	// What already landed this turn is not un-narrated by the refusal of this batch.
+	assert.match(text, /already settled with a receipt .* did happen/);
 	const [row] = admissionRows(table);
 	assert.equal(row.ok, false);
 	assert.equal(row.reason, "model_unavailable");
@@ -274,4 +276,30 @@ test("a malformed verdict is no verdict: the action is refused as unavailable, n
 	const [row] = admissionRows(table);
 	assert.equal(row.ok, false);
 	assert.equal(row.reason, "bad_output");
+});
+
+
+test("the player's answer to an ask is not a new proposal: the resolve that settles it is not reviewed", async (t) => {
+	const table = await openTable({
+		responses: [
+			// Turn 1: the Keeper hands the pending defence back with ask.
+			fauxAssistantMessage([fauxToolCall("ask", { kind: "mechanics", options: ["dodge", "fight_back"], binds: "defense" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage("after ask"),
+			// Turn 2: the player answered in their own words; the Keeper settles the defence, then proposes something new.
+			fauxAssistantMessage([fauxToolCall("resolve", { action: { intent: "combat", goal: "躲开这一刀", method: "侧身闪避", defense: "dodge" } })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("resolve", { action: { intent: "combat", goal: "夺下那把刀", method: "扑上去抢", target: "看门人", weapon: "unarmed" } })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("narrate", { text: "你侧身让过刀锋。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage("after"),
+		],
+		laneResponses: { admission: [verdict({ verdict: "authorized", grounds: "the player said they lunge for the knife" })] },
+	});
+	t.after(() => table.dispose());
+	await table.session.prompt("我先躲一下");
+	await table.session.prompt("我往旁边一闪");
+
+	const requests = table.lanes.admission.requests();
+	assert.equal(requests.length, 1, "only the new proposal was reviewed; the answered defence was not");
+	assert.match(requests[0], /goal="夺下那把刀"/);
+	assert.equal(kernelCalls(table, "table.resolve").length, 2, "both resolves reached the kernel");
+	assert.deepEqual(admissionRows(table).map((row) => row.verdict), ["authorized"]);
 });
