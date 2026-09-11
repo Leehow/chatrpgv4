@@ -11,9 +11,11 @@
  *      Credentials and base URL come from ctx.modelRegistry — auth.json is
  *      never read directly.
  *
- * This extension is mounted BEFORE grok-build-oauth; pi tool names are
- * first-wins by mount order, so its image_gen / image_edit shadow the grok
- * ones by design (the grok provider, commands and hooks are unaffected).
+ * This extension owns image_gen / image_edit on this host. Pi does not shadow
+ * duplicate tool names by mount order — it refuses to load the second owner —
+ * so the launcher passes PI_GROK_BUILD_IMAGE_TOOLS=0 and grok-build-oauth
+ * leaves its two image tools unregistered (its provider, commands and hooks
+ * are unaffected).
  */
 import { resolveImageReference } from "../../grok-build-oauth/agent/images/client.js";
 import { SessionImageWriter } from "../../grok-build-oauth/agent/images/storage.js";

@@ -50,7 +50,8 @@ export function piLaunch(input: string[], options: RuntimeHostOptions = {}) {
     ? ['--no-extensions', ...[...context.entrypoints.extensions, context.entrypoints.deepseek, context.entrypoints.imageGen, context.entrypoints.grokBuild].flatMap(path => ['-e', path])] : [];
   return {command: context.nodeExecutable,
     args: [context.entrypoints.pi, '--no-builtin-tools', '--no-context-files', '--system-prompt', prompt, ...session, ...mounts, ...forwarded],
-    cwd: context.resourceRoot, env: {...context.env, PI_COC_MODE: mode}};
+    // image-gen owns image_gen/image_edit; Pi refuses duplicate tool names, so grok-build-oauth is told not to register its own.
+    cwd: context.resourceRoot, env: {...context.env, PI_COC_MODE: mode, PI_GROK_BUILD_IMAGE_TOOLS: '0'}};
 }
 
 export async function launchMain(args: string[]): Promise<number> {

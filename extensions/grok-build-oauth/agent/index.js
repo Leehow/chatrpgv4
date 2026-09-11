@@ -321,6 +321,12 @@ export default function (pi) {
         const saved = await writer.save(decodeBase64Strict(b64), { signal });
         return imageResult(saved, b64.replace(/\s+/g, ""), op, { backend: "grok-build-relay", model: cfg.model, deprecated: true }, " (deprecated compat relay)");
     }
+    // Pi refuses a tool name registered by two extensions (resource-loader `detectExtensionConflicts`):
+    // there is no shadowing by mount order. On this host the image-gen extension owns `image_gen` and
+    // `image_edit` (it delegates to this extension's own image library grok-first), so the launcher sets
+    // PI_GROK_BUILD_IMAGE_TOOLS=0 and the two tools below stay unregistered here. A standalone mount of
+    // this port, without image-gen beside it, still registers them.
+    if (process.env.PI_GROK_BUILD_IMAGE_TOOLS === "0") return;
     pi.registerTool({
         name: "image_gen",
         label: "Grok Build image_gen",

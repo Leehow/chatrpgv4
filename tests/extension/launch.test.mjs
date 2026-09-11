@@ -86,7 +86,7 @@ function fakeRepo() {
 	writeFileSync(piStub, `const fs=require('node:fs');
 fs.writeFileSync(process.env.PI_STUB_LOG,[
  'cwd='+process.cwd(),'agentdir='+process.env.PI_CODING_AGENT_DIR,'campaign='+(process.env.PI_COC_CAMPAIGN??'<unset>'),
- 'mode='+(process.env.PI_COC_MODE??'<unset>'),'runtime='+process.env.PI_COC_RUNTIME,
+ 'mode='+(process.env.PI_COC_MODE??'<unset>'),'runtime='+process.env.PI_COC_RUNTIME,'grokimage='+(process.env.PI_GROK_BUILD_IMAGE_TOOLS??'<unset>'),
  ...process.argv.slice(2).map(arg=>'arg='+arg)].join('\\n')+'\\n');\n`);
 	chmodSync(piStub, 0o755);
 	return root;
@@ -121,6 +121,9 @@ test("bin/pi-coc：写 settings.json、导出战役、拼出 pi 的命令行", (
 	assert.equal(run.value("agentdir"), join(root, ".pi", "coc-agent"));
 	assert.equal(run.value("campaign"), "camp-a");
 	assert.equal(run.value("runtime"), "typescript");
+	// Both image-gen and grok-build-oauth are mounted and both define image_gen/image_edit; Pi refuses
+	// duplicate tool names, so the launcher must tell grok-build-oauth to leave its two unregistered.
+	assert.equal(run.value("grokimage"), "0", "grok-build-oauth is told not to register image_gen/image_edit");
 	assert.deepEqual(run.args, [
 		"--no-builtin-tools",
 		"--no-context-files",
