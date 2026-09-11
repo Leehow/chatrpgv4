@@ -22,6 +22,7 @@ Only the standard library is used.
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import json
 import os
 import shutil
@@ -38,7 +39,10 @@ from persona_metrics import HARD_GATES, METRICS, judge_metrics, rate  # noqa: E4
 from player import load_personas, seed_home  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_JUDGE_MODEL = "deepseek/deepseek-v4-pro"
+#: The judge probe: `deepseek-v4-flash` walked every turn and recorded eight cited findings
+#: where `deepseek-v4-pro` recorded none from the same evidence, and it is several times faster
+#: -- which matters when a suite has a hundred runs to judge.
+DEFAULT_JUDGE_MODEL = "deepseek/deepseek-v4-flash"
 JUDGE_TIMEOUT = 1800
 
 
@@ -404,9 +408,23 @@ def cmd_run(args: argparse.Namespace) -> int:
 
 def cmd_suite(args: argparse.Namespace) -> int:
     suite_dir = Path(args.suite_dir)
-    reports = []
-    for run_dir in sorted(p for p in suite_dir.iterdir() if (p / "run.json").exists()):
-        reports.append(build_report(run_dir, judge=not args.no_judge, judge_model=args.judge_model))
+    run_dirs = sorted(p for p in suite_dir.iterdir() if (p / "run.json").exists())
+    reports: list[dict[str, Any]] = []
+    # The judge lane is one agent per run; a hundred of them in series is most of a day, and
+    # they share nothing but the model endpoint.
+    workers = 1 if args.no_judge else max(1, int(args.judge_concurrency))
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {pool.submit(build_report, run_dir, judge=not args.no_judge,
+                               judge_model=args.judge_model): run_dir for run_dir in run_dirs}
+        for future in concurrent.futures.as_completed(futures):
+            run_dir = futures[future]
+            try:
+                reports.append(future.result())
+            except Exception as exc:  # noqa: BLE001 -- one unreadable run does not lose the suite
+                reports.append({"run_id": run_dir.name, "status": "invalid",
+                                "error": f"{type(exc).__name__}: {exc}"})
+                print(f"{run_dir.name}: report failed: {exc}", file=sys.stderr)
+    reports.sort(key=lambda r: (r.get("persona") or "", r.get("lane") or "", r.get("trial") or 0))
     summary = {
         "method": "persona-benchmark", "acceptance": False,
         "suite_dir": str(suite_dir), "runs": len(reports),
@@ -428,6 +446,48 @@ def cmd_suite(args: argparse.Namespace) -> int:
     (suite_dir / "suite-report.json").write_text(
         json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(summary, ensure_ascii=False, indent=2))
+    return 0
+
+
+def cmd_table(args: argparse.Namespace) -> int:
+    """The readable form of a suite report: one row per persona and lane.
+
+    No overall average is printed here either. A single number over eighteen personas is
+    exactly the thing that hides "the Director got smoother on the main line and started
+    railroading the players who leave it".
+    """
+    summary = json.loads((Path(args.suite_dir) / "suite-report.json").read_text(encoding="utf-8"))
+    by_persona = summary["by_persona"]
+    judged_ids = sorted({m for runs in by_persona.values() for run in runs
+                         for m in (run.get("judged") or {}) if m in METRICS})
+    columns = [m for m in judged_ids if METRICS[m]["tier"] == "judge"][: args.max_metrics]
+
+    width = max(len(k) for k in by_persona) + 2 if by_persona else 34
+    header = (f"{'persona / lane':<{width}}{'runs':>5}{'turns':>7}{'clues':>7}{'gates':>7}"
+              + "".join(f"{m[:14]:>16}" for m in columns))
+    print(f"suite: {summary['suite_dir']}")
+    print("method: persona-benchmark -- not acceptance (Agents.md's real table is unchanged)")
+    print(header)
+    print("-" * len(header))
+    for key in sorted(by_persona):
+        runs = by_persona[key]
+        def med(pick) -> str:
+            values = [v for v in (pick(r) for r in runs) if isinstance(v, (int, float))]
+            return f"{statistics.median(values):.2f}".rstrip("0").rstrip(".") if values else "-"
+        gates = sum(sum((r.get("hard_gates") or {}).values()) for r in runs)
+        row = (f"{key:<{width}}{len(runs):>5}"
+               f"{med(lambda r: r['receipts'].get('turns_played')):>7}"
+               f"{med(lambda r: r['receipts'].get('clue_reachability')):>7}"
+               f"{gates:>7}")
+        for metric_id in columns:
+            row += f"{med(lambda r, m=metric_id: (r.get('judged') or {}).get(m)):>16}"
+        print(row)
+    print()
+    print("gates = hard-gate violations (secret leak, state corruption, rules P0, inner life). "
+          "Any number here is a defect, not a score.")
+    for metric_id in columns:
+        print(f"  {metric_id}: {METRICS[metric_id]['summary']} "
+              f"({'higher' if METRICS[metric_id]['direction'] == 'higher_is_better' else 'lower'} is better)")
     return 0
 
 
@@ -468,7 +528,14 @@ def build_parser() -> argparse.ArgumentParser:
         sp.add_argument(needs, required=True, dest=needs.lstrip("-").replace("-", "_"))
         sp.add_argument("--no-judge", action="store_true", help="tiers A and B only; spend nothing")
         sp.add_argument("--judge-model", default=DEFAULT_JUDGE_MODEL)
+        sp.add_argument("--judge-concurrency", type=int, default=8,
+                        help="judges to run at once when judging a whole suite (default 8)")
         sp.set_defaults(func=func)
+    sp = sub.add_parser("table", help="render a finished suite report as a per-persona table")
+    sp.add_argument("--suite-dir", required=True)
+    sp.add_argument("--max-metrics", type=int, default=6)
+    sp.set_defaults(func=cmd_table)
+
     sp = sub.add_parser("compare")
     sp.add_argument("--baseline", required=True)
     sp.add_argument("--candidate", required=True)
