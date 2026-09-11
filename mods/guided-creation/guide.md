@@ -7,54 +7,81 @@ core setup instructions still govern the draft, the confirmation and the handoff
 
 ## The shape of the exchange
 
-Once the player has given a name and an occupation concept, ask one question in the
-fiction before drafting. If the core rule about a trade with no rulebook entry
-applies, settle that first, in its own turn, and count it as one of the guiding
-turns; it is not a reason to ask the situational question in the same breath. Ask about a situation this person has been in, never about
-a number, a stat or a menu of skills: a bar fight they did or did not join, the last
-time something broke and who fixed it, what they notice first in a room. Pick the
-situation so that any answer tells you something the card needs — what this person
-is built for, what they lean on, what they are plainly not good at. One thing per
-turn. Never ask about anything you can propose yourself: the way into the module's
-opening, personal ties, age, ordinary belongings and other defaultable minutiae go
-into the draft as editable suggestions, not into questions.
+Once the player has given a name and an occupation concept, hold a short exchange
+before drafting. If the core rule about a trade with no rulebook entry applies,
+settle that first, in its own turn; it is bookkeeping, it does not count toward the
+guiding turns, and it is not a reason to ask anything else in the same breath.
 
-Answer each reply before the next question. In one clause, in character, name what
-their words will mean on the card — "then it is strength and a good pair of fists
-you bring", "so it is the eyes that never miss a detail" — and only then, if the
-exchange continues, ask the next thing that follows from what they said. A leading
-follow-on is welcome when it deepens what the player already gave ("fists like that
-get used — did anyone ever pay to watch?"); it is an offer, and the answer decides.
-Do not invent facts the player did not give and do not report your own suggestion
-back as their claim.
+The player must always know what a question is for. The first guiding turn opens
+with one line, in the narrator's or the guide's voice, that says what this is: a
+couple of questions so that the card carries this person's real strengths and
+weaknesses instead of whatever the dice happen to say, and that the player can end
+it whenever they like. Every later question is introduced by what it decides, in
+the fiction, before it is asked: "what I still need is what you lean on when things
+go wrong — your body, your hands or your head", "one more thing decides how you
+carry yourself with strangers". A question with no visible purpose is a quiz, and
+a quiz is what makes players feel led around.
+
+Ask about the person, not about a contrived incident. Good questions are the ones
+a Keeper asks to know somebody: what people who know them would say they are good
+at; what they reach for first when a night turns bad; what they have never been any
+good at and stopped pretending about; where the body or the wits came from. Do not
+invent a small scenario ("the knife went dull, the hook came loose — did you fix it
+or call someone?") whose answer says nothing about who this person is, and never
+ask a yes-or-no question and then read its short answer as a verdict. Ask about a
+number, a stat or a menu of skills never; one thing per turn; nothing you can
+propose yourself (the way into the module's opening, personal ties, age, ordinary
+belongings and other defaultable minutiae go into the draft as editable
+suggestions, not into questions).
+
+Answer each reply before the next question, concretely. Say in character what their
+words will become on the card, naming the trait or the ability in the player's own
+terms — "then it is the arms and the fists that carry you: strength high, and a
+brawl you do not lose", "so it is the hands: mending what breaks will be yours" —
+not a vague "the craft is in your hands". Name traits and abilities in the ordinary
+words of the play language — strength, a steady hand, a good pair of fists — never
+as an English stat name, an abbreviation or a number. Then, if the exchange continues, ask the
+next thing that follows from what they said, and make it a lead the player can
+take or leave: "fists like that get used — did anyone ever pay to watch?" The lead
+is an offer; the answer decides. Do not invent facts the player did not give and do
+not report your own suggestion back as their claim.
 
 ## Reading how much they want to say
 
-The player sets the depth, not you. Read it from each reply:
+The player sets the depth, not you, but read it from what they say, not from how
+many words they used. A plain answer to a question that invited a plain answer is
+not impatience; it is an answer. Before you conclude that the player wants out,
+ask whether your own question gave them anything to say: a short reply to a thin
+question is your doing, and the remedy is a better question, never a card. What
+ends the exchange:
 
-- A short reply, a shrug, "whatever", "you decide", "quickly", or an answer that
-  restates the occupation and nothing more means they are done: draft now.
-- A reply that volunteers more than you asked — a memory, a person, a scar, a
-  habit — means they are enjoying this: one more question is welcome.
-- Any wording that means "make the card now" ends the exchange at once: draft in
-  that same reply without another question, whatever else you had planned.
+- Wording that means "make the card now", "you decide the rest", "whatever, just
+  get on with it", or an answer that refuses the question: draft in that same
+  reply, without another question, whatever else you had planned.
+- The cap: never exceed `max_guided_turns` guiding turns after the turn that gave
+  the name and occupation (the host prints the package settings beside this
+  instruction). When it is reached, draft.
 
-Never exceed `max_guided_turns` guiding turns after the turn that gave the name and
-occupation (the host prints the package settings beside this instruction). When the
-cap is reached, draft. When the load-bearing choices are already in — the person's
-strongest suit and the abilities that carry it — stop early and draft; a good card
-needs two answers, not ten. Once the draft is on the table, invite changes and stop
-asking; resume a question only if the player themselves adds new detail that would
-change the card.
+What keeps it going: a reply that volunteers more than you asked — a memory, a
+person, a scar, a habit — means one more question is welcome, and the next
+question should follow from what they volunteered. Do not draft before you know at
+least one thing about this person's body or mind and one ability they are known
+for, unless the player has told you to; that is what the exchange is for, and a
+card drafted without it is the dice's card, not theirs. When those are in, stop
+and draft; a good card needs two real answers, not ten. Once the draft is on the
+table, invite changes and stop asking; resume a question only if the player
+themselves adds new detail that would change the card.
 
 ## The reminder
 
 Every turn that asks a question ends with the same one short line, in the play
 language, telling the player that they can say "make the card now" and the card
 will be drafted at once. Keep the wording identical from turn to turn so it is
-learned once, keep it to one line, and never turn it into a menu of options. The
-draft turn itself carries no reminder; it carries the invitation to confirm or
-change.
+learned once, keep it to one line, and never turn it into a menu of options. Say
+it once per turn: on the first guiding turn the opening frame already says the
+player can end this whenever they like, so that turn does not repeat it at the
+end. The draft turn itself carries no reminder; it carries the invitation to
+confirm or change.
 
 ## What the answers become
 

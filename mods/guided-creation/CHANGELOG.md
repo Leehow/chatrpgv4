@@ -1,5 +1,31 @@
 # Guided Creation
 
+## 1.0.3
+
+Every question now says what it decides before it is asked, and the first guiding
+turn says what the exchange is for. Questions are about the person, not a
+contrived incident; each answer is named concretely as the trait or ability it
+puts on the card, then followed by a lead the player can take or leave. A plain
+answer to a plain question no longer ends the exchange; the trade clarification no
+longer counts toward the cap; and no card is drafted before one thing about the
+body or mind and one known ability are in, unless the player says so. (1.0.2
+below was described but never stamped into the manifest; this version carries
+both changes.)
+
+## 1.0.2
+
+The package's player-facing `name` and `description` are per-language objects,
+`en` beside `zh-Hans`, the shape the renderer and the kernel already read for the
+other built-ins. Nothing else moved: the guide, the settings, the settings
+schema and the required capabilities are the 1.0.1 text unchanged.
+
+Those two fields were first rewritten in place under the 1.0.1 label. A
+workspace holding the installed 1.0.1 snapshot then had bytes that no longer
+matched the shipped package, and the catalog refused every package rather than
+choose between them. The rename travels under its own version here. A campaign
+locked to 1.0.1 keeps that package, and its plain English name, until it
+upgrades explicitly.
+
 ## 1.0.1
 
 A trade with no rulebook entry is settled first, in its own turn, before the
