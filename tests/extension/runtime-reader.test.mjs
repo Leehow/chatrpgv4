@@ -144,6 +144,41 @@ writeFileSync('launch-argv.json',JSON.stringify(process.argv.slice(2)));\n`);
   }
 });
 
+test("lane models are re-pointed at a child-visible authenticated provider, never re-named", async t => {
+  const home = await temporary(t), executable = join(home, "capture-model.mjs"), launcher = join(home, "selected node"), agent = join(home, "agent"), captured = join(home, "captured", "argv.json");
+  await mkdir(join(home, "captured"));
+  await writeFile(executable, `import {writeFileSync} from 'node:fs';\nwriteFileSync(${JSON.stringify(captured)},JSON.stringify(process.argv.slice(2)));\n`);
+  const quote = value => "'" + value.replaceAll("'", "'\\''") + "'";
+  await writeFile(launcher, `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(executable)} "$@"\n`);
+  await chmod(launcher, 0o755);
+  await mkdir(agent, { recursive: true });
+  // `grok-build` is registered by an extension at runtime and lands in neither file: a
+  // zero-extension child cannot see it. `unauthenticated` lists the model but wrote no
+  // credentials, so the re-point must skip it even though it sorts first.
+  await json(join(agent, "models-store.json"), { unauthenticated: { models: [{ id: "grok-4.6" }] }, xai: { models: [{ id: "grok-4.6" }] } });
+  await json(join(agent, "models.json"), { providers: { mine: { baseUrl: "https://example.invalid/v1", api: "openai-completions", models: [{ id: "special" }] } } });
+  await json(join(agent, "auth.json"), { xai: { type: "api_key", key: "written" }, mine: { type: "api_key", key: "written" } });
+  const context = composeRuntimeContext({ owner: "preparation", home }, options({}, { agentHome: agent, nodeExecutable: launcher }));
+  const launch = async model => {
+    const outcome = await runtimeCapabilities.runTask(context, { kind: "reader", request: { cwd: home, brief: "Capture the model flag", model } }, active());
+    assert.equal(outcome.ok, true, JSON.stringify(outcome));
+    const args = JSON.parse(await readFile(captured, "utf8"));
+    return args[args.indexOf("--model") + 1];
+  };
+  assert.equal(await launch("grok-build/grok-4.6"), "xai/grok-4.6");
+  assert.equal(await launch("elsewhere/special"), "mine/special");
+  assert.equal(await launch("xai/grok-4.6"), "xai/grok-4.6");
+  assert.equal(await launch("grok-build/unlisted-anywhere"), "grok-build/unlisted-anywhere");
+  // Neither registry file reads: the lane must not judge, and the string passes through.
+  const bare = join(home, "bare agent");
+  await mkdir(bare, { recursive: true });
+  const bareContext = composeRuntimeContext({ owner: "preparation", home }, options({}, { agentHome: bare, nodeExecutable: launcher }));
+  const bareOutcome = await runtimeCapabilities.runTask(bareContext, { kind: "reader", request: { cwd: home, brief: "Capture the model flag", model: "grok-build/grok-4.6" } }, active());
+  assert.equal(bareOutcome.ok, true, JSON.stringify(bareOutcome));
+  const bareArgs = JSON.parse(await readFile(captured, "utf8"));
+  assert.equal(bareArgs[bareArgs.indexOf("--model") + 1], "grok-build/grok-4.6");
+});
+
 test("source and Mod checks invoke shared read-only validators and preserve rejected drafts", async t => {
   const home = await temporary(t), packet = join(home, "task packet.json"), draft = join(home, "source draft.json");
   await json(packet, { purpose: "guidance", module_id: "book-one", source: { page_count: 2 }, known_nodes: [] });

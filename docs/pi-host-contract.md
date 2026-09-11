@@ -117,6 +117,7 @@ and source acceptance remains the host/kernel's responsibility after child exit.
 
 - `--no-extensions` 禁止包自动加载，避免递归启动内核；显式加载的 `reader-context.ts` 只有 context hook，不注册工具或内核。
 - 读者模型取 `PI_COC_BUILD_MODEL`，否则沿用当前 Pi 模型。来源准备先核对图片输入能力；缺少能力时明确拒绝。
+- **子进程只看得见 home 里落了盘的 provider**（2026-09-11 真机缺陷：会话切到 grok-build-oauth 扩展注册的 `grok-build/*` 后，开卡投影子进程带着 `--no-extensions` 起来就报 `Model not found`，十二次尝试零事件，卡片永远停在重试钮）。同一个模型经扩展注册进当前会话的注册表，但子进程不加载扩展，它的目录只有 agent home 的 `models-store.json` 与 `models.json`，鉴权只有 `auth.json` 里落了盘的项。因此 `runtime/tasks.ts` 的 `runTask`——读者、模组与全部投影车道（开卡、面板词、UI 词、文档）共同的唯一漏斗——在起子进程前把请求模型重解析一次：provider 在 home 注册表里且列得出该模型 id 就原样用；列不出就换成注册表里**同 id 且 `auth.json` 有鉴权**的 provider（id 相同、按 provider 名排序取第一个，不换模型、不猜语义）；两个注册表文件一个都读不到时不判，原样透传。换不出来也原样透传，让子进程自己的报错说话。
 - 图片以原 PDF 页或裁剪区域读取。每个模型请求保留最近至多四张、约 8 MiB 图片；未进入上下文的图片不算读取。草稿与复核边看边写，避免在上下文收缩后凭记忆重写。
 - 一阶段默认最多 60 分钟；前台默认等待 120 秒后交还玩家，源任务继续。超时给出原 focus/question，继续等待不能自动生成另一个问题。
 - 验证会话不能修改草稿。宿主核对草稿摘要与实际图片事件，再由同一内核接口校验并发布。

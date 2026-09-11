@@ -95,12 +95,75 @@ export async function evaluateCheck(context: RuntimeContext, request: RuntimeChe
   throw new KernelError({ code: "not_implemented", message: "Unknown runtime check" });
 }
 
+/**
+ * The provider:model pairs a zero-extension lane child can actually run.
+ *
+ * The child loads no extensions, so a provider an extension registered into the session's
+ * registry (grok-build from grok-build-oauth, for instance) does not exist for it: its catalog
+ * is the agent home's `models-store.json` plus `models.json`, its auth the providers written to
+ * `auth.json`. Both registry files are optional; when neither reads, the map is empty and the
+ * caller must not judge.
+ */
+async function childCatalog(agentHome: string): Promise<ReadonlyMap<string, ReadonlySet<string>>> {
+  const catalog = new Map<string, Set<string>>();
+  let readable = false;
+  const absorb = (provider: unknown, models: unknown) => {
+    if (typeof provider !== "string" || !provider.trim() || !Array.isArray(models)) return;
+    const ids = catalog.get(provider) ?? new Set<string>();
+    for (const entry of models) {
+      const id = (entry as { id?: unknown })?.id;
+      if (typeof id === "string" && id.trim()) ids.add(id);
+    }
+    catalog.set(provider, ids);
+    readable = true;
+  };
+  try {
+    const store = JSON.parse(await readFile(join(agentHome, "models-store.json"), "utf8"));
+    if (store && typeof store === "object" && !Array.isArray(store))
+      for (const [provider, entry] of Object.entries(store)) absorb(provider, (entry as { models?: unknown })?.models);
+  } catch { /* an absent or half-written store is one source fewer, never a failure */ }
+  try {
+    const custom = JSON.parse(await readFile(join(agentHome, "models.json"), "utf8"));
+    const providers = custom?.providers;
+    if (providers && typeof providers === "object" && !Array.isArray(providers))
+      for (const [provider, entry] of Object.entries(providers)) absorb(provider, (entry as { models?: unknown })?.models);
+  } catch { /* models.json is optional */ }
+  return readable ? catalog : new Map();
+}
+
+/**
+ * Re-resolve a lane's model against the child-visible catalog before a zero-extension child is
+ * spawned with it. A request whose provider is registered only at runtime dies in the child with
+ * "Model not found" before it emits a single event -- the 2026-09-11 draft card that never
+ * appeared. The model id is the lane's choice and is never second-guessed; only the provider is
+ * re-pointed, to the alphabetically first catalog entry that lists the same id and has written
+ * credentials. When nothing qualifies -- including an unreadable pair of registry files -- the
+ * original string passes through unchanged and the child's own error says why.
+ */
+async function childRunnableModel(context: RuntimeContext, model: string | undefined): Promise<string | undefined> {
+  if (!model) return model;
+  const slash = model.indexOf("/");
+  if (slash <= 0 || slash === model.length - 1) return model;
+  const provider = model.slice(0, slash), id = model.slice(slash + 1);
+  const catalog = await childCatalog(context.agentHome);
+  if (!catalog.size) return model;
+  if (catalog.get(provider)?.has(id)) return model;
+  let authenticated: ReadonlySet<string> = new Set();
+  try {
+    const auth = JSON.parse(await readFile(join(context.agentHome, "auth.json"), "utf8"));
+    if (auth && typeof auth === "object" && !Array.isArray(auth)) authenticated = new Set(Object.keys(auth));
+  } catch { /* without the store there is nothing to prefer one candidate over another with */ }
+  const candidate = [...catalog.keys()].filter(name => name !== provider && catalog.get(name)!.has(id) && authenticated.has(name)).sort()[0];
+  return candidate ? `${candidate}/${id}` : model;
+}
+
 export const runtimeCapabilities: RuntimeCapabilities = Object.freeze({
   async runTask(context, task, signal) {
     ensureActive(signal);
     if (task.kind !== "reader" && task.kind !== "mod") throw new KernelError({ code: "not_implemented", message: "Unknown runtime task" });
     const request: ReaderRequest = { ...task.request, cwd: resolve(context.home, task.request.cwd), signal };
     if (task.kind === "mod") request.model = context.env.PI_COC_MOD_MODEL?.trim() || request.model;
+    request.model = await childRunnableModel(context, request.model);
     request.systemPrompt = await instructions(context, request);
     const configured = Number(context.env[task.kind === "mod" ? "PI_COC_MOD_TIMEOUT_MS" : "PI_COC_READER_TIMEOUT_MS"]);
     request.timeoutMs ??= configured > 0 ? configured : task.kind === "mod" ? 180_000 : undefined;
