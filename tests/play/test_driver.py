@@ -179,6 +179,24 @@ def test_turn_without_text_yields_undelivered_with_tools(started_run):
     assert summary["tools"][0]["name"] == "look"
 
 
+def test_a_delivery_that_only_the_narrate_result_carries_is_still_the_turn(started_run):
+    """Contract §32.9: a Keeper that ends on the message carrying its narrate call leaves the
+    assistant-side replacement nowhere to land. PipiCOC reads the kernel's `rendered_text` off the
+    tool result and shows the words; the driver read assistant text alone and recorded the turn as
+    undelivered while the player had in fact been told. One turn in the 445 on disk did this."""
+    run_id, start = started_run
+    prose = "门厅里落满灰，楼梯通向二楼。"
+    assert start(extra_env={"FAKE_PI_NO_TEXT": "1", "FAKE_PI_DELIVER_VIA_TOOL": prose}).returncode == 0
+
+    proc = run_driver("turn", "我推门进去。", "--run", run_id, "--timeout", "20")
+    assert proc.returncode == 0, proc.stderr
+
+    summary = read_json(run_dir(run_id) / "turn-1.json")
+    assert summary["settle_class"] == "settled"
+    assert summary["final_text"] == prose
+    assert [tool["name"] for tool in summary["tools"]] == ["look", "narrate"]
+
+
 def test_stop_terminates_both_processes_and_writes_final(started_run):
     run_id, start = started_run
     assert start().returncode == 0

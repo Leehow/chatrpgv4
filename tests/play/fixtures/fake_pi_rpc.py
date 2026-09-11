@@ -123,7 +123,22 @@ def handle_prompt(cmd: dict) -> None:
           "result": {"content": [{"type": "text", "text": result_text}]},
           "isError": False})
 
+    # A Keeper that stops on the message carrying its narrate call: the kernel rendered the prose and
+    # returned it, and no assistant text was ever written for the replacement to land in. PipiCOC reads
+    # this result and shows the words; a reader that waits for assistant text sees silence.
+    delivered = os.environ.get("FAKE_PI_DELIVER_VIA_TOOL")
+    if delivered:
+        emit({"type": "tool_execution_start", "toolCallId": "call_fake_2", "toolName": "narrate",
+              "args": {"text": delivered}})
+        emit({"type": "tool_execution_end", "toolCallId": "call_fake_2", "toolName": "narrate",
+              "result": {"content": [{"type": "text", "text": json.dumps(
+                  {"rendered_text": delivered, "turn": kernel_turn, "mechanics": []})}]},
+              "isError": False})
+
     content = [{"type": "toolCall", "id": tool_call_id, "name": "look", "arguments": args}]
+    if delivered:
+        content.append({"type": "toolCall", "id": "call_fake_2", "name": "narrate",
+                        "arguments": {"text": delivered}})
     if text:
         content.append({"type": "text", "text": text})
     message = {"role": "assistant", "content": content}

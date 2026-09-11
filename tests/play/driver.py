@@ -472,6 +472,12 @@ class Daemon:
             tool_order: list[str] = []
             text_parts: list[str] = []
             final_text_parts: list[str] = []
+            # The kernel's own rendered prose, taken off the narrate/ask result. This is the channel
+            # PipiCOC reads (`pipicoc/mechanics.js`), and it is the only one that is there whatever the
+            # model does with its messages: a Keeper that stops on the message carrying the call leaves
+            # the assistant-side replacement nowhere to land, and the turn read as undelivered while the
+            # player in the app had been given the words (contract §32.9).
+            delivered = ""
             stop_reason: str | None = None
             deadline = started_mono + timeout
             settle_deadline: float | None = None
@@ -536,6 +542,13 @@ class Daemon:
                                                        TOOL_RESULT_TRUNCATE_BYTES),
                         "ms": ms, "is_error": event.get("isError", False),
                     })
+                    if rec["name"] in ("narrate", "ask") and not event.get("isError", False):
+                        try:
+                            body = json.loads(extract_result_text(event.get("result")) or "{}")
+                        except (ValueError, TypeError):
+                            body = {}
+                        if isinstance(body, dict) and isinstance(body.get("rendered_text"), str):
+                            delivered = body["rendered_text"]
                 elif etype == "agent_settled":
                     if not saw_work:
                         # The previous run finishing, not this turn. Keep waiting for this one.
@@ -556,6 +569,8 @@ class Daemon:
                     break
 
             final_text = "".join(final_text_parts).strip()
+            if not final_text:
+                final_text = delivered.strip()
             if not final_text:
                 final_text = "".join(text_parts).strip()
             tool_records = [tools[t] for t in tool_order if t in tools]

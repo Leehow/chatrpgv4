@@ -4912,7 +4912,7 @@ Not repaired, and named here rather than patched:
   so the existing table scores it — a package change with a version bump, and a number nobody has
   authored yet. Nothing here is repaired by code in the kernel, and the ledger's own row already says
   `social`, which is what the package declared its intent to be.
-- **A delivery the kernel rendered can reach nobody.** `probe-willing` turn 1 settled a commission,
+- **A delivery the kernel rendered could reach nobody (repaired).** `probe-willing` turn 1 settled a commission,
   moved the scene, seated an NPC and closed with `narrate`; the kernel wrote 242 characters of prose
   into the turn record, and the player was shown nothing. The Keeper had ended on the message that
   carried the `narrate` call, so there was no following text-only assistant message for `message_end`
@@ -4920,9 +4920,15 @@ Not repaired, and named here rather than patched:
   for a message that never came. `agent_end` already knows this shape (its comment names it) and uses
   it only as the verifier lane's starting gun; nothing delivers the prose. It is rare — one turn in the
   445 this project has played across every run on disk — and the repair is not a patch: `sendMessage`
-  can only make a custom message, not an assistant one, so the delivery would have to be placed in the
-  tool-call message itself and any trailing prose dropped, which changes the path every ordinary turn
-  takes. That is its own slice, with the app and the TUI checked alongside the driver.
+  can only make a custom message, not an assistant one. Two repairs rather than one, because the two
+  readers are not the same: `agent_end` now places the prose as a displayed `coc-delivery` message when
+  the replacement never ran, and writes a `lane: "delivery"` row saying it did, so a terminal shows the
+  words instead of nothing; and `tests/play/driver.py` takes the delivery off the `narrate`/`ask`
+  result, the channel PipiCOC has always read, so acceptance evidence stops depending on what the model
+  did with its messages. The driver half is pinned by `test_a_delivery_that_only_the_narrate_result_
+  carries_is_still_the_turn`; the host half is not, and cannot be at this seam — the faux provider
+  always answers once more, and that answer is somewhere for the replacement to land. What keeps the
+  branch honest is its guard, false on every turn the replacement did run, and its telemetry row.
 - **The verifier lane times out on a slow model** -- eight of forty turns at `admission-e2e-4`, on
   grok-4.6, each losing its findings. `PI_COC_VERIFIER_MODEL` takes the same treatment as
   `PI_COC_ADMISSION_MODEL`: a small fast model answers a short JSON judgement in about a second.

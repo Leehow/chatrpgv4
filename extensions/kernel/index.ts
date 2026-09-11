@@ -1532,6 +1532,27 @@ export default function (pi: ExtensionAPI) {
 		// message, and so no delivery replacement to wait for; this run ending is the lane's starting gun.
 		// This is also the backstop for the accounting: a narrate-closed turn cannot leave this run
 		// without a verifier row, even when the lane never ran (ticket #28).
+		//
+		// It is the backstop for the delivery itself, too. The replacement waits for a following
+		// assistant message, and a Keeper that stops on the tool call never writes one: the kernel had
+		// rendered the prose, and the player was shown nothing (`probe-willing` turn 1, one turn in the
+		// 445 on disk). PipiCOC reads the delivery off the `narrate` result and never saw the gap; a
+		// terminal reads the assistant message, and saw silence. Pi gives an extension no way to add an
+		// assistant message, so the words go out as a displayed message of their own rather than not at
+		// all, and the row says it happened (contract §8, §32.9).
+		//
+		// The seam suite cannot reach this branch: its faux provider always answers once more, and that
+		// answer is somewhere for the replacement to land. The guard is what keeps it inert everywhere
+		// else -- `renderedText` is undefined by this point on every turn the replacement did run -- and
+		// the telemetry row is how a run that takes this path says so.
+		const undelivered = state.renderedText;
+		if (undelivered !== undefined) {
+			state.renderedText = undefined;
+			state.deliveryToolCallId = undefined;
+			pi.sendMessage({ customType: "coc-delivery", content: undelivered, display: true, details: { coc_delivery: true, turn: state.turn } });
+			void record({ lane: "delivery", turn: state.turn, ok: true, reason: "placed_by_host",
+				detail: "the Keeper ended on the message carrying the call, so the replacement had nowhere to land" });
+		}
 		if (state.verifierOwed) settleVerifier(state);
 		if (state.closedThisRun || state.renderedText) return;
 		if (state.steeredThisTurn) return;
