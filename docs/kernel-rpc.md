@@ -4908,9 +4908,40 @@ Not repaired, and named here rather than patched:
   so the existing table scores it — a package change with a version bump, and a number nobody has
   authored yet. Nothing here is repaired by code in the kernel, and the ledger's own row already says
   `social`, which is what the package declared its intent to be.
+- **A delivery the kernel rendered can reach nobody.** `probe-willing` turn 1 settled a commission,
+  moved the scene, seated an NPC and closed with `narrate`; the kernel wrote 242 characters of prose
+  into the turn record, and the player was shown nothing. The Keeper had ended on the message that
+  carried the `narrate` call, so there was no following text-only assistant message for `message_end`
+  to place `rendered_text` into — the tool-call branch strips text and returns, and the placement waits
+  for a message that never came. `agent_end` already knows this shape (its comment names it) and uses
+  it only as the verifier lane's starting gun; nothing delivers the prose. It is rare — one turn in the
+  445 this project has played across every run on disk — and the repair is not a patch: `sendMessage`
+  can only make a custom message, not an assistant one, so the delivery would have to be placed in the
+  tool-call message itself and any trailing prose dropped, which changes the path every ordinary turn
+  takes. That is its own slice, with the app and the TUI checked alongside the driver.
 - **The verifier lane times out on a slow model** -- eight of forty turns at `admission-e2e-4`, on
   grok-4.6, each losing its findings. `PI_COC_VERIFIER_MODEL` takes the same treatment as
   `PI_COC_ADMISSION_MODEL`: a small fast model answers a short JSON judgement in about a second.
+
+**Three seeded probes for what play never reached (2026-09-11; probes, not playtests, and not
+acceptance).** Each is a real table through the real Keeper with `deepseek/deepseek-v4-flash` reviewing,
+aimed at one question the three tables left untested. `probe-quiet` (10 turns, Knott's office and the
+street, never the haunted house): seven deliberately quiet turns landed **no** clue, move, time or
+session between them, the one clue that did land came from the NPC's own initiative and admission
+classified it `not_player_action`; `stalled_turns` crossed `keeper-pacing`'s threshold at turn 6 and
+climbed to 6, the Director scored RECOVER top for five straight turns, and the Keeper declined it all
+five, reading 「再给我一会儿」 and 「先别催」 as lingering rather than being stuck — §30.11's doctrine
+exercised for the first time. `probe-improv` (12 turns of sideways investigation — title searches, the
+will's executor, the Macarios' whereabouts): the Keeper reached for the source, by explicit `lookup` or
+from an already-loaded node, and answered from authored causal facts (the executor pastor and his
+sentence, the sealed 1912 raid file, the records clerk and his redirect), inventing no culprit,
+contradicting nothing, and never flatly refusing to engage; the one weakness was an authored Law-contact
+branch collapsed into a generic social check. `probe-willing` (10 turns working an authored gatekeeper):
+the arc the specification asks for did **not** complete, because six social rolls in a row failed —
+but the ledger worked end to end, moving `null` → `wary` through the closed table on a fast-talk
+failure and then to `hostile` through the Keeper's own `apply npc`, and the next capsule carried
+`toward_party` with both reasons, which the Keeper then played faithfully. Verdict reuse fired in none
+of the three (nor in any of the 77 table turns), so §32.4 still rests on the seam tests alone.
 
 **Reviewer model (probe, 2026-09-11, `ModelRuntime.complete` on the product prompt, seven positive/negative pairs: bare 「那看看报纸」 with no archive mentioned, the same after Knott named the morgue, an explicit trip, look-versus-pry, pry after looking, a quiet half hour, ask-versus-bribe).** grok-4.6: six of six unambiguous cases right, refuses the arguable one, 10–51 s each. grok-4.3: six of six right, admits the arguable one (the spec's "already discussed archive trip"), 2.7–4.6 s each. grok-4.5 (relay, low): six of six right, 4.6–14 s. glm-5.2: two wrong (admits the bare newspapers as `entailed`; a malformed answer on ask-versus-bribe), 9–32 s. With a working key (added by the user the same day): deepseek-v4-flash six of six right, admits the arguable one, 0.7–1.5 s; deepseek-v4-pro six of six right, refuses the arguable one, 1.6–2.6 s. The recommendation, confirmed by the third table above, is `PI_COC_ADMISSION_MODEL=deepseek/deepseek-v4-flash` (grok-4.3 where DeepSeek is not configured); the model is still an environment choice, not a product default, because provider names are the user's.
 
