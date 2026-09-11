@@ -349,6 +349,25 @@ def fold_judgement(judgement: dict[str, Any], turns_seen: set[int],
 # the report
 # --------------------------------------------------------------------------
 
+#: A run that failed because the product never produced an investigator is a result, not a
+#: broken instrument. The creation lane can follow a player who keeps asking instead of
+#: choosing until the step budget runs out, narrating a whole unreceipted session on the way
+#: (`pb-full-p02-natu-t3-74849Z`: twenty steps, no card, and the last ten turns called no tool
+#: at all while telling the player "the card is still pending").
+NO_CARD_SIGNATURE = "not ready_for_table"
+
+
+def classify(record: dict[str, Any]) -> str:
+    if record.get("status") != "invalid":
+        return record.get("status") or "unknown"
+    error = str(record.get("error") or "")
+    if NO_CARD_SIGNATURE in error:
+        return "no_card"
+    if error.startswith("instrument-invalid") or "instrument-invalid" in error:
+        return "instrument_invalid"
+    return "invalid"
+
+
 def build_report(run_dir: Path, *, judge: bool, judge_model: str) -> dict[str, Any]:
     record = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
     campaign = REPO_ROOT / ".coc" / "campaigns" / record["campaign"]
@@ -360,7 +379,8 @@ def build_report(run_dir: Path, *, judge: bool, judge_model: str) -> dict[str, A
         "persona": f"{persona['id']}_{persona['name']}", "lane": record["lane"],
         "trial": record["trial"], "run_id": record["run_id"],
         "method": "persona-benchmark", "acceptance": False,
-        "status": record.get("status"), "stop_reason": record.get("stop_reason"),
+        "status": classify(record), "raw_status": record.get("status"),
+        "stop_reason": record.get("stop_reason"), "error": record.get("error"),
         "models": record.get("models"),
     }
     if not campaign.exists():

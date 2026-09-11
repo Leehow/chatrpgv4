@@ -393,3 +393,17 @@ def test_a_dead_setup_process_without_a_card_is_still_a_failure(tmp_path, monkey
         bench.run_setup_lane({"campaign": "c", "run_id": "r"},
                              {**bench.DEFAULTS, "setup_max_turns": 5, "turn_timeout": 1.0},
                              player, tmp_path / "trace.jsonl")
+
+
+def test_a_run_that_never_got_a_card_is_a_result_not_a_broken_instrument():
+    """The creation lane can follow a questioning player until the budget runs out. That is the
+    product's answer to that player, and it must not be filed with the harness's own failures."""
+    assert persona_report.classify({
+        "status": "invalid",
+        "error": "RunFailed: setup lane ended with campaign status 'setting_up', not ready_for_table",
+    }) == "no_card"
+    assert persona_report.classify({
+        "status": "invalid", "error": "instrument-invalid: stopped to fix the creation lane",
+    }) == "instrument_invalid"
+    assert persona_report.classify({"status": "completed"}) == "completed"
+    assert persona_report.classify({"status": "invalid", "error": "DaemonUnavailable: gone"}) == "invalid"
