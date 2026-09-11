@@ -21,6 +21,7 @@ import { array, entries, values, row, clone, number, string, truth, repr, chars,
 import { CampaignWriter, freshTurn, nowIso, required, missingContribution, createTurnTransaction, rememberCall, turnStateError } from './store.js';
 import { checked, commit, CommitFailed } from './history.js';
 import { registerStarter } from './source.js';
+import { validateDifficulty } from '../setup/difficulty.js';
 import { resolveStartScene } from '../modules/visual.js';
 import { loadModuleContract, validSourceLanguage } from '../modules/contract.js';
 import { defaultModPlan, preflightCampaign as validateContributions, rebuildNpcLedger, updateNpcLedger, stanceTable, writeEpisode } from './contributions.js';
@@ -375,6 +376,11 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         const registers = [...craft.nodes.values()].filter(node => node.node_kind === 'play-register').sort((a, b) => number(a.properties.ordinal) - number(b.properties.ordinal)).map(node => node.properties.legacy_key);
         if (!registers.includes(register))
             unsupported('register', register, registers);
+        // Creation difficulty (contract §33): host configuration snapshot into the campaign, validated here,
+        // read by chargen on every build; absent means the rulebook standard.
+        const difficulty = params.difficulty ?? null;
+        if (difficulty != null)
+            validateDifficulty(difficulty);
         const starters = await context.snapshots.sortedChildNames(join(context.content, 'starters'), path => context.snapshots.pathExists(join(path, 'module-graph.json')));
         const starter = starters.includes(moduleId), metadata = join(context.stateRoot, 'modules', moduleId, 'module.json');
         if (!starter && !await context.snapshots.pathExists(metadata))
@@ -431,6 +437,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             module_generation: number(moduleMeta.generation || loaded?.generation),
             play_language: language,
             register,
+            ...(difficulty != null ? {difficulty: clone(difficulty)} : {}),
             status: sheet ? 'active' : 'setting_up',
             created_at: nowIso(),
             opening_scene: start,

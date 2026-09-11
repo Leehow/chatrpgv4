@@ -8649,6 +8649,15 @@ export class PiHostBackend implements HostBackend {
     const ui = await this.cocWords(home, tag);
     return ui ? {ui} : {};
   }
+  /**
+   * The extension's creation-difficulty setting (contract §33.1), app scope of the settings
+   * JSON, or nothing: absent reads as `hard` x1 and campaign.create is called without the key.
+   */
+  private async cocDifficultySetting(): Promise<Record<string, unknown> | undefined> {
+    const values = readAppExtensionSettingsValues(await this.readSettings(), "coc-keeper", new Set());
+    const value = values["ext.coc-keeper.difficulty"];
+    return isRecord(value) ? value : undefined;
+  }
   /** The campaign's generated portrait as a data URL, when the live lane already saved one (contract §22.7). */
   private async cocCampaignPortrait(context:CocBinding):Promise<string|undefined> {
     for(const [ext,mime] of [["png","image/png"],["jpg","image/jpeg"],["webp","image/webp"]] as const) {
@@ -8841,6 +8850,15 @@ export class PiHostBackend implements HostBackend {
           return {ok: true, data: {started: true, mode:binding.mode||'play'}};
         }
         const state = await this.getModelState(sid || undefined);
+        if (request.action === "converse") {
+          // The extension's creation-difficulty setting (contract §33.1) rides the converse
+          // worker input into campaign.create. The host is the only authority: a difficulty the
+          // renderer supplied is dropped, and when nothing is stored no key is passed (absent
+          // reads as the rulebook standard).
+          const difficulty = await this.cocDifficultySetting();
+          if (difficulty) request.difficulty = difficulty;
+          else delete request.difficulty;
+        }
         if (sid && ["begin", "select"].includes(String(request.action))) {
           const selected = await this.locate(sid);
           if (await readCocBinding(selected.path)) throw this.cocRefusal("opening_bound", "This session already has a campaign; create a new session");
@@ -8976,6 +8994,12 @@ export class PiHostBackend implements HostBackend {
     }
     if (id === "coc-keeper" && ["sheet","choose"].includes(method) && !(isRecord(optsValue) && typeof optsValue.sessionId === "string" && optsValue.sessionId.trim())) {
       return {ok:true,data:{status:"unbound",view:null,campaign:null,...await this.cocAnswerWords(undefined)}};
+    }
+    if (id === "coc-keeper" && method === "ui-words") {
+      // The pack's settings sections have no session of their own: the words answer with the
+      // default play language, exactly like an unbound sheet read (contract §23).
+      try { return {ok: true, data: await this.cocAnswerWords(undefined)}; }
+      catch (error) { return this.cocDenied(this.cocCode(error), error instanceof Error ? error.message : String(error)); }
     }
     if (id === "image-gen" && method === "model") {
       // The Image Generation extension's model choice, app-level: the picker in its settings

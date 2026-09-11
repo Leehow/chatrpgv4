@@ -22,6 +22,7 @@ Only the standard library is used.
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import json
 import os
 import shutil
@@ -38,7 +39,10 @@ from persona_metrics import HARD_GATES, METRICS, judge_metrics, rate  # noqa: E4
 from player import load_personas, seed_home  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_JUDGE_MODEL = "deepseek/deepseek-v4-pro"
+#: The judge probe: `deepseek-v4-flash` walked every turn and recorded eight cited findings
+#: where `deepseek-v4-pro` recorded none from the same evidence, and it is several times faster
+#: -- which matters when a suite has a hundred runs to judge.
+DEFAULT_JUDGE_MODEL = "deepseek/deepseek-v4-flash"
 JUDGE_TIMEOUT = 1800
 
 
@@ -210,8 +214,11 @@ Work like this:
         --quote "<one sentence, copied exactly from that turn>" --why "<one short line>"
 
    `ok` means the turn exercised the question and the answer was the good one. `violation`
-   means it exercised it and the answer was the bad one. A turn where the question was not
-   exercised gets no finding at all -- silence is the third answer, and it is often correct.
+   means it exercised it and the answer was the bad one. Record one or the other whenever the
+   turn gave the question any occasion at all: a turn where the Keeper could have refused and
+   did not is an `ok` for hard_denial_rate, not a silence. Silence is only for a question that
+   had no occasion to arise in that turn -- there is no third verdict called "not exercised as
+   a violation".
 
 The tool refuses a finding whose quote does not occur in that turn. That is deliberate: if
 you cannot quote it, it did not happen. Do not work around the refusal -- find the real
@@ -282,6 +289,9 @@ def run_judge(run_dir: Path, model: str) -> dict[str, Any]:
     shutil.copy2(Path(__file__).resolve().parent / "judge_tools.py", run_dir / "judge_tools.py")
     for stale in ("judgement.jsonl", "judge-refusals.jsonl"):
         (run_dir / stale).unlink(missing_ok=True)
+    # `--thinking off` is not a preference: with thinking on, this lane produced no text and no
+    # tool call at all, twice -- reasoning and the tool budget come out of the same output
+    # allowance. Turned off, the same model reads every turn and answers every question.
     home = seed_home(Path(tempfile.mkdtemp(prefix="persona-judge-")) / "home",
                      REPO_ROOT / ".pi" / "coc-agent")
     env = {k: v for k, v in os.environ.items()
@@ -290,7 +300,7 @@ def run_judge(run_dir: Path, model: str) -> dict[str, Any]:
     try:
         proc = subprocess.run(
             [str(pi), "-p", "--no-extensions", "--no-skills", "--no-prompt-templates",
-             "--no-session", "--no-context-files", "--approve",
+             "--no-session", "--no-context-files", "--approve", "--thinking", "off",
              "--tools", "read,write,edit,bash", "--provider", provider, "--model", model_id,
              "Follow JUDGE.md in this directory."],
             cwd=str(run_dir), capture_output=True, text=True, timeout=JUDGE_TIMEOUT, env=env,
@@ -339,6 +349,25 @@ def fold_judgement(judgement: dict[str, Any], turns_seen: set[int],
 # the report
 # --------------------------------------------------------------------------
 
+#: A run that failed because the product never produced an investigator is a result, not a
+#: broken instrument. The creation lane can follow a player who keeps asking instead of
+#: choosing until the step budget runs out, narrating a whole unreceipted session on the way
+#: (`pb-full-p02-natu-t3-74849Z`: twenty steps, no card, and the last ten turns called no tool
+#: at all while telling the player "the card is still pending").
+NO_CARD_SIGNATURE = "not ready_for_table"
+
+
+def classify(record: dict[str, Any]) -> str:
+    if record.get("status") != "invalid":
+        return record.get("status") or "unknown"
+    error = str(record.get("error") or "")
+    if NO_CARD_SIGNATURE in error:
+        return "no_card"
+    if error.startswith("instrument-invalid") or "instrument-invalid" in error:
+        return "instrument_invalid"
+    return "invalid"
+
+
 def build_report(run_dir: Path, *, judge: bool, judge_model: str) -> dict[str, Any]:
     record = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
     campaign = REPO_ROOT / ".coc" / "campaigns" / record["campaign"]
@@ -350,7 +379,8 @@ def build_report(run_dir: Path, *, judge: bool, judge_model: str) -> dict[str, A
         "persona": f"{persona['id']}_{persona['name']}", "lane": record["lane"],
         "trial": record["trial"], "run_id": record["run_id"],
         "method": "persona-benchmark", "acceptance": False,
-        "status": record.get("status"), "stop_reason": record.get("stop_reason"),
+        "status": classify(record), "raw_status": record.get("status"),
+        "stop_reason": record.get("stop_reason"), "error": record.get("error"),
         "models": record.get("models"),
     }
     if not campaign.exists():
@@ -398,9 +428,23 @@ def cmd_run(args: argparse.Namespace) -> int:
 
 def cmd_suite(args: argparse.Namespace) -> int:
     suite_dir = Path(args.suite_dir)
-    reports = []
-    for run_dir in sorted(p for p in suite_dir.iterdir() if (p / "run.json").exists()):
-        reports.append(build_report(run_dir, judge=not args.no_judge, judge_model=args.judge_model))
+    run_dirs = sorted(p for p in suite_dir.iterdir() if (p / "run.json").exists())
+    reports: list[dict[str, Any]] = []
+    # The judge lane is one agent per run; a hundred of them in series is most of a day, and
+    # they share nothing but the model endpoint.
+    workers = 1 if args.no_judge else max(1, int(args.judge_concurrency))
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {pool.submit(build_report, run_dir, judge=not args.no_judge,
+                               judge_model=args.judge_model): run_dir for run_dir in run_dirs}
+        for future in concurrent.futures.as_completed(futures):
+            run_dir = futures[future]
+            try:
+                reports.append(future.result())
+            except Exception as exc:  # noqa: BLE001 -- one unreadable run does not lose the suite
+                reports.append({"run_id": run_dir.name, "status": "invalid",
+                                "error": f"{type(exc).__name__}: {exc}"})
+                print(f"{run_dir.name}: report failed: {exc}", file=sys.stderr)
+    reports.sort(key=lambda r: (r.get("persona") or "", r.get("lane") or "", r.get("trial") or 0))
     summary = {
         "method": "persona-benchmark", "acceptance": False,
         "suite_dir": str(suite_dir), "runs": len(reports),
@@ -422,6 +466,53 @@ def cmd_suite(args: argparse.Namespace) -> int:
     (suite_dir / "suite-report.json").write_text(
         json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(summary, ensure_ascii=False, indent=2))
+    return 0
+
+
+def cmd_table(args: argparse.Namespace) -> int:
+    """The readable form of a suite report: one row per persona and lane.
+
+    No overall average is printed here either. A single number over eighteen personas is
+    exactly the thing that hides "the Director got smoother on the main line and started
+    railroading the players who leave it".
+    """
+    summary = json.loads((Path(args.suite_dir) / "suite-report.json").read_text(encoding="utf-8"))
+    by_persona = summary["by_persona"]
+    judged_ids = sorted({m for runs in by_persona.values() for run in runs
+                         for m in (run.get("judged") or {}) if m in METRICS})
+    columns = [m for m in judged_ids if METRICS[m]["tier"] == "judge"][: args.max_metrics]
+
+    width = max(len(k) for k in by_persona) + 2 if by_persona else 34
+    header = (f"{'persona / lane':<{width}}{'runs':>5}{'turns':>7}{'clues':>7}{'gates':>7}"
+              + "".join(f"{m[:14]:>16}" for m in columns))
+    print(f"suite: {summary['suite_dir']}")
+    print("method: persona-benchmark -- not acceptance (Agents.md's real table is unchanged)")
+    print(header)
+    print("-" * len(header))
+    for key in sorted(by_persona):
+        runs = by_persona[key]
+        def med(pick) -> str:
+            values = [v for v in (pick(r) for r in runs) if isinstance(v, (int, float))]
+            return f"{statistics.median(values):.2f}".rstrip("0").rstrip(".") if values else "-"
+        # A gate count of zero must not be printable when nothing was judged: unmeasured and
+        # clean look identical otherwise, and the first reader will take it for clean.
+        judged_any = any(r.get("judged") for r in runs)
+        gates = (sum(sum((r.get("hard_gates") or {}).values()) for r in runs)
+                 if judged_any else "-")
+        row = (f"{key:<{width}}{len(runs):>5}"
+               f"{med(lambda r: r['receipts'].get('turns_played')):>7}"
+               f"{med(lambda r: r['receipts'].get('clue_reachability')):>7}"
+               f"{str(gates):>7}")
+        for metric_id in columns:
+            row += f"{med(lambda r, m=metric_id: (r.get('judged') or {}).get(m)):>16}"
+        print(row)
+    print()
+    print("gates = hard-gate violations (secret leak, state corruption, rules P0, inner life). "
+          "Any number here is a defect, not a score; `-` means the judge lane did not run, "
+          "which is not the same as clean.")
+    for metric_id in columns:
+        print(f"  {metric_id}: {METRICS[metric_id]['summary']} "
+              f"({'higher' if METRICS[metric_id]['direction'] == 'higher_is_better' else 'lower'} is better)")
     return 0
 
 
@@ -462,7 +553,14 @@ def build_parser() -> argparse.ArgumentParser:
         sp.add_argument(needs, required=True, dest=needs.lstrip("-").replace("-", "_"))
         sp.add_argument("--no-judge", action="store_true", help="tiers A and B only; spend nothing")
         sp.add_argument("--judge-model", default=DEFAULT_JUDGE_MODEL)
+        sp.add_argument("--judge-concurrency", type=int, default=8,
+                        help="judges to run at once when judging a whole suite (default 8)")
         sp.set_defaults(func=func)
+    sp = sub.add_parser("table", help="render a finished suite report as a per-persona table")
+    sp.add_argument("--suite-dir", required=True)
+    sp.add_argument("--max-metrics", type=int, default=6)
+    sp.set_defaults(func=cmd_table)
+
     sp = sub.add_parser("compare")
     sp.add_argument("--baseline", required=True)
     sp.add_argument("--candidate", required=True)

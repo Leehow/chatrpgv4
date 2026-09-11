@@ -369,7 +369,10 @@ export class CocOnboardingHost {
         if(job.preparation?.guidance?.state!=='ready') throw refuse('guidance_not_ready', 'Wait for the scenario guidance to be ready');
         if(!job.guidance)throw refuse('guidance_unavailable', 'Accepted guidance is unavailable');
         job.campaign ||= 'game-' + randomUUID(); this.save(job);
-        await this.run('converse', {...job,title:job.name,play_language:job.play_language??await this.playLanguage(undefined)},job);
+        // The host injects the extension's difficulty setting (contract §33.1); it is not a
+        // player-editable import field, so only the converse run input carries it, never the job.
+        const difficulty=params.difficulty&&typeof params.difficulty==='object'&&!Array.isArray(params.difficulty)?{difficulty:params.difficulty}:{};
+        await this.run('converse', {...job,title:job.name,play_language:job.play_language??await this.playLanguage(undefined),...difficulty},job);
         this.patch(job,{state:'conversing'});
       } else throw refuse('unknown_action', 'Unknown onboarding action');
       return this.withWords(this.snapshot(this.load(job.id,session)),job.play_language);

@@ -4967,24 +4967,178 @@ Keeper takes the `missing` line into the fiction rather than into a menu are all
 canonical continuous regression of Agents.md, with the admission rows read turn by turn. The
 uninformed-human UI gate (#79) has not run. Nothing here claims the novice experience solved.
 
-## 33. The turn floor (2026-09-11)
+## 33. Creation difficulty: an extension setting scaled into chargen (2026-09-11)
+
+A difficulty setting for character creation, owned by the COC Keeper extension's
+settings tab, snapshot into each new campaign, and applied by the kernel every
+time it derives a card for that campaign. This section is the contract; the
+implementation decisions land in §33.6.
+
+### 33.1 The setting and its campaign snapshot
+
+- The setting lives in the host's extension settings (`ext.coc-keeper.difficulty`,
+  app scope of the settings JSON). It is host configuration, never model input:
+  the setup model does not see it, cannot name it, and no `setup.*` profile field
+  carries it. The kernel never reads the host settings file; it only accepts the
+  value on `campaign.create`.
+- Shape (closed): `{mode: "preset", preset: "extreme"|"hard"|"normal"|"easy"}` or
+  `{mode: "custom", custom: {...}}`. Preset multipliers: `extreme` ×0.5,
+  `hard` ×1 (the rulebook numbers, the default), `normal` ×2, `easy` ×4.
+- `campaign.create` gains an optional `difficulty` field with exactly this shape.
+  The kernel validates it (closed enums, closed dice grammar, numeric ranges of
+  §33.3; `invalid_params` with `details.field` naming the offender) and stores it
+  verbatim in `campaign.json.difficulty`. Absent means `hard` ×1 — today's
+  behavior bit for bit, and campaigns created before this section behave
+  identically. The snapshot is per-campaign and immutable: editing the extension
+  setting later touches only campaigns created afterwards; drafts and receipts
+  already written are never re-derived. There is no RPC to mutate it.
+- The Electron app reads `ext.coc-keeper.difficulty` when it creates a campaign
+  and passes it on `campaign.create`. The CLI setup path passes nothing. A
+  campaign's difficulty therefore answers the three ends of §31 without any new
+  machinery: written by the host at creation, read by chargen on every build,
+  acted on through the sheet numbers, the receipt, and the draft `limits` block.
+
+### 33.2 What a preset multiplies
+
+- **Characteristics and LUCK only.** Each rolled value is dice×5×m, rounded to
+  the nearest multiple of 5 (ties up) and clamped to the scaled creation bounds
+  round5(15×m)..round5(90×m) (never below 5). The quick_fire array entries scale
+  the same way. Under `rolled_pool_assignment` (§23.4 aptitude) the scaled pool
+  results are permuted exactly as before — assignment still never crosses pools
+  and never changes the multiset.
+- **Budgets are not multiplied.** The occupation-point formula and the INT*2
+  interest formula evaluate on the scaled characteristics, so the budgets follow
+  the multiplier through the existing formulas (EDU×4 on a doubled EDU is a
+  doubled budget). Nothing is scaled twice.
+- The starting skill cap scales: round(75×m).
+- Everything else is unchanged: age adjustments (absolute values per table), the
+  EDU-improvement ceiling of 99, the luck keep-highest counts, credit-rating
+  ranges, cash and asset derivation, `register` purist/pulp, and the dice
+  expressions themselves.
+
+### 33.3 Custom knobs
+
+`custom` carries any subset of the following (an absent key keeps the rulebook
+default; an empty `custom` object is valid and equals `hard`):
+
+- `characteristic_dice`: a map from a rulebook pool expression (`"3D6"` or
+  `"2D6+6"`, exactly as keyed in `characteristic-dice.json`) to a replacement
+  dice expression. That pool rolls NdM(+K)×5 instead, and its characteristics
+  are bounded by the replacement's own range ((N+K)×5 .. (N×M+K)×5) in place of
+  the creation bounds.
+- `characteristic_min` / `characteristic_max`: multiples of 5 replacing the
+  15/90 creation bounds — including the bounds the manual override (§23.4)
+  renders.
+- `luck`: `{dice: "<expr>"}` to roll NdM(+K)×5, or `{fixed: n}` to set LUCK
+  flat with no roll.
+- `occupation_points`: `{multiplier: k}` to multiply the evaluated formula
+  budget (Math.round), or `{fixed: n}` for a flat budget that ignores the
+  occupation formula.
+- `interest_points`: the same shape for the INT*2 budget.
+- `skill_cap`: an integer replacing 75.
+
+Dice grammar is closed: `^\d{1,2}D(4|6|8|10|12|20|100)(\+\d{1,2})?$`
+(case-insensitive), N ≥ 1. Ranges: multiplier 0.25–8; fixed budgets 0–2000;
+skill_cap 1–500; characteristic bounds 5–450 in multiples of 5 with min < max;
+fixed luck a multiple of 5 in 5..450. Validation is shape and range only — a
+closed grammar and numeric bounds, never a semantic judgement.
+
+### 33.4 Records and determinism
+
+- `sheet.creation.difficulty` records the RESOLVED policy: `{mode, preset?,
+  multiplier?, custom: {<only the knobs actually applied>}}`. The
+  `investigator:<id>` receipt carries the same block, and the creation trace
+  names the scaling beside the rulebook source tables.
+- The draft `limits` block (§23.4) resolves its fallbacks from
+  `sheet.creation.difficulty`, so the draft edit control obeys the scaled
+  bounds, budgets and cap with no change of its own; `limits_override` relaxes
+  on top exactly as today.
+- Same seed + same difficulty → same card. The difficulty snapshot is part of
+  the campaign, so every draft revision of that campaign builds under it.
+- `setup.investigator` (legacy) builds under the same snapshot; there is one
+  chargen path for difficulty, not two.
+
+### 33.5 The settings tab (Electron)
+
+- The `coc-keeper` extension manifest gains
+  `app.ui.settingsSections: [{id: "coc-difficulty", title: "难度设定",
+  description: "角色创建的难度与数值倍率", entry: "pipicoc/settings-difficulty.js"}]`;
+  the host whitelist (`HOST_SETTINGS_TAB_IDS`) and nav hints admit the id
+  (a product whitelist edit in `Electron/packages/ui/src/ui-registries.ts`).
+- The section renders an immersive 1920s control — a radio-dial preset selector
+  with the five stops (极难 50% / 困难 100% / 普通 200% / 简单 400% / 自定义)
+  and a newspaper-styled custom panel for the §33.3 knobs — reads and writes
+  `ext.coc-keeper.difficulty` through the host's extension-settings methods,
+  and validates dice grammar and ranges client-side for feedback only. The
+  kernel re-validates everything; the UI is never the authority.
+- Out of scope for this section: in-play check difficulty (the `resolve`
+  recipes are untouched), existing campaigns, any Mod packaging of difficulty,
+  and CLI-side customization.
+
+### 33.6 The kernel's decisions (implemented, 2026-09-11)
+
+- **One module, one path.** `kernel-ts/setup/difficulty.ts` owns `validateDifficulty`
+  (the closed §33.1/§33.3 shape; `invalid_params` with `details.field`),
+  `ResolvedDifficulty` (the snapshot readied for arithmetic), the dice grammar and
+  `round5` (ties up). `campaign.create` validates and stores the snapshot verbatim;
+  `setup.draft` and legacy `setup.investigator` both pass `meta.difficulty` into
+  `Chargen.build` — there is one difficulty path, never two. Absent means no key,
+  no record, and a seeded test proves the card is bit-identical to the pre-§33
+  numbers; an empty `custom: {}` resolves to the same card.
+- **Records are written only when a snapshot exists.** `sheet.creation.difficulty`
+  and the receipt's `difficulty` block carry the resolved policy; scaling notes in
+  the trace appear only where they change something (a `hard` ×1 snapshot records
+  only the §33.4-required record).
+- **Custom knobs never clamp a roll.** Replacement dice bind their own range by
+  construction; `characteristic_min/max` govern the creation bounds the override
+  validates against and the limits block renders — they do not re-clamp rolled
+  values. Presets clamp per §33.2's explicit text. Pool-replacement bounds are
+  enforced per characteristic in `setup.override` (`characteristicBounds`); the
+  §23.4 limits block keeps its single min/max shape, since §33.4 mandates only
+  fallback resolution.
+- **Budgets follow characteristics for presets, knobs for custom.** A preset
+  multiplies only the rolled values (characteristics and LUCK); the occupation and
+  interest formulas evaluate on the scaled characteristics, so budgets follow with
+  no double-scaling (a test pins the identity). Custom `multiplier`/`fixed` knobs
+  adjust the evaluated budget (`Math.round`), never the characteristics.
+- **Determinism is per seed plus snapshot.** Same seed + same difficulty → same
+  card. Age adjustments consume the deterministic stream by value, so a luck
+  attempt that is kept at one difficulty can differ at another; the stream order
+  itself is unchanged.
+- **Replacement pools are matched against the dice table.** A
+  `characteristic_dice` key that matches no pool in `characteristic-dice.json` is
+  dropped from the resolved policy and from the record rather than silently
+  rolling nothing.
+- **The settings tab is the only writer.** The Electron host reads
+  `ext.coc-keeper.difficulty` (app scope) and injects it into the onboarding
+  converse input; the worker passes it to `campaign.create` only when one is
+  stored. The setup model never sees the field. The CLI path passes nothing.
+  Verification at landing: `pytest tests/kernel` 1154 passed,
+  `test_creation_difficulty.py` 19/19, Electron vitest 13/13 for the section,
+  `npm run test:electron` identical to a pristine HEAD checkout (the one
+  failure the suite flags outside its baseline, `coc-view.test.ts`'s bound sheet
+  read, fails on a pristine 5ea9bf0a worktree as well — pre-existing at HEAD,
+  attributed to the rules lane, out of scope), system-language and ui-words
+  guards green (the only other red anywhere being the pre-existing
+  `extensions/image-gen` violation).
+## 34. The turn floor (2026-09-11)
 
 Spec: `docs/specs/turn-floor.md`. Two live tables (medians 167 and 37 characters; on the thin one 11 of 12 turns closed by the host with no tool call) showed that every active layer forbade and none obliged: §30.12's "what no layer says any more" had left the Keeper with no statement of what a turn contains. The floor states it, as content kinds and never as counts.
 
-**33.1 The two principles behind law 4.** The base prompt's fourth law now names the two principles every specific prohibition is a case of. *Immersion*: nothing out-of-game enters the story text — roll values, targets, grades, ledgers, elapsed figures, rule option lists, tool names, enum values and field names travel only as the mechanics projection (§16.2). *Freedom*: nothing in the story text narrows what the player may do — no story menus, no fixed option lists, no "do you want to continue?" where nothing else is possible, no asking how to handle a failed check. New prohibitions are added under one of the two or not at all.
+**34.1 The two principles behind law 4.** The base prompt's fourth law now names the two principles every specific prohibition is a case of. *Immersion*: nothing out-of-game enters the story text — roll values, targets, grades, ledgers, elapsed figures, rule option lists, tool names, enum values and field names travel only as the mechanics projection (§16.2). *Freedom*: nothing in the story text narrows what the player may do — no story menus, no fixed option lists, no "do you want to continue?" where nothing else is possible, no asking how to handle a failed check. New prohibitions are added under one of the two or not at all.
 
-**33.2 The four kinds every turn owes** (base prompt, "the turn the player gets"; `narration-craft` 1.2.0; `style.floor`). *Uptake*: the declared action or words enacted from the world's view; one word is still a declaration, and the player's length says nothing about the Keeper's. *The world's answer*: settled outcomes perceptible; when nothing settled, someone present acts or the scene changes. *A voice*: anyone present the exchange touches speaks in their own voice. *The handoff*: the turn stops only when the spotlight is back on the player — they hold enough to judge (scene, clues, people) and have more than one real thing to do; a midpoint with nothing to decide is not a stop, and the declared action is carried through its uncontroversial part until an outcome, an obstacle, a gated risk or a real fork. The four lines ride in `capsule.style.floor` on every turn, full form and brief alike, from `content/craft/beat-directives.json` `floor_lines` (four non-empty strings, validated at load); the brief-turn `style` budget is 1536 bytes for it (§13.6 table amended).
+**34.2 The four kinds every turn owes** (base prompt, "the turn the player gets"; `narration-craft` 1.2.0; `style.floor`). *Uptake*: the declared action or words enacted from the world's view; one word is still a declaration, and the player's length says nothing about the Keeper's. *The world's answer*: settled outcomes perceptible; when nothing settled, someone present acts or the scene changes. *A voice*: anyone present the exchange touches speaks in their own voice. *The handoff*: the turn stops only when the spotlight is back on the player — they hold enough to judge (scene, clues, people) and have more than one real thing to do; a midpoint with nothing to decide is not a stop, and the declared action is carried through its uncontroversial part until an outcome, an obstacle, a gated risk or a real fork. The four lines ride in `capsule.style.floor` on every turn, full form and brief alike, from `content/craft/beat-directives.json` `floor_lines` (four non-empty strings, validated at load); the brief-turn `style` budget is 1536 bytes for it (§13.6 table amended).
 
-**33.3 `director.offer`.** `capsule.director.offer` carries at most three rows `{kind, who?, where?, line, from}` with `kind ∈ {person, route, pressure, consequence}` and `line` at most 120 characters clipped at a word boundary with an ellipsis, derived by `kernel-ts/read/offer.ts` from material the capsule already holds — `present[]` (wants, would_lie_about, voice; a person row also carries `can_hand`, up to two of the clues in their `knows` still undiscovered, because saying them without `apply clue` is what the verifier reports as a reveal), `where.exits` open and ready with the present person whose `knows` unlocks them, `mods.thread.next`, `mods.pacing.threat_clocks[].next`, `pressures[]`, and last turn's receipts (a failed non-dice roll, an `npc` stance change). Order follows the beat (`OFFER_ORDER`; RECOVER is the keeper-pacing ladder consequence, person, information); a consequence still owed always keeps a seat. No model call, no judgement of prose. The director budget is 2048 bytes and offer rows are dropped first when it is over. `director_adoption.offer_taken` lists the rows the turn's receipts show were taken (`route:<scene>` by a move, `person:<name>` by a clue credited to, a stance moved on or a roll against them, `pressure:<threat>` by a `threat` tick); telemetry only.
+**34.3 `director.offer`.** `capsule.director.offer` carries at most three rows `{kind, who?, where?, line, from}` with `kind ∈ {person, route, pressure, consequence}` and `line` at most 120 characters clipped at a word boundary with an ellipsis, derived by `kernel-ts/read/offer.ts` from material the capsule already holds — `present[]` (wants, would_lie_about, voice; a person row also carries `can_hand`, up to two of the clues in their `knows` still undiscovered, because saying them without `apply clue` is what the verifier reports as a reveal), `where.exits` open and ready with the present person whose `knows` unlocks them, `mods.thread.next`, `mods.pacing.threat_clocks[].next`, `pressures[]`, and last turn's receipts (a failed non-dice roll, an `npc` stance change). Order follows the beat (`OFFER_ORDER`; RECOVER is the keeper-pacing ladder consequence, person, information); a consequence still owed always keeps a seat. No model call, no judgement of prose. The director budget is 2048 bytes and offer rows are dropped first when it is over. `director_adoption.offer_taken` lists the rows the turn's receipts show were taken (`route:<scene>` by a move, `person:<name>` by a clue credited to, a stance moved on or a roll against them, `pressure:<threat>` by a `threat` tick); telemetry only.
 
-**33.4 Structural signals, no semantic classifier.** `signals()` adds `empty_turns` (consecutive played turns with no receipt at all), `repeat_input` (this input equals the previous, trimmed, character for character) and `previous_close` (`implicit`, `explicit`, or `none`). The Director graph adds `scoring-rule:recover:empty-turn` (0.53, chosen so its weighted score stays under the stalled PRESSURE band in every authored structure — one quiet turn does not overturn the pacing doctrine), `scoring-rule:recover:repeated-input` (0.85) and `threshold:recover-empty-turns` (1). No code reads the meaning or the length of the player's words; the authored `player-signal:low-agency:*` vocabulary stays unread until a model populates it, and no keyword list or regex may.
+**34.4 Structural signals, no semantic classifier.** `signals()` adds `empty_turns` (consecutive played turns with no receipt at all), `repeat_input` (this input equals the previous, trimmed, character for character) and `previous_close` (`implicit`, `explicit`, or `none`). The Director graph adds `scoring-rule:recover:empty-turn` (0.53, chosen so its weighted score stays under the stalled PRESSURE band in every authored structure — one quiet turn does not overturn the pacing doctrine), `scoring-rule:recover:repeated-input` (0.85) and `threshold:recover-empty-turns` (1). No code reads the meaning or the length of the player's words; the authored `player-signal:low-agency:*` vocabulary stays unread until a model populates it, and no keyword list or regex may.
 
-**33.5 How a turn closed.** `table.narrate` accepts `implicit: true` from the host; the turn record carries `closed_how: "implicit" | "explicit"` (an `ask` is always explicit) and `capsule.recent` rows carry `closed` and `receipts` (the count) when the record has it.
+**34.5 How a turn closed.** `table.narrate` accepts `implicit: true` from the host; the turn record carries `closed_how: "implicit" | "explicit"` (an `ask` is always explicit) and `capsule.recent` rows carry `closed` and `receipts` (the count) when the record has it.
 
-**33.6 The floor steer (host).** When the Keeper ends on prose having called no COC tool this turn, on any turn but the opening, the host drops that draft, sends one `coc-host` steer of kind `floor` naming `director.offer` and the four kinds, and records `{lane: "floor", turn, steered: true, round_trips}`. The second leg is honoured however it comes: an explicit `narrate`, prose closed implicitly, or nothing — in which case the dropped draft closes the turn as before, so the steer is strictly additive. A turn in which any tool was tried, refused or not, is not steered. The steer shares the turn's single steer budget with the pending-choice steer.
+**34.6 The floor steer (host).** When the Keeper ends on prose having called no COC tool this turn, on any turn but the opening, the host drops that draft, sends one `coc-host` steer of kind `floor` naming `director.offer` and the four kinds, and records `{lane: "floor", turn, steered: true, round_trips}`. The second leg is honoured however it comes: an explicit `narrate`, prose closed implicitly, or nothing — in which case the dropped draft closes the turn as before, so the steer is strictly additive. A turn in which any tool was tried, refused or not, is not steered. The steer shares the turn's single steer budget with the pending-choice steer.
 
-**33.7 Fix texts point at receipts.** The combat `needs` refusal for a person with no stat block no longer offers "narrate the exchange without dice"; it names the two lawful routes (pin a stat block with `lookup catalog` and `apply npc`, then `resolve` again; or `resolve` an uncontested attempt) and says that nothing without a receipt has happened. A fix text is executed literally by the Keeper, so none may point at a world change without a receipt.
+**34.7 Fix texts point at receipts.** The combat `needs` refusal for a person with no stat block no longer offers "narrate the exchange without dice"; it names the two lawful routes (pin a stat block with `lookup catalog` and `apply npc`, then `resolve` again; or `resolve` an uncontested attempt) and says that nothing without a receipt has happened. A fix text is executed literally by the Keeper, so none may point at a world change without a receipt.
 
-**33.8 Packages.** `narration-craft` 1.2.0 (floor as craft, the routine-turn warning back as craft, `density_guide` `off` | `on` default `off`, the ranges as an expectation the kernel never counts); `keeper-pacing` 1.1.2 (the two structural RECOVER signs and the offer ladder). The per-turn brief ceiling of §30.7 (4000 bytes for all briefs) stands; both briefs were rewritten densely to fit. Old versions keep their bytes and locks (§26).
+**34.8 Packages.** `narration-craft` 1.2.0 (floor as craft, the routine-turn warning back as craft, `density_guide` `off` | `on` default `off`, the ranges as an expectation the kernel never counts); `keeper-pacing` 1.1.2 (the two structural RECOVER signs and the offer ladder). The per-turn brief ceiling of §30.7 (4000 bytes for all briefs) stands; both briefs were rewritten densely to fit. Old versions keep their bytes and locks (§26).
 
-**33.9 What stays.** The seven verbs and `narrate`'s single `text`; `ask` mechanics-only; the verifier's four kinds and `narration-audit`'s receipt remit; no fifth "too little" finding, no literary grader, no character quota as a gate; the frozen oracle untouched — `ts-kernel-read.test.mjs` projects the new signals, because-lines and the live digest out before comparing.
+**34.9 What stays.** The seven verbs and `narrate`'s single `text`; `ask` mechanics-only; the verifier's four kinds and `narration-audit`'s receipt remit; no fifth "too little" finding, no literary grader, no character quota as a gate; the frozen oracle untouched — `ts-kernel-read.test.mjs` projects the new signals, because-lines and the live digest out before comparing.

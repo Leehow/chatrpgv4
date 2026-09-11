@@ -24,7 +24,10 @@ const SETTINGS_NAV_HINTS: Record<string, string> = {
   themes: 'Logo 与配色',
   updates: '运行时版本',
   'image-model': '头像与插图',
+  'coc-difficulty': '角色创建与倍率',
 }
+
+export { SETTINGS_NAV_HINTS }
 
 function TrashIcon() {
   return (

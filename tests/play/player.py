@@ -21,6 +21,7 @@ Run with `uv run --frozen python ...`; only the standard library is used.
 """
 from __future__ import annotations
 
+import atexit
 import json
 import os
 import queue
@@ -44,6 +45,8 @@ CREDENTIAL_FILES = ("auth.json", "models.json")
 DEFAULT_PLAYER_MODEL = "deepseek/deepseek-v4-pro"
 PLAYER_TURN_TIMEOUT = 180.0
 PLAYER_SETTLE_GRACE = 1.5
+#: How long to wait after a provider error before asking the persona again.
+PLAYER_BACKOFF_SECONDS = (10.0, 30.0, 60.0, 120.0)
 
 SYSTEM_PROMPT = """\
 You are simulating a real tabletop RPG player at a Call of Cthulhu table.
@@ -194,6 +197,9 @@ class PersonaPlayer:
         self._credentials_from = credentials_from or (REPO_ROOT / ".pi" / "coc-agent")
         self._launcher = launcher or (REPO_ROOT / "node_modules" / ".bin" / "pi")
         self._sandbox = Path(tempfile.mkdtemp(prefix=f"persona-{persona['id']}-"))
+        # The sandbox holds a copy of the table's credentials. A killed benchmark used to leave
+        # those copies in the system temp directory; removing them is not left to the happy path.
+        atexit.register(self._remove_sandbox)
         self.pi: PiProcess | None = None
         self.isolation: dict[str, Any] = {}
 
@@ -232,6 +238,9 @@ class PersonaPlayer:
         if self.pi is not None:
             self.pi.terminate()
             self.pi = None
+        self._remove_sandbox()
+
+    def _remove_sandbox(self) -> None:
         shutil.rmtree(self._sandbox, ignore_errors=True)
 
     def __enter__(self) -> "PersonaPlayer":
@@ -244,25 +253,43 @@ class PersonaPlayer:
     # -- one turn ----------------------------------------------------------
 
     def act(self, view: str, *, timeout: float = PLAYER_TURN_TIMEOUT, retries: int = 1) -> dict[str, Any]:
-        """Give the persona this turn's delivery; get back its message and its private eval."""
-        attempt = 0
+        """Give the persona this turn's delivery; get back its message and its private eval.
+
+        A provider that rate-limits answers in milliseconds, not minutes. The first version of
+        this retried instantly, so one throttled moment produced two empty replies inside 30ms,
+        three turns in a row produced six, and a thirty-turn table was declared dead by its own
+        player before the provider had finished saying "slow down". A transient failure -- the
+        session reporting an error rather than the model answering badly -- now waits, and its
+        attempts are counted separately from a reply that was genuinely unreadable.
+        """
+        attempt = transient = 0
         last_error = "not attempted"
         raw = ""
-        while attempt <= retries:
-            raw = self._prompt(view if attempt == 0 else
-                               view + "\n\n[Your last reply could not be read. Answer with one JSON "
-                                      "object exactly as your instructions describe, and nothing else.]",
-                               timeout)
+        while attempt <= retries and transient <= len(PLAYER_BACKOFF_SECONDS):
+            nudge = ("\n\n[Your last reply could not be read. Answer with one JSON object exactly "
+                     "as your instructions describe, and nothing else.]") if attempt else ""
+            raw, errored = self._prompt(view + nudge, timeout)
             parsed, error = parse_reply(raw)
             if parsed is not None:
-                return {"ok": True, "at": now_iso(), "attempts": attempt + 1, "raw": raw, **parsed}
+                return {"ok": True, "at": now_iso(), "attempts": attempt + transient + 1,
+                        "transient_retries": transient, "raw": raw, **parsed}
+            if errored and not raw:
+                # The session failed, the model did not answer badly: wait before asking again.
+                wait = PLAYER_BACKOFF_SECONDS[min(transient, len(PLAYER_BACKOFF_SECONDS) - 1)]
+                transient += 1
+                last_error = "provider error"
+                self.log.write(f"persona session error (transient {transient}); waiting {wait}s")
+                time.sleep(wait)
+                continue
             last_error = error or "unparseable"
             self.log.write(f"persona reply rejected (attempt {attempt + 1}): {last_error}")
             attempt += 1
-        return {"ok": False, "at": now_iso(), "attempts": attempt, "raw": raw,
+        return {"ok": False, "at": now_iso(), "attempts": attempt + transient,
+                "transient_retries": transient, "raw": raw,
                 "error": last_error, "player_message": None, "private_eval": {}}
 
-    def _prompt(self, message: str, timeout: float) -> str:
+    def _prompt(self, message: str, timeout: float) -> tuple[str, bool]:
+        """Returns (text, session_errored). An empty text with an error is not a bad answer."""
         assert self.pi is not None, "PersonaPlayer.start() was not called"
         tq = self.pi.begin_turn()
         deadline = time.monotonic() + timeout
@@ -271,9 +298,10 @@ class PersonaPlayer:
                                timeout=max(0.001, deadline - time.monotonic()))
             if ack is None or not ack.get("success", False):
                 self.pi.call({"type": "abort"}, timeout=5.0)
-                return ""
+                return "", True
             parts: list[str] = []
             final: list[str] = []
+            errored = False
             settle_deadline: float | None = None
             while True:
                 wake = min(x for x in (settle_deadline, deadline) if x is not None)
@@ -291,16 +319,22 @@ class PersonaPlayer:
                         parts.append(ev.get("delta") or "")
                 elif etype == "message_end":
                     msg = event.get("message") or {}
+                    if msg.get("stopReason") == "error" or msg.get("error"):
+                        errored = True
                     if msg.get("role") == "assistant":
                         final = [b.get("text") or "" for b in msg.get("content") or []
                                  if isinstance(b, dict) and b.get("type") == "text"]
                 elif etype == "agent_settled":
                     break
-                elif etype == "agent_end" and not event.get("willRetry"):
-                    settle_deadline = time.monotonic() + PLAYER_SETTLE_GRACE
+                elif etype == "agent_end":
+                    if event.get("error"):
+                        errored = True
+                    if not event.get("willRetry"):
+                        settle_deadline = time.monotonic() + PLAYER_SETTLE_GRACE
                 if not self.pi.alive():
+                    errored = True
                     break
-            return ("".join(final) or "".join(parts)).strip()
+            return ("".join(final) or "".join(parts)).strip(), errored
         finally:
             self.pi.end_turn()
 

@@ -1,6 +1,6 @@
 # Turn Floor: the affirmative shape of a Keeper turn
 
-_Date: 2026-09-11. Status: implemented on branch `claude/turn-floor-20260911` (contract §33); `pytest tests/kernel` 1149 passed; `npm run test:ext` passes but for the pre-existing `system-language` failure on `extensions/image-gen`; two live tables played on the branch (below). Still owed: the candidate App package and the novice-human gate. Baseline model for every claim and every acceptance: `xai/grok-4.6`, thinking `low` (user ruling 2026-09-11: do not switch to grok-4.3). User ruling 2026-09-11 on the shape of the rules: the prohibitions are cases of two principles, immersion and freedom, and the turn stops only when the spotlight is back on the player._
+_Date: 2026-09-11. Status: implemented on branch `claude/turn-floor-20260911` (contract §34); `pytest tests/kernel` 1149 passed; `npm run test:ext` passes but for the pre-existing `system-language` failure on `extensions/image-gen`; two live tables played on the branch (below). Still owed: the candidate App package and the novice-human gate. Baseline model for every claim and every acceptance: `xai/grok-4.6`, thinking `low` (user ruling 2026-09-11: do not switch to grok-4.3). User ruling 2026-09-11 on the shape of the rules: the prohibitions are cases of two principles, immersion and freedom, and the turn stops only when the spotlight is back on the player._
 
 ## Problem Statement
 

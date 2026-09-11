@@ -187,8 +187,11 @@ async function main() {
   if (action === 'converse') {
     const campaign=input.campaign;
     const existing=(await call('campaign.list')).campaigns?.some((row:any)=>row.id===campaign);
+    // The host's difficulty setting (contract §33.1) is passed only when one is stored; the
+    // kernel validates the shape and snapshots it into campaign.json.
+    const difficulty=input.difficulty&&typeof input.difficulty==='object'&&!Array.isArray(input.difficulty)?{difficulty:input.difficulty}:{};
     if(!existing)await call('campaign.create',{id:campaign,module:input.module_id,title:input.title,play_language:input.play_language,
-      start_scene:input.start_scene,guidance_key:input.guidance_key});
+      start_scene:input.start_scene,guidance_key:input.guidance_key,...difficulty});
     return {campaign,play_language:input.play_language};
   }
   throw refuse('unknown_action', 'Unknown onboarding operation');

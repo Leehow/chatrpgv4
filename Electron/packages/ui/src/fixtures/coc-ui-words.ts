@@ -12,6 +12,7 @@
  * `weapons.json`.
  */
 import enChoices from '../../../../../content/ui/en/choices.json'
+import enDifficulty from '../../../../../content/ui/en/difficulty.json'
 import enErrors from '../../../../../content/ui/en/errors.json'
 import enMechanics from '../../../../../content/ui/en/mechanics.json'
 import enMods from '../../../../../content/ui/en/mods.json'
@@ -21,6 +22,7 @@ import enPreparation from '../../../../../content/ui/en/preparation.json'
 import enSheet from '../../../../../content/ui/en/sheet.json'
 import enTranscript from '../../../../../content/ui/en/transcript.json'
 import zhChoices from '../../../../../content/ui/zh-Hans/choices.json'
+import zhDifficulty from '../../../../../content/ui/zh-Hans/difficulty.json'
 import zhErrors from '../../../../../content/ui/zh-Hans/errors.json'
 import zhMechanics from '../../../../../content/ui/zh-Hans/mechanics.json'
 import zhMods from '../../../../../content/ui/zh-Hans/mods.json'
@@ -34,9 +36,9 @@ export type Surfaces = Record<string, Record<string, string>>
 export type Ui = { tag: string; words: Surfaces }
 
 const SHIPPED: Record<string, Surfaces> = {
-  en: {choices: enChoices, errors: enErrors, mechanics: enMechanics, mods: enMods, onboarding: enOnboarding,
+  en: {choices: enChoices, difficulty: enDifficulty, errors: enErrors, mechanics: enMechanics, mods: enMods, onboarding: enOnboarding,
     paper: enPaper, preparation: enPreparation, sheet: enSheet, transcript: enTranscript},
-  'zh-Hans': {choices: zhChoices, errors: zhErrors, mechanics: zhMechanics, mods: zhMods, onboarding: zhOnboarding,
+  'zh-Hans': {choices: zhChoices, difficulty: zhDifficulty, errors: zhErrors, mechanics: zhMechanics, mods: zhMods, onboarding: zhOnboarding,
     paper: zhPaper, preparation: zhPreparation, sheet: zhSheet, transcript: zhTranscript},
 }
 

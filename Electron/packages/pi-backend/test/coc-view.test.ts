@@ -115,6 +115,39 @@ it('converse waits for startup and immediately projects the persisted first ques
   }finally{unsubscribe();await backend.close();}
 });
 
+it('the converse worker input carries only the stored difficulty, never a renderer-supplied one',async()=>{
+  // A transport seam fixture for contract §33.1: the host is the difficulty's only authority.
+  const {cp}=await import('node:fs/promises');
+  const {createPiHostBackend}=await import('../src/index.js');
+  const repo=resolve(import.meta.dirname,'../../../..'),root=await mkdtemp(join(tmpdir(),'coc-difficulty-authority-'));
+  const profile=join(root,'profile'),pack=join(profile,'extensions/coc-keeper');await mkdir(pack,{recursive:true});
+  await cp(join(repo,'pipiui-extension.json'),join(pack,'pipiui-extension.json'));await cp(join(repo,'pipicoc'),join(pack,'pipicoc'),{recursive:true});
+  const requests:any[]=[];
+  const preparation={invoke:async(request:any)=>{requests.push(request);return {campaign:'difficulty-fixture',name:'Source meeting',play_language:'en'};},close:async()=>{}};
+  const registry={get:()=>preparation,close:async()=>{}};
+  const backend=createPiHostBackend({agentDir:profile,sessionsRoot:join(root,'sessions'),runtimeRoot:join(root,'runtime'),defaultPack:'coc-keeper',managedNodeModulesRoot:join(repo,'node_modules'),cocOnboardingRegistry:registry as any,spawn:()=>{throw new Error('No model is needed to inject a setting');}});
+  try {
+    await backend.handle('addProject',[root]);const projects=await backend.handle('listProjects',[]) as any[];
+    const session=await backend.handle('newSession',[projects[0].id]) as any;
+    vi.spyOn(backend as any,'getModelState').mockResolvedValue({model:{provider:'unknown',id:'fixture'},thinkingLevel:'low'});
+    vi.spyOn(backend as any,'ensure').mockResolvedValue({});
+    vi.spyOn(backend as any,'command').mockResolvedValue({isStreaming:false});
+    // Nothing stored: a renderer-supplied difficulty is dropped before the worker sees the input.
+    const smuggled=await backend.handle('invokeExtension',['coc-keeper','onboarding',
+      {action:'converse',id:'import-fixture',difficulty:{mode:'preset',preset:'extreme'}},{sessionId:session.id}]) as any;
+    expect(smuggled.ok).toBe(true);
+    expect(requests.at(-1)).not.toHaveProperty('difficulty');
+    // A stored setting rides the converse worker input into campaign.create.
+    const stored={mode:'preset',preset:'easy'};
+    const saved=await backend.handle('updateExtensionSettings',['coc-keeper',{'ext.coc-keeper.difficulty':stored}]) as any;
+    expect(saved.ok).toBe(true);
+    const authored=await backend.handle('invokeExtension',['coc-keeper','onboarding',
+      {action:'converse',id:'import-fixture'},{sessionId:session.id}]) as any;
+    expect(authored.ok).toBe(true);
+    expect(requests.at(-1).difficulty).toEqual(stored);
+  }finally{await backend.close();}
+});
+
 it('setup exit lets the play child establish a new turn when its agent_start was unobservable',async()=>{
   const {createPiHostBackend}=await import('../src/index.js');
   const root=await mkdtemp(join(tmpdir(),'coc-handoff-epoch-'));

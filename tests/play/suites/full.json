@@ -1,17 +1,38 @@
 {
   "suite": "full",
-  "personas": ["P01", "P02", "P03", "P04", "P05", "P06", "P07", "P08", "P09", "P10", "P11", "P12",
-               "S01", "S02", "S03", "S04", "S05", "S06"],
-  "lanes": ["controlled", "natural"],
+  "personas": [
+    "P01",
+    "P02",
+    "P03",
+    "P04",
+    "P05",
+    "P06",
+    "P07",
+    "P08",
+    "P09",
+    "P10",
+    "P11",
+    "P12",
+    "S01",
+    "S02",
+    "S03",
+    "S04",
+    "S05",
+    "S06"
+  ],
+  "lanes": [
+    "controlled",
+    "natural"
+  ],
   "trials": 3,
   "max_turns": 30,
   "natural_source": "setup",
   "setup_max_turns": 20,
   "kp_model": "xai/grok-4.6",
-  "player_model": "deepseek/deepseek-v4-pro",
-  "admission_model": "deepseek/deepseek-v4-flash",
+  "player_model": "xai/grok-4.6",
+  "admission_model": "xai/grok-4.6",
   "opening_timeout": 900,
   "turn_timeout": 420,
   "wall_cap_seconds": 7200,
-  "concurrency": 6
+  "concurrency": 24
 }
