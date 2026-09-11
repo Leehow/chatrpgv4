@@ -494,17 +494,22 @@ def cmd_table(args: argparse.Namespace) -> int:
         def med(pick) -> str:
             values = [v for v in (pick(r) for r in runs) if isinstance(v, (int, float))]
             return f"{statistics.median(values):.2f}".rstrip("0").rstrip(".") if values else "-"
-        gates = sum(sum((r.get("hard_gates") or {}).values()) for r in runs)
+        # A gate count of zero must not be printable when nothing was judged: unmeasured and
+        # clean look identical otherwise, and the first reader will take it for clean.
+        judged_any = any(r.get("judged") for r in runs)
+        gates = (sum(sum((r.get("hard_gates") or {}).values()) for r in runs)
+                 if judged_any else "-")
         row = (f"{key:<{width}}{len(runs):>5}"
                f"{med(lambda r: r['receipts'].get('turns_played')):>7}"
                f"{med(lambda r: r['receipts'].get('clue_reachability')):>7}"
-               f"{gates:>7}")
+               f"{str(gates):>7}")
         for metric_id in columns:
             row += f"{med(lambda r, m=metric_id: (r.get('judged') or {}).get(m)):>16}"
         print(row)
     print()
     print("gates = hard-gate violations (secret leak, state corruption, rules P0, inner life). "
-          "Any number here is a defect, not a score.")
+          "Any number here is a defect, not a score; `-` means the judge lane did not run, "
+          "which is not the same as clean.")
     for metric_id in columns:
         print(f"  {metric_id}: {METRICS[metric_id]['summary']} "
               f"({'higher' if METRICS[metric_id]['direction'] == 'higher_is_better' else 'lower'} is better)")

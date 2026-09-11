@@ -407,3 +407,17 @@ def test_a_run_that_never_got_a_card_is_a_result_not_a_broken_instrument():
     }) == "instrument_invalid"
     assert persona_report.classify({"status": "completed"}) == "completed"
     assert persona_report.classify({"status": "invalid", "error": "DaemonUnavailable: gone"}) == "invalid"
+
+
+def test_unjudged_gates_print_as_unmeasured_not_as_clean(tmp_path, capsys):
+    """`0` and `not looked at` must not render the same. The first reader will believe the zero."""
+    suite_dir = tmp_path / "suite"
+    suite_dir.mkdir()
+    (suite_dir / "suite-report.json").write_text(json.dumps({"suite_dir": str(suite_dir), "by_persona": {
+        "P01_detective/controlled": [{"trial": 1, "status": "completed", "hard_gates": {"secret_leak": 0},
+                                      "receipts": {"turns_played": 30, "clue_reachability": 0.36},
+                                      "judged": {}, "self_report": {}}]}}), encoding="utf-8")
+    persona_report.main(["table", "--suite-dir", str(suite_dir)])
+    out = capsys.readouterr().out
+    assert "-" in out.splitlines()[4], "an unjudged suite must not print a zero gate count"
+    assert "not the same as clean" in out
