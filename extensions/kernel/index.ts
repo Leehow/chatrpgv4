@@ -180,6 +180,10 @@ let soloKernel: KernelClient | undefined;
  * makes a late call fail on the spot rather than wake a kernel nobody owns.
  */
 let bridgeGate = { open: false };
+/** When the Keeper's current provider request went out, so `message_end` can time the whole call (§12.8.1). */
+let providerRequestAt: number | undefined;
+/** When the previous leg of this run finished, for the case where the provider hook does not run. */
+let legMark: number | undefined;
 /**
  * The captions this extension notifies with (contract §23), for the campaign's own play language.
  * `startupError` itself stays English: it is also thrown at the Keeper (`the kernel is not up`) and
@@ -1417,6 +1421,28 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	pi.on("message_end", async (event) => {
+		// How long the Keeper's own call actually took. The two rows above bracket the request and the
+		// arrival of its headers, and neither carries a duration, so a turn with a six-minute hole in it
+		// could not be attributed to the model, the host or anything else -- the evidence simply was not
+		// kept (contract §12.8.1). A lane call records four phases and its `ms`; the Keeper's recorded
+		// two and none. This row closes that: request assembled to message complete, which is the whole
+		// call including the body stream, against the tool rows that already time everything else.
+		if (event.message?.role === "assistant") {
+			const now = Date.now();
+			// `request` when the provider hook ran (the whole call, body stream included); `previous`
+			// when it did not, which times this leg from whatever finished last. Either way a turn is
+			// now partitioned: these legs plus the tool rows account for it, and a hole in one of them
+			// is a hole somebody can point at.
+			const from = providerRequestAt !== undefined ? "request" : "previous";
+			const mark = providerRequestAt ?? legMark;
+			providerRequestAt = undefined;
+			legMark = now;
+			const blocks = (event.message.content ?? []) as Array<{type?: string}>;
+			void record({lane: "provider-call", at: new Date().toISOString(), from,
+				ms: mark === undefined ? null : now - mark,
+				stop_reason: (event.message as {stopReason?: string}).stopReason ?? null,
+				blocks: blocks.map((block) => block?.type ?? "?")});
+		}
 		const state = table;
 		if (!state || event.message.role !== "assistant") return;
 		const blocks = (event.message.content ?? []) as Array<Record<string, unknown>>;
@@ -1514,8 +1540,10 @@ export default function (pi: ExtensionAPI) {
 		return { message: { ...event.message, content: next } };
 	});
 
+	pi.on("agent_start", async () => { legMark = Date.now(); });
 	pi.on("before_provider_request", async (event, ctx) => {
 		const payload = event.payload as {model?: string; reasoning?: {effort?: string}; reasoning_effort?: string};
+		providerRequestAt = Date.now();
 		await record({lane: "provider-request", at: new Date().toISOString(), model: payload?.model, provider: ctx.model?.provider,
 			reasoning_effort: payload?.reasoning?.effort ?? payload?.reasoning_effort ?? null});
 	});

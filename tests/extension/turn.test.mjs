@@ -191,6 +191,31 @@ test("一个玩家回合：七个工具、胶囊、call_id、rendered_text 交�
 	assert.ok(telemetry.every((row) => typeof row.turn === "number"));
 });
 
+test("every Keeper call leaves its own duration, so a slow turn can be attributed", async (t) => {
+	// The provider rows bracketed the request and the arrival of its headers and carried no duration,
+	// so a turn with a six-minute hole in it could not be attributed to the model, to the host, or to
+	// anything else -- the evidence was never kept (contract §12.8.1, §32.9).
+	const table = await openTable({
+		responses: [
+			fauxAssistantMessage([fauxToolCall("narrate", { text: "门厅里落满灰。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage("守秘人在 narrate 之后又写的正文，应该被换掉"),
+		],
+	});
+	t.after(() => table.dispose());
+	await table.session.prompt("我推门进去。");
+	await waitForIdle(table.session);
+
+	const calls = table.telemetry().filter((row) => row.lane === "provider-call");
+	assert.ok(calls.length >= 2, `one row per Keeper call, got ${calls.length}`);
+	for (const row of calls) {
+		assert.equal(typeof row.ms, "number", JSON.stringify(row));
+		assert.ok(row.ms >= 0 && row.ms < 60_000, `a plausible duration, got ${row.ms}`);
+		assert.ok(Array.isArray(row.blocks), "and what the message carried");
+	}
+	assert.deepEqual(calls[0].blocks, ["toolCall"], "the call that made the tool call says so");
+	assert.equal(calls[0].stop_reason, "toolUse");
+});
+
 test("ordinary questions use free prose and never create story action controls", async t=>{
  const table=await openTable({responses:[
   fauxAssistantMessage([fauxToolCall("ask",{kind:"story",prompt:"Choose?",options:["A","B"]})],{stopReason:"toolUse"}),

@@ -532,6 +532,10 @@ RuleGraph 的每个决策声明输入槽位与归属。宿主锁定槽位由内�
 
 新增行，**只增不改**：原有的 `lane: "verifier"`、`lane: "memory"`、`lane: "provider-request"`、`lane: "provider-response"` 四种行的字段与条数一律不动（守秘人自己的调用仍是「一条 `provider-request` = 一次 HTTP 尝试」，车道的行不混进去）。
 
+**`lane: "provider-call"`：守秘人自己的那一段耗时（2026-09-11）。** 上面两行只说「请求装配好了」和「响应头到了」，两行都不带时长，中间也没有第三行说响应体何时读完——于是一个回合里出现六分钟的洞，拿现有证据指不出是模型、是宿主还是别的。真桌上就这么发生过一次（`probe` 之外的网页局，一个 426 秒的回合，其中 359 秒落在一次响应头到达与下一次请求装配之间，没有任何工具调用），而当时能排除的只有上下文压缩（诊断行在那段时间里一条 `below_threshold` 也没变）。车道调用记四个阶段与 `ms`，守秘人的记两个且都不带时长，这个不对称本身就是缺口。
+
+`message_end` 现在为每条助手消息补一行 `{lane: "provider-call", ms, from, stop_reason, blocks}`：`from: "request"` 表示这一段是从 `before_provider_request` 起算的，也就是整次调用（含响应体流式读取）；`from: "previous"` 表示那个钩子没有跑（测试台的假供应商就是如此），这一段从本轮上一件事结束起算。两种情况下，一个回合都被切成了可核对的段——这些段加上已有的工具行应当合上回合总时长，哪一段有洞就指得出是哪一段。`blocks` 记这条消息装了什么（`thinking`/`text`/`toolCall`），因为一次只出思考不出工具的调用和一次正常调用，耗时含义不同。
+
 ```
 {"lane": "lane-call", "subsession": "verifier" | "memory", "phase": ..., "at": "<ISO>", ...}
 ```
