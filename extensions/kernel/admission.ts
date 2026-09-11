@@ -177,6 +177,7 @@ export function admissionSystemPrompt(): string {
 		"You judge the choice, never the result: do not ask that the player knew or approved hidden dangers, surprises or outcomes. A short, quiet or plain reply is still a reply — read what it says. An action already refused this turn and proposed again in other words is the same action.",
 		"Answer with one JSON object only, no code fence and no explanation:",
 		'{"verdict":"authorized"|"entailed"|"not_player_action"|"not_authorized"|"uncertain","grounds":"<=200 chars: the words you relied on","missing":"<only for not_authorized or uncertain: the choice the player has not made, <=160 chars, as a plain description of the choice, not a menu>"}',
+		"Write grounds and missing in English: they are read by the Keeper, who writes to the player in the player's own language. Quote the player's words as they are.",
 	].join("\n");
 }
 
