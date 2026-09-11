@@ -2,7 +2,8 @@
 import { RpcError } from '../errors.js';
 import { jsonDigest } from '../json.js';
 import { findNamedObject } from '../read/mods.js';
-import { clone, equal, integer, repr, row, truth, type Row } from '../read/values.js';
+import { queuedRegistrations } from './queue.js';
+import { clone, equal, integer, repr, row, string, truth, values, type Row } from '../read/values.js';
 import { asciiSlug } from '../write/text.js';
 import { validateDefinition } from './definition.js';
 import { initializeDocument, ownershipChanged } from './documents.js';
@@ -54,8 +55,18 @@ export function moveObject(world: Row, name: string, definitionName: string | nu
         {fix: 'place it without from, in the same batch as its definition; a handover becomes a transfer only once the instance exists'});
     const template = findNamedObject(data.definitions, definitionName || name);
     // One message for two causes sent the Keeper looking at spells when the definition was simply absent.
-    if (!template) throw new RpcError('invalid_params', `No accepted definition named ${repr(definitionName || name)}`,
-        {fix: 'define it in this same batch, or name an existing definition exactly'});
+    // Naming the miss is still not enough on its own. A Keeper that defines a notebook and places an
+    // instance named after its owner, without `definition`, is told to define what it just defined -- so
+    // it defines it again. The names actually on offer are what turns that into one retry, and the ones
+    // only queued so far belong in that list: they are real registrations it must not duplicate.
+    if (!template) {
+        const known = [...values(data.definitions).map(value => string(value.name)), ...queuedRegistrations(world).map(entry => string(entry.name))];
+        const offer = known.length ? `set definition to one of: ${known.slice(-8).join(', ')}` : 'define it in this same batch';
+        throw new RpcError('invalid_params', `No accepted definition named ${repr(definitionName || name)}`,
+            {fix: definitionName === null
+                ? `this placement omitted definition, so the instance name was looked up instead; ${offer}`
+                : `${offer}, or define that name in this same batch`});
+    }
     if (template.category === 'spell') throw new RpcError('invalid_params', 'Place an item/weapon from an accepted definition; spells are knowledge');
     if (template.category === 'weapon' && !equal(quantity, 1)) throw new RpcError('invalid_params', 'Each weapon has one instance and its own ammunition');
     const id = `object-${asciiSlug(name) || 'item'}-${Object.keys(data.instances).length + 1}`, params = template.parameters;

@@ -475,3 +475,22 @@ def test_registration_can_be_queued_past_delivery_and_completed_afterwards(kerne
     # The marker stops standing in for a definition that is now real, and the row stays out of the gap list.
     assert kernel.ok("mods.queued", {"campaign":CAMPAIGN}) == {"effects":[], "unfinished":[]}
     assert target not in [e["name"] for e in kernel.ok("mods.context", {"campaign":CAMPAIGN})["unregistered_equipment"]]
+
+
+def test_a_placement_that_omits_its_definition_is_offered_the_names_on_hand(kernel):
+    open_turn(kernel)
+    target = [entry["name"] for entry in kernel.ok("mods.context", {"campaign":CAMPAIGN})["unregistered_equipment"]][0]
+    draft = {"name":"笔记本", "category":"item", "description":"A blank 1920s notebook.", "basis":"Fixture basis.",
+             "parameters":{"charges":None, "effects":[]}, "player_view":{"description":"一本空白笔记本。", "fields":[]}}
+    placement = {"kind":"object", "name":"大牛皮的笔记本", "to":"Thomas Hayes", "adopt":target, "why":"登记已有笔记本"}
+
+    # The Keeper named the instance after its owner and left the definition out, so the kernel looked the
+    # instance name up instead. Telling it to define what it defined at index 0 is what makes it define twice.
+    refused = kernel.table_err("apply", call_id="t1-c1", effects=[prepared(kernel, draft), placement])
+    assert refused["code"] == "invalid_params"
+    assert "大牛皮的笔记本" in refused["message"]
+    assert "omitted definition" in refused["fix"]
+    assert "set definition to one of: 笔记本" in refused["fix"]
+
+    kernel.table("apply", call_id="t1-c2", effects=[prepared(kernel, draft), {**placement, "definition":"笔记本"}])
+    assert kernel.table("look", focus="object", name="大牛皮的笔记本")["definition"]["name"] == "笔记本"
