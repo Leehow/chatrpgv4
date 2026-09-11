@@ -2162,6 +2162,7 @@ export class PiHostBackend implements HostBackend {
    */
   private readonly cocChoiceClaims = new Map<string,string>();
   private readonly cocSheetReads = new Map<string, Promise<any>>();
+  private cocIdentityArtwork?: Promise<Record<string,string>>;
   private readonly cocSheetPresentationJobs = new Map<string, {status:"pending"|"failed"}>();
   /** Keyed by lane and the words a sheet still lacks: a failed set is asked again only once it changes. */
   private readonly cocLaneJobs = new Map<string, {status:"pending"|"failed"}>();
@@ -8640,6 +8641,17 @@ export class PiHostBackend implements HostBackend {
     const ui = await this.cocWords(home, tag);
     return ui ? {ui} : {};
   }
+  /** The cold sheet path bypasses the mounted agent, so it owns the same optional artwork response. */
+  private async cocSheetWithIdentityArtwork(result:ExtInvokeResult,params:unknown):Promise<ExtInvokeResult> {
+    if(!isRecord(params)||params.include_identity_art!==true||result.ok!==true||!isRecord(result.data)||!result.data.view||!this.managedNodeModulesRoot)return result;
+    const repo=resolve(this.managedNodeModulesRoot,"..");
+    const artwork=await (this.cocIdentityArtwork??=Promise.all([
+      ["backplate","investigator-backplate.png"],
+      ["seal","investigator-seal.png"],
+    ].map(async ([key,name])=>[key,`data:image/png;base64,${(await fs.readFile(join(repo,"pipicoc/assets",name))).toString("base64")}`] as const))
+      .then(entries=>Object.fromEntries(entries)).catch(()=>({})));
+    return Object.keys(artwork).length?{...result,data:{...result.data,identity_art:artwork}}:result;
+  }
   /** A thrown failure's own code when it carries one; a kernel error's passes through unchanged. */
   private cocCode(error: unknown, fallback = "kernel_error"): string {
     const code = (error as {code?: unknown})?.code;
@@ -8972,7 +8984,7 @@ export class PiHostBackend implements HostBackend {
       const selected = await this.locate(sessionId);
       {
         const pending = this.cocSheetReads.get(sessionId);
-        if (pending) return pending;
+        if (pending) return this.cocSheetWithIdentityArtwork(await pending,params);
         const read = (async (): Promise<ExtInvokeResult> => {
           const context = await readCocBinding(selected.path);
           if (!context) return {ok:true,data:{status:"unbound",view:null,campaign:null,...await this.cocAnswerWords(undefined)}};
@@ -9058,7 +9070,7 @@ export class PiHostBackend implements HostBackend {
             code:this.cocCode(error),reason:error instanceof Error?error.message:String(error),...words}};}
         })().finally(()=>this.cocSheetReads.delete(sessionId));
         this.cocSheetReads.set(sessionId,read);
-        return read;
+        return this.cocSheetWithIdentityArtwork(await read,params);
       }
     }
     const live = this.live.get(sessionId);

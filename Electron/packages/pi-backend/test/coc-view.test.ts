@@ -65,6 +65,19 @@ it('cold host sheet reads are tied to the requested session and never start Pi',
   }finally{await backend.close();}
 });
 
+it('the cold sheet host attaches identity artwork only when the panel requests it',async()=>{
+  const {createPiHostBackend}=await import('../src/index.js');
+  const repo=resolve(import.meta.dirname,'../../../..'),root=await mkdtemp(join(tmpdir(),'coc-sheet-art-'));
+  const backend=createPiHostBackend({agentDir:join(root,'profile'),sessionsRoot:join(root,'sessions'),managedNodeModulesRoot:join(repo,'node_modules')});
+  try {
+    const response={ok:true,data:{view:{investigators:[]}}};
+    const decorated=await (backend as any).cocSheetWithIdentityArtwork(response,{include_identity_art:true});
+    expect(decorated.data.identity_art.backplate).toMatch(/^data:image\/png;base64,/);
+    expect(decorated.data.identity_art.seal).toMatch(/^data:image\/png;base64,/);
+    expect(await (backend as any).cocSheetWithIdentityArtwork(response,{})).toEqual(response);
+  } finally {await backend.close();}
+});
+
 it('preserves the kernel glossary on mechanics renderer details', () => {
   const labels = {'Spot Hidden':'侦查'};
   const entry = mechanicsEntry({type:'custom', id:'localized', customType:'coc-mechanics', data:{
