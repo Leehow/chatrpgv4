@@ -329,3 +329,32 @@ def test_a_creation_lane_that_never_finishes_the_card_is_a_failed_run(tmp_path, 
         bench.run_setup_lane({"campaign": "c", "run_id": "r"},
                              {**bench.DEFAULTS, "setup_max_turns": 2, "turn_timeout": 1.0},
                              player, tmp_path / "trace.jsonl")
+
+
+def test_a_throttled_provider_does_not_kill_the_table(tmp_path, monkeypatch):
+    """A session error is not a bad answer: it waits and asks again, and the run survives."""
+    persona = player_mod.load_personas()["P01"]
+    player = player_mod.PersonaPlayer(persona, tmp_path / "run", launcher=FAKE_PERSONA,
+                                      credentials_from=tmp_path / "none")
+    replies = iter([("", True), ("", True),
+                    ('{"player_message": "I knock.", "private_eval": {"confusion": 0}}', False)])
+    waited: list[float] = []
+    monkeypatch.setattr(player_mod.time, "sleep", lambda s: waited.append(s))
+    monkeypatch.setattr(player_mod.PersonaPlayer, "_prompt",
+                        lambda self, message, timeout: next(replies))
+
+    act = player.act("The office is quiet.")
+    assert act["ok"] and act["player_message"] == "I knock."
+    assert act["transient_retries"] == 2, "two provider errors, two waits, no verdict on the model"
+    assert waited == [10.0, 30.0], "the wait grows; it does not retry inside a millisecond"
+
+
+def test_an_unreadable_answer_is_still_only_retried_once(tmp_path, monkeypatch):
+    persona = player_mod.load_personas()["P01"]
+    player = player_mod.PersonaPlayer(persona, tmp_path / "run", launcher=FAKE_PERSONA,
+                                      credentials_from=tmp_path / "none")
+    monkeypatch.setattr(player_mod.time, "sleep", lambda s: None)
+    monkeypatch.setattr(player_mod.PersonaPlayer, "_prompt",
+                        lambda self, message, timeout: ("I would rather not answer in JSON.", False))
+    act = player.act("The office is quiet.")
+    assert act["ok"] is False and act["attempts"] == 2 and act["transient_retries"] == 0
