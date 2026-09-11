@@ -12,6 +12,7 @@ export const COMPILED_ENTRIES = Object.freeze({
   agent: 'build/pipicoc/agent.mjs', readerContext: 'build/extensions/module/reader-context.mjs',
   readerPdf: 'build/extensions/module/reader-pdf.mjs', readerSubmit: 'build/extensions/module/reader-submit.mjs',
   deepseek: 'build/extensions/deepseek/agent/index.mjs',
+  grokBuild: 'build/extensions/grok-build-oauth/agent/index.mjs',
   characterGuidance: 'build/extensions/module/character-guidance.mjs',
   characterPresentation: 'build/extensions/module/character-presentation.mjs',
   documentPresentation: 'build/extensions/mods/document-presentation.mjs',

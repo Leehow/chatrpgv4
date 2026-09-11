@@ -22,7 +22,7 @@ export function keeperArguments(args, repo, mode = 'play', entrypoints = runtime
   }
   const mounts = [
     join(entrypoints.hostAssets, 'kernel', 'pipiui-ext-invoke.mjs'),
-    ...entrypoints.extensions, entrypoints.agent, entrypoints.deepseek,
+    ...entrypoints.extensions, entrypoints.agent, entrypoints.deepseek, entrypoints.grokBuild,
   ];
   return [...(mode === 'setup' ? ['setup'] : []), ...forwarded,
     '--no-extensions', '--no-skills', '--no-prompt-templates', '--no-themes',

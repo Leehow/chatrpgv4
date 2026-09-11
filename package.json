@@ -17,7 +17,8 @@
       "./extensions/module",
       "./extensions/memory",
       "./extensions/table",
-      "./extensions/deepseek"
+      "./extensions/deepseek",
+      "./extensions/grok-build-oauth"
     ]
   },
   "peerDependencies": {

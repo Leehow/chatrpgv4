@@ -47,7 +47,7 @@ export function piLaunch(input: string[], options: RuntimeHostOptions = {}) {
   const hostSession = forwarded.some(arg => arg === '--session' || arg.startsWith('--session='));
   const session = campaign && !hostSession ? ['--session-id', `coc-${mode === 'setup' ? 'setup-' : ''}${campaign}`] : [];
   const mounts = !forwarded.includes('--no-extensions')
-    ? ['--no-extensions', ...[...context.entrypoints.extensions, context.entrypoints.deepseek].flatMap(path => ['-e', path])] : [];
+    ? ['--no-extensions', ...[...context.entrypoints.extensions, context.entrypoints.deepseek, context.entrypoints.grokBuild].flatMap(path => ['-e', path])] : [];
   return {command: context.nodeExecutable,
     args: [context.entrypoints.pi, '--no-builtin-tools', '--no-context-files', '--system-prompt', prompt, ...session, ...mounts, ...forwarded],
     cwd: context.resourceRoot, env: {...context.env, PI_COC_MODE: mode}};

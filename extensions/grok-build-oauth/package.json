@@ -1,0 +1,9 @@
+{
+  "name": "@pi-coc/grok-build-oauth-extension",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "pi": {
+    "extensions": ["./agent/index.js"]
+  }
+}

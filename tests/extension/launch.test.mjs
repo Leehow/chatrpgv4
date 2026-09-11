@@ -104,7 +104,8 @@ function runLauncher(root, args, extraEnv = {}) {
 }
 function defaultMounts(root) {
 	return ['--no-extensions', ...['kernel', 'mods', 'onboarding', 'module', 'memory', 'table'].flatMap(name => ['-e', join(root, 'build/extensions', name, 'index.mjs')]),
-		'-e', join(root, 'build/extensions/deepseek/agent/index.mjs')];
+		'-e', join(root, 'build/extensions/deepseek/agent/index.mjs'),
+		'-e', join(root, 'build/extensions/grok-build-oauth/agent/index.mjs')];
 }
 
 test("bin/pi-coc：写 settings.json、导出战役、拼出 pi 的命令行", (t) => {
