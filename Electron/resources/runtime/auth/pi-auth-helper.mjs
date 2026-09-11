@@ -35,26 +35,41 @@ async function registerBundledAuthProviders(rt) {
       console.warn("[pi-auth-helper] no PI_COC_AGENT_DIR/PI_CODING_AGENT_DIR resolved; bundled auth providers will not be registered");
       return;
     }
+    const seen = new Set();
+    const registerModule = async (providerModule, fallbackId, origin) => {
+      if (!providerModule || !existsSync(providerModule)) return;
+      try {
+        const mod = await import(pathToFileURL(providerModule).href);
+        const factory = mod.createAuthProvider;
+        const id = typeof mod.AUTH_PROVIDER_ID === "string" && mod.AUTH_PROVIDER_ID.trim()
+          ? mod.AUTH_PROVIDER_ID.trim()
+          : fallbackId;
+        if (typeof factory !== "function" || !id || seen.has(id)) return;
+        if (typeof rt.getProvider === "function" && rt.getProvider(id)) { seen.add(id); return; }
+        seen.add(id);
+        rt.registerProvider(id, factory());
+      } catch (error) {
+        console.warn(`[pi-auth-helper] auth provider registration failed (${origin}): ${error instanceof Error ? error.message : String(error)}`);
+      }
+    };
+    // Host-supplied claims first: enabled extensions' provider modules,
+    // including user-installed (包外) ones this script cannot discover from
+    // its own tree. Serialized by ExternalAuthRuntime at spawn time.
+    let hostModules = [];
+    try { hostModules = JSON.parse(process.env.PIPIUI_EXTENSION_AUTH_PROVIDERS ?? "[]"); } catch { hostModules = []; }
+    if (Array.isArray(hostModules)) {
+      for (const entry of hostModules) {
+        if (!entry || typeof entry.module !== "string") continue;
+        await registerModule(entry.module, typeof entry.id === "string" ? entry.id.trim() : "", `host:${entry.id ?? entry.module}`);
+      }
+    }
     const here = dirname(fileURLToPath(import.meta.url));
     const extensionsRoot = join(here, "..", "extensions");
     if (!existsSync(extensionsRoot)) return;
     let names = [];
     try { names = readdirSync(extensionsRoot); } catch { return; }
     for (const name of names) {
-      const providerModule = join(extensionsRoot, name, "agent", "dist", "provider.js");
-      if (!existsSync(providerModule)) continue;
-      try {
-        const mod = await import(pathToFileURL(providerModule).href);
-        const factory = mod.createAuthProvider;
-        const id = typeof mod.AUTH_PROVIDER_ID === "string" && mod.AUTH_PROVIDER_ID.trim()
-          ? mod.AUTH_PROVIDER_ID.trim()
-          : "";
-        if (typeof factory !== "function" || !id) continue;
-        if (typeof rt.getProvider === "function" && rt.getProvider(id)) continue;
-        rt.registerProvider(id, factory());
-      } catch (error) {
-        console.warn(`[pi-auth-helper] bundled auth provider registration failed for ${name}: ${error instanceof Error ? error.message : String(error)}`);
-      }
+      await registerModule(join(extensionsRoot, name, "agent", "dist", "provider.js"), "", `bundled:${name}`);
     }
   } catch (error) {
     console.warn(`[pi-auth-helper] bundled auth provider scan failed: ${error instanceof Error ? error.message : String(error)}`);

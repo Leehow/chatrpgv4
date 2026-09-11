@@ -61,6 +61,36 @@ export const createAuthProvider = () => ({ name: 'Fake Ext', api: 'openai-comple
     }
   })
 
+  it('registers host-supplied provider modules from outside the bundled tree', async () => {
+    // 包外 (user-installed) providers: the bundled extensions/ dir cannot
+    // contain them, so the host hands the module path down via env.
+    const { root, helperPath, piPath } = await fixtureTree()
+    try {
+      const outside = join(root, 'installed', 'deepseekx', 'agent', 'dist')
+      await mkdir(outside, { recursive: true })
+      await writeFile(join(outside, 'provider.js'), `
+export const AUTH_PROVIDER_ID = 'fake-outside'
+export const createAuthProvider = () => ({ name: 'Fake Outside', api: 'openai-completions', baseUrl: 'https://example.invalid', models: [] })
+`)
+      const { stdout } = await execFileAsync(process.execPath, [helperPath, 'list-providers'], {
+        env: {
+          PATH: process.env.PATH,
+          HOME: root,
+          PIPIUI_PI_PATH: piPath,
+          PI_CODING_AGENT_DIR: join(root, 'agent'),
+          PIPIUI_EXTENSION_AUTH_PROVIDERS: JSON.stringify([{ id: 'fake-outside', module: join(outside, 'provider.js') }])
+        }
+      })
+      const response = JSON.parse(stdout.trim())
+      expect(response.ok).toBe(true)
+      const ids = response.providers.map((provider: any) => provider.id)
+      expect(ids).toContain('fake-outside')
+      expect(ids).toContain('fake-ext')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it('warns and skips registration when no profile home is resolved', async () => {
     const { root, helperPath, piPath } = await fixtureTree()
     try {

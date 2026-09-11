@@ -103,7 +103,7 @@ import { nativeSearchRuntimeCatalog } from "./generic-search-filter.js";
 import { enrichCapabilitiesForOfficialHostedSearch } from "./hosted-search-capabilities.js";
 import { extractHistoryCitations, extractHistoryCodeInterpreter, extractHistoryFileSources, isHostedAssistantEvent, projectHostedAssistantEvent } from "./hosted-search-stream.js";
 import { installRuntimeTree, type RuntimeAssets } from "./runtime-install.js";
-import { registerContributedAuthProviders as registerExtensionAuthProviders } from "./extension-auth-providers.js";
+import { registerContributedAuthProviders as registerExtensionAuthProviders, contributedAuthProviderModules } from "./extension-auth-providers.js";
 import {
   LEASE_ACQUISITION_METADATA,
   LeaseManager,
@@ -2611,6 +2611,14 @@ export class PiHostBackend implements HostBackend {
         sessionsRoot: this.root,
         enforceProfile: this.profileMode === "isolated",
         env: { ...this.env, ...(this.piCommand.env ?? {}) },
+        // Resolved lazily per helper spawn: the helper process cannot discover
+        // user-installed (包外) providers from its own bundled tree, so the
+        // host hands down the current claims → provider module paths.
+        extensionAuthProviders: () =>
+          contributedAuthProviderModules({
+            claims: this.extensionLoader.contributionClaims(),
+            directoryOf: (id) => this.extensionLoader.directoryOf(id),
+          }),
       });
       this.authRuntimePromise = Promise.resolve(this.externalAuthRuntime);
     }

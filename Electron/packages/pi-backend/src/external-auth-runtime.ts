@@ -9,7 +9,7 @@ import type { AuthInteractionLike, AuthRuntimeLike } from "./provider-auth.js";
 import { withElectronRunAsNode } from "./spawn-assembly.js";
 
 const execFileAsync = promisify(execFile);
-export interface ExternalAuthRuntimeOptions { helperPath: string; piPath: string; agentDir: string; sessionsRoot?: string; enforceProfile?: boolean; env?: NodeJS.ProcessEnv; nodePath?: string; /** Optional per-request RPC timeout (tests use a short value to exercise timeout paths cheaply). */ rpcTimeoutMs?: number }
+export interface ExternalAuthRuntimeOptions { helperPath: string; piPath: string; agentDir: string; sessionsRoot?: string; enforceProfile?: boolean; env?: NodeJS.ProcessEnv; nodePath?: string; /** Optional per-request RPC timeout (tests use a short value to exercise timeout paths cheaply). */ rpcTimeoutMs?: number; /** Lazily resolved host truth: enabled extensions' contributed auth-provider modules. Serialized into the helper child env so the helper registers user-installed (包外) providers it cannot discover from its own tree. */ extensionAuthProviders?: () => Array<{ id: string; module: string }> }
 
 function parseDotEnv(source: string): NodeJS.ProcessEnv {
   const result: NodeJS.ProcessEnv = {};
@@ -127,13 +127,25 @@ export class ExternalAuthRuntime implements AuthRuntimeLike {
     if (!this.envCache) this.envCache = modelRuntimeEnvironment(this.options.agentDir, this.options.piPath, this.options.env ?? process.env, this.options.sessionsRoot, this.options.enforceProfile);
     return this.envCache;
   }
+  /**
+   * modelRuntimeEnvironment plus the extension auth-provider module list the
+   * helper cannot discover on its own. Recomputed per spawn (never cached):
+   * the enabled-extension set changes without an app restart.
+   */
+  private async helperEnv(): Promise<NodeJS.ProcessEnv> {
+    const env = await this.workerEnv();
+    let modules: Array<{ id: string; module: string }> = [];
+    try { modules = this.options.extensionAuthProviders?.() ?? []; } catch { /* resolver failure must never break auth */ }
+    if (!modules.length) return env;
+    return { ...env, PIPIUI_EXTENSION_AUTH_PROVIDERS: JSON.stringify(modules) };
+  }
   private resolveNode(): Promise<string> { if (!this.nodeCache) this.nodeCache = this.workerEnv().then(env => resolveNode(this.options.nodePath, env)); return this.nodeCache; }
   /**
    * One-shot cold execFile path, kept as an always-available fallback when the
    * resident worker can't be spawned or has died (backward compatible).
    */
   private async command(command: string, ...args: string[]): Promise<any> {
-    const env = await modelRuntimeEnvironment(this.options.agentDir, this.options.piPath, this.options.env ?? process.env, this.options.sessionsRoot, this.options.enforceProfile);
+    const env = await this.helperEnv();
     const node = await resolveNode(this.options.nodePath, env);
     try {
       const { stdout } = await execFileAsync(node, [this.options.helperPath, command, ...args], { env, maxBuffer: 4 * 1024 * 1024 });
@@ -144,7 +156,7 @@ export class ExternalAuthRuntime implements AuthRuntimeLike {
   }
   /** Send {id,cmd,args}, await the correlated stdout line on the resident worker. */
   private async rpc(cmd: string, args: string[] = []): Promise<any> {
-    const [env, node] = await Promise.all([this.workerEnv(), this.resolveNode()]);
+    const [env, node] = await Promise.all([this.helperEnv(), this.resolveNode()]);
     const worker = await this.ensureWorker(node, env, this.options.helperPath);
     const id = String(++worker.seq);
     const timeoutMs = this.options.rpcTimeoutMs ?? RPC_TIMEOUT_MS;
@@ -265,7 +277,7 @@ export class ExternalAuthRuntime implements AuthRuntimeLike {
   async getAvailable() { return (await this.query("list-models", [], true)).models; }
   async logout(providerId: string) { await this.query("logout", [providerId]); }
   async login(providerId: string, authType: AuthType, interaction: AuthInteractionLike): Promise<unknown> {
-    const env = await modelRuntimeEnvironment(this.options.agentDir, this.options.piPath, this.options.env ?? process.env, this.options.sessionsRoot, this.options.enforceProfile);
+    const env = await this.helperEnv();
     const node = await resolveNode(this.options.nodePath, env);
     const child = spawn(node, [this.options.helperPath, "login-json", providerId, authType], { env, stdio: ["pipe", "pipe", "pipe"] });
     const abort = () => child.kill();

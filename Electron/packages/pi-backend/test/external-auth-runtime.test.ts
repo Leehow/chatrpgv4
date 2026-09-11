@@ -36,7 +36,7 @@ if (command === "serve") {
   process.stdin.once("data", data => { const answer=JSON.parse(String(data)).answer; console.log(JSON.stringify({ok:true,result:{accepted:answer.length}})); });
 } else if (command === "list-models") console.log(JSON.stringify({ok:true, ...models()}));
 else if (command === "list-providers") console.log(JSON.stringify({ok:true, ...providers()}));
-else if (command === "profile-env") console.log(JSON.stringify({ok:true,agentDir:process.env.PI_CODING_AGENT_DIR,sessionsRoot:process.env.PI_CODING_AGENT_SESSION_DIR}));
+else if (command === "profile-env") console.log(JSON.stringify({ok:true,agentDir:process.env.PI_CODING_AGENT_DIR,sessionsRoot:process.env.PI_CODING_AGENT_SESSION_DIR,extProviders:process.env.PIPIUI_EXTENSION_AUTH_PROVIDERS??null}));
 else if (command === "logout") console.log(JSON.stringify({ok:true}));
 else process.exit(2);
 `;
@@ -204,6 +204,45 @@ describe("external Pi model runtime", () => {
     const actual = await (runtime as any).command("profile-env");
     expect(actual.agentDir).toBe(agentDir);
     runtime.stop();
+  });
+
+  it("hands the enabled extensions' auth-provider modules to the helper child env", async () => {
+    root = await mkdtemp(join(tmpdir(), "pipi-external-extproviders-"));
+    const agentDir = join(root, "agent");
+    const helperPath = join(root, "helper.mjs");
+    await mkdir(agentDir);
+    await writeFile(helperPath, fixture);
+    const modules = [{ id: "deepseek-extended", module: "/installed/deepseek/agent/dist/provider.js" }];
+    const runtime = new ExternalAuthRuntime({
+      helperPath,
+      agentDir,
+      piPath: "/opt/homebrew/bin/pi",
+      nodePath: process.execPath,
+      env: { HOME: root },
+      extensionAuthProviders: () => modules,
+    });
+    const actual = await (runtime as any).command("profile-env");
+    expect(JSON.parse(actual.extProviders)).toEqual(modules);
+    runtime.stop();
+  });
+
+  it("omits the module list env when the resolver throws or is empty", async () => {
+    root = await mkdtemp(join(tmpdir(), "pipi-external-extproviders-fail-"));
+    const agentDir = join(root, "agent");
+    const helperPath = join(root, "helper.mjs");
+    await mkdir(agentDir);
+    await writeFile(helperPath, fixture);
+    const throwing = new ExternalAuthRuntime({
+      helperPath,
+      agentDir,
+      piPath: "/opt/homebrew/bin/pi",
+      nodePath: process.execPath,
+      env: { HOME: root },
+      extensionAuthProviders: () => { throw new Error("loader not ready"); },
+    });
+    const actual = await (throwing as any).command("profile-env");
+    expect(actual.extProviders).toBeNull();
+    throwing.stop();
   });
 
   it("preserves interactive login while keeping the API key off argv and result events", async () => {
