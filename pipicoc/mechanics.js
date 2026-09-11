@@ -485,7 +485,10 @@ export function createComponent(React) {
       case "handout": {
         const name = term(text(row.label || row.name));
         const stamp = h(Stamp, { tone: row.available ? "pass" : "plain" }, row.available ? t("available") : t("pending"));
-        const body = text(row.text);
+        // The document the player is handed, which is the module's own prose in the language the
+        // book was read in. Its name went through the glossary and its body did not, so the row
+        // folded under a play-language title into a column of the source language.
+        const body = term(text(row.text));
         if (!body) {
           // Nothing to open into — an image, or bytes that never shipped: the row stays a line.
           return h(Row, { key, kindKey: "handout", kindLabel, family },

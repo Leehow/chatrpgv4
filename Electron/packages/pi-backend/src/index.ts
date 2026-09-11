@@ -5859,49 +5859,59 @@ export class PiHostBackend implements HostBackend {
     })().catch(() => undefined /* the card still asks for itself if this never lands */);
   }
   /**
-   * The clue words one delivery needs, and the redraw that follows them.
+   * The campaign's own words one delivery needs, and the redraw that follows them.
    *
-   * A clue found this turn has no projection yet — the lanes are topped up on a sheet read, and
-   * the player may not open the sheet for another hour — so the card would draw the module's own
-   * sentence under the Keeper's name for it. This starts that lane on the delivery itself, and
-   * then streams the same entry id again: the transcript replaces a presentation row in place
+   * What this turn put on the table has no projection yet — the lanes are topped up on a sheet
+   * read, and the player may not open the sheet for another hour — so the card would draw the
+   * module's own sentence under the Keeper's name for it, and open a handed-over document in the
+   * language the book was read in. This starts each lane on the delivery itself, and then streams
+   * the same entry id again: the transcript replaces a presentation row in place
    * (`applyStreamEvent`), so the card the player is looking at changes language where it sits.
    *
-   * One run per (campaign, language, missing words), the way a sheet read keeps one per lane: a
-   * turn that reveals nothing new asks for nothing, and a repeated reveal rides the held answer.
+   * One run per (campaign, language, lane, missing words), the way a sheet read keeps one per
+   * lane: a turn that puts nothing new on the table asks for nothing, and a repeated reveal rides
+   * the held answer. The lanes run one after another rather than together — a turn that both
+   * reveals a clue and hands over a document is rare, and they share the vocabulary file.
    */
-  private startCluePresentation(sessionId: string, raw: any): void {
+  private startDeliveryPresentation(sessionId: string, raw: any): void {
     const wanted = deliveryWords(raw);
-    if (!wanted.length || !this.managedNodeModulesRoot) return;
+    if (!Object.keys(wanted).length || !this.managedNodeModulesRoot) return;
     void (async () => {
       const path = (await this.locate(sessionId)).path;
       const binding = this.cocSessionBindings.get(sessionId) ?? await readCocBinding(path);
       if (!binding) return;
       const held = await laneLabels(binding);
-      const missing = wanted.filter(text => typeof held[text] !== "string" || !held[text].trim());
-      if (!missing.length) return;
-      const key = JSON.stringify([binding.home, binding.campaign, binding.play_language, "clues", missing]);
-      if (this.cocLaneJobs.has(key)) return;
-      this.cocLaneJobs.set(key, {status: "pending"});
-      try {
-        const repo = resolve(this.managedNodeModulesRoot!, "..");
-        const host = this.cocOnboardingRegistry.get({...this.cocRuntime, repo, home: binding.home,
-          agentDir: this.sharedProfileDir, env: this.env});
-        this.cocOnboarding = host;
-        const state = await this.getModelState(sessionId);
-        await host.presentation({campaign: binding.campaign, play_language: binding.play_language, clues: true,
-          model: `${state.model.provider}/${state.model.id}`, thinking: state.thinkingLevel});
-        this.cocLaneJobs.delete(key);
-        await reloadLaneLabels(binding);
-        // The history page is cached against the transcript's own size and mtime, which a
-        // projection landing beside it does not change.
-        this.historyCache.delete(path);
-        const entry = mechanicsEntry(raw, binding.play_language, undefined, this.cocLiveWords(sessionId));
-        if (entry) this.stream({type: "presentation", sessionId, entry});
-      } catch {
-        // The card keeps the words it drew with; a sheet read tops the lane up later.
-        this.cocLaneJobs.set(key, {status: "failed"});
+      const pending = Object.entries(wanted)
+        .map(([lane, texts]) => [lane, texts.filter(text => typeof held[text] !== "string" || !held[text].trim())] as const)
+        .filter(([, missing]) => missing.length);
+      if (!pending.length) return;
+      let landed = false;
+      for (const [lane, missing] of pending) {
+        const key = JSON.stringify([binding.home, binding.campaign, binding.play_language, lane, missing]);
+        if (this.cocLaneJobs.has(key)) continue;
+        this.cocLaneJobs.set(key, {status: "pending"});
+        try {
+          const repo = resolve(this.managedNodeModulesRoot!, "..");
+          const host = this.cocOnboardingRegistry.get({...this.cocRuntime, repo, home: binding.home,
+            agentDir: this.sharedProfileDir, env: this.env});
+          this.cocOnboarding = host;
+          const state = await this.getModelState(sessionId);
+          await host.presentation({campaign: binding.campaign, play_language: binding.play_language, [lane]: true,
+            model: `${state.model.provider}/${state.model.id}`, thinking: state.thinkingLevel});
+          this.cocLaneJobs.delete(key);
+          landed = true;
+        } catch {
+          // The card keeps the words it drew with; this lane is not asked again for the same set.
+          this.cocLaneJobs.set(key, {status: "failed"});
+        }
       }
+      if (!landed) return;
+      await reloadLaneLabels(binding);
+      // The history page is cached against the transcript's own size and mtime, which a
+      // projection landing beside it does not change.
+      this.historyCache.delete(path);
+      const entry = mechanicsEntry(raw, binding.play_language, undefined, this.cocLiveWords(sessionId));
+      if (entry) this.stream({type: "presentation", sessionId, entry});
     })().catch(() => undefined);
   }
   private lines(live: Live, chunk: string) {
@@ -5927,7 +5937,7 @@ export class PiHostBackend implements HostBackend {
     if (e.type === "entry_appended") {
       if(e.entry?.customType==='coc-setup-exit')live.cocSetupHandoffPending=true;
       if(e.entry?.customType==='coc-character-draft'&&e.entry?.data?.sheet)this.startDraftPresentation(live.session.id,e.entry.data);
-      if(e.entry?.customType==='coc-mechanics')this.startCluePresentation(live.session.id,e.entry);
+      if(e.entry?.customType==='coc-mechanics')this.startDeliveryPresentation(live.session.id,e.entry);
       const entry = e.entry?.customType === "coc-setup-opening"
         ? visibleHistoryEntry(e.entry,this.sessionSecrets(live.session.id))
         : mechanicsEntry(e.entry, this.cocSessionBindings.get(live.session.id)?.play_language, undefined, this.cocLiveWords(live.session.id));

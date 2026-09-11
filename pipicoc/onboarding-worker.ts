@@ -6,7 +6,7 @@ import { composeRuntimeContext, createRuntime, type HostRuntime, type RuntimeCon
 import { ReadingService } from '../extensions/module/reading-service.ts';
 import type { ReaderRequest } from '../extensions/module/reader.ts';
 import { prepareCharacterGuidance, guidanceFingerprint, acceptedGuidance } from '../extensions/module/character-guidance.ts';
-import { prepareCharacterPresentation, prepareCluePresentation, prepareLanguagePresentation, preparePossessionPresentation, prepareStandingPresentation } from '../extensions/module/character-presentation.ts';
+import { prepareCharacterPresentation, prepareCluePresentation, prepareHandoutPresentation, prepareLanguagePresentation, preparePossessionPresentation, prepareStandingPresentation } from '../extensions/module/character-presentation.ts';
 import { playLanguageTag, resolveUiWords } from '../runtime/ui-words.ts';
 import { prepareUiWords } from '../extensions/module/ui-presentation.ts';
 import { presentDocument } from '../extensions/mods/document-presentation.ts';
@@ -119,6 +119,14 @@ async function main() {
       // Only what table.view already shows the player: discovered rows, never the scene's unfound offer.
       const view=await call('table.view',{campaign:input.campaign});
       return prepareCluePresentation({...input,contentRoot:context.contentRoot,view,known_labels:view.labels||{},signal:guidanceAbort.signal,runner:runTask});
+    }
+    if(input.handouts) {
+      // The lane reads the files `apply handout` wrote, which is where a handout's words are: it
+      // is on no panel and in no view. Taking them from disk rather than from the kernel also
+      // keeps this lane off the campaign lock, so a document handed over mid-turn does not queue
+      // behind the Keeper's own turn.
+      return prepareHandoutPresentation({...input,contentRoot:context.contentRoot,known_labels:{},
+        signal:guidanceAbort.signal,runner:runTask});
     }
     // The draft row already carries the kernel's glossary. When the caller hands it over there is
     // no campaign-scoped read left to make, so this projection never queues behind the Keeper's

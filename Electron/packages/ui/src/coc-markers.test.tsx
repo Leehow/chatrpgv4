@@ -265,3 +265,34 @@ describe('the plain copy of a drawn delivery is folded away', () => {
     expect(withoutMechanicsMarkers('你翻遍了匣子{{check:library-use}}。')).toBe('你翻遍了匣子。')
   })
 })
+
+/**
+ * The document a handout opens into is the module's own prose, in the language the book was read
+ * in (the graph contract's source_language_law), and the campaign projects it into a lane the same
+ * way it projects a clue's sentence. The row's name went through the glossary from the start and
+ * its body did not, so the card folded a play-language title over a column of the source language.
+ */
+describe('a handed-over handout opens in the play language', () => {
+  const TEXT = '# Handout 2: Unpublished Boston Globe Story (1918)\n\nHOUSE ON SHEAFE STREET LEAVES A RECORD OF MISFORTUNE\n'
+  const PROJECTED = '# 手卡二：环球报未刊稿（一九一八）\n\n希夫街的宅子留下一连串不幸\n'
+  const HANDOUT = {
+    kind: 'handout', receipt: 'handout:globe-unpublished-1918-t6', handout: 'globe-unpublished-1918',
+    name: 'Handout 2: Unpublished Boston Globe Story (1918)', label: '环球报未刊稿（一九一八）',
+    available: true, text: TEXT,
+  }
+
+  // The document keeps its own line breaks, which `getByText` would normalise away, so the fold's
+  // body is read whole.
+  const opened = (labels: Record<string, string>) =>
+    render(<Delivery details={{turn: 6, mechanics: [HANDOUT], labels}} />)
+      .container.querySelector('.coc-mech-fold-body')?.textContent
+
+  it('draws the projection the campaign holds, not the book', () => {
+    expect(opened({[TEXT]: PROJECTED})).toBe(PROJECTED)
+    expect(screen.getByText('环球报未刊稿（一九一八）')).toBeTruthy()
+  })
+
+  it('draws the book itself while no projection has landed, rather than an empty card', () => {
+    expect(opened({})).toBe(TEXT)
+  })
+})

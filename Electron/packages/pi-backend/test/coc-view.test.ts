@@ -393,9 +393,9 @@ it('a live delivery draws a found clue in the play language, not the language th
       {kind:'roll',skill:'Spot Hidden',roll:25,target:50}]}};
   // What the delivery needs projected: the two player-facing words of the public clue row, and
   // nothing from the keeper row or from a kind that carries no module prose.
-  expect(deliveryWords(row)).toEqual([summary,'调查方向']);
-  expect(deliveryWords({data:{mechanics:[{kind:'roll',skill:'Spot Hidden'}]}})).toEqual([]);
-  expect(deliveryWords(undefined)).toEqual([]);
+  expect(deliveryWords(row)).toEqual({clues:[summary,'调查方向']});
+  expect(deliveryWords({data:{mechanics:[{kind:'roll',skill:'Spot Hidden'}]}})).toEqual({});
+  expect(deliveryWords(undefined)).toEqual({});
 
   // The synchronous reader answers with nothing before a read has landed -- and asking starts one,
   // so it is the next card that has the words, never a card drawn in another language.
@@ -479,5 +479,71 @@ it('a clue found this turn starts its own projection and redraws the delivery in
     expect(drawn.length).toBe(3);
     expect(drawn[2].entry.id).toBe('found-5');
     expect(drawn[2].entry.presentation.details.labels[summary]).toBe(projected);
+  } finally {await backend.close();}
+},40000);
+
+it('a handed-over document is asked of the lane that can collect it, by the words that lane reads',()=>{
+  // The half the clue fix left behind. A handout's body is the module's own prose too, but it is
+  // collected from the files `apply handout` wrote rather than from `table.view`, so it is a lane
+  // of its own -- and asking the clues lane for it would leave it missing for good, which makes
+  // every later delivery start the lane again.
+  const text='# Handout 2: Unpublished Boston Globe Story (1918)\n\nHOUSE ON SHEAFE STREET LEAVES A RECORD OF MISFORTUNE\n';
+  const handout={kind:'handout',receipt:'handout:globe-unpublished-1918-t6',handout:'globe-unpublished-1918',
+    name:'Handout 2: Unpublished Boston Globe Story (1918)',label:'环球报未刊稿（一九一八）',available:true,text};
+  // `label` is the Keeper's own word, already in the play language and nowhere in the files the
+  // lane reads; `name` is the display name, which is exactly the heading above the body.
+  expect(deliveryWords({data:{mechanics:[handout]}}))
+    .toEqual({handouts:[text,'Handout 2: Unpublished Boston Globe Story (1918)']});
+  // One turn can do both, and each lane is asked for its own words only.
+  const both=deliveryWords({data:{mechanics:[handout,{kind:'clue',clue:'k',label:'调查方向',summary:'Knott points them toward the Globe.'}]}});
+  expect(Object.keys(both).sort()).toEqual(['clues','handouts']);
+  expect(both.clues).toEqual(['Knott points them toward the Globe.','调查方向']);
+  // A keeper-visibility row is not the player's to read, and an image handout opens into nothing.
+  expect(deliveryWords({data:{mechanics:[{...handout,visibility:'keeper'}]}})).toEqual({});
+  expect(deliveryWords({data:{mechanics:[{kind:'handout',name:'Corbitt House Investigator Map',available:true}]}}))
+    .toEqual({handouts:['Corbitt House Investigator Map']});
+});
+
+it('a handout handed over this turn starts the handouts lane and redraws the document in place',async()=>{
+  const {cp}=await import('node:fs/promises');
+  const {createPiHostBackend}=await import('../src/index.js');
+  const repo=resolve(import.meta.dirname,'../../../..'),root=await mkdtemp(join(tmpdir(),'coc-live-handout-'));
+  const client=new KernelClient({command:[process.execPath,join(repo,'build/kernel/rpc.mjs'),'--workspace',root,'--content',join(repo,'content')],cwd:repo,env:{}});
+  try {await client.call('campaign.create',{id:'handed',module:'the-haunting',pregen:'thomas-hayes',play_language:'zh-Hans'});}finally{await client.close();}
+  const folder=join(root,'.coc/campaigns/handed/setup/presentations');await mkdir(folder,{recursive:true});
+  const text='# Handout 2: Unpublished Boston Globe Story (1918)\n\nHOUSE ON SHEAFE STREET LEAVES A RECORD OF MISFORTUNE\n';
+  const projected='# 手卡二：环球报未刊稿（一九一八）\n\n希夫街的宅子留下一连串不幸\n';
+  const asked:any[]=[];
+  const registry={get:()=>({presentation:async(request:any)=>{
+    asked.push(request);
+    await writeFile(join(folder,'handouts-zh-Hans.json'),JSON.stringify({play_language:'zh-Hans',texts:{[text]:projected}}));
+    return {texts:{}};
+  }}),dispose(){},async close(){}} as any;
+  const profile=join(root,'profile'),pack=join(profile,'extensions/coc-keeper');await mkdir(pack,{recursive:true});
+  await cp(join(repo,'pipiui-extension.json'),join(pack,'pipiui-extension.json'));await cp(join(repo,'pipicoc'),join(pack,'pipicoc'),{recursive:true});
+  const backend=createPiHostBackend({agentDir:profile,sessionsRoot:join(root,'sessions'),runtimeRoot:join(root,'runtime'),defaultPack:'coc-keeper',managedNodeModulesRoot:join(repo,'node_modules'),cocOnboardingRegistry:registry,env:{...process.env,PI_COC_HOME:root,UV_CACHE_DIR:'/tmp/pi-coc-uv-cache'},piCommand:{executable:join(repo,'pipicoc/rpc'),env:{PATH:process.env.PATH!}},spawn:()=>{throw new Error('Pi must remain asleep');}});
+  try {
+    await backend.handle('addProject',[root]);const projects=await backend.handle('listProjects',[]) as any[];
+    const session=await backend.handle('newSession',[projects[0].id]) as any;
+    const located=await (backend as any).locate(session.id);
+    await writeFile(located.path+'.coc.json',JSON.stringify({campaign:'handed',home:root,play_language:'zh-Hans'}));
+    (backend as any).cocSessionBindings.set(session.id,(await readCocBinding(located.path))!);
+    const drawn:any[]=[];
+    backend.subscribe((frame:any)=>{if(frame.channel==='stream'&&frame.event?.type==='presentation')drawn.push(frame.event);});
+    const entry={type:'custom',id:'handed-6',customType:'coc-mechanics',timestamp:'2026-09-11',data:{turn:6,
+      mechanics:[{kind:'handout',receipt:'handout:globe-unpublished-1918-t6',handout:'globe-unpublished-1918',
+        name:'Handout 2: Unpublished Boston Globe Story (1918)',label:'环球报未刊稿（一九一八）',available:true,text}]}};
+    (backend as any).sessionRuntimeTokens.set(session.id,7);
+    (backend as any).rpcEvent({session:{id:session.id},runtimeToken:7},{type:'entry_appended',entry});
+    for(let i=0;i<200&&drawn.length<2;i++)await new Promise(r=>setTimeout(r,20));
+    // The handouts lane, not the clues lane: this is the assertion that fails if a delivery routes
+    // every kind of module prose to whichever lane happens to be wired.
+    expect(asked.length).toBe(1);
+    expect(asked[0].handouts).toBe(true);
+    expect(asked[0].clues).toBeUndefined();
+    expect(drawn.length).toBe(2);
+    expect(drawn.map((event:any)=>event.entry.id)).toEqual(['handed-6','handed-6']);
+    expect(drawn[0].entry.presentation.details.labels[text]).toBeUndefined();
+    expect(drawn[1].entry.presentation.details.labels[text]).toBe(projected);
   } finally {await backend.close();}
 },40000);

@@ -114,8 +114,14 @@ export async function cocPlayLanguage(repo:string, contentRoot:string, tag:unkno
     return await module.playLanguageTag(contentRoot,tag) as string;
   } catch {return undefined;}
 }
-/** The lanes a campaign projects its own growing vocabulary into, in the order they merge. */
-export const PRESENTATION_LANES=['standing','possessions','clues','languages'] as const;
+/**
+ * The lanes a campaign projects its own growing vocabulary into, in the order they merge.
+ *
+ * `handouts` is here but not in `SHEET_LANES`, the way `standing` is: a sheet read cannot top it
+ * up because a handout is on no panel and in no view. Its trigger is the delivery that hands the
+ * document over.
+ */
+export const PRESENTATION_LANES=['standing','possessions','clues','languages','handouts'] as const;
 /**
  * Every word this campaign has already projected for its play language, merged in lane order.
  *
@@ -176,16 +182,30 @@ export async function reloadLaneLabels(context?:CocBinding):Promise<Record<strin
   LANE_LABELS.set(key,Promise.resolve(texts));LANE_LABELS_LOADED.set(key,texts);
   return texts;
 }
-/** The player-facing words one delivery puts on the table: what a clue is called and what it says. */
-export function deliveryWords(entry:any):string[] {
+/**
+ * The player-facing words one delivery puts on the table, under the lane that projects each:
+ * what a clue is called and what it says, and the document a handout opens into.
+ *
+ * Keyed by lane because the two are collected from different places — a clue from the table's own
+ * view, a handout from the files `apply handout` wrote — and starting a lane that cannot collect
+ * the word asked for leaves it missing for good, so every later delivery starts it again.
+ *
+ * For that reason a handout asks for `name` and not `label`: `label` is the Keeper's own word, in
+ * the play language already, and it is nowhere in the files the handout lane reads. `name` is the
+ * graph's display name, which is exactly the `# ` heading the kernel writes above the body.
+ */
+export function deliveryWords(entry:any):Record<string,string[]> {
   const rows=Array.isArray(entry?.data?.mechanics)?entry.data.mechanics:[];
-  const texts=new Set<string>();
+  const wanted:Record<string,Set<string>>={clues:new Set(),handouts:new Set()};
+  const keys:Record<string,string[]>={clues:['label','summary'],handouts:['name','text']};
   for(const row of rows) {
-    if(!row||typeof row!=='object'||row.kind!=='clue'||row.visibility==='keeper')continue;
-    for(const key of ['label','summary'])
-      if(typeof row[key]==='string'&&row[key].trim())texts.add(row[key]);
+    if(!row||typeof row!=='object'||row.visibility==='keeper')continue;
+    const lane=row.kind==='clue'?'clues':row.kind==='handout'?'handouts':null;
+    if(!lane)continue;
+    for(const key of keys[lane])
+      if(typeof row[key]==='string'&&row[key].trim())wanted[lane].add(row[key]);
   }
-  return [...texts].sort();
+  return Object.fromEntries(Object.entries(wanted).filter(([,set])=>set.size).map(([lane,set])=>[lane,[...set].sort()]));
 }
 const DRAFT_PROJECTION=/^(\d+)-(.+)\.json$/;
 /**

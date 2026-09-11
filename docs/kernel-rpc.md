@@ -215,12 +215,12 @@ result：`{"rendered_text": "<即 text，正文原样>"..., "mechanics": [...], 
 ```
 {"turn": {"number", "state", "pending_choice": null | {...}, "player_text": "<本回合玩家原文或 null>"},
  "where": {"scene": "<name>", "display_name", "dramatic_question", "pressure_moves": [...], "exits": [{"to", "travel_minutes"?, "unlock_when"?}], "back": [{"to", "display_name"}]（来路，由近到远）,
-           "affordances": [{"id", "cue", "clue"?, "npc"?}], "keeper_notes": [...], "assets": [{"name", "kind"}],
+           "affordances": [{"id", "cue", "clue"?, "clues"?: [{"clue", "gate", "discovered"}], "npc"?}]（§32.5：`clues` 是这条线索行的产出与门，`clue` 仍是第一条）, "keeper_notes": [...], "assets": [{"name", "kind"}],
            "places": [{"name", "line"?}]（≤ 8；本场景 `occurs-at` 的地点下面 `located-in` 的房间——书把一栋楼建成「地点 + 一串房间」，只看离场景一跳就永远看不见它们）,
            "rules": [{"name", "line"?}]（≤ 6；本场景 `uses-rule` 指向的 rule 节点：书为这一场固定的判定与数值。每次构建都接对了这条关系，此前没有任何消费者）,
            "endings": [{"name", "via", "line"?}]（≤ 4；本场景 `may-lead-to` 的 ending 节点。结局不是走过去的地方——`WALKABLE_KINDS` 只有场景，且是有意的——它是一次结算（`development:settle-ending`）。此前没有任何东西告诉守秘人有一个够得着，于是一局玩到头就那么停住：巫师被毁，作者写好的收束从未结算，战役状态还是 `active`）},
  "present": [{"name", "role", "wants", "fears"?, "hides"?, "voice"?, "knows": [...], ...}]（§17.4 起是档案加账本，旧的 relationship/agenda/known_facts/attitude 已删）,
- "known": {"discovered_clues": [names], "clues_here": [{"name", "summary", "delivery_kind", "discovered": bool}],
+ "known": {"discovered_clues": [names], "clues_here": [{"name", "summary", "delivery_kind", "gate"（§32.5）, "discovered": bool}],
            "investigator": {"name", "occupation", "hp", "san", "mp", "luck", "skills_of_note": [{"name", "value"}]}},
  "recent": [{"turn", "player", "keeper": "<前 200 字>"}]   最近 2 回合
 }
@@ -2155,6 +2155,24 @@ player may not open the sheet for an hour: the delivery starts the `clues` lane
 for the words it carries, once per campaign, language and missing set, and
 streams the same entry id again when it lands, which the transcript applies as a
 replacement rather than a second copy of the turn.
+
+**Every lane a delivery starts must be one that can collect the words asked
+for.** A handed-over handout is module prose under the same law, but it is on no
+panel and in no view: `apply handout` writes a card with a body to
+`<campaign>/handouts/<handle>.md` and the delivery is its only surface. Its lane
+is therefore `handouts`, whose input is those files rather than `table.view` —
+`handoutInput` reads each one and takes the `# ` heading the kernel wrote above
+the body, so the name is read back and never guessed out of the prose — and the
+whole document is one string, because a newspaper column translated a line at a
+time stops being a newspaper column. `PRESENTATION_LANES` therefore carries
+`handouts` and `SHEET_LANES` does not, the way `standing` is merged but topped
+up elsewhere. `deliveryWords` keys what a delivery needs by lane and asks the
+handouts lane for `name` and `text` but never `label`: `label` is the Keeper's
+own word, already in the play language and nowhere in the files that lane reads,
+so asking for it would leave it missing for good and start the lane again on
+every later delivery. In the renderer both halves of a row go through `term()`;
+the handout's body did not, which folded a play-language title over a column of
+the source language.
 
 **Kernel prose never reaches a player field.** `normalizeText` keeps every
 script's letters and digits (`\p{L}\p{N}`), so markers, ids and alias
@@ -4579,3 +4597,163 @@ Anchoring is the whole fix and it needs no list: a qualified form of a name keep
 sits at one end; a sentence that merely mentions someone holds it in the middle. Every #64 case is a suffix or a
 prefix and is unchanged. `tests/extension/ts-kernel-name-phrase.test.mjs` gains a clue whose name is a sentence
 carrying a person's name in its middle, and asks for that person as a clue.
+
+## 32. Action admission and the local relation projection (2026-09-11)
+
+The spec `docs/specs/graph-backed-play-experience.md` starts from two retained turns of The Haunting: a
+player asking "科比特是什么？" after a setup that had already introduced Corbitt, and "那看看报纸" turning
+into a move, a clue, a time advance and an encounter the player had not chosen. Everything below this
+line is the contract those turns needed. It adds no plane of authority, no second Keeper, no quota, and
+nothing that reaches the next capsule.
+
+### 32.1 Admission is host-owned, runs before effects, and no package switches it off
+
+Before a `resolve`, or an `apply` batch that carries a `move` (other than a rename of the scene
+underfoot), a `clue`, a `time`, a `cash`, an `item` or a `handout`, reaches a Mod hook or the kernel, the
+kernel extension puts the proposal to an independent review (`extensions/kernel/admission.ts`,
+`admitAction` in `extensions/kernel/index.ts`). It runs in the tool path itself — ahead of
+`mods.prepare`, so a refused batch pays for no definition agent, and ahead of the transaction, so a
+refused batch mints no receipt and has nothing to replay. It is base host behaviour on the same footing
+as the turn state machine: there is no package, setting or capsule field that disables it.
+
+What is **not** put to review, decided by closed contract enums and never by reading the prose:
+
+- `resolve` with `action.choice` (the player's own pending answer), a `decision` in the `sanity:` or
+  `development:` families (the rules or the table run those), or an `actor` who is not an investigator
+  (NPC initiative is the Keeper's to decide);
+- an `apply` batch none of whose effects is a triggering kind: `npc`, `threat`, `flag`, `note`,
+  `ruling`, `define`, `object`, `ability`, `dossier`, `ending`, `fork`, `switch`, `merge`, `damage` on
+  their own are bookkeeping, NPC movement, pacing, world switches or consequences, not a proposed
+  voluntary action;
+- a turn with no player text (the opening). The skip is a telemetry row, not a silence.
+
+A batch is reviewed whole and refused whole: a `clue` beside a `move` is admitted only when the player's
+words authorise both. The review authorises the affected voluntary action, never its outcome, and never
+asks that the player knew or approved a hidden danger.
+
+### 32.2 The review, its verdicts, and what a refusal says
+
+The review is the §12.5 pattern with a different remit: one zero-tool completion through `runLane`
+(`extensions/lanes/subsession.ts`), model `PI_COC_ADMISSION_MODEL` (`provider/model`, default the
+table's own model), cap `PI_COC_ADMISSION_TIMEOUT_MS` (default 60 s; it is foreground). It answers one
+JSON object:
+
+```
+{"verdict": "authorized"|"entailed"|"not_player_action"|"not_authorized"|"uncertain",
+ "grounds": "<=200 chars: the words relied on",
+ "missing"?: "<the choice the player has not made; only for not_authorized / uncertain>"}
+```
+
+The first three admit: the player's words in context chose it; it is a routine step the chosen goal
+requires; it is not the investigator's voluntary action at all. The last two refuse. A malformed answer
+is no answer (`bad_output`) and refuses like an outage.
+
+A refusal reaches the Keeper as an ordinary tool refusal (§8's `code: message` / `fix` / named
+`details` lines), so nothing new has to be learned:
+
+- `needs` with `details.reason: "action_not_authorized"` — `details.missing` names the choice the player
+  has not made, `details.verdict` and `details.grounds` say why. The `fix` tells the Keeper not to roll,
+  move, spend or land anything for it, not to resend the same action in other words, and to close with
+  `narrate` putting that choice in front of the player in the fiction, without a menu.
+- `needs` with `details.reason: "admission_unavailable"` (`details.cause` is the lane's failure reason:
+  `model_unavailable`, `model_error`, `bad_output`, `timeout`, `session_gone`) — no review, no authority.
+  The `fix` tells the Keeper to say so to the player as a service notice, not as fiction, and to
+  narrate nothing as having happened. **Unavailability refuses; it never admits.** The alternative to an
+  unreviewed action is not a reviewed one, it is a Keeper choosing for the player.
+
+The refusal counts against §8's identical-resend strike like any kernel refusal, and the Keeper's own
+`why`, `goal`, `method` and `stakes` are the proposal, never evidence of consent — the reviewer is told
+so, and the Keeper cannot mint authority by writing a rationale.
+
+### 32.3 What the reviewer reads: the player's context, not the Keeper's
+
+The input is the exact current player text (the `table.player_input` prompt; on a recovered turn,
+`pending_turn.player_text` from `table.open`), the investigators' names and occupations, the scene's
+player-facing name and the names on stage, what the player was already told — the setup prologue
+(`table.open`'s `setup_prologue`) and the last four deliveries as the host delivered them (`rendered_text`
+of `narrate`/`ask`), with the capsule's `recent` heads standing in after a restart — what this turn has
+already settled through the kernel, what this turn has already refused, and the proposal itself, one
+line per `resolve` field or `apply` effect. Nothing Keeper-only travels: no scene summary, no
+`keeper_notes`, no NPC agenda or secret, no undiscovered clue. The reviewer judges whether the player
+chose, and the player chooses from what the player was told.
+
+### 32.4 Reuse and cancellation
+
+A verdict is kept for the turn under a host-owned canonical key of the proposal (`resolve`: actor,
+intent, goal, method, skill, target, weapon, spell, object, push, luck, defense; `apply`: each effect's
+kind and its identifying fields, order-free; `why`, `how`, `label` and `decision` are outside the key,
+so a `needs_choice` retry or a rationale bolted on reuses its verdict). Admitting and refusing verdicts
+are both reused; a reused row says `reused: true` and costs no model call. The next `player_input`
+clears every verdict: a new player utterance is a new context, and no earlier acceptance executes after
+the player has spoken again. A refused proposal was never sent, so there is nothing for replay, restart
+or a stale pending decision to execute.
+
+### 32.5 The local relation projection: cue, gate and yield in one row
+
+The Haunting's scene records author `affordances` as `{id, cue, grants_clue_ids | clue_id, route_type,
+status, npc_interaction}`; §6 projected `{id, cue, clue?, npc?}` reading only the older singular
+`clue_id`, so a book that wrote `grants_clue_ids` — every hand-written starter scene — put cues on the
+table with nothing they yield. The row now carries `clues: [{clue, gate, discovered}]` (the first one
+keeps the `clue` key), `gate` being the same one-string projection `director.reveal` and the thread's
+`here` rows use (§30.1, §30.12). `known.clues_here` rows gain the same `gate`, so "what can still be dug
+up here and how" is true of the section. `status` and `route_type` are not projected: they are author
+fields with no writer, and §31.1's blind spot says exactly what a projected `status: "open"` would become.
+
+Three ends (§31): the producer is the scene record's `grants_clue_ids`/`clue_id`; the projection is
+`whereSection` and `cluesHere` in `kernel-ts/read/capsule.ts`; the adoption end is the offer ledger,
+which now registers `affordance:<id>` for every row that names its clues, taken when one of them lands.
+`kpi.py` counts it under its own kind. It counts and never nags (§31.2).
+
+One authored writer was seen and left alone: `on_enter.clock_ticks` on a scene record names a threat
+clock the book means to advance on entry, and nothing reads it — §30.9's Keeper-run tick is the only
+writer. Whether the book's automatic tick should join it is a separate contract decision.
+
+### 32.6 The public record beside the Keeper-only list
+
+`narrate`'s `facts` gains `public: [...]` (≤ 2KB): `Investigator: <name> (<occupation>)` per sheet,
+`Setup prologue told the player: <head>` when the setup handoff committed one, and `Told at turn n: <head>`
+for the two deliveries before this one (`kernel-ts/write/text.ts` `publicContext`, read from the turn
+records by `campaign.readTurnRecord`). The verifier lane (§12.5) reads it as a third block and is told
+that a Keeper-only fact this list shows was already told is not a reveal, and that restating it is not
+an invention. Nothing is made public by it: an undiscovered clue stays in `keeper_only` until its receipt
+lands. The deterministic signal that was looked for and is **not** there: every conclusion clue entry
+on The Haunting carries `visibility: player-safe`, so that field says the summary is safe to read out
+once earned, not that the fact is public before it is earned. Public is what was delivered.
+
+### 32.7 Telemetry
+
+One `lane: "admission"` row per put-to-review call: `{verb, ok, verdict, admitted, reused, ms, key, model}`
+on a verdict, `{verb, ok: false, reason, detail, ms}` when the review could not decide,
+`{verb, ok: true, skipped: "no_player_text"}` on the opening. `key` is a digest of the canonical proposal,
+never shown to a model. The lane's four `lane-call` rows carry `subsession: "admission"` (§12.8.1). The
+tool-call row of a refused call keeps its own columns and records `reason: action_not_authorized` or
+`admission_unavailable`. `tests/play/kpi.py`'s `admission` section reports reviews, reuse, skips,
+verdict counts, unavailability by cause, and the review time apart from delivery time. Whether a
+refusal was right is a human reading of the turn record.
+
+### 32.8 The base prompt
+
+`prompts/keeper.md` gains two paragraphs and no package changes: what a refusal means and what to do
+with it (§32.2), and orientation — re-establish public relationships after setup, handoff, a gap or a
+subject change without restaging; answer a "what is that?" with its public meaning first, never as a
+penalty and never with a secret; a `handout` is a physical document, a clue is what was learned, a
+summary is neither. Craft and pacing stay with the packages of §30.
+
+### 32.9 What is verified and what is not (2026-09-11)
+
+Verified on the emitted kernel and the extension seam: refused batches reach neither the Mod bridge nor
+the kernel; admitted batches go through unchanged with their minted `call_id`; the reviewer's input
+carries the player's words, the investigator, the scene and the stage, and none of the capsule's
+Keeper-only material; a reworded proposal is refused with the earlier refusal in its context, an
+identical one reuses its verdict, and a new player input re-evaluates; unavailability and malformed
+answers refuse with the service-status `fix`; bookkeeping, NPC actors, sanity checks and renames are
+not reviewed; a recovered turn is reviewed against the pending turn's own words
+(`tests/extension/admission.test.mjs`). `facts.public`, the affordance rows, the `known` gates and the
+`affordance:` offers are pinned in `tests/kernel` (`test_facts_warn.py`, `test_capsule.py`,
+`test_mod_director_text.py`).
+
+Not verified, and what it would take: no real table has run with admission on, so its false-refusal
+and false-acceptance rates, its foreground cost against the same scenario without it, and whether the
+Keeper takes the `missing` line into the fiction rather than into a menu are all unmeasured — the
+canonical continuous regression of Agents.md, with the admission rows read turn by turn. The
+uninformed-human UI gate (#79) has not run. Nothing here claims the novice experience solved.

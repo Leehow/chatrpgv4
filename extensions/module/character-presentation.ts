@@ -1,6 +1,6 @@
 /** Player-facing text for an immutable card. Numeric cells never enter the model. */
 import {createHash,randomUUID} from 'node:crypto';
-import {mkdir,readFile,writeFile,rename} from 'node:fs/promises';
+import {mkdir,readFile,readdir,writeFile,rename} from 'node:fs/promises';
 import {dirname,join} from 'node:path';
 import {resourceRootFrom,runtimeEntryUrl} from '../../runtime/deployment.mjs';
 import {PLAY_LANGUAGE_TAG} from '../../runtime/ui-words.ts';
@@ -13,6 +13,8 @@ export const CARD_TEXT = ['Character draft','Character draft — reply to confir
   'Edit numbers','Edit draft numbers','Derived values','Save changes','Cancel','Close','Allowed range','Calculated automatically','Rules in force','Characteristic range','Starting skill cap','Credit Rating range','Unlock limits','Hide limit overrides','Characteristic minimum','Characteristic maximum','Skill cap','Overridden','Enter a whole number.','Not enough occupation points.','Not enough interest points.','Value outside the allowed range.','The draft changed while you were editing. The latest version is shown instead.','The save failed — try again.',
   'cash','assets','spending','credit_rating','living_standard','damage','range','attacks','ammo','malfunction','skill','Yes','No'];
 type Row=Record<string,any>;
+/** A campaign id, checked before it is ever joined onto a path. */
+const CAMPAIGN_NAME=/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 /**
  * Whether the requested tag has the shape of a play language -- and nothing else.
  *
@@ -67,7 +69,7 @@ export async function creationRuleDetails(sheet:Row,contentRoot=join(root,'conte
   return details;
 }
 export async function prepareCharacterPresentation(options:TextOptions&{campaign:string;revision:number}):Promise<Row> {
-  if(!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(options.campaign)||!Number.isSafeInteger(options.revision)||options.revision<1||!shapedLanguage(options))throw coded('invalid_params','Invalid presentation request');
+  if(!CAMPAIGN_NAME.test(options.campaign)||!Number.isSafeInteger(options.revision)||options.revision<1||!shapedLanguage(options))throw coded('invalid_params','Invalid presentation request');
   const draft=JSON.parse(await readFile(join(options.home,'.coc/campaigns',options.campaign,'setup/drafts',`${options.revision}.json`),'utf8'));
   if(draft.play_language!==options.play_language)throw coded('invalid_params','Draft language does not match the session');
   const calculations=await creationRuleDetails(draft.sheet,options.contentRoot);
@@ -166,9 +168,53 @@ export function clueTexts(view:Row):string[] {
 export function prepareCluePresentation(options:TextOptions&{campaign:string;view:Row}):Promise<Row> {
   return prepareGrowingPresentation(options,'clues',clueTexts);
 }
+/**
+ * The words a handed-over handout puts in front of the player: the document itself, and the name
+ * the row folds under.
+ *
+ * A handout with a body is the module's own prose -- the graph's `authored_text`, which the graph
+ * contract keeps in the language the book was read in and leaves to a presentation layer. Unlike
+ * a clue's one sentence this is a whole document, and it is asked as one string: a newspaper
+ * column translated a line at a time stops being a newspaper column.
+ *
+ * Its input is not `table.view`. A handout is on no panel and in no view -- `apply handout` writes
+ * it to `<campaign>/handouts/<handle>.md` and the delivery card is the only surface that shows it
+ * -- so the caller collects those files and hands them over as `handouts`, `name` being the `# `
+ * heading the kernel writes above the body, which is the same display name the receipt files.
+ */
+export function handoutTexts(view:Row):string[] {
+  const texts=new Set<string>();
+  const add=(value:unknown)=>{if(typeof value==='string'&&value.trim())texts.add(value)};
+  for(const row of Array.isArray(view?.handouts)?view.handouts:[])
+    if(row&&typeof row==='object'){add((row as Row).name);add((row as Row).text);}
+  return [...texts].sort();
+}
+/**
+ * The handouts a campaign has handed over, as the lane's own input.
+ *
+ * `apply handout` writes a card that has a body to `<campaign>/handouts/<handle>.md` as
+ * `# <display>\n\n<body>`, so the heading is read back rather than guessed out of the prose, and
+ * an absent folder is a campaign that has handed nothing over — not a failure.
+ */
+export async function handoutInput(home:string,campaign:string):Promise<Row[]> {
+  if(!CAMPAIGN_NAME.test(campaign))throw coded('invalid_params','Invalid presentation request');
+  const folder=join(home,'.coc/campaigns',campaign,'handouts');
+  const rows:Row[]=[];
+  for(const file of (await readdir(folder).catch(()=>[] as string[])).filter(name=>name.endsWith('.md')).sort()) {
+    const text=await readFile(join(folder,file),'utf8').catch(()=>null);
+    if(typeof text!=='string'||!text.trim())continue;
+    const heading=/^#[ \t]+(.+?)[ \t]*(?:\r?\n|$)/.exec(text);
+    rows.push({name:heading?heading[1]:null,text});
+  }
+  return rows;
+}
+export async function prepareHandoutPresentation(options:TextOptions&{campaign:string}):Promise<Row> {
+  const handouts=await handoutInput(options.home,options.campaign);
+  return prepareGrowingPresentation({...options,view:{play_language:options.play_language,handouts}},'handouts',handoutTexts);
+}
 /** A projection that grows with the table: what its saved file lacks is asked, what it has is kept. */
 async function prepareGrowingPresentation(options:TextOptions&{campaign:string;view:Row},kind:string,collect:(view:Row)=>string[]):Promise<Row> {
-  if(!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(options.campaign)||!shapedLanguage(options))throw coded('invalid_params','Invalid presentation request');
+  if(!CAMPAIGN_NAME.test(options.campaign)||!shapedLanguage(options))throw coded('invalid_params','Invalid presentation request');
   if(options.view?.play_language!==options.play_language)throw coded('invalid_params','View language does not match the session');
   const file=`${kind}-${options.play_language}.json`;
   let previous:Record<string,string>={};
