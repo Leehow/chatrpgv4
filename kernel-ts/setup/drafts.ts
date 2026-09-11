@@ -8,8 +8,9 @@ import { playLanguageOf } from '../read/languages.js';
 import { loadModule } from '../read/campaign.js';
 import { row, array, clone, entries, string, number, integer, truth, equal, repr, type Row } from '../read/values.js';
 import { moduleEra } from '../library/index.js';
-import { setupModContext } from '../read/mods.js';
+import { setupModContext, SETUP_SLOT_STOP } from '../read/mods.js';
 const APTITUDE_CAPABILITY = 'setup.aptitude.v1';
+const NOTE_VALUE_LIMIT = 400;
 import type { CampaignWriter } from '../write/store.js';
 import type { Setup } from './index.js';
 import { ChargenError, parseFormula, evaluateFormula } from './chargen.js';
@@ -113,8 +114,7 @@ export class SetupDrafts {
       try { stated = this.setup.chargen.aptitude(profile.aptitude ?? null); }
       catch (error) { if (!(error instanceof ChargenError)) throw error; throw new RpcError('needs', error.message, {details: {expected: error.expected}}); }
       if (stated) {
-        const lock = await this.setup.context.snapshots.pathExists(campaign.path('world.json')) ? row(await campaign.readWorld()).mods : meta.mods_pending;
-        const mods = await setupModContext(this.setup.context, row(lock));
+        const mods = await setupModContext(this.setup.context, await this.modLock(campaign, meta));
         if (!array(mods.capabilities).includes(APTITUDE_CAPABILITY)) throw new RpcError('needs', 'A stated aptitude needs an active setup package that provides characteristic assignment; without one the characteristics are the dice',
           {fix: 'Omit profile.aptitude and let the rolled characteristics stand, or enable a package that requires setup.aptitude.v1 in the Mods panel', details: {capability: APTITUDE_CAPABILITY, active: array(mods.active).map((mod: Row) => mod.id)}});
       }
@@ -290,6 +290,38 @@ export class SetupDrafts {
       await campaign.write(join('setup', 'drafts', `${revision}.json`), draft);
       meta.setup = {...row(meta.setup), draft_revision: revision, previewed_revision: null}; await campaign.writeCampaign(meta);
       return this.result(draft);
+    });
+  }
+  /** The campaign's mod lock as setup sees it: world.mods once the world exists, else the pending lock (§26). */
+  async modLock(campaign: CampaignWriter, meta: Row): Promise<Row> {
+    return row(await this.setup.context.snapshots.pathExists(campaign.path('world.json')) ? row(await campaign.readWorld()).mods : meta.mods_pending);
+  }
+  /** Contract §26 Guided Creation: what the model read from the player, one slot at a time, and the
+   *  count of guiding turns. The host computes the move from these; the kernel keeps them. */
+  async note(params: Row): Promise<Row> {
+    return this.locked(params, async campaign => {
+      const meta = await campaign.readCampaign(), state = meta.setup ??= {};
+      if (meta.status !== 'setting_up') throw new RpcError('invalid_params', 'setup notes belong to setup');
+      if (truth(state.confirmed_revision)) throw new RpcError('campaign_not_ready', 'The confirmed card cannot be revised through notes');
+      const notes: Row = isJsonObject(state.notes) ? state.notes : {slots: {}, turns: 0};
+      notes.slots = isJsonObject(notes.slots) ? notes.slots : {}; notes.turns = integer(notes.turns) ? number(notes.turns) : 0;
+      if (params.advance === true) {
+        if (Object.hasOwn(params, 'slot')) throw new RpcError('invalid_params', 'advance counts a turn; a note fills a slot; send one or the other');
+        notes.turns += 1;
+      } else {
+        const mods = await setupModContext(this.setup.context, await this.modLock(campaign, meta)), slots = array(mods.slots);
+        const known = slots.map((slot: Row) => string(slot.id)), slot = params.slot;
+        if (typeof slot !== 'string' || (!known.includes(slot) && slot !== SETUP_SLOT_STOP)) throw new RpcError('needs', 'note.slot must be an active setup slot or stop',
+          {details: {field: 'slot', options: [...known, SETUP_SLOT_STOP], active: array(mods.active).map((mod: Row) => mod.id)}});
+        const value = params.value;
+        if (typeof value !== 'string' || !value.trim() || Array.from(value).length > NOTE_VALUE_LIMIT) throw new RpcError('invalid_params', `note.value is the player's words, a non-empty string of at most ${NOTE_VALUE_LIMIT} characters`);
+        const origins = array(row(this.setup.chargen.policy.aptitude).origins).map(string), origin = Object.hasOwn(params, 'origin') ? params.origin : 'player';
+        if (typeof origin !== 'string' || !origins.includes(origin)) throw new RpcError('invalid_params', `note.origin must be one of ${repr(origins)}`, {details: {field: 'origin', options: origins}});
+        if (slot === SETUP_SLOT_STOP && origin !== 'player') throw new RpcError('invalid_params', 'only the player ends the exchange');
+        notes.slots[slot] = {value: value.trim(), origin, turn: notes.turns};
+      }
+      state.notes = notes; await campaign.writeCampaign(meta);
+      return {notes: clone(notes)};
     });
   }
   async prologue(params: Row): Promise<Row> {

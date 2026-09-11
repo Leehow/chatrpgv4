@@ -455,8 +455,23 @@ function handle(method, params) {
 			// During setup the kernel answers with the setup shape (contract §26); the sentinel lets a test see the instruction land in the prompt.
 			return { ok: true, result: params?.campaign
 				? { active: [{ id: "guided-creation", version: "1.0.0" }], capabilities: ["setup.aptitude.v1", "setup.guidance.v1"],
-					setup: [{ mod: "guided-creation", version: "1.0.0", settings: { max_guided_turns: 3 }, instruction: "FAKE-SETUP-INSTRUCTION: ask one situational question before drafting." }] }
-				: { active: [], capabilities: [], setup: [] } };
+					setup: [{ mod: "guided-creation", version: "1.0.0", settings: { max_guided_turns: 3 }, instruction: "FAKE-SETUP-INSTRUCTION: ask one situational question before drafting." }],
+					slots: process.env.FAKE_SETUP_SLOTS !== "1" ? [] : [
+						{ id: "trade", required: true, purpose: "what this person does for a living", ask: "the occupation concept", mod: "guided-creation", version: "1.0.0" },
+						{ id: "built_for", required: true, purpose: "what this person leans on", ask: "what people say they are best at", mod: "guided-creation", version: "1.0.0" },
+						{ id: "not_good_at", required: false, purpose: "what they were never good at", ask: "never asked", mod: "guided-creation", version: "1.0.0" }] }
+				: { active: [], capabilities: [], setup: [], slots: [] } };
+		case "setup.note": {
+			// Contract §26: notes live in the kernel; the fake keeps them per campaign for the length of the process.
+			const store = (globalThis.__fakeNotes ??= new Map());
+			const notes = store.get(params.campaign) ?? { slots: {}, turns: 0 };
+			if (params.advance === true) notes.turns += 1;
+			else if (typeof params.slot !== "string" || typeof params.value !== "string" || !params.value.trim())
+				return { ok: false, error: { code: "invalid_params", message: "note needs slot and value" } };
+			else notes.slots[params.slot] = { value: params.value, origin: params.origin ?? "player", turn: notes.turns };
+			store.set(params.campaign, notes);
+			return { ok: true, result: { notes } };
+		}
 		case "setup.occupations":
 			// 职业清单原样给建卡进程，由模型按玩家那句话挑 id；内核只认 id（契约 §14.7）。
 			return {

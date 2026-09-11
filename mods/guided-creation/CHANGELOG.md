@@ -1,5 +1,17 @@
 # Guided Creation
 
+## 1.1.0
+
+The exchange is a form. `slots.json` declares the slots the card needs (trade,
+built_for, known_for; not_good_at only when volunteered); the kernel keeps the
+notes (`setup.note`), the host prints the brief and the one allowed move every
+turn, and refuses the draft while a required slot is missing. The guide keeps
+only the rendering: the opening frame, the purpose line before each question, a
+concrete acknowledgement, one question per turn, the fixed reminder, the aptitude
+rules. Judging how much the player wants to say is gone; depth is the slot table
+and `max_guided_turns`.
+
+
 ## 1.0.3
 
 Every question now says what it decides before it is asked, and the first guiding

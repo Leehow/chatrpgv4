@@ -9,7 +9,7 @@ import { ModuleGraph } from "./module-graph.js";
 import { npcsPresent } from "./capsule.js";
 import { threadSection } from "./thread.js";
 import { pacingSection } from "./pacing.js";
-import { entries, values, array, row, truth, string, number, integer, numeric, normalize, sorted, chars, length, clone, pick, type Row } from "./values.js";
+import { entries, values, array, row, truth, string, number, integer, numeric, normalize, sorted, chars, length, clone, pick, repr, type Row } from "./values.js";
 import { claimedEquipment } from "../mods/queue.js";
 export const MOD_CAPABILITIES = new Set(["checks.percentile.v1", "context.npc.v1", "definitions.v1", "objects.v1", "objects.state.v2", "objects.adopt.v1", "objects.documents.v1", "mods.order.v1", "ui.documents.v1", "ui.documents.language.v1", "agents.tools.v1", "weapons.v1", "weapons.profile.v2", "spells.v1", "item-effects.v1", "setup.guidance.v1", "setup.aptitude.v1", "graph.vocabulary.v1", "graph.vocabulary.table.v1", "context.thread.v1", "context.pacing.v1"]);
 const invalid = (message: string): never => {
@@ -147,7 +147,7 @@ export function manifestFrom(files: ReadonlyMap<string, Buffer>): Row {
         invalid("Game interface v1 settings are scalar values");
     if (!plain(manifest.settings_schema ?? {}))
         invalid("settings_schema must be an object");
-    if (Object.keys(manifest.contributes).some(k => !["instructions", "setup_instructions", "checks", "materializer", "auditor", "audit_on_decisions", "audit_slot", "brief", "document_editor", "vocabulary"].includes(k)))
+    if (Object.keys(manifest.contributes).some(k => !["instructions", "setup_instructions", "setup_slots", "checks", "materializer", "auditor", "audit_on_decisions", "audit_slot", "brief", "document_editor", "vocabulary"].includes(k)))
         invalid("Unknown Mod contribution in game interface v1");
     validateVocabulary(manifest);
     for (const [dep, ver] of entries(manifest.dependencies)) {
@@ -162,6 +162,7 @@ export function manifestFrom(files: ReadonlyMap<string, Buffer>): Row {
     }
     if (manifest.contributes.brief != null && manifest.contributes.instructions == null)
         invalid("contributes.brief is the per-turn form of contributes.instructions and needs it");
+    validateSetupSlots(manifest, files);
     const checks = array(manifest.contributes.checks);
     for (const check of checks) {
         if (!plain(check) || !/^[a-z][a-z0-9-]*:[a-z][a-z0-9-]*$/.test(string(check.name ?? "")) || check.selection !== "maximum" || check.scope !== "actor-target" || !["regular", "hard", "extreme"].includes(check.difficulty) || !Array.isArray(check.values) || !check.values.length || !plain(check.results))
@@ -330,12 +331,50 @@ export function effectiveMods(active: Row[]): Row[] {
         return !policy.length || policy.some(key => providers[key].at(-1) === mod.id);
     });
 }
-/** The mod set as the setup process sees it: which packages are on, what they require and what
- *  they have to say about creation. `lock` is world.mods or campaign.mods_pending (§26). */
+/** Contract §26 Guided Creation: the exchange before the draft is a form, and the form's slots are
+ *  content a package ships. `setup_slots` names a JSON file: `[{id, required, purpose, ask}]`. */
+export const SETUP_SLOT_STOP = "stop";
+export function validateSetupSlots(manifest: Row, files: ReadonlyMap<string, Buffer>): void {
+    const path = manifest.contributes.setup_slots;
+    if (path == null) return;
+    if (!array(manifest.requires).includes("setup.guidance.v1")) invalid("contributes.setup_slots requires setup.guidance.v1");
+    if (typeof path !== "string" || !files.has(path) || !path.endsWith(".json")) invalid("contributes.setup_slots must name a package JSON file");
+    let slots: any;
+    try { slots = parsePythonJson(new TextDecoder("utf-8", { fatal: true }).decode(files.get(path))); }
+    catch { invalid("contributes.setup_slots must be valid JSON"); }
+    if (!Array.isArray(slots) || !slots.length) invalid("contributes.setup_slots must be a non-empty array of slots");
+    const seen = new Set<string>();
+    for (const slot of slots) {
+        if (!plain(slot) || !/^[a-z][a-z0-9_]{0,31}$/.test(string(slot.id ?? ""))) invalid("each setup slot needs an id: a lowercase slug");
+        if (slot.id === SETUP_SLOT_STOP) invalid(`setup slot id ${repr(SETUP_SLOT_STOP)} is reserved for the player ending the exchange`);
+        if (seen.has(slot.id)) invalid(`setup slot ${repr(slot.id)} is declared twice`);
+        seen.add(slot.id);
+        if (typeof slot.required !== "boolean") invalid(`setup slot ${repr(slot.id)} needs required: boolean`);
+        for (const field of ["purpose", "ask"])
+            if (typeof slot[field] !== "string" || !slot[field].trim() || slot[field].length > 400) invalid(`setup slot ${repr(slot.id)} needs ${field}: one line`);
+        if (Object.keys(slot).some(k => !["id", "required", "purpose", "ask"].includes(k))) invalid(`setup slot ${repr(slot.id)} carries an unknown field`);
+    }
+}
+function setupSlotsOf(mod: Row): Row[] {
+    const path = mod.contributes.setup_slots;
+    if (path == null) return [];
+    return array(parsePythonJson(new TextDecoder("utf-8", { fatal: true }).decode(mod.files.get(path)))).map(slot => ({ ...row(slot), mod: mod.id, version: mod.version }));
+}
+/** The mod set as the setup process sees it: which packages are on, what they require, what they
+ *  have to say about creation and which slots their form asks for. `lock` is world.mods or
+ *  campaign.mods_pending (§26). Across packages the earlier one in load order keeps a slot id. */
 export async function setupModContext(context: KernelContext, lock: Row): Promise<Row> {
     const world = { mods: row(lock) },
         active = await activeMods(context, world),
         decode = (mod: Row) => new TextDecoder("utf-8", { fatal: true }).decode(mod.files.get(mod.contributes.setup_instructions));
+    const slots: Row[] = [], displaced: Row[] = [], claimed = new Map<string, string>();
+    for (const mod of active)
+        for (const slot of setupSlotsOf(mod)) {
+            const owner = claimed.get(string(slot.id));
+            if (owner != null) { displaced.push({ slot: slot.id, mod: mod.id, kept_by: owner }); continue; }
+            claimed.set(string(slot.id), string(mod.id));
+            slots.push(slot);
+        }
     return {
         active: active.map(mod => ({ id: mod.id, version: mod.version })),
         authority: "Only this active Mod set applies to setup. Earlier instructions from disabled or replaced versions are inactive.",
@@ -345,7 +384,9 @@ export async function setupModContext(context: KernelContext, lock: Row): Promis
             version: mod.version,
             settings: row(row(world.mods.active)[mod.id]).settings,
             instruction: decode(mod)
-        }))
+        })),
+        slots,
+        ...(displaced.length ? { displaced_slots: displaced } : {})
     };
 }
 export function unregisteredEquipment(party: Row[], claimed: ReadonlySet<string> = new Set()): Row[] {

@@ -289,3 +289,44 @@ test("setup packages: the campaign's enabled Mods reach the setup prompt through
 	assert.ok(after.includes("[guided-creation 1.0.0] settings: {\"max_guided_turns\":3}"), "the instruction is labeled with its package, version and settings");
 	assert.ok(after.includes("Active setup packages (guided-creation)"), "the prompt names which packages are speaking");
 });
+
+test("creation brief: the host computes the move from the package's slots and the kernel's notes, and the draft waits for it (contract §26)", async (t) => {
+	const first = firstStep();
+	const investigator = stepById("create-investigator");
+	const prompts = [];
+	const capture = (message) => (context) => { prompts.push(context.systemPrompt ?? ""); return message; };
+	const table = await openTable({ mode: "setup", campaign: null, env: { FAKE_SETUP_SLOTS: "1" }, responses: [
+		capture(setupCall({ step: first.id, kind: "starter", module: "the-haunting" })),
+		capture(setupCall({ step: "create-campaign", id: "brief-fixture", title: "闹鬼的房子", play_language: "zh-Hans" })),
+		capture(fauxAssistantMessage("先说说你是谁。")),
+		// Second run: the model tries to draft before the brief is filled, records notes, then drafts.
+		capture(setupCall({ step: investigator.id, profile: { name: "大牛皮", occupation: "farmer", concept: "屠夫" } })),
+		capture(setupCall({ step: "note", slot: "trade", value: "屠夫，落在 Farmer 一栏" })),
+		capture(setupCall({ step: "note", slot: "built_for", value: "膀子力气", origin: "player" })),
+		capture(setupCall({ step: investigator.id, profile: { name: "大牛皮", occupation: "farmer", concept: "屠夫" } })),
+		capture(fauxAssistantMessage("卡在这里。")),
+	] });
+	t.after(() => table.dispose());
+
+	await table.session.prompt("我想玩闹鬼的房子");
+	await waitForIdle(table.session);
+	await table.session.prompt("我叫大牛皮，是个屠夫。");
+	await waitForIdle(table.session);
+
+	const results = setupResults(table.session);
+	const [, , refused, noteTrade, noteBuilt, drafted] = results;
+	assert.equal(refused.ok, false, "the first draft is refused while a required slot is missing");
+	assert.equal(refused.code, "brief_incomplete");
+	assert.deepEqual(refused.missing, ["trade", "built_for"]);
+	assert.match(refused.brief, /Move: ask trade/);
+	assert.equal(noteTrade.ok, true);
+	assert.match(noteTrade.brief, /trade \(required\): FILLED/);
+	assert.match(noteTrade.brief, /Move: ask built_for/, "after one note the move is the next missing required slot");
+	assert.equal(noteBuilt.ok, true);
+	assert.match(noteBuilt.brief, /Move: draft — every required slot is filled/);
+	assert.equal(drafted.ok, true, "with the brief complete the same draft call goes through");
+	const notes = table.kernelRequests().filter((entry) => entry.method === "setup.note");
+	assert.deepEqual(notes.map((entry) => entry.params.slot), ["trade", "built_for"], "notes reach the kernel, one slot each, no advance before any note exists");
+	assert.ok(prompts[3].includes("Creation brief") && prompts[3].includes("Move: ask trade"), "the second run's prompt carries the host-computed brief and its one move");
+	assert.ok(!prompts[2].includes("Creation brief"), "the first run's prompt, composed before the campaign existed, carries no brief");
+});

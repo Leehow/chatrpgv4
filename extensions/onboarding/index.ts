@@ -1,3 +1,4 @@
+import { computeMove, renderBrief, type SetupSlot, type SetupNotes } from './brief.ts';
 /** Setup ordering comes from setup.steps; source preparation uses the shared visual reader. */
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { randomUUID } from 'node:crypto';
@@ -95,6 +96,10 @@ export default function (pi: ExtensionAPI) {
   let inputKey = "";
   let guidanceBlocked = false;
   let guidancePending: Promise<Guidance | undefined> | undefined;
+  // Contract §26 Guided Creation: the package's slots, the kernel's notes and the cap; the move is computed, never remembered.
+  let setupSlots: SetupSlot[] = [];
+  let setupNotes: SetupNotes | undefined;
+  let guidedCap = 3;
   const guidanceAbort = new AbortController();
   let invokeDisposers:Array<()=>void>=[];
   let completing=false;
@@ -224,6 +229,7 @@ export default function (pi: ExtensionAPI) {
 			}
 			const restoredDraft=asRecord(carried.draft);
       if(typeof restoredDraft.revision==='number')draftRevision=restoredDraft.revision;
+      if(carried.notes && typeof carried.notes==='object')setupNotes=carried.notes as SetupNotes;
       prologueRecorded=!!carried.prologue;
       const carriedSource = asRecord(carried.source);
 			sourceKind = asString(carried.source_kind) ?? asString(carriedSource.kind) ?? sourceKind;
@@ -503,6 +509,18 @@ export default function (pi: ExtensionAPI) {
 			return { ok: false, error: stepsError ?? "The setup table is not in hand yet." };
 		}
 		const id = asString(raw.step);
+		// A note carries no order and is not a table step (contract §26): it fills a slot of the creation brief.
+		if (id === 'note') {
+			if (!bridge || !context.campaign || !completed.has('create-campaign')) return { ok: false, step: id, rejected: 'A note needs the campaign: run create-campaign first.' };
+			if (!setupSlots.length) return { ok: false, step: id, rejected: 'No active setup package declares slots; there is nothing to note. Draft with create-investigator.' };
+			const args = mergeArgs(raw);
+			try {
+				setupNotes = asRecord(await bridge.call('setup.note', { campaign: context.campaign, slot: args.slot, value: args.value, ...(args.origin !== undefined ? { origin: args.origin } : {}) })).notes as SetupNotes;
+			} catch (error) {
+				return { ok: false, step: id, code: errorCode(error), message: errorText(error), details: (error as { details?: unknown }).details };
+			}
+			return { ok: true, step: id, notes: setupNotes, brief: renderBrief(setupSlots, setupNotes, guidedCap) };
+		}
 		if (!id) {
 			const next = nextStep(steps, state());
 			return {
@@ -519,6 +537,11 @@ export default function (pi: ExtensionAPI) {
 		}
 		const step = verdict.step;
 		const args = mergeArgs(raw);
+		// The first draft waits for the brief (contract §26): while the move is a question, the card is refused the way the kernel refuses an incomplete profile.
+		if (id === 'create-investigator' && setupSlots.length && draftRevision === undefined) {
+			const move = computeMove(setupSlots, setupNotes, guidedCap);
+			if (move.move === 'ask') return { ok: false, step: id, code: 'brief_incomplete', missing: move.missing, brief: renderBrief(setupSlots, setupNotes, guidedCap) };
+		}
 		const outcome =
 			step.kind === "ask"
 				? await runAsk(step, args)
@@ -582,7 +605,8 @@ export default function (pi: ExtensionAPI) {
 			"(they may also be packed into `params`). The step table, its order, its prerequisites and the parameters of each step are the kernel's call: " +
 			"if you do not know what to write on the first call, give any step (start, say) and the result will tell you the table's first step. " +
 			"Every return carries next (the next step and its parameters) and progress; a call that did not succeed carries rejected or needs, " +
-			"so change what it says to change and do not resend unchanged.",
+			"so change what it says to change and do not resend unchanged. " +
+			"While an active setup package declares slots, `step: note` with `slot`, `value` (the player's words) and optional `origin` (player|concept) records one answer of the creation brief; the result carries the brief and the one move it allows.",
 		promptSnippet: "The one setup tool: walk the kernel's seven-step table, one step at a time.",
 		parameters: Type.Object(
 			{
@@ -631,6 +655,14 @@ export default function (pi: ExtensionAPI) {
         const setup=Array.isArray(mods.setup)?mods.setup as Array<Record<string,unknown>>:[];
         if(setup.length)setupPackages='\n\nActive setup packages ('+setup.map(entry=>String(entry.mod)).join(', ')+'). Their instructions below extend the core setup policy for this campaign:'+
           setup.map(entry=>'\n\n['+String(entry.mod)+' '+String(entry.version)+'] settings: '+JSON.stringify(entry.settings??{})+'\n'+String(entry.instruction)).join('');
+        setupSlots=Array.isArray(mods.slots)?mods.slots as SetupSlot[]:[];
+        const caps=setup.map(entry=>Number(asRecord(entry.settings).max_guided_turns)).filter(n=>Number.isInteger(n)&&n>0);
+        guidedCap=caps.length?Math.max(...caps):3;
+        // The brief: the exchange is open once a note exists and no draft does; each player turn then counts one guiding turn.
+        if(setupSlots.length && draftRevision===undefined) {
+          if(setupNotes && Object.keys(setupNotes.slots).length) setupNotes=asRecord(await bridge.call('setup.note',{campaign:context.campaign,advance:true})).notes as SetupNotes;
+          setupPackages+='\n\n'+renderBrief(setupSlots,setupNotes,guidedCap);
+        }
       } catch(error) {
         guidanceBlocked=true;
         const detail=errorText(error);

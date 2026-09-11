@@ -56,7 +56,7 @@ export class Setup {
     const state: Row = {campaign: campaign.id, module_id: moduleId, module: moduleId, source: {kind, module_id: moduleId}, source_kind: kind, play_language: await playLanguageOf(this.context, meta)};
     const draft = await this.drafts.load(campaign, meta);
     if (draft) state.draft = await this.drafts.result(draft);
-    state.prologue = row(meta.setup).prologue ?? null; state.guidance_key = meta.guidance_key ?? null;
+    state.prologue = row(meta.setup).prologue ?? null; state.guidance_key = meta.guidance_key ?? null; state.notes = row(meta.setup).notes ?? null;
     state.rulebook_eras = Object.keys(row(await this.tables.load('cash-assets')).periods);
     state.start_scene = meta.opening_scene ?? null; state.waiting_for_opening = truth(row(meta.setup).waiting_for_opening);
     return {...table, completed: ordered, state};
@@ -138,5 +138,6 @@ export function createSetupHandlers(context: KernelContext, writer: ReturnType<t
     'setup.confirm': async params => (await setup()).drafts.confirm(params),
     'setup.override': async params => (await setup()).drafts.override(params),
     'setup.prologue': async params => (await setup()).drafts.prologue(params),
+    'setup.note': async params => (await setup()).drafts.note(params),
   });
 }

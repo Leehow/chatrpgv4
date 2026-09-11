@@ -2133,11 +2133,28 @@ engine's die captions (`SAN Loss`, `SAN Reward`, `damage`, `armor`,
 get `localized_labels` rows in the rules data (`kernel-terms.json` for those the
 rules files do not already hold), so the panel's `term()` finds them. The
 mechanics entry's `labels` are that glossary merged under the campaign's growing
-lanes (`standing`, `possessions`, `clues`), attached by the host when it loads
-history, so the mechanics card reads the same words as the sheet; the renderer
-routes every content field through `term()` (clue name and summary, item and
-owner names, scene names, currency, session outcome, worldline and handout
-names, die captions).
+lanes (`standing`, `possessions`, `clues`), attached by the host on both paths a
+card reaches the panel by -- the history page it loads, and the live
+`entry_appended` it reads out of the child's stdout -- so the mechanics card
+reads the same words as the sheet; the renderer routes every content field
+through `term()` (clue name and summary, item and owner names, scene names,
+currency, session outcome, worldline and handout names, die captions).
+
+**A delivery is projected where it is drawn, not only where it is re-read.** A
+clue's `label` is the Keeper's, in the play language; its `summary` is the
+module's sentence, which the graph contract keeps in the source language and
+leaves to a later presentation layer (`source_language_law`). That layer is the
+`clues` lane, so a card that reads only the kernel glossary opens the row into
+the book's own language while the sheet beside it shows the projection of the
+same clue. The live reader cannot wait on a file, so it answers from a held copy
+of the lanes and starts the read that fills it; a lane that lands anywhere --
+that read, or a sheet read topping one up -- replaces the held copy, or the next
+delivery draws the words the run was started to replace. A clue found this turn
+has no projection at all, because lanes are topped up on a sheet read and the
+player may not open the sheet for an hour: the delivery starts the `clues` lane
+for the words it carries, once per campaign, language and missing set, and
+streams the same entry id again when it lands, which the transcript applies as a
+replacement rather than a second copy of the turn.
 
 **Kernel prose never reaches a player field.** `normalizeText` keeps every
 script's letters and digits (`\p{L}\p{N}`), so markers, ids and alias
@@ -3275,7 +3292,7 @@ versions with different bytes. Installation does not activate or upgrade a save.
 Host-only methods: `mods.list {campaign?}`, `mods.install {path}`,
 `mods.configure {campaign, id, enabled?, version?, settings?}`,
 `mods.defaults {id, enabled}`, and `mods.context {campaign}` (which also answers a
-`setting_up` campaign with the setup shape above). List returns every
+`setting_up` campaign with the setup shape above, `slots` included). List returns every
 installed version, compatibility, active/pending versions and player-safe settings.
 Unbound panels manage installation and new-campaign defaults; they never guess a
 campaign. Changes during open/acting turns or live subsystem sessions remain pending
@@ -3329,16 +3346,57 @@ Python kernel mirrors the setup context and the gate.
 ### Guided Creation
 
 Built-in package `guided-creation` (default enabled) requires both setup
-capabilities and contributes `guide.md`. It replaces the core's one-reply draft
-with an exchange paced by the player: it asks about situations rather than
-numbers, one thing per turn, and answers each reply by naming in one clause what
-it will mean on the card before asking the next; it reads how much the player
-wants to say from how much they say, stops when the load-bearing choices are in
-or when `settings.max_guided_turns` is reached, and ends every guiding turn with
-the same short reminder that saying "draft it now" ends the exchange. It owns
-the aptitude rules of §23.4 (player vs concept origin, the concept limit, honest
-reporting) because without it the field is closed. Disabling it returns the
-campaign to the core policy: name and occupation, then a card.
+capabilities. Its first version put the whole exchange — what to ask, when to
+stop, how to read the player — into one instruction, and every real session
+that went wrong was fixed by adding a rule to that instruction. That is the wrong
+place: a prompt holding policy drifts, and a self-check added per failure grows
+without bound. The exchange is therefore a **form**, in the sense task-oriented
+dialogue systems give the word: a table of slots, a host that computes the state
+and the one allowed move each turn, and a model that only reads answers into
+slots and renders the move in the fiction.
+
+**Slots are content.** `contributes.setup_slots` names a package JSON file
+(behind `setup.guidance.v1`): an array of `{id, required, purpose, ask}` where
+`id` is a semantic slug (`stop` is reserved), `purpose` is the one English line
+that says what the slot decides — the model says it in the play language before
+asking — and `ask` is the shape of question that fills it. Ids must be unique
+within a package; across packages the earlier package in load order keeps an id
+and the later one is listed as `displaced`. `mods.context` for a `setting_up`
+campaign returns the active slots in load order as `slots`.
+
+**Notes live in the kernel.** `setup.note {campaign, slot, value, origin?}`
+records what the model read from the player: `slot` must be an active slot id or
+`stop`; `value` is a non-empty string of at most 400 characters (for `stop`, it is
+the player's words that meant it); `origin` is `player` or `concept` (the
+`create-investigator.aptitude.origins` set), default `player`, and `stop` is only
+ever `player`. `setup.note {campaign, advance: true}` counts one guiding turn.
+Both write `campaign.json.setup.notes = {slots: {<id>: {value, origin, turn}},
+turns}` under the setup lock, only while `setting_up`, and `setup.steps.state.notes`
+returns it, so a resumed session continues the same exchange. A note carries no
+order and is not a step of the seven-step table: the `setup` tool accepts
+`step: "note"` once the campaign exists and routes it here.
+
+**The host computes the move.** On every setup turn with active slots and no draft
+yet, the onboarding extension advances the turn counter when the exchange is open
+(a note exists), then appends a brief block to the system prompt: the turn count
+against the package's `max_guided_turns`, every slot as filled (value and origin)
+or missing (purpose and ask), and exactly one move — `ask <the first missing
+required slot>` or `draft`. `draft` is the move when every required slot is
+filled, when `stop` is noted, or when the cap is reached; otherwise the move is a
+question. The same block is returned by every `note` result, so the model sees
+the next move the moment it has recorded an answer. `create-investigator` is
+refused with `brief_incomplete` (naming the missing slots and the move) while the
+move is a question, exactly as the kernel refuses an incomplete profile. What the
+player already said is noted before anything is asked, so a player whose first
+sentence fills every slot is asked nothing; a filled slot is never asked.
+
+**What is left to the instruction.** `guide.md` keeps only rendering: the opening
+frame on the first question, the purpose line before each question, a concrete
+acknowledgement of the previous answer in the play language's ordinary words,
+one question per turn, the fixed reminder that "draft it now" ends the exchange,
+and the aptitude rules of §23.4. Reading how much the player wants to say is no
+longer a judgment: depth is the slot table and the cap. Disabling the package
+returns the campaign to the core policy: name and occupation, then a card.
 
 ### Natural NPC
 
