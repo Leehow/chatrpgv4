@@ -27,7 +27,14 @@ export interface OfferSources {
     pressures: Row[];
     previous?: Row | null;
 }
-const clip = (text: string): string => chars(text.replace(/\s+/g, " ").trim(), OFFER_LINE_CHARS);
+/** Clip at a word boundary and mark the cut: a line the Keeper reads must not end mid-word. */
+const clip = (text: string): string => {
+    const flat = text.replace(/\s+/g, " ").trim();
+    if (Array.from(flat).length <= OFFER_LINE_CHARS)
+        return flat;
+    const head = chars(flat, OFFER_LINE_CHARS - 1), space = head.lastIndexOf(" ");
+    return (space > OFFER_LINE_CHARS / 2 ? head.slice(0, space) : head) + "…";
+};
 /** The clue an exit's unlock condition names, when it is a `clue_discovered: <clue>` condition. */
 function unlockClue(exit: Row): string | null {
     const condition = string(row(exit.unlock_when).condition || "");
@@ -42,7 +49,10 @@ function personRows(present: Row[]): Row[] {
             parts.push(`would say: ${string(lie)}`);
         else if (truth(npc.voice))
             parts.push(`voice: ${string(npc.voice)}`);
-        return { kind: "person", who: string(npc.name), line: clip(parts.join("; ")), from: "present" };
+        // The clues this person can hand and has not yet: the book means them to be said, and saying them
+        // without `apply clue` is what the verifier reports as a reveal.
+        const hands = array(npc.knows).filter(k => row(k).discovered === false).map(k => string(row(k).clue)).slice(0, 2);
+        return { kind: "person", who: string(npc.name), line: clip(parts.join("; ")), ...(hands.length ? { can_hand: hands } : {}), from: "present" };
     });
 }
 function routeRows(where: Row, present: Row[], thread: Row | null | undefined): Row[] {

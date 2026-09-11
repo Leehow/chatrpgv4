@@ -1,6 +1,6 @@
 # Turn Floor: the affirmative shape of a Keeper turn
 
-_Date: 2026-09-11. Status: implemented on branch `claude/turn-floor-20260911` (contract §33); public-interface tests pass (`test_turn_floor.py`, the amended capsule, scoring, adoption, budget and transaction tests, `turn.test.mjs`, `ts-kernel-read.test.mjs`); the live table under both player conditions is the acceptance still owed. Baseline model for every claim and every acceptance: `xai/grok-4.6`, thinking `low` (user ruling 2026-09-11: do not switch to grok-4.3). User ruling 2026-09-11 on the shape of the rules: the prohibitions are cases of two principles, immersion and freedom, and the turn stops only when the spotlight is back on the player._
+_Date: 2026-09-11. Status: implemented on branch `claude/turn-floor-20260911` (contract §33); `pytest tests/kernel` 1149 passed; `npm run test:ext` passes but for the pre-existing `system-language` failure on `extensions/image-gen`; two live tables played on the branch (below). Still owed: the candidate App package and the novice-human gate. Baseline model for every claim and every acceptance: `xai/grok-4.6`, thinking `low` (user ruling 2026-09-11: do not switch to grok-4.3). User ruling 2026-09-11 on the shape of the rules: the prohibitions are cases of two principles, immersion and freedom, and the turn stops only when the spotlight is back on the player._
 
 ## Problem Statement
 
@@ -83,8 +83,8 @@ Character ranges return only as an opt-in `narration-craft` setting `density_gui
 
 ### D2. `director.offer`: machine-filled, three rows, no model call
 
-- `kernel-ts/read/offer.ts` `directorOffer(beat, sources)` returns at most three rows `{kind, who?, where?, line, from}`, `kind ∈ {person, route, pressure, consequence}`, `line` clipped at 120 characters, `from` the capsule path each row came from:
-  - `person`: each present NPC with `wants`, in `presentSection` order; line = name, `wants`, then the first `would_lie_about` or else `voice`.
+- `kernel-ts/read/offer.ts` `directorOffer(beat, sources)` returns at most three rows `{kind, who?, where?, line, from}`, `kind ∈ {person, route, pressure, consequence}`, `line` clipped at 120 characters on a word boundary with an ellipsis, `from` the capsule path each row came from:
+  - `person`: each present NPC with `wants`, in `presentSection` order; line = name, `wants`, then the first `would_lie_about` or else `voice`; `can_hand` lists up to two of their `knows` clues still undiscovered — on table B the Keeper told the research leads through Knott three times without landing `knott-research-leads`, and the verifier reported each as a reveal.
   - `route`: each exit with `unlock_when.met !== false` and `material` ready, ranked: named by `mods.thread.next` first, then guided by a present NPC whose `knows[].clue` is the exit's `clue_discovered:` unlock, then the rest; line = the thread's `line`, or "<name> can point the way to <scene>", or "the way to <scene> is open".
   - `pressure`: `mods.pacing.threat_clocks[]` with a `next`, then `pressures[]` rows.
   - `consequence`: last played turn's receipts — a failed non-dice roll ("<actor>'s <skill> failed last turn; its consequence is still owed"), an `npc` receipt with a `stance` ("<name> turned <stance> last turn (<why>); that stands in the room now").
@@ -130,6 +130,19 @@ Character ranges return only as an opt-in `narration-craft` setting `density_gui
 - Contract tests through the real path, all present on the branch and each failing when its change is reverted: `tests/kernel/test_turn_floor.py` (the four floor lines on full and brief turns; `empty_turns`, `repeat_input`, `previous_close` and the two RECOVER hits read from the graph; one quiet turn not overturning PRESSURE; the offer's person, consequence and route rows and their sources; `offer_taken` for a walked route; the director budget; `closed_how` and `recent`; the graph's two rules, threshold and recomputed counts; the combat fix text), the amended `test_capsule.py`, `test_capsule_nine.py`, `test_capsule_budgets.py`, `test_transactions.py`, `test_director_scoring.py`, `test_mod_director_text.py`; `tests/extension/turn.test.mjs` (one floor steer on a toolless prose turn and none after a tool call; the second leg honoured; the draft fallback; `implicit: true`); `tests/extension/ts-kernel-read.test.mjs` projections.
 - Existing suites: `check:kernel` passes; `npm run test:ext` 785 of 787, the one remaining failure being `system-language` on `extensions/image-gen` strings committed by another session on 0.9.2a before this branch, not this work; `pytest tests/kernel` one file set at a time.
 - The novice-human gate of the parent spec stays open and is not claimed by this work.
+
+### Live tables on the branch (2026-09-11, grok-4.6 low as Keeper, main session as the player, one line per turn, fresh campaigns locking narration-craft 1.2.0 and keeper-pacing 1.1.2; evidence `.coc/campaigns/turn-floor-{a,b}/` and `.coc/playtests/turn-floor-{a,b}-1/` on the worker worktree)
+
+| table | player | Keeper turns | median chars | min | zero-receipt turns | implicit closes | floor steers | verifier findings | wall s / turn |
+|---|---|---|---|---|---|---|---|---|---|
+| baseline 09-09 | AI, 40–80 char | 37 | 167 | 63 | few | 0 | — | agency 6, uncommitted 7, reveal 5 | — |
+| baseline 09-11 | human, 2–10 char (grok-4.3 from t1) | 12 | 37 | 24 | 10 / 12 | 11 / 12 | — | 0 (lane on 4.3) | — |
+| **B** `turn-floor-b` | 2–10 char: 我接, 然后呢 ×3, 那我下一步应该做什么, 我想把你打一顿, 继续, a quiet line, 诺特是谁, 去报社, one declarative | 11 | 227 | 180 | 5 / 11 | 0 / 11 | 0 | reveal 3, agency 3, uncommitted 5 | 23–214 |
+| **A** `turn-floor-a` | 40–80 char declarations | 6 | 265 | 171 | 1 / 6 | 0 / 6 | 0 | uncommitted 3 | 96–222 |
+
+Editorial read against the four kinds, table B: every turn enacted the player's words (然后呢 became Knott pushing, then opening the door, then naming the three ways; 继续 after a raised fist became the bell and the clerks); every turn had the world act and Knott or Wilmot speak in voice; every turn ended at a real fork (leave or ask; lower the fist or step in; give your name or go). No turn stopped at a midpoint. The attack on Knott (no stat block) was not narrated as landed: the Keeper followed the new fix text, pinned Fighting and Dodge with `apply npc`, three `resolve` calls still refused (the open NPC-cannot-be-fought defect), and the prose stopped at the raised fist with Knott's hand on the bell. Table A ran at the 09-09 baseline's rhythm with longer turns and clue, move and roll receipts on five of six turns.
+
+Findings for other tickets, not repaired here: (1) on B the Keeper told the research leads through Knott three times without `apply clue` for `knott-research-leads`; the verifier reported each as a reveal — `director.offer` person rows now carry `can_hand` for exactly this. (2) Semantic repetition on B turns 2–4 (the same three ways in Knott's voice thrice) — the repetition axis, not the floor. (3) Admission on grok-4.6 costs 15–63 s per reviewed call and timed out once (A turn 5, `admission_unavailable` reported to the player as a service notice, correctly); §32's `PI_COC_ADMISSION_MODEL` recommendation stands. (4) The verifier on grok-4.6 timed out 3 times in 26 runs and returned one `model_error`. (5) The verifier's `player_agency` reading collides with uptake when the declared action is rendered ("你朝门口跨了一步，拳头抬起来" for 我想把你打一顿): enacting the declared action is the floor's first kind, and the two remits need one sentence agreeing where elaboration ends.
 
 ## Out of Scope
 
