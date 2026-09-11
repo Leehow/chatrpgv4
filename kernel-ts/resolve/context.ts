@@ -9,6 +9,7 @@ import { SessionView } from '../read/session-view.js';
 import { factsFromState, RuleObservations } from '../read/rule-facts.js';
 import { array, clone, entries, integer, kebab, normalize, number, row, string, truth, values, type Row } from '../read/values.js';
 import { RuleTables } from '../rules/tables.js';
+import { CHARACTERISTICS } from '../rules/skills.js';
 import { moduleSpellRecords } from '../rules/catalog.js';
 import { caseFold } from '../rules/casefold.js';
 import { nowIso } from '../write/store.js';
@@ -366,6 +367,12 @@ export function latestCheckReceipt(context: SettleContext): [
 }
 export function skillTickEligible(arithmetic: CheckArithmetic, skill: string, check: Row): boolean {
     if (!skill.trim() || array(row(arithmetic.data.development.tick).never_tick_skills).map(string).includes(skill))
+        return false;
+    // Improvement checks are for skills. A characteristic rolled through a skill-shaped receipt (the
+    // dying CON roll and major-wound recovery are `healing_check` rolls on CON) never earns a tick; a
+    // tick on CON later refuses `development:end-session` for the whole table, because CON is on no
+    // skill list (`admission-e2e-4`, turn 40).
+    if (Object.hasOwn(CHARACTERISTICS, skill.trim().toUpperCase()) || skill.trim().toUpperCase() === 'SAN')
         return false;
     if (check.success !== true && !SUCCESS_OUTCOMES.has(string(check.outcome || '').trim().toLowerCase()))
         return false;

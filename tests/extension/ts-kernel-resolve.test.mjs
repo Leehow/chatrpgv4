@@ -128,3 +128,13 @@ test('social and concealed Psychology policies preserve source conditions', asyn
   for (const ceiling of ['uncertain', 'immediate_intent', 'motive_link', 'deep_conflict', 'unknown']) cases.push({ op: 'policy', args: [{ inference_ceiling: ceiling, external_behavior: 'He looks at the door.' }] });
   await compare('social', cases);
 });
+
+test('a characteristic rolled as a healing check never earns a development tick', async () => {
+  // admission-e2e-4, turn 40: the dying CON roll of turn 37 had been recorded as a tick on "CON", and
+  // development:end-session then refused the whole table because CON is on no skill list. Improvement
+  // checks are for skills; a CON roll through a healing_check receipt is still a characteristic.
+  const success = { ...arithmetic.resolve(30, 55, 'regular'), roll: 30, kind: 'healing_check' };
+  assert.equal(api.skillTickEligible(arithmetic, 'CON', { ...success, skill: 'CON' }), false);
+  assert.equal(api.skillTickEligible(arithmetic, 'con', { ...success, skill: 'con' }), false);
+  assert.equal(api.skillTickEligible(arithmetic, 'First Aid', { ...success, skill: 'First Aid' }), true);
+});

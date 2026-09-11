@@ -264,9 +264,11 @@ section; contract §32; the harness gives every table an admitting review model 
 existing seam suite is unchanged in meaning. Full extension suite and the touched kernel files pass on
 the emitted kernel.
 
-Done after the first commit: one real table of seven turns (`admission-e2e-1`, contract §32.9) — no false
-refusal, no false acceptance, both motivating incidents fixed, and the cost defect it exposed (a 60 s cap
-under a 13–45 s reviewer) repaired by raising the cap and measuring a faster reviewer (grok-4.3, six of six
-right at under 5 s). Not done, and not claimed: a full-length table (twenty turns or more, combat included); the same-scenario latency comparison; the
+Done after the first commit: three real tables (`admission-e2e-1`, `-2`, `-4`; 7, 30 and 40 turns; contract
+§32.9) — no false refusal and no false acceptance in 77 turns, both motivating incidents fixed, combat and a
+natural ending reached. The cost defect the first two exposed (a reviewer's latency tail: 60 s timeouts under
+grok-4.6, four 120 s stalls under grok-4.3) is closed by the reviewer choice `deepseek/deepseek-v4-flash`
+(third table: 2% of table time, no timeout) plus the answered-ask exemption of §32.1. Not done, and not
+claimed: verdict reuse exercised by play (no identical proposal recurred within a turn on any table); the same-scenario latency comparison; the
 editor comprehension review; the uninformed-human UI gate (#79); any package or lock change. The
 Implementation Decisions' order stands: those are the last step and they have not run.
