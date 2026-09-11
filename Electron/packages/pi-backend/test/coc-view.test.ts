@@ -3,7 +3,7 @@ import {mkdtemp,mkdir,writeFile,readFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {dirname,join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
-import {cocContentRoot,cocUiWords,currentDraft,draftPresentations,laneLabels,laneProjection,laneWords,mechanicsEntry,readCocBinding,readColdSheet} from '../src/coc-view.js';
+import {cocContentRoot,cocUiWords,currentDraft,deliveryWords,draftPresentations,laneLabels,laneLabelsLoaded,laneProjection,laneWords,mechanicsEntry,readCocBinding,readColdSheet,reloadLaneLabels} from '../src/coc-view.js';
 import {KernelClient} from '../../../../extensions/kernel/client.js';
 
 it('projects only public rows with stable identity and language',()=>{
@@ -321,6 +321,21 @@ it('a bound sheet read merges every lane\'s saved words under the kernel glossar
     expect(result.data.view.labels[summary]).toBe('科比特能让地板、天花板或墙上渗出血泊，把闯入者吓离他的秘密。');
     expect(result.data.view.labels['Spot Hidden']).toBe('侦查');
     expect((backend as any).cocLaneJobs.size).toBe(0);
+    // The live delivery reads the same lanes the sheet just read. `rpcEvent` draws a card inside a
+    // synchronous stream reader, so the words have to be held already: the first ask starts the
+    // read and every later card has them. Without them the card shows the module's own sentence
+    // under the name the Keeper wrote in the play language -- the sheet beside it showing the
+    // projection asserted above, for the very same clue.
+    const binding=(await readCocBinding(located.path))!;
+    (backend as any).cocSessionBindings.set(session.id,binding);
+    for(let i=0;i<100&&!(backend as any).cocLiveWords(session.id).lanes;i++)await new Promise(r=>setTimeout(r,20));
+    const live=(backend as any).cocLiveWords(session.id) as {lanes?:Record<string,string>};
+    expect(live.lanes?.[summary]).toBe('科比特能让地板、天花板或墙上渗出血泊，把闯入者吓离他的秘密。');
+    const delivered={type:'custom',id:'found',customType:'coc-mechanics',data:{turn:4,labels:{'Spot Hidden':'侦查'},
+      mechanics:[{kind:'clue',receipt:'clue:blood-pool-t4',clue:'blood-pool',label:'血泊',summary}]}};
+    const card=mechanicsEntry(delivered,binding.play_language,undefined,live)!.presentation!.details as any;
+    expect(card.labels[summary]).toBe('科比特能让地板、天花板或墙上渗出血泊，把闯入者吓离他的秘密。');
+    expect(card.labels['Spot Hidden']).toBe('侦查');
     // Every sheet answer carries the words the panel draws it with (contract §23).
     expect(result.data.ui.tag).toBe('zh-Hans');
     expect(result.data.ui.words).toBeTypeOf('object');
@@ -360,5 +375,109 @@ it('the timeline cold path maps the panel invoke names to the kernel methods (co
     expect(Array.isArray(answer.data.nodes)).toBe(true);
     expect(answer.data.ui.tag).toBe('zh-Hans');
     expect(spawns).toBe(0);
+  } finally {await backend.close();}
+},40000);
+
+it('a live delivery draws a found clue in the play language, not the language the book was read in',async()=>{
+  // The defect this pins: the card's own words are the Keeper's -- a clue's `label` is written in
+  // the play language when `apply clue` gave one -- but its `summary` is the module's sentence,
+  // filed on the receipt in the source language and opened by the row the player clicks. The
+  // campaign projects that sentence into a lane; a delivery that reads the lane shows the
+  // projection, and a delivery that reads only the kernel glossary shows the book.
+  const home=await mkdtemp(join(tmpdir(),'coc-live-clue-'));
+  const context={campaign:'c1',home,play_language:'zh-Hans'};
+  const summary='Knott points them toward the Boston Globe and the Hall of Records before they rush the house.';
+  const row={type:'custom',id:'found',customType:'coc-mechanics',data:{turn:4,labels:{'Spot Hidden':'侦查'},
+    mechanics:[{kind:'clue',receipt:'clue:knott-research-leads-t4',clue:'knott-research-leads',label:'调查方向',summary},
+      {kind:'clue',receipt:'clue:hidden-t4',clue:'hidden',label:'keeper only',summary:'never drawn',visibility:'keeper'},
+      {kind:'roll',skill:'Spot Hidden',roll:25,target:50}]}};
+  // What the delivery needs projected: the two player-facing words of the public clue row, and
+  // nothing from the keeper row or from a kind that carries no module prose.
+  expect(deliveryWords(row)).toEqual([summary,'调查方向']);
+  expect(deliveryWords({data:{mechanics:[{kind:'roll',skill:'Spot Hidden'}]}})).toEqual([]);
+  expect(deliveryWords(undefined)).toEqual([]);
+
+  // The synchronous reader answers with nothing before a read has landed -- and asking starts one,
+  // so it is the next card that has the words, never a card drawn in another language.
+  expect(laneLabelsLoaded(context)).toEqual({});
+  expect(laneLabelsLoaded(undefined)).toEqual({});
+  const folder=join(home,'.coc/campaigns/c1/setup/presentations');await mkdir(folder,{recursive:true});
+  await writeFile(join(folder,'clues-zh-Hans.json'),JSON.stringify({play_language:'zh-Hans',
+    texts:{'调查方向':'调查方向',[summary]:'诺特把他们指向《波士顿环球报》和档案厅，别急着冲进宅子。'}}));
+  const lanes=await reloadLaneLabels(context);
+  expect(laneLabelsLoaded(context)).toEqual(lanes);
+
+  const details=mechanicsEntry(row,'zh-Hans',undefined,{lanes})!.presentation!.details as any;
+  expect(details.labels[summary]).toBe('诺特把他们指向《波士顿环球报》和档案厅，别急着冲进宅子。');
+  expect(details.labels['Spot Hidden']).toBe('侦查');
+  // Without the lane the same row draws the book's own sentence: this is what the player saw.
+  expect((mechanicsEntry(row,'zh-Hans')!.presentation!.details as any).labels[summary]).toBeUndefined();
+
+  // A lane that lands later replaces the held answer; holding the first read would keep drawing
+  // the words the new run was started to replace.
+  await writeFile(join(folder,'clues-zh-Hans.json'),JSON.stringify({play_language:'zh-Hans',
+    texts:{'调查方向':'调查方向',[summary]:'第二次投影'}}));
+  expect(laneLabelsLoaded(context)[summary]).toBe('诺特把他们指向《波士顿环球报》和档案厅，别急着冲进宅子。');
+  expect((await reloadLaneLabels(context))[summary]).toBe('第二次投影');
+  expect(laneLabelsLoaded(context)[summary]).toBe('第二次投影');
+  expect(await laneLabels({campaign:'c1',home,play_language:'en'})).toEqual({});
+});
+
+it('a clue found this turn starts its own projection and redraws the delivery in place',async()=>{
+  // The lanes are topped up on a sheet read, and a player may not open the sheet for an hour. A
+  // clue found this turn therefore has no projection yet, and the delivery would draw the book's
+  // own sentence until one lands. The delivery starts that lane itself and streams the same entry
+  // id again -- the transcript replaces a presentation row in place -- so the card the player is
+  // looking at changes language where it sits.
+  const {cp}=await import('node:fs/promises');
+  const {createPiHostBackend}=await import('../src/index.js');
+  const repo=resolve(import.meta.dirname,'../../../..'),root=await mkdtemp(join(tmpdir(),'coc-live-lane-'));
+  const client=new KernelClient({command:[process.execPath,join(repo,'build/kernel/rpc.mjs'),'--workspace',root,'--content',join(repo,'content')],cwd:repo,env:{}});
+  try {await client.call('campaign.create',{id:'redrawn',module:'the-haunting',pregen:'thomas-hayes',play_language:'zh-Hans'});}finally{await client.close();}
+  const folder=join(root,'.coc/campaigns/redrawn/setup/presentations');await mkdir(folder,{recursive:true});
+  const summary='Knott points them toward the Boston Globe and the Hall of Records before they rush the house.';
+  const projected='诺特把他们指向《波士顿环球报》和档案厅，别急着冲进宅子。';
+  const asked:any[]=[];
+  const registry={get:()=>({presentation:async(request:any)=>{
+    asked.push(request);
+    await writeFile(join(folder,'clues-zh-Hans.json'),JSON.stringify({play_language:'zh-Hans',texts:{'调查方向':'调查方向',[summary]:projected}}));
+    return {texts:{}};
+  }}),dispose(){},async close(){}} as any;
+  const profile=join(root,'profile'),pack=join(profile,'extensions/coc-keeper');await mkdir(pack,{recursive:true});
+  await cp(join(repo,'pipiui-extension.json'),join(pack,'pipiui-extension.json'));await cp(join(repo,'pipicoc'),join(pack,'pipicoc'),{recursive:true});
+  const backend=createPiHostBackend({agentDir:profile,sessionsRoot:join(root,'sessions'),runtimeRoot:join(root,'runtime'),defaultPack:'coc-keeper',managedNodeModulesRoot:join(repo,'node_modules'),cocOnboardingRegistry:registry,env:{...process.env,PI_COC_HOME:root,UV_CACHE_DIR:'/tmp/pi-coc-uv-cache'},piCommand:{executable:join(repo,'pipicoc/rpc'),env:{PATH:process.env.PATH!}},spawn:()=>{throw new Error('Pi must remain asleep');}});
+  try {
+    await backend.handle('addProject',[root]);const projects=await backend.handle('listProjects',[]) as any[];
+    const session=await backend.handle('newSession',[projects[0].id]) as any;
+    const located=await (backend as any).locate(session.id);
+    await writeFile(located.path+'.coc.json',JSON.stringify({campaign:'redrawn',home:root,play_language:'zh-Hans'}));
+    (backend as any).cocSessionBindings.set(session.id,(await readCocBinding(located.path))!);
+    const drawn:any[]=[];
+    backend.subscribe((frame:any)=>{if(frame.channel==='stream'&&frame.event?.type==='presentation')drawn.push(frame.event);});
+    const entry={type:'custom',id:'found-4',customType:'coc-mechanics',timestamp:'2026-09-10',data:{turn:4,
+      mechanics:[{kind:'clue',receipt:'clue:knott-research-leads-t4',clue:'knott-research-leads',label:'调查方向',summary}]}};
+    // Through the stream reader itself, so the wiring is covered and not only the routine it calls.
+    (backend as any).sessionRuntimeTokens.set(session.id,7);
+    (backend as any).rpcEvent({session:{id:session.id},runtimeToken:7},{type:'entry_appended',entry});
+    for(let i=0;i<200&&drawn.length<2;i++)await new Promise(r=>setTimeout(r,20));
+    expect(asked.length).toBe(1);
+    expect(asked[0].clues).toBe(true);
+    expect(asked[0].campaign).toBe('redrawn');
+    expect(asked[0].play_language).toBe('zh-Hans');
+    // The card is drawn at once with the words there are -- the reader cannot wait on a model
+    // round -- and redrawn under the same id once the lane lands, which the transcript applies as
+    // a replacement rather than a second copy of the same turn.
+    expect(drawn.length).toBe(2);
+    expect(drawn.map((event:any)=>event.entry.id)).toEqual(['found-4','found-4']);
+    expect(drawn[0].entry.presentation.details.labels[summary]).toBeUndefined();
+    expect(drawn[1].entry.presentation.details.labels[summary]).toBe(projected);
+    // A later delivery of words the lane already holds draws them the first time and asks for
+    // nothing: the projection is not a model round per turn.
+    (backend as any).rpcEvent({session:{id:session.id},runtimeToken:7},{type:'entry_appended',entry:{...entry,id:'found-5'}});
+    for(let i=0;i<10;i++)await new Promise(r=>setTimeout(r,20));
+    expect(asked.length).toBe(1);
+    expect(drawn.length).toBe(3);
+    expect(drawn[2].entry.id).toBe('found-5');
+    expect(drawn[2].entry.presentation.details.labels[summary]).toBe(projected);
   } finally {await backend.close();}
 },40000);

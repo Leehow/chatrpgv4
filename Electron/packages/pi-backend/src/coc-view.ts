@@ -135,6 +135,58 @@ export async function laneLabels(context?:CocBinding):Promise<Record<string,stri
   }
   return merged;
 }
+const LANE_LABELS=new Map<string,Promise<Record<string,string>>>();
+const LANE_LABELS_LOADED=new Map<string,Record<string,string>>();
+function laneLabelsKey(context:CocBinding):string {
+  return JSON.stringify([context.home,context.campaign,context.play_language]);
+}
+/**
+ * The same words, for a caller that cannot wait: a live `entry_appended` is drawn inside a
+ * synchronous stream reader.
+ *
+ * Without them the delivery card draws a clue in the language the book was read in while the
+ * sheet beside it already draws the player's -- the card's own words are the Keeper's, so only
+ * the projected ones are missing, and the row that opens is exactly the module's sentence. It
+ * answers from what a previous read resolved and starts one otherwise, so the words reach every
+ * later card; `reloadLaneLabels` replaces the held answer when a lane has just written a new cache.
+ */
+export function laneLabelsLoaded(context?:CocBinding):Record<string,string> {
+  if(!context)return {};
+  const key=laneLabelsKey(context);
+  const found=LANE_LABELS_LOADED.get(key);
+  if(found)return found;
+  if(!LANE_LABELS.has(key))
+    LANE_LABELS.set(key,laneLabels(context).then(texts=>{LANE_LABELS_LOADED.set(key,texts);return texts;},
+      ()=>{LANE_LABELS.delete(key);return {};}));
+  return {};
+}
+/**
+ * Read one campaign's lanes again and hold the answer, because a lane has just written its cache.
+ *
+ * It returns the words rather than only dropping the stale ones so the caller that started the
+ * lane can redraw the card in the same turn: dropping alone would leave the synchronous reader
+ * answering `{}` again until a later background read landed, which is the card drawing the
+ * module's own language one more time.
+ */
+export async function reloadLaneLabels(context?:CocBinding):Promise<Record<string,string>> {
+  if(!context)return {};
+  const key=laneLabelsKey(context);
+  LANE_LABELS.delete(key);LANE_LABELS_LOADED.delete(key);
+  const texts=await laneLabels(context);
+  LANE_LABELS.set(key,Promise.resolve(texts));LANE_LABELS_LOADED.set(key,texts);
+  return texts;
+}
+/** The player-facing words one delivery puts on the table: what a clue is called and what it says. */
+export function deliveryWords(entry:any):string[] {
+  const rows=Array.isArray(entry?.data?.mechanics)?entry.data.mechanics:[];
+  const texts=new Set<string>();
+  for(const row of rows) {
+    if(!row||typeof row!=='object'||row.kind!=='clue'||row.visibility==='keeper')continue;
+    for(const key of ['label','summary'])
+      if(typeof row[key]==='string'&&row[key].trim())texts.add(row[key]);
+  }
+  return [...texts].sort();
+}
 const DRAFT_PROJECTION=/^(\d+)-(.+)\.json$/;
 /**
  * The draft a transcript card must draw today (contract §23.4): the campaign's current revision,

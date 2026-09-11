@@ -424,8 +424,10 @@ export function createComponent(React) {
           return h(Row, { key, kindKey: "clue", kindLabel, family },
             h("span", { className: "coc-mech-body" }, name));
         }
-        // The summary is the module's own text; the glossary may carry its play-language
-        // projection, and falls back to the original when it does not.
+        // The summary is the module's own sentence, kept by the graph in the language the book
+        // was read in. Its play-language projection rides in with the delivery's labels -- the
+        // campaign's `clues` lane, merged under the kernel glossary by the host -- and this falls
+        // back to the original for a clue whose lane run has not landed yet.
         return h(FoldRow, { key, kindKey: "clue", kindLabel, body: term(rawSummary) },
           h("span", { className: "coc-mech-body" }, name));
       }
@@ -538,7 +540,8 @@ export function createComponent(React) {
     const details = isRecord(props.details) ? props.details : {};
     if (isRecord(details.coc_error)) return null; // the host's own error card is better than ours
     // Both come with the delivery: the chrome from the session's play language, the content
-    // words from the campaign's own glossary (§16.5). Neither is a table in this file.
+    // words from the kernel's glossary merged under the campaign's own projected lanes (§16.5,
+    // §23). Neither is a table in this file.
     const glossary = isRecord(details.labels) ? details.labels : {};
     const term = (name) => (typeof glossary[name] === "string" && glossary[name]) || name;
     const t = (key, fallback) => word(details.ui, "mechanics", key, fallback);
