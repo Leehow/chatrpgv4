@@ -421,7 +421,9 @@ export async function loadControlledContributions(
         label: title,
         title,
         description: section.description ?? '',
-        render: () => createElement(Component, { api, id: section.id, title }),
+        // The section context (model visibility, host, update center) is the section's data
+        // source; without it a controlled picker could not see the 模型管理 catalog.
+        render: ctx => createElement(Component, { api, id: section.id, title, ctx }),
       }))
     } catch (error) {
       disposers.push(registerSettingsError(descriptor.id, section, errorMessage(error)))

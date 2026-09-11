@@ -23,6 +23,7 @@ const SETTINGS_NAV_HINTS: Record<string, string> = {
   extensions: '能力与集成',
   themes: 'Logo 与配色',
   updates: '运行时版本',
+  'image-model': '头像与插图',
 }
 
 function TrashIcon() {

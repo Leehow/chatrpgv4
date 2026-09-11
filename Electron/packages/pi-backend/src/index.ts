@@ -8977,6 +8977,30 @@ export class PiHostBackend implements HostBackend {
     if (id === "coc-keeper" && ["sheet","choose"].includes(method) && !(isRecord(optsValue) && typeof optsValue.sessionId === "string" && optsValue.sessionId.trim())) {
       return {ok:true,data:{status:"unbound",view:null,campaign:null,...await this.cocAnswerWords(undefined)}};
     }
+    if (id === "image-gen" && method === "model") {
+      // The Image Generation extension's model choice, app-level: the picker in its settings
+      // section reads/writes the same <agentDir>/image-model.json the agent reads per call, so
+      // no live session is needed. `grokDefault` mirrors the dispatch's grok-first rule.
+      const file = join(this.agentDir, "image-model.json");
+      const op = isRecord(params) && typeof params.op === "string" ? params.op : "get";
+      const grokDefault = (() => { try { return isRecord(JSON.parse(readFileSync(join(this.agentDir, "auth.json"), "utf8"))["grok-build"]); } catch { return false; } })();
+      if (op === "get") {
+        let current: string | null = null;
+        try { const saved = JSON.parse(readFileSync(file, "utf8")); if (isRecord(saved) && typeof saved.model === "string" && saved.model.trim()) current = saved.model.trim(); } catch {}
+        return { ok: true, data: { current, grokDefault } };
+      }
+      if (op === "set") {
+        const model = isRecord(params) && typeof params.model === "string" ? params.model.trim() : "";
+        if (!model) return settingsDenied("capability_denied", "model 必须是非空 string");
+        await fs.writeFile(file, JSON.stringify({ model }) + "\n", { mode: 0o600 });
+        return { ok: true, data: { current: model, grokDefault } };
+      }
+      if (op === "clear") {
+        await fs.rm(file, { force: true });
+        return { ok: true, data: { current: null, grokDefault } };
+      }
+      return settingsDenied("capability_denied", `unknown image-gen model op: ${op}`);
+    }
     const sessionId =
       isRecord(optsValue) && typeof optsValue.sessionId === "string" && optsValue.sessionId.trim()
         ? optsValue.sessionId.trim()

@@ -452,7 +452,9 @@ function ExtensionPackageRow({
   const caps = requestedCapabilities(ext)
   const settingsSchema = ext.contributions?.settings?.schema
   const declaresAuth = Boolean(ext.contributions?.auth?.provider?.id)
-  const declaresSettings = Boolean(ext.contributions?.settingsSections?.length || settingsSchema)
+  // The inline 设置 button opens the schema form, so it appears only when a schema exists;
+  // a sections-only package (e.g. image-gen's model picker) lives in the settings modal's nav.
+  const declaresSettings = Boolean(settingsSchema)
   // Every extension gets the same generic editor for what its manifest declares.
   const canEditSettings = enabled && declaresSettings && !declaresAuth && Boolean(host.getExtensionSettings && host.updateExtensionSettings)
   const canShowAuth = enabled && declaresAuth
