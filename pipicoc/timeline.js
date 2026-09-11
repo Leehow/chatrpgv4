@@ -481,7 +481,7 @@ export function createComponent(React) {
 
     // Before the first answer there are no words yet, so the panel shows none.
     if (answer === undefined && !error) {
-      return h("div", { className: "coc-tl", ...landmark },
+      return h("div", { className: "coc-tl", ref: rootRef, ...landmark },
         h("p", { className: "coc-tl-note", role: "status" }, "…"));
     }
 
@@ -497,7 +497,7 @@ export function createComponent(React) {
         h("p", null, error.message)) : null);
 
     if (answer?.status === "unbound") {
-      return h("div", { className: "coc-tl", ...landmark },
+      return h("div", { className: "coc-tl", ref: rootRef, ...landmark },
         header, errorBlock, h("p", { className: "coc-tl-note" }, t("unbound")));
     }
 
@@ -651,7 +651,7 @@ export function createComponent(React) {
           line.name === answer.active ? h("span",null,t("youAreHere")) : null);
       }));
 
-    return h("div", { className: "coc-tl", ...landmark },
+    return h("div", { className: "coc-tl", ref: rootRef, ...landmark },
       header, lineNames,
       answer?.truncated ? h("div", { className: "coc-tl-truncated" }, t("truncated")) : null,
       errorBlock,
