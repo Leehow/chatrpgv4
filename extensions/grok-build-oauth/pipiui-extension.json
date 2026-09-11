@@ -108,5 +108,6 @@
   },
   "lifecycle": {
     "onDisable": "dispose-app-immediate; unmount-agent-on-next-session"
-  }
+  },
+  "defaultEnabled": true
 }
