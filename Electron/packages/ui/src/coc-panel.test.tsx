@@ -80,7 +80,9 @@ it('keeps passport words live, the era unlabelled and decoration across refreshe
   await screen.findByText('Projected credential title');
   expect(container.querySelector('.coc-sheet-era')?.textContent).toBe('1920');
   expect(container.querySelector('.coc-sheet-fields')?.textContent).not.toContain('Era');
-  expect(container.querySelector('.coc-sheet-identity button')).toBeNull();
+  const mountButton=container.querySelector('button.coc-sheet-portrait');
+  expect(mountButton?.getAttribute('aria-label')).toBe(say('en','sheet','portraitGenerate'));
+  expect(container.querySelector('.coc-sheet-identity button')).toBe(mountButton);
   const mount=container.querySelector('.coc-sheet-art');
   expect(mount?.getAttribute('aria-hidden')).toBe('true');
   expect(container.querySelector('.coc-sheet-seal')?.getAttribute('alt')).toBe('');
@@ -102,6 +104,35 @@ it('leaves an empty credential unstamped until an investigator exists', async ()
   await screen.findByText(say('zh-Hans','sheet','noInvestigator'));
   expect(container.querySelector('.coc-sheet-art')).toBeTruthy();
   expect(container.querySelector('.coc-sheet-seal')).toBeNull();
+  expect(container.querySelector('button.coc-sheet-portrait')).toBeNull();
+});
+
+/**
+ * The mount is a host control once an investigator exists (contract §22.7): clicking it asks the
+ * sheet lane for a portrait and renders what comes back beneath the seal; a refusal leaves the
+ * mount empty and names it, in the sheet's own words.
+ */
+it('develops a portrait when the mount is clicked', async () => {
+  const data={campaign:'c1',view:view()};
+  const generated={...data,identity_art:{backplate:'data:image/png;base64,AA==',portrait:'data:image/png;base64,Ag==',seal:'data:image/png;base64,AQ=='}};
+  const api=host({ok:true,data},{ok:true,data:generated});
+  const {container}=render(<Panel api={api}/>);
+  await screen.findByText(say('zh-Hans','sheet','identityTitle'));
+  expect(container.querySelector('.coc-sheet-avatar')).toBeNull();
+  fireEvent.click(container.querySelector('button.coc-sheet-portrait')!);
+  expect(api.invoke).toHaveBeenLastCalledWith('sheet',{portrait:'generate'});
+  await waitFor(()=>expect(container.querySelector('.coc-sheet-avatar')?.getAttribute('src')).toContain('Ag=='));
+});
+
+it('leaves the mount empty and says so when a portrait cannot be developed', async () => {
+  const data={campaign:'c1',view:view()};
+  const refused={status:'error',view:null,campaign:'c1',code:'portrait_unavailable',reason:'no credential',ui:ui('zh-Hans')};
+  const api=host({ok:true,data},{ok:true,data:refused});
+  const {container}=render(<Panel api={api}/>);
+  await screen.findByText(say('zh-Hans','sheet','identityTitle'));
+  fireEvent.click(container.querySelector('button.coc-sheet-portrait')!);
+  await screen.findByText(say('zh-Hans','sheet','portraitFailed'));
+  expect(container.querySelector('.coc-sheet-avatar')).toBeNull();
 });
 
 /**

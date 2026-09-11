@@ -26,74 +26,99 @@ import { routeByModelId, VENDOR_ADAPTERS, VENDOR_DEFAULT_BASE_URLS } from "./ven
 
 const CONFIG_HINT = "run /image-gen:model <provider/model> to choose one (e.g. /image-gen:model openai/gpt-image-1)";
 
+/** Which model + vendor + credentials the fallback path will use. */
+async function resolveVendorTarget(readModel, ctx, modelParam) {
+	const spec = modelParam ?? readModel()?.model;
+	if (!spec) {
+		throw new Error(`no image model is configured and grok-build is not logged in — ${CONFIG_HINT}`);
+	}
+	const { provider: providerSpec, modelId } = parseModelSpec(spec);
+	const vendor = routeByModelId(modelId);
+	let provider = providerSpec;
+	let entry = provider ? ctx.modelRegistry.find(provider, modelId) : undefined;
+	if (!provider) {
+		entry = ctx.modelRegistry.getAll().find((model) => model.id === modelId);
+		provider = entry?.provider;
+	}
+	if (!provider) {
+		throw new Error(`cannot tell which provider serves the image model "${modelId}" — set it as <provider>/${modelId} with /image-gen:model`);
+	}
+	const apiKey = await ctx.modelRegistry.getApiKeyForProvider(provider);
+	if (!apiKey) {
+		throw new Error(`no API key is configured for provider "${provider}" — add one (pi /login ${provider}) and retry`);
+	}
+	return {
+		vendor,
+		modelId,
+		creds: {
+			apiKey,
+			baseUrl: entry?.baseUrl ?? VENDOR_DEFAULT_BASE_URLS[vendor],
+			headers: entry?.headers ?? {},
+		},
+	};
+}
+
+/**
+ * The dispatch half both the tools and host lanes share: grok first (its host library saves the
+ * session attachment itself), otherwise the configured vendor adapter. Bytes, not a file, so a
+ * caller with its own storage -- the sheet's portrait mount (contract §22.7) -- reuses the same
+ * path without a session attachment it never asked for.
+ */
+async function dispatchImageOp(deps, ctx, op, signal) {
+	if (await deps.grok.usable()) {
+		return op.kind === "gen"
+			? await deps.grok.generate({ prompt: op.prompt, aspectRatio: op.aspectRatio, signal })
+			: await deps.grok.edit({ prompt: op.prompt, images: op.refs, aspectRatio: op.aspectRatio, signal });
+	}
+	const target = await resolveVendorTarget(deps.readModel, ctx, op.model);
+	const images = op.kind === "edit"
+		? await Promise.all(op.refs.map((ref) => resolveImageReference(ref)))
+		: [];
+	const adapter = VENDOR_ADAPTERS[target.vendor];
+	const { bytes, mime, model } = await adapter(
+		{ kind: op.kind, prompt: op.prompt, aspectRatio: op.aspectRatio, images, model: target.modelId },
+		target.creds,
+		{ fetchImpl: deps.fetchImpl ?? fetch, signal, ...(deps.pollIntervalMs !== undefined ? { pollIntervalMs: deps.pollIntervalMs } : {}) },
+	);
+	return { bytes, b64: Buffer.from(bytes).toString("base64"), mime, model, backend: target.vendor };
+}
+
+/**
+ * Host lanes reuse the tools' dispatch without the tool wrapper: grok first, the same credential
+ * resolution as image_gen, bytes back. `ctx` is the session's extension context; the vendor half
+ * reads credentials from its modelRegistry, never auth.json.
+ */
+export async function generateImage(ctx, op, signal) {
+	return dispatchImageOp({
+		grok: { usable: grokUsable, generate: grokGenerate, edit: grokEdit },
+		readModel: () => readConfiguredModel(),
+	}, ctx, op, signal);
+}
+
 /**
  * Injectable seams for tests: grok wrapper, fetch, config IO, image writer,
  * poll interval. Production uses the default export at the bottom.
  */
 export function createImageGenExtension(deps = {}) {
 	const grok = deps.grok ?? { usable: grokUsable, generate: grokGenerate, edit: grokEdit };
-	const fetchImpl = deps.fetchImpl ?? fetch;
 	const readModel = deps.readConfiguredModel ?? (() => readConfiguredModel());
 	const writeModel = deps.writeConfiguredModel ?? ((model) => writeConfiguredModel(model));
 	const makeWriter = deps.makeWriter ?? (() => new SessionImageWriter());
-	const pollIntervalMs = deps.pollIntervalMs;
-
-	/** Which model + vendor + credentials the fallback path will use. */
-	async function resolveVendorTarget(ctx, modelParam) {
-		const spec = modelParam ?? readModel()?.model;
-		if (!spec) {
-			throw new Error(`no image model is configured and grok-build is not logged in — ${CONFIG_HINT}`);
-		}
-		const { provider: providerSpec, modelId } = parseModelSpec(spec);
-		const vendor = routeByModelId(modelId);
-		let provider = providerSpec;
-		let entry = provider ? ctx.modelRegistry.find(provider, modelId) : undefined;
-		if (!provider) {
-			entry = ctx.modelRegistry.getAll().find((model) => model.id === modelId);
-			provider = entry?.provider;
-		}
-		if (!provider) {
-			throw new Error(`cannot tell which provider serves the image model "${modelId}" — set it as <provider>/${modelId} with /image-gen:model`);
-		}
-		const apiKey = await ctx.modelRegistry.getApiKeyForProvider(provider);
-		if (!apiKey) {
-			throw new Error(`no API key is configured for provider "${provider}" — add one (pi /login ${provider}) and retry`);
-		}
-		return {
-			vendor,
-			modelId,
-			creds: {
-				apiKey,
-				baseUrl: entry?.baseUrl ?? VENDOR_DEFAULT_BASE_URLS[vendor],
-				headers: entry?.headers ?? {},
-			},
-		};
-	}
 
 	async function runImageOp(ctx, op, signal) {
-		if (await grok.usable()) {
-			const result = op.kind === "gen"
-				? await grok.generate({ prompt: op.prompt, aspectRatio: op.aspectRatio, signal })
-				: await grok.edit({ prompt: op.prompt, images: op.refs, aspectRatio: op.aspectRatio, signal });
+		const result = await dispatchImageOp({
+			grok, readModel, fetchImpl: deps.fetchImpl, pollIntervalMs: deps.pollIntervalMs,
+		}, ctx, op, signal);
+		if (result.path) {
 			return imageResult({ path: result.path, mime: result.mime, b64: result.b64, backend: result.backend, model: result.model }, op.kind);
 		}
-		const target = await resolveVendorTarget(ctx, op.model);
-		const images = op.kind === "edit"
-			? await Promise.all(op.refs.map((ref) => resolveImageReference(ref)))
-			: [];
-		const adapter = VENDOR_ADAPTERS[target.vendor];
-		const { bytes, mime, model } = await adapter(
-			{ kind: op.kind, prompt: op.prompt, aspectRatio: op.aspectRatio, images, model: target.modelId },
-			target.creds,
-			{ fetchImpl, signal, ...(pollIntervalMs !== undefined ? { pollIntervalMs } : {}) },
-		);
-		const saved = await makeWriter().save(bytes, { signal });
+		const saved = await makeWriter().save(result.bytes, { signal });
 		return imageResult({
 			path: saved.path,
-			mime: saved.mime ?? mime,
-			b64: Buffer.from(bytes).toString("base64"),
-			backend: target.vendor,
-			model,
+			mime: saved.mime ?? result.mime,
+			b64: result.b64,
+			backend: result.backend,
+			model: result.model,
 		}, op.kind);
 	}
 

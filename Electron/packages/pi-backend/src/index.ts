@@ -8649,8 +8649,15 @@ export class PiHostBackend implements HostBackend {
     const ui = await this.cocWords(home, tag);
     return ui ? {ui} : {};
   }
+  /** The campaign's generated portrait as a data URL, when the live lane already saved one (contract §22.7). */
+  private async cocCampaignPortrait(context:CocBinding):Promise<string|undefined> {
+    for(const [ext,mime] of [["png","image/png"],["jpg","image/jpeg"],["webp","image/webp"]] as const) {
+      try {return `data:${mime};base64,${(await fs.readFile(join(context.home,'.coc/campaigns',context.campaign,`portrait.${ext}`))).toString('base64')}`;} catch {}
+    }
+    return undefined;
+  }
   /** The cold sheet path bypasses the mounted agent, so it owns the same optional artwork response. */
-  private async cocSheetWithIdentityArtwork(result:ExtInvokeResult,params:unknown):Promise<ExtInvokeResult> {
+  private async cocSheetWithIdentityArtwork(result:ExtInvokeResult,params:unknown,context?:CocBinding):Promise<ExtInvokeResult> {
     if(!isRecord(params)||params.include_identity_art!==true||result.ok!==true||!isRecord(result.data)||!result.data.view||!this.managedNodeModulesRoot)return result;
     const repo=resolve(this.managedNodeModulesRoot,"..");
     const artwork=await (this.cocIdentityArtwork??=Promise.all([
@@ -8658,7 +8665,10 @@ export class PiHostBackend implements HostBackend {
       ["seal","investigator-seal.png"],
     ].map(async ([key,name])=>[key,`data:image/png;base64,${(await fs.readFile(join(repo,"pipicoc/assets",name))).toString("base64")}`] as const))
       .then(entries=>Object.fromEntries(entries)).catch(()=>({})));
-    return Object.keys(artwork).length?{...result,data:{...result.data,identity_art:artwork}}:result;
+    // The cold path never generates; it only attaches an already-generated file (contract §22.7).
+    const portrait=context?await this.cocCampaignPortrait(context):undefined;
+    const art=portrait?{...artwork,portrait}:artwork;
+    return Object.keys(art).length?{...result,data:{...result.data,identity_art:art}}:result;
   }
   /** A thrown failure's own code when it carries one; a kernel error's passes through unchanged. */
   private cocCode(error: unknown, fallback = "kernel_error"): string {
@@ -8990,11 +9000,14 @@ export class PiHostBackend implements HostBackend {
     }
     if (id === "coc-keeper" && method === "sheet") {
       const selected = await this.locate(sessionId);
-      {
+      const context = await readCocBinding(selected.path);
+      // The portrait mount is a live-agent lane (contract §22.7): the cold read below never
+      // generates, so a generate action falls through to the mounted agent when one exists.
+      const generate = isRecord(params) && params.portrait === "generate";
+      if (!generate) {
         const pending = this.cocSheetReads.get(sessionId);
-        if (pending) return this.cocSheetWithIdentityArtwork(await pending,params);
+        if (pending) return this.cocSheetWithIdentityArtwork(await pending,params,context);
         const read = (async (): Promise<ExtInvokeResult> => {
-          const context = await readCocBinding(selected.path);
           if (!context) return {ok:true,data:{status:"unbound",view:null,campaign:null,...await this.cocAnswerWords(undefined)}};
           // One retry word covers every projection this read starts: the sheet's vocabulary lanes
           // and the chrome's own captions both stop after one failure and both wait for the player.
@@ -9078,7 +9091,7 @@ export class PiHostBackend implements HostBackend {
             code:this.cocCode(error),reason:error instanceof Error?error.message:String(error),...words}};}
         })().finally(()=>this.cocSheetReads.delete(sessionId));
         this.cocSheetReads.set(sessionId,read);
-        return this.cocSheetWithIdentityArtwork(await read,params);
+        return this.cocSheetWithIdentityArtwork(await read,params,context);
       }
     }
     const live = this.live.get(sessionId);

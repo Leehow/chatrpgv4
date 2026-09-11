@@ -18,7 +18,9 @@
  * kernel read old at worst, never a payload that drifted from the kernel's own answer.
  */
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { readFile } from "node:fs/promises";
+import { readFile, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { generateImage } from "../extensions/image-gen/agent/index.js";
 import { emitToPanel, registerInvokeHandlers } from "./host-bridge.ts";
 import { uiWordsSurface } from "./ui-words.ts";
 import type { UiWords } from "../runtime/ui-words.ts";
@@ -37,6 +39,42 @@ function loadIdentityArt() {
 		image("investigator-backplate.png", "image/png"),
 		image("investigator-seal.png", "image/png"),
 	]).then(([backplate, seal]) => ({backplate, seal}));
+}
+
+/**
+ * The portrait mount (contract §22.7, the 2026-09-11-later decision). One host-side file per
+ * campaign at `<coc-home>/campaigns/<id>/portrait.<ext>`: not campaign state, not a receipt, and
+ * the kernel never reads it. The closed extension set is a file lookup, not a semantic question.
+ */
+const PORTRAIT_FILES: ReadonlyArray<readonly [string, string]> = [
+	["png", "image/png"], ["jpg", "image/jpeg"], ["webp", "image/webp"],
+];
+
+/** The aesthetic every card shares; the subject text is the investigator's own description. */
+const PORTRAIT_STYLE =
+	"1920s sepia archival portrait photograph, aged photo paper, head-and-shoulders, period attire";
+
+export interface PortraitRequest {
+	prompt: string;
+	aspectRatio?: string;
+}
+export interface PortraitImage {
+	bytes: Uint8Array;
+	mime?: string;
+}
+
+/**
+ * Test seam for the image-gen dispatch (grok first, the image_gen tool's own credential
+ * resolution). Production imports the extension statically so the bundler inlines it into the
+ * compiled agent -- a lazy relative import would resolve against the compiled tree and miss.
+ */
+export interface SheetPanelDeps {
+	generatePortrait?: (context: ExtensionContext | undefined, request: PortraitRequest) => Promise<PortraitImage>;
+}
+
+async function defaultPortraitGenerator(context: ExtensionContext | undefined, request: PortraitRequest): Promise<PortraitImage> {
+	const result = await generateImage(context, { kind: "gen", ...request });
+	return { bytes: result.bytes ?? Buffer.from(result.b64, "base64"), mime: result.mime };
 }
 
 type KernelCall = (method: string, params: Record<string, unknown>) => Promise<unknown>;
@@ -60,7 +98,7 @@ export interface SheetAnswer {
 	code?: string;
 	/** The product's own captions for this session's play language, so no renderer keeps a table. */
 	ui?: UiWords;
-	/** Bundled decoration only; never an investigator image or game state. */
+	/** Decoration plus the generated portrait (contract §22.7); never game state. */
 	identity_art?: {backplate?: string; portrait?: string; seal?: string};
 }
 
@@ -70,7 +108,8 @@ export interface SheetAnswer {
  * Called from the pack entry, so it only exists where PipiUI is the host; `bin/pi-coc` in a
  * terminal loads the same canonical gameplay extensions without it and behaves exactly as before.
  */
-export function registerSheetPanel(pi: ExtensionAPI): void {
+export function registerSheetPanel(pi: ExtensionAPI, deps: SheetPanelDeps = {}): void {
+	const generatePortrait = deps.generatePortrait ?? defaultPortraitGenerator;
 	let bridge: KernelCall | undefined;
 	let campaign: string | undefined;
 	let runtime: HostRuntime | undefined;
@@ -155,15 +194,76 @@ export function registerSheetPanel(pi: ExtensionAPI): void {
 		}
 	}
 
+	/** The campaign's own portrait file as a data URL, when the mount generated one. */
+	async function storedPortrait(): Promise<string | undefined> {
+		const home = runtime?.home;
+		if (!home || !campaign) return undefined;
+		for (const [ext, mime] of PORTRAIT_FILES) {
+			const bytes = await readFile(join(home, ".coc", "campaigns", campaign, `portrait.${ext}`)).catch(() => undefined);
+			if (bytes) return `data:${mime};base64,${bytes.toString("base64")}`;
+		}
+		return undefined;
+	}
+
+	async function identityArtWithPortrait(): Promise<NonNullable<SheetAnswer["identity_art"]>> {
+		const [art, portrait] = await Promise.all([loadIdentityArt(), storedPortrait()]);
+		return portrait ? { ...art, portrait } : art;
+	}
+
+	/**
+	 * Clicking the mount (contract §22.7): a host lane, not a kernel call -- no turn, no receipt,
+	 * nothing enters the offer ledger. The subject is the description verbatim plus the era; the
+	 * style lives here, never in the biographical field. The image lands beside the campaign and
+	 * comes back as the same data-URL transport as the backplate.
+	 */
+	async function generate(): Promise<SheetAnswer> {
+		const base = await read();
+		if (!base.view) return base;
+		const investigators = Array.isArray(base.view.investigators) ? base.view.investigators : [];
+		const investigator = investigators[0] as { era?: unknown; backstory?: { personal_description?: unknown } } | undefined;
+		const description = typeof investigator?.backstory?.personal_description === "string"
+			? investigator.backstory.personal_description.trim() : "";
+		if (!description) return answer({
+			...base, status: "error", code: "portrait_no_description",
+			reason: "the investigator has no personal description",
+		});
+		const home = runtime?.home;
+		if (!home || !campaign) return answer({
+			...base, status: "error", code: "portrait_unavailable",
+			reason: "the campaign home is unknown",
+		});
+		const era = typeof investigator?.era === "string" && investigator.era.trim() ? `, ${investigator.era.trim()}` : "";
+		let image: PortraitImage;
+		try {
+			image = await generatePortrait(context, { prompt: `${PORTRAIT_STYLE}${era}. ${description}`, aspectRatio: "3:4" });
+		} catch (error) {
+			return answer({
+				...base, status: "error", code: "portrait_unavailable",
+				reason: error instanceof Error ? error.message : String(error),
+			});
+		}
+		const ext = PORTRAIT_FILES.find(([, mime]) => mime === image.mime)?.[0] ?? "png";
+		const mime = PORTRAIT_FILES.find(([name]) => name === ext)![1];
+		const folder = join(home, ".coc", "campaigns", campaign);
+		// Regenerating overwrites: one file per campaign, whatever format the last run left.
+		await Promise.all(PORTRAIT_FILES.map(([name]) => name === ext
+			? Promise.resolve()
+			: rm(join(folder, `portrait.${name}`), { force: true })));
+		await writeFile(join(folder, `portrait.${ext}`), image.bytes);
+		const portrait = `data:${mime};base64,${Buffer.from(image.bytes).toString("base64")}`;
+		return { ...base, identity_art: { ...(await loadIdentityArt()), portrait } };
+	}
+
 	registerInvokeHandlers(PACK_ID, {
 		// `retry_projection` is the player asking again for a lane run that failed -- the same word
 		// the sheet's own vocabulary lanes take, so one button covers both.
 		sheet: async (raw: unknown) => {
 			if (raw && typeof raw === "object" && !Array.isArray(raw)
 				&& (raw as { retry_projection?: unknown }).retry_projection === true) words.retry();
+			if ((raw as { portrait?: unknown })?.portrait === "generate") return generate();
 			const result = await read();
 			return result.view && (raw as {include_identity_art?: unknown})?.include_identity_art === true
-				? {...result, identity_art:await loadIdentityArt()} : result;
+				? {...result, identity_art:await identityArtWithPortrait()} : result;
 		},
 	});
 

@@ -2383,6 +2383,10 @@ ledger. The kernel never reads, writes or validates the image.
   live agent (`pipicoc/sheet.ts`), reusing the image-gen extension's vendor
   path (grok first, same credential resolution as `image_gen`). The cold sheet
   fast path never generates; it only attaches an already-generated file.
+  Integration notes: the vendor import is static so esbuild inlines it into
+  the compiled agent (a lazy relative import resolves against the compiled
+  tree and misses); pi-backend's cold-`sheet` intercept passes a generate
+  action through to the mounted agent instead of answering a plain read.
 - **Storage**: one host-side file per campaign at
   `<coc-home>/campaigns/<id>/portrait.<ext>`. It is not campaign state, not a
   receipt and not evidence; regenerating overwrites it. Sheet reads attach it

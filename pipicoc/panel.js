@@ -52,6 +52,11 @@ const CSS = `
   color:var(--passport-muted);font-variant-numeric:tabular-nums;overflow-wrap:anywhere;text-align:end}
 .coc-sheet-identity-body{position:relative;z-index:2;display:grid;grid-template-columns:minmax(0,44%) minmax(0,1fr);gap:14px;align-items:start}
 .coc-sheet-portrait{min-width:0;min-height:55cqi;pointer-events:none}
+/* Once an investigator exists the mount is a host control, like Refresh: click develops the photo. */
+.coc-sheet-portrait-live{pointer-events:auto;cursor:pointer;position:relative;border:0;background:transparent;padding:0;font:inherit}
+.coc-sheet-portrait-live:disabled{cursor:wait}
+.coc-sheet-portrait-note{position:absolute;left:6%;right:6%;bottom:8%;padding:2px 4px;background:#eee2ceee;
+  color:var(--passport-muted);font:500 11px/1.5 var(--coc-serif);text-align:center}
 .coc-sheet-record{min-width:0}
 .coc-sheet-name{margin:0;min-width:0;color:var(--passport-ink);font:600 clamp(24px,7cqi,36px)/1.35 var(--coc-serif);
   letter-spacing:-.025em;overflow-wrap:anywhere}
@@ -823,6 +828,10 @@ export function createComponent(React) {
     const generation = useRef(0);
     useEffect(() => () => { generation.current++; }, []);
     const [busy, setBusy] = useState(false);
+    const [portraitBusy, setPortraitBusy] = useState(false);
+    const [portraitNote, setPortraitNote] = useState(null);
+    const portraitNoteTimer = useRef(null);
+    useEffect(() => () => clearTimeout(portraitNoteTimer.current), []);
     const [who, setWho] = useState(0);
     const [documentTarget, setDocumentTarget] = useState(null);
     // The jump rail's chips are read off the rendered sheet, never computed from the data: a
@@ -895,6 +904,33 @@ export function createComponent(React) {
     const t = (key, fallback) => word(ui, "sheet", key, fallback);
     const documentWindow = documentTarget ? h(DocumentEditor,{key:"document-editor",...documentTarget,api,ui,
       onClose:()=>setDocumentTarget(null),onSaved:()=>{void load();}}) : null;
+
+    // Clicking the photo mount asks the host lane for a portrait (contract §22.7): a host control,
+    // no turn and no receipt. A refusal leaves the mount empty and says so, briefly.
+    const generatePortrait = useCallback(async () => {
+      if (!api.invoke) return;
+      setPortraitBusy(true);
+      setPortraitNote(null);
+      clearTimeout(portraitNoteTimer.current);
+      try {
+        const result = await api.invoke("sheet", {portrait:"generate"});
+        const data = result && result.ok === true && isRecord(result.data) ? result.data : null;
+        if (data && data.status !== "error" && isRecord(data.identity_art)) {
+          identityArt.current = {...(identityArt.current || {}), ...data.identity_art};
+          setAnswer(data);
+          if (isRecord(data.ui)) setLastUi(data.ui);
+        } else {
+          const code = data && typeof data.code === "string" ? data.code : "";
+          setPortraitNote(code === "portrait_no_description" ? t("portraitNoDescription") : t("portraitFailed"));
+          portraitNoteTimer.current = setTimeout(() => setPortraitNote(null), 5000);
+        }
+      } catch {
+        setPortraitNote(t("portraitFailed"));
+        portraitNoteTimer.current = setTimeout(() => setPortraitNote(null), 5000);
+      } finally {
+        setPortraitBusy(false);
+      }
+    }, [api, t]);
     if (answer === undefined) {
       // No answer, so no words: an ellipsis, never a caption in a language nobody chose.
       return h("div", { className: "coc-sheet" },
@@ -977,7 +1013,13 @@ export function createComponent(React) {
           h("p", {className:"coc-sheet-document-title", dir:"auto"}, t("identityTitle")),
           eraMark ? h("span", {className:"coc-sheet-era", dir:"auto"}, eraMark) : null),
         h("div", {className:"coc-sheet-identity-body"},
-          h("div", {className:"coc-sheet-portrait", "aria-hidden":true}),
+          sheet
+            ? h("button", {type:"button", className:"coc-sheet-portrait coc-sheet-portrait-live",
+                "aria-label":t("portraitGenerate"), disabled:portraitBusy,
+                onClick:()=>{void generatePortrait();}},
+                portraitBusy || portraitNote ? h("span", {className:"coc-sheet-portrait-note"},
+                  portraitBusy ? t("portraitBusy") : portraitNote) : null)
+            : h("div", {className:"coc-sheet-portrait", "aria-hidden":true}),
           h("div", {className:"coc-sheet-record"},
             h("h2", {className:"coc-sheet-name", dir:"auto"}, sheet ? text(sheet.name) || text(sheet.id) : t("noInvestigator")),
             fields.length ? h("dl", {className:"coc-sheet-fields"}, fields.map(([key,value],index) =>
