@@ -56,12 +56,20 @@ const CSS = `
   color:var(--muted);font-size:12px;line-height:1.75}
 .coc-sheet-note{margin:10px 0;color:var(--muted);line-height:1.65;font-size:12px}
 .coc-sheet-section{margin:24px 0 0;min-width:0}
-/* The jump rail: one chip per rendered section, so nothing below the fold needs a scroll. */
-.coc-sheet-nav{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 14px}
-.coc-sheet-nav-chip{display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border:1px solid var(--border);
-  border-radius:999px;background:var(--surface-raised,var(--surface));color:var(--muted);
-  font:inherit;font-size:11px;line-height:1.4;cursor:pointer}
-.coc-sheet-nav-chip:hover{border-color:var(--accent);color:var(--accent)}
+/* The jump rail: one quiet tab per rendered section, so nothing below the fold needs a
+   scroll. No pills -- a hairline under the row carries it, the accent underlines the tab
+   it points at. */
+.coc-sheet-nav{display:flex;flex-wrap:wrap;gap:2px 14px;margin:0 0 16px;
+  border-bottom:1px solid var(--border)}
+.coc-sheet-nav-chip{position:relative;display:inline-flex;align-items:center;gap:5px;
+  padding:6px 2px 8px;border:0;border-radius:0;background:transparent;color:var(--muted);
+  font:inherit;font-size:12px;font-weight:500;letter-spacing:.02em;line-height:1.4;cursor:pointer}
+.coc-sheet-nav-chip .coc-icon{width:12px;height:12px;opacity:.8}
+.coc-sheet-nav-chip::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:2px;
+  border-radius:2px;background:var(--accent);transform:scaleX(0);transform-origin:left;
+  transition:transform .18s ease}
+.coc-sheet-nav-chip:hover{color:var(--text-strong)}
+.coc-sheet-nav-chip:hover::after{transform:scaleX(1)}
 .coc-sheet-heading{display:flex;align-items:center;gap:10px;margin:0 0 12px;color:var(--muted);
   font-size:12px;font-weight:650;line-height:1.4;letter-spacing:.025em}
 .coc-sheet-heading::after{content:"";flex:1;height:1px;background:var(--border)}
@@ -132,11 +140,13 @@ const CSS = `
    and the table's bookkeeping follows as one quiet meta line. */
 .coc-clock{color:var(--text-strong);font:500 16px/1.4 var(--coc-serif);font-variant-numeric:tabular-nums;letter-spacing:.012em}
 .coc-standing-meta{margin-top:9px;display:flex;flex-wrap:wrap;gap:6px;align-items:baseline}
-/* The table's bookkeeping wears pills: turn, scene and session are badges, not a sentence. */
-.coc-standing-item{display:inline-flex;gap:5px;align-items:baseline;min-width:0;padding:3px 9px;
-  border:1px solid var(--border);border-radius:999px;background:var(--surface-raised,var(--surface))}
-.coc-standing-key{color:var(--muted);font-size:11px}
-.coc-standing-val{min-width:0;font-size:12px;overflow-wrap:anywhere}
+/* The table's bookkeeping reads as one quiet meta line: turn, scene and session are
+   entries separated by hairlines, not badges. */
+.coc-standing-item{display:inline-flex;gap:6px;align-items:baseline;min-width:0;padding:0}
+.coc-standing-item+.coc-standing-item::before{content:"";align-self:center;flex:none;width:3px;
+  height:3px;margin:0 8px 0 2px;border-radius:50%;background:var(--border-strong,var(--border))}
+.coc-standing-key{color:var(--muted);font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase}
+.coc-standing-val{min-width:0;color:var(--text-strong);font-size:12.5px;overflow-wrap:anywhere}
 .coc-standing{margin-top:7px;display:flex;flex-direction:column;gap:4px}
 .coc-standing-line{display:flex;gap:8px;align-items:baseline}
 .coc-standing-line[data-live="1"] .coc-standing-val{color:var(--accent);font-weight:600}
