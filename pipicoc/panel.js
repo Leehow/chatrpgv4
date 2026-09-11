@@ -32,28 +32,50 @@ const CSS = `
   height:100%;min-height:0;min-width:0;overflow:auto;padding:16px 16px 28px;
   color:var(--text);font-size:13px;line-height:1.6;scrollbar-width:thin}
 .coc-sheet>*{flex-shrink:0}
-.coc-sheet-identity{padding:16px;border:1px solid var(--border);border-top:3px solid var(--accent);
-  border-radius:12px;background:var(--surface-raised,var(--surface));
-  box-shadow:0 3px 14px color-mix(in srgb,var(--text) 4%,transparent)}
-.coc-sheet-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
-.coc-sheet-name{min-width:0;color:var(--text-strong);font:600 24px/1.3 var(--coc-serif);
+.coc-sheet-identity{--passport-ink:#33291f;--passport-muted:#776451;--passport-rule:#bda78b;
+  position:relative;isolation:isolate;padding:6.2cqi 6.5cqi 7cqi 9.7cqi;min-height:94.65cqi;
+  border:0;background:#eee2ce;color:var(--passport-ink);box-shadow:0 3px 12px #36231210}
+/* One nine-slice backplate. The top slice contains the complete photo mount;
+   only the unillustrated paper below pixel 950 extends with additional text. */
+.coc-sheet-art{position:absolute;inset:0;z-index:0;pointer-events:none;box-sizing:border-box;
+  border-style:solid;border-color:transparent;border-width:73.70054cqi 4.26687cqi 4.26687cqi 5.43057cqi;
+  border-image-slice:950 55 55 70 fill;border-image-repeat:stretch}
+.coc-sheet-avatar{position:absolute;z-index:1;pointer-events:none;left:11.64%;top:17.72cqi;
+  width:32.59%;height:43.45cqi;display:block;object-fit:cover;filter:sepia(.28) saturate(.72) contrast(.92)}
+.coc-sheet-seal{position:absolute;z-index:3;pointer-events:none;left:28.32%;top:51.75cqi;
+  width:21.8cqi;height:auto;display:block}
+.coc-sheet-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;
+  position:relative;z-index:4;padding-bottom:0;border:0;margin-bottom:7cqi}
+.coc-sheet-document-title{margin:0;min-width:0;font:600 13px/1.5 var(--coc-serif);
+  letter-spacing:.07em;color:#80442f;overflow-wrap:anywhere}
+.coc-sheet-era{flex:0 1 auto;min-width:0;font:500 14px/1.5 var(--coc-serif);
+  color:var(--passport-muted);font-variant-numeric:tabular-nums;overflow-wrap:anywhere;text-align:end}
+.coc-sheet-identity-body{position:relative;z-index:2;display:grid;grid-template-columns:minmax(0,44%) minmax(0,1fr);gap:14px;align-items:start}
+.coc-sheet-portrait{min-width:0;min-height:55cqi;pointer-events:none}
+.coc-sheet-record{min-width:0}
+.coc-sheet-name{margin:0;min-width:0;color:var(--passport-ink);font:600 clamp(24px,7cqi,36px)/1.35 var(--coc-serif);
   letter-spacing:-.025em;overflow-wrap:anywhere}
 .coc-sheet :focus-visible{outline:2px solid var(--accent);outline-offset:3px}
-.coc-sheet-refresh{flex:none;border:1px solid var(--border);border-radius:7px;background:var(--surface);
-  color:var(--accent);padding:5px 9px;font:inherit;font-size:11px;cursor:pointer;min-height:30px}
-.coc-sheet-refresh:hover{border-color:var(--accent)}
+.coc-sheet-tools{display:flex;justify-content:flex-end;margin:-4px 0 6px}
+.coc-sheet-refresh{flex:none;display:inline-flex;align-items:center;gap:5px;border:0;border-radius:4px;background:transparent;
+  color:var(--muted);padding:5px 4px;font:inherit;font-size:11px;cursor:pointer;min-height:30px}
+.coc-sheet-refresh:hover{color:var(--accent);background:var(--surface)}
 .coc-sheet-refresh:disabled{opacity:.5;cursor:default}
-/* Occupation, era, age and tongues are the dossier's record lines: a quiet label column, the
-   entry beside it, one hairline between rows -- the same ledger the lists below keep, no boxes. */
-.coc-sheet-fields{margin:13px 0 0;display:grid;grid-template-columns:max-content minmax(0,1fr);
-  align-items:baseline;border-top:1px solid var(--border)}
+/* Record lines wrap with the document rather than assuming a caption's language or length. */
+.coc-sheet-fields{margin:10px 0 0;display:grid;grid-template-columns:fit-content(42%) minmax(0,1fr);column-gap:10px}
 .coc-sheet-field{display:contents}
-.coc-sheet-field-key,.coc-sheet-field-val{padding:7px 0;border-bottom:1px solid var(--border);line-height:1.7}
-.coc-sheet-field:last-child .coc-sheet-field-key,.coc-sheet-field:last-child .coc-sheet-field-val{border-bottom:0}
-.coc-sheet-field-key{padding-inline-end:18px;color:var(--muted);font-size:11px;letter-spacing:.03em}
-.coc-sheet-field-val{min-width:0;color:var(--text);font-size:13px;overflow-wrap:anywhere}
-.coc-sheet-concept{margin:12px 0 0;padding-top:12px;border-top:1px solid var(--border);
-  color:var(--muted);font-size:12px;line-height:1.75}
+.coc-sheet-field-key,.coc-sheet-field-val{padding:7px 0;border-bottom:1px solid #bda78b66;line-height:1.65}
+.coc-sheet-field:last-child>*{border-bottom:0}
+.coc-sheet-field-key{min-width:0;color:var(--passport-muted);font-size:11px;overflow-wrap:anywhere}
+.coc-sheet-field-val{min-width:0;margin:0;color:var(--passport-ink);font-size:13px;overflow-wrap:anywhere}
+.coc-sheet-tongues{display:grid;grid-template-columns:minmax(0,1fr) max-content;gap:5px 8px}
+.coc-sheet-tongue{display:contents}
+.coc-sheet-tongue-value{font-variant-numeric:tabular-nums;text-align:end}
+.coc-sheet-concept{position:relative;z-index:4;margin:18px 0 0;padding-top:14px;border-top:1px solid var(--passport-rule);
+  color:#65523f;font:13px/1.9 var(--coc-serif);overflow-wrap:anywhere}
+@container(max-width:260px){.coc-sheet-identity-body{grid-template-columns:minmax(0,1fr)}
+  .coc-sheet-head{gap:8px}.coc-sheet-name{font-size:25px}
+  .coc-sheet-document-title,.coc-sheet-era{font-size:11px;line-height:1.3}}
 .coc-sheet-note{margin:10px 0;color:var(--muted);line-height:1.65;font-size:12px}
 .coc-sheet-section{margin:24px 0 0;min-width:0}
 /* The jump rail: one quiet tab per rendered section, so nothing below the fold needs a
@@ -806,6 +828,7 @@ export function createComponent(React) {
     // The jump rail's chips are read off the rendered sheet, never computed from the data: a
     // section that chose not to render has no chip, so the rail can never point at nothing.
     const sheetRoot = useRef(null);
+    const identityArt = useRef(null);
     const [railAnchors, setRailAnchors] = useState([]);
     useEffect(()=>setDocumentTarget(null),[api]);
     useEffect(()=>{if(answer?.campaign&&documentTarget&&answer.campaign!==documentTarget.campaign)setDocumentTarget(null);},[answer?.campaign]);
@@ -822,9 +845,13 @@ export function createComponent(React) {
       }
       setBusy(true);
       try {
-        const result = await api.invoke("sheet", retryProjection ? {retry_projection:true} : {});
+        const result = await api.invoke("sheet", {
+          ...(retryProjection ? {retry_projection:true} : {}),
+          ...(!identityArt.current ? {include_identity_art:true} : {}),
+        });
         if(request !== generation.current) return;
         if (result && result.ok === true && isRecord(result.data)) {
+          if (isRecord(result.data.identity_art)) identityArt.current = result.data.identity_art;
           setAnswer(result.data);
           if (isRecord(result.data.ui)) setLastUi(result.data.ui);
         }
@@ -882,8 +909,7 @@ export function createComponent(React) {
     const glossary = view && isRecord(view.labels) ? view.labels : {};
     const term = (name) => (typeof glossary[name] === "string" && glossary[name]) || name;
 
-    const head = h("div", { className: "coc-sheet-head" },
-      h("span", { className: "coc-sheet-name" }, sheet ? text(sheet.name) || text(sheet.id) : t("noInvestigator")),
+    const refresh = h("div", { className: "coc-sheet-tools" },
       h("button", { type: "button", className: "coc-sheet-refresh", onClick: () => { void load(true); }, disabled: busy },
         busy ? t("refreshing") : t("refresh")));
 
@@ -915,23 +941,19 @@ export function createComponent(React) {
     const fields = [];
     if (sheet) {
       if (sheet.occupation) fields.push([t("occupation"), term(text(sheet.occupation))]);
-      if (sheet.era) fields.push([t("era"), term(text(sheet.era))]);
       if (sheet.age !== undefined) fields.push([t("ageKey"), text(sheet.age)]);
-      for (const language of languageRows(sheet)) {
-        // The glossary's word for the whole skill wins when the rules data carries one; otherwise
-        // the language's own name goes through the same lane, and comes back as itself until it does.
-        // No caption is written here. The tongue an investigator was raised in is a skill the
-        // catalog names and localizes (§16.5), so that label is its own; every other language is
-        // named by itself, in the words the projection lane has for it. A word this panel does not
-        // have is a word that belongs in the rules data or in that lane, never in a table here.
-        const value = language.value === null ? "" : text(language.value);
-        const named = term(language.name);
-        fields.push(language.own
-          ? [t("language"), [named, value].filter(Boolean).join(" ")]
-          : [named, value]);
-      }
+      const tongues = languageRows(sheet);
+      if (tongues.length) fields.push([t("language"),
+        h("span", {className:"coc-sheet-tongues"}, tongues.map((language,index) =>
+          h("span", {className:"coc-sheet-tongue", key:index},
+            h("bdi", {className:"coc-sheet-tongue-name"}, term(language.name)),
+            h("bdi", {className:"coc-sheet-tongue-value"}, language.value === null ? "" : text(language.value)))))]);
     }
     const concept = sheet && isRecord(sheet.backstory) ? term(text(sheet.backstory.concept)) : "";
+    // Canonical numeric era notation only, not a language detector or a guessed issue date.
+    const era = text(sheet?.era);
+    const eraMark = /^(\d{4})s?$/.exec(era)?.[1] || term(era);
+    const art = identityArt.current || {};
 
     return h("div", { className: "coc-sheet", role: "region", ref: sheetRoot, ...(props.title ? { "aria-label": props.title } : {}) },
       railAnchors.length > 1
@@ -943,14 +965,26 @@ export function createComponent(React) {
               } },
               entry.icon ? h(Icon, { name: entry.icon }) : null, entry.label)))
         : null,
-      h("div", {className:"coc-sheet-identity"}, head,
-      fields.length
-        ? h("div", { className: "coc-sheet-fields" }, fields.map(([key, value], index) =>
-            h("span", { className: "coc-sheet-field", key: index },
-              h("span", { className: "coc-sheet-field-key" }, key),
-              h("span", { className: "coc-sheet-field-val" }, value))))
-        : null,
-      concept ? h("p", { className: "coc-sheet-concept" }, concept) : null),
+      refresh,
+      h("article", {className:"coc-sheet-identity", lang:ui?.tag},
+        art.backplate ? h("div", {className:"coc-sheet-art", "aria-hidden":true,
+          style:{borderImageSource:`url(${art.backplate})`}}) : null,
+        art.portrait ? h("img", {className:"coc-sheet-avatar", src:art.portrait, alt:"", "aria-hidden":true,
+          draggable:false}) : null,
+        art.seal ? h("img", {className:"coc-sheet-seal", src:art.seal, alt:"", width:281, height:279,
+          "aria-hidden":true, draggable:false}) : null,
+        h("header", {className:"coc-sheet-head"},
+          h("p", {className:"coc-sheet-document-title", dir:"auto"}, t("identityTitle")),
+          eraMark ? h("span", {className:"coc-sheet-era", dir:"auto"}, eraMark) : null),
+        h("div", {className:"coc-sheet-identity-body"},
+          h("div", {className:"coc-sheet-portrait", "aria-hidden":true}),
+          h("div", {className:"coc-sheet-record"},
+            h("h2", {className:"coc-sheet-name", dir:"auto"}, sheet ? text(sheet.name) || text(sheet.id) : t("noInvestigator")),
+            fields.length ? h("dl", {className:"coc-sheet-fields"}, fields.map(([key,value],index) =>
+              h("div", {className:"coc-sheet-field", key:index},
+                h("dt", {className:"coc-sheet-field-key", dir:"auto"}, key),
+                h("dd", {className:"coc-sheet-field-val", dir:"auto"}, value)))) : null)),
+        concept ? h("p", {className:"coc-sheet-concept", dir:"auto"}, concept) : null),
       // More than one investigator at the table is legal (§5 `needs_choice`), so the panel picks.
       party.length > 1
         ? h("div", { className: "coc-who" }, party.map((member, index) =>

@@ -55,6 +55,22 @@ test('UI transport survives while coding persona and tools cannot replace the Ke
   assert.equal(result.filter(v => v === '/repo/build/pipicoc/agent.mjs').length, 1);
   assert.ok(!result.some(value => value.startsWith('/repo/') && value.endsWith('.ts')));
 });
+
+test('the sheet sends bundled identity art only when requested, without changing the kernel read', async () => {
+  const {pi, sheet} = sheetHandlers();
+  const calls = [];
+  pi.events.emit('coc:kernel-bridge', {campaign:'c1', call:async (method, params) => {
+    calls.push([method, params]);
+    return {investigators:[{name:'Test investigator'}]};
+  }});
+  assert.equal((await sheet()).identity_art, undefined);
+  const decorated = await sheet({include_identity_art:true});
+  assert.match(decorated.identity_art.backplate, /^data:image\/png;base64,/);
+  assert.match(decorated.identity_art.seal, /^data:image\/png;base64,/);
+  assert.deepEqual(Object.keys(decorated.identity_art), ['backplate', 'seal']);
+  assert.equal((await sheet({})).identity_art, undefined);
+  assert.deepEqual(calls, Array.from({length:3}, () => ['table.view', {campaign:'c1'}]));
+});
 test('setup uses canonical setup mode and rejects unknown modes or broken arguments', () => {
   assert.equal(keeperArguments(['--mode','rpc'], '/repo', 'setup')[0], 'setup');
   assert.throws(() => keeperArguments([], '/repo', 'other'));

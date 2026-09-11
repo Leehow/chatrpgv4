@@ -18,6 +18,7 @@
  * kernel read old at worst, never a payload that drifted from the kernel's own answer.
  */
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { readFile } from "node:fs/promises";
 import { emitToPanel, registerInvokeHandlers } from "./host-bridge.ts";
 import { uiWordsSurface } from "./ui-words.ts";
 import type { UiWords } from "../runtime/ui-words.ts";
@@ -25,6 +26,18 @@ import type { HostRuntime } from "../runtime/host.ts";
 
 /** The manifest id. The invoke registry and the bridge both namespace by it. */
 export const PACK_ID = "coc-keeper";
+
+// Decorative product assets follow the document paper's host-read transport: the
+// controlled panel is a data URL module and cannot resolve relative image URLs.
+let identityArt: Promise<NonNullable<SheetAnswer["identity_art"]>> | undefined;
+function loadIdentityArt() {
+	const image = (file: string, mime: string) => readFile(new URL(`./assets/${file}`, import.meta.url))
+		.then(bytes => `data:${mime};base64,${bytes.toString("base64")}`).catch(() => undefined);
+	return identityArt ??= Promise.all([
+		image("investigator-backplate.png", "image/png"),
+		image("investigator-seal.png", "image/png"),
+	]).then(([backplate, seal]) => ({backplate, seal}));
+}
 
 type KernelCall = (method: string, params: Record<string, unknown>) => Promise<unknown>;
 
@@ -47,6 +60,8 @@ export interface SheetAnswer {
 	code?: string;
 	/** The product's own captions for this session's play language, so no renderer keeps a table. */
 	ui?: UiWords;
+	/** Bundled decoration only; never an investigator image or game state. */
+	identity_art?: {backplate?: string; portrait?: string; seal?: string};
 }
 
 /**
@@ -143,10 +158,12 @@ export function registerSheetPanel(pi: ExtensionAPI): void {
 	registerInvokeHandlers(PACK_ID, {
 		// `retry_projection` is the player asking again for a lane run that failed -- the same word
 		// the sheet's own vocabulary lanes take, so one button covers both.
-		sheet: (raw: unknown) => {
+		sheet: async (raw: unknown) => {
 			if (raw && typeof raw === "object" && !Array.isArray(raw)
 				&& (raw as { retry_projection?: unknown }).retry_projection === true) words.retry();
-			return read();
+			const result = await read();
+			return result.view && (raw as {include_identity_art?: unknown})?.include_identity_art === true
+				? {...result, identity_art:await loadIdentityArt()} : result;
 		},
 	});
 

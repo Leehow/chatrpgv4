@@ -71,6 +71,30 @@ it('draws an ellipsis before the first answer, never a language', () => {
   expect(container.textContent).not.toContain(say('zh-Hans', 'sheet', 'loading'));
 });
 
+it('keeps passport words live, the era unlabelled and decoration across refreshes', async () => {
+  const data={campaign:'c1',view:view({investigators:[{...investigator,era:'1920s',occupation:'Farmer',age:34}]}),
+    ui:ui('en',{sheet:{identityTitle:'Projected credential title'}})};
+  const api=host({ok:true,data:{...data,identity_art:{backplate:'data:image/png;base64,AA==',portrait:'data:image/png;base64,Ag==',seal:'data:image/png;base64,AQ=='}}},
+    {ok:true,data:{...data,view:view({investigators:[{...investigator,era:'modern'}],labels:{modern:'Projected modern era'}})}});
+  const {container}=render(<Panel api={api}/>);
+  await screen.findByText('Projected credential title');
+  expect(container.querySelector('.coc-sheet-era')?.textContent).toBe('1920');
+  expect(container.querySelector('.coc-sheet-fields')?.textContent).not.toContain('Era');
+  expect(container.querySelector('.coc-sheet-identity button')).toBeNull();
+  const mount=container.querySelector('.coc-sheet-art');
+  expect(mount?.getAttribute('aria-hidden')).toBe('true');
+  expect(container.querySelector('.coc-sheet-seal')?.getAttribute('alt')).toBe('');
+  expect(container.querySelector('.coc-sheet-avatar')?.getAttribute('src')).toContain('Ag==');
+  expect(Array.from(container.querySelector('.coc-sheet-identity')?.children ?? []).slice(0,3).map(node=>node.className))
+    .toEqual(['coc-sheet-art','coc-sheet-avatar','coc-sheet-seal']);
+  expect(api.invoke).toHaveBeenLastCalledWith('sheet',{include_identity_art:true});
+  fireEvent.click(screen.getByRole('button',{name:'Refresh'}));
+  await screen.findByText('Projected modern era');
+  expect(api.invoke).toHaveBeenLastCalledWith('sheet',{retry_projection:true});
+  expect(container.querySelector('.coc-sheet-art')?.getAttribute('style')).toBe(mount?.getAttribute('style'));
+  expect(container.querySelector('.coc-sheet-seal')?.getAttribute('src')).toContain('AQ==');
+});
+
 /**
  * A caption the language does not carry renders as its key.
  *
@@ -457,7 +481,7 @@ it('retries a failed equipment projection only on an explicit retry',async()=>{
  const api=host({ok:true,data:{status:'ready',view:view({presentation_status:'failed'}),campaign:'c1'}});
  render(<Panel api={api}/>);
  fireEvent.click(await screen.findByRole('button',{name:'重试'}));
- await waitFor(()=>expect(api.invoke).toHaveBeenLastCalledWith('sheet',{retry_projection:true}));
+ await waitFor(()=>expect(api.invoke).toHaveBeenLastCalledWith('sheet',expect.objectContaining({retry_projection:true})));
 });
 
 it('renders a canonical weapon as a read-only entry with separate labeled parameters',async()=>{

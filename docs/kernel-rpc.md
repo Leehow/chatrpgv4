@@ -2346,18 +2346,20 @@ The existing era is a quiet page-corner mark, without an `Era` record row.
 A canonical four-digit year or decade token (`1920`, `1920s`) displays its four
 digits; other era values use their existing projected term, never an invented
 calendar year or issue date. The host's sheet answer adds optional
-`identity_art: {backplate?: data_url}` from the bundled identity backplate
+`identity_art: {backplate?: data_url, portrait?: data_url, seal?: data_url}` from the identity artwork
 when the panel requests `include_identity_art: true`, using the same host-read
 image transport as document paper. A mounted panel retains this artwork so
 subsequent sheet refreshes do not resend it. The renderer alone
 consumes this decorative block; it causes no game action and is never written
 to campaign state. Missing artwork leaves all identity text readable. Text wraps
 with the panel width and uses HTML bidirectional isolation without language
-detection or locale-specific layout branches. The paper, frame, photo mount and
-seal belong to one coherent backplate. A nine-slice border image preserves the
+detection or locale-specific layout branches. The paper, frame and photo mount
+belong to one coherent backplate. The archival seal is a separate transparent
+overlay above the reserved portrait layer, so a future generated portrait can
+sit beneath the same stamp. A nine-slice border image preserves the
 upper artwork's proportions while extending only the blank lower paper for
 longer text. Live text is layered above it; no multiply blend or separately
-coloured photo patch remains.
+coloured photo patch remains. The clean backplate contains no copy of the seal.
 
 **Guard.** `tests/extension/ui-words.test.mjs` pins every shipped seed to the
 `en` keys and asserts `languages.json` has no `languages` table;
