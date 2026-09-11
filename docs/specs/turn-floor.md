@@ -1,6 +1,6 @@
 # Turn Floor: the affirmative shape of a Keeper turn
 
-_Date: 2026-09-11. Status: implemented on branch `claude/turn-floor-20260911` (contract §34); `pytest tests/kernel` 1149 passed; `npm run test:ext` passes but for the pre-existing `system-language` failure on `extensions/image-gen`; two live tables played on the branch (below). Still owed: the candidate App package and the novice-human gate. Baseline model for every claim and every acceptance: `xai/grok-4.6`, thinking `low` (user ruling 2026-09-11: do not switch to grok-4.3). User ruling 2026-09-11 on the shape of the rules: the prohibitions are cases of two principles, immersion and freedom, and the turn stops only when the spotlight is back on the player._
+_Date: 2026-09-11. Status: implemented on branch `claude/turn-floor-20260911` (contract §34); `pytest tests/kernel` 1149 passed; `npm run test:ext` passes but for the pre-existing `system-language` failure on `extensions/image-gen`; two live tables played on the branch (below). Packaged from 48bd330a and installed; still owed: the novice-human gate. Baseline model for every claim and every acceptance: `xai/grok-4.6`, thinking `low` (user ruling 2026-09-11: do not switch to grok-4.3). User ruling 2026-09-11 on the shape of the rules: the prohibitions are cases of two principles, immersion and freedom, and the turn stops only when the spotlight is back on the player._
 
 ## Problem Statement
 
@@ -157,6 +157,6 @@ Findings for other tickets, not repaired here: (1) on B the Keeper told the rese
 
 ## Further Notes
 
-- Order of work as executed: D5 and D4 (host and kernel, small); D1 (prompt, `floor_lines`, two package versions); D2 and D3 (kernel read side and closer, graph nodes and manifest); tests and the amended contract tests; §33 of `docs/kernel-rpc.md`. Still owed: repackaging the App (the installed App is the packaged one) and the live table under both player conditions.
+- Order of work as executed: D5 and D4 (host and kernel, small); D1 (prompt, `floor_lines`, two package versions); D2 and D3 (kernel read side and closer, graph nodes and manifest); tests and the amended contract tests; §34 of `docs/kernel-rpc.md`; two live tables; the candidate App packaged from 48bd330a and installed as /Applications/PipiCOC.app on 2026-09-11 (previous App kept as a tar in the packaging worktree's .build.noindex). Merged with 0.9.2a (creation difficulty took §33, so the floor is §34).
 - The predecessor products are the reference, not the recipe: `chatlab/backend/agents/trpg/prompts_v2.py:263-282` (budgets, PC beat), `phase_generate.py:404-417` (menu ban with out-of-band exits), `preprocess_helpers.py:262-291` (low-information turn seed), `npc_presim.py`; `chatrpg/backend/services/trpg_framework_adapter_ic_prompt.py:24-31, 64-69` (immersion contract, mandatory handoff), `trpg_ic_runner.py:1661-1689` (auto-continuation). This spec takes their content-kind obligations and leaves their markup, budgets-as-rules and second pass.
 - If the live table shows the floor stated and offered but still unmet on grok-4.6 low, the next lever is thinking level, not a longer prompt; that is a measurement to take, not a decision to make here.
