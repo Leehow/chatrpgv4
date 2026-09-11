@@ -59,5 +59,10 @@ const copyAssets=(source,destination)=>{
   }
 };
 copyAssets(resolve(root,'Electron/resources/runtime'),resolve(root,'build/host/runtime'));
+// Bundled auth-provider extensions: the auth helper (pi-auth-helper.mjs registerBundledAuthProviders)
+// scans build/host/runtime/extensions/<name>/agent/dist/provider.js to register extension
+// auth.providers into the external auth runtime; without this tree the model manager never
+// sees extension providers (grok-build was invisible). Layout is agent/ -> agent/dist/.
+copyAssets(resolve(root,'extensions/grok-build-oauth/agent'),resolve(root,'build/host/runtime/extensions/grok-build-oauth/agent/dist'));
 for(const file of manifest.uiFiles){mkdirSync(resolve(root,'build/pipicoc'),{recursive:true});copyFileSync(resolve(root,'pipicoc',file),resolve(root,'build/pipicoc',file));}
 copyAssets(resolve(root,'pipicoc/assets'),resolve(root,'build/pipicoc/assets'));
