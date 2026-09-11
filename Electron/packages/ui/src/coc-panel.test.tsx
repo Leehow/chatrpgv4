@@ -95,6 +95,15 @@ it('keeps passport words live, the era unlabelled and decoration across refreshe
   expect(container.querySelector('.coc-sheet-seal')?.getAttribute('src')).toContain('AQ==');
 });
 
+it('leaves an empty credential unstamped until an investigator exists', async () => {
+  const answer={status:'ready',campaign:'c1',view:view({investigators:[]}),
+    identity_art:{backplate:'data:image/png;base64,AA==',seal:'data:image/png;base64,AQ=='}};
+  const {container}=render(<Panel api={host({ok:true,data:answer})}/>);
+  await screen.findByText(say('zh-Hans','sheet','noInvestigator'));
+  expect(container.querySelector('.coc-sheet-art')).toBeTruthy();
+  expect(container.querySelector('.coc-sheet-seal')).toBeNull();
+});
+
 /**
  * A caption the language does not carry renders as its key.
  *

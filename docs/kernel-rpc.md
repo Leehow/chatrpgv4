@@ -2356,7 +2356,8 @@ with the panel width and uses HTML bidirectional isolation without language
 detection or locale-specific layout branches. The paper, frame and photo mount
 belong to one coherent backplate. The archival seal is a separate transparent
 overlay above the reserved portrait layer, so a future generated portrait can
-sit beneath the same stamp. A nine-slice border image preserves the
+sit beneath the same stamp. An empty card has no seal; the overlay appears only
+after an investigator exists. A nine-slice border image preserves the
 upper artwork's proportions while extending only the blank lower paper for
 longer text. Live text is layered above it; no multiply blend or separately
 coloured photo patch remains. The clean backplate contains no copy of the seal.

@@ -971,7 +971,7 @@ export function createComponent(React) {
           style:{borderImageSource:`url(${art.backplate})`}}) : null,
         art.portrait ? h("img", {className:"coc-sheet-avatar", src:art.portrait, alt:"", "aria-hidden":true,
           draggable:false}) : null,
-        art.seal ? h("img", {className:"coc-sheet-seal", src:art.seal, alt:"", width:281, height:279,
+        sheet && art.seal ? h("img", {className:"coc-sheet-seal", src:art.seal, alt:"", width:281, height:279,
           "aria-hidden":true, draggable:false}) : null,
         h("header", {className:"coc-sheet-head"},
           h("p", {className:"coc-sheet-document-title", dir:"auto"}, t("identityTitle")),
