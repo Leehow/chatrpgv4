@@ -2360,6 +2360,8 @@ sit beneath the same stamp. A nine-slice border image preserves the
 upper artwork's proportions while extending only the blank lower paper for
 longer text. Live text is layered above it; no multiply blend or separately
 coloured photo patch remains. The clean backplate contains no copy of the seal.
+The standalone installer copies both identity images beside its copied agent;
+otherwise the compiled agent's relative asset reads would silently fall back.
 
 **Guard.** `tests/extension/ui-words.test.mjs` pins every shipped seed to the
 `en` keys and asserts `languages.json` has no `languages` table;

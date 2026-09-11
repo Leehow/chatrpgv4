@@ -71,6 +71,14 @@ test('the sheet sends bundled identity art only when requested, without changing
   assert.equal((await sheet({})).identity_art, undefined);
   assert.deepEqual(calls, Array.from({length:3}, () => ['table.view', {campaign:'c1'}]));
 });
+
+test('the standalone installer places every sheet image beside the copied agent', async () => {
+  const installer = await readFile(new URL('../../pipicoc/install', import.meta.url), 'utf8');
+  for (const name of ['paper-texture.jpg', 'investigator-backplate.png', 'investigator-seal.png']) {
+    assert.match(installer, new RegExp(`['"]${name.replaceAll('.', '\\.')}['"]`), `${name} is installed`);
+  }
+  assert.match(installer, /join\(destination,'pipicoc\/assets',asset\)/, 'the images sit beside pipicoc/agent.mjs');
+});
 test('setup uses canonical setup mode and rejects unknown modes or broken arguments', () => {
   assert.equal(keeperArguments(['--mode','rpc'], '/repo', 'setup')[0], 'setup');
   assert.throws(() => keeperArguments([], '/repo', 'other'));
