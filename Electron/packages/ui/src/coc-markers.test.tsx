@@ -13,7 +13,7 @@ import { render, screen, cleanup } from '@testing-library/react'
 import { afterEach, describe, it, expect } from 'vitest'
 // @ts-expect-error -- plain ESM pack asset, no type declarations
 import { createComponent } from '../../../../pipicoc/mechanics.js'
-import { foldMarkedDeliveries, withoutMechanicsMarkers, type ChatMessage } from './transcript-model'
+import { foldMarkedDeliveries, foldSupersededDrafts, withoutMechanicsMarkers, type ChatMessage } from './transcript-model'
 import { say, ui } from './fixtures/coc-ui-words'
 
 const Card = createComponent(React)
@@ -263,6 +263,35 @@ describe('the plain copy of a drawn delivery is folded away', () => {
 
   it('strips markers the way the kernel does, so the two texts can be compared at all', () => {
     expect(withoutMechanicsMarkers('你翻遍了匣子{{check:library-use}}。')).toBe('你翻遍了匣子。')
+  })
+})
+
+/**
+ * Every draft row draws the campaign's current draft (contract §23.4), so after a re-draft the
+ * transcript held two identical cards. Only the last row is the card; the superseded rows fold
+ * away. Position decides, never the revision number: a host-side override bumps the revision
+ * without appending a row, and its card must stay.
+ */
+describe('a superseded draft card is folded away', () => {
+  const draft = (id: string, revision: number): ChatMessage => ({
+    id, role: 'assistant', content: '', timestamp: revision,
+    presentation: { renderer: 'coc-character-draft', details: { revision, sheet: { name: '艾琳' } } },
+  } as ChatMessage)
+  const said = (content: string): ChatMessage => ({ id: `said-${content}`, role: 'assistant', content, timestamp: 9 } as ChatMessage)
+
+  it('keeps only the last draft card', () => {
+    const folded = foldSupersededDrafts([draft('r1', 1), said('改了一处。'), draft('r2', 2)])
+    expect(folded.map(message => message.id)).toEqual(['said-改了一处。', 'r2'])
+  })
+
+  it('keeps the single card a host-side override moved past', () => {
+    const folded = foldSupersededDrafts([draft('r2', 2), said('数值已更新。')])
+    expect(folded.map(message => message.id)).toEqual(['r2', 'said-数值已更新。'])
+  })
+
+  it('changes nothing when no draft card is present', () => {
+    const messages = [said('一段叙事。')]
+    expect(foldSupersededDrafts(messages)).toEqual(messages)
   })
 })
 

@@ -64,5 +64,8 @@
   .coc-draft-table th, .coc-draft-table td { padding: 8px; }
   .coc-draft-skill-detail th, .coc-draft-skill-detail td { padding: 8px 5px; font-size: 11px; }
 }
-@media (prefers-reduced-motion: reduce) { .coc-draft-toggle { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .coc-draft-toggle { transition: none; } .coc-draft-spinner { animation: none; } }
 .coc-draft-error { margin-right: 10px; color: var(--danger); font-size: 12px; overflow-wrap: anywhere; }
+.coc-draft-pending { display: flex; min-height: 44px; align-items: center; gap: 8px; color: var(--muted); }
+.coc-draft-spinner { width: 14px; height: 14px; border: 2px solid color-mix(in srgb, currentColor 30%, transparent); border-top-color: currentColor; border-radius: 50%; animation: coc-draft-spin .8s linear infinite; }
+@keyframes coc-draft-spin { to { transform: rotate(360deg); } }

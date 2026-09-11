@@ -16,7 +16,7 @@ it('renders the whole card in the supplied player language and preserves exact n
 })
 it('does not acknowledge an untranslated card while its projection is pending',()=>{
  const ack=vi.fn(async()=>{});const {container}=render(<CocCharacterDraft data={{revision:1,play_language:'zh-Hans',sheet}} onPresentation={()=>new Promise(()=>{})} onRendered={ack}/>);
- expect(container.textContent).toBe('…');expect(ack).not.toHaveBeenCalled();
+ expect(container.querySelector('.coc-draft-spinner')).toBeTruthy();expect(ack).not.toHaveBeenCalled();
 })
 it('polls the same pending projection and acknowledges only the displayed result',async()=>{
  const ack=vi.fn(async()=>{}),load=vi.fn().mockResolvedValueOnce({pending:true}).mockResolvedValue({play_language:'zh-Hans',texts:zh});

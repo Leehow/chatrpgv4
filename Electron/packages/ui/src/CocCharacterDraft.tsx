@@ -51,7 +51,7 @@ export function CocCharacterDraft({data,onRendered,onPresentation,onOverride}:Pr
   },[data.revision,data.play_language,retry])
   useEffect(()=>{if(presentation&&onRendered)void onRendered().catch(e=>setError(failureText(e)))},[presentation,data.revision])
   const sheet=data.sheet
-  if(!sheet||!presentation)return <section aria-busy={!error} role="status">{error?<><span className="coc-draft-error">{error}</span><button type="button" onClick={()=>setRetry(x=>x+1)}>↻</button></>:'…'}</section>
+  if(!sheet||!presentation)return <section className="coc-draft-pending" aria-busy={!error} role="status">{error?<><span className="coc-draft-error">{error}</span><button type="button" onClick={()=>setRetry(x=>x+1)}>↻</button></>:<span className="coc-draft-spinner" aria-hidden="true"/>}</section>
   // A word the projection does not carry comes back as itself. Returning '' instead blanked the
   // cell, which reads as "this card has nothing here" rather than "this word is not translated
   // yet" -- and a blank is the one thing a player cannot report.

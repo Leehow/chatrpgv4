@@ -232,6 +232,26 @@ export function foldMarkedDeliveries(messages: readonly ChatMessage[]): ChatMess
     || !drawn.has(message.content.trim()))
 }
 
+/**
+ * Keep only the current draft card; fold every superseded one (contract §23.4).
+ *
+ * A re-draft appends a fresh `coc-character-draft` row, and every draft row draws the campaign's
+ * current draft rather than the revision its own snapshot recorded -- so a revision bump left two
+ * identical cards in the transcript. The last row is the card; the earlier rows draw the same
+ * sheet and are folded away, the way foldMarkedDeliveries folds a delivery its card already
+ * draws. Host-side override bumps append no row, so position -- never revision number -- decides
+ * which row is current.
+ */
+export function foldSupersededDrafts(messages: readonly ChatMessage[]): ChatMessage[] {
+  let last = -1
+  messages.forEach((message, index) => {
+    if (message.presentation?.renderer === 'coc-character-draft') last = index
+  })
+  if (last < 0) return messages as ChatMessage[]
+  return messages.filter((message, index) =>
+    index === last || message.presentation?.renderer !== 'coc-character-draft')
+}
+
 export function historyMessages(entries: HistoryEntry[]): ChatMessage[] {
   const cards = new Map<string, TranscriptTool>()
   const messages: ChatMessage[] = []

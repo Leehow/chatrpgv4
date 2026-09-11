@@ -13,7 +13,7 @@ import { buildRailPrompts, isNavigationEligibleUserPrompt } from './prompt-rail'
 import { parseSubagentNotice } from './subagent-notice'
 import { parseInternalUserSignal } from './subagent-signal'
 import { TruncatedText } from './TruncatedText'
-import { foldMarkedDeliveries, withoutMechanicsMarkers, type ChatMessage } from './transcript-model'
+import { foldMarkedDeliveries, foldSupersededDrafts, withoutMechanicsMarkers, type ChatMessage } from './transcript-model'
 import { nextTranscriptFirstItemIndex, TRANSCRIPT_FIRST_ITEM_BASE, TRANSCRIPT_PIN_MAX_ATTEMPTS, transcriptDataIndex, transcriptMessageIdentity } from './transcript-scroll'
 
 export type MessageActionHandlers = { onBranch?: (message: ChatMessage) => void; branchMessageIds?: ReadonlySet<string>; branchDisabled?: boolean; actionWords?: Record<string,string>; onCopy: (message: ChatMessage) => Promise<void>; onResend: (message: ChatMessage) => void; resendDisabled: boolean; copiedId: string | null }
@@ -149,7 +149,8 @@ export function Transcript({ stateKey, messages: rawMessages, transcriptRef, wai
   // §16.6: a delivery the mechanics card draws with its markers in place must not also appear as
   // the plain assistant copy that the terminal reads. Folded here, so both the live reducer and a
   // history page get the same answer without either of them knowing about the other.
-  const messages = useMemo(() => foldMarkedDeliveries(rawMessages), [rawMessages])
+  // §23.4: a superseded draft card draws the same current sheet the last one does, so it folds too.
+  const messages = useMemo(() => foldSupersededDrafts(foldMarkedDeliveries(rawMessages)), [rawMessages])
   const prompts = useMemo(() => buildRailPrompts(messages), [messages])
   const { activeId: viewportActiveId, containerRef } = useActivePromptId(prompts, atBottom)
   const activeId = seekingId ?? viewportActiveId
