@@ -208,6 +208,48 @@ export async function handoutInput(home:string,campaign:string):Promise<Row[]> {
   }
   return rows;
 }
+/**
+ * The rules words this table actually shows: the skills it rolls, and the characteristics and
+ * derived values on the sheet beside them.
+ *
+ * These reach a card through `playerGlossary`, the kernel's union of the rules data's own
+ * `localized_labels`. That is a hand-seeded set -- 185 rows for zh-Hans, 57 for en, nothing for
+ * any other tag -- and the kernel is deterministic and may not call a model to widen it, so a
+ * table played in a third language reads every skill and characteristic in English while the card,
+ * the possessions and the clues beside them are all in the play language. This lane is the half
+ * §23 already promised for the rules data ("the seeds are seeds; the lane fills what is empty").
+ *
+ * It limits itself by the same glossary it completes. `view.labels` is what the kernel answered,
+ * so a word already in it is never collected, and a table in a seeded language collects nothing
+ * at all and starts no run. The lane costs exactly the languages the seeds do not cover -- which
+ * is also what keeps it from asking for the same skill every turn, the way a lane asked for words
+ * it could never collect would.
+ *
+ * Display only. The kernel matches a skill by its canonical name (`resolve {skill: "Spot Hidden"}`),
+ * so what this projects may fill `labels` and must never travel back as an identifier.
+ */
+export function rulesTexts(view:Row):string[] {
+  const known=view?.labels&&typeof view.labels==='object'&&!Array.isArray(view.labels)?view.labels as Row:{};
+  const texts=new Set<string>();
+  const add=(value:unknown)=>{
+    if(typeof value!=='string'||!value.trim())return;
+    const word=value.trim();
+    // A figure is not a word, and a term the glossary already answers is not this lane's to ask.
+    if(/^(?=.*\d)[\d\s()+\-*/Dd×.,%]+$/.test(word)||typeof known[word]==='string')return;
+    texts.add(word);
+  };
+  for(const sheet of Array.isArray(view?.investigators)?view.investigators:[]) {
+    if(!sheet||typeof sheet!=='object')continue;
+    for(const group of ['characteristics','derived','skills']) {
+      const rows=(sheet as Row)[group];
+      if(rows&&typeof rows==='object'&&!Array.isArray(rows))for(const key of Object.keys(rows))add(key);
+    }
+  }
+  return [...texts].sort();
+}
+export function prepareRulesPresentation(options:TextOptions&{campaign:string;view:Row}):Promise<Row> {
+  return prepareGrowingPresentation(options,'rules',rulesTexts);
+}
 export async function prepareHandoutPresentation(options:TextOptions&{campaign:string}):Promise<Row> {
   const handouts=await handoutInput(options.home,options.campaign);
   return prepareGrowingPresentation({...options,view:{play_language:options.play_language,handouts}},'handouts',handoutTexts);

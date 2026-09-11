@@ -6,7 +6,7 @@ import { composeRuntimeContext, createRuntime, type HostRuntime, type RuntimeCon
 import { ReadingService } from '../extensions/module/reading-service.ts';
 import type { ReaderRequest } from '../extensions/module/reader.ts';
 import { prepareCharacterGuidance, guidanceFingerprint, acceptedGuidance } from '../extensions/module/character-guidance.ts';
-import { prepareCharacterPresentation, prepareCluePresentation, prepareHandoutPresentation, prepareLanguagePresentation, preparePossessionPresentation, prepareStandingPresentation } from '../extensions/module/character-presentation.ts';
+import { prepareCharacterPresentation, prepareCluePresentation, prepareHandoutPresentation, prepareLanguagePresentation, prepareRulesPresentation, preparePossessionPresentation, prepareStandingPresentation } from '../extensions/module/character-presentation.ts';
 import { playLanguageTag, resolveUiWords } from '../runtime/ui-words.ts';
 import { prepareUiWords } from '../extensions/module/ui-presentation.ts';
 import { presentDocument } from '../extensions/mods/document-presentation.ts';
@@ -119,6 +119,13 @@ async function main() {
       // Only what table.view already shows the player: discovered rows, never the scene's unfound offer.
       const view=await call('table.view',{campaign:input.campaign});
       return prepareCluePresentation({...input,contentRoot:context.contentRoot,view,known_labels:view.labels||{},signal:guidanceAbort.signal,runner:runTask});
+    }
+    if(input.rules) {
+      // The rules words the seeds do not answer for this play language. The collector reads
+      // `view.labels` -- the kernel's own glossary -- and skips everything already in it, so a
+      // table in a seeded language collects nothing and this costs a read, not a model round.
+      const view=await call('table.view',{campaign:input.campaign});
+      return prepareRulesPresentation({...input,contentRoot:context.contentRoot,view,known_labels:view.labels||{},signal:guidanceAbort.signal,runner:runTask});
     }
     if(input.handouts) {
       // The lane reads the files `apply handout` wrote, which is where a handout's words are: it
