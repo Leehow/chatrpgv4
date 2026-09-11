@@ -2395,9 +2395,11 @@ ledger. The kernel never reads, writes or validates the image.
 - **Failure** (no credential, vendor error) leaves the mount empty and returns
   an error code; the panel's caption is a sheet-surface word (English authored,
   projected per §23), not an authored string in code.
-- The panel enables the mount only when an investigator exists, shows a busy
-  state while the lane runs, and renders the portrait beneath the seal overlay
-  (the layering the passport decision reserved).
+- The panel enables the mount only while the investigator has no portrait;
+  once one exists the mount is static artwork again — regeneration stays a
+  deliberate lane action, never a casual click. While the lane runs the mount
+  shows a busy state, and the portrait renders beneath the seal overlay (the
+  layering the passport decision reserved).
 
 **Guard.** `tests/extension/ui-words.test.mjs` pins every shipped seed to the
 `en` keys and asserts `languages.json` has no `languages` table;

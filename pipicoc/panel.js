@@ -1013,7 +1013,7 @@ export function createComponent(React) {
           h("p", {className:"coc-sheet-document-title", dir:"auto"}, t("identityTitle")),
           eraMark ? h("span", {className:"coc-sheet-era", dir:"auto"}, eraMark) : null),
         h("div", {className:"coc-sheet-identity-body"},
-          sheet
+          sheet && !art.portrait
             ? h("button", {type:"button", className:"coc-sheet-portrait coc-sheet-portrait-live",
                 "aria-label":t("portraitGenerate"), disabled:portraitBusy,
                 onClick:()=>{void generatePortrait();}},

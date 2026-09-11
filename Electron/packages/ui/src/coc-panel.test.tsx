@@ -80,9 +80,9 @@ it('keeps passport words live, the era unlabelled and decoration across refreshe
   await screen.findByText('Projected credential title');
   expect(container.querySelector('.coc-sheet-era')?.textContent).toBe('1920');
   expect(container.querySelector('.coc-sheet-fields')?.textContent).not.toContain('Era');
-  const mountButton=container.querySelector('button.coc-sheet-portrait');
-  expect(mountButton?.getAttribute('aria-label')).toBe(say('en','sheet','portraitGenerate'));
-  expect(container.querySelector('.coc-sheet-identity button')).toBe(mountButton);
+  // A developed photograph is static artwork again: no button, no casual regeneration.
+  expect(container.querySelector('button.coc-sheet-portrait')).toBeNull();
+  expect(container.querySelector('.coc-sheet-identity button')).toBeNull();
   const mount=container.querySelector('.coc-sheet-art');
   expect(mount?.getAttribute('aria-hidden')).toBe('true');
   expect(container.querySelector('.coc-sheet-seal')?.getAttribute('alt')).toBe('');
@@ -122,6 +122,8 @@ it('develops a portrait when the mount is clicked', async () => {
   fireEvent.click(container.querySelector('button.coc-sheet-portrait')!);
   expect(api.invoke).toHaveBeenLastCalledWith('sheet',{portrait:'generate'});
   await waitFor(()=>expect(container.querySelector('.coc-sheet-avatar')?.getAttribute('src')).toContain('Ag=='));
+  // Once the photograph exists the mount stops being a button.
+  expect(container.querySelector('button.coc-sheet-portrait')).toBeNull();
 });
 
 it('leaves the mount empty and says so when a portrait cannot be developed', async () => {
