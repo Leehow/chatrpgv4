@@ -19,7 +19,9 @@ export function objectInstance(world: Row, name: any): Row | null { return findN
 export function defineObject(world: Row, draft: Row, provenance: Row): Row {
     const value = validateDefinition(draft), definitions = objectRegistry(world).definitions, digest = jsonDigest(value), prior = findNamedObject(definitions, value.name);
     if (prior) {
-        if (prior.digest !== digest) throw new RpcError('invalid_params', 'An established definition cannot be regenerated with different parameters');
+        if (prior.digest !== digest) throw new RpcError('invalid_params', 'An established definition cannot be regenerated with different parameters',
+            {fix: `${repr(value.name)} is already defined as ${string(prior.category)}: keep it as it is, or define the different thing under its own name. To make something already in hand strike, apply item with its name and a rules-table profile in weapon`,
+             details: {name: prior.name, category: prior.category}});
         return prior;
     }
     const id = `definition-${asciiSlug(value.name) || 'object'}-${Object.keys(definitions).length + 1}`;

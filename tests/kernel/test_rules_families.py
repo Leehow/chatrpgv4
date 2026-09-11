@@ -361,6 +361,32 @@ def test_situations_show_the_dying_clock(kernel):
         assert clock["effects"][0]["kind"] == "condition"
 
 
+def test_a_condition_change_lands_a_receipt_so_a_death_can_be_told(kernel):
+    """Contract §32.9: `dying` -> `dead` had a writer and a world state and no receipt, so the
+    investigator who died at `admission-e2e-4` turn 38 died only in the prose -- no mechanics card, no
+    committed fact, and the verifier filed the death as an uncommitted state change. A condition is the
+    one effect that changes what is true of a person without a number moving; it is a receipt now."""
+    open_turn(kernel, "我撑住。")
+    seed_wound(kernel.workspace, 0, conditions=["dying", "unconscious"])
+    for n in range(1, 25):
+        clock = resolve(kernel, f"t1-c{n}", intent="investigate", goal="撑住", method="",
+                        decision="healing:dying-round-clock")
+        if not clock["outcome"]["passed"]:
+            break
+    else:
+        raise AssertionError("no failed CON roll in 24 attempts")
+    assert "dead" in clock["outcome"]["conditions"]
+    death = [r for r in kernel.table("status")["receipts"] if r["kind"] == "condition"]
+    assert len(death) == 1, [r["kind"] for r in kernel.table("status")["receipts"]]
+    assert death[0]["gained"] == ["dead"] and death[0]["subject"] == "thomas-hayes"
+    assert death[0]["subject_is_investigator"] is True and death[0]["id"] in clock["receipts"]
+
+    delivered = narrate(kernel, f"t1-c{n + 1}", "他的胸口不再起伏。")
+    card = [m for m in delivered["mechanics"] if m["kind"] == "condition"]
+    assert card and card[0]["gained"] == ["dead"] and card[0]["receipt"] == death[0]["id"]
+    assert any("is now dead" in line for line in delivered["facts"]["committed"]), delivered["facts"]["committed"]
+
+
 # ---- magic ----------------------------------------------------------------------------------
 
 def test_magic_learn_then_cast_from_the_catalog(seeded_kernel):

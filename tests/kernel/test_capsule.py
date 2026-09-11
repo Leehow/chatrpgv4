@@ -125,6 +125,13 @@ def test_lookup_module_and_secret(kernel):
     assert len(module["module_secrets"]) == 6
     assert len(module["conclusions"]) == 6
     assert all(c["summary"] for c in module["conclusions"])
+    # Contract §32.9: the Keeper is told to read the source rewards before settling an ending, and
+    # every projection it could reach carried none, so a real table guessed 0, then 1D6, then 1D3.
+    # The authors write them on the scene that ends, with a rule_ref into the ruleset.
+    ending = next(e for e in module["endings"] if e["conclusion"] == "corbitt-destroyed")
+    assert ending["sanity_reward"] == "1D6" and ending["requires"] == "investigators_win"
+    assert ending["rule"] == "module.haunting.conclusion_sanity_reward" and ending["ends_session"] is True
+    assert ending["scene"] == "corbitt-confrontation"
 
     assert kernel.table_err("lookup", kind="weird", query="x")["code"] == "invalid_params"
 

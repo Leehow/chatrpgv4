@@ -137,6 +137,27 @@ def test_submit_lands_candidates_and_writes_the_files(kernel):
     assert not (memory_dir(kernel.workspace) / "backlog.jsonl").exists()
 
 
+def test_an_entity_name_that_matches_nothing_is_dropped_and_the_batch_still_lands(kernel):
+    """An entity link is an index into the graph, not the fact itself (contract §32.9). One invented
+    name used to reject the submit and lose every candidate of that turn with it: `admission-e2e-4`
+    turn 11 wrote 二楼卧室 for a scene the Keeper had never labelled and the whole batch went. Subject
+    and knowers stay strict, because they say whose knowledge this is."""
+    first_turn(kernel)
+    job_id = job(kernel)["job_id"]
+    ok = {"kind": "knowledge", "subject": INV, "statement": "好的。"}
+    result = submit(kernel, job_id, [{**ok, "entities": ["knott-keys", "二楼卧室"]},
+                                     {**ok, "statement": "另一条。"}])
+    assert result["candidates"] == 2, "the candidate keeps its statement and the batch keeps the rest"
+    assert result["dropped_entities"] == ["二楼卧室"], "and the result says which name matched nothing"
+    landed = read_jsonl(memory_dir(kernel.workspace) / "candidates.jsonl")
+    assert [row["entities"] for row in landed] == [["knott-keys"], []]
+    # An unresolvable subject is still a refusal, and so is an unresolvable entity of a relationship or
+    # a promise: there the other party is half the statement and the key the kind supersedes on.
+    assert submit_err(kernel, job(kernel)["job_id"], [{**ok, "subject": "Walter Corbitt"}])["code"] == "invalid_params"
+    promise = [{"kind": "promise", "subject": KNOTT, "entities": ["a stranger"], "statement": "x"}]
+    assert submit_err(kernel, job(kernel)["job_id"], promise)["code"] == "invalid_params"
+
+
 def test_each_rejection_points_at_the_candidate_and_names_usable_names(kernel):
     first_turn(kernel)
     job_id = job(kernel)["job_id"]
@@ -147,7 +168,6 @@ def test_each_rejection_points_at_the_candidate_and_names_usable_names(kernel):
         ("machine key id", [{**ok, "id": "mem:t1-9"}], 0, "id"),
         ("unknown kind", [{**ok, "kind": "rumor"}], 0, "world_event"),
         ("unresolvable subject", [ok, ok, {**ok, "subject": "Walter Corbitt"}], 2, KNOTT),
-        ("unresolvable entity", [{**ok, "entities": ["Corbitt"]}], 0, INV),
         ("scene is not a knower", [{**ok, "knowers": ["Knott's Office"]}], 0, KNOTT),
         ("world_event with a person", [{"kind": "world_event", "subject": KNOTT, "statement": "x"}], 0, "world"),
         ("relationship without entity", [{"kind": "relationship", "subject": KNOTT, "statement": "x"}], 0, "entities"),

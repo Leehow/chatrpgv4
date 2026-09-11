@@ -32,7 +32,7 @@ export async function stageEnding(context: EndingStage, effect: Row): Promise<{
         settled = await capsuleForCampaignEnding(context.campaign, number(previous.turn)) !== null;
     if (!settled || (await pendingSettlements(context.campaign)).length)
         throw new RpcError('needs', "settle the chapter's rewards and investigator development before ending the campaign", {
-            fix: 'read the source conclusion/rewards; resolve development:end-session with the applicable scenario_san_reward_expr, or development:settle-ending if a settlement is pending; then retry apply ending',
+            fix: 'read the source conclusion/rewards with lookup kind=secret scope=module, whose endings say what this book awards and what it asks for first; resolve development:end-session with the source-authored scenario_san_reward_expr when the source declares one, and without it when the source declares none -- an omitted reward settles the ending with no scenario award, a figure you chose does not exist; or development:settle-ending if a settlement is pending; then retry apply ending',
             details: {
                 reason: 'ending_settlement_required'
             },

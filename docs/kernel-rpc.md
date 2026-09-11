@@ -4795,6 +4795,67 @@ not reviewed; a recovered turn is reviewed against the pending turn's own words
 
 **Third real table (`admission-e2e-4`, 2026-09-11, The Haunting, zh-Hans, grok-4.6 as Keeper, `PI_COC_ADMISSION_MODEL=deepseek/deepseek-v4-flash`; evidence `.coc/campaigns/admission-e2e-4/`, `.coc/playtests/admission-e2e-4/`).** Forty played turns, 2222 s, to a natural ending: the investigator died in the basement fighting Corbitt after opening the boards, reading the diaries, being hurt by the bed and refusing the newsboy's price. Fifty-one verdicts (authorized 41, entailed 5, not_authorized 4, not_player_action 1), **no timeout**, mean 0.92 s, p90 1.26 s, max 1.77 s; admission was 47 s of the table's 2222 s, about 2%, against 51% and 36% on the two tables before. No false refusal and no false acceptance against the source. The dodge and fight-back answers of the two combat rounds (turns 34, 36) produced no admission row, the player's own three attacks did, Corbitt's own rolls did not, the sanity checks did not, and the dying CON rolls (`healing:`) did; a swing the Keeper retargeted at "Walter Corbitt" when the player had named only the dagger was refused with `missing` naming exactly that, and the next `resolve` corrected the target (turn 30). Verdict reuse was again not exercised by play. Two defects it found lie outside admission: (1) the investigator's death (turn 38: dying CON roll failed, `dead` on the sheet) reaches the player only as prose — the roll's mechanics card says `failure`, not that the investigator died, a projection gap left open here; (2) `development:end-session` refused four times with "development tick references skill missing … 'CON'": the dying CON roll of turn 37, passed, had been recorded as an improvement tick on CON through the `healing_check` path, and CON is on no skill list — repaired the same day (`skillTickEligible` never ticks a characteristic; `tests/extension/ts-kernel-resolve.test.mjs`). The Keeper's first attempt also sent `ending: "failure"`, which the closed set (`conclusion`, `tpk`, `retreat`, `cliffhanger`) refused with the options listed, and it corrected itself.
 
+**What the three tables found outside admission, and what was done (2026-09-11).** Seventy-seven real
+turns are the only place these surfaced; the suites were green throughout. Repaired:
+
+- **A condition had no receipt.** `dying` -> `dead` was written to the sheet and the healing save and
+  reached nothing else, so the death of `admission-e2e-4` turn 38 existed only in the prose: no
+  mechanics card, no committed fact, and three `uncommitted_state` findings from the verifier, which
+  was right. `addEffect('condition', ...)` now mints a receipt beside its effect, `mechanicsOf`
+  projects `{kind: "condition", gained, lost}`, `committedFacts` says who is now what, and the marker
+  is `condition:<what changed>`. Every condition family gains this, not only death.
+- **Four refusals named no way out**, against §8's rule that a `fix` points somewhere real: combat's
+  missing target, the two "not a weapon the investigator carries", and a definition that cannot be
+  regenerated. The weapon ones now name the arming path (`apply item` with a rules-table profile in
+  `weapon`), which is what the Keeper could not find across three round trips at `admission-e2e-4`
+  turn 33 before rolling the fight unarmed while the prose swung an iron bar. The target one says that
+  a thing with nobody behind it is an ordinary `resolve` or `apply damage`, not combat.
+- **A maneuver read its kind out of a prose goal.** The tool asks for a sentence in `action.goal`; the
+  engine wanted one of `disarm`, `ongoing_disadvantage`, `escape`, `push`, and a sentence came back as
+  an unusable `invalid_params` three times in a row (`admission-e2e-2` turn 30). The binding now reads
+  the kind when the goal names one, keeps `ongoing_disadvantage` for an unstated goal, and otherwise
+  refuses with the four in `details.needs.options`.
+- **One invented entity name lost a whole turn's memory.** An entity link is an index into the graph,
+  not the fact itself; a name that matches nothing is dropped and reported as `dropped_entities`,
+  while `subject` and `knowers` stay strict because they say whose knowledge it is.
+- **A declared scenario reward reached nobody, so one was invented.** The Keeper was told to "read the
+  source conclusion/rewards" and tried `0`, `1D6` and `1D3` in turn. The reward was there all along:
+  the authors write `conclusion_contract` on the scene that ends, with `sanity_reward.die` and a
+  `rule_ref` into the ruleset (The Haunting: `1D6`, requiring Corbitt destroyed), and **nothing in the
+  kernel read that field** -- a §31 first-end trap, authored and never projected. `lookup kind=secret
+  scope=module` now carries `endings`, which is the call that table made; the ending refusal names it;
+  and the base prompt says an undeclared reward is omitted, never a figure the Keeper chose, with an
+  empty list as the answer that this book declares none.
+- **Three of four handouts across the three tables were delivered empty.** The starter's own Handout 1
+  declares neither `authored_text` nor an `image_ref`, and the investigator map's file is not on disk,
+  so `stageHandout` landed the receipt with `available: false` -- and the Keeper, reading that bare
+  field in a successful result, wrote the card across the desk anyway. `apply` now says it in words:
+  the receipt landed, the player has nothing to look at, tell what the document holds in the prose.
+  What is still missing is the bytes; §22's original-page crop is the path for a bound book.
+
+Not repaired, and named here rather than patched:
+
+- **An NPC cannot open a fight** (`admission-e2e-2` turn 25), and this is a slice, not a patch. Three
+  things stand in the way, and only the first is code in this file. (1) `executeCombatResolve` refuses
+  `no combat is underway for <npc> to act in`, and `startCombat` reads the NPC side out of
+  `target_npc_id`; the slot binding already handles an NPC attacker. (2) The engine *does* implement
+  the ambush -- `resolveSurpriseAttack`, `surprise_attack` in `VALID_ACTIONS` and `RESOLUTION_HINTS`,
+  `surprised` in `VALID_CONDITIONS` -- but no decision reaches it, and decisions are RuleGraph data
+  (`content/rulesets/coc7/rule-graph.json`), not code. (3) `snapshot.ts` holds initiative to strict DEX
+  order (`combat initiative order is not canonical`) and requires every actor before the cursor to be
+  `acted` or `skipped_ineligible`, so "whoever starts the fight acts first" is not representable
+  without a `surprised` status carrying its own skip evidence. Letting the NPC open without answering
+  (3) is worse than the dead end it replaces: the refusal throws, the session is rolled back, and the
+  Keeper is pointed at the investigator's turn, which admission then rightly refuses -- a loop. The
+  refusal now names the two paths that do work today: the investigator's own reaction opens the fight,
+  and harm that contests nothing is `apply damage`.
+- **No imported book declares a scenario SAN reward.** The starter's are projected now (above), but
+  the producer end is still open for a book the reader built: the source reader never extracts
+  `conclusion_contract`. Fixing it starts at the reader ask, as §30.4 did for the pacing fields.
+- **The verifier lane times out on a slow model** -- eight of forty turns at `admission-e2e-4`, on
+  grok-4.6, each losing its findings. `PI_COC_VERIFIER_MODEL` takes the same treatment as
+  `PI_COC_ADMISSION_MODEL`: a small fast model answers a short JSON judgement in about a second.
+
 **Reviewer model (probe, 2026-09-11, `ModelRuntime.complete` on the product prompt, seven positive/negative pairs: bare 「那看看报纸」 with no archive mentioned, the same after Knott named the morgue, an explicit trip, look-versus-pry, pry after looking, a quiet half hour, ask-versus-bribe).** grok-4.6: six of six unambiguous cases right, refuses the arguable one, 10–51 s each. grok-4.3: six of six right, admits the arguable one (the spec's "already discussed archive trip"), 2.7–4.6 s each. grok-4.5 (relay, low): six of six right, 4.6–14 s. glm-5.2: two wrong (admits the bare newspapers as `entailed`; a malformed answer on ask-versus-bribe), 9–32 s. With a working key (added by the user the same day): deepseek-v4-flash six of six right, admits the arguable one, 0.7–1.5 s; deepseek-v4-pro six of six right, refuses the arguable one, 1.6–2.6 s. The recommendation, confirmed by the third table above, is `PI_COC_ADMISSION_MODEL=deepseek/deepseek-v4-flash` (grok-4.3 where DeepSeek is not configured); the model is still an environment choice, not a product default, because provider names are the user's.
 
 Not verified, and what it would take: one real table has run with admission on (above), so its false-refusal

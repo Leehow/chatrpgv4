@@ -19,7 +19,7 @@ export const VALID_OUTCOMES = new Set<string | null>(['investigators_win', 'mons
 export const VALID_ARMOR_RULES = new Set<any>(['fixed', 'degrades_1_per_damage', null]);
 export const RESOLUTION_HINTS = new Set(['skill_check', 'opposed_melee', 'firearm_attack', 'surprise_attack', 'maneuver', 'damage_only', 'spell', 'sanity_check', 'characteristic_roll', 'flee', 'aim', 'reload']);
 export const MANEUVER_GOALS = new Set(['disarm', 'ongoing_disadvantage', 'escape', 'push']);
-const MANEUVER_ALIASES: Row = { grapple: 'ongoing_disadvantage', break_free: 'escape', other: 'push', restrain: 'ongoing_disadvantage', knockdown: 'push' };
+export const MANEUVER_ALIASES: Row = { grapple: 'ongoing_disadvantage', break_free: 'escape', other: 'push', restrain: 'ongoing_disadvantage', knockdown: 'push' };
 const ACTION_HINTS: Row = { attack: null, surprise_attack: 'surprise_attack', maneuver: 'maneuver', cast: 'spell', flee: 'flee', other: 'skill_check', aim: 'aim', reload: 'reload' };
 export interface ParticipantOptions {
     dex: number;

@@ -20,6 +20,7 @@ function markerName(receipt: Row): string | null {
         case 'clue': return part('clue', receipt.clue);
         case 'item': return part('item', receipt.name);
         case 'handout': return part('handout', receipt.handout || receipt.name);
+        case 'condition': return part('condition', array(receipt.gained)[0] ?? array(receipt.lost)[0]);
         case 'session': return part('session', receipt.family);
         case 'worldline': return part('worldline', receipt.operation);
         case 'time':
@@ -97,6 +98,14 @@ export function committedFacts(receipts: Row[], snapshot: Row, label: (id: any) 
         else if (r.kind === 'item') {
             const quantity = Math.trunc(number(r.quantity || 1));
             committed.push(`Item: ${string(r.subject_label || r.subject || null)} ${quantity < 0 ? 'loses' : 'gains'} ${string(r.label || r.name || null)}${Math.abs(quantity) > 1 ? ` x${Math.abs(quantity)}` : ''}`);
+        }
+        else if (r.kind === 'condition') {
+            const who = string(r.subject_label || r.subject || null), parts: string[] = [];
+            if (array(r.gained).length)
+                parts.push(`is now ${array(r.gained).map(string).join(', ')}`);
+            if (array(r.lost).length)
+                parts.push(`is no longer ${array(r.lost).map(string).join(', ')}`);
+            committed.push(`${who} ${parts.join('; ')}`);
         }
         else if (r.kind === 'time')
             committed.push(`Time advances ${Math.trunc(number(r.minutes))} min`);

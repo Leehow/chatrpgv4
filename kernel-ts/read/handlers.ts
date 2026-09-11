@@ -354,7 +354,25 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
                         summary: graph.summary(node),
                         importance: recordOf(node).importance ?? null,
                         minimum_routes: recordOf(node).minimum_routes ?? null
-                    }))
+                    })),
+                    // What the book awards for reaching an ending, and what it asks for first. The
+                    // authors write this on the scene that ends, with a rule_ref into the ruleset;
+                    // nothing read it until now, so the Keeper -- told to read the source rewards
+                    // before settling -- had to guess one (contract §32.9). An empty list is the
+                    // answer that this module declares none, and an undeclared reward is omitted.
+                    endings: graph.kind("scene").flatMap(node => {
+                        const contract = row(recordOf(node).conclusion_contract);
+                        if (!truth(contract))
+                            return [];
+                        return [{
+                            scene: graph.handle(node),
+                            conclusion: contract.conclusion_id ?? null,
+                            sanity_reward: row(contract.sanity_reward).die ?? null,
+                            rule: row(contract.sanity_reward).rule_ref ?? null,
+                            requires: contract.requires_combat_outcome ?? null,
+                            ends_session: contract.session_ending === true
+                        }];
+                    })
                 };
             await campaign.preload("people");
             const scene = graph.scene(world.active_scene),

@@ -224,7 +224,11 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                 result.recovered = recovery.recovered;
             if (days)
                 result.day_ended = days;
-            if(attachments.length){result.attachments=attachments.filter(truth);result.attachment=result.attachments[0]??null;}
+            if(attachments.length){
+                result.attachments=attachments.filter(truth);result.attachment=result.attachments[0]??null;
+                const missing=array(result.attachments).filter(value=>!truth(value.available)).map(value=>string(value.handout));
+                if(missing.length)result.note=`No card exists for ${missing.join(', ')}: the receipt landed, and the player has nothing to look at. Say what the document holds in your narration rather than handing it over.`;
+            }
             if(already.length){result.already_discovered=already;if(!receipts.length)result.replayed=true;}
             if(stagedWorldline){turn.worldline=stagedWorldline;result.worldline={operation:stagedWorldline.operation,line:stagedWorldline.line,mode:stagedWorldline.mode??null,loop:number(stagedWorldline.loop),when:"after this turn's narrate commits"};}
             await transaction.commitResolve({ callId: started.callId, params: callParams, result, receipts, events });

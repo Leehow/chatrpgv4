@@ -58,10 +58,20 @@ def test_handout_without_shipped_bytes_is_declared_unavailable_not_invented(kern
     attachment = result["attachment"]
     assert attachment["available"] is False and attachment["path"] is None
     assert not (campaign_dir(kernel.workspace) / "handouts").exists()
+    # Contract §32.9: `available: false` sat in the JSON and the Keeper handed the card over in the
+    # prose anyway -- three of the four handouts across three real tables. The result says it in words.
+    assert REFERENCE_ONLY in result["note"] and "nothing to look at" in result["note"]
     narrated = kernel.table("narrate", call_id="t1-c2", text="诺特把委托书递过来。")
     assert narrated["mechanics"] == [{"kind": "handout", "receipt": f"handout:{REFERENCE_ONLY}-t1",
                                       "name": "Handout 1: Mr. Knott's Commission", "available": False,
                                       "label": "Handout 1: Mr. Knott's Commission", "call": "t1-c1"}]
+
+
+def test_a_delivered_handout_says_nothing_about_a_missing_one(kernel):
+    """The note is about what could not be delivered, so a handout that carries its own text is silent."""
+    open_turn(kernel)
+    result = kernel.table("apply", call_id="t1-c1", effects=[{"kind": "handout", "name": TEXT_HANDOUT}])
+    assert result["attachment"]["available"] is True and "note" not in result
 
 
 def test_keeper_only_assets_and_unknown_names_do_not_write(kernel):

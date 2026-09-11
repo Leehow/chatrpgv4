@@ -6,7 +6,7 @@ import { defenseOptions } from '../read/session-view.js';
 import type { FixedFamilyBinding } from '../resolve/families.js';
 import type { SettleContext } from '../resolve/context.js';
 import { usableWeapon } from '../mods/projection.js';
-import { VALID_OUTCOMES } from './engine.js';
+import { MANEUVER_ALIASES, MANEUVER_GOALS, VALID_OUTCOMES } from './engine.js';
 import { combatOperationFor, npcProfile, resolveInvestigatorWeapon, weaponOptions } from './profiles.js';
 import { executeCombatEnd, executeCombatResolve, presentOpponents } from './execution.js';
 export { CombatSession, combatAttack, resolveOpposed, CLOCK_SAVE_PATHS, rebaseClock } from './engine.js';
@@ -26,6 +26,13 @@ function damageViews(context: SettleContext): Row[] {
     return context.receipts.filter(receipt => receipt.kind === 'roll' && receipt.form === 'dice').map(receipt => ({ actor: receipt.actor ?? null, label: receipt.skill ?? null,
         expression: receipt.expression ?? null, faces: receipt.faces ?? null, total: receipt.total ?? null, receipt: receipt.id ?? null }));
 }
+/** What to do when the Keeper swings something the sheet does not carry as a weapon (contract §32.9).
+ *  An improvised weapon is armed by `apply item` with a rules-table profile in `weapon`; a Mod
+ *  definition arms it only when its own category is `weapon`, and an established definition cannot be
+ *  regenerated into one later. `admission-e2e-4` turn 33 spent three round trips discovering that, and
+ *  then rolled the fight unarmed while the prose swung an iron bar. */
+const armingFix = (weapon: string): string =>
+    `set action.weapon to one of details.needs.options, or arm ${weapon} first with apply item: its name plus the rules-table profile in weapon (a heavy blunt tool is club_large), which is what lets an improvised weapon hit. A Mod definition arms a thing only when its own category is weapon, and an established definition cannot be turned into one afterwards.`;
 export function createCombatResolveContribution(): FixedFamilyBinding {
     return Object.freeze<FixedFamilyBinding>({
         matches(ref, capability) { return Object.hasOwn(DECISIONS, ref) && (capability === null || DECISIONS[ref] === capability); },
@@ -82,7 +89,10 @@ export function createCombatResolveContribution(): FixedFamilyBinding {
                                 throw new RpcError('needs', 'the attack needs a target in the fight', { details: { needs: { field: 'target', options: opponents } } });
                         }
                         else
-                            throw new RpcError('needs', 'combat needs a present NPC as action.target', { details: { needs: { field: 'target', options: context.presentNpcNames() } } });
+                            throw new RpcError('needs', 'combat needs a present NPC as action.target', {
+                                fix: 'set action.target to one of details.needs.options; someone not on stage yet is put there with apply npc and a to first. A thing with nobody behind it -- a falling beam, a door, an object moving on its own -- is an ordinary resolve or apply damage, not combat',
+                                details: { needs: { field: 'target', options: context.presentNpcNames() } },
+                            });
                     }
                     else {
                         handle = context.graph.handle(targets.npc);
@@ -100,7 +110,7 @@ export function createCombatResolveContribution(): FixedFamilyBinding {
                     usableWeapon(context.world, string(weapon), context.actorId);
                     const resolved = await resolveInvestigatorWeapon(context.tables, context.actor, string(weapon));
                     if (!resolved)
-                        throw new RpcError('needs', `${repr(weapon)} is not a weapon the investigator carries`, { fix: 'set action.weapon to one of details.needs.options', details: { needs: { field: 'weapon', options: weaponOptions(context.actor) } } });
+                        throw new RpcError('needs', `${repr(weapon)} is not a weapon the investigator carries`, { fix: armingFix(string(weapon)), details: { needs: { field: 'weapon', options: weaponOptions(context.actor) } } });
                     semantic.weapon_ref = string(resolved.weapon_id);
                     binding.weapon_id = string(resolved.weapon_id);
                     if (snapshot === null) {
@@ -111,7 +121,21 @@ export function createCombatResolveContribution(): FixedFamilyBinding {
                 }
                 if (suffix === 'maneuver') {
                     delete semantic.weapon_ref;
-                    semantic.goal = (typeof context.action.goal === 'string' ? context.action.goal : '') || 'ongoing_disadvantage';
+                    // The engine takes one of four rulebook maneuvers here, but the tool's `goal` is a
+                    // sentence, so a prose goal reached the engine as an invalid enum and came back as a
+                    // refusal with no way out (`admission-e2e-2` turn 30, three times). Read the kind out
+                    // of the goal when it names one, keep the old default for an unstated goal, and say
+                    // the four otherwise.
+                    const wanted = string(typeof context.action.goal === 'string' ? context.action.goal : '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+                    if (!wanted)
+                        semantic.goal = 'ongoing_disadvantage';
+                    else if (MANEUVER_GOALS.has(wanted) || Object.hasOwn(MANEUVER_ALIASES, wanted))
+                        semantic.goal = wanted;
+                    else
+                        throw new RpcError('needs', 'a maneuver is one of the rulebook\'s four, and action.goal names which', {
+                            fix: 'set action.goal to one of details.needs.options, and put the sentence in action.method; to simply hit instead, resolve the attack rather than the maneuver',
+                            details: { needs: { field: 'goal', options: sorted(MANEUVER_GOALS) } },
+                        });
                 }
                 return done();
             }
@@ -120,7 +144,7 @@ export function createCombatResolveContribution(): FixedFamilyBinding {
                 if (weapon != null && !isNpc) {
                     const resolved = await resolveInvestigatorWeapon(context.tables, context.actor, string(weapon));
                     if (!resolved)
-                        throw new RpcError('needs', `${repr(weapon)} is not a weapon the investigator carries`, { details: { needs: { field: 'weapon', options: weaponOptions(context.actor) } } });
+                        throw new RpcError('needs', `${repr(weapon)} is not a weapon the investigator carries`, { fix: armingFix(string(weapon)), details: { needs: { field: 'weapon', options: weaponOptions(context.actor) } } });
                     semantic.weapon_ref = string(resolved.weapon_id);
                     binding.weapon_id = string(resolved.weapon_id);
                 }

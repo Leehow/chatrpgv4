@@ -159,7 +159,22 @@ export function validateCandidates(index: EntityIndex, candidates: any): Row[] {
         if (!Array.isArray(entities))
             return reject(i, `candidates[${i}].entities must be a list of names`, 'list the names the statement is about');
         const knowerKeys = knowers.map(name => resolveName(index, i, 'knowers', name, { reserved: ['party', 'keeper', 'player'], kinds: ['npc'] }));
-        const entityKeys = entities.map(name => resolveName(index, i, 'entities', name, { reserved: [] }));
+        // Where an entity link is an index into the graph rather than part of the fact, one invented
+        // name -- a scene the Keeper never labelled (`admission-e2e-4` turn 11 invented one) -- used to
+        // reject the whole submit and lose every candidate of that turn with it. Such a name is dropped
+        // now, and the result says which. Subject and knowers stay strict everywhere, because they say
+        // whose knowledge this is; and a relationship or a promise keeps its entities strict too,
+        // because there the other party is half the statement and the key this kind supersedes on
+        // (contract §32.9). An ambiguous name is still refused in every kind.
+        const bearing = ['relationship', 'promise'].includes(kind as string);
+        const droppedEntities: string[] = [], entityKeys: string[] = [];
+        for (const name of entities) {
+            if (!bearing && typeof name === 'string' && name.trim() && !index.matches(name, { reserved: [] }).length) {
+                droppedEntities.push(name.trim());
+                continue;
+            }
+            entityKeys.push(resolveName(index, i, 'entities', name, { reserved: [] }));
+        }
         if (kind === 'relationship' && entityKeys.length !== 1)
             return reject(i, `candidates[${i}]: a relationship names exactly one entity, got ${entityKeys.length}`, 'put the other party of the relationship, alone, in entities');
         const privacy = Object.hasOwn(candidate, 'privacy') ? candidate.privacy : 'player_safe', state = Object.hasOwn(candidate, 'state') ? candidate.state : 'accurate', confidence = candidate.confidence ?? null;
@@ -169,7 +184,7 @@ export function validateCandidates(index: EntityIndex, candidates: any): Row[] {
             return reject(i, `candidates[${i}].state ${repr(state)}`, `one of: ${STATES.join(', ')}`);
         if (confidence !== null && (!numeric(confidence) || number(confidence) < 0 || number(confidence) > 1 || !Number.isFinite(number(confidence))))
             return reject(i, `candidates[${i}].confidence must be a number from 0 to 1`, 'omit it or give 0–1');
-        return { kind, subject: index.canonicalName(subject), knowers: knowerKeys.map(key => index.canonicalName(key)), entities: entityKeys.map(key => index.canonicalName(key)), statement: statement.trim(), privacy, state, confidence, _keys: { subject, entities: sorted(entityKeys) } };
+        return { kind, subject: index.canonicalName(subject), knowers: knowerKeys.map(key => index.canonicalName(key)), entities: entityKeys.map(key => index.canonicalName(key)), statement: statement.trim(), privacy, state, confidence, _keys: { subject, entities: sorted(entityKeys) }, ...(droppedEntities.length ? { _dropped: droppedEntities } : {}) };
     });
 }
 export async function appendBacklog(campaign: CampaignWriter, id: string, turn: number, reason: string, detail: any): Promise<Row> {
@@ -214,10 +229,14 @@ export async function submit(campaign: CampaignWriter, graph: ModuleGraph, party
     const existing = await logs(campaign, 'memory/candidates.jsonl'), prefix = `mem:t${turn}-`;
     const used = existing.filter(value => string(value.id || '').startsWith(prefix) && /^\d+$/.test(string(value.id).split('-').at(-1)!)).map(value => Number(string(value.id).split('-').at(-1)));
     let next = Math.max(0, ...used) + 1;
-    const graphIndex = new EntityIndex(graph, party, row(world.scene_labels)), written: Row[] = [], superseded: string[] = [];
+    const graphIndex = new EntityIndex(graph, party, row(world.scene_labels)), written: Row[] = [], superseded: string[] = [], dropped: string[] = [];
     for (const value of validated) {
         const keys = value._keys;
         delete value._keys;
+        if (Array.isArray(value._dropped)) {
+            dropped.push(...value._dropped.map(string));
+            delete value._dropped;
+        }
         const newId = `mem:t${turn}-${next++}`;
         if (['relationship', 'promise'].includes(value.kind))
             for (const old of existing) {
@@ -234,7 +253,8 @@ export async function submit(campaign: CampaignWriter, graph: ModuleGraph, party
         written.push(landed);
     }
     await writeLines(campaign, 'memory/candidates.jsonl', existing);
-    const result = { job_id: id, turn, candidates: written.length, written: written.map(value => value.id), superseded };
+    const result = { job_id: id, turn, candidates: written.length, written: written.map(value => value.id), superseded,
+        ...(dropped.length ? { dropped_entities: sorted(new Set(dropped)) } : {}) };
     await writeJob(campaign, { ...job, status: 'done', candidates_sha256: digest, submitted: candidates, result, completed_at: nowIso() });
     await recoverBacklog(campaign, id);
     return [result, false];

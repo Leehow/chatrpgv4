@@ -111,7 +111,10 @@ export async function startCombat(context: SettleContext, args: Row): Promise<[
         });
     const sheet = context.actor, weaponId = args.weapon_id, weapon = truth(weaponId) ? await resolveInvestigatorWeapon(context.tables, sheet, string(weaponId)) : null;
     if (truth(weaponId) && weapon === null)
-        throw new RpcError('needs', `${repr(weaponId)} is not a weapon the investigator carries`, { details: { needs: { field: 'weapon', options: weaponOptions(sheet) } } });
+        throw new RpcError('needs', `${repr(weaponId)} is not a weapon the investigator carries`, {
+            fix: `set action.weapon to one of details.needs.options, or arm ${string(weaponId)} first with apply item: its name plus the rules-table profile in weapon (a heavy blunt tool is club_large)`,
+            details: { needs: { field: 'weapon', options: weaponOptions(sheet) } },
+        });
     const [affordance, operation] = combatOperationFor(context.graph, context.graph.scene(context.activeScene), target, weapon?.weapon_id ?? null), opponent = row(operation.opponent);
     const extra = [...array(profile.weapons), ...array(opponent.weapons)].filter(value => isJsonObject(value) && (truth(value.extends) || truth(value.skill) && truth(value.damage || value.damage_die)));
     const catalog = await moduleWeapons(context.tables, context.graph, [...extra, ...weaponRows(context.world)]);
@@ -199,7 +202,8 @@ export async function executeCombatResolve(context: SettleContext, input: Row): 
     }
     else if (['attack', 'maneuver'].includes(kind)) {
         if (actor !== context.actorId)
-            return turnState(`no combat is underway for ${actor} to act in`, 'the investigator opens the fight: intent combat with target and weapon');
+            return turnState(`no combat is underway for ${actor} to act in`,
+                'a fight opens on the investigator\'s own action: resolve what they do about it (strike, parry, dodge, flee) with intent combat, a target and a weapon, and the exchange settles from there. Harm that contests nothing -- a blow they never saw -- is apply damage with the rulebook\'s dice. An NPC cannot open the round itself: initiative here is strict DEX order and a surprise round is not yet a decision the rules layer carries');
         [session, started] = await startCombat(context, args);
         operation = { ...row(started.operation) };
         await context.writeSave('combat-operation.json', { combat_id: session.combatId, affordance_id: started.affordance_id, operation });
@@ -291,7 +295,11 @@ export async function executeCombatResolve(context: SettleContext, input: Row): 
             catch (error) {
                 if (!(error instanceof UnknownWeaponError) && (error as Error).name !== 'ValueError')
                     throw error;
-                throw new RpcError('invalid_params', `combat ${kind} refused: ${(error as Error).message}`);
+                throw new RpcError('invalid_params', `combat ${kind} refused: ${(error as Error).message}`, {
+                    fix: kind === 'maneuver'
+                        ? 'a maneuver is one of the rulebook\'s four: set action.goal to disarm, ongoing_disadvantage, escape or push, and put the sentence in action.method'
+                        : 'correct the named field and call again; the rest of the action is unchanged',
+                });
             }
             [rolls] = session.drainPending();
             session.markCurrentInitiativeActed();

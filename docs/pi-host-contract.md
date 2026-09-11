@@ -79,7 +79,7 @@ effects remain usable without the UI mount.
 
 | 环境变量 | 车道 | 缺省 |
 | --- | --- | --- |
-| `PI_COC_VERIFIER_MODEL` | kernel 扩展内的校验车道 | `ctx.model`，即桌子当前的模型 |
+| `PI_COC_VERIFIER_MODEL` | kernel 扩展内的校验车道 | `ctx.model`，即桌子当前的模型；桌子的模型慢时这条车道会整片超时（`admission-e2e-4` 四十回合里超了八次），和准入一样指一个快的小模型 |
 | `PI_COC_MEMORY_MODEL` | memory 扩展的抽取车道 | 同上 |
 | `PI_COC_ADMISSION_MODEL` | kernel 扩展内的行动准入复核（契约 §32，前台，`resolve`/`apply` 之前） | 同上；超时用 `PI_COC_ADMISSION_TIMEOUT_MS`（缺省 120 秒），复核不可用即拒绝该动作，不放行 |
 

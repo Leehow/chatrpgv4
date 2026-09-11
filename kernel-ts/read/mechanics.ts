@@ -53,6 +53,17 @@ export function mechanicsOf(receipt: Row, texts: ReadonlyMap<string, string> = n
         labeled(out, "item", receipt.item);
         return out;
     }
+    if (kind === "condition") {
+        const out: Row = {
+            kind: "condition",
+            receipt: id,
+            gained: array(receipt.gained).map(value => String(value)),
+            lost: array(receipt.lost).map(value => String(value)),
+            visibility: receipt.visibility || "public"
+        };
+        investigator(out, receipt, "subject");
+        return out;
+    }
     if (kind === "move") {
         if (truth(receipt.renamed))
             return null;

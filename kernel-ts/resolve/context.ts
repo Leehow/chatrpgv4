@@ -286,6 +286,31 @@ export class SettleContext {
             after,
             ...extra
         });
+        if (kind !== 'condition')
+            return;
+        // A condition is the one thing that changes what is true of a person without a number moving,
+        // so `addDelta`'s receipt never covered it: `dying`, `unconscious` and `dead` had a writer and
+        // a world state and no receipt at all. The investigator who died at `admission-e2e-4` turn 38
+        // therefore died only in the prose -- no mechanics card, no committed fact, and the verifier
+        // filed the death as `uncommitted_state`, correctly (contract §32.9).
+        const had = array(before).map(string), has = array(after).map(string);
+        const gained = has.filter(value => !had.includes(value)), lost = had.filter(value => !has.includes(value));
+        if (!gained.length && !lost.length)
+            return;
+        this.receipts.push({
+            id: this.mint(`condition:${subject}-t${this.turnNumber}-c${this.ordinal}`),
+            kind: 'condition',
+            call_id: this.callId,
+            subject,
+            subject_label: this.subjectLabel(subject),
+            before: had,
+            after: has,
+            gained,
+            lost,
+            ...extra,
+            at: nowIso(),
+            subject_is_investigator: this.sheetById(subject) !== null
+        });
     }
     async prepareFacts(): Promise<void> {
         this.settlementPending = false;
