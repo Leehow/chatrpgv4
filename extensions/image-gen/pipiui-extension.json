@@ -1,0 +1,11 @@
+{
+  "id": "image-gen",
+  "name": "Image Generation",
+  "version": "0.1.0",
+  "capabilities": [],
+  "agent": {
+    "extension": "agent/index.js"
+  },
+  "lifecycle": { "onDisable": "dispose-app-immediate; unmount-agent-on-next-session" },
+  "defaultEnabled": true
+}

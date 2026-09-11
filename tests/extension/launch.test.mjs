@@ -105,6 +105,7 @@ function runLauncher(root, args, extraEnv = {}) {
 function defaultMounts(root) {
 	return ['--no-extensions', ...['kernel', 'mods', 'onboarding', 'module', 'memory', 'table'].flatMap(name => ['-e', join(root, 'build/extensions', name, 'index.mjs')]),
 		'-e', join(root, 'build/extensions/deepseek/agent/index.mjs'),
+		'-e', join(root, 'build/extensions/image-gen/agent/index.mjs'),
 		'-e', join(root, 'build/extensions/grok-build-oauth/agent/index.mjs')];
 }
 

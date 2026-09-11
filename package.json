@@ -18,6 +18,7 @@
       "./extensions/memory",
       "./extensions/table",
       "./extensions/deepseek",
+      "./extensions/image-gen",
       "./extensions/grok-build-oauth"
     ]
   },
