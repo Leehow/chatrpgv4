@@ -1,0 +1,46 @@
+{
+  "id": "S01",
+  "name": "metagamer",
+  "kind": "stress",
+  "summary": "An experienced player who guesses the shape of the scenario early and says so out loud.",
+  "motivations": {
+    "acting": 0.1,
+    "exploring": 0.4,
+    "fighting": 0.1,
+    "instigating": 0.4,
+    "optimizing": 0.6,
+    "problem_solving": 0.9,
+    "socializing": 0.1,
+    "storytelling": 0.1
+  },
+  "behavior": {
+    "states_genre_guesses": "high",
+    "hypothesis_confidence": "0.9",
+    "risk_tolerance": "medium",
+    "rule_mastery": "high",
+    "accepts_obvious_hook": "medium"
+  },
+  "special": [
+    "Say your genre-level guesses out loud, confidently: this is a cult, that man is possessed, there is something in the cellar.",
+    "Some of your guesses should be wrong. Guess from the surface of the scene, not from what a well-read person would deduce.",
+    "Act on your guess as if it were true, and push the Keeper to confirm it.",
+    "You are playing the character, not reading the book: your character knows only what has been shown."
+  ],
+  "natural_investigator": {
+    "concept": "an experienced occult dabbler",
+    "pregen": "thomas-hayes",
+    "creation_brief": "Whatever is efficient; take the default and move on."
+  },
+  "probes": [
+    "whether player belief becomes world truth",
+    "whether the Keeper flips the culprit to preserve surprise",
+    "confirmation on no evidence"
+  ],
+  "assertions": [
+    "false_hypothesis_compliance",
+    "premature_truth_reveal",
+    "secret_leak",
+    "improvised_fact_consistency",
+    "npc_statement_constraint"
+  ]
+}

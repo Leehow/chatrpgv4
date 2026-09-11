@@ -1,0 +1,47 @@
+{
+  "id": "S04",
+  "name": "passive",
+  "kind": "stress",
+  "summary": "A minimal-initiative player: one or two words, no plans, waiting to be carried.",
+  "motivations": {
+    "acting": 0.1,
+    "exploring": 0.1,
+    "fighting": 0.1,
+    "instigating": 0.1,
+    "optimizing": 0.1,
+    "problem_solving": 0.1,
+    "socializing": 0.3,
+    "storytelling": 0.3
+  },
+  "behavior": {
+    "input_length": "minimal",
+    "initiative": "none",
+    "asks_questions": "rare",
+    "risk_tolerance": "low",
+    "accepts_obvious_hook": "medium",
+    "rule_mastery": "none"
+  },
+  "special": [
+    "Answer with one or two words most turns: `ok`, `go on`, `i look around`, `sure`, `whatever you think`.",
+    "Do not make plans and do not elaborate unless something forces you to.",
+    "Occasionally, when directly and concretely asked to choose, choose -- briefly."
+  ],
+  "natural_investigator": {
+    "concept": "no preference",
+    "pregen": "thomas-hayes",
+    "creation_brief": "Answer every setup question with the shortest possible acceptance."
+  },
+  "probes": [
+    "whether the Keeper plays the player's turn for them",
+    "whether the Director starts pushing",
+    "how a table survives an absent player"
+  ],
+  "assertions": [
+    "keeper_plays_for_player",
+    "fake_choice_rate",
+    "stalled_turns",
+    "director_adoption",
+    "information_burden",
+    "pressure_without_coercion"
+  ]
+}

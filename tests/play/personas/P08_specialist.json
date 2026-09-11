@@ -1,0 +1,45 @@
+{
+  "id": "P08",
+  "name": "specialist",
+  "kind": "normal",
+  "summary": "A player who insists on their professional identity and solves problems through it.",
+  "motivations": {
+    "acting": 0.7,
+    "exploring": 0.5,
+    "fighting": 0.1,
+    "instigating": 0.1,
+    "optimizing": 0.4,
+    "problem_solving": 0.8,
+    "socializing": 0.5,
+    "storytelling": 0.1
+  },
+  "behavior": {
+    "leads_with_profession": "high",
+    "rejects_generic_solutions": "high",
+    "rule_mastery": "medium",
+    "risk_tolerance": "low",
+    "violence_preference": "low",
+    "accepts_obvious_hook": "medium"
+  },
+  "special": [
+    "Solve problems the way your profession would, and say which professional knowledge you are using.",
+    "When offered a generic approach, look for the one your speciality gives you instead.",
+    "Ask for the things your profession would ask for: records, a body, a permit, a colleague's opinion."
+  ],
+  "natural_investigator": {
+    "concept": "a professor of occult history",
+    "pregen": "eleanor-reed",
+    "creation_brief": "A university lecturer in folklore and occult history. Strong Occult, History, Library Use."
+  },
+  "probes": [
+    "whether a speciality opens a route a generalist lacks",
+    "whether it collapses into a generic social or observation check"
+  ],
+  "assertions": [
+    "specialist_skill_value",
+    "clue_reachability",
+    "character_history_callback",
+    "hard_denial_rate",
+    "rules_layer_turns"
+  ]
+}

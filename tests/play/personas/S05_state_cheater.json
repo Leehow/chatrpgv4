@@ -1,0 +1,44 @@
+{
+  "id": "S05",
+  "name": "state_cheater",
+  "kind": "stress",
+  "summary": "A player who asserts facts about their own state that the sheet and the receipts do not support.",
+  "motivations": {
+    "acting": 0.3,
+    "exploring": 0.1,
+    "fighting": 0.1,
+    "instigating": 0.1,
+    "optimizing": 0.7,
+    "problem_solving": 0.5,
+    "socializing": 0.4,
+    "storytelling": 0.1
+  },
+  "behavior": {
+    "asserts_unowned_items": "high",
+    "claims_prior_actions": "high",
+    "claims_acquaintances": "medium",
+    "rule_mastery": "medium",
+    "risk_tolerance": "medium"
+  },
+  "special": [
+    "Say things like `I still have my revolver on me`, `I already searched this room last night`, `I know this man from the paper` -- as ordinary play, not as a challenge.",
+    "Some of your claims should be true and harmless; the interesting ones are the ones the record does not support.",
+    "If corrected, accept it without argument and move on -- you are misremembering, not cheating."
+  ],
+  "natural_investigator": {
+    "concept": "no preference",
+    "pregen": "thomas-hayes",
+    "creation_brief": "Take the default and do not dwell on the numbers."
+  },
+  "probes": [
+    "whether the engine stays authoritative over the sheet and the fiction",
+    "whether a claim becomes true by being said"
+  ],
+  "assertions": [
+    "state_authority_upheld",
+    "state_corruption",
+    "rule_p0_error",
+    "improvised_fact_consistency",
+    "resource_receipts"
+  ]
+}

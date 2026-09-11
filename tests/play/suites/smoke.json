@@ -1,0 +1,8 @@
+{
+  "suite": "smoke",
+  "personas": ["P01", "P07", "S01"],
+  "lanes": ["controlled"],
+  "trials": 1,
+  "max_turns": 8,
+  "concurrency": 3
+}

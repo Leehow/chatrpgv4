@@ -192,13 +192,19 @@ class PiProcess:
     """
 
     def __init__(self, launcher: Path, args: list[str], stderr_log_path: Path,
-                 events_path: Path, log: DriverLog):
+                 events_path: Path, log: DriverLog,
+                 cwd: Path | None = None, env: dict[str, str] | None = None):
         self.log = log
         self.events_path = events_path
         self._stderr_f = open(stderr_log_path, "ab", buffering=0)
+        # `cwd`/`env` default to the table's own: the repo and this process's environment. The
+        # persona benchmark (docs/specs/player-persona-benchmark.md) reuses this transport for a
+        # second pi that must NOT see the repo -- an empty cwd and its own Pi home are how the
+        # player process is kept from reading the module it is supposed to be discovering.
         self.proc = subprocess.Popen(
             [str(launcher), *args],
-            cwd=str(REPO_ROOT),
+            cwd=str(cwd or REPO_ROOT),
+            env=env,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=self._stderr_f,
@@ -478,6 +484,7 @@ class Daemon:
             # the assistant-side replacement nowhere to land, and the turn read as undelivered while the
             # player in the app had been given the words (contract §32.9).
             delivered = ""
+            delivery: dict | None = None
             stop_reason: str | None = None
             deadline = started_mono + timeout
             settle_deadline: float | None = None
@@ -549,6 +556,15 @@ class Daemon:
                             body = {}
                         if isinstance(body, dict) and isinstance(body.get("rendered_text"), str):
                             delivered = body["rendered_text"]
+                        if isinstance(body, dict):
+                            # What a player actually sees is prose *plus* this turn's mechanics
+                            # (§16.2/§16.3: numbers never enter the prose, PipiCOC draws them from
+                            # here). Keeping the parsed delivery means a reader of this run does not
+                            # have to re-parse `result_text`, which is truncated.
+                            delivery = {"kind": rec["name"],
+                                        "rendered_text": body.get("rendered_text") or "",
+                                        "mechanics": body.get("mechanics") or [],
+                                        "pending_choice": body.get("pending_choice")}
                 elif etype == "agent_settled":
                     if not saw_work:
                         # The previous run finishing, not this turn. Keep waiting for this one.
@@ -588,13 +604,14 @@ class Daemon:
 
             return self._finalize_turn(n, text, started_at, started_mono, tool_records,
                                         final_text, settle_class, stop_reason,
-                                        stale_settles=stale_settles)
+                                        stale_settles=stale_settles, delivery=delivery)
         finally:
             self.pi.end_turn()
 
     def _finalize_turn(self, n: int, player_text: str, started_at: str, started_mono: float,
                         tool_records: list[dict], final_text: str,
-                        settle_class: str, stop_reason: str | None, stale_settles: int = 0) -> dict:
+                        settle_class: str, stop_reason: str | None, stale_settles: int = 0,
+                        delivery: dict | None = None) -> dict:
         wall_seconds = round(time.monotonic() - started_mono, 3)
         clean_tools = [
             {"name": t.get("name"), "args": t.get("args"), "result_text": t.get("result_text", ""),
@@ -609,6 +626,8 @@ class Daemon:
             # How many settles arrived before this turn had begun; each one would have ended the
             # turn early and left the keeper playing it unwatched.
             **({"stale_settles": stale_settles} if stale_settles else {}),
+            # The player-visible delivery of this turn, as the kernel projected it (§16.2).
+            **({"delivery": delivery} if delivery else {}),
         }
         write_json(self.dir / f"turn-{n}.json", summary)
         self._write_heartbeat("running")
@@ -831,9 +850,18 @@ def cmd_start(args: argparse.Namespace) -> int:
     if args.model:
         cmd += ["--model", args.model]
 
+    env = dict(os.environ)
+    for pair in args.env or []:
+        if "=" not in pair:
+            print(f"error: --env expects KEY=VALUE, got {pair!r}", file=sys.stderr)
+            return 1
+        key, value = pair.split("=", 1)
+        env[key] = value
+
     with open(daemon_stdout_log, "ab") as log_f:
         subprocess.Popen(cmd, cwd=str(REPO_ROOT), stdin=subprocess.DEVNULL,
-                          stdout=log_f, stderr=subprocess.STDOUT, start_new_session=True)
+                          stdout=log_f, stderr=subprocess.STDOUT, start_new_session=True,
+                          env=env)
 
     if not _wait_for_ready(rdir, timeout=STARTUP_READY_TIMEOUT):
         info = read_json(rdir / "daemon.json", {}) or {}
@@ -846,7 +874,11 @@ def cmd_start(args: argparse.Namespace) -> int:
         print_log_tail(daemon_stdout_log, 20)
         return 1
 
-    write_json(CURRENT_RUN_FILE, {"run_id": run_id})
+    if not args.no_default_run:
+        # The benchmark starts many runs at once and must not steal this pointer: a human
+        # playing a real table in the same checkout would find their bare `driver.py turn`
+        # talking to a benchmark run (tests/play/bench.py always passes --no-default-run).
+        write_json(CURRENT_RUN_FILE, {"run_id": run_id})
     info = read_json(rdir / "daemon.json", {}) or {}
     print(f"started run {run_id} (daemon pid {info.get('daemon_pid')}, pi pid {info.get('pi_pid')})")
     print(f"evidence: {rdir}")
@@ -946,6 +978,11 @@ def build_parser() -> argparse.ArgumentParser:
                      help="provider/modelId sent via set_model after start (default %(default)s)")
     sp.add_argument("--launcher", default=None,
                      help="path to bin/pi-coc-compatible launcher (default: env PI_COC_LAUNCHER, then bin/pi-coc)")
+    sp.add_argument("--no-default-run", action="store_true",
+                     help="do not make this run the default for later turn/stop/log calls")
+    sp.add_argument("--env", action="append", default=None, metavar="KEY=VALUE",
+                     help="environment variable for this run's pi (repeatable); the daemon inherits "
+                          "everything else, so concurrent runs can differ in e.g. PI_COC_ADMISSION_MODEL")
     sp.set_defaults(func=cmd_start)
 
     sp = sub.add_parser("turn", help="send one player turn and print the keeper's reply")

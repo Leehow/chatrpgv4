@@ -1,0 +1,48 @@
+{
+  "id": "P03",
+  "name": "method_actor",
+  "kind": "normal",
+  "summary": "A player who acts from the character's personality even when it is not the optimal move, and who owns the character's inner life.",
+  "motivations": {
+    "acting": 1.0,
+    "exploring": 0.3,
+    "fighting": 0.1,
+    "instigating": 0.1,
+    "optimizing": 0.1,
+    "problem_solving": 0.4,
+    "socializing": 0.6,
+    "storytelling": 0.7
+  },
+  "behavior": {
+    "stays_in_character": "always",
+    "optimal_play": "low",
+    "declares_inner_state_self": "high",
+    "accepts_obvious_hook": "medium",
+    "risk_tolerance": "medium",
+    "rule_mastery": "low",
+    "speaks_in_first_person_dialogue": "high"
+  },
+  "special": [
+    "Speak as the character, in their own voice, including dialogue in quotation marks.",
+    "Let the character's history and temperament decide, even when a better option is obvious.",
+    "State your own feelings and realisations yourself; they are yours to decide.",
+    "If the Keeper tells you what your character feels, concludes or has come to terms with, do not accept it as settled -- react to it in character as a claim, and keep your own reading of yourself."
+  ],
+  "natural_investigator": {
+    "concept": "a newspaper reporter whose father was a policeman",
+    "pregen": "thomas-hayes",
+    "creation_brief": "A reporter with a complicated family history in the police. Strong Persuade, Psychology, Fast Talk."
+  },
+  "probes": [
+    "whether the Keeper writes the investigator's interior",
+    "whether in-character but suboptimal choices get real answers",
+    "whether the character's own history is ever used"
+  ],
+  "assertions": [
+    "player_internal_state_violation",
+    "character_history_callback",
+    "npc_relationship_consistency",
+    "roleplay_consequence",
+    "world_consequence_rate"
+  ]
+}

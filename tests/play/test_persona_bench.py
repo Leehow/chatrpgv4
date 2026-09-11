@@ -1,0 +1,281 @@
+#!/usr/bin/env python3
+"""tests/play/test_persona_bench.py -- the persona benchmark's own tests.
+
+Spec: docs/specs/player-persona-benchmark.md section 11. Nothing here calls a model or
+spends quota: the Keeper side is `fixtures/fake_pi_rpc.py` and the player side is
+`fixtures/fake_persona_pi.py`, both of which speak the RPC protocol and nothing else.
+
+What is actually guarded here is the part a benchmark can silently get wrong: the
+isolation of the player, the projection it is shown, and the refusal to report a metric
+nobody registered.
+
+    PYTHONDONTWRITEBYTECODE=1 uv run --frozen python -m pytest tests/play -q -p no:cacheprovider
+"""
+from __future__ import annotations
+
+import json
+import shutil
+import sys
+import uuid
+from pathlib import Path
+
+import pytest
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPO_ROOT / "tests" / "play"))
+
+import bench  # noqa: E402
+import driver  # noqa: E402
+import persona_metrics  # noqa: E402
+import persona_report  # noqa: E402
+import player as player_mod  # noqa: E402
+
+FAKE_KEEPER = REPO_ROOT / "tests" / "play" / "fixtures" / "fake_pi_rpc.py"
+FAKE_PERSONA = REPO_ROOT / "tests" / "play" / "fixtures" / "fake_persona_pi.py"
+
+
+# -- personas and the registry ---------------------------------------------
+
+def test_all_personas_load_and_only_name_registered_metrics():
+    personas = player_mod.load_personas()
+    assert len(personas) == 18, "the suite is twelve normal personas and six stress personas"
+    assert {p["kind"] for p in personas.values()} == {"normal", "stress"}
+    for persona in personas.values():
+        for metric_id in persona["assertions"]:
+            assert metric_id in persona_metrics.METRICS
+
+
+def test_a_persona_naming_an_unregistered_metric_fails_to_load(tmp_path: Path):
+    persona = json.loads(next((REPO_ROOT / "tests/play/personas").glob("P01*.json")).read_text())
+    persona["assertions"] = ["vibes"]
+    path = tmp_path / "P99_vibes.json"
+    path.write_text(json.dumps(persona), encoding="utf-8")
+    with pytest.raises(ValueError, match="unregistered metric"):
+        player_mod.load_persona(path)
+
+
+def test_personas_carry_no_cjk_because_every_field_is_model_visible():
+    for path in (REPO_ROOT / "tests/play/personas").glob("*.json"):
+        text = path.read_text(encoding="utf-8")
+        assert not any("一" <= ch <= "鿿" or "぀" <= ch <= "ヿ" for ch in text), \
+            f"{path.name} carries CJK; persona text is system language (contract section 16.1)"
+
+
+def test_rate_means_one_thing_per_metric():
+    assert persona_metrics.rate("hard_denial_rate", ok=9, violation=1) == 0.1
+    assert persona_metrics.rate("world_consequence_rate", ok=9, violation=1) == 0.9
+    assert persona_metrics.rate("hard_denial_rate", ok=0, violation=0) is None
+
+
+# -- the projection the player is shown ------------------------------------
+
+def test_player_view_hides_keeper_visibility_rolls():
+    delivery = {"kind": "narrate", "rendered_text": "The door gives.", "mechanics": [
+        {"kind": "roll", "skill": "Spot Hidden", "visibility": "keeper", "passed": False},
+        {"kind": "roll", "skill": "Locksmith", "visibility": "public", "passed": True},
+        {"kind": "time", "minutes": 5},
+    ]}
+    view = player_mod.player_view(delivery, "", "settled")
+    assert "Locksmith" in view and "Spot Hidden" not in view
+    assert "The door gives." in view
+
+
+def test_player_view_falls_back_to_prose_and_names_a_dead_turn():
+    assert player_mod.player_view(None, "words", "settled") == "words"
+    assert "nothing this turn" in player_mod.player_view(None, "", "timeout")
+
+
+def test_parse_reply_takes_the_object_and_refuses_the_rest():
+    parsed, error = player_mod.parse_reply('```json\n{"player_message": "I knock.", '
+                                           '"private_eval": {"confusion": 1}}\n```')
+    assert error is None and parsed["player_message"] == "I knock."
+    assert parsed["private_eval"] == {"confusion": 1}
+    assert player_mod.parse_reply("no json here")[0] is None
+    assert player_mod.parse_reply('{"private_eval": {}}')[0] is None
+    assert player_mod.parse_reply('{"player_message": "   "}')[0] is None
+
+
+# -- the isolation invariants ----------------------------------------------
+
+def test_persona_player_runs_outside_the_repo_with_no_tools(tmp_path: Path):
+    persona = player_mod.load_personas()["P01"]
+    record = tmp_path / "argv.json"
+    player = player_mod.PersonaPlayer(persona, tmp_path / "run", launcher=FAKE_PERSONA,
+                                      credentials_from=tmp_path / "no-credentials")
+    import os
+    os.environ["FAKE_PERSONA_RECORD"] = str(record)
+    try:
+        player.start()
+        act = player.act("The office is quiet.", timeout=20.0)
+    finally:
+        os.environ.pop("FAKE_PERSONA_RECORD", None)
+        player.stop()
+
+    seen = json.loads(record.read_text(encoding="utf-8"))
+    for flag in player_mod.ISOLATION_FLAGS:
+        assert flag in seen["argv"], f"the persona player ran without {flag}"
+    assert not Path(seen["cwd"]).is_relative_to(REPO_ROOT), "the player could read the repo"
+    assert seen["pi_home"] and not Path(seen["pi_home"]).is_relative_to(REPO_ROOT)
+    assert seen["home_files"] == ["settings.json"], "an isolated home holds no packages"
+    assert act["ok"] and act["player_message"] == "persona turn 1"
+    assert act["private_eval"]["engagement"] == 8
+
+
+def test_an_unreadable_persona_reply_is_retried_once_then_reported(tmp_path: Path):
+    import os
+    persona = player_mod.load_personas()["S04"]
+    os.environ["FAKE_PERSONA_GARBAGE"] = "5"
+    player = player_mod.PersonaPlayer(persona, tmp_path / "run", launcher=FAKE_PERSONA,
+                                      credentials_from=tmp_path / "none")
+    try:
+        player.start()
+        act = player.act("Anything?", timeout=20.0)
+    finally:
+        os.environ.pop("FAKE_PERSONA_GARBAGE", None)
+        player.stop()
+    assert act["ok"] is False and act["attempts"] == 2 and act["player_message"] is None
+
+
+# -- the run loop ----------------------------------------------------------
+
+@pytest.fixture
+def fixture_campaign():
+    """A campaign directory with just enough evidence for the loop and the report."""
+    campaign_id = f"fixture-persona-{uuid.uuid4().hex[:8]}"
+    path = bench.campaign_dir(campaign_id)
+    (path / "turns").mkdir(parents=True)
+    (path / "party").mkdir(parents=True)
+    driver.write_json(path / "campaign.json", {"id": campaign_id, "module_id": "the-haunting",
+                                                "status": "active", "play_language": "zh-Hans"})
+    driver.write_json(path / "party" / "thomas-hayes.json",
+                      {"id": "thomas-hayes", "current_hp": 11, "conditions": [],
+                       "skills": {"Spot Hidden": 55}})
+    (path / "transcript.jsonl").write_text(
+        json.dumps({"turn": 0, "role": "keeper", "text": "The office is quiet."}) + "\n",
+        encoding="utf-8")
+    driver.write_json(path / "turns" / "0001.json", {"turn": 1, "receipts": [
+        {"kind": "clue", "clue": "the-letter"}, {"kind": "roll", "skill": "Spot Hidden", "passed": True},
+        {"kind": "delta", "resource": "hp", "before": 11, "after": 9},
+    ]})
+    (path / "telemetry.jsonl").write_text("\n".join(json.dumps(row) for row in [
+        {"turn": 1, "tool": "look", "ok": True}, {"turn": 1, "tool": "narrate", "ok": True},
+        {"turn": 1, "lane": "admission", "verb": "resolve", "verdict": "authorized", "ms": 900},
+        {"turn": 1, "lane": "director", "adopted": True},
+    ]) + "\n", encoding="utf-8")
+    yield campaign_id
+    shutil.rmtree(path, ignore_errors=True)
+
+
+def test_one_run_plays_the_real_driver_and_keeps_both_sides_of_every_turn(fixture_campaign, monkeypatch):
+    """The whole loop: persona -> driver daemon -> pi -> delivery -> persona, with fakes at both ends."""
+    monkeypatch.setattr(bench, "kernel_call", lambda method, params: {"ok": True, "result": {}})
+    monkeypatch.setattr(player_mod.PersonaPlayer, "_launcher_default", FAKE_PERSONA, raising=False)
+    suite = {**bench.DEFAULTS, "suite": "fixture", "personas": ["P01"], "max_turns": 3,
+             "turn_timeout": 30.0, "opening_timeout": 30.0, "launcher": str(FAKE_KEEPER),
+             "player_model": "deepseek/deepseek-v4-pro"}
+    run = {"persona": "P01", "lane": "controlled", "trial": 1,
+           "campaign": fixture_campaign, "run_id": f"{fixture_campaign}-run"}
+    persona = player_mod.load_personas()["P01"]
+
+    real_init = player_mod.PersonaPlayer.__init__
+
+    def isolated_init(self, persona, run_dir, **kwargs):
+        kwargs.update(launcher=FAKE_PERSONA, credentials_from=run_dir / "no-credentials")
+        real_init(self, persona, run_dir, **kwargs)
+
+    monkeypatch.setattr(player_mod.PersonaPlayer, "__init__", isolated_init)
+    monkeypatch.setattr(bench, "PersonaPlayer", player_mod.PersonaPlayer)
+
+    suite_dir = REPO_ROOT / ".coc" / "benchmarks" / f"fixture-{uuid.uuid4().hex[:8]}"
+    try:
+        record = bench.execute_run(run, suite, persona, suite_dir)
+        assert record["status"] == "completed", record.get("error")
+        assert record["method"] == "persona-benchmark" and record["acceptance"] is False
+        assert record["turns_played"] == 3 and record["stop_reason"] == "max_turns"
+
+        rows = persona_report.read_jsonl(suite_dir / run["run_id"] / "trace.jsonl")
+        played = [r for r in rows if r.get("phase") == "play"]
+        assert [r["player_message"] for r in played] == [f"persona turn {n}" for n in (1, 2, 3)]
+        assert all(r["private_eval"]["engagement"] == 8 for r in played), \
+            "the sidecar must survive to the trace"
+        assert all(r["keeper_text"] for r in played)
+        assert rows[0]["phase"] == "opening" and "office" in rows[0]["text"]
+    finally:
+        shutil.rmtree(suite_dir, ignore_errors=True)
+        shutil.rmtree(driver.run_dir(run["run_id"]), ignore_errors=True)
+
+
+def test_a_run_whose_player_is_not_isolated_is_refused(tmp_path: Path, monkeypatch):
+    persona = player_mod.load_personas()["P01"]
+    player = player_mod.PersonaPlayer(persona, tmp_path / "run", launcher=FAKE_PERSONA,
+                                      credentials_from=tmp_path / "none")
+    player.isolation = {"argv_flags": ["--no-tools"], "cwd": str(REPO_ROOT)}
+    with pytest.raises(bench.RunFailed, match="not isolated"):
+        bench._assert_isolation(player)
+
+
+# -- the report ------------------------------------------------------------
+
+def test_receipts_tier_reads_the_receipts_not_their_projection(fixture_campaign):
+    metrics = persona_report.receipts_metrics(bench.campaign_dir(fixture_campaign))
+    assert metrics["turns_played"] == 1
+    assert metrics["clues_found"] == 1 and metrics["clues_in_module"] == 39
+    assert metrics["rules_layer_turns"] == 1
+    # `delta` is the receipt; `change` is only the name its projection carries (section 16.2).
+    assert metrics["combat_receipts"] == 1
+    assert metrics["investigator_alive"] is True
+    assert metrics["admission_verdicts"] == {"authorized": 1}
+
+
+def test_the_judge_may_not_invent_metrics_turns_or_uncited_findings():
+    judgement = {"findings": [
+        {"metric": "hard_denial_rate", "turn": 2, "verdict": "violation", "quote": "You cannot."},
+        {"metric": "hard_denial_rate", "turn": 3, "verdict": "ok", "quote": "The door holds."},
+        {"metric": "hard_denial_rate", "turn": 2, "verdict": "violation", "quote": ""},
+        {"metric": "vibes", "turn": 2, "verdict": "violation", "quote": "bad vibes"},
+        {"metric": "secret_leak", "turn": 99, "verdict": "violation", "quote": "off the record"},
+        {"metric": "premature_truth_reveal", "turn": 2, "verdict": "violation", "quote": "not asked for"},
+    ]}
+    folded = persona_report.fold_judgement(judgement, turns_seen={2, 3},
+                                           allowed=["hard_denial_rate", "secret_leak"])
+    assert folded["hard_denial_rate"] == {
+        "ok": 1, "violation": 1, "rate": 0.5, "direction": "lower_is_better",
+        "citations": [{"turn": 2, "verdict": "violation", "quote": "You cannot.", "why": ""},
+                      {"turn": 3, "verdict": "ok", "quote": "The door holds.", "why": ""}]}
+    assert "vibes" not in folded and "secret_leak" not in folded
+    assert folded["_dropped_findings"] == 4
+
+
+def test_sidecar_is_labelled_self_report():
+    rows = [{"phase": "play", "turn": n, "private_eval": {"perceived_agency": n, "confusion": 1,
+                                                          "engagement": 5, "frustration": 0,
+                                                          "current_hypothesis": f"h{n // 2}"}}
+            for n in range(1, 6)]
+    metrics = persona_report.sidecar_metrics(rows)
+    assert metrics["self_report"] is True
+    assert metrics["perceived_agency"] == 3 and metrics["hypothesis_changes"] == 2
+
+
+# -- the matrix ------------------------------------------------------------
+
+def test_the_full_matrix_is_the_one_the_spec_names():
+    suite = bench.load_suite(REPO_ROOT / "tests/play/suites/full.json")
+    runs = bench.plan_runs(suite, player_mod.load_personas(), "20260911T000000Z")
+    assert len(runs) == 108
+    assert len({r["campaign"] for r in runs}) == 108, "concurrent runs must not share a campaign"
+    assert len({r["run_id"] for r in runs}) == 108
+
+
+def test_the_bench_never_steals_the_default_run_pointer(fixture_campaign, monkeypatch, tmp_path):
+    """A human playing a real table in this checkout keeps their own `--run` default."""
+    before = driver.read_json(driver.CURRENT_RUN_FILE, {"run_id": "a-human-table"})
+    driver.write_json(driver.CURRENT_RUN_FILE, before)
+    suite = {**bench.DEFAULTS, "suite": "fixture", "kp_model": "xai/grok-4.6",
+             "launcher": str(FAKE_KEEPER), "admission_model": None}
+    run_id = f"{fixture_campaign}-pointer"
+    try:
+        bench.start_table(fixture_campaign, run_id, suite, launcher=str(FAKE_KEEPER))
+        assert driver.read_json(driver.CURRENT_RUN_FILE, {}) == before
+    finally:
+        bench.stop_table(run_id)
+        shutil.rmtree(driver.run_dir(run_id), ignore_errors=True)

@@ -1,0 +1,46 @@
+{
+  "id": "S02",
+  "name": "anti_railroad",
+  "kind": "stress",
+  "summary": "A player who deliberately goes where the Keeper is not pointing and declines obvious hooks.",
+  "motivations": {
+    "acting": 0.4,
+    "exploring": 0.8,
+    "fighting": 0.1,
+    "instigating": 0.8,
+    "optimizing": 0.1,
+    "problem_solving": 0.4,
+    "socializing": 0.1,
+    "storytelling": 0.1
+  },
+  "behavior": {
+    "accepts_obvious_hook": "none",
+    "goes_opposite_direction": "high",
+    "declines_npc_requests": "high",
+    "risk_tolerance": "high",
+    "long_term_planning": "low"
+  },
+  "special": [
+    "When the Keeper points east, go west -- but for a reason your character would give.",
+    "Decline the job, leave the scene, pursue your own errand instead.",
+    "Do not sabotage the session out of character; refuse in fiction and offer your own direction."
+  ],
+  "natural_investigator": {
+    "concept": "someone with their own reasons for being in this city",
+    "pregen": "thomas-hayes",
+    "creation_brief": "Take the default; the character's plans are their own."
+  },
+  "probes": [
+    "railroading pressure under refusal",
+    "whether the world can carry a player who will not follow",
+    "in-world redirection versus blocking"
+  ],
+  "assertions": [
+    "railroad_recovery",
+    "hard_denial_rate",
+    "fake_choice_rate",
+    "keeper_plays_for_player",
+    "world_consequence_rate",
+    "pressure_without_coercion"
+  ]
+}

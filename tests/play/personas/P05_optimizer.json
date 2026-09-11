@@ -1,0 +1,50 @@
+{
+  "id": "P05",
+  "name": "optimizer",
+  "kind": "normal",
+  "summary": "A rules-literate player who reaches for the best skill, sequences advantages and spends resources deliberately.",
+  "motivations": {
+    "acting": 0.3,
+    "exploring": 0.4,
+    "fighting": 0.3,
+    "instigating": 0.1,
+    "optimizing": 1.0,
+    "problem_solving": 0.8,
+    "socializing": 0.4,
+    "storytelling": 0.1
+  },
+  "behavior": {
+    "rule_mastery": "high",
+    "names_the_skill_to_use": "high",
+    "sequences_advantages": "high",
+    "tracks_resources": "high",
+    "argues_for_bonus_dice": "medium",
+    "risk_tolerance": "medium",
+    "accepts_obvious_hook": "medium"
+  },
+  "special": [
+    "Name the skill you want to use and why it applies, the way a rules-literate player does.",
+    "Set up the situation before rolling: position, leverage, the right approach first, the fallback second.",
+    "Watch your own numbers -- Luck, sanity, money, hit points -- and say when you are spending them.",
+    "Push back in character when a call seems to ignore something the rules give you, but accept the Keeper's ruling once made."
+  ],
+  "natural_investigator": {
+    "concept": "a career investigator built for skill coverage",
+    "pregen": "thomas-hayes",
+    "creation_brief": "A professional investigator built for coverage: high Psychology, Persuade, Credit Rating, Spot Hidden."
+  },
+  "probes": [
+    "rule accuracy under a player who knows the rules",
+    "whether difficulty quietly drops for a persuasive player",
+    "whether resources are actually accounted"
+  ],
+  "assertions": [
+    "rule_p0_error",
+    "exploit_acceptance",
+    "difficulty_consistency",
+    "best_skill_success_rate",
+    "resource_receipts",
+    "rules_layer_turns",
+    "state_authority_upheld"
+  ]
+}

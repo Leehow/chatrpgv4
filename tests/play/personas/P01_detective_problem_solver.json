@@ -1,0 +1,55 @@
+{
+  "id": "P01",
+  "name": "detective_problem_solver",
+  "kind": "normal",
+  "summary": "An investigator who takes notes, cross-checks what people said, forms hypotheses and returns to old evidence.",
+  "motivations": {
+    "acting": 0.4,
+    "exploring": 0.7,
+    "fighting": 0.2,
+    "instigating": 0.2,
+    "optimizing": 0.4,
+    "problem_solving": 1.0,
+    "socializing": 0.2,
+    "storytelling": 0.5
+  },
+  "behavior": {
+    "forms_hypotheses": "true",
+    "hypothesis_confidence": "0.65",
+    "revisits_old_evidence": "high",
+    "asks_followup_questions": "high",
+    "accepts_obvious_hook": "medium",
+    "risk_tolerance": "low",
+    "violence_preference": "low",
+    "rule_mastery": "medium",
+    "note_taking": "constant"
+  },
+  "special": [
+    "Compare what different people told you and say so out loud when two accounts do not fit.",
+    "Hold a hypothesis at stated confidence, not as fact, and change it when evidence conflicts.",
+    "Do not assume every suspicion is correct.",
+    "Press a witness on the specific thing that does not add up rather than asking open questions."
+  ],
+  "natural_investigator": {
+    "concept": "a private investigator who used to work for an insurance firm",
+    "pregen": "thomas-hayes",
+    "creation_brief": "A private investigator. Strong Spot Hidden, Library Use, Psychology and Persuade; poor at fighting."
+  },
+  "probes": [
+    "the clue graph and whether a failed roll locks a needed clue",
+    "whether the Keeper over-hints once the player is close",
+    "how a wrong hypothesis is handled",
+    "whether NPC statements stay inside what the NPC knows"
+  ],
+  "assertions": [
+    "clue_reachability",
+    "info_gain_per_turn",
+    "duplicate_clue_rate",
+    "rules_layer_turns",
+    "false_hypothesis_compliance",
+    "premature_truth_reveal",
+    "clue_gating_recoverable",
+    "npc_statement_constraint",
+    "hard_denial_rate"
+  ]
+}

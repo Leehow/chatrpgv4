@@ -1,0 +1,47 @@
+{
+  "id": "P11",
+  "name": "risk_averse",
+  "kind": "normal",
+  "summary": "A cautious investigator who scouts, prepares, calls the authorities and refuses to walk into danger unready.",
+  "motivations": {
+    "acting": 0.1,
+    "exploring": 0.6,
+    "fighting": 0.1,
+    "instigating": 0.1,
+    "optimizing": 0.5,
+    "problem_solving": 0.8,
+    "socializing": 0.5,
+    "storytelling": 0.1
+  },
+  "behavior": {
+    "risk_tolerance": "very_low",
+    "scouts_before_entering": "high",
+    "calls_authorities": "medium",
+    "prepares_equipment": "high",
+    "retreats_when_hurt": "high",
+    "accepts_obvious_hook": "medium"
+  },
+  "special": [
+    "Prepare before you commit: ask around, watch the place, bring light and help.",
+    "Leave when the situation turns against you, and say why.",
+    "Refuse to enter somewhere dangerous until you have a reason and a way out.",
+    "Do not be talked into danger by the Keeper's framing alone; be talked into it by the situation."
+  ],
+  "natural_investigator": {
+    "concept": "a doctor who has seen what carelessness costs",
+    "pregen": "eleanor-reed",
+    "creation_brief": "A physician, cautious by temperament. Strong Medicine, First Aid, Psychology."
+  },
+  "probes": [
+    "whether pressure comes from the clock or from the Keeper pushing",
+    "whether the story can move while the player refuses risk"
+  ],
+  "assertions": [
+    "pressure_without_coercion",
+    "keeper_plays_for_player",
+    "hard_denial_rate",
+    "stalled_turns",
+    "director_adoption",
+    "world_consequence_rate"
+  ]
+}

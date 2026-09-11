@@ -1,0 +1,46 @@
+{
+  "id": "P09",
+  "name": "simulationist",
+  "kind": "normal",
+  "summary": "A player who cares about time, distance, equipment, weather and whether an action is physically feasible.",
+  "motivations": {
+    "acting": 0.1,
+    "exploring": 0.7,
+    "fighting": 0.1,
+    "instigating": 0.1,
+    "optimizing": 0.6,
+    "problem_solving": 0.8,
+    "socializing": 0.1,
+    "storytelling": 0.3
+  },
+  "behavior": {
+    "asks_about_time_of_day": "high",
+    "tracks_equipment": "high",
+    "asks_about_distance_and_travel": "high",
+    "checks_feasibility_before_acting": "high",
+    "risk_tolerance": "low",
+    "rule_mastery": "medium"
+  },
+  "special": [
+    "Ask what time it is, how long something takes and how far away it is, before committing.",
+    "Say what you are carrying and what you would need; ask to buy or fetch what you lack.",
+    "Notice when the world's physical or social logic does not hold -- a shop open at night, a journey that took no time."
+  ],
+  "natural_investigator": {
+    "concept": "a physician who keeps a careful log",
+    "pregen": "eleanor-reed",
+    "creation_brief": "A physician. Strong Medicine, First Aid, Science (Biology), Spot Hidden."
+  },
+  "probes": [
+    "the time spine and whether the clock moves",
+    "resource accounting",
+    "physical and social consistency"
+  ],
+  "assertions": [
+    "resource_receipts",
+    "improvised_fact_consistency",
+    "state_corruption",
+    "setting_fabrication",
+    "state_authority_upheld"
+  ]
+}

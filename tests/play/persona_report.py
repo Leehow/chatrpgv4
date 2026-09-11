@@ -1,0 +1,452 @@
+#!/usr/bin/env python3
+"""tests/play/persona_report.py -- the three-tier report of player-persona-suite-v1.
+
+See docs/specs/player-persona-benchmark.md section 6. Three tiers, kept apart on purpose:
+
+    receipts  computed here from .coc/campaigns/<id>/{turns/*.json,telemetry.jsonl}
+    sidecar   the persona's own private_eval, aggregated -- printed as self-report
+    judge     semantic questions, answered by a model with a turn citation
+
+The judge is a tool-carrying pi agent (Agents.md: model work over text runs as an agent with
+tools, not as a bare completion). It is handed a packet this file builds -- the transcript,
+the receipts, the module's own truth, and the private hypotheses the Keeper never saw -- and
+it writes `judgement.json` itself. Findings without a turn citation are dropped here, not
+argued with.
+
+    uv run --frozen python tests/play/persona_report.py run --run-dir .coc/benchmarks/<suite>/<run>
+    uv run --frozen python tests/play/persona_report.py suite --suite-dir .coc/benchmarks/<suite>
+    uv run --frozen python tests/play/persona_report.py compare --baseline <dir> --candidate <dir>
+
+Only the standard library is used.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import statistics
+import subprocess
+import sys
+from pathlib import Path
+from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from persona_metrics import HARD_GATES, METRICS, judge_metrics, rate  # noqa: E402
+from player import load_personas  # noqa: E402
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_JUDGE_MODEL = "deepseek/deepseek-v4-pro"
+JUDGE_TIMEOUT = 1800
+
+
+# --------------------------------------------------------------------------
+# tier A: receipts
+# --------------------------------------------------------------------------
+
+def read_jsonl(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    rows = []
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        try:
+            rows.append(json.loads(line))
+        except ValueError:
+            continue
+    return rows
+
+
+def module_graph(campaign: Path) -> dict[str, Any]:
+    meta = json.loads((campaign / "campaign.json").read_text(encoding="utf-8"))
+    module_id = meta.get("module_id")
+    for candidate in (REPO_ROOT / ".coc" / "modules" / str(module_id) / "module-graph.json",
+                      REPO_ROOT / "content" / "starters" / str(module_id) / "module-graph.json"):
+        if candidate.exists():
+            return json.loads(candidate.read_text(encoding="utf-8"))
+    return {"nodes": []}
+
+
+def receipts_metrics(campaign: Path) -> dict[str, Any]:
+    turns = [json.loads(p.read_text(encoding="utf-8"))
+             for p in sorted((campaign / "turns").glob("*.json"))]
+    telemetry = read_jsonl(campaign / "telemetry.jsonl")
+    graph = module_graph(campaign)
+    clue_nodes = [n for n in graph.get("nodes", []) if n.get("node_kind") == "clue"]
+
+    played = [t for t in turns if t.get("turn")]
+    receipts = [r for t in turns for r in (t.get("receipts") or [])]
+    clue_receipts = [r for r in receipts if r.get("kind") == "clue"]
+    seen: set[str] = set()
+    duplicates = 0
+    for receipt in clue_receipts:
+        name = receipt.get("clue")
+        if name in seen:
+            duplicates += 1
+        seen.add(name)
+
+    rolls = [r for r in receipts if r.get("kind") == "roll"]
+    resolve_turns = {t["turn"] for t in turns if any(
+        r.get("kind") in ("roll", "dice") for r in (t.get("receipts") or []))}
+
+    tool_rows = [r for r in telemetry if r.get("tool") and not r.get("event")]
+    errored = [r for r in tool_rows if r.get("ok") is False]
+    admission = [r for r in telemetry if r.get("lane") == "admission" and r.get("verdict")]
+    verdicts: dict[str, int] = {}
+    for row in admission:
+        verdicts[row["verdict"]] = verdicts.get(row["verdict"], 0) + 1
+    admission_ms = sorted(r["ms"] for r in admission if isinstance(r.get("ms"), (int, float)))
+    director = [r for r in telemetry if r.get("lane") == "director"]
+    offers = [r for r in telemetry if r.get("lane") == "offers"]
+    offers_out = sum(len(r.get("offered") or []) for r in offers)
+    offers_taken = sum(len(r.get("taken") or r.get("adopted") or []) for r in offers
+                       if isinstance(r.get("taken") or r.get("adopted"), list))
+
+    party = sorted((campaign / "party").glob("*.json"))
+    sheet = json.loads(party[0].read_text(encoding="utf-8")) if party else {}
+    skills = sheet.get("skills") or {}
+    top_skills = {k for k, _ in sorted(
+        ((k, v if isinstance(v, (int, float)) else (v or {}).get("value", 0))
+         for k, v in skills.items()), key=lambda kv: kv[1], reverse=True)[:5]}
+    best_rolls = [r for r in rolls if (r.get("skill") or "") in top_skills]
+
+    meta = json.loads((campaign / "campaign.json").read_text(encoding="utf-8"))
+    # Death lives in the engine, not in the prose: the sheet's conditions and current HP are
+    # the record (a real table ended with `conditions: [... "dead"]` and `current_hp: 0`).
+    conditions = set(sheet.get("conditions") or [])
+    alive = None
+    if sheet:
+        alive = "dead" not in conditions and (sheet.get("current_hp") or 0) > 0
+
+    return {
+        "turns_played": len(played),
+        "rules_layer_turns": len(resolve_turns - {0}),
+        "info_gain_per_turn": round(len(clue_receipts) / len(played), 3) if played else None,
+        "clue_reachability": (round(len(seen) / len(clue_nodes), 3) if clue_nodes else None),
+        "clues_found": len(seen), "clues_in_module": len(clue_nodes),
+        "duplicate_clue_rate": (round(duplicates / len(clue_receipts), 3) if clue_receipts else None),
+        "kernel_error_rate": (round(len(errored) / len(tool_rows), 4) if tool_rows else None),
+        "kernel_error_codes": sorted({r.get("code") for r in errored if r.get("code")}),
+        "admission_verdicts": verdicts,
+        "admission_refusal_rate": (round(sum(v for k, v in verdicts.items()
+                                             if k not in ("authorized", "entailed", "not_player_action"))
+                                         / sum(verdicts.values()), 4) if verdicts else None),
+        "admission_ms_p90": (admission_ms[int(len(admission_ms) * 0.9) - 1] if admission_ms else None),
+        "resource_receipts": sum(1 for r in receipts if r.get("kind") in ("time", "cash", "item")),
+        # A resource change's receipt kind is `delta`; `change` is the name its *projection*
+        # carries (section 16.2). Reading the receipt by its projected name counted zero wounds
+        # in a run that ended with the investigator dead on the floor.
+        "combat_receipts": sum(1 for r in receipts
+                               if r.get("kind") == "delta" and r.get("resource") in ("hp", "san")),
+        "combat_sessions": sum(1 for r in receipts if r.get("kind") == "session"
+                               and r.get("family") == "combat" and r.get("transition") == "start"),
+        "npc_ledger_moves": sum(1 for r in receipts if r.get("kind") == "npc"),
+        "best_skill_success_rate": (round(sum(1 for r in best_rolls if r.get("passed")) / len(best_rolls), 3)
+                                    if best_rolls else None),
+        "director_adoption": (round(sum(1 for r in director if r.get("adopted")) / len(director), 3)
+                              if director else None),
+        "offers_taken": {"offered": offers_out, "taken": offers_taken},
+        "tool_calls": len(tool_rows),
+        "campaign_status": meta.get("status"),
+        "investigator_alive": alive,
+        "investigator_conditions": sorted(conditions),
+    }
+
+
+# --------------------------------------------------------------------------
+# tier B: the player's own report on itself
+# --------------------------------------------------------------------------
+
+def sidecar_metrics(trace_rows: list[dict[str, Any]]) -> dict[str, Any]:
+    evals = [row["private_eval"] for row in trace_rows
+             if row.get("phase") == "play" and isinstance(row.get("private_eval"), dict)]
+    def median(field: str) -> float | None:
+        values = [e[field] for e in evals if isinstance(e.get(field), (int, float))]
+        return round(statistics.median(values), 2) if values else None
+
+    hypotheses = [str(e.get("current_hypothesis") or "").strip() for e in evals]
+    changes = sum(1 for a, b in zip(hypotheses, hypotheses[1:]) if a and b and a != b)
+    return {
+        "self_report": True,
+        "perceived_agency": median("perceived_agency"),
+        "confusion": median("confusion"),
+        "engagement": median("engagement"),
+        "frustration": median("frustration"),
+        "hypothesis_changes": changes,
+        "hypothesis_confidence_final": (evals[-1].get("hypothesis_confidence") if evals else None),
+        "turns_with_eval": len(evals),
+    }
+
+
+# --------------------------------------------------------------------------
+# tier C: the judge lane
+# --------------------------------------------------------------------------
+
+JUDGE_INSTRUCTIONS = """\
+You are auditing one recorded Call of Cthulhu session for a specific list of questions. You are
+not scoring the session and not giving an opinion about how good it was.
+
+Read `judge-packet.json` in this directory. It holds, per turn: what the player sent, what the
+Keeper delivered to the player, the mechanical receipts the kernel minted that turn, and the
+player's private notes, which the Keeper never saw. It also holds the module's own truth --
+secrets, clues and NPCs as the book has them -- and the questions you must answer.
+
+For each question in `questions`, go turn by turn and decide, for each turn where the question
+is actually exercised:
+
+    "ok"             the turn exercised this and the answer is the good one
+    "violation"      the turn exercised this and the answer is the bad one
+    (skip the turn)  the question was not exercised this turn
+
+Rules you must not break:
+- Every finding names a turn and quotes at most one sentence from that turn as evidence. A
+  finding you cannot cite is not a finding; leave it out.
+- Judge what the record shows, not what you would have done. Absence of evidence is not a
+  violation.
+- The module truth is yours to read. The Keeper's job is to keep it from the player unless a
+  receipt delivered it; a player guessing right is still guessing.
+- Do not invent turns, quotes, or receipts.
+
+Write your answer to `judgement.json` in this directory, exactly this shape:
+
+{"findings": [{"metric": "<question id>", "turn": <int>, "verdict": "ok" | "violation",
+               "quote": "<at most one sentence from that turn>", "why": "<one short line>"}]}
+
+Write the file with your tools. Do not print the JSON instead of writing it.
+"""
+
+
+def build_judge_packet(run_dir: Path, campaign: Path, persona: dict[str, Any],
+                       trace_rows: list[dict[str, Any]]) -> Path:
+    turn_receipts = {}
+    for path in sorted((campaign / "turns").glob("*.json")):
+        record = json.loads(path.read_text(encoding="utf-8"))
+        turn_receipts[record.get("turn")] = record.get("receipts") or []
+
+    graph = module_graph(campaign)
+    truth = [{"kind": n.get("node_kind"), "name": n.get("name"),
+              "visibility": n.get("visibility"), "summary": n.get("summary")}
+             for n in graph.get("nodes", [])
+             if n.get("node_kind") in ("secret", "clue", "npc", "conclusion", "threat", "creature")]
+
+    turns = []
+    opening = next((r for r in trace_rows if r.get("phase") == "opening"), None)
+    if opening:
+        turns.append({"turn": 0, "player_message": None, "keeper_text": opening.get("text"),
+                      "mechanics": [], "receipts": turn_receipts.get(0, []), "private_eval": None})
+    for row in trace_rows:
+        if row.get("phase") != "play" or not row.get("turn"):
+            continue
+        turns.append({
+            "turn": row["turn"], "player_message": row.get("player_message"),
+            "keeper_text": row.get("keeper_text"), "mechanics": row.get("mechanics") or [],
+            "receipts": turn_receipts.get(row["turn"], []),
+            "settle_class": row.get("settle_class"),
+            "private_eval": row.get("private_eval") or {},
+        })
+
+    ids = list(dict.fromkeys(list(HARD_GATES) + list(persona["assertions"])))
+    questions = [{"id": mid, "question": spec["question"],
+                  "good_answer": ("ok means " + spec["summary"])}
+                 for mid, spec in judge_metrics(ids)]
+
+    packet = {
+        "persona": {"id": persona["id"], "name": persona["name"], "summary": persona["summary"],
+                    "probes": persona["probes"]},
+        "questions": questions,
+        "module_truth": truth,
+        "turns": turns,
+    }
+    path = run_dir / "judge-packet.json"
+    path.write_text(json.dumps(packet, ensure_ascii=False, indent=1), encoding="utf-8")
+    return path
+
+
+def run_judge(run_dir: Path, model: str) -> dict[str, Any]:
+    """A pi agent with tools, in the run's own directory, writing its verdict file itself."""
+    pi = REPO_ROOT / "node_modules" / ".bin" / "pi"
+    provider, _, model_id = model.partition("/")
+    (run_dir / "JUDGE.md").write_text(JUDGE_INSTRUCTIONS, encoding="utf-8")
+    proc = subprocess.run(
+        [str(pi), "-p", "--no-extensions", "--no-skills", "--no-prompt-templates",
+         "--tools", "read,write,edit,bash", "--provider", provider, "--model", model_id,
+         "Follow JUDGE.md in this directory."],
+        cwd=str(run_dir), capture_output=True, text=True, timeout=JUDGE_TIMEOUT,
+    )
+    (run_dir / "judge-stdout.log").write_text(proc.stdout + "\n" + proc.stderr, encoding="utf-8")
+    path = run_dir / "judgement.json"
+    if not path.exists():
+        return {"findings": [], "error": "judge wrote no judgement.json"}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except ValueError as exc:
+        return {"findings": [], "error": f"judgement.json is not JSON: {exc}"}
+
+
+def fold_judgement(judgement: dict[str, Any], turns_seen: set[int],
+                   allowed: list[str]) -> dict[str, Any]:
+    """Drop what cannot be cited, then count. The judge does not get to add metrics."""
+    folded: dict[str, dict[str, Any]] = {}
+    dropped = 0
+    for finding in judgement.get("findings") or []:
+        metric_id = finding.get("metric")
+        turn = finding.get("turn")
+        quote = (finding.get("quote") or "").strip()
+        verdict = finding.get("verdict")
+        if (metric_id not in allowed or metric_id not in METRICS
+                or not isinstance(turn, int) or turn not in turns_seen
+                or verdict not in ("ok", "violation") or not quote):
+            dropped += 1
+            continue
+        bucket = folded.setdefault(metric_id, {"ok": 0, "violation": 0, "citations": []})
+        bucket[verdict] += 1
+        if verdict == "violation" or len(bucket["citations"]) < 3:
+            bucket["citations"].append({"turn": turn, "verdict": verdict, "quote": quote[:400],
+                                        "why": (finding.get("why") or "")[:300]})
+    for metric_id, bucket in folded.items():
+        bucket["rate"] = rate(metric_id, bucket["ok"], bucket["violation"])
+        bucket["direction"] = METRICS[metric_id]["direction"]
+    if dropped:
+        folded["_dropped_findings"] = dropped
+    return folded
+
+
+# --------------------------------------------------------------------------
+# the report
+# --------------------------------------------------------------------------
+
+def build_report(run_dir: Path, *, judge: bool, judge_model: str) -> dict[str, Any]:
+    record = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
+    campaign = REPO_ROOT / ".coc" / "campaigns" / record["campaign"]
+    trace_rows = read_jsonl(run_dir / "trace.jsonl")
+    personas = load_personas()
+    persona = personas[record["persona"]]
+
+    report: dict[str, Any] = {
+        "persona": f"{persona['id']}_{persona['name']}", "lane": record["lane"],
+        "trial": record["trial"], "run_id": record["run_id"],
+        "method": "persona-benchmark", "acceptance": False,
+        "status": record.get("status"), "stop_reason": record.get("stop_reason"),
+        "models": record.get("models"),
+    }
+    if not campaign.exists():
+        report["error"] = "no campaign evidence; the run did not reach a table"
+        return report
+
+    receipts = receipts_metrics(campaign)
+    report["receipts"] = receipts
+    report["self_report"] = sidecar_metrics(trace_rows)
+
+    if judge:
+        build_judge_packet(run_dir, campaign, persona, trace_rows)
+        judgement = run_judge(run_dir, judge_model)
+        turns_seen = {row["turn"] for row in trace_rows if row.get("turn")} | {0}
+        allowed = list(dict.fromkeys(list(HARD_GATES) + list(persona["assertions"])))
+        report["judged"] = fold_judgement(judgement, turns_seen, allowed)
+        if judgement.get("error"):
+            report["judge_error"] = judgement["error"]
+    else:
+        report["judged"] = {}
+
+    report["hard_gates"] = {gate: report["judged"].get(gate, {}).get("violation", 0)
+                            for gate in HARD_GATES}
+    report["outcome"] = {
+        "turns": receipts["turns_played"],
+        "ending": record.get("stop_reason"),
+        "critical_clues_found": receipts["clues_found"],
+        "critical_clues_total": receipts["clues_in_module"],
+        "investigator_alive": receipts["investigator_alive"],
+        "wall_seconds": record.get("wall_seconds"),
+    }
+    report["evidence"] = record.get("evidence")
+    (run_dir / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n",
+                                         encoding="utf-8")
+    return report
+
+
+def cmd_run(args: argparse.Namespace) -> int:
+    report = build_report(Path(args.run_dir), judge=not args.no_judge, judge_model=args.judge_model)
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+    return 0
+
+
+def cmd_suite(args: argparse.Namespace) -> int:
+    suite_dir = Path(args.suite_dir)
+    reports = []
+    for run_dir in sorted(p for p in suite_dir.iterdir() if (p / "run.json").exists()):
+        reports.append(build_report(run_dir, judge=not args.no_judge, judge_model=args.judge_model))
+    summary = {
+        "method": "persona-benchmark", "acceptance": False,
+        "suite_dir": str(suite_dir), "runs": len(reports),
+        "note": "no overall average is computed on purpose: what matters is which persona regressed",
+        "by_persona": {},
+    }
+    for report in reports:
+        key = f"{report['persona']}/{report['lane']}"
+        summary["by_persona"].setdefault(key, []).append({
+            "trial": report.get("trial"), "status": report.get("status"),
+            "hard_gates": report.get("hard_gates"),
+            "receipts": {k: report.get("receipts", {}).get(k) for k in
+                         ("turns_played", "clue_reachability", "rules_layer_turns",
+                          "stalled_turns", "kernel_error_rate")},
+            "judged": {k: v.get("rate") for k, v in (report.get("judged") or {}).items()
+                       if isinstance(v, dict)},
+            "self_report": report.get("self_report"),
+        })
+    (suite_dir / "suite-report.json").write_text(
+        json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    print(json.dumps(summary, ensure_ascii=False, indent=2))
+    return 0
+
+
+def cmd_compare(args: argparse.Namespace) -> int:
+    def load(path: Path) -> dict[str, Any]:
+        return json.loads((path / "suite-report.json").read_text(encoding="utf-8"))["by_persona"]
+
+    baseline, candidate = load(Path(args.baseline)), load(Path(args.candidate))
+    rows = []
+    for key in sorted(set(baseline) | set(candidate)):
+        for metric_id in sorted({m for side in (baseline.get(key, []), candidate.get(key, []))
+                                 for run in side for m in (run.get("judged") or {})}):
+            def mean(side: list[dict]) -> float | None:
+                values = [run["judged"][metric_id] for run in side
+                          if isinstance(run.get("judged", {}).get(metric_id), (int, float))]
+                return round(statistics.mean(values), 4) if values else None
+            before, after = mean(baseline.get(key, [])), mean(candidate.get(key, []))
+            if before is None or after is None:
+                continue
+            direction = METRICS[metric_id]["direction"]
+            delta = after - before
+            better = delta > 0 if direction == "higher_is_better" else delta < 0
+            rows.append({"persona": key, "metric": metric_id, "baseline": before,
+                         "candidate": after, "delta": round(delta, 4),
+                         "regressed": (not better) and abs(delta) >= float(args.threshold)})
+    rows.sort(key=lambda r: (not r["regressed"], -abs(r["delta"])))
+    print(json.dumps({"method": "persona-benchmark", "acceptance": False,
+                      "regressions": [r for r in rows if r["regressed"]],
+                      "all": rows}, ensure_ascii=False, indent=2))
+    return 0
+
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(prog="persona_report.py", description="player-persona-suite-v1 report")
+    sub = p.add_subparsers(dest="subcommand", required=True)
+    for name, func, needs in (("run", cmd_run, "--run-dir"), ("suite", cmd_suite, "--suite-dir")):
+        sp = sub.add_parser(name)
+        sp.add_argument(needs, required=True, dest=needs.lstrip("-").replace("-", "_"))
+        sp.add_argument("--no-judge", action="store_true", help="tiers A and B only; spend nothing")
+        sp.add_argument("--judge-model", default=DEFAULT_JUDGE_MODEL)
+        sp.set_defaults(func=func)
+    sp = sub.add_parser("compare")
+    sp.add_argument("--baseline", required=True)
+    sp.add_argument("--candidate", required=True)
+    sp.add_argument("--threshold", default=0.05)
+    sp.set_defaults(func=cmd_compare)
+    return p
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

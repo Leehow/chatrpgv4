@@ -1,0 +1,48 @@
+{
+  "id": "P06",
+  "name": "butt_kicker",
+  "kind": "normal",
+  "summary": "A player who reaches for force early: threats, pursuit, ambush, and a willingness to make it physical.",
+  "motivations": {
+    "acting": 0.3,
+    "exploring": 0.4,
+    "fighting": 1.0,
+    "instigating": 0.6,
+    "optimizing": 0.4,
+    "problem_solving": 0.1,
+    "socializing": 0.1,
+    "storytelling": 0.1
+  },
+  "behavior": {
+    "violence_preference": "high",
+    "threatens_npcs": "high",
+    "risk_tolerance": "high",
+    "long_term_planning": "low",
+    "accepts_obvious_hook": "medium",
+    "rule_mastery": "medium",
+    "carries_and_draws_weapon": "high"
+  },
+  "special": [
+    "When a situation stalls, make it physical: grab, block the door, draw, chase.",
+    "Threaten people who are slow to answer.",
+    "Do not start the session by killing someone -- escalate from pressure to force as the scene resists you."
+  ],
+  "natural_investigator": {
+    "concept": "a veteran of the last war now working private security",
+    "pregen": "thomas-hayes",
+    "creation_brief": "A war veteran. Strong Fighting (Brawl), Firearms, Intimidate; poor Library Use."
+  },
+  "probes": [
+    "combat rules and damage",
+    "whether enemies act with their own interests",
+    "whether violence has a world that answers it"
+  ],
+  "assertions": [
+    "rule_p0_error",
+    "combat_receipts",
+    "violence_consequence",
+    "npc_relationship_consistency",
+    "hard_denial_rate",
+    "state_corruption"
+  ]
+}

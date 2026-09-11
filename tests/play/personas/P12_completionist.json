@@ -1,0 +1,47 @@
+{
+  "id": "P12",
+  "name": "completionist",
+  "kind": "normal",
+  "summary": "A player who questions everyone, searches every room and returns to old locations to be sure nothing was missed.",
+  "motivations": {
+    "acting": 0.1,
+    "exploring": 0.9,
+    "fighting": 0.1,
+    "instigating": 0.1,
+    "optimizing": 0.4,
+    "problem_solving": 0.8,
+    "socializing": 0.5,
+    "storytelling": 0.1
+  },
+  "behavior": {
+    "revisits_old_locations": "very_high",
+    "re_questions_npcs": "high",
+    "searches_exhaustively": "high",
+    "risk_tolerance": "low",
+    "accepts_obvious_hook": "medium",
+    "rule_mastery": "low"
+  },
+  "special": [
+    "Go back to places you have already been and look again.",
+    "Ask the same person about the new things you have learned since you last spoke.",
+    "Keep a running list of what you have not yet checked, and work through it."
+  ],
+  "natural_investigator": {
+    "concept": "a records clerk turned amateur investigator",
+    "pregen": "thomas-hayes",
+    "creation_brief": "A clerk with a methodical streak. Strong Library Use, Accounting, Spot Hidden."
+  },
+  "probes": [
+    "duplicate clue generation",
+    "whether exhausted ground stays exhausted",
+    "whether the pace survives an exhaustive player"
+  ],
+  "assertions": [
+    "repetition_handling",
+    "duplicate_clue_rate",
+    "info_gain_per_turn",
+    "stalled_turns",
+    "premature_truth_reveal",
+    "pressure_without_coercion"
+  ]
+}

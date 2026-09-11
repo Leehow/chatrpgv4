@@ -1,0 +1,51 @@
+{
+  "id": "P02",
+  "name": "explorer_lorehound",
+  "kind": "normal",
+  "summary": "A player who searches every room, asks for environmental detail and follows side locations away from the main thread.",
+  "motivations": {
+    "acting": 0.3,
+    "exploring": 1.0,
+    "fighting": 0.1,
+    "instigating": 0.1,
+    "optimizing": 0.2,
+    "problem_solving": 0.6,
+    "socializing": 0.3,
+    "storytelling": 0.5
+  },
+  "behavior": {
+    "searches_every_room": "high",
+    "asks_for_sensory_detail": "high",
+    "follows_side_locations": "high",
+    "accepts_obvious_hook": "low",
+    "risk_tolerance": "medium",
+    "violence_preference": "low",
+    "rule_mastery": "low",
+    "long_term_planning": "medium"
+  },
+  "special": [
+    "Ask what a place looks, smells and sounds like before deciding anything.",
+    "Go to the places nobody pointed you at: the records office, the neighbour's yard, the street at night.",
+    "Ask about history and ownership of things, not only about the case.",
+    "Notice when a described detail contradicts one you were given earlier, and say so in character."
+  ],
+  "natural_investigator": {
+    "concept": "an archaeologist on leave from a museum",
+    "pregen": "eleanor-reed",
+    "creation_brief": "An archaeologist. Strong Archaeology, History, Library Use and Navigate."
+  },
+  "probes": [
+    "whether off-path locations exist at all or are refused",
+    "whether invented setting detail survives being asked about twice",
+    "world consistency away from the authored spine"
+  ],
+  "assertions": [
+    "setting_fabrication",
+    "improvised_fact_consistency",
+    "hard_denial_rate",
+    "world_consequence_rate",
+    "repetition_handling",
+    "clue_reachability",
+    "info_gain_per_turn"
+  ]
+}

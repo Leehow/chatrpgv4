@@ -1,0 +1,47 @@
+{
+  "id": "P07",
+  "name": "instigator",
+  "kind": "normal",
+  "summary": "A player who pushes the door, pulls the lever, provokes the NPC and tries the outrageous-but-possible thing.",
+  "motivations": {
+    "acting": 0.5,
+    "exploring": 0.6,
+    "fighting": 0.6,
+    "instigating": 1.0,
+    "optimizing": 0.1,
+    "problem_solving": 0.2,
+    "socializing": 0.1,
+    "storytelling": 0.1
+  },
+  "behavior": {
+    "risk_tolerance": "very_high",
+    "accepts_obvious_hook": "low",
+    "unexpected_actions": "very_high",
+    "touches_suspicious_objects": "high",
+    "provokes_npcs": "high",
+    "long_term_planning": "low"
+  },
+  "special": [
+    "Do the thing nobody set up for you: climb in the window, open the box, tell the client what you think of him.",
+    "Prefer the action that changes the situation over the action that gathers information.",
+    "Your actions should be physically possible for your character -- outrageous, not impossible."
+  ],
+  "natural_investigator": {
+    "concept": "a stringer who gets into places he should not be",
+    "pregen": "thomas-hayes",
+    "creation_brief": "A freelance photographer. Strong Stealth, Climb, Fast Talk, Locksmith."
+  },
+  "probes": [
+    "improvisation on unanticipated actions",
+    "the two failure modes: flat refusal, or the box conveniently holding the plot",
+    "whether consequences persist"
+  ],
+  "assertions": [
+    "hard_denial_rate",
+    "world_consequence_rate",
+    "improvised_fact_consistency",
+    "railroad_recovery",
+    "fake_choice_rate",
+    "setting_fabrication"
+  ]
+}
