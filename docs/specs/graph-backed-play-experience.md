@@ -186,8 +186,8 @@ structure; the zero-tool exception it names is the verifier's and the memory lan
 **Decided.** Admission uses `runLane` with its own model variable (`PI_COC_ADMISSION_MODEL`, default the
 table's model), its own shorter cap (`PI_COC_ADMISSION_TIMEOUT_MS`, 60 s, because it is foreground),
 and a five-way verdict. This is the specification's "existing host semantic-review pattern with a
-distinct admission remit". **It is also the one place this pass extends a zero-tool lane to a new
-remit, and the user has not ruled on that specifically**; it is flagged in the handoff. If ruled
+distinct admission remit". This extends the zero-tool lane exception to a third remit; **the user ruled on it on 2026-09-11 and
+kept it** (Agents.md names the three lanes). If ruled
 otherwise, the seam is one function (`reviewAdmission`) and the verdict shape does not change. When
 the lane cannot decide — no model, an error, a malformed answer, the cap — the action is refused with
 `admission_unavailable` and a service-status `fix`. It never admits by default: the alternative to an
