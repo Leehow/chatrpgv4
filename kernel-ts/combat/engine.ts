@@ -447,7 +447,7 @@ export class CombatSession {
             hp_before: before, hp_delta: after - before, hp_after: after, armor_absorbed: absorbed, armor_before: armorBefore, armor_after: target.armor,
             rulebook_exception: exception, bypass_armor: bypass, half_damage_bonus: halfDb, marker: `[roll]${expression}:${breakdown}${multiplier !== 1 ? 'x' + multiplier : ''}->${raw}:damage[/roll]` };
         this.damageChain.push(record);
-        this.pendingRolls.push({ roll_id: id, roll_role: 'amount', actor_id: source, skill: 'HP Damage', goal: `damage ${targetId} with ${string(weaponId)}`,
+        this.pendingRolls.push({ roll_id: id, roll_role: 'amount', actor_id: source, skill: 'HP Damage', kind: 'hp_damage', goal: `damage ${targetId} with ${string(weaponId)}`,
             target_actor_id: targetId, die: full, rolled_total: rolledTotal, effect_total: raw, damage_multiplier: multiplier, weapon_effect_ids: [...effects],
             dice: { expression: full, raw: [...dice], total: raw }, outcome: 'damage_applied', marker: record.marker });
         return [raw, id, record];

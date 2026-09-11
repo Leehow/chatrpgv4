@@ -391,7 +391,7 @@ export function createComponent(React) {
         return h(Row, { key, kindKey: "dice", kindLabel, family },
           h("span", { className: "coc-mech-body" },
             who ? h("span", { className: "coc-mech-who" }, `${who} `) : null,
-            term(text(row.label || row.expression))),
+            t(`die.${text(row.word)}`, term(text(row.label || row.expression)))),
           faces ? h("span", { className: "coc-mech-faces" }, faces) : null,
           h("span", { className: "coc-mech-figure" }, h(N, null, text(row.total))));
       }
@@ -404,7 +404,8 @@ export function createComponent(React) {
           h("span", { className: "coc-mech-body" },
             row.item ? h("span", { className: "coc-mech-who" }, `${term(text(row.item))} `) : row.subject_is_investigator === true
               ? h("span", { className: "coc-mech-who" }, `${text(row.subject_label || row.subject)} `) : "",
-            h("span", { className: "coc-mech-res" }, term(text(row.resource).toUpperCase()))),
+            h("span", { className: "coc-mech-res" },
+              t(`resource.${text(row.resource)}`, term(text(row.resource).toUpperCase())))),
           h("span", { className: "coc-mech-figure" },
             h("span", { className: "coc-mech-from" }, text(row.before)),
             ` ${t("arrow")} `,
@@ -462,7 +463,9 @@ export function createComponent(React) {
             t(`session.${text(row.transition)}`, term(text(row.transition))),
             num(row.round) ? ` · ${fill(t("round"), { n: row.round })}` : "",
             num(row.rounds) ? ` · ${fill(t("round"), { n: row.rounds })}` : ""),
-          text(row.outcome) ? h(Stamp, { tone: "plain" }, term(text(row.outcome))) : null);
+          text(row.outcome)
+            ? h(Stamp, { tone: "plain" }, t(`outcome.${text(row.outcome)}`, term(text(row.outcome))))
+            : null);
       case "choice":
         return h(Row, { key, kindKey: "choice", kindLabel, family },
           h("span", { className: "coc-mech-body" }, term(text(row.option))));

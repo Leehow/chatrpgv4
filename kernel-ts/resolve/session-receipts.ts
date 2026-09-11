@@ -20,8 +20,12 @@ export function recordDice(context: SettleContext,record: Row,label?: string|nul
     if(!Array.isArray(faces))faces=record.roll==null?[]:[Math.trunc(number(record.roll))];
     const total=truth(dice)?dice.total:(Object.hasOwn(record,'effect_total')?record.effect_total:record.roll??null);
     const skill=string(record.skill||'dice');
+    // The engine's own name for this die is English by §16.1, so the card needs the stable id
+    // beside it to find the play-language word (§23). `word`, never `kind`: `addDiceRoll` spreads
+    // `extra` over the receipt and `kind` is already the receipt's own.
+    const word=string(record.kind||'');
     return context.addDiceRoll({actor:string(record.actor_id),label:skill,skill_label:label||skill,expression,
-        faces:faces.map((value:any)=>Math.trunc(number(value))),total,...extra});
+        faces:faces.map((value:any)=>Math.trunc(number(value))),total,...(word?{word}:{}),...extra});
 }
 export function recordEngineRolls(context: SettleContext,records: Row[],kind: string,extra: Row={}): string[] {
     const ids:string[]=[];

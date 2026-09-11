@@ -39,6 +39,10 @@ export function mechanicsOf(receipt: Row, texts: ReadonlyMap<string, string> = n
                 visibility: receipt.visibility || "public"
             };
         investigator(out, receipt, "actor");
+        // The engine's stable name for a die it rolled itself (§23): the card looks the play-language
+        // word up by this and keeps the English `label` as what it draws when there is none.
+        if (receipt.form === "dice")
+            labeled(out, "word", receipt.word);
         return out;
     }
     if (kind === "delta") {

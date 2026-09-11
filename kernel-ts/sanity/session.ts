@@ -166,7 +166,7 @@ export class SanitySession {
         if (hardened && lost > 0) lost = Math.floor(lost / 2);
         state.san_current = Math.max(0, state.san_current - lost); state.daily_san_lost += lost;
         if (lost >= 1) { state.delusion_resistant = false; state.symptoms_suppressed_until_next_san_loss = false; }
-        this.pendingRolls.push({ roll_id: this.rollId(), actor_id: this.investigatorId, skill: 'SAN Loss', goal: source, die: expression, roll: raw, die_rolls: rolls,
+        this.pendingRolls.push({ roll_id: this.rollId(), actor_id: this.investigatorId, skill: 'SAN Loss', kind: 'san_loss', goal: source, die: expression, roll: raw, die_rolls: rolls,
             outcome: 'sanity_loss', san_before: before, san_loss: lost, san_delta: -lost, san_after: state.san_current, mythos_hardened: hardened,
             multiplier: new PythonFloat(factor), expression_kind: parsed.kind,
             marker: `[roll]SAN loss ${expression}->${raw}; multiplier=${string(multiplier)}; SAN ${before}->${state.san_current}[/roll]` });
@@ -313,7 +313,7 @@ export class SanitySession {
         this.state.san_current = Math.min(this.state.san_max, this.state.san_current + amount);
         const actual = this.state.san_current - before;
         if (actual <= 0) return;
-        this.pendingRolls.push({ roll_id: this.rollId(), actor_id: this.investigatorId, skill: 'SAN Reward', goal: source, die: string(amount), roll: amount,
+        this.pendingRolls.push({ roll_id: this.rollId(), actor_id: this.investigatorId, skill: 'SAN Reward', kind: 'san_reward', goal: source, die: string(amount), roll: amount,
             san_before: before, san_delta: actual, san_after: this.state.san_current, outcome: 'sanity_reward', marker: `[roll]SAN reward +${actual}: ${before}->${this.state.san_current}[/roll]` });
         this.event('sanity_gain', { amount: actual, source, san_before: before, san_after: this.state.san_current,
             summary: `${this.investigatorId} gained ${actual} SAN (${source}): ${before}->${this.state.san_current}.` });
