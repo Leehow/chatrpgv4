@@ -27,9 +27,14 @@ async function registerBundledAuthProviders(rt) {
     if (typeof rt.registerProvider !== "function") return;
     // Same home precedence as extension agent halves: PI_COC_AGENT_DIR >
     // PI_CODING_AGENT_DIR; never a global ~/.pi/agent fallback (fail closed —
-    // registration is skipped when no home is resolved).
+    // registration is skipped when no home is resolved). The spawner pins
+    // PI_CODING_AGENT_DIR to the backend's auth home, so a miss here means the
+    // helper was launched outside the host: say so, don't vanish.
     const agentDir = process.env.PI_COC_AGENT_DIR?.trim() || process.env.PI_CODING_AGENT_DIR?.trim();
-    if (!agentDir) return;
+    if (!agentDir) {
+      console.warn("[pi-auth-helper] no PI_COC_AGENT_DIR/PI_CODING_AGENT_DIR resolved; bundled auth providers will not be registered");
+      return;
+    }
     const here = dirname(fileURLToPath(import.meta.url));
     const extensionsRoot = join(here, "..", "extensions");
     if (!existsSync(extensionsRoot)) return;
@@ -47,9 +52,13 @@ async function registerBundledAuthProviders(rt) {
         if (typeof factory !== "function" || !id) continue;
         if (typeof rt.getProvider === "function" && rt.getProvider(id)) continue;
         rt.registerProvider(id, factory());
-      } catch { /* optional package — never break the auth surface */ }
+      } catch (error) {
+        console.warn(`[pi-auth-helper] bundled auth provider registration failed for ${name}: ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
-  } catch { /* auth surface must never break on optional bundled extensions */ }
+  } catch (error) {
+    console.warn(`[pi-auth-helper] bundled auth provider scan failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 async function runtime() {
   const root = moduleRoot(); const require = createRequire(join(root, "package.json")); let mod;

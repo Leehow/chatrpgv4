@@ -26,7 +26,19 @@ function parseDotEnv(source: string): NodeJS.ProcessEnv {
 export async function modelRuntimeEnvironment(agentDir: string, piPath: string, base: NodeJS.ProcessEnv, sessionsRoot = join(agentDir, "sessions"), enforceProfile = false): Promise<NodeJS.ProcessEnv> {
   let overlay: NodeJS.ProcessEnv = {};
   try { overlay = parseDotEnv(await readFile(join(agentDir, ".env"), "utf8")); } catch { /* optional */ }
-  return withElectronRunAsNode({ ...base, ...overlay, PATH: [dirname(piPath), "/opt/homebrew/bin", "/usr/local/bin", base.PATH].filter(Boolean).join(delimiter), PIPIUI_PI_PATH: piPath, ...(enforceProfile ? { PI_CODING_AGENT_DIR: agentDir, PI_CODING_AGENT_SESSION_DIR: sessionsRoot } : {}) });
+  return withElectronRunAsNode({
+    ...base,
+    ...overlay,
+    PATH: [dirname(piPath), "/opt/homebrew/bin", "/usr/local/bin", base.PATH].filter(Boolean).join(delimiter),
+    PIPIUI_PI_PATH: piPath,
+    // The helper's runtime home is ALWAYS the backend's auth home, isolated or
+    // not: ProviderAuthBackend reads <agentDir>/auth.json, and the helper gates
+    // bundled auth-provider registration on a resolved home. Leaving this unset
+    // on non-isolated deployments split credentials across homes and made every
+    // extension provider login fail with "Unknown provider".
+    PI_CODING_AGENT_DIR: agentDir,
+    ...(enforceProfile ? { PI_CODING_AGENT_SESSION_DIR: sessionsRoot } : {}),
+  });
 }
 
 async function resolveNode(explicit: string | undefined, env: NodeJS.ProcessEnv): Promise<string> {
@@ -95,8 +107,13 @@ function spawnWorker(node: string, helperPath: string, env: NodeJS.ProcessEnv): 
   // Pipe failures arrive asynchronously, after write() has returned. Keep this
   // listener through shutdown so a late stream error cannot escape into the host.
   child.stdin.on("error", error => worker.kill(error));
-  // Best-effort stderr drain so a chatty runtime never backpressures the pipe.
-  child.stderr.on("data", () => {});
+  // Drain stderr so a chatty runtime never backpressures the pipe, but forward
+  // the lines: helper-side diagnostics (a skipped provider registration, a
+  // failed module import) are otherwise invisible everywhere.
+  child.stderr.on("data", chunk => {
+    const line = String(chunk).trim();
+    if (line) console.warn(`[pipi-auth] helper stderr: ${line}`);
+  });
   return worker;
 }
 

@@ -183,6 +183,29 @@ describe("external Pi model runtime", () => {
     runtime.stop();
   });
 
+  it("pins the backend agent home for auth helpers even without profile enforcement", async () => {
+    // Non-isolated deployments (PipiCOC desktop runs profileMode 'default')
+    // must still land the helper on the backend's own auth home: credentials
+    // and extension auth-provider registration both key off it. A parent/.env
+    // value must never win over the configured agentDir.
+    root = await mkdtemp(join(tmpdir(), "pipi-external-home-pin-"));
+    const agentDir = join(root, "agent");
+    const helperPath = join(root, "helper.mjs");
+    await mkdir(agentDir);
+    await writeFile(join(agentDir, ".env"), "PI_CODING_AGENT_DIR=/global-dotenv\n");
+    await writeFile(helperPath, fixture);
+    const runtime = new ExternalAuthRuntime({
+      helperPath,
+      agentDir,
+      piPath: "/opt/homebrew/bin/pi",
+      nodePath: process.execPath,
+      env: { HOME: root, PI_CODING_AGENT_DIR: "/global-parent" },
+    });
+    const actual = await (runtime as any).command("profile-env");
+    expect(actual.agentDir).toBe(agentDir);
+    runtime.stop();
+  });
+
   it("preserves interactive login while keeping the API key off argv and result events", async () => {
     root = await mkdtemp(join(tmpdir(), "pipi-external-login-"));
     const agentDir = join(root, "agent"); const helperPath = join(root, "helper.mjs");
