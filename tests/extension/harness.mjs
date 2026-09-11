@@ -218,6 +218,14 @@ export async function openTable({
 	const workspace = mkdtempSync(join(tmpdir(), "pi-coc-ext-"));
 	const requestLog = join(workspace, "kernel-requests.jsonl");
 	const restoreEnv = setEnv({
+		// 父进程环境里的真实 provider key（DEEPSEEK/KIMI/OPENCODE…）会把那些 provider
+		// 标成可用，/coc model 之类的候选列表就被真实目录淹掉。桌子只用假 provider，
+		// 先清掉；个别用例要哪个 key 自己在 options.env 里加回来。
+		...Object.fromEntries(
+			Object.keys(process.env)
+				.filter((key) => /(_API_KEY|_TOKEN|_SECRET)$/.test(key))
+				.map((key) => [key, undefined]),
+		),
 		PI_COC_KERNEL_CMD: realKernel ? undefined : JSON.stringify([process.execPath, FAKE_KERNEL]),
 		PI_COC_CAMPAIGN: campaign ?? undefined,
 		PI_COC_MODE: mode,

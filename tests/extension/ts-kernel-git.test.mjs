@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
-import {chmod, mkdir, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
+import {chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
@@ -60,7 +60,13 @@ test('closing Git stops owned descendants and missing Git cannot create reposito
   await assert.rejects(readFile(join(root,'.coc/repos/example.git/HEAD')),{code:'ENOENT'});
   const entry=join(root,'owned git');
   const pidPath=join(root,'processes.json');
-  await writeFile(entry,`#!${process.execPath}\nimport{spawn}from'node:child_process';import{writeFileSync}from'node:fs';
+  // shebang 的解释器路径不能带空格：fixture 目录名（"runtime Git …"）和宿主的 node
+  // 路径（Application Support）都有空格，所以软链接放到一个没有空格的临时目录里。
+  const binDir=await mkdtemp(join(tmpdir(),'node-bin-'));
+  t.after(()=>rm(binDir,{recursive:true,force:true}));
+  const nodeBin=join(binDir,'node');
+  await symlink(process.execPath,nodeBin);
+  await writeFile(entry,`#!${nodeBin}\nimport{spawn}from'node:child_process';import{writeFileSync}from'node:fs';
 const child=spawn(process.execPath,['-e','process.on("SIGTERM",()=>{});setInterval(()=>{},1000)'],{stdio:'inherit'});
 writeFileSync(process.env.TEST_GIT_PIDS,JSON.stringify([process.pid,child.pid]));
 process.on('SIGTERM',()=>{});setInterval(()=>{},1000);\n`);

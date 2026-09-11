@@ -5,7 +5,7 @@
 
 import { strict as assert } from "node:assert";
 import { execFileSync } from "node:child_process";
-import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -24,7 +24,9 @@ test("the default kernel command uses captured Node and emitted RPC without Pyth
 	const stubDir = scratch("pi-coc-node-");
 	const log = join(stubDir, "node.json");
 	const stub = join(stubDir, "selected-node.mjs");
-	writeFileSync(stub, `#!${process.execPath}\nimport {writeFileSync} from 'node:fs';
+	const nodeBin = join(stubDir, "node-bin");
+	symlinkSync(process.execPath, nodeBin);
+	writeFileSync(stub, `#!${nodeBin}\nimport {writeFileSync} from 'node:fs';
 import {pathToFileURL} from 'node:url';
 writeFileSync(process.env.NODE_STUB_LOG,JSON.stringify({cwd:process.cwd(),args:process.argv.slice(2),pythonpath:process.env.PYTHONPATH??null,backend:process.env.PI_COC_RUNTIME}));
 await import(pathToFileURL(process.env.FAKE_KERNEL_PATH).href);\n`);
