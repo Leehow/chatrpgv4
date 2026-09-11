@@ -187,3 +187,24 @@ def test_baseline_mode_reads_the_real_haunting_s0_campaign():
     assert "baseline: haunting-s0 turns 13-25" in result.stdout
     assert "reads_before_write_median" in result.stdout
     assert "turns: 13" in result.stdout
+
+
+def test_admission_section_counts_verdicts_reuse_and_unavailability_apart_from_delivery_time():
+    """Contract §32.7: the review's own cost and outcomes, never folded into the turn's timing."""
+    rows = [
+        {"turn": 1, "lane": "admission", "verb": "apply", "ok": True, "verdict": "not_authorized", "admitted": False, "reused": False, "ms": 900, "key": "a"},
+        {"turn": 1, "lane": "admission", "verb": "apply", "ok": True, "verdict": "not_authorized", "admitted": False, "reused": True, "ms": 0, "key": "a"},
+        {"turn": 2, "lane": "admission", "verb": "resolve", "ok": True, "verdict": "entailed", "admitted": True, "reused": False, "ms": 300, "key": "b"},
+        {"turn": 3, "lane": "admission", "verb": "resolve", "ok": False, "reason": "timeout", "ms": 60000, "key": "c"},
+        {"turn": 0, "lane": "admission", "verb": "apply", "ok": True, "skipped": "no_player_text", "key": "d"},
+        {"turn": 2, "lane": "lane-call", "subsession": "admission", "phase": "end", "ok": True, "ms": 290},
+        row(2, "resolve", call_id="t2-c1", ms=5000),
+    ]
+    section = kpi.admission(rows)
+    assert section == {
+        "reviews": 2, "reused": 1, "skipped": 1,
+        "verdicts": {"entailed": 1, "not_authorized": 2},
+        "unavailable": {"timeout": 1},
+        "review_ms": {"total": 1200, "max": 900, "mean": 600},
+    }
+    assert kpi.admission([row(1, "apply", call_id="t1-c1")]) == {}

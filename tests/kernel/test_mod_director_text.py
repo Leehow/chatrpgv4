@@ -189,3 +189,19 @@ def test_an_offer_row_carries_both_what_it_costs_and_what_it_yields(kernel):
     for entry in kernel.ok("mods.context", {"campaign": CAMPAIGN})["pacing"]["threat_clocks"]:
         assert entry["state"] and (entry.get("next") or entry["state"].split("/")[0] == entry["state"].split("/")[1]), \
             "a clock offer says where it stands and what the next segment would show, unless it is full"
+
+
+def test_an_affordance_is_an_offer_once_it_names_what_it_yields(kernel):
+    """Contract §32.5: the affordance row joined the offer ledger with its clues; it is taken when one of them lands."""
+    open_turn(kernel)
+    where = kernel.table("capsule")["where"]
+    granted = {a["id"]: {c["clue"] for c in a.get("clues", [])} for a in where["affordances"]}
+    assert granted["confirm-commission-terms"] == {"knott-commission"}
+    kernel.table("apply", call_id="t1-c1", effects=[{"kind": "clue", "clue": "knott-commission"}])
+    narrate(kernel, "t1-c2", "诺特把条件说清楚了。")
+    rows = [json.loads(line) for line in (campaign_dir(kernel.workspace) / "telemetry.jsonl").read_text().splitlines() if line.strip()]
+    ledger = next(row for row in rows if row.get("lane") == "offers" and row["turn"] == 1)
+    offered = {name for name in ledger["offered"] if name.startswith("affordance:")}
+    assert offered == {f"affordance:{name}" for name in granted}, ledger
+    assert "affordance:confirm-commission-terms" in ledger["taken"]
+    assert not any(name.startswith("affordance:") and name != "affordance:confirm-commission-terms" for name in ledger["taken"])

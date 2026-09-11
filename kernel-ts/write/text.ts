@@ -121,7 +121,25 @@ export function committedFacts(receipts: Row[], snapshot: Row, label: (id: any) 
     committed.push(array(snapshot.present).length ? `Present: ${snapshot.present.map(string).join(', ')}` : 'Present: nobody');
     return committed;
 }
-export function facts(graph: ModuleGraph, world: Row, party: Row[], receipts: Row[], snapshot: Row, player: any): Row {
+/** What the player has already been told (contract §32.6): who they play, the setup's committed prologue, and the last deliveries.
+ *
+ *  These are the deterministic public record, not a judgement: the verifier reads them so that a name, a commission or a
+ *  research lead the Keeper already put in front of the player is not filed as a reveal of an undiscovered clue. Nothing
+ *  here makes an unknown fact public -- an undiscovered clue stays Keeper-only until its receipt lands. */
+export function publicContext(party: Row[], prologue: any, earlier: Row[]): string[] {
+    const lines: string[] = [];
+    for (const sheet of party)
+        if (typeof sheet.name === 'string' && sheet.name)
+            lines.push(`Investigator: ${sheet.name}${typeof sheet.occupation === 'string' && sheet.occupation ? ` (${sheet.occupation})` : ''}`);
+    if (typeof prologue === 'string' && prologue.trim())
+        lines.push(`Setup prologue told the player: ${chars(words(prologue), 600)}`);
+    for (const record of earlier.filter(r => truth(r.rendered_text)).sort((a, b) => number(a.turn) - number(b.turn)).slice(-2))
+        lines.push(`Told at turn ${string(record.turn)}: ${chars(words(string(record.rendered_text)), 600)}`);
+    while (lines.length && Buffer.byteLength(pythonJsonDumps(lines), 'utf8') > 2048)
+        lines.pop();
+    return lines;
+}
+export function facts(graph: ModuleGraph, world: Row, party: Row[], receipts: Row[], snapshot: Row, player: any, pub: string[] = []): Row {
     const committed = committedFacts(receipts, snapshot, id => party.find(s => string(s.id) === string(id))?.name || string(id ?? null), player);
     const scene = graph.scene(world.active_scene), keeper: string[] = [];
     for (const id of graph.sceneClueIds(scene)) {
@@ -140,7 +158,8 @@ export function facts(graph: ModuleGraph, world: Row, party: Row[], receipts: Ro
         keeper.pop();
     return {
         committed,
-        keeper_only: keeper
+        keeper_only: keeper,
+        public: pub
     };
 }
 export function oneLine(turn: number, snapshot: Row, text: any): string {
@@ -168,6 +187,12 @@ export function offerLedger(turn: Row): Row | null {
     const offer = (id: string, taken: boolean) => { if (!offers.some(o => o.id === id)) offers.push({id, taken}); };
     for (const entry of array(row(capsule.director).reveal))
         offer(`reveal:${string(row(entry).clue)}`, clues.has(normalize(string(row(entry).clue))));
+    // An affordance row (contract §32.5) is an offer once it names what it yields: taken when any clue it grants lands.
+    for (const entry of array(row(capsule.where).affordances)) {
+        const yields = array(row(entry).clues).map(c => normalize(string(row(c).clue)));
+        if (yields.length && truth(row(entry).id))
+            offer(`affordance:${string(row(entry).id)}`, yields.some(name => clues.has(name)));
+    }
     const mods = row(capsule.mods);
     for (const line of array(row(mods.thread).lines)) {
         for (const entry of array(row(line).here))

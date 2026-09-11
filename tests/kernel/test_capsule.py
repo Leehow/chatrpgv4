@@ -156,3 +156,25 @@ def test_capsule_is_kept_with_the_turn_cursor_and_the_closed_record(kernel):
     narrate(kernel, "t1-c1", "他看着你。")
     record = _read(_dir(kernel.workspace) / "turns" / "0001.json")
     assert record["capsule"]["turn"]["number"] == 1 and record["capsule"]["where"]["scene"] == _OPENING
+
+
+def test_an_affordance_row_carries_what_it_yields_and_its_gate(kernel):
+    """Contract §32.5: cue, gate and yield in one row. The authored field is `grants_clue_ids` or the
+    older `clue_id`; the first granted clue keeps the §6 `clue` key, and `clues` carries every one with
+    the same gate string the Director's reveal rows and the thread's `here` rows use."""
+    open_turn(kernel)
+    where = kernel.table("capsule")["where"]
+    affordances = {a["id"]: a for a in where["affordances"]}
+    row = affordances["confirm-commission-terms"]
+    assert row["clue"] == "knott-commission"
+    assert row["clues"] == [{"clue": "knott-commission", "gate": "npc_dialogue: check unspecified", "discovered": False}]
+    assert all("clues" in a and a["clues"][0]["clue"] == a["clue"] for a in where["affordances"]), where["affordances"]
+    # `status` and `route_type` are author fields with no writer and stay off the row: nothing at the table moves them.
+    assert "status" not in row and "route_type" not in row
+    known = kernel.table("capsule")["known"]
+    clues = {c["name"]: c for c in known["clues_here"]}
+    assert clues["knott-commission"]["gate"] == "npc_dialogue: check unspecified"
+    # A landed clue reads as discovered on the affordance that grants it.
+    kernel.table("apply", call_id="t1-c1", effects=[{"kind": "clue", "clue": "knott-commission"}])
+    after = {a["id"]: a for a in kernel.table("capsule")["where"]["affordances"]}
+    assert after["confirm-commission-terms"]["clues"][0]["discovered"] is True

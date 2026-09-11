@@ -188,3 +188,26 @@ def test_capsule_warnings_section_budget(kernel):
     assert size(capsule["warnings"]) <= 1024
     assert capsule["warnings"][0] == {"turn": 1, "kind": "reveal", "quote": quote, "why": "理由" * 90}
     assert "resume" not in capsule
+
+
+# ---- the public record beside the Keeper-only list (contract §32.6) ------------------------------
+
+def test_narrate_facts_carry_what_the_player_was_already_told(kernel):
+    create_campaign(kernel)
+    opening = narrate_opening(kernel)
+    # Before anything was delivered the public record is the investigator's own identity, nothing more.
+    assert len(opening["facts"]["public"]) == 1 and opening["facts"]["public"][0].startswith(f"Investigator: {INV} ("), opening["facts"]["public"]
+    kernel.table("player_input", text="我问诺特这房子的事。")
+    result = kernel.table("narrate", call_id="t1-c1", text="诺特说起了马卡里奥一家。")
+    public = result["facts"]["public"]
+    assert public[0].startswith(f"Investigator: {INV} (")
+    told = [line for line in public if line.startswith("Told at turn 0: ")]
+    assert told and "诺特把钥匙拍在桌上" in told[0], public
+    # The Keeper-only list is unchanged by it: an undiscovered clue stays Keeper-only until its receipt lands.
+    assert any(line.startswith("Undiscovered clue: knott-keys -- ") for line in result["facts"]["keeper_only"])
+    assert size(public) <= 2048
+    # The next turn reads the two deliveries before it, oldest first, and nothing older.
+    kernel.table("player_input", text="我再问一句。")
+    again = kernel.table("narrate", call_id="t2-c1", text="诺特叹了口气。")["facts"]["public"]
+    assert [line[:15] for line in again if line.startswith("Told at turn")] == ["Told at turn 0:", "Told at turn 1:"]
+    assert any("诺特说起了马卡里奥一家" in line for line in again)

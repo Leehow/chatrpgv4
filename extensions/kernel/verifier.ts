@@ -47,7 +47,7 @@ export interface CommitPayload {
 	turn: number;
 	commit?: string;
 	job_id?: string;
-	facts?: { committed?: unknown[]; keeper_only?: unknown[] };
+	facts?: { committed?: unknown[]; keeper_only?: unknown[]; public?: unknown[] };
 	/** The Keeper's prose, verbatim (contract §5: the kernel renders no mechanics lines into it). */
 	rendered_text: string;
 	/** The language-neutral projection of this turn's receipts (contract §16.2); not sent to the lane. */
@@ -70,7 +70,7 @@ export async function verifierSystemPrompt(playLanguage?: string, contentRoot?: 
 	return [
 		"You are doing an after-the-fact verification pass for a Call of Cthulhu Keeper. The prose you read has already been delivered to the player and cannot be changed; you only report, you never rewrite.",
 		"Look for four kinds of problem, and report none if you find none:",
-		"- reveal: the prose says something from the Keeper-only list that the player has not yet earned at the table.",
+		"- reveal: the prose says something from the Keeper-only list that the player has not yet earned at the table. What the already-public list shows the player was told before — their own name and occupation, the setup's prologue, earlier deliveries — is not a reveal when it is said again.",
 		"- uncommitted_state: the prose claims a state change that is not on the committed-facts list — moving somewhere, gaining a clue, a number going up or down, time passing.",
 		"- player_agency: the prose makes a voluntary choice for the player that he did not declare (a choice, something he said, an action he took).",
 		`- play_language_mismatch: the player-facing prose is not written in ${tag}. Judge the prose as a reader of that language would, not by counting characters; proper names, quoted rules terms and dice notation are not a mismatch.`,
@@ -94,6 +94,9 @@ export function buildVerifierInput(payload: CommitPayload): string {
 		"",
 		"[Keeper-only facts: what the player has not earned; saying it in the prose is an over-reveal]",
 		factLines(payload.facts?.keeper_only),
+		"",
+		"[Already public: what the player was told before this turn; a Keeper-only fact that this list shows was already told is not a reveal, and restating it is not an invention]",
+		factLines(payload.facts?.public),
 	].join("\n");
 }
 

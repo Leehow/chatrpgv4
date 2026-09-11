@@ -206,6 +206,45 @@ def offers(rows: list[dict[str, Any]]) -> dict[str, Any]:
                         for kind, counts in sorted(kinds.items())}}
 
 
+def admission(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Contract §32.7: what the action-admission review decided, and what it cost.
+
+    Counts per verdict, how many verdicts were reused within a turn, how many reviews could not
+    reach a verdict (and why), and the foreground time the reviews took -- kept apart from the
+    turn's delivery time, because rollout compares the two. Whether a refusal was right is a
+    human reading of the turn record; nothing here scores it.
+    """
+    verdicts: dict[str, int] = {}
+    unavailable: dict[str, int] = {}
+    reviewed = reused = skipped = 0
+    ms: list[int] = []
+    for row in rows:
+        if row.get("lane") != "admission":
+            continue
+        if row.get("skipped"):
+            skipped += 1
+            continue
+        if row.get("ok") is False:
+            reason = str(row.get("reason", "unknown"))
+            unavailable[reason] = unavailable.get(reason, 0) + 1
+            continue
+        verdict = str(row.get("verdict", "unknown"))
+        verdicts[verdict] = verdicts.get(verdict, 0) + 1
+        if row.get("reused"):
+            reused += 1
+        else:
+            reviewed += 1
+            if isinstance(row.get("ms"), (int, float)):
+                ms.append(int(row["ms"]))
+    if not (reviewed or reused or skipped or unavailable):
+        return {}
+    return {"reviews": reviewed, "reused": reused, "skipped": skipped,
+            "verdicts": dict(sorted(verdicts.items())),
+            "unavailable": dict(sorted(unavailable.items())),
+            "review_ms": {"total": sum(ms), "max": max(ms) if ms else 0,
+                          "mean": round(sum(ms) / len(ms)) if ms else 0}}
+
+
 def summarize(per_turn: dict[int, dict[str, Any]]) -> dict[str, Any]:
     if not per_turn:
         return {"turns": 0}
@@ -293,6 +332,9 @@ def main(argv: list[str] | None = None) -> int:
     ledger = offers(rows)
     if ledger:
         summary["offers"] = ledger
+    reviews = admission(rows)
+    if reviews:
+        summary["admission"] = reviews
     print(format_report(per_turn, summary, title=title))
     return 0
 

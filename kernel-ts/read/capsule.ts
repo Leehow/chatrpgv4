@@ -2,7 +2,7 @@
 import { pythonJsonDumps, compareUnicode } from "../json.js";
 import { ModuleGraph, recordOf, moduleDeclaration, describeCondition, conditionStatus, dossierLabels } from "./module-graph.js";
 import { entries, values, array, row, number, truth, string, normalize, chars, length, words, clone, type Row } from "./values.js";
-import { structureType } from "./director.js";
+import { clueGate, structureType } from "./director.js";
 export const jsonSize = (value: any): number => Buffer.byteLength(pythonJsonDumps(value), "utf8");
 export const sceneLabel = (graph: ModuleGraph, world: Row, scene: Row): string => string(row(world.scene_labels)[graph.handle(scene)] || graph.displayName(scene));
 export function clueLabel(graph: ModuleGraph, world: Row, handle: string): string {
@@ -58,8 +58,20 @@ export function whereSection(graph: ModuleGraph, world: Row, scene: Row, materia
             id: aff.id ?? null,
             cue: aff.cue ?? null
         };
-        if (typeof aff.clue_id === "string" && graph.nodes.has(aff.clue_id))
-            entry.clue = graph.handle(graph.nodes.get(aff.clue_id)!);
+        // The cue and what taking it yields belong in one row (contract §31.3, §32.5). The authored
+        // field is `grants_clue_ids`; `clue_id` is the older singular spelling, and the first
+        // granted clue keeps the `clue` key the §6 shape has always had.
+        const granted = [...array(aff.grants_clue_ids), ...(typeof aff.clue_id === "string" ? [aff.clue_id] : [])]
+            .filter((id, index, all) => typeof id === "string" && graph.nodes.has(id) && all.indexOf(id) === index)
+            .map(id => graph.nodes.get(id)!);
+        if (granted.length) {
+            entry.clue = graph.handle(granted[0]);
+            entry.clues = granted.map(node => ({
+                clue: graph.handle(node),
+                gate: clueGate(graph, node),
+                discovered: array(world.discovered_clues).includes(graph.handle(node))
+            }));
+        }
         const npc = row(aff.npc_interaction).npc_id;
         if (typeof npc === "string" && graph.nodes.has(npc))
             entry.npc = graph.displayName(graph.nodes.get(npc)!);
@@ -122,9 +134,12 @@ export function npcsPresent(graph: ModuleGraph, world: Row, scene: Row): Row[] {
 }
 export function cluesHere(graph: ModuleGraph, world: Row, scene: Row): Row[] {
     return graph.sceneClueIds(scene).map(id => {
-        const view = graph.clueView(graph.nodes.get(id)!);
+        const node = graph.nodes.get(id)!, view = graph.clueView(node);
+        // "What can still be dug up here and how": the gate is the how (contract §32.5), the same
+        // string the Director's reveal rows and the thread's `here` rows carry.
         return {
             ...view,
+            gate: clueGate(graph, node),
             discovered: array(world.discovered_clues).includes(view.name)
         };
     });

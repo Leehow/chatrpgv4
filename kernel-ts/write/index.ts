@@ -24,7 +24,7 @@ import { registerStarter } from './source.js';
 import { resolveStartScene } from '../modules/visual.js';
 import { loadModuleContract, validSourceLanguage } from '../modules/contract.js';
 import { defaultModPlan, preflightCampaign as validateContributions, rebuildNpcLedger, updateNpcLedger, stanceTable, writeEpisode } from './contributions.js';
-import { bindMarkers, stripMarkers, asciiSlug, facts, directorAdoption, offerLedger } from './text.js';
+import { bindMarkers, stripMarkers, asciiSlug, facts, publicContext, directorAdoption, offerLedger } from './text.js';
 import { readableTurn, rebuildTurn, syncCheckpoint, resumeView, checkpointFromRecord, writeCheckpoint } from './continuation.js';
 import {activeName} from '../read/worldline.js';
 import {eventOf} from '../worldline/index.js';
@@ -771,7 +771,10 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         await stanceTable(context);
         report?.('validate');
         const projected = mechanics(receipts, placed, await snapshot.handoutTexts(receipts)), n = number(turn.turn), receipt = `turn:${n}`, world = tableSnapshot(snapshot, module.graph);
-        const factLists = facts(module.graph, snapshot.world, snapshot.party, receipts, world, turn.player_text), labels = await playerGlossary(context, language);
+        // The public record the verifier reads beside the Keeper-only list (contract §32.6): the two deliveries before this one.
+        const earlier = (await Promise.all([number(turn.turn) - 1, number(turn.turn) - 2].filter(t => t >= 0).map(t => campaign.readTurnRecord(t)))).flatMap(r => r ? [r] : []);
+        const factLists = facts(module.graph, snapshot.world, snapshot.party, receipts, world, turn.player_text,
+            publicContext(snapshot.party, row(row(snapshot.meta.setup).handoff).prologue, earlier)), labels = await playerGlossary(context, language);
         report?.('project');
         const result: Row = {
             rendered_text: rendered,

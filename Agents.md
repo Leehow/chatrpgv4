@@ -36,6 +36,7 @@ PipiCOC 界面现已复制到本分支 `Electron/`，经 `pipicoc/rpc` 启动当
 | 对 Pi 的依赖、绕法、升版 | `docs/pi-host-contract.md`。不 fork、不打补丁。 |
 | 运行时、编译入口、独立打包或 Python 对照 | `docs/kernel-rpc.md` §27、`docs/specs/runtime-consolidation-tickets.md`；先看实现与验收状态，编译通过不等于独立包验收完成。 |
 | 架构规格与切片票 | GitHub issue #12（规格）、#13–#18（切片，已关）、#19–#22（真桌缺口，已关）、#26（切片 7：系统语言英文、机制 JSON）、#23（切片 8：世界线，契约 §15，代码已做完，§15.8 的真桌验收未跑）、#25（`apply npc`，留后）。用 `gh`。 |
+| 行动准入（玩家没选的动作不结算）、决策点的局部图投影、校验车道的公开语境 | `docs/specs/graph-backed-play-experience.md`（含 2026-09-11 代码勘察后的决定）、契约 §32。准入是宿主基础行为，不是 Mod，关不掉；复核不可用等于没有授权，不是放行。 |
 | 决策记录 | `docs/adr/`。 |
 | 真桌验收怎么做、证据在哪 | `docs/acceptance.md`。 |
 | 布局、跑法、测试 | `README.md`。 |

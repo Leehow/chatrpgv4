@@ -16,6 +16,16 @@ import { type KernelClient, KernelError, type KernelProgressFrame, isKernelError
 import { progressPartial } from "./progress.ts";
 import { COC_TOOLS, COC_TOOL_NAMES, type CocToolSpec, WRITE_TOOLS } from "./tools.ts";
 import { type CommitPayload, runVerifierLane } from "./verifier.ts";
+import {
+	type AdmissionContext,
+	type AdmissionVerdict,
+	ADMITTING_VERDICTS,
+	admissionRefusal,
+	admissionRequest,
+	admissionUnavailable,
+	keyDigest,
+	reviewAdmission,
+} from "./admission.ts";
 
 type TurnState = "awaiting_player" | "open" | "acting" | "asked" | "committed";
 
@@ -133,6 +143,24 @@ interface TableState {
 	attachments: HandoutAttachment[];
 	/** Cut off lane completions still in flight when the session ends; they must not hold up the exit. */
 	lanes: AbortController;
+	/** The exact current player text (contract §32.3); a turn with none — the opening — puts nothing to review. */
+	playerText?: string;
+	party: Array<{ name: string; occupation?: string }>;
+	/** The scene underfoot as the player knows it; a `move` to it is a rename and is not reviewed. */
+	scene?: { handle?: string; label?: string };
+	present: string[];
+	prologue?: string;
+	/**
+	 * Earlier deliveries as the player saw them (the last four), the review's player-visible
+	 * context. After a restart the host has none, and the capsule's `recent` heads stand in.
+	 */
+	delivered: Array<{ turn: number | string; player?: string | null; keeper: string }>;
+	recent: Array<{ turn: number | string; player?: string | null; keeper: string }>;
+	/** Verdicts by proposal key (contract §32.4): valid for this turn only, cleared with the next player input. */
+	admission: Map<string, AdmissionVerdict>;
+	admissionRefused: string[];
+	/** What this turn has already settled through the kernel, one line each, so an entailed step is visible as such. */
+	landed: string[];
 }
 
 const CLOSED_STATES: ReadonlySet<TurnState> = new Set<TurnState>(["awaiting_player", "committed", "asked"]);
@@ -452,6 +480,20 @@ export default function (pi: ExtensionAPI) {
 		table.steeredThisTurn = false;
 		table.deliveryFix = undefined;
 		table.attachments = [];
+		// Action admission (contract §32.3): who plays, where they stand, what the setup already told
+		// them, and — on a recovered turn — the words the broken turn was answering.
+		table.party = (open.investigators ?? []).flatMap((sheet) => {
+			const name = asString(sheet.name);
+			const occupation = asString(sheet.occupation);
+			return name ? [{ name, ...(occupation ? { occupation } : {}) }] : [];
+		});
+		table.scene = { ...(asString(open.scene?.name) ? { handle: asString(open.scene?.name) } : {}),
+			...(asString(open.scene?.display_name) ? { label: asString(open.scene?.display_name) } : {}) };
+		table.prologue = asString(open.setup_prologue);
+		table.playerText = asString(open.pending_turn?.player_text);
+		table.admission = new Map();
+		table.admissionRefused = [];
+		table.landed = [];
 	}
 
 	function mintCallId(state: TableState): string {
@@ -640,6 +682,116 @@ export default function (pi: ExtensionAPI) {
 		pi.events.emit("coc:mechanics", { campaign: state.campaign, turn, mechanics, ...(labels ? { labels } : {}) });
 	}
 
+	// ---- Action admission (contract §32) ------------------------------------
+
+	/** What the capsule says the player can see: the scene's name, who is on stage, who plays, and the recent exchange. */
+	function noteCapsule(state: TableState, capsule: unknown): void {
+		if (!capsule || typeof capsule !== "object") return;
+		const view = capsule as { where?: Record<string, unknown>; present?: unknown; known?: { investigator?: Record<string, unknown> }; recent?: unknown };
+		const handle = asString(view.where?.scene);
+		const label = asString(view.where?.display_name);
+		if (handle || label) state.scene = { ...(handle ? { handle } : {}), ...(label ? { label } : {}) };
+		if (Array.isArray(view.present)) {
+			state.present = view.present.flatMap((row) => {
+				const name = asString((row as Record<string, unknown> | null)?.name);
+				return name ? [name] : [];
+			});
+		}
+		const sheet = view.known?.investigator;
+		const name = asString(sheet?.name);
+		if (name && !state.party.some((member) => member.name === name)) {
+			const occupation = asString(sheet?.occupation);
+			state.party.push({ name, ...(occupation ? { occupation } : {}) });
+		}
+		if (Array.isArray(view.recent)) {
+			state.recent = view.recent.flatMap((row) => {
+				const entry = row as Record<string, unknown> | null;
+				const keeper = asString(entry?.keeper);
+				if (!keeper) return [];
+				const turn = typeof entry?.turn === "number" ? entry.turn : asString(entry?.turn) ?? "?";
+				return [{ turn, player: asString(entry?.player) ?? null, keeper }];
+			});
+		}
+	}
+
+	/** One line per settled call, for the review's "already settled this turn" list. */
+	function noteLanded(state: TableState, tool: string, result: Record<string, unknown>): void {
+		if (tool === "resolve") {
+			const outcome = asString((result.outcome as { kind?: unknown } | undefined)?.kind);
+			state.landed.push(`resolve settled${outcome ? ` (${outcome})` : ""}`);
+			return;
+		}
+		if (tool === "apply") {
+			const receipts = Array.isArray(result.receipts) ? result.receipts.map(String) : [];
+			state.landed.push(`apply landed: ${receipts.length ? receipts.join(", ") : "receipts"}`);
+			const world = result.world as { active_scene?: unknown } | undefined;
+			const scene = asString(world?.active_scene);
+			if (scene && scene !== state.scene?.handle) state.scene = { handle: scene };
+		}
+	}
+
+	/** A delivery joins the player-visible window the next review reads. */
+	function noteDelivered(state: TableState, result: Record<string, unknown>): void {
+		const keeper = asString(result.rendered_text);
+		if (!keeper) return;
+		const turn = typeof result.turn === "number" ? result.turn : state.turn;
+		state.delivered.push({ turn, player: state.playerText ?? null, keeper });
+		while (state.delivered.length > 4) state.delivered.shift();
+	}
+
+	/**
+	 * Put a `resolve` or `apply` to review before it reaches a Mod hook or the kernel, and throw
+	 * the refusal the Keeper reads when it is not admitted. A call that is not a proposed voluntary
+	 * investigator action goes straight on; the opening turn, which has no player words, puts
+	 * nothing to review and says so in telemetry. A verdict already given this turn for the same
+	 * proposal is reused, admitting and refusing alike (contract §32.4).
+	 */
+	async function admitAction(state: TableState, tool: "resolve" | "apply", payload: Record<string, unknown>, signal?: AbortSignal): Promise<void> {
+		const proposal = admissionRequest(tool, payload, { party: state.party.map((member) => member.name), scene: state.scene });
+		if (!proposal) return;
+		const digest = keyDigest(proposal.key);
+		// Lane rows name the verb as `verb`: `tool` is the tool-call row's own column, and readers
+		// (kpi.py, the tests) find a verb's call row by it.
+		if (!state.playerText) {
+			await record({ lane: "admission", verb: tool, ok: true, skipped: "no_player_text", key: digest });
+			return;
+		}
+		const settle = async (verdict: AdmissionVerdict, reused: boolean, ms: number, model?: string): Promise<void> => {
+			state.admission.set(proposal.key, verdict);
+			const admitted = ADMITTING_VERDICTS.has(verdict.verdict);
+			await record({ lane: "admission", verb: tool, ok: true, verdict: verdict.verdict, admitted, reused, ms, key: digest, ...(model ? { model } : {}) });
+			if (admitted) return;
+			state.admissionRefused.push(`${proposal.lines.join(" | ")} -> ${verdict.verdict}${verdict.missing ? `: ${verdict.missing}` : ""}`);
+			throw admissionRefusal(proposal, verdict);
+		};
+		const remembered = state.admission.get(proposal.key);
+		if (remembered) return settle(remembered, true, 0);
+		const ctx = sessionCtx;
+		if (!ctx) {
+			await record({ lane: "admission", verb: tool, ok: false, reason: "session_gone", key: digest });
+			throw admissionUnavailable(proposal, "session_gone", "the session was gone before the review could start");
+		}
+		const context: AdmissionContext = {
+			turn: state.turn,
+			playerText: state.playerText,
+			investigators: state.party,
+			...(state.scene?.label ?? state.scene?.handle ? { scene: state.scene.label ?? state.scene.handle } : {}),
+			present: state.present,
+			delivered: [
+				...(state.prologue ? [{ turn: "setup", keeper: state.prologue }] : []),
+				...(state.delivered.length ? state.delivered : state.recent),
+			],
+			landed: state.landed,
+			refused: state.admissionRefused,
+		};
+		const outcome = await reviewAdmission({ ctx, proposal, context, record: (row) => record({ verb: tool, ...row }), ...(signal ? { signal } : {}) });
+		if (!outcome.ok) {
+			await record({ lane: "admission", verb: tool, ok: false, reason: outcome.reason, detail: outcome.detail.slice(0, 200), ms: outcome.ms, key: digest, ...(outcome.model ? { model: outcome.model } : {}) });
+			throw admissionUnavailable(proposal, outcome.reason, outcome.detail);
+		}
+		await settle(outcome.verdict, false, outcome.ms, outcome.model);
+	}
+
 	function applyToolSuccess(state: TableState, tool: string, toolCallId: string, result: Record<string, unknown>): void {
 		switch (tool) {
 			case "look":
@@ -650,9 +802,11 @@ export default function (pi: ExtensionAPI) {
 			case "resolve":
 				state.state = "acting";
 				noteResolve(state, result as ResolveResult);
+				noteLanded(state, tool, result);
 				break;
 			case "apply": {
 				state.state = "acting";
+				noteLanded(state, tool, result);
 				if (readingModule && Array.isArray(result.deepen_queued) && result.deepen_queued.length)
 					pi.events.emit("coc:source-work-queued", {campaign:state.campaign,module_id:readingModule});
 				// Handouts (contract §14.8): the kernel mints the receipt, and the attachment itself is the
@@ -683,6 +837,7 @@ export default function (pi: ExtensionAPI) {
 				state.closedThisRun = true;
 				state.renderedText = typeof result.rendered_text === "string" ? result.rendered_text : undefined;
 				state.deliveryToolCallId = toolCallId;
+				noteDelivered(state, result);
                 if (result.interaction) pi.appendEntry("coc-choice", result.interaction);
 				noteMechanics(state, typeof result.turn === "number" ? result.turn : state.turn,
 					withHandouts(state, readMechanics(result)), asString(result.marked_text), result.labels);
@@ -694,6 +849,7 @@ export default function (pi: ExtensionAPI) {
 				state.closedThisRun = true;
 				state.renderedText = asString(result.rendered_text);
 				state.deliveryToolCallId = toolCallId;
+				noteDelivered(state, result);
 				// From here on this turn owes a verifier-lane row, whatever the lane turns out to do (ticket #28).
 				state.verifierOwed = { turn: typeof result.turn === "number" ? result.turn : state.turn };
 				const mechanics = withHandouts(state, readMechanics(result));
@@ -740,6 +896,9 @@ export default function (pi: ExtensionAPI) {
 				payload.kind = "module";
 			}
 			let result: Record<string, unknown>;
+			// Action admission (contract §32) runs ahead of every Mod hook and of the kernel: a refused
+			// proposal pays for no definition agent and reaches no transaction.
+			if (spec.name === "resolve" || spec.name === "apply") await admitAction(state, spec.name, payload, signal);
       if (mods) {
         if (Array.isArray(payload.effects)) payload.effects = payload.effects.map(effect => ({...(effect as Record<string, unknown>)}));
         await mods.prepare(spec.name, payload, signal);
@@ -966,6 +1125,13 @@ export default function (pi: ExtensionAPI) {
 				callKeys: new Map(),
 				attachments: [],
 				lanes: new AbortController(),
+				party: [],
+				present: [],
+				delivered: [],
+				recent: [],
+				admission: new Map(),
+				admissionRefused: [],
+				landed: [],
 			};
 			const open = await kernel.call<OpenResult>("table.open", { campaign });
 			applyOpen(open);
@@ -1097,6 +1263,12 @@ export default function (pi: ExtensionAPI) {
 			state.deliveryFix = undefined;
 			state.roundTrips = 0;
 			state.attachments = [];
+			// A new player input is a new context (contract §32.4): no verdict outlives it.
+			state.playerText = text;
+			state.admission = new Map();
+			state.admissionRefused = [];
+			state.landed = [];
+			noteCapsule(state, result.capsule);
 			await record({
 				tool: "table.player_input",
 				started_at: startedAt,

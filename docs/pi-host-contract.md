@@ -81,6 +81,7 @@ effects remain usable without the UI mount.
 | --- | --- | --- |
 | `PI_COC_VERIFIER_MODEL` | kernel 扩展内的校验车道 | `ctx.model`，即桌子当前的模型 |
 | `PI_COC_MEMORY_MODEL` | memory 扩展的抽取车道 | 同上 |
+| `PI_COC_ADMISSION_MODEL` | kernel 扩展内的行动准入复核（契约 §32，前台，`resolve`/`apply` 之前） | 同上；超时用 `PI_COC_ADMISSION_TIMEOUT_MS`（缺省 60 秒），复核不可用即拒绝该动作，不放行 |
 
 取值形如 `provider/model`，只在**第一个**斜杠上切（模型 id 自己可能带斜杠），再用 `ctx.modelRegistry.find(provider, id)` 取模型。解析不出来或注册表里没有：车道只落一行 `ok: false` 的遥测就结束，不动内核、不催守秘人。
 

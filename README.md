@@ -19,7 +19,7 @@ COC Keeper for Pi：一个 Pi 包加一个编译后的 TypeScript 内核子进�
 ## 布局
 
 ```
-extensions/   Pi 扩展：kernel（七个工具、回合事务、校验车道）、table（状态行）、memory（记忆抽取车道）、
+extensions/   Pi 扩展：kernel（七个工具、回合事务、行动准入、校验车道）、table（状态行）、memory（记忆抽取车道）、
               module（无人值守构建与按需深读，读者是子 pi 进程）、onboarding（建卡进程的 setup 工具）、lanes（共用）、
               deepseek（DeepSeek Extended provider，`openai-responses` + hosted web_search，从 PipiUI 上游移植）
 kernel-ts/    TypeScript 内核，编译为 build/kernel/rpc.mjs，默认由统一运行时启动

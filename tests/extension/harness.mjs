@@ -20,7 +20,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { fauxProvider } from "@earendil-works/pi-ai";
+import { fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai";
 import {
 	createAgentSession,
 	DefaultResourceLoader,
@@ -164,6 +164,30 @@ function withProviderCallbacks(handle) {
 }
 
 /**
+ * A faux provider whose queue never runs dry: scripted answers first, then `fallback()` for every
+ * call after them. The real faux errors on an empty queue, which for a foreground lane that refuses
+ * on `model_error` would turn every unscripted `resolve`/`apply` in the suite into a refusal.
+ * `requests()` keeps the user text of every completion the lane sent, for assertions on context.
+ */
+function withDefaultResponse(handle, fallback) {
+	const inner = handle.provider;
+	let scripted = [];
+	const requests = [];
+	const wrap = (fn) => (model, context, options) => {
+		const next = scripted.length ? scripted.shift() : fallback;
+		handle.setResponses([next]);
+		requests.push((context?.messages ?? []).flatMap((m) => (m.role === "user" ? m.content : [])).map((b) => b.text ?? "").join(""));
+		return fn(model, context, options);
+	};
+	return {
+		...handle,
+		provider: { ...inner, stream: wrap(inner.stream), streamSimple: wrap(inner.streamSimple) },
+		setResponses: (next) => { scripted = [...next]; },
+		requests: () => [...requests],
+	};
+}
+
+/**
  * 起一张桌子。
  *
  * @param {object} options
@@ -204,6 +228,10 @@ export async function openTable({
 		// 想验「缺省与桌子同模型」的用例把这两个变量显式删掉即可。
 		PI_COC_VERIFIER_MODEL: "verifier/v1",
 		PI_COC_MEMORY_MODEL: "memory/m1",
+		// The action-admission review (contract §32) is foreground and refuses when its model is
+		// unavailable, so every table here gets a provider of its own that admits by default;
+		// a test about admission scripts its verdicts through `table.lanes.admission`.
+		PI_COC_ADMISSION_MODEL: "admission/a1",
 		...env,
 	});
 
@@ -213,9 +241,14 @@ export async function openTable({
 	faux.setResponses(responses);
 	const verifierFaux = withProviderCallbacks(fauxProvider({ provider: "verifier", models: [{ id: "v1" }] }));
 	const memoryFaux = withProviderCallbacks(fauxProvider({ provider: "memory", models: [{ id: "m1" }] }));
+	const admissionFaux = withDefaultResponse(
+		withProviderCallbacks(fauxProvider({ provider: "admission", models: [{ id: "a1" }] })),
+		() => fauxAssistantMessage(JSON.stringify({ verdict: "authorized", grounds: "harness default: the player chose it" })),
+	);
 	// 开桌之前就装好：补抽（#20）在 session_start 里就要模型，晚一步就抓空。
 	if (laneResponses.memory) memoryFaux.setResponses(laneResponses.memory);
 	if (laneResponses.verifier) verifierFaux.setResponses(laneResponses.verifier);
+	if (laneResponses.admission) admissionFaux.setResponses(laneResponses.admission);
 	const modelRuntime = await ModelRuntime.create({
 		authPath: join(workspace, "auth.json"),
 		modelsPath: null,
@@ -225,6 +258,7 @@ export async function openTable({
 	modelRuntime.registerNativeProvider(faux.provider);
 	modelRuntime.registerNativeProvider(verifierFaux.provider);
 	modelRuntime.registerNativeProvider(memoryFaux.provider);
+	modelRuntime.registerNativeProvider(admissionFaux.provider);
 	const model = faux.getModel();
 
 	let api;
@@ -302,8 +336,11 @@ export async function openTable({
 		session: created.session,
 		extensionsResult: created.extensionsResult,
 		faux,
-		/** 两条车道的假模型：各自 setResponses，跟守秘人的队列互不干扰。 */
-		lanes: { verifier: verifierFaux, memory: memoryFaux },
+		/**
+		 * 三条车道的假模型：各自 setResponses，跟守秘人的队列互不干扰。准入车道（契约 §32）
+		 * 脚本用完后回落到「authorized」，`lanes.admission.requests()` 是它收到的每一份输入原文。
+		 */
+		lanes: { verifier: verifierFaux, memory: memoryFaux, admission: admissionFaux },
 		ui,
 		/** 扩展加载与事件里出的错，测试里当断言用。 */
 		extensionErrors,
