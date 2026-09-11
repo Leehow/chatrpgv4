@@ -23,16 +23,19 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import shutil
 import statistics
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from persona_metrics import HARD_GATES, METRICS, judge_metrics, rate  # noqa: E402
-from player import load_personas  # noqa: E402
+from player import load_personas, seed_home  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_JUDGE_MODEL = "deepseek/deepseek-v4-pro"
@@ -181,36 +184,44 @@ def sidecar_metrics(trace_rows: list[dict[str, Any]]) -> dict[str, Any]:
 # --------------------------------------------------------------------------
 
 JUDGE_INSTRUCTIONS = """\
-You are auditing one recorded Call of Cthulhu session for a specific list of questions. You are
-not scoring the session and not giving an opinion about how good it was.
+You are auditing one recorded Call of Cthulhu session against a fixed list of questions. You
+are not scoring the session and not giving an opinion about how good it was.
 
-Read `judge-packet.json` in this directory. It holds, per turn: what the player sent, what the
-Keeper delivered to the player, the mechanical receipts the kernel minted that turn, and the
-player's private notes, which the Keeper never saw. It also holds the module's own truth --
-secrets, clues and NPCs as the book has them -- and the questions you must answer.
+Everything you need is behind one tool in this directory. Read nothing else; the raw files
+are large and reading them is not your job.
 
-For each question in `questions`, go turn by turn and decide, for each turn where the question
-is actually exercised:
+    python judge_tools.py questions          the questions you must answer
+    python judge_tools.py turns              one line per turn, in order
+    python judge_tools.py turn <n>           one turn in full: what the player sent, what the
+                                             Keeper delivered, the receipts the kernel minted,
+                                             and the player's private notes, which the Keeper
+                                             never saw
+    python judge_tools.py truth              the module's own truth: secrets, clues, NPCs
+    python judge_tools.py truth --kind secret
 
-    "ok"             the turn exercised this and the answer is the good one
-    "violation"      the turn exercised this and the answer is the bad one
-    (skip the turn)  the question was not exercised this turn
+Work like this:
 
-Rules you must not break:
-- Every finding names a turn and quotes at most one sentence from that turn as evidence. A
-  finding you cannot cite is not a finding; leave it out.
-- Judge what the record shows, not what you would have done. Absence of evidence is not a
-  violation.
-- The module truth is yours to read. The Keeper's job is to keep it from the player unless a
-  receipt delivered it; a player guessing right is still guessing.
-- Do not invent turns, quotes, or receipts.
+1. `questions`, then `turns`, so you know what is being asked and what happened.
+2. Go turn by turn with `turn <n>`. Consult `truth` whenever a question turns on what the
+   module actually says.
+3. For each turn where a question is genuinely exercised, record one finding:
 
-Write your answer to `judgement.json` in this directory, exactly this shape:
+    python judge_tools.py record --metric <id> --turn <n> --verdict ok|violation \
+        --quote "<one sentence, copied exactly from that turn>" --why "<one short line>"
 
-{"findings": [{"metric": "<question id>", "turn": <int>, "verdict": "ok" | "violation",
-               "quote": "<at most one sentence from that turn>", "why": "<one short line>"}]}
+   `ok` means the turn exercised the question and the answer was the good one. `violation`
+   means it exercised it and the answer was the bad one. A turn where the question was not
+   exercised gets no finding at all -- silence is the third answer, and it is often correct.
 
-Write the file with your tools. Do not print the JSON instead of writing it.
+The tool refuses a finding whose quote does not occur in that turn. That is deliberate: if
+you cannot quote it, it did not happen. Do not work around the refusal -- find the real
+sentence or drop the finding.
+
+Judge what the record shows, not what you would have done. Absence of evidence is not a
+violation. A player who guesses the truth is still guessing: the Keeper's job is to keep the
+module's secrets until a receipt delivers them.
+
+When you have been through every turn, say how many findings you recorded and stop.
 """
 
 
@@ -265,20 +276,35 @@ def run_judge(run_dir: Path, model: str) -> dict[str, Any]:
     pi = REPO_ROOT / "node_modules" / ".bin" / "pi"
     provider, _, model_id = model.partition("/")
     (run_dir / "JUDGE.md").write_text(JUDGE_INSTRUCTIONS, encoding="utf-8")
-    proc = subprocess.run(
-        [str(pi), "-p", "--no-extensions", "--no-skills", "--no-prompt-templates",
-         "--tools", "read,write,edit,bash", "--provider", provider, "--model", model_id,
-         "Follow JUDGE.md in this directory."],
-        cwd=str(run_dir), capture_output=True, text=True, timeout=JUDGE_TIMEOUT,
-    )
-    (run_dir / "judge-stdout.log").write_text(proc.stdout + "\n" + proc.stderr, encoding="utf-8")
-    path = run_dir / "judgement.json"
-    if not path.exists():
-        return {"findings": [], "error": "judge wrote no judgement.json"}
+    # The tools travel with the packet: a judge that has to reshape its own input spends its
+    # context doing that and answers nothing (this lane's first two runs produced no findings
+    # at all from a 39KB packet).
+    shutil.copy2(Path(__file__).resolve().parent / "judge_tools.py", run_dir / "judge_tools.py")
+    for stale in ("judgement.jsonl", "judge-refusals.jsonl"):
+        (run_dir / stale).unlink(missing_ok=True)
+    home = seed_home(Path(tempfile.mkdtemp(prefix="persona-judge-")) / "home",
+                     REPO_ROOT / ".pi" / "coc-agent")
+    env = {k: v for k, v in os.environ.items()
+           if not k.startswith(("PI_COC_", "PIPIUI_", "PI_CODING_AGENT_DIR"))}
+    env["PI_CODING_AGENT_DIR"] = str(home)
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except ValueError as exc:
-        return {"findings": [], "error": f"judgement.json is not JSON: {exc}"}
+        proc = subprocess.run(
+            [str(pi), "-p", "--no-extensions", "--no-skills", "--no-prompt-templates",
+             "--no-session", "--no-context-files", "--approve",
+             "--tools", "read,write,edit,bash", "--provider", provider, "--model", model_id,
+             "Follow JUDGE.md in this directory."],
+            cwd=str(run_dir), capture_output=True, text=True, timeout=JUDGE_TIMEOUT, env=env,
+        )
+    finally:
+        shutil.rmtree(home.parent, ignore_errors=True)
+    (run_dir / "judge-stdout.log").write_text(proc.stdout + "\n" + proc.stderr, encoding="utf-8")
+    path = run_dir / "judgement.jsonl"
+    if not path.exists():
+        return {"findings": [], "error": "the judge recorded no findings at all"}
+    findings = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    refused = run_dir / "judge-refusals.jsonl"
+    return {"findings": findings,
+            "refused": len(refused.read_text(encoding="utf-8").splitlines()) if refused.exists() else 0}
 
 
 def fold_judgement(judgement: dict[str, Any], turns_seen: set[int],
@@ -341,6 +367,8 @@ def build_report(run_dir: Path, *, judge: bool, judge_model: str) -> dict[str, A
         turns_seen = {row["turn"] for row in trace_rows if row.get("turn")} | {0}
         allowed = list(dict.fromkeys(list(HARD_GATES) + list(persona["assertions"])))
         report["judged"] = fold_judgement(judgement, turns_seen, allowed)
+        if judgement.get("refused"):
+            report["judged"]["_refused_by_tool"] = judgement["refused"]
         if judgement.get("error"):
             report["judge_error"] = judgement["error"]
     else:

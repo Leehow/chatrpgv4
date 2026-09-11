@@ -225,7 +225,11 @@ def run_setup_lane(run: dict[str, Any], suite: dict[str, Any], player: PersonaPl
     start_table(campaign, run_id, suite, launcher="bin/pi-coc-setup")
     steps = []
     try:
-        view = await_opening(campaign, run_id, suite["opening_timeout"])
+        # Creation has no opening delivery to wait for: the campaign does not exist yet, so there
+        # is no transcript to read. The player opens the app and says what they want, which is
+        # what a person does here. The prompt is system language; the persona answers in the play
+        # language, because that is the only place a language may be chosen (contract section 23).
+        view = SETUP_FIRST_VIEW
         for step in range(1, int(suite.get("setup_max_turns", 20)) + 1):
             act = player.act(view)
             if not act["ok"]:
@@ -244,6 +248,13 @@ def run_setup_lane(run: dict[str, Any], suite: dict[str, Any], player: PersonaPl
     if status != "ready_for_table":
         raise RunFailed(f"setup lane ended with campaign status {status!r}, not ready_for_table")
     return {"setup_steps": len(steps)}
+
+
+#: What the persona is told when a creation lane begins, before anything has been delivered.
+SETUP_FIRST_VIEW = (
+    "[You have just opened the game to make a new Call of Cthulhu investigator, before any "
+    "session has begun. Nothing has been said to you yet. Say what you want, as yourself.]"
+)
 
 
 def append_jsonl(path: Path, obj: dict[str, Any]) -> None:

@@ -204,14 +204,7 @@ class PersonaPlayer:
         work = self._sandbox / "work"
         home.mkdir(parents=True)
         work.mkdir(parents=True)
-        for name in CREDENTIAL_FILES:
-            source = self._credentials_from / name
-            if source.exists():
-                target = home / name
-                shutil.copy2(source, target)
-                os.chmod(target, 0o600)
-        # A home with nothing but credentials: no packages, no COC settings, no sessions.
-        (home / "settings.json").write_text(json.dumps({"quietStartup": True}) + "\n", encoding="utf-8")
+        seed_home(home, self._credentials_from)
 
         provider, _, model_id = self.model.partition("/")
         args = [*ISOLATION_FLAGS, "--mode", "rpc",
@@ -310,6 +303,25 @@ class PersonaPlayer:
             return ("".join(final) or "".join(parts)).strip()
         finally:
             self.pi.end_turn()
+
+
+def seed_home(home: Path, credentials_from: Path) -> Path:
+    """A Pi home holding credentials and nothing else: no packages, no COC settings, no sessions.
+
+    The table's own home (`{repo}/.pi/coc-agent`) is where the working provider keys live, so
+    both the persona player and the judge lane borrow those bytes rather than falling back to
+    a global `~/.pi/agent` -- which this project does not use and which, on this machine, holds
+    a stale key that answered the judge's first run with a 401.
+    """
+    home.mkdir(parents=True, exist_ok=True)
+    for name in CREDENTIAL_FILES:
+        source = credentials_from / name
+        if source.exists():
+            target = home / name
+            shutil.copy2(source, target)
+            os.chmod(target, 0o600)
+    (home / "settings.json").write_text(json.dumps({"quietStartup": True}) + "\n", encoding="utf-8")
+    return home
 
 
 def _sha256(text: str) -> str:

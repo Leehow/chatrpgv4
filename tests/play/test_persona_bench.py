@@ -279,3 +279,53 @@ def test_the_bench_never_steals_the_default_run_pointer(fixture_campaign, monkey
     finally:
         bench.stop_table(run_id)
         shutil.rmtree(driver.run_dir(run_id), ignore_errors=True)
+
+
+class _ScriptedPlayer:
+    """Stands in for the persona agent: records what it was shown, answers in order."""
+
+    def __init__(self, answers: list[str]):
+        self.answers, self.views = list(answers), []
+
+    def act(self, view: str, **_: object) -> dict:
+        self.views.append(view)
+        if not self.answers:
+            return {"ok": False, "error": "out of answers", "player_message": None, "private_eval": {}}
+        return {"ok": True, "player_message": self.answers.pop(0), "private_eval": {}}
+
+
+def test_the_creation_lane_opens_by_the_player_speaking_first(tmp_path, monkeypatch):
+    """There is no opening delivery to wait for during creation: the campaign does not exist yet."""
+    asked = []
+
+    def status(campaign: str) -> str:
+        asked.append(campaign)
+        return "setting_up" if len(asked) < 3 else "ready_for_table"
+
+    monkeypatch.setattr(bench, "start_table", lambda *a, **k: None)
+    monkeypatch.setattr(bench, "stop_table", lambda *a, **k: None)
+    monkeypatch.setattr(bench, "campaign_status", status)
+    monkeypatch.setattr(bench, "send_turn", lambda run_id, text, timeout: {
+        "settle_class": "settled", "final_text": f"keeper heard {text}", "delivery": None})
+
+    player = _ScriptedPlayer(["a folklore professor", "yes", "done"])
+    result = bench.run_setup_lane({"campaign": "c", "run_id": "r"},
+                                  {**bench.DEFAULTS, "setup_max_turns": 5, "turn_timeout": 1.0,
+                                   "opening_timeout": 1.0},
+                                  player, tmp_path / "trace.jsonl")
+    assert result == {"setup_steps": 3}
+    assert player.views[0] == bench.SETUP_FIRST_VIEW
+    assert player.views[1].startswith("keeper heard a folklore professor")
+
+
+def test_a_creation_lane_that_never_finishes_the_card_is_a_failed_run(tmp_path, monkeypatch):
+    monkeypatch.setattr(bench, "start_table", lambda *a, **k: None)
+    monkeypatch.setattr(bench, "stop_table", lambda *a, **k: None)
+    monkeypatch.setattr(bench, "campaign_status", lambda campaign: "setting_up")
+    monkeypatch.setattr(bench, "send_turn", lambda run_id, text, timeout: {
+        "settle_class": "settled", "final_text": "still asking", "delivery": None})
+    player = _ScriptedPlayer(["a", "b"])
+    with pytest.raises(bench.RunFailed, match="ready_for_table"):
+        bench.run_setup_lane({"campaign": "c", "run_id": "r"},
+                             {**bench.DEFAULTS, "setup_max_turns": 2, "turn_timeout": 1.0},
+                             player, tmp_path / "trace.jsonl")
