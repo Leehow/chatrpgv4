@@ -210,8 +210,11 @@ Work like this:
         --quote "<one sentence, copied exactly from that turn>" --why "<one short line>"
 
    `ok` means the turn exercised the question and the answer was the good one. `violation`
-   means it exercised it and the answer was the bad one. A turn where the question was not
-   exercised gets no finding at all -- silence is the third answer, and it is often correct.
+   means it exercised it and the answer was the bad one. Record one or the other whenever the
+   turn gave the question any occasion at all: a turn where the Keeper could have refused and
+   did not is an `ok` for hard_denial_rate, not a silence. Silence is only for a question that
+   had no occasion to arise in that turn -- there is no third verdict called "not exercised as
+   a violation".
 
 The tool refuses a finding whose quote does not occur in that turn. That is deliberate: if
 you cannot quote it, it did not happen. Do not work around the refusal -- find the real
@@ -282,6 +285,9 @@ def run_judge(run_dir: Path, model: str) -> dict[str, Any]:
     shutil.copy2(Path(__file__).resolve().parent / "judge_tools.py", run_dir / "judge_tools.py")
     for stale in ("judgement.jsonl", "judge-refusals.jsonl"):
         (run_dir / stale).unlink(missing_ok=True)
+    # `--thinking off` is not a preference: with thinking on, this lane produced no text and no
+    # tool call at all, twice -- reasoning and the tool budget come out of the same output
+    # allowance. Turned off, the same model reads every turn and answers every question.
     home = seed_home(Path(tempfile.mkdtemp(prefix="persona-judge-")) / "home",
                      REPO_ROOT / ".pi" / "coc-agent")
     env = {k: v for k, v in os.environ.items()
@@ -290,7 +296,7 @@ def run_judge(run_dir: Path, model: str) -> dict[str, Any]:
     try:
         proc = subprocess.run(
             [str(pi), "-p", "--no-extensions", "--no-skills", "--no-prompt-templates",
-             "--no-session", "--no-context-files", "--approve",
+             "--no-session", "--no-context-files", "--approve", "--thinking", "off",
              "--tools", "read,write,edit,bash", "--provider", provider, "--model", model_id,
              "Follow JUDGE.md in this directory."],
             cwd=str(run_dir), capture_output=True, text=True, timeout=JUDGE_TIMEOUT, env=env,

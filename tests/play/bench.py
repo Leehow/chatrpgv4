@@ -24,8 +24,10 @@ import concurrent.futures
 import hashlib
 import json
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from datetime import datetime, timezone
@@ -67,6 +69,14 @@ DEFAULTS: dict[str, Any] = {
 }
 
 _print_lock = threading.Lock()
+
+#: Seconds between two table starts. Twenty-four cold starts at once meant pi could not answer
+#: `get_state` inside the driver's ten-second acknowledgement window and six runs died before
+#: their first turn: the cost of concurrency is paid at startup, not during play. The gate only
+#: spaces the starts -- once a table is up, all of them play at once.
+START_STAGGER_SECONDS = 5.0
+_start_gate = threading.Lock()
+_last_start = 0.0
 
 
 def say(message: str) -> None:
@@ -172,17 +182,37 @@ class RunFailed(Exception):
     pass
 
 
-def start_table(campaign: str, run_id: str, suite: dict[str, Any], launcher: str | None) -> None:
-    argv = ["start", "--campaign", campaign, "--run", run_id, "--model", suite["kp_model"],
-            "--no-default-run"]
-    if launcher:
-        argv += ["--launcher", launcher]
-    if suite.get("admission_model"):
-        argv += ["--env", f"PI_COC_ADMISSION_MODEL={suite['admission_model']}"]
-    for pair in suite.get("env", []):
-        argv += ["--env", pair]
-    if driver.main(argv) != 0:
-        raise RunFailed(f"driver start failed for {run_id}")
+def _await_start_slot(stagger: float) -> None:
+    global _last_start
+    with _start_gate:
+        wait = _last_start + stagger - time.monotonic()
+        if wait > 0:
+            time.sleep(wait)
+        _last_start = time.monotonic()
+
+
+def start_table(campaign: str, run_id: str, suite: dict[str, Any], launcher: str | None) -> str:
+    """Start one table, staggered, and retry a failed start once under a suffixed run id.
+
+    Returns the run id the table actually came up under, which is what later turns must use.
+    """
+    stagger = float(suite.get("start_stagger_seconds", START_STAGGER_SECONDS))
+    for attempt in (1, 2):
+        this_run = run_id if attempt == 1 else f"{run_id}-r{attempt}"
+        argv = ["start", "--campaign", campaign, "--run", this_run, "--model", suite["kp_model"],
+                "--no-default-run"]
+        if launcher:
+            argv += ["--launcher", launcher]
+        if suite.get("admission_model"):
+            argv += ["--env", f"PI_COC_ADMISSION_MODEL={suite['admission_model']}"]
+        for pair in suite.get("env", []):
+            argv += ["--env", pair]
+        _await_start_slot(stagger)
+        if driver.main(argv) == 0:
+            return this_run
+        say(f"{this_run}: start failed; {'retrying once' if attempt == 1 else 'giving up'}")
+        time.sleep(stagger * 2)
+    raise RunFailed(f"driver start failed twice for {run_id}")
 
 
 def stop_table(run_id: str) -> None:
@@ -222,7 +252,7 @@ def run_setup_lane(run: dict[str, Any], suite: dict[str, Any], player: PersonaPl
     persona, so the card the run plays with is the one this player would actually have made.
     """
     campaign, run_id = run["campaign"], f"{run['run_id']}-setup"
-    start_table(campaign, run_id, suite, launcher="bin/pi-coc-setup")
+    run_id = start_table(campaign, run_id, suite, launcher="bin/pi-coc-setup")
     steps = []
     try:
         # Creation has no opening delivery to wait for: the campaign does not exist yet, so there
@@ -309,7 +339,8 @@ def execute_run(run: dict[str, Any], suite: dict[str, Any], persona: dict[str, A
                 raise RunFailed(f"campaign.create failed: {created.get('error')}")
             record["pregen"] = pregen
 
-        start_table(campaign, run_id, suite, launcher=suite.get("launcher"))
+        run_id = start_table(campaign, run_id, suite, launcher=suite.get("launcher"))
+        record["table_run_id"] = run_id
         view = await_opening(campaign, run_id, suite["opening_timeout"])
         append_jsonl(trace, {"phase": "opening", "at": driver.now_iso(), "view_sha256": sha256(view),
                              "text": view})
@@ -371,7 +402,7 @@ def execute_run(run: dict[str, Any], suite: dict[str, Any], persona: dict[str, A
         record.update({"status": "invalid", "error": f"{type(exc).__name__}: {exc}"})
         say(f"{run_id}: INVALID -- {type(exc).__name__}: {exc}")
     finally:
-        stop_table(run_id)
+        stop_table(record.get("table_run_id", run_id))
         player.stop()
         record["ended_at"] = driver.now_iso()
         record["wall_seconds"] = round(time.monotonic() - started_mono, 1)
@@ -427,8 +458,26 @@ def cmd_plan(args: argparse.Namespace) -> int:
     return 0
 
 
+def sweep_stale_sandboxes() -> int:
+    """Remove persona/judge sandboxes an earlier run was killed before cleaning.
+
+    Each holds a copy of the table's credentials, so they are not left lying in the system
+    temp directory for a later run to inherit or a backup to sweep up.
+    """
+    removed = 0
+    root = Path(tempfile.gettempdir())
+    for path in list(root.glob("persona-*")) + list(root.glob("persona-judge-*")):
+        if path.is_dir():
+            shutil.rmtree(path, ignore_errors=True)
+            removed += 1
+    return removed
+
+
 def cmd_run(args: argparse.Namespace) -> int:
     suite = load_suite(Path(args.suite))
+    swept = sweep_stale_sandboxes()
+    if swept:
+        say(f"swept {swept} sandbox directories left by an earlier run")
     if args.concurrency:
         suite["concurrency"] = args.concurrency
     if args.max_turns:
@@ -474,6 +523,41 @@ def cmd_run(args: argparse.Namespace) -> int:
     return 0 if completed else 1
 
 
+def cmd_status(args: argparse.Namespace) -> int:
+    """Read-only progress of a suite, running or finished, from the evidence alone."""
+    suite_dir = Path(args.suite_dir) if args.suite_dir else max(
+        (p for p in BENCH_ROOT.iterdir() if p.is_dir()), key=lambda p: p.stat().st_mtime)
+    rows = []
+    for run_dir in sorted(p for p in suite_dir.iterdir() if (p / "run.json").exists()):
+        record = driver.read_json(run_dir / "run.json", {}) or {}
+        trace = run_dir / "trace.jsonl"
+        played = setup = 0
+        if trace.exists():
+            for line in trace.read_text(encoding="utf-8", errors="replace").splitlines():
+                played += '"phase": "play"' in line
+                setup += '"phase": "setup"' in line
+        rows.append({"run": run_dir.name, "persona": record.get("persona"),
+                     "lane": record.get("lane"), "trial": record.get("trial"),
+                     "status": record.get("status"), "stop_reason": record.get("stop_reason"),
+                     "turns": played, "setup_steps": setup,
+                     "wall_seconds": record.get("wall_seconds")})
+    done = [r for r in rows if r["status"] == "completed"]
+    invalid = [r for r in rows if r["status"] == "invalid"]
+    running = [r for r in rows if r["status"] == "running"]
+    planned = len((driver.read_json(suite_dir / "suite.json", {}) or {}).get("runs") or rows)
+    print(json.dumps({
+        "suite_dir": str(suite_dir), "planned": planned,
+        "completed": len(done), "invalid": len(invalid), "running": len(running),
+        "turns_played_total": sum(r["turns"] for r in rows),
+        "invalid_runs": [{"run": r["run"], "status": r["status"]} for r in invalid],
+        "in_flight": [{"run": r["run"], "turns": r["turns"], "setup_steps": r["setup_steps"]}
+                      for r in running],
+        "finished": [{"run": r["run"], "turns": r["turns"], "stop_reason": r["stop_reason"],
+                      "wall_seconds": r["wall_seconds"]} for r in done],
+    }, ensure_ascii=False, indent=2))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="bench.py", description="player-persona-suite-v1 runner")
     sub = p.add_subparsers(dest="subcommand", required=True)
@@ -490,6 +574,10 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--concurrency", type=int, default=None)
     sp.add_argument("--max-turns", type=int, default=None)
     sp.set_defaults(func=cmd_run)
+
+    sp = sub.add_parser("status", help="read a suite's progress off its evidence (read-only)")
+    sp.add_argument("--suite-dir", default=None, help="default: the most recent suite directory")
+    sp.set_defaults(func=cmd_status)
     return p
 
 

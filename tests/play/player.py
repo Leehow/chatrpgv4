@@ -21,6 +21,7 @@ Run with `uv run --frozen python ...`; only the standard library is used.
 """
 from __future__ import annotations
 
+import atexit
 import json
 import os
 import queue
@@ -194,6 +195,9 @@ class PersonaPlayer:
         self._credentials_from = credentials_from or (REPO_ROOT / ".pi" / "coc-agent")
         self._launcher = launcher or (REPO_ROOT / "node_modules" / ".bin" / "pi")
         self._sandbox = Path(tempfile.mkdtemp(prefix=f"persona-{persona['id']}-"))
+        # The sandbox holds a copy of the table's credentials. A killed benchmark used to leave
+        # those copies in the system temp directory; removing them is not left to the happy path.
+        atexit.register(self._remove_sandbox)
         self.pi: PiProcess | None = None
         self.isolation: dict[str, Any] = {}
 
@@ -232,6 +236,9 @@ class PersonaPlayer:
         if self.pi is not None:
             self.pi.terminate()
             self.pi = None
+        self._remove_sandbox()
+
+    def _remove_sandbox(self) -> None:
         shutil.rmtree(self._sandbox, ignore_errors=True)
 
     def __enter__(self) -> "PersonaPlayer":

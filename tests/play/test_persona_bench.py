@@ -302,7 +302,7 @@ def test_the_creation_lane_opens_by_the_player_speaking_first(tmp_path, monkeypa
         asked.append(campaign)
         return "setting_up" if len(asked) < 3 else "ready_for_table"
 
-    monkeypatch.setattr(bench, "start_table", lambda *a, **k: None)
+    monkeypatch.setattr(bench, "start_table", lambda campaign, run_id, *a, **k: run_id)
     monkeypatch.setattr(bench, "stop_table", lambda *a, **k: None)
     monkeypatch.setattr(bench, "campaign_status", status)
     monkeypatch.setattr(bench, "send_turn", lambda run_id, text, timeout: {
@@ -319,7 +319,7 @@ def test_the_creation_lane_opens_by_the_player_speaking_first(tmp_path, monkeypa
 
 
 def test_a_creation_lane_that_never_finishes_the_card_is_a_failed_run(tmp_path, monkeypatch):
-    monkeypatch.setattr(bench, "start_table", lambda *a, **k: None)
+    monkeypatch.setattr(bench, "start_table", lambda campaign, run_id, *a, **k: run_id)
     monkeypatch.setattr(bench, "stop_table", lambda *a, **k: None)
     monkeypatch.setattr(bench, "campaign_status", lambda campaign: "setting_up")
     monkeypatch.setattr(bench, "send_turn", lambda run_id, text, timeout: {
