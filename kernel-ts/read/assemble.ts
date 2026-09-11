@@ -9,6 +9,8 @@ import { EntityIndex, capsuleMemory, noteObligations, rulingsForCapsule, promise
 import { clockPressures, threatPressures, unansweredContinuations, continuationRows, questObligations, choiceObligation, sessionObligation } from "./pressures.js";
 import { worldlineSection, crossLineReader, loopObligation, worldlineSignals } from "./worldline.js";
 import { modContext } from "./mods.js";
+import { directorOffer } from "./offer.js";
+import { pythonJsonDumps, utf8Bytes } from "../json.js";
 import { playLanguageOf } from "./languages.js";
 import { RpcError } from "../errors.js";
 import { array, row, number, string, truth, chars, clone, type Row } from "./values.js";
@@ -23,7 +25,9 @@ export const HEAD = "Everything at the start of this turn: the clock, the undisc
     "bind here, reminders, not rules. worldlines is which line the table is on and which circuit of the " +
     "loop, where the anchor is, what a rewind would leave standing and who would remember it; " +
     "loop_available true means this scene can be rewound with apply fork mode: loop, which happens after " +
-    "you narrate this turn.";
+    "you narrate this turn. director.offer is what can move this turn, in your hand — a person with a want, " +
+    "a way that is open, a pressure, a consequence still owed — take it, change it or leave it; an empty turn " +
+    "(nothing landed, nobody acted) is not a quiet scene. style.floor is what every turn owes.";
 export const HEAD_MODULE = " This turn also carries a module section (the table briefing, this once): what the book is about, its era, " +
     "the factions, places and people (absent ones included, keeper-only), the ending and conclusion names and " +
     "the structure type; do not lookup the book before opening.";
@@ -40,9 +44,11 @@ export const SLICE2_BUDGETS: Readonly<Record<string, number>> = Object.freeze({
 export const SLICE3_BUDGETS: Readonly<Record<string, number>> = Object.freeze({
     pressures: 1024,
     obligations: 1024,
-    director: 1536,
+    // 2048 since the turn floor (docs/specs/turn-floor.md D2): the offer rides beside because and grounded_by.
+    director: 2048,
     situations: 1024,
-    style: 1024
+    // 1536 since the turn floor (docs/specs/turn-floor.md D1): the brief form carries the four floor lines beside the beat's directives.
+    style: 1536
 });
 export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedModule, options: {
     styleFull?: boolean;
@@ -124,7 +130,8 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
         recent: campaign.records.filter(record => number(record.turn) < number(turn.turn) && (truth(record.player_text) || truth(record.rendered_text))).slice(-2).map(record => ({
             turn: record.turn,
             player: record.player_text ?? null,
-            keeper: chars(record.rendered_text || "", 200)
+            keeper: chars(record.rendered_text || "", 200),
+            ...(record.closed_how ? { closed: record.closed_how, receipts: array(record.receipts).length } : {})
         })),
         warnings: array(warningRecord?.warnings).map(warning => ({
             turn: warningRecord!.turn,
@@ -177,5 +184,21 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
     if (truncated.length)
         capsule.truncated = truncated;
     capsule.mods = await modContext(context, graph, world, party, campaign.records, full);
+    // The Director's offer (docs/specs/turn-floor.md D2) is drawn after the thread and pacing sections exist,
+    // from material the capsule already carries, and the director section is refitted to its budget with it.
+    row(capsule.director).offer = directorOffer(string(row(capsule.director).beat), {
+        present: array(capsule.present),
+        where: row(capsule.where),
+        thread: row(capsule.mods).thread ?? null,
+        pacing: row(capsule.mods).pacing ?? null,
+        pressures: array(capsule.pressures),
+        previous: previous ?? null
+    });
+    // Offer rows go first when the section is over budget; because and grounded_by are the Director's account of itself.
+    const fitted = row(capsule.director);
+    while (array(fitted.offer).length && utf8Bytes(pythonJsonDumps(fitted)).length > SLICE3_BUDGETS.director)
+        (fitted.offer as Row[]).pop();
+    if (fitBudget(capsule.director, SLICE3_BUDGETS.director, "last") && !array(capsule.truncated).includes("director"))
+        capsule.truncated = [...array(capsule.truncated), "director"];
     return capsule;
 }

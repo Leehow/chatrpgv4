@@ -209,7 +209,12 @@ test('Director signals and authored scoring match the Python decision table',asy
     {...base,label:'SAN loss within scene',records:[{turn:3,player_text:'See it',world:{scene:{name:sceneHandle}},receipts:[{kind:'delta',resource:'san',subject:'alice',before:45,after:40}]}]},
     {...base,label:'live bout and pending player choice',turn:{turn:4,pending_choice:{name:'pending'}},sanity:{alice:{bout_active:true}},session:{kind:'sanity_bout',status:'active'}}];
   const expected=oracle('signals',{cases});
-  await rows(t,cases,expected,c=>api.signals({...c,graph,scene:graph.nodes.get(c.scene),present:c.present.map(id=>graph.nodes.get(id)),conditions:s=>c.conditions[s.id]||[],sanity:s=>c.sanity[s.id]||null}));
+  // The frozen oracle predates the turn floor's structural signals (empty_turns, repeat_input, previous_close,
+  // docs/specs/turn-floor.md D3); preserve its remaining projection.
+  const FLOOR_SIGNALS=['empty_turns','repeat_input','previous_close'];
+  const withoutFloor=sig=>Object.fromEntries(Object.entries(sig).filter(([key])=>!FLOOR_SIGNALS.includes(key)));
+  const withoutFloorBecause=section=>({...section,because:section.because.filter(line=>!FLOOR_SIGNALS.some(name=>line.startsWith(name+' = ')))});
+  await rows(t,cases,expected,c=>withoutFloor(api.signals({...c,graph,scene:graph.nodes.get(c.scene),present:c.present.map(id=>graph.nodes.get(id)),conditions:s=>c.conditions[s.id]||[],sanity:s=>c.sanity[s.id]||null})));
   const dg=new api.DirectorGraph(await json(join(CONTENT,'director/director-graph.json')),await json(join(CONTENT,'director/director-graph-manifest.json')));
   const quiet={...expected[0],intent:'none',undiscovered_here:0,agenda_npc_present:0,dramatic_question:false,exit_condition_met:false,main_line_complete:false,
     stalled_turns:0,turns_in_scene:1,hp_state:'healthy',sanity_state:'stable',session:'none',last_roll:'none',pushed_fail_pending:false,pending_choice:false,clock_near_full:false};
@@ -233,7 +238,7 @@ test('Director signals and authored scoring match the Python decision table',asy
     if(section.reveal)assert.deepEqual(section.reveal.map(clue=>clue.gate),[
       'environmental: check unspecified','environmental: check unspecified','obvious: check unspecified',
       'obvious: check unspecified','environmental: check unspecified']);
-    return withoutGates(section);
+    return withoutGates(withoutFloorBecause(section));
   });
 });
 
@@ -280,7 +285,14 @@ test('Director graph digest mismatch returns the same refusal as Python',async()
   await writeFile(join(directory,'director-graph-manifest.json'),api.pythonJsonDumps(manifest));
   const expected=oracle('director_invalid',{directory});
   assert.equal(expected.error.code,'campaign_not_ready');
-  same(captured(()=>new api.DirectorGraph(source,manifest).digest),expected,'Director manifest refusal');
+  // The frozen oracle's refusal carries the digest of the graph it was frozen against; the graph has since
+  // gained the turn-floor rules (docs/specs/turn-floor.md D3), so the live digest is checked against the
+  // graph itself and the rest of the refusal against the oracle.
+  const refusal=captured(()=>new api.DirectorGraph(source,manifest).digest);
+  const withoutActual=value=>{const copy=JSON.parse(JSON.stringify(value));delete copy.error.details.director.actual;return copy;};
+  const live=(await json(join(CONTENT,'director/director-graph-manifest.json'))).graph_content_digest;
+  assert.equal(refusal.error.details.director.actual,live,'the refusal names the live digest');
+  same(withoutActual(refusal),withoutActual(expected),'Director manifest refusal');
 });
 
 test('mechanics match Python without exposing unlabeled NPC identities',async()=>{

@@ -368,3 +368,70 @@ test("player input during an automatic opening is opened exactly once after deli
     assert.equal(inputs.length, 1);
     assert.equal(inputs[0].params.text, "I enter the house.");
 });
+
+
+/**
+ * Turn floor (docs/specs/turn-floor.md D4): a turn the Keeper closes on prose alone, having called no
+ * tool at all, is steered once toward the capsule; the second leg is honoured however it comes, and
+ * the implicit close carries `implicit: true` so the kernel records how the turn closed.
+ */
+test("守秘人整回合没碰工具就写散文：宿主先催一次 floor，第二段照常隐式交付", async (t) => {
+	const thin = "诺特靠回椅背，等着你下一步。";
+	const full = "诺特把钥匙推到桌沿，指了指窗外。「西区，科比特宅。天黑前回来。」他已经在看表。";
+	const table = await openTable({ responses: [fauxAssistantMessage(thin), fauxAssistantMessage(full)] });
+	t.after(() => table.dispose());
+
+	await table.session.prompt("然后呢");
+	await waitForIdle(table.session);
+
+	const steers = customMessages(table.session, "coc-host").filter((message) => message.details?.kind === "floor");
+	assert.equal(steers.length, 1, "one floor steer, no more");
+	assert.match(steers[0].content, /director\.offer/);
+	assert.match(steers[0].content, /hand the move back/);
+
+	const narrates = table.kernelRequests().filter((entry) => entry.method === "table.narrate");
+	assert.deepEqual(narrates.map((entry) => entry.params.text), [full], "the thin draft never reached the kernel; the second leg did");
+	assert.equal(narrates[0].params.implicit, true, "the host says it closed the turn for the Keeper");
+	const delivered = assistantTexts(table.session).filter((text) => text.length > 0);
+	assert.ok(!delivered.includes(thin), "the dropped draft is not in the transcript");
+	assert.equal(delivered.at(-1), full);
+
+	const floorRows = table.telemetry().filter((row) => row.lane === "floor");
+	assert.equal(floorRows.length, 1);
+	assert.equal(floorRows[0].steered, true);
+});
+
+test("碰过工具再写散文不催：一次工具调用就够，被拒的也算", async (t) => {
+	const prose = "门框上有一道深深的抓痕。你退后一步。";
+	const table = await openTable({
+		responses: [
+			fauxAssistantMessage([fauxToolCall("resolve", { action: { intent: "investigate", goal: "看门框", method: "侦查", skill: "Spot Hidden" } })], { stopReason: "toolUse" }),
+			fauxAssistantMessage(prose),
+		],
+	});
+	t.after(() => table.dispose());
+
+	await table.session.prompt("我看门框");
+	await waitForIdle(table.session);
+
+	assert.deepEqual(customMessages(table.session, "coc-host").filter((message) => message.details?.kind === "floor"), []);
+	const narrates = table.kernelRequests().filter((entry) => entry.method === "table.narrate");
+	assert.deepEqual(narrates.map((entry) => entry.params.text), [prose]);
+	assert.equal(narrates[0].params.implicit, true);
+	assert.deepEqual(table.telemetry().filter((row) => row.lane === "floor"), []);
+});
+
+test("第二段还是散文：催过一次就接受，不再催", async (t) => {
+	const table = await openTable({ responses: [fauxAssistantMessage("他等着你。"), fauxAssistantMessage("他还是等着你。")] });
+	t.after(() => table.dispose());
+
+	await table.session.prompt("然后呢");
+	await waitForIdle(table.session);
+
+	assert.equal(customMessages(table.session, "coc-host").filter((message) => message.details?.kind === "floor").length, 1);
+	const narrates = table.kernelRequests().filter((entry) => entry.method === "table.narrate");
+	assert.deepEqual(narrates.map((entry) => entry.params.text), ["他还是等着你。"]);
+	const closed = table.telemetry().filter((row) => row.event === "turn-closed");
+	assert.equal(closed.length, 1);
+	assert.equal(closed[0].implicit, true);
+});

@@ -23,13 +23,13 @@ INVESTIGATOR = "托马斯·海斯"
 #: contract §13.1's byte budgets, by section name.
 SECTION_BUDGETS = {
     "where": 4096, "present": 3072, "known": 3072, "pressures": 1024,
-    "obligations": 1024, "director": 1536, "situations": 1024,
+    "obligations": 1024, "director": 2048, "situations": 1024,
     "memory": 1536, "recent": 2048, "warnings": 1024,
 }
 #: §13.6: the process's first capsule gets every craft directive (2KB); every
 #: capsule after that only gets the ones picked for the beat (1KB).
 STYLE_BUDGET_FIRST_TURN = 2048
-STYLE_BUDGET_LATER = 1024
+STYLE_BUDGET_LATER = 1536  # the four floor lines ride along (turn floor)
 
 #: every scene in the-haunting, in an order where each is reachable from the
 #: one before it (content/starters/the-haunting/module-graph.json route-to

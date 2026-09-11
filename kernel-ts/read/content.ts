@@ -111,6 +111,8 @@ export class TextGraph {
     readonly beats: Row;
     readonly axisLines: Row;
     readonly directiveLines: Row;
+    /** The four content kinds every turn owes (docs/specs/turn-floor.md), sent as `style.floor` on every turn. */
+    readonly floorLines: string[];
     readonly digest: string;
     constructor(graph: Row, manifest: Row, table: Row, beats: string[]) {
         if (graph.contract_id !== "coc.text-graph.v1")
@@ -153,6 +155,10 @@ export class TextGraph {
             throw contentError("craft", "beat-directives.json disagrees with the text graph", { problems });
         this.axisLines = row(table.axis_lines);
         this.directiveLines = row(table.directive_lines);
+        const floor = table.floor_lines;
+        if (!Array.isArray(floor) || floor.length !== 4 || floor.some(line => typeof line !== "string" || !line.trim()))
+            throw contentError("craft", "beat-directives.json must carry four non-empty floor_lines (turn floor)");
+        this.floorLines = floor.map(string);
     }
     style(language: string, register: string, beat: string, full: boolean): Row {
         const ids = full ? [...this.directives.keys()] : array(this.beats[beat]);
@@ -163,7 +169,8 @@ export class TextGraph {
             directives: ids.map(id => ({
                 id,
                 line: string(this.directiveLines[id] || this.directives.get(id)?.rationale || id)
-            }))
+            })),
+            floor: [...this.floorLines]
         };
     }
     static async load(context: KernelContext, beats: string[]): Promise<TextGraph> {

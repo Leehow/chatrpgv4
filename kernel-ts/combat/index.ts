@@ -98,7 +98,7 @@ export function createCombatResolveContribution(): FixedFamilyBinding {
                         handle = context.graph.handle(targets.npc);
                         if (npcProfile(context.graph, targets.npc) === null)
                             throw new RpcError('needs', `${context.graph.displayName(targets.npc)} has no stat block in the module`, {
-                                fix: 'use lookup catalog for a creature stat block, or narrate the exchange without dice',
+                                fix: 'pin a stat block first (lookup catalog, then apply npc with the values and why) and resolve again; or resolve it as an uncontested attempt against someone who cannot fight back. Nothing without a receipt has happened: do not narrate a blow as landed',
                                 details: { needs: { field: 'target', options: sorted(presentOpponents(context).filter(([, , profile]) => truth(profile)).map(([handle]) => handle)) } },
                             });
                     }

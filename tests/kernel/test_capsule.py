@@ -54,7 +54,7 @@ def test_player_input_capsule_has_all_sections(kernel):
     assert investigator["id"] == PREGEN
     assert {"name": "Spot Hidden", "value": 55} in investigator["skills_of_note"]
 
-    assert capsule["recent"] == [{"turn": 0, "player": None, "keeper": "开场。\n\n诺特把钥匙拍在桌上。"}]
+    assert capsule["recent"] == [{"turn": 0, "player": None, "keeper": "开场。\n\n诺特把钥匙拍在桌上。", "closed": "explicit", "receipts": 0}]
     # the slice-0 sections fit untouched; the first-turn briefing (#22) shortened its roster lines to its own 2KB
     assert capsule.get("truncated", []) == ["module"]
     for name, budget in BUDGETS.items():

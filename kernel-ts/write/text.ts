@@ -266,9 +266,30 @@ export function directorAdoption(graph: ModuleGraph, turn: Row, snapshot: Row, c
         evidence = ids('clue', r => supporting.has(r.clue));
         adopted = evidence.length > 0;
     }
+    // Turn floor (docs/specs/turn-floor.md D2): which offer rows the receipts show were taken — a move to the
+    // route, a clue credited to or a stance moved on the person, a tick on the pressure's clock. Telemetry only.
+    const offer = array(director.offer), taken: string[] = [];
+    for (const item of offer) {
+        const o = row(item), who = string(o.who || ""), where = string(o.where || "");
+        const hit = o.kind === 'route' ? receipts.some(r => r.kind === 'move' && string(r.to) === where)
+            : o.kind === 'person' ? receipts.some(r => (r.kind === 'clue' && truth(r.from) && sameName(graph, string(r.from), who)) || (r.kind === 'npc' && sameName(graph, string(r.name || r.handle), who)) || (r.kind === 'roll' && truth(r.npc) && sameName(graph, string(r.npc), who)))
+            : o.kind === 'pressure' ? receipts.some(r => r.kind === 'threat' && string(o.line).startsWith(string(r.threat)))
+            : false;
+        if (hit)
+            taken.push(`${string(o.kind)}:${o.kind === 'route' ? where : who || where}`);
+    }
     return {
         beat,
         adopted,
-        evidence
+        evidence,
+        ...(offer.length ? { offer_taken: taken } : {})
     };
+}
+function sameName(graph: ModuleGraph, ref: string, name: string): boolean {
+    if (!ref || !name)
+        return false;
+    if (ref === name)
+        return true;
+    const node = graph.nodes.get(ref) ?? [...graph.nodes.values()].find(n => graph.handle(n) === ref);
+    return node ? graph.displayName(node) === name || graph.handle(node) === name : false;
 }

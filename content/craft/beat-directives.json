@@ -1,7 +1,7 @@
 {
   "contract_id": "coc.beat-directives.v1",
   "schema_version": 1,
-  "note": "Closed table maintained by the content team (contract §13.6, §16.1): which craft-directive nodes of content/craft/text-graph.json the capsule's `style.directives` carries for each Director beat (at most 4 per beat), plus one English line for each of the six style axes and the eleven directives (the keeper carries them into the player's language; `language_applicability` on the text-graph nodes stays data). Every id must exist in the text graph; the kernel validates this at load and never judges prose to pick a line. Three axes and six directives were retired on 2026-09-10 (contract §30.12); the first-turn full form sends every directive node in the graph, so retirement means removing the node, not just the pick.",
+  "note": "Closed table maintained by the content team (contract §13.6, §16.1): which craft-directive nodes of content/craft/text-graph.json the capsule's `style.directives` carries for each Director beat (at most 4 per beat), plus one English line for each of the six style axes and the eleven directives (the keeper carries them into the player's language; `language_applicability` on the text-graph nodes stays data). Every id must exist in the text graph; the kernel validates this at load and never judges prose to pick a line. Three axes and six directives were retired on 2026-09-10 (contract §30.12); the first-turn full form sends every directive node in the graph, so retirement means removing the node, not just the pick. `floor_lines` (2026-09-11, docs/specs/turn-floor.md) are the four content kinds every turn owes, carried as `style.floor` on every turn regardless of beat; they are lines, not counts, and the kernel never judges prose against them.",
   "beats": {
     "REVEAL": [
       "observable-before-interpretation",
@@ -89,5 +89,11 @@
     "rewrite-camera-direction-staging": "one natural sentence names the person and the focus",
     "rewrite-passive-translation-ese": "active voice, clear subject, concrete action",
     "rewrite-abstract-psychological-explanation": "visible behaviour first; explain after evidence or a skill result"
-  }
+  },
+  "floor_lines": [
+    "uptake: enact the player's declared action or words from the world's view; one word is still a declaration",
+    "answer: settled outcomes perceptible; when nothing settled, someone present acts or the scene changes (director.offer)",
+    "voice: anyone present the exchange touches speaks a line in their own voice",
+    "handoff: stop only when the player holds enough to judge (scene, clues, people) and has more than one real thing to do; a midpoint with nothing to decide is not a stop; never a menu"
+  ]
 }

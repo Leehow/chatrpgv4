@@ -330,7 +330,7 @@ def test_character_adoption_needs_someone_present_and_no_move(kernel):
     open_turn(kernel, "我和诺特聊。")
     narrate(kernel, "t1-c1", "他说了很多。")
     adoption = adoption_of(kernel, 1)
-    assert adoption == {"beat": "CHARACTER", "adopted": True, "evidence": []}
+    assert {k: adoption[k] for k in ("beat", "adopted", "evidence")} == {"beat": "CHARACTER", "adopted": True, "evidence": []}
     rows = director_telemetry(kernel)
     assert rows[-1]["turn"] == 1 and rows[-1]["beat"] == "CHARACTER" and rows[-1]["adopted"] is True
     kernel.table("player_input", text="我走了。")
@@ -356,7 +356,7 @@ def test_choice_adoption_is_a_turn_closed_by_ask(kernel):
     assert next_turn(kernel, 1)["beat"] == "CHOICE"
     kernel.table("ask", call_id="t2-c1", prompt="先做哪件？", options=["问诺特", "翻抽屉"])
     adoption = adoption_of(kernel, 2)
-    assert adoption == {"beat": "CHOICE", "adopted": True, "evidence": []}
+    assert {k: adoption[k] for k in ("beat", "adopted", "evidence")} == {"beat": "CHOICE", "adopted": True, "evidence": []}
     assert director_telemetry(kernel)[-1]["closed_by"] == "ask"
 
 

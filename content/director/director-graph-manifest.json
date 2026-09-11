@@ -2,7 +2,7 @@
   "contract_id": "coc.director-graph-build-manifest.v1",
   "schema_version": 1,
   "graph_id": "graph:director:production",
-  "graph_content_digest": "0ac3bb58410d8c3ff2b7e9c490a422652789dacef4726b784efaca3854e106bc",
+  "graph_content_digest": "118d4c8104de2bfd4400a02d1c2a57e0220c74f1227e0d0dc31fc639b83b774f",
   "shards": [
     "shard:director:doctrine",
     "shard:director:vocabulary"
@@ -19,11 +19,11 @@
     "director-action": 10,
     "multiplier": 10,
     "player-signal": 34,
-    "scoring-rule": 19,
+    "scoring-rule": 21,
     "storylet": 77,
     "structure-type": 7,
     "structure-weight": 70,
-    "threshold": 47,
+    "threshold": 48,
     "tiebreak-order": 1,
     "time-cost-category": 16
   }

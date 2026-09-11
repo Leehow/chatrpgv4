@@ -1,10 +1,34 @@
 {
-  "id": "narration-craft", "version": "1.1.0", "game_api": "pipicoc.game.v1",
-  "state_version": 1, "author": "PipiCOC",
-  "name": {"en": "Narration Craft", "zh-Hans": "叙述手艺"},
-  "description": {"en": "Material chosen from the live exchange and the dossier, NPCs who speak in their own voice, crisis scenes in order, and quiet or friendly scenes allowed to be complete.", "zh-Hans": "按当场交流与在场者档案挑材料、NPC 用自己的声音说话、危机场景按顺序写、安静或友善的场景也算完整。"},
-  "default_enabled": true, "requires": [],
-  "dependencies": {}, "conflicts": [],
-  "settings": {}, "settings_schema": {},
-  "contributes": {"instructions": "agent.md", "brief": "brief.md"}
+  "id": "narration-craft",
+  "version": "1.2.0",
+  "game_api": "pipicoc.game.v1",
+  "state_version": 1,
+  "author": "PipiCOC",
+  "name": {
+    "en": "Narration Craft",
+    "zh-Hans": "叙述手艺"
+  },
+  "description": {
+    "en": "The turn floor as craft — uptake, the world's answer, a voice, the handoff — with material chosen from the live exchange and the dossier, NPCs who speak in their own voice, crisis scenes in order, quiet or friendly scenes allowed to be complete, and an optional density guide.",
+    "zh-Hans": "把回合地板做成手艺——接住玩家的话、世界的回答、在场者开口、把回合交回去——按当场交流与在场者档案挑材料、NPC 用自己的声音说话、危机场景按顺序写、安静或友善的场景也算完整，另有可选的篇幅密度指引。"
+  },
+  "default_enabled": true,
+  "requires": [],
+  "dependencies": {},
+  "conflicts": [],
+  "settings": {
+    "density_guide": "off"
+  },
+  "settings_schema": {
+    "density_guide": {
+      "enum": [
+        "off",
+        "on"
+      ]
+    }
+  },
+  "contributes": {
+    "instructions": "agent.md",
+    "brief": "brief.md"
+  }
 }

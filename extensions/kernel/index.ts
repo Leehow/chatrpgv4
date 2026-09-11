@@ -120,6 +120,13 @@ interface TableState {
 	/** Whether this agent run has already closed the turn with narrate/ask. */
 	closedThisRun: boolean;
 	steeredThisTurn: boolean;
+	/**
+	 * COC tool calls the Keeper attempted this turn, refused ones included (turn floor, D4). A turn
+	 * that ends on prose with none is steered once toward the capsule before the host closes it.
+	 */
+	toolCallsThisTurn: number;
+	/** The prose the floor steer dropped; if the second leg brings no prose and no narrate, this closes the turn as before. */
+	floorDraft?: string;
 	readingWait?: boolean;
 	/** A host note owed to the Keeper at agent_end rather than delivered as prose (the reading wait). */
 	deliveryFix?: { kind: string; text: string };
@@ -168,6 +175,11 @@ interface TableState {
 
 const CLOSED_STATES: ReadonlySet<TurnState> = new Set<TurnState>(["awaiting_player", "committed", "asked"]);
 const TURN_CLOSED_REASON = "the turn is closed, waiting for the player";
+/** The one host steer of the turn floor (docs/specs/turn-floor.md D4), sent when a turn is about to close on prose alone. */
+const FLOOR_STEER =
+	"This turn used no tool and nothing landed. Read director.offer and the people present: what changes in the world, apply; " +
+	"what is uncertain, resolve. Then take up the player's words from the world's view, let the world answer, give someone " +
+	"present a line in their own voice, and hand the move back to the player. Close with narrate.";
 
 let table: TableState | undefined;
 /** In setup mode there is no table, so the kernel subprocess hangs here on its own (contract §14.4). */
@@ -485,6 +497,8 @@ export default function (pi: ExtensionAPI) {
 		table.deliveryToolCallId = undefined;
 		table.closedThisRun = false;
 		table.steeredThisTurn = false;
+		table.toolCallsThisTurn = 0;
+		table.floorDraft = undefined;
 		table.deliveryFix = undefined;
 		table.attachments = [];
 		// Action admission (contract §32.3): who plays, where they stand, what the setup already told
@@ -1131,6 +1145,7 @@ export default function (pi: ExtensionAPI) {
 				pendingChoice: null,
 				closedThisRun: false,
 				steeredThisTurn: false,
+				toolCallsThisTurn: 0,
 				roundTrips: 0,
 				mintedCallIds: new Map(),
 				rejected: new Map(),
@@ -1271,6 +1286,8 @@ export default function (pi: ExtensionAPI) {
 			state.deliveryToolCallId = undefined;
 			state.closedThisRun = false;
 			state.steeredThisTurn = false;
+			state.toolCallsThisTurn = 0;
+			state.floorDraft = undefined;
 			state.readingWait = false;
 			state.deliveryFix = undefined;
 			state.roundTrips = 0;
@@ -1344,6 +1361,7 @@ export default function (pi: ExtensionAPI) {
 		if (!state) {
 			return { block: true, reason: startupError ?? "the kernel is not up, so this table has not opened" };
 		}
+		state.toolCallsThisTurn += 1;
 		if (state.closedThisRun) {
 			await record({ tool: name, started_at: new Date().toISOString(), ok: false, code: "blocked", reason: TURN_CLOSED_REASON });
 			return { block: true, reason: TURN_CLOSED_REASON };
@@ -1461,11 +1479,13 @@ export default function (pi: ExtensionAPI) {
 		if (rendered === undefined) {
 			// The Keeper wrote his lines but never called narrate: that prose is the narration. The host closes
 			// the turn for him, sending the prose verbatim through the play-language guard.
-			const prose = blocks
+			const written = blocks
 				.filter((b) => b.type === "text" && typeof b.text === "string")
 				.map((b) => String(b.text))
 				.join("")
 				.trim();
+			// The floor steer is additive: a second leg that brings nothing falls back to the draft it dropped.
+			const prose = written || (state.steeredThisTurn && state.floorDraft) || "";
 			const canClose = state.state === "open" || state.state === "acting"
 				|| (state.state === "awaiting_player" && state.openingPending);
 			if (!prose || !canClose || state.closedThisRun) return;
@@ -1485,12 +1505,23 @@ export default function (pi: ExtensionAPI) {
 				const kept = blocks.filter((block) => block.type !== "text");
 				return { message: { ...event.message, content: kept } };
 			}
+			// Turn floor (docs/specs/turn-floor.md D4): the Keeper wrote prose and called no tool at all this
+			// turn. Once, the host drops that draft and steers it back to the capsule; whatever the second leg
+			// brings is honoured, an explicit narrate or prose closed implicitly as before. The opening is
+			// exempt (it has its own instruction), and so is any turn in which a tool was tried, refused or not.
+			const opening = state.state === "awaiting_player" && state.openingPending;
+			if (state.toolCallsThisTurn === 0 && !opening && !state.steeredThisTurn) {
+				state.floorDraft = prose;
+				state.deliveryFix = { kind: "floor", text: FLOOR_STEER };
+				await record({ lane: "floor", turn: state.turn, steered: true, round_trips: state.roundTrips });
+				return { message: { ...event.message, content: blocks.filter((block) => block.type !== "text") } };
+			}
 			const tool = "narrate";
 			const callId = mintCallId(state);
 			const startedAt = new Date().toISOString();
 			const began = Date.now();
 			try {
-				const params: Record<string, unknown> = { campaign: state.campaign, call_id: callId, text: prose };
+				const params: Record<string, unknown> = { campaign: state.campaign, call_id: callId, text: prose, implicit: true };
 				const result = (await state.kernel.call<Record<string, unknown>>(`table.${tool}`, params)) ?? {};
 				applyToolSuccess(state, tool, "implicit", result);
 				await record({ tool, call_id: callId, started_at: startedAt, ms: Date.now() - began, ok: true, implicit: true });
@@ -1533,6 +1564,7 @@ export default function (pi: ExtensionAPI) {
 		state.rejected.clear();
 		state.callKeys.clear();
 		state.steeredThisTurn = false;
+		state.floorDraft = undefined;
 		state.deliveryFix = undefined;
 		// The delivery replacement takes effect when this message is returned, and the lane queues behind it:
 		// a zero-millisecond timer only runs after that.

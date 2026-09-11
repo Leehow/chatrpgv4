@@ -106,7 +106,7 @@ export async function startCombat(context: SettleContext, args: Row): Promise<[
     const [node, profile] = present.get(target)!;
     if (profile === null)
         throw new RpcError('needs', `${context.graph.displayName(node)} has no stat block in the module`, {
-            fix: 'use lookup catalog for a creature stat block, or narrate the exchange without dice',
+            fix: 'pin a stat block first (lookup catalog, then apply npc with the values and why) and resolve again; or resolve it as an uncontested attempt against someone who cannot fight back. Nothing without a receipt has happened: do not narrate a blow as landed',
             details: { needs: { field: 'target', options: sorted([...present].filter(([, [, profile]]) => truth(profile)).map(([handle]) => handle)) } },
         });
     const sheet = context.actor, weaponId = args.weapon_id, weapon = truth(weaponId) ? await resolveInvestigatorWeapon(context.tables, sheet, string(weaponId)) : null;

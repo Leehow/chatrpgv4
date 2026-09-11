@@ -9,8 +9,8 @@ from test_rules_families import first_failure, resolve, seed_wound, walk_to_conf
 
 SECTIONS = ("where", "present", "known", "pressures", "obligations", "director", "situations", "memory", "style",
             "recent", "warnings")
-BUDGETS = {"where": 4096, "present": 3072, "known": 3072, "pressures": 1024, "obligations": 1024, "director": 1536,
-           "situations": 1024, "memory": 1536, "style": 1024, "recent": 2048, "warnings": 1024}
+BUDGETS = {"where": 4096, "present": 3072, "known": 3072, "pressures": 1024, "obligations": 1024, "director": 2048,
+           "situations": 1024, "memory": 1536, "style": 1536, "recent": 2048, "warnings": 1024}  # style 1536 since the turn floor
 BEAT_TABLE = json.loads((CONTENT_DIR / "craft" / "beat-directives.json").read_text(encoding="utf-8"))
 TEXT_GRAPH = json.loads((CONTENT_DIR / "craft" / "text-graph.json").read_text(encoding="utf-8"))
 ALL_DIRECTIVES = {n["properties"]["directive_id"] for n in TEXT_GRAPH["nodes"] if n["node_kind"] == "craft-directive"}
@@ -177,7 +177,7 @@ def test_style_gives_every_directive_on_the_first_turn_and_the_beats_pick_afterw
     later = kernel.table("player_input", text="继续。")["capsule"]
     beat = later["director"]["beat"]
     assert [d["id"] for d in later["style"]["directives"]] == BEAT_TABLE["beats"][beat]
-    assert len(later["style"]["directives"]) <= 4 and size(later["style"]) <= 1024
+    assert len(later["style"]["directives"]) <= 4 and size(later["style"]) <= 1536  # the four floor lines ride along (turn floor)
 
 
 def test_a_new_process_starts_over_with_the_full_directives(tmp_path):

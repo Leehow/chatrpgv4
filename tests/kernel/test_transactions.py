@@ -81,7 +81,7 @@ def test_ask_closes_turn_and_pending_choice_carries_over(kernel):
     assert answer["turn"] == 2
     assert answer["capsule"]["turn"]["pending_choice"] == pending
     assert answer["capsule"]["recent"][-1] == {"turn": 1, "player": "我问诺特该从哪里查起。",
-                                               "keeper": asked["rendered_text"]}
+                                               "keeper": asked["rendered_text"], "closed": "explicit", "receipts": 0}
 
     bad = kernel.table_err("resolve", call_id="t2-c1", action={"intent": "meta", "choice": {"pending": "other", "option": "x"}})
     assert bad["code"] == "invalid_params"

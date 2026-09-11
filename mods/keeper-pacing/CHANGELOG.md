@@ -1,5 +1,8 @@
 # Keeper Pacing
 
+## 1.1.2
+- Names the two structural RECOVER signs the Director now reads (an empty turn, a repeated input) and points the recovery ladder at `director.offer` (docs/specs/turn-floor.md). Settings unchanged.
+
 ## 1.1.1
 - Removes brevity as a recovery trigger: a concise but clear choice or reply is play, and `stalled_turns` remains advisory. Recovery still follows expressed confusion, explicit help, repeated low-agency action or an exhausted scene with the same guardrails; fair warning, threat clocks and cost rules are unchanged.
 

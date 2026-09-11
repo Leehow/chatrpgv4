@@ -1,5 +1,9 @@
 # Narration Craft
 
+## 1.2.0
+- States the turn floor as craft (docs/specs/turn-floor.md): uptake, the world's answer, a voice, the handoff; the routine-turn warning returns as craft, not as a budget; a one-word input gets a full turn; `director.offer` is named as what can move when nothing landed; the handoff is the spotlight rule — stop only when the player has enough to judge and more than one real thing to do, never at a midpoint with nothing to decide. Two live tables (medians 167 and 37 characters, 11 of 12 turns closed by the host with no tool call) showed that 1.1.0's retirement of the ladder had also retired the only floor language.
+- Adds `density_guide` (`off` | `on`, default `off`): with `on`, the brief carries the play language's expected density per beat as an expectation the kernel never counts. No `*_chars` ceilings and no paragraph caps return.
+
 ## 1.1.0
 - Retires the length ladder and its settings: `settings` and `settings_schema` are now empty. The character ceilings never bound anything — twenty measured deliveries ran 52–430 characters against ceilings of 600–1500 (contract §30.8) — and 1.0.2 had already dropped the paragraph caps beside them.
 - Drops the rule that a concrete handle must be in reach before stopping, the required trailing question, and the instruction to give a cost its own block of prose. Action uptake and keep-the-fact move to the base layer, which owns the definition of a playable turn.

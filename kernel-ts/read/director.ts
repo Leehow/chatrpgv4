@@ -3,7 +3,7 @@ import { DirectorGraph, Ontology } from "./content.js";
 import { semanticName } from "./rule-facts.js";
 import { ModuleGraph, recordOf, moduleDeclaration, conditionMet, describeCondition } from "./module-graph.js";
 import { array, row, truth, number, integer, normalize, string, float, round, type Row } from "./values.js";
-const SIGNALS = ["structure_type", "intent", "undiscovered_here", "agenda_npc_present", "dramatic_question", "exit_condition_met", "main_line_complete", "stalled_turns", "turns_in_scene", "hp_state", "sanity_state", "session", "last_roll", "pushed_fail_pending", "pending_choice", "clock_near_full", "loop_count", "echoes_here", "loop_available"];
+const SIGNALS = ["structure_type", "intent", "undiscovered_here", "agenda_npc_present", "dramatic_question", "exit_condition_met", "main_line_complete", "stalled_turns", "empty_turns", "repeat_input", "previous_close", "turns_in_scene", "hp_state", "sanity_state", "session", "last_roll", "pushed_fail_pending", "pending_choice", "clock_near_full", "loop_count", "echoes_here", "loop_available"];
 export const HP_STATES = ["healthy", "wounded", "major_wound", "dying", "dead"];
 export const SAN_STATES = ["stable", "shaken", "bout_active", "indefinite"];
 export const playedRecords = (records: Row[], before: number): Row[] => records.filter(r => number(r.turn) < before && truth(r.player_text)).sort((a, b) => number(b.turn) - number(a.turn));
@@ -65,6 +65,7 @@ export function signals(options: {
     const { graph, world, scene, turn, party, present, session } = options,
         played = playedRecords(options.records, number(turn.turn));
     let stalled = 0,
+        empty = 0,
         turns = 1,
         hp = "healthy",
         san = "stable";
@@ -73,6 +74,15 @@ export function signals(options: {
             break;
         stalled++;
     }
+    // Turn floor (docs/specs/turn-floor.md D3): structure, never meaning. An empty turn landed no receipt at
+    // all; a repeated input is the same words again, character for character; previous_close is how the
+    // last turn was closed. None of them reads what the player meant.
+    for (const record of played) {
+        if (array(record.receipts).length)
+            break;
+        empty++;
+    }
+    const previousText = string(played[0]?.player_text ?? "").trim(), currentText = string(turn.player_text ?? "").trim();
     for (const record of played) {
         if (row(row(record.world).scene).name !== graph.handle(scene))
             break;
@@ -106,6 +116,9 @@ export function signals(options: {
         exit_condition_met: array(recordOf(scene).exit_conditions).some(c => conditionMet(c, world)),
         main_line_complete: mainLineComplete(graph, world),
         stalled_turns: stalled,
+        empty_turns: empty,
+        repeat_input: played.length > 0 && currentText.length > 0 && currentText === previousText,
+        previous_close: played.length ? string(played[0].closed_how || "explicit") : "none",
         turns_in_scene: turns,
         hp_state: hp,
         sanity_state: san,
@@ -185,6 +198,10 @@ export function score(dg: DirectorGraph, sig: Row, scene: Row, options: {
         hit("PAYOFF", "structured-entity-overlap", linear(dg.score("PAYOFF", "structured-entity-overlap"), options.overlap));
     if (stalled >= number(dg.threshold("recover-stalled-turns")))
         hit("RECOVER", "stalled-turns");
+    if (number(sig.empty_turns) >= number(dg.threshold("recover-empty-turns")))
+        hit("RECOVER", "empty-turn");
+    if (truth(sig.repeat_input))
+        hit("RECOVER", "repeated-input");
     if (["combat", "flee", "cast"].includes(intent))
         hit("SUBSYSTEM", "combat-flee-cast-intent");
     const weighted = new Map<string, number>();

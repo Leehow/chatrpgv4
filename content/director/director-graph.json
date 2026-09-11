@@ -3922,6 +3922,54 @@
         "legacy_key": "tome_study",
         "ordinal": 14
       }
+    },
+    {
+      "node_id": "scoring-rule:recover:empty-turn",
+      "node_kind": "scoring-rule",
+      "plane": "doctrine",
+      "name": "RECOVER / empty-turn",
+      "properties": {
+        "action_ref": "director-action:recover",
+        "condition_id": "empty-turn",
+        "value": 0.53,
+        "value_kind": "constant"
+      },
+      "evidence_class": "authored-doctrine",
+      "rationale": "A played turn that landed no receipt at all — no roll, no move, no clue, no time — is the structural sign of a turn the player could not answer. At 0.53 its weighted score sits under the stalled PRESSURE band (0.8) in every authored structure, so one quiet turn does not overturn the pacing doctrine; it puts RECOVER on the board and the offer's ladder (consequence, person, information) in the Director's hand, and a second empty turn meets the stalled rules at 0.85 (docs/specs/turn-floor.md D3).",
+      "origin": "turn-floor-2026-09-11",
+      "falsifiable_by": "Two live tables: 11 of 12 turns empty on the thin one, a handful on the full one; replay a checkpoint after one empty turn and compare the beat."
+    },
+    {
+      "node_id": "scoring-rule:recover:repeated-input",
+      "node_kind": "scoring-rule",
+      "plane": "doctrine",
+      "name": "RECOVER / repeated-input",
+      "properties": {
+        "action_ref": "director-action:recover",
+        "condition_id": "repeated-input",
+        "value": 0.85,
+        "value_kind": "constant"
+      },
+      "evidence_class": "authored-doctrine",
+      "rationale": "The player sent the same words again, character for character. It reads no meaning — it is the player asking the same question because the last answer gave them nothing — and RECOVER at 0.85 outranks PAYOFF and CHARACTER so the offer leads with what can move (docs/specs/turn-floor.md D3).",
+      "origin": "turn-floor-2026-09-11",
+      "falsifiable_by": "A table where 然后呢 is sent twice in a row; compare the beat and the offer on the second."
+    },
+    {
+      "node_id": "threshold:recover-empty-turns",
+      "node_kind": "threshold",
+      "plane": "doctrine",
+      "name": "recover-empty-turns",
+      "properties": {
+        "threshold_id": "recover-empty-turns",
+        "value": 1,
+        "comparison": "gte",
+        "subject": "rule_signals.empty_turns"
+      },
+      "evidence_class": "authored-doctrine",
+      "rationale": "RECOVER is available from the first empty turn: the floor is owed every turn, so one turn without a receipt is already the sign.",
+      "origin": "turn-floor-2026-09-11",
+      "falsifiable_by": "Lanes at zero and one empty turn; compare RECOVER availability."
     }
   ],
   "relations": [
@@ -4920,6 +4968,18 @@
       "relation_kind": "weights",
       "from_node_id": "structure-weight:time-loop:subsystem",
       "to_node_id": "director-action:subsystem"
+    },
+    {
+      "relation_id": "relation:director:scores-recover-empty-turn",
+      "relation_kind": "scores",
+      "from_node_id": "scoring-rule:recover:empty-turn",
+      "to_node_id": "director-action:recover"
+    },
+    {
+      "relation_id": "relation:director:scores-recover-repeated-input",
+      "relation_kind": "scores",
+      "from_node_id": "scoring-rule:recover:repeated-input",
+      "to_node_id": "director-action:recover"
     }
   ],
   "coverage": {
