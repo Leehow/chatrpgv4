@@ -130,9 +130,10 @@ export function useSettingsSections(): readonly SettingsSectionContribution[] {
 export const DEFAULT_SETTINGS_TAB = 'models'
 
 /** Top-level settings tabs. Extension settings panes stay nested under 扩展. */
-// Host-owned settings tabs. `image-model` is the Image Generation extension's picker,
-// contributed through app.ui.settingsSections and admitted here by product decision.
-export const HOST_SETTINGS_TAB_IDS = ['models', 'extensions', 'themes', 'updates', 'image-model'] as const
+// Host-owned settings tabs, in nav order. `image-model` is the Image Generation extension's
+// picker, contributed through app.ui.settingsSections and admitted here by product decision;
+// it sits with 扩展, its own kind.
+export const HOST_SETTINGS_TAB_IDS = ['models', 'extensions', 'image-model', 'themes', 'updates'] as const
 
 // --- panels ----------------------------------------------------------------
 

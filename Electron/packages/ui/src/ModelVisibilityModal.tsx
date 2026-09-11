@@ -197,9 +197,11 @@ export function ModelVisibilityModal({ host, productName, visibility, updates, c
   initialView?: 'manage' | 'add'
   projectId?: string
 }) {
-  const sections = useSettingsSections().filter(section => (
-    HOST_SETTINGS_TAB_IDS as readonly string[]
-  ).includes(section.id))
+  // The host's whitelist is also the nav order: contributed tabs sit with their own kind
+  // (image-model next to 扩展), never trailing the host's 更新中心.
+  const registered = useSettingsSections()
+  const sections = HOST_SETTINGS_TAB_IDS.flatMap(id =>
+    registered.filter(section => section.id === id))
   const [tab, setTab] = useState(DEFAULT_SETTINGS_TAB)
   const [extensionsAddOpen, setExtensionsAddOpen] = useState(false)
   const [view, setView] = useState<'manage' | 'add'>(initialView)
