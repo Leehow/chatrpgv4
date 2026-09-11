@@ -4966,3 +4966,158 @@ and false-acceptance rates, its foreground cost against the same scenario withou
 Keeper takes the `missing` line into the fiction rather than into a menu are all unmeasured — the
 canonical continuous regression of Agents.md, with the admission rows read turn by turn. The
 uninformed-human UI gate (#79) has not run. Nothing here claims the novice experience solved.
+
+## 33. Creation difficulty: an extension setting scaled into chargen (2026-09-11)
+
+A difficulty setting for character creation, owned by the COC Keeper extension's
+settings tab, snapshot into each new campaign, and applied by the kernel every
+time it derives a card for that campaign. This section is the contract; the
+implementation decisions land in §33.6.
+
+### 33.1 The setting and its campaign snapshot
+
+- The setting lives in the host's extension settings (`ext.coc-keeper.difficulty`,
+  app scope of the settings JSON). It is host configuration, never model input:
+  the setup model does not see it, cannot name it, and no `setup.*` profile field
+  carries it. The kernel never reads the host settings file; it only accepts the
+  value on `campaign.create`.
+- Shape (closed): `{mode: "preset", preset: "extreme"|"hard"|"normal"|"easy"}` or
+  `{mode: "custom", custom: {...}}`. Preset multipliers: `extreme` ×0.5,
+  `hard` ×1 (the rulebook numbers, the default), `normal` ×2, `easy` ×4.
+- `campaign.create` gains an optional `difficulty` field with exactly this shape.
+  The kernel validates it (closed enums, closed dice grammar, numeric ranges of
+  §33.3; `invalid_params` with `details.field` naming the offender) and stores it
+  verbatim in `campaign.json.difficulty`. Absent means `hard` ×1 — today's
+  behavior bit for bit, and campaigns created before this section behave
+  identically. The snapshot is per-campaign and immutable: editing the extension
+  setting later touches only campaigns created afterwards; drafts and receipts
+  already written are never re-derived. There is no RPC to mutate it.
+- The Electron app reads `ext.coc-keeper.difficulty` when it creates a campaign
+  and passes it on `campaign.create`. The CLI setup path passes nothing. A
+  campaign's difficulty therefore answers the three ends of §31 without any new
+  machinery: written by the host at creation, read by chargen on every build,
+  acted on through the sheet numbers, the receipt, and the draft `limits` block.
+
+### 33.2 What a preset multiplies
+
+- **Characteristics and LUCK only.** Each rolled value is dice×5×m, rounded to
+  the nearest multiple of 5 (ties up) and clamped to the scaled creation bounds
+  round5(15×m)..round5(90×m) (never below 5). The quick_fire array entries scale
+  the same way. Under `rolled_pool_assignment` (§23.4 aptitude) the scaled pool
+  results are permuted exactly as before — assignment still never crosses pools
+  and never changes the multiset.
+- **Budgets are not multiplied.** The occupation-point formula and the INT*2
+  interest formula evaluate on the scaled characteristics, so the budgets follow
+  the multiplier through the existing formulas (EDU×4 on a doubled EDU is a
+  doubled budget). Nothing is scaled twice.
+- The starting skill cap scales: round(75×m).
+- Everything else is unchanged: age adjustments (absolute values per table), the
+  EDU-improvement ceiling of 99, the luck keep-highest counts, credit-rating
+  ranges, cash and asset derivation, `register` purist/pulp, and the dice
+  expressions themselves.
+
+### 33.3 Custom knobs
+
+`custom` carries any subset of the following (an absent key keeps the rulebook
+default; an empty `custom` object is valid and equals `hard`):
+
+- `characteristic_dice`: a map from a rulebook pool expression (`"3D6"` or
+  `"2D6+6"`, exactly as keyed in `characteristic-dice.json`) to a replacement
+  dice expression. That pool rolls NdM(+K)×5 instead, and its characteristics
+  are bounded by the replacement's own range ((N+K)×5 .. (N×M+K)×5) in place of
+  the creation bounds.
+- `characteristic_min` / `characteristic_max`: multiples of 5 replacing the
+  15/90 creation bounds — including the bounds the manual override (§23.4)
+  renders.
+- `luck`: `{dice: "<expr>"}` to roll NdM(+K)×5, or `{fixed: n}` to set LUCK
+  flat with no roll.
+- `occupation_points`: `{multiplier: k}` to multiply the evaluated formula
+  budget (Math.round), or `{fixed: n}` for a flat budget that ignores the
+  occupation formula.
+- `interest_points`: the same shape for the INT*2 budget.
+- `skill_cap`: an integer replacing 75.
+
+Dice grammar is closed: `^\d{1,2}D(4|6|8|10|12|20|100)(\+\d{1,2})?$`
+(case-insensitive), N ≥ 1. Ranges: multiplier 0.25–8; fixed budgets 0–2000;
+skill_cap 1–500; characteristic bounds 5–450 in multiples of 5 with min < max;
+fixed luck a multiple of 5 in 5..450. Validation is shape and range only — a
+closed grammar and numeric bounds, never a semantic judgement.
+
+### 33.4 Records and determinism
+
+- `sheet.creation.difficulty` records the RESOLVED policy: `{mode, preset?,
+  multiplier?, custom: {<only the knobs actually applied>}}`. The
+  `investigator:<id>` receipt carries the same block, and the creation trace
+  names the scaling beside the rulebook source tables.
+- The draft `limits` block (§23.4) resolves its fallbacks from
+  `sheet.creation.difficulty`, so the draft edit control obeys the scaled
+  bounds, budgets and cap with no change of its own; `limits_override` relaxes
+  on top exactly as today.
+- Same seed + same difficulty → same card. The difficulty snapshot is part of
+  the campaign, so every draft revision of that campaign builds under it.
+- `setup.investigator` (legacy) builds under the same snapshot; there is one
+  chargen path for difficulty, not two.
+
+### 33.5 The settings tab (Electron)
+
+- The `coc-keeper` extension manifest gains
+  `app.ui.settingsSections: [{id: "coc-difficulty", title: "难度设定",
+  description: "角色创建的难度与数值倍率", entry: "pipicoc/settings-difficulty.js"}]`;
+  the host whitelist (`HOST_SETTINGS_TAB_IDS`) and nav hints admit the id
+  (a product whitelist edit in `Electron/packages/ui/src/ui-registries.ts`).
+- The section renders an immersive 1920s control — a radio-dial preset selector
+  with the five stops (极难 50% / 困难 100% / 普通 200% / 简单 400% / 自定义)
+  and a newspaper-styled custom panel for the §33.3 knobs — reads and writes
+  `ext.coc-keeper.difficulty` through the host's extension-settings methods,
+  and validates dice grammar and ranges client-side for feedback only. The
+  kernel re-validates everything; the UI is never the authority.
+- Out of scope for this section: in-play check difficulty (the `resolve`
+  recipes are untouched), existing campaigns, any Mod packaging of difficulty,
+  and CLI-side customization.
+
+### 33.6 The kernel's decisions (implemented, 2026-09-11)
+
+- **One module, one path.** `kernel-ts/setup/difficulty.ts` owns `validateDifficulty`
+  (the closed §33.1/§33.3 shape; `invalid_params` with `details.field`),
+  `ResolvedDifficulty` (the snapshot readied for arithmetic), the dice grammar and
+  `round5` (ties up). `campaign.create` validates and stores the snapshot verbatim;
+  `setup.draft` and legacy `setup.investigator` both pass `meta.difficulty` into
+  `Chargen.build` — there is one difficulty path, never two. Absent means no key,
+  no record, and a seeded test proves the card is bit-identical to the pre-§33
+  numbers; an empty `custom: {}` resolves to the same card.
+- **Records are written only when a snapshot exists.** `sheet.creation.difficulty`
+  and the receipt's `difficulty` block carry the resolved policy; scaling notes in
+  the trace appear only where they change something (a `hard` ×1 snapshot records
+  only the §33.4-required record).
+- **Custom knobs never clamp a roll.** Replacement dice bind their own range by
+  construction; `characteristic_min/max` govern the creation bounds the override
+  validates against and the limits block renders — they do not re-clamp rolled
+  values. Presets clamp per §33.2's explicit text. Pool-replacement bounds are
+  enforced per characteristic in `setup.override` (`characteristicBounds`); the
+  §23.4 limits block keeps its single min/max shape, since §33.4 mandates only
+  fallback resolution.
+- **Budgets follow characteristics for presets, knobs for custom.** A preset
+  multiplies only the rolled values (characteristics and LUCK); the occupation and
+  interest formulas evaluate on the scaled characteristics, so budgets follow with
+  no double-scaling (a test pins the identity). Custom `multiplier`/`fixed` knobs
+  adjust the evaluated budget (`Math.round`), never the characteristics.
+- **Determinism is per seed plus snapshot.** Same seed + same difficulty → same
+  card. Age adjustments consume the deterministic stream by value, so a luck
+  attempt that is kept at one difficulty can differ at another; the stream order
+  itself is unchanged.
+- **Replacement pools are matched against the dice table.** A
+  `characteristic_dice` key that matches no pool in `characteristic-dice.json` is
+  dropped from the resolved policy and from the record rather than silently
+  rolling nothing.
+- **The settings tab is the only writer.** The Electron host reads
+  `ext.coc-keeper.difficulty` (app scope) and injects it into the onboarding
+  converse input; the worker passes it to `campaign.create` only when one is
+  stored. The setup model never sees the field. The CLI path passes nothing.
+  Verification at landing: `pytest tests/kernel` 1154 passed,
+  `test_creation_difficulty.py` 19/19, Electron vitest 13/13 for the section,
+  `npm run test:electron` identical to a pristine HEAD checkout (the one
+  failure the suite flags outside its baseline, `coc-view.test.ts`'s bound sheet
+  read, fails on a pristine 5ea9bf0a worktree as well — pre-existing at HEAD,
+  attributed to the rules lane, out of scope), system-language and ui-words
+  guards green (the only other red anywhere being the pre-existing
+  `extensions/image-gen` violation).

@@ -42,13 +42,15 @@ export class SetupDrafts {
     const sheet = card ?? row(draft.sheet), characteristics = row(sheet.characteristics);
     const relax = isJsonObject(draft.limits_override) ? draft.limits_override : {};
     const bound = (key: string, fallback: number): number => Object.hasOwn(relax, key) ? Math.trunc(number(relax[key])) : fallback;
-    const [minimum, maximum] = this.setup.chargen.creationBounds;
+    const diff = this.setup.chargen.difficultyPolicy(row(sheet.creation).difficulty ?? null);
+    const [minimum, maximum] = this.setup.chargen.creationBoundsFor(diff);
     const [, spec] = this.setup.chargen.occupation(sheet.occupation);
     const occupation = evaluateFormula(parseFormula(spec.skill_point_formula || ''), characteristics);
     const interest = evaluateFormula(parseFormula(string(this.setup.chargen.policy.formulas.personal_interest_points)), characteristics);
     return {characteristic_min: bound('characteristic_min', minimum), characteristic_max: bound('characteristic_max', maximum),
-      skill_cap: bound('skill_cap', this.setup.chargen.cap),
-      occupation_points: bound('occupation_points', occupation.total), interest_points: bound('interest_points', interest.total),
+      skill_cap: bound('skill_cap', diff ? diff.effectiveCap(this.setup.chargen.cap) : this.setup.chargen.cap),
+      occupation_points: bound('occupation_points', diff ? diff.adjustBudget('occupation', occupation.total) : occupation.total),
+      interest_points: bound('interest_points', diff ? diff.adjustBudget('interest', interest.total) : interest.total),
       occupation_formula: occupation, interest_formula: interest,
       credit_rating_range: (truth(spec.credit_rating_range) ? array(spec.credit_rating_range) : [0, 0]).map(number),
       overridden: LIMITS_FIELDS.filter(key => Object.hasOwn(relax, key))};
@@ -120,7 +122,7 @@ export class SetupDrafts {
       }
       let sheet: Row, receipt: Row;
       try { [sheet, receipt] = await this.setup.chargen.build({investigatorId: 'investigator', name: profile.name, occupationId: profile.occupation, concept: profile.concept,
-        age: Object.hasOwn(profile, 'age') ? profile.age : 27, sex: profile.sex ?? null, method: 'rolled', seed, era, aptitude: profile.aptitude ?? null,
+        age: Object.hasOwn(profile, 'age') ? profile.age : 27, sex: profile.sex ?? null, method: 'rolled', seed, era, difficulty: meta.difficulty ?? null, aptitude: profile.aptitude ?? null,
         occupationSkills: profile.occupation_skills, interestSkills: profile.interest_skills}); }
       catch (error) { if (!(error instanceof ChargenError) && (!(error instanceof Error) || !['ValueError', 'KeyError'].includes(error.name))) throw error;
         throw new RpcError('needs', error.message, {details: {expected: error instanceof ChargenError ? error.expected : null}}); }
@@ -193,17 +195,19 @@ export class SetupDrafts {
         throw new RpcError('invalid_params', 'limits_override relaxes only the declared numeric bounds', {details: {fields: [...LIMITS_FIELDS].sort()}});
       const relax: Row = isJsonObject(carried) ? carried : {};
       const bound = (key: string, fallback: number): number => Object.hasOwn(relax, key) ? Math.trunc(number(relax[key])) : fallback;
-      const [minimum, maximum] = this.setup.chargen.creationBounds;
-      const charMin = bound('characteristic_min', minimum), charMax = bound('characteristic_max', maximum), cap = bound('skill_cap', this.setup.chargen.cap);
       const baseSheet = row(base.sheet), stored = row(baseSheet.characteristics), characteristics: Row = {...stored};
+      const diff = this.setup.chargen.difficultyPolicy(row(baseSheet.creation).difficulty ?? null);
+      const cap = bound('skill_cap', diff ? diff.effectiveCap(this.setup.chargen.cap) : this.setup.chargen.cap);
       const legalCharacteristics = [...this.setup.chargen.characteristics, 'LUCK'];
       const characteristicEdits = edits.characteristics ?? {};
       if (!isJsonObject(characteristicEdits) || Object.keys(characteristicEdits).some(key => !legalCharacteristics.includes(key)))
         throw new RpcError('invalid_params', 'edits.characteristics covers only the nine abbreviations', {details: {fields: [...legalCharacteristics].sort()}});
       for (const [abbr, value] of entries(characteristicEdits)) {
         if (!integer(value)) throw new RpcError('invalid_params', `edits.characteristics.${abbr} must be an integer`);
-        if (number(value) < charMin || number(value) > charMax)
-          throw new RpcError('needs', 'A characteristic stays within its creation bounds', {details: {field: abbr, range: [charMin, charMax], attempted: number(value)}});
+        const [poolMin, poolMax] = this.setup.chargen.characteristicBounds(diff, abbr);
+        const lo = bound('characteristic_min', poolMin), hi = bound('characteristic_max', poolMax);
+        if (number(value) < lo || number(value) > hi)
+          throw new RpcError('needs', 'A characteristic stays within its creation bounds', {details: {field: abbr, range: [lo, hi], attempted: number(value)}});
         characteristics[abbr] = Math.trunc(number(value));
       }
       const listed = row(baseSheet.skills), names = Object.keys(listed);
@@ -256,11 +260,13 @@ export class SetupDrafts {
         else { field = creditInPool ? 'credit_rating' : `${pool}_points`; range = creditInPool ? creditRange : [0, total]; }
         throw new RpcError('needs', `The ${pool} point budget is exceeded`, {details: {pool, total, spend, field, range}});
       };
-      if (occupationalSpend > bound('occupation_points', occupation.total)) refusePool('occupation', bound('occupation_points', occupation.total), occupationalSpend, occupational, true);
-      if (interestSpend > bound('interest_points', interest.total)) refusePool('interest', bound('interest_points', interest.total), interestSpend, others, false);
+      const occupationTotal = diff ? diff.adjustBudget('occupation', occupation.total) : occupation.total;
+      const interestTotal = diff ? diff.adjustBudget('interest', interest.total) : interest.total;
+      if (occupationalSpend > bound('occupation_points', occupationTotal)) refusePool('occupation', bound('occupation_points', occupationTotal), occupationalSpend, occupational, true);
+      if (interestSpend > bound('interest_points', interestTotal)) refusePool('interest', bound('interest_points', interestTotal), interestSpend, others, false);
       // The ledger is rewritten to the manual allocation it now holds (contract §23.4): the saved
       // card's budget table shows these numbers, never the rolled ledger this override replaced.
-      const effectiveOccupation = bound('occupation_points', occupation.total), effectiveInterest = bound('interest_points', interest.total);
+      const effectiveOccupation = bound('occupation_points', occupationTotal), effectiveInterest = bound('interest_points', interestTotal);
       const occupationalPoints = Math.max(0, effectiveOccupation - credit), occupationalPointsSpent = occupationalSpend - credit;
       const ledger = row(row(baseSheet.creation).skills), occupationLedger = row(ledger.occupation), interestLedger = row(ledger.interest);
       const skillsLedger = {...ledger,

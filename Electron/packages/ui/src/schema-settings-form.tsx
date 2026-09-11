@@ -170,7 +170,10 @@ export function SchemaSettingsForm({
 
   const values = controlled ? valuesProp : loaded
   const properties = schema?.properties ?? {}
-  const entries = useMemo(() => Object.entries(properties), [properties])
+  const entries = useMemo(() => Object.entries(properties)
+    // An object-typed key has no generated control; its dedicated section (e.g. the difficulty
+    // tab) owns it, and a text field's string submit would fail the server's type check.
+    .filter(([, prop]) => prop.type !== 'object'), [properties])
 
   const commit = (key: string, value: unknown) => {
     onChange?.(key, value)

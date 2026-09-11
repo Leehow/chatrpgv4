@@ -84,7 +84,7 @@ export class Setup {
     if (typeof id !== 'string' || !id.trim()) throw new RpcError('invalid_params', 'params.id must be a slug');
     if (party.some(sheet => string(sheet.id) === id)) throw new RpcError('invalid_params', `investigator ${repr(id)} already exists in this campaign`, {fix: 'give another id, or another name'});
     let sheet: Row, receipt: Row;
-    try { [sheet, receipt] = await this.chargen.build({investigatorId: id, name, occupationId: params.occupation ?? null, concept, age, sex, method, seed, era, allocation, interestAllocation}); }
+    try { [sheet, receipt] = await this.chargen.build({investigatorId: id, name, occupationId: params.occupation ?? null, concept, age, sex, method, seed, era, difficulty: meta.difficulty ?? null, allocation, interestAllocation}); }
     catch (error) {
       if (!(error instanceof ChargenError)) throw error;
       if (error.stage === 'occupation') throw new RpcError('needs', error.message, {fix: 'call setup.occupations and pass one of its ids', details: {needs: {field: 'occupation', options: row(error.expected).options ?? null}}});
