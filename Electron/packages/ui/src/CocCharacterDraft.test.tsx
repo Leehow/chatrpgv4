@@ -146,3 +146,33 @@ it('shows the trade the player named, with the rulebook entry after it',()=>{
  render(<CocCharacterDraft data={{revision:4,sheet:{...sheet,occupation_stated:'护士'},presentation:{texts:zh}}}/>);
  expect(screen.getByText(/护士 \(律师\) · 28/)).toBeTruthy();
 })
+
+/**
+ * A failed projection used to leave the card at a bare retry glyph, the reason nowhere. The lane's
+ * own message ("Model grok-build/grok-4.6 not found") is the one thing that tells the player what
+ * happened, so the card carries it next to the retry -- trimmed to one capped line, since a stderr
+ * tail runs to thousands of characters.
+ */
+it('shows why a projection failed next to its retry, and recovers on retry',async()=>{
+ const load=vi.fn().mockRejectedValueOnce(new Error('Model "grok-build/grok-4.6" not found. Use --list-models to see available models.')).mockResolvedValue({play_language:'zh-Hans',texts:zh});
+ render(<CocCharacterDraft data={{revision:2,play_language:'zh-Hans',sheet}} onPresentation={load}/>);
+ expect(await screen.findByText(/grok-build\/grok-4\.6" not found/)).toBeTruthy();
+ fireEvent.click(screen.getByRole('button',{name:'↻'}));
+ expect(await screen.findByRole('region',{name:'角色草稿'})).toBeTruthy();
+ expect(load).toHaveBeenCalledTimes(2);
+})
+
+it('trims a multi-line or endless failure to its first capped line',async()=>{
+ render(<CocCharacterDraft data={{revision:2,play_language:'zh-Hans',sheet}} onPresentation={async()=>{throw new Error(`first line\n${'x'.repeat(300)}`)}}/>);
+ expect(await screen.findByText('first line')).toBeTruthy();
+ expect(screen.queryByText(/x{20}/)).toBeNull();
+ cleanup();
+ render(<CocCharacterDraft data={{revision:3,play_language:'zh-Hans',sheet}} onPresentation={async()=>{throw new Error('y'.repeat(300))}}/>);
+ expect(await screen.findByText('y'.repeat(237)+'…')).toBeTruthy();
+})
+
+it('shows why the preview acknowledgment failed',async()=>{
+ const ack=vi.fn(async()=>{throw new Error('campaign_locked')});
+ render(<CocCharacterDraft data={{revision:2,play_language:'zh-Hans',sheet,presentation:{texts:zh,play_language:'zh-Hans'}}} onRendered={ack}/>);
+ expect((await screen.findByRole('alert')).textContent).toContain('campaign_locked');
+})

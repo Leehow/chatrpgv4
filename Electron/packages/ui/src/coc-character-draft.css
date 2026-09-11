@@ -65,3 +65,4 @@
   .coc-draft-skill-detail th, .coc-draft-skill-detail td { padding: 8px 5px; font-size: 11px; }
 }
 @media (prefers-reduced-motion: reduce) { .coc-draft-toggle { transition: none; } }
+.coc-draft-error { margin-right: 10px; color: var(--danger); font-size: 12px; overflow-wrap: anywhere; }

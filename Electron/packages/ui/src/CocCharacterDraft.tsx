@@ -20,28 +20,38 @@ export function isDiceNotation(value:unknown):boolean {
   if(!written)return false
   return /^[+-]?(\d+(\.\d+)?|\d*[Dd]\d+)(\s*[+\-*/×]\s*(\d+(\.\d+)?|\d*[Dd]\d+))*$/.test(written)
 }
+/**
+ * The reason a projection failed, trimmed to the one line a card can carry next to its retry.
+ * The lane's own message is the useful part ("Model grok-build/grok-4.6 not found"); a stderr
+ * tail can run to thousands of characters, so the first non-empty line is kept and capped.
+ */
+function failureText(value:unknown):string {
+  const text=value instanceof Error?value.message:String(value)
+  const line=(text.split('\n').find(part=>part.trim())??text).trim()
+  return line.length>240?line.slice(0,237)+'…':line
+}
 export function CocCharacterDraft({data,onRendered,onPresentation,onOverride}:Props) {
   const [presentation,setPresentation]=useState<Row|null>(data.presentation||null)
   const [showDetails,setShowDetails]=useState(false)
   const [editing,setEditing]=useState(false)
   useEffect(()=>{setShowDetails(false);setEditing(false)},[data.revision])
-  const [error,setError]=useState(false),[retry,setRetry]=useState(0)
+  const [error,setError]=useState<string|null>(null),[retry,setRetry]=useState(0)
   useEffect(()=>{
     let active=true
     let timer:ReturnType<typeof setTimeout>|undefined
-    setError(false)
+    setError(null)
     if(data.presentation){setPresentation(data.presentation);return()=>{active=false}}
     setPresentation(null)
     const load=async()=>{
       try {const value=await onPresentation!();if(!active)return;if(value.pending){timer=setTimeout(load,1500);return;}setPresentation(value)}
-      catch{if(active)setError(true)}
+      catch(e){if(active)setError(failureText(e))}
     }
     if(onPresentation)void load()
     return()=>{active=false;if(timer)clearTimeout(timer)}
   },[data.revision,data.play_language,retry])
-  useEffect(()=>{if(presentation&&onRendered)void onRendered().catch(()=>setError(true))},[presentation,data.revision])
+  useEffect(()=>{if(presentation&&onRendered)void onRendered().catch(e=>setError(failureText(e)))},[presentation,data.revision])
   const sheet=data.sheet
-  if(!sheet||!presentation)return <section aria-busy={!error} role="status">{error?<button onClick={()=>setRetry(x=>x+1)}>↻</button>:'…'}</section>
+  if(!sheet||!presentation)return <section aria-busy={!error} role="status">{error?<><span className="coc-draft-error">{error}</span><button type="button" onClick={()=>setRetry(x=>x+1)}>↻</button></>:'…'}</section>
   // A word the projection does not carry comes back as itself. Returning '' instead blanked the
   // cell, which reads as "this card has nothing here" rather than "this word is not translated
   // yet" -- and a blank is the one thing a player cannot report.
@@ -108,7 +118,7 @@ export function CocCharacterDraft({data,onRendered,onPresentation,onOverride}:Pr
     <p className="coc-draft-note">{t('Language')}: {t(sheet.own_language)}</p><p className="coc-draft-note">{t('Key connection')}: {cell(sheet.key_connection?.summary)}</p>
     <h3>{t('Equipment')}</h3><ul className="coc-draft-kit">{(sheet.equipment||[]).filter((item:string)=>!presentation.finance_equipment?.includes(item)).map((item:string,i:number)=><li key={i}>{t(item)}</li>)}</ul>
     {!!sheet.weapons?.length&&<><h3>{t('Weapons')}</h3>{sheet.weapons.map((weapon:Row,i:number)=><div key={i}>{values(weapon)}</div>)}</>}
-    {error&&<p role="alert">{t('Preview unavailable')} <button onClick={()=>{setError(false);if(onRendered)void onRendered().catch(()=>setError(true))}}>{t('Retry')}</button></p>}
+    {error&&<p role="alert">{t('Preview unavailable')}: {error} <button type="button" onClick={()=>{setError(null);if(onRendered)void onRendered().catch(e=>setError(failureText(e)))}}>{t('Retry')}</button></p>}
     {editing&&onOverride&&<CocCharacterDraftEdit data={data} t={t} onOverride={onOverride} onClose={()=>setEditing(false)}/>}
   </section>
 }
