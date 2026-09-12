@@ -9005,7 +9005,8 @@ export class PiHostBackend implements HostBackend {
     if (id === "image-gen" && method === "model") {
       // The Image Generation extension's model choice, app-level: the picker in its settings
       // section reads/writes the same <agentDir>/image-model.json the agent reads per call, so
-      // no live session is needed. `grokDefault` mirrors the dispatch's grok-first rule.
+      // no live session is needed. `grokDefault` mirrors the dispatch's grok-by-default
+      // rule: the grok-build login the dispatch uses only while no model is configured.
       const file = join(this.agentDir, "image-model.json");
       const op = isRecord(params) && typeof params.op === "string" ? params.op : "get";
       const grokDefault = (() => { try { return isRecord(JSON.parse(readFileSync(join(this.agentDir, "auth.json"), "utf8"))["grok-build"]); } catch { return false; } })();
