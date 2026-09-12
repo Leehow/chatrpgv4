@@ -5636,6 +5636,7 @@ export class PiHostBackend implements HostBackend {
       const dotEnv = await this.readDotEnv();
       this.assertSessionGeneration(id, generation);
       const cocBinding = await readCocBinding(found.path);
+      const cocLaneModel = cocBinding ? await this.cocLaneModel() : undefined;
       // Kept so the live stream can hand a card the campaign's language without re-reading the
       // transcript inside a synchronous reader.
       if (cocBinding) this.cocSessionBindings.set(id, cocBinding);
@@ -5656,7 +5657,9 @@ export class PiHostBackend implements HostBackend {
             mergedSpawnEnvironment(this.env, dotEnv, {
               ...output.env,
               ...(this.piCommand.env ?? {}),
-              ...(cocBinding ? {PI_COC_CAMPAIGN:cocBinding.campaign,PI_COC_HOME:cocBinding.home, PI_COC_MODE:cocBinding.mode || "play",...(cocBinding.mode === "setup" ? {PI_COC_SETUP_AUTOSTART:"1"} : {})} : {}),
+              ...(cocBinding ? {PI_COC_CAMPAIGN:cocBinding.campaign,PI_COC_HOME:cocBinding.home, PI_COC_MODE:cocBinding.mode || "play",
+                ...(cocLaneModel && !this.env.PI_COC_MOD_MODEL?.trim() ? {PI_COC_MOD_MODEL:cocLaneModel} : {}),
+                ...(cocBinding.mode === "setup" ? {PI_COC_SETUP_AUTOSTART:"1"} : {})} : {}),
             }),
             workerEnvFromVault(this.vaultDir, id),
           ),
@@ -8654,6 +8657,19 @@ export class PiHostBackend implements HostBackend {
    * JSON. The product default when nothing was ever stored is `normal`; the kernel's own
    * absent semantic (the rulebook standard) survives only on the CLI setup path, which passes nothing.
    */
+  /**
+   * The model the Keeper's background lanes run on. They followed the table's own model, and a slow
+   * one is paid by the player: one audit on record spent fifty of its fifty-eight seconds inside a
+   * single model turn, and nothing those lanes write ever reaches the table. `PI_COC_MOD_MODEL` is
+   * where the runtime already looks, so the visible setting is handed to it rather than to a second
+   * path -- an explicit environment variable still wins, because that is the operator's override.
+   */
+  private async cocLaneModel(): Promise<string | undefined> {
+    const values = readAppExtensionSettingsValues(await this.readSettings(), "coc-keeper", new Set());
+    const value = values["ext.coc-keeper.laneModel"];
+    const model = isRecord(value) && typeof value.model === "string" ? value.model.trim() : "";
+    return model || undefined;
+  }
   private async cocDifficultySetting(): Promise<Record<string, unknown> | undefined> {
     const values = readAppExtensionSettingsValues(await this.readSettings(), "coc-keeper", new Set());
     const value = values["ext.coc-keeper.difficulty"];
@@ -8914,7 +8930,7 @@ export class PiHostBackend implements HostBackend {
           const state = await this.getModelState(sid);
           const host = this.cocOnboardingRegistry.get({...this.cocRuntime,repo,home:context.home,agentDir:this.sharedProfileDir,env:this.env});
           const reading = host.documentPresentationStatus({campaign:context.campaign,actor:data.actor,name:data.name,version:data.version,play_language:data.play_language,
-            model:this.env.PI_COC_MOD_MODEL?.trim() || `${state.model.provider}/${state.model.id}`,thinking:state.thinkingLevel});
+            model:this.env.PI_COC_MOD_MODEL?.trim() || await this.cocLaneModel() || `${state.model.provider}/${state.model.id}`,thinking:state.thinkingLevel});
           data = reading.pending ? reading : {...data,display_name:reading.display_name,text:reading.text,original:reading.original};
         }
         if (method.startsWith("mods.document.") && data?.editor?.renderer === "paper") {

@@ -98,6 +98,7 @@
   "uiFiles": [
     "panel.js", "mods-panel.js", "timeline.js", "mechanics.js", "choices.js", "preparation.js",
     "settings-difficulty.js",
+    "settings-lane-model.js",
     "sheet-icon.svg", "mods-icon.svg", "timeline.svg", "pipicoc.png", "product.json"
   ],
   "hostAssets": [
