@@ -141,3 +141,48 @@ test("同名同参连发：被内核拒过两次之后第三次拦下，改了�
 	const blocked = table.telemetry().filter((row) => row.code === "blocked");
 	assert.equal(blocked.length, 1);
 });
+
+
+/**
+ * The refusal budget (contract §34.12). Table F, 2026-09-11: twenty-eight refusals of two classes in one
+ * turn, every retry reworded so the identical-resend guard above never fired, 300 s gone. The third refusal
+ * of one class — tool, code, the field the kernel named — shuts that tool for the rest of the turn; only
+ * narrate and ask remain, and the block says so.
+ */
+test("同类拒绝三次：第四次换了措辞也拦下，只剩 narrate 收回合", async (t) => {
+	const attempt = (goal) => fauxAssistantMessage([fauxToolCall("resolve", { action: { intent: "combat", goal, method: "挥拳", target: "Steven Knott" } })], { stopReason: "toolUse" });
+	const table = await openTable({
+		env: {
+			FAKE_KERNEL_ERRORS: JSON.stringify({
+				"table.resolve": { code: "turn_state", message: "it is steven-knott's turn, not thomas-hayes's", details: { turn_of: "steven-knott" } },
+			}),
+		},
+		responses: [
+			attempt("扑上去给诺特一拳"),
+			attempt("越过写字台打他"),
+			attempt("趁他后退追上去打"),
+			attempt("再来一拳"),
+			fauxAssistantMessage([fauxToolCall("narrate", { text: "拳头停在半空。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage("收尾"),
+		],
+	});
+	t.after(() => table.dispose());
+
+	await table.session.prompt("我冲上去揍诺特");
+	await waitForIdle(table.session);
+
+	const results = toolResults(table.session, "resolve");
+	assert.equal(results.length, 4);
+	for (const index of [0, 1, 2]) assert.match(resultText(results[index]), /turn_state/, `第 ${index + 1} 次到了内核，被拒`);
+	assert.match(resultText(results[3]), /refused 3 times this turn for the same reason/, "第四次换了措辞照样拦下");
+	assert.match(resultText(results[3]), /close the turn with narrate/, "拦下时说清只剩收回合");
+	const sent = table.kernelRequests().filter((entry) => entry.method === "table.resolve");
+	assert.equal(sent.length, 3, "三次到内核，第四次没出扩展");
+	const narrates = table.kernelRequests().filter((entry) => entry.method === "table.narrate");
+	assert.equal(narrates.length, 1, "narrate 不受预算影响");
+	const rows = table.telemetry().filter((row) => row.lane === "refusals");
+	assert.deepEqual(rows.map((row) => row.reason), ["class_limit"]);
+	assert.equal(rows[0].tool, "resolve");
+	const blocked = table.telemetry().filter((row) => row.code === "blocked" && row.reason === "refusal_budget");
+	assert.equal(blocked.length, 1);
+});

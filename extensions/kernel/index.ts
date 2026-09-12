@@ -136,6 +136,19 @@ interface TableState {
 	rejected: Map<string, { count: number; last: string }>;
 	/** toolCallId to the key above; tool_result counts against it. */
 	callKeys: Map<string, string>;
+	/**
+	 * Refusals this turn by class — tool, error code and the structural field the kernel named (turn_of,
+	 * needs.field, reason) — however the parameters were reworded. The third of a class shuts that tool for
+	 * the rest of the turn; a turn with REFUSAL_BUDGET refusals in all shuts every write but narrate and ask.
+	 * Table F (2026-09-11): twenty-eight refusals of two classes in one turn, the identical-resend guard never
+	 * fired because every retry was reworded, and the turn ran to its 300 s cap.
+	 */
+	refusalClasses: Map<string, { count: number; last: string }>;
+	refusalsThisTurn: number;
+	/** toolCallId to the name of the tool it called, for the class accounting in tool_result. */
+	callTools: Map<string, string>;
+	/** Tools shut for the rest of the turn by the refusal budget, with the reason read back to the Keeper. */
+	exhausted: Map<string, string>;
 	/** The turn narrate has committed but the verifier lane has not yet started on (contract §12.5: it runs after the delivery replacement). */
 	pendingCommit?: CommitPayload;
 	/**
@@ -175,6 +188,10 @@ interface TableState {
 
 const CLOSED_STATES: ReadonlySet<TurnState> = new Set<TurnState>(["awaiting_player", "committed", "asked"]);
 const TURN_CLOSED_REASON = "the turn is closed, waiting for the player";
+/** Refusals of one class (tool, code, the field the kernel named) a turn tolerates before that tool is shut for the turn. */
+const REFUSAL_CLASS_LIMIT = 3;
+/** Refusals of any class a turn tolerates before every write but narrate and ask is shut. */
+const REFUSAL_BUDGET = 8;
 /** The one host steer of the turn floor (docs/specs/turn-floor.md D4), sent when a turn is about to close on prose alone. */
 const FLOOR_STEER =
 	"This turn used no tool and nothing landed. Read director.offer and the people present: what changes in the world, apply; " +
@@ -493,6 +510,10 @@ export default function (pi: ExtensionAPI) {
 		table.mintedCallIds.clear();
 		table.rejected.clear();
 		table.callKeys.clear();
+		table.refusalClasses.clear();
+		table.refusalsThisTurn = 0;
+		table.callTools.clear();
+		table.exhausted.clear();
 		table.renderedText = undefined;
 		table.deliveryToolCallId = undefined;
 		table.closedThisRun = false;
@@ -1019,10 +1040,32 @@ export default function (pi: ExtensionAPI) {
 		if (!details?.coc_error) return;
 		const state = table;
 		const key = state?.callKeys.get(event.toolCallId);
+		const last = `${String(details.coc_error.code ?? "error")}: ${String(details.coc_error.message ?? "")}`.slice(0, 160);
 		if (state && key) {
 			const previous = state.rejected.get(key);
-			const last = `${String(details.coc_error.code ?? "error")}: ${String(details.coc_error.message ?? "")}`.slice(0, 160);
 			state.rejected.set(key, { count: (previous?.count ?? 0) + 1, last });
+		}
+		// The refusal budget (contract §34.12): count by class, not by parameters.
+		const tool = state?.callTools.get(event.toolCallId);
+		if (state && tool) {
+			const inner = (details.coc_error as { details?: Record<string, unknown> }).details ?? {};
+			const needs = (inner.needs as { field?: unknown } | undefined)?.field;
+			const facet = [inner.turn_of, needs, inner.reason, inner.field].find((v) => typeof v === "string" && v) ?? "";
+			const cls = `${tool}\u0000${String(details.coc_error.code ?? "error")}\u0000${String(facet)}`;
+			const count = (state.refusalClasses.get(cls)?.count ?? 0) + 1;
+			state.refusalClasses.set(cls, { count, last });
+			state.refusalsThisTurn += 1;
+			const closing = "Nothing refused has happened. Stop trying it: close the turn with narrate on what landed with a receipt, or hand the player the pending choice with ask.";
+			if (count >= REFUSAL_CLASS_LIMIT && !state.exhausted.has(tool) && !["narrate", "ask"].includes(tool)) {
+				state.exhausted.set(tool, `${tool} has been refused ${count} times this turn for the same reason (${last}). ${closing}`);
+				await record({ lane: "refusals", turn: state.turn, tool, count, reason: "class_limit", last });
+			}
+			if (state.refusalsThisTurn >= REFUSAL_BUDGET) {
+				for (const name of ["resolve", "apply", "look", "lookup", "recall"])
+					if (!state.exhausted.has(name))
+						state.exhausted.set(name, `${state.refusalsThisTurn} refusals this turn. ${closing}`);
+				await record({ lane: "refusals", turn: state.turn, count: state.refusalsThisTurn, reason: "turn_budget", last });
+			}
 		}
 		return { isError: true };
 	});
@@ -1150,6 +1193,10 @@ export default function (pi: ExtensionAPI) {
 				mintedCallIds: new Map(),
 				rejected: new Map(),
 				callKeys: new Map(),
+				refusalClasses: new Map(),
+				refusalsThisTurn: 0,
+				callTools: new Map(),
+				exhausted: new Map(),
 				attachments: [],
 				lanes: new AbortController(),
 				party: [],
@@ -1282,6 +1329,10 @@ export default function (pi: ExtensionAPI) {
 			state.mintedCallIds.clear();
 			state.rejected.clear();
 			state.callKeys.clear();
+			state.refusalClasses.clear();
+			state.refusalsThisTurn = 0;
+			state.callTools.clear();
+			state.exhausted.clear();
 			state.renderedText = undefined;
 			state.deliveryToolCallId = undefined;
 			state.closedThisRun = false;
@@ -1372,6 +1423,12 @@ export default function (pi: ExtensionAPI) {
 		// The same call with the same parameters, resent unchanged: the kernel's answer will not change.
 		// A Keeper once sent one set of parameters thirteen times and was refused every time; after two
 		// refusals the third is blocked here, with the last error read back to it.
+		state.callTools.set(event.toolCallId, name);
+		const shut = state.exhausted.get(name);
+		if (shut) {
+			await record({ tool: name, started_at: new Date().toISOString(), ok: false, code: "blocked", reason: "refusal_budget" });
+			return { block: true, reason: shut };
+		}
 		const key = `${name}\u0000${JSON.stringify(input)}`;
 		state.callKeys.set(event.toolCallId, key);
 		const strikes = state.rejected.get(key);
