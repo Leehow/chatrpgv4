@@ -4983,7 +4983,10 @@ implementation decisions land in §33.6.
   value on `campaign.create`.
 - Shape (closed): `{mode: "preset", preset: "extreme"|"hard"|"normal"|"easy"}` or
   `{mode: "custom", custom: {...}}`. Preset multipliers: `extreme` ×0.5,
-  `hard` ×1 (the rulebook numbers, the default), `normal` ×2, `easy` ×4.
+  `hard` ×1 (the rulebook numbers), `normal` ×2, `easy` ×4. The product default
+  when the setting was never stored is `normal` ×2 (user ruling 2026-09-11):
+  the host injects it, so a fresh install creates normal campaigns out of the
+  box while the kernel's own absent semantic stays the rulebook ×1.
 - `campaign.create` gains an optional `difficulty` field with exactly this shape.
   The kernel validates it (closed enums, closed dice grammar, numeric ranges of
   §33.3; `invalid_params` with `details.field` naming the offender) and stores it
@@ -4993,7 +4996,8 @@ implementation decisions land in §33.6.
   setting later touches only campaigns created afterwards; drafts and receipts
   already written are never re-derived. There is no RPC to mutate it.
 - The Electron app reads `ext.coc-keeper.difficulty` when it creates a campaign
-  and passes it on `campaign.create`. The CLI setup path passes nothing. A
+  and passes it on `campaign.create`, injecting `normal` ×2 when nothing was
+  ever stored. The CLI setup path passes nothing. A
   campaign's difficulty therefore answers the three ends of §31 without any new
   machinery: written by the host at creation, read by chargen on every build,
   acted on through the sheet numbers, the receipt, and the draft `limits` block.

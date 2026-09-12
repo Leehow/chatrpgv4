@@ -132,11 +132,12 @@ it('the converse worker input carries only the stored difficulty, never a render
     vi.spyOn(backend as any,'getModelState').mockResolvedValue({model:{provider:'unknown',id:'fixture'},thinkingLevel:'low'});
     vi.spyOn(backend as any,'ensure').mockResolvedValue({});
     vi.spyOn(backend as any,'command').mockResolvedValue({isStreaming:false});
-    // Nothing stored: a renderer-supplied difficulty is dropped before the worker sees the input.
+    // Nothing stored: a renderer-supplied difficulty is replaced by the product default before
+    // the worker sees the input (contract §33.1: the host is the difficulty's only authority).
     const smuggled=await backend.handle('invokeExtension',['coc-keeper','onboarding',
       {action:'converse',id:'import-fixture',difficulty:{mode:'preset',preset:'extreme'}},{sessionId:session.id}]) as any;
     expect(smuggled.ok).toBe(true);
-    expect(requests.at(-1)).not.toHaveProperty('difficulty');
+    expect(requests.at(-1).difficulty).toEqual({mode:'preset',preset:'normal'});
     // A stored setting rides the converse worker input into campaign.create.
     const stored={mode:'preset',preset:'easy'};
     const saved=await backend.handle('updateExtensionSettings',['coc-keeper',{'ext.coc-keeper.difficulty':stored}]) as any;
