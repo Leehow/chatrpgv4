@@ -1,3 +1,12 @@
+# 1.1.7
+
+The creator and the auditor work without a shell. Their prompts no longer send the
+child to a checker command, because the host runs that same gate and its findings
+already drive the repair round. Three children on record spent 19 of 24, 24 of 28
+and 10 of 15 tool calls reading the packaged app, the build output and their own
+event log, and one never wrote its definition at all. Nothing is checked less;
+only the wandering is gone. Definitions and instances are unchanged on upgrade.
+
 # 1.1.6
 
 Adds `brief.md`, the per-turn form of the instructions (contract §30.7): the first turn a process opens for a campaign still carries the full text, later turns carry this reminder. Behaviour is unchanged; the capsule is smaller.

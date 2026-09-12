@@ -52,8 +52,12 @@ export default function modsExtension(pi: ExtensionAPI): void {
     if (!owner) throw new KernelError({code:"needs",message:"Mod runtime bridge is unavailable"});
     const model = context?.model;
     const modelName = model ? `${model.provider}/${model.id}` : undefined;
-    const checker = "coc-read-check --kind mod-definition --draft result.json";
-    const base = `Read request.json and follow the task in your system prompt. Write result.json. ${role === "create" ? `Validate it with: ${checker}` : "Use tools to inspect the actual draft and registered objects."}`;
+    // No shell, and the brief says why there is nothing to look for outside: three children on record
+    // spent 19 of 24, 24 of 28 and 10 of 15 tool calls reading the packaged app, the build output and
+    // their own event log, and one of them never wrote its artifact at all. The deterministic gate the
+    // child used to run for itself is the same one the host runs below, whose findings already drive
+    // the repair round, so nothing is checked less -- only the wandering is gone.
+    const base = "Everything this task needs is in request.json and in your system prompt. Read them, then write result.json in this directory. Nothing outside this directory is part of the task.";
     let repair = "";
     for (let attempt = 1; attempt <= 2; attempt++) {
       const began = Date.now();
@@ -63,7 +67,7 @@ export default function modsExtension(pi: ExtensionAPI): void {
       // either way, and then the original failure continues on its way.
       try {
         outcome = await owner.runTask({kind:"mod", request:{cwd:job.cwd, systemPrompt:job.system_prompt, model:modelName,
-          thinking:context?.thinkingLevel,
+          thinking:context?.thinkingLevel, tools:"read,write,edit",
           eventLog:join(job.cwd, `agent-${attempt}.jsonl`), brief:base + repair}}, signal);
       }
       catch (error) {
