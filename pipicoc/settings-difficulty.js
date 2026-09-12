@@ -79,7 +79,7 @@ export const DICE_GRAMMAR = /^\d{1,2}D(4|6|8|10|12|20|100)(\+\d{1,2})?$/i;
 export const PRESETS = ["extreme", "hard", "normal", "easy"];
 export const PRESET_PERCENT = [50, 100, 200, 400];
 const CUSTOM_STOP = PRESETS.length;
-const DEFAULT_STOP = 1; // hard: the rulebook numbers (contract §33.1)
+const DEFAULT_STOP = 2; // normal x2: the product default when nothing was ever stored (contract §33.1)
 
 /** The settings key of contract §33.1, app scope of the host settings JSON. */
 export const SETTINGS_EXTENSION = "coc-keeper";
@@ -149,7 +149,7 @@ function number(text) {
  * stores `{mode:"custom", custom:{}}` -- valid, and equal to hard (contract §33.3).
  */
 export function buildSetting(draft) {
-  if (draft.stop !== CUSTOM_STOP) return {mode: "preset", preset: PRESETS[draft.stop] ?? "hard"};
+  if (draft.stop !== CUSTOM_STOP) return {mode: "preset", preset: PRESETS[draft.stop] ?? "normal"};
   const custom = {};
   const dice = {};
   if (draft.dicePrimary.trim()) dice[POOL_PRIMARY] = draft.dicePrimary.trim();

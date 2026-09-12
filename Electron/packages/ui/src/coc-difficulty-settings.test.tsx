@@ -70,7 +70,7 @@ describe('the stored shape (contract §33.1)', () => {
     }};
     expect(buildSetting(draftFromSetting(stored))).toEqual(stored);
     expect(buildSetting(draftFromSetting({mode: 'preset', preset: 'normal'}))).toEqual({mode: 'preset', preset: 'normal'});
-    expect(buildSetting(draftFromSetting(undefined))).toEqual({mode: 'preset', preset: 'hard'});
+    expect(buildSetting(draftFromSetting(undefined))).toEqual({mode: 'preset', preset: 'normal'});
   });
 });
 
@@ -105,12 +105,12 @@ describe('client-side validation (contract §33.3; feedback only)', () => {
 });
 
 describe('the section', () => {
-  it('renders the dial stops from the shipped words with hard selected by default', async () => {
+  it('renders the dial stops from the shipped words with normal selected by default', async () => {
     renderSection(hostWith());
     await screen.findByText(en('preset_hard'));
     for (const key of ['preset_extreme', 'preset_normal', 'preset_easy', 'preset_custom'])
       expect(screen.getByText(en(key))).toBeTruthy();
-    expect(screen.getByTestId('coc-diff-stop-hard').getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByTestId('coc-diff-stop-normal').getAttribute('aria-pressed')).toBe('true');
     expect(screen.getByText(en('preset_hard'))).toBeTruthy();
     const note = document.querySelector('.coc-diff-note');
     expect(note?.textContent).toContain(en('applies_note'));

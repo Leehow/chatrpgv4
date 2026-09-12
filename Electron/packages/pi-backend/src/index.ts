@@ -8651,12 +8651,13 @@ export class PiHostBackend implements HostBackend {
   }
   /**
    * The extension's creation-difficulty setting (contract §33.1), app scope of the settings
-   * JSON, or nothing: absent reads as `hard` x1 and campaign.create is called without the key.
+   * JSON. The product default when nothing was ever stored is `normal` x2; the kernel's own
+   * absent semantic (rulebook x1) survives only on the CLI setup path, which passes nothing.
    */
   private async cocDifficultySetting(): Promise<Record<string, unknown> | undefined> {
     const values = readAppExtensionSettingsValues(await this.readSettings(), "coc-keeper", new Set());
     const value = values["ext.coc-keeper.difficulty"];
-    return isRecord(value) ? value : undefined;
+    return isRecord(value) ? value : {mode: "preset", preset: "normal"};
   }
   /** The campaign's generated portrait as a data URL, when the live lane already saved one (contract §22.7). */
   private async cocCampaignPortrait(context:CocBinding):Promise<string|undefined> {
