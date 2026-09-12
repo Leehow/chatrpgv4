@@ -7,6 +7,7 @@ import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep 
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
+import { agentExtensionManifests } from '../runtime/deployment.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const MANIFEST = 'pipicoc/runtime-dependencies.json';
@@ -155,7 +156,10 @@ async function copyResources(repo, resource, manifest) {
   for (const tag of seeds) {
     for (const surface of surfaces) await requiredFile(join(content, 'ui', tag, surface));
   }
-  for (const directory of manifest.resourceDirectories) await copyTree(join(repo, directory), join(resource, directory), copiedAsset);
+  // An extension directory travels because it is in the tree and declares an agent extension; its
+  // manifest is what the runtime reads to mount it, so a new one must not depend on being listed.
+  const extensionDirectories = agentExtensionManifests(repo).map(entry => `extensions/${entry.name}`);
+  for (const directory of new Set([...manifest.resourceDirectories, ...extensionDirectories])) await copyTree(join(repo, directory), join(resource, directory), copiedAsset);
   for (const file of manifest.resourceFiles ?? []) {
     await requiredFile(join(repo, safeRelative(file)));
     await mkdir(dirname(join(resource, file)), { recursive: true });

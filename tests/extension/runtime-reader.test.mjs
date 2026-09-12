@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { composeRuntimeContext, createRuntime } from "../../runtime/host.ts";
+import { providerExtensionManifests } from "../../runtime/deployment.mjs";
 import { runtimeCapabilities, runCheck } from "../../runtime/tasks.ts";
 import { readerCommand, runReader } from "../../extensions/module/reader.ts";
 import modsExtension from "../../extensions/mods/index.ts";
@@ -128,9 +129,14 @@ writeFileSync('launch-argv.json',JSON.stringify(process.argv.slice(2)));\n`);
   const quote = value => "'" + value.replaceAll("'", "'\\''") + "'";
   await writeFile(launcher, `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(executable)} "$@"\n`);
   await chmod(launcher, 0o755);
+  const agent = join(home, "agent");
+  await mkdir(agent, { recursive: true });
+  // Both fixture models must be ones a lane child could resolve; the override under test is which
+  // of them is chosen, not whether an unrunnable one is allowed to launch.
+  await json(join(agent, "models-store.json"), { captured: { models: [{ id: "mod-model" }] }, selected: { models: [{ id: "current-model" }] } });
   const context = composeRuntimeContext({ owner: "preparation", home }, options({
     PI_COC_READER_CMD: undefined, PI_COC_MOD_MODEL: " captured/mod-model ",
-  }, { nodeExecutable: launcher }));
+  }, { agentHome: agent, nodeExecutable: launcher }));
   const previous = process.env.PI_COC_MOD_MODEL;
   process.env.PI_COC_MOD_MODEL = "late/ambient-model";
   t.after(() => { if (previous === undefined) delete process.env.PI_COC_MOD_MODEL; else process.env.PI_COC_MOD_MODEL = previous; });
@@ -144,7 +150,7 @@ writeFileSync('launch-argv.json',JSON.stringify(process.argv.slice(2)));\n`);
   }
 });
 
-test("lane models are re-pointed at a child-visible authenticated provider, never re-named", async t => {
+test("lane children mount the provider extensions, and a lane model is never re-named", async t => {
   const home = await temporary(t), executable = join(home, "capture-model.mjs"), launcher = join(home, "selected node"), agent = join(home, "agent"), captured = join(home, "captured", "argv.json");
   await mkdir(join(home, "captured"));
   await writeFile(executable, `import {writeFileSync} from 'node:fs';\nwriteFileSync(${JSON.stringify(captured)},JSON.stringify(process.argv.slice(2)));\n`);
@@ -152,10 +158,10 @@ test("lane models are re-pointed at a child-visible authenticated provider, neve
   await writeFile(launcher, `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(executable)} "$@"\n`);
   await chmod(launcher, 0o755);
   await mkdir(agent, { recursive: true });
-  // `grok-build` is registered by an extension at runtime and lands in neither file: a
-  // zero-extension child cannot see it. `unauthenticated` lists the model but wrote no
-  // credentials, so the re-point must skip it even though it sorts first.
-  await json(join(agent, "models-store.json"), { unauthenticated: { models: [{ id: "grok-4.6" }] }, xai: { models: [{ id: "grok-4.6" }] } });
+  // `grok-build` is registered by an extension and lands in neither registry file. The child mounts
+  // that extension, so the model runs as written: re-pointing it at another provider carrying the
+  // same id would move the lane to a different account and drop the extension's own rewriting.
+  await json(join(agent, "models-store.json"), { xai: { models: [{ id: "grok-4.6" }] } });
   await json(join(agent, "models.json"), { providers: { mine: { baseUrl: "https://example.invalid/v1", api: "openai-completions", models: [{ id: "special" }] } } });
   await json(join(agent, "auth.json"), { xai: { type: "api_key", key: "written" }, mine: { type: "api_key", key: "written" } });
   const context = composeRuntimeContext({ owner: "preparation", home }, options({}, { agentHome: agent, nodeExecutable: launcher }));
@@ -165,18 +171,62 @@ test("lane models are re-pointed at a child-visible authenticated provider, neve
     const args = JSON.parse(await readFile(captured, "utf8"));
     return args[args.indexOf("--model") + 1];
   };
-  assert.equal(await launch("grok-build/grok-4.6"), "xai/grok-4.6");
-  assert.equal(await launch("elsewhere/special"), "mine/special");
-  assert.equal(await launch("xai/grok-4.6"), "xai/grok-4.6");
-  assert.equal(await launch("grok-build/unlisted-anywhere"), "grok-build/unlisted-anywhere");
+  for (const model of ["grok-build/grok-4.6", "deepseek-extended/deepseek-flash", "xai/grok-4.6", "mine/special"]) {
+    assert.equal(await launch(model), model);
+  }
+  // The child mounts every provider extension by the same list the session launcher reads.
+  const mounted = JSON.parse(await readFile(captured, "utf8"));
+  for (const path of context.entrypoints.providerExtensions) {
+    assert.ok(mounted.includes(path), `the lane child did not mount ${path}`);
+    assert.equal(mounted[mounted.indexOf(path) - 1], "-e");
+  }
+  assert.ok(context.entrypoints.providerExtensions.length >= 2);
+  assert.ok(mounted.includes("--no-extensions"));
+  // A provider no child can resolve is refused by name here, not left to die in the child with no
+  // events and a lane message that never says which part was unavailable.
+  for (const [model, fragment] of [["elsewhere/special", /no provider "elsewhere"/], ["xai/unlisted", /lists no model "unlisted"/]]) {
+    await assert.rejects(
+      runtimeCapabilities.runTask(context, { kind: "reader", request: { cwd: home, brief: "Refused", model } }, active()),
+      error => {
+        assert.equal(error.details?.reason, "lane_model_unavailable");
+        assert.equal(error.details?.model, model);
+        assert.match(error.message, fragment);
+        assert.match(error.message, new RegExp(model.replace("/", "\\/")));
+        return true;
+      });
+  }
   // Neither registry file reads: the lane must not judge, and the string passes through.
   const bare = join(home, "bare agent");
   await mkdir(bare, { recursive: true });
   const bareContext = composeRuntimeContext({ owner: "preparation", home }, options({}, { agentHome: bare, nodeExecutable: launcher }));
-  const bareOutcome = await runtimeCapabilities.runTask(bareContext, { kind: "reader", request: { cwd: home, brief: "Capture the model flag", model: "grok-build/grok-4.6" } }, active());
+  const bareOutcome = await runtimeCapabilities.runTask(bareContext, { kind: "reader", request: { cwd: home, brief: "Capture the model flag", model: "unknowable/model" } }, active());
   assert.equal(bareOutcome.ok, true, JSON.stringify(bareOutcome));
   const bareArgs = JSON.parse(await readFile(captured, "utf8"));
-  assert.equal(bareArgs[bareArgs.indexOf("--model") + 1], "grok-build/grok-4.6");
+  assert.equal(bareArgs[bareArgs.indexOf("--model") + 1], "unknowable/model");
+});
+
+test("every provider extension in the tree is discovered, and registers the id its manifest declares", async t => {
+  // Nothing lists these: the manifest states `auth.provider.id`, discovery reads it, and both mounts
+  // plus the lane refusal follow from that one fact. This holds the code to the manifest, so an id
+  // renamed inside an extension cannot leave it mounted under one name and judged under another.
+  const found = providerExtensionManifests(ROOT);
+  assert.ok(found.length >= 2, `discovery found ${found.length} provider extensions`);
+  assert.deepEqual(found.map(entry => entry.name).sort(), ["deepseek", "grok-build-oauth"]);
+  for (const { name, providers, entry } of found) {
+    const manifest = JSON.parse(await readFile(join(ROOT, "extensions", name, "pipiui-extension.json"), "utf8"));
+    assert.deepEqual([...providers], [manifest.auth.provider.id]);
+    assert.equal(entry, join(ROOT, "build/extensions", name, manifest.agent.extension.replace(/\.js$/, ".mjs")));
+    const registered = [];
+    const pi = new Proxy({
+      registerProvider: (id) => { registered.push(id); },
+      registerTool: () => {}, registerCommand: () => {}, on: () => {}, emit: () => {},
+      getThinkingLevel: () => "low", settings: { get: () => undefined, set: () => {} },
+    }, { get: (target, key) => key in target ? target[key] : () => {} });
+    (await import(join(ROOT, "extensions", name, manifest.agent.extension))).default(pi);
+    assert.deepEqual(registered, [...providers], `${name} registers ${JSON.stringify(registered)}`);
+  }
+  // An extension with no provider (image-gen registers tools) must not be mounted into lanes.
+  assert.equal(found.some(entry => entry.name === "image-gen"), false);
 });
 
 test("source and Mod checks invoke shared read-only validators and preserve rejected drafts", async t => {

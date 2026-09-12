@@ -243,3 +243,25 @@ test('a handed-over handout is asked as one document, with the heading the kerne
  assert.deepEqual(await prepareHandoutPresentation({home,campaign:'c1',play_language:'zh-Hans',runner}),saved);
  assert.equal(asked,null);
 });
+
+test("a failed card round names what the child said, not only that the card failed",async()=>{
+ // The run that dies on an unresolvable model writes no events at all; its one actionable line is
+ // the child's own, and the player used to be shown the lane's generic sentence instead.
+ const home=await mkdtemp(join(tmpdir(),'card-cause-')),dir=join(home,'.coc/campaigns/c1/setup/drafts');await mkdir(dir,{recursive:true});
+ await writeFile(join(dir,'1.json'),JSON.stringify({play_language:'zh-Hans',sheet}));
+ const options={home,campaign:'c1',revision:1,play_language:'zh-Hans'};
+ await assert.rejects(prepareCharacterPresentation({...options,
+  runner:async()=>({ok:false,code:1,timedOut:false,stderr:'Error: Model "deepseek-extended/deepseek-flash" not found. Use --list-models to see available models.\n'})}),
+  error=>{
+   assert.match(error.message,/Card presentation could not be prepared/);
+   assert.match(error.message,/deepseek-extended\/deepseek-flash/);
+   assert.match(error.message,/not found/);
+   return true;
+  });
+ await assert.rejects(prepareCharacterPresentation({...options,
+  runner:async()=>({ok:false,code:null,timedOut:true,stderr:''})}),/timed out/);
+ // With nothing to add, the lane's own sentence stands alone rather than trailing an empty clause.
+ await assert.rejects(prepareCharacterPresentation({...options,
+  runner:async()=>({ok:false,code:null,timedOut:false,stderr:''})}),
+  error=>{assert.equal(/\(/.test(error.message),false);return true;});
+});

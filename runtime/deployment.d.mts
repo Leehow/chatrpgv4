@@ -5,7 +5,23 @@ export interface RuntimeEntrypoints {
   readonly onboardingWorker: string; readonly rpc: string; readonly agent: string; readonly readerContext: string;
   readonly readerPdf: string; readonly readerSubmit: string; readonly deepseek: string; readonly imageGen: string; readonly grokBuild: string;
   readonly characterGuidance: string; readonly characterPresentation: string; readonly documentPresentation: string;
-  readonly extensions: readonly string[]; readonly hostAssets: string; readonly pi: string;
+  readonly uiPresentation: string;
+  readonly extensions: readonly string[];
+  /** The provider-registering extensions, mounted by the session launcher and by every lane child. */
+  readonly providerExtensions: readonly string[];
+  /** The provider ids those extensions declare, which a lane child therefore resolves. */
+  readonly providerExtensionIds: readonly string[];
+  readonly hostAssets: string; readonly pi: string;
+}
+export interface ProviderExtension {
+  /** The extension directory name under `extensions/`. */
+  readonly name: string;
+  /** Absolute path to its emitted agent extension. */
+  readonly entry: string;
+  /** Its agent extension source and emitted locations, relative to the tree root. */
+  readonly source: string;
+  readonly built: string;
+  readonly providers: readonly string[];
 }
 export interface RuntimeDeployment {
   readonly layout: 'compiled'; readonly backend: 'typescript'; readonly resourceRoot: string;
@@ -13,6 +29,8 @@ export interface RuntimeDeployment {
   readonly entrypoints: RuntimeEntrypoints;
 }
 export const COMPILED_ENTRIES: Readonly<Record<string, string>>;
+export function agentExtensionManifests(root: string): readonly ProviderExtension[];
+export function providerExtensionManifests(root: string): readonly ProviderExtension[];
 export const HOST_MOUNTS: Readonly<Record<string, string>>;
 export function resourcePath(root: string, value: string, kind?: 'file' | 'directory' | 'executable'): string;
 export function assertWritableLocation(root: string, path: string): string;

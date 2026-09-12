@@ -22,7 +22,8 @@ export function keeperArguments(args, repo, mode = 'play', entrypoints = runtime
   }
   const mounts = [
     join(entrypoints.hostAssets, 'kernel', 'pipiui-ext-invoke.mjs'),
-    ...entrypoints.extensions, entrypoints.agent, entrypoints.deepseek, entrypoints.imageGen, entrypoints.grokBuild,
+    // Provider extensions come from the one list a lane child mounts too; image-gen registers tools.
+    ...entrypoints.extensions, entrypoints.agent, ...entrypoints.providerExtensions, entrypoints.imageGen,
   ];
   return [...(mode === 'setup' ? ['setup'] : []), ...forwarded,
     '--no-extensions', '--no-skills', '--no-prompt-templates', '--no-themes',

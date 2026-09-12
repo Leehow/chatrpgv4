@@ -11,6 +11,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
+import { agentExtensionManifests, providerExtensionManifests } from "../../runtime/deployment.mjs";
 import { FAKE_KERNEL, openTable } from "./harness.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -77,6 +78,12 @@ function fakeRepo() {
 	mkdirSync(join(root, "content"));
 	mkdirSync(join(root, "build/runtime"), {recursive: true});
 	copyFileSync(join(REPO, "build/runtime/launch.mjs"), join(root, "build/runtime/launch.mjs"));
+	// The provider extensions are discovered from the manifests in the tree, so the fake tree carries
+	// the real ones: a repo whose manifests went missing must show up here as a missing mount.
+	for (const entry of agentExtensionManifests(REPO)) {
+		mkdirSync(join(root, "extensions", entry.name), { recursive: true });
+		copyFileSync(join(REPO, "extensions", entry.name, "pipiui-extension.json"), join(root, "extensions", entry.name, "pipiui-extension.json"));
+	}
 	mkdirSync(join(root, "node_modules", ".bin"), { recursive: true });
 	copyFileSync(join(REPO, "bin", "pi-coc"), join(root, "bin", "pi-coc"));
 	chmodSync(join(root, "bin", "pi-coc"), 0o755);
@@ -104,11 +111,18 @@ function runLauncher(root, args, extraEnv = {}) {
 		value: (key) => lines.find((line) => line.startsWith(`${key}=`))?.slice(key.length + 1),
 	};
 }
+/**
+ * The provider extensions come first as one group, because the session and every lane child mount
+ * that same group from one list. Mount order carries no meaning of its own here: the only ordering
+ * question Pi ever had was duplicate tool names, and PI_GROK_BUILD_IMAGE_TOOLS=0 settles that below.
+ */
 function defaultMounts(root) {
+	const providers = providerExtensionManifests(root);
+	assert.deepEqual(providers.map(entry => entry.name), ['deepseek', 'grok-build-oauth'],
+		'the fake tree must carry the same provider manifests the repo does');
 	return ['--no-extensions', ...['kernel', 'mods', 'onboarding', 'module', 'memory', 'table'].flatMap(name => ['-e', join(root, 'build/extensions', name, 'index.mjs')]),
-		'-e', join(root, 'build/extensions/deepseek/agent/index.mjs'),
-		'-e', join(root, 'build/extensions/image-gen/agent/index.mjs'),
-		'-e', join(root, 'build/extensions/grok-build-oauth/agent/index.mjs')];
+		...providers.flatMap(entry => ['-e', entry.entry]),
+		'-e', join(root, 'build/extensions/image-gen/agent/index.mjs')];
 }
 
 test("bin/pi-coc：写 settings.json、导出战役、拼出 pi 的命令行", (t) => {

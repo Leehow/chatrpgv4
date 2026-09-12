@@ -46,8 +46,12 @@ export function piLaunch(input: string[], options: RuntimeHostOptions = {}) {
   }
   const hostSession = forwarded.some(arg => arg === '--session' || arg.startsWith('--session='));
   const session = campaign && !hostSession ? ['--session-id', `coc-${mode === 'setup' ? 'setup-' : ''}${campaign}`] : [];
+  // Provider extensions come from the shared list every lane child mounts too, so a model this
+  // session can be switched to is a model a lane can still run. image-gen registers tools, not a
+  // provider, and stays a session mount.
   const mounts = !forwarded.includes('--no-extensions')
-    ? ['--no-extensions', ...[...context.entrypoints.extensions, context.entrypoints.deepseek, context.entrypoints.imageGen, context.entrypoints.grokBuild].flatMap(path => ['-e', path])] : [];
+    ? ['--no-extensions', ...[...context.entrypoints.extensions, ...context.entrypoints.providerExtensions,
+      context.entrypoints.imageGen].flatMap(path => ['-e', path])] : [];
   return {command: context.nodeExecutable,
     args: [context.entrypoints.pi, '--no-builtin-tools', '--no-context-files', '--system-prompt', prompt, ...session, ...mounts, ...forwarded],
     // image-gen owns image_gen/image_edit; Pi refuses duplicate tool names, so grok-build-oauth is told not to register its own.

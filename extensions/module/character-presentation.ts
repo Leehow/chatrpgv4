@@ -5,6 +5,7 @@ import {dirname,join} from 'node:path';
 import {resourceRootFrom,runtimeEntryUrl} from '../../runtime/deployment.mjs';
 import {PLAY_LANGUAGE_TAG} from '../../runtime/ui-words.ts';
 import {coded} from '../ui/errors.ts';
+import {reasoned,readerFailureReason} from './reader.ts';
 import type {ReaderRequest,ReaderOutcome} from './reader.ts';
 const root=resourceRootFrom(import.meta.url);
 export const CARD_TEXT = ['Character draft','Character draft — reply to confirm or describe changes.',
@@ -351,7 +352,8 @@ async function prepareTexts(options:TextOptions,texts:string[]):Promise<{texts:R
       brief:'Read texts.json and write the player-facing text projection to presentation.json. Its "texts" object answers exactly the strings texts.json lists, which are the ones not already projected: words it does not list are already settled and must not be added. The file must contain exactly one JSON object, without Markdown or trailing text. Run node check.mjs and correct any error before finishing.'
         +(missing.length?'':' This request lists no texts: write "texts": {} and only the financial equipment subset.')
         +(round>1?' Read findings.json and supply exactly the entries it still names; the words already accepted are not asked again.':'')});
-    if(!outcome.ok||options.signal?.aborted)throw coded(options.signal?.aborted?'presentation_timeout':'preparation_failed','Card presentation could not be prepared');
+    if(!outcome.ok||options.signal?.aborted)throw coded(options.signal?.aborted?'presentation_timeout':'preparation_failed',
+      reasoned('Card presentation could not be prepared',options.signal?.aborted?undefined:readerFailureReason(outcome)));
     const bytes=await readFile(join(attempt,'presentation.json'),'utf8');
     await writeFile(join(attempt,`presentation-round-${round}.json`),bytes);
     let value:unknown;
