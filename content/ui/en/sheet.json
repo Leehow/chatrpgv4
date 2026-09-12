@@ -49,6 +49,7 @@
   "portraitBusy": "Developing the photograph…",
   "portraitFailed": "The photograph could not be developed.",
   "portraitGenerate": "Develop the investigator's photograph",
+  "portraitHint": "Add an image model in Settings, then click to develop the photograph.",
   "portraitNoDescription": "There is no appearance to develop a photograph from.",
   "quantity": "x{n}",
   "refresh": "Refresh",

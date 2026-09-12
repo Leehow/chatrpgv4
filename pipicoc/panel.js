@@ -57,6 +57,9 @@ const CSS = `
 .coc-sheet-portrait-live:disabled{cursor:wait}
 .coc-sheet-portrait-note{position:absolute;left:6%;right:6%;bottom:8%;padding:2px 4px;background:#eee2ceee;
   color:var(--passport-muted);font:500 11px/1.5 var(--coc-serif);text-align:center}
+/* An undeveloped mount explains itself: what is missing, and that a click develops it. */
+.coc-sheet-portrait-hint{position:absolute;left:9%;right:9%;top:44%;transform:translateY(-50%);
+  color:var(--passport-muted);font:500 12px/1.8 var(--coc-serif);text-align:center}
 .coc-sheet-record{min-width:0}
 .coc-sheet-name{margin:0;min-width:0;color:var(--passport-ink);font:600 clamp(24px,7cqi,36px)/1.35 var(--coc-serif);
   letter-spacing:-.025em;overflow-wrap:anywhere}
@@ -823,21 +826,22 @@ export function createComponent(React) {
 
   /**
    * The people the investigators have met, as the table's NPC journal projects them (§17.10's
-   * `npcs.journal`). Every name, description and exchange arrives already in the play language --
-   * the journal lane writes them there -- so nothing here passes through the glossary. Turn
-   * numbers are machine context and stay off the page; a scene's display name is player-facing
-   * already and may sit beside the exchange it framed. A dead mark rests next to the name when
-   * the ledger says the ledger closed on them.
+   * `npcs.journal`). The description and the exchange summary are the journal lane's own prose,
+   * written in the play language, and are drawn as they arrive. The name and the scene stamped on
+   * an exchange are not: the lane must copy a recordable name exactly and the kernel stamps the
+   * scene's display name at the turn it happened, so both are the module graph's words and both go
+   * through the glossary, where the journal lane has projected them. Turn numbers are machine
+   * context and stay off the page. A dead mark rests next to the name when the ledger closed.
    */
   function Npcs(props) {
-    const { view, t } = props;
+    const { view, t, term = value => value } = props;
     const npcs = isRecord(view.npcs) ? view.npcs : {};
     const journal = Array.isArray(npcs.journal) ? npcs.journal.filter(isRecord) : [];
     if (!journal.length) {
       return h(Section, { title: t("npcs"), icon: "body", anchor: "npcs" }, h("p", { className: "coc-sheet-note" }, t("noNpcs")));
     }
     return h(Section, { title: t("npcs"), icon: "body", anchor: "npcs" }, journal.map((npc, index) => {
-      const name = text(npc.name);
+      const name = term(text(npc.name));
       const dead = npc.dead_since_turn !== null && npc.dead_since_turn !== undefined;
       const exchanges = Array.isArray(npc.exchanges) ? npc.exchanges.filter(isRecord) : [];
       return h("details", { className: "coc-clue coc-clue-fold coc-npc", key: `${name}:${index}`, ...(dead ? { "data-dead": "1" } : {}) },
@@ -848,7 +852,7 @@ export function createComponent(React) {
           text(npc.description) ? h("p", { className: "coc-npc-description" }, text(npc.description)) : null,
           exchanges.map((exchange, line) =>
             h("div", { className: "coc-npc-exchange", key: line },
-              text(exchange.scene) ? h("span", { className: "coc-npc-exchange-scene" }, text(exchange.scene)) : null,
+              text(exchange.scene) ? h("span", { className: "coc-npc-exchange-scene" }, term(text(exchange.scene))) : null,
               text(exchange.summary)))));
     }));
   }
@@ -1056,7 +1060,8 @@ export function createComponent(React) {
                 "aria-label":t("portraitGenerate"), disabled:portraitBusy,
                 onClick:()=>{void generatePortrait();}},
                 portraitBusy || portraitNote ? h("span", {className:"coc-sheet-portrait-note"},
-                  portraitBusy ? t("portraitBusy") : portraitNote) : null)
+                  portraitBusy ? t("portraitBusy") : portraitNote)
+                  : h("span", {className:"coc-sheet-portrait-hint"}, t("portraitHint")))
             : h("div", {className:"coc-sheet-portrait", "aria-hidden":true}),
           h("div", {className:"coc-sheet-record"},
             h("h2", {className:"coc-sheet-name", dir:"auto"}, sheet ? text(sheet.name) || text(sheet.id) : t("noInvestigator")),
@@ -1098,6 +1103,6 @@ export function createComponent(React) {
       sheet ? h(Background, { sheet, term, t }) : null,
 
       h(Clues, { view, t, term }),
-      h(Npcs, { view, t }));
+      h(Npcs, { view, t, term }));
   };
 }
