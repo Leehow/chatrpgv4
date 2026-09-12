@@ -8651,8 +8651,8 @@ export class PiHostBackend implements HostBackend {
   }
   /**
    * The extension's creation-difficulty setting (contract §33.1), app scope of the settings
-   * JSON. The product default when nothing was ever stored is `normal` x2; the kernel's own
-   * absent semantic (rulebook x1) survives only on the CLI setup path, which passes nothing.
+   * JSON. The product default when nothing was ever stored is `normal`; the kernel's own
+   * absent semantic (the rulebook standard) survives only on the CLI setup path, which passes nothing.
    */
   private async cocDifficultySetting(): Promise<Record<string, unknown> | undefined> {
     const values = readAppExtensionSettingsValues(await this.readSettings(), "coc-keeper", new Set());

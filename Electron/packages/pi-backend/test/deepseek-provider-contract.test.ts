@@ -20,11 +20,11 @@ import { parseExtensionAuthContribution } from "../src/extension-provider-contra
  */
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..");
 const PACKAGE_DIR = join(REPO, "extensions", "deepseek");
-const MODEL_IDS = [
-  "deepseek-v4-flash-vision-exp",
-  "deepseek-v4-flash",
-  "deepseek-v4.1-flash-expires-on-0910",
-];
+const MODEL_IDS = ["deepseek-flash", "deepseek-v4-pro"];
+// The catalog is discovered at runtime and cached beside the install root, so
+// pin the cache at a path that cannot exist: this test is about the floor the
+// package ships with, never about what a developer's machine has refreshed.
+process.env.PIPIUI_DEEPSEEK_CATALOG_CACHE = join(PACKAGE_DIR, "no-such-catalog-cache.json");
 
 describe("DeepSeek Extended package through the app provider machinery", () => {
   it("passes the provider contract validator and declares itself enabled", () => {
