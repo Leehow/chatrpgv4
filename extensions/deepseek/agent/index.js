@@ -1,4 +1,4 @@
-import { mergeHostedWebSearchTool, rewriteDeepSeekPayloadAsync } from "./client.js";
+import { applyThinkingCap, mergeHostedWebSearchTool, rewriteDeepSeekPayloadAsync } from "./client.js";
 import { refreshDeepSeekCatalog } from "./catalog-runtime.js";
 import { modelSupportsHostedWebSearch } from "./models.js";
 import { createDeepSeekProvider, DEEPSEEK_PROVIDER_ID } from "./provider.js";
@@ -30,6 +30,9 @@ export default function (pi) {
         // supported models get the official Responses built-in `{type:"web_search"}`
         // (never a local function tool); unsupported models are left untouched.
         const payload = mergeHostedWebSearchTool(event.payload, modelSupportsHostedWebSearch(ctx.model?.id, activeCatalog));
-        return rewriteDeepSeekPayloadAsync(payload);
+        // Thinking-length governor: caps chain-of-thought at ~150 words unless
+        // the caller explicitly asked for none/high/max (measured: effort "low"
+        // alone does not shorten DeepSeek's thinking).
+        return rewriteDeepSeekPayloadAsync(applyThinkingCap(payload));
     });
 }

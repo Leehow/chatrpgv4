@@ -13,10 +13,12 @@ import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import {
+	applyThinkingCap,
 	buildResponsesBody,
 	DEEPSEEK_WEB_SEARCH_BUILTIN,
 	mergeHostedWebSearchTool,
 	responsesUrl,
+	THINKING_CAP_DIRECTIVE,
 } from "../../extensions/deepseek/agent/client.js";
 import { resolveDeepSeekApiKey } from "../../extensions/deepseek/agent/conversation.js";
 import agent from "../../extensions/deepseek/agent/index.js";
@@ -228,13 +230,54 @@ test("before_provider_request 只改写 deepseek-extended 的请求", async () =
 	assert.equal(rewritten.tools.filter((tool) => tool.type === "web_search").length, 1);
 	assert.ok(rewritten.tools.some((tool) => tool.type === "custom" && tool.name === "web_search"));
 
-	// 目录外的模型：不注入、也不删。
+	// 目录外的模型：web_search 不注入、也不删；思考帽是 provider 级策略，照样戴上。
 	const unknown = await hook.handler(
 		{ type: "before_provider_request", payload },
 		{ model: { provider: "deepseek-extended", id: "unknown-future-model" } },
 	);
-	assert.deepEqual(unknown, payload);
+	assert.deepEqual(unknown.tools, payload.tools);
 	assert.ok(!unknown.tools.some((tool) => tool.type === "web_search"));
+	assert.equal(unknown.input[0].role, "developer");
+	assert.ok(JSON.stringify(unknown.input[0]).includes("internal reasoning must stay under"));
+});
+
+test("思考帽：默认与 low 注入 150 词硬顶，none/high/max 原样放行", () => {
+	// 默认（无 reasoning 字段）：戴上。
+	const plain = applyThinkingCap({ model: "deepseek-v4-flash", input: [{ role: "user", content: "hi" }] });
+	assert.equal(plain.input[0].role, "developer");
+	assert.equal(plain.input[0].content[0].text, THINKING_CAP_DIRECTIVE);
+	assert.deepEqual(plain.input[1], { role: "user", content: "hi" });
+	// 字符串 input：转成 developer + user 两条。
+	const fromString = applyThinkingCap({ input: "hi" });
+	assert.equal(fromString.input[0].role, "developer");
+	assert.deepEqual(fromString.input[1], { role: "user", content: [{ type: "input_text", text: "hi" }] });
+	// low：戴上（实测 low 本身不限长，帽子才是）。
+	const low = applyThinkingCap({ input: [], reasoning: { effort: "low" } });
+	assert.equal(low.input[0].role, "developer");
+	// none/high/max：显式选择，原样放行。
+	for (const effort of ["none", "high", "max"]) {
+		const body = { input: [{ role: "user", content: "hi" }], reasoning: { effort } };
+		assert.equal(applyThinkingCap(body), body, effort);
+	}
+	// 幂等：已戴帽的 payload 不再加第二顶。
+	const twice = applyThinkingCap(plain);
+	assert.equal(twice, plain);
+});
+
+test("思考帽随钩子落到 deepseek-extended 请求，none 时不落", async () => {
+	const { hook } = mount();
+	const model = { provider: "deepseek-extended", id: "deepseek-v4-flash" };
+	const capped = await hook.handler(
+		{ type: "before_provider_request", payload: { model: "deepseek-v4-flash", input: [{ role: "user", content: "hi" }], reasoning: { effort: "low" } } },
+		{ model },
+	);
+	assert.equal(capped.input[0].role, "developer");
+	assert.equal(capped.input[0].content[0].text, THINKING_CAP_DIRECTIVE);
+	const uncapped = await hook.handler(
+		{ type: "before_provider_request", payload: { model: "deepseek-v4-flash", input: [{ role: "user", content: "hi" }], reasoning: { effort: "none" } } },
+		{ model },
+	);
+	assert.equal(uncapped.input[0].role, "user");
 });
 
 test("凭据链：设置兜底优先，缺 key 时是英文的可行动错误", () => {
