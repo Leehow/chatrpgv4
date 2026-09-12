@@ -28,3 +28,7 @@ build/
 # tsc emit next to the TypeScript pi loads directly; the .ts is the source.
 extensions/kernel/client.js
 extensions/kernel/client.d.ts
+
+# Regenerable: extension catalog cache and the file-viewer vite-plugin build output.
+/ext-cache/
+Electron/apps/electron/src/renderer/public/file-viewer/
