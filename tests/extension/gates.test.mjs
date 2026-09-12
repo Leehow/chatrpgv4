@@ -144,6 +144,46 @@ test("同名同参连发：被内核拒过两次之后第三次拦下，改了�
 
 
 /**
+ * A strike is an attempt, not a call (contract §34.12).
+ *
+ * Masks, Bar Cordano, 2026-09-12: the Keeper asked for three first impressions -- Larkin, Mendoza,
+ * Elias -- in one message, and all three were refused because people on an imported book are staged
+ * in the turn they are met. The three answers came back before the model had read any of them, so
+ * the third one shut `resolve` for the turn; the Keeper staged all three correctly one call later
+ * and could no longer roll. Three NPCs, no mechanics. One message is one attempt, whoever it names.
+ */
+test("一条消息里的三次同类拒绝只算一次：模型没看见回答之前不算它撞墙", async (t) => {
+	const impression = (target) => fauxToolCall("resolve", { action: { intent: "social", goal: "初见印象", method: "打招呼、握手", target, decision: "natural-npc:first-impression" } });
+	const table = await openTable({
+		env: {
+			FAKE_KERNEL_ERRORS: JSON.stringify({
+				"table.resolve": { code: "not_here", message: "Larkin is not in Bar Cordano", details: { field: "target" } },
+			}),
+		},
+		responses: [
+			fauxAssistantMessage([impression("Augustus Larkin"), impression("Luis de Mendoza"), impression("Jackson Elias")], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "npc", name: "Augustus Larkin", to: "here", why: "他起身迎过来" }] })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([impression("Augustus Larkin")], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("narrate", { text: "拉金绕过桌角。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage("收尾"),
+		],
+	});
+	t.after(() => table.dispose());
+
+	await table.session.prompt("我们走进 Bar Cordano");
+	await waitForIdle(table.session);
+
+	// The batch is one strike, so the fourth resolve -- the one after the person was staged -- still
+	// reaches the kernel. Under the old accounting it was blocked and the impression was unrollable.
+	const sent = table.kernelRequests().filter((entry) => entry.method === "table.resolve");
+	assert.equal(sent.length, 4, "批量三次加上补救那次，四次都到了内核");
+	const results = toolResults(table.session, "resolve");
+	assert.equal(results.length, 4);
+	for (const index of [0, 1, 2, 3]) assert.doesNotMatch(resultText(results[index]), /refused 3 times this turn/, `第 ${index + 1} 次不该被预算拦下`);
+	assert.equal(table.telemetry().filter((row) => row.lane === "refusals" && row.reason === "class_limit").length, 0, "一条消息不该耗尽同类预算");
+});
+
+/**
  * The refusal budget (contract §34.12). Table F, 2026-09-11: twenty-eight refusals of two classes in one
  * turn, every retry reworded so the identical-resend guard above never fired, 300 s gone. The third refusal
  * of one class — tool, code, the field the kernel named — shuts that tool for the rest of the turn; only

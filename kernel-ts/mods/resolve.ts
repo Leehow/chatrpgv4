@@ -9,7 +9,7 @@ import { npcsPresent } from '../read/capsule.js';
 import { SessionView } from '../read/session-view.js';
 import { findNamedObject } from '../read/mods.js';
 import type { ModuleGraph } from '../read/module-graph.js';
-import { array, clone, entries, equal, integer, normalize, row, string, truth, values, type Row } from '../read/values.js';
+import { array, clone, entries, equal, integer, normalize, repr, row, string, truth, values, type Row } from '../read/values.js';
 import type { SettleContext } from '../resolve/context.js';
 import type { CampaignWritePort } from '../transactions.js';
 import { nowIso } from '../write/store.js';
@@ -87,7 +87,17 @@ export async function resolveBeforeMain(kernel: KernelContext, runtime: ModRunti
     if (!found) return null;
     await requireChoiceSettled(kernel, input);
     const [modId, recipe] = found, context = await input.settlement(action.actor), actor = context.actor, target = graph.npc(action.target);
-    if (!npcsPresent(graph, world, graph.scene(world.active_scene)).some(node => node.node_id === target.node_id)) throw new RpcError('not_here', 'The first-impression target must be present');
+    // A refusal the Keeper can act on (§1). Without the `fix` and the list it was one sentence with
+    // no next step and no `details`, so the class facet was the empty string too: three first
+    // impressions for three different people, issued in one message before any of them answered,
+    // collapsed into one refusal class and shut `resolve` for the turn. On an imported module the
+    // people are staged in the very turn they are met, so that was every first contact in the book.
+    const scene = graph.scene(world.active_scene), present = npcsPresent(graph, world, scene);
+    if (!present.some(node => node.node_id === target.node_id))
+        throw new RpcError('not_here', `${graph.displayName(target)} is not in ${graph.displayName(scene)}, so there is no meeting to leave an impression`, {
+            fix: `stage them first with apply {kind: "npc", name: ${repr(graph.displayName(target))}, to: "here", why: "<what puts them in this room>"}, then resolve this impression; or roll against one of details.present`,
+            details: {field: 'target', npc: graph.handle(target), scene: graph.handle(scene), present: present.map(node => graph.displayName(node)).sort()}
+        });
     const pair = checkPair(recipe.name, actor.id, target.node_id), namespaces = world.mods.state;
     if (!Object.hasOwn(namespaces, modId)) namespaces[modId] = {};
     if (!Object.hasOwn(namespaces[modId], 'checks')) namespaces[modId].checks = {};

@@ -7,7 +7,15 @@ from pathlib import Path
 from conftest import CAMPAIGN, WORKTREE, campaign_dir, narrate, open_turn, read_json, read_jsonl
 
 
-def package(tmp_path, *, version="1.3.0", state_version=1, migrations=None):
+#: The version this tree ships, and the one every fixture here upgrades to. Pinned as literals, the
+#: whole file broke the first time `natural-npc` was published again -- which says nothing about
+#: whether a version lock holds, the only thing these cases are about.
+SHIPPED = read_json(WORKTREE / "mods" / "natural-npc" / "mod.json")["version"]
+_major, _minor = (int(part) for part in SHIPPED.split(".")[:2])
+NEXT = f"{_major}.{_minor + 1}.0"
+
+
+def package(tmp_path, *, version=NEXT, state_version=1, migrations=None):
     path = tmp_path / ("package-" + version)
     shutil.copytree(WORKTREE / "mods" / "natural-npc", path)
     manifest = read_json(path / "mod.json")
@@ -25,8 +33,8 @@ def test_install_does_not_upgrade_save_and_missing_migration_retains_old_lock(ke
     kernel.ok("mods.install", {"path":str(root)})
     world_path = campaign_dir(kernel.workspace) / "world.json"
     before = read_json(world_path)["mods"]
-    assert before["active"]["natural-npc"]["version"] == "1.2.0"
-    error = kernel.err("mods.configure", {"campaign":CAMPAIGN, "id":"natural-npc", "version":"1.3.0"})
+    assert before["active"]["natural-npc"]["version"] == SHIPPED
+    error = kernel.err("mods.configure", {"campaign":CAMPAIGN, "id":"natural-npc", "version":NEXT})
     assert error["code"] == "invalid_params"
     assert read_json(world_path)["mods"] == before
 
@@ -37,13 +45,13 @@ def test_explicit_migration_runs_once_and_old_package_stays_available(kernel, tm
     root = package(tmp_path, state_version=2, migrations=[{"from":1,"to":2,
         "operations":[{"op":"default","key":"migration_note","value":"retained"}]}])
     kernel.ok("mods.install", {"path":str(root)})
-    args = {"campaign":CAMPAIGN,"id":"natural-npc","version":"1.3.0"}
+    args = {"campaign":CAMPAIGN,"id":"natural-npc","version":NEXT}
     kernel.ok("mods.configure", args)
     kernel.ok("mods.configure", args)
     world = read_json(campaign_dir(kernel.workspace) / "world.json")
     assert world["mods"]["state"]["natural-npc"]["migration_note"] == "retained"
     assert world["mods"]["active"]["natural-npc"]["state_version"] == 2
-    assert (kernel.workspace / ".coc/mods/packages/natural-npc/1.2.0/mod.json").exists()
+    assert (kernel.workspace / f".coc/mods/packages/natural-npc/{SHIPPED}/mod.json").exists()
 
 
 def test_import_rejects_escaping_archive_and_different_bytes_for_a_version(kernel, tmp_path):
@@ -66,8 +74,8 @@ def test_incompatible_mod_is_listed_but_not_activated(kernel, tmp_path):
     (root / "mod.json").write_text(json.dumps(manifest))
     kernel.ok("mods.install", {"path":str(root)})
     view = kernel.ok("mods.list", {"campaign":CAMPAIGN})
-    assert not next(r for r in view["mods"] if r["id"] == "natural-npc" and r["version"] == "1.3.0")["compatible"]
-    assert kernel.err("mods.configure", {"campaign":CAMPAIGN,"id":"natural-npc","version":"1.3.0"})["code"] == "invalid_params"
+    assert not next(r for r in view["mods"] if r["id"] == "natural-npc" and r["version"] == NEXT)["compatible"]
+    assert kernel.err("mods.configure", {"campaign":CAMPAIGN,"id":"natural-npc","version":NEXT})["code"] == "invalid_params"
 
 
 def test_future_contributions_do_not_break_the_current_catalog(kernel,tmp_path):
@@ -80,7 +88,7 @@ def test_future_contributions_do_not_break_the_current_catalog(kernel,tmp_path):
     (root/"mod.json").write_text(json.dumps(manifest))
     kernel.ok("mods.install",{"path":str(root)})
     view=kernel.ok("mods.list",{"campaign":CAMPAIGN})
-    future=next(r for r in view["mods"] if r["id"]=="natural-npc" and r["version"]=="1.3.0")
+    future=next(r for r in view["mods"] if r["id"]=="natural-npc" and r["version"]==NEXT)
     assert not future["compatible"] and future["settings"]=={}
     assert kernel.ok("mods.context",{"campaign":CAMPAIGN})["active"]
 
@@ -94,7 +102,7 @@ def test_declared_setting_is_editable_and_invalid_option_is_atomic(kernel, tmp_p
     manifest["settings_schema"] = {"tone":{"enum":["balanced","restrained"]}}
     (root / "mod.json").write_text(json.dumps(manifest))
     kernel.ok("mods.install",{"path":str(root)})
-    args = {"campaign":CAMPAIGN,"id":"natural-npc","version":"1.3.0","settings":{"tone":"restrained"}}
+    args = {"campaign":CAMPAIGN,"id":"natural-npc","version":NEXT,"settings":{"tone":"restrained"}}
     kernel.ok("mods.configure",args)
     before = read_json(campaign_dir(kernel.workspace) / "world.json")
     assert before["mods"]["active"]["natural-npc"]["settings"] == {"tone":"restrained"}
@@ -115,19 +123,19 @@ def test_a_version_that_dropped_a_setting_is_reached_with_version_only_and_the_r
     kernel.ok("mods.install", {"path": str(root)})
     world_path = campaign_dir(kernel.workspace) / "world.json"
     before = read_json(world_path)["mods"]
-    assert before["active"]["natural-npc"]["version"] == "1.2.0"
+    assert before["active"]["natural-npc"]["version"] == SHIPPED
     assert before["active"]["natural-npc"]["settings"] == {"language_mixing": "light"}
-    explicit = {"campaign": CAMPAIGN, "id": "natural-npc", "version": "1.3.0", "settings": {"language_mixing": "light"}}
+    explicit = {"campaign": CAMPAIGN, "id": "natural-npc", "version": NEXT, "settings": {"language_mixing": "light"}}
     assert kernel.err("mods.configure", explicit)["code"] == "invalid_params"
     assert read_json(world_path)["mods"] == before
-    kernel.ok("mods.configure", {"campaign": CAMPAIGN, "id": "natural-npc", "version": "1.3.0"})  # the panel's Update shape
+    kernel.ok("mods.configure", {"campaign": CAMPAIGN, "id": "natural-npc", "version": NEXT})  # the panel's Update shape
     lock = read_json(world_path)["mods"]["active"]["natural-npc"]
-    assert lock["version"] == "1.3.0" and lock["settings"] == {}
+    assert lock["version"] == NEXT and lock["settings"] == {}
     rows = [row for row in read_jsonl(campaign_dir(kernel.workspace) / "telemetry.jsonl") if row.get("lane") == "mods"]
     assert [{key: value for key, value in row.items() if key != "at"} for row in rows] == [
-        {"lane": "mods", "event": "settings_retired", "mod": "natural-npc", "from": "1.2.0", "to": "1.3.0", "keys": ["language_mixing"]}]
+        {"lane": "mods", "event": "settings_retired", "mod": "natural-npc", "from": SHIPPED, "to": NEXT, "keys": ["language_mixing"]}]
     capsule_row = next(entry for entry in kernel.table("capsule")["mods"]["instructions"] if entry["mod"] == "natural-npc")
-    assert capsule_row["version"] == "1.3.0" and capsule_row["settings"] == {}
+    assert capsule_row["version"] == NEXT and capsule_row["settings"] == {}
 
 
 def test_a_retiring_upgrade_staged_during_a_busy_turn_lands_at_the_safe_boundary(kernel, tmp_path):
@@ -140,15 +148,15 @@ def test_a_retiring_upgrade_staged_during_a_busy_turn_lands_at_the_safe_boundary
     manifest["settings_schema"] = {}
     (root / "mod.json").write_text(json.dumps(manifest))
     kernel.ok("mods.install", {"path": str(root)})
-    kernel.ok("mods.configure", {"campaign": CAMPAIGN, "id": "natural-npc", "version": "1.3.0"})
+    kernel.ok("mods.configure", {"campaign": CAMPAIGN, "id": "natural-npc", "version": NEXT})
     world_path = campaign_dir(kernel.workspace) / "world.json"
     staged = read_json(world_path)["mods"]
-    assert staged["active"]["natural-npc"]["version"] == "1.2.0"
-    assert staged["pending"]["natural-npc"] == {"id": "natural-npc", "version": "1.3.0", "enabled": True, "settings": {}}
+    assert staged["active"]["natural-npc"]["version"] == SHIPPED
+    assert staged["pending"]["natural-npc"] == {"id": "natural-npc", "version": NEXT, "enabled": True, "settings": {}}
     narrate(kernel, "t1-c1", "我们停下来。")
     kernel.table("player_input", text="继续。")
     lock = read_json(world_path)["mods"]["active"]["natural-npc"]
-    assert lock["version"] == "1.3.0" and lock["settings"] == {}
+    assert lock["version"] == NEXT and lock["settings"] == {}
     assert "natural-npc" not in read_json(world_path)["mods"]["pending"]
     rows = [row for row in read_jsonl(campaign_dir(kernel.workspace) / "telemetry.jsonl") if row.get("lane") == "mods"]
-    assert len(rows) == 1 and rows[0]["keys"] == ["language_mixing"] and rows[0]["to"] == "1.3.0"
+    assert len(rows) == 1 and rows[0]["keys"] == ["language_mixing"] and rows[0]["to"] == NEXT

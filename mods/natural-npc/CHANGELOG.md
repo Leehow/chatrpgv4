@@ -1,5 +1,20 @@
 # Natural NPC
 
+## 1.3.0
+
+The instructions now say the person has to be in the room. An impression is made of a
+meeting, so the kernel has always refused one for anybody not present in the active scene,
+but nothing here said so. On a book the module graph already staged, walking in is enough
+and the omission never showed. On an imported book the people arrive when the Keeper puts
+them there -- in the very turn the party meets them -- so first contact hit that refusal
+every time.
+
+The refusal itself carried no `fix` and no `details`, so three impressions for three people
+in one message read as one wall hit three times and shut `resolve` for the rest of the turn.
+A live table opened Masks in Bar Cordano, met Larkin, Mendoza and Elias, and delivered a
+turn with no mechanics at all: the Keeper staged all three correctly one call later and by
+then could no longer roll.
+
 ## 1.2.0
 
 Requires `graph.vocabulary.table.v1`. No shipped book names anyone's tongue -- The Haunting
