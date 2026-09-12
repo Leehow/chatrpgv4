@@ -1032,7 +1032,7 @@ submit the chosen dispositions without guessing IDs or repeating the failed call
 | kind | 字段 |
 | --- | --- |
 | `roll` | `actor`, `skill`, `roll`, `target`, `threshold`, `difficulty`, `level`, `passed`, `pushed`, `visibility` |
-| `dice` | `actor`, `label`, `expression`, `faces`, `total` |
+| `dice` | `actor`, `label`, `expression`, `faces`, `total`（**`total` 是施加值，不是骰面之和**：极限/critical 成功按最大伤害结算时 `faces` 仍是掷出的点数而 `total` 是实际施加的伤害，玩家卡上的数字必须能解释他掉的血。见下方 2026-09-12 的决定） |
 | `change` | `resource`, `subject`, `before`, `after` |
 | `scene` | `from`, `to`, `minutes`, `via`? |
 | `clue` | `clue`, `label`?, `summary`? |
@@ -1049,6 +1049,23 @@ submit the chosen dispositions without guessing IDs or repeating the failed call
 扩展把它作为会话条目 `coc-mechanics`（`{turn, mechanics}`）追加到 Pi 会话并发到总线 `coc:mechanics`；Pi RPC 事件流因此带着它（`entry_appended`），驾驭器落进 `events.jsonl`；未来的 Electron/web 前端按它渲染骰子卡与变化条。投影为空时不发条目。TUI 只显示守秘人的正文。
 
 **手卡**：Pi 没有出站附件通道（`docs/pi-host-contract.md` §3.3），所以路径不进正文。内核给 `name`/`available`，扩展把 `apply` 结果里的 `attachment` 合进这一行（`path`、`media_type`），前端按它取图；坐在终端前的人由 table 扩展通知一次（`handout <名>: <路径>`，每张卡一次，不进正文）。文本手卡（§14.8 物化的 markdown）额外带 `text`：正文原样（不含物化时加的那行 H1，上限 8000 字符，超出以 … 截断），让前端能把这一行展开成可读的卡片而不需要文件通道；图片手卡没有 `text`。契约里任何「渲染【明骰】【变化】【第 n 轮】【手卡】行」的旧说法一律以本节为准，包括 §5、§11.6、§11.9、§12.5，以及 §11 的会话渲染、§14.8 的手卡、§14 的实现小节、§15 的世界线收据——那些段落描述的行不再存在，对应的信息以 `mechanics` 的一行投影出去。
+
+### Kernel decision: a damage receipt's total is what was applied (2026-09-12)
+
+人格基准第一轮（`docs/player-persona-benchmark-20260911.md` §4.8）在四场不同的对局里量到同一个缺陷：
+extreme 或 critical 成功时 `CombatEngine.extremeDamage` 按最大伤害重算并改写 `damageChain` 的记录，
+但**已经排进 `pendingRolls` 的那条伤害收据不被回头更新**，而 `damageEvidenceRows` 又优先取
+`rolled_total`。于是机制卡印「伤害 1」而 HP 掉 8，收据里没有任何东西能解释这个差；其中两次
+直接打死了调查员。
+
+- **`dice` 行的 `total` 是施加值**（`raw_damage`），`faces` 与 `rolled_total` 仍是掷出的点数。
+  两者不等就是这一次结算做了最大伤害或穿刺加骰，卡上因此**能**解释 HP 的变化。§16.2 的
+  「不许计算」不变：前端照样只印收据carrying的数字，是内核负责把施加值放进去。
+- `combat_damage_external_v1` 的 `total` 同样是施加值；`rolled_total` 与 `die_rolls` 原样保留，
+  骰子仍然可审计。
+- 快照校验（`combat/snapshot.ts`）跟着改：它比对 `dice.total` 与施加值，并继续单独比对
+  `rolled_total` 与骰面重算的结果——两条都在，篡改任一侧都拦得住。
+- 这不改任何**规则**：CoC7 的穿刺武器极限成功打最大伤害，引擎一直是对的，错的只有收据。
 
 ### 16.3 Story text and system JSON (2026-09-07 user correction)
 
@@ -4982,43 +4999,58 @@ implementation decisions land in §33.6.
   carries it. The kernel never reads the host settings file; it only accepts the
   value on `campaign.create`.
 - Shape (closed): `{mode: "preset", preset: "extreme"|"hard"|"normal"|"easy"}` or
-  `{mode: "custom", custom: {...}}`. Preset multipliers: `extreme` ×0.5,
-  `hard` ×1 (the rulebook numbers), `normal` ×2, `easy` ×4. The product default
-  when the setting was never stored is `normal` ×2 (user ruling 2026-09-11):
-  the host injects it, so a fresh install creates normal campaigns out of the
-  box while the kernel's own absent semantic stays the rulebook ×1.
+  `{mode: "custom", custom: {...}}`. A preset is a named bundle of the §33.3
+  knobs (§33.2), never a uniform card multiplier:
+  - `extreme`: occupation points ×0.75, interest points ×0.75, starting skill
+    cap 60; characteristics and LUCK are the rulebook standard.
+  - `hard`: no knobs at all — the rulebook numbers, bit for bit.
+  - `normal`: occupation points ×1.25, interest points ×1.25; everything else
+    standard.
+  - `easy`: occupation points ×1.5, interest points ×1.5, LUCK rolls 2D6+6×5
+    instead of 3D6×5; everything else standard.
+  The product default when the setting was never stored is `normal` (user
+  ruling 2026-09-11): the host injects it, so a fresh install creates normal
+  campaigns out of the box while the kernel's own absent semantic stays the
+  rulebook standard.
+- Decision 2026-09-12: the uniform preset multipliers (×0.5/×1/×2/×4 of
+  2026-09-11) are retired after the solo-COC research
+  (`.pi/findings/solo-coc-research.md`): official solo material plays standard
+  cards with structural cushions and nothing anywhere uniformly multiplies a
+  card, so presets now reach only the budget, cap and luck knobs and every
+  derived value stays ≤99. Preset definitions are product-versioned: a
+  campaign still in creation re-derives under the new bundle on upgrade (its
+  stored snapshot `{mode:"preset", preset}` stays valid), while completed
+  sheets keep their resolved numbers — receipts are never re-derived.
 - `campaign.create` gains an optional `difficulty` field with exactly this shape.
   The kernel validates it (closed enums, closed dice grammar, numeric ranges of
   §33.3; `invalid_params` with `details.field` naming the offender) and stores it
-  verbatim in `campaign.json.difficulty`. Absent means `hard` ×1 — today's
+  verbatim in `campaign.json.difficulty`. Absent means `hard` — today's
   behavior bit for bit, and campaigns created before this section behave
   identically. The snapshot is per-campaign and immutable: editing the extension
   setting later touches only campaigns created afterwards; drafts and receipts
   already written are never re-derived. There is no RPC to mutate it.
 - The Electron app reads `ext.coc-keeper.difficulty` when it creates a campaign
-  and passes it on `campaign.create`, injecting `normal` ×2 when nothing was
+  and passes it on `campaign.create`, injecting `normal` when nothing was
   ever stored. The CLI setup path passes nothing. A
   campaign's difficulty therefore answers the three ends of §31 without any new
   machinery: written by the host at creation, read by chargen on every build,
   acted on through the sheet numbers, the receipt, and the draft `limits` block.
 
-### 33.2 What a preset multiplies
+### 33.2 What a preset changes
 
-- **Characteristics and LUCK only.** Each rolled value is dice×5×m, rounded to
-  the nearest multiple of 5 (ties up) and clamped to the scaled creation bounds
-  round5(15×m)..round5(90×m) (never below 5). The quick_fire array entries scale
-  the same way. Under `rolled_pool_assignment` (§23.4 aptitude) the scaled pool
-  results are permuted exactly as before — assignment still never crosses pools
-  and never changes the multiset.
-- **Budgets are not multiplied.** The occupation-point formula and the INT*2
-  interest formula evaluate on the scaled characteristics, so the budgets follow
-  the multiplier through the existing formulas (EDU×4 on a doubled EDU is a
-  doubled budget). Nothing is scaled twice.
-- The starting skill cap scales: round(75×m).
-- Everything else is unchanged: age adjustments (absolute values per table), the
-  EDU-improvement ceiling of 99, the luck keep-highest counts, credit-rating
-  ranges, cash and asset derivation, `register` purist/pulp, and the dice
-  expressions themselves.
+- **Never characteristics or LUCK values.** Every preset rolls the rulebook
+  dice on the rulebook 15/90 creation bounds; nothing is scaled, rounded or
+  clamped, so a `hard` card is the absent-difficulty card bit for bit and the
+  other presets differ from it only where their knobs reach.
+- `extreme`, `normal` and `easy` multiply the evaluated occupation-point and
+  interest-point budgets (`Math.round`), exactly as the §33.3 budget knobs do;
+  the formulas themselves still evaluate on the unscaled characteristics.
+- `extreme` replaces the starting skill cap with 60.
+- `easy` rolls LUCK as 2D6+6×5 instead of 3D6×5; the keep-highest counts are
+  unchanged.
+- Everything else is unchanged: age adjustments (absolute values per table),
+  the EDU-improvement ceiling of 99, credit-rating ranges, cash and asset
+  derivation, `register` purist/pulp, and the characteristic dice expressions.
 
 ### 33.3 Custom knobs
 
@@ -5041,6 +5073,9 @@ default; an empty `custom` object is valid and equals `hard`):
 - `interest_points`: the same shape for the INT*2 budget.
 - `skill_cap`: an integer replacing 75.
 
+A §33.1 preset is a named bundle of these same knobs (budget multipliers,
+`skill_cap`, LUCK dice), resolved through the same arithmetic.
+
 Dice grammar is closed: `^\d{1,2}D(4|6|8|10|12|20|100)(\+\d{1,2})?$`
 (case-insensitive), N ≥ 1. Ranges: multiplier 0.25–8; fixed budgets 0–2000;
 skill_cap 1–500; characteristic bounds 5–450 in multiples of 5 with min < max;
@@ -5050,7 +5085,10 @@ closed grammar and numeric bounds, never a semantic judgement.
 ### 33.4 Records and determinism
 
 - `sheet.creation.difficulty` records the RESOLVED policy: `{mode, preset?,
-  multiplier?, custom: {<only the knobs actually applied>}}`. The
+  custom: {<only the knobs actually applied>}}`. A preset record is
+  `{mode:"preset", preset, custom:{}}` — the bundle is named by `preset` and
+  product-versioned (§33.1), so no `multiplier` is recorded and a stored
+  `multiplier` is rejected at validation. The
   `investigator:<id>` receipt carries the same block, and the creation trace
   names the scaling beside the rulebook source tables.
 - The draft `limits` block (§23.4) resolves its fallbacks from
@@ -5070,8 +5108,10 @@ closed grammar and numeric bounds, never a semantic judgement.
   the host whitelist (`HOST_SETTINGS_TAB_IDS`) and nav hints admit the id
   (a product whitelist edit in `Electron/packages/ui/src/ui-registries.ts`).
 - The section renders an immersive 1920s control — a radio-dial preset selector
-  with the five stops (极难 50% / 困难 100% / 普通 200% / 简单 400% / 自定义)
-  and a newspaper-styled custom panel for the §33.3 knobs — reads and writes
+  with the five stops (extreme / hard / normal / easy / custom), each preset
+  stop carrying a short descriptor (budgets −25% / rulebook / +25% budgets /
+  +50% budgets · better luck) and a per-preset note line, and a
+  newspaper-styled custom panel for the §33.3 knobs — reads and writes
   `ext.coc-keeper.difficulty` through the host's extension-settings methods,
   and validates dice grammar and ranges client-side for feedback only. The
   kernel re-validates everything; the UI is never the authority.
@@ -5079,32 +5119,33 @@ closed grammar and numeric bounds, never a semantic judgement.
   recipes are untouched), existing campaigns, any Mod packaging of difficulty,
   and CLI-side customization.
 
-### 33.6 The kernel's decisions (implemented, 2026-09-11)
+### 33.6 The kernel's decisions (implemented 2026-09-11; presets re-specified 2026-09-12)
 
 - **One module, one path.** `kernel-ts/setup/difficulty.ts` owns `validateDifficulty`
   (the closed §33.1/§33.3 shape; `invalid_params` with `details.field`),
-  `ResolvedDifficulty` (the snapshot readied for arithmetic), the dice grammar and
-  `round5` (ties up). `campaign.create` validates and stores the snapshot verbatim;
+  `ResolvedDifficulty` (the snapshot readied for arithmetic), the preset knob
+  bundles and the dice grammar. `campaign.create` validates and stores the snapshot verbatim;
   `setup.draft` and legacy `setup.investigator` both pass `meta.difficulty` into
   `Chargen.build` — there is one difficulty path, never two. Absent means no key,
   no record, and a seeded test proves the card is bit-identical to the pre-§33
   numbers; an empty `custom: {}` resolves to the same card.
 - **Records are written only when a snapshot exists.** `sheet.creation.difficulty`
-  and the receipt's `difficulty` block carry the resolved policy; scaling notes in
-  the trace appear only where they change something (a `hard` ×1 snapshot records
+  and the receipt's `difficulty` block carry the resolved policy; knob notes in
+  the trace appear only where they change something (a `hard` snapshot records
   only the §33.4-required record).
 - **Custom knobs never clamp a roll.** Replacement dice bind their own range by
   construction; `characteristic_min/max` govern the creation bounds the override
   validates against and the limits block renders — they do not re-clamp rolled
-  values. Presets clamp per §33.2's explicit text. Pool-replacement bounds are
+  values. Presets never scale or clamp either (§33.2). Pool-replacement bounds are
   enforced per characteristic in `setup.override` (`characteristicBounds`); the
   §23.4 limits block keeps its single min/max shape, since §33.4 mandates only
   fallback resolution.
-- **Budgets follow characteristics for presets, knobs for custom.** A preset
-  multiplies only the rolled values (characteristics and LUCK); the occupation and
-  interest formulas evaluate on the scaled characteristics, so budgets follow with
-  no double-scaling (a test pins the identity). Custom `multiplier`/`fixed` knobs
-  adjust the evaluated budget (`Math.round`), never the characteristics.
+- **Presets are knob bundles, never card multipliers (2026-09-12).** A preset
+  rolls the rulebook dice on the rulebook 15/90 bounds — characteristics and LUCK
+  values are never scaled — and touches only what its bundle names: budget
+  multipliers adjust the evaluated budget (`Math.round`), `skill_cap` replaces
+  75, LUCK dice replace the roll. Custom `multiplier`/`fixed` budget knobs share
+  the same arithmetic, and the resolved record carries no `multiplier`.
 - **Determinism is per seed plus snapshot.** Same seed + same difficulty → same
   card. Age adjustments consume the deterministic stream by value, so a luck
   attempt that is kept at one difficulty can differ at another; the stream order
