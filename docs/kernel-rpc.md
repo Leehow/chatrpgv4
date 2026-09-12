@@ -221,7 +221,7 @@ result：`{"rendered_text": "<即 text，正文原样>"..., "mechanics": [...], 
            "endings": [{"name", "via", "line"?}]（≤ 4；本场景 `may-lead-to` 的 ending 节点。结局不是走过去的地方——`WALKABLE_KINDS` 只有场景，且是有意的——它是一次结算（`development:settle-ending`）。此前没有任何东西告诉守秘人有一个够得着，于是一局玩到头就那么停住：巫师被毁，作者写好的收束从未结算，战役状态还是 `active`）},
  "present": [{"name", "role", "wants", "fears"?, "hides"?, "voice"?, "knows": [...], ...}]（§17.4 起是档案加账本，旧的 relationship/agenda/known_facts/attitude 已删）,
  "known": {"discovered_clues": [names], "clues_here": [{"name", "summary", "delivery_kind", "gate"（§32.5）, "discovered": bool}],
-           "investigator": {"name", "occupation", "hp", "san", "mp", "luck", "skills_of_note": [{"name", "value"}]}},
+           "investigator": {"name", "occupation", "sex", "hp", "san", "mp", "luck", "skills_of_note": [{"name", "value"}]}},
  "recent": [{"turn", "player", "keeper": "<前 200 字>"}]   最近 2 回合
 }
 ```
@@ -856,6 +856,7 @@ build.jsonl                构建遥测：每 section 每轮 {section_id, round,
 - **可玩性检查的现状。** 两张新图与 the-haunting 一起过 K5a 的十条不变量：没有源文档的 starter 每个节点都是 `node_without_page`（the-haunting 也有 32 个），检查器目前没有「本模组无页」的声明口；此外 mystery-house 的 `npc-rat-swarm` 不在任何场景，the-white-war 有三条线索无处可得——都是 IR 事实，测试把它们钉住，改了 IR 会立刻看见。
 - **`apply item` / `apply cash`（#19，已实现）。** 两种效果都在批内的暂存表副本上算，整批校验通过后才写；写回只覆盖 `equipment`/`weapons`/`finance`/`cash` 四个字段（同批的 `damage` 直接把 HP 镜像到表上，不能被暂存副本盖掉）。`item`：`to` 缺省为唯一调查员（多人报 `needs_choice`）；`from` 先按图上 NPC 精确名解析、再按 12.4 的整词规则（`Knott` → Steven Knott），解析不到原样保留（来源是叙事，不是世界写入）；`quantity` 缺省 1、必须非零整数；`weapon` 对合并表解析（`weapons.json` 全表加模组自己的行，与战斗会话读的是同一张——契约写的 `equipment.json` 是 Table XVII 价目表，没有伤害/射程/弹容，profile 一直住在 `weapons.json`），按 id 或 display_name 归一化匹配，取不到报 `needs`（`options` 为该时代可用的 id，`close` 为 difflib 最近的至多 6 个，`source` 指向表）。得到时 `equipment[]` 追加 `{name, quantity, turn, from?, label?, weapon?}`（同名字典条目合并数量），给了 `weapon` 就同时追加 `weapons[]` 一行（pregen 同形：`weapon_id, name, label?, profile, skill, damage, range, attacks, ammo, malfunction, turn`，数值全出自 profile）；`resolve_investigator_weapon` 从此也认 `label`。失去时按 `name`/`label`/`weapon_id` 归一化匹配，持有数 = 装备条目数量之和（裸字符串算 1），没有装备条目时数武器行（pregen 的手枪只有武器行）；持有不足报 `invalid_params`（`details.held`）；清零后同名武器行一并删除。收据 `item:<slugify(name)>-t<turn>-c<n>`（同批重复加 `-2`…），带 `before/after` 持有数；渲染 `【变化】物品：<人> 得到/失去 <label 或名>[ ×n]`；facts 句 `物品：<人> 得到 <名>`；事件 `item-transferred {name, to, from?, weapon?, quantity}`。`cash`：`subject` 缺省同上；`delta` 非零整数；表上没有 `finance` 块（pregen 的 `cash` 是散文，不解析）就按 `cash-assets.json` 的时代与信用评级建一个（chargen 同形，`source: cash-assets.periods.<era>`）；时代没有档（`ww1`）从 0 起、`source: null` 并在 `note` 写明余额是现金收据之和；余额不能为负（`invalid_params`，`details.before/delta`）；同时更新 `sheet.cash` 显示串。收据 `cash:t<turn>-c<n>`，`resource: cash`、`label: 现金`、`before/after/delta/currency`；渲染 `【变化】现金：<人> <前> → <后>`；facts 用 `delta` 句式；事件 `resource-changed`（`resource: cash`）。事件类型表加 `item-transferred`（十五类）。
 - **职业点分配策略（#21，已实现）。** `steps.json` 的 `create-investigator.allocation = {default: spread, options: [spread, fill], tiers: [50, 70]}`，`params.allocation` 可选覆盖；不认识的策略报 `invalid_params`（`details.stage: allocation`，`expected.options/default`）。`spread` 把职业技能表**每一项**当一个槽位，按书上顺序、按层（`tiers`，再到上限）走：能落到目录名的技能抬到该层；落不到的短语（`any one other skill`、`Firearms` 这类组名）**预留该层的值**——基础值未知，少于此不保证到层——记在 `occupation.reserved[{for, points}]`，仍算 `unspent`，留给桌上的 development 族；预算耗尽即停。`fill` 保留旧的一点轮转（只在能落到目录名的技能上，不预留）。`sheet.creation.allocation = {policy, tiers, source}`，`occupation.allocation` 与收据 `allocation` 给策略名，收据另给 `occupation_reserved`。真桌案例（Military Officer，快速数组，300 点）：`fill` 给 75/75/75/75 余 35；`spread` 给 50/50/50/50，预留 Firearms 50、两项交涉技能 50、任一其他 35——「四项到 75」与「其余为零」是同一个原因：三个短语从未参与分配，光换层不换槽位仍是 75×4。兴趣点仍按旧法轮转（本票未动）。
+- **建卡 sex 必填并投影给守秘人（2026-09-12）。** 真桌缺陷：对话式建卡的 `profile.sex` 只是可选字段、守秘人胶囊的 `known.investigator` 又不投影它，于是一位女性调查员（苏散）被守秘人按名字猜成了「先生」。决定：`validateProfile` 把 `sex` 升为必填非空自由文本，拒绝的 issue 指明语义——用玩家说过的词或对玩家描述之人的最佳解读、用 play_language 写，玩家在草稿卡上看到后对话纠正；`sex` 是开放文本，不是枚举，代码绝不按名字/词表/正则推断；守秘人胶囊 `investigatorSummary` 投影 `sex`。遗留路径 `setup.investigator` 的 sex 保持可选。
 
 ### 14.13 切分有目标值，预算只是天花板（票 #33，已实现）
 
@@ -2887,7 +2888,12 @@ what to ask, how many turns, when to stop — is a package contribution (§26,
 occupation to a card in one reply. The kernel gates no player turn either way.
 
 **RPC.** All calls include campaign. setup.draft accepts profile, a partial update
-of the current semantic profile: name, occupation, age, sex, concept, occupation_skills
+of the current semantic profile: name, occupation, age, sex (required, free text —
+never an enum, never inferred from the name by code: the setup model drafts it as a
+visible suggestion in the play language, the player's own words or its best reading
+of the person the player described, and the player sees it on the draft card and
+corrects it conversationally before confirm; the kernel refuses a profile whose sex
+is empty with a needs finding naming sex), concept, occupation_skills
 (eight concrete skills, including required catalog skills), interest_skills (concrete
 skills), own_language, backstory (3–6 populated first-six categories plus scenario_bound),
 key_connection (backstory_field and summary), equipment (named ordinary items),

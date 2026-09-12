@@ -57,6 +57,7 @@
   "session": "{kind}",
   "session.round": "{kind} · 第 {round} 轮",
   "sessionKey": "战况",
+  "sexKey": "性别",
   "showAll": "展开全部 {n} 项",
   "showFewer": "收起",
   "skills": "技能（{n}）",

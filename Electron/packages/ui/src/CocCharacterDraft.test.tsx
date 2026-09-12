@@ -148,6 +148,20 @@ it('shows the trade the player named, with the rulebook entry after it',()=>{
 })
 
 /**
+ * Sex is the player's own word for it, written in the play language: it sits on the identity
+ * line as raw text and never goes near the glossary, so a value that collides with a rules term
+ * stays exactly as the player wrote it. A card that never collected one shows no dangling
+ * separator.
+ */
+it('prints sex raw on the identity line, and no dangling separator when the card has none',()=>{
+ render(<CocCharacterDraft data={{revision:1,sheet:{...sheet,sex:'Lawyer'},presentation:{texts:zh}}}/>);
+ expect(screen.getByText('律师 · 28 · Lawyer · 1920年代')).toBeTruthy();
+ cleanup();
+ render(<CocCharacterDraft data={{revision:2,sheet,presentation:{texts:zh}}}/>);
+ expect(screen.getByText('律师 · 28 · 1920年代')).toBeTruthy();
+})
+
+/**
  * A failed projection used to leave the card at a bare retry glyph, the reason nowhere. The lane's
  * own message ("Model grok-build/grok-4.6 not found") is the one thing that tells the player what
  * happened, so the card carries it next to the retry -- trimmed to one capped line, since a stderr

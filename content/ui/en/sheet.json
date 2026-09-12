@@ -57,6 +57,7 @@
   "session": "{kind}",
   "session.round": "{kind} · round {round}",
   "sessionKey": "Bout",
+  "sexKey": "Sex",
   "showAll": "Show all {n}",
   "showFewer": "Show fewer",
   "skills": "Skills ({n})",

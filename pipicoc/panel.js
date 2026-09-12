@@ -978,6 +978,9 @@ export function createComponent(React) {
     if (sheet) {
       if (sheet.occupation) fields.push([t("occupation"), term(text(sheet.occupation))]);
       if (sheet.age !== undefined) fields.push([t("ageKey"), text(sheet.age)]);
+      // Sex is the player's own word for it (an open field, written in the play language), so it
+      // prints raw like the age beside it: never a glossary key, and absent from old cards.
+      if (sheet.sex) fields.push([t("sexKey"), text(sheet.sex)]);
       const tongues = languageRows(sheet);
       if (tongues.length) fields.push([t("language"),
         h("span", {className:"coc-sheet-tongues"}, tongues.map((language,index) =>
