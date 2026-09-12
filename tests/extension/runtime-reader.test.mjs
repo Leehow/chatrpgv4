@@ -381,7 +381,9 @@ test("Mod tasks use the existing owner check and retry the retained draft before
   const payload = { campaign: "owned-campaign", effects: [{ kind: "define", name: "Notebook", category: "item" }] };
   await bridge.prepare("apply", payload);
   assert.deepEqual(operations, ["mods.queued", "mods.job", "mod", "mod-definition", "mod", "mod-definition", "mods.accept"]);
-  assert.match(briefs[0], /coc-read-check --kind mod-definition --draft result.json/);
+  // The host runs that gate itself -- it is the "mod-definition" in operations above -- so the brief no
+  // longer sends the child to a shell for it, and the child is no longer handed one.
+  assert.doesNotMatch(briefs[0], /coc-read-check|bash/);
   assert.doesNotMatch(briefs[0], /PYTHONPATH|\buv\b|\bpython\b/);
   assert.match(briefs[1], /repair required/);
   assert.equal(payload.effects[0]._definition.name, "Notebook");
