@@ -39,16 +39,16 @@ describe('ThemeSettingsPane', () => {
     expect(screen.getByText('品牌 Logo')).toBeTruthy()
   })
 
-  it('主题网格包含 system + 核心 dark/light + 3 套贡献主题共 6 张卡', () => {
+  it('主题网格包含 system + 核心 clay/clay-night + 3 套贡献主题共 6 张卡', () => {
     render(createElement(ThemeSettingsPane))
-    const ids = ['system', 'dark', 'light', 'forest', 'neon', 'paper']
+    const ids = ['system', 'clay', 'clay-night', 'forest', 'neon', 'paper']
     for (const id of ids) {
       expect(screen.getByTestId(`theme-card-${id}`), `缺少卡片 ${id}`).toBeTruthy()
     }
     expect(screen.getAllByTestId(/^theme-card-/)).toHaveLength(ids.length)
   })
 
-  it('主题包未启用（无贡献）时只有 system + dark/light 三张卡', () => {
+  it('主题包未启用（无贡献）时只有 system + clay/clay-night 三张卡', () => {
     act(() => { setContributedThemes([]) })
     render(createElement(ThemeSettingsPane))
     expect(screen.getAllByTestId(/^theme-card-/)).toHaveLength(3)
@@ -66,16 +66,16 @@ describe('ThemeSettingsPane', () => {
   })
 
   it('点击主题卡后，另一个 useShellTheme 消费者（App 壳）实时同步', () => {
-    // jsdom 的 system 解析为 light。
+    // jsdom 的 system 解析为 clay（light）。
     const consumer = renderHook(() => useShellTheme())
     render(createElement(ThemeSettingsPane))
-    expect(consumer.result.current.theme).toBe('light')
+    expect(consumer.result.current.theme).toBe('clay')
     fireEvent.click(screen.getByTestId('theme-card-forest'))
     expect(consumer.result.current.theme).toBe('forest')
     expect(consumer.result.current.selection).toBe('forest')
     fireEvent.click(screen.getByTestId('theme-card-system'))
     expect(consumer.result.current.selection).toBe(SYSTEM_THEME_VALUE)
-    expect(consumer.result.current.theme).toBe('light')
+    expect(consumer.result.current.theme).toBe('clay')
   })
 
   it('预览容器携带 data-scheme：主题卡 / 当前卡 / system 卡两个半分', () => {
@@ -83,8 +83,8 @@ describe('ThemeSettingsPane', () => {
     expect(screen.getByTestId('theme-card-forest').getAttribute('data-scheme')).toBe('dark')
     expect(screen.getByTestId('theme-card-paper').getAttribute('data-scheme')).toBe('light')
     expect(container.querySelector('.tsp-current')!.getAttribute('data-scheme')).toBeTruthy()
-    expect(container.querySelector('.tsp-sys-half[data-theme="dark"]')!.getAttribute('data-scheme')).toBe('dark')
-    expect(container.querySelector('.tsp-sys-half[data-theme="light"]')!.getAttribute('data-scheme')).toBe('light')
+    expect(container.querySelector('.tsp-sys-half[data-theme="clay-night"]')!.getAttribute('data-scheme')).toBe('dark')
+    expect(container.querySelector('.tsp-sys-half[data-theme="clay"]')!.getAttribute('data-scheme')).toBe('light')
   })
 
   it('logo 错误提示可通过 × 关闭', async () => {

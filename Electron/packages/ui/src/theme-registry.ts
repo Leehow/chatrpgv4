@@ -5,8 +5,9 @@
  *
  *  Storage semantics (unchanged): `localStorage[THEME_STORAGE_KEY]` holds either
  *  SYSTEM_THEME_VALUE ('system') or a theme id. Missing or invalid values mean
- *  'system' (= follow prefers-color-scheme, resolved to 'dark'/'light').
- *  `<main data-theme>` only ever receives a resolved concrete id, never 'system'.
+ *  'system' (= follow prefers-color-scheme, resolved to the core theme of that
+ *  scheme). `<main data-theme>` only ever receives a resolved concrete id,
+ *  never 'system'.
  *  When a selected contributed theme disappears (pack disabled/uninstalled),
  *  resolution falls back to the system scheme WITHOUT clearing the stored
  *  selection — re-enabling the pack restores the theme. */
@@ -29,34 +30,36 @@ export interface ThemeDefinition {
 
 export const THEME_STORAGE_KEY = 'pipiui.theme'
 export const SYSTEM_THEME_VALUE = 'system'
-export const DEFAULT_THEME_ID = 'dark'
+export const DEFAULT_THEME_ID = 'clay-night'
 
-/** Core defaults always available, extension or not. Values mirror the
- *  `.pipiui-shell` baseline (dark) and the former `[data-theme="light"]` block
- *  in app.css; theme-css.ts turns these into runtime-generated rules. */
+/** Core defaults always available, extension or not. The PipiCOC palette is
+ *  the product's only built-in pair: Terracotta (light) and Terracotta Night
+ *  (dark); 'system' and the manual toggle resolve between these two. The
+ *  `.pipiui-shell` baseline in app.css mirrors the night tokens as the no-JS
+ *  safety net; theme-css.ts turns these into runtime-generated rules. */
 export const CORE_THEMES: readonly ThemeDefinition[] = [
   {
-    id: 'dark',
-    name: '暗夜',
-    description: '默认深色主题，柔和深灰底色配靛蓝点缀。',
-    scheme: 'dark',
+    id: 'clay',
+    name: 'Terracotta',
+    description: 'Warm clay on unbleached paper: the daylight half of the PipiCOC palette, accented with the terracotta of its icon.',
+    scheme: 'light',
     tokens: {
-      '--bg': '#17181c', '--surface': '#202126', '--surface-raised': '#25262c', '--surface-hover': '#2c2d34',
-      '--surface-input': '#2a2b31', '--border': '#303137', '--border-strong': '#373941', '--text': '#e5e7eb',
-      '--text-strong': '#f3f4f6', '--muted': '#9da2ad', '--subtle': '#747a86', '--selection': '#353750',
-      '--accent': '#6578ea', '--accent-soft': '#33354c', '--danger': '#a75b63', '--warning': '#f5c76e', '--success': '#76c59b',
+      '--bg': '#f2ebe4', '--surface': '#eae1d8', '--surface-raised': '#fbf7f3', '--surface-hover': '#e2d6ca',
+      '--surface-input': '#fbf7f3', '--border': '#ddcfc2', '--border-strong': '#cbb9a8', '--text': '#221c19',
+      '--text-strong': '#1b1614', '--muted': '#6b5f56', '--subtle': '#8a7d72', '--selection': '#ebd5c4',
+      '--accent': '#a04b28', '--accent-soft': '#f3dfd1', '--danger': '#a03f46', '--warning': '#815b13', '--success': '#35704d',
     },
   },
   {
-    id: 'light',
-    name: '明亮',
-    description: '经典浅色主题，清爽干净的日间配色。',
-    scheme: 'light',
+    id: 'clay-night',
+    name: 'Terracotta Night',
+    description: 'The same clay palette after dark: fired-earth browns under lamplight, for a table that runs late.',
+    scheme: 'dark',
     tokens: {
-      '--bg': '#f5f5f7', '--surface': '#ececef', '--surface-raised': '#fff', '--surface-hover': '#e1e1e6',
-      '--surface-input': '#fff', '--border': '#d6d6dc', '--border-strong': '#c8c8cf', '--text': '#27272a',
-      '--text-strong': '#17171a', '--muted': '#6b6b73', '--subtle': '#898991', '--selection': '#dbe5ff',
-      '--accent': '#4968c9', '--accent-soft': '#e4eaff', '--danger': '#bd5962', '--warning': '#9a6816', '--success': '#28865a',
+      '--bg': '#1a1512', '--surface': '#221c18', '--surface-raised': '#29221d', '--surface-hover': '#322922',
+      '--surface-input': '#2c2520', '--border': '#382f28', '--border-strong': '#45392f', '--text': '#e8dcd2',
+      '--text-strong': '#f6ede5', '--muted': '#a99a8d', '--subtle': '#82766b', '--selection': '#4a3427',
+      '--accent': '#d9764a', '--accent-soft': '#3e2a1e', '--danger': '#cd7676', '--warning': '#e0b168', '--success': '#7cbe95',
     },
   },
 ]
@@ -102,7 +105,9 @@ export function getAllThemes(): readonly ThemeDefinition[] {
 }
 
 const THEME_ID_PATTERN = /^[a-z][a-z0-9-]*$/
-const RESERVED_IDS = new Set([DEFAULT_THEME_ID, 'light', SYSTEM_THEME_VALUE])
+// Core ids plus the retired 'dark'/'light' (kept reserved so no extension pack
+// can capture legacy stored selections).
+const RESERVED_IDS = new Set([...CORE_THEMES.map(theme => theme.id), 'dark', 'light', SYSTEM_THEME_VALUE])
 /** Token values are joined into a generated <style> rule: reject anything that
  *  could break out of the declaration block or the style element. Colors,
  *  rgb()/hsl()/color-mix() and friends all pass this denylist. */
@@ -145,16 +150,27 @@ export function isThemeId(value: unknown, available: readonly ThemeDefinition[] 
   return typeof value === 'string' && available.some(theme => theme.id === value)
 }
 
+/** First available theme id of a color scheme — what 'system' and the manual
+ *  toggle resolve to. Falls back to the first available theme so the shell
+ *  always has a concrete id even if a future registry lacks one scheme. */
+export function resolveSchemeThemeId(
+  scheme: 'dark' | 'light',
+  available: readonly ThemeDefinition[] = getAllThemes(),
+): string {
+  return available.find(theme => theme.scheme === scheme)?.id ?? available[0]?.id ?? DEFAULT_THEME_ID
+}
+
 /** Resolve a stored selection ('system' | theme id | anything else) to the
  *  concrete theme id the shell should render. null, SYSTEM_THEME_VALUE, invalid
  *  values and — unlike a static list — ids whose pack is currently disabled all
- *  fall through to the live system scheme. The stored selection itself is never
- *  rewritten here, so a disabled pack's theme comes back on re-enable. */
+ *  fall through to the theme of the live system scheme. The stored selection
+ *  itself is never rewritten here, so a disabled pack's theme comes back on
+ *  re-enable. */
 export function resolveThemeSelection(
   selection: string | null,
   systemScheme: 'dark' | 'light',
   available: readonly ThemeDefinition[] = getAllThemes(),
 ): string {
   if (selection !== null && selection !== SYSTEM_THEME_VALUE && isThemeId(selection, available)) return selection
-  return systemScheme
+  return resolveSchemeThemeId(systemScheme, available)
 }

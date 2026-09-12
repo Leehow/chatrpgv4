@@ -67,6 +67,6 @@ describe('useExtensionThemeSync', () => {
     // 扩展被禁用：触发订阅事件 → refresh → 注册表回落到核心主题。
     list = [descriptor('sample-theme', 'disabled', [themeEntry('forest')])]
     act(() => { listeners.get('sample-theme')?.() })
-    await waitFor(() => expect(getAllThemes().map(theme => theme.id)).toEqual(['dark', 'light']))
+    await waitFor(() => expect(getAllThemes().map(theme => theme.id)).toEqual(['clay', 'clay-night']))
   })
 })

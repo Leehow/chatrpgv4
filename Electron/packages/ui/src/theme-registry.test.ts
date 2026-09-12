@@ -7,6 +7,7 @@ import {
   THEME_TOKEN_KEYS,
   getAllThemes,
   isThemeId,
+  resolveSchemeThemeId,
   resolveThemeSelection,
   setContributedThemes,
   subscribeThemes,
@@ -31,20 +32,20 @@ afterEach(() => {
 })
 
 describe('core themes', () => {
-  it('核心默认只有 dark/light，id 唯一且各自带满 17 个 token', () => {
-    expect(CORE_THEMES.map(theme => theme.id)).toEqual(['dark', 'light'])
+  it('核心默认是陶土配色对 clay/clay-night，id 唯一且各自带满 17 个 token', () => {
+    expect(CORE_THEMES.map(theme => theme.id)).toEqual(['clay', 'clay-night'])
     for (const theme of CORE_THEMES) {
       expect(Object.keys(theme.tokens).sort()).toEqual([...THEME_TOKEN_KEYS].sort())
       for (const value of Object.values(theme.tokens)) expect(typeof value).toBe('string')
     }
-    expect(CORE_THEMES.find(theme => theme.id === 'dark')?.scheme).toBe('dark')
-    expect(CORE_THEMES.find(theme => theme.id === 'light')?.scheme).toBe('light')
+    expect(CORE_THEMES.find(theme => theme.id === 'clay')?.scheme).toBe('light')
+    expect(CORE_THEMES.find(theme => theme.id === 'clay-night')?.scheme).toBe('dark')
   })
 
   it('pins the cross-file storage contract (index.html boot script reads the same keys)', () => {
     expect(THEME_STORAGE_KEY).toBe('pipiui.theme')
     expect(SYSTEM_THEME_VALUE).toBe('system')
-    expect(DEFAULT_THEME_ID).toBe('dark')
+    expect(DEFAULT_THEME_ID).toBe('clay-night')
   })
 })
 
@@ -62,6 +63,8 @@ describe('validateThemeContribution', () => {
     expect(validateThemeContribution(makeTheme('1bad'))).toBeNull()
     expect(validateThemeContribution(makeTheme('dark'))).toBeNull()
     expect(validateThemeContribution(makeTheme('light'))).toBeNull()
+    expect(validateThemeContribution(makeTheme('clay'))).toBeNull()
+    expect(validateThemeContribution(makeTheme('clay-night'))).toBeNull()
     expect(validateThemeContribution(makeTheme('system'))).toBeNull()
     expect(validateThemeContribution({ ...makeTheme('ok'), name: '' })).toBeNull()
     expect(validateThemeContribution({ ...makeTheme('ok'), description: ' ' })).toBeNull()
@@ -99,7 +102,7 @@ describe('contributed themes store', () => {
 
   it('getAllThemes = core 在前 + 贡献在后；setContributedThemes 按 id 去重（先来先得）', () => {
     setContributedThemes([makeTheme('forest'), makeTheme('neon'), makeTheme('forest')])
-    expect(getAllThemes().map(theme => theme.id)).toEqual(['dark', 'light', 'forest', 'neon'])
+    expect(getAllThemes().map(theme => theme.id)).toEqual(['clay', 'clay-night', 'forest', 'neon'])
   })
 
   it('内容变化才通知订阅者', () => {
@@ -117,24 +120,33 @@ describe('contributed themes store', () => {
 })
 
 describe('resolveThemeSelection（可用性感知）', () => {
-  it('null/system/非法值 → 跟随系统 scheme', () => {
-    expect(resolveThemeSelection(null, 'dark')).toBe('dark')
-    expect(resolveThemeSelection(SYSTEM_THEME_VALUE, 'light')).toBe('light')
-    expect(resolveThemeSelection('retro', 'dark')).toBe('dark')
+  it('null/system/非法值 → 跟随系统 scheme 对应的核心主题', () => {
+    expect(resolveThemeSelection(null, 'dark')).toBe('clay-night')
+    expect(resolveThemeSelection(SYSTEM_THEME_VALUE, 'light')).toBe('clay')
+    expect(resolveThemeSelection('retro', 'dark')).toBe('clay-night')
   })
 
-  it('核心 id 原样通过；贡献主题在可用时通过、不可用时落回系统（存储值不动）', () => {
-    expect(resolveThemeSelection('light', 'dark')).toBe('light')
+  it('核心 id 原样通过；贡献主题在可用时通过、不可用时落回系统 scheme 主题（存储值不动）', () => {
+    expect(resolveThemeSelection('clay', 'dark')).toBe('clay')
     setContributedThemes([makeTheme('forest')])
     expect(resolveThemeSelection('forest', 'light')).toBe('forest')
     setContributedThemes([])
-    expect(resolveThemeSelection('forest', 'light')).toBe('light')
+    expect(resolveThemeSelection('forest', 'light')).toBe('clay')
+  })
+
+  it('scheme 解析按注册表顺序取第一个同 scheme 主题（core 优先于贡献）', () => {
+    setContributedThemes([makeTheme('paper', 'light')])
+    // light scheme 仍先命中核心 clay（core 在前）；dark 命中 clay-night。
+    expect(resolveSchemeThemeId('light')).toBe('clay')
+    expect(resolveSchemeThemeId('dark')).toBe('clay-night')
   })
 })
 
 describe('isThemeId', () => {
   it('按可用列表判定；system/非字符串拒绝', () => {
-    expect(isThemeId('dark')).toBe(true)
+    expect(isThemeId('clay')).toBe(true)
+    expect(isThemeId('clay-night')).toBe(true)
+    expect(isThemeId('dark')).toBe(false)
     expect(isThemeId('forest')).toBe(false)
     setContributedThemes([makeTheme('forest')])
     expect(isThemeId('forest')).toBe(true)

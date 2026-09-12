@@ -5,6 +5,7 @@ import {
   THEME_STORAGE_KEY,
   getAllThemes,
   isThemeId,
+  resolveSchemeThemeId,
   resolveThemeSelection,
   subscribeThemes,
   type ThemeDefinition,
@@ -91,7 +92,7 @@ export function useShellTheme(): {
     } catch { /* storage unavailable: first paint falls back to the dark/light table */ }
   }, [resolvedDefinition])
   // Scheme-based, like the old dark/light toggle: any dark-scheme theme toggles
-  // to light, any light-scheme theme toggles to dark.
-  const toggleTheme = useCallback(() => setThemeSelection(scheme === 'light' ? 'dark' : 'light'), [scheme, setThemeSelection])
+  // to the available light-scheme theme and vice versa.
+  const toggleTheme = useCallback(() => setThemeSelection(resolveSchemeThemeId(scheme === 'light' ? 'dark' : 'light', available)), [scheme, available, setThemeSelection])
   return { theme, scheme, selection, setThemeSelection, toggleTheme }
 }

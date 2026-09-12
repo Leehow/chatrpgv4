@@ -30,7 +30,7 @@ final result: passed
 
 - Source visual truth: the user's supplied inventory screenshot,
   `/var/folders/wn/8ly53x4n6sq3jkvkptvtkrsm0000gn/T/codex-clipboard-e1313f07-747a-4feb-aea9-aa3cfed2e192.png`,
-  plus the existing Terracotta product theme in `pipiui-extension.json`.
+  plus the existing Terracotta product theme in `Electron/packages/ui/src/theme-registry.ts`.
 - Implementation screenshot:
   `/Users/haoli/leehow/code/chatrpgv4-wt-pi-coc-v2/output/mods-paper-20260908/paper-editor.png`.
   Captured with Chrome's own screenshot command, operated through CUA.

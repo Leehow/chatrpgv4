@@ -1,13 +1,12 @@
 import { useRef, useState, type ReactNode } from 'react'
-import { SYSTEM_THEME_VALUE } from './theme-registry'
+import { SYSTEM_THEME_VALUE, resolveSchemeThemeId } from './theme-registry'
 import { fileToLogoDataUrl, useCustomLogo, writeCustomLogo } from './custom-logo'
 import { useAllThemes, useShellTheme } from './useShellTheme'
 import './theme-settings.css'
 
 /** 设置-主题页的迷你界面 mock：左侧窄侧栏条 + 用户气泡 + 两行助手文本 +
- *  底部 composer 条。颜色全部来自 [data-theme] 规则供给的 CSS 变量
- *  （app.css 的 light/forest/neon/paper 块 + theme-settings.css 补的 dark 块），
- *  随容器 data-theme 变化，不内联任何颜色。 */
+ *  底部 composer 条。颜色全部来自 [data-theme] 规则供给的 CSS 变量（由
+ *  theme-css.ts 从注册表运行时生成），随容器 data-theme 变化，不内联任何颜色。 */
 function ThemeMock() {
   return (
     <div className="tsp-mock" aria-hidden="true">
@@ -120,6 +119,9 @@ export function ThemeSettingsPane() {
   const { theme, selection, setThemeSelection } = useShellTheme()
   const allThemes = useAllThemes()
   const currentDef = allThemes.find(def => def.id === theme) ?? allThemes[0]
+  // system 卡的两个半分展示各 scheme 实际会解析到的主题。
+  const systemDarkId = resolveSchemeThemeId('dark', allThemes)
+  const systemLightId = resolveSchemeThemeId('light', allThemes)
   return (
     <div className="tsp-root">
       <section className="tsp-section" data-testid="theme-current-section">
@@ -147,8 +149,8 @@ export function ThemeSettingsPane() {
             onPick={() => setThemeSelection(SYSTEM_THEME_VALUE)}
           >
             <div className="tsp-sys-split">
-              <div className="tsp-sys-half" data-theme="dark" data-scheme="dark"><ThemeMock /></div>
-              <div className="tsp-sys-half" data-theme="light" data-scheme="light"><ThemeMock /></div>
+              <div className="tsp-sys-half" data-theme={systemDarkId} data-scheme="dark"><ThemeMock /></div>
+              <div className="tsp-sys-half" data-theme={systemLightId} data-scheme="light"><ThemeMock /></div>
             </div>
           </ThemeCard>
           {allThemes.map(def => (

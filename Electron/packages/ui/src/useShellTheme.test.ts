@@ -32,10 +32,10 @@ afterEach(() => {
 
 describe('useShellTheme', () => {
   it('一个实例 setThemeSelection 后，另一个实例的 theme/selection 实时同步（App 壳 ↔ 设置页）', () => {
-    // jsdom 的 prefers-color-scheme 不匹配 → system 解析为 light。
+    // jsdom 的 prefers-color-scheme 不匹配 → system 解析为 clay（light）。
     const shell = renderHook(() => useShellTheme())  // App 壳实例
     const pane = renderHook(() => useShellTheme())   // 设置页实例
-    expect(shell.result.current.theme).toBe('light')
+    expect(shell.result.current.theme).toBe('clay')
 
     act(() => { pane.result.current.setThemeSelection('forest') })
 
@@ -47,17 +47,17 @@ describe('useShellTheme', () => {
     // 切回 system 同样同步：theme 回到系统解析值。
     act(() => { pane.result.current.setThemeSelection(SYSTEM_THEME_VALUE) })
     expect(shell.result.current.selection).toBe(SYSTEM_THEME_VALUE)
-    expect(shell.result.current.theme).toBe('light')
+    expect(shell.result.current.theme).toBe('clay')
   })
 
-  it('system 解析：初始无存储时跟随系统（jsdom 为 light），显式选择 system 时写回存储', () => {
+  it('system 解析：初始无存储时跟随系统（jsdom 为 light → clay），显式选择 system 时写回存储', () => {
     const { result } = renderHook(() => useShellTheme())
     expect(result.current.selection).toBe(SYSTEM_THEME_VALUE)
-    expect(result.current.theme).toBe('light')
+    expect(result.current.theme).toBe('clay')
     act(() => { result.current.setThemeSelection(SYSTEM_THEME_VALUE) })
     expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe(SYSTEM_THEME_VALUE)
     expect(result.current.selection).toBe(SYSTEM_THEME_VALUE)
-    expect(result.current.theme).toBe('light')
+    expect(result.current.theme).toBe('clay')
   })
 
   it('存储写入失败时：自身内存选择不被自身事件冲掉，其他实例经事件负载同步', () => {
@@ -86,8 +86,8 @@ describe('useShellTheme', () => {
 
   it('应用主题时把解析后的 --bg 与 token 表写入首帧缓存（pipiui.theme-bg / pipiui.theme-tokens）', () => {
     const { result } = renderHook(() => useShellTheme())
-    // 初始（system→light）：缓存写 light 的值。
-    expect(localStorage.getItem('pipiui.theme-bg')).toBe('#f5f5f7')
+    // 初始（system→clay）：缓存写 clay 的值。
+    expect(localStorage.getItem('pipiui.theme-bg')).toBe('#f2ebe4')
     act(() => { result.current.setThemeSelection('forest') })
     expect(localStorage.getItem('pipiui.theme-bg')).toBe('#141a16')
     const cached = JSON.parse(localStorage.getItem('pipiui.theme-tokens') ?? '{}') as Record<string, string>
@@ -102,7 +102,7 @@ describe('useShellTheme', () => {
 
     act(() => { setContributedThemes([]) })
     expect(result.current.selection).toBe('forest')               // 选择保留
-    expect(result.current.theme).toBe('light')                    // 渲染落回系统
+    expect(result.current.theme).toBe('clay')                    // 渲染落回系统
     expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('forest')
 
     // 扩展重新启用：主题自动恢复。
@@ -116,13 +116,13 @@ describe('useShellTheme', () => {
     act(() => { setContributedThemes([]) })
     const { result } = renderHook(() => useShellTheme())
     expect(result.current.selection).toBe('forest')   // 选择不丢
-    expect(result.current.theme).toBe('light')        // 暂落系统解析
+    expect(result.current.theme).toBe('clay')        // 暂落系统解析
     // 主题包异步加载完成：无需任何操作，主题恢复。
     act(() => { setContributedThemes([FOREST]) })
     expect(result.current.theme).toBe('forest')
   })
 
-  it('scheme 跟随解析主题：forest 为 dark、light 为 light', () => {
+  it('scheme 跟随解析主题：forest 为 dark、clay 为 light', () => {
     const { result } = renderHook(() => useShellTheme())
     expect(result.current.scheme).toBe('light')
     act(() => { result.current.setThemeSelection('forest') })

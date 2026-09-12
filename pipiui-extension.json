@@ -93,58 +93,6 @@
           "placement": "content"
         }
       ],
-      "themes": [
-        {
-          "id": "clay",
-          "name": "Terracotta",
-          "description": "Warm clay on unbleached paper: the daylight half of the PipiCOC palette, accented with the terracotta of its icon.",
-          "scheme": "light",
-          "tokens": {
-            "--bg": "#f2ebe4",
-            "--surface": "#eae1d8",
-            "--surface-raised": "#fbf7f3",
-            "--surface-hover": "#e2d6ca",
-            "--surface-input": "#fbf7f3",
-            "--border": "#ddcfc2",
-            "--border-strong": "#cbb9a8",
-            "--text": "#221c19",
-            "--text-strong": "#1b1614",
-            "--muted": "#6b5f56",
-            "--subtle": "#8a7d72",
-            "--selection": "#ebd5c4",
-            "--accent": "#a04b28",
-            "--accent-soft": "#f3dfd1",
-            "--danger": "#a03f46",
-            "--warning": "#815b13",
-            "--success": "#35704d"
-          }
-        },
-        {
-          "id": "clay-night",
-          "name": "Terracotta Night",
-          "description": "The same clay palette after dark: fired-earth browns under lamplight, for a table that runs late.",
-          "scheme": "dark",
-          "tokens": {
-            "--bg": "#1a1512",
-            "--surface": "#221c18",
-            "--surface-raised": "#29221d",
-            "--surface-hover": "#322922",
-            "--surface-input": "#2c2520",
-            "--border": "#382f28",
-            "--border-strong": "#45392f",
-            "--text": "#e8dcd2",
-            "--text-strong": "#f6ede5",
-            "--muted": "#a99a8d",
-            "--subtle": "#82766b",
-            "--selection": "#4a3427",
-            "--accent": "#d9764a",
-            "--accent-soft": "#3e2a1e",
-            "--danger": "#cd7676",
-            "--warning": "#e0b168",
-            "--success": "#7cbe95"
-          }
-        }
-      ],
       "viewContainers": [
         {
           "id": "coc.preparation",

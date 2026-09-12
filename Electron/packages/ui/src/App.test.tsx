@@ -1161,11 +1161,11 @@ describe('PipiUI main layout', () => {
     expect(themeButton.disabled).toBe(false)
     // Hit testing on footer controls works — clicking the theme toggle fires.
     // The global media stub answers prefers-color-scheme dark=true, so the
-    // app boots dark here; one tap must resolve to light mode.
+    // app boots on clay-night here; one tap must resolve to the light theme.
     fireEvent.click(themeButton)
     expect(themeButton.getAttribute('aria-label')).toBe('切换到深色模式')
     expect(themeButton.getAttribute('title')).toBe('切换到深色模式')
-    expect(container.querySelector('.pipiui-shell')!.getAttribute('data-theme')).toBe('light')
+    expect(container.querySelector('.pipiui-shell')!.getAttribute('data-theme')).toBe('clay')
     // Selecting a tool swaps overlays back: drawer closes, tool pane opens and
     // receives interaction; transient phone toggles never touch persisted prefs.
     await waitFor(() => expect((screen.getByRole('button', { name: 'Browser' }) as HTMLButtonElement).disabled).toBe(false))
@@ -1953,10 +1953,10 @@ describe('PipiUI main layout', () => {
     vi.stubGlobal('matchMedia', vi.fn(() => media))
     const { container } = render(<App host={createMockHost()} />)
     await screen.findAllByText('Electron 三栏界面')
-    expect(container.querySelector('.pipiui-shell')?.getAttribute('data-theme')).toBe('light')
+    expect(container.querySelector('.pipiui-shell')?.getAttribute('data-theme')).toBe('clay')
     Object.defineProperty(media, 'matches', { value: true, configurable: true })
     listener?.({ matches: true } as MediaQueryListEvent)
-    await waitFor(() => expect(container.querySelector('.pipiui-shell')?.getAttribute('data-theme')).toBe('dark'))
+    await waitFor(() => expect(container.querySelector('.pipiui-shell')?.getAttribute('data-theme')).toBe('clay-night'))
     vi.unstubAllGlobals()
   })
 
@@ -1966,7 +1966,7 @@ describe('PipiUI main layout', () => {
       vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true, media: '(prefers-color-scheme: dark)', onchange: null, addEventListener: () => undefined, removeEventListener: () => undefined, addListener: () => undefined, removeListener: () => undefined, dispatchEvent: () => true } as MediaQueryList)))
       const { container } = render(<App host={createMockHost()} />)
       await screen.findAllByText('Electron 三栏界面')
-      expect(container.querySelector('.pipiui-shell')?.getAttribute('data-theme')).toBe('dark')
+      expect(container.querySelector('.pipiui-shell')?.getAttribute('data-theme')).toBe('clay-night')
       expect(window.localStorage.getItem('pipiui.theme')).toBeNull()
     } finally {
       window.localStorage.removeItem('pipiui.theme')
@@ -1982,35 +1982,35 @@ describe('PipiUI main layout', () => {
     try {
       const view = render(<App host={createMockHost()} />)
       await screen.findAllByText('Electron 三栏界面')
-      expect(view.container.querySelector('.pipiui-shell')?.getAttribute('data-theme')).toBe('light')
+      expect(view.container.querySelector('.pipiui-shell')?.getAttribute('data-theme')).toBe('clay')
       expect(view.container.querySelector('.pipiui-shell')?.getAttribute('data-scheme')).toBe('light')
       // Toggle ON: switches immediately, renames to the reverse action, stores the choice.
       let toggle = screen.getByTestId('sidebar-theme-toggle')
       expect(toggle.getAttribute('aria-label')).toBe('切换到深色模式')
       fireEvent.click(toggle)
-      expect(view.container.querySelector('.pipiui-shell')?.getAttribute('data-theme')).toBe('dark')
+      expect(view.container.querySelector('.pipiui-shell')?.getAttribute('data-theme')).toBe('clay-night')
       expect(view.container.querySelector('.pipiui-shell')?.getAttribute('data-scheme')).toBe('dark')
       toggle = screen.getByTestId('sidebar-theme-toggle')
       expect(toggle.getAttribute('aria-label')).toBe('切换到浅色模式')
       expect(toggle.getAttribute('title')).toBe('切换到浅色模式')
-      expect(window.localStorage.getItem('pipiui.theme')).toBe('dark')
+      expect(window.localStorage.getItem('pipiui.theme')).toBe('clay-night')
       // Toggle OFF, then force the system to resolve dark: the manual light
       // choice must win over the conflicting system resolution.
       fireEvent.click(screen.getByTestId('sidebar-theme-toggle'))
-      expect(view.container.querySelector('.pipiui-shell')?.getAttribute('data-theme')).toBe('light')
+      expect(view.container.querySelector('.pipiui-shell')?.getAttribute('data-theme')).toBe('clay')
       expect(view.container.querySelector('.pipiui-shell')?.getAttribute('data-scheme')).toBe('light')
-      expect(window.localStorage.getItem('pipiui.theme')).toBe('light')
+      expect(window.localStorage.getItem('pipiui.theme')).toBe('clay')
       Object.defineProperty(media, 'matches', { value: true, configurable: true })
       listener?.({ matches: true } as MediaQueryListEvent)
       // Give any wrongly-following update a chance to land before asserting no-op.
       await act(async () => { await new Promise(resolve => setTimeout(resolve, 50)) })
-      expect(view.container.querySelector('.pipiui-shell')?.getAttribute('data-theme')).toBe('light')
+      expect(view.container.querySelector('.pipiui-shell')?.getAttribute('data-theme')).toBe('clay')
       // Remount (reload parity): the persisted choice restores and keeps beating
       // the still-dark system resolution.
       view.unmount()
       const remount = render(<App host={createMockHost()} />)
       await screen.findAllByText('Electron 三栏界面')
-      expect(remount.container.querySelector('.pipiui-shell')?.getAttribute('data-theme')).toBe('light')
+      expect(remount.container.querySelector('.pipiui-shell')?.getAttribute('data-theme')).toBe('clay')
     } finally {
       window.localStorage.removeItem('pipiui.theme')
       vi.unstubAllGlobals()
