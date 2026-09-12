@@ -58,6 +58,7 @@ export class SetupDrafts {
   async validateProfile(profile: Row): Promise<void> {
     const issues: string[] = [];
     for (const field of ['name', 'occupation', 'concept', 'own_language']) if (!nonempty(profile[field])) issues.push(`${field} is required`);
+    if (!nonempty(profile.sex)) issues.push('sex is required; draft the words the player used or your best reading, in the play language — the player corrects it on the card');
     const raw = profile.backstory, story = row(raw);
     if (!isJsonObject(raw) || Object.keys(story).some(key => ![...BACKSTORY, 'scenario_bound'].includes(key))) issues.push('backstory must use the declared categories');
     else if (BACKSTORY.filter(key => nonempty(story[key])).length < 3 || !nonempty(story.scenario_bound)) issues.push('supply 3-6 backstory categories and scenario_bound');

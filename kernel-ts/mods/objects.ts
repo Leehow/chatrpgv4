@@ -49,12 +49,11 @@ export function moveObject(world: Row, name: string, definitionName: string | nu
         }
         prior.owner = clone(owner); prior.changed_turn = options.turn; ownershipChanged(world); return prior;
     }
-    // A Keeper reaches this by narrating a handover -- Knott gives you the keys -- as a single transfer.
-    // The old refusal told it to define and place first, which it had already batched, so it followed the
-    // advice literally, dropped its own define, and earned a second refusal. `from` stays a claim about an
-    // existing owner; only the repair changes.
-    if (source !== null) throw new RpcError('invalid_params', `No instance named ${repr(name)} exists yet, so it has no previous owner to transfer from`,
-        {fix: 'place it without from, in the same batch as its definition; a handover becomes a transfer only once the instance exists'});
+    // A first placement may name its giver. The truth `from` carries is checked above, against the owner an
+    // existing instance actually has; below there is no owner to contradict, so refusing it guarded nothing
+    // and cost something real -- Knott hands you the keys, the Keeper is made to drop him, and the receipt
+    // records a handover with from:null. The giver rides on the receipt instead. Adoption still refuses a
+    // giver, because enriching gear already carried is not something anybody hands over.
     const template = findNamedObject(data.definitions, definitionName || name);
     // One message for two causes sent the Keeper looking at spells when the definition was simply absent.
     // Naming the miss is still not enough on its own. A Keeper that defines a notebook and places an

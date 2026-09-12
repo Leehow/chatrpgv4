@@ -431,7 +431,10 @@ export const executePsychologyObserve: SettlementExecutor = async (context, args
         passed: check.passed,
         bonus: 0,
         penalty: 0,
-        visibility: 'keeper',
+        // The player asked for this read, so they know a check happened; §16.5's `concealed` tier
+        // lets the card say so while the die stays with the keeper. `keeper` here would have drawn
+        // nothing at all and made a declared Psychology attempt look like plain narration.
+        visibility: 'concealed',
         kind: 'psychology_observe',
         check: {
             ...check,

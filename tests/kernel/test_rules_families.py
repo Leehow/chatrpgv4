@@ -158,17 +158,24 @@ def test_investigate_on_npc_needs_choice_then_decision_picks(kernel):
     assert outcome["npc"] == "steven-knott"
     assert [c["decision"] for c in picked["continuations"]] == ["psychology:realize-player-safe"]
     receipt = kernel.table("status")["receipts"][0]
-    assert receipt["id"] == "roll:psychology-t1-c1" and receipt["visibility"] == "keeper"
+    # `concealed`, not `keeper` (contract 16.5): the player declared this read, so the card names the
+    # check and prints no figure. Under `keeper` the row was dropped whole, and a turn whose only
+    # mechanic was this roll drew no card at all -- the player could not tell their own check from
+    # the Keeper talking. The die stays hidden either way; what differs is whether the attempt shows.
+    assert receipt["id"] == "roll:psychology-t1-c1" and receipt["visibility"] == "concealed"
+    assert picked["outcome"]["roll_visibility"] == "concealed"
 
     realized = resolve(kernel, "t1-c2", intent="investigate", goal="x", method="他避开你的视线，手指敲着桌面",
                        target="Steven Knott", decision="psychology:realize-player-safe")
     assert realized["outcome"] == {"kind": "psychology", "status": "realized", "npc": "steven-knott",
                                    "insight_id": outcome["insight_id"],
                                    "external_behavior": "他避开你的视线，手指敲着桌面"}
-    # A concealed roll obliges the keeper to state nothing; the projection still carries it, marked keeper.
+    # A concealed roll obliges the keeper to state nothing; the projection still carries it whole,
+    # marked concealed, and the host strips the figures where the rows leave for the player.
     result = kernel.table("narrate", call_id="t1-c3", text="他笑了笑。")
     assert result["rendered_text"] == "他笑了笑。"
-    assert all(m["visibility"] == "keeper" for m in result["mechanics"] if m["kind"] == "roll")
+    rolls = [m for m in result["mechanics"] if m["kind"] == "roll"]
+    assert rolls and all(m["visibility"] == "concealed" for m in rolls)
 
     # A skill in the method removes the ambiguity.
     kernel.table("player_input", text="我再看看。")

@@ -1,0 +1,10 @@
+{
+  "id": "remote-control",
+  "name": "Remote Control",
+  "version": "0.1.0",
+  "category": "integration",
+  "description": "Remote pairing for this app: the shell shows the remote-control entry while this package is enabled, pairing through the relay (default https://remote.deepwood.cn).",
+  "capabilities": [],
+  "defaultEnabled": true,
+  "settingsVersion": 1
+}

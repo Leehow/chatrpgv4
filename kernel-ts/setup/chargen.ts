@@ -97,7 +97,7 @@ export class Chargen {
     }
     return diff;
   }
-  /** The creation bounds under a difficulty: scaled preset bounds or custom min/max, else the rulebook 15/90. */
+  /** The creation bounds under a difficulty: the rulebook 15/90 for presets, custom min/max for custom (§33.2). */
   creationBoundsFor(diff: ResolvedDifficulty | null): [number, number] { return diff ? diff.bounds : this.creationBounds; }
   /** The bounds one characteristic obeys: a replaced pool binds its own dice range in place of the creation
    *  bounds (§33.3). LUCK is not a pool characteristic — generation never replaces its dice, so manual edits
@@ -157,8 +157,8 @@ export class Chargen {
     const order = priority.filter(abbr => this.characteristics.includes(abbr));
     order.push(...this.characteristics.filter(abbr => !order.includes(abbr)));
     if (order.length !== array.length) valueError('zip() argument 2 has a different length than argument 1');
-    order.forEach((abbr, index) => { values[abbr] = diff ? diff.scaleValue(array[index]) : array[index]; });
-    return {method: 'quick_fire', values, assignment_order: order, array, ...(diff?.scales() ? {scaling: {multiplier: diff.multiplier, bounds: [...diff.bounds]}} : {}),
+    order.forEach((abbr, index) => { values[abbr] = array[index]; });
+    return {method: 'quick_fire', values, assignment_order: order, array,
       source: 'characteristic-dice.generation_methods.quick_fire_array'};
   }
   rolled(rng: PythonRandom, aptitude: Row | null = null, diff: ResolvedDifficulty | null = null): Row {
@@ -171,11 +171,10 @@ export class Chargen {
     const values: Row = {}, rolls: Row = {};
     for (const abbr of this.characteristics) {
       const roll = rolled[held[abbr]];
-      values[abbr] = diff ? diff.scaleValue(roll.total * this.multiplier) : roll.total * this.multiplier;
+      values[abbr] = roll.total * this.multiplier;
       rolls[abbr] = {dice: roll.expression, faces: roll.rolls, total: roll.total};
     }
     const generated: Row = {method: 'rolled', values, rolls, multiplier: this.multiplier,
-      ...(diff?.scales() ? {scaling: {multiplier: diff.multiplier, bounds: [...diff.bounds]}} : {}),
       ...(diff && Object.keys(diff.diceReplacements).length ? {replaced_dice: clone(diff.diceReplacements)} : {}),
       source: 'characteristic-dice.characteristics'};
     if (!aptitude) return generated;
@@ -203,14 +202,13 @@ export class Chargen {
   luck(rng: PythonRandom, keepHighest: number, diff: ResolvedDifficulty | null = null): Row {
     if (diff?.luckFixed != null)
       return {value: diff.luckFixed, dice: null, attempts: [], keep_highest: keepHighest, multiplier: this.multiplier,
-        fixed: true, source: 'campaign.json difficulty.custom.luck (contract §33)'};
+        fixed: true, source: 'campaign.json difficulty (contract §33)'};
     const expression = diff?.luckDice ?? string(this.dice.characteristics.Luck.dice), attempts: Row[] = [];
     for (let i = 0; i < Math.max(1, keepHighest); i++) { const roll = creationRoll(expression, rng); attempts.push({faces: roll.rolls, total: roll.total}); }
     const raw = Math.max(...attempts.map(attempt => attempt.total)) * this.multiplier;
-    return {value: diff ? diff.scaleValue(raw) : raw, dice: expression.toUpperCase(), attempts,
+    return {value: raw, dice: expression.toUpperCase(), attempts,
       keep_highest: keepHighest, multiplier: this.multiplier,
-      ...(diff?.scales() ? {scaling: {multiplier: diff.multiplier, bounds: [...diff.bounds]}} : {}),
-      source: diff?.luckDice ? 'campaign.json difficulty.custom.luck (contract §33)' : 'characteristic-dice.characteristics.Luck'};
+      source: diff?.luckDice ? 'campaign.json difficulty (contract §33)' : 'characteristic-dice.characteristics.Luck'};
   }
   ageBracket(age: any): Row {
     const lo = number(this.ageRules.minimum_age), hi = number(this.ageRules.maximum_age);
@@ -349,7 +347,7 @@ export class Chargen {
     const spent = sum(Object.values(occupational)), interestSpent = sum(Object.values(interest));
     if (occupationSkills !== undefined && (spent !== points || interestSpent !== interestTotal)) throw new ChargenError('skills', 'Selected skills cannot hold the full budget; choose more interest skills or a wider legal occupational selection', {occupation_unspent: points - spent, interest_unspent: interestTotal - interestSpent});
     trace.skills = {standard_sheet: sheetIds ? `skills.standard_sheet.${era}` : null, cap: {value: cap, source: 'skills.guided_creation_policy.starting_skill_cap',
-        ...(diff && (diff.scales() || diff.skillCap != null) ? {difficulty: diff.skillCap != null ? {skill_cap: diff.skillCap} : {multiplier: diff.multiplier}} : {})},
+        ...(diff?.skillCap != null ? {difficulty: {skill_cap: diff.skillCap}} : {})},
       occupation: {id: occupationName, resolved, choices_pending: pending, budget, ...(diff?.occupation ? {budget_adjusted: {total: occupationBudget, ...clone(diff.occupation)}} : {}),
         credit_rating: {value: credit, range: creditRange, source: 'occupations.credit_rating_range[0]'}, points, spent, unspent: points - spent, allocations: occupational, allocation: policy.policy, reserved},
       interest: {budget: interestBudget, ...(diff?.interest ? {budget_adjusted: {total: interestTotal, ...clone(diff.interest)}} : {}),

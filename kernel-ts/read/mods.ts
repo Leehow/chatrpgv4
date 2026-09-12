@@ -10,7 +10,7 @@ import { npcsPresent } from "./capsule.js";
 import { threadSection } from "./thread.js";
 import { pacingSection } from "./pacing.js";
 import { entries, values, array, row, truth, string, number, integer, numeric, normalize, sorted, chars, length, clone, pick, repr, type Row } from "./values.js";
-import { claimedEquipment } from "../mods/queue.js";
+import { claimedEquipment, queuedDefinition, queuedRegistrations } from "../mods/queue.js";
 export const MOD_CAPABILITIES = new Set(["checks.percentile.v1", "context.npc.v1", "definitions.v1", "objects.v1", "objects.state.v2", "objects.adopt.v1", "objects.documents.v1", "mods.order.v1", "ui.documents.v1", "ui.documents.language.v1", "agents.tools.v1", "weapons.v1", "weapons.profile.v2", "spells.v1", "item-effects.v1", "setup.guidance.v1", "setup.aptitude.v1", "graph.vocabulary.v1", "graph.vocabulary.table.v1", "context.thread.v1", "context.pacing.v1"]);
 const invalid = (message: string): never => {
     throw new RpcError("invalid_params", message);
@@ -412,6 +412,14 @@ export function objectContext(world: Row): Row {
     const data = row(world.objects),
         definitions = row(data.definitions);
     return {
+        // Registration the delivery did not wait on. Without this the Keeper has no way to see what it
+        // just registered -- the row is already out of unregistered_equipment -- so it registers it again.
+        queued_registrations: queuedRegistrations(world).map(entry => ({
+            name: entry.name,
+            category: entry.category,
+            adopted: entry.adopt ?? null,
+            status: "registered; parameters land at the start of the next turn, so do not define or place it again"
+        })),
         definitions: values(definitions).slice(-24).map(value => ({
             name: value.name,
             category: value.category,
@@ -593,8 +601,16 @@ export function objectLook(world: Row, name?: any): Row {
     const named = (objects: Row) => findNamedObject(objects,name);
     const item = named(instances),
         definition = item ? definitions[item.definition] : named(definitions);
-    if (!definition)
+    if (!definition) {
+        // A deferred registration is real but not yet a definition, and the Keeper cannot tell those apart
+        // from here. Answering "no such thing" sent it to define and place the object a second time, which
+        // is the loop this refusal exists to prevent.
+        const waiting = queuedDefinition(world, name);
+        if (waiting)
+            throw new RpcError("needs", `${repr(string(waiting.name))} is registered; its parameters are still being prepared`,
+                {fix: "it completes at the start of the next turn, so do not define or place it again; look at it then"});
         throw new RpcError("unknown_entity", "No registered object or definition has that name");
+    }
     return {
         definition: pick(definition, ["name", "category", "description", "parameters", "basis", "traits", "document"]),
         instance: item ? {

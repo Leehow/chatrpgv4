@@ -124,6 +124,8 @@ test('base continuity lookup works through the kernel; preparation and review ch
     assert.deepEqual(original.entities, []);
     assert.equal(original.preparation.kind, 'adaptation');
     assert.equal(original.preparation.action, 'prepare');
+    await t.call('table.narrate', {call_id: 't1-c4', text: 'The investigator studies the existing evidence at the Harbor guesthouse.'});
+    assert.equal((await t.call('journal.job', {turn: 1})).scene.name, 'Harbor guesthouse');
 });
 
 test('within-turn state changes invalidate a reviewed draft and failed acceptance writes nothing', async () => {
@@ -183,6 +185,8 @@ test('supporting NPC knowledge and new handout renditions are available without 
     const shown = await t.call('table.apply', {call_id: 't1-c3', effects: [{kind: 'handout', name: 'Harbor copy'}]});
     assert.equal(shown.attachment.available, true);
     assert.match(await readFile(shown.attachment.path, 'utf8'), /An acquired-evidence rendition/);
+    await t.call('table.narrate', {call_id: 't1-c4', text: 'Harbor clerk offers the copy.'});
+    assert.ok((await t.call('journal.job', {turn: 1})).recordable.includes('Harbor clerk'));
 });
 
 test('accepted source stays pinned across shared publication until a reviewed rebase; other campaigns remain unadapted', async () => {

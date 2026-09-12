@@ -4,6 +4,7 @@ import {access, mkdir, readFile, writeFile, rename} from 'node:fs/promises';
 import {join, resolve, relative, isAbsolute} from 'node:path';
 import {resourceRootFrom} from '../../runtime/deployment.mjs';
 import {coded} from '../ui/errors.ts';
+import {reasoned, readerFailureReason} from './reader.ts';
 import type {ReaderRequest, ReaderOutcome} from './reader.ts';
 
 const root = resourceRootFrom(import.meta.url);
@@ -129,7 +130,8 @@ export async function prepareCharacterGuidance(options:Options):Promise<Guidance
     const authored=await runner({...request,systemPrompt:promptPath,eventLog:join(attempt,'author.jsonl'),
       brief:round===1?'Read packet.json and write guidance.json according to your instructions.':
         'Revise guidance.json using the independent review findings in review.json. Preserve source facts and obey the original instructions.'});
-    if(!authored.ok||options.signal?.aborted)throw coded(options.signal?.aborted?'interrupted':'preparation_failed','Character guidance could not be prepared. Retry preparation.');
+    if(!authored.ok||options.signal?.aborted)throw coded(options.signal?.aborted?'interrupted':'preparation_failed',
+      reasoned('Character guidance could not be prepared. Retry preparation.',options.signal?.aborted?undefined:readerFailureReason(authored)));
     guidance=validateGuidance(await json(join(attempt,'guidance.json')),options.occupations);
     await writeFile(join(attempt,'guidance.json'),JSON.stringify(guidance,null,2));
     await writeFile(join(attempt,`guidance-round-${round}.json`),JSON.stringify(guidance,null,2));

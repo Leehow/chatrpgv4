@@ -5,8 +5,9 @@
  * `createComponent(React)` with its own React instance (controlled-component-loader.ts), the same
  * shape as panel.js and mods-panel.js.
  *
- * A 1920s wireless dial picks the preset (contract §33.1: extreme x0.5, hard x1, normal x2,
- * easy x4); the fifth stop unfolds a newspaper-styled panel of the §33.3 custom knobs. Every row
+ * A 1920s wireless dial picks the preset (contract §33.1: named knob bundles, re-specified
+ * 2026-09-12 -- budgets/cap/luck knobs, never a uniform card multiplier); the fifth stop
+ * unfolds a newspaper-styled panel of the §33.3 custom knobs. Every row
  * is optional: a blank line keeps the rulebook default and is omitted from the stored object.
  *
  * THE CHROME IS DATA TOO (contract §23). This file keeps no word table: the words arrive from the
@@ -77,9 +78,8 @@ export const DICE_GRAMMAR = /^\d{1,2}D(4|6|8|10|12|20|100)(\+\d{1,2})?$/i;
 
 /** The dial's stops: the four §33.1 presets, then the custom stop. */
 export const PRESETS = ["extreme", "hard", "normal", "easy"];
-export const PRESET_PERCENT = [50, 100, 200, 400];
 const CUSTOM_STOP = PRESETS.length;
-const DEFAULT_STOP = 2; // normal x2: the product default when nothing was ever stored (contract §33.1)
+const DEFAULT_STOP = 2; // normal: the product default when nothing was ever stored (contract §33.1)
 
 /** The settings key of contract §33.1, app scope of the host settings JSON. */
 export const SETTINGS_EXTENSION = "coc-keeper";
@@ -304,6 +304,7 @@ export function createComponent(React) {
           })));
 
     const stops = [...PRESETS, "custom"];
+    const stopName = stops[draft.stop];
     return h("div", {className: "coc-diff", role: "region", "aria-label": t("dial_caption")},
       h("div", {className: "coc-diff-radio"},
         h("div", {className: "coc-diff-band"},
@@ -321,9 +322,8 @@ export function createComponent(React) {
           },
             h("span", {className: "coc-diff-stop-name"}, t(`preset_${name}`)),
             h("span", {className: "coc-diff-stop-pct"},
-              index < PRESETS.length ? `${PRESET_PERCENT[index]}%` : "*"))))),
-      h("p", {className: "coc-diff-note"},
-        draft.stop === DEFAULT_STOP ? `${t("preset_hard_note")} — ${t("applies_note")}` : t("applies_note")),
+              index < PRESETS.length ? t(`preset_${name}_descriptor`) : "*"))))),
+      h("p", {className: "coc-diff-note"}, `${t(`preset_${stopName}_note`)} — ${t("applies_note")}`),
       draft.stop === CUSTOM_STOP && h("div", {className: "coc-diff-paper"},
         h("div", {className: "coc-diff-masthead"},
           h("span", {className: "coc-diff-extra"}, t("custom_masthead")),

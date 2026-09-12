@@ -7,7 +7,7 @@ from conftest import CAMPAIGN, campaign_dir, read_json
 
 
 def profile():
-    return {"name": "Helen", "occupation": "Journalist", "age": 29,
+    return {"name": "Helen", "occupation": "Journalist", "age": 29, "sex": "female",
             "concept": "A cautious local reporter seeking rent money.", "own_language": "English",
             "occupation_skills": ["Art and Craft (Photography)", "History", "Language (Own)", "Library Use", "Psychology", "Persuade", "Spot Hidden", "Listen"],
             "interest_skills": ["Accounting", "Law", "First Aid", "Drive Auto"],
@@ -20,6 +20,17 @@ def profile():
 def begin(kernel):
     kernel.ok("campaign.create", {"id": CAMPAIGN, "module": "the-haunting", "play_language": "en"})
     return kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": profile()})
+
+
+def test_sex_is_required_and_the_issue_says_how_to_draft_it(kernel):
+    kernel.ok("campaign.create", {"id": CAMPAIGN, "module": "the-haunting", "play_language": "en"})
+    missing = profile()
+    missing.pop("sex")
+    error = kernel.err("setup.draft", {"campaign": CAMPAIGN, "profile": missing})
+    assert error["code"] == "needs"
+    assert any(issue.startswith("sex is required") for issue in error["details"]["issues"])
+    for empty in ("", "   "):
+        assert kernel.err("setup.draft", {"campaign": CAMPAIGN, "profile": {**profile(), "sex": empty}})["code"] == "needs"
 
 
 def test_draft_is_complete_without_party_and_confirm_commits_exact_card(kernel, tmp_path):

@@ -1,5 +1,5 @@
 /** Deployment locations shared by Node launchers and the Electron host. No TS loader is needed. */
-import { accessSync, constants, existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
+import { accessSync, constants, existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -19,7 +19,53 @@ export const COMPILED_ENTRIES = Object.freeze({
   documentPresentation: 'build/extensions/mods/document-presentation.mjs',
   uiPresentation: 'build/extensions/module/ui-presentation.mjs',
 });
-const COC_EXTENSIONS = ['kernel', 'mods', 'onboarding', 'module', 'memory', 'table'];
+const COC_EXTENSIONS = ['kernel', 'mods', 'onboarding', 'module', 'memory', 'table', 'npc-journal'];
+/**
+ * The extensions that register a model provider, read from the manifests that already declare it.
+ *
+ * A model the table can be switched to must be a model every lane child can run, so one list feeds
+ * both mounts: the session launcher and the zero-extension lane command. It is discovered, not
+ * written down, because a written-down list is the defect: the session mount and the lane mount
+ * were maintained separately, a provider an extension registered existed only in the session, and
+ * the first card drawn on such a model died in the child with "Model not found" before it emitted
+ * one event. `pipiui-extension.json` already states `auth.provider.id` and `agent.extension`, so a
+ * new provider extension is mounted everywhere by existing in the tree.
+ *
+ * Membership is registration, not tools: these mount into lanes because a provider is how a model
+ * runs at all. An extension that only registers tools has no `auth.provider` and stays a session
+ * mount, and `--tools` remains the lane's allowlist over everything a mounted extension offers.
+ */
+const extensionManifestCache = new Map();
+function agentExtensionsIn(root) {
+  const cached = extensionManifestCache.get(root);
+  if (cached) return cached;
+  const base = join(root, 'extensions');
+  let names = [];
+  try { names = readdirSync(base, {withFileTypes: true}).filter(entry => entry.isDirectory()).map(entry => entry.name).sort(); }
+  catch { /* a tree without an extensions directory contributes nothing */ }
+  const found = [];
+  for (const name of names) {
+    let manifest;
+    try { manifest = JSON.parse(readFileSync(join(base, name, 'pipiui-extension.json'), 'utf8')); }
+    catch { continue; /* not every extension directory carries a manifest */ }
+    const agent = manifest?.agent?.extension;
+    if (typeof agent !== 'string' || !agent.endsWith('.js')) continue;
+    if (agent.includes('..') || agent.startsWith('/')) throw new Error(`Invalid agent extension path in ${name}: ${agent}`);
+    const provider = manifest?.auth?.provider?.id;
+    found.push(Object.freeze({ name,
+      providers: Object.freeze(typeof provider === 'string' && provider.trim() ? [provider] : []),
+      source: `extensions/${name}/${agent}`,
+      built: `build/extensions/${name}/${agent.slice(0, -3)}.mjs`,
+      entry: join(root, 'build/extensions', name, agent.slice(0, -3) + '.mjs') }));
+  }
+  const frozen = Object.freeze(found);
+  extensionManifestCache.set(root, frozen);
+  return frozen;
+}
+/** Every extension under `root` that contributes an agent extension, in directory order. */
+export function agentExtensionManifests(root) { return agentExtensionsIn(root); }
+/** Those of them that register a model provider, with the ids each one declares. */
+export function providerExtensionManifests(root) { return agentExtensionsIn(root).filter(entry => entry.providers.length); }
 export const HOST_MOUNTS = Object.freeze({
   'secret-vault': 'kernel/pipiui-secret-vault.mjs',
   'context-fold': 'pi-ext/packages/context-fold/index.mjs',
@@ -75,6 +121,8 @@ export function runtimeEntrypoints(root, layout = 'source') {
   const resolved = Object.fromEntries(Object.entries(COMPILED_ENTRIES).map(([name, path]) => [name, resolve(root, path)]));
   return Object.freeze({ ...resolved,
     extensions: Object.freeze(COC_EXTENSIONS.map(name => join(root, 'build/extensions', name, 'index.mjs'))),
+    providerExtensions: Object.freeze(providerExtensionManifests(root).map(({entry}) => entry)),
+    providerExtensionIds: Object.freeze(providerExtensionManifests(root).flatMap(({providers}) => providers)),
     hostAssets: join(root, 'build/host/runtime'),
     pi: join(root, 'node_modules', '.bin', 'pi'),
   });
@@ -99,6 +147,10 @@ export function readDeployment(root) {
   const pi = resourcePath(root, manifest.pi);
   const entries = runtimeEntrypoints(root, 'compiled');
   for (const path of [...Object.values(COMPILED_ENTRIES), ...COC_EXTENSIONS.map(name => `build/extensions/${name}/index.mjs`)]) resourcePath(root, path);
+  // A manifest that declares an agent extension must have shipped its emitted code. Discovery is
+  // silent by nature -- an extension directory that failed to travel simply stops being mounted --
+  // and a provider that stops being mounted is exactly the failure this list exists to prevent.
+  for (const extension of agentExtensionManifests(root)) resourcePath(root, extension.built);
   for (const path of Object.values(HOST_MOUNTS)) resourcePath(root, `build/host/runtime/${path}`);
   for (const path of ['content', 'mods', 'node_modules', 'build/host/runtime']) resourcePath(root, path, 'directory');
   for (const path of ['prompts/keeper.md', 'prompts/setup.md', 'build/host/runtime/auth/pi-auth-helper.mjs']) resourcePath(root, path);

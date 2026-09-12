@@ -97,6 +97,22 @@ it('keeps passport words live, the era unlabelled and decoration across refreshe
   expect(container.querySelector('.coc-sheet-seal')?.getAttribute('src')).toContain('AQ==');
 });
 
+it('prints the investigator sex raw beside the labelled rows, only when the sheet carries it', async () => {
+  // A sex that collides with a glossary term stays the player's own word: the row's label is the
+  // surface's, but the value is raw text like the age beside it, never a glossary key.
+  const withSex = view({ investigators: [{ ...investigator, age: 34, sex: 'Library Use' }] });
+  const first = render(<Panel api={host({ ok: true, data: { status: 'ready', view: withSex, campaign: 'c1' } })} />);
+  await screen.findByText(say('zh-Hans', 'sheet', 'sexKey'));
+  const fields = first.container.querySelector('.coc-sheet-fields')!;
+  expect(fields.textContent).toContain('Library Use');
+  expect(fields.textContent).not.toContain('图书馆使用');
+  first.unmount();
+  const bare = view({ investigators: [{ ...investigator, age: 34 }] });
+  const second = render(<Panel api={host({ ok: true, data: { status: 'ready', view: bare, campaign: 'c1' } })} />);
+  await screen.findByText(say('zh-Hans', 'sheet', 'ageKey'));
+  expect(second.container.querySelector('.coc-sheet-fields')?.textContent ?? '').not.toContain(say('zh-Hans', 'sheet', 'sexKey'));
+});
+
 it('leaves an empty credential unstamped until an investigator exists', async () => {
   const answer={status:'ready',campaign:'c1',view:view({investigators:[]}),
     identity_art:{backplate:'data:image/png;base64,AA==',seal:'data:image/png;base64,AQ=='}};

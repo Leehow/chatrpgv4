@@ -9,6 +9,7 @@ import { createSetupHandlers } from "./setup/index.js";
 import { createLibraryHandlers, createLibraryWriteBack } from "./library/index.js";
 import { createResolveRuntime } from "./resolve/index.js";
 import { createMemoryHandlers } from "./memory/index.js";
+import { createJournalHandlers } from "./journal/index.js";
 import { createDevelopmentFamily, stageEnding } from "./development/index.js";
 import { createApplyHandlers } from "./apply/index.js";
 import { applyResources } from "./apply/resources.js";
@@ -41,7 +42,7 @@ export function createKernelRuntime(context: KernelContext): {
         queueAdjacentReading: modules.source.queueAdjacentReading,
         libraryWriteBack: createLibraryWriteBack(context) });
     const resolver = createResolveRuntime(context, writer, { beforeMain:mods.resolveBeforeMain,requireMaterial: modules.source.requireMaterial, development: createDevelopmentFamily(), healing:createHealingResolveContribution(), sanity:createSanityFamily(),magic:createMagicFamily({effects:mods.magicEffects}),combat:createCombatResolveContribution(),chase:createChaseResolveContribution() });
-    const handlers = assembleHandlers(context, foundationHandlers(context), readHandlers(context, { ...writer.read, lookupRules: rules.lookup }), writer.handlers, modules.handlers, createSetupHandlers(context, writer), createLibraryHandlers(context, writer), resolver.handlers, createMemoryHandlers(context, writer), mods.handlers(writer), adaptations.handlers(), graphHandlers(context), createBranchHandlers(context, writer), createApplyHandlers(context, writer, {adaptation:(c,e)=>adaptations.stage(c,e),mods:mods.apply(writer),worldlines,resources:applyResources,ending:stageEnding,requireMaterial:modules.source.requireMaterial,materialReady:modules.source.materialReady,queueAdjacentReading:modules.source.queueAdjacentReading,asset:(id,name)=>modules.source.store.asset(id,name),weaponCatalog:graph=>moduleWeaponCatalog(context,graph)}));
+    const handlers = assembleHandlers(context, foundationHandlers(context), readHandlers(context, { ...writer.read, lookupRules: rules.lookup }), writer.handlers, modules.handlers, createSetupHandlers(context, writer), createLibraryHandlers(context, writer), resolver.handlers, createMemoryHandlers(context, writer), createJournalHandlers(context, writer), mods.handlers(writer), adaptations.handlers(), graphHandlers(context), createBranchHandlers(context, writer), createApplyHandlers(context, writer, {adaptation:(c,e)=>adaptations.stage(c,e),mods:mods.apply(writer),worldlines,resources:applyResources,ending:stageEnding,requireMaterial:modules.source.requireMaterial,materialReady:modules.source.materialReady,queueAdjacentReading:modules.source.queueAdjacentReading,asset:(id,name)=>modules.source.store.asset(id,name),weaponCatalog:graph=>moduleWeaponCatalog(context,graph)}));
     let closing: Promise<void> | undefined;
     return Object.freeze({ handlers, close() {
             return closing ??= (async () => { try {

@@ -144,10 +144,22 @@ interface TableState {
 	 * Table F (2026-09-11): twenty-eight refusals of two classes in one turn, the identical-resend guard never
 	 * fired because every retry was reworded, and the turn ran to its 300 s cap.
 	 */
-	refusalClasses: Map<string, { count: number; last: string }>;
+	refusalClasses: Map<string, { count: number; last: string; round: number }>;
 	refusalsThisTurn: number;
 	/** toolCallId to the name of the tool it called, for the class accounting in tool_result. */
 	callTools: Map<string, string>;
+	/**
+	 * toolCallId to the round trip that issued it, so a strike is an attempt and not a call.
+	 *
+	 * Table (2026-09-12): a Keeper opened Masks in Bar Cordano and asked for three first
+	 * impressions -- Larkin, Mendoza, Elias -- in one message. All three were refused `not_here`
+	 * (the people are staged in the turn they are met on an imported book), and because the three
+	 * answers came back before the model saw any of them, the third one shut `resolve` for the
+	 * turn. The Keeper staged all three correctly one call later and could no longer roll; the
+	 * turn delivered three NPCs and no mechanics. The rule is "stop banging on the same wall", and
+	 * a batch issued before the first answer arrived is one attempt, whoever it names.
+	 */
+	callRounds: Map<string, number>;
 	/** Tools shut for the rest of the turn by the refusal budget, with the reason read back to the Keeper. */
 	exhausted: Map<string, string>;
 	/** The turn narrate has committed but the verifier lane has not yet started on (contract §12.5: it runs after the delivery replacement). */
@@ -515,6 +527,7 @@ export default function (pi: ExtensionAPI) {
 		table.refusalClasses.clear();
 		table.refusalsThisTurn = 0;
 		table.callTools.clear();
+		table.callRounds.clear();
 		table.exhausted.clear();
 		table.renderedText = undefined;
 		table.deliveryToolCallId = undefined;
@@ -1063,8 +1076,15 @@ export default function (pi: ExtensionAPI) {
 			const needs = (inner.needs as { field?: unknown } | undefined)?.field;
 			const facet = [inner.turn_of, needs, inner.reason, inner.field].find((v) => typeof v === "string" && v) ?? "";
 			const cls = `${tool}\u0000${String(details.coc_error.code ?? "error")}\u0000${String(facet)}`;
-			const count = (state.refusalClasses.get(cls)?.count ?? 0) + 1;
-			state.refusalClasses.set(cls, { count, last });
+			// A strike is an attempt, not a call. Calls a Keeper issued in one message are answered
+			// after it wrote them, so the second and third of a batch are not it ignoring the first
+			// refusal -- it never saw one. Count the round trip that issued the call, and let a class
+			// take at most one strike per round; the refusal is still recorded and still read back.
+			const previous = state.refusalClasses.get(cls);
+			const round = state.callRounds.get(event.toolCallId) ?? state.roundTrips;
+			const batched = previous !== undefined && previous.round === round;
+			const count = (previous?.count ?? 0) + (batched ? 0 : 1);
+			state.refusalClasses.set(cls, { count, last, round });
 			state.refusalsThisTurn += 1;
 			const closing = "Nothing refused has happened. Stop trying it: close the turn with narrate on what landed with a receipt, or hand the player the pending choice with ask.";
 			if (count >= REFUSAL_CLASS_LIMIT && !state.exhausted.has(tool) && !["narrate", "ask"].includes(tool)) {
@@ -1208,6 +1228,7 @@ export default function (pi: ExtensionAPI) {
 				refusalClasses: new Map(),
 				refusalsThisTurn: 0,
 				callTools: new Map(),
+				callRounds: new Map(),
 				exhausted: new Map(),
 				attachments: [],
 				lanes: new AbortController(),
@@ -1344,6 +1365,7 @@ export default function (pi: ExtensionAPI) {
 			state.refusalClasses.clear();
 			state.refusalsThisTurn = 0;
 			state.callTools.clear();
+			state.callRounds.clear();
 			state.exhausted.clear();
 			state.renderedText = undefined;
 			state.deliveryToolCallId = undefined;
@@ -1436,6 +1458,7 @@ export default function (pi: ExtensionAPI) {
 		// A Keeper once sent one set of parameters thirteen times and was refused every time; after two
 		// refusals the third is blocked here, with the last error read back to it.
 		state.callTools.set(event.toolCallId, name);
+		state.callRounds.set(event.toolCallId, state.roundTrips);
 		const shut = state.exhausted.get(name);
 		if (shut) {
 			await record({ tool: name, started_at: new Date().toISOString(), ok: false, code: "blocked", reason: "refusal_budget" });
