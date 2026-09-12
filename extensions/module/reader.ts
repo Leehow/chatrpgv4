@@ -84,7 +84,7 @@ export function readerCommand(model?: string, systemPrompt?: string, thinking?: 
 		...entries.providerExtensions.flatMap(path => ["-e", path]),
 		...(systemPrompt ? ["--extension", entries.readerContext] : []),
 		"--tools",
-		[tools ?? [pdf ? "read,write,edit,bash,pdf" : "read,write,edit,bash", ...(submission ? ["submit_reading"] : [])].join(","), ...(audit ? ['submit_audit'] : [])].join(','),
+		[tools ?? [pdf ? "read,write,edit,bash,pdf" : "read,write,edit,bash", ...(submission ? ["submit_reading"] : [])].join(","), ...(audit ? ['read_audit_evidence', 'submit_audit'] : [])].join(','),
 		...(pdf ? ["--extension", entries.readerPdf] : []),
 		...(submission ? ["--extension", entries.readerSubmit] : []),
 		...(audit ? ['--extension', entries.auditSubmit] : []),

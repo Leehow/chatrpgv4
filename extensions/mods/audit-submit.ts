@@ -3,12 +3,17 @@ import {readFileSync, writeFileSync, renameSync} from 'node:fs';
 import {join, basename} from 'node:path';
 import {Type} from 'typebox';
 import {continuityArtifactErrors} from '../../kernel-ts/mods/audit-result.ts';
+import {auditEvidenceView} from './audit-evidence.ts';
 
 export default function auditSubmit(pi: any) {
     const controlPath = process.env.PI_COC_AUDIT_CONTROL;
     if (!controlPath) throw new Error('Audit submission needs a host control file');
     const control = JSON.parse(readFileSync(controlPath, 'utf8')), cwd = process.cwd();
     const request = JSON.parse(readFileSync(join(cwd, 'request.json'), 'utf8'));
+    const evidenceFiles = () => Object.fromEntries(request.continuity_review.files.map((name: string) => {
+        if (!['context.json', 'original.json', 'effective.json', 'world.json', 'current.json', 'history.json', 'handouts.json', 'notes.json', 'memory.json'].includes(name)) throw new Error('Invalid evidence file index');
+        return [name, JSON.parse(readFileSync(join(cwd, name), 'utf8'))];
+    }));
     let requests = 0, repairs = 0, submissionReminder = false;
     const status = {requests: 0, artifact_repairs: 0, submitted: false, unavailable: ''};
     const save = () => {
@@ -43,6 +48,16 @@ export default function auditSubmit(pi: any) {
             {triggerTurn: true, deliverAs: 'followUp'});
     });
     pi.registerTool({
+        name: 'read_audit_evidence', label: 'Read pinned review evidence', executionMode: 'sequential',
+        description: 'Read a focused view without writing JSON query scripts. Choose objects for complete object/weapon lookup, history for specific turn numbers (or the latest six), memory for attributed records and corrections, or source for exact named graph entries. Use names copied from the context; no opaque IDs. Full evidence remains available when the view is truncated.',
+        parameters: Type.Object({kind: Type.Union(['objects', 'history', 'memory', 'source'].map(v => Type.Literal(v))),
+            names: Type.Optional(Type.Array(Type.String(), {maxItems: 12})), turns: Type.Optional(Type.Array(Type.Integer(), {maxItems: 12}))}),
+        async execute(_id: string, params: any) {
+            const result = auditEvidenceView(params.kind, evidenceFiles(), params.names, params.turns);
+            return {content: [{type: 'text', text: JSON.stringify(result)}], details: {kind: 'audit_evidence', ...result}};
+        }
+    });
+    pi.registerTool({
         name: 'submit_audit', label: 'Submit continuity review', executionMode: 'sequential',
         description: 'Submit the review directly as result, or omit it to validate result.json. Successful validation ends this audit immediately. Invalid fields are returned together for one targeted repair; do not rewrite the Keeper candidate or recheck unrelated evidence.',
         parameters: Type.Object({result: Type.Optional(Type.Any({description: 'Review object: {missing:[], findings:[], continuity_review:{verdict:"pass"|"revise"|"unavailable",summary:string,conflicts:[]}}. Only material conflicts need {claim,reason,evidence:[{file,quote}]}. Pass needs empty issue lists.'}))}),
@@ -51,11 +66,7 @@ export default function auditSubmit(pi: any) {
             try {
                 result = params.result ?? JSON.parse(readFileSync(join(cwd, 'result.json'), 'utf8'));
                 if (Buffer.byteLength(JSON.stringify(result)) > 512000) return unavailable('The audit artifact exceeds its size bound');
-                for (const name of request.continuity_review.files) {
-                    if (!['context.json', 'original.json', 'effective.json', 'world.json', 'current.json', 'history.json', 'handouts.json', 'notes.json', 'memory.json'].includes(name))
-                        return unavailable('The audit evidence index is invalid');
-                    files[name] = JSON.parse(readFileSync(join(cwd, name), 'utf8'));
-                }
+                files = evidenceFiles();
             } catch (error) { return unavailable(`The retained audit input or artifact could not be read: ${error instanceof Error ? error.message : String(error)}`); }
             const errors = continuityArtifactErrors(result, request.input.text, files);
             if (errors.length) {

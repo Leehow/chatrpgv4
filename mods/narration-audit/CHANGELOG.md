@@ -1,3 +1,7 @@
+# 1.2.4
+
+Use typed read-only evidence views for targeted lookups instead of repeatedly exploring raw JSON layouts. Include executable sheet weapons in focused actor context.
+
 # 1.2.3
 
 The reviewer must not invent unexpressed illusions or off-screen events to justify a contradiction; preserve explicitly marked subjective perception.

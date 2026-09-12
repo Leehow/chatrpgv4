@@ -7,6 +7,7 @@ import {build} from 'esbuild';
 import {continuityArtifactErrors, AUDIT_LIMITS} from '../../kernel-ts/mods/audit-result.ts';
 import {AuditBudget, reviewUnavailable} from '../../extensions/mods/audit-budget.ts';
 import auditSubmit from '../../extensions/mods/audit-submit.ts';
+import {auditEvidenceView} from '../../extensions/mods/audit-evidence.ts';
 import modsExtension from '../../extensions/mods/index.ts';
 import {EventEmitter} from 'node:events';
 import {fauxAssistantMessage, fauxToolCall} from '@earendil-works/pi-ai';
@@ -19,6 +20,20 @@ await writeFile(join(directory, 'classification.json'), JSON.stringify({kind: 'c
 const pass = () => ({missing: [], findings: [], continuity_review: {verdict: 'pass', summary: 'Compatible campaign detail.', conflicts: []}});
 const conflict = () => ({missing: [], findings: [], continuity_review: {verdict: 'revise', summary: 'The prior statement was withdrawn.', conflicts: [
     {claim: 'His childhood was described.', reason: 'The retained correction withdrew this account.', evidence: [{file: 'memory.json', quote: 'The childhood account was withdrawn.'}]}]}});
+
+test('focused evidence lookup finds objects and sheet weapons without exposing an id-only interface', () => {
+    const files = {'world.json': {objects: {definitions: {definition1: {name: 'Crowbar', category: 'item'}},
+        instances: {instance1: {name: 'Old crowbar', owner: {kind: 'scene', name: 'Cellar'}, definition: 'definition1', state: {condition: 'intact'}}}}},
+        'current.json': {party: [{name: 'Investigator', weapons: [{name: 'Folding knife', skill: 'Fighting (Brawl)', damage: '1D4'}]}]},
+        'history.json': [{turn: 1, player_text: 'Keep the book here.', rendered_text: 'The book stays.', world: {private: 'not repeated'}}]};
+    const object = auditEvidenceView('objects', files, ['crowbar']);
+    assert.equal(object.entries[0].name, 'Old crowbar'); assert.equal(object.entries[0].owner.name, 'Cellar');
+    assert.equal(auditEvidenceView('objects', files, ['Folding knife']).entries[0].kind, 'sheet_weapon');
+    const missing = auditEvidenceView('objects', files, ['Unknown tool']);
+    assert.equal(missing.matching_count, 0); assert.ok(missing.known_names.includes('Old crowbar'));
+    const history = auditEvidenceView('history', files, [], [1]);
+    assert.equal(history.entries[0].player_text, 'Keep the book here.'); assert.equal(history.entries[0].world, undefined);
+});
 
 test('artifact validation collects exact locations and accepts compact passing reports', () => {
     assert.deepEqual(continuityArtifactErrors(pass(), 'A plausible new ledger cutoff.', {}), []);

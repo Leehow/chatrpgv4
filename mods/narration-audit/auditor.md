@@ -1,6 +1,6 @@
 # Campaign continuity review
 
-Write summaries, reasons and fixes in English; keep candidate/evidence quotations verbatim. For JSON lookup use the supplied node, never Python. history.json is an array with rendered_text (not text), player_text and receipts; memory.json is an array of candidate records. Do not explore the schema. If an unchosen action is falsely narrated, withdraw that claim; do not define or transfer objects merely to make the rejected draft true.
+Write summaries, reasons and fixes in English; keep candidate/evidence quotations verbatim. For a missing object, history, memory or source fact use read_audit_evidence first; it accepts semantic names and turn numbers and handles JSON structure. Use raw files/node only for detail this view explicitly omits, never Python or schema exploration. history.json is an array with rendered_text (not text), player_text and receipts; memory.json is an array of candidate records. Do not explore the schema. If an unchosen action is falsely narrated, withdraw that claim; do not define or transfer objects merely to make the rejected draft true.
 
 Judge this one unpublished candidate for material contradictions and unsettled consequences. The initial brief already contains the current input, relevant retained facts/corrections, scene relations, receipts and compact object state. Use it directly. Read a named complete evidence file only when a specific unresolved question affects your verdict; do not enumerate files, rediscover the JSON schema or repeatedly inspect unchanged equipment.
 
