@@ -170,6 +170,33 @@ export function prepareCluePresentation(options:TextOptions&{campaign:string;vie
   return prepareGrowingPresentation(options,'clues',clueTexts);
 }
 /**
+ * The words the NPC journal (§17.10) puts in front of the player that are not its own prose: the
+ * name each entry is filed under, and the scene stamped on every exchange.
+ *
+ * The journal lane writes the description and the exchange summary in the play language, and those
+ * stay out of here. The name cannot travel that leg: the lane is required to copy a recordable name
+ * exactly (`journal.submit` validates membership), so it is the module graph's word, and the scene
+ * is the kernel's stamp of the display name at the turn the exchange happened -- frozen there, so a
+ * scene the Keeper renamed afterwards keeps the book's name in the entries already written. Both
+ * are the same class of word as a clue's graph name, and reach the player the same way: projected
+ * once per language, merged under the glossary, looked up by the panel.
+ */
+export function journalTexts(view:Row):string[] {
+  const texts=new Set<string>();
+  const add=(value:unknown)=>{if(typeof value==='string'&&value.trim())texts.add(value)};
+  const journal=Array.isArray((view?.npcs as Row)?.journal)?((view.npcs as Row).journal as Row[]):[];
+  for(const entry of journal) {
+    if(!entry||typeof entry!=='object')continue;
+    add(entry.name);
+    for(const exchange of Array.isArray(entry.exchanges)?entry.exchanges as Row[]:[])
+      if(exchange&&typeof exchange==='object')add(exchange.scene);
+  }
+  return [...texts].sort();
+}
+export function prepareJournalPresentation(options:TextOptions&{campaign:string;view:Row}):Promise<Row> {
+  return prepareGrowingPresentation(options,'journal',journalTexts);
+}
+/**
  * The words a handed-over handout puts in front of the player: the document itself, and the name
  * the row folds under.
  *

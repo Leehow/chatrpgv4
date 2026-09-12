@@ -156,6 +156,34 @@ test('possession words are localized once, grow with the kit, and never include 
  assert.deepEqual(possessionTexts({investigators:[{objects:[{traits:[{name:'重量',value:2.4,unit:'公斤'}],state:{condition:'intact'}}]}]}),['condition','intact','公斤','重量']);
 });
 
+test('journal words are the names and stamped scenes, never the lane\'s own prose',async()=>{
+ const {prepareJournalPresentation,journalTexts}=await import('../../extensions/module/character-presentation.ts');
+ const home=await mkdtemp(join(tmpdir(),'journal-presentation-'));
+ const description='一位律师，办公室的主人家。神情冷静。';
+ const exchange='他收回被误拿的租约，并问先去现场还是先查纸面。';
+ const view={play_language:'zh-Hans',turn:4,npcs:{journal:[
+  {name:'Steven Knott',description,dead_since_turn:null,exchanges:[
+   {turn:1,scene:"Knott's Office",summary:exchange},{turn:2,scene:'科比特宅',summary:'他把钥匙推到桌沿。'}]},
+  {name:'Gabriela Macario',description:'邻居。',exchanges:[]}]}};
+ const original=JSON.stringify(view);let calls=0;
+ const runner=async r=>{calls++;const input=JSON.parse(await readFile(join(r.cwd,'texts.json'),'utf8'));
+  for(const hidden of [description,exchange,'他把钥匙推到桌沿。','邻居。','1','2'])assert.ok(!input.texts.includes(hidden),hidden);
+  await writeFile(join(r.cwd,'presentation.json'),JSON.stringify({finance_equipment:[],texts:Object.fromEntries(input.texts.map(t=>[t,t==='科比特宅'?t:`${input.play_language}:${t}`]))}));return {ok:true}};
+ const options={home,campaign:'c1',play_language:'zh-Hans',view,runner};
+ assert.deepEqual(journalTexts(view),['Gabriela Macario',"Knott's Office",'Steven Knott','科比特宅']);
+ const first=await prepareJournalPresentation(options);
+ assert.equal(first.texts['Steven Knott'],'zh-Hans:Steven Knott');assert.equal(first.texts["Knott's Office"],"zh-Hans:Knott's Office");
+ assert.equal(first.texts['科比特宅'],'科比特宅');assert.equal(calls,1);
+ assert.deepEqual(JSON.parse(await readFile(join(home,'.coc/campaigns/c1/setup/presentations/journal-zh-Hans.json'),'utf8')),first);
+ assert.deepEqual(await prepareJournalPresentation({...options,view:{...view,turn:5}}),first);assert.equal(calls,1);
+ const met={name:'Rupert Merriweather',exchanges:[{turn:5,scene:'波士顿公共图书馆',summary:'他翻出旧档案。'}]};
+ const next=await prepareJournalPresentation({...options,view:{...view,npcs:{journal:[...view.npcs.journal,met]}}});
+ assert.equal(calls,2);assert.equal(next.texts['Steven Knott'],first.texts['Steven Knott']);
+ assert.equal(next.texts['Rupert Merriweather'],'zh-Hans:Rupert Merriweather');
+ assert.equal(JSON.stringify(view),original);
+ assert.deepEqual(journalTexts({npcs:{journal:[]}}),[]);assert.deepEqual(journalTexts({}),[]);
+});
+
 test('clue words are localized once, grow with what is found, and never include a handle or an unfound clue',async()=>{
  const {prepareCluePresentation,clueTexts}=await import('../../extensions/module/character-presentation.ts');
  const home=await mkdtemp(join(tmpdir(),'clue-presentation-'));

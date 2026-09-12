@@ -1331,6 +1331,8 @@ An `apply npc` skill pin fills missing source material; it cannot contradict an 
   "exchanges": [{"turn": n, "scene": "<display_name>", "summary": "<这一回合他与玩家之间发生了什么，一句>"}]}
 ```
 
+**名字与场景走展示车道（2026-09-12 修正）。** `name` 写的是**可记录名**——车道被要求逐字照抄（`journal.submit` 校验成员资格），所以它是模组图的词，不是 play_language 的词；`exchanges[].scene` 是那一回合的 `display_name` 快照，之后守秘人改名也不会回填。两者都由展示车道投影：`journalTexts` 收集它们，写进 `setup/presentations/journal-<语言>.json`，表读取时并进词表（`SHEET_LANES`），面板用 `term()` 查（契约 §23 的两条腿）。车道自己写的 `description` 与 `exchanges[].summary` 本来就是 play_language，不进投影。
+
 日志是**派生存储**：真相在逐字记录与回合记录里，日志可由车道重放重建，因此它**不进回合提交链**（与 `memory/candidates.jsonl` 同一待遇），世界线分叉/切换不管它——条目按战役累积，玩家看见的是「这条战役里见过的所有人」。崩溃恢复与 §12.6 相同：`journal.job` 能按 `turn` 从回合记录重新出任务。
 
 **任务包** `journal.job`，params `{"campaign", "turn"?: int}`；缺省派发与 `memory.job` 同一条（最新的、未完成、不在 backlog 的已提交回合；§12.8）。result：

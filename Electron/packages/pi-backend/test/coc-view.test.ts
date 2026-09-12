@@ -3,7 +3,7 @@ import {mkdtemp,mkdir,writeFile,readFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {dirname,join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
-import {cocContentRoot,cocUiWords,currentDraft,deliveryWords,draftPresentations,laneLabels,laneLabelsLoaded,laneProjection,laneWords,mechanicsEntry,readCocBinding,readColdSheet,reloadLaneLabels} from '../src/coc-view.js';
+import {SHEET_LANES,type SheetLane,cocContentRoot,cocUiWords,currentDraft,deliveryWords,draftPresentations,laneLabels,laneLabelsLoaded,laneProjection,laneWords,mechanicsEntry,readCocBinding,readColdSheet,reloadLaneLabels} from '../src/coc-view.js';
 import {KernelClient} from '../../../../extensions/kernel/client.js';
 
 it('projects only public rows with stable identity and language',()=>{
@@ -254,6 +254,10 @@ it('lane words come from the built presenter, and each saved projection says wha
   expect(words).toEqual(['cm','condition','intact','length','mahogany','material']);
   const clueWords=await laneWords(repo,'clues',view);
   expect(clueWords).toEqual([summary,'血泊']);
+  // The journal's own prose is written in the play language; its names and stamped scenes are the graph's.
+  const journalWords=await laneWords(repo,'journal',{...view,npcs:{journal:[
+    {name:'Steven Knott',description:'一位律师。',exchanges:[{turn:1,scene:"Knott's Office",summary:'他收回租约。'}]}]}});
+  expect(journalWords).toEqual(["Knott's Office",'Steven Knott']);
   const home=await mkdtemp(join(tmpdir(),'coc-lanes-'));
   const context={campaign:'c1',home,play_language:'zh-Hans'};
   expect(await laneProjection(context,'possessions',words)).toEqual({texts:{},missing:words});
@@ -365,8 +369,12 @@ it('a bound sheet read merges every lane\'s saved words under the kernel glossar
   try {await client.call('campaign.create',{id:'carried',module:'the-haunting',pregen:'thomas-hayes',play_language:'zh-Hans'});}finally{await client.close();}
   const folder=join(root,'.coc/campaigns/carried/setup/presentations');await mkdir(folder,{recursive:true});
   const sheet=await readColdSheet(repo,{campaign:'carried',home:root,play_language:'zh-Hans'});
-  const languages=await laneWords(repo,'languages',sheet);
-  await writeFile(join(folder,'languages-zh-Hans.json'),JSON.stringify({play_language:'zh-Hans',texts:Object.fromEntries(languages.map(word=>[word,word]))}));
+  // Every lane this sheet read tops up, satisfied from the presenter's own collectors: the claim
+  // below is that a sheet lacking nothing starts no run, so a lane left out would prove nothing.
+  for(const lane of Object.keys(SHEET_LANES) as SheetLane[]) {
+    const wanted=await laneWords(repo,lane,sheet);
+    await writeFile(join(folder,`${lane}-zh-Hans.json`),JSON.stringify({play_language:'zh-Hans',texts:Object.fromEntries(wanted.map(word=>[word,word]))}));
+  }
   // The projection may not outrank the glossary: the kernel's word for a skill stays the kernel's.
   await writeFile(join(folder,'possessions-zh-Hans.json'),JSON.stringify({play_language:'zh-Hans',texts:{intact:'完好','Spot Hidden':'不是这个'}}));
   const summary='Corbitt can form pools of blood on floor, ceiling, or walls to frighten intruders away from his secret.';

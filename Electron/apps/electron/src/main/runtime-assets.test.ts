@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { describe, it, expect } from 'vitest'
 import { resolveRuntimeAssets } from './runtime-assets.js'
-import { COMPILED_ENTRIES, HOST_MOUNTS } from '../../../../../runtime/deployment.mjs'
+import { COMPILED_ENTRIES, COC_EXTENSIONS, HOST_MOUNTS } from '../../../../../runtime/deployment.mjs'
 
 describe('canonical Keeper runtime', () => {
   it('selects this checkout even when an old embedded runtime override is present', () => {
@@ -32,7 +32,7 @@ it('loads only the standalone resources and keeps the profile outside them', () 
   write(join(repo, 'deployment.json'), JSON.stringify(manifest))
   for (const path of [manifest.node, manifest.git, manifest.pi, ...Object.values(COMPILED_ENTRIES),
     ...Object.values(HOST_MOUNTS).map(path => `build/host/runtime/${path}`),
-    ...['kernel','mods','onboarding','module','memory','table'].map(name => `build/extensions/${name}/index.mjs`),
+    ...COC_EXTENSIONS.map(name => `build/extensions/${name}/index.mjs`),
     'prompts/keeper.md','prompts/setup.md','build/host/runtime/auth/pi-auth-helper.mjs']) write(join(repo,path))
   for (const path of ['content','mods',manifest.gitExec,manifest.gitTemplates]) mkdirSync(join(repo,path), {recursive:true})
   write(join(resources,'pi-coc-runtime.json'), JSON.stringify({schemaVersion:1,kind:'standalone',runtimeRoot:'pi-coc'}))
