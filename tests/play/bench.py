@@ -120,6 +120,30 @@ def kernel_call(method: str, params: dict[str, Any]) -> dict[str, Any]:
                        f"stderr={proc.stderr[-400:]!r}")
 
 
+def runtime_identity() -> dict[str, Any]:
+    """Which build the tables actually ran, and which commit the tree was on.
+
+    Another session develops in this worktree and rebuilds when it likes, so a suite that took
+    five hours cannot assume one kernel. Recording the built file's digest and time makes a run
+    attributable after the fact instead of arguable.
+    """
+    identity: dict[str, Any] = {}
+    if KERNEL_ENTRY.is_file():
+        data = KERNEL_ENTRY.read_bytes()
+        identity["kernel_sha256"] = hashlib.sha256(data).hexdigest()[:16]
+        identity["kernel_built_at"] = datetime.fromtimestamp(
+            KERNEL_ENTRY.stat().st_mtime, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    head = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=str(REPO_ROOT),
+                          capture_output=True, text=True)
+    if head.returncode == 0:
+        identity["head"] = head.stdout.strip()
+    dirty = subprocess.run(["git", "status", "--porcelain"], cwd=str(REPO_ROOT),
+                           capture_output=True, text=True)
+    if dirty.returncode == 0:
+        identity["tree_dirty_files"] = len([l for l in dirty.stdout.splitlines() if l.strip()])
+    return identity
+
+
 def campaign_dir(campaign_id: str) -> Path:
     return REPO_ROOT / ".coc" / "campaigns" / campaign_id
 
@@ -333,6 +357,7 @@ def execute_run(run: dict[str, Any], suite: dict[str, Any], persona: dict[str, A
         "module": suite["module"], "play_language": suite["play_language"],
         "models": {"keeper": suite["kp_model"], "player": suite["player_model"],
                    "admission": suite.get("admission_model")},
+        "runtime": runtime_identity(),
         "started_at": started_at, "status": "running", "turns": [],
     }
     driver.write_json(out_dir / "run.json", record)

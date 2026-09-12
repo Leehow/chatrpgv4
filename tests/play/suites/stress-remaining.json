@@ -1,0 +1,16 @@
+{
+  "suite": "stress",
+  "personas": ["S03", "S04", "S05", "S06"],
+  "lanes": ["controlled", "natural"],
+  "trials": 3,
+  "max_turns": 30,
+  "natural_source": "setup",
+  "setup_max_turns": 20,
+  "kp_model": "xai/grok-4.6",
+  "player_model": "xai/grok-4.6",
+  "admission_model": "deepseek/deepseek-v4-flash",
+  "opening_timeout": 900,
+  "turn_timeout": 420,
+  "wall_cap_seconds": 7200,
+  "concurrency": 24
+}
