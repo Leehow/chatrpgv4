@@ -1,6 +1,6 @@
 # Story Continuity and Adaptation: midgame causal clarity
 
-_Date: 2026-09-12. Baseline: 0.9.2a at 825f4719d72b16702b28e5a1e5e60404a9f109fa. Status: specification only; spec-complete pending implementation. No implementation, publication, test, build, or live-play claim is made._
+_Date: 2026-09-12. Baseline: 0.9.2a at 825f4719d72b16702b28e5a1e5e60404a9f109fa. Status: implementation present; acceptance partial. Implementation record: [../plans/story-continuity-and-adaptation.md](../plans/story-continuity-and-adaptation.md)._
 
 ## Problem Statement
 
@@ -149,4 +149,4 @@ Verified prior art provides supporting contract seams, not tests run: `tests/ker
 
 ### Readiness
 
-The design is spec-complete pending implementation. “Ready-for-agent” is a tracker label only: it does not start code work or prove acceptance. Exact contracts, implementation behavior, and live acceptance remain future work.
+Implementation is present and the acceptance record is partial; see [../plans/story-continuity-and-adaptation.md](../plans/story-continuity-and-adaptation.md). “Ready-for-agent” is a tracker label only: it does not prove acceptance. Human UI acceptance remains pending, and the documented failed live turns mean whole-feature acceptance is not complete.

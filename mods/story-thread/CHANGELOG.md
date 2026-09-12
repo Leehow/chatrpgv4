@@ -1,5 +1,9 @@
 # Story Thread
 
+## 1.1.3
+- Reminders fit the combined budget after NPC-journal/provider integration; full guidance stays unchanged.
+- Source roles and unknown causes stay explicit during clarification.
+
 ## 1.1.2
 - Compresses the per-turn reminder without changing its gates or meanings.
 

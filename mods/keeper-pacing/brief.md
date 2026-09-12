@@ -1,3 +1,3 @@
 # Keeper Pacing (reminder)
 
-Close-call warning threshold unchanged: lethal below it warns; at it is fair. Tick threat only via `apply threat`, when justified by time/noise/exposure/danger; show source symptoms and consequences. Signals advise, not meaning. Quiet, short play and informed refusal are valid. Genuine stuckness may offer a world consequence, person or information—no repeated asks, forced choices or skipped risks. Exhausted scenes use `apply` montage. Clarification is free; failed Idea remains a lead with sourced complication.
+Warn for lethal outcomes below the close-call threshold. Tick via `apply threat` for grounded time/noise/exposure/danger; show source symptoms. Signals advise. Quiet play and informed refusal are valid. Stuckness may invite a consequence, person or fact; no repeated asks or forced choices. Keep risks; montage exhausted scenes via apply. Clarification is free; failed Idea gives a lead with sourced complication.

@@ -20,7 +20,7 @@ export function continuityView(graph: ModuleGraph, world: Row, records: Row[] = 
     const anchorOrder = new Map(anchorNodes.map((node, index) => [node.node_id, index]));
     const distance = new Map<string, number>(anchorNodes.map(node => [node.node_id, 0]));
     for (const node of anchorNodes.filter(n => n.node_kind === 'scene'))
-        for (const id of graph.sceneClueIds(node)) distance.set(id, 1);
+        for (const id of graph.sceneClueIds(node)) if (!distance.has(id)) distance.set(id, 1);
     for (let depth = 0; depth < 2; depth++) {
         for (const [id, d] of [...distance]) if (d <= depth) {
             for (const edge of [...(graph.out.get(id) ?? []), ...(graph.incoming.get(id) ?? [])]) {

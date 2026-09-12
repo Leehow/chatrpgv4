@@ -1,5 +1,8 @@
 # Keeper Pacing
 
+## 1.2.2
+- Reminders fit the combined budget after NPC-journal/provider integration; full guidance stays unchanged.
+
 ## 1.2.1
 - Compresses the per-turn reminder without changing its guardrails or meanings.
 

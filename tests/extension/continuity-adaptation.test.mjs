@@ -73,6 +73,7 @@ test('a small capsule keeps the most recently acquired relationship ahead of an 
         ['conclusion', 'a-old', 'Earlier relationship'], ['conclusion', 'z-new', 'Current relationship']]
         .map(([node_kind, slug, name]) => ({node_id: `${node_kind}-${slug}`, node_kind, name, summary: name, properties: {}}));
     const source = new api.ModuleGraph('fixture', {nodes, relations: [
+        {relation_kind: 'discoverable-at', from_node_id: 'clue-new', to_node_id: 'scene-room'},
         {relation_kind: 'supports', from_node_id: 'clue-old', to_node_id: 'conclusion-a-old'},
         {relation_kind: 'supports', from_node_id: 'clue-new', to_node_id: 'conclusion-z-new'}], claims: []}, 'fixture', {});
     const result = api.continuityView(source, {active_scene: 'room', discovered_clues: ['old', 'new'], npc_presence: {}}, [], [], {limit: 1, compact: true, budget: 1400});
