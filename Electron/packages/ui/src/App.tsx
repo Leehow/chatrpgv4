@@ -42,7 +42,7 @@ import { useUpdateCenter } from './useUpdateCenter'
 import { chatImagesFromAttachments, fileToPromptAttachment, filesFromClipboard, imageFilesFromClipboard, imageFilesFromFileList, stripAttachmentPathsForDisplay, validateAttachment } from './attachments'
 import { composerInputFilesFromList, DEFAULT_COMPOSER_INPUT_FILES_PROMPT, EMPTY_INPUT_FILE_GATE, InputFileAttachments, modelHasInputFiles, type InputFileAttachmentsHandle, type InputFileGate } from './InputFileAttachments'
 import { LiveSubagentBindingProvider } from './LiveSubagentBinding'
-import { Transcript } from './Transcript'
+import { Transcript, type IllustrationState } from './Transcript'
 import { EmptySetupGuide } from './EmptySetupGuide'
 import { parseSubagentSignal } from './subagent-signal'
 import { appendLiveUserMessage, applySecretRedact, applyStreamEvent, assistantEndedAwaitingModel, assistantLooksSettled, finishStreamingMessage, reopenAssistantForNextCompletion, reconcileHistorySnapshot, transcriptFingerprint, type ChatMessage } from './transcript-model'
@@ -2257,6 +2257,67 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
     finally { setBranchBusy(false) }
   }
   const branchMessageIds = useMemo<ReadonlySet<string>>(() => new Set<string>((timeline?.anchors ?? []).filter((a:any) => a.sessionId === selectedSession).map((a:any) => a.messageId)), [timeline, selectedSession])
+  /* §35 turn illustration. The invoke channel has a 15s ceiling, so only the
+   * `generating` answer (or a refusal) ever comes back from illustration.generate;
+   * the image itself always arrives via the `illustration-changed` push below. */
+  const [illustrations, setIllustrations] = useState<Record<string, IllustrationState>>({})
+  const illustrationListLoadedForRef = useRef<string | null>(null)
+  // A session switch wipes the map; clearing the seed guard lets a switch-back reseed it.
+  useEffect(() => { setIllustrations({}); illustrationListLoadedForRef.current = null }, [selectedSession])
+  const messageActionWordsRef = useRef<Record<string,string> | undefined>(undefined)
+  messageActionWordsRef.current = timeline?.ui?.words?.['message-actions']
+  const illustrationGate = Boolean(productId === 'pipicoc' && selectedSession && timeline?.hostSessionId === selectedSession && timeline?.status === 'ready' && typeof timeline?.campaign === 'string' && host.invokeExtension)
+  useEffect(() => {
+    if (!illustrationGate || !selectedSession || !host.invokeExtension) return
+    if (illustrationListLoadedForRef.current === selectedSession) return
+    illustrationListLoadedForRef.current = selectedSession
+    let cancelled = false
+    void host.invokeExtension('coc-keeper','illustration.list',{}, {sessionId:selectedSession}).then(result => {
+      if (cancelled || !result.ok) return
+      const images = (result.data as {images?: Array<{messageId?: unknown; image?: unknown}>})?.images ?? []
+      setIllustrations(current => {
+        const next = {...current}
+        for (const entry of images) {
+          if (typeof entry.messageId === 'string' && typeof entry.image === 'string' && !next[entry.messageId]) next[entry.messageId] = {status:'ready', image:entry.image}
+        }
+        return next
+      })
+    }).catch(() => undefined)
+    return () => { cancelled = true }
+  }, [host, selectedSession, illustrationGate])
+  useEffect(() => subscribeExt(host, 'coc-keeper', event => {
+    if (event?.type !== 'illustration-changed') return
+    const payload = (event.payload ?? {}) as {messageId?: unknown; status?: unknown; code?: unknown}
+    if (typeof payload.messageId !== 'string') return
+    const messageId = payload.messageId
+    if (payload.status === 'ready') {
+      const sessionId = selectedSessionRef.current
+      if (!sessionId || !host.invokeExtension) return
+      void host.invokeExtension('coc-keeper','illustration.get',{messageId},{sessionId}).then(result => {
+        const image = result.ok ? (result.data as {image?: unknown})?.image : undefined
+        if (typeof image === 'string') setIllustrations(current => ({...current, [messageId]: {status:'ready', image}}))
+      }).catch(() => undefined)
+      return
+    }
+    if (payload.status === 'error') {
+      setIllustrations(current => ({...current, [messageId]: {status:'error', code:typeof payload.code === 'string' ? payload.code : 'unknown'}}))
+      setProjectError(messageActionWordsRef.current?.['illustrate_failed'] ?? 'Illustration failed')
+    }
+  }), [host])
+  const handleIllustrate = (message: ChatMessage) => {
+    if (!selectedSession || !host.invokeExtension || sessionWorking || branchBusy) return
+    if (illustrations[message.id]?.status === 'busy') return
+    setIllustrations(current => ({...current, [message.id]: {status:'busy'}}))
+    void host.invokeExtension('coc-keeper','illustration.generate',{messageId:message.id, text:displaySecretPlaceholders(message.content)}, {sessionId:selectedSession}).then(result => {
+      if (result.ok) return // {status:'generating'} — the push settles the row.
+      setIllustrations(current => ({...current, [message.id]: {status:'error', code:result.error?.code ?? 'unknown'}}))
+      setProjectError(result.error?.message || 'Illustration failed')
+    }).catch(error => {
+      setIllustrations(current => ({...current, [message.id]: {status:'error', code:'invoke_failed'}}))
+      setProjectError(error instanceof Error ? error.message : String(error))
+    })
+  }
+  const illustrationsById = useMemo<ReadonlyMap<string, IllustrationState>>(() => new Map(Object.entries(illustrations)), [illustrations])
   const handleResend = (message: ChatMessage) => {
     // Electron has no fork/resend RPC yet: this deliberately sends a new prompt.
     const text = displaySecretPlaceholders(message.role === 'user' ? stripAttachmentPathsForDisplay(message.content) : message.content)
@@ -2820,6 +2881,9 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
                 onBranch={message => void handleBranch(message)}
                 branchMessageIds={branchMessageIds}
                 branchDisabled={branchBusy || sessionWorking}
+                onIllustrate={illustrationGate ? handleIllustrate : undefined}
+                illustrations={illustrationsById}
+                illustrateDisabled={sessionWorking || branchBusy}
                 actionWords={timeline?.ui?.words?.['message-actions']}
                 onChoose={async (entry,option)=>{
                   if(entry.renderer==='coc-character-draft'){const ack=await host.invokeExtension!("coc-keeper",option==='presentation'?"draft-presentation":"draft-previewed",{revision:(entry.details as any).revision},{sessionId:selectedSession});if(!ack.ok)throw new Error(ack.error?.message||"Preview acknowledgment failed");return ack.data;}

@@ -24,3 +24,11 @@
 
 .message-action-bar.has-branch{opacity:1;pointer-events:auto}
 .presentation-footer{padding-top:0;margin-top:-12px}
+
+/* §35 turn illustration: floats at the top-right of the narration it illustrates. */
+.message-illustration{float:right;width:200px;margin:2px 0 12px 18px;border-radius:10px;overflow:hidden;border:1px solid var(--border)}
+.message-illustration img{display:block;width:100%}
+.message-illustration.is-busy{aspect-ratio:3/4;background:color-mix(in srgb,var(--text) 6%,transparent);animation:message-illustration-pulse 1.4s ease-in-out infinite}
+.message-illustration.is-error{display:flex;min-height:48px;align-items:center;justify-content:center;padding:10px 12px}
+.message-illustration-error{font-size:11px;color:var(--muted)}
+@keyframes message-illustration-pulse{0%,100%{opacity:1}50%{opacity:.45}}

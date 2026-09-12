@@ -66,6 +66,40 @@ describe('MessageActionBar', () => {
     expect(css).toMatch(/\.message-action-icon-svg\{[^}]*width:17px;[^}]*height:17px/)
   })
 
+  it('exposes an illustrate control between branch and jump and invokes its callback', () => {
+    const onCopy = vi.fn()
+    const onBranch = vi.fn()
+    const onIllustrate = vi.fn()
+    render(<MessageActionBar alignment="leading" canCopy canJump onCopy={onCopy} onBranch={onBranch} onIllustrate={onIllustrate} onJump={() => undefined} />)
+    const illustrate = screen.getByRole('button', { name: '生成插画' })
+    const svg = illustrate.querySelector('.message-action-icon-svg')
+    expect(svg?.getAttribute('width')).toBe('17')
+    expect(svg?.getAttribute('height')).toBe('17')
+    const branch = screen.getByRole('button', { name: '…' })
+    const jump = screen.getByRole('button', { name: '跳转到上一条用户消息' })
+    expect(branch.compareDocumentPosition(illustrate) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(illustrate.compareDocumentPosition(jump) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    fireEvent.click(illustrate)
+    expect(onIllustrate).toHaveBeenCalledOnce()
+    expect(onCopy).not.toHaveBeenCalled()
+    expect(onBranch).not.toHaveBeenCalled()
+  })
+
+  it('marks a running illustration busy and honors the disabled state', () => {
+    const onIllustrate = vi.fn()
+    const words = { illustrate: 'Illustrate', illustrating: 'Illustrating…' }
+    const { rerender } = render(<MessageActionBar alignment="leading" canCopy onCopy={() => undefined} onIllustrate={onIllustrate} words={words} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Illustrate' }))
+    expect(onIllustrate).toHaveBeenCalledOnce()
+    rerender(<MessageActionBar alignment="leading" canCopy onCopy={() => undefined} onIllustrate={onIllustrate} illustrateBusy words={words} />)
+    const busy = screen.getByRole('button', { name: 'Illustrating…' }) as HTMLButtonElement
+    expect(busy.disabled).toBe(true)
+    fireEvent.click(busy)
+    expect(onIllustrate).toHaveBeenCalledOnce()
+    rerender(<MessageActionBar alignment="leading" canCopy onCopy={() => undefined} onIllustrate={onIllustrate} illustrateDisabled words={words} />)
+    expect((screen.getByRole('button', { name: 'Illustrate' }) as HTMLButtonElement).disabled).toBe(true)
+  })
+
   it('keeps the complete user message group on the trailing edge', () => {
     const css = readFileSync(join(import.meta.dirname, 'app.css'), 'utf8')
     expect(css).toContain('.user-message{display:flex;flex-direction:column;align-items:flex-end}')

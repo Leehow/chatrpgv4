@@ -130,14 +130,14 @@ function useOpeningReveal(id: string, full: string): { text: string; revealing: 
   return { text: done ? full : full.slice(0, count), revealing: !done }
 }
 
-const OpeningTranscriptContent = memo(function OpeningTranscriptContent({ id, content, documentBasePath, onOpenDocument }: { id: string; content: string; documentBasePath?: string; onOpenDocument?: (path: string) => void }) {
+const OpeningTranscriptContent = memo(function OpeningTranscriptContent({ id, content, documentBasePath, onOpenDocument, illustration }: { id: string; content: string; documentBasePath?: string; onOpenDocument?: (path: string) => void; illustration?: ReactNode }) {
   const reveal = useOpeningReveal(id, content)
   return <div className="assistant-transcript-content" data-testid="assistant-transcript-content">
-    <div data-transcript-segment="text"><TranscriptMarkdown content={displaySecretPlaceholders(reveal.text)} streaming={reveal.revealing} />{!reveal.revealing && <DocumentReferenceCards content={displaySecretPlaceholders(content)} basePath={documentBasePath} onOpenDocument={onOpenDocument} />}</div>
+    <div data-transcript-segment="text">{illustration}<TranscriptMarkdown content={displaySecretPlaceholders(reveal.text)} streaming={reveal.revealing} />{!reveal.revealing && <DocumentReferenceCards content={displaySecretPlaceholders(content)} basePath={documentBasePath} onOpenDocument={onOpenDocument} />}</div>
   </div>
 })
 
-export const AssistantTranscriptContent = memo(function AssistantTranscriptContent({ message, expandSteps, documentBasePath, onOpenDocument, onOpenSubagents }: { message: AssistantTranscriptMessage; expandSteps?: boolean; documentBasePath?: string; onOpenDocument?: (path: string) => void; onOpenSubagents?: (agentId?: string) => void }) {
+export const AssistantTranscriptContent = memo(function AssistantTranscriptContent({ message, expandSteps, documentBasePath, onOpenDocument, onOpenSubagents, illustration }: { message: AssistantTranscriptMessage; expandSteps?: boolean; documentBasePath?: string; onOpenDocument?: (path: string) => void; onOpenSubagents?: (agentId?: string) => void; illustration?: ReactNode }) {
   const [errorDismissed, setErrorDismissed] = useState(false)
   const [errorSeen, setErrorSeen] = useState(message.error)
   if (message.error !== errorSeen) {
@@ -181,11 +181,14 @@ export const AssistantTranscriptContent = memo(function AssistantTranscriptConte
     return stepGroupCount > 1 ? `${base}:${index}` : base
   }
   const openingId = (message as { id?: string }).id
-  if (message.opening && typeof openingId === 'string') return <OpeningTranscriptContent id={openingId} content={message.content} documentBasePath={documentBasePath} onOpenDocument={onOpenDocument} />
+  if (message.opening && typeof openingId === 'string') return <OpeningTranscriptContent id={openingId} content={message.content} documentBasePath={documentBasePath} onOpenDocument={onOpenDocument} illustration={illustration} />
+  // The illustration float mounts ahead of the first prose segment so the
+  // narration wraps around it (§35 mock: top-right of the row).
+  const firstTextIndex = segments.findIndex(segment => segment.type === 'text')
   return <div className="assistant-transcript-content" data-testid="assistant-transcript-content">
     {segments.map((segment, index) => {
       if (segment.type === 'text') {
-        return <div key={`text:${segment.id}`} data-transcript-segment="text"><TranscriptMarkdown content={displaySecretPlaceholders(segment.content)} streaming={message.streaming && index === segments.length - 1} />{!message.streaming && <DocumentReferenceCards content={displaySecretPlaceholders(segment.content)} basePath={documentBasePath} onOpenDocument={onOpenDocument} />}</div>
+        return <div key={`text:${segment.id}`} data-transcript-segment="text">{index === firstTextIndex ? illustration : null}<TranscriptMarkdown content={displaySecretPlaceholders(segment.content)} streaming={message.streaming && index === segments.length - 1} />{!message.streaming && <DocumentReferenceCards content={displaySecretPlaceholders(segment.content)} basePath={documentBasePath} onOpenDocument={onOpenDocument} />}</div>
       }
       const groupTools = segment.activities.flatMap(activity => activity.type === 'tool' ? [activity.tool] : [])
       const hasThinking = segment.activities.some(activity => activity.type === 'thinking')

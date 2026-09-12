@@ -35,28 +35,31 @@ describe('active-turn waiting placeholder', () => {
   // only surface that keeps moving through the call — the waiting line — carries the pack's own count.
   it('carries CoC mod-definition progress while the tool call runs, and drops it when the phase turns', async () => {
     let listener: ((event: StreamEvent) => void) | undefined
-    let extListener: ((event: { type: string; payload?: unknown }) => void) | undefined
+    // The host broadcasts one ext channel to every subscriber (App already
+    // stacks several coc-keeper blocks), so the double keeps a list, not a slot.
+    const extListeners: Array<(event: { type: string; payload?: unknown }) => void> = []
+    const emitExt = (event: { type: string; payload?: unknown }) => { for (const emit of [...extListeners]) emit(event) }
     const base = createMockHost()
     const host: PipiHostAPI = { ...base,
       subscribeStream: (_sessionId, callback) => { listener = callback; return () => { listener = undefined } },
       subscribeExt: (extensionId: string, callback: (event: { type: string; payload?: unknown }) => void) => {
         if (extensionId !== 'coc-keeper') return () => undefined
-        extListener = callback
-        return () => { extListener = undefined }
+        extListeners.push(callback)
+        return () => { const index = extListeners.indexOf(callback); if (index >= 0) extListeners.splice(index, 1) }
       },
     } as PipiHostAPI
     render(<App host={host} />)
     await screen.findAllByText('Electron 三栏界面')
     await waitFor(() => expect(listener).toBeDefined())
-    await waitFor(() => expect(extListener).toBeDefined())
+    await waitFor(() => expect(extListeners.length).toBeGreaterThan(0))
 
     act(() => { listener?.({ type: 'status', sessionId: 'welcome', status: 'started', pendingFollowUps: ['host'] }) })
     act(() => { listener?.({ type: 'tool_call', sessionId: 'welcome', toolCallId: 'apply-1', name: 'apply', delta: '{"effects":[]}' }) })
-    act(() => { extListener?.({ type: 'mods-progress', payload: { campaign: 'c1', done: 2, total: 7 } }) })
+    act(() => { emitExt({ type: 'mods-progress', payload: { campaign: 'c1', done: 2, total: 7 } }) })
     await waitFor(() => expect(document.querySelector('.waiting-placeholder__detail')?.textContent).toContain('生成物品定义 2/7'))
 
     // The last definition lands: the count stops claiming work that is no longer running.
-    act(() => { extListener?.({ type: 'mods-progress', payload: { campaign: 'c1', done: 7, total: 7 } }) })
+    act(() => { emitExt({ type: 'mods-progress', payload: { campaign: 'c1', done: 7, total: 7 } }) })
     await waitFor(() => expect(document.querySelector('.waiting-placeholder__detail')?.textContent).not.toContain('生成物品定义'))
   })
 

@@ -50,6 +50,26 @@ const PORTRAIT_FILES: ReadonlyArray<readonly [string, string]> = [
 	["png", "image/png"], ["jpg", "image/jpeg"], ["webp", "image/webp"],
 ];
 
+/** A stored portrait file: its bytes, its mime, and the data URL the panel transport uses. */
+export interface StoredPortrait {
+	bytes: Uint8Array;
+	mime: string;
+	dataUrl: string;
+}
+
+/**
+ * The campaign's own portrait file, when the mount generated one. Shared with the illustration
+ * lane (contract §35.4), which rides it as the reference image; the closed extension set stays
+ * a file lookup, not a semantic question.
+ */
+export async function readStoredPortrait(home: string, campaign: string): Promise<StoredPortrait | undefined> {
+	for (const [ext, mime] of PORTRAIT_FILES) {
+		const bytes = await readFile(join(home, ".coc", "campaigns", campaign, `portrait.${ext}`)).catch(() => undefined);
+		if (bytes) return { bytes, mime, dataUrl: `data:${mime};base64,${bytes.toString("base64")}` };
+	}
+	return undefined;
+}
+
 /** The aesthetic every card shares; the subject text is the investigator's own description. */
 const PORTRAIT_STYLE =
 	"1920s sepia archival portrait photograph, aged photo paper, head-and-shoulders, period attire";
@@ -198,11 +218,7 @@ export function registerSheetPanel(pi: ExtensionAPI, deps: SheetPanelDeps = {}):
 	async function storedPortrait(): Promise<string | undefined> {
 		const home = runtime?.home;
 		if (!home || !campaign) return undefined;
-		for (const [ext, mime] of PORTRAIT_FILES) {
-			const bytes = await readFile(join(home, ".coc", "campaigns", campaign, `portrait.${ext}`)).catch(() => undefined);
-			if (bytes) return `data:${mime};base64,${bytes.toString("base64")}`;
-		}
-		return undefined;
+		return (await readStoredPortrait(home, campaign))?.dataUrl;
 	}
 
 	async function identityArtWithPortrait(): Promise<NonNullable<SheetAnswer["identity_art"]>> {

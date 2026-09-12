@@ -3,5 +3,8 @@
   "copied": "Copied",
   "branch": "Create branch",
   "busy": "Creating branch…",
-  "actions": "Message actions"
+  "actions": "Message actions",
+  "illustrate": "Generate illustration",
+  "illustrating": "Generating illustration…",
+  "illustrate_failed": "Illustration failed"
 }
