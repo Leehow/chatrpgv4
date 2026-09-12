@@ -1,8 +1,10 @@
-"""§33 creation difficulty: preset scaling, custom knobs, records, limits and validation.
+"""§33 creation difficulty: preset knob bundles, custom knobs, records, limits and validation.
 
 Every case drives the TypeScript kernel over RPC. Seeded cases use the legacy
 `setup.investigator` path (explicit seed); the draft cases pin the §23.4 limits block and
-the pool-assignment permutation under scaling. Absent difficulty is today's card bit for bit."""
+the pool-assignment permutation. Presets are knob bundles, never uniform card multipliers
+(§33.2, re-specified 2026-09-12): characteristics and LUCK values are never scaled, and
+absent difficulty is today's card bit for bit."""
 
 from __future__ import annotations
 
@@ -13,24 +15,13 @@ from conftest import CAMPAIGN, campaign_dir, read_json
 from test_setup_drafts import profile
 
 MODULE = "the-haunting"
-PRESET = {"extreme": 0.5, "hard": 1, "normal": 2, "easy": 4}
 POOL_3D6 = ["STR", "CON", "DEX", "APP", "POW"]
 POOL_2D6_6 = ["SIZ", "INT", "EDU"]
 
 
-def round5(value: float) -> int:
-    return math.floor(value / 5 + 0.5) * 5
-
-
-def scaled(total: int, m: float) -> int:
-    """§33.2: dice×5×m, nearest multiple of 5 (ties up), clamped to the scaled creation bounds."""
-    return scaled_value(total * 5, m)
-
-
-def scaled_value(value: float, m: float) -> int:
-    """§33.2 applied to an already-multiplied value (the quick-fire array entries)."""
-    lo, hi = max(5, round5(15 * m)), max(5, round5(90 * m))
-    return max(5, min(hi, max(lo, round5(value * m))))
+def jsround(value: float) -> int:
+    """JavaScript Math.round: halves away from zero (Python's round is banker's)."""
+    return math.floor(value + 0.5)
 
 
 def create(kernel, difficulty=None, campaign_id=CAMPAIGN):
@@ -59,7 +50,7 @@ def test_absent_hard_and_empty_custom_are_bit_identical(kernel):
     plain, hard, empty = (investigator(kernel, cid) for cid in (CAMPAIGN, "c2", "c3"))
     assert "difficulty" not in plain["creation"]
     assert "difficulty" not in read_json(campaign_dir(kernel.workspace) / "campaign.json")
-    assert hard["creation"]["difficulty"] == {"mode": "preset", "preset": "hard", "multiplier": 1, "custom": {}}
+    assert hard["creation"]["difficulty"] == {"mode": "preset", "preset": "hard", "custom": {}}
     assert empty["creation"]["difficulty"] == {"mode": "custom", "custom": {}}
     for card in (hard, empty):
         assert {**card["creation"], "difficulty": None} == {**plain["creation"], "difficulty": None}
@@ -74,75 +65,89 @@ def test_same_seed_same_difficulty_same_card(kernel):
     assert second == first
 
 
-# ---- presets: characteristics, luck, quick fire, cap (§33.2) --------------------------------
+# ---- presets: knob bundles, never card multipliers (§33.2) ------------------------------------
 
 
-def test_preset_rolls_scale_by_the_multiplier(kernel):
+def test_presets_roll_the_rulebook_dice_on_the_rulebook_bounds(kernel):
+    """Characteristics, age effects and derived values are the hard baseline bit for bit;
+    LUCK differs only where the easy knob reaches."""
     create(kernel, preset("hard"))
     baseline = investigator(kernel)
     for name in ("extreme", "normal", "easy"):
         create(kernel, preset(name), name)
         card = investigator(kernel, name)
-        m = PRESET[name]
         generation = card["creation"]["characteristics"]
-        assert generation["scaling"] == {"multiplier": m, "bounds": [max(5, round5(15 * m)), max(5, round5(90 * m))]}
-        # the same seed rolls the same dice; only the scaling differs
-        assert generation["rolls"] == baseline["creation"]["characteristics"]["rolls"]
-        for abbr, roll in generation["rolls"].items():
-            assert generation["values"][abbr] == scaled(roll["total"], m), abbr
-        # age adjustments consume the stream by value (a scaled EDU draws different improvement rolls),
-        # so luck is verified against its own attempts, not against the baseline campaign's
-        luck = card["creation"]["luck"]
-        assert luck["value"] == scaled(max(a["total"] for a in luck["attempts"]), m)
-        assert luck["scaling"] == {"multiplier": m, "bounds": [max(5, round5(15 * m)), max(5, round5(90 * m))]}
-        assert card["creation"]["skills"]["cap"]["value"] == round(75 * m)
+        assert "scaling" not in generation
+        assert generation == baseline["creation"]["characteristics"]
+        assert card["creation"]["age"] == baseline["creation"]["age"]
+        assert card["derived"] == baseline["derived"]
+        if name == "easy":
+            assert card["creation"]["luck"]["dice"] == "2D6+6"
+        else:
+            assert card["creation"]["luck"] == baseline["creation"]["luck"]
+            assert card["characteristics"] == baseline["characteristics"]
 
 
-def test_preset_scaling_rounds_ties_up(kernel):
-    create(kernel, preset("extreme"))
+def test_normal_preset_fattens_only_the_budgets(kernel):
+    create(kernel, preset("normal"))  # Antiquarian is EDU*4; interest is INT*2
     card = investigator(kernel)
-    rolls = card["creation"]["characteristics"]["rolls"]
-    odd = {abbr: roll for abbr, roll in rolls.items() if roll["total"] % 2 == 1}
-    assert odd, "the seed must exercise the .5 tie"
-    for abbr, roll in odd.items():
-        raw = roll["total"] * 5 * 0.5
-        assert raw % 5 == 2.5
-        assert card["creation"]["characteristics"]["values"][abbr] == math.floor(raw / 5 + 0.5) * 5
+    skills = card["creation"]["skills"]
+    occupation, interest = skills["occupation"], skills["interest"]
+    assert occupation["budget"]["total"] == card["characteristics"]["EDU"] * 4
+    assert occupation["budget_adjusted"] == {"total": jsround(card["characteristics"]["EDU"] * 4 * 1.25),
+                                             "multiplier": 1.25, "fixed": None}
+    assert occupation["points"] == occupation["budget_adjusted"]["total"] - occupation["credit_rating"]["value"]
+    assert occupation["spent"] + occupation["unspent"] == occupation["points"]
+    assert interest["budget"]["total"] == card["characteristics"]["INT"] * 2
+    assert interest["budget_adjusted"] == {"total": jsround(card["characteristics"]["INT"] * 2 * 1.25),
+                                           "multiplier": 1.25, "fixed": None}
+    assert interest["spent"] + interest["unspent"] == interest["budget_adjusted"]["total"]
+    assert skills["cap"]["value"] == 75 and "difficulty" not in skills["cap"]
 
 
-def test_quick_fire_array_scales_identically(kernel):
+def test_easy_preset_fattens_budgets_and_rolls_kinder_luck(kernel):
+    create(kernel, preset("easy"))
+    card = investigator(kernel)
+    skills = card["creation"]["skills"]
+    assert skills["occupation"]["budget_adjusted"]["total"] == jsround(card["characteristics"]["EDU"] * 4 * 1.5)
+    assert skills["interest"]["budget_adjusted"]["total"] == jsround(card["characteristics"]["INT"] * 2 * 1.5)
+    luck = card["creation"]["luck"]
+    assert luck["dice"] == "2D6+6" and all(8 <= a["total"] <= 18 for a in luck["attempts"])
+    assert card["characteristics"]["LUCK"] == max(a["total"] for a in luck["attempts"]) * 5
+    assert skills["cap"]["value"] == 75
+
+
+def test_extreme_preset_thins_budgets_and_lowers_the_cap(kernel):
+    create(kernel, preset("extreme"))
+    card = investigator(kernel, occupation="Private Investigator")
+    skills = card["creation"]["skills"]
+    assert skills["cap"] == {"value": 60, "source": "skills.guided_creation_policy.starting_skill_cap",
+                             "difficulty": {"skill_cap": 60}}
+    occupation = skills["occupation"]
+    assert occupation["budget_adjusted"] == {"total": jsround(occupation["budget"]["total"] * 0.75),
+                                             "multiplier": 0.75, "fixed": None}
+    assert occupation["points"] == occupation["budget_adjusted"]["total"] - occupation["credit_rating"]["value"]
+    assert occupation["spent"] + occupation["unspent"] == occupation["points"]
+    bases = {name: card["skills"][name] - amount for name, amount in occupation["allocations"].items()}
+    for name, amount in occupation["allocations"].items():
+        assert bases[name] + amount <= 60
+    interest = skills["interest"]
+    assert interest["budget_adjusted"] == {"total": jsround(interest["budget"]["total"] * 0.75),
+                                           "multiplier": 0.75, "fixed": None}
+    assert interest["spent"] + interest["unspent"] == interest["budget_adjusted"]["total"]
+
+
+def test_quick_fire_is_the_rulebook_array_under_every_preset(kernel):
     array = [80, 70, 60, 60, 50, 50, 50, 40]
+    create(kernel, preset("hard"))
+    baseline = investigator(kernel, method="quick_fire")
     for name in ("extreme", "normal", "easy"):
         create(kernel, preset(name), name)
         card = investigator(kernel, name, method="quick_fire")
         generation = card["creation"]["characteristics"]
-        m = PRESET[name]
         assert generation["array"] == array, "the rulebook source array is recorded unscaled"
-        assert generation["values"] == dict(zip(generation["assignment_order"], [scaled_value(v, m) for v in array]))
-
-
-# ---- budgets follow the scaled characteristics through the formulas --------------------------
-
-
-def test_budgets_evaluate_on_scaled_characteristics_without_double_scaling(kernel):
-    create(kernel, preset("normal"))  # Antiquarian is EDU*4; interest is INT*2
-    card = investigator(kernel)
-    skills = card["creation"]["skills"]
-    assert skills["occupation"]["budget"]["total"] == card["characteristics"]["EDU"] * 4
-    assert skills["interest"]["budget"]["total"] == card["characteristics"]["INT"] * 2
-    assert "budget_adjusted" not in skills["occupation"] and "budget_adjusted" not in skills["interest"]
-    credit = skills["occupation"]["credit_rating"]["value"]
-    assert skills["occupation"]["points"] == skills["occupation"]["budget"]["total"] - credit
-
-
-def test_scaled_cap_bounds_the_spread(kernel):
-    create(kernel, preset("extreme"))
-    card = investigator(kernel, occupation="Private Investigator")
-    occupation = card["creation"]["skills"]["occupation"]
-    assert occupation["spent"] + occupation["unspent"] == occupation["points"]
-    bases = {name: card["skills"][name] - amount for name, amount in occupation["allocations"].items()}
-    for name, amount in occupation["allocations"].items():
-        assert bases[name] + amount <= 38  # round(75×0.5)
+        assert "scaling" not in generation
+        assert generation["values"] == baseline["creation"]["characteristics"]["values"]
 
 
 # ---- custom knobs (§33.3) --------------------------------------------------------------------
@@ -183,7 +188,7 @@ def test_custom_budget_multiplier_and_fixed(kernel):
     card = investigator(kernel)
     skills = card["creation"]["skills"]
     occupation, interest = skills["occupation"], skills["interest"]
-    assert occupation["budget_adjusted"] == {"total": round(occupation["budget"]["total"] * 2), "multiplier": 2, "fixed": None}
+    assert occupation["budget_adjusted"] == {"total": jsround(occupation["budget"]["total"] * 2), "multiplier": 2, "fixed": None}
     assert occupation["points"] == occupation["budget_adjusted"]["total"] - occupation["credit_rating"]["value"]
     assert occupation["spent"] + occupation["unspent"] == occupation["points"]
     assert interest["budget_adjusted"] == {"total": 50, "multiplier": None, "fixed": 50}
@@ -214,6 +219,8 @@ def test_campaign_create_rejects_bad_difficulty_shapes(kernel):
         ({"mode": "preset", "preset": "impossible"}, "difficulty.preset"),
         ({"mode": "weird"}, "difficulty.mode"),
         ({"mode": "preset", "preset": "hard", "custom": {"skill_cap": 60}}, "difficulty.custom"),
+        # a preset record carries no multiplier — even the legacy kernel-recorded value is rejected
+        ({"mode": "preset", "preset": "hard", "multiplier": 1}, "difficulty.multiplier"),
         ({"mode": "preset", "preset": "hard", "multiplier": 2}, "difficulty.multiplier"),
         ({"mode": "preset", "preset": "hard", "fluff": 1}, "difficulty.fluff"),
         ({"mode": "custom", "preset": "hard"}, "difficulty.preset"),
@@ -246,12 +253,12 @@ def test_snapshot_sheet_and_receipt_records(kernel):
     assert meta["difficulty"] == {"mode": "preset", "preset": "easy"}
     assert read_json(campaign_dir(kernel.workspace) / "campaign.json")["difficulty"] == meta["difficulty"]
     card = investigator(kernel)
-    record = {"mode": "preset", "preset": "easy", "multiplier": 4, "custom": {}}
+    record = {"mode": "preset", "preset": "easy", "custom": {}}
     assert card["creation"]["difficulty"] == record
     receipts = read_json(campaign_dir(kernel.workspace) / "campaign.json")["setup"]["receipts"]
     assert receipts[0]["difficulty"] == record
-    assert card["creation"]["characteristics"]["scaling"]["multiplier"] == 4
-    assert card["creation"]["luck"]["scaling"]["multiplier"] == 4
+    assert "scaling" not in card["creation"]["characteristics"]
+    assert card["creation"]["luck"]["dice"] == "2D6+6"
 
 
 # ---- the draft path: limits reflect the snapshot, override relaxes on top -----------------------
@@ -262,21 +269,21 @@ def begin_draft(kernel, difficulty):
     return kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": profile()})
 
 
-def test_draft_limits_obey_the_scaled_bounds_budgets_and_cap(kernel):
+def test_draft_limits_obey_the_preset_knobs(kernel):
     draft = begin_draft(kernel, preset("normal"))
     sheet, limits = draft["sheet"], draft["limits"]
-    record = {"mode": "preset", "preset": "normal", "multiplier": 2, "custom": {}}
+    record = {"mode": "preset", "preset": "normal", "custom": {}}
     assert sheet["creation"]["difficulty"] == record
     stored = read_json(campaign_dir(kernel.workspace) / "setup" / "drafts" / f"{draft['revision']}.json")
     assert stored["receipt"]["difficulty"] == record
-    assert limits["characteristic_min"] == 30 and limits["characteristic_max"] == 180
-    assert limits["skill_cap"] == 150
-    assert limits["occupation_points"] == sheet["characteristics"]["EDU"] * 4
-    assert limits["interest_points"] == sheet["characteristics"]["INT"] * 2
+    assert limits["characteristic_min"] == 15 and limits["characteristic_max"] == 90
+    assert limits["skill_cap"] == 75
+    assert limits["occupation_points"] == jsround(sheet["characteristics"]["EDU"] * 4 * 1.25)
+    assert limits["interest_points"] == jsround(sheet["characteristics"]["INT"] * 2 * 1.25)
     relaxed = kernel.ok("setup.override", {"campaign": CAMPAIGN, "revision": draft["revision"], "edits": {},
                                            "limits_override": {"skill_cap": 200, "characteristic_max": 200}, "dry_run": True})
     assert relaxed["limits"]["skill_cap"] == 200 and relaxed["limits"]["characteristic_max"] == 200
-    assert relaxed["limits"]["characteristic_min"] == 30 and relaxed["limits"]["overridden"] == ["characteristic_max", "skill_cap"]
+    assert relaxed["limits"]["characteristic_min"] == 15 and relaxed["limits"]["overridden"] == ["characteristic_max", "skill_cap"]
 
 
 def test_draft_limits_obey_custom_knobs(kernel):
@@ -327,7 +334,7 @@ def test_a_corrupt_snapshot_fails_loudly_on_the_next_build(kernel):
     assert error["code"] == "invalid_params" and error["details"]["field"] == "difficulty.preset"
 
 
-def test_rolled_pool_assignment_permutes_the_scaled_results(kernel):
+def test_rolled_pool_assignment_permutes_the_rulebook_results(kernel):
     plain = begin_draft(kernel, preset("normal"))
     stated = kernel.ok("setup.draft", {"campaign": CAMPAIGN,
                                        "profile": {"aptitude": {"strong": ["STR"], "weak": ["INT"], "origin": "player"}}})
@@ -338,7 +345,7 @@ def test_rolled_pool_assignment_permutes_the_scaled_results(kernel):
     assert sorted(r["total"] for r in generation["rolls"].values()) == sorted(r["total"] for r in initial["rolls"].values())
     assert sorted(tuple(r["faces"]) for r in generation["rolls"].values()) == sorted(tuple(r["faces"]) for r in initial["rolls"].values())
     for entry in generation["assignment"]:
-        assert generation["values"][entry["characteristic"]] == scaled(generation["rolls"][entry["characteristic"]]["total"], 2)
+        assert generation["values"][entry["characteristic"]] == generation["rolls"][entry["characteristic"]]["total"] * 5
     for pool in (POOL_3D6, POOL_2D6_6):
         assert sorted(initial["values"][a] for a in pool) == sorted(generation["values"][a] for a in pool)
     assert generation["values"]["STR"] == max(initial["values"][a] for a in POOL_3D6)
