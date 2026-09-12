@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "fetchedAt": 1789186301621,
+  "fetchedAt": 1789222907833,
   "baseUrl": "https://api.deepseek.com",
   "models": [
     {
@@ -16,7 +16,7 @@
       "maxTokens": 384000,
       "thinkingLevelMap": {
         "minimal": null,
-        "low": null,
+        "low": "low",
         "medium": null,
         "high": "high",
         "max": "max"
@@ -60,7 +60,7 @@
       "maxTokens": 384000,
       "thinkingLevelMap": {
         "minimal": null,
-        "low": null,
+        "low": "low",
         "medium": null,
         "high": "high",
         "max": "max"
