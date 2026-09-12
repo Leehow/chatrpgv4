@@ -1,4 +1,5 @@
 import { CocOnboarding } from './CocOnboarding'
+import { CocGameIntro } from './CocGameIntro'
 import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react'
 import { PlanApprovalBar } from './PlanApprovalBar'
 import { makeSubagentStatusCheckPrompt } from './subagent-status-check'
@@ -2811,7 +2812,9 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
             <div key={selectedSession} className="session-transcript-slot" data-session-transcript={selectedSession}>
               {onboardingActive
                 ? <CocOnboarding host={host} sessionId={selectedSession} />
-                : <Transcript
+                : <>
+                  {productId === 'pipicoc' && <CocGameIntro words={timeline?.ui?.words?.['intro']} />}
+                  <Transcript
                 stateKey={selectedSession}
                 navigation={timelineNavigation?.sessionId === selectedSession ? timelineNavigation : undefined}
                 onBranch={message => void handleBranch(message)}
@@ -2859,7 +2862,8 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
                 resendDisabled={resendDisabled}
                 copiedId={copiedId}
                 waiting={firstResponseWaiting ?? subagentWaiting}
-              />}
+              />
+              </>}
             </div>
           ) : (
             <Transcript messages={messages} documentBasePath={selectedProjectPath} onOpenDocument={openDocument} onOpenSubagents={openSubagents} onCopy={handleCopy} onResend={handleResend} resendDisabled={resendDisabled} copiedId={copiedId} waiting={firstResponseWaiting ?? subagentWaiting} />

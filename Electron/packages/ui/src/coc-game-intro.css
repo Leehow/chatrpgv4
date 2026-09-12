@@ -1,0 +1,17 @@
+/* The intro card sits above the transcript inside the same slot, so the slot becomes a
+   column: the card keeps its own height and the transcript takes the rest. */
+.session-transcript-slot:has(>.coc-game-intro){display:flex;flex-direction:column}
+.session-transcript-slot:has(>.coc-game-intro)>.transcript-area{flex:1 1 auto;height:auto;min-height:0}
+.coc-game-intro{flex:0 0 auto;box-sizing:border-box;width:calc(100% - 48px);max-width:860px;margin:18px auto 4px;border:1px solid var(--border);border-radius:16px;padding:20px 24px;background:var(--surface-raised);color:var(--text)}
+.coc-game-intro-header{display:flex;align-items:flex-start;gap:16px}
+.coc-game-intro-heading{flex:1;min-width:0}
+.coc-game-intro-eyebrow{font-size:10px;font-weight:700;letter-spacing:.24em;color:var(--accent)}
+.coc-game-intro-title{font-size:20px;font-weight:650;letter-spacing:-.02em;margin:8px 0 0}
+.coc-game-intro-toggle{flex:0 0 auto;border:1px solid var(--border);border-radius:8px;padding:7px 12px;background:var(--surface);color:var(--muted);font:inherit;font-size:12px;cursor:pointer}
+.coc-game-intro-toggle:hover{border-color:var(--accent);color:var(--accent)}
+.coc-game-intro-lede{color:var(--muted);line-height:1.6;font-size:13px;margin:12px 0 0}
+.coc-game-intro-sections{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-top:16px}
+.coc-game-intro-sections section{border:1px solid var(--border);border-radius:12px;padding:14px 16px;background:var(--surface)}
+.coc-game-intro-sections h3{font-size:13px;font-weight:600;margin:0 0 8px;color:var(--text)}
+.coc-game-intro-sections p{font-size:12px;line-height:1.6;color:var(--muted);margin:0}
+@media(max-width:720px){.coc-game-intro-sections{grid-template-columns:1fr}.coc-game-intro{padding:16px 18px;width:calc(100% - 24px)}}
