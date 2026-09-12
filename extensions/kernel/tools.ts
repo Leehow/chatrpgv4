@@ -179,6 +179,9 @@ const NpcEffect = Type.Object({
 	}, {
 		description: "a number the book never printed for this person. Books rarely give a minor NPC a skill list, so when one of them does something on the party's behalf — a doctor stitching a wound, a locksmith on a lock — say what they have and it is theirs for the rest of the campaign. Pin it once; every later roll uses it",
 	})),
+	archetype: Type.Optional(Type.String({
+		description: "a stat block for a person the book never gave one, so that they can be fought, chased or resisted: name one of the rulebook's NPC stat archetypes (the refusal lists them in details.needs.options — ordinary_adult, capable_adult, dangerous_actor) from who this person is, and the kernel rolls characteristics and skills inside that archetype's ranges with the turn's dice, once, for the rest of the campaign. Refused for anyone whose numbers the book prints; read those with lookup kind=source first when the module has a book",
+	})),
 	dead: Type.Optional(Type.Boolean({
 		description: "true on the turn they died. Say it for every death the dice did not settle — killed outside a fight, destroyed by a ruling, dead of what the story did to them — or the table goes on treating them as someone the party can still meet",
 	})),

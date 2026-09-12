@@ -10,6 +10,7 @@ import {array,integer,number,repr,row,sorted,string,truth,type Row} from '../rea
 import {stanceTable} from '../write/contributions.js';
 import {required,nowIso} from '../write/store.js';
 import {effectId,type StagedEffect} from './bookkeeping.js';
+import {archetypeIds,rollArchetypeProfile} from './archetype.js';
 import type {ApplyContext} from './index.js';
 export async function stageClue(context:ApplyContext,effect:Row):Promise<StagedEffect>{
     const name=required(effect,'clue')!,{world,graph}=context,turn=context.turn.turn;
@@ -53,15 +54,26 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
         const authored=graph.actorSkillValue(node,pinned.name);
         if(authored!=null&&authored!==pinned.value)throw new RpcError('invalid_params',`the source already gives ${graph.displayName(node)} ${pinned.name} ${authored}; a missing-field pin cannot replace it`,{fix:`use the source-authored ${pinned.name} value ${authored}; resolve does not need a pin`,details:{field:'npc.skill',actor:handle,skill:pinned.name,authored_value:authored}});
     }
-    if(to==null&&stance==null&&dead==null&&pinned==null)throw new RpcError('invalid_params','an npc effect needs `to`, `stance`, `dead`, `skill`, or a combination',{fix:`move them with to: here/away/<scene>, set stance to one of ${repr(words)}, say dead: true, or pin a skill they have`});
+    // A stat block for a person the book never gave one (contract §34.10): the Keeper names the archetype, the kernel rolls inside it once.
+    let profile:Row|null=null;const archetype=effect.archetype??null;
+    if(archetype!=null){
+        if(typeof archetype!=='string'||!archetype.trim())throw new RpcError('invalid_params','npc.archetype must name a rulebook NPC stat archetype',{fix:'one of details.options',details:{field:'npc.archetype',options:await archetypeIds(context.kernel)}});
+        if(isJsonObject(row(recordOf(node).mechanics).profile))throw new RpcError('invalid_params',`the source prints ${graph.displayName(node)}'s numbers; an archetype cannot replace them`,{fix:'resolve against the printed profile; no pin is needed',details:{field:'npc.archetype',actor:handle,authority:'source_authored'}});
+        const existing=row(row(world.npc_profiles)[handle]);
+        if(truth(existing.archetype))throw new RpcError('invalid_params',`${graph.displayName(node)} already has a pinned ${string(existing.archetype)} profile from turn ${string(existing.pinned_turn)}`,{fix:'resolve against it; a pin is made once for the campaign',details:{field:'npc.archetype',actor:handle,archetype:existing.archetype,pinned_turn:existing.pinned_turn??null}});
+        profile=await rollArchetypeProfile(context.kernel,archetype.trim(),why,number(context.turn.turn));
+    }
+    if(to==null&&stance==null&&dead==null&&pinned==null&&profile==null)throw new RpcError('invalid_params','an npc effect needs `to`, `stance`, `dead`, `skill`, `archetype`, or a combination',{fix:`move them with to: here/away/<scene>, set stance to one of ${repr(words)}, say dead: true, pin a skill they have, or name an archetype for a person the book gave no numbers`});
     const presence=world.npc_presence??={};let moved:string|null=null;
     if(to!=null){
         if(typeof to!=='string'||!to.trim())throw new RpcError('invalid_params',"npc.to must be a scene name, 'here' or 'away'",{fix:'a scene name on the graph, or here / away',details:{field:'npc.to',options:['here','away']}});
         if(to.trim()==='away'){delete presence[handle];moved='away';}else{moved=graph.handle(graph.scene(to.trim()==='here'?world.active_scene:to));presence[handle]=moved;}
     }
     if(stance!=null&&(typeof stance!=='string'||!words.includes(stance)))unsupported('npc.stance',stance,words,`npc.stance ${repr(stance)} is not one of the ledger's words`);
-    const receipt={id:effectId(context,'npc',handle),kind:'npc',call_id:context.callId,npc:node.node_id,handle,name:graph.displayName(node),to:moved,stance:stance??null,dead:dead??null,skill:pinned,why,at:nowIso()};
-    return {receipt,event:{type:'npc-changed',data:{npc:handle,to:moved,stance:stance??null,dead:dead??null,skill:pinned,why}}};
+    if(profile!=null)(world.npc_profiles??={})[handle]=profile;
+    const pinnedProfile=profile?{archetype:profile.archetype,characteristics:profile.characteristics,derived:profile.derived,skills:profile.skills}:null;
+    const receipt={id:effectId(context,'npc',handle),kind:'npc',call_id:context.callId,npc:node.node_id,handle,name:graph.displayName(node),to:moved,stance:stance??null,dead:dead??null,skill:pinned,...(pinnedProfile?{profile:pinnedProfile}:{}),why,at:nowIso()};
+    return {receipt,event:{type:'npc-changed',data:{npc:handle,to:moved,stance:stance??null,dead:dead??null,skill:pinned,...(pinnedProfile?{archetype:profile!.archetype}:{}),why}}};
 }
 export async function stageHandout(context:ApplyContext,effect:Row,asset:(module:string,name:string)=>Promise<Row|null>):Promise<StagedEffect>{
     const {graph,world}=context,name=required(effect,'name')!,node=graph.find(name,['handout'])||graph.resolve(name,['handout','asset'],'handout');

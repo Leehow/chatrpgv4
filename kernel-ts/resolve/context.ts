@@ -102,7 +102,9 @@ export class SettleContext {
         const node = this.npcNode(handle);
         if (!node)
             return null;
-        const profile = row(recordOf(node).mechanics).profile;
+        // The book's numbers first; then a profile the table pinned from a rulebook archetype (contract §34.10).
+        const authored = row(recordOf(node).mechanics).profile, pinnedProfile = row(this.world.npc_profiles)[handle];
+        const profile = isJsonObject(authored) ? authored : isJsonObject(pinnedProfile) ? pinnedProfile : null;
         if (!isJsonObject(profile))
             return null;
         const resources = row(row(this.world.npc_resources)[handle]);
