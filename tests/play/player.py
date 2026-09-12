@@ -141,8 +141,19 @@ def render_profile(persona: dict[str, Any], variation: str, investigator: str) -
     )
 
 
+#: The figures a `concealed` roll must not carry to a player surface (contract section 16.5). The
+#: product strips the same keys in `mechanicsEntry`; the persona player is a stand-in for a real
+#: player, so a benchmark that let it read a die no human at the table can see would measure a
+#: player this product never ships.
+CONCEALED_FIGURES = ("roll", "target", "threshold", "difficulty", "level", "passed", "pushed")
+
+
 def player_view(delivery: dict | None, final_text: str, settle_class: str) -> str:
-    """Spec section 2: prose plus this turn's mechanics, keeper-only rolls removed.
+    """Spec section 2: prose plus this turn's mechanics, as a player at the table sees them.
+
+    Contract section 16.5 grades a roll's visibility in three. A `keeper` roll is dropped: the
+    player was never told it happened. A `concealed` roll stays but loses every figure: the player
+    declared the action and knows a check was made, and only the number is the Keeper's.
 
     Nothing here is rendered into words -- the rows go over as the kernel projected them
     (section 16.2 is language-neutral) because writing them into sentences would mean a
@@ -152,8 +163,12 @@ def player_view(delivery: dict | None, final_text: str, settle_class: str) -> st
         return ("[The table produced nothing this turn: the Keeper did not deliver. "
                 "Say what you do next.]")
     prose = (delivery or {}).get("rendered_text") or final_text or ""
-    rows = [row for row in ((delivery or {}).get("mechanics") or [])
-            if not (isinstance(row, dict) and row.get("visibility") == "keeper")]
+    rows = [
+        {k: v for k, v in row.items()
+         if not (row.get("kind") == "roll" and row.get("visibility") == "concealed" and k in CONCEALED_FIGURES)}
+        for row in ((delivery or {}).get("mechanics") or [])
+        if isinstance(row, dict) and row.get("visibility") != "keeper"
+    ]
     if not rows:
         return prose
     shown = "\n".join(json.dumps(row, ensure_ascii=False, sort_keys=True) for row in rows)

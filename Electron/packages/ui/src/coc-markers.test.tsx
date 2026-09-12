@@ -81,6 +81,32 @@ describe('the card draws a marked delivery', () => {
     expect(container.textContent).toContain('8');
   });
 
+  /**
+   * §16.5's middle tier, at the surface it exists for. `keeper` drops the row; `concealed` keeps a
+   * row the player can see they earned and prints no number. The card is given the row the host
+   * already stripped, plus the figures a careless host might leave on, so the renderer is pinned
+   * as the second place that refuses to draw them rather than as the only one.
+   */
+  it('names a concealed check and draws no figure, pass stamp or grade for it', () => {
+    const concealed = {kind:'roll', receipt:'roll:psychology-t5-c1', actor:'thomas-hayes', actor_label:'托马斯·海斯',
+      actor_is_investigator:true, skill:'Psychology', visibility:'concealed', family:'psychology',
+      roll:2, target:70, threshold:70, difficulty:'regular', level:'extreme', passed:true};
+    const {container} = render(<Delivery details={{turn:5, mechanics:[concealed]}} />);
+    expect(container.querySelectorAll('.coc-mech-row')).toHaveLength(1);
+    expect(container.textContent).toContain('托马斯·海斯');
+    expect(container.textContent).toContain(say('zh-Hans', 'mechanics', 'concealed'));
+    expect(container.querySelector('.coc-mech-figure')).toBeNull();
+    expect(container.querySelector('.coc-mech-lv')).toBeNull();
+    expect(container.textContent).not.toContain(say('zh-Hans', 'mechanics', 'pass'));
+    expect(container.textContent).not.toContain(say('zh-Hans', 'mechanics', 'level.extreme'));
+    expect(container.textContent).not.toMatch(/\b(2|70)\b/);
+  });
+
+  it('draws nothing at all for a keeper roll, the tier the player was never told about', () => {
+    const {container} = render(<Delivery details={{turn:5, mechanics:[{...ROLL, visibility:'keeper'}]}} />);
+    expect(container.querySelectorAll('.coc-mech-row')).toHaveLength(0);
+  });
+
   it('folds a handout carrying text into a disclosure and keeps a textless one a plain row', () => {
     const {container} = render(<Delivery details={{play_language:'zh-Hans', turn:9, mechanics:[
       {kind:'handout', receipt:'h1', name:'globe', label:'环球报未刊稿', available:true,

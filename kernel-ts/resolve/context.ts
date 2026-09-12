@@ -6,6 +6,7 @@ import { isJsonObject, jsonDigest } from '../json.js';
 import { CampaignSnapshot, type LoadedModule } from '../read/campaign.js';
 import { recordOf } from '../read/module-graph.js';
 import { SessionView } from '../read/session-view.js';
+import { dieHidden } from '../read/mechanics.js';
 import { factsFromState, RuleObservations } from '../read/rule-facts.js';
 import { array, clone, entries, integer, kebab, normalize, number, row, string, truth, values, type Row } from '../read/values.js';
 import { RuleTables } from '../rules/tables.js';
@@ -377,7 +378,7 @@ export class SettleContext {
     }
 }
 export function continuableCheck(receipt: Row, actor: any): boolean {
-    return receipt.kind === 'roll' && receipt.form !== 'dice' && receipt.actor === actor && receipt.visibility !== 'keeper'
+    return receipt.kind === 'roll' && receipt.form !== 'dice' && receipt.actor === actor && !dieHidden(receipt.visibility)
         && ['skill_check', 'characteristic_check'].includes(receipt.roll_kind) && isJsonObject(receipt.check);
 }
 export function latestCheckReceipt(context: SettleContext): [
@@ -423,7 +424,7 @@ export function skillTickEligible(arithmetic: CheckArithmetic, skill: string, ch
 }
 export async function recordSkillTicks(context: SettleContext): Promise<void> {
     for (const receipt of context.receipts) {
-        if (receipt.kind !== 'roll' || !isJsonObject(receipt.check) || receipt.visibility === 'keeper')
+        if (receipt.kind !== 'roll' || !isJsonObject(receipt.check) || dieHidden(receipt.visibility))
             continue;
         const actor = string(receipt.actor || '');
         const skill = string(receipt.skill).trim();

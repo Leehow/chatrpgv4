@@ -123,7 +123,7 @@ export function outcomeOf(ref: string, result: Row): Row {
             misread_policy: result.misread_policy ?? null,
             concealed: true,
             level: result.outcome ?? null,
-            roll_visibility: 'keeper'
+            roll_visibility: 'concealed'
         };
     if (ref === REALIZE)
         return {

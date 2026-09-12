@@ -12,6 +12,23 @@ it('projects only public rows with stable identity and language',()=>{
   expect(JSON.stringify(entry)).not.toContain('99');
   expect(entry.presentation?.details).toMatchObject({play_language:'zh-Hans',mechanics:[{roll:25,target:50},{minutes:5}]});
 });
+it('a concealed roll keeps its row and loses every figure',()=>{
+  // §16.5's middle tier. The player declared this Psychology read, so the row must survive the
+  // filter that drops keeper rolls -- a turn whose only mechanic vanished drew no card at all and
+  // read as plain narration. The die is still the Keeper's, so no figure may reach the client:
+  // stripping in the renderer would leave 2/70 sitting in the delivery's JSON.
+  const row={kind:'roll',visibility:'concealed',skill:'Psychology',receipt:'roll:psychology-t5-c1',
+    actor_is_investigator:true,actor_label:'Erin',call:'t5-c1',family:'psychology',
+    roll:2,target:70,threshold:70,difficulty:'regular',level:'extreme',passed:true,pushed:false};
+  const entry=mechanicsEntry({type:'custom',id:'concealed',customType:'coc-mechanics',timestamp:'2026-09-12',data:{turn:5,mechanics:[row]}},'zh-Hans')!;
+  const drawn=(entry.presentation?.details as any).mechanics;
+  expect(drawn).toHaveLength(1);
+  expect(drawn[0]).toEqual({kind:'roll',visibility:'concealed',skill:'Psychology',receipt:'roll:psychology-t5-c1',
+    actor_is_investigator:true,actor_label:'Erin',call:'t5-c1',family:'psychology'});
+  for(const figure of ['roll','target','threshold','difficulty','level','passed','pushed'])
+    expect(drawn[0]).not.toHaveProperty(figure);
+  expect(JSON.stringify(entry)).not.toContain('extreme');
+});
 it('missing binding stays missing and a recorded binding wins over a legacy sidecar',async()=>{
   const root=await mkdtemp(join(tmpdir(),'coc-binding-'));const file=join(root,'session.jsonl');await writeFile(file,'');
   expect(await readCocBinding(file)).toBeUndefined();

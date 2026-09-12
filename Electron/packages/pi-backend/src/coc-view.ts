@@ -207,6 +207,20 @@ export function deliveryWords(entry:any):Record<string,string[]> {
   }
   return Object.fromEntries(Object.entries(wanted).filter(([,set])=>set.size).map(([lane,set])=>[lane,[...set].sort()]));
 }
+/**
+ * §16.5's middle visibility tier, enforced where the rows leave the backend.
+ *
+ * A `concealed` roll is one the player declared and the rules keep the die for (CoC 7e Psychology:
+ * seeing the failure is what tells them the read is unreliable, which is the whole point of the
+ * secret roll). The row travels — the card names the check, so a player can tell their own attempt
+ * from the Keeper simply talking — but every figure is dropped here rather than in the renderer,
+ * because a number that reaches the client has already left the Keeper's hands whatever is drawn.
+ */
+const CONCEALED_FIGURES=['roll','target','threshold','difficulty','level','passed','pushed'];
+function concealFigures(row:any):any {
+  if(row.kind!=='roll'||row.visibility!=='concealed')return row;
+  return Object.fromEntries(Object.entries(row).filter(([key])=>!CONCEALED_FIGURES.includes(key)));
+}
 const DRAFT_PROJECTION=/^(\d+)-(.+)\.json$/;
 /**
  * The draft a transcript card must draw today (contract §23.4): the campaign's current revision,
@@ -283,7 +297,7 @@ export function mechanicsEntry(row:any, language?:string, presentations?:Readonl
       presentation:{renderer:'coc-choice',details:{...row.data,labels:{...lanes,...wordTable(row.data.labels)},...chrome}}};
   }
   if(row?.type!=='custom'||row.customType!=='coc-mechanics'||!Array.isArray(row.data?.mechanics))return;
-  const mechanics=row.data.mechanics.filter((x:any)=>x&&typeof x==='object'&&x.visibility!=='keeper');
+  const mechanics=row.data.mechanics.filter((x:any)=>x&&typeof x==='object'&&x.visibility!=='keeper').map(concealFigures);
   if(!mechanics.length)return;
   // §16.6: the delivery with its markers still in it, when the Keeper placed any. It rides with the
   // rows because one component has to own both to draw a row where the sentence is.

@@ -87,7 +87,7 @@ export function committedFacts(receipts: Row[], snapshot: Row, label: (id: any) 
             if (r.form === 'dice')
                 committed.push(`${actor} rolls ${skill} ${string(r.expression ?? null)}: ${string(r.total ?? null)}`);
             else
-                committed.push(`${actor}'s ${skill} check ${truth(r.passed) ? 'passed' : 'failed'} (${string(r.level ?? null)}${r.visibility === 'keeper' ? '; hidden' : ''})`);
+                committed.push(`${actor}'s ${skill} check ${truth(r.passed) ? 'passed' : 'failed'} (${string(r.level ?? null)}${r.visibility === 'keeper' ? '; hidden' : r.visibility === 'concealed' ? '; die concealed, the attempt is visible' : ''})`);
         }
         else if (r.kind === 'move')
             committed.push(`Scene: ${string(r.from_label || r.from || null)} -> ${string(r.to_label || r.to || null)}${number(r.minutes) > 0 ? ` (${Math.trunc(number(r.minutes))} min)` : ''}`);
