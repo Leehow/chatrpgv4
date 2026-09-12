@@ -48,3 +48,13 @@ test("the packaged App ships the browser-ui the remote debug lane serves", () =>
 		"pipicoc/package.mjs extraResources must ship packages/ui/dist/browser as browser-ui",
 	);
 });
+
+test("the packaged runtime resources include the remote-control package", () => {
+	// scripts/package-runtime.mjs assembles agent extensions from their `agent.extension`
+	// entry; a manifest-only package like this one travels only via resourceDirectories.
+	const dependencies = JSON.parse(readFileSync(join(REPO, "pipicoc", "runtime-dependencies.json"), "utf8"));
+	assert.ok(
+		Array.isArray(dependencies.resourceDirectories) && dependencies.resourceDirectories.includes("extensions/remote-control"),
+		"pipicoc/runtime-dependencies.json resourceDirectories must list extensions/remote-control (manifest-only packages are not auto-assembled)",
+	);
+});
