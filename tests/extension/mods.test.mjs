@@ -374,3 +374,10 @@ test('a definition child gets no shell, and its brief sends it nowhere outside i
   assert.doesNotMatch(requests[0].brief, /coc-read-check|bash/);
   assert.match(requests[0].brief, /Nothing outside this directory/);
 });
+
+test('the reader command honours a narrowed allowlist and keeps the reading default otherwise', () => {
+  const wide = readerCommand('provider/model','/task/prompt.md','low');
+  assert.equal(wide[wide.indexOf('--tools')+1], 'read,write,edit,bash');
+  const narrowed = readerCommand('provider/model','/task/prompt.md','low',false,false,undefined,'read,write,edit');
+  assert.equal(narrowed[narrowed.indexOf('--tools')+1], 'read,write,edit');
+});

@@ -28,6 +28,12 @@ export interface ReaderRequest {
 	systemPrompt?: string;
 	/** The host selects an existing source instruction from its captured content root. */
 	prompt?: { phase: "index" | "read" | "verify"; guidance?: boolean };
+	/**
+	 * The child's tool allowlist, when the caller wants a narrower one than the reading default. A
+	 * definition writer needs only its own directory: handed a shell, children have spent most of their
+	 * calls reading the packaged app, the build output and their own event log instead of the task.
+	 */
+	tools?: string;
 	eventLog?: string;
 	source?: { pdf: string; cache: string };
 	imageHistory?: number;
@@ -51,7 +57,7 @@ export interface ReaderOutcome {
 }
 
 /** The reader's command line, without the final `brief` argument. */
-export function readerCommand(model?: string, systemPrompt?: string, thinking?: string, pdf = false, submission = false, context?: RuntimeContext): string[] {
+export function readerCommand(model?: string, systemPrompt?: string, thinking?: string, pdf = false, submission = false, context?: RuntimeContext, tools?: string): string[] {
 	const root = context?.resourceRoot ?? resourceRootFrom(import.meta.url);
 	const entries = context?.entrypoints ?? runtimeEntrypoints(root);
 	const override = context?.env.PI_COC_READER_CMD?.trim();
@@ -72,7 +78,7 @@ export function readerCommand(model?: string, systemPrompt?: string, thinking?: 
 		"--no-skills",
 		...(systemPrompt ? ["--extension", entries.readerContext] : []),
 		"--tools",
-		[pdf ? "read,write,edit,bash,pdf" : "read,write,edit,bash", ...(submission ? ["submit_reading"] : [])].join(","),
+		tools ?? [pdf ? "read,write,edit,bash,pdf" : "read,write,edit,bash", ...(submission ? ["submit_reading"] : [])].join(","),
 		...(pdf ? ["--extension", entries.readerPdf] : []),
 		...(submission ? ["--extension", entries.readerSubmit] : []),
 		"--system-prompt",
@@ -136,7 +142,7 @@ async function runOwnedReader(request: ReaderRequest, context: RuntimeContext): 
 	const began = Date.now();
 	let command: string[];
 	try {
-		command = readerCommand(request.model, request.systemPrompt, request.thinking, !!request.source, request.submission, context);
+		command = readerCommand(request.model, request.systemPrompt, request.thinking, !!request.source, request.submission, context, request.tools);
 		if (request.eventLog && !context.env.PI_COC_READER_CMD?.trim()) command.splice(command.length - 1, 0, "--mode", "json");
 		command.push(request.brief);
 	} catch (error) {
