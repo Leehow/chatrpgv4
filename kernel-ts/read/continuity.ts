@@ -3,6 +3,7 @@ import { RpcError } from '../errors.js';
 import { pythonJsonDumps } from '../json.js';
 import { ModuleGraph, recordOf } from './module-graph.js';
 import { resolveReference } from './references.js';
+import {EntityIndex, queryCandidates} from './memory.js';
 import { array, chars, row, string, type Row } from './values.js';
 
 export function continuityView(graph: ModuleGraph, world: Row, records: Row[] = [], candidates: Row[] = [], options: Row = {}): Row {
@@ -65,15 +66,18 @@ export function continuityView(graph: ModuleGraph, world: Row, records: Row[] = 
     }).sort((a, b) => a.distance - b.distance || a.anchor_order - b.anchor_order || a.name.localeCompare(b.name))
         .map(({anchor_order, ...connection}) => connection);
     const names = new Set(anchorNodes.flatMap(node => graph.nameKeys(node)));
-    const hypotheses = candidates.filter(c => ['belief', 'player_assertion', 'player_preference'].includes(c.kind) &&
+    const hypotheses = candidates.filter(c => c.superseded_by == null && ['belief', 'player_assertion', 'player_preference'].includes(c.kind) &&
         ([c.subject, ...array(c.entities)].some(name => names.has(name)) || c.subject === 'player')).slice(-6)
-        .map(c => ({kind: c.kind, statement: c.statement, state: c.state, confidence: c.confidence, turn: c.turn, superseded: c.superseded_by != null, origin: 'memory_candidate'}));
-    const result: Row = {anchors: anchorNodes.map(node => graph.handle(node)), connections: connections.slice(0, limit), hypotheses,
+        .map(c => ({kind: c.kind, statement: c.statement, state: c.state ?? null, confidence: c.confidence ?? null, turn: c.valid_from_turn ?? c.turn ?? null, superseded: c.superseded_by != null, origin: 'memory_candidate'}));
+    const corrections = queryCandidates(candidates, new EntityIndex(graph, [], row(world.scene_labels)), anchorNodes.map(node => graph.displayName(node)),
+        {narrow: true, kinds: ['keeper_correction'], limit: 3}).map(hit => ({statement: hit.statement, turn: hit.turn, status: hit.status, authority: hit.authority}));
+    const result: Row = {anchors: anchorNodes.map(node => graph.handle(node)), connections: connections.slice(0, limit), hypotheses, corrections,
         truncated: connections.length > limit,
         guidance: 'Acquired evidence is not proof of understanding. Clarify public connections freely; new disclosures still need their ordinary authority and receipts. Use recall for complete prior delivery, and source lookup for missing evidence. Hypotheses and possible developments are not settled facts.'};
     if (options.compact) {
         delete result.guidance;
         result.hypotheses = [];
+        delete result.corrections;
         result.connections = result.connections.map((c: Row) => ({name: c.name, claim: chars(c.claim, 200), disclosure: c.disclosure,
             evidence: [...c.evidence].sort((a: Row, b: Row) => Number(b.acquired) - Number(a.acquired)).slice(0, 2).map((e: Row) => ({name: e.name, relation: e.relation, acquired: e.acquired,
                 summary: chars(e.summary, 100), turns: e.deliveries.map((d: Row) => d.turn)})),
@@ -83,7 +87,8 @@ export function continuityView(graph: ModuleGraph, world: Row, records: Row[] = 
     while (Buffer.byteLength(pythonJsonDumps(result), 'utf8') > budget && result.connections.length) {
         result.connections.pop(); result.truncated = true;
     }
-    for (const field of ['hypotheses', 'anchors']) {
+    for (const field of ['hypotheses', 'anchors', 'corrections']) {
+        if (!Array.isArray(result[field])) continue;
         while (Buffer.byteLength(pythonJsonDumps(result), 'utf8') > budget && result[field].length) {
             result[field].pop(); result.truncated = true;
         }

@@ -29,7 +29,7 @@ export async function transcript(campaign: CampaignWriter, current: number, para
         }
         const text = string(found.at(-1)!.text || ''), record = await campaign.readTurnRecord(turn);
         const canonical = record?.[role === 'keeper' ? 'rendered_text' : 'player_text'];
-        return { what: 'transcript', turn, role, text, verified: canonical != null && sha256Text(text) === sha256Text(string(canonical)) };
+        return { what: 'transcript', turn, role, text, verified: canonical != null && sha256Text(text) === sha256Text(string(canonical)), verification_scope: 'record_integrity_only' };
     }
     const span = parseSpan(params.turns, current, 3), role = params.role ?? null;
     if (role !== null && !ROLES.includes(role))

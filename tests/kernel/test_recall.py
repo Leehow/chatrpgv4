@@ -42,9 +42,11 @@ def test_transcript_cards_then_verified_read(kernel):
     assert [c["role"] for c in kernel.table("recall", what="transcript", role="keeper")["cards"]] == ["keeper", "keeper"]
 
     keeper = kernel.table("recall", what="transcript", read={"turn": 1, "role": "keeper"})
-    assert keeper == {"what": "transcript", "turn": 1, "role": "keeper", "text": first["rendered_text"], "verified": True}
+    assert keeper == {"what": "transcript", "turn": 1, "role": "keeper", "text": first["rendered_text"], "verified": True,
+                      "verification_scope": "record_integrity_only"}
     player = kernel.table("recall", what="transcript", read={"turn": 2, "role": "player"})
-    assert player == {"what": "transcript", "turn": 2, "role": "player", "text": "第二回合的话。", "verified": True}
+    assert player == {"what": "transcript", "turn": 2, "role": "player", "text": "第二回合的话。", "verified": True,
+                      "verification_scope": "record_integrity_only"}
     missing = kernel.table_err("recall", what="transcript", read={"turn": 3, "role": "keeper"})
     assert missing["code"] == "invalid_params" and {"turn": 3, "role": "player"} in missing["details"]["available"]
     assert kernel.table_err("recall", what="transcript", read={"turn": "1", "role": "keeper"})["code"] == "invalid_params"

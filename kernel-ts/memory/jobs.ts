@@ -7,9 +7,10 @@ import { CampaignWriter, nowIso } from '../write/store.js';
 import { committedFacts } from '../write/text.js';
 import { ModuleGraph } from '../read/module-graph.js';
 import { EntityIndex, queryCandidates } from '../read/memory.js';
+import {validateCorrectionRefs, bindCorrectionRefs, applyCorrectionLinks} from './corrections.js';
 import { array, row, clone, string, number, integer, numeric, truth, repr, sorted, length, type Row } from '../read/values.js';
 export const CANDIDATE_KINDS = ['world_event', 'knowledge', 'belief', 'relationship', 'player_assertion', 'player_preference', 'keeper_correction', 'promise'];
-const FIELDS = ['kind', 'subject', 'knowers', 'statement', 'entities', 'privacy', 'state', 'confidence'];
+const FIELDS = ['kind', 'subject', 'knowers', 'statement', 'entities', 'privacy', 'state', 'confidence', 'corrects'];
 const MACHINE = ['commit', 'receipt', 'receipts', 'turn', 'id', 'job_id', 'episode_id', 'call_id', 'source'];
 const PRIVACY = ['player_safe', 'keeper_only'], STATES = ['accurate', 'uncertain', 'distorted'];
 export const FAILURE_REASONS = ['invalid', 'lane_error', 'model_error'];
@@ -26,6 +27,7 @@ const instruction = (language: string) => 'Write only what is new this turn: fac
     'When an NPC learned something, took a position or gave their word this turn, say so with them in it: a ' +
     'knowledge or belief whose knowers include them, or a promise whose subject is them -- that is what puts it ' +
     'on their account, and the keeper reads it back the next time they are in the room. ' +
+    'For an explicit correction or retraction, use keeper_correction and corrects: copy the exact subject and statement of each earlier claim it withdraws from correction_targets. Use [] when none applies. Do not repeat the withdrawn claim as new knowledge. A report of what someone said is not verified module truth. ' +
     `Write every statement in the campaign's play language (${language}): the keeper reads it back and the player ` +
     'may see it through recall. Never write ids, turn numbers, receipts or any machine key.';
 export async function logs(campaign: CampaignWriter, path: string): Promise<Row[]> {
@@ -45,10 +47,10 @@ export async function committedRecords(campaign: CampaignWriter): Promise<Map<nu
     return new Map([...await records(campaign)].filter(([, value]) => value.closed_by === 'narrate' && truth(value.commit)));
 }
 export function parseJobId(campaign: CampaignWriter, value: any): number {
-    const found = typeof value === 'string' ? /^extract:([A-Za-z0-9][A-Za-z0-9._-]{0,63}):t(\d+)$/.exec(value) : null;
-    if (!found || found[1] !== campaign.id)
+    const found = typeof value === 'string' ? /^(extract|reconcile):([A-Za-z0-9][A-Za-z0-9._-]{0,63}):t(\d+)(?:-(\d+)(?::[a-f0-9]{12})?)?$/.exec(value) : null;
+    if (!found || found[2] !== campaign.id || (found[1] === 'extract' ? found[4] != null : !found[4] || Number(found[4]) < 1))
         throw new RpcError('invalid_params', 'job_id must be the extract:<campaign>:t<n> that memory.job returned', { details: { job_id: value ?? null } });
-    return Number(found[2]);
+    return Number(found[3]);
 }
 export async function readJob(campaign: CampaignWriter, id: string): Promise<Row | null> {
     try {
@@ -102,20 +104,51 @@ export async function buildJob(campaign: CampaignWriter, graph: ModuleGraph, lan
     const facts = array(row(record.facts).committed);
     const rows = await logs(campaign, 'memory/candidates.jsonl'), about = known.filter(value => ['investigator', 'npc'].includes(value.kind)).map(value => value.name);
     const prior = queryCandidates(rows, new EntityIndex(graph, party, labels), about, { limit: 12 }).map(hit => ({ id: hit.id, kind: hit.kind, subject: hit.subject, statement: hit.statement, status: hit.status, turn: hit.turn }));
+    const correctionTargets = queryCandidates(rows.filter(value => number(value.valid_from_turn) < turn), new EntityIndex(graph, party, labels), about, {limit: 30})
+        .map(hit => ({subject: hit.subject, statement: hit.statement, kind: hit.kind}));
+    const meta = await campaign.readCampaign();
     return { job_id: jobId(campaign.id, turn), turn, commit: record.commit ?? null, scene: { name: graph.handle(scene), display_name: display },
         present: present.map(node => graph.displayName(node)), investigators: party.map(sheet => ({ id: string(sheet.id), name: string(sheet.name) })),
         player_text: record.player_text ?? null, keeper_text: proseOf(record.rendered_text),
         committed_facts: facts.length ? facts : committedFacts(array(record.receipts), snapshot, id => labels[id] ?? id, record.player_text),
-        known_entities: known, prior, budget: { max_candidates: 12, max_statement_chars: 400 }, instruction: instruction(language),
-        _allowed: allowed, _receipts: array(record.receipts).map(receipt => receipt.id) };
+        known_entities: known, prior, ...(correctionTargets.length ? {correction_targets: correctionTargets} : {}), budget: { max_candidates: 12, max_statement_chars: 400 }, instruction: instruction(language),
+        _worldline: meta.active_worldline ?? 'main', _allowed: allowed, _receipts: array(record.receipts).map(receipt => receipt.id) };
+}
+export async function correctionJob(campaign: CampaignWriter, graph: ModuleGraph, party: Row[], requested?: string): Promise<Row | null> {
+    const rows = await logs(campaign, 'memory/candidates.jsonl'), meta = await campaign.readCampaign();
+    const backlog = new Set((await logs(campaign, 'memory/backlog.jsonl')).filter(row => row.status === 'pending').map(row => row.job_id));
+    const eligible = rows.filter(row => row.kind === 'keeper_correction' && row.superseded_by == null && row.correction_links_checked !== true)
+        .sort((a, b) => number(a.valid_from_turn) - number(b.valid_from_turn));
+    for (const correction of eligible) {
+        if (!/^mem:t\d+-\d+$/.test(string(correction.id))) continue;
+        const id = `reconcile:${campaign.id}:${string(correction.id).slice(4)}:${jsonDigest(meta.active_worldline ?? 'main').slice(0, 12)}`;
+        if (requested ? id !== requested : backlog.has(id)) continue;
+        const existing = await readJob(campaign, id);
+        if (existing) return existing.packet;
+        const turn = number(correction.valid_from_turn), record = (await committedRecords(campaign)).get(turn);
+        if (!record) continue;
+        const about = [correction.subject, ...array(correction.knowers), ...array(correction.entities)];
+        const targets = queryCandidates(rows.filter(row => number(row.valid_from_turn) < turn), new EntityIndex(graph, party), about, {limit: 30})
+            .map(hit => ({subject: hit.subject, statement: hit.statement, kind: hit.kind}));
+        return {job_id: id, task: 'reconcile_correction', turn, commit: record.commit ?? null,
+            correction: {kind: correction.kind, subject: correction.subject, statement: correction.statement}, correction_targets: targets,
+            player_text: record.player_text ?? '', keeper_text: proseOf(record.rendered_text), prior: [],
+            budget: {max_candidates: 1, max_statement_chars: 400},
+            instruction: 'Link the supplied existing correction to the earlier reports it explicitly withdraws. Return exactly one candidate, copying correction.kind, subject and statement unchanged, with corrects selected as exact subject/statement pairs from correction_targets. Use corrects:[] if none applies. Do not invent new facts, rewrite the correction, or adjudicate module truth. Distinguish an explicit retraction from uncertainty about an unrelated fact. No identifiers in the response.',
+            _correction: correction.id, _worldline: meta.active_worldline ?? 'main', _allowed: [], _receipts: []};
+    }
+    return null;
 }
 export async function openJob(campaign: CampaignWriter, packet: Row): Promise<Row> {
-    const allowed = packet._allowed, receipts = packet._receipts;
+    const allowed = packet._allowed, receipts = packet._receipts, correction = packet._correction, worldline = packet._worldline;
     delete packet._allowed;
     delete packet._receipts;
+    delete packet._correction; delete packet._worldline;
     const existing = await readJob(campaign, packet.job_id);
+    if (existing && packet.task === 'reconcile_correction') return existing.packet;
     if (!existing || !['done', 'failed'].includes(existing.status))
-        await writeJob(campaign, { job_id: packet.job_id, turn: packet.turn, commit: packet.commit, status: 'open', opened_at: nowIso(), packet, allowed, receipts });
+        await writeJob(campaign, { job_id: packet.job_id, turn: packet.turn, commit: packet.commit, status: 'open', opened_at: nowIso(), packet, allowed, receipts,
+            ...(worldline != null ? {worldline} : {}), ...(correction ? {correction} : {}) });
     return packet;
 }
 function reject(index: number, message: string, fix: string, details: Row = {}): never {
@@ -150,6 +183,9 @@ export function validateCandidates(index: EntityIndex, candidates: any): Row[] {
             return reject(i, `candidates[${i}].kind ${repr(kind)} is not a kind`, `one of: ${CANDIDATE_KINDS.join(', ')}`);
         if (typeof statement !== 'string' || length(statement.trim()) < 1 || length(statement.trim()) > 400)
             return reject(i, `candidates[${i}].statement must be 1–400 characters`, 'shorten or split the statement');
+        if (Object.hasOwn(candidate, 'corrects') && kind !== 'keeper_correction')
+            return reject(i, 'Only keeper_correction may withdraw earlier assertions', 'remove corrects or use keeper_correction for an explicit correction');
+        const corrects = Object.hasOwn(candidate, 'corrects') ? validateCorrectionRefs(candidate.corrects) : undefined;
         const subject = resolveName(index, i, 'subject', candidate.subject);
         if (kind === 'world_event' && subject !== 'reserved:world')
             return reject(i, `candidates[${i}]: a world_event's subject must be world`, 'set subject to world, or choose knowledge/belief for what someone knows');
@@ -184,7 +220,7 @@ export function validateCandidates(index: EntityIndex, candidates: any): Row[] {
             return reject(i, `candidates[${i}].state ${repr(state)}`, `one of: ${STATES.join(', ')}`);
         if (confidence !== null && (!numeric(confidence) || number(confidence) < 0 || number(confidence) > 1 || !Number.isFinite(number(confidence))))
             return reject(i, `candidates[${i}].confidence must be a number from 0 to 1`, 'omit it or give 0–1');
-        return { kind, subject: index.canonicalName(subject), knowers: knowerKeys.map(key => index.canonicalName(key)), entities: entityKeys.map(key => index.canonicalName(key)), statement: statement.trim(), privacy, state, confidence, _keys: { subject, entities: sorted(entityKeys) }, ...(droppedEntities.length ? { _dropped: droppedEntities } : {}) };
+        return { kind, subject: index.canonicalName(subject), knowers: knowerKeys.map(key => index.canonicalName(key)), entities: entityKeys.map(key => index.canonicalName(key)), statement: statement.trim(), privacy, state, confidence, _keys: { subject, entities: sorted(entityKeys) }, ...(corrects !== undefined ? {corrects} : {}), ...(droppedEntities.length ? { _dropped: droppedEntities } : {}) };
     });
 }
 export async function appendBacklog(campaign: CampaignWriter, id: string, turn: number, reason: string, detail: any): Promise<Row> {
@@ -211,10 +247,25 @@ export async function submit(campaign: CampaignWriter, graph: ModuleGraph, party
     const id = string(job.job_id), turn = number(job.turn), meta = await campaign.readCampaign();
     const line = typeof meta.active_worldline === 'string' && meta.active_worldline ? meta.active_worldline : 'main', loop = number(row(row(meta.worldlines)[line]).loop);
     const digest = jsonDigest(candidates ?? null);
+    if (job.worldline != null && job.worldline !== line) throw new RpcError('invalid_params', 'Memory job belongs to another worldline');
     if (job.status === 'done') {
         if (job.candidates_sha256 === digest)
             return [clone(row(job.result)), true];
         throw new RpcError('idempotency_conflict', `job ${id} already completed with different candidates`, { fix: 'a completed job is final; nothing to resubmit', details: { job_id: id } });
+    }
+    if (job.correction) {
+        const rows = await logs(campaign, 'memory/candidates.jsonl'), correction = rows.find(row => row.id === job.correction);
+        const value = Array.isArray(candidates) && candidates.length === 1 ? candidates[0] : null;
+        if (!correction || correction.superseded_by != null || !isJsonObject(value) || Object.keys(value).some(key => !FIELDS.includes(key))
+            || value.kind !== 'keeper_correction' || value.subject !== correction.subject || value.statement !== correction.statement)
+            throw new RpcError('invalid_params', 'Reconciliation must return the unchanged active correction and its corrects references');
+        correction.corrects = bindCorrectionRefs(validateCorrectionRefs(value.corrects), array(job.packet.correction_targets), rows, turn);
+        correction.correction_links_checked = true;
+        const superseded = applyCorrectionLinks(rows);
+        await writeLines(campaign, 'memory/candidates.jsonl', rows);
+        const result = {job_id: id, turn, candidates: 0, written: [], superseded, correction: correction.id};
+        await writeJob(campaign, {...job, status: 'done', candidates_sha256: digest, submitted: candidates, result, completed_at: nowIso()});
+        await recoverBacklog(campaign, id); return [result, false];
     }
     const world = await campaign.readWorld(), index = new EntityIndex(graph, party, row(world.scene_labels), array(job.allowed));
     let validated: Row[];
@@ -227,6 +278,10 @@ export async function submit(campaign: CampaignWriter, graph: ModuleGraph, party
         throw error;
     }
     const existing = await logs(campaign, 'memory/candidates.jsonl'), prefix = `mem:t${turn}-`;
+    for (const value of validated) if (Object.hasOwn(value, 'corrects')) {
+        value.corrects = bindCorrectionRefs(value.corrects, array(job.packet.correction_targets), existing, turn);
+        value.correction_links_checked = true;
+    }
     const used = existing.filter(value => string(value.id || '').startsWith(prefix) && /^\d+$/.test(string(value.id).split('-').at(-1)!)).map(value => Number(string(value.id).split('-').at(-1)));
     let next = Math.max(0, ...used) + 1;
     const graphIndex = new EntityIndex(graph, party, row(world.scene_labels)), written: Row[] = [], superseded: string[] = [], dropped: string[] = [];
@@ -252,6 +307,7 @@ export async function submit(campaign: CampaignWriter, graph: ModuleGraph, party
         existing.push(landed);
         written.push(landed);
     }
+    superseded.push(...applyCorrectionLinks(existing).filter(id => !superseded.includes(id)));
     await writeLines(campaign, 'memory/candidates.jsonl', existing);
     const result = { job_id: id, turn, candidates: written.length, written: written.map(value => value.id), superseded,
         ...(dropped.length ? { dropped_entities: sorted(new Set(dropped)) } : {}) };

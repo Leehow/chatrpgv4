@@ -310,7 +310,9 @@ def test_recall_memory_ranks_by_overlap_then_recency_and_narrows_on_about(kernel
     assert default["what"] == "memory" and default["about"] == [KNOTT, INV]
     assert [h["id"] for h in default["hits"]] == ["mem:t1-1", "mem:t2-1", "mem:t2-2", "mem:t1-2"]
     hit = default["hits"][0]
-    assert hit == {"id": "mem:t1-1", "kind": "knowledge", "subject": INV, "knowers": [], "entities": [KNOTT],
+    assert hit["authority"] == "conversation_report"
+    assert hit["source"]["turn"] == 1 and hit["source"]["commit"]
+    assert {k: v for k, v in hit.items() if k not in {"authority", "source"}} == {"id": "mem:t1-1", "kind": "knowledge", "subject": INV, "knowers": [], "entities": [KNOTT],
                    "statement": "k1：调查员知道诺特急着出租。", "privacy": "player_safe", "state": "accurate",
                    "confidence": None, "status": "candidate", "turn": 1,
                    # §15.5: which worldline and which circuit of the loop remembered it.
@@ -356,12 +358,14 @@ def test_recall_memory_ranks_by_kind_after_overlap_and_before_recency(kernel):
         ("player_assertion", 2), ("player_assertion", 1),  # tier 2, newest first
         ("world_event", 2),                      # overlap 0 still ranks last of all
     ]
-    # the capsule takes the same head, projected to four fields (§12.7)
+    # The capsule keeps report authority and status beside the same ranked head.
     kernel.table("player_input", text="第 3 回合。")
     capsule = kernel.table("capsule")["memory"]
     assert [h["id"] for h in capsule] == [h["id"] for h in hits][:6]
-    assert all(set(h) == {"id", "kind", "statement", "turn"} for h in capsule)
-    assert capsule[0] == {"id": "mem:t2-4", "kind": "promise", "statement": "p2", "turn": 2}
+    assert all(set(h) == {"id", "kind", "statement", "subject", "turn", "status", "state", "authority"} for h in capsule)
+    assert all(h["authority"] == "conversation_report" and h["status"] == "candidate" for h in capsule)
+    assert capsule[0] == {"id": "mem:t2-4", "kind": "promise", "statement": "p2", "subject": KNOTT,
+                          "turn": 2, "status": "candidate", "state": "accurate", "authority": "conversation_report"}
 
 
 def test_prior_in_the_job_packet_follows_the_same_ranking(kernel):

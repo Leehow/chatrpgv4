@@ -379,7 +379,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 			kind: StringEnum(["module", "source", "secret", "rule", "catalog", "continuity", "adaptation"] as const, {
 				description: "module searches known names; an absent destination needs adaptation, not fictional arrival. continuity joins acquired evidence and causal relationships. adaptation prepare drafts a new source-connected venue/carrier, status reads its review, cancel stops it; accept a ready named proposal through apply adaptation, then move. source without question prepares missing material; with question rechecks original pages",
 			}),
-			query: Type.Optional(Type.String({ description: "a name or a question; omissible when kind is secret" })),
+			query: Type.Optional(Type.String({ description: "module/rule/catalog: a name or search text. continuity: a semantic entity name, never a prose question; omit query when using anchors. source: entity name, with detail in question. Omissible for secret." })),
 			anchors: Type.Optional(Type.Array(Type.String(), {maxItems: 12, description: "continuity/adaptation: source entity, clue or conclusion names to connect"})),
 			limit: Type.Optional(Type.Integer({minimum: 1, maximum: 12})),
 			action: Type.Optional(StringEnum(["prepare", "status", "cancel"] as const)),

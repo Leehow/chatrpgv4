@@ -90,6 +90,8 @@ export function hitView(value: Row): Row {
         state: value.state ?? null,
         confidence: value.confidence ?? null,
         status: value.status ?? null,
+        authority: 'conversation_report',
+        source: row(value.source),
         turn: value.valid_from_turn ?? null,
         worldline: value.worldline ?? null,
         loop: value.loop ?? null,
@@ -111,15 +113,18 @@ export function queryCandidates(rows: Row[], index: EntityIndex, about: string[]
         tier: number;
         turn: number;
         id: string;
+        correction: number;
         value: Row;
     }> = [];
+    const byId = new Map(rows.map(value => [value.id, value]));
     for (const value of rows) {
         if (!options.includeSuperseded && value.superseded_by != null || options.kinds?.length && !options.kinds.includes(value.kind))
             continue;
         const turn = number(value.valid_from_turn);
         if (options.turns?.length && !(options.turns[0] <= turn && turn <= options.turns[1]))
             continue;
-        const names = new Set([value.subject, ...array(value.knowers), ...array(value.entities)].filter(truth).map(name => index.lenientKey(string(name)))), overlap = [...names].filter(name => keys.has(name)).length;
+        const linked = value.kind === 'keeper_correction' ? array(value.corrects).flatMap(id => byId.has(id) ? [byId.get(id)!] : []) : [];
+        const names = new Set([value, ...linked].flatMap(entry => [entry.subject, ...array(entry.knowers), ...array(entry.entities)]).filter(truth).map(name => index.lenientKey(string(name)))), overlap = [...names].filter(name => keys.has(name)).length;
         if (options.narrow && !overlap)
             continue;
         hits.push({
@@ -127,17 +132,30 @@ export function queryCandidates(rows: Row[], index: EntityIndex, about: string[]
             tier: kindRank(value.kind),
             turn,
             id: string(value.id),
+            correction: value.kind === 'keeper_correction' && value.superseded_by == null && overlap > 0 ? 0 : 1,
             value
         });
     }
-    return hits.sort((a, b) => b.overlap - a.overlap || a.tier - b.tier || b.turn - a.turn || compareUnicode(a.id, b.id)).slice(0, options.limit ?? 12).map(hit => hitView(hit.value));
+    return hits.sort((a, b) => a.correction - b.correction || b.overlap - a.overlap || a.tier - b.tier || b.turn - a.turn || compareUnicode(a.id, b.id)).slice(0, options.limit ?? 12).map(hit => {
+        const view = hitView(hit.value), seen = new Set<string>();
+        let next = hit.value;
+        while (next.superseded_by && byId.has(next.superseded_by) && !seen.has(next.superseded_by)) {
+            seen.add(next.superseded_by); next = byId.get(next.superseded_by)!;
+        }
+        if (next !== hit.value) view.superseding = {kind: next.kind, statement: next.statement, turn: next.valid_from_turn, status: next.status};
+        return view;
+    });
 }
 export function capsuleMemory(rows: Row[], index: EntityIndex, about: string[]): Row[] {
     return queryCandidates(rows, index, about, { limit: 6 }).map(hit => ({
         id: hit.id,
         kind: hit.kind,
         statement: hit.statement,
-        turn: hit.turn
+        subject: hit.subject,
+        turn: hit.turn,
+        status: hit.status,
+        state: hit.state,
+        authority: hit.authority
     }));
 }
 export function fromOtherLines(rows: Row[], index: EntityIndex, name: string, line: string, loop: number, limit = 3): Row[] {
