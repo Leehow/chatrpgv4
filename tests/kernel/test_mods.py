@@ -93,6 +93,30 @@ def test_existing_equipment_state_is_preserved_and_executable_weapons_are_not_ca
     assert not kernel.ok("mods.context", {"campaign":CAMPAIGN})["unregistered_equipment"]
 
 
+def test_first_impression_refusal_names_who_is_here_and_how_to_stage_the_target(seeded_kernel):
+    """An impression needs a meeting, and the refusal has to be one the Keeper can act on.
+
+    It used to be the bare sentence "The first-impression target must be present", with no `fix`
+    and no `details`. A live table opened Masks in Bar Cordano and asked for three impressions in
+    one message; every one was refused, because on an imported book the people are staged in the
+    very turn they are met. The Keeper was told what was wrong and never what to do, and the empty
+    `details` collapsed all three into one refusal class, which shut `resolve` for the turn.
+    """
+    kernel = seeded_kernel
+    open_turn(kernel)
+    kernel.table("apply", call_id="t1-c1", effects=[{"kind":"npc","name":"Steven Knott","to":"away","why":"他先走了"}])
+    error = kernel.table_err("resolve", call_id="t1-c2",
+        action={"intent":"social", "decision":"natural-npc:first-impression", "target":"Steven Knott", "goal":"Introduce myself"})
+    assert error["code"] == "not_here"
+    assert "Steven Knott" in error["message"]
+    # The fix is executed literally, so it has to name the call that makes the meeting happen.
+    assert 'apply {kind: "npc"' in error["fix"] and '"here"' in error["fix"]
+    details = error["details"]
+    assert details["field"] == "target" and details["npc"] == "steven-knott"
+    # Who IS here, so a Keeper handed this can roll against someone present instead.
+    assert isinstance(details["present"], list) and "Steven Knott" not in details["present"]
+
+
 def test_first_impression_uses_higher_value_and_reuses_pair(seeded_kernel):
     kernel = seeded_kernel
     open_turn(kernel)
@@ -494,3 +518,28 @@ def test_a_placement_that_omits_its_definition_is_offered_the_names_on_hand(kern
 
     kernel.table("apply", call_id="t1-c2", effects=[prepared(kernel, draft), {**placement, "definition":"笔记本"}])
     assert kernel.table("look", focus="object", name="大牛皮的笔记本")["definition"]["name"] == "笔记本"
+
+
+def test_a_queued_registration_answers_look_instead_of_reading_as_unknown(kernel):
+    open_turn(kernel)
+    target = [entry["name"] for entry in kernel.ok("mods.context", {"campaign":CAMPAIGN})["unregistered_equipment"]][0]
+    draft = {"name":"Queued field kit", "category":"item", "description":"Fixture gear for a deferred registration."}
+    job = kernel.ok("mods.job", {"campaign":CAMPAIGN, "role":"create", "input":draft})
+    kernel.table("apply", call_id="t1-c1", effects=[
+        {"kind":"define", **draft, "_queued":job["job"], "_provenance":{"mod":job["mod"], "digest":job["digest"]}},
+        {"kind":"object", "name":draft["name"], "to":"Thomas Hayes", "adopt":target,
+         "definition":draft["name"], "why":"Fixture adoption."}])
+
+    # Answering "no such thing" is what sent a live Keeper round to define and place it a second time.
+    refused = kernel.table_err("look", focus="object", name=draft["name"])
+    assert refused["code"] == "needs"
+    assert draft["name"] in refused["message"]
+    assert "do not define or place it again" in refused["fix"]
+
+    # And it does not have to ask: what it registered is in the context it already reads.
+    queued = kernel.ok("mods.context", {"campaign":CAMPAIGN})["objects"]["queued_registrations"]
+    assert [entry["name"] for entry in queued] == [draft["name"]]
+    assert queued[0]["adopted"] == target
+
+    # A name nobody registered is still unknown, queued or not.
+    assert kernel.table_err("look", focus="object", name="Nothing named this")["code"] == "unknown_entity"
