@@ -448,3 +448,29 @@ def test_admission_failures_are_read_by_turn_number_from_telemetry(tmp_path):
         {"turn": 7, "lane": "director", "ok": False},
     ]) + "\n", encoding="utf-8")
     assert persona_report.admission_failed_turns(campaign) == {5}
+
+
+def test_findings_can_be_refolded_without_paying_the_judge_again(tmp_path, monkeypatch):
+    """Judging costs a call per run; folding costs nothing. Reuse must not call the model."""
+    called = []
+    monkeypatch.setattr(persona_report, "run_judge",
+                        lambda *a, **k: called.append(a) or {"findings": []})
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "judgement.jsonl").write_text(
+        json.dumps({"metric": "hard_denial_rate", "turn": 2, "verdict": "ok", "quote": "q"}) + "\n",
+        encoding="utf-8")
+    reused = persona_report.read_existing_judgement(run_dir)
+    assert reused["reused"] is True and len(reused["findings"]) == 1 and not called
+
+
+def test_a_secret_leak_on_a_turn_that_minted_no_clue_says_so():
+    folded = persona_report.fold_judgement(
+        {"findings": [
+            {"metric": "secret_leak", "turn": 2, "verdict": "violation", "quote": "the wards"},
+            {"metric": "secret_leak", "turn": 3, "verdict": "violation", "quote": "the sorcerer"},
+        ]},
+        turns_seen={2, 3}, allowed=["secret_leak"], admission_failed=set(), clue_turns={3})
+    citations = folded["secret_leak"]["citations"]
+    assert citations[0]["no_clue_receipt_this_turn"] is True
+    assert "no_clue_receipt_this_turn" not in citations[1]

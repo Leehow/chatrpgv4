@@ -43,7 +43,10 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 #: where `deepseek-v4-pro` recorded none from the same evidence, and it is several times faster
 #: -- which matters when a suite has a hundred runs to judge.
 DEFAULT_JUDGE_MODEL = "deepseek/deepseek-v4-flash"
-JUDGE_TIMEOUT = 1800
+#: A judge that has not finished a thirty-turn table in this long is not slow, it is stuck: the
+#: measured pass is about a hundred seconds. Eight at once each hung for the old 1800s cap
+#: without writing a single session row -- the provider was queueing them, not answering.
+JUDGE_TIMEOUT = 420
 
 
 # --------------------------------------------------------------------------
@@ -394,8 +397,25 @@ def uncovered_turns(run_dir: Path) -> list[int]:
     return [t for t in all_turns if t not in seen]
 
 
+def read_existing_judgement(run_dir: Path) -> dict[str, Any]:
+    path = run_dir / "judgement.jsonl"
+    if not path.exists():
+        return {"findings": [], "error": "no judgement on disk to reuse"}
+    findings = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        try:
+            findings.append(json.loads(line))
+        except ValueError:
+            continue
+    refused = run_dir / "judge-refusals.jsonl"
+    return {"findings": findings, "reused": True,
+            "refused": len(refused.read_text(encoding="utf-8").splitlines()) if refused.exists() else 0,
+            "cost": judge_cost(run_dir)}
+
+
 def fold_judgement(judgement: dict[str, Any], turns_seen: set[int],
-                   allowed: list[str], admission_failed: set[int] | None = None) -> dict[str, Any]:
+                   allowed: list[str], admission_failed: set[int] | None = None,
+                   clue_turns: set[int] | None = None) -> dict[str, Any]:
     """Drop what cannot be cited, then count. The judge does not get to add metrics."""
     folded: dict[str, dict[str, Any]] = {}
     dropped = 0
@@ -418,7 +438,10 @@ def fold_judgement(judgement: dict[str, Any], turns_seen: set[int],
         if verdict == "violation" or len(bucket["citations"]) < 3:
             bucket["citations"].append({"turn": turn, "verdict": verdict, "quote": quote[:400],
                                         "why": (finding.get("why") or "")[:300],
-                                        **({"review_unavailable_this_turn": True} if instrument else {})})
+                                        **({"review_unavailable_this_turn": True} if instrument else {}),
+                                        **({"no_clue_receipt_this_turn": True}
+                                           if metric_id == "secret_leak"
+                                           and turn not in (clue_turns or set()) else {})})
     for metric_id, bucket in folded.items():
         bucket["rate"] = rate(metric_id, bucket["ok"], bucket["violation"])
         bucket["direction"] = METRICS[metric_id]["direction"]
@@ -450,7 +473,26 @@ def classify(record: dict[str, Any]) -> str:
     return "invalid"
 
 
-def build_report(run_dir: Path, *, judge: bool, judge_model: str) -> dict[str, Any]:
+def clue_receipt_turns(campaign: Path) -> set[int]:
+    """Turns that minted at least one clue receipt.
+
+    A secret-leak finding on a turn that minted no clue tells the reader which family it is in:
+    information that reached the player while the engine stayed ignorant, rather than a Keeper
+    handing over what only the Keeper knows. Read from receipts, not from the words.
+    """
+    turns = set()
+    for path in sorted((campaign / "turns").glob("*.json")):
+        try:
+            record = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if any(r.get("kind") == "clue" for r in record.get("receipts") or []):
+            turns.add(record.get("turn"))
+    return turns
+
+
+def build_report(run_dir: Path, *, judge: bool, judge_model: str,
+                 reuse_judgement: bool = False) -> dict[str, Any]:
     # Absolute: the judge runs with this directory as its cwd, and a relative --session-dir was
     # resolved against it, burying the session under a copy of its own path.
     run_dir = run_dir.resolve()
@@ -476,13 +518,17 @@ def build_report(run_dir: Path, *, judge: bool, judge_model: str) -> dict[str, A
     report["receipts"] = receipts
     report["self_report"] = sidecar_metrics(trace_rows)
 
-    if judge:
+    if judge or reuse_judgement:
         build_judge_packet(run_dir, campaign, persona, trace_rows)
-        judgement = run_judge(run_dir, judge_model)
+        # Judging costs a model call per run; folding what it already wrote costs nothing. Reuse
+        # lets the annotations below be added to a finished suite without paying for it twice.
+        judgement = (read_existing_judgement(run_dir) if reuse_judgement
+                     else run_judge(run_dir, judge_model))
         turns_seen = {row["turn"] for row in trace_rows if row.get("turn")} | {0}
         allowed = list(dict.fromkeys(list(HARD_GATES) + list(persona["assertions"])))
         report["judged"] = fold_judgement(judgement, turns_seen, allowed,
-                                          admission_failed_turns(campaign))
+                                          admission_failed_turns(campaign),
+                                          clue_receipt_turns(campaign))
         if judgement.get("refused"):
             report["judged"]["_refused_by_tool"] = judgement["refused"]
         if judgement.get("error"):
@@ -507,7 +553,8 @@ def build_report(run_dir: Path, *, judge: bool, judge_model: str) -> dict[str, A
 
 
 def cmd_run(args: argparse.Namespace) -> int:
-    report = build_report(Path(args.run_dir), judge=not args.no_judge, judge_model=args.judge_model)
+    report = build_report(Path(args.run_dir), judge=not (args.no_judge or args.reuse_judgement),
+                          judge_model=args.judge_model, reuse_judgement=args.reuse_judgement)
     print(json.dumps(report, ensure_ascii=False, indent=2))
     return 0
 
@@ -531,8 +578,9 @@ def cmd_suite(args: argparse.Namespace) -> int:
     # they share nothing but the model endpoint.
     workers = 1 if args.no_judge else max(1, int(args.judge_concurrency))
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = {pool.submit(build_report, run_dir, judge=not args.no_judge,
-                               judge_model=args.judge_model): run_dir for run_dir in run_dirs}
+        futures = {pool.submit(build_report, run_dir, judge=not (args.no_judge or args.reuse_judgement),
+                               judge_model=args.judge_model,
+                               reuse_judgement=args.reuse_judgement): run_dir for run_dir in run_dirs}
         for future in concurrent.futures.as_completed(futures):
             run_dir = futures[future]
             try:
@@ -649,6 +697,8 @@ def build_parser() -> argparse.ArgumentParser:
         sp = sub.add_parser(name)
         sp.add_argument(needs, required=True, dest=needs.lstrip("-").replace("-", "_"))
         sp.add_argument("--no-judge", action="store_true", help="tiers A and B only; spend nothing")
+        sp.add_argument("--reuse-judgement", action="store_true",
+                        help="fold the findings already on disk instead of judging again (free)")
         sp.add_argument("--judge-model", default=DEFAULT_JUDGE_MODEL)
         sp.add_argument("--skip-personas", default=None,
                         help="comma-separated persona ids to leave unjudged (e.g. runs starved of "
