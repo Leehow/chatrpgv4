@@ -188,6 +188,11 @@ test('supporting NPC knowledge and new handout renditions are available without 
     assert.match(await readFile(shown.attachment.path, 'utf8'), /An acquired-evidence rendition/);
     await t.call('table.narrate', {call_id: 't1-c4', text: 'Harbor clerk offers the copy.'});
     assert.ok((await t.call('journal.job', {turn: 1})).recordable.includes('Harbor clerk'));
+    const audit = await t.call('mods.job', {role: 'audit', input: {text: 'Harbor clerk remains here.'}});
+    const originalGraph = JSON.parse(await readFile(join(audit.cwd, 'original.json'), 'utf8')).graph;
+    const effectiveGraph = JSON.parse(await readFile(join(audit.cwd, 'effective.json'), 'utf8')).graph;
+    assert.ok(!originalGraph.nodes.some(node => node.name === 'Harbor clerk'));
+    assert.ok(effectiveGraph.nodes.some(node => node.name === 'Harbor clerk' && node.campaign_origin));
 });
 
 test('accepted source stays pinned across shared publication until a reviewed rebase; other campaigns remain unadapted', async () => {

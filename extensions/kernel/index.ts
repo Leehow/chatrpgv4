@@ -351,9 +351,11 @@ function errorDetailLines(details: Record<string, unknown> | undefined, fix?: st
 		lines.push(`mod repair: ${JSON.stringify({
 			missing: Array.isArray(details.missing) ? details.missing : [],
 			findings: Array.isArray(details.findings) ? details.findings : [],
+			...(details.source_review ? {source_review: details.source_review} : {}),
 		})}`);
 		rendered.add("missing");
 		rendered.add("findings");
+		rendered.add("source_review");
 	}
 	for (const key of namedDetailKeys(fix)) {
 		if (rendered.has(key) || details[key] === undefined) continue;
@@ -1614,6 +1616,7 @@ export default function (pi: ExtensionAPI) {
 			const began = Date.now();
 			try {
 				const params: Record<string, unknown> = { campaign: state.campaign, call_id: callId, text: prose, implicit: true };
+				await mods?.prepare(tool, params, state.lanes.signal);
 				const result = (await state.kernel.call<Record<string, unknown>>(`table.${tool}`, params)) ?? {};
 				applyToolSuccess(state, tool, "implicit", result);
 				await record({ tool, call_id: callId, started_at: startedAt, ms: Date.now() - began, ok: true, implicit: true });
@@ -1626,12 +1629,10 @@ export default function (pi: ExtensionAPI) {
 					code: isKernelError(error) ? error.code : "internal",
 					...(detail ? { code_detail: detail } : {}),
 				});
-				// No steer follows. The kernel refused an implicit delivery on the play language's script
-				// until §23 (2026-09-09); with the tag set open there is no character class to check, the
-				// kernel makes no such refusal, and this loop asks the Keeper for nothing. The verifier lane
-				// reads the delivered prose afterwards and files `play_language_mismatch` as an advisory
-				// finding on the turn instead (contract §12.5).
-				return;
+				state.floorDraft = undefined;
+				state.deliveryFix = {kind: "audit-repair", text: `This draft was not delivered. ${isKernelError(error) ? error.message : "Delivery preparation failed"}. ` +
+					`${isKernelError(error) ? error.fix ?? "" : ""} ${isKernelError(error) ? JSON.stringify(error.details ?? {}).slice(0, 8000) : detail ?? ""} Keep settled actions; repair with narrate, without rerolling or inventing a reconciliation.`};
+				return {message: {...event.message, content: blocks.filter(block => block.type !== "text")}};
 			}
 			if (!rendered) return;
 		}

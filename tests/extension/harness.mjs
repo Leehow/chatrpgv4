@@ -214,8 +214,9 @@ export async function openTable({
 	laneResponses = {},
 	uiMode = "print",
 	settings = {},
+	retainAt,
 } = {}) {
-	const workspace = mkdtempSync(join(tmpdir(), "pi-coc-ext-"));
+	const workspace = mkdtempSync(join(retainAt ?? tmpdir(), "pi-coc-ext-"));
 	const requestLog = join(workspace, "kernel-requests.jsonl");
 	const restoreEnv = setEnv({
 		// 父进程环境里的真实 provider key（DEEPSEEK/KIMI/OPENCODE…）会把那些 provider
@@ -409,7 +410,7 @@ export async function openTable({
 			restoreEnv();
 			// 车道（记忆、校验、深读、构建）都是 fire-and-forget 的，关机那一刻可能还有一行
 			// 遥测正往工作区里写：删目录撞上它就是 ENOTEMPTY。重试几次，别把它算成用例失败。
-			rmSync(workspace, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+			if (!retainAt) rmSync(workspace, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
 		},
 	};
 	return table;
