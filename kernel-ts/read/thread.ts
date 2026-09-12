@@ -5,13 +5,14 @@ import { ModuleGraph, recordOf, describeCondition, conditionStatus } from "./mod
 import { clueGate } from "./director.js";
 import { array, row, string, truth, chars, type Row } from "./values.js";
 import { jsonSize } from "./capsule.js";
+import { continuityView } from "./continuity.js";
 export const THREAD_BUDGET = 3072;
 const IMPORTANCE = ["critical", "core", "major", "supporting", "minor"];
 const rank = (value: any): number => { const i = IMPORTANCE.indexOf(string(value)); return i < 0 ? IMPORTANCE.length : i; };
 const HANDED = "The book means these clues to happen: they are not routes and not choices to offer. The timing is yours.";
 /** Conclusions the discovered clues have not yet closed, each with the clues here, the scenes one move away that
  *  hold more, the clues the book hands over by itself, and the rest as a count. */
-export function threadSection(graph: ModuleGraph, world: Row, scene: Row, present: Row[]): Row {
+export function threadSection(graph: ModuleGraph, world: Row, scene: Row, present: Row[], records: Row[] = []): Row {
     const discovered = new Set(array(world.discovered_clues).map(string)),
         here = new Set(graph.sceneClueIds(scene)),
         presentIds = new Set(present.map(n => n.node_id)),
@@ -86,18 +87,24 @@ export function threadSection(graph: ModuleGraph, world: Row, scene: Row, presen
         lines.push(line);
     }
     lines.sort((a, b) => rank(a.importance) - rank(b.importance) || Number(a.missing) - Number(b.missing));
-    const section: Row = { lines: lines.slice(0, 6) };
+    const continuity = continuityView(graph, world, records, [], {limit: 2, compact: true, budget: 1400});
+    const connections = array(continuity.connections).filter(connection => array(connection.evidence).some(evidence => evidence.acquired));
+    const section: Row = { lines: lines.slice(0, 6), ...(connections.length ? {connections, connections_truncated: continuity.truncated} : {}) };
     if (lines.length > 6)
         section.truncated = true;
     if (section.lines.some((line: Row) => truth(line.handed)))
         section.handed = HANDED;
     // The mods section has no budget of its own, so this one keeps to a few KB. A line with clues in this scene is
     // the actionable part and goes last: first the other lines lose their words, then they go, then the rest.
-    const compact = (line: Row): Row => ({ name: line.name, importance: line.importance, missing: line.missing, of: line.of, here: array(line.here).map((e: Row) => ({ clue: e.clue, gate: e.gate })), next: array(line.next).map((e: Row) => ({ scene: e.scene, clues: e.clues, ...(truth(e.locked) ? { locked: e.locked } : {}) })), beyond: line.beyond, ...(truth(line.handed) ? { handed: line.handed } : {}), ...(Object.hasOwn(line, "minimum_routes") ? { minimum_routes: line.minimum_routes } : {}) });
+    const compacted = new Set<string>();
+    const compact = (line: Row): Row => {
+        compacted.add(line.name);
+        return { name: line.name, ...(array(line.here).length ? {needs: line.needs} : {}), importance: line.importance, missing: line.missing, of: line.of, here: array(line.here).map((e: Row) => ({ clue: e.clue, gate: e.gate })), next: array(line.next).map((e: Row) => ({ scene: e.scene, clues: e.clues, ...(truth(e.locked) ? { locked: e.locked } : {}) })), beyond: line.beyond, ...(truth(line.handed) ? { handed: line.handed } : {}), ...(Object.hasOwn(line, "minimum_routes") ? { minimum_routes: line.minimum_routes } : {}) };
+    };
     const steps: (() => boolean)[] = [
         () => { const i = section.lines.findLastIndex((l: Row) => !array(l.here).length && Object.hasOwn(l, "needs")); if (i < 0) return false; section.lines[i] = compact(section.lines[i]); return true; },
-        () => { const i = section.lines.findLastIndex((l: Row) => !array(l.here).length); if (i < 0) return false; section.lines.splice(i, 1); return true; },
-        () => { const i = section.lines.findLastIndex((l: Row) => Object.hasOwn(l, "needs")); if (i < 0) return false; section.lines[i] = compact(section.lines[i]); return true; },
+        () => { const i = section.lines.findLastIndex((l: Row, index: number) => index > 0 && !array(l.here).length); if (i < 0) return false; section.lines.splice(i, 1); return true; },
+        () => { const i = section.lines.findLastIndex((l: Row) => Object.hasOwn(l, "needs") && !compacted.has(l.name)); if (i < 0) return false; section.lines[i] = compact(section.lines[i]); return true; },
         () => { if (section.lines.length <= 1) return false; section.lines.pop(); return true; }
     ];
     while (jsonSize(section) > THREAD_BUDGET) {

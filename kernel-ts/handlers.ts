@@ -24,6 +24,7 @@ export const KNOWN_METHODS = Object.freeze([
   "investigator.list", "investigator.get", "investigator.save", "investigator.load",
   "mods.list", "mods.configure", "mods.order", "mods.document.view", "mods.document.apply",
   "mods.install", "mods.defaults", "mods.context", "mods.job", "mods.accept", "mods.queued",
+  "adaptation.prepare", "adaptation.status", "adaptation.draft", "adaptation.review", "adaptation.cancel", "adaptation.fail",
 ] as const);
 
 async function guardCampaign(context: KernelContext, params: JsonObject, handler: KernelHandler, report?: ProgressReporter): Promise<KernelResult> {

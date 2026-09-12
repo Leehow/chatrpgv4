@@ -4,7 +4,7 @@
 import { RpcError } from "../errors.js";
 import type { KernelContext } from "../context.js";
 import type { HandlerGroup } from "../handlers.js";
-import { CampaignSnapshot, loadModule } from "./campaign.js";
+import { CampaignSnapshot, loadCampaignModule } from "./campaign.js";
 import { clockSection } from "./capsule.js";
 import type { ModuleGraph } from "./module-graph.js";
 import { integer, number, string, truth, row, type Row } from "./values.js";
@@ -194,7 +194,7 @@ export async function tableGraph(context: KernelContext, params: Row): Promise<R
         return value;
     };
     const moduleId = string(campaign.meta.module_id),
-        graph = moduleId ? (await loadModule(context, moduleId)).graph : null;
+        graph = moduleId ? (await loadCampaignModule(context, moduleId, campaign.world)).graph : null;
     const nodes = kept.map(commit => {
         const { kind, turn } = kinds.get(commit.sha)!, clock = clockOf(commit);
         return {

@@ -3,9 +3,10 @@ import { join } from "node:path";
 import type { KernelContext } from "../context.js";
 import type { HandlerGroup, KernelResult } from "../handlers.js";
 import { RpcError } from "../errors.js";
+import { continuityView } from "./continuity.js";
 import { isJsonObject } from "../json.js";
 import { playLanguageOf } from "./languages.js";
-import { CampaignSnapshot, loadModule, replayTrail, type LoadedModule } from "./campaign.js";
+import { CampaignSnapshot, loadModule, loadCampaignModule, replayTrail, type LoadedModule } from "./campaign.js";
 import { ModuleGraph, recordOf } from "./module-graph.js";
 import { SessionView } from "./session-view.js";
 import { RuleObservations } from "./rule-facts.js";
@@ -16,7 +17,7 @@ import { mechanics } from "./mechanics.js";
 import { publicSheet, objectLook } from "./mods.js";
 import { array, row, entries, number, truth, string, repr, normalize, clone, sorted, type Row } from "./values.js";
 const LOOK_FOCUS = ["clues", "investigator", "npc", "object", "scene", "session", "time"];
-const LOOKUP_KINDS = ["catalog", "module", "rule", "secret"];
+const LOOKUP_KINDS = ["catalog", "module", "rule", "secret", "continuity"];
 export type RuleLookup = (campaign: CampaignSnapshot, module: LoadedModule, params: Row) => Promise<KernelResult>;
 export interface ReadContributions {
     repairLegacyTrail?(campaign: CampaignSnapshot): Promise<void>;
@@ -168,7 +169,7 @@ export async function readCampaign(context: KernelContext, params: Row, frontend
             details: { status }
         });
     }
-    const module = await loadModule(context, string(campaign.meta.module_id));
+    const module = await loadCampaignModule(context, string(campaign.meta.module_id), campaign.world);
     if (!minimal)
         await campaign.preload(frontend ? "view" : "all");
     if (!Object.hasOwn(campaign.world, "scene_trail")) {
@@ -318,18 +319,33 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
             return { clock: truth(world.clock) ? world.clock : { minutes: 0 } };
         },
         "table.lookup": async (params): Promise<KernelResult> => {
-            const { campaign, module } = await readCampaign(context, params, false, true, contributions),
+            const { campaign, module: activeModule } = await readCampaign(context, params, false, true, contributions),
+                module = params.canonical_source === true ? await loadModule(context, campaign.meta.module_id) : activeModule,
                 { graph } = module,
                 { world } = campaign,
                 kind = params.kind;
             if (typeof kind !== "string" || !LOOKUP_KINDS.includes(kind))
                 unsupported("kind", kind, LOOKUP_KINDS, `unknown lookup kind ${repr(kind)}`);
             await requireNoTransition(campaign, contributions);
+            if (kind === 'continuity') {
+                await campaign.preload();
+                return continuityView(graph, world, campaign.records, await campaign.log('memory/candidates.jsonl'), params);
+            }
             if (kind === "module") {
                 const query = required(params, "query");
+                const entities = graph.search(query).map(node => graph.entityView(node));
+                const scene = !entities.length && typeof world.active_scene === 'string' ? graph.find(world.active_scene, ['scene']) : null;
+                const sourceNodes = array(row(scene?.campaign_origin).sources).map(id => graph.nodes.get(id)).filter((node): node is Row => node !== undefined);
                 return {
                     query,
-                    entities: graph.search(query).map(node => graph.entityView(node))
+                    entities,
+                    ...(!entities.length ? {
+                        status: 'not_found',
+                        note: 'This query matches no playable entity. If the player chose a new physical destination, prepare its campaign adaptation below, accept the ready proposal alone, then apply move to its new scene name before narrating arrival. A label or via cannot create a destination. If this was only a question about a name, keep it unconfirmed rather than inventing it.',
+                        preparation: {tool: 'lookup', kind: 'adaptation', action: 'prepare', name: query.slice(0, 120),
+                            anchors: (sourceNodes.length ? sourceNodes : scene ? [scene] : []).slice(0, 4).map(node => node.name),
+                            request: 'Describe the player-chosen destination and its limited connection to the existing campaign. Preserve source causes and all established facts; no automatic clue, NPC appearance, danger or movement.'}
+                    } : {})
                 };
             }
             if (kind === "rule" || kind === "catalog") {

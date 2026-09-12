@@ -1,5 +1,11 @@
 # Keeper Pacing
 
+## 1.2.1
+- Compresses the per-turn reminder without changing its guardrails or meanings.
+
+## 1.2.0
+- Clarifies that quiet play and informed refusal are valid, while adaptation is reserved for genuine structural departures.
+
 ## 1.1.2
 - Names the two structural RECOVER signs the Director now reads (an empty turn, a repeated input) and points the recovery ladder at `director.offer` (docs/specs/turn-floor.md). Settings unchanged.
 

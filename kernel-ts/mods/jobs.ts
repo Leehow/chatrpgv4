@@ -5,7 +5,7 @@ import type { KernelContext } from '../context.js';
 import { RpcError } from '../errors.js';
 import { writeJsonAtomic } from '../fileio.js';
 import { isJsonObject, jsonDigest } from '../json.js';
-import { loadModule } from '../read/campaign.js';
+import { loadCampaignModule } from '../read/campaign.js';
 import { playLanguageOf } from '../read/languages.js';
 import { recordOf, type ModuleGraph } from '../read/module-graph.js';
 import { whereSection } from '../read/capsule.js';
@@ -26,7 +26,7 @@ export class ModJobs {
     }
     private async load(params: Row) {
         const transaction = await this.writer.transaction(params, {preload: false});
-        const meta = await transaction.campaign.readCampaign(), module = await loadModule(this.context, string(meta.module_id));
+        const meta = await transaction.campaign.readCampaign(), module = await loadCampaignModule(this.context, string(meta.module_id), transaction.world);
         return {...transaction, meta, graph: module.graph};
     }
     async knownHandouts(graph: ModuleGraph, world: Row): Promise<Row[]> {
@@ -35,7 +35,7 @@ export class ModJobs {
             const node = graph.find(handle);
             if (!node) continue;
             if (!this.sources.asset) throw new RpcError('not_implemented', 'The module asset contribution is not implemented');
-            const record = recordOf(node), registered = await this.sources.asset(graph.moduleId, node.node_id) || {};
+            const record = recordOf(node), registered = (graph.assetOverride ? await graph.assetOverride(node.node_id) : await this.sources.asset(graph.moduleId, node.node_id)) || {};
             const value = typeof record.authored_text === 'string' ? record.authored_text : registered.authored_text;
             if (typeof value === 'string') result.push({name: graph.displayName(node), text: value});
         }

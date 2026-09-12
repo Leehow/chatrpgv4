@@ -7,7 +7,7 @@ import type { TurnTransaction } from '../transactions.js';
 import { RpcError, internalError } from '../errors.js';
 import { sha256Text,isJsonObject } from '../json.js';
 import { fileSize, truncateFile } from '../fileio.js';
-import { CampaignSnapshot, loadModule, replayTrail, type LoadedModule } from '../read/campaign.js';
+import { CampaignSnapshot, loadModule, loadCampaignModule, replayTrail, type LoadedModule } from '../read/campaign.js';
 import { ModuleGraph, recordOf } from '../read/module-graph.js';
 import { DirectorGraph, TextGraph, Ontology } from '../read/content.js';
 import { RuleObservations } from '../read/rule-facts.js';
@@ -262,7 +262,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
                 },
             });
         }
-        const module = await loadModule(context, string(snapshot.meta.module_id));
+        const module = await loadCampaignModule(context, string(snapshot.meta.module_id), snapshot.world);
         if (repair)
             await repairLegacyTrail(snapshot);
         if(preload)await snapshot.preload();

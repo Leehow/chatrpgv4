@@ -1,5 +1,11 @@
 # Story Thread
 
+## 1.1.2
+- Compresses the per-turn reminder without changing its gates or meanings.
+
+## 1.1.1
+- Clarifies continuity lookup/recall, acquired-versus-understood clues, and source-grounded adaptation boundaries.
+
 ## 1.0.4
 - Updates gate wording to the repaired kernel contract: named checks stay as declared; `check required (skill unspecified)` means the delivery is a check with no projected skill name; `check unspecified` means no projected named check and is not evidence of no roll or permission to invent one. Costs stay only where rules, source or investigator actions establish them; thread structure is unchanged.
 

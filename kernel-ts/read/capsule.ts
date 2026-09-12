@@ -88,6 +88,7 @@ export function whereSection(graph: ModuleGraph, world: Row, scene: Row, materia
         notes.push("exit condition: " + describeCondition(condition));
     const where: Row = {
         scene: graph.handle(scene),
+        ...(graph.adaptationOrigin(scene.campaign_origin) ? {origin: graph.adaptationOrigin(scene.campaign_origin)} : {}),
         display_name: sceneLabel(graph, world, scene),
         summary: scene.summary || graph.prose(scene),
         dramatic_question: record.dramatic_question ?? null,
@@ -210,11 +211,13 @@ function npcHistory(ledger: Row, memories: Map<string, Row>): Row | null {
 export function npcEntry(graph: ModuleGraph, world: Row, node: Row, ledger: Row, memories: Map<string, Row>, across: (node: Row) => Row[] = () => []): Row {
     const entry: Row = {
         name: graph.displayName(node),
+        ...(graph.adaptationOrigin(node.campaign_origin) ? {origin: graph.adaptationOrigin(node.campaign_origin)} : {}),
         ...dossier(graph, world, node)
     },
         discovered = new Set(array(world.discovered_clues));
     const knows = graph.npcKnows(node).map(item => ({
         clue: item.handle,
+        ...(item.origin ? {origin: item.origin} : {}),
         discovered: discovered.has(item.handle)
     })).sort((a, b) => Number(a.discovered) - Number(b.discovered));
     if (knows.length)
@@ -263,6 +266,7 @@ export function npcView(graph: ModuleGraph, world: Row, node: Row, ledger: Row =
     const handle = graph.handle(node),
         view: Row = {
         kind: "npc",
+        ...(graph.adaptationOrigin(node.campaign_origin) ? {origin: graph.adaptationOrigin(node.campaign_origin)} : {}),
         name: graph.displayName(node),
         id: handle,
         node_id: node.node_id,
@@ -273,6 +277,7 @@ export function npcView(graph: ModuleGraph, world: Row, node: Row, ledger: Row =
     };
     const knows = graph.npcKnows(node).map(entry => ({
         clue: entry.handle,
+        ...(entry.origin ? {origin: entry.origin} : {}),
         summary: entry.node.summary || entry.node.name || null,
         discovered: array(world.discovered_clues).includes(entry.handle)
     }));

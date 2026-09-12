@@ -13,7 +13,17 @@ export function stageMove(context: ApplyContext, effect: Row): {
     const { graph, world, turn, callId, ordinal } = context;
     const to = required(effect, 'to')!, current = graph.scene(world.active_scene), from = graph.handle(current);
     const exits = new Map(graph.sceneExits(current).map(exit => [exit.to, exit]));
-    const destination = graph.scene(to), target = graph.handle(destination);
+    let destination: Row;
+    try { destination = graph.scene(to); }
+    catch (error) {
+        if (!(error instanceof RpcError) || error.code !== 'unknown_entity') throw error;
+        if (Array.isArray(error.details?.candidates) && error.details.candidates.length) throw error;
+        throw new RpcError('unknown_entity', `The destination ${repr(to)} is not an identified scene`, {
+            fix: 'If this is a player-chosen new place, prepare it with lookup kind adaptation, action prepare, a proposal name, a request and original source anchors. Accept the ready proposal alone with apply adaptation, then move to its new scene name. Do not rename the current scene into a different place.',
+            details: {...error.details, reason: 'destination_missing', requested_destination: to, source_anchor: current.name}
+        });
+    }
+    const target = graph.handle(destination);
     const label = typeof effect.label === 'string' && effect.label.trim() ? effect.label : null;
     if (target === from) {
         if (!label)

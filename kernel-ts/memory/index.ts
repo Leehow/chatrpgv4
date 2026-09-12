@@ -3,7 +3,7 @@ import type { KernelContext } from '../context.js';
 import type { HandlerGroup } from '../handlers.js';
 import { RpcError } from '../errors.js';
 import { isJsonObject } from '../json.js';
-import { CampaignSnapshot, loadModule } from '../read/campaign.js';
+import { CampaignSnapshot, loadCampaignModule } from '../read/campaign.js';
 import { readCampaign, unsupported } from '../read/handlers.js';
 import { playLanguageOf } from '../read/languages.js';
 import { array, row, number, integer, string, truth, repr, chars, type Row } from '../read/values.js';
@@ -58,8 +58,8 @@ export function createMemoryHandlers(context: KernelContext, writer: ReturnType<
                 ...(snapshot.meta.status === 'setting_up' ? { fix: string(row(await context.snapshots.readJson(context.content + '/setup/steps.json')).table_open_fix).replaceAll('{campaign}', campaign.id) } : {}),
                 details: { status: snapshot.meta.status }
             });
-        const module = await loadModule(context, string(snapshot.meta.module_id));
         snapshot.world = await campaign.readWorld();
+        const module = await loadCampaignModule(context, string(snapshot.meta.module_id), snapshot.world);
         snapshot.jsonFiles.set('world.json', snapshot.world);
         if (!Object.hasOwn(snapshot.world, 'scene_trail'))
             await writer.read.repairLegacyTrail!(snapshot);

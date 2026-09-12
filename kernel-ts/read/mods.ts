@@ -505,7 +505,7 @@ export async function modContext(context: KernelContext, graph: ModuleGraph, wor
     };
     // A section exists only while a package that reads it is on (§30): no reader, no bytes in the capsule.
     if (required.has("context.thread.v1"))
-        result.thread = threadSection(graph, world, scene, present);
+        result.thread = threadSection(graph, world, scene, present, records);
     if (required.has("context.pacing.v1"))
         result.pacing = pacingSection(graph, world, scene, present, party, records);
     return result;

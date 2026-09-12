@@ -3,7 +3,7 @@ import type { KernelContext } from '../context.js';
 import type { HandlerGroup } from '../handlers.js';
 import { RpcError } from '../errors.js';
 import { isJsonObject } from '../json.js';
-import { CampaignSnapshot, loadModule } from '../read/campaign.js';
+import { CampaignSnapshot, loadCampaignModule } from '../read/campaign.js';
 import type { ModuleGraph } from '../read/module-graph.js';
 import { RuleObservations } from '../read/rule-facts.js';
 import { activeMods } from '../read/mods.js';
@@ -99,7 +99,7 @@ export function createResolveRuntime(kernel: KernelContext, writer: ResolveWrite
             snapshot.meta = await transaction.campaign.readCampaign();
             snapshot.world = transaction.world;
             snapshot.turn = transaction.turn;
-            const module = await loadModule(kernel, string(snapshot.meta.module_id));
+            const module = await loadCampaignModule(kernel, string(snapshot.meta.module_id), snapshot.world);
             const graph = module.graph;
             const action = params.action;
             const contributed = isJsonObject(action) && (await activeMods(kernel, transaction.world)).some(mod => array(mod.contributes.checks).some(check => check.name === action.decision));

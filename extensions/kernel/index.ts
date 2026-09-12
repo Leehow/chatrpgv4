@@ -9,6 +9,7 @@ import type { AgentToolUpdateCallback, ExtensionAPI, ExtensionContext } from "@e
 import { appendFile, mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { createRuntime, type HostRuntime } from "../../runtime/host.ts";
+import { adaptationService } from './adaptation.ts';
 export { kernelCommand } from "../../runtime/host.ts";
 import { cocHome, cocMode } from "../lanes/host.ts";
 import { extensionSurface } from "../ui/words.ts";
@@ -451,6 +452,7 @@ function readMechanics(result: Record<string, unknown>): Array<Record<string, un
 
 export default function (pi: ExtensionAPI) {
 	let runtime: HostRuntime | undefined;
+    let adaptations: ReturnType<typeof adaptationService> | undefined;
   let mods: {prepare(method: string, payload: Record<string, any>, signal?: AbortSignal): Promise<void>;
     after?(method: string, payload: Record<string, any>, signal?: AbortSignal): Promise<void>} | undefined;
   pi.events.on("coc:mods-bridge", value => { mods = value as typeof mods; });
@@ -941,6 +943,7 @@ export default function (pi: ExtensionAPI) {
 				await reading.ensure(readingModule, { purpose: "detail", focus: params.query,
 					question: params.question ?? "", retry: params.retry === true, foreground: true }, signal);
 				payload.kind = "module";
+                payload.canonical_source = true;
 			}
 			let result: Record<string, unknown>;
 			// Action admission (contract §32) runs ahead of every Mod hook and of the kernel: a refused
@@ -950,7 +953,15 @@ export default function (pi: ExtensionAPI) {
         if (Array.isArray(payload.effects)) payload.effects = payload.effects.map(effect => ({...(effect as Record<string, unknown>)}));
         await mods.prepare(spec.name, payload, signal);
       }
-			try { result = (await state.kernel.call<Record<string, unknown>>(spec.method, payload, onProgress)) ?? {}; }
+			try {
+                if (spec.name === 'lookup' && params.kind === 'adaptation') {
+                    if (!runtime) throw new KernelError({code: 'needs', message: 'The adaptation runtime is unavailable'});
+                    adaptations ??= adaptationService(runtime, (method, args) => state.kernel.call(method, args), () => ({
+                        name: process.env.PI_COC_ADAPTATION_MODEL || `${sessionCtx?.model?.provider}/${sessionCtx?.model?.id}`, thinking: pi.getThinkingLevel()
+                    }));
+                    result = await adaptations.lookup(payload, signal);
+                } else result = (await state.kernel.call<Record<string, unknown>>(spec.method, payload, onProgress)) ?? {};
+            }
 			catch (failure) {
 				if (!(isKernelError(failure)) || failure.details?.reason !== "material_pending" || !reading || !readingModule) throw failure;
 				await reading.ensure(readingModule, { ...(failure.details.read as Record<string, unknown>), foreground: true }, signal);
@@ -1120,6 +1131,7 @@ export default function (pi: ExtensionAPI) {
 			pi.events.emit("coc:kernel-bridge", { call: undefined, runtime: undefined });
 		}
 		const closing = runtime;
+		adaptations?.close(); adaptations = undefined;
 		runtime = undefined;
 		await closing?.close();
 	}
