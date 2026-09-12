@@ -47,6 +47,13 @@ PLAYER_TURN_TIMEOUT = 180.0
 PLAYER_SETTLE_GRACE = 1.5
 #: How long to wait after a provider error before asking the persona again.
 PLAYER_BACKOFF_SECONDS = (10.0, 30.0, 60.0, 120.0)
+#: HTTP statuses that mean waiting will not help: the account is out of credit or unauthorised.
+#: Read as a status, not as a sentence -- the wording of a provider's message is not a contract.
+EXHAUSTED_STATUSES = ("(402)", "(403)")
+
+
+class ProviderExhausted(RuntimeError):
+    """The provider says the account cannot pay. Backing off does not fix that."""
 
 SYSTEM_PROMPT = """\
 You are simulating a real tabletop RPG player at a Call of Cthulhu table.
@@ -202,6 +209,7 @@ class PersonaPlayer:
         atexit.register(self._remove_sandbox)
         self.pi: PiProcess | None = None
         self.isolation: dict[str, Any] = {}
+        self._last_error_message: str | None = None
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -273,6 +281,11 @@ class PersonaPlayer:
             if parsed is not None:
                 return {"ok": True, "at": now_iso(), "attempts": attempt + transient + 1,
                         "transient_retries": transient, "raw": raw, **parsed}
+            if errored and any(code in (self._last_error_message or "") for code in EXHAUSTED_STATUSES):
+                # Out of credit. Every further turn of every table will fail the same way, and a
+                # suite that keeps going turns one billing event into a hundred runs that read
+                # like a broken product (this cost 22 runs of stress personas on 2026-09-11).
+                raise ProviderExhausted(self._last_error_message or "provider refused: 402/403")
             if errored and not raw:
                 # The session failed, the model did not answer badly: wait before asking again.
                 wait = PLAYER_BACKOFF_SECONDS[min(transient, len(PLAYER_BACKOFF_SECONDS) - 1)]
@@ -321,6 +334,8 @@ class PersonaPlayer:
                     msg = event.get("message") or {}
                     if msg.get("stopReason") == "error" or msg.get("error"):
                         errored = True
+                        self._last_error_message = str(msg.get("errorMessage")
+                                                       or msg.get("error") or "")
                     if msg.get("role") == "assistant":
                         final = [b.get("text") or "" for b in msg.get("content") or []
                                  if isinstance(b, dict) and b.get("type") == "text"]
@@ -343,17 +358,22 @@ def seed_home(home: Path, credentials_from: Path) -> Path:
     """A Pi home holding credentials and nothing else: no packages, no COC settings, no sessions.
 
     The table's own home (`{repo}/.pi/coc-agent`) is where the working provider keys live, so
-    both the persona player and the judge lane borrow those bytes rather than falling back to
-    a global `~/.pi/agent` -- which this project does not use and which, on this machine, holds
-    a stale key that answered the judge's first run with a 401.
+    both the persona player and the judge lane borrow those rather than falling back to a global
+    `~/.pi/agent` -- which this project does not use and which, on this machine, holds a stale
+    key that answered the judge's first run with a 401.
+
+    They are **linked, not copied**. A copy is a snapshot: an OAuth credential that the table
+    refreshes goes on being valid for the table and stale in every copy, and a suite that runs
+    for six hours crosses a token's lifetime. Linking also keeps the secret in one place instead
+    of writing it into a temp directory per run.
     """
     home.mkdir(parents=True, exist_ok=True)
     for name in CREDENTIAL_FILES:
         source = credentials_from / name
         if source.exists():
             target = home / name
-            shutil.copy2(source, target)
-            os.chmod(target, 0o600)
+            target.unlink(missing_ok=True)
+            target.symlink_to(source.resolve())
     (home / "settings.json").write_text(json.dumps({"quietStartup": True}) + "\n", encoding="utf-8")
     return home
 
