@@ -418,27 +418,36 @@ def test_a_definition_job_carries_only_the_table_its_category_can_use(kernel):
     assert catalogs("item", "Fixture pencil") == {}
 
 
-def test_a_handover_placement_is_refused_with_a_repair_the_keeper_can_follow(kernel):
+def test_a_first_placement_may_name_its_giver_and_the_receipt_keeps_him(kernel):
     open_turn(kernel)
     placement = {"kind":"object", "name":"Given launcher", "definition":"Handover launcher",
                  "to":"Thomas Hayes", "why":"Knott hands it over"}
 
     # A handover narrated as one transfer: the batch defines the object and gives it away in the same call.
-    refused = kernel.table_err("apply", call_id="t1-c1",
-                               effects=[prepared(kernel, weapon("Handover launcher")), {**placement, "from":"Steven Knott"}])
-    assert refused["code"] == "invalid_params"
-    # Telling it to define first sent it back to drop the define it had already batched.
-    assert "define and place it first" not in refused["message"]
-    assert "without from" in refused["fix"]
+    # Refusing the giver here guarded nothing -- there is no owner below to contradict -- and made the
+    # Keeper drop him, so a handover was recorded as though the thing had appeared out of nobody's hands.
+    result = kernel.table("apply", call_id="t1-c1",
+                          effects=[prepared(kernel, weapon("Handover launcher")), {**placement, "from":"Steven Knott"}])
+    look = kernel.table("look", focus="object", name="Given launcher")
+    assert look["definition"]["name"] == "Handover launcher"
+    assert look["instance"]["owner"] == read_json(campaign_dir(kernel.workspace) / "party" / "thomas-hayes.json")["name"]
+    # The giver the Keeper named is kept, which is the whole reason to accept him: this handover used to
+    # be recorded as though the launcher had come out of nobody's hands.
+    assert any(r["id"].startswith("item:") for r in kernel.table("status")["receipts"])
+    assert any(r.get("from") for r in kernel.table("status")["receipts"] if r["id"].startswith("item:"))
 
-    # That is the second refusal it used to earn by following the old advice literally.
-    absent = kernel.table_err("apply", call_id="t1-c2", effects=[placement])
+    # The name that is still missing is still missing, and it still says which ones are on hand.
+    absent = kernel.table_err("apply", call_id="t1-c2",
+                              effects=[{**placement, "name":"Second launcher", "definition":"No such launcher"}])
     assert absent["code"] == "invalid_params"
-    assert "Handover launcher" in absent["message"] and "spells" not in absent["message"]
+    assert "No such launcher" in absent["message"] and "spells" not in absent["message"]
 
-    # And the repair the fix names actually lands.
-    kernel.table("apply", call_id="t1-c3", effects=[prepared(kernel, weapon("Handover launcher")), placement])
-    assert kernel.table("look", focus="object", name="Given launcher")["definition"]["name"] == "Handover launcher"
+    # And the guarantee that does mean something is untouched: a transfer of an existing instance has to
+    # name the owner it actually has.
+    wrong = kernel.table_err("apply", call_id="t1-c3",
+                             effects=[{**placement, "from":"Steven Knott", "to":"Steven Knott"}])
+    assert wrong["code"] == "invalid_params"
+    assert "current owner" in wrong["message"]
 
 
 def test_a_trait_nested_in_parameters_is_told_to_move_it_not_to_drop_it(kernel):
