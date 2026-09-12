@@ -8,9 +8,10 @@ import {pinnedSource} from '../adaptation/source.js';
 import {isJsonObject, jsonDigest, storedJson} from '../json.js';
 import {RpcError} from '../errors.js';
 import {array, row, type Row} from '../read/values.js';
+import {continuityAuditContext} from './continuity-audit.js';
 
 export const SOURCE_AUDIT = 'audit.source.v1';
-export async function auditSourceEvidence(context: KernelContext, campaign: Pick<CampaignWritePort, 'id'>, module: LoadedModule, world: Row, turn: Row, party: Row[]) {
+export async function auditSourceEvidence(context: KernelContext, campaign: Pick<CampaignWritePort, 'id'>, module: LoadedModule, world: Row, turn: Row, party: Row[], continuity = false) {
     const original = module.adapted ? await pinnedSource(context, row(world.adaptation).source) : module;
     const source = (loaded: LoadedModule) => ({graph: loaded.graph.raw,
         material: [...loaded.graph.nodes.values()].map(node => ({name: loaded.graph.handle(node), status: loaded.material(node.node_id)}))});
@@ -26,9 +27,12 @@ export async function auditSourceEvidence(context: KernelContext, campaign: Pick
         'handouts.json': Object.fromEntries(await snapshot.handoutTexts([...records.flatMap(record => array(record.receipts)), ...array(turn.receipts)])),
         'notes.json': await snapshot.log('notes.jsonl'), 'memory.json': await snapshot.log('memory/candidates.jsonl')
     };
+    if (continuity) files['context.json'] = continuityAuditContext(module.graph, world, turn, party, files);
     return {files, binding: jsonDigest({files, current, party}), descriptor: {schema: 1, files: Object.keys(files),
         current_input: current.player_text, pending_choice: current.pending_choice,
-        authority: 'Original source is immutable. Effective source includes only accepted campaign adaptations. History records what was delivered, not proof that prior improvisation was true. Notes and memory never establish source facts. Inspect relevant complete evidence and distinguish unknown causes from invented explanations.'}};
+        authority: continuity
+            ? 'Preserve established campaign continuity and player choices. Compatible new fiction is allowed without a literal source quote. Recaps must faithfully report prior delivery; NPC assertions and player hypotheses retain attribution. Corrections supersede earlier claims. Kernel receipts remain authoritative for actions and resources.'
+            : 'Original source is immutable. Effective source includes only accepted campaign adaptations. History records what was delivered, not proof that prior improvisation was true. Notes and memory never establish source facts. Inspect relevant complete evidence and distinguish unknown causes from invented explanations.'}};
 }
 
 export async function writeAuditSources(root: string, files: Row): Promise<void> {

@@ -1,6 +1,6 @@
 # Story continuity and adaptation — authoritative repair plan
 
-_Status: PLANNING COMPLETE for this turn. Implementation and acceptance PENDING for
+_Status: PLANNING COMPLETE for this turn. Implementation AUTHORIZED and IN PROGRESS; acceptance PENDING for
 P0-P4 below. This document is the single execution plan for the continuity-review
 repair; it supersedes earlier "implementation record" framing but preserves the prior
 history in the Historical record section. Spec direction lives in
@@ -8,7 +8,7 @@ history in the Historical record section. Spec direction lives in
 planned wire direction is `docs/kernel-rpc.md` §35.13._
 
 
-Owned checkout: codex/story-continuity, planning base b182f5ff; product repair0789496f. Primary has concurrent dirty work including its own contract and Electron/onboarding paths and is untouched. This turn changes planning documents only; no issue publication, implementation, package, deployment or new task is authorized by this plan.
+Owned checkout: codex/story-continuity, planning base b182f5ff; product repair0789496f. Primary has concurrent dirty work including its own contract and Electron/onboarding paths and is untouched. The user now explicitly authorizes implementation of P0-P4. Issue publication, packaging/deployment and new tasks remain out of scope. The concrete versioned wire contract is §35.14.
 
 ## 1. Corrected goal (authoritative)
 
@@ -52,7 +52,7 @@ Evidence: `.coc/playtests/continuity-memory-resume/verification.json`, `turn-1-a
 
 ## 4. Implementation plan (dependencies, owned paths, completion gates)
 
-Statuses: historical work COMPLETE; this plan COMPLETE; P0-P4 NOT STARTED.
+Statuses: historical work COMPLETE; this plan COMPLETE; P0-P3 IMPLEMENTED; P4 fixed-input gates PASSED on the current iteration, genuine-play acceptance IN PROGRESS.
 
 **P0 — Contract/rubric and measurement repair** (blocks all product edits). Finalize a
 versioned continuity-review replacement contract using a NEW capability/schema version; do
@@ -189,3 +189,11 @@ Prior art is precedent for the design, not grounds to adopt dependencies or repl
   the rejected draft files are retained as historical rejection evidence assessed under
   the appropriate rubric. No universal hallucination elimination, Greek transplantation,
   human UI acceptance, or story ending is claimed.
+
+## Current implementation checkpoint
+
+The versioned continuity path is implemented: narration-audit1.2.1 with enhanced-items1.1.9, focused current facts and prior player choices, faithful-recap versus compatible-invention policy, aggregate artifact errors, private checked submission, one bounded submission reminder, shared persisted review accounting and paused-delivery handling. Pi catches provider-hook exceptions, so the private limiter explicitly calls the supported abort API; unavailable status always defeats a later submission. Legacy1.1.2 source review remains tested with retained fixture bytes.
+
+Validation: driver14/14; current targeted audit tests12/12; full extension847/847; kernel Mod/memory/capsule regression50/50; typecheck/runtime build passed. These are not all live-gameplay checks. Current frozen-input probes run-I6mOVd matched14/14 expected judgments across two repetitions, median2859ms, range1634-9276ms,1-3model calls per review,20calls total,3targeted artifact repairs. A real one-call termination probe run-4SE5iB ended unavailable at1425ms without a checked submission, as expected. All use DeepSeek Flash. Earlier exploratory runs CWQCtN, vg4fWi and EgL6LP remain retained with their failures; none is relabeled as a current pass. Evidence is under .coc/playtests/continuity-review-probes and /tmp/pipicoc-continuity-impl.yh2FpS. The earlier driver total932.057s and the14frozen probes have different work, so this is not an end-to-end speedup claim.
+
+Resume continuity-venue-live through the real driver after adopting the versioned Mods; keep its raw history, retractions, possessions and source/adaptation files. Human UI and natural story completion remain pending.

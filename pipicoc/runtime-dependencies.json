@@ -56,6 +56,7 @@
     "pi": "node_modules/@earendil-works/pi-coding-agent/dist/cli.js"
   },
   "requiredEntries": [
+    "build/extensions/mods/audit-submit.mjs",
     "build/kernel/rpc.mjs",
     "build/kernel/check.mjs",
     "build/runtime/host.mjs",

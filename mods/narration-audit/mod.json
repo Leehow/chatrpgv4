@@ -1,9 +1,26 @@
 {
-  "id": "narration-audit", "version": "1.1.2", "game_api": "pipicoc.game.v1",
-  "state_version": 1, "author": "PipiCOC",
-  "name": {"en": "Narration Audit", "zh-Hans": "叙述交代审计"},
-  "description": {"en": "Before delivery, every settled receipt must have its fictional consequence in the text; numbers and style are never asked for.", "zh-Hans": "交付前检查每张结算收据在正文里有没有虚构后果；从不要求数字，不评风格。"},
-  "default_enabled": true, "requires": ["agents.tools.v1", "audit.source.v1"],
-  "dependencies": {}, "conflicts": [], "settings": {},
-  "contributes": {"auditor": "auditor.md"}
+  "id": "narration-audit",
+  "version": "1.2.1",
+  "game_api": "pipicoc.game.v1",
+  "state_version": 1,
+  "author": "PipiCOC",
+  "name": {
+    "en": "Narration Audit",
+    "zh-Hans": "叙述交代审计"
+  },
+  "description": {
+    "en": "Before delivery, every settled receipt must have its fictional consequence in the text; numbers and style are never asked for.",
+    "zh-Hans": "交付前检查每张结算收据在正文里有没有虚构后果；从不要求数字，不评风格。"
+  },
+  "default_enabled": true,
+  "requires": [
+    "agents.tools.v1",
+    "audit.continuity.v1"
+  ],
+  "dependencies": {},
+  "conflicts": [],
+  "settings": {},
+  "contributes": {
+    "auditor": "auditor.md"
+  }
 }

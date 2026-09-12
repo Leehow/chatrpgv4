@@ -1,11 +1,3 @@
-# 1.2.1
-
-Expose evidence layout and the bounded submission workflow; preserve English review instructions and withdraw unchosen actions instead of manufacturing them.
-
-# 1.2.0
-
-Use bounded campaign-continuity review with compatible improvisation, checked submission, precise artifact repair and shared runtime limits. Legacy source-review verdicts keep their original meaning.
-
 # Narration Audit
 
 ## 1.1.2

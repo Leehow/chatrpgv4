@@ -131,6 +131,8 @@ interface TableState {
 	readingWait?: boolean;
 	/** A host note owed to the Keeper at agent_end rather than delivered as prose (the reading wait). */
 	deliveryFix?: { kind: string; text: string };
+	/** A review operation stopped; only genuine new player input can start a linked retry. */
+	reviewUnavailable?: string;
 	roundTrips: number;
 	mintedCallIds: Map<string, string>;
 	/** Calls the kernel rejected this turn: key of name+params to a count and the last error. Blocked on the third identical resend. */
@@ -352,10 +354,12 @@ function errorDetailLines(details: Record<string, unknown> | undefined, fix?: st
 			missing: Array.isArray(details.missing) ? details.missing : [],
 			findings: Array.isArray(details.findings) ? details.findings : [],
 			...(details.source_review ? {source_review: details.source_review} : {}),
+			...(details.continuity_review ? {continuity_review: details.continuity_review} : {}),
 		})}`);
 		rendered.add("missing");
 		rendered.add("findings");
 		rendered.add("source_review");
+		rendered.add("continuity_review");
 	}
 	for (const key of namedDetailKeys(fix)) {
 		if (rendered.has(key) || details[key] === undefined) continue;
@@ -926,6 +930,13 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	// ---- Tools ------------------------------------------------------------
+	function pauseReview(state: TableState, error: unknown): void {
+		const cause = isKernelError(error) ? String(error.details?.cause ?? error.message) : String(error);
+		state.reviewUnavailable = cause; state.deliveryFix = undefined; state.floorDraft = undefined;
+		const status = {campaign: state.campaign, turn: state.turn, status: 'unavailable', cause};
+		pi.appendEntry('coc-review-status', status);
+		pi.events.emit('coc:review-status', status);
+	}
 
 	async function runTool(
 		spec: CocToolSpec,
@@ -933,7 +944,7 @@ export default function (pi: ExtensionAPI) {
 		params: Record<string, unknown>,
 		signal?: AbortSignal,
 		onUpdate?: AgentToolUpdateCallback<Record<string, unknown>>,
-	): Promise<{ content: Array<{ type: "text"; text: string }>; details: Record<string, unknown> }> {
+	): Promise<{ content: Array<{ type: "text"; text: string }>; details: Record<string, unknown>; terminate?: boolean }> {
 		const state = table;
 		if (!state) {
 			throw new Error(startupError ?? "the kernel is not up, so this table cannot open");
@@ -949,6 +960,8 @@ export default function (pi: ExtensionAPI) {
 		// update channel; each frame becomes one partial result on the tool status line.
 		const onProgress = onUpdate ? (frame: KernelProgressFrame) => onUpdate(progressPartial(frame)) : undefined;
 		try {
+			if (state.reviewUnavailable) throw new KernelError({code: 'needs', message: 'The review is paused until new player input',
+				details: {reason: 'continuity_review_unavailable', cause: state.reviewUnavailable}});
 			if (spec.name === "lookup" && params.kind === "source") {
 				if (!asString(params.query)?.trim()) throw new KernelError({
 					code: "invalid_params", message: "Source lookup needs a named query; question supplies additional scope",
@@ -1019,6 +1032,7 @@ export default function (pi: ExtensionAPI) {
 			// `reason` is a closed authored field, and without it a failure lane cannot tell a
 			// definition agent that died from a batch the Keeper simply got wrong.
 			const reason = asString((error as { details?: { reason?: unknown } })?.details?.reason);
+			if (reason === 'continuity_review_unavailable') pauseReview(state, error);
 			await record({
 				tool: spec.name,
 				call_id: payload.call_id ?? null,
@@ -1032,6 +1046,7 @@ export default function (pi: ExtensionAPI) {
 			});
 			return {
 				content: [{ type: "text", text: errorText(error) }],
+				...(state.reviewUnavailable ? {terminate: true} : {}),
 				details: {
 					coc_error: {
 						code,
@@ -1340,7 +1355,7 @@ export default function (pi: ExtensionAPI) {
 		return { action: "handled" };
 	});
 	pi.on("agent_settled", () => {
-		if (!table || !CLOSED_STATES.has(table.state)) return;
+		if (!table || (!CLOSED_STATES.has(table.state) && !table.reviewUnavailable)) return;
 		const next = waitingInputs.shift();
 		if (next) pi.sendUserMessage([{ type: "text", text: next.text }, ...(next.images ?? [])]);
 	});
@@ -1350,6 +1365,7 @@ export default function (pi: ExtensionAPI) {
 	pi.on("before_agent_start", async (event) => {
 		const state = table;
 		if (!state) return;
+		state.reviewUnavailable = undefined;
 		const text = event.prompt;
 		const startedAt = new Date().toISOString();
 		const began = Date.now();
@@ -1571,6 +1587,7 @@ export default function (pi: ExtensionAPI) {
 		}
 		let rendered = state.renderedText;
 		if (rendered === undefined) {
+			if (state.reviewUnavailable) return {message: {...event.message, content: blocks.filter(block => block.type !== 'text')}};
 			// The Keeper wrote his lines but never called narrate: that prose is the narration. The host closes
 			// the turn for him, sending the prose verbatim through the play-language guard.
 			const written = blocks
@@ -1630,6 +1647,10 @@ export default function (pi: ExtensionAPI) {
 					...(detail ? { code_detail: detail } : {}),
 				});
 				state.floorDraft = undefined;
+				if (isKernelError(error) && error.details?.reason === 'continuity_review_unavailable') {
+					pauseReview(state, error);
+					return {message: {...event.message, content: blocks.filter(block => block.type !== 'text')}};
+				}
 				state.deliveryFix = {kind: "audit-repair", text: `This draft was not delivered. ${isKernelError(error) ? error.message : "Delivery preparation failed"}. ` +
 					`${isKernelError(error) ? error.fix ?? "" : ""} ${isKernelError(error) ? JSON.stringify(error.details ?? {}).slice(0, 8000) : detail ?? ""} Keep settled actions; repair with narrate, without rerolling or inventing a reconciliation.`};
 				return {message: {...event.message, content: blocks.filter(block => block.type !== "text")}};
@@ -1708,6 +1729,7 @@ export default function (pi: ExtensionAPI) {
 		}
 		if (state.verifierOwed) settleVerifier(state);
 		if (state.closedThisRun || state.renderedText) return;
+		if (state.reviewUnavailable) return;
 		if (state.steeredThisTurn) return;
 		// The kernel refused the implicit delivery: hand its own fix back, once.
 		const deliveryFix = state.deliveryFix;

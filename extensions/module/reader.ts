@@ -39,6 +39,8 @@ export interface ReaderRequest {
 	imageHistory?: number;
 	/** Checked guidance/opening artifact submission ends the tool batch without final prose. */
 	submission?: boolean;
+	/** A private audit session has its own checked submission and bounded call allowance. */
+	audit?: {control: string};
 	onEvent?: (event: Record<string, any>) => void;
 }
 
@@ -57,7 +59,7 @@ export interface ReaderOutcome {
 }
 
 /** The reader's command line, without the final `brief` argument. */
-export function readerCommand(model?: string, systemPrompt?: string, thinking?: string, pdf = false, submission = false, context?: RuntimeContext, tools?: string): string[] {
+export function readerCommand(model?: string, systemPrompt?: string, thinking?: string, pdf = false, submission = false, context?: RuntimeContext, tools?: string, audit = false): string[] {
 	const root = context?.resourceRoot ?? resourceRootFrom(import.meta.url);
 	const entries = context?.entrypoints ?? runtimeEntrypoints(root);
 	const override = context?.env.PI_COC_READER_CMD?.trim();
@@ -82,9 +84,10 @@ export function readerCommand(model?: string, systemPrompt?: string, thinking?: 
 		...entries.providerExtensions.flatMap(path => ["-e", path]),
 		...(systemPrompt ? ["--extension", entries.readerContext] : []),
 		"--tools",
-		tools ?? [pdf ? "read,write,edit,bash,pdf" : "read,write,edit,bash", ...(submission ? ["submit_reading"] : [])].join(","),
+		[tools ?? [pdf ? "read,write,edit,bash,pdf" : "read,write,edit,bash", ...(submission ? ["submit_reading"] : [])].join(","), ...(audit ? ['submit_audit'] : [])].join(','),
 		...(pdf ? ["--extension", entries.readerPdf] : []),
 		...(submission ? ["--extension", entries.readerSubmit] : []),
+		...(audit ? ['--extension', entries.auditSubmit] : []),
 		"--system-prompt",
 		systemPrompt ?? join(context?.contentRoot ?? join(root, "content"), "setup", "visual-reader.md"),
 		...(model ? ["--model", model] : []),
@@ -166,7 +169,7 @@ async function runOwnedReader(request: ReaderRequest, context: RuntimeContext): 
 	const began = Date.now();
 	let command: string[];
 	try {
-		command = readerCommand(request.model, request.systemPrompt, request.thinking, !!request.source, request.submission, context, request.tools);
+		command = readerCommand(request.model, request.systemPrompt, request.thinking, !!request.source, request.submission, context, request.tools, !!request.audit);
 		if (request.eventLog && !context.env.PI_COC_READER_CMD?.trim()) command.splice(command.length - 1, 0, "--mode", "json");
 		command.push(request.brief);
 	} catch (error) {
@@ -182,6 +185,8 @@ async function runOwnedReader(request: ReaderRequest, context: RuntimeContext): 
 	}
 	const [bin, ...args] = command;
 	const env: NodeJS.ProcessEnv = { ...context.env, PI_CODING_AGENT_DIR: context.agentHome };
+	if (request.audit) env.PI_COC_AUDIT_CONTROL = resolvePath(request.cwd, request.audit.control);
+	else delete env.PI_COC_AUDIT_CONTROL;
 	if(request.imageHistory)env.PI_COC_READER_IMAGE_HISTORY=String(request.imageHistory);
 	if (request.source) env.PI_COC_READER_SOURCE = JSON.stringify(request.source);
 	else delete env.PI_COC_READER_SOURCE;

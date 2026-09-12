@@ -1,3 +1,11 @@
+# 1.1.9
+
+Treat equipment without instances as assessment candidates, not registration obligations; require a concrete mechanical basis for missing-object findings.
+
+# 1.1.8
+
+Follow the active audit submission protocol and preserve existing ownership when a draft describes an unperformed transfer.
+
 # 1.1.7
 
 The creator and the auditor work without a shell. Their prompts no longer send the

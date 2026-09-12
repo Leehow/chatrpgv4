@@ -25,6 +25,8 @@ async function table() {
     const runtime = api.createKernelRuntime(context); closers.push(() => runtime.close());
     const call = (method, params = {}) => runtime.handlers[method]({campaign: 'c1', ...params});
     await call('campaign.create', {id: 'c1', module: 'the-haunting', pregen: 'thomas-hayes', play_language: 'en'});
+    await call('mods.install', {path: join(root, 'tests/fixtures/mods/narration-audit-v112')});
+    await call('mods.configure', {id: 'narration-audit', version: '1.1.2', enabled: true});
     await call('table.open');
     await call('table.narrate', {call_id: 't0-c1', text: 'The original commission was heard. ' + 'Retained complete history. '.repeat(150)});
     await call('table.player_input', {text: 'Please clarify what is known; I decline the book.'});

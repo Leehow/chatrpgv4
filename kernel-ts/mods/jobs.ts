@@ -17,6 +17,7 @@ import { validateDefinition, validateDocumentSeed } from './definition.js';
 import { claimedEquipment, queuedRegistrations } from './queue.js';
 import type { ModRuntime } from './runtime.js';
 import {SOURCE_AUDIT, auditSourceEvidence, writeAuditSources, verifyAuditSources, validateSourceReview} from './audit-source.js';
+import {CONTINUITY_AUDIT, AUDIT_LIMITS, continuityArtifactErrors} from './audit-result.js';
 
 export interface ModSources { asset?: (moduleId: string, name: string) => Promise<Row | null>; }
 const field = (value: Row, key: string, fallback: any): any => Object.hasOwn(value, key) ? value[key] : fallback;
@@ -91,14 +92,15 @@ export class ModJobs {
         const promptField = role === 'create' ? 'materializer' : 'auditor', candidates = await this.contributors(world, turn, role);
         if (!candidates.length) return {enabled: false};
         const packageRow = candidates[0], party = await campaign.party() as Row[];
-        const sourceAudit = role === 'audit' && candidates.some(mod => array(mod.requires).includes(SOURCE_AUDIT));
-        const evidence = sourceAudit ? await auditSourceEvidence(this.context, campaign, module, world, turn, party) : null;
+        const continuity = role === 'audit' && candidates.some(mod => array(mod.requires).includes(CONTINUITY_AUDIT));
+        const sourceAudit = !continuity && role === 'audit' && candidates.some(mod => array(mod.requires).includes(SOURCE_AUDIT));
+        const evidence = sourceAudit || continuity ? await auditSourceEvidence(this.context, campaign, module, world, turn, party, continuity) : null;
         const request: Row = {role, input: params.input ?? null, capabilities: sorted(MOD_CAPABILITIES), play_language: await playLanguageOf(this.context, meta),
             mod_settings: Object.fromEntries(candidates.map(mod => [mod.id, (world as Row).mods.active[mod.id].settings])),
             scene: whereSection(graph, world, graph.scene(world.active_scene as string)), party, objects: objectContext(world), receipts: field(turn, 'receipts', []),
             known_handouts: (await this.knownHandouts(graph, world)).map(item => ({name: item.name, preview: chars(item.text, 240)})),
             unregistered_equipment: unregisteredEquipment(party, claimedEquipment(world))};
-        if (evidence) request.source_review = evidence.descriptor;
+        if (evidence) request[continuity ? 'continuity_review' : 'source_review'] = evidence.descriptor;
         if (role === 'create') request.catalogs = await this.presets(string(row(params.input).category));
         const identity: Row = {campaign: campaign.id, turn: turn.turn, worldline: meta.active_worldline ?? null, mod: packageRow.id, digest: packageRow.digest,
             packages: candidates.map(mod => ({id: mod.id, digest: mod.digest})), request: role === 'audit' ? request : {input: params.input ?? null, role},
@@ -121,7 +123,9 @@ export class ModJobs {
             }
         }
         return {enabled: true, job: key, cwd: root, system_prompt: join(root, 'prompt.md'), mod: packageRow.id, digest: packageRow.digest,
-            accepted: await this.context.snapshots.pathExists(join(root, 'accepted.json')), role, ...(sourceAudit ? {source_review: true} : {})};
+            accepted: await this.context.snapshots.pathExists(join(root, 'accepted.json')), role, ...(sourceAudit ? {source_review: true} : {}),
+            ...(continuity ? {continuity_review: true, focus: evidence!.files['context.json'], limits: AUDIT_LIMITS,
+                review_scope: join(this.runtime.root, 'jobs', jsonDigest(['continuity-chain', campaign.id, meta.active_worldline ?? null, turn.turn, turn.opened_at ?? null]))} : {})};
     }
     /**
      * The registrations whose parameters have arrived, shaped as ordinary effects. The host applies them
@@ -174,10 +178,11 @@ export class ModJobs {
         if (array(identity.packages).some(mod => active.get(mod.id)?.digest !== mod.digest)) throw new RpcError('invalid_params', 'An audit contributor changed while the job was running');
         const request = row(await this.context.snapshots.readJson(join(root, 'request.json'))), providers = (await this.contributors(world, turn, request.role)).map(mod => ({id: mod.id, digest: mod.digest}));
         if (!equal(providers, identity.packages ?? null)) throw new RpcError('invalid_params', 'The effective Mod provider changed while the job was running');
-        const sourceAudit = request.role === 'audit' && (await this.contributors(world, turn, 'audit')).some(mod => array(mod.requires).includes(SOURCE_AUDIT));
-        if (sourceAudit && jsonDigest({...identity, request}) !== key) throw new RpcError('needs', 'The retained source-audit request changed',
+        const continuity = request.role === 'audit' && (await this.contributors(world, turn, 'audit')).some(mod => array(mod.requires).includes(CONTINUITY_AUDIT));
+        const sourceAudit = !continuity && request.role === 'audit' && (await this.contributors(world, turn, 'audit')).some(mod => array(mod.requires).includes(SOURCE_AUDIT));
+        if ((sourceAudit || continuity) && jsonDigest({...identity, request}) !== key) throw new RpcError('needs', 'The retained source-audit request changed',
             {details: {reason: 'mod_audit_evidence', file: 'request.json'}, fix: 'Keep this draft unpublished; inspect the retained audit request'});
-        const evidence = sourceAudit ? await auditSourceEvidence(this.context, campaign, module, world, turn, await campaign.party() as Row[]) : null;
+        const evidence = sourceAudit || continuity ? await auditSourceEvidence(this.context, campaign, module, world, turn, await campaign.party() as Row[], continuity) : null;
         if (evidence) {
             if (evidence.binding !== identity.source_binding) throw new RpcError('needs', 'Source audit no longer matches the current campaign evidence',
                 {details: {reason: 'mod_audit_stale'}, fix: 'Retry the same narration to prepare a current source audit; do not reroll settled actions'});
@@ -186,7 +191,8 @@ export class ModJobs {
         const acceptedPath = join(root, 'accepted.json');
         if (await this.context.snapshots.pathExists(acceptedPath)) {
             const accepted = row(await this.context.snapshots.readJson(acceptedPath));
-            if (evidence) validateSourceReview(accepted.source_review, string(row(request.input).text), evidence.files);
+            if (continuity) this.validateContinuity(accepted, request, evidence!.files);
+            else if (evidence) validateSourceReview(accepted.source_review, string(row(request.input).text), evidence.files);
             return accepted;
         }
         const resultPath = join(root, 'result.json');
@@ -201,6 +207,9 @@ export class ModJobs {
             if (value.category === 'weapon' && array(active.get(identity.mod)!.requires).includes('weapons.profile.v2') && !Object.hasOwn(value.parameters, 'adds_damage_bonus'))
                 throw new RpcError('invalid_params', 'Weapon profile v2 must explicitly declare adds_damage_bonus from its preset rule');
             result = {definition: value, provenance: {mod: identity.mod, digest: identity.digest, job: key}};
+        } else if (continuity) {
+            this.validateContinuity(raw, request, evidence!.files);
+            result = row(raw);
         } else {
             if (!isJsonObject(raw) || Object.keys(raw).some(name => !['missing', 'findings', ...(sourceAudit ? ['source_review'] : [])].includes(name)) || !Array.isArray(raw.missing) || raw.missing.length > 16)
                 throw new RpcError('invalid_params', 'Audit must return a bounded missing list');
@@ -217,5 +226,10 @@ export class ModJobs {
             result = raw;
         }
         await writeJsonAtomic(acceptedPath, result); return result;
+    }
+    private validateContinuity(raw: unknown, request: Row, files: Row): void {
+        const errors = continuityArtifactErrors(raw, string(row(request.input).text), files);
+        if (errors.length) throw new RpcError('invalid_params', 'The audit artifact needs a targeted format repair',
+            {details: {reason: 'audit_artifact_invalid', errors}});
     }
 }
