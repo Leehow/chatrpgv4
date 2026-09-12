@@ -1,12 +1,6 @@
 # Story continuity and adaptation — authoritative repair plan
 
-_Status: PLANNING COMPLETE for this turn. Implementation AUTHORIZED and IN PROGRESS; acceptance PENDING for
-P0-P4 below. This document is the single execution plan for the continuity-review
-repair; it supersedes earlier "implementation record" framing but preserves the prior
-history in the Historical record section. Spec direction lives in
-[../specs/story-continuity-and-adaptation.md](../specs/story-continuity-and-adaptation.md);
-planned wire direction is `docs/kernel-rpc.md` §35.13._
-
+_Status: P0-P3 IMPLEMENTED; P4 code, fixed-input and genuine-play gates completed. Human UI acceptance and integration remain PENDING. This is the single execution plan. Current results: [repair report](../research/continuity-review-repair-2026-09-12.md). Wire contract: docs/kernel-rpc.md section 35.14._
 
 Owned checkout: codex/story-continuity, planning base b182f5ff; product repair0789496f. Primary has concurrent dirty work including its own contract and Electron/onboarding paths and is untouched. The user now explicitly authorizes implementation of P0-P4. Issue publication, packaging/deployment and new tasks remain out of scope. The concrete versioned wire contract is §35.14.
 
@@ -39,7 +33,7 @@ capabilities and source cause/unique-identity protections are unchanged.
 
 Missing source provenance alone does not prove that turns17/18 were incoherent. Their old rejection records and raw evidence remain unchanged; this plan supersedes that interpretation, without declaring the turns newly passed. Turns12/13 included fabricated retrospective testimony/kinship explicitly withdrawn later, so those corrections remain authoritative. Overall story-coherence and human UI acceptance remain incomplete.
 
-Retained campaign continuity-venue-live is turn22 awaiting_player at higher-courts-central-police, elapsed clock989, bible clue undiscovered. No story ending has been proven. Continue from retained state; never remove campaign evidence to restart.
+Retained campaign continuity-venue-live completed turns22-41 and is now turn42 awaiting_player. The player ended the paid inquiry after finding the cellar body and returning evidence and the original key. This is an inquiry ending, not a solved haunting. The bible refusal and prior corrections remain intact; raw evidence was retained.
 
 ## 3. Verified baseline
 
@@ -52,7 +46,7 @@ Evidence: `.coc/playtests/continuity-memory-resume/verification.json`, `turn-1-a
 
 ## 4. Implementation plan (dependencies, owned paths, completion gates)
 
-Statuses: historical work COMPLETE; this plan COMPLETE; P0-P3 IMPLEMENTED; P4 fixed-input gates PASSED on the current iteration, genuine-play acceptance IN PROGRESS.
+Statuses: historical work COMPLETE; this plan COMPLETE; P0-P3 IMPLEMENTED; P4 fixed-input and genuine-play checks COMPLETED with retained intermediate failures and remaining limits documented. Human UI acceptance and integration remain pending.
 
 **P0 — Contract/rubric and measurement repair** (blocks all product edits). Finalize a
 versioned continuity-review replacement contract using a NEW capability/schema version; do
@@ -88,10 +82,9 @@ evidence, inventing a fallback scene, or publishing unreviewed text as approved.
 read/review inside the same automatic chain consumes remaining budget; explicit
 narrate/ask and implicit closure share the same review/remaining budget; only an explicit
 user-directed retry starts a newly recorded bounded attempt linked to the prior attempt.
-Narrowly scoped FUTURE P3 paths may include `extensions/kernel/index.ts`, ONLY for the
+Implemented P3 paths include `extensions/kernel/index.ts`, ONLY for the
 delivery/retry/steer hooks needed to surface review unavailability and prevent the parent
-Keeper from automatically starting more review rounds or exposing rejected prose (planned
-only; not edited in this task). Preserve cancellation/cold resume/freshness and existing
+Keeper from automatically starting more review rounds or exposing rejected prose (implemented in this repair). Preserve cancellation/cold resume/freshness and existing
 legacy no-capability behavior. Reader termination validated against its current supported
 Pi API. Gate: budget/unavailable/cancellation cases accurate; unavailable/invalid audit
 cannot be bypassed by implicit prose; no automatic full-budget loop.
@@ -192,8 +185,8 @@ Prior art is precedent for the design, not grounds to adopt dependencies or repl
 
 ## Current implementation checkpoint
 
-The versioned continuity path is implemented: narration-audit1.2.1 with enhanced-items1.1.9, focused current facts and prior player choices, faithful-recap versus compatible-invention policy, aggregate artifact errors, private checked submission, one bounded submission reminder, shared persisted review accounting and paused-delivery handling. Pi catches provider-hook exceptions, so the private limiter explicitly calls the supported abort API; unavailable status always defeats a later submission. Legacy1.1.2 source review remains tested with retained fixture bytes.
+Commits5817faf1,9c124aaa,5499b4d0 andbc1d2aa1 implement the new continuity capability, focused context including kernel clock and executable equipment, private evidence lookup and checked submission, aggregate artifact errors, bounded shared review accounting, explicit/implicit paused delivery, driver completion repair, and a read-only cold-recovery status check. Current versions are narration-audit1.2.4 and enhanced-items1.1.9; retained legacy1.1.2 remains tested.
 
-Validation: driver14/14; current targeted audit tests12/12; full extension847/847; kernel Mod/memory/capsule regression50/50; typecheck/runtime build passed. These are not all live-gameplay checks. Current frozen-input probes run-I6mOVd matched14/14 expected judgments across two repetitions, median2859ms, range1634-9276ms,1-3model calls per review,20calls total,3targeted artifact repairs. A real one-call termination probe run-4SE5iB ended unavailable at1425ms without a checked submission, as expected. All use DeepSeek Flash. Earlier exploratory runs CWQCtN, vg4fWi and EgL6LP remain retained with their failures; none is relabeled as a current pass. Evidence is under .coc/playtests/continuity-review-probes and /tmp/pipicoc-continuity-impl.yh2FpS. The earlier driver total932.057s and the14frozen probes have different work, so this is not an end-to-end speedup claim.
+Validation: driver14/14; kernel Mod/memory/capsule50/50; final extension850/850; typecheck and runtime build passed. Latest frozen probes matched18/18 semantic expectations plus2/2 separately labeled completion-only checks, median3093ms, range1495-9432ms, at most3calls. The real one-call exhaustion probe correctly paused and is not a gameplay pass.
 
-Resume continuity-venue-live through the real driver after adopting the versioned Mods; keep its raw history, retractions, possessions and source/adaptation files. Human UI and natural story completion remain pending.
+Genuine play completed20delivery attempts through turn41, ending the paid inquiry after a cellar discovery; median25.609s end-to-end and6.6225s in the narrate preparation/review/commit interval. One19.2s undelivered review attempt is retained separately; later explicit recovery completed without repeating resolve/apply. Dynamic graph work still caused two long turns. The natural ending preserves the unresolved haunting and does not claim combat acceptance. Full evidence, intermediate failures, current state and limitations are in [the repair report](../research/continuity-review-repair-2026-09-12.md). Human UI acceptance, integration and packaging remain outside this completed code-validation slice.
