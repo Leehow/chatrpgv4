@@ -43,7 +43,8 @@ player corrects it there — never leave it unset), concept, occupation_skills (
 names), interest_skills (several appropriate concrete names), own_language (the
 actual language), backstory (personal_description plus 2–5 other categories and scenario_bound), key_connection
 {backstory_field,summary}, equipment (ordinary item names), optional weapons
-(rulebook profile names), occupation_stated when the player's words for the trade
+(printable profile names from the rules tables, listed in details.weapons when one
+misses; a weapon the rulebook does not print is equipment, not a profile), occupation_stated when the player's words for the trade
 differ from or refine the entry, and aptitude only under an active package's
 instructions. Backstory categories: personal_description, ideology_beliefs,
 significant_people, meaningful_locations, treasured_possessions, traits. Respect the

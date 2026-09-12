@@ -294,3 +294,32 @@ def test_a_stated_trade_must_be_words_or_absent(kernel):
     for bad in ("", "   ", 7, ["nurse"]):
         assert kernel.err("setup.draft", {"campaign": CAMPAIGN, "profile": {"occupation_stated": bad}})["code"] == "needs"
     assert kernel.ok("setup.steps", {"campaign": CAMPAIGN})["state"]["draft"]["revision"] == draft["revision"]
+
+
+def test_a_starting_weapon_is_named_the_way_play_names_it(kernel):
+    """`apply item weapon` takes a table id or the printable name and puts the printable name on the
+    card. Creation took the id alone and said so to nobody: the refusal listed skills, occupations and
+    backstory categories, and left the Keeper to guess `revolver_38` from a hundred and six entries."""
+    kernel.ok("campaign.create", {"id": CAMPAIGN, "module": "the-haunting", "play_language": "zh-Hans"})
+    printable = kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": {**profile(), "era": "1920s", "weapons": [".38 Automatic"]}})
+    assert [weapon["name"] for weapon in printable["sheet"]["weapons"]] == [".38 Automatic"]
+    assert printable["sheet"]["weapons"][0]["damage_die"] == "1D10"
+    by_id = kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": {"weapons": ["revolver_38"]}})
+    assert [weapon["name"] for weapon in by_id["sheet"]["weapons"]] == [".38 Automatic"], "the id is a way in, never the name on the card"
+    assert "revolver_38" not in by_id["sheet"]["equipment"]
+    assert ".38 Automatic" in by_id["sheet"]["equipment"]
+
+
+def test_a_weapon_the_rulebook_never_printed_is_refused_with_the_profiles_and_a_place_to_put_it(kernel):
+    """The Keeper drafts in the play language, so the miss is the common case, not the odd one."""
+    kernel.ok("campaign.create", {"id": CAMPAIGN, "module": "the-haunting", "play_language": "zh-Hans"})
+    error = kernel.err("setup.draft", {"campaign": CAMPAIGN, "profile": {**profile(), "era": "1920s", "weapons": ["袖口单发袖珍手枪"]}})
+    assert error["code"] == "needs"
+    issue = next(issue for issue in error["details"]["issues"] if "袖口单发袖珍手枪" in issue)
+    assert "details.weapons" in issue and "equipment" in issue, "name the catalog and where a non-profile belongs"
+    assert ".38 Automatic" in error["details"]["weapons"], "the profiles are on the refusal, not left to be guessed"
+    assert "revolver_38" not in error["details"]["weapons"], "offered by the name the card will carry"
+    era = json.loads((Path(__file__).resolve().parents[2] / "content/rulesets/coc7/rules-json/weapons.json").read_text(encoding="utf-8"))["weapons"]
+    modern = [entry["display_name"] for entry in era.values() if entry.get("eras") == ["modern"]]
+    assert modern and not [name for name in modern if name in error["details"]["weapons"]], "a 1920s draft is not offered modern guns"
+    assert kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": {**profile(), "era": "1920s", "weapons": []}})["completeness"]["valid"]

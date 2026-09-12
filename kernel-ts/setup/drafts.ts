@@ -6,7 +6,7 @@ import { withExclusiveLock } from '../locks.js';
 import { playerGlossary } from '../read/handlers.js';
 import { playLanguageOf } from '../read/languages.js';
 import { loadModule } from '../read/campaign.js';
-import { row, array, clone, entries, string, number, integer, truth, equal, repr, type Row } from '../read/values.js';
+import { row, array, clone, entries, string, number, integer, normalize, truth, equal, repr, type Row } from '../read/values.js';
 import { moduleEra } from '../library/index.js';
 import { setupModContext, SETUP_SLOT_STOP } from '../read/mods.js';
 const APTITUDE_CAPABILITY = 'setup.aptitude.v1';
@@ -19,6 +19,25 @@ const FIELDS = ['name', 'occupation', 'age', 'sex', 'concept', 'occupation_skill
 const APTITUDE = ['strong', 'weak'], APTITUDE_FIELDS = [...APTITUDE, 'origin'];
 /** The manual override edits numbers only; identity stays conversational (contract §23.4). */
 const EDIT_FIELDS = ['characteristics', 'skills', 'credit_rating'];
+/** Every weapon profile the rules tables print, reachable by the table id or by the printable name,
+ *  which is the pair `apply item weapon` already accepts (contract §19) — a gun named at creation and
+ *  the same gun picked up in play resolve through one convention. The value carries the name the card
+ *  takes, so a profile reached by its id is never written onto the sheet as the id. The index is
+ *  deliberately whole: what validation accepts is exactly what the sheet can resolve. */
+function weaponProfiles(catalog: Row): Map<string, [Row, string]> {
+  const profiles = new Map<string, [Row, string]>();
+  for (const [id, value] of entries(catalog)) {
+    const entry = row(value), printable = truth(entry.display_name) ? string(entry.display_name) : id;
+    for (const name of [id, printable]) profiles.set(normalize(name), [entry, printable]);
+  }
+  return profiles;
+}
+/** What the refusal offers: the era's own profiles when the draft names one, narrowing the suggestion
+ *  without narrowing what is legal — the table has always accepted any era's entry here. */
+function weaponOptions(profiles: Map<string, [Row, string]>, era: string): string[] {
+  const offered = [...profiles.values()].filter(([entry]) => !era || !truth(entry.eras) || array(entry.eras).includes(era));
+  return [...new Set((offered.length ? offered : [...profiles.values()]).map(([, printable]) => printable))].sort(compareUnicode);
+}
 const LIMITS_FIELDS = ['characteristic_min', 'characteristic_max', 'skill_cap', 'occupation_points', 'interest_points'];
 export class SetupDrafts {
   constructor(readonly setup: Setup) {}
@@ -78,8 +97,11 @@ export class SetupDrafts {
       const missing = required.filter(name => name && Array.isArray(occupations) && !occupations.includes(name));
       if (missing.length) issues.push(`retain required occupation skills: ${repr(missing)}`);
     } catch (error) { if (!(error instanceof ChargenError)) throw error; issues.push('occupation must be a listed occupation'); }
-    const weapons = Object.hasOwn(profile, 'weapons') ? profile.weapons : [], catalog = await this.setup.tables.weaponsTable();
-    if (!Array.isArray(weapons) || !weapons.every(name => typeof name === 'string' && Object.hasOwn(catalog, name))) issues.push('weapons must use existing rulebook profile names');
+    const weapons = Object.hasOwn(profile, 'weapons') ? profile.weapons : [];
+    const profiles = weaponProfiles(await this.setup.tables.weaponsTable());
+    const unknown = Array.isArray(weapons) ? weapons.filter(name => typeof name !== 'string' || !profiles.has(normalize(name))) : null;
+    if (unknown === null) issues.push('weapons is a list of rulebook profile names, or omitted');
+    else if (unknown.length) issues.push(`the rules tables print no weapon profile named ${repr(unknown[0])}; name one of details.weapons. A weapon the rulebook does not print is not a profile: leave it out of weapons and list it in equipment under the name the player used`);
     // The player's own words for the trade, kept beside the catalog entry so a substitution is never silent (§23.4).
     const stated = Object.hasOwn(profile, 'occupation_stated') ? profile.occupation_stated : null;
     if (stated !== null && (typeof stated !== 'string' || !stated.trim())) issues.push('occupation_stated is the player\'s own words for the trade, a non-empty string, or omitted');
@@ -89,6 +111,7 @@ export class SetupDrafts {
       issues.push('aptitude names strong/weak characteristics and the origin that named them');
     if (issues.length) throw new RpcError('needs', 'Complete the semantic profile without interviewing for ordinary missing details', {
       details: {issues, backstory_fields: [...BACKSTORY], skills: Object.keys(skills), language_specialty: 'Language (Other: English)',
+        weapons: weaponOptions(profiles, string(profile.era ?? '')),
         occupations: this.setup.chargen.occupations(), aptitude: {directions: [...APTITUDE], characteristics: this.setup.chargen.characteristics,
           origins: [...array(row(this.setup.chargen.policy.aptitude).origins)]}}});
   }
@@ -129,8 +152,9 @@ export class SetupDrafts {
         throw new RpcError('needs', error.message, {details: {expected: error instanceof ChargenError ? error.expected : null}}); }
       sheet.backstory = clone(profile.backstory); sheet.key_connection = clone(profile.key_connection); sheet.own_language = profile.own_language; sheet.equipment = [...profile.equipment];
       sheet.backstory.concept = profile.concept; sheet.occupation_stated = typeof profile.occupation_stated === 'string' ? profile.occupation_stated.trim() : null;
-      sheet.weapons = await Promise.all(array(profile.weapons).map(async name => ({name, ...await this.setup.tables.weaponByName(name)})));
-      for (const weapon of array(profile.weapons)) if (!sheet.equipment.includes(weapon)) sheet.equipment.push(weapon);
+      const drafted = weaponProfiles(await this.setup.tables.weaponsTable());
+      sheet.weapons = array(profile.weapons).map(written => { const [entry, printable] = drafted.get(normalize(string(written)))!; return {name: printable, ...entry}; });
+      for (const weapon of array(sheet.weapons)) if (!sheet.equipment.includes(weapon.name)) sheet.equipment.push(weapon.name);
       sheet.current_hp = sheet.derived.HP; sheet.current_mp = sheet.derived.MP; sheet.current_san = sheet.derived.SAN; sheet.current_luck = sheet.characteristics.LUCK;
       const issues = completeness(sheet);
       if (issues.length) throw new RpcError('needs', 'The card is incomplete', {details: {issues}});
