@@ -240,6 +240,7 @@ def test_the_judge_may_not_invent_metrics_turns_or_uncited_findings():
                                            allowed=["hard_denial_rate", "secret_leak"])
     assert folded["hard_denial_rate"] == {
         "ok": 1, "violation": 1, "rate": 0.5, "direction": "lower_is_better",
+        "violations_while_review_unavailable": 0,
         "citations": [{"turn": 2, "verdict": "violation", "quote": "You cannot.", "why": ""},
                       {"turn": 3, "verdict": "ok", "quote": "The door holds.", "why": ""}]}
     assert "vibes" not in folded and "secret_leak" not in folded
@@ -421,3 +422,55 @@ def test_unjudged_gates_print_as_unmeasured_not_as_clean(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "-" in out.splitlines()[4], "an unjudged suite must not print a zero gate count"
     assert "not the same as clean" in out
+
+
+def test_a_violation_on_a_turn_whose_review_timed_out_is_marked(tmp_path):
+    """An unanswered action review makes the Keeper tell the player it cannot settle, which reads
+    as a refusal. The turn number says so; no phrase list is consulted."""
+    folded = persona_report.fold_judgement(
+        {"findings": [
+            {"metric": "hard_denial_rate", "turn": 5, "verdict": "violation", "quote": "cannot settle"},
+            {"metric": "hard_denial_rate", "turn": 6, "verdict": "violation", "quote": "you cannot"},
+        ]},
+        turns_seen={5, 6}, allowed=["hard_denial_rate"], admission_failed={5})
+    bucket = folded["hard_denial_rate"]
+    assert bucket["violation"] == 2 and bucket["violations_while_review_unavailable"] == 1
+    assert bucket["citations"][0]["review_unavailable_this_turn"] is True
+    assert "review_unavailable_this_turn" not in bucket["citations"][1]
+
+
+def test_admission_failures_are_read_by_turn_number_from_telemetry(tmp_path):
+    campaign = tmp_path / "c"
+    campaign.mkdir()
+    (campaign / "telemetry.jsonl").write_text("\n".join(json.dumps(r) for r in [
+        {"turn": 1, "lane": "admission", "ok": True, "verdict": "authorized"},
+        {"turn": 5, "lane": "admission", "ok": False, "reason": "timeout"},
+        {"turn": 7, "lane": "director", "ok": False},
+    ]) + "\n", encoding="utf-8")
+    assert persona_report.admission_failed_turns(campaign) == {5}
+
+
+def test_findings_can_be_refolded_without_paying_the_judge_again(tmp_path, monkeypatch):
+    """Judging costs a call per run; folding costs nothing. Reuse must not call the model."""
+    called = []
+    monkeypatch.setattr(persona_report, "run_judge",
+                        lambda *a, **k: called.append(a) or {"findings": []})
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "judgement.jsonl").write_text(
+        json.dumps({"metric": "hard_denial_rate", "turn": 2, "verdict": "ok", "quote": "q"}) + "\n",
+        encoding="utf-8")
+    reused = persona_report.read_existing_judgement(run_dir)
+    assert reused["reused"] is True and len(reused["findings"]) == 1 and not called
+
+
+def test_a_secret_leak_on_a_turn_that_minted_no_clue_says_so():
+    folded = persona_report.fold_judgement(
+        {"findings": [
+            {"metric": "secret_leak", "turn": 2, "verdict": "violation", "quote": "the wards"},
+            {"metric": "secret_leak", "turn": 3, "verdict": "violation", "quote": "the sorcerer"},
+        ]},
+        turns_seen={2, 3}, allowed=["secret_leak"], admission_failed=set(), clue_turns={3})
+    citations = folded["secret_leak"]["citations"]
+    assert citations[0]["no_clue_receipt_this_turn"] is True
+    assert "no_clue_receipt_this_turn" not in citations[1]

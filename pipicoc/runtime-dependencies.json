@@ -96,6 +96,7 @@
   "resourceFiles": ["extensions/mods/document-presentation.md", "pipicoc/install", "pipiui-extension.json", "bin/pi-coc", "bin/pi-coc-setup", "bin/coc-read-check", "bin/coc-source", "pipicoc/rpc"],
   "uiFiles": [
     "panel.js", "mods-panel.js", "timeline.js", "mechanics.js", "choices.js", "preparation.js",
+    "settings-difficulty.js",
     "sheet-icon.svg", "mods-icon.svg", "timeline.svg", "pipicoc.png", "product.json"
   ],
   "hostAssets": [
