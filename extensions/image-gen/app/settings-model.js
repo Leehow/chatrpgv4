@@ -1,6 +1,6 @@
 /**
- * The Image Generation settings section: pick the image model from the same catalog 模型管理
- * shows (props.ctx.visibility), persisted through the pi-backend app-level image-gen/model
+ * The Image Generation settings section: pick the image model from the same catalog
+ * Model Management shows (props.ctx.visibility), persisted through the pi-backend app-level image-gen/model
  * branch into <agentDir>/image-model.json — the file the agent reads per generation call.
  *
  * Loaded as a data: module (no relative imports), so the image-family predicate below mirrors
@@ -47,7 +47,7 @@ export function createComponent(React) {
     };
 
     if (state === undefined && !error) {
-      return h("div", { className: "model-modal-state" }, "正在读取生图模型设置…");
+      return h("div", { className: "model-modal-state" }, "Loading image model settings…");
     }
 
     const current = state && typeof state.current === "string" ? state.current : null;
@@ -55,8 +55,8 @@ export function createComponent(React) {
     const rows = [
       {
         key: "auto",
-        title: "自动",
-        subtitle: grokDefault ? "grok-build 已登录，默认使用 grok-build 出图" : "未选择模型；grok-build 登录后自动用它出图",
+        title: "Automatic",
+        subtitle: grokDefault ? "grok-build is signed in; it generates by default" : "No model selected; grok-build is used once signed in",
         selected: current === null,
         pick: () => void choose("clear"),
       },
@@ -74,8 +74,8 @@ export function createComponent(React) {
 
     return h("div", { className: "model-visibility" },
       h("p", { className: "model-modal-state" },
-        "选择调查员证件照与插图使用的生图模型。证件照片框、/image 与 generate_image 共用这一个选择。"),
-      error ? h("div", { className: "model-modal-error", role: "alert" }, "生图模型设置读写失败，请重试。") : null,
+        "Pick the image model for investigator portraits and illustrations. The portrait frame, /image, and generate_image share this one choice."),
+      error ? h("div", { className: "model-modal-error", role: "alert" }, "Reading or writing the image model setting failed; try again.") : null,
       rows.length > 1 || models.length
         ? h("div", null, rows.map((row) => h("button", {
             key: row.key,
@@ -89,8 +89,8 @@ export function createComponent(React) {
             h("input", { type: "radio", checked: row.selected, readOnly: true, "aria-label": row.title }),
             h("span", { className: "model-row-name" }, row.title),
             h("span", { className: "model-row-id" }, row.subtitle),
-            row.selected ? h("span", { className: "model-row-current" }, "当前") : null)))
+            row.selected ? h("span", { className: "model-row-current" }, "Current") : null)))
         : h("div", { className: "model-modal-state" },
-            "模型管理里还没有可用的生图模型。先在模型管理登录支持生图的 provider（如 grok-build），再回到这里。"));
+            "No image-capable models in Model Management yet. Sign in an image-capable provider there (for example grok-build), then come back."));
   };
 }
