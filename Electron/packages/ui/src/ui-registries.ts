@@ -133,8 +133,10 @@ export const DEFAULT_SETTINGS_TAB = 'models'
 // Host-owned settings tabs, in nav order. `image-model` is the Image Generation extension's
 // picker, contributed through app.ui.settingsSections and admitted here by product decision;
 // it sits with 扩展, its own kind. `coc-difficulty` is the COC Keeper extension's creation-
-// difficulty section (contract §33.5), admitted the same way.
-export const HOST_SETTINGS_TAB_IDS = ['models', 'extensions', 'coc-difficulty', 'image-model', 'themes', 'updates'] as const
+// difficulty section (contract §33.5), admitted the same way, and `coc-lane-model` is its picker for
+// the model the Keeper's background lanes run on -- contributing a section is not enough on its own,
+// because a tab only exists once its id is admitted here.
+export const HOST_SETTINGS_TAB_IDS = ['models', 'extensions', 'coc-difficulty', 'coc-lane-model', 'image-model', 'themes', 'updates'] as const
 
 // --- panels ----------------------------------------------------------------
 

@@ -32,11 +32,17 @@ function renderSection(host: ReturnType<typeof hostWith>) {
 
 describe('registration (contract §33.5)', () => {
   it('admits coc-difficulty into the host whitelist right after extensions', () => {
-    expect(HOST_SETTINGS_TAB_IDS).toEqual(['models', 'extensions', 'coc-difficulty', 'image-model', 'themes', 'updates']);
+    expect(HOST_SETTINGS_TAB_IDS).toEqual(['models', 'extensions', 'coc-difficulty', 'coc-lane-model', 'image-model', 'themes', 'updates']);
   });
   it('carries a nav hint', () => {
     expect(typeof SETTINGS_NAV_HINTS['coc-difficulty']).toBe('string');
     expect(SETTINGS_NAV_HINTS['coc-difficulty'].length).toBeGreaterThan(0);
+  });
+  // Contributing a section is not enough: a tab exists only once its id is admitted, and it reads as
+  // a nameless row until the nav has a hint for it. The lane-model picker needed both.
+  it('admits the lane-model picker and gives it a nav hint too', () => {
+    expect(HOST_SETTINGS_TAB_IDS).toContain('coc-lane-model');
+    expect(SETTINGS_NAV_HINTS['coc-lane-model']?.length).toBeGreaterThan(0);
   });
 });
 
