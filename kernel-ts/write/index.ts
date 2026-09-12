@@ -25,7 +25,7 @@ import { validateDifficulty } from '../setup/difficulty.js';
 import { resolveStartScene } from '../modules/visual.js';
 import { loadModuleContract, validSourceLanguage } from '../modules/contract.js';
 import { defaultModPlan, preflightCampaign as validateContributions, rebuildNpcLedger, updateNpcLedger, stanceTable, writeEpisode } from './contributions.js';
-import { bindMarkers, stripMarkers, asciiSlug, facts, publicContext, directorAdoption, offerLedger } from './text.js';
+import { bindMarkers, droppedMarkers, stripMarkers, asciiSlug, facts, publicContext, directorAdoption, offerLedger } from './text.js';
 import { readableTurn, rebuildTurn, syncCheckpoint, resumeView, checkpointFromRecord, writeCheckpoint } from './continuation.js';
 import {activeName} from '../read/worldline.js';
 import {eventOf} from '../worldline/index.js';
@@ -703,7 +703,8 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         if (truth(ending) && ((ending.scope || 'campaign') === 'campaign' && snapshot.meta.status !== 'completed' || ending.scope === 'chapter' && snapshot.meta.status === 'completed'))
             throw new RpcError('invalid_params', 'a campaign ending must be delivered with narrate, not ask');
         if(truth(turn.worldline))throw new RpcError('invalid_params','a turn that forks or switches the worldline cannot be closed by ask',{fix:"close this turn with narrate; ask on the new line's first turn",details:{worldline:row(turn.worldline).operation??null}});
-        const receipts = [...array(turn.receipts)], placed = text ? bindMarkers(text, receipts) : {}, stripped = truth(placed) ? stripMarkers(text!) : text;
+        const receipts = [...array(turn.receipts)], binding = text ? bindMarkers(text, receipts) : null, placed = binding ? binding.placed : {};
+        const dropped = binding ? droppedMarkers(binding, receipts) : null, stripped = binding ? stripMarkers(binding.text) : text;
         const language = await playLanguageOf(context, snapshot.meta);
         await stanceTable(context);
         const n = number(turn.turn), pending = {
@@ -724,7 +725,10 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             mechanics: projected,
             labels,
             ...(truth(placed) ? {
-                marked_text: text
+                marked_text: binding!.text
+            } : {}),
+            ...(dropped ? {
+                dropped_markers: dropped
             } : {}),
             turn: n,
             state: 'asked'
@@ -778,7 +782,8 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         report?.('load');
         preflightCampaign(snapshot.meta, snapshot.world, turn, snapshot.party);
         await validateMods(snapshot.world);
-        const text = required(params, 'text')!, receipts = [...array(turn.receipts)], placed = bindMarkers(text, receipts), rendered = truth(placed) ? stripMarkers(text) : text;
+        const text = required(params, 'text')!, receipts = [...array(turn.receipts)], binding = bindMarkers(text, receipts), placed = binding.placed;
+        const dropped = droppedMarkers(binding, receipts), rendered = stripMarkers(binding.text);
         const language = await playLanguageOf(context, snapshot.meta);
         // Nothing is read out of the prose. Figures travel as the mechanics projection and the
         // frontend draws them (2026-09-09 user decision, contract section 16.3); whether the words
@@ -800,7 +805,10 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             commit: null,
             facts: factLists,
             ...(truth(placed) ? {
-                marked_text: text
+                marked_text: binding!.text
+            } : {}),
+            ...(dropped ? {
+                dropped_markers: dropped
             } : {}),
             extraction: {
                 job_id: `extract:${campaign.id}:t${n}`
@@ -819,7 +827,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             labels,
             calls: turn.calls || {},
             ...(truth(placed) ? {
-                marked_text: text
+                marked_text: binding!.text
             } : {}),
             commit: null,
             closed_by: 'narrate',

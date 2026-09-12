@@ -435,3 +435,32 @@ test("第二段还是散文：催过一次就接受，不再催", async (t) => {
 	assert.equal(closed.length, 1);
 	assert.equal(closed[0].implicit, true);
 });
+
+
+/**
+ * A refused implicit delivery never leaves the draft on screen (contract §34.14). 2026-09-12: two
+ * implicit narrates were refused for markers naming receipts that never landed, the host returned
+ * without replacing the assistant message, and the Keeper's raw prose — `{{scene:...}}` and all —
+ * stood in front of the player twice.
+ */
+test("隐式交付被拒：原稿不留在屏幕上，回合仍等着被关掉", async (t) => {
+	const draft = "{{scene:corbitt-house-ground}}你站在人行道上，从屋顶看到台阶。";
+	const table = await openTable({
+		env: { FAKE_KERNEL_ERRORS: JSON.stringify({ "table.narrate": { code: "invalid_params", message: "no receipt in this turn is named by scene:corbitt-house-ground", code_detail: "unknown_marker" } }) },
+		responses: [fauxAssistantMessage(draft), fauxAssistantMessage("")],
+	});
+	t.after(() => table.dispose());
+
+	await table.session.prompt("我去科比特宅");
+	await waitForIdle(table.session);
+
+	const delivered = assistantTexts(table.session).filter((text) => text.length > 0);
+	assert.deepEqual(delivered, [], "被拒的原稿一个字都没留下");
+	assert.ok(!delivered.some((text) => text.includes("{{")), "玩家读不到花括号");
+	const refused = table.telemetry().filter((row) => row.tool === "narrate" && row.ok === false);
+	assert.equal(refused.length, 1);
+	assert.equal(refused[0].code_detail, "unknown_marker");
+	const closed = table.telemetry().filter((row) => row.event === "turn-closed");
+	assert.deepEqual(closed, [], "被拒的交付没有关掉回合");
+	assert.deepEqual(table.entries("coc-mechanics"), [], "没有机制投影发出去");
+});

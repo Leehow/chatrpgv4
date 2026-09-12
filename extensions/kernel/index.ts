@@ -1619,7 +1619,12 @@ export default function (pi: ExtensionAPI) {
 				// kernel makes no such refusal, and this loop asks the Keeper for nothing. The verifier lane
 				// reads the delivered prose afterwards and files `play_language_mismatch` as an advisory
 				// finding on the turn instead (contract §12.5).
-				return;
+				//
+				// The draft does not stay on screen (contract §34.14). A refused delivery is a turn that did
+				// not happen, and the Keeper's raw prose can carry machine tokens it expected the kernel to
+				// strip: on 2026-09-12 two refused implicit narrates left `{{scene:...}}` and `{{clue:...}}`
+				// in front of the player, twice. Drop the text blocks and let agent_end steer the turn closed.
+				return { message: { ...event.message, content: blocks.filter((block) => block.type !== "text") } };
 			}
 			if (!rendered) return;
 		}

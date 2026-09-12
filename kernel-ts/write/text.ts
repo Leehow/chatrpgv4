@@ -41,40 +41,49 @@ export function markersFor(receipts: Row[]): Map<string, string> {
     }
     return names;
 }
-export function bindMarkers(text: string, receipts: Row[]): Row {
+/** What the markers in a draft bound to (contract §34.14). A marker is a rendering hint, never a
+ *  reason to refuse a delivery: one that names no receipt of this turn, or repeats a receipt already
+ *  placed, is dropped from the text and reported back, so the player never reads a brace and the turn
+ *  is not spent on the mistake. */
+export interface MarkerBinding {
+    /** marker name to receipt id, in the order the text placed them */
+    placed: Row;
+    /** markers naming no receipt of this turn; dropped from the text */
+    unknown: string[];
+    /** markers placed more than once; every occurrence after the first is dropped */
+    duplicate: string[];
+    /** the draft with the dropped occurrences removed and the bound ones left where they stand */
+    text: string;
+}
+export function bindMarkers(text: string, receipts: Row[]): MarkerBinding {
     const names = markersFor(receipts);
-    const available = new Map([...names].map(([id, marker]) => [marker, id])), seen: Row = {}, unknown: string[] = [], duplicate: string[] = [];
-    for (const match of text.matchAll(MARKER)) {
-        const marker = match[1];
+    const available = new Map([...names].map(([id, marker]) => [marker, id])), placed: Row = {}, unknown: string[] = [], duplicate: string[] = [];
+    const cleaned = text.replace(MARKER, (whole: string, marker: string) => {
         if (!available.has(marker)) {
             if (!unknown.includes(marker))
                 unknown.push(marker);
+            return '';
         }
-        else if (Object.hasOwn(seen, marker)) {
+        if (Object.hasOwn(placed, marker)) {
             if (!duplicate.includes(marker))
                 duplicate.push(marker);
+            return '';
         }
-        else
-            seen[marker] = available.get(marker);
-    }
-    if (unknown.length)
-        throw new RpcError('invalid_params', `no receipt in this turn is named by ${unknown.join(', ')}`, {
-            fix: 'place only the markers resolve and apply handed back, or none',
-            codeDetail: 'unknown_marker',
-            details: {
-                unknown,
-                markers: [...available.keys()].sort()
-            },
-        });
-    if (duplicate.length)
-        throw new RpcError('invalid_params', `${duplicate.join(', ')} is placed more than once`, {
-            fix: 'a receipt happened once: place its marker at one point in the text',
-            codeDetail: 'duplicate_marker',
-            details: {
-                duplicate
-            },
-        });
-    return seen;
+        placed[marker] = available.get(marker);
+        return whole;
+    });
+    return { placed, unknown, duplicate, text: cleaned };
+}
+/** What the kernel tells the Keeper about the markers it dropped, or null when it dropped none. */
+export function droppedMarkers(binding: MarkerBinding, receipts: Row[]): Row | null {
+    if (!binding.unknown.length && !binding.duplicate.length)
+        return null;
+    return {
+        ...(binding.unknown.length ? { unknown: [...binding.unknown] } : {}),
+        ...(binding.duplicate.length ? { duplicate: [...binding.duplicate] } : {}),
+        markers: [...markersFor(receipts).values()].sort(),
+        note: 'dropped from the delivery: a marker names a receipt this turn landed, and stands at one point in the text. What was dropped named nothing this turn, or repeated one already placed; the prose went out without it.'
+    };
 }
 export const stripMarkers = (text: string): string => text.replace(MARKER, '').replace(/[ \t]{2,}/g, ' ').trim();
 export function committedFacts(receipts: Row[], snapshot: Row, label: (id: any) => string, player: any): string[] {

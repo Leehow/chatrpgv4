@@ -79,23 +79,40 @@ def test_a_delivery_with_no_marker_is_exactly_what_it_was(kernel):
     assert all("marker" not in row for row in result["mechanics"])
 
 
-def test_a_marker_naming_no_receipt_is_refused(kernel):
-    """Prose asserting a mechanic with no receipt is the §16.3 family of error, not a typo to ignore."""
+def test_a_marker_naming_no_receipt_is_dropped_not_refused(kernel):
+    """A marker is a rendering hint (§34.14): one that names no receipt of this turn leaves the text,
+    the prose is delivered without it, and the Keeper is told what was dropped. Refusing used to leave
+    the raw draft — braces and all — in front of the player."""
     open_turn(kernel)
     resolve_search(kernel)
-    error = kernel.table_err("narrate", call_id="t1-c3", text="你翻过桌上的纸{{check:library-use}}。")
-    assert error["code_detail"] == "unknown_marker"
-    assert error["details"]["unknown"] == ["check:library-use"]
-    assert "check:spot-hidden" in error["details"]["markers"]
+    result = kernel.table("narrate", call_id="t1-c3", text="你翻过桌上的纸{{check:library-use}}，指尖沾了灰{{check:spot-hidden}}。")
+    assert result["rendered_text"] == "你翻过桌上的纸，指尖沾了灰。"
+    assert "{{" not in result["rendered_text"]
+    assert result["marked_text"] == "你翻过桌上的纸，指尖沾了灰{{check:spot-hidden}}。"
+    dropped = result["dropped_markers"]
+    assert dropped["unknown"] == ["check:library-use"] and "duplicate" not in dropped
+    assert "check:spot-hidden" in dropped["markers"]
+    assert [row.get("marker") for row in result["mechanics"] if row["kind"] == "roll"] == ["check:spot-hidden"]
 
 
-def test_the_same_marker_twice_is_refused(kernel):
+def test_only_the_first_placement_of_a_marker_stands(kernel):
     open_turn(kernel)
     resolve_search(kernel)
-    error = kernel.table_err("narrate", call_id="t1-c3",
-                             text="你翻过桌上的纸{{check:spot-hidden}}，又翻了一遍{{check:spot-hidden}}。")
-    assert error["code_detail"] == "duplicate_marker"
-    assert error["details"]["duplicate"] == ["check:spot-hidden"]
+    result = kernel.table("narrate", call_id="t1-c3",
+                          text="你翻过桌上的纸{{check:spot-hidden}}，又翻了一遍{{check:spot-hidden}}。")
+    assert result["rendered_text"] == "你翻过桌上的纸，又翻了一遍。"
+    assert result["marked_text"] == "你翻过桌上的纸{{check:spot-hidden}}，又翻了一遍。"
+    assert result["dropped_markers"]["duplicate"] == ["check:spot-hidden"]
+
+
+def test_a_delivery_whose_markers_all_miss_still_reaches_the_player(kernel):
+    """The 2026-09-12 leak: every marker named a receipt that never landed, the kernel refused, and the
+    host left the draft on screen. Now the prose goes out clean and the turn closes."""
+    open_turn(kernel)
+    result = kernel.table("narrate", call_id="t1-c1", text="{{scene:corbitt-house-ground}}你站在人行道上{{item}}。")
+    assert result["rendered_text"] == "你站在人行道上。"
+    assert "marked_text" not in result
+    assert sorted(result["dropped_markers"]["unknown"]) == ["item", "scene:corbitt-house-ground"]
 
 
 def test_a_delivery_of_a_marker_and_latin_prose_is_delivered_on_a_zh_hans_table(kernel):
