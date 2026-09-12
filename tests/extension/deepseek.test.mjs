@@ -123,6 +123,19 @@ test("清单与代码里的模型目录是同一份", () => {
 	assert.equal(MANIFEST.defaultEnabled, true, "app-origin 扩展缺省是关的，必须显式打开");
 });
 
+test("思考档位贴官方集合：low/high/max 开放，minimal/medium 隐藏", () => {
+	// 官方（api-docs.deepseek.com/guides/thinking_mode）：思考档是 low/high/max，
+	// 服务端把 minimal→low、medium→high、xhigh→high、ultra→max 折叠。
+	// low 是独立的一档（更便宜的推理），不许再被藏掉。
+	const expected = { minimal: null, low: "low", medium: null, high: "high", max: "max" };
+	for (const model of DEEPSEEK_CONVERSATION_MODELS) {
+		assert.deepEqual(model.thinkingLevelMap, expected, model.id);
+	}
+	for (const model of MANIFEST.auth.provider.models) {
+		assert.deepEqual(model.thinkingLevelMap, expected, model.id);
+	}
+});
+
 test("hosted web_search 支持只按声明的模型能力判定", () => {
 	assert.equal(responsesUrl("https://api.deepseek.com"), "https://api.deepseek.com/responses");
 	// 退役别名 DeepSeek 仍然受理（转由 V4.1 Flash 服务、按 Flash 价计费），

@@ -32,7 +32,7 @@
      },
      "thinkingLevelMap": {
       "minimal": null,
-      "low": null,
+      "low": "low",
       "medium": null,
       "high": "high",
       "max": "max"
@@ -75,7 +75,7 @@
      },
      "thinkingLevelMap": {
       "minimal": null,
-      "low": null,
+      "low": "low",
       "medium": null,
       "high": "high",
       "max": "max"

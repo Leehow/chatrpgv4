@@ -34,9 +34,15 @@ export const DEEPSEEK_RETIRED_MODEL_IDS = [
     "deepseek-v4-flash",
     "deepseek-v4-flash-vision-exp",
 ];
+/**
+ * Official effort set (api-docs.deepseek.com/guides/thinking_mode): the API
+ * accepts low/high/max and folds minimal→low, medium→high, xhigh→high,
+ * ultra→max server-side. We expose low (the cheap tier), high (the default)
+ * and max; minimal/medium stay hidden since the fold makes them duplicates.
+ */
 const V4_THINKING = {
     minimal: null,
-    low: null,
+    low: "low",
     medium: null,
     high: "high",
     max: "max",
