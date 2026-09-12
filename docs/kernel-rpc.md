@@ -392,7 +392,7 @@ RuleGraph 的每个决策声明输入槽位与归属。宿主锁定槽位由内�
 
 守秘人的上下文是可丢弃的缓存；桌子的真相在战役目录与 sidecar 仓库里。这一节把 `narrate` 提交之后的链条写死：事件批、续行检查点、记忆 episode 与异步抽取、三路 `recall`、advisory 校验车道。三条法则从旧树原样带过来：**候选不自动晋升**（记忆是参考，不是状态）；**矛盾不删除**（用 `valid_until_turn` 与 `superseded_by` 关闭，两条都可寻址）；**抽取与校验永不阻塞 `narrate`**（失败只进 backlog 与遥测）。旧树的时间线分叉、汇流、双层状态不带过来（规格「范围外」）。
 
-### 12.1 事件批：二十二类
+### 12.1 事件批：二十三类
 
 `EVENT_TYPES` 闭合枚举，其他类型报 `ValueError`（内核缺陷，不是守秘人错误）：
 
@@ -417,6 +417,7 @@ RuleGraph 的每个决策声明输入槽位与归属。宿主锁定槽位由内�
 | `note-written` | `apply note`（#27） | `{name, status, entities, closes}` |
 | `ruling-made` | `apply ruling`（#27） | `{name, anchor, scope, supersedes}` |
 | `npc-changed` | `apply npc`（#29，§17.3） | `{npc, to, stance, why}` |
+| `journal-written` | `journal.submit`（§17.10） | `{job_id, turn, entries: n}` |
 | `worldline-forked` | `apply fork`（#23，§15.3） | `{name, mode, loop, from: {line, turn, commit}}` |
 | `worldline-switched` | `apply switch`（#23，§15.3） | `{line, from: {line, turn, commit}}` |
 | `worldline-merged` | `apply merge`（#23，§15.3） | `{name, lines, into, conflicts}` |
@@ -1313,6 +1314,53 @@ contract one.
 Ordinary helper checks bind the executor once. The resolver passes its resolved acting identity to the adapter; the adapter supplies both the numeric skill/characteristic target and the actor identity through host-owned bindings. Numeric targets never enter semantic inputs. The ordinary executor uses that identity for its receipt and check record, while the helped investigator remains the settlement subject. First Aid and Medicine keep their separate rescuer/patient binding. A missing NPC value returns the existing `npc.skill` needs response and never falls back to the beneficiary's skill or an investigator base chance. The Keeper must name the NPC in `action.actor` when that NPC performs the uncertain action, even outside combat; `target` identifies the helped investigator or patient where applicable. A different executor or method is not an implicit choice to push. Push requires the player's explicit choice of the failed check and announced risk.
 
 An `apply npc` skill pin fills missing source material; it cannot contradict an existing authored numeric skill or characteristic. A conflicting pin is rejected before any receipt, ledger or other effect is written, with the authored value and a source explanation. An identical-value pin remains accepted, as does a genuinely absent skill. Existing campaign history and prior pins are not rewritten by this guard. Compact capsule omission does not prove source absence: the Keeper should try `resolve` first, or inspect the NPC's full view, and pin missing material only after the existing `npc.skill` refusal identifies it.
+
+### 17.10 玩家侧 NPC 日志 `npc-journal`（计划 npc-journal，2026-09-12 用户拍板）
+
+桌上缺的那一块：玩家玩到第二十回合已经见过十几个人，「这人是谁、上次跟我说了什么」全靠自己的记忆。本节给玩家一本**自动写的 NPC 记事本**：角色面板末尾多一节（§23 的 sheet 投影加 `npcs.journal`），后台静默车道在每回合提交后把**这一回合真正出场**的 NPC 落成条目。守秘人与玩家都不做任何事。
+
+**三端（§31）**：写它的是本节的车道（`journal.submit`，只从回合叙事抽取，不是模组图——图是书，书不会动，图上没露脸的 NPC 永远不进日志）；读它的是 `table.view` 的 `npcs.journal` 投影与角色面板的 NPC 节；据它行动的是玩家自己——**它不进守秘人胶囊，不催促，不反馈**（与 §13.7 同一条法：它只是一本玩家记事本，不是守秘人的义务）。
+
+**存储** `<campaign>/npc-journal.json`（`{"schema": 1, "entries": {...}}`，键是 NPC 节点 id，与账本同一命名法则）：
+
+```
+"<npc node id>": {
+  "name": "<play_language 的名字>",
+  "description": "<玩家视角的一两句话：他是谁、看起来怎样>",
+  "first_seen_turn": n, "last_seen_turn": n, "seen_count": n,
+  "exchanges": [{"turn": n, "scene": "<display_name>", "summary": "<这一回合他与玩家之间发生了什么，一句>"}]}
+```
+
+日志是**派生存储**：真相在逐字记录与回合记录里，日志可由车道重放重建，因此它**不进回合提交链**（与 `memory/candidates.jsonl` 同一待遇），世界线分叉/切换不管它——条目按战役累积，玩家看见的是「这条战役里见过的所有人」。崩溃恢复与 §12.6 相同：`journal.job` 能按 `turn` 从回合记录重新出任务。
+
+**任务包** `journal.job`，params `{"campaign", "turn"?: int}`；缺省派发与 `memory.job` 同一条（最新的、未完成、不在 backlog 的已提交回合；§12.8）。result：
+
+```
+{"job_id": "journal:<campaign>:t<n>" | null, "turn", "commit",
+ "scene": {"name", "display_name"}, "present": [名], "investigators": [{"id", "name"}],
+ "player_text": "...", "keeper_text": "<守秘人正文原样>",
+ "recordable": ["<允许记录的名字，闭集>"],
+ "prior": [{"name", "description", "last_seen_turn"}（已在日志里的在场者，供改写描述时衔接）],
+ "budget": {"max_entries": 6, "max_description_chars": 300, "max_exchange_chars": 200},
+ "instruction": "<固定英文指令>"}
+```
+
+`recordable` 是确定性闭集，取三者之并：该回合 `world` 快照里**在场**的 NPC；该回合收据引用到的 NPC（`clue.from`、`interactions`、`npc` 收据）；已在日志里的名字。图上只在别处的 NPC 不在集内——**没出场就没有条目**，这是「只在剧情中出现才记录」的确定性落法。指令（英文，固定）要点：只为这一回合叙事里真正出场（说话、行动、被互动）的 NPC 写条目；`description` 只写玩家能感知到的（外貌、身份、言行），严禁写出动机、秘密、守秘人材料；`exchange` 一句概括这一回合他与玩家的来往；全部用 `play_language` 写；`prior` 里已有描述且本回合没有新信息的，只给 `exchange` 不复述描述。
+
+**提交** `journal.submit`，params `{"campaign", "job_id", "entries": [{"name", "description"?, "exchange"?}]}`。校验与 `memory.submit` 同一家：未知字段、机器键、`recordable` 之外的名字、同名歧义都报 `invalid_params`（`details.index` 指到那一条，`fix` 列出 `recordable`）；整批要么全落要么全不落；同任务同内容重放幂等，内容不同报 `idempotency_conflict`。合并是确定性的：新名字建条目（`first_seen_turn` = 任务回合）；`last_seen_turn` 推进、`seen_count` 每回合至多 +1；给了 `description` 就整段替换（车道自己决定何时改写，内核不比diff）；给了 `exchange` 就追加 `{"turn", "scene", "summary"}`。成功发 **`journal-written`** 事件（`{"job_id", "turn", "entries": n}`，§12.1 的枚举因此再加一类）。失败与 `journal.fail {"campaign", "job_id", "reason", "detail"}` 写 `npc-journal/backlog.jsonl`，形状与重派法则同 §12.3 的 backlog。任务文件 `npc-journal/jobs/<job_id>.json` 整文件原子写。
+
+**车道接线**（§12.8 同一家，**第四条零工具模型车道**——产出是 ≤ 6 条短 JSON，与记忆/校验/行动准入同构，2026-09-12 用户明文授权这一条，不推广）：`extensions/npc-journal` 订阅 `coc:turn-committed`，`journal.job`（显式 `turn`）→ `runLane` 零工具补全（模型 `PI_COC_NPCJOURNAL_MODEL`，缺省与桌子同模型；`subsession: "journal"` 的四行遥测照旧）→ `journal.submit`；失败一次重试，再失败 `journal.fail`。同一时刻只跑一个任务，后来的排队；`session_start` 补抽 ≤ `PI_COC_NPCJOURNAL_BACKFILL`（缺省 5）个回合；经 `coc:kernel-bridge` 调内核，不另开客户端；永不阻塞 `narrate`。提交成功后 announce 一次 sheet 刷新（与 ui-words 车道同一个 `sheet-changed` 通道），面板由此自己重读。
+
+**投影**（本节修订 §23 的 read-only sheet 形状）：`table.view` 加
+
+```
+"npcs": {"journal": [{"name", "description", "seen_count", "last_seen_turn",
+                        "dead_since_turn"?, "exchanges": [{"turn", "scene", "summary"}（≤ 6 条，新的在前）]}]}
+```
+
+按 `last_seen_turn` 新者在前；`dead_since_turn` 从账本投影（日志自己不存死讯，账本是唯一真相）；`exchanges` 全量留在文件里，投影只给最近 6 条。setting-up 形状为 `npcs: {journal: []}`。player-safe 由构造保证：能进日志的只有玩家可感知内容，守秘人秘密（stance、agenda、secret）从来不经过这条管道。
+
+**UI 与语言**：面板照 `Clues` 节的形状加一个 `Npcs` 节，排在最后；tab 词只在 `content/ui/en/sheet.json` 加 `npcs` 与 `noNpcs` 两个键（其余语言由 presenter 车道投影，§23；`zh-Hans` 种子缓存同步补键）。条目正文（`name`/`description`/`exchanges`）由车道按 `play_language` 直接写，不走 ui-words——内容数据是它本来的语言。系统侧（契约、提示、键名、遥测）全部英文。
 
 ## 18. `apply` 补齐：flag、note、ruling，与 `look focus=session`（切片 8，票 #27）
 
@@ -2402,8 +2450,12 @@ ledger. The kernel never reads, writes or validates the image.
   the lane, never in the biographical field. An investigator without the
   description answers a refusal code and the mount stays empty.
 - **Lane**: a `sheet` invoke action (`portrait: "generate"`) handled by the
-  live agent (`pipicoc/sheet.ts`), reusing the image-gen extension's vendor
-  path (grok first, same credential resolution as `image_gen`). The cold sheet
+  live agent (`pipicoc/sheet.ts`), reusing the image-gen extension's dispatch
+  (same credential resolution as `image_gen`; an explicit image-model choice —
+  the settings picker or `/image-gen:model` — wins, and grok-build is the
+  default only while nothing is chosen; amended 2026-09-12: the picker wrote
+  `image-model.json` that the former grok-first dispatch never read, so a
+  deliberate selection had no effect while grok was logged in). The cold sheet
   fast path never generates; it only attaches an already-generated file.
   Integration notes: the vendor import is static so esbuild inlines it into
   the compiled agent (a lazy relative import resolves against the compiled

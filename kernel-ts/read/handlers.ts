@@ -202,6 +202,34 @@ async function present(campaign: CampaignSnapshot, module: LoadedModule): Promis
         scene = graph.scene(campaign.world.active_scene);
     return presentSection(graph, campaign.world, scene, row(campaign.jsonFiles.get("npc-ledger.json")), campaign.logs.get("memory/candidates.jsonl") ?? []);
 }
+/** The player's NPC notebook: newest-seen first, at most six exchanges each, newest first. The journal never
+ *  stores death; `dead_since_turn` is merged from the ledger, the sole truth, at projection time. */
+async function npcJournalSection(campaign: CampaignSnapshot): Promise<Row[]> {
+    let stored: Row = {}, ledger: Row = {};
+    try {
+        stored = row(await campaign.optional("npc-journal.json"));
+    }
+    catch { /* A derived cache that cannot be read projects as empty, never as a broken sheet. */ }
+    try {
+        ledger = row(await campaign.optional("npc-ledger.json"));
+    }
+    catch { /* Death simply does not project when the ledger cannot be read. */ }
+    return Object.entries(row(stored.entries)).map(([id, value]) => {
+        const entry = row(value), dead = row(row(ledger[id]).dead);
+        return {
+            name: string(entry.name),
+            description: string(entry.description),
+            seen_count: number(entry.seen_count),
+            last_seen_turn: number(entry.last_seen_turn),
+            ...(truth(dead) ? { dead_since_turn: number(dead.turn) } : {}),
+            exchanges: array(entry.exchanges).slice(-6).reverse().map(exchange => ({
+                turn: number(exchange.turn),
+                scene: string(exchange.scene),
+                summary: string(exchange.summary)
+            }))
+        };
+    }).sort((left, right) => number(right.last_seen_turn) - number(left.last_seen_turn));
+}
 export async function sceneView(campaign: CampaignSnapshot, module: LoadedModule): Promise<Row> {
     const { graph, material } = module,
         where = whereSection(graph, campaign.world, graph.scene(campaign.world.active_scene), material),
@@ -223,6 +251,7 @@ export async function tableView(context: KernelContext, params: Row): Promise<Ro
             state: "setting_up",
             investigators: (await initial.files("party")).map(investigatorView),
             clues: { discovered: [] },
+            npcs: { journal: [] },
             labels: await playerGlossary(context, language)
         };
     const { campaign, module } = await readCampaign(context, params, true),
@@ -248,6 +277,7 @@ export async function tableView(context: KernelContext, params: Row): Promise<Ro
         state: turn.state,
         investigators: campaign.party.map(sheet => publicSheet(world, investigatorView(sheet))),
         clues: { discovered },
+        npcs: { journal: await npcJournalSection(campaign) },
         labels: await playerGlossary(context, language)
     };
 }

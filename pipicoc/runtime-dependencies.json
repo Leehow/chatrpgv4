@@ -73,6 +73,7 @@
     "build/extensions/module/index.mjs",
     "build/extensions/memory/index.mjs",
     "build/extensions/table/index.mjs",
+    "build/extensions/npc-journal/index.mjs",
     "build/extensions/deepseek/agent/index.mjs",
     "build/extensions/image-gen/agent/index.mjs",
     "build/extensions/grok-build-oauth/agent/index.mjs",
