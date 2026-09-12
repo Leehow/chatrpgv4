@@ -2813,7 +2813,7 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
               {onboardingActive
                 ? <CocOnboarding host={host} sessionId={selectedSession} />
                 : <>
-                  {productId === 'pipicoc' && <CocGameIntro words={timeline?.ui?.words?.['intro']} />}
+                  {productId === 'pipicoc' && <CocGameIntro words={timeline?.ui?.words?.['intro']} conversationStarted={messages.some(message => message.role === 'user')} />}
                   <Transcript
                 stateKey={selectedSession}
                 navigation={timelineNavigation?.sessionId === selectedSession ? timelineNavigation : undefined}

@@ -12,11 +12,15 @@
  * The card re-reads with the timeline: when a background projection lands, the pack emits
  * `timeline-changed` (pipicoc/timeline.ts), the app refetches `timeline.graph`, and the
  * new `ui.words.intro` turns the card to the session's language in place.
+ *
+ * The guide belongs to the beginning of a table: once the player has said anything, its
+ * job is done and it leaves (`conversationStarted`), rather than squatting above the
+ * transcript for the whole campaign.
  */
 import {useState} from 'react'
 import './coc-game-intro.css'
 
-type Props = {words: Record<string, string> | undefined}
+type Props = {words: Record<string, string> | undefined; conversationStarted: boolean}
 
 /** One global key: the guide is the product's, not one campaign's. */
 const STORAGE_KEY = 'pipicoc.game-intro.collapsed'
@@ -32,9 +36,9 @@ function readCollapsed(): boolean {
   catch {return false}
 }
 
-export function CocGameIntro({words}: Props) {
+export function CocGameIntro({words, conversationStarted}: Props) {
   const [collapsed, setCollapsed] = useState(readCollapsed)
-  if (!words) return null
+  if (!words || conversationStarted) return null
   const toggle = () => setCollapsed(current => {
     const next = !current
     try {localStorage.setItem(STORAGE_KEY, next ? '1' : '0')} catch { /* storage is a nicety */ }

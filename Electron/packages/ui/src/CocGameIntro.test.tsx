@@ -16,7 +16,7 @@ const STORAGE_KEY = 'pipicoc.game-intro.collapsed';
 afterEach(() => { cleanup(); localStorage.clear() });
 
 it('renders the words from the ui map', () => {
-  render(<CocGameIntro words={enIntro} />);
+  render(<CocGameIntro words={enIntro} conversationStarted={false} />);
   expect(screen.getByText(enIntro.eyebrow)).toBeTruthy();
   expect(screen.getByText(enIntro.title)).toBeTruthy();
   expect(screen.getByText(enIntro.lede)).toBeTruthy();
@@ -30,19 +30,19 @@ it('renders the words from the ui map', () => {
 it('a missing key draws the key itself, a gap a player can name', () => {
   const words: Record<string, string> = {...enIntro};
   delete words.title;
-  render(<CocGameIntro words={words} />);
+  render(<CocGameIntro words={words} conversationStarted={false} />);
   expect(screen.getByText('title')).toBeTruthy();
 });
 
 it('the collapse toggle flips and persists across mounts', () => {
-  const first = render(<CocGameIntro words={enIntro} />);
+  const first = render(<CocGameIntro words={enIntro} conversationStarted={false} />);
   fireEvent.click(screen.getByRole('button', {name: enIntro.hide}));
   expect(screen.queryByText(enIntro.lede)).toBeNull();
   expect(screen.getByRole('button', {name: enIntro.show})).toBeTruthy();
   expect(localStorage.getItem(STORAGE_KEY)).toBe('1');
   first.unmount();
 
-  render(<CocGameIntro words={enIntro} />);
+  render(<CocGameIntro words={enIntro} conversationStarted={false} />);
   expect(screen.queryByText(enIntro.lede)).toBeNull();
   fireEvent.click(screen.getByRole('button', {name: enIntro.show}));
   expect(screen.getByText(enIntro.lede)).toBeTruthy();
@@ -50,6 +50,11 @@ it('the collapse toggle flips and persists across mounts', () => {
 });
 
 it('no ui words at all renders nothing, not a skeleton in a language nobody chose', () => {
-  const {container} = render(<CocGameIntro words={undefined} />);
+  const {container} = render(<CocGameIntro words={undefined} conversationStarted={false} />);
+  expect(container.firstChild).toBeNull();
+});
+
+it('leaves once the player has said something -- the guide belongs to the beginning', () => {
+  const {container} = render(<CocGameIntro words={enIntro} conversationStarted={true} />);
   expect(container.firstChild).toBeNull();
 });
