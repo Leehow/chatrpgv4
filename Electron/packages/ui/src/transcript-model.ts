@@ -50,6 +50,8 @@ export type ChatMessage = {
   fileSources?: TranscriptFileSource[]
   /** assistant only: provider server-side tool usage counts, when present. */
   serverSideToolUsage?: Record<string, number>
+  /** assistant only: the session's opening narration, delivered whole — the renderer reveals it progressively. */
+  opening?: boolean
 }
 
 function isBackgroundSubagentAck(content: string): boolean {
@@ -584,8 +586,14 @@ function mergeHostedCodeInterpreterInput(previousInput: string | undefined, even
 
 export function applyStreamEvent(previous: ChatMessage[], event: Exclude<StreamEvent, { type: 'status' }>): ChatMessage[] {
   if (event.type === 'presentation') {
-    const message:ChatMessage={id:event.entry.id,role:'assistant',content:event.entry.content,timestamp:event.entry.timestamp,presentation:event.entry.presentation};
-    const at=previous.findIndex(item=>item.id===message.id);
+    // A plain-text entry that opens an empty transcript is the session's opening narration:
+    // flag it so the renderer reveals it progressively, the way a streamed turn arrives.
+    // Presentation cards carry their own renderer and history replay never flows through
+    // here, so neither can take the flag. An in-place redelivery keeps the flag it landed with.
+    const entryId = event.entry.id;
+    const at=previous.findIndex(item=>item.id===entryId);
+    const opening = at >= 0 ? previous[at].opening === true : previous.length === 0 && !event.entry.presentation;
+    const message:ChatMessage={id:event.entry.id,role:'assistant',content:event.entry.content,timestamp:event.entry.timestamp,presentation:event.entry.presentation,...(opening?{opening:true}:{})};
     return at<0?[...previous,message]:previous.map((item,i)=>i===at?message:item);
   }
   if (event.type === 'secret_redact') return applySecretRedact(previous, event.messages)

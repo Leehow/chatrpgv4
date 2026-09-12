@@ -19,7 +19,7 @@ import { activitiesFromMessage, PENDING_THINKING_ID, planAssistantTranscript } f
 
 export type { TranscriptActivity, TranscriptTool } from './transcript-model'
 export { TranscriptMarkdown } from './TranscriptMarkdown'
-export type AssistantTranscriptMessage = Pick<ChatMessage, 'content' | 'thinking' | 'tools' | 'activities' | 'streaming' | 'error' | 'citations' | 'fileSources'>
+export type AssistantTranscriptMessage = Pick<ChatMessage, 'content' | 'thinking' | 'tools' | 'activities' | 'streaming' | 'error' | 'citations' | 'fileSources' | 'opening'>
 
 const FILE_SOURCE_FALLBACK = '已上传文件'
 
@@ -102,6 +102,41 @@ const ActiveToolCard = memo(function ActiveToolCard({ tool }: { tool: Transcript
   return <section className="activity-card activity-card-tool activity-card-active-tool" data-activity-card="tool" data-testid="active-tool"><div className="activity-summary"><span className="activity-status" aria-hidden="true">◌</span><b>{toolDisplaySummary(tool.name, tool.input)}</b><small className="activity-meta">运行中 · {elapsed(tool.startedAt, now)}{live ? ` · ${live}` : ''}</small></div></section>
 })
 
+const OPENING_REVEAL_TICK_MS = 40
+const OPENING_REVEAL_CHARS = 8
+/** Reveal progress per opening entry, kept outside the component: the virtualized transcript
+ *  unmounts rows on scroll, and a row that comes back resumes where the player already was
+ *  instead of restarting the reveal. */
+const openingRevealProgress = new Map<string, number>()
+
+/** The opening narration arrives whole (a presentation entry; text deltas never flow for it), so
+ *  the renderer reveals it progressively — the same incremental cadence a streamed turn has,
+ *  at roughly the pace deltas usually land. */
+function useOpeningReveal(id: string, full: string): { text: string; revealing: boolean } {
+  const [count, setCount] = useState(() => Math.min(openingRevealProgress.get(id) ?? 0, full.length))
+  const done = count >= full.length
+  useEffect(() => {
+    if (done) { openingRevealProgress.set(id, full.length); return }
+    const timer = window.setInterval(() => {
+      setCount(current => {
+        const next = Math.min(current + OPENING_REVEAL_CHARS, full.length)
+        openingRevealProgress.set(id, next)
+        if (next >= full.length) window.clearInterval(timer)
+        return next
+      })
+    }, OPENING_REVEAL_TICK_MS)
+    return () => window.clearInterval(timer)
+  }, [id, full, done])
+  return { text: done ? full : full.slice(0, count), revealing: !done }
+}
+
+const OpeningTranscriptContent = memo(function OpeningTranscriptContent({ id, content, documentBasePath, onOpenDocument }: { id: string; content: string; documentBasePath?: string; onOpenDocument?: (path: string) => void }) {
+  const reveal = useOpeningReveal(id, content)
+  return <div className="assistant-transcript-content" data-testid="assistant-transcript-content">
+    <div data-transcript-segment="text"><TranscriptMarkdown content={displaySecretPlaceholders(reveal.text)} streaming={reveal.revealing} />{!reveal.revealing && <DocumentReferenceCards content={displaySecretPlaceholders(content)} basePath={documentBasePath} onOpenDocument={onOpenDocument} />}</div>
+  </div>
+})
+
 export const AssistantTranscriptContent = memo(function AssistantTranscriptContent({ message, expandSteps, documentBasePath, onOpenDocument, onOpenSubagents }: { message: AssistantTranscriptMessage; expandSteps?: boolean; documentBasePath?: string; onOpenDocument?: (path: string) => void; onOpenSubagents?: (agentId?: string) => void }) {
   const [errorDismissed, setErrorDismissed] = useState(false)
   const [errorSeen, setErrorSeen] = useState(message.error)
@@ -145,6 +180,8 @@ export const AssistantTranscriptContent = memo(function AssistantTranscriptConte
     const base = expandSteps ? 'steps' : message.streaming ? 'live' : linkedRunning || pendingDispatch ? 'live-agent' : 'done'
     return stepGroupCount > 1 ? `${base}:${index}` : base
   }
+  const openingId = (message as { id?: string }).id
+  if (message.opening && typeof openingId === 'string') return <OpeningTranscriptContent id={openingId} content={message.content} documentBasePath={documentBasePath} onOpenDocument={onOpenDocument} />
   return <div className="assistant-transcript-content" data-testid="assistant-transcript-content">
     {segments.map((segment, index) => {
       if (segment.type === 'text') {

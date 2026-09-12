@@ -759,3 +759,21 @@ it('restores standalone presentations and deduplicates replayed live entries',()
   expect(live).toHaveLength(1);
   expect(live[0].presentation).toEqual(entry.presentation);
 });
+
+it('flags a plain-text entry that opens an empty transcript as the opening narration',()=>{
+  const entry={id:'opening-1',role:'assistant' as const,content:'Autumn in Boston, and the office smells of paper.',timestamp:1};
+  const first=applyStreamEvent([],{type:'presentation',sessionId:'one',entry});
+  expect(first).toHaveLength(1);
+  expect(first[0].opening).toBe(true);
+  // Re-delivered in place the flag persists; it is still the same live opening.
+  const again=applyStreamEvent(first,{type:'presentation',sessionId:'one',entry});
+  expect(again[0].opening).toBe(true);
+});
+
+it('does not flag presentation cards or entries that land later in the transcript',()=>{
+  const card={id:'card-1',role:'assistant' as const,content:'',timestamp:1,presentation:{renderer:'coc-mechanics',details:{mechanics:[{kind:'time',minutes:5}]}}};
+  expect(applyStreamEvent([],{type:'presentation',sessionId:'s',entry:card})[0].opening).toBeUndefined();
+  const prior=[{id:'u',role:'user' as const,content:'hi',timestamp:1}];
+  const plain={id:'a-2',role:'assistant' as const,content:'a later whole entry',timestamp:2};
+  expect(applyStreamEvent(prior,{type:'presentation',sessionId:'s',entry:plain})[1].opening).toBeUndefined();
+});
