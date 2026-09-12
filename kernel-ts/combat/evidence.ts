@@ -35,7 +35,7 @@ export function externalDamageReceipt(turn: Row, damage: Row): Row {
     return { kind: 'combat_damage_external_v1', command_id: turn.resolution_command_id ?? null, roll_id: damage.damage_roll_id ?? null,
         source_turn_id: damage.source_turn_id ?? null, source_actor_id: damage.source_actor_id ?? null, target_actor_id: damage.target_actor_id ?? null,
         weapon_id: damage.weapon_id ?? null, die: damage.die ?? null, die_rolls: [...array(damage.die_rolls)], rolled_total: damage.rolled_total ?? null,
-        raw_damage: damage.raw_damage ?? null, total: damage.rolled_total ?? null, hp_before: damage.hp_before ?? null, hp_delta: damage.hp_delta ?? null, hp_after: damage.hp_after ?? null,
+        raw_damage: damage.raw_damage ?? null, total: damage.raw_damage ?? damage.rolled_total ?? null, hp_before: damage.hp_before ?? null, hp_delta: damage.hp_delta ?? null, hp_after: damage.hp_after ?? null,
         status_after: { ...row(damage.status_after) }, internal_provenance: { ...row(damage.provenance) } };
 }
 export function damageEvidenceRows(combatId: string, rounds: Row[], damageChain: Row[]): Row[] {
@@ -51,11 +51,17 @@ export function damageEvidenceRows(combatId: string, rounds: Row[], damageChain:
         const receipt = externalDamageReceipt(turn, damage);
         if (typeof receipt.command_id !== 'string' || !receipt.command_id)
             valueError('combat damage lacks a resolution command ID');
-        const total = Object.hasOwn(damage, 'rolled_total') ? damage.rolled_total : damage.raw_damage;
+        // The card's number is what was applied, not the dice sum: an extreme or critical success
+        // settles at maximum damage (`extremeDamage`), and a receipt that reported the roll made
+        // the card unable to explain the hit points the player lost -- it read "damage 1" while
+        // eight came off, twice fatally (contract section 16.2, decision of 2026-09-12). `faces`
+        // and `rolled_total` still carry the dice, so the roll stays auditable.
+        const total = Object.hasOwn(damage, 'raw_damage') ? damage.raw_damage : damage.rolled_total;
         result.push({ event_type: 'roll', type: 'roll', roll_id: id, actor: damage.source_actor_id, visibility: 'consequence_public', source: 'combat_session',
             source_ref: `combat:${combatId}#${id}`, command_id: receipt.command_id, payload: { event_type: 'combat_roll', roll_id: id, roll_role: 'amount', visibility: 'consequence_public',
                 actor_id: damage.source_actor_id, skill: 'HP Damage', source_command_id: receipt.command_id, target_actor_id: damage.target_actor_id,
-                rolled_total: total, dice: { expression: damage.die, raw: [...damage.die_rolls], total }, combat_damage_receipt: receipt }, ts: 'trusted-in-memory' });
+                rolled_total: damage.rolled_total ?? total, dice: { expression: damage.die, raw: [...damage.die_rolls], total },
+                combat_damage_receipt: receipt }, ts: 'trusted-in-memory' });
     }
     return result;
 }

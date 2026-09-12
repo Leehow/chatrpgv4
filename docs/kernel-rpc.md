@@ -221,7 +221,7 @@ result：`{"rendered_text": "<即 text，正文原样>"..., "mechanics": [...], 
            "endings": [{"name", "via", "line"?}]（≤ 4；本场景 `may-lead-to` 的 ending 节点。结局不是走过去的地方——`WALKABLE_KINDS` 只有场景，且是有意的——它是一次结算（`development:settle-ending`）。此前没有任何东西告诉守秘人有一个够得着，于是一局玩到头就那么停住：巫师被毁，作者写好的收束从未结算，战役状态还是 `active`）},
  "present": [{"name", "role", "wants", "fears"?, "hides"?, "voice"?, "knows": [...], ...}]（§17.4 起是档案加账本，旧的 relationship/agenda/known_facts/attitude 已删）,
  "known": {"discovered_clues": [names], "clues_here": [{"name", "summary", "delivery_kind", "gate"（§32.5）, "discovered": bool}],
-           "investigator": {"name", "occupation", "hp", "san", "mp", "luck", "skills_of_note": [{"name", "value"}]}},
+           "investigator": {"name", "occupation", "sex", "hp", "san", "mp", "luck", "skills_of_note": [{"name", "value"}]}},
  "recent": [{"turn", "player", "keeper": "<前 200 字>"}]   最近 2 回合
 }
 ```
@@ -372,7 +372,7 @@ RuleGraph 的每个决策声明输入槽位与归属。宿主锁定槽位由内�
 - 推骰与幸运的源是该行动者最近一次 D100 技能或特征检定；已推过、已通过、先花幸运再推都报 `turn_state`；无可推的检定报 `needs` 字段 `intent`；幸运不足报 `invalid_params` 带 `details.reason`。**对抗、组合、暗骰与伤害骰不可接续**，所以这几种的结果里不会再出现 `push-luck:*` 续行——广告一条结算必拒的续行，比不给更坏：守秘人会照着问玩家，玩家选了，结算却绑到别的检定上并报那一次的结果。
 - **花幸运也铸收据。** 推骰会为新的掷值铸一条 roll 收据，花幸运此前不铸，于是被买下的那次检定在记录里永远写着 `failure`，成功只活在本次调用的返回里，机制投影里玩家只看见幸运在减少、什么也没买到。现在铸一条 `roll_kind: "luck_bought"` 的收据，带 `source_receipt` 指向原检定与 `luck_spent`；这个种类不在可接续之列，所以没人能从它身上再推一次。
 - 收据 id：NPC 骰 `roll:<skill>-<npc>-t<n>-c<k>`；资源变化 `delta:<resource>-t<n>-c<k>`；同一调用内重复加 `-2`。事件：每次掷骰 `roll-resolved`，每条变化 `resource-changed`，每次 resolve `decision-settled`。
-- `effects` 的 `kind` 另有 `skill`（成长）与 `condition`（治疗）。隐藏骰（心理观察、`visibility: keeper`）有收据不渲染；NPC 的公开对抗骰渲染时带 `名字·` 前缀；推骰行带 `（推骰）`。
+- `effects` 的 `kind` 另有 `skill`（成长）与 `condition`（治疗）。隐藏骰分两档（§16.5）：`visibility: keeper` 的骰（玩家根本不知道掷过，如暗中的侦查）有收据不渲染；`visibility: concealed` 的骰（玩家自己声明了行动、规则要求不给骰值，如心理观察）渲染一行只写检定名与「暗骰」，不带任何数字；NPC 的公开对抗骰渲染时带 `名字·` 前缀；推骰行带 `（推骰）`。
 - 治疗对象：`method` 的技能是急救或医学时对象是 `target` 指的调查员，否则是行动者；施救者是行动者。法术来源：在场 NPC 的 `mechanics.profile.spells` 为 person 来源，典籍与生物节点的 `spells` 为 tome 与 entity 来源。
 - `situations` 只列由 `actor.`、`time.`、`sanity.`、`chase.`、`development.`、`clock.` 下正向状态事实激活的硬门决策。
 - 引擎快照：治疗 `save/healing-state/<inv>.json`，成长 `save/development-state/<inv>.json` 与 `save/development-settlements/endings/<id>/`；治疗快照把 `current_hp` 与 `conditions` 镜像回调查员表。
@@ -392,7 +392,7 @@ RuleGraph 的每个决策声明输入槽位与归属。宿主锁定槽位由内�
 
 守秘人的上下文是可丢弃的缓存；桌子的真相在战役目录与 sidecar 仓库里。这一节把 `narrate` 提交之后的链条写死：事件批、续行检查点、记忆 episode 与异步抽取、三路 `recall`、advisory 校验车道。三条法则从旧树原样带过来：**候选不自动晋升**（记忆是参考，不是状态）；**矛盾不删除**（用 `valid_until_turn` 与 `superseded_by` 关闭，两条都可寻址）；**抽取与校验永不阻塞 `narrate`**（失败只进 backlog 与遥测）。旧树的时间线分叉、汇流、双层状态不带过来（规格「范围外」）。
 
-### 12.1 事件批：二十二类
+### 12.1 事件批：二十三类
 
 `EVENT_TYPES` 闭合枚举，其他类型报 `ValueError`（内核缺陷，不是守秘人错误）：
 
@@ -417,6 +417,7 @@ RuleGraph 的每个决策声明输入槽位与归属。宿主锁定槽位由内�
 | `note-written` | `apply note`（#27） | `{name, status, entities, closes}` |
 | `ruling-made` | `apply ruling`（#27） | `{name, anchor, scope, supersedes}` |
 | `npc-changed` | `apply npc`（#29，§17.3） | `{npc, to, stance, why}` |
+| `journal-written` | `journal.submit`（§17.10） | `{job_id, turn, entries: n}` |
 | `worldline-forked` | `apply fork`（#23，§15.3） | `{name, mode, loop, from: {line, turn, commit}}` |
 | `worldline-switched` | `apply switch`（#23，§15.3） | `{line, from: {line, turn, commit}}` |
 | `worldline-merged` | `apply merge`（#23，§15.3） | `{name, lines, into, conflicts}` |
@@ -856,6 +857,7 @@ build.jsonl                构建遥测：每 section 每轮 {section_id, round,
 - **可玩性检查的现状。** 两张新图与 the-haunting 一起过 K5a 的十条不变量：没有源文档的 starter 每个节点都是 `node_without_page`（the-haunting 也有 32 个），检查器目前没有「本模组无页」的声明口；此外 mystery-house 的 `npc-rat-swarm` 不在任何场景，the-white-war 有三条线索无处可得——都是 IR 事实，测试把它们钉住，改了 IR 会立刻看见。
 - **`apply item` / `apply cash`（#19，已实现）。** 两种效果都在批内的暂存表副本上算，整批校验通过后才写；写回只覆盖 `equipment`/`weapons`/`finance`/`cash` 四个字段（同批的 `damage` 直接把 HP 镜像到表上，不能被暂存副本盖掉）。`item`：`to` 缺省为唯一调查员（多人报 `needs_choice`）；`from` 先按图上 NPC 精确名解析、再按 12.4 的整词规则（`Knott` → Steven Knott），解析不到原样保留（来源是叙事，不是世界写入）；`quantity` 缺省 1、必须非零整数；`weapon` 对合并表解析（`weapons.json` 全表加模组自己的行，与战斗会话读的是同一张——契约写的 `equipment.json` 是 Table XVII 价目表，没有伤害/射程/弹容，profile 一直住在 `weapons.json`），按 id 或 display_name 归一化匹配，取不到报 `needs`（`options` 为该时代可用的 id，`close` 为 difflib 最近的至多 6 个，`source` 指向表）。得到时 `equipment[]` 追加 `{name, quantity, turn, from?, label?, weapon?}`（同名字典条目合并数量），给了 `weapon` 就同时追加 `weapons[]` 一行（pregen 同形：`weapon_id, name, label?, profile, skill, damage, range, attacks, ammo, malfunction, turn`，数值全出自 profile）；`resolve_investigator_weapon` 从此也认 `label`。失去时按 `name`/`label`/`weapon_id` 归一化匹配，持有数 = 装备条目数量之和（裸字符串算 1），没有装备条目时数武器行（pregen 的手枪只有武器行）；持有不足报 `invalid_params`（`details.held`）；清零后同名武器行一并删除。收据 `item:<slugify(name)>-t<turn>-c<n>`（同批重复加 `-2`…），带 `before/after` 持有数；渲染 `【变化】物品：<人> 得到/失去 <label 或名>[ ×n]`；facts 句 `物品：<人> 得到 <名>`；事件 `item-transferred {name, to, from?, weapon?, quantity}`。`cash`：`subject` 缺省同上；`delta` 非零整数；表上没有 `finance` 块（pregen 的 `cash` 是散文，不解析）就按 `cash-assets.json` 的时代与信用评级建一个（chargen 同形，`source: cash-assets.periods.<era>`）；时代没有档（`ww1`）从 0 起、`source: null` 并在 `note` 写明余额是现金收据之和；余额不能为负（`invalid_params`，`details.before/delta`）；同时更新 `sheet.cash` 显示串。收据 `cash:t<turn>-c<n>`，`resource: cash`、`label: 现金`、`before/after/delta/currency`；渲染 `【变化】现金：<人> <前> → <后>`；facts 用 `delta` 句式；事件 `resource-changed`（`resource: cash`）。事件类型表加 `item-transferred`（十五类）。
 - **职业点分配策略（#21，已实现）。** `steps.json` 的 `create-investigator.allocation = {default: spread, options: [spread, fill], tiers: [50, 70]}`，`params.allocation` 可选覆盖；不认识的策略报 `invalid_params`（`details.stage: allocation`，`expected.options/default`）。`spread` 把职业技能表**每一项**当一个槽位，按书上顺序、按层（`tiers`，再到上限）走：能落到目录名的技能抬到该层；落不到的短语（`any one other skill`、`Firearms` 这类组名）**预留该层的值**——基础值未知，少于此不保证到层——记在 `occupation.reserved[{for, points}]`，仍算 `unspent`，留给桌上的 development 族；预算耗尽即停。`fill` 保留旧的一点轮转（只在能落到目录名的技能上，不预留）。`sheet.creation.allocation = {policy, tiers, source}`，`occupation.allocation` 与收据 `allocation` 给策略名，收据另给 `occupation_reserved`。真桌案例（Military Officer，快速数组，300 点）：`fill` 给 75/75/75/75 余 35；`spread` 给 50/50/50/50，预留 Firearms 50、两项交涉技能 50、任一其他 35——「四项到 75」与「其余为零」是同一个原因：三个短语从未参与分配，光换层不换槽位仍是 75×4。兴趣点仍按旧法轮转（本票未动）。
+- **建卡 sex 必填并投影给守秘人（2026-09-12）。** 真桌缺陷：对话式建卡的 `profile.sex` 只是可选字段、守秘人胶囊的 `known.investigator` 又不投影它，于是一位女性调查员（苏散）被守秘人按名字猜成了「先生」。决定：`validateProfile` 把 `sex` 升为必填非空自由文本，拒绝的 issue 指明语义——用玩家说过的词或对玩家描述之人的最佳解读、用 play_language 写，玩家在草稿卡上看到后对话纠正；`sex` 是开放文本，不是枚举，代码绝不按名字/词表/正则推断；守秘人胶囊 `investigatorSummary` 投影 `sex`。遗留路径 `setup.investigator` 的 sex 保持可选。
 
 ### 14.13 切分有目标值，预算只是天花板（票 #33，已实现）
 
@@ -1032,7 +1034,7 @@ submit the chosen dispositions without guessing IDs or repeating the failed call
 | kind | 字段 |
 | --- | --- |
 | `roll` | `actor`, `skill`, `roll`, `target`, `threshold`, `difficulty`, `level`, `passed`, `pushed`, `visibility` |
-| `dice` | `actor`, `label`, `expression`, `faces`, `total` |
+| `dice` | `actor`, `label`, `expression`, `faces`, `total`（**`total` 是施加值，不是骰面之和**：极限/critical 成功按最大伤害结算时 `faces` 仍是掷出的点数而 `total` 是实际施加的伤害，玩家卡上的数字必须能解释他掉的血。见下方 2026-09-12 的决定） |
 | `change` | `resource`, `subject`, `before`, `after` |
 | `scene` | `from`, `to`, `minutes`, `via`? |
 | `clue` | `clue`, `label`?, `summary`? |
@@ -1049,6 +1051,23 @@ submit the chosen dispositions without guessing IDs or repeating the failed call
 扩展把它作为会话条目 `coc-mechanics`（`{turn, mechanics}`）追加到 Pi 会话并发到总线 `coc:mechanics`；Pi RPC 事件流因此带着它（`entry_appended`），驾驭器落进 `events.jsonl`；未来的 Electron/web 前端按它渲染骰子卡与变化条。投影为空时不发条目。TUI 只显示守秘人的正文。
 
 **手卡**：Pi 没有出站附件通道（`docs/pi-host-contract.md` §3.3），所以路径不进正文。内核给 `name`/`available`，扩展把 `apply` 结果里的 `attachment` 合进这一行（`path`、`media_type`），前端按它取图；坐在终端前的人由 table 扩展通知一次（`handout <名>: <路径>`，每张卡一次，不进正文）。文本手卡（§14.8 物化的 markdown）额外带 `text`：正文原样（不含物化时加的那行 H1，上限 8000 字符，超出以 … 截断），让前端能把这一行展开成可读的卡片而不需要文件通道；图片手卡没有 `text`。契约里任何「渲染【明骰】【变化】【第 n 轮】【手卡】行」的旧说法一律以本节为准，包括 §5、§11.6、§11.9、§12.5，以及 §11 的会话渲染、§14.8 的手卡、§14 的实现小节、§15 的世界线收据——那些段落描述的行不再存在，对应的信息以 `mechanics` 的一行投影出去。
+
+### Kernel decision: a damage receipt's total is what was applied (2026-09-12)
+
+人格基准第一轮（`docs/player-persona-benchmark-20260911.md` §4.8）在四场不同的对局里量到同一个缺陷：
+extreme 或 critical 成功时 `CombatEngine.extremeDamage` 按最大伤害重算并改写 `damageChain` 的记录，
+但**已经排进 `pendingRolls` 的那条伤害收据不被回头更新**，而 `damageEvidenceRows` 又优先取
+`rolled_total`。于是机制卡印「伤害 1」而 HP 掉 8，收据里没有任何东西能解释这个差；其中两次
+直接打死了调查员。
+
+- **`dice` 行的 `total` 是施加值**（`raw_damage`），`faces` 与 `rolled_total` 仍是掷出的点数。
+  两者不等就是这一次结算做了最大伤害或穿刺加骰，卡上因此**能**解释 HP 的变化。§16.2 的
+  「不许计算」不变：前端照样只印收据carrying的数字，是内核负责把施加值放进去。
+- `combat_damage_external_v1` 的 `total` 同样是施加值；`rolled_total` 与 `die_rolls` 原样保留，
+  骰子仍然可审计。
+- 快照校验（`combat/snapshot.ts`）跟着改：它比对 `dice.total` 与施加值，并继续单独比对
+  `rolled_total` 与骰面重算的结果——两条都在，篡改任一侧都拦得住。
+- 这不改任何**规则**：CoC7 的穿刺武器极限成功打最大伤害，引擎一直是对的，错的只有收据。
 
 ### 16.3 Story text and system JSON (2026-09-07 user correction)
 
@@ -1084,7 +1103,7 @@ calling `table.narrate` directly.
 
 - **Public mechanics names.** Roll/dice receipts carry `actor_is_investigator`; resource deltas carry `subject_is_investigator`. Public mechanics names are included and rendered only when the corresponding flag is exactly `true`. NPC and unknown identities, including legacy untagged cards, render anonymously while retaining their numeric mechanics. Canonical names and ids remain in Keeper-side receipts; familiar names belong in Keeper-authored prose. This is a visible mechanics projection boundary, not a redesign of JSON access control.
 
-- **Projection.** `kernel/coc/render.py` is now the receipts' projection and the number check; the mechanics-line templates, `place` and the marker check are gone. `mechanics(receipts)` yields one object per receipt in receipt order. Beyond the §16.2 columns every object carries `kind` and `receipt` (the receipt id), and the names the receipt already holds ride as data when present: `actor_label` (roll, dice), `subject_label` (change, cash), `from_label`/`to_label` (scene), `label` (clue, item, handout), `to_label`/`from`/`weapon` (item), `currency` (cash), `rounds` (a bout's session start), `available`/`path` (handout). A `delta` receipt projects as `change`, a `move` as `scene`, a dice-form roll as `dice` (`label` = the engine's die name, `expression`, `faces`, `total`). Keeper-visibility rolls are projected too, with `visibility: "keeper"`: a consumer that renders for the player must hide them. Every row also carries `call` (the `call_id` that minted its receipt) and, for resolve-minted receipts, `family`: at commit time resolve stamps the settled family onto every receipt of that call with `setdefault`, so a session receipt's own family word survives and `apply`'s bookkeeping rows carry none. One settlement is one group; a row without `family` settles nothing and stays loose.
+- **Projection.** `kernel/coc/render.py` is now the receipts' projection and the number check; the mechanics-line templates, `place` and the marker check are gone. `mechanics(receipts)` yields one object per receipt in receipt order. Beyond the §16.2 columns every object carries `kind` and `receipt` (the receipt id), and the names the receipt already holds ride as data when present: `actor_label` (roll, dice), `subject_label` (change, cash), `from_label`/`to_label` (scene), `label` (clue, item, handout), `to_label`/`from`/`weapon` (item), `currency` (cash), `rounds` (a bout's session start), `available`/`path` (handout). A `delta` receipt projects as `change`, a `move` as `scene`, a dice-form roll as `dice` (`label` = the engine's die name, `expression`, `faces`, `total`). A roll's `visibility` has three tiers and every one of them is projected, so a log keeps the lot: `public` a consumer draws in full; `concealed` (2026-09-12) is a check the player declared whose die the rules withhold — a consumer that renders for the player draws the row without a single figure (no `roll`, `target`, `threshold`, `difficulty`, `level`, `passed`, `pushed`), because the player knows they attempted it and only the number is secret; `keeper` is a roll the player was never told happened, and a consumer that renders for the player must hide the row entirely. Psychology's concealed observation (`psychology:observe-concealed`) is `concealed`, not `keeper`: under one collapsed hidden tier its turn drew no card at all and a declared check was indistinguishable from plain narration. The host strips the figures off a `concealed` row where the rows leave the backend (`mechanicsEntry`), not in the renderer: a number that reached the client already left the Keeper's hands. Every row also carries `call` (the `call_id` that minted its receipt) and, for resolve-minted receipts, `family`: at commit time resolve stamps the settled family onto every receipt of that call with `setdefault`, so a session receipt's own family word survives and `apply`'s bookkeeping rows carry none. One settlement is one group; a row without `family` settles nothing and stays loose.
 - **Results and records.** `table.narrate` returns `rendered_text` equal to `text` verbatim plus `mechanics`; `table.ask` returns `text.strip()` + blank line + prompt + `1.`/`2.` options (or the question alone) plus `mechanics`; `table.status` carries `mechanics` for the open turn. The turn record stores `mechanics` beside `rendered_text`; `placement` is accepted, ignored, and no longer recorded; the `turn-finalized` event data is `{receipts}` only.
 - **Number check — retired (§16.3, 2026-09-09).** The kernel reads no figure out of `text`; `expected_numbers` / `check_numbers` and `code_detail: "mechanics_missing"` are gone from both kernels and from the fake kernel. The error envelope (§1) keeps the optional `code_detail`, a closed refinement of `code`; its only value today is `play_language_mismatch`.
 - **Play-language script check (§5 step 2, §16.3).** Closed tags only: `zh-Hans` obliges a CJK character (the same ranges as the system-language guard) in every player-facing field of the delivery — `narrate.text`, `ask.prompt`, each `ask.options[i]`, and `ask.text` when given. Failure is `invalid_params` with `code_detail: "play_language_mismatch"`, `details.fields` in field order, `details.play_language` the campaign tag, and a `fix` naming the fields. `en` is unchecked: it is the system language. Mixed CJK-plus-English is not this check's job. It is the only floor under a delivery. `language_of(meta)` is now consumed here, not only by craft and the extractor.
@@ -1295,6 +1314,53 @@ contract one.
 Ordinary helper checks bind the executor once. The resolver passes its resolved acting identity to the adapter; the adapter supplies both the numeric skill/characteristic target and the actor identity through host-owned bindings. Numeric targets never enter semantic inputs. The ordinary executor uses that identity for its receipt and check record, while the helped investigator remains the settlement subject. First Aid and Medicine keep their separate rescuer/patient binding. A missing NPC value returns the existing `npc.skill` needs response and never falls back to the beneficiary's skill or an investigator base chance. The Keeper must name the NPC in `action.actor` when that NPC performs the uncertain action, even outside combat; `target` identifies the helped investigator or patient where applicable. A different executor or method is not an implicit choice to push. Push requires the player's explicit choice of the failed check and announced risk.
 
 An `apply npc` skill pin fills missing source material; it cannot contradict an existing authored numeric skill or characteristic. A conflicting pin is rejected before any receipt, ledger or other effect is written, with the authored value and a source explanation. An identical-value pin remains accepted, as does a genuinely absent skill. Existing campaign history and prior pins are not rewritten by this guard. Compact capsule omission does not prove source absence: the Keeper should try `resolve` first, or inspect the NPC's full view, and pin missing material only after the existing `npc.skill` refusal identifies it.
+
+### 17.10 玩家侧 NPC 日志 `npc-journal`（计划 npc-journal，2026-09-12 用户拍板）
+
+桌上缺的那一块：玩家玩到第二十回合已经见过十几个人，「这人是谁、上次跟我说了什么」全靠自己的记忆。本节给玩家一本**自动写的 NPC 记事本**：角色面板末尾多一节（§23 的 sheet 投影加 `npcs.journal`），后台静默车道在每回合提交后把**这一回合真正出场**的 NPC 落成条目。守秘人与玩家都不做任何事。
+
+**三端（§31）**：写它的是本节的车道（`journal.submit`，只从回合叙事抽取，不是模组图——图是书，书不会动，图上没露脸的 NPC 永远不进日志）；读它的是 `table.view` 的 `npcs.journal` 投影与角色面板的 NPC 节；据它行动的是玩家自己——**它不进守秘人胶囊，不催促，不反馈**（与 §13.7 同一条法：它只是一本玩家记事本，不是守秘人的义务）。
+
+**存储** `<campaign>/npc-journal.json`（`{"schema": 1, "entries": {...}}`，键是 NPC 节点 id，与账本同一命名法则）：
+
+```
+"<npc node id>": {
+  "name": "<play_language 的名字>",
+  "description": "<玩家视角的一两句话：他是谁、看起来怎样>",
+  "first_seen_turn": n, "last_seen_turn": n, "seen_count": n,
+  "exchanges": [{"turn": n, "scene": "<display_name>", "summary": "<这一回合他与玩家之间发生了什么，一句>"}]}
+```
+
+日志是**派生存储**：真相在逐字记录与回合记录里，日志可由车道重放重建，因此它**不进回合提交链**（与 `memory/candidates.jsonl` 同一待遇），世界线分叉/切换不管它——条目按战役累积，玩家看见的是「这条战役里见过的所有人」。崩溃恢复与 §12.6 相同：`journal.job` 能按 `turn` 从回合记录重新出任务。
+
+**任务包** `journal.job`，params `{"campaign", "turn"?: int}`；缺省派发与 `memory.job` 同一条（最新的、未完成、不在 backlog 的已提交回合；§12.8）。result：
+
+```
+{"job_id": "journal:<campaign>:t<n>" | null, "turn", "commit",
+ "scene": {"name", "display_name"}, "present": [名], "investigators": [{"id", "name"}],
+ "player_text": "...", "keeper_text": "<守秘人正文原样>",
+ "recordable": ["<允许记录的名字，闭集>"],
+ "prior": [{"name", "description", "last_seen_turn"}（已在日志里的在场者，供改写描述时衔接）],
+ "budget": {"max_entries": 6, "max_description_chars": 300, "max_exchange_chars": 200},
+ "instruction": "<固定英文指令>"}
+```
+
+`recordable` 是确定性闭集，取三者之并：该回合 `world` 快照里**在场**的 NPC；该回合收据引用到的 NPC（`clue.from`、`interactions`、`npc` 收据）；已在日志里的名字。图上只在别处的 NPC 不在集内——**没出场就没有条目**，这是「只在剧情中出现才记录」的确定性落法。指令（英文，固定）要点：只为这一回合叙事里真正出场（说话、行动、被互动）的 NPC 写条目；`description` 只写玩家能感知到的（外貌、身份、言行），严禁写出动机、秘密、守秘人材料；`exchange` 一句概括这一回合他与玩家的来往；全部用 `play_language` 写；`prior` 里已有描述且本回合没有新信息的，只给 `exchange` 不复述描述。
+
+**提交** `journal.submit`，params `{"campaign", "job_id", "entries": [{"name", "description"?, "exchange"?}]}`。校验与 `memory.submit` 同一家：未知字段、机器键、`recordable` 之外的名字、同名歧义都报 `invalid_params`（`details.index` 指到那一条，`fix` 列出 `recordable`）；整批要么全落要么全不落；同任务同内容重放幂等，内容不同报 `idempotency_conflict`。合并是确定性的：新名字建条目（`first_seen_turn` = 任务回合）；`last_seen_turn` 推进、`seen_count` 每回合至多 +1；给了 `description` 就整段替换（车道自己决定何时改写，内核不比diff）；给了 `exchange` 就追加 `{"turn", "scene", "summary"}`。成功发 **`journal-written`** 事件（`{"job_id", "turn", "entries": n}`，§12.1 的枚举因此再加一类）。失败与 `journal.fail {"campaign", "job_id", "reason", "detail"}` 写 `npc-journal/backlog.jsonl`，形状与重派法则同 §12.3 的 backlog。任务文件 `npc-journal/jobs/<job_id>.json` 整文件原子写。
+
+**车道接线**（§12.8 同一家，**第四条零工具模型车道**——产出是 ≤ 6 条短 JSON，与记忆/校验/行动准入同构，2026-09-12 用户明文授权这一条，不推广）：`extensions/npc-journal` 订阅 `coc:turn-committed`，`journal.job`（显式 `turn`）→ `runLane` 零工具补全（模型 `PI_COC_NPCJOURNAL_MODEL`，缺省与桌子同模型；`subsession: "journal"` 的四行遥测照旧）→ `journal.submit`；失败一次重试，再失败 `journal.fail`。同一时刻只跑一个任务，后来的排队；`session_start` 补抽 ≤ `PI_COC_NPCJOURNAL_BACKFILL`（缺省 5）个回合；经 `coc:kernel-bridge` 调内核，不另开客户端；永不阻塞 `narrate`。提交成功后 announce 一次 sheet 刷新（与 ui-words 车道同一个 `sheet-changed` 通道），面板由此自己重读。
+
+**投影**（本节修订 §23 的 read-only sheet 形状）：`table.view` 加
+
+```
+"npcs": {"journal": [{"name", "description", "seen_count", "last_seen_turn",
+                        "dead_since_turn"?, "exchanges": [{"turn", "scene", "summary"}（≤ 6 条，新的在前）]}]}
+```
+
+按 `last_seen_turn` 新者在前；`dead_since_turn` 从账本投影（日志自己不存死讯，账本是唯一真相）；`exchanges` 全量留在文件里，投影只给最近 6 条。setting-up 形状为 `npcs: {journal: []}`。player-safe 由构造保证：能进日志的只有玩家可感知内容，守秘人秘密（stance、agenda、secret）从来不经过这条管道。
+
+**UI 与语言**：面板照 `Clues` 节的形状加一个 `Npcs` 节，排在最后；tab 词只在 `content/ui/en/sheet.json` 加 `npcs` 与 `noNpcs` 两个键（其余语言由 presenter 车道投影，§23；`zh-Hans` 种子缓存同步补键）。条目正文（`name`/`description`/`exchanges`）由车道按 `play_language` 直接写，不走 ui-words——内容数据是它本来的语言。系统侧（契约、提示、键名、遥测）全部英文。
 
 ## 18. `apply` 补齐：flag、note、ruling，与 `look focus=session`（切片 8，票 #27）
 
@@ -2384,8 +2450,12 @@ ledger. The kernel never reads, writes or validates the image.
   the lane, never in the biographical field. An investigator without the
   description answers a refusal code and the mount stays empty.
 - **Lane**: a `sheet` invoke action (`portrait: "generate"`) handled by the
-  live agent (`pipicoc/sheet.ts`), reusing the image-gen extension's vendor
-  path (grok first, same credential resolution as `image_gen`). The cold sheet
+  live agent (`pipicoc/sheet.ts`), reusing the image-gen extension's dispatch
+  (same credential resolution as `image_gen`; an explicit image-model choice —
+  the settings picker or `/image-gen:model` — wins, and grok-build is the
+  default only while nothing is chosen; amended 2026-09-12: the picker wrote
+  `image-model.json` that the former grok-first dispatch never read, so a
+  deliberate selection had no effect while grok was logged in). The cold sheet
   fast path never generates; it only attaches an already-generated file.
   Integration notes: the vendor import is static so esbuild inlines it into
   the compiled agent (a lazy relative import resolves against the compiled
@@ -2870,7 +2940,12 @@ what to ask, how many turns, when to stop — is a package contribution (§26,
 occupation to a card in one reply. The kernel gates no player turn either way.
 
 **RPC.** All calls include campaign. setup.draft accepts profile, a partial update
-of the current semantic profile: name, occupation, age, sex, concept, occupation_skills
+of the current semantic profile: name, occupation, age, sex (required, free text —
+never an enum, never inferred from the name by code: the setup model drafts it as a
+visible suggestion in the play language, the player's own words or its best reading
+of the person the player described, and the player sees it on the draft card and
+corrects it conversationally before confirm; the kernel refuses a profile whose sex
+is empty with a needs finding naming sex), concept, occupation_skills
 (eight concrete skills, including required catalog skills), interest_skills (concrete
 skills), own_language, backstory (3–6 populated first-six categories plus scenario_bound),
 key_connection (backstory_field and summary), equipment (named ordinary items),
@@ -4982,43 +5057,58 @@ implementation decisions land in §33.6.
   carries it. The kernel never reads the host settings file; it only accepts the
   value on `campaign.create`.
 - Shape (closed): `{mode: "preset", preset: "extreme"|"hard"|"normal"|"easy"}` or
-  `{mode: "custom", custom: {...}}`. Preset multipliers: `extreme` ×0.5,
-  `hard` ×1 (the rulebook numbers), `normal` ×2, `easy` ×4. The product default
-  when the setting was never stored is `normal` ×2 (user ruling 2026-09-11):
-  the host injects it, so a fresh install creates normal campaigns out of the
-  box while the kernel's own absent semantic stays the rulebook ×1.
+  `{mode: "custom", custom: {...}}`. A preset is a named bundle of the §33.3
+  knobs (§33.2), never a uniform card multiplier:
+  - `extreme`: occupation points ×0.75, interest points ×0.75, starting skill
+    cap 60; characteristics and LUCK are the rulebook standard.
+  - `hard`: no knobs at all — the rulebook numbers, bit for bit.
+  - `normal`: occupation points ×1.25, interest points ×1.25; everything else
+    standard.
+  - `easy`: occupation points ×1.5, interest points ×1.5, LUCK rolls 2D6+6×5
+    instead of 3D6×5; everything else standard.
+  The product default when the setting was never stored is `normal` (user
+  ruling 2026-09-11): the host injects it, so a fresh install creates normal
+  campaigns out of the box while the kernel's own absent semantic stays the
+  rulebook standard.
+- Decision 2026-09-12: the uniform preset multipliers (×0.5/×1/×2/×4 of
+  2026-09-11) are retired after the solo-COC research
+  (`.pi/findings/solo-coc-research.md`): official solo material plays standard
+  cards with structural cushions and nothing anywhere uniformly multiplies a
+  card, so presets now reach only the budget, cap and luck knobs and every
+  derived value stays ≤99. Preset definitions are product-versioned: a
+  campaign still in creation re-derives under the new bundle on upgrade (its
+  stored snapshot `{mode:"preset", preset}` stays valid), while completed
+  sheets keep their resolved numbers — receipts are never re-derived.
 - `campaign.create` gains an optional `difficulty` field with exactly this shape.
   The kernel validates it (closed enums, closed dice grammar, numeric ranges of
   §33.3; `invalid_params` with `details.field` naming the offender) and stores it
-  verbatim in `campaign.json.difficulty`. Absent means `hard` ×1 — today's
+  verbatim in `campaign.json.difficulty`. Absent means `hard` — today's
   behavior bit for bit, and campaigns created before this section behave
   identically. The snapshot is per-campaign and immutable: editing the extension
   setting later touches only campaigns created afterwards; drafts and receipts
   already written are never re-derived. There is no RPC to mutate it.
 - The Electron app reads `ext.coc-keeper.difficulty` when it creates a campaign
-  and passes it on `campaign.create`, injecting `normal` ×2 when nothing was
+  and passes it on `campaign.create`, injecting `normal` when nothing was
   ever stored. The CLI setup path passes nothing. A
   campaign's difficulty therefore answers the three ends of §31 without any new
   machinery: written by the host at creation, read by chargen on every build,
   acted on through the sheet numbers, the receipt, and the draft `limits` block.
 
-### 33.2 What a preset multiplies
+### 33.2 What a preset changes
 
-- **Characteristics and LUCK only.** Each rolled value is dice×5×m, rounded to
-  the nearest multiple of 5 (ties up) and clamped to the scaled creation bounds
-  round5(15×m)..round5(90×m) (never below 5). The quick_fire array entries scale
-  the same way. Under `rolled_pool_assignment` (§23.4 aptitude) the scaled pool
-  results are permuted exactly as before — assignment still never crosses pools
-  and never changes the multiset.
-- **Budgets are not multiplied.** The occupation-point formula and the INT*2
-  interest formula evaluate on the scaled characteristics, so the budgets follow
-  the multiplier through the existing formulas (EDU×4 on a doubled EDU is a
-  doubled budget). Nothing is scaled twice.
-- The starting skill cap scales: round(75×m).
-- Everything else is unchanged: age adjustments (absolute values per table), the
-  EDU-improvement ceiling of 99, the luck keep-highest counts, credit-rating
-  ranges, cash and asset derivation, `register` purist/pulp, and the dice
-  expressions themselves.
+- **Never characteristics or LUCK values.** Every preset rolls the rulebook
+  dice on the rulebook 15/90 creation bounds; nothing is scaled, rounded or
+  clamped, so a `hard` card is the absent-difficulty card bit for bit and the
+  other presets differ from it only where their knobs reach.
+- `extreme`, `normal` and `easy` multiply the evaluated occupation-point and
+  interest-point budgets (`Math.round`), exactly as the §33.3 budget knobs do;
+  the formulas themselves still evaluate on the unscaled characteristics.
+- `extreme` replaces the starting skill cap with 60.
+- `easy` rolls LUCK as 2D6+6×5 instead of 3D6×5; the keep-highest counts are
+  unchanged.
+- Everything else is unchanged: age adjustments (absolute values per table),
+  the EDU-improvement ceiling of 99, credit-rating ranges, cash and asset
+  derivation, `register` purist/pulp, and the characteristic dice expressions.
 
 ### 33.3 Custom knobs
 
@@ -5041,6 +5131,9 @@ default; an empty `custom` object is valid and equals `hard`):
 - `interest_points`: the same shape for the INT*2 budget.
 - `skill_cap`: an integer replacing 75.
 
+A §33.1 preset is a named bundle of these same knobs (budget multipliers,
+`skill_cap`, LUCK dice), resolved through the same arithmetic.
+
 Dice grammar is closed: `^\d{1,2}D(4|6|8|10|12|20|100)(\+\d{1,2})?$`
 (case-insensitive), N ≥ 1. Ranges: multiplier 0.25–8; fixed budgets 0–2000;
 skill_cap 1–500; characteristic bounds 5–450 in multiples of 5 with min < max;
@@ -5050,7 +5143,10 @@ closed grammar and numeric bounds, never a semantic judgement.
 ### 33.4 Records and determinism
 
 - `sheet.creation.difficulty` records the RESOLVED policy: `{mode, preset?,
-  multiplier?, custom: {<only the knobs actually applied>}}`. The
+  custom: {<only the knobs actually applied>}}`. A preset record is
+  `{mode:"preset", preset, custom:{}}` — the bundle is named by `preset` and
+  product-versioned (§33.1), so no `multiplier` is recorded and a stored
+  `multiplier` is rejected at validation. The
   `investigator:<id>` receipt carries the same block, and the creation trace
   names the scaling beside the rulebook source tables.
 - The draft `limits` block (§23.4) resolves its fallbacks from
@@ -5070,8 +5166,10 @@ closed grammar and numeric bounds, never a semantic judgement.
   the host whitelist (`HOST_SETTINGS_TAB_IDS`) and nav hints admit the id
   (a product whitelist edit in `Electron/packages/ui/src/ui-registries.ts`).
 - The section renders an immersive 1920s control — a radio-dial preset selector
-  with the five stops (极难 50% / 困难 100% / 普通 200% / 简单 400% / 自定义)
-  and a newspaper-styled custom panel for the §33.3 knobs — reads and writes
+  with the five stops (extreme / hard / normal / easy / custom), each preset
+  stop carrying a short descriptor (budgets −25% / rulebook / +25% budgets /
+  +50% budgets · better luck) and a per-preset note line, and a
+  newspaper-styled custom panel for the §33.3 knobs — reads and writes
   `ext.coc-keeper.difficulty` through the host's extension-settings methods,
   and validates dice grammar and ranges client-side for feedback only. The
   kernel re-validates everything; the UI is never the authority.
@@ -5079,32 +5177,33 @@ closed grammar and numeric bounds, never a semantic judgement.
   recipes are untouched), existing campaigns, any Mod packaging of difficulty,
   and CLI-side customization.
 
-### 33.6 The kernel's decisions (implemented, 2026-09-11)
+### 33.6 The kernel's decisions (implemented 2026-09-11; presets re-specified 2026-09-12)
 
 - **One module, one path.** `kernel-ts/setup/difficulty.ts` owns `validateDifficulty`
   (the closed §33.1/§33.3 shape; `invalid_params` with `details.field`),
-  `ResolvedDifficulty` (the snapshot readied for arithmetic), the dice grammar and
-  `round5` (ties up). `campaign.create` validates and stores the snapshot verbatim;
+  `ResolvedDifficulty` (the snapshot readied for arithmetic), the preset knob
+  bundles and the dice grammar. `campaign.create` validates and stores the snapshot verbatim;
   `setup.draft` and legacy `setup.investigator` both pass `meta.difficulty` into
   `Chargen.build` — there is one difficulty path, never two. Absent means no key,
   no record, and a seeded test proves the card is bit-identical to the pre-§33
   numbers; an empty `custom: {}` resolves to the same card.
 - **Records are written only when a snapshot exists.** `sheet.creation.difficulty`
-  and the receipt's `difficulty` block carry the resolved policy; scaling notes in
-  the trace appear only where they change something (a `hard` ×1 snapshot records
+  and the receipt's `difficulty` block carry the resolved policy; knob notes in
+  the trace appear only where they change something (a `hard` snapshot records
   only the §33.4-required record).
 - **Custom knobs never clamp a roll.** Replacement dice bind their own range by
   construction; `characteristic_min/max` govern the creation bounds the override
   validates against and the limits block renders — they do not re-clamp rolled
-  values. Presets clamp per §33.2's explicit text. Pool-replacement bounds are
+  values. Presets never scale or clamp either (§33.2). Pool-replacement bounds are
   enforced per characteristic in `setup.override` (`characteristicBounds`); the
   §23.4 limits block keeps its single min/max shape, since §33.4 mandates only
   fallback resolution.
-- **Budgets follow characteristics for presets, knobs for custom.** A preset
-  multiplies only the rolled values (characteristics and LUCK); the occupation and
-  interest formulas evaluate on the scaled characteristics, so budgets follow with
-  no double-scaling (a test pins the identity). Custom `multiplier`/`fixed` knobs
-  adjust the evaluated budget (`Math.round`), never the characteristics.
+- **Presets are knob bundles, never card multipliers (2026-09-12).** A preset
+  rolls the rulebook dice on the rulebook 15/90 bounds — characteristics and LUCK
+  values are never scaled — and touches only what its bundle names: budget
+  multipliers adjust the evaluated budget (`Math.round`), `skill_cap` replaces
+  75, LUCK dice replace the roll. Custom `multiplier`/`fixed` budget knobs share
+  the same arithmetic, and the resolved record carries no `multiplier`.
 - **Determinism is per seed plus snapshot.** Same seed + same difficulty → same
   card. Age adjustments consume the deterministic stream by value, so a luck
   attempt that is kept at one difficulty can differ at another; the stream order
@@ -5152,5 +5251,7 @@ Spec: `docs/specs/turn-floor.md`. Two live tables (medians 167 and 37 characters
 **34.11 A fight against someone faster now opens (2026-09-11, table F).** With Knott pinned as `ordinary_adult` the investigator's opening `resolve` built the session, put Knott first in DEX order (62 against 60), and then fell through to the "it is steven-knott's turn" refusal: the unsaved session vanished with the failed call, the start receipt with it, and the Keeper's next call for Knott met "no combat is underway for steven-knott" — twenty-eight refusals in one turn, nobody able to act, a fight that could never start against anyone faster than the investigator. `executeCombatResolve` now keeps a freshly opened exchange whose first action is not the opener's: the session is saved, the `session` start receipt lands, and the result returns `action: "open"`, `turn_of: <first actor>`, the initiative order and a hint naming the next call (`resolve with actor: <first>, intent combat, a target and a weapon`); the opener's own strike comes when the order reaches them, re-declared then. The engine's own turn-order refusals are unchanged for every later call. Alongside: `read/session-view.ts` (chase readiness) and `sanity/index.ts` (an NPC's SAN loss) read a pinned profile beside the book's, as `SettleContext.npcProfile` already did. The NPC-*opens*-a-fight case of §32.9 (surprise, an ambush) is still not a decision the rules layer carries. Test: `test_a_fight_against_someone_faster_opens_and_hands_them_the_first_action`.
 
 **34.12 The refusal budget (2026-09-11, user ruling: three refusals of the same problem and the retrying stops).** Table F ran twenty-eight refusals in one turn — seventeen `turn_state`, eight `needs` — each retry reworded, so the host's identical-resend guard (§8: the third *unchanged* resend is blocked) never fired, and the turn ran to its 300 s cap on the Keeper's re-planning. The host now counts refusals by **class**, never by parameters: the tool, the error code, and the structural field the kernel named (`details.turn_of`, `details.needs.field`, `details.reason`, `details.field`; nothing read from the prose). The third refusal of one class shuts that tool for the rest of the turn; eight refusals of any class shut `resolve`, `apply`, `look`, `lookup` and `recall`. `narrate` and `ask` are never shut. A shut tool's call is blocked before it leaves the extension with the count, the last refusal and the closing rule — nothing refused has happened; close the turn with narrate on what landed, or hand the player the pending choice with ask — and a telemetry row `{tool, ok: false, code: "blocked", reason: "refusal_budget"}`; the moment a limit is reached leaves `{lane: "refusals", reason: "class_limit" | "turn_budget", count, last}`. Everything resets with the next player input. Test: `gates.test.mjs` "同类拒绝三次".
+
+**A strike is an attempt, not a call (2026-09-12).** A class takes at most one strike per model round trip: calls the Keeper wrote in one message are answered after it wrote them, so the second and third of a batch are not it ignoring the first refusal — it never saw one. The host records the round that issued each call (`turn_start` is the round counter) and skips the increment when a class is refused again inside the same round; the refusal is still recorded, still read back, and still counts toward the eight-refusal turn budget, which is a cost valve and keeps counting calls. A Keeper that reads a refusal and tries the same class again in its next message is still shut on the third such round. Masks, Bar Cordano: three first impressions — Larkin, Mendoza, Elias — in one message, all refused `not_here` because an imported book's people are staged in the turn they are met, and the third answer shut `resolve` for the turn; the Keeper staged all three correctly one call later and could no longer roll, delivering three NPCs and no mechanics. Test: `gates.test.mjs` "一条消息里的三次同类拒绝只算一次".
 
 **34.13 The inline marker is not out-of-game text (2026-09-12, regression from §34.1).** §34.1 folded "tool names, English enum values and field names" into the immersion principle as things that must not enter the story text. That sentence reads over the `{{marker}}` the narrate description asks for — a marker looks exactly like a field name written into the prose — and on the App's model (deepseek-flash) the Keeper stopped placing them, so every roll, clue and item card fell to the end of the turn instead of being drawn where it happened (§16.6's `marked_text` is empty when no marker is bound). Law 4 now names the marker as the one machine token that belongs in the text, says the kernel strips it before delivery, and points at the Writing paragraph; Writing states the rule affirmatively for the first time in the base prompt, which until now carried it only in the `narrate` tool description. Nothing about what the player may see changes: markers never reach them.

@@ -13,9 +13,12 @@
  *
  * TWO RULES THIS FILE MUST NOT BREAK:
  *
- * 1. **Keeper-visibility rolls are hidden.** §16.5: a consumer that renders for the player must
- *    hide `visibility: "keeper"`. A secret Spot Hidden the player was never told about must not
- *    appear here, or the panel leaks what the prose withheld.
+ * 1. **Rolls the player never saw are hidden; rolls they asked for are named but not shown.**
+ *    §16.5 grades a roll's visibility in three: `public` draws in full, `concealed` draws the
+ *    check's name with no figure at all, `keeper` draws nothing. A secret Spot Hidden the player
+ *    was never told about must not appear here, or the panel leaks what the prose withheld — but a
+ *    Psychology read the player themselves declared must appear, or their own check is
+ *    indistinguishable from the Keeper talking, which is how this card came to look empty.
  * 2. **Nothing is computed.** Every number is printed as the receipt carries it. The one
  *    exception is a delta's sign, which is subtraction of two numbers the kernel already gave.
  *
@@ -252,10 +255,17 @@ function num(value) {
 
 /**
  * §16.5: keeper-visibility rolls are projected so a log can keep them, and a surface that renders
- * for the player must hide them. This panel is the player's.
+ * for the player must hide them. This panel is the player's. A `concealed` roll is not one of
+ * those: the player declared the action and knows a check happened, so the row stays and
+ * `renderRow` prints no figure for it.
  */
 function playerVisible(row) {
   return isRecord(row) && row.visibility !== "keeper";
+}
+
+/** A roll whose die the rules keep from the player, though the attempt itself was theirs (§16.5). */
+function concealedRoll(row) {
+  return isRecord(row) && row.kind === "roll" && row.visibility === "concealed";
 }
 
 /**
@@ -363,6 +373,16 @@ export function createComponent(React) {
       case "roll": {
         const who = row.actor_is_investigator === true ? text(row.actor_label || row.actor) : "";
         const skill = term(text(row.skill));
+        // The die is the keeper's; the attempt is the player's. Nothing numeric is drawn — no
+        // figure, no target, no grade, no pass/fail stamp — because each of those is the very
+        // thing the rule withholds (a visible failure would say "this read is unreliable").
+        // The row exists so the player can see that the check they asked for was rolled at all.
+        if (concealedRoll(row))
+          return h(Row, { key, kindKey: "roll", kindLabel, family },
+            h("span", { className: "coc-mech-body" },
+              who ? h("span", { className: "coc-mech-who" }, `${who} `) : null,
+              h("span", { className: "coc-mech-skill" }, skill)),
+            h(Stamp, { tone: "plain" }, t("concealed")));
         const level = text(row.level);
         // The grade the kernel already assigned. Emphasis follows it — an extreme success and a
         // fumble are the two things a table talks about afterwards, so they get the weight.

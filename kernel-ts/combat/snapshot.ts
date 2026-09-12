@@ -53,7 +53,10 @@ function validateExternal(session: CombatSession, evidence: any, turns: Map<stri
         if (!text(command) || item.type !== 'roll' || item.actor !== damage.source_actor_id || item.command_id !== command || !text(item.ts) ||
             payload.event_type !== 'combat_roll' || payload.roll_id !== id || payload.actor_id !== damage.source_actor_id || payload.skill !== 'HP Damage' ||
             payload.source_command_id !== command || payload.target_actor_id !== damage.target_actor_id || !equal(payload.rolled_total, damage.rolled_total) ||
-            !equal(payload.dice, { expression: damage.die, raw: damage.die_rolls, total: damage.rolled_total }) || !equal(payload.combat_damage_receipt, expected))
+            // `dice.total` is the damage applied, `rolled_total` the dice: both are checked, so
+            // neither the roll nor the extreme-success recalculation can be edited unnoticed
+            // (contract section 16.2, decision of 2026-09-12).
+            !equal(payload.dice, { expression: damage.die, raw: damage.die_rolls, total: damage.raw_damage }) || !equal(payload.combat_damage_receipt, expected))
             valueError('combat external damage evidence diverges');
     }
 }

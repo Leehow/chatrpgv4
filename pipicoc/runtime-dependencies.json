@@ -73,6 +73,7 @@
     "build/extensions/module/index.mjs",
     "build/extensions/memory/index.mjs",
     "build/extensions/table/index.mjs",
+    "build/extensions/npc-journal/index.mjs",
     "build/extensions/deepseek/agent/index.mjs",
     "build/extensions/image-gen/agent/index.mjs",
     "build/extensions/grok-build-oauth/agent/index.mjs",
@@ -92,7 +93,7 @@
     "build/host/runtime/pi-ext/packages/context-fold/index.mjs"
   ],
   "buildDirectories": ["kernel", "runtime", "pipicoc", "extensions", "host"],
-  "resourceDirectories": ["prompts", "content", "mods", "extensions/deepseek", "extensions/image-gen", "extensions/grok-build-oauth"],
+  "resourceDirectories": ["prompts", "content", "mods", "extensions/deepseek", "extensions/image-gen", "extensions/grok-build-oauth", "extensions/remote-control"],
   "resourceFiles": ["extensions/mods/document-presentation.md", "pipicoc/install", "pipiui-extension.json", "bin/pi-coc", "bin/pi-coc-setup", "bin/coc-read-check", "bin/coc-source", "pipicoc/rpc"],
   "uiFiles": [
     "panel.js", "mods-panel.js", "timeline.js", "mechanics.js", "choices.js", "preparation.js",

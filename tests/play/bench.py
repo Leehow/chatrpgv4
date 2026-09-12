@@ -37,7 +37,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import driver  # noqa: E402  (same directory; the driver is the transport, not a dependency to vendor)
-from player import PersonaPlayer, load_personas, player_view  # noqa: E402
+from player import PersonaPlayer, ProviderExhausted, load_personas, player_view  # noqa: E402
 
 REPO_ROOT = driver.REPO_ROOT
 BENCH_ROOT = REPO_ROOT / ".coc" / "benchmarks"
@@ -69,6 +69,9 @@ DEFAULTS: dict[str, Any] = {
 }
 
 _print_lock = threading.Lock()
+#: Set once the provider says the account is out of credit. Every run still queued gives up
+#: immediately instead of grinding a billing event into a hundred runs that read like defects.
+_exhausted = threading.Event()
 
 #: Seconds between two table starts. Twenty-four cold starts at once meant pi could not answer
 #: `get_state` inside the driver's ten-second acknowledgement window and six runs died before
@@ -313,6 +316,12 @@ def append_jsonl(path: Path, obj: dict[str, Any]) -> None:
 def execute_run(run: dict[str, Any], suite: dict[str, Any], persona: dict[str, Any],
                 suite_dir: Path) -> dict[str, Any]:
     campaign, run_id = run["campaign"], run["run_id"]
+    if _exhausted.is_set():
+        return {"method": "persona-benchmark", "acceptance": False, "status": "invalid",
+                "suite": suite["suite"], "persona": persona["id"], "lane": run["lane"],
+                "trial": run["trial"], "run_id": run_id, "campaign": campaign,
+                "turns": [], "turns_played": 0,
+                "error": "provider_exhausted: not started, the account was out of credit"}
     out_dir = suite_dir / run_id
     out_dir.mkdir(parents=True, exist_ok=True)
     trace = out_dir / "trace.jsonl"
@@ -415,6 +424,12 @@ def execute_run(run: dict[str, Any], suite: dict[str, Any], persona: dict[str, A
                 stop_reason = f"campaign_{status}"
                 break
         record.update({"status": "completed", "stop_reason": stop_reason, "stalled_turns": stalls})
+    except ProviderExhausted as exc:
+        _exhausted.set()
+        record.update({"status": "invalid", "error": f"provider_exhausted: {exc}"})
+        say(f"{run_id}: PROVIDER EXHAUSTED -- {exc}")
+        say("stopping: every remaining run would fail the same way. This is a billing event, "
+            "not a product result; nothing here should be read as one.")
     except Exception as exc:  # noqa: BLE001 -- a broken run is evidence, not a crash
         record.update({"status": "invalid", "error": f"{type(exc).__name__}: {exc}"})
         say(f"{run_id}: INVALID -- {type(exc).__name__}: {exc}")
@@ -528,6 +543,9 @@ def cmd_run(args: argparse.Namespace) -> int:
                                 "status": "invalid", "error": repr(exc)})
 
     completed = [r for r in results if r.get("status") == "completed"]
+    if _exhausted.is_set():
+        say("the provider ran out of credit during this suite: runs after that point are "
+            "`provider_exhausted`, not evidence about the product")
     driver.write_json(suite_dir / "suite.json", {
         "method": "persona-benchmark", "acceptance": False,
         "suite": suite["suite"], "suite_id": suite_id, "ended_at": driver.now_iso(),

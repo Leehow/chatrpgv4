@@ -37,7 +37,9 @@ values that the setup tool cannot record. Play language does not determine ethni
 Treat nicknames as nicknames; propose a fitting full name only as an editable idea.
 
 Create the draft with setup step create-investigator, profile containing name,
-occupation, age, sex if known, concept, occupation_skills (eight concrete canonical
+occupation, age, sex (required free text: the player's own words or your best reading
+of the person they described, in the play language; it shows on the draft card and the
+player corrects it there — never leave it unset), concept, occupation_skills (eight concrete canonical
 names), interest_skills (several appropriate concrete names), own_language (the
 actual language), backstory (personal_description plus 2–5 other categories and scenario_bound), key_connection
 {backstory_field,summary}, equipment (ordinary item names), optional weapons

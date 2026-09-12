@@ -31,7 +31,7 @@
           "ext.coc-keeper.difficulty": {
             "type": "object",
             "title": "Creation difficulty",
-            "description": "Character creation difficulty and numeric multipliers, snapshot into each new campaign (contract §33)."
+            "description": "Character creation difficulty presets and custom knobs, snapshot into each new campaign (contract §33)."
           }
         }
       }
@@ -41,7 +41,7 @@
         {
           "id": "coc-difficulty",
           "title": "难度设定",
-          "description": "角色创建的难度与数值倍率",
+          "description": "角色创建的难度与数值调整",
           "entry": "pipicoc/settings-difficulty.js"
         }
       ],

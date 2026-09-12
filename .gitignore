@@ -3,7 +3,9 @@ node_modules/
 __pycache__/
 *.pyc
 .pytest_cache/
-/.cache/python-oracle/
+# Scratch by name: the python-oracle export, design iterations (superseded PNGs, logs),
+# anything a run leaves here. Nothing under it is authored.
+/.cache/
 .pi/
 .coc/
 *.log

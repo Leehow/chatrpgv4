@@ -64,8 +64,8 @@ export interface PortraitImage {
 }
 
 /**
- * Test seam for the image-gen dispatch (grok first, the image_gen tool's own credential
- * resolution). Production imports the extension statically so the bundler inlines it into the
+ * Test seam for the image-gen dispatch (an explicit model choice wins, grok-build the
+ * default; the image_gen tool's own credential resolution). Production imports the extension statically so the bundler inlines it into the
  * compiled agent -- a lazy relative import would resolve against the compiled tree and miss.
  */
 export interface SheetPanelDeps {

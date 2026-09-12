@@ -348,3 +348,36 @@ test('a readable carrier has its reading prepared when it is acquired, and a pla
   assert.deepEqual(viewed().map(c=>c.params.name), ["Hayes's notebook"]);
   assert.equal(viewed()[0].params.actor, 'Thomas Hayes');
 });
+
+test('a definition child gets no shell, and its brief sends it nowhere outside its own directory', async () => {
+  const pi = piSurface();
+  let bridge;
+  pi.events.on('coc:mods-bridge', value=>{bridge=value;});
+  modsExtension(pi);
+  const cwd = await mkdtemp(join(tmpdir(), 'coc-mods-'));
+  const requests=[];
+  pi.events.emit('coc:kernel-bridge',{
+    call:async(method,params)=>{
+      if(method==='mods.queued') return {effects:[],unfinished:[]};
+      if(method==='mods.job') return {enabled:true, accepted:false, job:'job-A', cwd, system_prompt:join(cwd,'prompt.md'), role:'create', mod:'enhanced-items', digest:'d'};
+      return {definition:{name:'A'}, provenance:{mod:'enhanced-items'}};
+    },
+    runtime:{
+      async runTask(task){ requests.push(task.request); return {ok:true, code:0, timedOut:false, ms:1, stderr:'', command:[]}; },
+      async check(){ return {ok:true}; },
+    },
+  });
+  await bridge.prepare('apply', {campaign:'c1', effects:[{kind:'define', name:'A', category:'item'}]});
+  assert.equal(requests.length, 1);
+  // Handed a shell, children spent most of their calls reading the packaged app and the build output.
+  assert.equal(requests[0].tools, 'read,write,edit');
+  assert.doesNotMatch(requests[0].brief, /coc-read-check|bash/);
+  assert.match(requests[0].brief, /Nothing outside this directory/);
+});
+
+test('the reader command honours a narrowed allowlist and keeps the reading default otherwise', () => {
+  const wide = readerCommand('provider/model','/task/prompt.md','low');
+  assert.equal(wide[wide.indexOf('--tools')+1], 'read,write,edit,bash');
+  const narrowed = readerCommand('provider/model','/task/prompt.md','low',false,false,undefined,'read,write,edit');
+  assert.equal(narrowed[narrowed.indexOf('--tools')+1], 'read,write,edit');
+});

@@ -2,14 +2,15 @@
  * image-gen extension — owns the image_gen / image_edit agent tools.
  *
  * Dispatch per call:
- *   1. Grok first. When the grok-build-oauth credential is usable, generation
- *      and editing delegate to its host library (broker, tier gate, reference
- *      containment, SessionImageWriter). A grok failure surfaces as-is — a
- *      logged-in grok never silently falls through to a paid vendor key.
- *   2. Otherwise the call routes by model id: the tool's `model` parameter
- *      wins, else `<agentHome>/image-model.json` (set with /image-gen:model).
- *      Credentials and base URL come from ctx.modelRegistry — auth.json is
- *      never read directly.
+ *   1. Explicit choice wins. The tool's `model` parameter, else the configured
+ *      model (`<agentHome>/image-model.json`, set with /image-gen:model or the
+ *      settings picker) routes to the matching vendor adapter. Credentials and
+ *      base URL come from ctx.modelRegistry — auth.json is never read directly.
+ *   2. Otherwise grok-build is the default: when its OAuth credential is
+ *      usable, generation and editing delegate to its host library (broker,
+ *      tier gate, reference containment, SessionImageWriter).
+ *   A failure on the chosen route surfaces as-is — no silent fall-through to
+ *   another paid lane in either direction.
  *
  * This extension owns image_gen / image_edit on this host. Pi does not shadow
  * duplicate tool names by mount order — it refuses to load the second owner —
@@ -25,6 +26,11 @@ import { parseModelSpec, readConfiguredModel, writeConfiguredModel } from "./con
 import { routeByModelId, VENDOR_ADAPTERS, VENDOR_DEFAULT_BASE_URLS } from "./vendors.js";
 
 const CONFIG_HINT = "run /image-gen:model <provider/model> to choose one (e.g. /image-gen:model openai/gpt-image-1)";
+
+/** The explicit choice for one dispatch, when there is one: the call's own parameter, else the configured model. */
+function explicitModel(readModel, modelParam) {
+	return modelParam ?? readModel()?.model;
+}
 
 /** Which model + vendor + credentials the fallback path will use. */
 async function resolveVendorTarget(readModel, ctx, modelParam) {
@@ -59,13 +65,18 @@ async function resolveVendorTarget(readModel, ctx, modelParam) {
 }
 
 /**
- * The dispatch half both the tools and host lanes share: grok first (its host library saves the
- * session attachment itself), otherwise the configured vendor adapter. Bytes, not a file, so a
+ * The dispatch half both the tools and host lanes share: an explicit model choice
+ * wins, otherwise a usable grok-build login (its host library saves the session
+ * attachment itself), otherwise the configured vendor adapter. Bytes, not a file, so a
  * caller with its own storage -- the sheet's portrait mount (contract §22.7) -- reuses the same
  * path without a session attachment it never asked for.
  */
 async function dispatchImageOp(deps, ctx, op, signal) {
-	if (await deps.grok.usable()) {
+	// An explicit choice wins: the call's own `model` parameter, else the configured
+	// model. Grok is the default only while nothing is chosen — a logged-in grok
+	// never overrides a deliberate selection, and a chosen route that fails never
+	// silently falls through to another lane.
+	if (!explicitModel(deps.readModel, op.model) && await deps.grok.usable()) {
 		return op.kind === "gen"
 			? await deps.grok.generate({ prompt: op.prompt, aspectRatio: op.aspectRatio, signal })
 			: await deps.grok.edit({ prompt: op.prompt, images: op.refs, aspectRatio: op.aspectRatio, signal });
@@ -84,9 +95,10 @@ async function dispatchImageOp(deps, ctx, op, signal) {
 }
 
 /**
- * Host lanes reuse the tools' dispatch without the tool wrapper: grok first, the same credential
- * resolution as image_gen, bytes back. `ctx` is the session's extension context; the vendor half
- * reads credentials from its modelRegistry, never auth.json.
+ * Host lanes reuse the tools' dispatch without the tool wrapper: the same model
+ * resolution and credential resolution as image_gen, bytes back. `ctx` is the
+ * session's extension context; the vendor half reads credentials from its
+ * modelRegistry, never auth.json.
  */
 export async function generateImage(ctx, op, signal) {
 	return dispatchImageOp({
@@ -141,7 +153,7 @@ export function createImageGenExtension(deps = {}) {
 		pi.registerTool({
 			name: "image_gen",
 			label: "Image Generation image_gen",
-			description: "Generate a new image from a text description. Uses Grok Imagine when the grok-build login is usable; otherwise the image model configured with /image-gen:model (OpenAI, xAI, Ark Seedream, Gemini or DashScope family, routed by model id). Returns a typed image plus the saved file's absolute path under the session attachments directory. When telling the user where it was saved, refer to the short path. To produce multiple images, emit multiple tool calls with distinct prompts.",
+			description: "Generate a new image from a text description. Uses the image model configured with /image-gen:model or the settings picker (OpenAI, xAI, Ark Seedream, Gemini or DashScope family, routed by model id); when none is configured, uses Grok Imagine if the grok-build login is usable. Returns a typed image plus the saved file's absolute path under the session attachments directory. When telling the user where it was saved, refer to the short path. To produce multiple images, emit multiple tool calls with distinct prompts.",
 			promptSnippet: "Generate images after the user confirms",
 			parameters: {
 				type: "object",
@@ -153,7 +165,7 @@ export function createImageGenExtension(deps = {}) {
 					},
 					model: {
 						type: "string",
-						description: "Optional image model override as <provider>/<model-id> or a bare model id. Wins over the /image-gen:model configuration for this call. Only shapes the vendor fallback; a usable grok-build login always takes precedence.",
+						description: "Optional image model override as <provider>/<model-id> or a bare model id. Wins over the configured image model (and over the grok-build default) for this call.",
 					},
 				},
 				required: ["prompt"],
@@ -185,7 +197,7 @@ export function createImageGenExtension(deps = {}) {
 					},
 					model: {
 						type: "string",
-						description: "Optional image model override as <provider>/<model-id> or a bare model id. Wins over the /image-gen:model configuration for this call. Only shapes the vendor fallback; a usable grok-build login always takes precedence.",
+						description: "Optional image model override as <provider>/<model-id> or a bare model id. Wins over the configured image model (and over the grok-build default) for this call.",
 					},
 				},
 				required: ["prompt", "image"],
@@ -198,21 +210,21 @@ export function createImageGenExtension(deps = {}) {
 		});
 
 		pi.registerCommand("image-gen:model", {
-			description: "Set or show the fallback image model (<provider>/<model-id>, e.g. openai/gpt-image-1)",
+			description: "Set or show the image model (<provider>/<model-id>, e.g. openai/gpt-image-1); a choice overrides the grok-build default",
 			handler: async (args, ctx) => {
 				const spec = typeof args === "string" ? args.trim() : "";
 				if (!spec) {
 					const current = readModel()?.model;
 					ctx.ui.notify(current
-						? `fallback image model: ${current} (used only when grok-build is not logged in)`
-						: `no fallback image model configured — ${CONFIG_HINT}`, "info");
+						? `image model: ${current} (overrides the grok-build default)`
+						: `no image model configured — ${CONFIG_HINT}`, "info");
 					return;
 				}
 				try {
 					const { modelId } = parseModelSpec(spec);
 					const vendor = routeByModelId(modelId);
 					writeModel(spec);
-					ctx.ui.notify(`fallback image model set to ${spec} (adapter: ${vendor}); it is used whenever grok-build is not logged in.`, "info");
+					ctx.ui.notify(`image model set to ${spec} (adapter: ${vendor}); it overrides the grok-build default.`, "info");
 				} catch (error) {
 					ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
 				}
@@ -220,16 +232,18 @@ export function createImageGenExtension(deps = {}) {
 		});
 
 		pi.registerCommand("image-gen:status", {
-			description: "Show image-generation dispatch status (grok first, then the configured fallback model)",
+			description: "Show image-generation dispatch status (the configured model first, grok-build as the default when none is)",
 			handler: async (_args, ctx) => {
 				const status = await statusSnapshot(ctx);
 				const lines = [
-					status.grokReady
-						? "grok-build: logged in — image_gen/image_edit delegate to Grok Imagine"
-						: "grok-build: not usable — the vendor fallback is active",
 					status.configuredModel
-						? `fallback model: ${status.configuredModel} (adapter: ${status.vendor})`
-						: `fallback model: none — ${CONFIG_HINT}`,
+						? `configured model: ${status.configuredModel} (adapter: ${status.vendor}) — used for every generation`
+						: `configured model: none — ${CONFIG_HINT}`,
+					status.grokReady
+						? status.configuredModel
+							? "grok-build: logged in, idle while a model is configured"
+							: "grok-build: logged in — the default while no model is configured"
+						: "grok-build: not usable",
 				];
 				ctx.ui.notify(lines.join("; "), "info");
 			},

@@ -5,6 +5,7 @@ import {join} from "node:path";
 import {resourceRootFrom,runtimeEntryUrl} from "../../runtime/deployment.mjs";
 import {PLAY_LANGUAGE_TAG} from "../../runtime/ui-words.ts";
 import {coded} from "../ui/errors.ts";
+import {reasoned, readerFailureReason} from "../module/reader.ts";
 import type {ReaderRequest, ReaderOutcome} from "../module/reader.ts";
 
 const resourceRoot = resourceRootFrom(import.meta.url);
@@ -85,7 +86,8 @@ validateDocumentReading(JSON.parse(readFileSync("result.json","utf8")),JSON.pars
           + (round > 1 ? " Read findings.json and repair the retained result." : "")});
       await writeFile(join(attempt, `run-${round}.json`), JSON.stringify(outcome));
       if (!outcome.ok || options.signal?.aborted)
-        throw coded(options.signal?.aborted ? "presentation_timeout" : "preparation_failed", "Document reading could not be prepared");
+        throw coded(options.signal?.aborted ? "presentation_timeout" : "preparation_failed",
+          reasoned("Document reading could not be prepared", options.signal?.aborted ? undefined : readerFailureReason(outcome)));
       try {
         result = validateDocumentReading(JSON.parse(await readFile(join(attempt, "result.json"), "utf8")), request);
         break;

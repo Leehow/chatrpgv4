@@ -821,6 +821,38 @@ export function createComponent(React) {
             h("span", { className: "coc-clue-name" }, term(row.name)))));
   }
 
+  /**
+   * The people the investigators have met, as the table's NPC journal projects them (§17.10's
+   * `npcs.journal`). Every name, description and exchange arrives already in the play language --
+   * the journal lane writes them there -- so nothing here passes through the glossary. Turn
+   * numbers are machine context and stay off the page; a scene's display name is player-facing
+   * already and may sit beside the exchange it framed. A dead mark rests next to the name when
+   * the ledger says the ledger closed on them.
+   */
+  function Npcs(props) {
+    const { view, t } = props;
+    const npcs = isRecord(view.npcs) ? view.npcs : {};
+    const journal = Array.isArray(npcs.journal) ? npcs.journal.filter(isRecord) : [];
+    if (!journal.length) {
+      return h(Section, { title: t("npcs"), icon: "body", anchor: "npcs" }, h("p", { className: "coc-sheet-note" }, t("noNpcs")));
+    }
+    return h(Section, { title: t("npcs"), icon: "body", anchor: "npcs" }, journal.map((npc, index) => {
+      const name = text(npc.name);
+      const dead = npc.dead_since_turn !== null && npc.dead_since_turn !== undefined;
+      const exchanges = Array.isArray(npc.exchanges) ? npc.exchanges.filter(isRecord) : [];
+      return h("details", { className: "coc-clue coc-clue-fold coc-npc", key: `${name}:${index}`, ...(dead ? { "data-dead": "1" } : {}) },
+        h("summary", null,
+          h("span", { className: "coc-clue-name" }, name),
+          dead ? h("span", { className: "coc-npc-dead", "aria-hidden": "true" }, "\u2020") : null),
+        h("div", { className: "coc-clue-body" },
+          text(npc.description) ? h("p", { className: "coc-npc-description" }, text(npc.description)) : null,
+          exchanges.map((exchange, line) =>
+            h("div", { className: "coc-npc-exchange", key: line },
+              text(exchange.scene) ? h("span", { className: "coc-npc-exchange-scene" }, text(exchange.scene)) : null,
+              text(exchange.summary)))));
+    }));
+  }
+
   /** @param {{api: {invoke?: Function, subscribeExt?: Function}}} props */
   return function InvestigatorPanel(props) {
     const api = props.api || {};
@@ -921,6 +953,9 @@ export function createComponent(React) {
           if (isRecord(data.ui)) setLastUi(data.ui);
         } else {
           const code = data && typeof data.code === "string" ? data.code : "";
+          // The caption stays a projected word (contract §23); the lane's English reason is
+          // diagnostic, so it goes to the console rather than dying with the answer.
+          try { console.debug("coc-sheet: portrait generation failed:", data && data.reason ? data.reason : data); } catch {}
           setPortraitNote(code === "portrait_no_description" ? t("portraitNoDescription") : t("portraitFailed"));
           portraitNoteTimer.current = setTimeout(() => setPortraitNote(null), 5000);
         }
@@ -978,6 +1013,9 @@ export function createComponent(React) {
     if (sheet) {
       if (sheet.occupation) fields.push([t("occupation"), term(text(sheet.occupation))]);
       if (sheet.age !== undefined) fields.push([t("ageKey"), text(sheet.age)]);
+      // Sex is the player's own word for it (an open field, written in the play language), so it
+      // prints raw like the age beside it: never a glossary key, and absent from old cards.
+      if (sheet.sex) fields.push([t("sexKey"), text(sheet.sex)]);
       const tongues = languageRows(sheet);
       if (tongues.length) fields.push([t("language"),
         h("span", {className:"coc-sheet-tongues"}, tongues.map((language,index) =>
@@ -1054,6 +1092,7 @@ export function createComponent(React) {
       sheet ? h(Finance, { sheet, t, term }) : null,
       sheet ? h(Background, { sheet, term, t }) : null,
 
-      h(Clues, { view, t, term }));
+      h(Clues, { view, t, term }),
+      h(Npcs, { view, t }));
   };
 }

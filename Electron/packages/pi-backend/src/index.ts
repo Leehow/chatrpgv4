@@ -8651,8 +8651,8 @@ export class PiHostBackend implements HostBackend {
   }
   /**
    * The extension's creation-difficulty setting (contract §33.1), app scope of the settings
-   * JSON. The product default when nothing was ever stored is `normal` x2; the kernel's own
-   * absent semantic (rulebook x1) survives only on the CLI setup path, which passes nothing.
+   * JSON. The product default when nothing was ever stored is `normal`; the kernel's own
+   * absent semantic (the rulebook standard) survives only on the CLI setup path, which passes nothing.
    */
   private async cocDifficultySetting(): Promise<Record<string, unknown> | undefined> {
     const values = readAppExtensionSettingsValues(await this.readSettings(), "coc-keeper", new Set());
@@ -9005,7 +9005,8 @@ export class PiHostBackend implements HostBackend {
     if (id === "image-gen" && method === "model") {
       // The Image Generation extension's model choice, app-level: the picker in its settings
       // section reads/writes the same <agentDir>/image-model.json the agent reads per call, so
-      // no live session is needed. `grokDefault` mirrors the dispatch's grok-first rule.
+      // no live session is needed. `grokDefault` mirrors the dispatch's grok-by-default
+      // rule: the grok-build login the dispatch uses only while no model is configured.
       const file = join(this.agentDir, "image-model.json");
       const op = isRecord(params) && typeof params.op === "string" ? params.op : "get";
       const grokDefault = (() => { try { return isRecord(JSON.parse(readFileSync(join(this.agentDir, "auth.json"), "utf8"))["grok-build"]); } catch { return false; } })();

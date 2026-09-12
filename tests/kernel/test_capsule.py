@@ -52,6 +52,7 @@ def test_player_input_capsule_has_all_sections(kernel):
     assert clues["knott-commission"]["discovered"] is False
     investigator = known["investigator"]
     assert investigator["id"] == PREGEN
+    assert investigator["sex"] == "M", "the keeper reads the sheet's sex, never a guess from the name"
     assert {"name": "Spot Hidden", "value": 55} in investigator["skills_of_note"]
 
     assert capsule["recent"] == [{"turn": 0, "player": None, "keeper": "开场。\n\n诺特把钥匙拍在桌上。", "closed": "explicit", "receipts": 0}]

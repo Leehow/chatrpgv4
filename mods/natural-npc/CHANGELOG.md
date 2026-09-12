@@ -1,5 +1,34 @@
 # Natural NPC
 
+## 1.4.0
+
+1.3.0 told the Keeper to stage the person first, which on the opening turn is advice it
+cannot take: nothing may change state before the player has spoken, so `apply` is refused.
+A live table read that line, tried it, was refused, and then found its first-impression
+target did not resolve either -- the opening scene was empty. The kernel now seats the start
+scene's own cast first, so the book's people are there to be rolled for; this says what to
+do about anyone who is not.
+
+It says it in the full instructions only. The per-turn reminders share a 4 KB budget and had
+three bytes left, and the brief is the wrong place for it: the opening turn is the one turn
+that reads the full text anyway, and on any later turn the kernel's own refusal now names the
+person, lists who is present, and gives the `apply` that stages them.
+
+## 1.3.0
+
+The instructions now say the person has to be in the room. An impression is made of a
+meeting, so the kernel has always refused one for anybody not present in the active scene,
+but nothing here said so. On a book the module graph already staged, walking in is enough
+and the omission never showed. On an imported book the people arrive when the Keeper puts
+them there -- in the very turn the party meets them -- so first contact hit that refusal
+every time.
+
+The refusal itself carried no `fix` and no `details`, so three impressions for three people
+in one message read as one wall hit three times and shut `resolve` for the rest of the turn.
+A live table opened Masks in Bar Cordano, met Larkin, Mendoza and Elias, and delivered a
+turn with no mechanics at all: the Keeper staged all three correctly one call later and by
+then could no longer roll.
+
 ## 1.2.0
 
 Requires `graph.vocabulary.table.v1`. No shipped book names anyone's tongue -- The Haunting

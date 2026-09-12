@@ -1,130 +1,156 @@
 {
-  "id": "deepseek",
-  "name": "DeepSeek Extended",
-  "version": "0.1.0",
-  "capabilities": [
-    "settings.read",
-    "settings.write"
-  ],
-  "auth": {
-    "provider": {
-      "id": "deepseek-extended",
-      "name": "DeepSeek Extended",
-      "api": "openai-responses",
-      "oauth": false,
-      "models": [
-        {
-          "id": "deepseek-v4-flash-vision-exp",
-          "name": "DeepSeek V4 Flash Vision",
-          "api": "openai-responses",
-          "input": ["text", "image"],
-          "reasoning": true,
-          "contextWindow": 1000000,
-          "maxTokens": 384000,
-          "cost": { "input": 0.22, "output": 0.66, "cacheRead": 0.007, "cacheWrite": 0 },
-          "thinkingLevelMap": { "minimal": null, "low": null, "medium": null, "high": "high", "max": "max" },
-          "compat": {
-            "supportsStore": false,
-            "supportsDeveloperRole": false,
-            "requiresReasoningContentOnAssistantMessages": true,
-            "thinkingFormat": "deepseek"
-          },
-          "capabilities": {
-            "hostedTools": { "tools": ["web_search"] },
-            "structuredOutputs": true,
-            "nativeSearch": { "tools": ["web_search"] }
-          }
-        },
-        {
-          "id": "deepseek-v4-flash",
-          "name": "DeepSeek V4 Flash",
-          "api": "openai-responses",
-          "input": ["text"],
-          "reasoning": true,
-          "contextWindow": 1000000,
-          "maxTokens": 384000,
-          "cost": { "input": 0.22, "output": 0.66, "cacheRead": 0.007, "cacheWrite": 0 },
-          "thinkingLevelMap": { "minimal": null, "low": null, "medium": null, "high": "high", "max": "max" },
-          "compat": {
-            "supportsStore": false,
-            "supportsDeveloperRole": false,
-            "requiresReasoningContentOnAssistantMessages": true,
-            "thinkingFormat": "deepseek"
-          },
-          "capabilities": {
-            "hostedTools": { "tools": ["web_search"] },
-            "structuredOutputs": true,
-            "nativeSearch": { "tools": ["web_search"] }
-          }
-        },
-        {
-          "id": "deepseek-v4.1-flash-expires-on-0910",
-          "name": "DeepSeek V4.1 Flash Beta (expires 2026-09-10)",
-          "api": "openai-responses",
-          "input": ["text", "image"],
-          "reasoning": true,
-          "contextWindow": 1000000,
-          "maxTokens": 384000,
-          "cost": { "input": 0.22, "output": 0.66, "cacheRead": 0.007, "cacheWrite": 0 },
-          "thinkingLevelMap": { "minimal": null, "low": null, "medium": null, "high": "high", "max": "max" },
-          "compat": {
-            "supportsStore": false,
-            "supportsDeveloperRole": false,
-            "requiresReasoningContentOnAssistantMessages": true,
-            "thinkingFormat": "deepseek"
-          },
-          "capabilities": {
-            "hostedTools": { "tools": ["web_search"] },
-            "structuredOutputs": true,
-            "nativeSearch": { "tools": ["web_search"] }
-          }
-        }
-      ]
-    }
-  },
-  "agent": {
-    "extension": "agent/index.js"
-  },
-  "host": {
-    "entry": "agent/host.js",
-    "description": "Stable host library entry; same createAuthProvider as the agent half."
-  },
-  "app": {
-    "settings": {
-      "scope": "app",
-      "schema": {
-        "type": "object",
-        "properties": {
-          "ext.deepseek.apiKey": {
-            "type": "string",
-            "format": "secret",
-            "title": "API Key"
-          },
-          "ext.deepseek.baseUrl": {
-            "type": "string",
-            "default": "https://api.deepseek.com",
-            "title": "Base URL"
-          },
-          "ext.deepseek.forceWebSearch": {
-            "type": "boolean",
-            "default": false,
-            "title": "Force hosted web_search"
-          }
-        }
+ "id": "deepseek",
+ "name": "DeepSeek Extended",
+ "version": "0.1.0",
+ "capabilities": [
+  "settings.read",
+  "settings.write"
+ ],
+ "auth": {
+  "provider": {
+   "id": "deepseek-extended",
+   "name": "DeepSeek Extended",
+   "api": "openai-responses",
+   "oauth": false,
+   "models": [
+    {
+     "id": "deepseek-flash",
+     "name": "DeepSeek Flash",
+     "api": "openai-responses",
+     "input": [
+      "text",
+      "image"
+     ],
+     "reasoning": true,
+     "contextWindow": 1000000,
+     "maxTokens": 384000,
+     "cost": {
+      "input": 0.15,
+      "output": 0.6,
+      "cacheRead": 0.003,
+      "cacheWrite": 0
+     },
+     "thinkingLevelMap": {
+      "minimal": null,
+      "low": "low",
+      "medium": null,
+      "high": "high",
+      "max": "max"
+     },
+     "compat": {
+      "supportsStore": false,
+      "supportsDeveloperRole": false,
+      "requiresReasoningContentOnAssistantMessages": true,
+      "thinkingFormat": "deepseek"
+     },
+     "capabilities": {
+      "hostedTools": {
+       "tools": [
+        "web_search"
+       ]
+      },
+      "structuredOutputs": true,
+      "nativeSearch": {
+       "tools": [
+        "web_search"
+       ]
       }
+     }
     },
-    "ui": {
-      "panels": [],
-      "settingsSections": [
-        { "id": "deepseek", "title": "DeepSeek Extended" }
-      ],
-      "slashCommands": [],
-      "themes": [],
-      "statusBar": []
+    {
+     "id": "deepseek-v4-pro",
+     "name": "DeepSeek V4 Pro",
+     "api": "openai-responses",
+     "input": [
+      "text"
+     ],
+     "reasoning": true,
+     "contextWindow": 1000000,
+     "maxTokens": 384000,
+     "cost": {
+      "input": 0.66,
+      "output": 1.98,
+      "cacheRead": 0.022,
+      "cacheWrite": 0
+     },
+     "thinkingLevelMap": {
+      "minimal": null,
+      "low": "low",
+      "medium": null,
+      "high": "high",
+      "max": "max"
+     },
+     "compat": {
+      "supportsStore": false,
+      "supportsDeveloperRole": false,
+      "requiresReasoningContentOnAssistantMessages": true,
+      "thinkingFormat": "deepseek"
+     },
+     "capabilities": {
+      "hostedTools": {
+       "tools": [
+        "web_search"
+       ]
+      },
+      "structuredOutputs": true,
+      "nativeSearch": {
+       "tools": [
+        "web_search"
+       ]
+      }
+     }
     }
+   ]
+  }
+ },
+ "agent": {
+  "extension": "agent/index.js"
+ },
+ "host": {
+  "entry": "agent/host.js",
+  "description": "Stable host library entry; same createAuthProvider as the agent half."
+ },
+ "app": {
+  "settings": {
+   "scope": "app",
+   "schema": {
+    "type": "object",
+    "properties": {
+     "ext.deepseek.apiKey": {
+      "type": "string",
+      "format": "secret",
+      "title": "API Key"
+     },
+     "ext.deepseek.baseUrl": {
+      "type": "string",
+      "default": "https://api.deepseek.com",
+      "title": "Base URL"
+     },
+     "ext.deepseek.forceWebSearch": {
+      "type": "boolean",
+      "default": false,
+      "title": "Force hosted web_search"
+     }
+    }
+   }
   },
-  "settingsVersion": 1,
-  "migrations": [],
-  "lifecycle": { "onDisable": "dispose-app-immediate; unmount-agent-on-next-session" },
-  "defaultEnabled": true
+  "ui": {
+   "panels": [],
+   "settingsSections": [
+    {
+     "id": "deepseek",
+     "title": "DeepSeek Extended"
+    }
+   ],
+   "slashCommands": [],
+   "themes": [],
+   "statusBar": []
+  }
+ },
+ "settingsVersion": 1,
+ "migrations": [],
+ "lifecycle": {
+  "onDisable": "dispose-app-immediate; unmount-agent-on-next-session"
+ },
+ "defaultEnabled": true
 }

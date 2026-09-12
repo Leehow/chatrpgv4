@@ -1,7 +1,8 @@
 /**
  * Unit tests for extensions/image-gen: closed model-id routing, the vendor
- * adapters (with a stubbed fetch — no network), and the grok-first dispatch
- * (with the grok host library injected).
+ * adapters (with a stubbed fetch — no network), and the dispatch (an explicit
+ * model choice wins, grok-build is the default, with the grok host library
+ * injected).
  */
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
@@ -230,7 +231,7 @@ function fakeCtx({ apiKey = "sk-test", models = [] } = {}) {
 	};
 }
 
-test("dispatch: grok usable delegates to the grok path and never touches fetch", async () => {
+test("dispatch: grok usable and nothing configured delegates to the grok path and never touches fetch", async () => {
 	const { tools, api } = fakePi();
 	createImageGenExtension({
 		grok: {
@@ -238,6 +239,7 @@ test("dispatch: grok usable delegates to the grok path and never touches fetch",
 			generate: async () => ({ path: "/tmp/grok/1.jpg", mime: "image/jpeg", b64: JPEG_B64, model: "grok-imagine-image", backend: "grok-build" }),
 			edit: async () => { throw new Error("not this call"); },
 		},
+		readConfiguredModel: () => undefined,
 		fetchImpl: async () => { throw new Error("vendor fetch must not run when grok is usable"); },
 	})(api);
 	const result = await tools.get("image_gen").execute("call-1", { prompt: "a cat" }, undefined, undefined, fakeCtx());
@@ -246,6 +248,69 @@ test("dispatch: grok usable delegates to the grok path and never touches fetch",
 	assert.equal(result.details.path, "/tmp/grok/1.jpg");
 	assert.equal(result.content[1].type, "image");
 	assert.equal(result.content[1].data, JPEG_B64);
+});
+
+test("dispatch: a configured model wins over a usable grok login", async () => {
+	const { tools, api } = fakePi();
+	const { calls, fetchImpl } = recordingFetch(jsonResponse({ data: [{ b64_json: PNG_B64 }] }));
+	createImageGenExtension({
+		grok: {
+			usable: async () => true,
+			generate: async () => { throw new Error("grok must not run when a model is configured"); },
+			edit: async () => { throw new Error("grok must not run when a model is configured"); },
+		},
+		readConfiguredModel: () => ({ model: "openai/gpt-image-1" }),
+		makeWriter: () => ({ save: async () => ({ path: "/tmp/img/1.jpg", mime: "image/png" }) }),
+		fetchImpl,
+	})(api);
+	const ctx = fakeCtx({ models: [{ provider: "openai", id: "gpt-image-1", baseUrl: "https://api.openai.com" }] });
+	const result = await tools.get("image_gen").execute("call-1", { prompt: "a cat" }, undefined, undefined, ctx);
+	assert.equal(calls.length, 1);
+	assert.equal(result.details.backend, "openai");
+	assert.equal(result.details.model, "gpt-image-1");
+});
+
+test("dispatch: the tool model parameter wins over a usable grok login", async () => {
+	const { tools, api } = fakePi();
+	const { calls, fetchImpl } = recordingFetch(
+		jsonResponse({ candidates: [{ content: { parts: [{ inlineData: { mimeType: "image/png", data: PNG_B64 } }] } }] }),
+	);
+	createImageGenExtension({
+		grok: {
+			usable: async () => true,
+			generate: async () => { throw new Error("grok must not run when the call names a model"); },
+			edit: async () => { throw new Error("grok must not run when the call names a model"); },
+		},
+		readConfiguredModel: () => undefined,
+		makeWriter: () => ({ save: async () => ({ path: "/tmp/img/2.jpg", mime: "image/png" }) }),
+		fetchImpl,
+	})(api);
+	const result = await tools.get("image_gen").execute(
+		"call-1",
+		{ prompt: "a cat", model: "gemini/gemini-2.5-flash-image" },
+		undefined, undefined,
+		fakeCtx({ apiKey: "gm-test" }),
+	);
+	assert.ok(calls[0].url.includes(":generateContent"));
+	assert.equal(result.details.backend, "gemini");
+});
+
+test("dispatch: a failing configured model surfaces the error and never falls back to grok", async () => {
+	const { tools, api } = fakePi();
+	createImageGenExtension({
+		grok: {
+			usable: async () => true,
+			generate: async () => { throw new Error("grok must not run as a fallback"); },
+			edit: async () => { throw new Error("grok must not run as a fallback"); },
+		},
+		readConfiguredModel: () => ({ model: "openai/gpt-image-1" }),
+		fetchImpl: async () => { throw new Error("vendor upstream exploded"); },
+	})(api);
+	const ctx = fakeCtx({ models: [{ provider: "openai", id: "gpt-image-1", baseUrl: "https://api.openai.com" }] });
+	await assert.rejects(
+		tools.get("image_gen").execute("call-1", { prompt: "a cat" }, undefined, undefined, ctx),
+		/vendor upstream exploded/,
+	);
 });
 
 test("dispatch: grok unusable + configured model takes the vendor path", async () => {
@@ -321,7 +386,7 @@ test("dispatch: grok usable but the call fails surfaces the error and never fall
 			generate: async () => { throw new Error("grok upstream exploded"); },
 			edit: async () => { throw new Error("not this call"); },
 		},
-		readConfiguredModel: () => ({ model: "openai/gpt-image-1" }),
+		readConfiguredModel: () => undefined,
 		fetchImpl: async () => { throw new Error("vendor fetch must not run when the grok call fails"); },
 	})(api);
 	await assert.rejects(

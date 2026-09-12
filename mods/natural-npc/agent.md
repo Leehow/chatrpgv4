@@ -6,6 +6,20 @@ the interaction's goal. Use the pending contact list only when contact actually
 happens. Do not pre-roll people the party has not met. The kernel picks the higher
 of Appearance and Credit Rating and rolls once. Repeated encounters reuse it.
 
+**The person has to be in the room before you can roll how they land.** An
+impression is made of a meeting, so the kernel refuses one for anybody who is not
+present in the active scene. The book's own staging is what puts most people there;
+someone who walks in during play you stage yourself, in its own call, before the
+roll: `apply {kind: "npc", name: "<person>", to: "here", why: "<what puts them in
+this room>"}`. Rolling for three people who are not there yet is three refusals of
+one kind, and that is the budget for a whole turn.
+
+The opening turn is the exception, and it is the one place this is tempting: nothing
+may change state before the player has spoken, so `apply` is refused and you cannot
+stage anybody. Whoever the book seated is already there and can be rolled for.
+Whoever is not, is not: play them in the fiction without a die and take the
+impression the first time the party meets them under an ordinary turn.
+
 Let the frozen result change this NPC's observable manner and the opportunity or
 friction they offer this investigator. Combine it with their agenda, fears, loyalties,
 what they can actually perceive and what the investigator did. A favorable result

@@ -4,6 +4,7 @@ import { dirname, resolve,relative } from 'node:path';
 import {readdirSync,readFileSync,writeFileSync,existsSync,mkdirSync,copyFileSync} from 'node:fs';
 import ts from 'typescript';
 import { fileURLToPath } from 'node:url';
+import { agentExtensionManifests } from '../runtime/deployment.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 // Preserve the engine-owned clock convention without a handwritten runtime registry.
@@ -35,6 +36,15 @@ for(const entry of manifest.requiredEntries){
   const bare=entry==='build/extensions/module/source.mjs'?'extensions/module/source-cli':stem.slice(0,-4),source=['.ts','.mjs','.js'].map(extension=>bare+extension).find(path=>existsSync(resolve(root,path)));
   if(!source)throw new Error(`Missing source for required runtime entry: ${entry}`);
   entryPoints[entry.slice(6,-4)]=source;
+}
+// An extension that declares an agent extension is built because it is in the tree. Listing it in
+// runtime-dependencies.json as well is allowed and changes nothing; leaving it out no longer means
+// the extension silently ships without its emitted entry.
+for(const extension of agentExtensionManifests(root)){
+  const key=extension.built.slice(6,-4);
+  if(key in entryPoints)continue;
+  if(!existsSync(resolve(root,extension.source)))throw new Error(`Manifest names a missing agent extension: ${extension.source}`);
+  entryPoints[key]=extension.source;
 }
 await build({
   absWorkingDir: root,

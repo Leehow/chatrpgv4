@@ -112,9 +112,11 @@ describe('the section', () => {
       expect(screen.getByText(en(key))).toBeTruthy();
     expect(screen.getByTestId('coc-diff-stop-normal').getAttribute('aria-pressed')).toBe('true');
     expect(screen.getByText(en('preset_hard'))).toBeTruthy();
+    for (const key of ['preset_extreme_descriptor', 'preset_hard_descriptor', 'preset_normal_descriptor', 'preset_easy_descriptor'])
+      expect(screen.getByText(en(key))).toBeTruthy();
     const note = document.querySelector('.coc-diff-note');
     expect(note?.textContent).toContain(en('applies_note'));
-    expect(note?.textContent).toContain(en('preset_hard_note'));
+    expect(note?.textContent).toContain(en('preset_normal_note'));
   });
   it('persists a preset choice as {mode:"preset"} under ext.coc-keeper.difficulty', async () => {
     const host = renderSection(hostWith());

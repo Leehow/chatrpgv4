@@ -28,6 +28,12 @@ export interface ReaderRequest {
 	systemPrompt?: string;
 	/** The host selects an existing source instruction from its captured content root. */
 	prompt?: { phase: "index" | "read" | "verify"; guidance?: boolean };
+	/**
+	 * The child's tool allowlist, when the caller wants a narrower one than the reading default. A
+	 * definition writer needs only its own directory: handed a shell, children have spent most of their
+	 * calls reading the packaged app, the build output and their own event log instead of the task.
+	 */
+	tools?: string;
 	eventLog?: string;
 	source?: { pdf: string; cache: string };
 	imageHistory?: number;
@@ -51,7 +57,7 @@ export interface ReaderOutcome {
 }
 
 /** The reader's command line, without the final `brief` argument. */
-export function readerCommand(model?: string, systemPrompt?: string, thinking?: string, pdf = false, submission = false, context?: RuntimeContext): string[] {
+export function readerCommand(model?: string, systemPrompt?: string, thinking?: string, pdf = false, submission = false, context?: RuntimeContext, tools?: string): string[] {
 	const root = context?.resourceRoot ?? resourceRootFrom(import.meta.url);
 	const entries = context?.entrypoints ?? runtimeEntrypoints(root);
 	const override = context?.env.PI_COC_READER_CMD?.trim();
@@ -70,9 +76,13 @@ export function readerCommand(model?: string, systemPrompt?: string, thinking?: 
 		"--no-context-files",
 		"--no-extensions",
 		"--no-skills",
+		// `--no-extensions` exists so the child starts no second kernel and registers no tools of
+		// its own. A provider extension does neither: it is how a model runs at all, and without it
+		// the table's own model is unresolvable here. `--tools` below stays the allowlist.
+		...entries.providerExtensions.flatMap(path => ["-e", path]),
 		...(systemPrompt ? ["--extension", entries.readerContext] : []),
 		"--tools",
-		[pdf ? "read,write,edit,bash,pdf" : "read,write,edit,bash", ...(submission ? ["submit_reading"] : [])].join(","),
+		tools ?? [pdf ? "read,write,edit,bash,pdf" : "read,write,edit,bash", ...(submission ? ["submit_reading"] : [])].join(","),
 		...(pdf ? ["--extension", entries.readerPdf] : []),
 		...(submission ? ["--extension", entries.readerSubmit] : []),
 		"--system-prompt",
@@ -82,6 +92,26 @@ export function readerCommand(model?: string, systemPrompt?: string, thinking?: 
 		// Everything after `--` is the prompt: a brief starting with `-` is not taken for an option.
 		"--",
 	];
+}
+
+/** A lane keeps its own sentence; the child's reason rides along when there is one. */
+export const reasoned = (sentence: string, reason?: string) => reason ? `${sentence} (${reason})` : sentence;
+
+/**
+ * What the child said before it stopped, in one clause a lane can put in its own message.
+ *
+ * A failed round used to reach the player as the lane's generic sentence alone: the run that died
+ * on an unresolvable model wrote no events and its one actionable line, the child's own "Model not
+ * found", was dropped at this boundary. The reason is evidence, not a replacement -- callers keep
+ * their sentence and append this.
+ */
+export function readerFailureReason(outcome: Pick<ReaderOutcome, "stderr" | "error" | "code" | "timedOut">): string | undefined {
+	if (outcome.timedOut) return "the run timed out";
+	const lines = (outcome.stderr ?? "").split("\n").map(line => line.trim()).filter(Boolean);
+	const named = lines.find(line => /error|not found|unauthorized|forbidden/i.test(line)) ?? lines.at(-1);
+	if (named) return named.length > 300 ? `${named.slice(0, 300)}...` : named;
+	if (outcome.error) return outcome.error;
+	return typeof outcome.code === "number" ? `the child exited with code ${outcome.code}` : undefined;
 }
 
 /** Inline small host-owned input, with file access retained for larger attempts. */
@@ -136,7 +166,7 @@ async function runOwnedReader(request: ReaderRequest, context: RuntimeContext): 
 	const began = Date.now();
 	let command: string[];
 	try {
-		command = readerCommand(request.model, request.systemPrompt, request.thinking, !!request.source, request.submission, context);
+		command = readerCommand(request.model, request.systemPrompt, request.thinking, !!request.source, request.submission, context, request.tools);
 		if (request.eventLog && !context.env.PI_COC_READER_CMD?.trim()) command.splice(command.length - 1, 0, "--mode", "json");
 		command.push(request.brief);
 	} catch (error) {

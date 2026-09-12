@@ -47,6 +47,13 @@ PLAYER_TURN_TIMEOUT = 180.0
 PLAYER_SETTLE_GRACE = 1.5
 #: How long to wait after a provider error before asking the persona again.
 PLAYER_BACKOFF_SECONDS = (10.0, 30.0, 60.0, 120.0)
+#: HTTP statuses that mean waiting will not help: the account is out of credit or unauthorised.
+#: Read as a status, not as a sentence -- the wording of a provider's message is not a contract.
+EXHAUSTED_STATUSES = ("(402)", "(403)")
+
+
+class ProviderExhausted(RuntimeError):
+    """The provider says the account cannot pay. Backing off does not fix that."""
 
 SYSTEM_PROMPT = """\
 You are simulating a real tabletop RPG player at a Call of Cthulhu table.
@@ -134,8 +141,19 @@ def render_profile(persona: dict[str, Any], variation: str, investigator: str) -
     )
 
 
+#: The figures a `concealed` roll must not carry to a player surface (contract section 16.5). The
+#: product strips the same keys in `mechanicsEntry`; the persona player is a stand-in for a real
+#: player, so a benchmark that let it read a die no human at the table can see would measure a
+#: player this product never ships.
+CONCEALED_FIGURES = ("roll", "target", "threshold", "difficulty", "level", "passed", "pushed")
+
+
 def player_view(delivery: dict | None, final_text: str, settle_class: str) -> str:
-    """Spec section 2: prose plus this turn's mechanics, keeper-only rolls removed.
+    """Spec section 2: prose plus this turn's mechanics, as a player at the table sees them.
+
+    Contract section 16.5 grades a roll's visibility in three. A `keeper` roll is dropped: the
+    player was never told it happened. A `concealed` roll stays but loses every figure: the player
+    declared the action and knows a check was made, and only the number is the Keeper's.
 
     Nothing here is rendered into words -- the rows go over as the kernel projected them
     (section 16.2 is language-neutral) because writing them into sentences would mean a
@@ -145,8 +163,12 @@ def player_view(delivery: dict | None, final_text: str, settle_class: str) -> st
         return ("[The table produced nothing this turn: the Keeper did not deliver. "
                 "Say what you do next.]")
     prose = (delivery or {}).get("rendered_text") or final_text or ""
-    rows = [row for row in ((delivery or {}).get("mechanics") or [])
-            if not (isinstance(row, dict) and row.get("visibility") == "keeper")]
+    rows = [
+        {k: v for k, v in row.items()
+         if not (row.get("kind") == "roll" and row.get("visibility") == "concealed" and k in CONCEALED_FIGURES)}
+        for row in ((delivery or {}).get("mechanics") or [])
+        if isinstance(row, dict) and row.get("visibility") != "keeper"
+    ]
     if not rows:
         return prose
     shown = "\n".join(json.dumps(row, ensure_ascii=False, sort_keys=True) for row in rows)
@@ -202,6 +224,7 @@ class PersonaPlayer:
         atexit.register(self._remove_sandbox)
         self.pi: PiProcess | None = None
         self.isolation: dict[str, Any] = {}
+        self._last_error_message: str | None = None
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -273,6 +296,11 @@ class PersonaPlayer:
             if parsed is not None:
                 return {"ok": True, "at": now_iso(), "attempts": attempt + transient + 1,
                         "transient_retries": transient, "raw": raw, **parsed}
+            if errored and any(code in (self._last_error_message or "") for code in EXHAUSTED_STATUSES):
+                # Out of credit. Every further turn of every table will fail the same way, and a
+                # suite that keeps going turns one billing event into a hundred runs that read
+                # like a broken product (this cost 22 runs of stress personas on 2026-09-11).
+                raise ProviderExhausted(self._last_error_message or "provider refused: 402/403")
             if errored and not raw:
                 # The session failed, the model did not answer badly: wait before asking again.
                 wait = PLAYER_BACKOFF_SECONDS[min(transient, len(PLAYER_BACKOFF_SECONDS) - 1)]
@@ -321,6 +349,8 @@ class PersonaPlayer:
                     msg = event.get("message") or {}
                     if msg.get("stopReason") == "error" or msg.get("error"):
                         errored = True
+                        self._last_error_message = str(msg.get("errorMessage")
+                                                       or msg.get("error") or "")
                     if msg.get("role") == "assistant":
                         final = [b.get("text") or "" for b in msg.get("content") or []
                                  if isinstance(b, dict) and b.get("type") == "text"]
@@ -343,17 +373,22 @@ def seed_home(home: Path, credentials_from: Path) -> Path:
     """A Pi home holding credentials and nothing else: no packages, no COC settings, no sessions.
 
     The table's own home (`{repo}/.pi/coc-agent`) is where the working provider keys live, so
-    both the persona player and the judge lane borrow those bytes rather than falling back to
-    a global `~/.pi/agent` -- which this project does not use and which, on this machine, holds
-    a stale key that answered the judge's first run with a 401.
+    both the persona player and the judge lane borrow those rather than falling back to a global
+    `~/.pi/agent` -- which this project does not use and which, on this machine, holds a stale
+    key that answered the judge's first run with a 401.
+
+    They are **linked, not copied**. A copy is a snapshot: an OAuth credential that the table
+    refreshes goes on being valid for the table and stale in every copy, and a suite that runs
+    for six hours crosses a token's lifetime. Linking also keeps the secret in one place instead
+    of writing it into a temp directory per run.
     """
     home.mkdir(parents=True, exist_ok=True)
     for name in CREDENTIAL_FILES:
         source = credentials_from / name
         if source.exists():
             target = home / name
-            shutil.copy2(source, target)
-            os.chmod(target, 0o600)
+            target.unlink(missing_ok=True)
+            target.symlink_to(source.resolve())
     (home / "settings.json").write_text(json.dumps({"quietStartup": True}) + "\n", encoding="utf-8")
     return home
 

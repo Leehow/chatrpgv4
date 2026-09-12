@@ -1,5 +1,22 @@
 /** Receipt-to-JSON projection. It neither changes receipts nor evaluates story text. */
 import { array, row, number, integer, truth, chars, length, type Row } from "./values.js";
+/**
+ * A roll receipt's visibility tier (§16.5). Three, not two.
+ *
+ * - `public` — the player watched the die; the card draws it in full.
+ * - `concealed` — the player declared the action and knows a check happened, but the rules keep the
+ *   die from them (CoC 7e Psychology: a player who sees the failure knows the read is unreliable,
+ *   which is the one thing the rule withholds). The card names the check and prints no figure.
+ * - `keeper` — the player was never told a check happened (a secret Spot Hidden). The card draws
+ *   nothing: a row here leaks what the prose withheld.
+ *
+ * `concealed` was split out of `keeper` on 2026-09-12. Collapsed into one tier, a player's own
+ * declared Psychology attempt rendered exactly like a turn with no mechanics at all, so from the
+ * player's chair a check they asked for was indistinguishable from the Keeper simply talking.
+ */
+export const ROLL_VISIBILITY = ['public', 'concealed', 'keeper'] as const;
+/** True when the die itself must not reach the player — both hidden tiers, whatever the card draws. */
+export const dieHidden = (visibility: any): boolean => visibility === 'keeper' || visibility === 'concealed';
 const labeled = (out: Row, key: string, value: any) => {
     if (typeof value === "string" && value.trim())
         out[key] = value;

@@ -8,15 +8,17 @@
  */
 
 import { strict as assert } from "node:assert";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import {
+	applyThinkingCap,
 	buildResponsesBody,
 	DEEPSEEK_WEB_SEARCH_BUILTIN,
 	mergeHostedWebSearchTool,
 	responsesUrl,
+	THINKING_CAP_DIRECTIVE,
 } from "../../extensions/deepseek/agent/client.js";
 import { resolveDeepSeekApiKey } from "../../extensions/deepseek/agent/conversation.js";
 import agent from "../../extensions/deepseek/agent/index.js";
@@ -26,6 +28,10 @@ import {
 	modelSupportsHostedWebSearch,
 } from "../../extensions/deepseek/agent/models.js";
 import { createDeepSeekProvider } from "../../extensions/deepseek/agent/provider.js";
+
+// 目录缓存的位置由扩展自身的安装根推导；测试固定指向一个不存在的路径，
+// 断言的才是随包发布的兜底目录，而不是某台机器上刷新出来的缓存。
+process.env.PIPIUI_DEEPSEEK_CATALOG_CACHE = join(dirname(fileURLToPath(import.meta.url)), "no-such-catalog-cache.json");
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const MANIFEST = JSON.parse(
@@ -93,7 +99,7 @@ test("扩展注册 deepseek-extended 并挂上 before_provider_request", () => {
 	assert.equal(registered.api, "openai-responses");
 	assert.deepEqual(
 		registered.models.map((model) => model.id),
-		["deepseek-v4-flash-vision-exp", "deepseek-v4-flash", "deepseek-v4.1-flash-expires-on-0910"],
+		["deepseek-flash", "deepseek-v4-pro"],
 	);
 	assert.ok(hook, "before_provider_request 钩子必须挂上");
 });
@@ -119,12 +125,28 @@ test("清单与代码里的模型目录是同一份", () => {
 	assert.equal(MANIFEST.defaultEnabled, true, "app-origin 扩展缺省是关的，必须显式打开");
 });
 
+test("思考档位贴官方集合：low/high/max 开放，minimal/medium 隐藏", () => {
+	// 官方（api-docs.deepseek.com/guides/thinking_mode）：思考档是 low/high/max，
+	// 服务端把 minimal→low、medium→high、xhigh→high、ultra→max 折叠。
+	// low 是独立的一档（更便宜的推理），不许再被藏掉。
+	const expected = { minimal: null, low: "low", medium: null, high: "high", max: "max" };
+	for (const model of DEEPSEEK_CONVERSATION_MODELS) {
+		assert.deepEqual(model.thinkingLevelMap, expected, model.id);
+	}
+	for (const model of MANIFEST.auth.provider.models) {
+		assert.deepEqual(model.thinkingLevelMap, expected, model.id);
+	}
+});
+
 test("hosted web_search 支持只按声明的模型能力判定", () => {
 	assert.equal(responsesUrl("https://api.deepseek.com"), "https://api.deepseek.com/responses");
-	for (const id of ["deepseek-v4-flash", "deepseek-v4-flash-vision-exp", "deepseek-v4.1-flash-expires-on-0910"]) {
+	// 退役别名 DeepSeek 仍然受理（转由 V4.1 Flash 服务、按 Flash 价计费），
+	// 所以它们留在核定表里，被钉住旧 id 的会话不会掉回本地搜索工具。
+	for (const id of ["deepseek-flash", "deepseek-v4-pro", "deepseek-v4-flash", "deepseek-v4-flash-vision-exp"]) {
 		assert.equal(modelSupportsHostedWebSearch(id), true, id);
 	}
-	for (const id of ["deepseek-v4.1-flash", "deepseek-chat", "deepseek-reasoner", "totally-unknown", undefined, 42]) {
+	// 那个限期 beta 已经从官方文档消失，核定表里也不再有它。
+	for (const id of ["deepseek-v4.1-flash-expires-on-0910", "deepseek-v4.1-flash", "deepseek-flash-preview", "deepseek-chat", "deepseek-reasoner", "totally-unknown", undefined, 42]) {
 		assert.equal(modelSupportsHostedWebSearch(id), false, String(id));
 	}
 });
@@ -208,13 +230,54 @@ test("before_provider_request 只改写 deepseek-extended 的请求", async () =
 	assert.equal(rewritten.tools.filter((tool) => tool.type === "web_search").length, 1);
 	assert.ok(rewritten.tools.some((tool) => tool.type === "custom" && tool.name === "web_search"));
 
-	// 目录外的模型：不注入、也不删。
+	// 目录外的模型：web_search 不注入、也不删；思考帽是 provider 级策略，照样戴上。
 	const unknown = await hook.handler(
 		{ type: "before_provider_request", payload },
 		{ model: { provider: "deepseek-extended", id: "unknown-future-model" } },
 	);
-	assert.deepEqual(unknown, payload);
+	assert.deepEqual(unknown.tools, payload.tools);
 	assert.ok(!unknown.tools.some((tool) => tool.type === "web_search"));
+	assert.equal(unknown.input[0].role, "developer");
+	assert.ok(JSON.stringify(unknown.input[0]).includes("internal reasoning must stay under"));
+});
+
+test("思考帽：默认与 low 注入 150 词硬顶，none/high/max 原样放行", () => {
+	// 默认（无 reasoning 字段）：戴上。
+	const plain = applyThinkingCap({ model: "deepseek-v4-flash", input: [{ role: "user", content: "hi" }] });
+	assert.equal(plain.input[0].role, "developer");
+	assert.equal(plain.input[0].content[0].text, THINKING_CAP_DIRECTIVE);
+	assert.deepEqual(plain.input[1], { role: "user", content: "hi" });
+	// 字符串 input：转成 developer + user 两条。
+	const fromString = applyThinkingCap({ input: "hi" });
+	assert.equal(fromString.input[0].role, "developer");
+	assert.deepEqual(fromString.input[1], { role: "user", content: [{ type: "input_text", text: "hi" }] });
+	// low：戴上（实测 low 本身不限长，帽子才是）。
+	const low = applyThinkingCap({ input: [], reasoning: { effort: "low" } });
+	assert.equal(low.input[0].role, "developer");
+	// none/high/max：显式选择，原样放行。
+	for (const effort of ["none", "high", "max"]) {
+		const body = { input: [{ role: "user", content: "hi" }], reasoning: { effort } };
+		assert.equal(applyThinkingCap(body), body, effort);
+	}
+	// 幂等：已戴帽的 payload 不再加第二顶。
+	const twice = applyThinkingCap(plain);
+	assert.equal(twice, plain);
+});
+
+test("思考帽随钩子落到 deepseek-extended 请求，none 时不落", async () => {
+	const { hook } = mount();
+	const model = { provider: "deepseek-extended", id: "deepseek-v4-flash" };
+	const capped = await hook.handler(
+		{ type: "before_provider_request", payload: { model: "deepseek-v4-flash", input: [{ role: "user", content: "hi" }], reasoning: { effort: "low" } } },
+		{ model },
+	);
+	assert.equal(capped.input[0].role, "developer");
+	assert.equal(capped.input[0].content[0].text, THINKING_CAP_DIRECTIVE);
+	const uncapped = await hook.handler(
+		{ type: "before_provider_request", payload: { model: "deepseek-v4-flash", input: [{ role: "user", content: "hi" }], reasoning: { effort: "none" } } },
+		{ model },
+	);
+	assert.equal(uncapped.input[0].role, "user");
 });
 
 test("凭据链：设置兜底优先，缺 key 时是英文的可行动错误", () => {
@@ -236,4 +299,22 @@ test("凭据链：设置兜底优先，缺 key 时是英文的可行动错误", 
 
 test("非 HTTPS 的 baseUrl 直接拒绝", () => {
 	assert.throws(() => createDeepSeekProvider({ baseUrl: "http://api.deepseek.com" }), /HTTPS/);
+});
+
+test("移植过来的源码保持全英文", () => {
+	// 这份包是从 PipiUI 上游 vendored 过来的，而上游的用户可见串是中文的。
+	// 重新同步时整体覆盖会把翻译悄悄冲掉，而按具体文案写的断言（例如
+	// /DeepSeek API key/）中英文都能匹配、拦不住。所以这里一次性守住全部文件。
+	const root = join(REPO, "extensions", "deepseek", "agent");
+	const offenders = [];
+	for (const entry of readdirSync(root, { recursive: true, withFileTypes: true })) {
+		if (!entry.isFile() || !entry.name.endsWith(".js")) continue;
+		const path = join(entry.parentPath ?? entry.path, entry.name);
+		for (const [index, line] of readFileSync(path, "utf8").split("\n").entries()) {
+			if (/[\u4e00-\u9fff]/.test(line)) {
+				offenders.push(`${path.slice(root.length + 1)}:${index + 1}  ${line.trim().slice(0, 70)}`);
+			}
+		}
+	}
+	assert.deepEqual(offenders, [], `移植的源码里出现中文（多半是从上游整体覆盖导致的）：\n${offenders.join("\n")}`);
 });

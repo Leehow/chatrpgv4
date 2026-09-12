@@ -7,6 +7,12 @@ from conftest import CAMPAIGN, WORKTREE, campaign_dir, create_campaign, narrate,
 from test_mods import weapon
 
 
+def shipped_version(mod):
+    """The version this tree ships. Pinned as a literal, a dependency fixture broke on every bump
+    of the mod it depends on, which says nothing about whether dependencies are honoured."""
+    return read_json(WORKTREE/"mods"/mod/"mod.json")["version"]
+
+
 def alternate(kernel, tmp_path, source, name, **changes):
     root=tmp_path/name
     shutil.copytree(WORKTREE/"mods"/source,root)
@@ -70,7 +76,7 @@ def test_materializer_and_editor_follow_order_and_stale_job_is_rejected(kernel,t
 
 
 def test_dependencies_and_default_order_are_preserved(kernel,tmp_path):
-    alternate(kernel,tmp_path,"natural-npc","npc-overhaul",dependencies={"natural-npc":"1.2.0"})
+    alternate(kernel,tmp_path,"natural-npc","npc-overhaul",dependencies={"natural-npc":shipped_version("natural-npc")})
     create_campaign(kernel)
     kernel.ok("mods.configure",{"campaign":CAMPAIGN,"id":"npc-overhaul","enabled":True})
     prior=read_json(campaign_dir(kernel.workspace)/"world.json")

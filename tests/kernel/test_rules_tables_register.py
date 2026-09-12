@@ -47,8 +47,6 @@ UNREAD_TABLES = {
     "npc-social-roles": "The one with a half-built other end: starter NPC records carry a "
                         "`social_role` field and this file holds the duty templates it would "
                         "name, but no code joins them. Wiring it is a feature, not a fix.",
-    "npc-stat-archetypes": "Statblock archetypes for NPCs the book does not stat. §17.9 pins a "
-                           "helping NPC's skill from the keeper's `apply npc` instead.",
     "storylet-library": "260KB of storylets. §13.3 says in so many words that this slice does not "
                         "carry them; the Director scores beats off the graph.",
     "structure-weights": "Scenario-structure weights from the old tree. The Director's scoring "

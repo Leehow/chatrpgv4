@@ -74,5 +74,6 @@ for(const [name,entrypoint] of [['grok-build-oauth',context.entrypoints.grokBuil
   m.agent.extension='agent/index.mjs';
   writeGeneratedManifest(join(dest,'pipiui-extension.json'),m);
 }
+copyGeneratedTree(join(root,'extensions/remote-control'),join(context.agentHome,'extensions/remote-control'));
 console.log(`Installed compiled COC and provider UI assets at ${context.agentHome}`);
 JS

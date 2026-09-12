@@ -80,6 +80,24 @@ def test_player_view_hides_keeper_visibility_rolls():
     assert "The door gives." in view
 
 
+def test_player_view_names_a_concealed_check_and_shows_no_figure():
+    # Contract section 16.5's middle tier. The persona player must learn that its own declared
+    # Psychology read was rolled -- otherwise the turn reads as the Keeper simply talking -- and
+    # must not learn the die, which is the one thing the concealed roll withholds from the table.
+    delivery = {"kind": "narrate", "rendered_text": "He looks at the window.", "mechanics": [
+        {"kind": "roll", "skill": "Psychology", "visibility": "concealed", "receipt": "roll:psychology-t5-c1",
+         "roll": 2, "target": 70, "threshold": 70, "difficulty": "regular", "level": "extreme", "passed": True,
+         "pushed": False, "actor_is_investigator": True},
+    ]}
+    view = player_mod.player_view(delivery, "", "settled")
+    assert "He looks at the window." in view
+    shown = json.loads(view.rsplit("\n", 1)[-1])
+    assert shown == {"kind": "roll", "skill": "Psychology", "visibility": "concealed",
+                     "receipt": "roll:psychology-t5-c1", "actor_is_investigator": True}
+    for figure in player_mod.CONCEALED_FIGURES:
+        assert figure not in shown, figure
+
+
 def test_player_view_falls_back_to_prose_and_names_a_dead_turn():
     assert player_mod.player_view(None, "words", "settled") == "words"
     assert "nothing this turn" in player_mod.player_view(None, "", "timeout")
@@ -474,3 +492,39 @@ def test_a_secret_leak_on_a_turn_that_minted_no_clue_says_so():
     citations = folded["secret_leak"]["citations"]
     assert citations[0]["no_clue_receipt_this_turn"] is True
     assert "no_clue_receipt_this_turn" not in citations[1]
+
+
+def test_credentials_are_linked_not_copied_so_a_refresh_reaches_the_player(tmp_path):
+    """A copy is a snapshot: an OAuth token the table refreshes stays stale in every copy."""
+    live = tmp_path / "live"
+    live.mkdir()
+    (live / "auth.json").write_text('{"xai": {"access": "first"}}', encoding="utf-8")
+    (live / "models.json").write_text('{"providers": {}}', encoding="utf-8")
+    home = player_mod.seed_home(tmp_path / "home", live)
+    assert (home / "auth.json").is_symlink()
+    (live / "auth.json").write_text('{"xai": {"access": "refreshed"}}', encoding="utf-8")
+    assert "refreshed" in (home / "auth.json").read_text(encoding="utf-8")
+
+
+def test_out_of_credit_stops_the_suite_instead_of_looking_like_a_bad_player(tmp_path, monkeypatch):
+    """One billing event used to become twenty-two runs that read like a broken product."""
+    persona = player_mod.load_personas()["P01"]
+    player = player_mod.PersonaPlayer(persona, tmp_path / "run", launcher=FAKE_PERSONA,
+                                      credentials_from=tmp_path / "none")
+    player._last_error_message = 'OpenAI API error (403): 403 "You have run out of credits"'
+    monkeypatch.setattr(player_mod.PersonaPlayer, "_prompt", lambda self, m, t: ("", True))
+    with pytest.raises(player_mod.ProviderExhausted):
+        player.act("anything")
+
+
+def test_a_run_queued_after_exhaustion_is_not_started(tmp_path):
+    bench._exhausted.set()
+    try:
+        record = bench.execute_run({"campaign": "c", "run_id": "r", "lane": "controlled", "trial": 1,
+                                    "persona": "P01"},
+                                   {**bench.DEFAULTS, "suite": "s"},
+                                   player_mod.load_personas()["P01"], tmp_path)
+    finally:
+        bench._exhausted.clear()
+    assert record["status"] == "invalid" and "provider_exhausted" in record["error"]
+    assert record["turns_played"] == 0

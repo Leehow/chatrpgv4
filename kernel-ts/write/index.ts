@@ -71,7 +71,14 @@ function initialWorld(graph: ModuleGraph, chosen: string | null): [
     string
 ] {
     const start = chosen ? graph.scene(chosen) : startScene(graph), handle = graph.handle(start), presence: Row = {};
-    for (const scene of graph.kind('scene'))
+    // A book puts many people in more than one scene, and someone can only stand in one of them, so
+    // the first scene to claim a name keeps them. The start scene goes first, because it is the one
+    // scene the table is certainly in: leaving it to graph order let the opening be played to an
+    // empty room. Masks lists Larkin, de Mendoza and Elias in Start: Lima, but Hotel España and the
+    // Museo come earlier in the graph and took all three, so the opening dinner the prologue
+    // describes had nobody in it -- `look` answered `present: []`, a first impression had no target,
+    // and the opening turn cannot stage anyone because it may not change state.
+    for (const scene of [start, ...graph.kind('scene')])
         for (const id of graph.sceneNpcIds(scene)) {
             const npc = graph.handle(graph.nodes.get(id)!);
             if (!Object.hasOwn(presence, npc))
