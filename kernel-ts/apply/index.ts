@@ -121,6 +121,7 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                 }
             };
             let timeEffects = 0, restMinutes = 0;
+            const refused: { index: number; error: RpcError }[] = [];
             let stagedWorldline:Row|null=null;
             for (const [index, effect] of effects.entries()) {
                 try {
@@ -192,10 +193,28 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                         events.push({ type: 'time-advanced', data: { minutes: receipt.minutes, why: 'travel', clock: clone(staged.clock) }, receipt: receipt.id });
                 }
                 catch (error) {
-                    if (error instanceof RpcError)
-                        throw atIndex(error, index);
-                    throw error;
+                    if (!(error instanceof RpcError))
+                        throw error;
+                    // Keep going. Throwing here told the Keeper about one bad effect per round trip, so a
+                    // batch with two mistakes in it cost two rounds -- and every innocent effect beside them
+                    // was rolled back each time. Nothing commits after a refusal either way; the rest of the
+                    // pass exists only to find the other problems worth reporting in the same breath.
+                    refused.push({ index, error });
                 }
+            }
+            if (refused.length) {
+                const [first] = refused;
+                // The first refusal stays exactly what it was -- code, message, fix, index -- because that is
+                // what the Keeper reads and what a refusal is counted by. The rest ride along, and say plainly
+                // that they may be refusals only because the first effect never landed.
+                throw new RpcError(first.error.code, first.error.message, {
+                    fix: first.error.fix, codeDetail: first.error.codeDetail,
+                    details: { index: first.index, ...first.error.details, ...(refused.length > 1 ? {
+                        refused: refused.map(({ index, error }) => ({ index, code: error.code, message: error.message,
+                            ...(error.fix ? { fix: error.fix } : {}) })),
+                        refused_note: 'every effect this batch refused; those after the first may be refused only because it did not land',
+                    } : {}) },
+                });
             }
             if (truth(staged.ending) && (row(staged.ending).scope ?? 'campaign') === 'campaign' && (stagedWorldline||truth(turn.worldline)))
                 throw new RpcError('invalid_params', 'a campaign ending cannot share a turn with a worldline transition');

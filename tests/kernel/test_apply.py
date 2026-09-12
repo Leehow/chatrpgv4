@@ -369,3 +369,35 @@ def test_handout_display_name_prefers_delivery_over_underlying_asset(kernel):
     open_turn(kernel)
     result = kernel.table("apply", call_id="t1-c1", effects=[{"kind":"handout", "name":"Corbitt House Investigator Map"}])
     assert result["receipts"]
+
+
+def test_a_batch_reports_every_effect_it_refused_not_only_the_first(kernel):
+    open_turn(kernel)
+    before = json.dumps(world(kernel), sort_keys=True)
+
+    # Two mistakes, independent of each other. One refusal per round trip made the Keeper spend a round
+    # on each, and rolled back every innocent effect beside them both times.
+    refused = kernel.table_err("apply", call_id="t1-c1", effects=[
+        {"kind":"time", "minutes":-1},
+        {"kind":"clue", "clue":"knott-commission", "how":"诺特说明条件。"},
+        {"kind":"time", "minutes":"soon"},
+    ])
+    # The first refusal is unchanged: it is what the Keeper reads and what a refusal is counted by.
+    assert refused["code"] == "invalid_params"
+    assert "minutes" in refused["message"]
+    assert refused["details"]["index"] == 0
+
+    listed = refused["details"]["refused"]
+    assert [entry["index"] for entry in listed] == [0, 2]
+    assert all(entry["code"] == "invalid_params" for entry in listed)
+    assert "may be refused only because it did not land" in refused["details"]["refused_note"]
+
+    # Nothing landed, including the clue between them.
+    assert json.dumps(world(kernel), sort_keys=True) == before
+
+
+def test_a_batch_with_one_bad_effect_still_reports_exactly_one(kernel):
+    open_turn(kernel)
+    refused = kernel.table_err("apply", call_id="t1-c1", effects=[{"kind":"time", "minutes":-1}])
+    assert refused["details"]["index"] == 0
+    assert "refused" not in refused["details"]
