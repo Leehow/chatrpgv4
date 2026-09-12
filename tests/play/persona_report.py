@@ -292,29 +292,83 @@ def run_judge(run_dir: Path, model: str) -> dict[str, Any]:
     # `--thinking off` is not a preference: with thinking on, this lane produced no text and no
     # tool call at all, twice -- reasoning and the tool budget come out of the same output
     # allowance. Turned off, the same model reads every turn and answers every question.
+    (run_dir / "judge-session").mkdir(exist_ok=True)
     home = seed_home(Path(tempfile.mkdtemp(prefix="persona-judge-")) / "home",
                      REPO_ROOT / ".pi" / "coc-agent")
     env = {k: v for k, v in os.environ.items()
            if not k.startswith(("PI_COC_", "PIPIUI_", "PI_CODING_AGENT_DIR"))}
     env["PI_CODING_AGENT_DIR"] = str(home)
     try:
-        proc = subprocess.run(
-            [str(pi), "-p", "--no-extensions", "--no-skills", "--no-prompt-templates",
-             "--no-session", "--no-context-files", "--approve", "--thinking", "off",
-             "--tools", "read,write,edit,bash", "--provider", provider, "--model", model_id,
-             "Follow JUDGE.md in this directory."],
-            cwd=str(run_dir), capture_output=True, text=True, timeout=JUDGE_TIMEOUT, env=env,
-        )
+        proc = subprocess.run(_judge_argv(pi, provider, model_id, run_dir), cwd=str(run_dir),
+                              capture_output=True, text=True, timeout=JUDGE_TIMEOUT, env=env)
+        first_pass = proc.stdout + "\n" + proc.stderr
+        (run_dir / "judge-stdout.log").write_text(first_pass, encoding="utf-8")
     finally:
         shutil.rmtree(home.parent, ignore_errors=True)
-    (run_dir / "judge-stdout.log").write_text(proc.stdout + "\n" + proc.stderr, encoding="utf-8")
+    missed = uncovered_turns(run_dir)
+    if missed:
+        # The first pass samples: on a thirty-turn table it looked at ten turns and left a rate
+        # with a denominator of one. A rate nobody can divide is worse than no rate, so the turns
+        # it never opened are named back to it and it goes again over those alone.
+        (run_dir / "JUDGE.md").write_text(
+            JUDGE_INSTRUCTIONS + "\n\nSECOND PASS. You have already judged some turns. These you "
+            "have not opened at all: " + ", ".join(str(t) for t in missed) + ". Open each one with "
+            "`python judge_tools.py turn <n>` and record a finding for every question that turn "
+            "exercises. If a turn exercises nothing, that is a real answer -- move on.\n",
+            encoding="utf-8")
+        subprocess.run(_judge_argv(pi, provider, model_id, run_dir), cwd=str(run_dir),
+                       capture_output=True, text=True, timeout=JUDGE_TIMEOUT, env=env)
+
     path = run_dir / "judgement.jsonl"
     if not path.exists():
         return {"findings": [], "error": "the judge recorded no findings at all"}
     findings = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
     refused = run_dir / "judge-refusals.jsonl"
     return {"findings": findings,
-            "refused": len(refused.read_text(encoding="utf-8").splitlines()) if refused.exists() else 0}
+            "refused": len(refused.read_text(encoding="utf-8").splitlines()) if refused.exists() else 0,
+            "cost": judge_cost(run_dir)}
+
+
+def judge_cost(run_dir: Path) -> dict[str, Any]:
+    """What the judge actually spent, read off its own session -- an audited lane, not an estimate."""
+    totals = {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "requests": 0}
+    for path in (run_dir / "judge-session").glob("*.jsonl"):
+        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            try:
+                row = json.loads(line)
+            except ValueError:
+                continue
+            usage = (row.get("message") or row if isinstance(row, dict) else {}).get("usage")
+            if not isinstance(usage, dict):
+                continue
+            totals["requests"] += 1
+            for key in ("input", "output", "cacheRead", "cacheWrite"):
+                if isinstance(usage.get(key), (int, float)):
+                    totals[key] += usage[key]
+    return totals
+
+
+def _judge_argv(pi: Path, provider: str, model_id: str, run_dir: Path) -> list[str]:
+    return [str(pi), "-p", "--no-extensions", "--no-skills", "--no-prompt-templates",
+            "--session-dir", str(run_dir / "judge-session"),
+            "--no-context-files", "--approve", "--thinking", "off",
+            "--tools", "read,write,edit,bash", "--provider", provider, "--model", model_id,
+            "Follow JUDGE.md in this directory."]
+
+
+def uncovered_turns(run_dir: Path) -> list[int]:
+    """Turns the judge never recorded anything about -- not turns it cleared."""
+    packet = json.loads((run_dir / "judge-packet.json").read_text(encoding="utf-8"))
+    all_turns = [t["turn"] for t in packet["turns"]]
+    seen = set()
+    path = run_dir / "judgement.jsonl"
+    if path.exists():
+        for line in path.read_text(encoding="utf-8").splitlines():
+            try:
+                seen.add(json.loads(line).get("turn"))
+            except ValueError:
+                continue
+    return [t for t in all_turns if t not in seen]
 
 
 def fold_judgement(judgement: dict[str, Any], turns_seen: set[int],
@@ -369,6 +423,9 @@ def classify(record: dict[str, Any]) -> str:
 
 
 def build_report(run_dir: Path, *, judge: bool, judge_model: str) -> dict[str, Any]:
+    # Absolute: the judge runs with this directory as its cwd, and a relative --session-dir was
+    # resolved against it, burying the session under a copy of its own path.
+    run_dir = run_dir.resolve()
     record = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
     campaign = REPO_ROOT / ".coc" / "campaigns" / record["campaign"]
     trace_rows = read_jsonl(run_dir / "trace.jsonl")
