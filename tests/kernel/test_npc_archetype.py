@@ -109,3 +109,39 @@ def test_the_books_numbers_cannot_be_replaced_by_an_archetype(kernel):
     assert error["code"] == "invalid_params"
     assert "prints Walter Corbitt's numbers" in error["message"]
     assert error["details"]["authority"] == "source_authored"
+
+
+# ---- opening a fight against someone faster (contract §34.11) ----------------------------------
+
+def _pin_faster_knott(tmp_path):
+    """A dangerous_actor Knott whose rolled DEX beats Hayes's 60; the seed that gives one is found among a
+    short fixed list, so the test is deterministic and never fabricates a number."""
+    from conftest import RpcClient
+    for seed in ("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"):
+        client = RpcClient(tmp_path / f"ws-{seed}", env={"COC_KERNEL_SEED": seed})
+        open_turn(client, "我想把你打一顿")
+        client.table("apply", call_id="t1-c1", effects=[{"kind": "npc", "name": "Steven Knott", "archetype": "dangerous_actor", "why": "test"}])
+        dex = read_json(campaign_dir(client.workspace) / "world.json")["npc_profiles"]["steven-knott"]["characteristics"]["DEX"]
+        if dex > 60:
+            return client, dex
+        client.close()
+    raise AssertionError("no seed in the list rolled a DEX above 60 for dangerous_actor (range 45-80)")
+
+
+def test_a_fight_against_someone_faster_opens_and_hands_them_the_first_action(tmp_path):
+    client, dex = _pin_faster_knott(tmp_path)
+    try:
+        opened = resolve(client, "t1-c2", intent="combat", goal="打诺特", method="挥拳", actor="Thomas Hayes", target="Steven Knott", weapon="unarmed")
+        assert opened["decision"].startswith("combat:")
+        receipts = client.table("status")["receipts"]
+        assert any(r["kind"] == "session" and r.get("transition") == "start" for r in receipts), "the start receipt landed"
+        assert not any(r["kind"] == "roll" for r in receipts), "no blow was rolled: the first action is Knott's"
+        # the exchange survives the call, and the next action belongs to Knott
+        again = client.table_err("resolve", call_id="t1-c3", action={"intent": "combat", "goal": "打诺特", "method": "挥拳", "actor": "Thomas Hayes", "target": "Steven Knott", "weapon": "unarmed"})
+        assert again["code"] == "turn_state" and "steven-knott's turn" in again["message"]
+        knott = resolve(client, "t1-c4", intent="combat", goal="推开海斯", method="抡椅子", actor="steven-knott", target="Thomas Hayes", weapon="unarmed")
+        assert knott["decision"].startswith("combat:")
+        pending = knott.get("pending_choice") or (knott.get("outcome") or {}).get("pending_choice") or client.table("open").get("pending_choice") or {}
+        assert pending.get("for") == "player" and set(pending.get("options", [])) >= {"dodge", "fight_back"}, f"Hayes must answer Knott's attack: {json.dumps(knott, ensure_ascii=False)[:600]}"
+    finally:
+        client.close()

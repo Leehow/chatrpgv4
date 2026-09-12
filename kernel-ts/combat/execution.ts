@@ -208,6 +208,22 @@ export async function executeCombatResolve(context: SettleContext, input: Row): 
         [session, started] = await startCombat(context, args);
         operation = { ...row(started.operation) };
         await context.writeSave('combat-operation.json', { combat_id: session.combatId, affordance_id: started.affordance_id, operation });
+        const first = cursorActor(session);
+        if (first !== null && first !== actor) {
+            // The exchange is open and the rulebook's DEX order gives the first action to someone else. Until
+            // 2026-09-11 this fell through to the "it is X's turn" refusal, the unsaved session vanished with
+            // the failed call, and the next call for X met "no combat is underway": a fight against anyone
+            // faster than the investigator could never start (table F, contract §34.11). The session is kept,
+            // the start receipt lands, and the turn is handed to the first actor.
+            session.revision++;
+            await session.save(context);
+            const view = context.sessions(), order = session.currentInitiative.map(value => `${value.actor_id} (DEX ${value.dex})`).join(', ');
+            hints.push(`the exchange is open and ${first} acts first (DEX order: ${order}): resolve with actor: ${first}, intent combat, a target and a weapon; ${actor}'s own strike comes when the order reaches them`);
+            const data: Row = { combat_id: session.combatId, revision: session.revision, round: session.currentRound, action: 'open', actor_id: actor, turn: null,
+                pending_attack: null, status: session.status, outcome: session.outcome, session: view.combatView(), pending_choice: view.pendingChoice(),
+                started: true, initiative: started.initiative, preparations: started.preparations, turn_of: first };
+            return { data, warnings, hints };
+        }
     }
     else
         return turnState('no combat is underway', 'start one: intent combat with a present target and a weapon');

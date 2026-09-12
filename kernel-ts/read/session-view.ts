@@ -351,7 +351,8 @@ export class SessionView {
             const node = this.graph.find(name, ["npc"]);
             if (!node)
                 return false;
-            const profile = row(recordOf(node).mechanics).profile;
+            // The book's numbers, or a profile the table pinned from a rulebook archetype (contract §34.10).
+            const profile = row(recordOf(node).mechanics).profile ?? row(this.world.npc_profiles)[name];
             return !!profile && typeof profile === "object" && !Array.isArray(profile);
         });
         const gain = this.campaign.saved(`sanity-gain-pending/${id}.json`);

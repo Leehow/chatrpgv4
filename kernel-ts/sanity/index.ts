@@ -173,7 +173,7 @@ export function createSanityFamily(): FixedFamilyBinding {
             if (suffix === 'check') {
                 let loss = truth(action.san_loss) ? parseSanLoss(action.san_loss) : null;
                 if (!loss && targets.npc) {
-                    const profile = row(row(recordOf(targets.npc).mechanics).profile);
+                    const profile = row(context.npcProfile(context.graph.handle(targets.npc)));
                     for (const key of ['san_loss', 'san_loss_to_see', 'sanity_loss']) { loss = parseSanLoss(profile[key]); if (loss) break; }
                 }
                 if (!loss) throw new RpcError('needs', 'the SAN check needs its loss expression (success/failure)', {
