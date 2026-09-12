@@ -1301,6 +1301,12 @@ export default function (pi: ExtensionAPI) {
 
 			const pending = open.pending_turn;
 			if (pending) {
+				const review = await mods?.reviewStatus?.(campaign);
+				if (review?.paused) {
+					pauseReview(table, new KernelError({code: 'needs', message: 'The retained review is paused',
+						details: {reason: 'continuity_review_unavailable', cause: review.reason}}));
+					return;
+				}
 				const owed = (pending.owed ?? []).join(", ") || "narrate";
 				// The checkpoint's one line (contract §12.2) says where the last committed turn stopped;
 				// carrying it in the recovery message means the Keeper knows what he is following on from

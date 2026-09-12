@@ -31,6 +31,22 @@ export class ModJobs {
         const meta = await transaction.campaign.readCampaign(), module = await loadCampaignModule(this.context, string(meta.module_id), transaction.world);
         return {...transaction, meta, module, graph: module.graph};
     }
+    private reviewScope(campaign: string, meta: Row, turn: Row): string {
+        return join(this.runtime.root, 'jobs', jsonDigest(['continuity-chain', campaign, meta.active_worldline ?? null, turn.turn, turn.opened_at ?? null]));
+    }
+    async reviewStatus(params: Row): Promise<Row> {
+        const {campaign, world, turn, meta} = await this.load(params);
+        const enabled = (await this.contributors(world, turn, 'audit')).some(mod => array(mod.requires).includes(CONTINUITY_AUDIT));
+        if (!enabled) return {enabled: false, paused: false};
+        const path = join(this.reviewScope(campaign.id, meta, turn), 'review-budget.json');
+        if (!await this.context.snapshots.pathExists(path)) return {enabled: true, paused: false, turn: turn.turn};
+        try {
+            const budget = row(await this.context.snapshots.readJson(path));
+            const invalid = budget.version !== 1 || !['requests', 'ms', 'rewrites', 'artifact_repairs'].every(k => typeof budget[k] === 'number' && budget[k] >= 0);
+            const reason = invalid ? 'Retained review accounting is invalid' : budget.blocked || (budget.active ? 'An interrupted review retains its allowance' : null);
+            return {enabled: true, paused: !!reason, reason, turn: turn.turn};
+        } catch { return {enabled: true, paused: true, reason: 'Retained review accounting is unreadable', turn: turn.turn}; }
+    }
     async knownHandouts(graph: ModuleGraph, world: Row): Promise<Row[]> {
         const result: Row[] = [];
         for (const handle of array(world.handouts_shown)) {
@@ -125,7 +141,7 @@ export class ModJobs {
         return {enabled: true, job: key, cwd: root, system_prompt: join(root, 'prompt.md'), mod: packageRow.id, digest: packageRow.digest,
             accepted: await this.context.snapshots.pathExists(join(root, 'accepted.json')), role, ...(sourceAudit ? {source_review: true} : {}),
             ...(continuity ? {continuity_review: true, focus: evidence!.files['context.json'], limits: AUDIT_LIMITS,
-                review_scope: join(this.runtime.root, 'jobs', jsonDigest(['continuity-chain', campaign.id, meta.active_worldline ?? null, turn.turn, turn.opened_at ?? null]))} : {})};
+                review_scope: this.reviewScope(campaign.id, meta, turn)} : {})};
     }
     /**
      * The registrations whose parameters have arrived, shaped as ordinary effects. The host applies them

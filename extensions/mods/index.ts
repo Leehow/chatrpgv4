@@ -31,6 +31,7 @@ function modPoolSize(): number {
   return Number.isFinite(configured) && configured >= 1 ? Math.floor(configured) : MOD_POOL_DEFAULT;
 }
 export interface ModBridge {
+  reviewStatus?(campaign: string): Promise<{paused?: boolean; reason?: string}>;
   prepare(method: string, payload: Record<string, any>, signal?: AbortSignal): Promise<void>;
   /** After the verb landed, so deferred registration can complete in a turn the Keeper never writes in. */
   after(method: string, payload: Record<string, any>, signal?: AbortSignal): Promise<void>;
@@ -333,6 +334,10 @@ export default function modsExtension(pi: ExtensionAPI): void {
   }
 
   const bridge: ModBridge = {
+    async reviewStatus(campaign) {
+      if (!call) throw reviewUnavailable('The review status bridge is unavailable');
+      return call('mods.review.status', {campaign});
+    },
     /**
      * A turn the Keeper answers without writing anything never reaches `prepare`, and its deferred
      * registration would then wait for whichever later turn happens to write. player_input has just

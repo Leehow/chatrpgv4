@@ -133,6 +133,10 @@ test('new jobs expose focused context with full fallback, bind accepted reports,
     assert.equal((await call('mods.accept', {job: job.job})).continuity_review.verdict, 'pass');
     const changed = await call('mods.job', {role: 'audit', input: {text: 'Another compatible sentence.'}});
     assert.notEqual(changed.job, job.job); assert.equal(changed.review_scope, job.review_scope);
+    assert.equal((await call('mods.review.status')).paused, false);
+    const paused = new AuditBudget(job.review_scope);
+    try { assert.throws(() => paused.fail('Fixture review remains paused'), /paused/); } finally { paused.close(); }
+    assert.equal((await call('mods.review.status')).paused, true);
     await call('table.apply', {call_id: 't2-c1', effects: [{kind: 'time', minutes: 1, why: 'A chosen wait'}]});
     await assert.rejects(call('mods.accept', {job: job.job}), e => e.details?.reason === 'mod_audit_stale');
 });
