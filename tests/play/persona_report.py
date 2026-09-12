@@ -50,6 +50,13 @@ JUDGE_TIMEOUT = 1800
 # tier A: receipts
 # --------------------------------------------------------------------------
 
+def driver_read(path: Path) -> dict[str, Any]:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
@@ -60,6 +67,22 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
         except ValueError:
             continue
     return rows
+
+
+def admission_failed_turns(campaign: Path) -> set[int]:
+    """Turns where the action review never answered (contract section 32.2).
+
+    The Keeper is then told the batch cannot settle, and it says so to the player -- which a
+    judge rightly reads as a refusal. Those turns are named by number here so a finding can be
+    marked as co-occurring with an instrument failure. By turn number, never by matching words:
+    which sentence counts as a refusal is a semantic question, and this repository does not
+    answer those with phrase lists.
+    """
+    failed = set()
+    for row in read_jsonl(campaign / "telemetry.jsonl"):
+        if row.get("lane") == "admission" and row.get("ok") is False and isinstance(row.get("turn"), int):
+            failed.add(row["turn"])
+    return failed
 
 
 def module_graph(campaign: Path) -> dict[str, Any]:
@@ -372,7 +395,7 @@ def uncovered_turns(run_dir: Path) -> list[int]:
 
 
 def fold_judgement(judgement: dict[str, Any], turns_seen: set[int],
-                   allowed: list[str]) -> dict[str, Any]:
+                   allowed: list[str], admission_failed: set[int] | None = None) -> dict[str, Any]:
     """Drop what cannot be cited, then count. The judge does not get to add metrics."""
     folded: dict[str, dict[str, Any]] = {}
     dropped = 0
@@ -386,11 +409,16 @@ def fold_judgement(judgement: dict[str, Any], turns_seen: set[int],
                 or verdict not in ("ok", "violation") or not quote):
             dropped += 1
             continue
-        bucket = folded.setdefault(metric_id, {"ok": 0, "violation": 0, "citations": []})
+        bucket = folded.setdefault(metric_id, {"ok": 0, "violation": 0, "citations": [],
+                                               "violations_while_review_unavailable": 0})
         bucket[verdict] += 1
+        instrument = turn in (admission_failed or set())
+        if verdict == "violation" and instrument:
+            bucket["violations_while_review_unavailable"] += 1
         if verdict == "violation" or len(bucket["citations"]) < 3:
             bucket["citations"].append({"turn": turn, "verdict": verdict, "quote": quote[:400],
-                                        "why": (finding.get("why") or "")[:300]})
+                                        "why": (finding.get("why") or "")[:300],
+                                        **({"review_unavailable_this_turn": True} if instrument else {})})
     for metric_id, bucket in folded.items():
         bucket["rate"] = rate(metric_id, bucket["ok"], bucket["violation"])
         bucket["direction"] = METRICS[metric_id]["direction"]
@@ -453,7 +481,8 @@ def build_report(run_dir: Path, *, judge: bool, judge_model: str) -> dict[str, A
         judgement = run_judge(run_dir, judge_model)
         turns_seen = {row["turn"] for row in trace_rows if row.get("turn")} | {0}
         allowed = list(dict.fromkeys(list(HARD_GATES) + list(persona["assertions"])))
-        report["judged"] = fold_judgement(judgement, turns_seen, allowed)
+        report["judged"] = fold_judgement(judgement, turns_seen, allowed,
+                                          admission_failed_turns(campaign))
         if judgement.get("refused"):
             report["judged"]["_refused_by_tool"] = judgement["refused"]
         if judgement.get("error"):
@@ -486,6 +515,17 @@ def cmd_run(args: argparse.Namespace) -> int:
 def cmd_suite(args: argparse.Namespace) -> int:
     suite_dir = Path(args.suite_dir)
     run_dirs = sorted(p for p in suite_dir.iterdir() if (p / "run.json").exists())
+    skip = {p.strip().upper() for p in (args.skip_personas or "").split(",") if p.strip()}
+    if skip:
+        kept = []
+        for run_dir in run_dirs:
+            record = driver_read(run_dir / "run.json")
+            if (record.get("persona") or "").upper() in skip or record.get("status") != "completed":
+                continue
+            kept.append(run_dir)
+        print(f"judging {len(kept)} of {len(run_dirs)} runs (skipping personas {sorted(skip)} "
+              f"and runs that did not complete)", file=sys.stderr)
+        run_dirs = kept
     reports: list[dict[str, Any]] = []
     # The judge lane is one agent per run; a hundred of them in series is most of a day, and
     # they share nothing but the model endpoint.
@@ -610,6 +650,9 @@ def build_parser() -> argparse.ArgumentParser:
         sp.add_argument(needs, required=True, dest=needs.lstrip("-").replace("-", "_"))
         sp.add_argument("--no-judge", action="store_true", help="tiers A and B only; spend nothing")
         sp.add_argument("--judge-model", default=DEFAULT_JUDGE_MODEL)
+        sp.add_argument("--skip-personas", default=None,
+                        help="comma-separated persona ids to leave unjudged (e.g. runs starved of "
+                             "quota); incomplete runs are skipped with them")
         sp.add_argument("--judge-concurrency", type=int, default=8,
                         help="judges to run at once when judging a whole suite (default 8)")
         sp.set_defaults(func=func)
