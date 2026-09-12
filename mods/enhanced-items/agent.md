@@ -28,9 +28,17 @@ to identify weapons and other mechanically meaningful items that lack parameters
 Generate their definitions and use object with adopt set to the exact existing
 equipment name and to set to its owner. Send the definitions and their adoptions
 as one apply carrying nothing else: a batch of only definitions and adoptions is
-bookkeeping, and the host registers it without holding the turn's delivery. This enriches an already-owned item; do
+bookkeeping, and the host registers it without holding the turn's delivery.
+This enriches an already-owned item; do
 not buy, award, duplicate, consume or move it, advance time, or require the player
 to request a check. Preserve any recorded quantity, ammunition and condition.
+An equipment row is a line of a sheet, not a name: it often carries what comes with
+the thing, or what is notable about it. Name the definition and the instance for the
+object itself, and put the rest of the line -- the holster, the spare magazines, the
+single chamber -- in the description where it is read, not in the name that heads it.
+adopt still names the row exactly as written; only the name you give the object is
+shorter. And name the definition in every object call that places it: an adoption's
+instance name is your own wording, so it is never the definition's name.
 Do not replace executable weapon rows, convert money into items, or grant a spell
 merely because a book is owned. Decorative entries need no invented mechanic.
 

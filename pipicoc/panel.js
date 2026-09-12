@@ -1086,7 +1086,12 @@ export function createComponent(React) {
       sheet && view.presentation_status ? h(Section,{title:t("equipment"),icon:"backpack",anchor:"equipment"},
         h("p",{className:"coc-sheet-note",role:"status"},view.presentation_status==="failed"?t("errorDetail"):t("loading")),
         view.presentation_status==="failed"?h("button",{type:"button",onClick:()=>{void load(true);}},t("retry")):null) :
-      sheet ? h(ItemSection, { title: t("equipment"), icon: "backpack", anchor: "equipment", list: (sheet.equipment || []).filter(item => !view.finance_equipment?.includes(item)), objects:(sheet.objects || []).filter(item=>item.category!=="weapon"), empty: t("noEquipment"), t, term,
+      // A carried gun is both: a combat profile in `weapons` and an inventory row in `equipment`, which
+      // is right in the data and wrong on the page -- a live sheet drew the same pistol in the weapons
+      // box and again in the inventory one. An object with a combat profile is drawn where that profile
+      // lives, once.
+      sheet ? h(ItemSection, { title: t("equipment"), icon: "backpack", anchor: "equipment", list: (sheet.equipment || []).filter(item => !view.finance_equipment?.includes(item)
+        && !(item && item.object_id && (sheet.weapons || []).some(weapon => weapon && weapon.object_id === item.object_id))), objects:(sheet.objects || []).filter(item=>item.category!=="weapon"), empty: t("noEquipment"), t, term,
         documents:sheet.objects, insideLabel:word(ui,"paper","inside"), paperLabel:word(ui,"paper","open"),
         onOpenDocument:name=>setDocumentTarget({name,actor:sheet.id,campaign:answer.campaign}) }) : null,
       sheet ? h(Finance, { sheet, t, term }) : null,

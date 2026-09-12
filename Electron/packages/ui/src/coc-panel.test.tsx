@@ -242,7 +242,7 @@ describe('the jump rail mirrors the rendered sections', () => {
     await screen.findByText('力量');
     await waitFor(() => expect(container.querySelectorAll('.coc-sheet-nav-chip').length).toBeGreaterThan(0));
     const chips = Array.from(container.querySelectorAll('.coc-sheet-nav-chip')).map(el => el.textContent);
-    expect(chips).toEqual(['时间', '状态', '属性', '技能（2）', '物品', '线索']);
+    expect(chips).toEqual(['时间', '状态', '属性', '技能（2）', '物品', '线索', '人物']);
     expect(chips).not.toContain('财务');
     expect(chips).not.toContain('背景');
     fireEvent.click(screen.getByRole('button', { name: '线索' }));
@@ -257,8 +257,8 @@ describe('the jump rail mirrors the rendered sections', () => {
     await screen.findByText('空卡');
     await waitFor(() => expect(container.querySelectorAll('.coc-sheet-nav-chip').length).toBeGreaterThan(0));
     const chips = Array.from(container.querySelectorAll('.coc-sheet-nav-chip')).map(el => el.textContent);
-    // Equipment renders its empty state even on a bare sheet, so it keeps its chip.
-    expect(chips).toEqual(['时间', '物品', '线索']);
+    // Equipment and the NPC journal render their empty states even on a bare sheet, so they keep their chips.
+    expect(chips).toEqual(['时间', '物品', '线索', '人物']);
   });
 });
 
@@ -611,4 +611,22 @@ describe('a possession folds everything past its name', () => {
     expect(fold.open).toBe(false);
     await screen.findByText('随身纸面');
   });
+});
+
+it('draws a carried weapon once, under the box its combat profile lives in', async () => {
+  // The sheet keeps a gun twice on purpose -- a combat profile in `weapons`, an inventory row in
+  // `equipment` -- and a live sheet drew the same pistol under 武器 and again under 物品.
+  const carried = {
+    ...investigator,
+    weapons: [{name: '柯尔特.45自动手枪', object_id: 'object-45-4', damage: '1D10+2', magazine: 7, ammo: 7, quantity: 1}],
+    equipment: [
+      {name: '柯尔特.45自动手枪', object_id: 'object-45-4', quantity: 1},
+      {name: '黄铜怀表'},
+    ],
+  };
+  render(<Panel api={host({ok: true, data: {status: 'ready', view: view({investigators: [carried]}), campaign: 'c1'}})} />);
+  await screen.findByText('黄铜怀表');
+  expect(screen.getAllByText('柯尔特.45自动手枪')).toHaveLength(1);
+  // …and it is the weapons box it stayed in, not the inventory one.
+  expect(screen.getByText('柯尔特.45自动手枪').closest('li')?.querySelector('dl')).toBeTruthy();
 });

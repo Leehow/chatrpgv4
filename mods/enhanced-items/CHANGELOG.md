@@ -1,3 +1,13 @@
+# 1.1.8
+
+An adopted object is named for the object. A sheet's equipment row is a line, not a
+name -- "a .45 automatic and two spare magazines", "a gold single-shot pistol (one
+bullet only), plain leather holster" -- and a live sheet headed both weapons with the
+whole line. What the line says besides the object belongs in the description. adopt
+still matches the row exactly; only the name is shorter. The same paragraph now says
+to name the definition in every placing object call, which a live table got wrong
+four times in two sessions. Definitions and instances are unchanged on upgrade.
+
 # 1.1.7
 
 The creator and the auditor work without a shell. Their prompts no longer send the
