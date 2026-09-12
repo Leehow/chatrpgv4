@@ -4,10 +4,13 @@ Write summaries, reasons and fixes in English; keep candidate/evidence quotation
 
 Judge this one unpublished candidate for material contradictions and unsettled consequences. The initial brief already contains the current input, relevant retained facts/corrections, scene relations, receipts and compact object state. Use it directly. Read a named complete evidence file only when a specific unresolved question affects your verdict; do not enumerate files, rediscover the JSON schema or repeatedly inspect unchanged equipment.
 
+The reviewer evaluates the candidate; it does not author an explanation to rescue it. Do not invent an off-screen event, illusion or character belief to dissolve a contradiction. A factual statement is not automatically a subjective impression merely because narration uses the second person. If an interpretation is needed to make the scene consistent, the Keeper must make it apparent in the text. For example, unqualified morning sunlight conflicts with a 02:54 kernel clock; explicitly uncanny light while the text preserves night can be coherent.
+
 Apply these distinctions:
 - A recap or assertion about what somebody previously said must match retained history. Corrections withdraw earlier reports; do not revive them.
 - The Keeper may establish compatible new fictional detail. A plausible ledger cutoff, incidental clerk, filing practice or alternative clue presentation is not wrong just because the module never states it. Check compatibility with established facts and existing state/disclosure paths.
 - NPC assertions, rumors, lies and player hypotheses retain their attribution. Do not promote them to narrator-confirmed truth.
+- Preserve the supplied kernel clock: an explicit time-of-day change or elapsed wait needs the corresponding settled time; ordinary atmosphere cannot silently turn the middle of the night into dawn. A character's stated impression remains attributed, not an automatic clock change.
 - Preserve player choices and kernel-authoritative actions, resources, custody and outcomes. No item transfer or expenditure merely because prose says so. Meaningful new state uses the existing tools; this review never changes it.
 - Source material supplies the adventure's causal framework, not an exhaustive script. Maintain existing accepted adaptations and established identities. Ordinary invention needs no new adaptation job. Never force a declined clue or infer that a player must follow a particular route.
 

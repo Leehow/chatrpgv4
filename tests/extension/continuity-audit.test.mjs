@@ -56,6 +56,13 @@ test('interrupted reservations are never silently refunded after restart', async
     assert.equal(next.previous[0].requests, 6); assert.equal(next.requests, 0);
 });
 
+test('a private session cannot exceed its reservation even with shared allowance left', async () => {
+    const scope = await mkdtemp(join(directory, 'over-reservation-'));
+    const budget = new AuditBudget(scope); budget.start();
+    try { assert.throws(() => budget.finish(7, 0), /paused/); } finally { budget.close(); }
+    assert.throws(() => new AuditBudget(scope), /paused/);
+});
+
 test('checked submission repairs all errors in place and terminates only after valid submission', async () => {
     const cwd = await mkdtemp(join(directory, 'submit-'));
     await writeFile(join(cwd, 'request.json'), JSON.stringify({input: {text: 'His childhood was described.'}, continuity_review: {files: ['memory.json']}}));
@@ -101,6 +108,8 @@ test('new jobs expose focused context with full fallback, bind accepted reports,
     const job = await call('mods.job', {role: 'audit', input: {text: 'The old register ends before the inheritance.'}});
     assert.equal(job.continuity_review, true); assert.equal(job.source_review, undefined);
     const focused = JSON.parse(await readFile(join(job.cwd, 'context.json'), 'utf8'));
+    assert.equal(focused.clock.minutes, 0);
+    assert.equal(typeof focused.clock.at, 'string');
     assert.ok(focused.recent_history[0].truncated); assert.ok((await readFile(join(job.cwd, 'history.json'), 'utf8')).length > 3000);
     assert.equal(focused.recent_history[1].player_text, 'Leave the book with the witness; do not take it.');
     assert.ok(focused.coverage.full_evidence_files.includes('history.json'));
@@ -113,13 +122,20 @@ test('new jobs expose focused context with full fallback, bind accepted reports,
     await assert.rejects(call('mods.accept', {job: job.job}), e => e.details?.reason === 'mod_audit_stale');
 });
 
-test('ending without checked submission is unavailable, not a passed file', async () => {
+for (const revoked of [false, true]) test(`a ${revoked ? 'revoked' : 'missing'} submission never becomes an accepted report`, async () => {
     const cwd = await mkdtemp(join(directory, 'host-')); let bridge;
     const pi = {events: new EventEmitter(), on() {}};
     pi.events.on('coc:mods-bridge', value => bridge = value); modsExtension(pi);
     pi.events.emit('coc:kernel-bridge', {call: async method => method === 'mods.job' ? {enabled: true, continuity_review: true,
         cwd, job: 'draft', review_scope: join(cwd, 'budget'), limits: AUDIT_LIMITS, focus: {}, system_prompt: join(cwd, 'prompt.md')} : {},
-        runtime: {async runTask() {return {ok: true, ms: 1};}}});
+        runtime: {async runTask(task) {
+            if (revoked) {
+                const control = JSON.parse(await readFile(join(cwd, task.request.audit.control), 'utf8'));
+                await writeFile(join(cwd, control.status_file), JSON.stringify({requests: 1, artifact_repairs: 0, submitted: true, unavailable: 'The budget was exhausted before submission'}));
+                task.request.onEvent({type: 'tool_execution_end', toolName: 'submit_audit', result: {details: {kind: 'audit_submission'}}});
+            }
+            return {ok: true, ms: 1};
+        }}});
     await assert.rejects(bridge.prepare('narrate', {campaign: 'c1', text: 'A draft.'}), e => e.details?.reason === 'continuity_review_unavailable');
 });
 

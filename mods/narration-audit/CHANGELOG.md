@@ -1,3 +1,11 @@
+# 1.2.3
+
+The reviewer must not invent unexpressed illusions or off-screen events to justify a contradiction; preserve explicitly marked subjective perception.
+
+# 1.2.2
+
+Use the kernel clock in continuity checks; retain prior player choices and distinguish atmosphere from unperformed time changes.
+
 # 1.2.1
 
 Expose evidence layout and the bounded submission workflow; preserve English review instructions and withdraw unchosen actions instead of manufacturing them.

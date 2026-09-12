@@ -1,6 +1,7 @@
 /** A ready-to-read working context backed by retained complete evidence. */
 import type {ModuleGraph} from '../read/module-graph.js';
 import {recordOf} from '../read/module-graph.js';
+import {clockSection} from '../read/capsule.js';
 import {continuityView} from '../read/continuity.js';
 import {EntityIndex, queryCandidates} from '../read/memory.js';
 import {objectContext, unregisteredEquipment} from '../read/mods.js';
@@ -18,6 +19,7 @@ export function continuityAuditContext(graph: ModuleGraph, world: Row, turn: Row
         .flatMap(name => { const node = graph.find(name); return node ? [node] : []; });
     return {
         current_input: turn.player_text ?? null,
+        clock: clockSection(graph, world),
         scene: {name: graph.displayName(scene), question: recordOf(scene).dramatic_question ?? null},
         present: Object.entries(row(world.npc_presence)).filter(([, at]) => at === world.active_scene).map(([name]) => ({name: index.canonicalName(`npc:${graph.find(name)?.node_id ?? name}`)})),
         receipts: array(turn.receipts).map(receipt => pick(receipt, ['kind', 'actor_label', 'skill', 'passed', 'from_label', 'to_label', 'minutes', 'clue', 'label', 'summary', 'how', 'from', 'to', 'owner', 'delta', 'before', 'after', 'name', 'text', 'condition', 'visibility'])),
