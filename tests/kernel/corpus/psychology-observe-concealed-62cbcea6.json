@@ -26,6 +26,11 @@
     "continuations": [
       "psychology:realize-player-safe"
     ],
-    "roll_visibility": "keeper"
+    "roll_visibility": "concealed",
+    "roll_visibility_superseded": {
+      "was": "keeper",
+      "on": "2026-09-12",
+      "why": "contract 16.5 split the hidden tier in two. The old repo recorded `keeper` because that was the only hidden value it had; under it this roll's row was dropped whole and a turn whose only mechanic was a player-declared Psychology read drew no mechanics card at all. `concealed` keeps the row and drops every figure. The die is hidden in both, which is what this case was recorded to protect."
+    }
   }
 }
