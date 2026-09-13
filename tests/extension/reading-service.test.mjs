@@ -1,9 +1,116 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { ReadingService } from "../../extensions/module/reading-service.ts";
+import { KernelError } from "../../extensions/kernel/client.ts";
+
+const ROOT = resolve(import.meta.dirname, "../..");
+const PLAYABILITY_MESSAGE = "the opening is not playable: [] [{\"code\":\"clue_supports_nothing\",\"node_id\":\"clue-family-fled\"}]";
+
+function openingDraft(repaired = false) {
+	const nodes = [
+		{ node_id: "scene-opening", node_kind: "scene", name: "Opening", summary: "The investigation begins here.",
+			source_refs: [{ page: 4 }], visibility: "player-safe", properties: { is_entrance: true } },
+		{ node_id: "clue-family-fled", node_kind: "clue", name: "The family fled", summary: "The family left before the denunciation.",
+			source_refs: [{ page: 4 }], visibility: "keeper-only", properties: { delivery_kind: "npc_dialogue" } },
+	];
+	if (repaired) nodes.push({ node_id: "conclusion-denunciation", node_kind: "conclusion", name: "The denunciation drove them out",
+		summary: "The denunciation explains the family's flight.", source_refs: [{ page: 5 }], visibility: "keeper-only", properties: {} });
+	return { nodes, claims: repaired ? [{ subject_id: "clue-family-fled", predicate: "supports", object: { node_id: "conclusion-denunciation" },
+		truth_status: "authorial", visibility: "keeper-only", source_refs: [{ page: 5 }] }] : [],
+		dependencies: [], critical: [], ready_nodes: ["scene-opening", "clue-family-fled"], coverage: {} };
+}
+
+async function runFinishRepairFixture(t, { rejectEveryFinish = false, transportFailure = false } = {}) {
+	const home = await mkdtemp(join(tmpdir(), "coc-finish-repair-"));
+	t.after(() => rm(home, { recursive: true, force: true }));
+	const cwd = join(home, "work", "attempt-1"), cache = join(home, ".coc", "modules", "book", "cache", "pages");
+	await mkdir(cwd, { recursive: true });
+	const readTasks = [], finishCalls = [];
+	let readRounds = 0, completionAttempts = 0;
+	const runtime = {
+		contentRoot: join(ROOT, "content"),
+		async runTask({ request }) {
+			if (request.prompt.phase === "read") {
+				readRounds++;
+				if (readRounds === 1) return { ok: false, code: 1, timedOut: false, ms: 1, stderr: "fixture read failure", command: [] };
+				const task = JSON.parse(await readFile(join(request.cwd, "task.json"), "utf8"));
+				readTasks.push(task);
+				const repaired = !!task.repair, page = repaired ? 5 : 4, image = join(cache, `page-${page}.png`), call = `read-${readRounds}`;
+				await writeFile(join(request.cwd, "draft.json"), JSON.stringify(openingDraft(repaired)) + "\n");
+				await appendFile(join(cache, "requests.jsonl"), JSON.stringify({ file_sha256: "source-sha", path: image, page, box: [0, 0, 1, 1] }) + "\n");
+				request.onEvent?.({ type: "tool_execution_end", toolCallId: call, isError: false,
+					result: { content: [{ type: "image" }], details: { kind: "source_pages", observations: [{ path: image, page }] } } });
+				await writeFile(request.eventLog + ".images.jsonl", JSON.stringify({ included: [call] }) + "\n");
+				return { ok: true, code: 0, timedOut: false, ms: 2, stderr: "", command: [] };
+			}
+			const task = JSON.parse(await readFile(join(request.cwd, "task.json"), "utf8"));
+			const pages = task.review_scope_pages?.length ? task.review_scope_pages : [4];
+			await writeFile(join(request.cwd, "review.json"), JSON.stringify({ checked: [{ paths: task.required_review,
+				verdict: "supported", source_refs: pages.map(page => ({ page })), reason: "fixture source support" }], missing: [] }) + "\n");
+			const call = `review-${task.required_review.join("-")}`;
+			request.onEvent?.({ type: "tool_execution_end", toolCallId: call, isError: false,
+				result: { content: [{ type: "image" }], details: { kind: "source_pages", observations: pages.map(page => ({ path: join(cache, `page-${page}.png`), page })) } } });
+			await writeFile(request.eventLog + ".images.jsonl", JSON.stringify({ included: [call] }) + "\n");
+			return { ok: true, code: 0, timedOut: false, ms: 2, stderr: "", command: [] };
+		},
+		async check() { return { ok: true }; },
+		async sourceInfo() { throw new Error("not a guidance job"); },
+	};
+	const service = new ReadingService({ home, runtime, model: () => ({ id: "fixture/vision", vision: true, thinking: "off" }),
+		progress() {}, record() {}, async call(method, params) {
+			assert.equal(method, "module.read.finish");
+			finishCalls.push(params);
+			if (params.outcome === "completed") {
+				completionAttempts++;
+				if (transportFailure) throw new KernelError({ code: "internal", message: "kernel request timed out" });
+				if (completionAttempts === 1 || rejectEveryFinish) throw new KernelError({ code: "invalid_params", message: PLAYABILITY_MESSAGE });
+				return { state: "ready" };
+			}
+			return { state: params.outcome };
+		} });
+	t.after(() => service.close());
+	const job = { job_id: "read-1", module_id: "book", purpose: "opening", focus: "scene-opening", foreground: true, lease: "lease-1",
+		work_dir: cwd, source: { path: join(home, "source.pdf"), page_count: 8, file_sha256: "source-sha" },
+		index: {}, known_nodes: [], known_claims: [], vocabulary: {}, coverage_domains: [] };
+	await service.runJob(job, new AbortController().signal);
+	return { cwd, readTasks, finishCalls, readRounds, completionAttempts };
+}
+
+test("a finish-time opening rejection gets one source-grounded repair after the normal rounds are spent", async t => {
+	const result = await runFinishRepairFixture(t);
+	assert.equal(result.readRounds, 3);
+	assert.equal(result.completionAttempts, 2);
+	assert.equal(result.readTasks.length, 2);
+	const repair = result.readTasks[1].repair;
+	assert.deepEqual(repair.draft, "draft.json");
+	assert.deepEqual(repair.baseline, "baseline.json");
+	assert.equal(repair.findings.error, `invalid_params: ${PLAYABILITY_MESSAGE}`);
+	assert.deepEqual(JSON.parse(await readFile(join(result.cwd, "baseline.json"), "utf8")), openingDraft(false));
+	assert.deepEqual(JSON.parse(await readFile(join(result.cwd, "draft.json"), "utf8")), openingDraft(true));
+	assert.deepEqual(JSON.parse(await readFile(join(result.cwd, "observations.json"), "utf8")).read_pages, [4, 5]);
+	assert.equal(result.finishCalls.at(-1).outcome, "failed", "the finally replay remains bounded after successful publication");
+});
+
+test("a repeated finish-time opening rejection ends as a failed job without another repair loop", async t => {
+	const result = await runFinishRepairFixture(t, { rejectEveryFinish: true });
+	assert.equal(result.readRounds, 3);
+	assert.equal(result.completionAttempts, 2);
+	assert.equal(result.finishCalls.length, 3);
+	assert.equal(result.finishCalls.at(-1).outcome, "failed");
+	assert.equal(result.finishCalls.at(-1).detail, `invalid_params: ${PLAYABILITY_MESSAGE}`);
+});
+
+test("a finish transport failure does not consume the semantic repair continuation", async t => {
+	const result = await runFinishRepairFixture(t, { transportFailure: true });
+	assert.equal(result.readRounds, 2);
+	assert.equal(result.completionAttempts, 1);
+	assert.equal(result.finishCalls.length, 2);
+	assert.equal(result.finishCalls.at(-1).outcome, "failed");
+	assert.equal(result.finishCalls.at(-1).detail, "internal: kernel request timed out");
+});
 
 test("a foreground timeout can rejoin the same pending reading without starting another reader", async t => {
 	const prior = process.env.PI_COC_READ_WAIT_MS;

@@ -58,6 +58,10 @@ function validCheckpoint(checkpoint: Row, bytes: Buffer, job: Row): boolean {
 const delay = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
 const error = (reason: string, message: string, fix: string, extra: Row = {}) =>
 	new KernelError({ code: "needs", message, fix, details: { reason, ...extra } });
+function openingPlayabilityRejection(failure: unknown, job: Row): boolean {
+	return job.purpose === "opening" && isKernelError(failure) && failure.code === "invalid_params"
+		&& failure.message.startsWith("the opening is not playable:");
+}
 
 export class ReadingService implements ReadingBridge {
 	private stopped = false;
@@ -306,8 +310,12 @@ export class ReadingService implements ReadingBridge {
 		let detail = "the reader did not produce a valid draft";
 		try {
 			if (!model.vision) throw error("vision_required", "the reader has no image input", "select a model that supports images");
-			for (let round = 1; round <= 2 && !signal.aborted; round++) {
+			// Reader/check/review failures keep the existing two rounds. One opening-playability rejection
+			// from publication can add only its own source-grounded repair round.
+			let lastRound = 2, finishRepairUsed = false;
+			for (let round = 1; round <= lastRound && !signal.aborted; round++) {
 				let phaseCompleted = false;
+				let publishing = false;
 				try {
 					const phases: Array<"index" | "read" | "verify"> = job.purpose === "index" ? (readComplete ? [] : ["index"]) : (readComplete ? ["verify"] : ["read", "verify"]);
 					for (const phase of phases) {
@@ -423,8 +431,10 @@ export class ReadingService implements ReadingBridge {
 							assets.push({ node_id: node.node_id, ...asset });
 						}
 					}
+					publishing = true;
 					await this.deps.call("module.read.finish", { module_id: job.module_id, job_id: job.job_id, lease: job.lease,
 						outcome: "completed", draft_path: join(cwd, "draft.json"), review_path: join(cwd, "review.json"), assets });
+					publishing = false;
 					return;
 				} catch (failure) {
 					// Provider/transport failure during verification preserves the completed read.
@@ -438,6 +448,10 @@ export class ReadingService implements ReadingBridge {
 						} catch { /* no completed read to invalidate */ }
 					}
 					detail = isKernelError(failure) ? failure.toToolText() : String(failure);
+					if (publishing && openingPlayabilityRejection(failure, job) && !finishRepairUsed) {
+						finishRepairUsed = true;
+						lastRound = Math.max(lastRound, round + 1);
+					}
 					let review: Row | undefined;
 					try { review = JSON.parse(await readFile(join(cwd, "review.json"), "utf8")); } catch { /* no review yet */ }
 					await writeFile(join(cwd, "findings.json"), JSON.stringify({ error: detail,
