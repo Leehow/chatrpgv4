@@ -69,7 +69,7 @@ export class CampaignSnapshot {
                 this.jsonFiles.set(path, null);
             }
         }
-        await Promise.all(["memory/candidates.jsonl", ...(mode === "all" ? ["notes.jsonl", "rulings.jsonl"] : [])].map(path => this.log(path)));
+        await Promise.all(["memory/candidates.jsonl", "memory/story.jsonl", ...(mode === "all" ? ["notes.jsonl", "rulings.jsonl"] : [])].map(path => this.log(path)));
     }
     async replayEvents(): Promise<Row[]> {
         let text: string;

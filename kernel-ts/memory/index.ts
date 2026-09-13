@@ -107,7 +107,7 @@ export function createMemoryHandlers(context: KernelContext, writer: ReturnType<
             const loaded = await load(params), { campaign, module } = loaded, [job, turn] = await jobFor(loaded, params.job_id);
             if (!job)
                 throw new RpcError('invalid_params', `no extraction job for turn ${turn}`, { fix: 'call memory.job first', details: { job_id: params.job_id ?? null } });
-            const [result, replayed] = await submit(campaign, module.graph, await campaign.party(), job, params.candidates);
+            const [result, replayed] = await submit(campaign, module.graph, await campaign.party(), job, params.candidates, params.story);
             if (replayed)
                 return { ...result, replayed: true };
             const written = new Set(array(result.written));
@@ -119,6 +119,9 @@ export function createMemoryHandlers(context: KernelContext, writer: ReturnType<
                     await campaign.write('npc-ledger.json', ledger);
                 }
             }
+            if (result.story) await campaign.telemetry({lane: 'story', event: 'assessment', turn,
+                status: row(result.story).status, thread: row(result.story).thread,
+                bridge_delivered: row(result.story).bridge_delivered});
             await campaign.appendEvent(turn, { type: 'memory-written', data: { job_id: result.job_id, turn, candidates: result.candidates, superseded: array(result.superseded).length } });
             return result;
         },

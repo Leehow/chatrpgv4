@@ -86,7 +86,18 @@ interface JobPacket {
 	correction?: {kind: string; subject: string; statement: string};
 	correction_targets?: Array<{subject: string; statement: string; kind: string}>;
 	validation_feedback?: string;
+	story_context?: {threads?: Array<{thread?: string}>; last_assessment?: unknown};
 }
+
+interface StoryAssessment {
+	status: "aligned" | "unclear" | "misframed" | "detached";
+	thread: string | null;
+	frame: string | null;
+	bridge_delivered: boolean;
+	delivery_quote: string | null;
+}
+
+interface MemoryExtraction { candidates: Candidate[]; story?: StoryAssessment }
 
 type KernelCall = (method: string, params: Record<string, unknown>) => Promise<unknown>;
 
@@ -128,13 +139,16 @@ function systemPrompt(packet: JobPacket): string {
 			"Write only the facts, knowledge, beliefs, relationships and player assertions new to this turn, in the campaign's play_language; write no numbers and no die faces.",
 		"",
 		"Answer with one JSON object only, no code fence and no explanation:",
-		'{"candidates":[{"kind":"...","subject":"...","knowers":["..."],"statement":"...","entities":["..."],"privacy":"player_safe","state":"accurate","confidence":0.8}]}',
+		packet.story_context?.threads?.length
+			? '{"candidates":[...],"story":{"status":"aligned|unclear|misframed|detached","thread":"supplied thread name or null","frame":"exact player excerpt or null","bridge_delivered":false,"delivery_quote":null}}'
+			: '{"candidates":[{"kind":"...","subject":"...","knowers":["..."],"statement":"...","entities":["..."],"privacy":"player_safe","state":"accurate","confidence":0.8}]}',
 		"Field rules:",
 		// Built from the set above so the two can never disagree again.
 		`- kind is one of: ${[...CANDIDATE_KINDS].join(", ")}.`,
 		"- privacy is player_safe or keeper_only; state is accurate, uncertain or distorted; confidence is a decimal from 0 to 1.",
-		"- names in subject, knowers and entities must come from the available names below, or be one of the reserved subjects world, party, keeper, player.",
-		"- world_event must have subject world; relationship must have exactly one entity.",
+		"- subject is a name from the available names below, or one of the reserved subjects world, party, keeper, player, as the candidate kind allows; world_event must use subject world; player_assertion and player_preference must use subject player; relationship must have exactly one entity.",
+		"- knowers is optional; its names must be known NPC or investigator names from the available names below, or party, keeper or player.",
+		"- entities is optional; its names must be actual semantic names supplied in the available names below, for the people, clues, scenes or other entities the statement is about. Never put the reserved words world, party, keeper or player in entities; do not put player in entities.",
 		"- only keeper_correction may include corrects: an array of at most 12 exact {subject,statement} pairs from correction_targets. Use [] if the correction has no matching earlier target. Do not restate withdrawn claims as knowledge; memory reports are not proof of module truth.",
 		'Correction shape: {"kind":"keeper_correction","subject":"keeper","statement":"the correction","corrects":[{"subject":"exact supplied subject","statement":"exact earlier statement"}]}',
 		`- statement is 1 to ${maxChars} characters, one sentence saying one thing.`,
@@ -142,6 +156,18 @@ function systemPrompt(packet: JobPacket): string {
 		packet.task === 'reconcile_correction'
 			? "- Return exactly one candidate copying the supplied correction unchanged and attaching corrects. This repairs links only, not the prior statement."
 			: `- at most ${maxCandidates} rows; do not repeat anything already in the existing candidates; with nothing new, answer {"candidates":[]}.`,
+		...(packet.story_context?.threads?.length ? [
+			"Story assessment rules:",
+			"- Assess the player's expressed causal frame, not activity, distance, brevity or compliance with an expected route.",
+			"- aligned: the player frame explicitly demonstrates the selected core causal claim and its present stakes, then either acts with that understanding or knowingly declines involvement. The supplied selected thread must also have at least one acquired supporting or contradicting evidence row. A correct guess without acquired evidence stays an uncertain player assertion, not established alignment.",
+			"- refusing a commission, clue, route, destination, NPC request or authored hook without demonstrating the deeper selected causal connection is never aligned to that core thread.",
+			"- unclear: no reliable frame is expressed, including ordinary exploration, short replies, jokes, quiet play and one side action. Unclear never creates a compulsory beat.",
+			"- misframed: an explicit causal account conflicts with or leaves disconnected public acquired evidence needed for the ongoing investigation.",
+			"- detached: the player chooses an ongoing direction with no currently visible path to the selected core thread, without demonstrated understanding at that core level. This respects the refused hook and causes a bridge to follow the chosen direction; it does not retry the refused offer or force a return.",
+			"- aligned, misframed and detached must choose one exact story_context.threads name and copy an exact nonempty excerpt from player_text as frame. Unclear uses thread:null and frame:null.",
+			"- bridge_delivered is true only when keeper_text explicitly makes that causal relation or a source-backed consequence relevant to the chosen direction. Then delivery_quote copies the exact passage. Atmosphere, a menu and merely naming a route do not count. False uses delivery_quote:null.",
+			"- bridge_delivered may be true only when the selected story_context thread contains at least one acquired supporting or contradicting evidence row. With no acquired evidence, a warning, atmosphere, analogy, menu, route name or unsupported assertion is never a delivered bridge. New information must first land through its existing clue or handout authority and receipt, so it appears as acquired evidence."
+		] : []),
 	].join("\n");
 }
 
@@ -166,8 +192,9 @@ function userInput(packet: JobPacket): string {
 		"",
 		"[Earlier correction targets: copy subject and statement exactly; these reports are not verified facts]",
 		lines(packet.correction_targets),
+		...(packet.story_context?.threads?.length ? ["", "[Keeper-only story context: assess only against these supplied unresolved threads and evidence]", JSON.stringify(packet.story_context)] : []),
 		...(packet.correction ? ["", "[Existing correction to link; copy unchanged]", JSON.stringify(packet.correction)] : []),
-		...(packet.validation_feedback ? ["", "[Previous attempt failed: fix the reported format/reference problem without changing the correction's meaning]", packet.validation_feedback] : []),
+		...(packet.validation_feedback ? ["", "[Previous attempt failed: fix only the reported output, format or reference problem; preserve the intended facts and story assessment]", packet.validation_feedback] : []),
 	].join("\n");
 }
 
@@ -205,6 +232,29 @@ function shapeCandidates(parsed: unknown, packet: JobPacket): Candidate[] | unde
 		if (candidates.length >= limit) break;
 	}
 	return candidates;
+}
+
+function shapeExtraction(parsed: unknown, packet: JobPacket): MemoryExtraction | undefined {
+	const candidates = shapeCandidates(parsed, packet);
+	if (!candidates) return undefined;
+	const required = Boolean(packet.story_context?.threads?.length);
+	if (!required) return {candidates};
+	if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return undefined;
+	const story = (parsed as {story?: unknown}).story;
+	if (!story || typeof story !== 'object' || Array.isArray(story)) return undefined;
+	const value = story as Record<string, unknown>, keys = Object.keys(value).sort();
+	if (keys.join(',') !== 'bridge_delivered,delivery_quote,frame,status,thread') return undefined;
+	if (!['aligned', 'unclear', 'misframed', 'detached'].includes(String(value.status))) return undefined;
+	const supplied = packet.story_context?.threads ?? [], unclear = value.status === 'unclear',
+		threads = supplied.map(row => row.thread).filter((name): name is string => typeof name === 'string');
+	if (unclear ? value.thread !== null || value.frame !== null : typeof value.thread !== 'string' || !threads.includes(value.thread) || typeof value.frame !== 'string' || !value.frame.trim() || !packet.player_text?.includes(value.frame)) return undefined;
+	const selected = supplied.find(row => row.thread === value.thread) as ({supporting?: unknown[]; contradicting?: unknown[]} | undefined);
+	const selectedEvidence = (selected?.supporting?.length ?? 0) + (selected?.contradicting?.length ?? 0);
+	if (value.status === 'aligned' && selected && !selectedEvidence) return undefined;
+	if (typeof value.bridge_delivered !== 'boolean') return undefined;
+	if (value.bridge_delivered && !selectedEvidence) return undefined;
+	if (value.bridge_delivered ? typeof value.delivery_quote !== 'string' || !value.delivery_quote.trim() || !packet.keeper_text?.includes(value.delivery_quote) : value.delivery_quote !== null) return undefined;
+	return {candidates, story: value as unknown as StoryAssessment};
 }
 
 /** The code of a kernel error envelope is read structurally: instanceof is unreliable across extensions (two module instances). */
@@ -267,8 +317,8 @@ export default function (pi: ExtensionAPI) {
 		campaign: string,
 		call: KernelCall,
 		note: (row: Record<string, unknown>) => Promise<void>,
-	): Promise<{ ok: true; candidates: number; model: string } | { ok: false; reason: string; detail: string }> {
-		const lane = await runLane<Candidate[]>({
+	): Promise<{ ok: true; candidates: number; model: string; story?: StoryAssessment } | { ok: false; reason: string; detail: string }> {
+		const lane = await runLane<MemoryExtraction>({
 			ctx: ctx as ExtensionContext,
 			envName: "PI_COC_MEMORY_MODEL",
 			// The four `lane: "lane-call"` rows this round leaves (contract §12.8.1) travel the job's own
@@ -278,14 +328,15 @@ export default function (pi: ExtensionAPI) {
 			systemPrompt: systemPrompt(packet),
 			input: userInput(packet),
 			signal: lanes.signal,
-			shape: (parsed) => shapeCandidates(parsed, packet),
+			shape: (parsed) => shapeExtraction(parsed, packet),
 		});
 		if (!lane.ok) {
 			return { ok: false, reason: lane.reason === "model_unavailable" ? "lane_error" : "model_error", detail: lane.detail };
 		}
 		try {
-			await call("memory.submit", { campaign, job_id: jobId, candidates: lane.value });
-			return { ok: true, candidates: lane.value.length, model: lane.model };
+			await call("memory.submit", { campaign, job_id: jobId, candidates: lane.value.candidates,
+				...(lane.value.story ? {story: lane.value.story} : {}) });
+			return { ok: true, candidates: lane.value.candidates.length, model: lane.model, story: lane.value.story };
 		} catch (error) {
 			const code = errorCode(error);
 			return {
@@ -354,12 +405,13 @@ export default function (pi: ExtensionAPI) {
 					ms: Date.now() - began,
 					model: outcome.model,
 					candidates: outcome.candidates,
+					...(outcome.story ? {story_status: outcome.story.status, bridge_delivered: outcome.story.bridge_delivered} : {}),
 					...(tries > 0 ? { retried: true } : {}),
 				});
 				return;
 			}
 			last = outcome;
-			if (outcome.reason === 'invalid') packet = {...packet, validation_feedback: outcome.detail};
+			if (outcome.reason === 'invalid' || outcome.reason === 'model_error') packet = {...packet, validation_feedback: outcome.detail};
 		}
 		if (stopped) return;
 		const failure = last ?? { reason: "lane_error", detail: "the lane never started" };

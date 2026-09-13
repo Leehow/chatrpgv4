@@ -7,7 +7,7 @@ import { playLanguageOf } from '../read/languages.js';
 import { CampaignSnapshot, loadCampaignModule } from '../read/campaign.js';
 import { SessionView } from '../read/session-view.js';
 import { modContext, setupModContext } from '../read/mods.js';
-import { row, clone, truth, string, type Row } from '../read/values.js';
+import { row, clone, truth, string, number, type Row } from '../read/values.js';
 import type { CampaignWriter } from '../write/store.js';
 import type { createWriteRuntime } from '../write/index.js';
 import { ModRuntime } from './runtime.js';
@@ -102,7 +102,11 @@ export function createModRuntime(context: KernelContext, sources: ModSources = {
           return setupModContext(context, row(lock));
         }
         const {campaign, module} = await readCampaign(context, params, false, false, writer.read);
-        return modContext(context, module.graph, campaign.world, campaign.party, campaign.records);
+        return modContext(context, module.graph, campaign.world, campaign.party, campaign.records, true, {
+          memory: campaign.logs.get('memory/candidates.jsonl') ?? [], story: campaign.logs.get('memory/story.jsonl') ?? [],
+          worldline: string(campaign.meta.active_worldline || 'main'),
+          loop: number(row(row(campaign.meta.worldlines)[string(campaign.meta.active_worldline || 'main')]).loop)
+        });
       },
     });
   }

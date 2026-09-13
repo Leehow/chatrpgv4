@@ -3,15 +3,26 @@ export const CONTINUITY_AUDIT = 'audit.continuity.v1';
 export const AUDIT_LIMITS = Object.freeze({time_ms: 30000, max_requests: 12, per_review: 6, max_rewrites: 1, max_artifact_repairs: 1});
 export type AuditIssue = {path: string; message: string; file?: string; excerpt?: string};
 const object = (v: any): v is Record<string, any> => v !== null && typeof v === 'object' && !Array.isArray(v);
+const row = (v: any): Record<string, any> => object(v) ? v : {};
+const array = (v: any): any[] => Array.isArray(v) ? v : [];
+const string = (v: any): string => typeof v === 'string' ? v : '';
 const words = (v: any, max = 2000) => typeof v === 'string' && !!v.trim() && v.length <= max;
 const strings = (v: any): string[] => typeof v === 'string' ? [v] : v && typeof v === 'object' ? Object.values(v).flatMap(strings) : [];
 
 /** A specific structured sub-review is more precise than a contradictory aggregate pass. */
-export function normalizeContinuityArtifact(value: any): any {
+export function normalizeContinuityArtifact(value: any, files: Record<string, unknown> = {}): any {
     if (!object(value) || !object(value.continuity_review)) return value;
-    const review = value.continuity_review, specific = review.locus_review?.verdict ?? review.location_review?.verdict;
-    if (review.verdict !== 'pass' || specific !== 'revise') return value;
-    return {...value, continuity_review: {...review, verdict: 'revise'}};
+    let review = value.continuity_review;
+    const context = object(files['context.json']) ? files['context.json'] : {};
+    // A targeted repair commonly nulls an inapplicable optional object. Canonicalize that exact
+    // absence, while retaining a non-null extra object as an artifact error.
+    if (!object(context.causal_reentry) && review.reentry_review === null) {
+        const {reentry_review: _unused, ...rest} = review;
+        review = rest;
+    }
+    const specific = [review.reentry_review?.verdict, review.locus_review?.verdict, review.location_review?.verdict].find(verdict => verdict === 'revise');
+    if (review.verdict === 'pass' && specific === 'revise') review = {...review, verdict: 'revise'};
+    return review === value.continuity_review ? value : {...value, continuity_review: review};
 }
 
 export function continuityArtifactErrors(value: any, candidate: string, files: Record<string, unknown>): AuditIssue[] {
@@ -40,14 +51,16 @@ export function continuityArtifactErrors(value: any, candidate: string, files: R
         if (!keys(v, ['reason', 'fix'], path)) continue;
         for (const name of ['reason', 'fix']) if (!words(v[name])) add(`${path}/${name}`, 'Expected nonempty bounded text');
     }
-    const locationAuthority = object(files['context.json']) && object(files['context.json'].location_authority) && files['context.json'].location_authority.requires_review === true
-        ? files['context.json'].location_authority : null;
-    const sceneCommitment = object(files['context.json']) && object(files['context.json'].scene_commitment) && files['context.json'].scene_commitment.requires_review === true
-        ? files['context.json'].scene_commitment : null;
+    const context = object(files['context.json']) ? files['context.json'] : {};
+    const locationAuthority = object(context.location_authority) && context.location_authority.requires_review === true ? context.location_authority : null;
+    const sceneCommitment = object(context.scene_commitment) && context.scene_commitment.requires_review === true ? context.scene_commitment : null;
+    const causalReentry = object(context.causal_reentry) ? context.causal_reentry : null;
     const review = value.continuity_review;
-    if (!keys(review, ['verdict', 'summary', 'conflicts', ...(locationAuthority ? ['location_review'] : []), ...(sceneCommitment ? ['locus_review'] : [])], '/continuity_review')) return errors;
+    if (!keys(review, ['verdict', 'summary', 'conflicts', ...(locationAuthority ? ['location_review'] : []), ...(sceneCommitment ? ['locus_review'] : []), ...(causalReentry && review?.verdict !== 'unavailable' ? ['reentry_review'] : [])], '/continuity_review')) return errors;
     if (sceneCommitment && !object(review.locus_review))
         add('/continuity_review/locus_review', 'Required object: {verdict, mode, locus, claim, basis}; do not use location_review');
+    if (causalReentry && review.verdict !== 'unavailable' && !object(review.reentry_review))
+        add('/continuity_review/reentry_review', 'Required object: {verdict, basis, quote, clue}');
     if (!['pass', 'revise', 'unavailable'].includes(review.verdict)) add('/continuity_review/verdict', 'Expected pass, revise or unavailable');
     if (!words(review.summary)) add('/continuity_review/summary', 'Expected nonempty bounded text');
     const evidenceStrings = new Map<string, string[]>(), conflicts = list(review.conflicts, '/continuity_review/conflicts', 10);
@@ -108,8 +121,53 @@ export function continuityArtifactErrors(value: any, candidate: string, files: R
             if (review.verdict === 'pass' && locus.verdict !== 'pass') add(`${path}/verdict`, 'Overall pass requires a passing locus review');
         }
     }
+    if (causalReentry && object(review.reentry_review)) {
+        const reentry = review.reentry_review, path = '/continuity_review/reentry_review';
+        if (keys(reentry, ['verdict', 'basis', 'quote', 'clue'], path)) {
+            if (!['pass', 'revise', 'defer'].includes(reentry.verdict)) add(`${path}/verdict`, 'Expected pass, revise or defer');
+            if (!['bridge_receipt', 'bridge_offer', 'acquired_clarification', 'player_discharge', 'preparation_wait', 'none'].includes(reentry.basis))
+                add(`${path}/basis`, 'Expected bridge_receipt, bridge_offer, acquired_clarification, player_discharge, preparation_wait or none');
+            const bridge = row(causalReentry.bridge), bridgeClue = bridge.clue, known = array(causalReentry.known).map(value => row(value).name);
+            const mode = causalReentry.mode ?? (bridgeClue ? 'introduce_evidence' : 'clarify_known');
+            if (!['clarify_known', 'introduce_evidence'].includes(mode)) add(`${path}/basis`, 'causal_reentry.mode is invalid');
+            const receipts = array(context.receipts), handouts = array(bridge.source_handouts);
+            const hasBridgeReceipt = receipts.some(receipt => receipt.kind === 'clue' && receipt.clue === bridgeClue
+                || receipt.kind === 'handout' && [receipt.handout, receipt.name, receipt.label].some(name => handouts.includes(name)));
+            if (mode === 'clarify_known' && !['acquired_clarification', 'player_discharge', 'none'].includes(reentry.basis))
+                add(`${path}/basis`, 'clarify_known permits acquired_clarification, player_discharge or none');
+            if (mode === 'introduce_evidence' && !['bridge_receipt', 'bridge_offer', 'player_discharge', 'preparation_wait', 'none'].includes(reentry.basis))
+                add(`${path}/basis`, 'introduce_evidence permits bridge_receipt, bridge_offer, player_discharge, preparation_wait or none');
+            if (['bridge_receipt', 'bridge_offer', 'acquired_clarification'].includes(reentry.basis)) {
+                if (!words(reentry.quote, 1000) || !candidate.includes(reentry.quote)) add(`${path}/quote`, 'Copy an exact candidate excerpt that states the causal relation and stakes');
+            } else if (reentry.basis === 'player_discharge') {
+                if (!words(reentry.quote, 1000) || !string(context.current_input).includes(reentry.quote)) add(`${path}/quote`, 'Copy an exact current_input excerpt demonstrating informed causal understanding');
+            } else if (reentry.basis === 'preparation_wait') {
+                if (!words(reentry.quote, 1000) || !candidate.includes(reentry.quote)) add(`${path}/quote`, 'Copy the exact candidate preparation-wait notice');
+            } else if (reentry.quote !== null) add(`${path}/quote`, 'basis none uses quote null');
+            if (reentry.basis === 'bridge_receipt') {
+                if (!hasBridgeReceipt) add(`${path}/basis`, 'No current clue or handout receipt settles the supplied bridge');
+                if (reentry.clue !== bridgeClue) add(`${path}/clue`, 'Copy causal_reentry.bridge.clue exactly');
+                if (row(causalReentry.authority).clue_here !== true)
+                    add(`${path}/basis`, 'The effective graph does not make this bridge clue discoverable at the current scene; accept source_rebinding first');
+            } else if (reentry.basis === 'bridge_offer') {
+                if (hasBridgeReceipt) add(`${path}/basis`, 'A settled bridge receipt uses bridge_receipt, not bridge_offer');
+                if (row(causalReentry.authority).clue_here !== true)
+                    add(`${path}/basis`, 'The bridge cannot be offered until the effective graph makes it discoverable at the current scene');
+                if (reentry.clue !== bridgeClue) add(`${path}/clue`, 'Copy causal_reentry.bridge.clue exactly');
+            } else if (['acquired_clarification', 'player_discharge'].includes(reentry.basis)) {
+                if (!known.length || !known.includes(reentry.clue)) add(`${path}/clue`, 'Name one acquired causal_reentry.known evidence row');
+            } else if (reentry.clue !== null) add(`${path}/clue`, `${reentry.basis} uses clue null`);
+            if (reentry.basis === 'preparation_wait' && !object(context.preparation_wait)) add(`${path}/basis`, 'No host-owned preparation_wait is active');
+            if (reentry.basis === 'preparation_wait' && reentry.verdict !== 'defer') add(`${path}/verdict`, 'A real preparation wait uses defer');
+            if (reentry.basis === 'bridge_offer' && reentry.verdict !== 'defer') add(`${path}/verdict`, 'A choice-preserving bridge offer uses defer');
+            if (reentry.basis === 'none' && reentry.verdict !== 'revise') add(`${path}/verdict`, 'No causal basis requires revise');
+            if (!['preparation_wait', 'bridge_offer', 'none'].includes(reentry.basis) && reentry.verdict !== 'pass') add(`${path}/verdict`, 'A realized or discharged bridge uses pass');
+            if (reentry.verdict === 'revise' && review.verdict !== 'revise') add('/continuity_review/verdict', 'A reentry revision requires overall revise');
+            if (review.verdict === 'pass' && !['pass', 'defer'].includes(reentry.verdict)) add(`${path}/verdict`, 'Overall pass requires a passing or structurally deferred reentry review');
+        }
+    }
     const count = conflicts.length + (Array.isArray(value.findings) ? value.findings.length : 0) + (Array.isArray(value.missing) ? value.missing.length : 0)
-        + Number(review.location_review?.verdict === 'revise' || review.locus_review?.verdict === 'revise');
+        + Number(review.location_review?.verdict === 'revise' || review.locus_review?.verdict === 'revise' || review.reentry_review?.verdict === 'revise');
     if (review.verdict === 'pass' && count) add('/continuity_review/verdict', 'Pass cannot contain conflicts, missing objects or findings');
     if (review.verdict === 'revise' && !count) add('/continuity_review/verdict', 'Revise needs an actionable conflict, missing object or finding');
     return errors;

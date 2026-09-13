@@ -110,7 +110,8 @@ export class ModJobs {
         const packageRow = candidates[0], party = await campaign.party() as Row[];
         const continuity = role === 'audit' && candidates.some(mod => array(mod.requires).includes(CONTINUITY_AUDIT));
         const sourceAudit = !continuity && role === 'audit' && candidates.some(mod => array(mod.requires).includes(SOURCE_AUDIT));
-        const evidence = sourceAudit || continuity ? await auditSourceEvidence(this.context, campaign, module, world, turn, party, continuity) : null;
+        const wait = row(row(params.input).preparation_wait);
+        const evidence = sourceAudit || continuity ? await auditSourceEvidence(this.context, campaign, module, world, turn, party, continuity, wait) : null;
         const request: Row = {role, input: params.input ?? null, capabilities: sorted(MOD_CAPABILITIES), play_language: await playLanguageOf(this.context, meta),
             mod_settings: Object.fromEntries(candidates.map(mod => [mod.id, (world as Row).mods.active[mod.id].settings])),
             scene: whereSection(graph, world, graph.scene(world.active_scene as string)), party, objects: objectContext(world), receipts: field(turn, 'receipts', []),
@@ -198,7 +199,8 @@ export class ModJobs {
         const sourceAudit = !continuity && request.role === 'audit' && (await this.contributors(world, turn, 'audit')).some(mod => array(mod.requires).includes(SOURCE_AUDIT));
         if ((sourceAudit || continuity) && jsonDigest({...identity, request}) !== key) throw new RpcError('needs', 'The retained source-audit request changed',
             {details: {reason: 'mod_audit_evidence', file: 'request.json'}, fix: 'Keep this draft unpublished; inspect the retained audit request'});
-        const evidence = sourceAudit || continuity ? await auditSourceEvidence(this.context, campaign, module, world, turn, await campaign.party() as Row[], continuity) : null;
+        const wait = row(row(request.input).preparation_wait);
+        const evidence = sourceAudit || continuity ? await auditSourceEvidence(this.context, campaign, module, world, turn, await campaign.party() as Row[], continuity, wait) : null;
         if (evidence) {
             if (evidence.binding !== identity.source_binding) throw new RpcError('needs', 'Source audit no longer matches the current campaign evidence',
                 {details: {reason: 'mod_audit_stale'}, fix: 'Retry the same narration to prepare a current source audit; do not reroll settled actions'});

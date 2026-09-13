@@ -82,7 +82,8 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
         });
     const session = new SessionView(campaign, graph, party, world).activeSession(),
         situations = options.situations ?? await rules.situations(campaign, graph, world, turn),
-        memory = campaign.logs.get("memory/candidates.jsonl") ?? [];
+        memory = campaign.logs.get("memory/candidates.jsonl") ?? [],
+        story = campaign.logs.get("memory/story.jsonl") ?? [];
     const where = whereSection(graph, world, scene, material, true);
     where.clock = clockSection(graph, world);
     where.session = session;
@@ -183,7 +184,9 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
         capsule.resume = options.resume;
     if (truncated.length)
         capsule.truncated = truncated;
-    capsule.mods = await modContext(context, graph, world, party, campaign.records, full);
+    const activeLine = string(meta.active_worldline || 'main');
+    capsule.mods = await modContext(context, graph, world, party, campaign.records, full,
+        {memory, story, worldline: activeLine, loop: number(row(row(meta.worldlines)[activeLine]).loop)});
     // The Director's offer (docs/specs/turn-floor.md D2) is drawn after the thread and pacing sections exist,
     // from material the capsule already carries, and the director section is refitted to its budget with it.
     row(capsule.director).offer = directorOffer(string(row(capsule.director).beat), {

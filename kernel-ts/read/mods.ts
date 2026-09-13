@@ -449,7 +449,8 @@ export function objectContext(world: Row): Row {
 /** `records` are the campaign's closed turns; only a package requiring `context.pacing.v1` reads them.
  *  `full` is the §13.6 condition: the first turn this process opens for the campaign carries every package's
  *  `instructions`; later turns carry its `brief` when it has one (§30.7). */
-export async function modContext(context: KernelContext, graph: ModuleGraph, world: Row, party: Row[], records: Row[] = [], full = true): Promise<Row> {
+export async function modContext(context: KernelContext, graph: ModuleGraph, world: Row, party: Row[], records: Row[] = [], full = true,
+    evidence: {memory?: Row[]; story?: Row[]; worldline?: string; loop?: number} = {}): Promise<Row> {
     const active = await activeMods(context, world),
         providers = modProviders(active),
         checks = new Map<string, Row>();
@@ -515,7 +516,7 @@ export async function modContext(context: KernelContext, graph: ModuleGraph, wor
     };
     // A section exists only while a package that reads it is on (§30): no reader, no bytes in the capsule.
     if (required.has("context.thread.v1"))
-        result.thread = threadSection(graph, world, scene, present, records);
+        result.thread = threadSection(graph, world, scene, present, records, evidence.memory ?? [], evidence.story ?? [], evidence.worldline ?? 'main', evidence.loop ?? 0);
     if (required.has("context.pacing.v1"))
         result.pacing = pacingSection(graph, world, scene, present, party, records);
     return result;

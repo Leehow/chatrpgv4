@@ -64,9 +64,9 @@ export default function auditSubmit(pi: any) {
         async execute(_id: string, params: any) {
             let result: any, files: Record<string, unknown> = {};
             try {
-                result = normalizeContinuityArtifact(params.result ?? JSON.parse(readFileSync(join(cwd, 'result.json'), 'utf8')));
-                if (Buffer.byteLength(JSON.stringify(result)) > 512000) return unavailable('The audit artifact exceeds its size bound');
                 files = evidenceFiles();
+                result = normalizeContinuityArtifact(params.result ?? JSON.parse(readFileSync(join(cwd, 'result.json'), 'utf8')), files);
+                if (Buffer.byteLength(JSON.stringify(result)) > 512000) return unavailable('The audit artifact exceeds its size bound');
             } catch (error) { return unavailable(`The retained audit input or artifact could not be read: ${error instanceof Error ? error.message : String(error)}`); }
             const errors = continuityArtifactErrors(result, request.input.text, files);
             if (errors.length) {

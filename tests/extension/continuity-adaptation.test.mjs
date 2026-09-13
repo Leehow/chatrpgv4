@@ -10,14 +10,14 @@ const evidence = join(root, '.coc/playtests/continuity-contracts');
 await mkdir(evidence, {recursive: true});
 const directory = await mkdtemp(join(evidence, 'suite-'));
 await writeFile(join(directory, 'classification.json'), JSON.stringify({kind: 'contract-fixture', live_play: false, model_calls: 0}));
-await build({stdin: {contents: `export {createKernelContext} from './kernel-ts/context.ts'; export {nativeAdvisoryLocks} from './kernel-ts/native-locks.ts'; export {createKernelRuntime} from './kernel-ts/registry.ts'; export {ModuleGraph} from './kernel-ts/read/module-graph.ts'; export {ModuleStore} from './kernel-ts/modules/store.ts'; export {loadModule,loadCampaignModule} from './kernel-ts/read/campaign.ts'; export {report as mergeReport} from './kernel-ts/worldline/confluence-plan.ts'; export {continuityView} from './kernel-ts/read/continuity.ts'; export {normalizeChanges,adaptedGraph} from './kernel-ts/adaptation/graph.ts';`, resolveDir: root, sourcefile: 'test-api.ts'},
+await build({stdin: {contents: `export {createKernelContext} from './kernel-ts/context.ts'; export {nativeAdvisoryLocks} from './kernel-ts/native-locks.ts'; export {createKernelRuntime} from './kernel-ts/registry.ts'; export {ModuleGraph} from './kernel-ts/read/module-graph.ts'; export {ModuleStore} from './kernel-ts/modules/store.ts'; export {loadModule,loadCampaignModule} from './kernel-ts/read/campaign.ts'; export {report as mergeReport} from './kernel-ts/worldline/confluence-plan.ts'; export {continuityView} from './kernel-ts/read/continuity.ts'; export {storyAssessmentContext,storyReentry} from './kernel-ts/read/story.ts'; export {threadSection} from './kernel-ts/read/thread.ts'; export {normalizeChanges,adaptedGraph} from './kernel-ts/adaptation/graph.ts';`, resolveDir: root, sourcefile: 'test-api.ts'},
     outfile: join(directory, 'api.mjs'), bundle: true, packages: 'external', platform: 'node', format: 'esm', logLevel: 'silent'});
 const api = await import(pathToFileURL(join(directory, 'api.mjs')).href);
 const closers = []; after(async () => {for (const close of closers) await close();});
 const raw = JSON.parse(await readFile(join(root, 'content/starters/the-haunting/module-graph.json'), 'utf8'));
 const graph = new api.ModuleGraph('the-haunting', raw, 'test', {});
 
-async function table() {
+async function table(input = 'I want to understand how these events connect.') {
     const home = await mkdtemp(join(directory, 'campaign-'));
     const context = await api.createKernelContext({workspace: home, content: join(root, 'content'), seed: 'continuity', locks: api.nativeAdvisoryLocks(),
         env: {...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1'}});
@@ -26,7 +26,7 @@ async function table() {
     await call('campaign.create', {id: 'c1', module: 'the-haunting', pregen: 'thomas-hayes', play_language: 'en'});
     await call('table.open');
     await call('table.narrate', {call_id: 't0-c1', text: 'The investigator hears the commission.'});
-    await call('table.player_input', {text: 'I want to understand how these events connect.'});
+    await call('table.player_input', {text: input});
     const world = () => readFile(join(home, '.coc/campaigns/c1/world.json'), 'utf8').then(JSON.parse);
     return {home, context, runtime, call, world};
 }
@@ -76,6 +76,33 @@ test('all acquired support relationships remain available; neither disclosure no
     assert.equal(JSON.stringify(world), before);
 });
 
+test('a delivered handout carrier becomes acquired causal evidence without rewriting discovered clues', () => {
+    const handout = graph.kind('handout').find(node => (graph.out.get(node.node_id) ?? []).some(edge => {
+        const clue = graph.nodes.get(edge.to_node_id);
+        return clue?.node_kind === 'clue' && ['supports', 'depicts'].includes(edge.relation_kind)
+            && (graph.out.get(clue.node_id) ?? []).some(next => next.relation_kind === 'supports' && graph.nodes.get(next.to_node_id)?.node_kind === 'conclusion');
+    }));
+    assert.ok(handout);
+    const carrier = graph.out.get(handout.node_id).find(edge => ['supports', 'depicts'].includes(edge.relation_kind) && graph.nodes.get(edge.to_node_id)?.node_kind === 'clue');
+    const clue = graph.nodes.get(carrier.to_node_id);
+    const conclusion = graph.nodes.get(graph.out.get(clue.node_id).find(edge => edge.relation_kind === 'supports' && graph.nodes.get(edge.to_node_id)?.node_kind === 'conclusion').to_node_id);
+    const handoutName = graph.handle(handout), clueName = graph.handle(clue), conclusionName = graph.handle(conclusion);
+    const world = {active_scene: graph.handle(graph.startScene()), discovered_clues: [], handouts_shown: [handoutName], npc_presence: {}};
+    const records = [{turn: 4, rendered_text: 'The document makes the causal link visible.', receipts: [{kind: 'handout', handout: handoutName}]}];
+    const view = api.continuityView(graph, world, records, [], {anchors: [conclusionName]});
+    const row = view.connections.find(value => value.name === conclusionName).evidence.find(value => value.name === clueName);
+    assert.equal(row.acquired, true); assert.deepEqual(row.deliveries.map(value => value.turn), [4]);
+    assert.deepEqual(world.discovered_clues, [], 'the carrier does not silently mint a clue receipt');
+    const context = api.storyAssessmentContext(graph, world, records, [], [], 'main', 0, 5);
+    const thread = context.threads.find(value => value.thread === conclusionName);
+    assert.deepEqual(thread.supporting, [{evidence: clueName, delivery_turn: 4}]);
+    const reentry = api.storyReentry(graph, world, records, [{turn: 4, worldline: 'main', loop: 0, status: 'misframed', thread: conclusionName,
+        frame: 'The events are unrelated.', bridge_delivered: false, delivery_quote: null}], 'main', 0, [{name: conclusionName, importance: 'critical'}]);
+    assert.equal(reentry.known[0].name, clueName);
+    assert.equal(reentry.mode, 'clarify_known');
+    assert.equal(reentry.bridge, undefined, 'the first repair uses acquired evidence before opening new graph work');
+});
+
 test('a small capsule keeps the most recently acquired relationship ahead of an older alphabetical match', () => {
     const nodes = [['scene', 'room', 'Room'], ['clue', 'old', 'Old clue'], ['clue', 'new', 'New clue'],
         ['conclusion', 'a-old', 'Earlier relationship'], ['conclusion', 'z-new', 'Current relationship']]
@@ -99,6 +126,32 @@ test('continuity truncates memory hypotheses as well as connections to keep its 
     assert.equal(result.truncated, true);
 });
 
+test('story assessment keeps acquired Globe evidence when full source references exceed its budget', () => {
+    const clue = graph.find('globe-unpublished-story', ['clue']);
+    const conclusion = graph.nodes.get((graph.out.get(clue.node_id) ?? []).find(edge =>
+        edge.relation_kind === 'supports' && graph.nodes.get(edge.to_node_id)?.node_kind === 'conclusion').to_node_id);
+    const world = {active_scene: 'newspaper-morgue', discovered_clues: [graph.handle(clue)], npc_presence: {}};
+    const records = [{turn: 3, receipts: [{kind: 'clue', clue: graph.handle(clue)}], rendered_text: 'The unpublished report was read.'}];
+    const context = api.storyAssessmentContext(graph, world, records, [], [], 'main', 0, 4);
+    const thread = context.threads.find(value => value.thread === graph.handle(conclusion));
+    assert.deepEqual(thread.supporting, [{evidence: graph.handle(clue), delivery_turn: 3}]);
+    assert.ok(Buffer.byteLength(JSON.stringify(context), 'utf8') < 7000);
+});
+
+test('causal re-entry uses only the latest assessment from the active worldline and loop', () => {
+    const scene = graph.startScene(), world = {active_scene: graph.handle(scene), discovered_clues: [], npc_presence: {}};
+    const context = api.storyAssessmentContext(graph, world, [], [], [], 'main', 0, 3), thread = context.threads[0].thread;
+    assert.ok(context.threads.every(value => ['critical', 'core'].includes(value.importance)));
+    assert.ok(!context.threads.some(value => value.thread === 'commission-and-research-frame'));
+    const assessment = {turn: 2, worldline: 'main', loop: 0, status: 'misframed', thread,
+        frame: 'The events are unrelated.', bridge_delivered: false, delivery_quote: null};
+    assert.ok(api.threadSection(graph, world, scene, [], [], [], [assessment], 'main', 0).reentry);
+    assert.equal(api.threadSection(graph, world, scene, [], [], [], [assessment], 'main', 1).reentry, undefined);
+    assert.equal(api.threadSection(graph, world, scene, [], [], [], [assessment], 'branch', 0).reentry, undefined);
+    assert.equal(api.threadSection(graph, world, scene, [], [], [], [{...assessment, status: 'aligned'}], 'main', 0).reentry, undefined);
+    assert.equal(api.threadSection(graph, world, scene, [], [], [], [{...assessment, status: 'unclear', thread: null, frame: null}], 'main', 0).reentry, undefined);
+});
+
 test('kind-qualified names disambiguate source roles and binding errors identify their field', () => {
     const world = {active_scene: graph.handle(graph.startScene()), discovered_clues: [], npc_presence: {}};
     assert.ok(api.continuityView(graph, world, [], [], {anchors: ['scene: commission-briefing']}).anchors.length);
@@ -107,6 +160,87 @@ test('kind-qualified names disambiguate source roles and binding errors identify
     assert.equal(api.normalizeChanges(graph, [], world, changes, 'fixture')[0].based_on, graph.startScene().node_id);
     changes[0].sources = ['Source-bound inn'];
     assert.throws(() => api.normalizeChanges(graph, [], world, changes, 'fixture'), e => e.details?.field === 'sources' && e.message.includes('Change 0'));
+});
+
+test('post-commit player understanding produces one causal re-entry and a delivered bridge suppresses repetition', async () => {
+    const player = 'The scratches prove the house is ordinary vandalism, so the earlier tragedies are unrelated.';
+    const t = await table(player), quiet = 'Dust hangs in the office light.';
+    const core = api.storyAssessmentContext(graph, {active_scene: graph.handle(graph.startScene()), discovered_clues: [], npc_presence: {}}, [], [], [], 'main', 0, 1).threads[0].thread;
+    const conclusion = graph.find(core, ['conclusion']);
+    const clue = graph.nodes.get(graph.incoming.get(conclusion.node_id).find(edge => edge.relation_kind === 'supports').from_node_id);
+    const sourceScene = graph.scenes().find(scene => graph.sceneClueIds(scene).includes(clue.node_id));
+    await t.call('table.apply', {call_id: 't1-c1', effects: [
+        {kind: 'move', to: graph.handle(sourceScene), via: 'contract fixture route', travel_minutes: 0},
+        {kind: 'clue', clue: graph.handle(clue)}
+    ]});
+    await t.call('table.narrate', {call_id: 't1-c2', text: quiet});
+    const job = await t.call('memory.job', {turn: 1});
+    assert.ok(job.story_context.threads.length > 0, 'the existing memory job carries bounded unresolved story threads');
+    assert.ok(job.story_context.threads.every(value => ['critical', 'core'].includes(value.importance)), 'a hook-level thread cannot displace the core causal story');
+    assert.ok(job.story_context.threads.some(value => Array.isArray(value.supporting)), 'the same packet carries acquired causal evidence by thread');
+    const thread = job.story_context.threads[0].thread;
+    const candidatePath = join(t.home, '.coc/campaigns/c1/memory/candidates.jsonl');
+    const storyPath = join(t.home, '.coc/campaigns/c1/memory/story.jsonl');
+    const beforeCandidates = await readFile(candidatePath, 'utf8').catch(() => '');
+    const beforeStory = await readFile(storyPath, 'utf8').catch(() => '');
+    await assert.rejects(t.call('memory.submit', {job_id: job.job_id, candidates: [{kind: 'player_assertion', subject: 'player',
+        statement: player, privacy: 'player_safe', state: 'distorted'}], story: {status: 'misframed', thread,
+        frame: 'not an exact player excerpt', bridge_delivered: false, delivery_quote: null}}), /exact bounded excerpt/);
+    assert.equal(await readFile(candidatePath, 'utf8').catch(() => ''), beforeCandidates, 'an invalid story writes no candidate rows');
+    assert.equal(await readFile(storyPath, 'utf8').catch(() => ''), beforeStory, 'an invalid story writes no assessment row');
+
+    const submitted = await t.call('memory.submit', {job_id: job.job_id, candidates: [], story: {status: 'misframed', thread,
+        frame: player, bridge_delivered: false, delivery_quote: null}});
+    assert.equal(submitted.story.status, 'misframed');
+    const stored = (await readFile(storyPath, 'utf8')).trim().split('\n').map(JSON.parse);
+    assert.equal(stored.length, 1); assert.equal(stored[0].worldline, 'main'); assert.equal(stored[0].frame, player);
+
+    const secondInput = 'I keep cataloguing the scratches as ordinary damage.';
+    const second = await t.call('table.player_input', {text: secondInput}), reentry = second.capsule.mods.thread.reentry;
+    assert.ok(second.capsule.director.because.includes('stalled_turns = 0'), 'active play can need a causal bridge while structural stall counters remain zero');
+    assert.equal(reentry.status, 'misframed'); assert.equal(reentry.frame, player); assert.equal(reentry.thread.name, thread);
+    assert.equal(reentry.mode, 'clarify_known');
+    assert.equal(reentry.bridge, undefined);
+    assert.match(reentry.action, /clarify one acquired known evidence row/);
+    assert.ok(Array.isArray(reentry.available.here) && Array.isArray(reentry.available.next));
+    const telemetry = (await readFile(join(t.home, '.coc/campaigns/c1/telemetry.jsonl'), 'utf8')).trim().split('\n').map(JSON.parse);
+    assert.ok(telemetry.some(value => value.lane === 'story' && value.event === 'assessment' && value.status === 'misframed'));
+    assert.ok(telemetry.some(value => value.lane === 'story' && value.event === 'reentry_projected' && value.thread === thread));
+
+    const bridge = 'The scratches repeat the same effort to keep investigators away from the cause behind the earlier tragedies.';
+    await t.call('table.narrate', {call_id: 't2-c1', text: bridge});
+    const nextJob = await t.call('memory.job', {turn: 2});
+    assert.equal(nextJob.story_context.last_assessment.status, 'misframed');
+    await t.call('memory.submit', {job_id: nextJob.job_id, candidates: [], story: {status: 'misframed', thread,
+        frame: secondInput, bridge_delivered: true, delivery_quote: bridge}});
+    const thirdInput = 'I heard that connection, but I still think the events are coincidence.';
+    const third = await t.call('table.player_input', {text: thirdInput});
+    assert.equal(third.capsule.mods.thread.reentry, undefined, 'one evidenced bridge is not repeated before later player understanding is assessed');
+    await t.call('table.narrate', {call_id: 't3-c1', text: 'The acquired report remains on the table.'});
+    const thirdJob = await t.call('memory.job', {turn: 3});
+    await t.call('memory.submit', {job_id: thirdJob.job_id, candidates: [], story: {status: 'misframed', thread,
+        frame: thirdInput, bridge_delivered: false, delivery_quote: null}});
+    const fourth = await t.call('table.player_input', {text: 'I turn to unrelated cataloguing again.'});
+    assert.equal(fourth.capsule.mods.thread.reentry.mode, 'introduce_evidence');
+    assert.ok(fourth.capsule.mods.thread.reentry.bridge.clue, 'a renewed misframe after clarification may introduce one new bridge');
+});
+
+test('refusing a hook without acquired core evidence is detached rather than aligned to hidden truth', async () => {
+    const player = 'I refuse the commission and will spend the month writing in Athens unless this follows me there.';
+    const t = await table(player);
+    await t.call('table.narrate', {call_id: 't1-c1', text: 'Knott keeps the job and records the forwarding address.'});
+    const job = await t.call('memory.job', {turn: 1}), thread = job.story_context.threads[0].thread;
+    assert.ok(job.story_context.threads.every(value => !value.supporting.length && !value.contradicting.length));
+    await assert.rejects(t.call('memory.submit', {job_id: job.job_id, candidates: [], story: {status: 'aligned', thread,
+        frame: 'I refuse the commission', bridge_delivered: false, delivery_quote: null}}), /requires acquired causal evidence/);
+    await assert.rejects(t.call('memory.submit', {job_id: job.job_id, candidates: [], story: {status: 'detached', thread,
+        frame: 'I refuse the commission', bridge_delivered: true, delivery_quote: 'Knott keeps the job'}}), /atmosphere alone is not delivery/);
+    await t.call('memory.submit', {job_id: job.job_id, candidates: [], story: {status: 'detached', thread,
+        frame: 'will spend the month writing in Athens unless this follows me there', bridge_delivered: false, delivery_quote: null}});
+    const next = await t.call('table.player_input', {text: 'I continue with the Athens journey.'});
+    assert.equal(next.capsule.mods.thread.reentry.status, 'detached');
+    assert.ok(next.capsule.mods.thread.reentry.bridge.clue, 'the Keeper receives one concrete existing source carrier');
+    assert.match(next.capsule.mods.thread.reentry.bridge.delivery, /chosen direction/);
 });
 
 test('base continuity lookup works through the kernel; preparation and review change no world; accepted view survives cold loading', async () => {
@@ -148,6 +282,15 @@ test('within-turn state changes invalidate a reviewed draft and failed acceptanc
     const before = JSON.stringify(await t.world());
     await assert.rejects(t.call('table.apply', {call_id: 't1-c2', effects: [{kind: 'adaptation', name: p.name}]}), e => e.details?.reason === 'adaptation_stale');
     assert.equal(JSON.stringify(await t.world()), before);
+});
+
+test('an honest wait-only turn does not stale retained adaptation work', async () => {
+    const t = await table(), p = await prepare(t); await review(t, p);
+    await t.call('table.narrate', {call_id: 't1-c1', text: 'Preparation continues; no fictional event has happened.'});
+    await t.call('table.player_input', {text: 'Use the same proposal if it is ready.'});
+    assert.equal((await t.call('adaptation.status', {name: p.name})).status, 'ready');
+    const accepted = await t.call('table.apply', {call_id: 't2-c1', effects: [{kind: 'adaptation', name: p.name}]});
+    assert.ok(accepted.receipts.some(value => value.startsWith('adaptation:')));
 });
 
 test('uncertain, incomplete and tampered reviews never authorize an adaptation; cancellation is durable', async () => {
@@ -247,6 +390,17 @@ test('a retry has a new attempt owner; old results cannot finish or fail the rep
     await t.call('adaptation.fail', {name: params.name, key: first.task.key, attempt: first.task.attempt, error: 'Obsolete failure'});
     assert.equal((await t.call('adaptation.status', {name: params.name})).status, 'pending');
     await assert.rejects(t.call('table.apply', {call_id: 't1-c1', effects: [{kind: 'adaptation', name: params.name}, {kind: 'time', minutes: 1}]}));
+});
+
+test('unnamed adaptation status returns the latest retained semantic proposal for cold recovery', async () => {
+    const t = await table(), params = {name: 'Retained Athens route', purpose: 'new_destination',
+        request: 'Prepare a retained destination.', anchors: [graph.startScene().name]};
+    const prepared = await t.call('adaptation.prepare', params);
+    const pending = await t.call('adaptation.status');
+    assert.equal(pending.name, params.name); assert.equal(pending.status, 'pending'); assert.equal(pending.retained, true);
+    await t.call('adaptation.fail', {name: params.name, key: prepared.task.key, attempt: prepared.task.attempt, error: 'Interrupted by restart'});
+    const failed = await t.call('adaptation.status');
+    assert.equal(failed.name, params.name); assert.equal(failed.status, 'failed');
 });
 
 test('prepare requires a closed purpose and rejects graph changes outside that purpose', async () => {

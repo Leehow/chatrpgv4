@@ -1,6 +1,6 @@
 {
   "id": "narration-audit",
-  "version": "1.2.8",
+  "version": "1.2.15",
   "game_api": "pipicoc.game.v1",
   "state_version": 1,
   "author": "PipiCOC",

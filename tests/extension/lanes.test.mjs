@@ -157,6 +157,71 @@ test("记忆车道：narrate 之后 memory.job 取任务包，抽出的候选原
 	assert.equal(row.model, "memory/m1");
 });
 
+test("the existing memory lane submits one bounded story assessment when the kernel supplies causal context", async (t) => {
+	let seen;
+	const table = await openTable({ responses: keeperTurn(), env: {FAKE_KERNEL_STORY: "1"} });
+	t.after(() => table.dispose());
+	table.lanes.memory.setResponses([(context) => {
+		seen = context;
+		return fauxAssistantMessage(JSON.stringify({candidates: [], story: {
+			status: "misframed", thread: "house-haunting", frame: "我检查地窖门的门框",
+			bridge_delivered: false, delivery_quote: null
+		}}));
+	}]);
+	await table.session.prompt("我检查地窖门的门框");
+	await waitFor(() => calls(table, "memory.submit").length > 0, {label: "story assessment submission"});
+	const submit = calls(table, "memory.submit")[0];
+	assert.deepEqual(submit.params.story, {status: "misframed", thread: "house-haunting", frame: "我检查地窖门的门框",
+		bridge_delivered: false, delivery_quote: null});
+	assert.match(seen.systemPrompt, /refusing a commission.*never aligned/);
+	const input = seen.messages.map(message => message.content.map(block => block.text).join("")).join("\n");
+	assert.match(input, /Keeper-only story context/);
+	await waitFor(() => laneRows(table, "memory").some(row => row.story_status === "misframed"), {label: "story assessment telemetry"});
+});
+
+test("a repeated JSON value after the first complete lane object cannot corrupt a valid story assessment", async (t) => {
+	const table = await openTable({ responses: keeperTurn(), env: {FAKE_KERNEL_STORY: "1"} });
+	t.after(() => table.dispose());
+	const first = {candidates: [], story: {status: "misframed", thread: "house-haunting",
+		frame: "我检查地窖门的门框", bridge_delivered: false, delivery_quote: null}};
+	table.lanes.memory.setResponses([fauxAssistantMessage(`${JSON.stringify(first)}\n${JSON.stringify({ignored: true})}`)]);
+	await table.session.prompt("我检查地窖门的门框");
+	await waitFor(() => calls(table, "memory.submit").length > 0, {label: "first complete JSON submitted"});
+	assert.deepEqual(calls(table, "memory.submit")[0].params.story, first.story);
+});
+
+test("a malformed first story object gives its parse failure to the one existing retry", async (t) => {
+	let repairedContext;
+	const table = await openTable({ responses: keeperTurn(), env: {FAKE_KERNEL_STORY: "1"} });
+	t.after(() => table.dispose());
+	const valid = {candidates: [], story: {status: "detached", thread: "house-haunting",
+		frame: "我检查地窖门的门框", bridge_delivered: false, delivery_quote: null}};
+	table.lanes.memory.setResponses([
+		fauxAssistantMessage('{"candidates":[],"story":'),
+		(context) => { repairedContext = context; return fauxAssistantMessage(JSON.stringify(valid)); },
+	]);
+	await table.session.prompt("我检查地窖门的门框");
+	await waitFor(() => calls(table, "memory.submit").length > 0, {label: "repaired story submission"});
+	assert.deepEqual(calls(table, "memory.submit")[0].params.story, valid.story);
+	const input = repairedContext.messages.map(message => message.content.map(block => block.text).join("")).join("\n");
+	assert.match(input, /Previous attempt failed/);
+	assert.match(input, /no JSON object/);
+});
+
+test("a malformed story assessment is retained as the existing memory backlog and never partially submitted", async (t) => {
+	const table = await openTable({ responses: keeperTurn(), env: {FAKE_KERNEL_STORY: "1"} });
+	t.after(() => table.dispose());
+	table.lanes.memory.setResponses([
+		fauxAssistantMessage(JSON.stringify({candidates: []})),
+		fauxAssistantMessage(JSON.stringify({candidates: [], story: {status: "misframed", thread: "house-haunting",
+			frame: "not in player input", bridge_delivered: false, delivery_quote: null}})),
+	]);
+	await table.session.prompt("我检查地窖门的门框");
+	await waitFor(() => calls(table, "memory.fail").length > 0, {label: "malformed story backlog"});
+	assert.equal(calls(table, "memory.submit").length, 0);
+	assert.equal(calls(table, "memory.fail")[0].params.reason, "model_error");
+});
+
 test("校验车道：读正文与两份事实清单，发现交给 table.warn", async (t) => {
 	let seen;
 	const table = await openTable({ responses: keeperTurn() });

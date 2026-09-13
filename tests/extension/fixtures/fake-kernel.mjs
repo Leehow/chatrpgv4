@@ -106,6 +106,7 @@ const LIBRARY = MODULE.library ?? null;
 /** `investigator.list` 的名册；每行是契约 §21.2 的 summary_row 形状。 */
 const INVESTIGATORS = process.env.FAKE_KERNEL_INVESTIGATORS ? JSON.parse(process.env.FAKE_KERNEL_INVESTIGATORS) : [];
 let investigatorSaveSeq = 0;
+let adaptationStatusCalls = 0;
 
 let moduleStatus = MODULE.status ?? "installed";
 let generation = 1;
@@ -161,7 +162,7 @@ function jobTurn(jobId) {
 
 /** 抽取任务包（契约 §12.3）：只有名字与两段文字，没有 commit、收据 id 之外的机器键。 */
 function jobPacket(campaign, target) {
-	return {
+	const packet = {
 		job_id: `extract:${campaign}:t${target}`,
 		turn: target,
 		commit: "abc1234",
@@ -180,6 +181,12 @@ function jobPacket(campaign, target) {
 		budget: { max_candidates: 12, max_statement_chars: 400 },
 		instruction: "只写这一回合新出现的事实、知晓、信念、关系、玩家断言；主语用可用名字里的名字；不写数值与骰面。",
 	};
+	if (process.env.FAKE_KERNEL_STORY === "1") packet.story_context = {
+		threads: [{ thread: "house-haunting", claim: "The house tragedies share one cause.", importance: "core",
+			supporting: [{evidence: "scratches", delivery_turn: 1}], contradicting: [] }],
+		last_assessment: null,
+	};
+	return packet;
 }
 
 /** 契约 §13.1 的头一句：说清胶囊里已经装了什么，`look`/`lookup` 只查它没答的。 */
@@ -645,8 +652,16 @@ function handle(method, params) {
 		case "module.read.claim":
             return { ok: true, result: { job_id: null } };
 		case "adaptation.prepare":
-		case "adaptation.status":
 			return { ok: true, result: { name: params.name, status: process.env.FAKE_KERNEL_ADAPTATION_PENDING === "1" ? "pending" : "ready" } };
+		case "adaptation.status": {
+			if (!params.name) {
+				const retained = process.env.FAKE_KERNEL_RETAINED_ADAPTATION_STATUS;
+				return {ok: true, result: retained ? {name: "athens-study", status: retained, retained: true} : {status: "none"}};
+			}
+			adaptationStatusCalls += 1;
+			const ready = process.env.FAKE_KERNEL_ADAPTATION_READY_ON_SECOND_STATUS === "1" && adaptationStatusCalls >= 2;
+			return { ok: true, result: { name: params.name, status: ready ? "ready" : process.env.FAKE_KERNEL_ADAPTATION_PENDING === "1" ? "pending" : "ready" } };
+		}
 		case "adaptation.cancel":
 			return { ok: true, result: { name: params.name, status: "cancelled" } };
 		case "table.open": {

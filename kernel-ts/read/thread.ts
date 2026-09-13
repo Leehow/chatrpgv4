@@ -6,13 +6,14 @@ import { clueGate } from "./director.js";
 import { array, row, string, truth, chars, type Row } from "./values.js";
 import { jsonSize } from "./capsule.js";
 import { continuityView } from "./continuity.js";
+import { storyReentry } from './story.js';
 export const THREAD_BUDGET = 3072;
 const IMPORTANCE = ["critical", "core", "major", "supporting", "minor"];
 const rank = (value: any): number => { const i = IMPORTANCE.indexOf(string(value)); return i < 0 ? IMPORTANCE.length : i; };
 const HANDED = "The book means these clues to happen: they are not routes and not choices to offer. The timing is yours.";
 /** Conclusions the discovered clues have not yet closed, each with the clues here, the scenes one move away that
  *  hold more, the clues the book hands over by itself, and the rest as a count. */
-export function threadSection(graph: ModuleGraph, world: Row, scene: Row, present: Row[], records: Row[] = []): Row {
+export function threadSection(graph: ModuleGraph, world: Row, scene: Row, present: Row[], records: Row[] = [], candidates: Row[] = [], assessments: Row[] = [], worldline = 'main', loop = 0): Row {
     const discovered = new Set(array(world.discovered_clues).map(string)),
         here = new Set(graph.sceneClueIds(scene)),
         presentIds = new Set(present.map(n => n.node_id)),
@@ -87,9 +88,11 @@ export function threadSection(graph: ModuleGraph, world: Row, scene: Row, presen
         lines.push(line);
     }
     lines.sort((a, b) => rank(a.importance) - rank(b.importance) || Number(a.missing) - Number(b.missing));
-    const continuity = continuityView(graph, world, records, [], {limit: 2, compact: true, budget: 1400});
+    const continuity = continuityView(graph, world, records, candidates, {limit: 2, compact: true, budget: 1400});
     const connections = array(continuity.connections).filter(connection => array(connection.evidence).some(evidence => evidence.acquired));
     const section: Row = { lines: lines.slice(0, 6), ...(connections.length ? {connections, connections_truncated: continuity.truncated} : {}) };
+    const reentry = storyReentry(graph, world, records, assessments, worldline, loop, lines);
+    if (reentry) section.reentry = reentry;
     if (lines.length > 6)
         section.truncated = true;
     if (section.lines.some((line: Row) => truth(line.handed)))
@@ -105,7 +108,9 @@ export function threadSection(graph: ModuleGraph, world: Row, scene: Row, presen
         () => { const i = section.lines.findLastIndex((l: Row) => !array(l.here).length && Object.hasOwn(l, "needs")); if (i < 0) return false; section.lines[i] = compact(section.lines[i]); return true; },
         () => { const i = section.lines.findLastIndex((l: Row, index: number) => index > 0 && !array(l.here).length); if (i < 0) return false; section.lines.splice(i, 1); return true; },
         () => { const i = section.lines.findLastIndex((l: Row) => Object.hasOwn(l, "needs") && !compacted.has(l.name)); if (i < 0) return false; section.lines[i] = compact(section.lines[i]); return true; },
-        () => { if (section.lines.length <= 1) return false; section.lines.pop(); return true; }
+        () => { if (section.lines.length <= 1) return false; section.lines.pop(); return true; },
+        () => { if (!Array.isArray(section.connections) || !section.connections.length) return false; section.connections.pop(); section.connections_truncated = true; return true; },
+        () => { const known = array(row(section.reentry).known); if (known.length <= 1) return false; known.pop(); row(section.reentry).known = known; return true; }
     ];
     while (jsonSize(section) > THREAD_BUDGET) {
         if (!steps.some(step => step()))

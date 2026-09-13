@@ -53,12 +53,24 @@ export function modelLabel(model: { provider: string; id: string }): string {
 	return `${model.provider}/${model.id}`;
 }
 
-/** Models like to wrap JSON in a code fence or pad it with prose: take the first `{` through the last `}`. */
+/** Models may wrap or repeat JSON: take the first complete top-level object, respecting quoted braces. */
 function extractJsonObject(text: string): string | undefined {
 	const start = text.indexOf("{");
-	const end = text.lastIndexOf("}");
-	if (start < 0 || end <= start) return undefined;
-	return text.slice(start, end + 1);
+	if (start < 0) return undefined;
+	let depth = 0, quoted = false, escaped = false;
+	for (let index = start; index < text.length; index++) {
+		const char = text[index];
+		if (quoted) {
+			if (escaped) escaped = false;
+			else if (char === "\\") escaped = true;
+			else if (char === '"') quoted = false;
+			continue;
+		}
+		if (char === '"') quoted = true;
+		else if (char === "{") depth++;
+		else if (char === "}" && --depth === 0) return text.slice(start, index + 1);
+	}
+	return undefined;
 }
 
 /**

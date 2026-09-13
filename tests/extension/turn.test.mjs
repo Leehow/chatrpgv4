@@ -55,13 +55,84 @@ test("a pending adaptation owns the rest of the turn and cannot fall through int
 		],
 	});
 	t.after(() => table.dispose());
+	const reviewed = [];
+	table.emit("coc:mods-bridge", {async after() {}, async prepare(method, payload) {reviewed.push({method, payload});}});
 	await table.session.prompt("先准备那间书房，没准备好之前我不移动也不花钱。");
 	const requests = table.kernelRequests();
 	assert.equal(requests.filter(row => row.method === "adaptation.prepare").length, 1);
 	assert.equal(requests.filter(row => row.method === "table.apply").length, 0, "background preparation blocks unrelated writes");
 	assert.equal(requests.filter(row => row.method === "table.narrate").length, 1, "the Keeper can only yield honestly");
 	assert.equal(table.entries("coc-adaptation-status").at(-1)?.status, "pending");
+	assert.deepEqual(reviewed.find(value => value.method === "narrate")?.payload.preparation_wait, {kind: "adaptation", name: "athens-study"});
 	assert.equal(assistantTexts(table.session).filter(Boolean).at(-1), "书房还在准备中；这期间你没有移动，也没有花钱。");
+});
+
+test("a later status control can release a retained adaptation wait without reopening other tools early", async t => {
+	const table = await openTable({
+		env: {FAKE_KERNEL_ADAPTATION_PENDING: "1", FAKE_KERNEL_ADAPTATION_READY_ON_SECOND_STATUS: "1", PI_COC_ADAPTATION_WAIT_MS: "0"},
+		responses: [
+			fauxAssistantMessage([fauxToolCall("lookup", {kind: "adaptation", action: "prepare", name: "athens-study", purpose: "new_destination", request: "A persistent base", anchors: ["scene: commission-briefing"]})], {stopReason: "toolUse"}),
+			fauxAssistantMessage([fauxToolCall("narrate", {text: "准备仍在后台进行。"})], {stopReason: "toolUse"}),
+			fauxAssistantMessage("准备仍在后台进行。"),
+			fauxAssistantMessage([fauxToolCall("lookup", {kind: "adaptation", action: "status", name: "athens-study"})], {stopReason: "toolUse"}),
+			fauxAssistantMessage([fauxToolCall("apply", {effects: [{kind: "time", minutes: 1, why: "The chosen next step takes one minute."}]})], {stopReason: "toolUse"}),
+			fauxAssistantMessage([fauxToolCall("narrate", {text: "准备完成后，你继续处理自己的安排。"})], {stopReason: "toolUse"}),
+			fauxAssistantMessage("准备完成后，你继续处理自己的安排。"),
+		],
+	});
+	t.after(() => table.dispose());
+	await table.session.prompt("先准备据点，没准备好就停下。");
+	await table.session.prompt("现在查看同一份准备；完成后再继续。");
+	assert.equal(table.kernelRequests().filter(row => row.method === "table.apply").length, 1);
+	const statuses = table.kernelRequests().filter(row => row.method === "adaptation.status");
+	assert.equal(statuses.length, 3);
+	assert.equal(statuses.filter(row => row.params.name === "athens-study").length, 2);
+});
+
+test("a real preparation wait survives a later player input until status clears it", async t => {
+	const table = await openTable({
+		env: {FAKE_KERNEL_ADAPTATION_PENDING: "1", PI_COC_ADAPTATION_WAIT_MS: "0"},
+		responses: [
+			fauxAssistantMessage([fauxToolCall("lookup", {kind: "adaptation", action: "prepare", name: "athens-study", purpose: "new_destination", request: "A persistent base", anchors: ["scene: commission-briefing"]})], {stopReason: "toolUse"}),
+			fauxAssistantMessage([fauxToolCall("narrate", {text: "准备仍在后台进行。"})], {stopReason: "toolUse"}),
+			fauxAssistantMessage("准备仍在后台进行。"),
+			fauxAssistantMessage([fauxToolCall("narrate", {text: "同一份准备仍在后台进行；现在没有移动或花费。"})], {stopReason: "toolUse"}),
+			fauxAssistantMessage("同一份准备仍在后台进行；现在没有移动或花费。"),
+		],
+	});
+	t.after(() => table.dispose());
+	const reviewed = [];
+	table.emit("coc:mods-bridge", {async after() {}, async prepare(method, payload) {reviewed.push({method, payload});}});
+	await table.session.prompt("先准备据点，没准备好就停下。");
+	await table.session.prompt("我继续等同一份准备。");
+	const narrations = reviewed.filter(value => value.method === "narrate");
+	assert.equal(narrations.length, 2);
+	assert.deepEqual(narrations.map(value => value.payload.preparation_wait), [
+		{kind: "adaptation", name: "athens-study"},
+		{kind: "adaptation", name: "athens-study"},
+	]);
+});
+
+test("cold recovery exposes one retained adaptation by semantic name before other work", async t => {
+	const table = await openTable({
+		env: {FAKE_KERNEL_RETAINED_ADAPTATION_STATUS: "failed"},
+		responses: [
+			fauxAssistantMessage([fauxToolCall("narrate", {text: "I continue without checking."})], {stopReason: "toolUse"}),
+			fauxAssistantMessage([fauxToolCall("lookup", {kind: "adaptation", action: "status", name: "athens-study"})], {stopReason: "toolUse"}),
+			fauxAssistantMessage([fauxToolCall("narrate", {text: "The retained preparation failed, so nothing changed."})], {stopReason: "toolUse"}),
+			fauxAssistantMessage("The retained preparation failed, so nothing changed."),
+		],
+	});
+	t.after(() => table.dispose());
+	await table.session.prompt("Continue after reopening.");
+	await waitForIdle(table.session);
+	const statuses = table.kernelRequests().filter(row => row.method === "adaptation.status");
+	assert.equal(statuses.length, 2);
+	assert.equal(statuses[0].params.name, undefined);
+	assert.equal(statuses[1].params.name, "athens-study");
+	const requests = table.kernelRequests();
+	assert.ok(requests.findIndex(row => row.method === "adaptation.status" && row.params.name === "athens-study")
+		< requests.findIndex(row => row.method === "table.narrate"));
 });
 
 test("一个玩家回合：七个工具、胶囊、call_id、rendered_text 交付", async (t) => {

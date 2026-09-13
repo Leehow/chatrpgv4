@@ -7,6 +7,7 @@ import { CampaignWriter, nowIso } from '../write/store.js';
 import { committedFacts } from '../write/text.js';
 import { ModuleGraph } from '../read/module-graph.js';
 import { EntityIndex, queryCandidates } from '../read/memory.js';
+import { storyAssessmentContext } from '../read/story.js';
 import {validateCorrectionRefs, bindCorrectionRefs, applyCorrectionLinks} from './corrections.js';
 import { array, row, clone, string, number, integer, numeric, truth, repr, sorted, length, type Row } from '../read/values.js';
 export const CANDIDATE_KINDS = ['world_event', 'knowledge', 'belief', 'relationship', 'player_assertion', 'player_preference', 'keeper_correction', 'promise'];
@@ -14,11 +15,16 @@ const FIELDS = ['kind', 'subject', 'knowers', 'statement', 'entities', 'privacy'
 const MACHINE = ['commit', 'receipt', 'receipts', 'turn', 'id', 'job_id', 'episode_id', 'call_id', 'source'];
 const PRIVACY = ['player_safe', 'keeper_only'], STATES = ['accurate', 'uncertain', 'distorted'];
 export const FAILURE_REASONS = ['invalid', 'lane_error', 'model_error'];
+const STORY_STATUSES = ['aligned', 'unclear', 'misframed', 'detached'];
 export const episodeId = (turn: number) => `ep:t${turn}`;
 export const jobId = (campaign: string, turn: number) => `extract:${campaign}:t${turn}`;
 export const proseOf = (value: any): string => truth(value) ? string(value).replace(/\n{3,}/g, '\n\n').replace(/^\n+|\n+$/g, '') : '';
 const instruction = (language: string) => 'Write only what is new this turn: facts, knowledge, beliefs, relationships, player assertions. ' +
-    'Use names from known_entities as subjects, or the reserved subjects world, party, keeper, player; ' +
+    'For subject use a name from known_entities, or one of the reserved subjects world, party, keeper, player, ' +
+    'as the kind allows: a world_event uses subject world; a player_assertion or player_preference uses subject ' +
+    'player. For knowers use known NPC or investigator names, or party, keeper or player. For entities use only ' +
+    'the actual semantic names supplied in known_entities (the people, clues, scenes or other entities the ' +
+    'statement is about), and never the reserved words world, party, keeper or player. ' +
     'no numbers or dice; do not repeat what prior already holds. Each candidate has kind (one of world_event, ' +
     'knowledge, belief, relationship, player_assertion, player_preference, keeper_correction, promise), subject and ' +
     "statement; a world_event's subject must be world; a relationship names exactly one entity in entities. " +
@@ -78,7 +84,10 @@ export async function buildJob(campaign: CampaignWriter, graph: ModuleGraph, lan
     if (!record)
         throw new RpcError('invalid_params', `turn ${turn} has no committed record`, { fix: 'only turns closed by narrate have extraction jobs', details: { turn, committed_turns: [...committed.keys()].sort((a, b) => a - b) } });
     const snapshot = row(record.world), scene = graph.scene(string(row(snapshot.scene).name || world.active_scene));
-    const present = array(snapshot.present).map(name => graph.find(string(name), ['npc'])).filter(truth) as Row[];
+    const present = [...new Map([
+        ...array(row(record.capsule).present).map(value => graph.find(string(row(value).name || value), ['npc'])).filter(truth) as Row[],
+        ...array(snapshot.present).map(name => graph.find(string(name), ['npc'])).filter(truth) as Row[]
+    ].map(node => [node.node_id, node])).values()];
     const sceneLabels = row((await campaign.readWorld()).scene_labels), display = string(sceneLabels[graph.handle(scene)] || graph.displayName(scene));
     const known: Row[] = party.map(sheet => ({ name: string(sheet.name), kind: 'investigator' })), allowed: string[] = [];
     for (const node of present) {
@@ -106,13 +115,55 @@ export async function buildJob(campaign: CampaignWriter, graph: ModuleGraph, lan
     const prior = queryCandidates(rows, new EntityIndex(graph, party, labels), about, { limit: 12 }).map(hit => ({ id: hit.id, kind: hit.kind, subject: hit.subject, statement: hit.statement, status: hit.status, turn: hit.turn }));
     const correctionTargets = queryCandidates(rows.filter(value => number(value.valid_from_turn) < turn), new EntityIndex(graph, party, labels), about, {limit: 30})
         .map(hit => ({subject: hit.subject, statement: hit.statement, kind: hit.kind}));
-    const meta = await campaign.readCampaign();
+    const meta = await campaign.readCampaign(), worldline = string(meta.active_worldline || 'main'), loop = number(row(row(meta.worldlines)[worldline]).loop);
+    const historicalWorld = {active_scene: graph.handle(scene), discovered_clues: clues,
+        npc_presence: Object.fromEntries(present.map(node => [graph.handle(node), graph.handle(scene)]))};
+    const history = [...committed].filter(([n]) => n <= turn).sort(([a], [b]) => a - b).map(([, value]) => value);
+    const historicalCandidates = rows.filter(value => number(value.valid_from_turn) <= turn && (!value.worldline || value.worldline === worldline));
+    const storyContext = storyAssessmentContext(graph, historicalWorld, history, historicalCandidates,
+        await logs(campaign, 'memory/story.jsonl'), worldline, loop, turn);
     return { job_id: jobId(campaign.id, turn), turn, commit: record.commit ?? null, scene: { name: graph.handle(scene), display_name: display },
         present: present.map(node => graph.displayName(node)), investigators: party.map(sheet => ({ id: string(sheet.id), name: string(sheet.name) })),
         player_text: record.player_text ?? null, keeper_text: proseOf(record.rendered_text),
         committed_facts: facts.length ? facts : committedFacts(array(record.receipts), snapshot, id => labels[id] ?? id, record.player_text),
-        known_entities: known, prior, ...(correctionTargets.length ? {correction_targets: correctionTargets} : {}), budget: { max_candidates: 12, max_statement_chars: 400 }, instruction: instruction(language),
-        _worldline: meta.active_worldline ?? 'main', _allowed: allowed, _receipts: array(record.receipts).map(receipt => receipt.id) };
+        known_entities: known, prior, ...(correctionTargets.length ? {correction_targets: correctionTargets} : {}),
+        ...(array(storyContext.threads).length ? {story_context: storyContext} : {}),
+        budget: { max_candidates: 12, max_statement_chars: 400 }, instruction: instruction(language),
+        _worldline: worldline, _allowed: allowed, _receipts: array(record.receipts).map(receipt => receipt.id) };
+}
+
+const detailsOfStory = (story: Row): Row => ({status: story.status, thread: story.thread, bridge_delivered: story.bridge_delivered});
+function validateStory(job: Row, value: unknown): Row | null {
+    const context = row(row(job.packet).story_context), threads = array(context.threads);
+    // Older bundled hosts can finish an already-open extraction without inventing an assessment.
+    // The current extension requires story whenever the packet supplies threads.
+    if (value === undefined || value === null) return null;
+    if (!threads.length) {
+        throw new RpcError('invalid_params', 'This memory job has no story assessment context');
+    }
+    if (!isJsonObject(value) || Object.keys(value).sort().join(',') !== 'bridge_delivered,delivery_quote,frame,status,thread')
+        throw new RpcError('invalid_params', 'params.story needs exactly status, thread, frame, bridge_delivered and delivery_quote');
+    if (!STORY_STATUSES.includes(value.status as string))
+        throw new RpcError('invalid_params', `params.story.status must be one of: ${STORY_STATUSES.join(', ')}`);
+    const unclear = value.status === 'unclear', names = threads.map(thread => string(row(thread).thread));
+    if (unclear ? value.thread !== null : typeof value.thread !== 'string' || !names.includes(value.thread))
+        throw new RpcError('invalid_params', unclear ? 'An unclear story assessment uses thread null' : 'params.story.thread must name one supplied story_context thread',
+            {details: {threads: names}});
+    const selected = threads.find(thread => row(thread).thread === value.thread);
+    const selectedEvidence = selected ? array(row(selected).supporting).length + array(row(selected).contradicting).length : 0;
+    if (value.status === 'aligned' && selected && !selectedEvidence)
+        throw new RpcError('invalid_params', 'An aligned story assessment requires acquired causal evidence on the selected thread; an unsupported correct guess remains uncertain');
+    const player = string(row(job.packet).player_text || '');
+    if (unclear ? value.frame !== null : typeof value.frame !== 'string' || !value.frame.trim() || value.frame.length > 500 || !player.includes(value.frame))
+        throw new RpcError('invalid_params', unclear ? 'An unclear story assessment uses frame null' : 'params.story.frame must be an exact bounded excerpt from player_text');
+    if (typeof value.bridge_delivered !== 'boolean')
+        throw new RpcError('invalid_params', 'params.story.bridge_delivered must be boolean');
+    if (value.bridge_delivered && !selectedEvidence)
+        throw new RpcError('invalid_params', 'A delivered causal bridge requires acquired supporting or contradicting evidence on the selected thread; atmosphere alone is not delivery');
+    const keeper = string(row(job.packet).keeper_text || '');
+    if (value.bridge_delivered ? typeof value.delivery_quote !== 'string' || !value.delivery_quote.trim() || value.delivery_quote.length > 700 || !keeper.includes(value.delivery_quote) : value.delivery_quote !== null)
+        throw new RpcError('invalid_params', value.bridge_delivered ? 'params.story.delivery_quote must be an exact bounded excerpt from keeper_text' : 'A story assessment without a delivered bridge uses delivery_quote null');
+    return clone(value);
 }
 export async function correctionJob(campaign: CampaignWriter, graph: ModuleGraph, party: Row[], requested?: string): Promise<Row | null> {
     const rows = await logs(campaign, 'memory/candidates.jsonl'), meta = await campaign.readCampaign();
@@ -240,13 +291,13 @@ async function recoverBacklog(campaign: CampaignWriter, id: string): Promise<voi
     if (changed)
         await writeLines(campaign, 'memory/backlog.jsonl', rows);
 }
-export async function submit(campaign: CampaignWriter, graph: ModuleGraph, party: Row[], job: Row, candidates: any): Promise<[
+export async function submit(campaign: CampaignWriter, graph: ModuleGraph, party: Row[], job: Row, candidates: any, story?: unknown): Promise<[
     Row,
     boolean
 ]> {
     const id = string(job.job_id), turn = number(job.turn), meta = await campaign.readCampaign();
     const line = typeof meta.active_worldline === 'string' && meta.active_worldline ? meta.active_worldline : 'main', loop = number(row(row(meta.worldlines)[line]).loop);
-    const digest = jsonDigest(candidates ?? null);
+    const digest = story === undefined ? jsonDigest(candidates ?? null) : jsonDigest({candidates: candidates ?? null, story: story as any});
     if (job.worldline != null && job.worldline !== line) throw new RpcError('invalid_params', 'Memory job belongs to another worldline');
     if (job.status === 'done') {
         if (job.candidates_sha256 === digest)
@@ -254,6 +305,7 @@ export async function submit(campaign: CampaignWriter, graph: ModuleGraph, party
         throw new RpcError('idempotency_conflict', `job ${id} already completed with different candidates`, { fix: 'a completed job is final; nothing to resubmit', details: { job_id: id } });
     }
     if (job.correction) {
+        if (story !== undefined && story !== null) throw new RpcError('invalid_params', 'Correction reconciliation does not assess story alignment');
         const rows = await logs(campaign, 'memory/candidates.jsonl'), correction = rows.find(row => row.id === job.correction);
         const value = Array.isArray(candidates) && candidates.length === 1 ? candidates[0] : null;
         if (!correction || correction.superseded_by != null || !isJsonObject(value) || Object.keys(value).some(key => !FIELDS.includes(key))
@@ -269,15 +321,18 @@ export async function submit(campaign: CampaignWriter, graph: ModuleGraph, party
     }
     const world = await campaign.readWorld(), index = new EntityIndex(graph, party, row(world.scene_labels), array(job.allowed));
     let validated: Row[];
+    let assessed: Row | null;
     try {
         validated = validateCandidates(index, candidates);
+        assessed = validateStory(job, story);
     }
     catch (error) {
         if (error instanceof RpcError && error.code === 'invalid_params')
             await appendBacklog(campaign, id, turn, 'invalid', error.message);
         throw error;
     }
-    const existing = await logs(campaign, 'memory/candidates.jsonl'), prefix = `mem:t${turn}-`;
+    const existing = await logs(campaign, 'memory/candidates.jsonl'), beforeCandidates = clone(existing), prefix = `mem:t${turn}-`;
+    const storyRows = await logs(campaign, 'memory/story.jsonl'), beforeStory = clone(storyRows);
     for (const value of validated) if (Object.hasOwn(value, 'corrects')) {
         value.corrects = bindCorrectionRefs(value.corrects, array(job.packet.correction_targets), existing, turn);
         value.correction_links_checked = true;
@@ -308,10 +363,24 @@ export async function submit(campaign: CampaignWriter, graph: ModuleGraph, party
         written.push(landed);
     }
     superseded.push(...applyCorrectionLinks(existing).filter(id => !superseded.includes(id)));
-    await writeLines(campaign, 'memory/candidates.jsonl', existing);
+    const storyRow = assessed ? {turn, commit: job.commit ?? null, worldline: line, loop, job_id: id, at: nowIso(), ...assessed} : null;
+    if (storyRow) {
+        const duplicate = storyRows.findIndex(value => value.job_id === id);
+        if (duplicate >= 0) storyRows.splice(duplicate, 1);
+        storyRows.push(storyRow);
+    }
     const result = { job_id: id, turn, candidates: written.length, written: written.map(value => value.id), superseded,
-        ...(dropped.length ? { dropped_entities: sorted(new Set(dropped)) } : {}) };
-    await writeJob(campaign, { ...job, status: 'done', candidates_sha256: digest, submitted: candidates, result, completed_at: nowIso() });
+        ...(storyRow ? {story: detailsOfStory(storyRow)} : {}), ...(dropped.length ? { dropped_entities: sorted(new Set(dropped)) } : {}) };
+    try {
+        await writeLines(campaign, 'memory/candidates.jsonl', existing);
+        if (storyRow) await writeLines(campaign, 'memory/story.jsonl', storyRows);
+        await writeJob(campaign, { ...job, status: 'done', candidates_sha256: digest, submitted: candidates,
+            ...(story !== undefined ? {submitted_story: story} : {}), result, completed_at: nowIso() });
+    } catch (error) {
+        await Promise.allSettled([writeLines(campaign, 'memory/candidates.jsonl', beforeCandidates),
+            ...(storyRow ? [writeLines(campaign, 'memory/story.jsonl', beforeStory)] : [])]);
+        throw error;
+    }
     await recoverBacklog(campaign, id);
     return [result, false];
 }

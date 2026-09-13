@@ -6,7 +6,7 @@ import {continuityView} from '../read/continuity.js';
 import {EntityIndex, queryCandidates} from '../read/memory.js';
 import {objectContext, unregisteredEquipment} from '../read/mods.js';
 import {claimedEquipment} from './queue.js';
-import {array, chars, row, string, type Row} from '../read/values.js';
+import {array, chars, row, string, truth, type Row} from '../read/values.js';
 
 const pick = (value: Row, names: string[]): Row => Object.fromEntries(names.filter(name => Object.hasOwn(value, name)).map(name => [name, value[name]]));
 export function continuityAuditContext(graph: ModuleGraph, world: Row, turn: Row, party: Row[], files: Row): Row {
@@ -18,6 +18,13 @@ export function continuityAuditContext(graph: ModuleGraph, world: Row, turn: Row
     const objects = objectContext(world), sourceNodes = [...new Set([...graph.sceneClueIds(scene), ...array(world.discovered_clues).slice(-4)])]
         .flatMap(name => { const node = graph.find(name); return node ? [node] : []; });
     const moves = array(turn.receipts).filter(receipt => receipt.kind === 'move');
+    const reentry = row(row(row(turn.capsule).mods).thread).reentry;
+    const bridge = row(row(reentry).bridge), bridgeClue = graph.find(string(bridge.clue), ['clue']);
+    const causalReentry = truth(reentry) ? {...reentry, authority: {
+        current_scene: graph.handle(scene),
+        clue_here: !!bridgeClue && graph.sceneClueIds(scene).includes(bridgeClue.node_id),
+        rule: 'A new bridge receipt is authorized here only when the effective graph makes its clue discoverable at the current scene; accepted source_rebinding changes that graph.'
+    }} : null;
     return {
         current_input: turn.player_text ?? null,
         clock: clockSection(graph, world),
@@ -27,8 +34,9 @@ export function continuityAuditContext(graph: ModuleGraph, world: Row, turn: Row
             moves: moves.map(receipt => pick(receipt, ['from', 'to', 'from_label', 'to_label', 'minutes'])),
             definition: 'active_scene is the persistent gameplay locus, not a physical coordinate.',
             promotion_test: 'A distinct place needs a scene and move only when it becomes the ongoing locus for subsequent player action or durable location-bound state. Spatial wording, scale and motion do not decide this.'},
+        ...(causalReentry ? {causal_reentry: causalReentry} : {}),
         present: Object.entries(row(world.npc_presence)).filter(([, at]) => at === world.active_scene).map(([name]) => ({name: index.canonicalName(`npc:${graph.find(name)?.node_id ?? name}`)})),
-        receipts: array(turn.receipts).map(receipt => pick(receipt, ['kind', 'actor_label', 'skill', 'passed', 'from_label', 'to_label', 'minutes', 'clue', 'label', 'summary', 'how', 'from', 'to', 'owner', 'delta', 'before', 'after', 'name', 'text', 'condition', 'visibility'])),
+        receipts: array(turn.receipts).map(receipt => pick(receipt, ['kind', 'actor_label', 'skill', 'passed', 'from_label', 'to_label', 'minutes', 'clue', 'handout', 'label', 'summary', 'how', 'from', 'to', 'owner', 'delta', 'before', 'after', 'name', 'text', 'condition', 'visibility'])),
         actors: party.map(person => ({name: person.name, equipment: person.equipment ?? [], cash: person.cash ?? null,
             weapons: array(person.weapons).map(weapon => pick(weapon, ['name', 'display_name', 'skill', 'damage', 'ammo', 'magazine']))})),
         objects: {queued_registrations: objects.queued_registrations,

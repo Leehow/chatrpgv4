@@ -566,7 +566,10 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             },
             pending_turn: pending,
             opening_needed: opening,
-            mod_context: await modContext(context, module.graph, snapshot.world, snapshot.party),
+            mod_context: await modContext(context, module.graph, snapshot.world, snapshot.party, snapshot.records, true, {
+                memory: snapshot.logs.get('memory/candidates.jsonl') ?? [], story: snapshot.logs.get('memory/story.jsonl') ?? [],
+                worldline: activeName(snapshot.meta), loop: number(line.loop)
+            }),
             setup_prologue: opening ? row(row(snapshot.meta.setup).handoff).prologue ?? null : null,
             module_reading: moduleReading,
             resume,
@@ -632,6 +635,9 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             consume: true,
             resume
         });
+        const reentry = row(row(view.mods).thread).reentry;
+        if (truth(reentry)) await campaign.telemetry({lane: 'story', event: 'reentry_projected', turn: next,
+            assessed_turn: row(reentry).assessed_turn, status: row(reentry).status, thread: row(row(reentry).thread).name});
         // §29.2: a table.branch sets `pending_branch` on campaign.json; the first player_input
         // after it carries the one-time `branched` section and clears the flag.
         const branched = snapshot.meta.pending_branch;

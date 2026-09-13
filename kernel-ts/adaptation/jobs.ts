@@ -1,5 +1,5 @@
 /** Host-owned draft work is retained outside campaign history; only apply accepts it. */
-import { mkdir, readFile, writeFile, lstat } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, lstat, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { KernelContext } from '../context.js';
 import type { HandlerGroup } from '../handlers.js';
@@ -108,10 +108,11 @@ export class AdaptationJobs {
         this.root(campaign);
         const snapshot = await CampaignSnapshot.open(this.context, campaign); await snapshot.preload();
         const current = await loadModule(this.context, snapshot.meta.module_id);
-        const head = await this.context.git.run(campaign, ['rev-parse', 'HEAD']);
-        if (head.code !== 0) return fail('Campaign history is unavailable');
-        const pin = jsonDigest({world: snapshot.world, party: snapshot.party, line: snapshot.meta.active_worldline ?? 'main', head: head.stdout.trim(),
-            turn: snapshot.turn.turn, player: snapshot.turn.player_text ?? null, receipts: snapshot.turn.receipts ?? [], pending: snapshot.turn.pending_choice ?? null});
+        // A pending preparation is allowed to cross an honest wait-only narrate and a later status
+        // request. Those change HEAD, turn and player text but not the world the proposal will alter.
+        // World/party/line plus source generation still invalidate every material change; final apply
+        // remains subject to the current player's action-admission review.
+        const pin = jsonDigest({world: snapshot.world, party: snapshot.party, line: snapshot.meta.active_worldline ?? 'main'});
         return {snapshot, current, pin};
     }
     private async job(campaign: string, name: string): Promise<Row> {
@@ -218,7 +219,33 @@ export class AdaptationJobs {
         return {...this.view(job), task: this.task(job, 'create')};
     }
     private task(job: Row, role: string): Row { const cwd = join(job.work, role); return {key: job.key, attempt: job.attempt, cwd, system_prompt: join(cwd, 'prompt.md'), role}; }
+    private async retained(params: Row): Promise<Row> {
+        const root = this.root(params.campaign);
+        let names: string[];
+        try { names = (await readdir(root)).filter(name => /^[a-f0-9]{64}\.json$/.test(name)); }
+        catch (error) {
+            if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {status: 'none'};
+            throw error;
+        }
+        const state = await this.state(params.campaign), accepted = array(row(state.snapshot.world.adaptation).records);
+        const jobs: Row[] = [];
+        for (const name of names) {
+            try {
+                const pointer = await artifact(join(root, name)), path = join(root, string(pointer.key));
+                const job: Row = {...await artifact(join(path, 'job.json')), path};
+                if (job.campaign !== params.campaign || !['pending', 'reviewing', 'ready', 'failed', 'stale'].includes(string(job.status))) continue;
+                if (accepted.some(record => record.draft === job.draft_digest && record.review === job.review_digest && job.review_digest)) continue;
+                if (['pending', 'reviewing', 'ready'].includes(string(job.status)) && !await this.fresh(job)) {
+                    job.status = 'stale'; await this.save(job);
+                }
+                jobs.push(job);
+            } catch { /* Explicit named status remains the diagnostic path for malformed retained evidence. */ }
+        }
+        jobs.sort((a, b) => string(b.created).localeCompare(string(a.created)) || Number(b.attempt) - Number(a.attempt) || string(a.name).localeCompare(string(b.name)));
+        return jobs.length ? {...this.view(jobs[0]), attempt: jobs[0].attempt, retained: true} : {status: 'none'};
+    }
     async status(params: Row): Promise<Row> {
+        if (params.name == null) return this.retained(params);
         const job = await this.job(params.campaign, named(params.name));
         const state = await this.state(job.campaign);
         if (array(row(state.snapshot.world.adaptation).records).some(record => record.draft === job.draft_digest && record.review === job.review_digest && job.review_digest))

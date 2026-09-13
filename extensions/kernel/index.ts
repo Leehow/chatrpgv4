@@ -129,7 +129,9 @@ interface TableState {
 	/** The prose the floor steer dropped; if the second leg brings no prose and no narrate, this closes the turn as before. */
 	floorDraft?: string;
 	/** A retained background preparation owns the rest of this turn until the Keeper briefly yields to the player. */
-	preparationWait?: { kind: "source" | "adaptation"; name?: string };
+	preparationWait?: { kind: "source" | "adaptation"; name?: string; status?: string };
+	/** Cold recovery scans the retained adaptation surface once; later jobs are tracked in memory. */
+	adaptationScanned: boolean;
 	/** A host note owed to the Keeper at agent_end rather than delivered as prose. */
 	deliveryFix?: { kind: string; text: string };
 	/** A review operation stopped; only genuine new player input can start a linked retry. */
@@ -954,6 +956,8 @@ export default function (pi: ExtensionAPI) {
 		if (wait.kind === "source") {
 			return "Source preparation is pending. Use narrate only to tell the player that preparation is still running, then return control without a story menu. Do not start another query, narrate a result, or imply that the refused action or elapsed game time happened.";
 		}
+		if (wait.status && !['pending', 'reviewing'].includes(wait.status))
+			return `Retained adaptation preparation${wait.name ? ` for ${wait.name}` : ''} is ${wait.status}. Use lookup kind=adaptation action=status${wait.name ? ` name=${JSON.stringify(wait.name)}` : ''} before any other tool, then follow that result. Do not invent or restart it under another name.`;
 		return `Adaptation preparation${wait.name ? ` for ${wait.name}` : ""} is still running. Use narrate only to tell the player that preparation is pending, then return control without moving, charging, or introducing the destination. Inspect the same proposal after new player input.`;
 	}
 
@@ -998,6 +1002,8 @@ export default function (pi: ExtensionAPI) {
 			if (spec.name === "resolve" || spec.name === "apply") await admitAction(state, spec.name, payload, signal);
       if (mods) {
         if (Array.isArray(payload.effects)) payload.effects = payload.effects.map(effect => ({...(effect as Record<string, unknown>)}));
+        if (spec.name === 'narrate' && state.preparationWait) payload.preparation_wait = {
+          kind: state.preparationWait.kind, ...(state.preparationWait.name ? {name: state.preparationWait.name} : {})};
         await mods.prepare(spec.name, payload, signal);
       }
 			try {
@@ -1022,12 +1028,13 @@ export default function (pi: ExtensionAPI) {
 			applyToolSuccess(state, spec.name, toolCallId, result);
 			const adaptationPending = spec.name === 'lookup' && params.kind === 'adaptation' && ['pending', 'reviewing'].includes(String(result.status));
 			if (adaptationPending) {
-				state.preparationWait = { kind: "adaptation", name: asString(result.name) };
+				state.preparationWait = { kind: "adaptation", name: asString(result.name), status: asString(result.status) };
 				const status = {campaign: state.campaign, turn: state.turn, name: result.name, status: result.status,
 					message: result.service_status};
 				pi.appendEntry('coc-adaptation-status', status);
 				pi.events.emit('coc:adaptation-status', status);
 			}
+			else if (spec.name === 'lookup' && params.kind === 'adaptation') state.preparationWait = undefined;
 			await record({
 				tool: spec.name,
 				call_id: payload.call_id ?? null,
@@ -1285,6 +1292,7 @@ export default function (pi: ExtensionAPI) {
 				admission: new Map(),
 				admissionRefused: [],
 				landed: [],
+				adaptationScanned: false,
 			};
 			const open = await kernel.call<OpenResult>("table.open", { campaign });
 			applyOpen(open);
@@ -1426,7 +1434,6 @@ export default function (pi: ExtensionAPI) {
 			state.steeredThisTurn = false;
 			state.toolCallsThisTurn = 0;
 			state.floorDraft = undefined;
-			state.preparationWait = undefined;
 			state.deliveryFix = undefined;
 			state.roundTrips = 0;
 			state.attachments = [];
@@ -1440,6 +1447,15 @@ export default function (pi: ExtensionAPI) {
 			state.answering = state.lastAsk;
 			state.lastAsk = undefined;
 			noteCapsule(state, result.capsule);
+			if (!state.adaptationScanned) {
+				state.adaptationScanned = true;
+				try {
+					const retained = await state.kernel.call<Record<string, unknown>>('adaptation.status', {campaign: state.campaign});
+					const status = asString(retained.status), name = asString(retained.name);
+					if (name && ['pending', 'reviewing', 'ready', 'failed', 'stale'].includes(status))
+						state.preparationWait = {kind: 'adaptation', name, status};
+				} catch { /* Named status remains the diagnostic path; recovery discovery never blocks player input. */ }
+			}
 			await record({
 				tool: "table.player_input",
 				started_at: startedAt,
@@ -1504,7 +1520,9 @@ export default function (pi: ExtensionAPI) {
 			await record({ tool: name, started_at: new Date().toISOString(), ok: false, code: "blocked", reason: TURN_CLOSED_REASON });
 			return { block: true, reason: TURN_CLOSED_REASON };
 		}
-		if (state.preparationWait && name !== "narrate") {
+		const adaptationControl = name === 'lookup' && input.kind === 'adaptation' && ['status', 'cancel'].includes(String(input.action));
+		const retainedTerminal = state.preparationWait?.status && !['pending', 'reviewing'].includes(state.preparationWait.status);
+		if (state.preparationWait && ((retainedTerminal && !adaptationControl) || (!retainedTerminal && name !== "narrate" && !adaptationControl))) {
 			return { block: true, terminate: true, reason: preparationWaitInstruction(state.preparationWait) };
 		}
 		// The same call with the same parameters, resent unchanged: the kernel's answer will not change.
@@ -1667,7 +1685,9 @@ export default function (pi: ExtensionAPI) {
 			const startedAt = new Date().toISOString();
 			const began = Date.now();
 			try {
-				const params: Record<string, unknown> = { campaign: state.campaign, call_id: callId, text: prose, implicit: true };
+				const params: Record<string, unknown> = { campaign: state.campaign, call_id: callId, text: prose, implicit: true,
+					...(state.preparationWait ? {preparation_wait: {kind: state.preparationWait.kind,
+						...(state.preparationWait.name ? {name: state.preparationWait.name} : {})}} : {}) };
 				await mods?.prepare(tool, params, state.lanes.signal);
 				const result = (await state.kernel.call<Record<string, unknown>>(`table.${tool}`, params)) ?? {};
 				applyToolSuccess(state, tool, "implicit", result);

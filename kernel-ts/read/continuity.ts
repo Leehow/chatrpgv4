@@ -6,6 +6,32 @@ import { resolveReference } from './references.js';
 import {EntityIndex, queryCandidates} from './memory.js';
 import { array, chars, row, string, type Row } from './values.js';
 
+/** A handout is a causal carrier only through the graph's closed evidence roles. */
+export function evidenceHandouts(graph: ModuleGraph, node: Row): string[] {
+    if (node.node_kind !== 'clue') return [];
+    return (graph.incoming.get(node.node_id) ?? []).flatMap(edge => {
+        const carrier = graph.nodes.get(edge.from_node_id);
+        return carrier?.node_kind === 'handout' && ['supports', 'depicts'].includes(edge.relation_kind)
+            ? [graph.handle(carrier)] : [];
+    });
+}
+
+/** Receipts prove that a clue or one of its handout carriers actually reached play. */
+export function evidenceDeliveryRecords(graph: ModuleGraph, node: Row, records: Row[]): Row[] {
+    const name = graph.handle(node), handouts = new Set(evidenceHandouts(graph, node));
+    return records.filter(record => array(record.receipts).some(receipt =>
+        receipt.clue === name || receipt.handout === name || handouts.has(string(receipt.handout))));
+}
+
+export function evidenceAcquired(graph: ModuleGraph, world: Row, node: Row, records: Row[]): boolean {
+    const name = graph.handle(node);
+    if (node.node_kind === 'clue' && array(world.discovered_clues).includes(name)) return true;
+    if (node.node_kind === 'handout' && array(world.handouts_shown).includes(name)
+        && records.some(record => array(record.receipts).some(receipt => receipt.handout === name))) return true;
+    const handouts = new Set(evidenceHandouts(graph, node));
+    return handouts.size > 0 && records.some(record => array(record.receipts).some(receipt => handouts.has(string(receipt.handout))));
+}
+
 export function continuityView(graph: ModuleGraph, world: Row, records: Row[] = [], candidates: Row[] = [], options: Row = {}): Row {
     const limit = options.limit ?? 6;
     if (!Number.isInteger(limit) || limit < 1 || limit > 12)
@@ -30,7 +56,6 @@ export function continuityView(graph: ModuleGraph, world: Row, records: Row[] = 
             }
         }
     }
-    const acquired = new Set(array(world.discovered_clues));
     const source = (node: Row): Row => ({
         origin: graph.adaptationOrigin(node.campaign_origin) ?? 'source',
         references: array(node.source_refs).length ? node.source_refs : array(node.source_references),
@@ -43,10 +68,10 @@ export function continuityView(graph: ModuleGraph, world: Row, records: Row[] = 
         const evidence = relations.flatMap(edge => {
             const node = graph.nodes.get(edge.from_node_id);
             if (!node) return [];
-            const name = graph.handle(node);
-            const deliveries = records.filter(record => array(record.receipts).some(r => r.clue === name || r.handout === name));
-            return [{name, relation: edge.relation_kind, acquired: acquired.has(name),
-                disclosure: acquired.has(name) ? 'acquired_evidence' : 'keeper_only',
+            const name = graph.handle(node), acquired = evidenceAcquired(graph, world, node, records);
+            const deliveries = evidenceDeliveryRecords(graph, node, records);
+            return [{name, relation: edge.relation_kind, acquired,
+                disclosure: acquired ? 'acquired_evidence' : 'keeper_only',
                 summary: chars(graph.summary(node), 400), ...source(node),
                 deliveries: deliveries.slice(-3).map(record => ({turn: record.turn, text: chars(string(record.rendered_text), 700), truncated: string(record.rendered_text).length > 700})),
                 more_deliveries: deliveries.length > 3,

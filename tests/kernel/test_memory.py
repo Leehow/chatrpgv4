@@ -48,7 +48,7 @@ def test_job_packet_is_names_only(kernel):
     assert narrated["extraction"] == {"job_id": "extract:c1:t1"}
     packet = job(kernel)
     assert set(packet) == {"job_id", "turn", "commit", "scene", "present", "investigators", "player_text",
-                           "keeper_text", "committed_facts", "known_entities", "prior", "budget", "instruction"}
+                           "keeper_text", "committed_facts", "known_entities", "prior", "story_context", "budget", "instruction"}
     assert packet["job_id"] == "extract:c1:t1" and packet["turn"] == 1 and packet["commit"] == narrated["commit"]
     assert packet["scene"] == {"name": "commission-briefing", "display_name": "Knott's Office"}
     assert packet["present"] == [KNOTT]
@@ -59,6 +59,9 @@ def test_job_packet_is_names_only(kernel):
     assert packet["known_entities"] == [{"name": INV, "kind": "investigator"}, {"name": KNOTT, "kind": "npc"},
                                         {"name": "Knott's Office", "kind": "scene"}, {"name": "knott-keys", "kind": "clue"}]
     assert packet["prior"] == []
+    assert packet["story_context"]["threads"]
+    assert set(packet["story_context"]["threads"][0]) == {"thread", "claim", "importance", "supporting", "contradicting"}
+    assert packet["story_context"]["last_assessment"] is None
     assert packet["budget"] == {"max_candidates": 12, "max_statement_chars": 400}
     assert "known_entities" in packet["instruction"] and "world" in packet["instruction"]
     # No machine keys beside turn and commit: no hashes, no receipt ids, no call ids.
@@ -98,6 +101,19 @@ def test_job_can_be_rebuilt_without_episode_or_job_file(kernel):
     (memory_dir(kernel.workspace) / "jobs" / "extract:c1:t1.json").unlink()
     result = submit(kernel, "extract:c1:t1", [{"kind": "world_event", "subject": "world", "statement": "诺特交出了钥匙。"}])
     assert result["written"] == ["mem:t1-1"]
+
+
+def test_a_person_who_leaves_during_the_turn_remains_a_valid_memory_subject(kernel):
+    open_turn(kernel, "我拒绝委托，诺特随后离开。")
+    kernel.table("apply", call_id="t1-c1", effects=[{"kind": "npc", "name": KNOTT, "to": "away",
+                                                       "why": "The meeting ended."}])
+    narrate(kernel, "t1-c2", "诺特说完最后一句话，拿起钥匙离开了办公室。")
+    packet = job(kernel, turn=1)
+    assert KNOTT in packet["present"]
+    assert {"name": KNOTT, "kind": "npc"} in packet["known_entities"]
+    result = kernel.ok("memory.submit", {"campaign": CAMPAIGN, "job_id": packet["job_id"],
+        "candidates": [{"kind": "knowledge", "subject": KNOTT, "statement": "诺特知道海斯拒绝了委托。"}]})
+    assert result["candidates"] == 1 and result["written"] == ["mem:t1-1"]
 
 
 # ---- submit -------------------------------------------------------------------------------
