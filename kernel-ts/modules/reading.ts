@@ -411,7 +411,8 @@ export class Reading {
                     reject('assets must be an array of host-rendered asset records');
                 for (const asset of assets) {
                     const node = graph.nodes.find((node: Row) => node.node_id === asset.node_id), path = await this.contained(work, asset.path);
-                    if (!node || !['handout', 'asset'].includes(node.node_kind) || !['player-safe', 'revealable'].includes(node.visibility) || !truth(row(node.properties).image_sources) || (await stat(path)).size > 20 * 1024 * 1024 || await sha256File(path) !== asset.sha256 || !(await readFile(path)).subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])))
+                    const privateMapSource = node && array(graph.nodes).some(map => array(row(map.properties).map_regions).some(region => row(region).source_asset === node.node_id && row(region).safe_after_redactions === true && truth(row(region).redactions)));
+                    if (!node || !['handout', 'asset'].includes(node.node_kind) || (!privateMapSource && !['player-safe', 'revealable'].includes(node.visibility)) || !truth(row(node.properties).image_sources) || (await stat(path)).size > 20 * 1024 * 1024 || await sha256File(path) !== asset.sha256 || !(await readFile(path)).subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])))
                         reject('the rendered asset does not match its reviewed source declaration');
                     Object.assign(node.properties, { asset_ref: relative(await resolvedPath(this.store.moduleDir(mid)), path), media_type: 'image/png' });
                 }

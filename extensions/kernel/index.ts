@@ -7,13 +7,14 @@
 import type { ImageContent } from "@earendil-works/pi-ai";
 import type { AgentToolUpdateCallback, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { appendFile, mkdir } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { createRuntime, type HostRuntime } from "../../runtime/host.ts";
 export { kernelCommand } from "../../runtime/host.ts";
 import { cocHome, cocMode } from "../lanes/host.ts";
 import { extensionSurface } from "../ui/words.ts";
 import { type KernelClient, KernelError, type KernelProgressFrame, isKernelError } from "./client.ts";
 import { progressPartial } from "./progress.ts";
+import { renderMapView, type MapAttachment } from './map-view.ts';
 import { COC_TOOLS, COC_TOOL_NAMES, type CocToolSpec, WRITE_TOOLS } from "./tools.ts";
 import { type CommitPayload, runVerifierLane } from "./verifier.ts";
 import {
@@ -173,6 +174,8 @@ interface TableState {
 	verifierOwed?: { turn: number };
 	/** Handout attachments landed by `apply` this turn (contract §14.8), waiting to join the mechanics projection. */
 	attachments: HandoutAttachment[];
+	/** Player-safe derivatives prepared by apply map or look focus=map for the next delivery. */
+	mapAttachments: MapAttachment[];
 	/** Cut off lane completions still in flight when the session ends; they must not hold up the exit. */
 	lanes: AbortController;
 	/** The exact current player text (contract §32.3); a turn with none — the opening — puts nothing to review. */
@@ -535,6 +538,7 @@ export default function (pi: ExtensionAPI) {
 		table.floorDraft = undefined;
 		table.deliveryFix = undefined;
 		table.attachments = [];
+		table.mapAttachments = [];
 		// Action admission (contract §32.3): who plays, where they stand, what the setup already told
 		// them, and — on a recovered turn — the words the broken turn was answering.
 		table.party = (open.investigators ?? []).flatMap((sheet) => {
@@ -682,7 +686,9 @@ export default function (pi: ExtensionAPI) {
 	function withHandouts(state: TableState, mechanics: Array<Record<string, unknown>>): Array<Record<string, unknown>> {
 		const pending = state.attachments;
 		state.attachments = [];
-		if (pending.length === 0) return mechanics;
+		const pendingMaps = state.mapAttachments;
+		state.mapAttachments = [];
+		if (pending.length === 0 && pendingMaps.length === 0) return mechanics;
 		const rows = mechanics.map((row) => ({ ...row }));
 		for (const attachment of pending) {
 			void record({
@@ -711,7 +717,31 @@ export default function (pi: ExtensionAPI) {
 				...(attachment.receipt ? { receipt: attachment.receipt } : {}),
 			});
 		}
+		for (const map of pendingMaps) {
+			const existing = rows.find(row => row.kind === 'map' && (row.receipt === map.receipt || row.map === map.map));
+			if (existing) Object.assign(existing, map);
+			else rows.push({...map});
+		}
 		return rows;
+	}
+
+	/** Private source layers end here; only a flattened derivative is retained in the conversation row. */
+	async function prepareMapViews(state: TableState, result: Record<string, unknown>): Promise<void> {
+		if (!Array.isArray(result.map_views)) return;
+		const campaignDir=dirname(state.telemetryPath),modulesRoot=resolve(campaignDir,'../../modules'),prepared:MapAttachment[]=[];
+		for(const value of result.map_views) {
+			const receipt=value&&typeof value==='object'&&typeof (value as Record<string,unknown>).receipt==='string'?(value as Record<string,unknown>).receipt as string:undefined;
+			try {
+				const map=await renderMapView(value,{modulesRoot,campaignDir,...(receipt?{receipt}:{})});
+				if(map)prepared.push(map);
+			} catch {
+				const row=value&&typeof value==='object'?value as Record<string,unknown>:{};
+				if(typeof row.map==='string')prepared.push({kind:'map',...(receipt?{receipt}:{}),map:row.map,name:typeof row.name==='string'?row.name:row.map,
+					view_id:'unavailable',regions:Array.isArray(row.regions)?row.regions as Record<string,unknown>[]:[],levels:[],available:false});
+			}
+		}
+		delete result.map_views;
+		if(prepared.length){state.mapAttachments.push(...prepared);result.views=prepared.map(({image,...map})=>map);}
 	}
 
 	/**
@@ -974,6 +1004,7 @@ export default function (pi: ExtensionAPI) {
 			if (spec.name === "lookup" && params.kind === "module" && params.question) {
 				result.note = "This is published graph material. Use lookup kind source only if an original-page recheck is needed.";
 			}
+			await prepareMapViews(state,result);
 			applyToolSuccess(state, spec.name, toolCallId, result);
 			await record({
 				tool: spec.name,
@@ -1219,6 +1250,7 @@ export default function (pi: ExtensionAPI) {
 				callRounds: new Map(),
 				exhausted: new Map(),
 				attachments: [],
+				mapAttachments: [],
 				lanes: new AbortController(),
 				party: [],
 				present: [],
@@ -1365,6 +1397,7 @@ export default function (pi: ExtensionAPI) {
 			state.deliveryFix = undefined;
 			state.roundTrips = 0;
 			state.attachments = [];
+			state.mapAttachments = [];
 			// A new player input is a new context (contract §32.4): no verdict outlives it.
 			state.playerText = text;
 			state.admission = new Map();

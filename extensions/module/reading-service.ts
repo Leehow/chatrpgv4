@@ -411,9 +411,13 @@ export class ReadingService implements ReadingBridge {
 					const assets = [];
 					if (job.purpose !== "index") {
 						const draft = JSON.parse(await readFile(join(cwd, "draft.json"), "utf8"));
+						const privateMapSources = new Set((draft.nodes ?? []).flatMap((map:Row) =>
+							(map.properties?.map_regions ?? []).filter((region:Row)=>region?.safe_after_redactions===true&&Array.isArray(region.redactions)&&region.redactions.length)
+								.map((region:Row)=>region.source_asset)).filter((name:unknown)=>typeof name==='string'));
 						for (const node of draft.nodes ?? []) {
 							if (job.purpose === "opening" && !draft.ready_nodes?.includes(node.node_id)) continue;
-							if (!["handout", "asset"].includes(node.node_kind) || !["player-safe", "revealable"].includes(node.visibility) || !node.properties?.image_sources?.length) continue;
+							const privateMapSource=node.node_kind==='asset'&&privateMapSources.has(node.node_id);
+							if (!["handout", "asset"].includes(node.node_kind) || (!privateMapSource&&!["player-safe", "revealable"].includes(node.visibility)) || !node.properties?.image_sources?.length) continue;
 							if (typeof node.node_id !== "string" || !/^[a-z][a-z0-9-]{0,159}$/.test(node.node_id)) throw new Error("asset identifiers must be semantic kebab names");
 							const asset = await sourceAsset(job.source.path, cache, node.properties.image_sources, join(cwd, "assets", `${node.node_id}.png`));
 							assets.push({ node_id: node.node_id, ...asset });

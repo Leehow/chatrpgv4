@@ -59,6 +59,12 @@ export function defaultCatalogCachePath() {
     const override = process.env[CATALOG_CACHE_PATH_ENV];
     if (override?.trim())
         return override.trim();
+    // A packaged host may load this module from a signed, read-only App resource tree. Pi already
+    // supplies its writable profile directory to every provider process; keep the cache there so
+    // a background catalog refresh cannot mutate the installed bundle and invalidate its signature.
+    const agentHome = process.env.PI_CODING_AGENT_DIR;
+    if (agentHome?.trim())
+        return join(agentHome.trim(), "ext-cache", CACHE_FILE);
     const installRoot = installRootFromModule();
     if (installRoot)
         return join(installRoot, "ext-cache", CACHE_FILE);

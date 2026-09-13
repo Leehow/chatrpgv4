@@ -90,6 +90,8 @@ function initialWorld(graph: ModuleGraph, chosen: string | null): [
             scene_trail: [],
             scene_labels: {},
             discovered_clues: [],
+            map_knowledge: {},
+            map_labels: {},
             flags: {},
             clock: {
                 minutes: 0

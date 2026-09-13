@@ -32,6 +32,7 @@
  */
 
 import { appendFileSync } from "node:fs";
+import { dirname, join } from 'node:path';
 import { SETUP_STEPS, SETUP_TABLE } from "./setup-steps.mjs";
 
 const LOG = process.env.FAKE_KERNEL_LOG;
@@ -41,6 +42,7 @@ const CAMPAIGNS = process.env.FAKE_KERNEL_CAMPAIGNS
 	: [{ id: "test-camp", title: "闹鬼的房子", module_id: "the-haunting", status: "active", turn: 0 }];
 const EXIT_AFTER = process.env.FAKE_KERNEL_EXIT_AFTER ? Number(process.env.FAKE_KERNEL_EXIT_AFTER) : 0;
 const DIRECTOR_PATCH = process.env.FAKE_KERNEL_DIRECTOR ? JSON.parse(process.env.FAKE_KERNEL_DIRECTOR) : {};
+const WORKSPACE=LOG?dirname(LOG):process.argv[process.argv.indexOf('--workspace')+1];
 
 let received = 0;
 let turn = 0;
@@ -747,6 +749,10 @@ function handle(method, params) {
 				if (effect.kind === "time") {
 					mechanic({ kind: "time", minutes: effect.minutes });
 				}
+				if (effect.kind === "map") {
+					mechanic({kind:'map',receipt:`map:${params.call_id}`,map:effect.name,name:effect.label??effect.name,
+						regions:(effect.regions??[]).map(id=>({id,label:effect.region_labels?.[id]??id,level:Object.values(effect.level_labels??{})[0]??null})),source_revision:'fixture'});
+				}
 			}
 			// Handouts (contract §14.8): the projection carries only the name, and the extension fills in
 			// where the file is from `attachment` (§16.2).
@@ -764,6 +770,10 @@ function handle(method, params) {
 								receipt: `handout:${handout.name ?? "handout-1"}`,
 							})
 				: undefined;
+			const map=effects.find(effect=>effect.kind==='map');
+			const mapViews=map&&process.env.FAKE_KERNEL_MAP==='1'?[{receipt:`map:${params.call_id}`,map:map.name,name:map.label??map.name,label:map.label,
+				source_revision:'fixture',regions:(map.regions??[]).map(id=>({id,label:map.region_labels?.[id]??id,level:Object.values(map.level_labels??{})[0]??null})),available:true,render:{layers:(map.regions??[]).map(id=>({region:id,label:map.region_labels?.[id]??id,level:Object.values(map.level_labels??{})[0]??null,
+					path:join(WORKSPACE,'.coc/modules/the-haunting/map.png'),placement:[0,0,1,1],source_box:[0,0,1,1],redactions:[]}))}}]:undefined;
 			return {
 				ok: true,
 				result: {
@@ -776,6 +786,7 @@ function handle(method, params) {
 					world: { active_scene: SCENE.name, clock: "1925-06-01T09:15" },
 					material_ready: true,
 					...(attachment ? { attachment } : {}),
+					...(mapViews ? { map_views: mapViews } : {}),
 				},
 			};
 		}

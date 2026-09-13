@@ -28,6 +28,7 @@ import {
 	modelSupportsHostedWebSearch,
 } from "../../extensions/deepseek/agent/models.js";
 import { createDeepSeekProvider } from "../../extensions/deepseek/agent/provider.js";
+import { defaultCatalogCachePath } from "../../extensions/deepseek/agent/catalog-cache.js";
 
 // 目录缓存的位置由扩展自身的安装根推导；测试固定指向一个不存在的路径，
 // 断言的才是随包发布的兜底目录，而不是某台机器上刷新出来的缓存。
@@ -37,6 +38,14 @@ const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const MANIFEST = JSON.parse(
 	readFileSync(join(REPO, "extensions", "deepseek", "pipiui-extension.json"), "utf8"),
 );
+
+test('a packaged provider keeps its catalog cache in the writable agent profile',()=>{
+	const override=process.env.PIPIUI_DEEPSEEK_CATALOG_CACHE,agent=process.env.PI_CODING_AGENT_DIR;
+	delete process.env.PIPIUI_DEEPSEEK_CATALOG_CACHE;process.env.PI_CODING_AGENT_DIR='/tmp/pipicoc-agent-profile';
+	try{assert.equal(defaultCatalogCachePath(),'/tmp/pipicoc-agent-profile/ext-cache/deepseek-catalog-v1.json');}
+	finally{if(override===undefined)delete process.env.PIPIUI_DEEPSEEK_CATALOG_CACHE;else process.env.PIPIUI_DEEPSEEK_CATALOG_CACHE=override;
+		if(agent===undefined)delete process.env.PI_CODING_AGENT_DIR;else process.env.PI_CODING_AGENT_DIR=agent;}
+});
 
 /** 用假的 `pi` 挂一次扩展，拿回注册结果与钩子。 */
 function mount() {

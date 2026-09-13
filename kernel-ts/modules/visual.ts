@@ -154,6 +154,29 @@ export function checkDraft(draft: any, packet: Row, contract: ModuleContract, se
         defined.add(id);
     }
     const ids = new Set([...existing, ...defined, `module-${packet.module_id}`]);
+    const mapBox = (value: any): boolean => Array.isArray(value) && value.length === 4
+        && value.every(item => numeric(item) && Number.isFinite(number(item)) && number(item) >= 0 && number(item) <= 1)
+        && number(value[2]) > number(value[0]) && number(value[3]) > number(value[1]);
+    for (const [i, node] of nodes.entries()) {
+        const regions = row(node.properties).map_regions;
+        if (regions == null) continue;
+        if (!['asset', 'handout'].includes(node.node_kind) || !Array.isArray(regions) || !regions.length)
+            reject('map_regions belongs to an asset or handout and must not be empty', `/nodes/${i}/properties/map_regions`);
+        const regionIds = new Set<string>();
+        for (const [n, value] of regions.entries()) {
+            const region = row(value), id = typeof region.region_id === 'string' ? region.region_id.trim() : '';
+            if (!validSemanticId(id) || regionIds.has(id)) reject('map regions need unique semantic region_id values', `/nodes/${i}/properties/map_regions/${n}`);
+            regionIds.add(id);
+            if (typeof region.name !== 'string' || !region.name.trim() || typeof region.source_asset !== 'string' || !region.source_asset.trim())
+                reject('a map region needs name and source_asset', `/nodes/${i}/properties/map_regions/${n}`);
+            if (!mapBox(region.source_box ?? [0,0,1,1]) || !mapBox(region.placement) || array(region.redactions).some(value => !mapBox(value)))
+                reject('map source, placement and redaction boxes must be normalized rectangles', `/nodes/${i}/properties/map_regions/${n}`);
+            const source = [...nodes, ...array(packet.known_nodes)].find(item => item.node_kind === 'asset' && [item.node_id, String(item.node_id).replace(/^asset-/, '')].includes(region.source_asset));
+            if (!source) reject('map region source_asset must name an asset node', `/nodes/${i}/properties/map_regions/${n}/source_asset`);
+            if (!['player-safe','revealable'].includes(source.visibility) && !(region.safe_after_redactions === true && array(region.redactions).length))
+                reject('private map sources require reviewed redactions and safe_after_redactions', `/nodes/${i}/properties/map_regions/${n}`);
+        }
+    }
     for (const id of [...filled.node_refs, ...filled.ready_nodes])
         if (typeof id !== 'string' || !ids.has(id))
             reject('a node reference must name a defined node');

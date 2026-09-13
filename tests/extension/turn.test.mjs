@@ -3,12 +3,31 @@
  */
 
 import { strict as assert } from "node:assert";
+import {mkdirSync,copyFileSync} from 'node:fs';
+import {join} from 'node:path';
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { extensionWords } from "../../extensions/ui/words.ts";
 import { assistantTexts, customMessages, openTable, waitForIdle } from "./harness.mjs";
 
 const SEVEN = ["apply", "ask", "look", "lookup", "narrate", "recall", "resolve"];
+
+test('a map reveal becomes one flattened conversation image and hides its source instructions',async t=>{
+	const table=await openTable({env:{FAKE_KERNEL_MAP:'1'},responses:[
+		fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'map',name:'house-map',regions:['entry'],region_labels:{entry:'门厅'},level_labels:{'Ground Floor':'一层'},label:'宅邸地图',why:'看见了门厅'}]})],{stopReason:'toolUse'}),
+		fauxAssistantMessage([fauxToolCall('narrate',{text:'你记下了眼前的格局。'})],{stopReason:'toolUse'}),
+		fauxAssistantMessage('你记下了眼前的格局。'),
+	]});
+	t.after(()=>table.dispose());
+	const moduleDir=join(table.workspace,'.coc/modules/the-haunting');mkdirSync(moduleDir,{recursive:true});
+	copyFileSync(join(process.cwd(),'tests/kernel/fixtures/bundle-tiny/assets/map-dock.png'),join(moduleDir,'map.png'));
+	await table.session.prompt('我查看门厅并记下地图');
+	const [entry]=table.entries('coc-mechanics'),map=entry.mechanics.find(row=>row.kind==='map');
+	assert.equal(map.available,true);assert.match(map.image,/^data:image\/png;base64,/);
+	assert.equal(map.regions[0].id,'entry');assert.equal('path' in map,false);assert.equal('render' in map,false);
+	const results=table.session.messages.filter(message=>message.role==='toolResult').map(message=>message.details);
+	assert.ok(results.every(result=>!result?.map_views),'private render instructions do not return to the Keeper');
+});
 
 test("source preparation preserves an empty question while explicit rechecks retain their question", async t => {
 	const table = await openTable({ responses: [

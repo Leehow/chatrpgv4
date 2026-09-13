@@ -110,6 +110,20 @@ test("an admitted batch goes through unchanged, and the review saw the player's 
 	assert.equal(row.admitted, true);
 });
 
+test('different map regions are different admission proposals',async t=>{
+	const table=await openTable({responses:[
+		fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'map',name:'house-map',regions:['entry'],region_labels:{entry:'门厅'},level_labels:{'Ground Floor':'一层'},label:'宅邸地图',why:'seen'}]})],{stopReason:'toolUse'}),
+		fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'map',name:'house-map',regions:['cellar'],region_labels:{cellar:'地窖'},level_labels:{Basement:'地下室'},label:'宅邸地图',why:'seen later'}]})],{stopReason:'toolUse'}),
+		fauxAssistantMessage([fauxToolCall('narrate',{text:'你记下了两处格局。'})],{stopReason:'toolUse'}),
+		fauxAssistantMessage('after'),
+	],laneResponses:{admission:[verdict({verdict:'authorized',grounds:'entry seen'}),verdict({verdict:'authorized',grounds:'cellar seen'})]}});
+	t.after(()=>table.dispose());
+	await table.session.prompt('我依次查看门厅和地窖');
+	assert.equal(table.lanes.admission.requests().length,2);
+	assert.match(table.lanes.admission.requests()[0],/regions=\["entry"\]/);
+	assert.match(table.lanes.admission.requests()[1],/regions=\["cellar"\]/);
+});
+
 test("a rewording of a refused action within the turn is still refused; the same proposal reuses its verdict without a second review", async (t) => {
 	const table = await openTable({
 		responses: [

@@ -94,6 +94,19 @@ function mergeWorld(graph: ModuleGraph, states: readonly ConfluenceState[], scen
                     seen.push(string(value));
         world[key] = seen;
     }
+    const mapKnowledge: Row = {};
+    for (const state of states)
+        for (const [map, regions] of entries(state.world.map_knowledge)) {
+            const known = array(mapKnowledge[map]).map(string);
+            for (const region of array(regions).map(string)) if (!known.includes(region)) known.push(region);
+            mapKnowledge[map] = known;
+        }
+    world.map_knowledge = orderedObject(entries(mapKnowledge));
+    const mapLabels:Row={};
+    for(const state of states)for(const [map,value] of entries(state.world.map_labels)){
+        const prior=row(mapLabels[map]),incoming=row(value);mapLabels[map]={title:incoming.title??prior.title,regions:{...row(prior.regions),...row(incoming.regions)},levels:{...row(prior.levels),...row(incoming.levels)}};
+    }
+    world.map_labels=orderedObject(entries(mapLabels));
     world.active_scene = scene;
     world.scene_trail = [];
     for (const key of ['scene_labels', 'clue_labels']) {

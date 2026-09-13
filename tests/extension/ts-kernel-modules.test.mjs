@@ -182,6 +182,22 @@ test('independent review names every required field and its observed source', as
   });
 });
 
+test('visual source publication validates map regions and private-source redactions',()=>{
+  const draft=clone(base);
+  draft.nodes.push(
+    {node_id:'asset-player-plan',node_kind:'asset',name:'Player plan',visibility:'player-safe',aliases:[],source_refs:refs,
+      properties:{image_sources:[{page:1}],map_regions:[{region_id:'entry',name:'Entry',source_asset:'player-plan',source_box:[0,0,.5,1],placement:[0,0,.5,1]}]}},
+    {node_id:'asset-keeper-cellar',node_kind:'asset',name:'Keeper cellar',visibility:'keeper-only',aliases:[],source_refs:refs,
+      properties:{image_sources:[{page:1}]}});
+  draft.ready_nodes.push('asset-player-plan','asset-keeper-cellar');
+  assert.doesNotThrow(()=>api.checkDraft(draft,packet,contract,new Set([1])));
+  const privateDraft=clone(draft),map=privateDraft.nodes.find(node=>node.node_id==='asset-player-plan');
+  map.properties.map_regions.push({region_id:'secret',name:'Secret room',source_asset:'keeper-cellar',source_box:[0,0,1,1],placement:[.5,0,1,1],redactions:[[.2,.2,.8,.5]],safe_after_redactions:true});
+  assert.doesNotThrow(()=>api.checkDraft(privateDraft,packet,contract,new Set([1])));
+  map.properties.map_regions[1].redactions=[];
+  assert.throws(()=>api.checkDraft(privateDraft,packet,contract,new Set([1])),/private map sources require reviewed redactions/);
+});
+
 test('a no-clue prepared scope needs its own semantic review but no numeric clue quota',()=>{
   const draft=clone(base),filled=api.checkDraft(draft,packet,contract,new Set([1]));
   const review={checked:[{paths:filled.required_review.filter(path=>path!=='/coverage'),verdict:'supported',source_refs:refs}],missing:[]};

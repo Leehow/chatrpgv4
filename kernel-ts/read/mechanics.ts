@@ -198,6 +198,22 @@ export function mechanicsOf(receipt: Row, texts: ReadonlyMap<string, string> = n
         }
         return out;
     }
+    if (kind === "map") {
+        const out: Row = {
+            kind,
+            receipt: id,
+            map: receipt.map ?? null,
+            name: receipt.name || receipt.map || null,
+            regions: array(receipt.regions).map(region => ({
+                id: row(region).id ?? null,
+                label: row(region).label ?? row(region).id ?? null,
+                level: row(region).level ?? null,
+            })),
+            source_revision: receipt.source_revision ?? null,
+        };
+        labeled(out, "label", receipt.label);
+        return out;
+    }
     return null;
 }
 export function mechanics(receipts: Row[], placed: Row = {}, texts: ReadonlyMap<string, string> = new Map()): Row[] {
