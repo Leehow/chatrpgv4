@@ -120,3 +120,73 @@ contract's own prescribed action). It is a **system gap in §37**: the contract 
 "placement authority must be obtained first", but no state and no lawful basis for *"the required placement
 was reviewed and refused"*. Deferral is structural by design (§37, "Deferral is structural, not inferred"),
 and there is no structural state for a terminal-unsuccessful adaptation — only for a live pending one.
+
+## Repairs made before the retest
+
+Two commits on `claude/midgame-bridge-live-20260913`, both contract-first:
+
+- `4ca4ff86` — **contract §38, the stranded-turn release.** `table.player_input` takes an optional
+  `release: "stranded"`, accepted only on an `open`/`acting` turn; the kernel records that turn as
+  `closed_by: "stranded"` with its receipts, appends `turn-stranded`, and opens the next turn. Nothing is
+  narrated or committed and no verdict becomes a pass; every delivery consumer already filters on
+  `closed_by === "narrate"`. The host declares stranding only from its own run state — at `agent_settled`
+  when a run left the turn undelivered **under a paused review**, and at a `table.open` that finds a
+  `pending_turn` whose retained review is paused. An undelivered turn whose review still works keeps the
+  §4 recovery path unchanged.
+- `7458ede3` — **contract §37.6, a refused placement gets a lawful next move.** A `failed` adaptation now
+  reports its `purpose` and a bounded `refused` (the independent reviewer's own `summary`, `issues` and
+  per-change `contradicted` reasons) plus one instruction not to prepare the same placement again. The host
+  records `rebinding_refused` from that kernel result and carries it on the `narrate` payload beside
+  `preparation_wait`; narration-audit **1.2.17** accepts a candidate that continues the player's chosen
+  action, claiming no evidence and no placement, as basis `authority_unavailable` with verdict `defer`;
+  `story-thread` **1.2.7** tells the Keeper to propose a materially different placement or play on.
+- `30976010` — projection fix found by the live path: `string()` returns the Python-compatible `"None"`
+  for null, so an absent refusal reached the auditor as `{name: "None", summary: "None"}`.
+
+Validation with Node 24.19.0 from `/Users/haoli/.local/bin/node`: `npm run check:kernel` passed;
+`npm run test:ext` 890/890, exit 0. Two flaky timing failures were seen once each in full-suite runs
+(`ts-kernel-git.test.mjs` process-teardown timing, `lanes.test.mjs` `#67` header-wait timing) and both pass
+in isolation and in the clean full run; neither touches this change.
+
+## Run 2 — campaign `midgame-bridge-live-22`: the extended gate chain, PASSED
+
+Keeper `xai/grok-4.6`, `reasoning_effort: low` in every `provider-request` row; sole player this main
+session, one natural utterance per turn. Mods `story-thread 1.2.7`, `narration-audit 1.2.17` (pinned in
+`world.json`). Runs `…-22-run`, `…-22b-run`, `…-22c-run`.
+
+| campaign turn | what the structured evidence shows |
+| --- | --- |
+| 2 | `memory/story.jsonl`: `detached` on `house-haunted-by-corbitt`, frame `所以我不进宅子。我先去查钱是怎么流的…`, `bridge_delivered: false` |
+| 3 | ordinary play into `hall-of-records`; the core thread's `known` stays empty |
+| 4 | undelivered under a paused review, then **released**: record `closed_by: "stranded"`, `commit: null`, its `roll` receipt preserved, `turn-stranded` event, turn 5 opened (§38) |
+| 4–5 | reviewed `source_rebinding` `globe-story-at-records` (`clue_at`), independently reviewed to `ready`, accepted as receipt `adaptation:33a2e3859a70d929` — the **effective graph** changed, so `authority.clue_here` became `true` at `hall-of-records` |
+| 5 | unforced **`bridge_offer`**: audit job `3da4cb0a0e24c0970d9e9085852615b6676b617cf7ffd39d50036193bfd2e84a`, `reentry_review {verdict: defer, basis: bridge_offer, clue: globe-unpublished-story, relation: supports}`, overall `pass`; receipts are only `adaptation` and `time` — **no clue and no handout receipt**; the post-commit assessment keeps `detached` with `bridge_delivered: false` |
+| 6 | the player chose to take it (`「那张夹纸抽出来。」`): minimal `clue` + `handout` receipts only, audit job `89df3850730c25b507ac06d4c2fc0576fa36f57f505f2fe7a45c8059e6150059`, `reentry_review {verdict: pass, basis: bridge_receipt, clue: globe-unpublished-story, relation: supports}` |
+| 7 | the player's own frame reconnects (`那就不是有人做空这栋房子，是这栋房子对住进去的人下手`): `memory/story.jsonl` stores **`aligned`** for `house-haunted-by-corbitt` with `bridge_delivered: true` and an exact delivery quote; the same turn passed audit job `9e90d272e3f637dc987e3049ad4cc521be8f5e92eafcc7fe0feb96d1eeff5401` as `acquired_clarification` (`supports`, in the row's own direction) |
+| 8–12 | play continued coherently **in the direction the player chose** — probate register, the executor Michael Thomas, the chapel closed in 1912 — with no forced return to the house |
+
+`mode` was `introduce_evidence` throughout the bridge stages (`known: []`) and flipped to `clarify_known`
+only at turn 7, once the player actually held the evidence. Physical location never selected it.
+
+### Preparation wait and cold restart
+
+Turn 11 asked for a destination the module does not have; the Keeper prepared `new_destination`
+`教区总档案处` and delivered an honest wait-only narration under `context.preparation_wait`. The process
+was then stopped and a **fresh** `bin/pi-coc --mode rpc --no-session` started (`…-22c-run`). On the first
+player input the capsule carried its `resume` section (checkpoint at turn 11, commit `c6f1933`), the
+Keeper's **first** tool call was `lookup kind=adaptation action=status name=教区总档案处` — a name no
+surviving session could have held — and it then accepted the proposal (`adaptation:dd23f0023d16e116`) and
+delivered. Honest caveat: both the host's unnamed `adaptation.status` scan and the capsule's
+`resume`/`recent` projection carried that name in this run, so this evidence shows the restart recovered
+the retained proposal without the Keeper remembering it, but it does not isolate the unnamed-status path
+from the resume projection.
+
+### Still open, recorded and out of scope here
+
+- The memory lane under grok-4.6 low recorded `bridge_delivered: false` for turn 6 even though that turn's
+  Keeper text plainly stated the relation and the packet's `story_context` already listed
+  `globe-unpublished-story` as acquired at `delivery_turn: 6`. The next turn corrected it to `aligned` /
+  `bridge_delivered: true`, so nothing was lost, but the turn-6 call is a lane under-read.
+- `AUDIT_LIMITS.time_ms` is 30000 for a whole player input while a single continuity review under
+  grok-4.6 low measured 21–30 s. In practice the Keeper gets one review attempt per utterance: the
+  `max_rewrites: 1` repair rarely fits. This is a capacity observation, not a change made here.
