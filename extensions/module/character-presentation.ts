@@ -31,6 +31,7 @@ export function cardTexts(sheet:Row):string[] {
   const texts=new Set(CARD_TEXT);
   const add=(value:unknown)=>{if(typeof value==='string'&&value.trim()&&!/^(?=.*\d)[\d\s()+\-*/Dd×.,]+$/.test(value))texts.add(value)};
   for(const key of ['occupation','era','own_language'])add(sheet[key]);
+  add(sheet.sex);
   for(const group of ['characteristics','derived','skills'])for(const [key,value] of Object.entries(sheet[group]||{})){add(key);if(group==='derived')add(value)}
   for(const [key,value] of Object.entries(sheet.backstory||{})){add(key);add(value)}
   add(sheet.key_connection?.summary);
@@ -277,6 +278,34 @@ export function rulesTexts(view:Row):string[] {
 }
 export function prepareRulesPresentation(options:TextOptions&{campaign:string;view:Row}):Promise<Row> {
   return prepareGrowingPresentation(options,'rules',rulesTexts);
+}
+/**
+ * The identity words a sheet carries that are the setup model's, not the rules data's: today
+ * exactly `sex`.
+ *
+ * Sex is free text the setup model drafts as a visible suggestion (contract §23.4) -- never an
+ * enum, never rules data -- so no `localized_labels` row can ever carry it, and a card drafted in
+ * the system language shows that word to the player unchanged unless a lane projects it. This is
+ * that lane, §23's second leg for the sheet's own identity field. `occupation_stated` and
+ * `concept` stay out: they are the player's own prose, already written in the play language by
+ * the model that heard them, which is the first leg. A value already in the kernel glossary is
+ * never asked, because prepareTexts' known_labels answer it; a figure is not a word. The lane is
+ * named `identity` rather than `sex` so the next word of the same kind lands here without a new
+ * kind.
+ */
+export function identityTexts(view:Row):string[] {
+  const texts=new Set<string>();
+  for(const sheet of Array.isArray(view?.investigators)?view.investigators:[]) {
+    const sex=(sheet as Row)?.sex;
+    if(typeof sex!=='string'||!sex.trim())continue;
+    const word=sex.trim();
+    if(/^(?=.*\d)[\d\s()+\-*/Dd×.,%]+$/.test(word))continue;
+    texts.add(word);
+  }
+  return [...texts].sort();
+}
+export function prepareIdentityPresentation(options:TextOptions&{campaign:string;view:Row}):Promise<Row> {
+  return prepareGrowingPresentation(options,'identity',identityTexts);
 }
 export async function prepareHandoutPresentation(options:TextOptions&{campaign:string}):Promise<Row> {
   const handouts=await handoutInput(options.home,options.campaign);

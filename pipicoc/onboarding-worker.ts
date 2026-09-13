@@ -6,7 +6,7 @@ import { composeRuntimeContext, createRuntime, type HostRuntime, type RuntimeCon
 import { ReadingService } from '../extensions/module/reading-service.ts';
 import type { ReaderRequest } from '../extensions/module/reader.ts';
 import { prepareCharacterGuidance, guidanceFingerprint, acceptedGuidance } from '../extensions/module/character-guidance.ts';
-import { prepareCharacterPresentation, prepareCluePresentation, prepareJournalPresentation, prepareHandoutPresentation, prepareLanguagePresentation, prepareRulesPresentation, preparePossessionPresentation, prepareStandingPresentation } from '../extensions/module/character-presentation.ts';
+import { prepareCharacterPresentation, prepareCluePresentation, prepareJournalPresentation, prepareHandoutPresentation, prepareIdentityPresentation, prepareLanguagePresentation, prepareRulesPresentation, preparePossessionPresentation, prepareStandingPresentation } from '../extensions/module/character-presentation.ts';
 import { playLanguageTag, resolveUiWords } from '../runtime/ui-words.ts';
 import { prepareUiWords } from '../extensions/module/ui-presentation.ts';
 import { presentDocument } from '../extensions/mods/document-presentation.ts';
@@ -125,6 +125,10 @@ async function main() {
       // scene each exchange was stamped with. Its own prose is written in the play language.
       const view=await call('table.view',{campaign:input.campaign});
       return prepareJournalPresentation({...input,contentRoot:context.contentRoot,view,known_labels:view.labels||{},signal:guidanceAbort.signal,runner:runTask});
+    }
+    if(input.identity) {
+      const view=await call('table.view',{campaign:input.campaign});
+      return prepareIdentityPresentation({...input,contentRoot:context.contentRoot,view,known_labels:view.labels||{},signal:guidanceAbort.signal,runner:runTask});
     }
     if(input.rules) {
       // The rules words the seeds do not answer for this play language. The collector reads

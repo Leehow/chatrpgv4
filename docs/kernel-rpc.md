@@ -858,6 +858,7 @@ build.jsonl                构建遥测：每 section 每轮 {section_id, round,
 - **`apply item` / `apply cash`（#19，已实现）。** 两种效果都在批内的暂存表副本上算，整批校验通过后才写；写回只覆盖 `equipment`/`weapons`/`finance`/`cash` 四个字段（同批的 `damage` 直接把 HP 镜像到表上，不能被暂存副本盖掉）。`item`：`to` 缺省为唯一调查员（多人报 `needs_choice`）；`from` 先按图上 NPC 精确名解析、再按 12.4 的整词规则（`Knott` → Steven Knott），解析不到原样保留（来源是叙事，不是世界写入）；`quantity` 缺省 1、必须非零整数；`weapon` 对合并表解析（`weapons.json` 全表加模组自己的行，与战斗会话读的是同一张——契约写的 `equipment.json` 是 Table XVII 价目表，没有伤害/射程/弹容，profile 一直住在 `weapons.json`），按 id 或 display_name 归一化匹配，取不到报 `needs`（`options` 为该时代可用的 id，`close` 为 difflib 最近的至多 6 个，`source` 指向表）。得到时 `equipment[]` 追加 `{name, quantity, turn, from?, label?, weapon?}`（同名字典条目合并数量），给了 `weapon` 就同时追加 `weapons[]` 一行（pregen 同形：`weapon_id, name, label?, profile, skill, damage, range, attacks, ammo, malfunction, turn`，数值全出自 profile）；`resolve_investigator_weapon` 从此也认 `label`。失去时按 `name`/`label`/`weapon_id` 归一化匹配，持有数 = 装备条目数量之和（裸字符串算 1），没有装备条目时数武器行（pregen 的手枪只有武器行）；持有不足报 `invalid_params`（`details.held`）；清零后同名武器行一并删除。收据 `item:<slugify(name)>-t<turn>-c<n>`（同批重复加 `-2`…），带 `before/after` 持有数；渲染 `【变化】物品：<人> 得到/失去 <label 或名>[ ×n]`；facts 句 `物品：<人> 得到 <名>`；事件 `item-transferred {name, to, from?, weapon?, quantity}`。`cash`：`subject` 缺省同上；`delta` 非零整数；表上没有 `finance` 块（pregen 的 `cash` 是散文，不解析）就按 `cash-assets.json` 的时代与信用评级建一个（chargen 同形，`source: cash-assets.periods.<era>`）；时代没有档（`ww1`）从 0 起、`source: null` 并在 `note` 写明余额是现金收据之和；余额不能为负（`invalid_params`，`details.before/delta`）；同时更新 `sheet.cash` 显示串。收据 `cash:t<turn>-c<n>`，`resource: cash`、`label: 现金`、`before/after/delta/currency`；渲染 `【变化】现金：<人> <前> → <后>`；facts 用 `delta` 句式；事件 `resource-changed`（`resource: cash`）。事件类型表加 `item-transferred`（十五类）。
 - **职业点分配策略（#21，已实现）。** `steps.json` 的 `create-investigator.allocation = {default: spread, options: [spread, fill], tiers: [50, 70]}`，`params.allocation` 可选覆盖；不认识的策略报 `invalid_params`（`details.stage: allocation`，`expected.options/default`）。`spread` 把职业技能表**每一项**当一个槽位，按书上顺序、按层（`tiers`，再到上限）走：能落到目录名的技能抬到该层；落不到的短语（`any one other skill`、`Firearms` 这类组名）**预留该层的值**——基础值未知，少于此不保证到层——记在 `occupation.reserved[{for, points}]`，仍算 `unspent`，留给桌上的 development 族；预算耗尽即停。`fill` 保留旧的一点轮转（只在能落到目录名的技能上，不预留）。`sheet.creation.allocation = {policy, tiers, source}`，`occupation.allocation` 与收据 `allocation` 给策略名，收据另给 `occupation_reserved`。真桌案例（Military Officer，快速数组，300 点）：`fill` 给 75/75/75/75 余 35；`spread` 给 50/50/50/50，预留 Firearms 50、两项交涉技能 50、任一其他 35——「四项到 75」与「其余为零」是同一个原因：三个短语从未参与分配，光换层不换槽位仍是 75×4。兴趣点仍按旧法轮转（本票未动）。
 - **建卡 sex 必填并投影给守秘人（2026-09-12）。** 真桌缺陷：对话式建卡的 `profile.sex` 只是可选字段、守秘人胶囊的 `known.investigator` 又不投影它，于是一位女性调查员（苏散）被守秘人按名字猜成了「先生」。决定：`validateProfile` 把 `sex` 升为必填非空自由文本，拒绝的 issue 指明语义——用玩家说过的词或对玩家描述之人的最佳解读、用 play_language 写，玩家在草稿卡上看到后对话纠正；`sex` 是开放文本，不是枚举，代码绝不按名字/词表/正则推断；守秘人胶囊 `investigatorSummary` 投影 `sex`。遗留路径 `setup.investigator` 的 sex 保持可选。
+- **卡面上的 sex 走展示车道投影（2026-09-12）。** 真桌二报：艾琳·卡特（play_language=zh-Hans）卡上的 sex 显示英文 "Female"——setup 模型用系统语言起草的数据没有走到玩家面前。这不推翻「自由文本不进手写词表」，而是 sex 漏接了架构里现成的投影车道：§23 的第二条腿（系统侧的词由 presenter 车道投影）对卡面身份字段同样成立。决定：新增 lane kind `identity`（`identityTexts` 只收 `sex`，过滤空/非字符串/纯数字；`occupation_stated`、`concept` 是玩家散文，走第一条腿，不收），进 `SHEET_LANES` 不进 `PRESENTATION_LANES`（mechanics/递送卡不显示 sex）；面板 sex 行与草稿卡身份行经 `term()`/`t()` 查词表、投影缺失时回落卡上原词；`cardTexts` 收 `sex`，草稿卡投影同样覆盖。
 
 ### 14.13 切分有目标值，预算只是天花板（票 #33，已实现）
 
@@ -2134,6 +2135,22 @@ the sheet's current words against it; a word the file lacks starts one backgroun
 run for that lane, keyed by lane and missing set, with the same `sheet_changed`
 refresh and retry rules the possession lane has (§26). The panel reads a clue's
 name and its body through the same `labels` lookup as everything else on the sheet.
+
+The `identity` lane carries the sheet's own identity words that are the setup
+model's free text rather than rules data -- today exactly `sex` (§23.4). The
+setup model drafts it in whatever language it wrote the card in, so a card
+drafted in the system language would show that word to the player unchanged;
+`identityTexts(view)` collects it from every investigator (skipping empty,
+non-string and figure-only values; `occupation_stated` and `concept` stay out --
+they are the player's own prose, the first leg), and the projection lands in
+`setup/presentations/identity-<language>.json`, merged and topped up like every
+other `SHEET_LANES` lane. The panel's sex row and the draft card's identity line
+both read it through the same lookup as a clue's name, falling back to the
+sheet's own word until the lane answers. The lane is not in `PRESENTATION_LANES`:
+a mechanics or delivery card never shows sex, so it has no words to merge there.
+The draft-card projection covers the same field because `cardTexts(sheet)`
+collects `sex` alongside the occupation and era, so the card a player confirms
+already shows the projected word.
 
 ### Host decision: languages and UI words are data (2026-09-09)
 

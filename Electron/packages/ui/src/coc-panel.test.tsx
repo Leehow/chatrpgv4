@@ -97,20 +97,27 @@ it('keeps passport words live, the era unlabelled and decoration across refreshe
   expect(container.querySelector('.coc-sheet-seal')?.getAttribute('src')).toContain('AQ==');
 });
 
-it('prints the investigator sex raw beside the labelled rows, only when the sheet carries it', async () => {
-  // A sex that collides with a glossary term stays the player's own word: the row's label is the
-  // surface's, but the value is raw text like the age beside it, never a glossary key.
-  const withSex = view({ investigators: [{ ...investigator, age: 34, sex: 'Library Use' }] });
-  const first = render(<Panel api={host({ ok: true, data: { status: 'ready', view: withSex, campaign: 'c1' } })} />);
+it('looks the investigator sex up in the lane words, falling back to the sheet\'s own word', async () => {
+  // The identity lane projects the setup model's word per play language: a projection in the
+  // labels shows, an unprojected word falls back to the sheet's own, and a sheet without a sex
+  // shows no row and no dangling label.
+  const projected = view({ investigators: [{ ...investigator, age: 34, sex: 'Female' }],
+    labels: { ...view().labels, Female: '女' } });
+  const first = render(<Panel api={host({ ok: true, data: { status: 'ready', view: projected, campaign: 'c1' } })} />);
   await screen.findByText(say('zh-Hans', 'sheet', 'sexKey'));
   const fields = first.container.querySelector('.coc-sheet-fields')!;
-  expect(fields.textContent).toContain('Library Use');
-  expect(fields.textContent).not.toContain('图书馆使用');
+  expect(fields.textContent).toContain('女');
+  expect(fields.textContent).not.toContain('Female');
   first.unmount();
+  const raw = view({ investigators: [{ ...investigator, age: 34, sex: 'Female' }] });
+  const second = render(<Panel api={host({ ok: true, data: { status: 'ready', view: raw, campaign: 'c1' } })} />);
+  await screen.findByText(say('zh-Hans', 'sheet', 'sexKey'));
+  expect(second.container.querySelector('.coc-sheet-fields')!.textContent).toContain('Female');
+  second.unmount();
   const bare = view({ investigators: [{ ...investigator, age: 34 }] });
-  const second = render(<Panel api={host({ ok: true, data: { status: 'ready', view: bare, campaign: 'c1' } })} />);
+  const third = render(<Panel api={host({ ok: true, data: { status: 'ready', view: bare, campaign: 'c1' } })} />);
   await screen.findByText(say('zh-Hans', 'sheet', 'ageKey'));
-  expect(second.container.querySelector('.coc-sheet-fields')?.textContent ?? '').not.toContain(say('zh-Hans', 'sheet', 'sexKey'));
+  expect(third.container.querySelector('.coc-sheet-fields')?.textContent ?? '').not.toContain(say('zh-Hans', 'sheet', 'sexKey'));
 });
 
 it('leaves an empty credential unstamped until an investigator exists', async () => {

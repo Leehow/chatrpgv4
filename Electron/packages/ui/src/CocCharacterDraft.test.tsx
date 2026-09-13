@@ -148,16 +148,19 @@ it('shows the trade the player named, with the rulebook entry after it',()=>{
 })
 
 /**
- * Sex is the player's own word for it, written in the play language: it sits on the identity
- * line as raw text and never goes near the glossary, so a value that collides with a rules term
- * stays exactly as the player wrote it. A card that never collected one shows no dangling
- * separator.
+ * Sex travels the card's presentation like the occupation beside it: the setup model drafted the
+ * word, so a projection the texts carry is what the player sees, and a word the texts do not
+ * carry falls back to the sheet's own until the lane answers. A card that never collected one
+ * shows no dangling separator.
  */
-it('prints sex raw on the identity line, and no dangling separator when the card has none',()=>{
- render(<CocCharacterDraft data={{revision:1,sheet:{...sheet,sex:'Lawyer'},presentation:{texts:zh}}}/>);
- expect(screen.getByText('律师 · 28 · Lawyer · 1920年代')).toBeTruthy();
+it('shows sex through the presentation like the occupation, and raw when the texts lack it',()=>{
+ render(<CocCharacterDraft data={{revision:1,sheet:{...sheet,sex:'Female'},presentation:{texts:{...zh,Female:'女'}}}}/>);
+ expect(screen.getByText('律师 · 28 · 女 · 1920年代')).toBeTruthy();
  cleanup();
- render(<CocCharacterDraft data={{revision:2,sheet,presentation:{texts:zh}}}/>);
+ render(<CocCharacterDraft data={{revision:2,sheet:{...sheet,sex:'Female'},presentation:{texts:zh}}}/>);
+ expect(screen.getByText('律师 · 28 · Female · 1920年代')).toBeTruthy();
+ cleanup();
+ render(<CocCharacterDraft data={{revision:3,sheet,presentation:{texts:zh}}}/>);
  expect(screen.getByText('律师 · 28 · 1920年代')).toBeTruthy();
 })
 

@@ -258,6 +258,10 @@ it('lane words come from the built presenter, and each saved projection says wha
   const journalWords=await laneWords(repo,'journal',{...view,npcs:{journal:[
     {name:'Steven Knott',description:'一位律师。',exchanges:[{turn:1,scene:"Knott's Office",summary:'他收回租约。'}]}]}});
   expect(journalWords).toEqual(["Knott's Office",'Steven Knott']);
+  // The setup model's identity word is collected; the player's own prose and a figure stay out.
+  const identityWords=await laneWords(repo,'identity',{...view,investigators:[
+    {id:'inv-1',sex:'Female',occupation_stated:'律师',backstory:{concept:'evidence first'}},{id:'inv-2',sex:'25'},{id:'inv-3'}]});
+  expect(identityWords).toEqual(['Female']);
   const home=await mkdtemp(join(tmpdir(),'coc-lanes-'));
   const context={campaign:'c1',home,play_language:'zh-Hans'};
   expect(await laneProjection(context,'possessions',words)).toEqual({texts:{},missing:words});

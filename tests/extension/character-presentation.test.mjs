@@ -184,6 +184,36 @@ test('journal words are the names and stamped scenes, never the lane\'s own pros
  assert.deepEqual(journalTexts({npcs:{journal:[]}}),[]);assert.deepEqual(journalTexts({}),[]);
 });
 
+test('identity words are the setup model\'s sex, never the player\'s prose, and grow with the table',async()=>{
+ const {prepareIdentityPresentation,identityTexts}=await import('../../extensions/module/character-presentation.ts');
+ const home=await mkdtemp(join(tmpdir(),'identity-presentation-'));
+ // The prose the player wrote (occupation_stated, concept) and the card's figures stay out;
+ // an unset, blank or figure-only sex is nothing to ask. What remains is the one identity word
+ // the setup model drafted, whatever language it drafted it in.
+ const view={play_language:'zh-Hans',investigators:[
+  {name:'艾琳',sex:'Female',occupation_stated:'律师',backstory:{concept:' evidence-first lawyer '}},
+  {name:'苏散',sex:'女'},
+  {name:'Figure',sex:'25'},
+  {name:'Blank',sex:'  '},
+  {name:'Unset'}]};
+ assert.deepEqual(identityTexts(view),['Female','女']);
+ const original=JSON.stringify(view);let calls=0;
+ const runner=async r=>{calls++;const input=JSON.parse(await readFile(join(r.cwd,'texts.json'),'utf8'));
+  for(const hidden of ['律师','evidence-first lawyer','25'])assert.ok(!input.texts.includes(hidden),hidden);
+  await writeFile(join(r.cwd,'presentation.json'),JSON.stringify({finance_equipment:[],texts:Object.fromEntries(input.texts.map(t=>[t,t==='女'?t:`${input.play_language}:${t}`]))}));return {ok:true}};
+ const options={home,campaign:'c1',play_language:'zh-Hans',view,runner};
+ const first=await prepareIdentityPresentation(options);
+ assert.equal(first.texts.Female,'zh-Hans:Female');assert.equal(first.texts['女'],'女');assert.equal(calls,1);
+ assert.deepEqual(JSON.parse(await readFile(join(home,'.coc/campaigns/c1/setup/presentations/identity-zh-Hans.json'),'utf8')),first);
+ // What the file has is kept: the same view asks nothing again, and a newly drafted card pays
+ // for its own word only.
+ assert.deepEqual(await prepareIdentityPresentation({...options,view:{...view,turn:9}}),first);assert.equal(calls,1);
+ const next=await prepareIdentityPresentation({...options,view:{...view,investigators:[...view.investigators,{name:'新卡',sex:'Nonbinary'}]}});
+ assert.equal(calls,2);assert.equal(next.texts.Female,first.texts.Female);assert.equal(next.texts.Nonbinary,'zh-Hans:Nonbinary');
+ assert.equal(JSON.stringify(view),original);
+ assert.deepEqual(identityTexts({investigators:[]}),[]);assert.deepEqual(identityTexts({}),[]);
+});
+
 test('clue words are localized once, grow with what is found, and never include a handle or an unfound clue',async()=>{
  const {prepareCluePresentation,clueTexts}=await import('../../extensions/module/character-presentation.ts');
  const home=await mkdtemp(join(tmpdir(),'clue-presentation-'));

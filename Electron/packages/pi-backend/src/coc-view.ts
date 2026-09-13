@@ -316,7 +316,7 @@ export async function readColdSheet(repo:string, context:CocBinding, previewRevi
  * discovered clue is called and says. The collector is the one definition of a lane's words,
  * read from the built presenter, so the host never counts a sheet's words a second way.
  */
-export const SHEET_LANES={possessions:'possessionTexts',clues:'clueTexts',languages:'languageTexts',rules:'rulesTexts',journal:'journalTexts'} as const;
+export const SHEET_LANES={possessions:'possessionTexts',clues:'clueTexts',languages:'languageTexts',rules:'rulesTexts',journal:'journalTexts',identity:'identityTexts'} as const;
 export type SheetLane=keyof typeof SHEET_LANES;
 export async function laneWords(repo:string, lane:SheetLane, view:unknown, entrypoint='build/extensions/module/character-presentation.mjs'):Promise<string[]> {
   const presenter=await import(pathToFileURL(resolve(repo,entrypoint)).href);
