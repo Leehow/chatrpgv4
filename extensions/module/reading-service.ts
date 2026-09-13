@@ -300,7 +300,10 @@ export class ReadingService implements ReadingBridge {
 						if (job.purpose === "guidance" && checkpoint.guidance_sha256 !== sha(await readFile(join(cwd,"guidance.json")))) throw new Error("guidance checkpoint mismatch");
 						Object.assign(observations, checkpoint.observations, { review_pages: [] });
 						await writeFile(join(cwd, "read-complete.json"), JSON.stringify(checkpoint) + "\n");
-						readComplete = !checkpoint.requires_repair;
+						// Only this job's own interrupted attempt may skip reading. A retry that inherits a
+						// failed job's draft owes the source-based repair round (§22): re-verifying identical
+						// bytes under identical instructions cannot re-scope them, so it can only fail again.
+						readComplete = !checkpoint.requires_repair && checkpoint.job_id === job.job_id;
 					}
 				}
 			} catch { /* a partial draft remains useful input, but only a host checkpoint skips reading */ }
@@ -410,7 +413,7 @@ export class ReadingService implements ReadingBridge {
 						await writeFile(join(cwd, "observations.json"), JSON.stringify(observations) + "\n");
 						if (phase === "read" || phase === "index") {
 							readComplete = true;
-							await writeFile(join(cwd, "read-complete.json"), JSON.stringify({ draft_sha256: sha(await readFile(join(cwd, "draft.json"))),
+							await writeFile(join(cwd, "read-complete.json"), JSON.stringify({ job_id: job.job_id, draft_sha256: sha(await readFile(join(cwd, "draft.json"))),
 								...(job.purpose === "guidance" ? {guidance_sha256:sha(await readFile(join(cwd,"guidance.json")))} : {}), observations }) + "\n");
 						}
 						phaseCompleted = true;
