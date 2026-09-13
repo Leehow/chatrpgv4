@@ -3,14 +3,14 @@ import type { KernelContext } from '../context.js';
 import type { HandlerGroup } from '../handlers.js';
 import { RpcError } from '../errors.js';
 import { isJsonObject } from '../json.js';
-import { CampaignSnapshot, loadModule } from '../read/campaign.js';
+import { CampaignSnapshot, loadCampaignModule } from '../read/campaign.js';
 import { readCampaign, unsupported } from '../read/handlers.js';
 import { playLanguageOf } from '../read/languages.js';
 import { array, row, number, integer, string, truth, repr, chars, type Row } from '../read/values.js';
 import { createWriteRuntime } from '../write/index.js';
 import { CampaignWriter, nowIso } from '../write/store.js';
 import { noteMemory, readNpcLedger } from '../write/contributions.js';
-import { buildJob, committedRecords, defaultJobTurn, fail, logs, openJob, parseJobId, readJob, submit } from './jobs.js';
+import { buildJob, correctionJob, committedRecords, defaultJobTurn, fail, logs, openJob, parseJobId, readJob, submit } from './jobs.js';
 import { history, recallMemory, transcript } from './recall.js';
 /** The verifier's finding kinds, `play_language_mismatch` among them: the kernel makes no language refusal of its own (contract section 23). */
 const FINDINGS = ['reveal', 'uncommitted_state', 'player_agency', 'play_language_mismatch'];
@@ -58,8 +58,8 @@ export function createMemoryHandlers(context: KernelContext, writer: ReturnType<
                 ...(snapshot.meta.status === 'setting_up' ? { fix: string(row(await context.snapshots.readJson(context.content + '/setup/steps.json')).table_open_fix).replaceAll('{campaign}', campaign.id) } : {}),
                 details: { status: snapshot.meta.status }
             });
-        const module = await loadModule(context, string(snapshot.meta.module_id));
         snapshot.world = await campaign.readWorld();
+        const module = await loadCampaignModule(context, string(snapshot.meta.module_id), snapshot.world);
         snapshot.jsonFiles.set('world.json', snapshot.world);
         if (!Object.hasOwn(snapshot.world, 'scene_trail'))
             await writer.read.repairLegacyTrail!(snapshot);
@@ -72,7 +72,9 @@ export function createMemoryHandlers(context: KernelContext, writer: ReturnType<
         const { campaign, snapshot, module } = loaded, turn = parseJobId(campaign, id);
         let job = await readJob(campaign, string(id));
         if (!job && (await committedRecords(campaign)).has(turn)) {
-            await openJob(campaign, await buildJob(campaign, module.graph, await playLanguageOf(context, snapshot.meta), turn, await campaign.party(), snapshot.world));
+            const packet = string(id).startsWith('reconcile:') ? await correctionJob(campaign, module.graph, await campaign.party(), string(id))
+                : await buildJob(campaign, module.graph, await playLanguageOf(context, snapshot.meta), turn, await campaign.party(), snapshot.world);
+            if (packet) await openJob(campaign, packet);
             job = await readJob(campaign, string(id));
         }
         return [job, turn];
@@ -81,11 +83,21 @@ export function createMemoryHandlers(context: KernelContext, writer: ReturnType<
         'table.warn': async (params) => warn((await load(params)).campaign, params),
         'memory.job': async (params) => {
             const { campaign, snapshot, module } = await load(params);
+            if (params.job_id != null) {
+                parseJobId(campaign, params.job_id);
+                if (!string(params.job_id).startsWith('reconcile:')) throw new RpcError('invalid_params', 'Use turn for an extraction job, or job_id for a retained reconciliation');
+                const [job] = await jobFor({campaign, snapshot, module}, params.job_id);
+                if (!job?.correction) throw new RpcError('invalid_params', 'No matching correction reconciliation job');
+                if (job.worldline !== (snapshot.meta.active_worldline ?? 'main')) throw new RpcError('invalid_params', 'Correction job belongs to another worldline');
+                return job.packet;
+            }
             let turn = params.turn;
             if (turn == null) {
                 turn = await defaultJobTurn(campaign);
-                if (turn == null)
-                    return { job_id: null, turn: null };
+                if (turn == null) {
+                    const packet = await correctionJob(campaign, module.graph, await campaign.party());
+                    return packet ? openJob(campaign, packet) : { job_id: null, turn: null };
+                }
             }
             else if (!integer(turn) || number(turn) < 0)
                 throw new RpcError('invalid_params', 'params.turn must be a committed turn number');

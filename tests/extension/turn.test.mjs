@@ -44,6 +44,26 @@ test("a source timeout yields the turn instead of allowing another source query"
 	assert.equal(table.kernelRequests().filter(r => r.method === "table.ask").length, 0);
 });
 
+test("a pending adaptation owns the rest of the turn and cannot fall through into ordinary work", async t => {
+	const table = await openTable({
+		env: { FAKE_KERNEL_ADAPTATION_PENDING: "1", PI_COC_ADAPTATION_WAIT_MS: "0" },
+		responses: [
+			fauxAssistantMessage([fauxToolCall("lookup", { kind: "adaptation", action: "prepare", name: "athens-study", purpose: "new_destination", request: "A second persistent base", anchors: ["scene: commission-briefing"] })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "time", minutes: 10, why: "wait for the room" }] })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("narrate", { text: "书房还在准备中；这期间你没有移动，也没有花钱。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage("书房还在准备中；这期间你没有移动，也没有花钱。"),
+		],
+	});
+	t.after(() => table.dispose());
+	await table.session.prompt("先准备那间书房，没准备好之前我不移动也不花钱。");
+	const requests = table.kernelRequests();
+	assert.equal(requests.filter(row => row.method === "adaptation.prepare").length, 1);
+	assert.equal(requests.filter(row => row.method === "table.apply").length, 0, "background preparation blocks unrelated writes");
+	assert.equal(requests.filter(row => row.method === "table.narrate").length, 1, "the Keeper can only yield honestly");
+	assert.equal(table.entries("coc-adaptation-status").at(-1)?.status, "pending");
+	assert.equal(assistantTexts(table.session).filter(Boolean).at(-1), "书房还在准备中；这期间你没有移动，也没有花钱。");
+});
+
 test("一个玩家回合：七个工具、胶囊、call_id、rendered_text 交付", async (t) => {
 	const table = await openTable({
 		responses: [

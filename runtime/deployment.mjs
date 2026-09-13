@@ -17,6 +17,8 @@ export const COMPILED_ENTRIES = Object.freeze({
   characterGuidance: 'build/extensions/module/character-guidance.mjs',
   characterPresentation: 'build/extensions/module/character-presentation.mjs',
   documentPresentation: 'build/extensions/mods/document-presentation.mjs',
+  auditSubmit: 'build/extensions/mods/audit-submit.mjs',
+  adaptationSubmit: 'build/extensions/kernel/adaptation-submit.mjs',
   uiPresentation: 'build/extensions/module/ui-presentation.mjs',
 });
 export const COC_EXTENSIONS = Object.freeze(['kernel', 'mods', 'onboarding', 'module', 'memory', 'table', 'npc-journal']);

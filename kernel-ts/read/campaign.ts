@@ -6,6 +6,7 @@ import { RpcError } from "../errors.js";
 import { parsePythonJson } from "../json.js";
 import { ModuleGraph, dossierWith } from "./module-graph.js";
 import { readPublishedGraph } from "./published-graph.js";
+import { campaignModule } from '../adaptation/source.js';
 import { array, row, clone, normalize, stripPrefix, number, repr, type Row } from "./values.js";
 export class CampaignSnapshot {
     readonly dir: string;
@@ -130,6 +131,11 @@ export interface LoadedModule {
     generation: number;
     path: string;
     material(name: string): string;
+    adapted?: boolean;
+    asset?(name: string): Promise<Row | null>;
+}
+export async function loadCampaignModule(context: KernelContext, id: string, world: Row): Promise<LoadedModule> {
+    return await campaignModule(context, id, world) ?? loadModule(context, id);
 }
 export async function loadModule(context: KernelContext, id: string): Promise<LoadedModule> {
     const moduleRoot = join(context.stateRoot, "modules", id),

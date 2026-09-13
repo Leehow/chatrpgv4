@@ -485,6 +485,7 @@ class Daemon:
             # player in the app had been given the words (contract §32.9).
             delivered = ""
             delivery: dict | None = None
+            rejected_delivery = False
             stop_reason: str | None = None
             deadline = started_mono + timeout
             settle_deadline: float | None = None
@@ -505,8 +506,10 @@ class Daemon:
                     if stale_deadline is not None and now >= stale_deadline and not saw_work:
                         stop_reason = "settled_before_any_work"
                         break
-                    if now >= deadline or settle_deadline is not None and now >= settle_deadline:
-                        stop_reason = stop_reason or "timeout"
+                    if now >= deadline:
+                        stop_reason = "timeout"
+                        break
+                    if settle_deadline is not None and now >= settle_deadline:
                         break
                     stale_deadline = None
                     continue
@@ -516,9 +519,16 @@ class Daemon:
                     continue
 
                 etype = event.get("type")
-                if etype in ("turn_start", "tool_execution_start", "message_update", "message_end"):
+                if etype in ("agent_start", "turn_start", "tool_execution_start", "tool_execution_update",
+                              "tool_execution_end", "message_start", "message_update", "message_end"):
                     saw_work = True
                     stale_deadline = None
+                    settle_deadline = None
+                    stop_reason = None
+                if etype == "agent_start":
+                    # A repair run replaces the previous unpublished draft, not a delivered result.
+                    text_parts.clear()
+                    final_text_parts.clear()
                 if etype == "message_update":
                     ev = event.get("assistantMessageEvent") or {}
                     if ev.get("type") == "text_delta":
@@ -549,6 +559,8 @@ class Daemon:
                                                        TOOL_RESULT_TRUNCATE_BYTES),
                         "ms": ms, "is_error": event.get("isError", False),
                     })
+                    if rec["name"] in ("narrate", "ask") and event.get("isError", False):
+                        rejected_delivery = True
                     if rec["name"] in ("narrate", "ask") and not event.get("isError", False):
                         try:
                             body = json.loads(extract_result_text(event.get("result")) or "{}")
@@ -556,6 +568,7 @@ class Daemon:
                             body = {}
                         if isinstance(body, dict) and isinstance(body.get("rendered_text"), str):
                             delivered = body["rendered_text"]
+                            rejected_delivery = False
                         if isinstance(body, dict):
                             # What a player actually sees is prose *plus* this turn's mechanics
                             # (§16.2/§16.3: numbers never enter the prose, PipiCOC draws them from
@@ -565,6 +578,14 @@ class Daemon:
                                         "rendered_text": body.get("rendered_text") or "",
                                         "mechanics": body.get("mechanics") or [],
                                         "pending_choice": body.get("pending_choice")}
+                elif etype == "entry_appended":
+                    entry = event.get("entry") or {}
+                    data = entry.get("data") or {}
+                    if entry.get("customType") == "coc-delivery" and isinstance(entry.get("content"), str):
+                        delivered = entry["content"]
+                        rejected_delivery = False
+                    elif entry.get("customType") == "coc-telemetry" and data.get("tool") == "narrate" and data.get("implicit"):
+                        rejected_delivery = data.get("ok") is False
                 elif etype == "agent_settled":
                     if not saw_work:
                         # The previous run finishing, not this turn. Keep waiting for this one.
@@ -584,10 +605,10 @@ class Daemon:
                     stop_reason = stop_reason or "pi_died"
                     break
 
-            final_text = "".join(final_text_parts).strip()
-            if not final_text:
-                final_text = delivered.strip()
-            if not final_text:
+            final_text = delivered.strip()
+            if not final_text and not rejected_delivery:
+                final_text = "".join(final_text_parts).strip()
+            if not final_text and not rejected_delivery:
                 final_text = "".join(text_parts).strip()
             tool_records = [tools[t] for t in tool_order if t in tools]
 

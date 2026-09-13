@@ -4,7 +4,7 @@ import type { HandlerGroup } from '../handlers.js';
 import { isJsonObject } from '../json.js';
 import { readCampaign } from '../read/handlers.js';
 import { playLanguageOf } from '../read/languages.js';
-import { CampaignSnapshot, loadModule } from '../read/campaign.js';
+import { CampaignSnapshot, loadCampaignModule } from '../read/campaign.js';
 import { SessionView } from '../read/session-view.js';
 import { modContext, setupModContext } from '../read/mods.js';
 import { row, clone, truth, string, type Row } from '../read/values.js';
@@ -31,7 +31,7 @@ export function createModRuntime(context: KernelContext, sources: ModSources = {
   async function busy(campaign: CampaignWriter, world: Row): Promise<boolean> {
     const turn = await campaign.readTurn();
     if (['open', 'acting'].includes(turn.state) || truth(turn.pending_choice)) return true;
-    const meta = await campaign.readCampaign(), graph = (await loadModule(context, meta.module_id)).graph;
+    const meta = await campaign.readCampaign(), graph = (await loadCampaignModule(context, meta.module_id, world)).graph;
     const snapshot = new CampaignSnapshot(context, campaign.id);
     snapshot.meta = meta; snapshot.world = world; snapshot.turn = turn;
     await snapshot.preload('view');
@@ -59,6 +59,7 @@ export function createModRuntime(context: KernelContext, sources: ModSources = {
       ...createDocumentHandlers(writer, runtime),
       'mods.job': params => jobs.job(params),
       'mods.accept': params => jobs.accept(params),
+      'mods.review.status': params => jobs.reviewStatus(params),
       'mods.queued': params => jobs.queued(params),
       'mods.list': listing,
       'mods.install': async params => {

@@ -9,6 +9,7 @@ import {array,clone,integer,normalize,number,repr,row,similarity,string,truth,ty
 import {RuleTables} from '../rules/tables.js';
 import {required,nowIso} from '../write/store.js';
 import {effectId,type StagedEffect} from './bookkeeping.js';
+import {addCash,cashDecimal,cashStorage,cashText} from './cash.js';
 import type {ApplyContext} from './index.js';
 type Int=number|bigint;
 const int=(value:any):Int=>typeof value==='bigint'?value:Math.trunc(number(value));
@@ -72,7 +73,7 @@ export async function stageItem(context:ApplyContext,effect:Row,staged:Map<strin
 }
 const money=(value:any):any=>value instanceof PythonFloat&&Number.isInteger(number(value))?number(value):value;
 export async function stageCash(context:ApplyContext,effect:Row,staged:Map<string,Row>):Promise<StagedEffect>{
-    const delta=effect.delta;if(!integer(delta)||delta===0||delta===0n)throw new RpcError('invalid_params',"delta must be a non-zero integer in the era's currency unit");
+    const delta=effect.delta,decimalDelta=cashDecimal(delta);if(!decimalDelta||decimalDelta.coefficient===0n)throw new RpcError('invalid_params',"delta must be a finite non-zero number in the era's currency unit");
     const sheet=await stagedSheet(context,staged,effect.subject),id=string(sheet.id),subject=string(sheet.name||sheet.id),why=typeof effect.why==='string'?effect.why:null;
     const other=typeof effect.with==='string'&&effect.with.trim()?context.graph.npc(effect.with):null;
     let finance=sheet.finance;
@@ -82,9 +83,12 @@ export async function stageCash(context:ApplyContext,effect:Row,staged:Map<strin
         try{finance=await tables.cashAndAssets(credit,era);finance.source=`cash-assets.periods.${era}`;}
         catch(error){if(!(error instanceof Error)||error.name!=='ValueError')throw error;finance={credit_rating:credit,living_standard:null,cash:{amount:0,currency:string(row(await tables.load('cash-assets')).currency||'USD')},assets:null,spending_level:null,period:era||null,source:null,note:`no cash-assets period for era ${repr(era)} (${error.message}); the balance is the sum of cash receipts`};}
     }
-    const cash=finance.cash,before=money(cash.amount||0),currency=string(cash.currency||'USD');
-    const after=integer(before)||typeof before==='boolean'?add(int(before),delta):money(new PythonFloat(number(before)+number(delta)));
-    if(number(after)<0)throw new RpcError('invalid_params',`${subject} has ${string(before)} ${currency}; cannot lose ${negate(delta)}`,{fix:'a smaller delta, or narrate the debt without a cash receipt',details:{before,delta,currency}});
+    const cash=finance.cash,before=money(cash.amount||0),currency=string(cash.currency||'USD'),decimalBefore=cashDecimal(before);
+    if(!decimalBefore)throw new RpcError('invalid_params',`${subject} has an invalid cash balance`,{fix:'repair the investigator cash balance before applying a cash receipt',details:{before,currency}});
+    const decimalAfter=addCash(decimalBefore,decimalDelta);
+    if(decimalAfter.coefficient<0n)throw new RpcError('invalid_params',`${subject} has ${string(before)} ${currency}; cannot lose ${cashText({coefficient:-decimalDelta.coefficient,exponent:decimalDelta.exponent})}`,{fix:'a smaller delta, or narrate the debt without a cash receipt',details:{before,delta,currency}});
+    const after=cashStorage(decimalAfter);
+    if(after===null)throw new RpcError('invalid_params','cash result cannot be represented without rounding',{fix:'use an amount that can be stored exactly, or keep this amount as a whole-number cash receipt',details:{before,delta,currency}});
     cash.amount=after;sheet.finance=finance;sheet.cash=`${string(after)} ${currency}`;
     const receipt={id:context.mint(`cash:t${context.turn.turn}-c${context.ordinal}`),kind:'cash',call_id:context.callId,resource:'cash',subject:id,subject_label:subject,before,after,delta,with:other?context.graph.handle(other):null,with_label:other?context.graph.displayName(other):null,currency,why,at:nowIso()};
     return {receipt,event:{type:'resource-changed',data:{resource:'cash',subject:id,before,after,delta,why,...(other?{with:context.graph.handle(other)}:{})}}};

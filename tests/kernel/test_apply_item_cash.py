@@ -254,7 +254,7 @@ def test_cash_builds_the_finance_block_from_the_era_table_and_moves_it(kernel):
     assert broke["code"] == "invalid_params" and broke["details"]["before"] == start + 10
     assert sheet(kernel)["finance"]["cash"]["amount"] == start + 10
     assert kernel.table_err("apply", call_id="t1-c3", effects=[{"kind": "cash", "delta": 0}])["code"] == "invalid_params"
-    assert kernel.table_err("apply", call_id="t1-c3", effects=[{"kind": "cash", "delta": 1.5}])["code"] == "invalid_params"
+    assert kernel.table_err("apply", call_id="t1-c3", effects=[{"kind": "cash", "delta": "1.5"}])["code"] == "invalid_params"
 
     # The prose names no figure: the before/after of each cash receipt reach the player only
     # through the projection rows below (§16.3, 2026-09-09).

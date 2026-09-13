@@ -149,6 +149,11 @@ export class Reading {
         return truth((await this.store.opening(graph)).opening_ready);
     }
     async requireMaterial(graph: ModuleGraph, names: any[]): Promise<void> {
+        if (graph.materialOverride) {
+            for (const name of names) if (typeof name === 'string' && graph.find(name) && graph.materialOverride(name) !== 'ready')
+                throw new RpcError('needs', 'The pinned source material is not prepared; read the source and prepare a reviewed rebase', {details: {reason: 'adaptation_material_missing', focus: name}});
+            return;
+        }
         const mid = graph.moduleId;
         if (!await this.store.exists(mid) || !truth((await this.store.module(mid)).reading_version))
             return;
@@ -167,6 +172,7 @@ export class Reading {
         }
     }
     async queueAdjacentReading(graph: ModuleGraph, scene: Row): Promise<string[]> {
+        if (graph.materialOverride) return [];
         const mid = graph.moduleId, queued: string[] = [];
         if (!await this.store.exists(mid) || !truth((await this.store.module(mid)).reading_version))
             return queued;

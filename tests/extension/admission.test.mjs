@@ -199,7 +199,7 @@ test("an unavailable review refuses with a service status; the Keeper is not tol
 	assert.equal(refusal?.reason, "admission_unavailable");
 });
 
-test("what is not a proposed voluntary investigator action is not reviewed: bookkeeping, NPC actors, sanity checks, a rename of the scene underfoot", async (t) => {
+test("bookkeeping, NPC actors and sanity checks bypass admission while a display rename is checked against its registered scene", async (t) => {
 	const table = await openTable({
 		responses: [
 			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "flag", name: "door-barred" }, { kind: "note", name: "the-knock", text: "owe the knock" }, { kind: "threat", name: "corbitt-awareness" }] })], { stopReason: "toolUse" }),
@@ -210,15 +210,16 @@ test("what is not a proposed voluntary investigator action is not reviewed: book
 			fauxAssistantMessage([fauxToolCall("narrate", { text: "看门人走了。" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("after"),
 		],
-		laneResponses: { admission: [verdict({ verdict: "not_authorized", grounds: "should never be consulted", missing: "nothing" })] },
+		laneResponses: { admission: [verdict({ verdict: "not_player_action", grounds: "the label presents the same registered scene" })] },
 	});
 	t.after(() => table.dispose());
 	await table.session.prompt("我站着不动");
 
-	assert.equal(table.lanes.admission.requests().length, 0, "no review was asked for");
+	assert.equal(table.lanes.admission.requests().length, 1, "only the scene label is reviewed");
+	assert.match(table.lanes.admission.requests()[0], /registered_destination=.*Registered scene corbitt-house/);
 	assert.equal(kernelCalls(table, "table.apply").length, 3);
 	assert.equal(kernelCalls(table, "table.resolve").length, 2);
-	assert.equal(admissionRows(table).length, 0);
+	assert.equal(admissionRows(table).length, 1);
 });
 
 test("a recovered turn is reviewed against the words the broken turn was answering", async (t) => {

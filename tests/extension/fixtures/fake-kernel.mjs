@@ -642,8 +642,13 @@ function handle(method, params) {
 			// so a foreground wait runs out (contract §22.4's `reading_timeout`) on the real reading service.
 			if (process.env.FAKE_KERNEL_READING === "1") return { ok: true, result: { state: "reading", job_id: "read-7", generation } };
             return { ok: true, result: { state: "ready", generation } };
-        case "module.read.claim":
+		case "module.read.claim":
             return { ok: true, result: { job_id: null } };
+		case "adaptation.prepare":
+		case "adaptation.status":
+			return { ok: true, result: { name: params.name, status: process.env.FAKE_KERNEL_ADAPTATION_PENDING === "1" ? "pending" : "ready" } };
+		case "adaptation.cancel":
+			return { ok: true, result: { name: params.name, status: "cancelled" } };
 		case "table.open": {
 			const opening = process.env.FAKE_KERNEL_OPENING === "1";
 			const pending = process.env.FAKE_KERNEL_PENDING === "1";
@@ -690,7 +695,8 @@ function handle(method, params) {
 			return { ok: true, result: { where: capsule(null).where, present: capsule(null).present } };
 		case "table.lookup":
 			if (state === "open") state = "acting";
-			return { ok: true, result: { entities: [{ name: params.query ?? "科比特", kind: "npc", summary: "旧主人" }] } };
+			return { ok: true, result: { entities: [{ name: params.query ?? "科比特", display_name: params.query ?? "科比特",
+				kind: params.expected_kind ?? "npc", summary: params.expected_kind === 'scene' ? `Registered scene ${params.query}` : "旧主人" }] } };
 		case "table.recall":
 			if (state === "open") state = "acting";
 			return { ok: true, result: { transcript: [] } };

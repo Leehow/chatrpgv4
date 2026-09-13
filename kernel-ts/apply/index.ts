@@ -4,7 +4,7 @@ import type { HandlerGroup } from '../handlers.js';
 import type { CampaignWritePort, DomainEvent, TurnTransaction } from '../transactions.js';
 import { RpcError } from '../errors.js';
 import { isJsonObject } from '../json.js';
-import { CampaignSnapshot, loadModule, type LoadedModule } from '../read/campaign.js';
+import { CampaignSnapshot, loadCampaignModule, type LoadedModule } from '../read/campaign.js';
 import type { ModuleGraph } from '../read/module-graph.js';
 import { actor as selectActor, sceneView, unsupported } from '../read/handlers.js';
 import { array, clone, entries, integer, number, repr, row, string, truth, type Row } from '../read/values.js';
@@ -25,7 +25,7 @@ import {stageItem,stageCash,commitInventorySheets} from './inventory.js';
 import type {createWorldlineRuntime} from '../worldline/index.js';
 import type {createModRuntime} from '../mods/index.js';
 import type {CampaignWriter} from '../write/store.js';
-const KINDS = ['ability', 'cash', 'clue', 'damage', 'define', 'dossier', 'ending', 'flag', 'fork', 'handout', 'item', 'merge', 'move', 'note', 'npc', 'object', 'ruling', 'switch', 'threat', 'time'];
+const KINDS = ['ability', 'adaptation', 'cash', 'clue', 'damage', 'define', 'dossier', 'ending', 'flag', 'fork', 'handout', 'item', 'merge', 'move', 'note', 'npc', 'object', 'ruling', 'switch', 'threat', 'time'];
 export interface ApplyContext {
     readonly kernel: KernelContext;
     readonly transaction: TurnTransaction;
@@ -52,6 +52,7 @@ export interface ApplyResources {
     dayBoundary(context: ApplyContext, clockBefore: number): Promise<Row | null>;
 }
 export interface ApplyContributions {
+    readonly adaptation?: (context: ApplyContext, effect: Row) => Promise<{receipt: Row; event: Row}>;
     readonly worldlines?: ReturnType<typeof createWorldlineRuntime>;
     readonly mods?: ReturnType<ReturnType<typeof createModRuntime>['apply']>;
     readonly resources?: ApplyResources;
@@ -80,12 +81,14 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                 return started.result;
             if (!Array.isArray(effects) || !effects.length)
                 throw new RpcError('invalid_params', 'params.effects must be a non-empty list');
-            const available = (kind: string) => ['clue','npc','item','cash','flag','note','ruling','threat'].includes(kind) || (['define','object','ability','dossier'].includes(kind)?!!contributions.mods:['fork','switch','merge'].includes(kind)?!!contributions.worldlines:kind==='handout'?!!contributions.asset:['time', 'damage', 'move'].includes(kind) ? !!contributions.resources : kind === 'ending' ? !!contributions.ending : false);
+            if (effects.some(effect => isJsonObject(effect) && effect.kind === 'adaptation') && effects.length !== 1)
+                throw new RpcError('invalid_params', 'Accept an adaptation alone; ordinary effects belong to later calls');
+            const available = (kind: string) => kind === 'adaptation' ? !!contributions.adaptation : ['clue','npc','item','cash','flag','note','ruling','threat'].includes(kind) || (['define','object','ability','dossier'].includes(kind)?!!contributions.mods:['fork','switch','merge'].includes(kind)?!!contributions.worldlines:kind==='handout'?!!contributions.asset:['time', 'damage', 'move'].includes(kind) ? !!contributions.resources : kind === 'ending' ? !!contributions.ending : false);
             // A partial backend refuses unimplemented batches before any domain draws or writes.
             for (const [index, effect] of effects.entries())
                 if (isJsonObject(effect) && typeof effect.kind === 'string' && KINDS.includes(effect.kind) && !available(effect.kind))
                     throw atIndex(new RpcError('not_implemented', `effect kind ${repr(effect.kind)} has no implementation in this TypeScript kernel yet`), index);
-            const module = await loadModule(kernel, string((await campaign.readCampaign()).module_id)), graph = module.graph;
+            const module = await loadCampaignModule(kernel, string((await campaign.readCampaign()).module_id), transaction.world), graph = module.graph;
             const authored: Row = { move: 'to', clue: 'clue', npc: 'name', handout: 'name' };
             const kinds: Record<string, string[]> = { move: ['scene'], clue: ['clue'], npc: ['npc'], handout: ['handout', 'asset'] };
             const names = effects.filter(isJsonObject).filter(effect => Object.hasOwn(authored, string(effect.kind))).map(effect => {
@@ -142,7 +145,11 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                         continue;
                     }
                     let receipt: Row, event: DomainEvent;
-                    if (kind === 'move') {
+                    if (kind === 'adaptation') {
+                        if (!contributions.adaptation) throw new RpcError('not_implemented', 'Adaptation acceptance is unavailable');
+                        ({receipt, event} = await contributions.adaptation(context, effect) as {receipt: Row; event: DomainEvent});
+                    }
+                    else if (kind === 'move') {
                         const moved = stageMove(context, effect);
                         receipt = moved.receipt;
                         if (!moved.event) {
@@ -161,7 +168,7 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                     }
                     else if(kind==='npc')({receipt,event}=await stageNpc(context,effect) as {receipt:Row;event:DomainEvent});
                     else if(kind==='handout'){
-                        ({receipt,event}=await stageHandout(context,effect,contributions.asset!) as {receipt:Row;event:DomainEvent});attachments.push(receipt.attachment);
+                        ({receipt,event}=await stageHandout(context,effect,module.asset ? (_id, name) => module.asset!(name) : contributions.asset!) as {receipt:Row;event:DomainEvent});attachments.push(receipt.attachment);
                     }
                     else if(kind==='item')({receipt,event}=await stageItem(context,effect,stagedSheets,()=>{
                         if(!contributions.weaponCatalog)throw new RpcError('not_implemented','The weapon catalog contribution is unavailable');return contributions.weaponCatalog(graph);
@@ -228,8 +235,10 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
             if(effects.some(effect=>isJsonObject(effect)&&effect.kind==='object'))await contributions.mods!.projectInventory(campaign as CampaignWriter,staged);
             for(const note of stagedNotes)await appendJsonl(join(campaign.directory,'notes.jsonl'),note);
             for(const ruling of stagedRulings)await appendJsonl(join(campaign.directory,'rulings.jsonl'),ruling);
-            const material = truth(module.meta.reading_version) ? await contributions.materialReady!(graph.moduleId, graph.scene(staged.active_scene).node_id) ? 'ready' : 'missing' : 'ready';
+            const material = module.material(graph.scene(staged.active_scene).node_id);
             const result: Row = { receipts: ids, markers: markersOf({ ...turn, receipts: [...array(turn.receipts), ...receipts] }, receipts), world: { active_scene: staged.active_scene, clock: staged.clock }, material_ready: material === 'ready', material };
+            if (receipts.some(receipt => receipt.kind === 'move' && receipt.renamed) && !receipts.some(receipt => receipt.kind === 'move' && !receipt.renamed))
+                result.location_note = `A rename changed only a display label. The actual scene remains ${graph.displayName(graph.scene(staged.active_scene))}. No arrival at a different place occurred. A player-chosen new destination needs lookup kind adaptation, prepare; accept the ready proposal, then apply move. Never narrate a different place as reached by a rename.`;
             if (receipts.some(receipt => receipt.kind === 'move' && !receipt.renamed)) {
                 const snapshot = new CampaignSnapshot(kernel, campaign.id);
                 snapshot.meta = await campaign.readCampaign();

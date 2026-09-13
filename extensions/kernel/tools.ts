@@ -27,13 +27,17 @@ const EndingEffect = Type.Object({
     scope: StringEnum(["chapter", "campaign"] as const, { description: "chapter leaves the same campaign playable; campaign is only the final end of the entire adventure, never a pause or a chapter boundary. For an incorrectly completed legacy chapter, scope chapter reclassifies the existing ending without repeating its accounting; narrate commits the correction before continuing" }),
     summary: Type.String({ description: "the ending reached; read source rewards and resolve development:end-session first. An already-accounted legacy correction retains the original summary, turn and rewards. Narrate commits this effect" }),
 });
+const AdaptationEffect = Type.Object({
+    kind: StringEnum(['adaptation'] as const),
+    name: Type.String({description: 'Accept a ready independently reviewed proposal by its semantic name, alone in this batch. This grants no clue, movement, NPC presence, or player action.'}),
+});
 
 const MoveEffect = Type.Object({
-	kind: StringEnum(["move"] as const, { description: "walk to another scene" }),
-	to: Type.String({ description: "destination scene name; must be one of the exits reachable from the current scene. Naming the scene they are already in is a rename, not a move: pass label with it and nothing else happens" }),
+	kind: StringEnum(["move"] as const, { description: "change the persistent gameplay locus; ordinary spatial description inside the current locus needs no move" }),
+	to: Type.String({ description: "the registered persistent gameplay locus that subsequent action or durable location-bound state will use. For a chosen locus absent from the graph, first lookup kind module with expected_kind scene, then prepare and accept the returned adaptation before moving. Never substitute or relabel another physical place" }),
 	travel_minutes: Type.Optional(Type.Integer({ description: "minutes spent on the way; omitted means the value on the graph edge" })),
 	via: Type.Optional(Type.String({ description: "how they got there when the way is not one of the exits you were given — through an unlatched upper window, down a coal chute, following someone in. Say it and the move lands; without it an unlisted destination is refused, and then the world stays where it was while your narration moves on" })),
-	label: Type.Optional(Type.String({ description: "short name of the destination in the player's language; omitted means the scene name. It becomes that scene's name from then on, so pass to = the scene underfoot with a label once at the start to name the place the party opens in" })),
+	label: Type.Optional(Type.String({ description: "a display name for the SAME registered gameplay locus in the player's language. It cannot substitute a different locus. Omitted means the existing name" })),
 });
 
 const ClueEffect = Type.Object({
@@ -112,7 +116,7 @@ const AbilityEffect = Type.Object({
 const CashEffect = Type.Object({
 	kind: StringEnum(["cash"] as const, { description: "the money in hand goes up or down" }),
 	subject: Type.Optional(Type.String({ description: "whose money; defaults to the current investigator" })),
-	delta: Type.Integer({ description: "signed change, in the currency of the era; spent is negative, received is positive" }),
+	delta: Type.Number({ description: "signed finite change, including fractions, in the currency of the era; spent is negative, received is positive" }),
 	with: Type.Optional(Type.String({ description: "the person on the other side of it: an NPC name. Name them whenever money is paid to or taken from someone — that is what puts it on their account, and you are told it again the next time they are in the room" })),
 	why: Type.Optional(Type.String({ description: "one sentence: where the money went, or where it came from" })),
 });
@@ -369,13 +373,21 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 		label: "Lookup",
 		method: "table.lookup",
 		description:
-			"Search the module graph for what the capsule did not answer. The briefing for kind secret with scope scene — the clues in this scene still undiscovered, the secrets and agendas of those present, the Keeper's notes — is already in the capsule; do not look it up again. Use scope module only when you want the whole book's secrets and ending nodes. With kind module it finds entities on the graph by name or alias, at most 8 rows, each with a summary, visibility and relations: use it to confirm whether a name the player mentioned exists in this book. It matches the names and handles on the graph, so search with the module's own names or a name that appeared in the capsule; a translated keyword will not find anything. The kinds rule and catalog answer not_implemented in this slice.",
+			"Search the module graph for what the capsule did not answer. The briefing for kind secret with scope scene — the clues in this scene still undiscovered, the secrets and agendas of those present, the Keeper's notes — is already in the capsule; do not look it up again. Use scope module only when you want the whole book's secrets and ending nodes. With kind module it finds entities on the graph by name or alias, at most 8 rows, each with a summary, visibility and relations. Say expected_kind when the role matters; only a missing scene advertises adaptation. A physical object uses define/object/item, while compatible scenery and a first-appearance supporting person may remain narration. Promote a recurring NPC only when persistent identity or sourced knowledge is needed. Adaptation is reserved for persistent graph topology, not ordinary detail. The kinds rule and catalog answer not_implemented in this slice.",
 		promptSnippet: "Look up an entity the capsule did not answer, or the whole book's secrets and endings",
 		parameters: Type.Object({
-			kind: StringEnum(["module", "source", "secret", "rule", "catalog"] as const, {
-				description: "module reads the compiled graph immediately; source without question prepares missing material or rejoins its reading; source with question explicitly rechecks original pages, even when material exists",
+			kind: StringEnum(["module", "source", "secret", "rule", "catalog", "continuity", "adaptation"] as const, {
+					description: "module searches known names; use expected_kind scene for a possible absent destination. continuity joins acquired evidence and causal relationships. adaptation prepare requires a purpose and drafts persistent source-connected graph topology; status is nonblocking, cancel stops it. source without question prepares missing material; with question rechecks original pages",
 			}),
-			query: Type.Optional(Type.String({ description: "a name or a question; omissible when kind is secret" })),
+			query: Type.Optional(Type.String({ description: "module/rule/catalog: a name or search text. continuity: a semantic entity name, never a prose question; omit query when using anchors. source: entity name, with detail in question. Omissible for secret." })),
+			expected_kind: Type.Optional(StringEnum(['scene', 'npc', 'clue', 'object', 'handout'] as const, {description: 'module only: the graph role being sought. Only an explicit scene miss may offer a new-destination adaptation'})),
+			anchors: Type.Optional(Type.Array(Type.String(), {maxItems: 12, description: "continuity/adaptation: source entity, clue or conclusion names to connect"})),
+			limit: Type.Optional(Type.Integer({minimum: 1, maximum: 12})),
+			action: Type.Optional(StringEnum(["prepare", "status", "cancel"] as const)),
+			name: Type.Optional(Type.String({description: "adaptation: a memorable proposal name, reused for status, cancel or acceptance"})),
+			purpose: Type.Optional(StringEnum(['new_destination', 'persistent_npc', 'source_rebinding', 'handout', 'rebase'] as const, {description: 'required for adaptation prepare. Physical objects and first-appearance supporting NPCs have no adaptation purpose'})),
+			request: Type.Optional(Type.String({description: "adaptation: the player's actual direction and the source-connected change to prepare; never an instruction to force a player choice"})),
+			rebase: Type.Optional(Type.Boolean({description: "prepare review of the latest source with the existing accepted adaptations, at a safe start of turn"})),
 			question: Type.Optional(Type.String({ description: "for source only: the precise original-page question; ordinary module queries do not start reading" })),
 			retry: Type.Optional(Type.Boolean({ description: "explicitly retry a failed source reading" })),
 			scope: Type.Optional(
@@ -486,7 +498,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 		promptSnippet: "Land this turn's world changes: move, clue, time, handout, item, cash",
 		parameters: Type.Object({
 			effects: Type.Array(
-				Type.Union([EndingEffect, MoveEffect, ClueEffect, TimeEffect, DamageEffect, ItemEffect, DefineEffect, ObjectEffect, AbilityEffect, CashEffect, FlagEffect, NoteEffect, RulingEffect, NpcEffect, ThreatEffect, ForkEffect, SwitchEffect, MergeEffect, HandoutEffect]),
+				Type.Union([EndingEffect, AdaptationEffect, MoveEffect, ClueEffect, TimeEffect, DamageEffect, ItemEffect, DefineEffect, ObjectEffect, AbilityEffect, CashEffect, FlagEffect, NoteEffect, RulingEffect, NpcEffect, ThreatEffect, ForkEffect, SwitchEffect, MergeEffect, HandoutEffect]),
 				{ minItems: 1, description: "the changes to land this turn, in the order they happened" },
 			),
 		}),

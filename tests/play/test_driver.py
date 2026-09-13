@@ -23,6 +23,7 @@ import sys
 import threading
 import time
 import uuid
+from types import SimpleNamespace
 from pathlib import Path
 
 import pytest
@@ -31,6 +32,70 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 DRIVER = REPO_ROOT / "tests" / "play" / "driver.py"
 FAKE_PI = REPO_ROOT / "tests" / "play" / "fixtures" / "fake_pi_rpc.py"
 REAL_PI = REPO_ROOT / "node_modules" / ".bin" / "pi"
+
+
+def replay_turn(events, timeout=10):
+    """Transport-only event replay; no model or campaign state is created."""
+    spec = importlib.util.spec_from_file_location("driver_review_replay", DRIVER)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    clock = SimpleNamespace(value=0.0)
+    module.time = SimpleNamespace(monotonic=lambda: clock.value)
+    pending = list(events)
+
+    class Events:
+        def get(self, timeout):
+            if not pending or pending[0][0] > clock.value + timeout:
+                clock.value += timeout
+                raise queue.Empty
+            at, event = pending.pop(0)
+            clock.value = at
+            return {**event, "_recv_mono": at}
+
+    daemon = module.Daemon.__new__(module.Daemon)
+    daemon.turn_count = 0
+    daemon.pi = SimpleNamespace(begin_turn=lambda: Events(), end_turn=lambda: None,
+                                alive=lambda: True, call=lambda *a, **kw: {"success": True})
+    daemon._await_quiet = lambda *args: True
+    daemon._finalize_turn = lambda n, text, start, mono, tools, final, settled, reason, **kw: {
+        "final_text": final, "settle_class": settled, "stop_reason": reason,
+        "wall_seconds": clock.value, "tools": tools, **kw}
+    return daemon._run_turn("Continue investigating.", timeout)
+
+
+def test_repair_agent_clears_end_fallback_and_delivered_text_wins():
+    result = replay_turn([
+        (0, {"type": "agent_start"}),
+        (.01, {"type": "message_end", "message": {"role": "assistant", "content": [{"type": "text", "text": "Rejected draft"}]}}),
+        (.02, {"type": "agent_end"}),
+        (.027, {"type": "agent_start"}),
+        (2, {"type": "tool_execution_start", "toolName": "narrate", "toolCallId": "repair", "args": {}}),
+        (3, {"type": "tool_execution_end", "toolName": "narrate", "toolCallId": "repair", "result": {"content": [{"type": "text", "text": json.dumps({"rendered_text": "Accepted delivery"})}]}}),
+        (3.01, {"type": "message_end", "message": {"role": "assistant", "content": [{"type": "text", "text": "An untrusted wrapper"}]}}),
+        (3.02, {"type": "agent_settled"}),
+    ])
+    assert result["wall_seconds"] == 3.02
+    assert result["stop_reason"] == "agent_settled"
+    assert result["final_text"] == "Accepted delivery"
+
+
+def test_rejected_implicit_draft_is_not_a_final_response():
+    result = replay_turn([
+        (0, {"type": "agent_start"}),
+        (.1, {"type": "message_end", "message": {"role": "assistant", "content": [{"type": "text", "text": "Unpublished draft"}]}}),
+        (.2, {"type": "entry_appended", "entry": {"customType": "coc-telemetry", "data": {"tool": "narrate", "implicit": True, "ok": False}}}),
+        (.3, {"type": "agent_end"}),
+        (.4, {"type": "agent_settled"}),
+    ])
+    assert result["final_text"] == ""
+    assert result["settle_class"] == "empty"
+
+
+def test_resumed_work_that_never_finishes_times_out():
+    result = replay_turn([(0, {"type": "agent_start"}), (.1, {"type": "agent_end"}),
+                          (.2, {"type": "agent_start"})], timeout=3)
+    assert result["stop_reason"] == "timeout"
+    assert result["wall_seconds"] == 3
 
 
 def run_driver(*args: str, env: dict | None = None, timeout: float = 30.0) -> subprocess.CompletedProcess:

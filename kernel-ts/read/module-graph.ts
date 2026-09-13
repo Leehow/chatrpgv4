@@ -111,6 +111,9 @@ const phraseWithin = (phrase: string[], key: string[]): boolean => {
     return opens || closes;
 };
 export class ModuleGraph {
+    /** Only the campaign resolver installs this pinned material authority. */
+    materialOverride?: (name: string) => string;
+    assetOverride?: (name: string) => Promise<Row | null>;
     readonly nodes = new Map<string, Row>();
     readonly byKind = new Map<string, Row[]>();
     readonly out = new Map<string, Row[]>();
@@ -118,7 +121,8 @@ export class ModuleGraph {
     readonly claimsBySubject = new Map<string, Row[]>();
     readonly names = new Map<string, Set<string>>();
     readonly moduleNode: Row | null;
-    constructor(readonly moduleId: string, readonly raw: Row, readonly digest: string, readonly dossier: Row) {
+    constructor(readonly moduleId: string, readonly raw: Row, readonly digest: string, readonly dossier: Row,
+        readonly semanticNames: ReadonlyMap<string, string> = new Map(), readonly campaignView = false) {
         const append = (map: Map<string, Row[]>, key: string, value: Row) => map.set(key, [...(map.get(key) ?? []), value]);
         for (const node of array(raw.nodes)) {
             this.nodes.set(node.node_id, node);
@@ -146,6 +150,7 @@ export class ModuleGraph {
         return [node.node_id, this.handle(node), node.name || "", ...array(node.aliases), ...["display_name", "name", "scene_id", "title"].map(k => record[k]).filter(v => typeof v === "string")].filter(Boolean);
     }
     handle(node: Row): string {
+        if (this.semanticNames.has(node.node_id)) return this.semanticNames.get(node.node_id)!;
         return node.node_kind === "scene" && typeof recordOf(node).scene_id === "string" ? recordOf(node).scene_id : stripPrefix(node.node_id, node.node_kind);
     }
     displayName(node: Row): string {
@@ -450,6 +455,7 @@ export class ModuleGraph {
     npcKnows(node: Row): Array<{
         node: Row;
         handle: string;
+        origin?: Row;
     }> {
         const ids = [...this.npcClaims(node, "knows").map(c => row(c.object).node_id), ...array(recordOf(node).facts).map(f => f.clue_id)],
             seen = new Set<string>();
@@ -460,7 +466,9 @@ export class ModuleGraph {
             seen.add(id);
             return [{
                     node: target,
-                    handle: this.handle(target)
+                    handle: this.handle(target),
+                    ...(this.adaptationOrigin(array(recordOf(node).facts).find(f => f.clue_id === id)?.campaign_origin)
+                        ? {origin: this.adaptationOrigin(array(recordOf(node).facts).find(f => f.clue_id === id)?.campaign_origin)!} : {})
                 }];
         });
     }
@@ -562,7 +570,8 @@ export class ModuleGraph {
             if (target)
                 result.push({
                     kind: rel.relation_kind,
-                    to: this.handle(target)
+                    to: this.handle(target),
+                    ...(this.adaptationOrigin(rel.campaign_origin) ? {origin: this.adaptationOrigin(rel.campaign_origin)} : {})
                 });
         }
         for (const rel of this.incoming.get(node.node_id) ?? []) {
@@ -570,7 +579,8 @@ export class ModuleGraph {
             if (source && ["present-in", "discoverable-at", "located-in", "supports"].includes(rel.relation_kind))
                 result.push({
                     kind: rel.relation_kind,
-                    from: this.handle(source)
+                    from: this.handle(source),
+                    ...(this.adaptationOrigin(rel.campaign_origin) ? {origin: this.adaptationOrigin(rel.campaign_origin)} : {})
                 });
         }
         return result.slice(0, limit);
@@ -584,7 +594,13 @@ export class ModuleGraph {
             properties: Object.fromEntries(entries(row(node.properties)).filter(([k]) => !["runtime_projection", "asset_ref"].includes(k))),
             visibility: node.visibility ?? null,
             relations: this.relationsOf(node),
+            ...(this.adaptationOrigin(node.campaign_origin) ? {origin: this.adaptationOrigin(node.campaign_origin)} : {}),
             ...(node.node_kind === "investigator-template" ? { note: TEMPLATE_NOTE } : {})
         };
+    }
+    adaptationOrigin(value: any): Row | null {
+        if (!this.campaignView || !value || typeof value !== 'object') return null;
+        return {kind: 'campaign_adaptation', reason: chars(string(value.reason), 400),
+            sources: array(value.sources).flatMap(id => {const node = this.nodes.get(id); return node ? [{kind: node.node_kind, name: node.name}] : [];})};
     }
 }

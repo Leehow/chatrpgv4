@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { boundImages } from "../../extensions/module/reader-context.ts";
+import readerContext, { boundImages } from "../../extensions/module/reader-context.ts";
 
 test("all new images reach the model before historical eviction", () => {
 	const image = { type: "image", mimeType: "image/png", data: Buffer.alloc(100).toString("base64") };
@@ -19,4 +19,20 @@ test("all new images reach the model before historical eviction", () => {
 test("the newest image remains available even if it alone exceeds the soft budget", () => {
 	const result = boundImages([{ role: "toolResult", toolCallId: "new", content: [{ type: "image", data: Buffer.alloc(300).toString("base64") }] }], new Set(), 100);
 	assert.deepEqual(result.included, ["new"]);
+});
+
+test("a host-owned provider request ceiling aborts before an extra model call", () => {
+	const previous = process.env.PI_COC_READER_MAX_REQUESTS;
+	process.env.PI_COC_READER_MAX_REQUESTS = "1";
+	try {
+		const hooks = {};
+		readerContext({on(name, fn) { hooks[name] = fn; }});
+		let aborted = 0;
+		hooks.before_provider_request({}, {abort() { aborted++; }});
+		assert.throws(() => hooks.before_provider_request({}, {abort() { aborted++; }}), /1-request limit/);
+		assert.equal(aborted, 1);
+	} finally {
+		if (previous == null) delete process.env.PI_COC_READER_MAX_REQUESTS;
+		else process.env.PI_COC_READER_MAX_REQUESTS = previous;
+	}
 });

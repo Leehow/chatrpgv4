@@ -85,6 +85,10 @@ function mergePresence(graph: ModuleGraph, states: readonly ConfluenceState[], c
     return orderedObject(merged);
 }
 function mergeWorld(graph: ModuleGraph, states: readonly ConfluenceState[], scene: string, conflicts: Row[]): Row {
+    if (new Set(states.map(state => canonicalJson(row(state.world.adaptation).revision ?? null))).size > 1)
+        throw new RpcError('needs', 'These worldlines have different accepted adaptations; reconciliation is not supported', {
+            details: {reason: 'adaptation_merge_conflict', lines: states.map(state => ({name: state.line, adaptations: array(row(state.world.adaptation).records).map(r => r.name)}))}
+        });
     const world = clone(states[0].world);
     for (const key of ['visited_scenes', 'discovered_clues', 'discovered_echoes', 'handouts_shown']) {
         const seen: string[] = [];

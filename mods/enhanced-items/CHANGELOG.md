@@ -1,4 +1,10 @@
+# 1.1.9
+
+Treat equipment without instances as assessment candidates, not registration obligations; require a concrete mechanical basis for missing-object findings.
+
 # 1.1.8
+
+Follow the active audit submission protocol and preserve existing ownership when a draft describes an unperformed transfer.
 
 An adopted object is named for the object. A sheet's equipment row is a line, not a
 name -- "a .45 automatic and two spare magazines", "a gold single-shot pistol (one

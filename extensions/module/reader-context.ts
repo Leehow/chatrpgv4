@@ -27,8 +27,16 @@ export function boundImages(messages: any[], previouslyIncluded = new Set<string
 }
 
 export default function readerContext(pi: any) {
+	const configuredRequests = Number(process.env.PI_COC_READER_MAX_REQUESTS);
+	const maxRequests = Number.isInteger(configuredRequests) && configuredRequests > 0 ? configuredRequests : null;
+	let providerRequests = 0;
 	const sent = new Set<string>();
 	pi.on("before_provider_request", (event: any, ctx: any) => {
+		if (maxRequests !== null && providerRequests >= maxRequests) {
+			ctx?.abort();
+			throw new Error(`The bounded reader reached its ${maxRequests}-request limit`);
+		}
+		providerRequests++;
 		const log = process.env.PI_COC_READER_REQUESTS_LOG;
 		if (log) appendFileSync(log, JSON.stringify({at: new Date().toISOString(), provider: ctx.model?.provider,
 			model: event.payload?.model, reasoning_effort: event.payload?.reasoning?.effort ?? event.payload?.reasoning_effort ?? null}) + "\n");

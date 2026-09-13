@@ -11,7 +11,9 @@ import { threadSection } from "./thread.js";
 import { pacingSection } from "./pacing.js";
 import { entries, values, array, row, truth, string, number, integer, numeric, normalize, sorted, chars, length, clone, pick, repr, type Row } from "./values.js";
 import { claimedEquipment, queuedDefinition, queuedRegistrations } from "../mods/queue.js";
-export const MOD_CAPABILITIES = new Set(["checks.percentile.v1", "context.npc.v1", "definitions.v1", "objects.v1", "objects.state.v2", "objects.adopt.v1", "objects.documents.v1", "mods.order.v1", "ui.documents.v1", "ui.documents.language.v1", "agents.tools.v1", "weapons.v1", "weapons.profile.v2", "spells.v1", "item-effects.v1", "setup.guidance.v1", "setup.aptitude.v1", "graph.vocabulary.v1", "graph.vocabulary.table.v1", "context.thread.v1", "context.pacing.v1"]);
+import {CONTINUITY_AUDIT} from '../mods/audit-result.js';
+export const MOD_CAPABILITIES = new Set(["audit.source.v1", "checks.percentile.v1", "context.npc.v1", "definitions.v1", "objects.v1", "objects.state.v2", "objects.adopt.v1", "objects.documents.v1", "mods.order.v1", "ui.documents.v1", "ui.documents.language.v1", "agents.tools.v1", "weapons.v1", "weapons.profile.v2", "spells.v1", "item-effects.v1", "setup.guidance.v1", "setup.aptitude.v1", "graph.vocabulary.v1", "graph.vocabulary.table.v1", "context.thread.v1", "context.pacing.v1"]);
+MOD_CAPABILITIES.add(CONTINUITY_AUDIT);
 const invalid = (message: string): never => {
     throw new RpcError("invalid_params", message);
 };
@@ -513,7 +515,7 @@ export async function modContext(context: KernelContext, graph: ModuleGraph, wor
     };
     // A section exists only while a package that reads it is on (§30): no reader, no bytes in the capsule.
     if (required.has("context.thread.v1"))
-        result.thread = threadSection(graph, world, scene, present);
+        result.thread = threadSection(graph, world, scene, present, records);
     if (required.has("context.pacing.v1"))
         result.pacing = pacingSection(graph, world, scene, present, party, records);
     return result;

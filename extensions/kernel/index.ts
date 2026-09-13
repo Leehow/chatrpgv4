@@ -9,6 +9,7 @@ import type { AgentToolUpdateCallback, ExtensionAPI, ExtensionContext } from "@e
 import { appendFile, mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { createRuntime, type HostRuntime } from "../../runtime/host.ts";
+import { adaptationService } from './adaptation.ts';
 export { kernelCommand } from "../../runtime/host.ts";
 import { cocHome, cocMode } from "../lanes/host.ts";
 import { extensionSurface } from "../ui/words.ts";
@@ -127,9 +128,12 @@ interface TableState {
 	toolCallsThisTurn: number;
 	/** The prose the floor steer dropped; if the second leg brings no prose and no narrate, this closes the turn as before. */
 	floorDraft?: string;
-	readingWait?: boolean;
-	/** A host note owed to the Keeper at agent_end rather than delivered as prose (the reading wait). */
+	/** A retained background preparation owns the rest of this turn until the Keeper briefly yields to the player. */
+	preparationWait?: { kind: "source" | "adaptation"; name?: string };
+	/** A host note owed to the Keeper at agent_end rather than delivered as prose. */
 	deliveryFix?: { kind: string; text: string };
+	/** A review operation stopped; only genuine new player input can start a linked retry. */
+	reviewUnavailable?: string;
 	roundTrips: number;
 	mintedCallIds: Map<string, string>;
 	/** Calls the kernel rejected this turn: key of name+params to a count and the last error. Blocked on the third identical resend. */
@@ -350,9 +354,13 @@ function errorDetailLines(details: Record<string, unknown> | undefined, fix?: st
 		lines.push(`mod repair: ${JSON.stringify({
 			missing: Array.isArray(details.missing) ? details.missing : [],
 			findings: Array.isArray(details.findings) ? details.findings : [],
+			...(details.source_review ? {source_review: details.source_review} : {}),
+			...(details.continuity_review ? {continuity_review: details.continuity_review} : {}),
 		})}`);
 		rendered.add("missing");
 		rendered.add("findings");
+		rendered.add("source_review");
+		rendered.add("continuity_review");
 	}
 	for (const key of namedDetailKeys(fix)) {
 		if (rendered.has(key) || details[key] === undefined) continue;
@@ -463,6 +471,7 @@ function readMechanics(result: Record<string, unknown>): Array<Record<string, un
 
 export default function (pi: ExtensionAPI) {
 	let runtime: HostRuntime | undefined;
+    let adaptations: ReturnType<typeof adaptationService> | undefined;
   let mods: {prepare(method: string, payload: Record<string, any>, signal?: AbortSignal): Promise<void>;
     after?(method: string, payload: Record<string, any>, signal?: AbortSignal): Promise<void>} | undefined;
   pi.events.on("coc:mods-bridge", value => { mods = value as typeof mods; });
@@ -802,7 +811,18 @@ export default function (pi: ExtensionAPI) {
 	 * proposal is reused, admitting and refusing alike (contract §32.4).
 	 */
 	async function admitAction(state: TableState, tool: "resolve" | "apply", payload: Record<string, unknown>, signal?: AbortSignal): Promise<void> {
-		const proposal = admissionRequest(tool, payload, { party: state.party.map((member) => member.name), scene: state.scene, ...(state.answering ? { answered: state.answering } : {}) });
+		const destinations: Array<{requested: string; handle?: string; label?: string; summary?: string}> = [];
+		if (tool === 'apply' && Array.isArray(payload.effects)) for (const effect of payload.effects as Array<Record<string, unknown>>) {
+			if (effect.kind !== 'move' || typeof effect.to !== 'string' || destinations.some(value => value.requested === effect.to)) continue;
+			try {
+				const found = await state.kernel.call<{entities?: Array<Record<string, unknown>>}>('table.lookup',
+					{campaign: state.campaign, kind: 'module', query: effect.to, expected_kind: 'scene', limit: 1});
+				const entity = found.entities?.[0];
+				if (entity) destinations.push({requested: effect.to, handle: asString(entity.name), label: asString(entity.display_name), summary: asString(entity.summary)});
+			} catch { /* The authoritative apply path will report a missing or invalid destination. */ }
+		}
+		const proposal = admissionRequest(tool, payload, { party: state.party.map((member) => member.name), scene: state.scene,
+			...(destinations.length ? {destinations} : {}), ...(state.answering ? { answered: state.answering } : {}) });
 		if (!proposal) return;
 		const digest = keyDigest(proposal.key);
 		// Lane rows name the verb as `verb`: `tool` is the tool-call row's own column, and readers
@@ -922,6 +942,20 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	// ---- Tools ------------------------------------------------------------
+	function pauseReview(state: TableState, error: unknown): void {
+		const cause = isKernelError(error) ? String(error.details?.cause ?? error.message) : String(error);
+		state.reviewUnavailable = cause; state.deliveryFix = undefined; state.floorDraft = undefined;
+		const status = {campaign: state.campaign, turn: state.turn, status: 'unavailable', cause};
+		pi.appendEntry('coc-review-status', status);
+		pi.events.emit('coc:review-status', status);
+	}
+
+	function preparationWaitInstruction(wait: NonNullable<TableState["preparationWait"]>): string {
+		if (wait.kind === "source") {
+			return "Source preparation is pending. Use narrate only to tell the player that preparation is still running, then return control without a story menu. Do not start another query, narrate a result, or imply that the refused action or elapsed game time happened.";
+		}
+		return `Adaptation preparation${wait.name ? ` for ${wait.name}` : ""} is still running. Use narrate only to tell the player that preparation is pending, then return control without moving, charging, or introducing the destination. Inspect the same proposal after new player input.`;
+	}
 
 	async function runTool(
 		spec: CocToolSpec,
@@ -929,7 +963,7 @@ export default function (pi: ExtensionAPI) {
 		params: Record<string, unknown>,
 		signal?: AbortSignal,
 		onUpdate?: AgentToolUpdateCallback<Record<string, unknown>>,
-	): Promise<{ content: Array<{ type: "text"; text: string }>; details: Record<string, unknown> }> {
+	): Promise<{ content: Array<{ type: "text"; text: string }>; details: Record<string, unknown>; terminate?: boolean }> {
 		const state = table;
 		if (!state) {
 			throw new Error(startupError ?? "the kernel is not up, so this table cannot open");
@@ -945,6 +979,8 @@ export default function (pi: ExtensionAPI) {
 		// update channel; each frame becomes one partial result on the tool status line.
 		const onProgress = onUpdate ? (frame: KernelProgressFrame) => onUpdate(progressPartial(frame)) : undefined;
 		try {
+			if (state.reviewUnavailable) throw new KernelError({code: 'needs', message: 'The review is paused until new player input',
+				details: {reason: 'continuity_review_unavailable', cause: state.reviewUnavailable}});
 			if (spec.name === "lookup" && params.kind === "source") {
 				if (!asString(params.query)?.trim()) throw new KernelError({
 					code: "invalid_params", message: "Source lookup needs a named query; question supplies additional scope",
@@ -954,6 +990,7 @@ export default function (pi: ExtensionAPI) {
 				await reading.ensure(readingModule, { purpose: "detail", focus: params.query,
 					question: params.question ?? "", retry: params.retry === true, foreground: true }, signal);
 				payload.kind = "module";
+                payload.canonical_source = true;
 			}
 			let result: Record<string, unknown>;
 			// Action admission (contract §32) runs ahead of every Mod hook and of the kernel: a refused
@@ -963,7 +1000,15 @@ export default function (pi: ExtensionAPI) {
         if (Array.isArray(payload.effects)) payload.effects = payload.effects.map(effect => ({...(effect as Record<string, unknown>)}));
         await mods.prepare(spec.name, payload, signal);
       }
-			try { result = (await state.kernel.call<Record<string, unknown>>(spec.method, payload, onProgress)) ?? {}; }
+			try {
+                if (spec.name === 'lookup' && params.kind === 'adaptation') {
+                    if (!runtime) throw new KernelError({code: 'needs', message: 'The adaptation runtime is unavailable'});
+                    adaptations ??= adaptationService(runtime, (method, args) => state.kernel.call(method, args), () => ({
+                        name: process.env.PI_COC_ADAPTATION_MODEL || `${sessionCtx?.model?.provider}/${sessionCtx?.model?.id}`, thinking: pi.getThinkingLevel()
+                    }));
+                    result = await adaptations.lookup(payload, signal);
+                } else result = (await state.kernel.call<Record<string, unknown>>(spec.method, payload, onProgress)) ?? {};
+            }
 			catch (failure) {
 				if (!(isKernelError(failure)) || failure.details?.reason !== "material_pending" || !reading || !readingModule) throw failure;
 				await reading.ensure(readingModule, { ...(failure.details.read as Record<string, unknown>), foreground: true }, signal);
@@ -975,6 +1020,14 @@ export default function (pi: ExtensionAPI) {
 				result.note = "This is published graph material. Use lookup kind source only if an original-page recheck is needed.";
 			}
 			applyToolSuccess(state, spec.name, toolCallId, result);
+			const adaptationPending = spec.name === 'lookup' && params.kind === 'adaptation' && ['pending', 'reviewing'].includes(String(result.status));
+			if (adaptationPending) {
+				state.preparationWait = { kind: "adaptation", name: asString(result.name) };
+				const status = {campaign: state.campaign, turn: state.turn, name: result.name, status: result.status,
+					message: result.service_status};
+				pi.appendEntry('coc-adaptation-status', status);
+				pi.events.emit('coc:adaptation-status', status);
+			}
 			await record({
 				tool: spec.name,
 				call_id: payload.call_id ?? null,
@@ -1000,12 +1053,15 @@ export default function (pi: ExtensionAPI) {
 			};
 		} catch (error) {
 			const code = isKernelError(error) ? error.code : "internal";
-			if ((error as { details?: { reason?: string } })?.details?.reason === "reading_timeout") state.readingWait = true;
+			if ((error as { details?: { reason?: string } })?.details?.reason === "reading_timeout") {
+				state.preparationWait = { kind: "source" };
+			}
 			const detail = refusalDetail(error);
 			// `code` alone collapses every refusal of one family into one word. The kernel's own
 			// `reason` is a closed authored field, and without it a failure lane cannot tell a
 			// definition agent that died from a batch the Keeper simply got wrong.
 			const reason = asString((error as { details?: { reason?: unknown } })?.details?.reason);
+			if (reason === 'continuity_review_unavailable') pauseReview(state, error);
 			await record({
 				tool: spec.name,
 				call_id: payload.call_id ?? null,
@@ -1019,6 +1075,7 @@ export default function (pi: ExtensionAPI) {
 			});
 			return {
 				content: [{ type: "text", text: errorText(error) }],
+				...(state.reviewUnavailable ? {terminate: true} : {}),
 				details: {
 					coc_error: {
 						code,
@@ -1140,6 +1197,7 @@ export default function (pi: ExtensionAPI) {
 			pi.events.emit("coc:kernel-bridge", { call: undefined, runtime: undefined });
 		}
 		const closing = runtime;
+		adaptations?.close(); adaptations = undefined;
 		runtime = undefined;
 		await closing?.close();
 	}
@@ -1272,6 +1330,12 @@ export default function (pi: ExtensionAPI) {
 
 			const pending = open.pending_turn;
 			if (pending) {
+				const review = await mods?.reviewStatus?.(campaign);
+				if (review?.paused) {
+					pauseReview(table, new KernelError({code: 'needs', message: 'The retained review is paused',
+						details: {reason: 'continuity_review_unavailable', cause: review.reason}}));
+					return;
+				}
 				const owed = (pending.owed ?? []).join(", ") || "narrate";
 				// The checkpoint's one line (contract §12.2) says where the last committed turn stopped;
 				// carrying it in the recovery message means the Keeper knows what he is following on from
@@ -1326,7 +1390,7 @@ export default function (pi: ExtensionAPI) {
 		return { action: "handled" };
 	});
 	pi.on("agent_settled", () => {
-		if (!table || !CLOSED_STATES.has(table.state)) return;
+		if (!table || (!CLOSED_STATES.has(table.state) && !table.reviewUnavailable)) return;
 		const next = waitingInputs.shift();
 		if (next) pi.sendUserMessage([{ type: "text", text: next.text }, ...(next.images ?? [])]);
 	});
@@ -1336,6 +1400,7 @@ export default function (pi: ExtensionAPI) {
 	pi.on("before_agent_start", async (event) => {
 		const state = table;
 		if (!state) return;
+		state.reviewUnavailable = undefined;
 		const text = event.prompt;
 		const startedAt = new Date().toISOString();
 		const began = Date.now();
@@ -1361,7 +1426,7 @@ export default function (pi: ExtensionAPI) {
 			state.steeredThisTurn = false;
 			state.toolCallsThisTurn = 0;
 			state.floorDraft = undefined;
-			state.readingWait = false;
+			state.preparationWait = undefined;
 			state.deliveryFix = undefined;
 			state.roundTrips = 0;
 			state.attachments = [];
@@ -1439,8 +1504,8 @@ export default function (pi: ExtensionAPI) {
 			await record({ tool: name, started_at: new Date().toISOString(), ok: false, code: "blocked", reason: TURN_CLOSED_REASON });
 			return { block: true, reason: TURN_CLOSED_REASON };
 		}
-		if (state.readingWait && name !== "narrate") {
-			return { block: true, reason: "Source reading is still pending. Use narrate with an honest preparation notice and return control without a story menu; do not start another query, narrate a result, or imply that the refused action or elapsed game time happened. A new player input can continue the existing reading." };
+		if (state.preparationWait && name !== "narrate") {
+			return { block: true, terminate: true, reason: preparationWaitInstruction(state.preparationWait) };
 		}
 		// The same call with the same parameters, resent unchanged: the kernel's answer will not change.
 		// A Keeper once sent one set of parameters thirteen times and was refused every time; after two
@@ -1557,6 +1622,7 @@ export default function (pi: ExtensionAPI) {
 		}
 		let rendered = state.renderedText;
 		if (rendered === undefined) {
+			if (state.reviewUnavailable) return {message: {...event.message, content: blocks.filter(block => block.type !== 'text')}};
 			// The Keeper wrote his lines but never called narrate: that prose is the narration. The host closes
 			// the turn for him, sending the prose verbatim through the play-language guard.
 			const written = blocks
@@ -1569,8 +1635,8 @@ export default function (pi: ExtensionAPI) {
 			const canClose = state.state === "open" || state.state === "acting"
 				|| (state.state === "awaiting_player" && state.openingPending);
 			if (!prose || !canClose || state.closedThisRun) return;
-			if (state.readingWait) {
-				state.deliveryFix = { kind: "reading-wait", text: "Source preparation is pending. Use narrate to explain the preparation wait briefly and await free input; do not offer story options." };
+			if (state.preparationWait) {
+				state.deliveryFix = { kind: `${state.preparationWait.kind}-wait`, text: preparationWaitInstruction(state.preparationWait) };
 				return { message: { ...event.message, content: blocks.filter(block => block.type !== "text") } };
 			}
 			// The kernel left a pending choice for the player (a defence in combat) and the Keeper only wrote
@@ -1602,6 +1668,7 @@ export default function (pi: ExtensionAPI) {
 			const began = Date.now();
 			try {
 				const params: Record<string, unknown> = { campaign: state.campaign, call_id: callId, text: prose, implicit: true };
+				await mods?.prepare(tool, params, state.lanes.signal);
 				const result = (await state.kernel.call<Record<string, unknown>>(`table.${tool}`, params)) ?? {};
 				applyToolSuccess(state, tool, "implicit", result);
 				await record({ tool, call_id: callId, started_at: startedAt, ms: Date.now() - began, ok: true, implicit: true });
@@ -1614,17 +1681,18 @@ export default function (pi: ExtensionAPI) {
 					code: isKernelError(error) ? error.code : "internal",
 					...(detail ? { code_detail: detail } : {}),
 				});
-				// No steer follows. The kernel refused an implicit delivery on the play language's script
-				// until §23 (2026-09-09); with the tag set open there is no character class to check, the
-				// kernel makes no such refusal, and this loop asks the Keeper for nothing. The verifier lane
-				// reads the delivered prose afterwards and files `play_language_mismatch` as an advisory
-				// finding on the turn instead (contract §12.5).
-				//
 				// The draft does not stay on screen (contract §34.14). A refused delivery is a turn that did
-				// not happen, and the Keeper's raw prose can carry machine tokens it expected the kernel to
-				// strip: on 2026-09-12 two refused implicit narrates left `{{scene:...}}` and `{{clue:...}}`
-				// in front of the player, twice. Drop the text blocks and let agent_end steer the turn closed.
-				return { message: { ...event.message, content: blocks.filter((block) => block.type !== "text") } };
+				// not happen, and its raw prose can contain machine tokens that only a successful narrate
+				// strips. Continuity review unavailability pauses the run; other review failures get one
+				// targeted repair steer. Both paths remove the rejected text before agent_end acts.
+				state.floorDraft = undefined;
+				if (isKernelError(error) && error.details?.reason === 'continuity_review_unavailable') {
+					pauseReview(state, error);
+					return {message: {...event.message, content: blocks.filter(block => block.type !== 'text')}};
+				}
+				state.deliveryFix = {kind: "audit-repair", text: `This draft was not delivered. ${isKernelError(error) ? error.message : "Delivery preparation failed"}. ` +
+					`${isKernelError(error) ? error.fix ?? "" : ""} ${isKernelError(error) ? JSON.stringify(error.details ?? {}).slice(0, 8000) : detail ?? ""} Keep settled actions; repair with narrate, without rerolling or inventing a reconciliation.`};
+				return {message: {...event.message, content: blocks.filter(block => block.type !== "text")}};
 			}
 			if (!rendered) return;
 		}
@@ -1700,7 +1768,13 @@ export default function (pi: ExtensionAPI) {
 		}
 		if (state.verifierOwed) settleVerifier(state);
 		if (state.closedThisRun || state.renderedText) return;
+		if (state.reviewUnavailable) return;
 		if (state.steeredThisTurn) return;
+		if (state.preparationWait) {
+			state.steeredThisTurn = true;
+			sendHost(preparationWaitInstruction(state.preparationWait), `${state.preparationWait.kind}-wait`);
+			return;
+		}
 		// The kernel refused the implicit delivery: hand its own fix back, once.
 		const deliveryFix = state.deliveryFix;
 		state.deliveryFix = undefined;

@@ -221,9 +221,11 @@ export function offerLedger(turn: Row): Row | null {
     for (const entry of array(row(mods.pacing).threat_clocks))
         if (truth(row(entry).next))
             offer(`clock:${string(row(entry).threat)}/${string(row(entry).clock)}`, ticked.has(`${normalize(string(row(entry).threat))}/${normalize(string(row(entry).clock))}`));
-    if (!offers.length)
+    const connectionOffers = array(row(mods.thread).connections).map(connection => string(connection.name));
+    if (!offers.length && !connectionOffers.length)
         return null;
-    return {offered: offers.map(o => string(o.id)), taken: offers.filter(o => truth(o.taken)).map(o => string(o.id))};
+    return {offered: offers.map(o => string(o.id)), taken: offers.filter(o => truth(o.taken)).map(o => string(o.id)),
+        ...(connectionOffers.length ? {connections: {offered: connectionOffers, adoption: 'Inspect delivered text and source/receipt context; free clarification needs no new receipt.'}} : {})};
 }
 export function directorAdoption(graph: ModuleGraph, turn: Row, snapshot: Row, closedBy: string): Row | null {
     const director = row(row(turn.capsule).director);

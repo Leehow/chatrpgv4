@@ -58,6 +58,8 @@ export interface AdmissionScope {
 	party: string[];
 	/** The current scene's handle and player-facing label: a `move` to it is a rename, not travel. */
 	scene?: { handle?: string; label?: string };
+	/** Exact read-only graph projections for proposed move targets. */
+	destinations?: Array<{ requested: string; handle?: string; label?: string; summary?: string }>;
 	/**
 	 * The closed options of the `ask` the player is answering this turn (dodge, fight_back, push,
 	 * spend_luck, ...). A `resolve` that settles one of them carries the player's own answer, in
@@ -131,10 +133,11 @@ export function admissionRequest(tool: string, payload: Record<string, unknown>,
 	if (tool === "apply") {
 		const effects = Array.isArray(payload.effects) ? (payload.effects as Array<Record<string, unknown>>) : [];
 		const here = [scope.scene?.handle, scope.scene?.label].filter(Boolean).map(norm);
+		const destination = (effect: Record<string, unknown>) => scope.destinations?.find(value => norm(value.requested) === norm(effect.to));
 		const triggers = effects.some((effect) => {
 			const kind = text(effect?.kind);
 			if (!kind || !TRIGGER_KINDS.has(kind)) return false;
-			if (kind === "move" && here.includes(norm(effect.to))) return false;
+			if (kind === "move" && here.includes(norm(effect.to)) && !text(effect.label)) return false;
 			return true;
 		});
 		if (!triggers) return null;
@@ -143,14 +146,15 @@ export function admissionRequest(tool: string, payload: Record<string, unknown>,
 			const fields = Object.entries(effect)
 				.filter(([k, v]) => k !== "kind" && !k.startsWith("_") && v !== undefined && v !== null && v !== "")
 				.map(([k, v]) => `${k}=${typeof v === "string" ? JSON.stringify(v) : JSON.stringify(v)}`);
-			return `apply ${kind}: ${fields.join("; ")}`;
+			const registered = kind === 'move' ? destination(effect) : undefined;
+			return `apply ${kind}: ${fields.join("; ")}${registered ? `; registered_destination=${JSON.stringify({handle: registered.handle, label: registered.label, summary: registered.summary})}` : ''}`;
 		};
 		const signature = (effect: Record<string, unknown>): Record<string, unknown> => {
 			const kind = text(effect.kind) ?? "?";
-			const keys = ["to", "clue", "minutes", "delta", "name", "subject", "from", "quantity", "dice", "scope"];
+			const keys = ["to", "label", "travel_minutes", "clue", "minutes", "delta", "name", "subject", "from", "with", "quantity", "dice", "scope"];
 			return { kind, ...Object.fromEntries(keys.map((k) => [k, effect[k]]).filter(([, v]) => v !== undefined && v !== null && v !== "")) };
 		};
-		const key = canonical({ tool, effects: effects.map(signature).map(canonical).sort() });
+		const key = canonical({ tool, effects: effects.map(signature).map(canonical).sort(), destinations: scope.destinations ?? [] });
 		return { tool: "apply", key, lines: effects.map(describe) };
 	}
 	return null;
@@ -181,6 +185,8 @@ export function admissionSystemPrompt(): string {
 	return [
 		"You are the action-admission reviewer at a Call of Cthulhu table. The Keeper (the game master, an AI) is about to settle an action on the investigator's behalf: roll dice for it, move the investigator somewhere, spend their time or money, hand them a clue or a document, or take or give an item. Answer one question: did the player choose this?",
 		"Judge only from the player's exact current words, what the player was already told (the earlier deliveries), and any still-valid earlier instruction the player gave and did not withdraw. The Keeper's own goal, method, why, how and stakes text describes the proposal; it is not evidence of the player's consent. A Keeper suggestion in earlier narration is not acceptance. Interest in a subject is not a trip to a place. Risk in an action the player chose does not license a different method, destination or target.",
+		"Explicit limits on money, quantity, duration and scope are binding. Compare proposed debits and commitments with the chosen limit; do not round a budget upward, add a deposit, buy extra nights, or use an earlier offer to override the latest choice. A request for one night with a budget of 2.50 does not authorize a debit of 3.00 described as a deposit or two nights. A goal such as lodging authorizes only its chosen scope. If a proposed value exceeds a stated limit, answer not_authorized and identify both values in grounds; the Keeper's why cannot make the excess entailed.",
+		"For a move, registered_destination is authoritative evidence of what the target scene physically is. A label may present that same place in the player's language; it cannot substitute a different city, building or destination. If the player chooses Athens but the registered target is a Boston hotel, answer not_authorized even when label says Athens. A genuinely missing chosen destination must be registered through the reviewed adaptation path before movement.",
 		"Verdicts:",
 		"- authorized: the player's words, read in context, choose this actor, goal, method, target, destination and any meaningful cost or commitment.",
 		"- entailed: the player chose the meaningful goal, and this is a routine step that goal requires — crossing the room they asked to search, the minutes a chosen search takes, the roll the chosen method calls for, the way back they already took.",

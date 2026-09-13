@@ -64,6 +64,7 @@ interface Candidate {
 	privacy?: string;
 	state?: string;
 	confidence?: number;
+	corrects?: Array<{subject: string; statement: string}>;
 }
 
 /** The job packet from `memory.job`; only the fields it lists are read, and nothing else reaches the prompt. */
@@ -81,6 +82,10 @@ interface JobPacket {
 	prior?: Array<Record<string, unknown>>;
 	budget?: { max_candidates?: number; max_statement_chars?: number };
 	instruction?: string;
+	task?: string;
+	correction?: {kind: string; subject: string; statement: string};
+	correction_targets?: Array<{subject: string; statement: string; kind: string}>;
+	validation_feedback?: string;
 }
 
 type KernelCall = (method: string, params: Record<string, unknown>) => Promise<unknown>;
@@ -130,9 +135,13 @@ function systemPrompt(packet: JobPacket): string {
 		"- privacy is player_safe or keeper_only; state is accurate, uncertain or distorted; confidence is a decimal from 0 to 1.",
 		"- names in subject, knowers and entities must come from the available names below, or be one of the reserved subjects world, party, keeper, player.",
 		"- world_event must have subject world; relationship must have exactly one entity.",
+		"- only keeper_correction may include corrects: an array of at most 12 exact {subject,statement} pairs from correction_targets. Use [] if the correction has no matching earlier target. Do not restate withdrawn claims as knowledge; memory reports are not proof of module truth.",
+		'Correction shape: {"kind":"keeper_correction","subject":"keeper","statement":"the correction","corrects":[{"subject":"exact supplied subject","statement":"exact earlier statement"}]}',
 		`- statement is 1 to ${maxChars} characters, one sentence saying one thing.`,
 		"- write no key other than the ones listed above, and in particular no turn number, commit, receipt id or entry id.",
-		`- at most ${maxCandidates} rows; do not repeat anything already in the existing candidates; with nothing new, answer {"candidates":[]}.`,
+		packet.task === 'reconcile_correction'
+			? "- Return exactly one candidate copying the supplied correction unchanged and attaching corrects. This repairs links only, not the prior statement."
+			: `- at most ${maxCandidates} rows; do not repeat anything already in the existing candidates; with nothing new, answer {"candidates":[]}.`,
 	].join("\n");
 }
 
@@ -154,6 +163,11 @@ function userInput(packet: JobPacket): string {
 		"",
 		"[Existing candidates: do not restate these]",
 		lines(packet.prior),
+		"",
+		"[Earlier correction targets: copy subject and statement exactly; these reports are not verified facts]",
+		lines(packet.correction_targets),
+		...(packet.correction ? ["", "[Existing correction to link; copy unchanged]", JSON.stringify(packet.correction)] : []),
+		...(packet.validation_feedback ? ["", "[Previous attempt failed: fix the reported format/reference problem without changing the correction's meaning]", packet.validation_feedback] : []),
 	].join("\n");
 }
 
@@ -172,6 +186,9 @@ function shapeCandidates(parsed: unknown, packet: JobPacket): Candidate[] | unde
 		if (typeof row.statement !== "string" || row.statement.trim().length === 0) continue;
 		const knowers = Array.isArray(row.knowers) ? row.knowers.filter((n): n is string => typeof n === "string") : undefined;
 		const entities = Array.isArray(row.entities) ? row.entities.filter((n): n is string => typeof n === "string") : undefined;
+		if (Object.hasOwn(row, 'corrects') && (row.kind !== 'keeper_correction' || !Array.isArray(row.corrects) || row.corrects.length > 12
+			|| row.corrects.some(ref => !ref || typeof ref !== 'object' || Object.keys(ref).length !== 2 || typeof ref.subject !== 'string' || typeof ref.statement !== 'string')))
+			return undefined;
 		candidates.push({
 			kind: row.kind,
 			subject: row.subject.trim(),
@@ -183,6 +200,7 @@ function shapeCandidates(parsed: unknown, packet: JobPacket): Candidate[] | unde
 			...(typeof row.confidence === "number" && row.confidence >= 0 && row.confidence <= 1
 				? { confidence: row.confidence }
 				: {}),
+			...(Array.isArray(row.corrects) ? {corrects: row.corrects.map(ref => ({subject: ref.subject, statement: ref.statement}))} : {}),
 		});
 		if (candidates.length >= limit) break;
 	}
@@ -341,6 +359,7 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 			last = outcome;
+			if (outcome.reason === 'invalid') packet = {...packet, validation_feedback: outcome.detail};
 		}
 		if (stopped) return;
 		const failure = last ?? { reason: "lane_error", detail: "the lane never started" };

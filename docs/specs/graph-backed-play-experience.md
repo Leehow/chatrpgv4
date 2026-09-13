@@ -289,3 +289,34 @@ grok-4.6, four 120 s stalls under grok-4.3) is closed by the reviewer choice `de
 claimed: verdict reuse exercised by play (no identical proposal recurred within a turn on any table); the same-scenario latency comparison; the
 editor comprehension review; the uninformed-human UI gate (#79); any package or lock change. The
 Implementation Decisions' order stands: those are the last step and they have not run.
+
+## 2026-09-12 decision: adaptation routing and scene commitment
+
+This note records the current abstraction and its acceptance state; the sections above remain the
+historical record.
+
+**Scene commitment is one semantic test.** `active_scene` is a persistent gameplay locus, not physical
+coordinates. A distinct place is promoted to a registered scene only when it becomes the ongoing context
+for subsequent player action or durable location-bound state (its own affordances, discoverable clues,
+NPC/object presence, or intended return); otherwise it is same-locus detail or transition and needs no
+scene. The noun, its size, and any spatial wording — distance, scale, entering/exiting, crossing a named
+boundary — never decide promotion, and the rule is not a keyword or regex classifier. A new-locus choice
+routes through `expected_kind: scene`, reviewed adaptation, acceptance, then move; the existing target
+handle/display/summary are projected into admission so a label cannot substitute a different persistent
+locus.
+
+**Adaptation-purpose routing is closed.** `prepare` carries a closed `purpose`
+(`new_destination | persistent_npc | source_rebinding | handout | rebase`) that the kernel structurally
+validates against the change set; ordinary objects and compatible first-appearance detail no longer
+advertise adaptation. Creator and reviewer remain a bounded, tool-enabled pair; no zero-tool lane and no
+auto-accept are introduced.
+
+**Pending preparation owns the rest of the turn.** A retained background preparation that returns pending
+owns the remainder of the turn: only a short honest `narrate` saying preparation is pending may close it,
+all other Keeper tools are blocked, and the ordinary `agent_end` floor must not restart ordinary work.
+Pending authorizes no arrival or change.
+
+Acceptance state: routing/purpose, the semantic promotion pairs, the adapted destinations, the retained
+pending state, and the genuine Athens play are recorded in
+[the adaptation-routing report](../research/adaptation-routing-scene-commitment-2026-09-12.md). Human UI,
+packaging and integration remain pending, and no clean full Python suite is claimed.
