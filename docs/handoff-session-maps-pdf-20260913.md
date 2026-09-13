@@ -2,6 +2,8 @@
 
 交接日期：2026-09-13。本文是本轮工作的事实快照，覆盖会话地图、玩家已知区域遮蔽、原 PDF 地图发现、读取效率与权限边界、Cold Harvest 实机验收，以及尚未通过的最后一段真实验收。
 
+最新状态更正（2026-09-13）：`read-15` 已于 11:25:48 UTC 结束为 failed，正式图谱仍是 generation 3，没有已发布地图。下文的 running/等待建议是交接当时快照，不再适用。当前派工与验收以 [更新后的规格](specs/session-maps.md) 和 [切片票计划](specs/session-maps-tickets.md) 为准。旧草稿每张地图只有一个整图区域，尚未证明 PDF 按已知区域显示。已保存的 thinking-only 消息也不能单独排除宿主交付过滤，需要检查过滤前后的事件。
+
 ## 用户意图与完成标准
 
 用户要的是一条统一地图能力：内置模组或原 PDF 中只要存在地图，守秘人在当前会话需要地图时就能展示；展示内容必须由玩家已经知道的区域决定，未知区域不能提前暴露。
@@ -173,7 +175,7 @@ read-15 工作目录：
 - 玩家已经拿到开场线索与手卡。
 - 前往农场的 apply 没有成功落地，因此不能声称已抵达，也不能提前显示农场地图。
 - Grok 4.6 最近出现 Request timed out / Connection error；session JSONL 中为 stopReason:error 且无内容。
-- DeepSeek V4.1 Flash 最近两次为 stopReason:stop，但只返回 thinking block，没有 text/toolCall。这是 provider/模型工具完成问题，不是图片能力判断错误。
+- 早期仅依据保存后的 thinking-only 消息，将问题归因于 DeepSeek V4.1 的工具完成能力，这个结论已被更正。`8106f8477` 的原始事件分析确认 provider 返回了 thinking 和 text，宿主 source-wait 路径反复丢弃正文才造成空回复；修复已提交，新安装包验收待完成。
 
 ## Astra 修复的准确边界
 
@@ -268,4 +270,3 @@ a9c8773a 修改：
 - 真桌验收必须使用真实 PipiCOC App、真实 Keeper、主会话逐句扮演玩家；不使用假 Keeper、批处理脚本或手工写状态。
 - 保存全部战役、逐字记录、事件流、模块存储和玩测证据。
 - 不回滚或吸收其他并行任务的 dirty work。
-
