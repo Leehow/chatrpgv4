@@ -5686,6 +5686,46 @@ receipt is current, or merely because the Keeper has not tried — only a record
    when no `rebinding_refused` is recorded.
 4. `bridge_delivered` stays `false` and the reentry is carried into the next turn.
 
+### 37.9 Two decisions taken after the accepted run (2026-09-13)
+
+The accepted run left two observations. Both were researched to a decision rather than tuned by feel.
+
+**The review allowance now pays for the repair it already permits.** `AUDIT_LIMITS` had one shared
+`time_ms` of 30000 for a whole player input, and `AuditBudget.start()` reserved *all* remaining time for
+the first review. Under a lane model whose single continuity review costs 21–30 s — measured on the
+authorized `xai/grok-4.6` at low reasoning effort — the first review consumed the allowance and the repair
+that `max_rewrites: 1` explicitly permits got whatever seconds were left, so the bounded Keeper repair was
+unreachable in practice and any first-attempt `revise` ended the input. That is an accidental limit
+overriding the intended one. The limits are now `per_review_ms: 40000` with `time_ms: 80000`, and a review
+reserves `min(per_review_ms, time_ms - spent)`: one review can still never run away, the shared allowance
+is sized to hold the reviews `max_rewrites` already permits, and the limit that binds is the intended one.
+Fast lane models are unaffected — these are caps, not targets. The worst-case audit cost of a single turn
+rises from 30 s to 80 s, and only on a turn that needs a revise **and** a repair; before §38 such a turn
+could not be delivered at all.
+
+**The pre-delivery audit and the post-commit assessment ask different questions, and are left to.** On the
+accepted run's acquisition turn the checked audit passed `bridge_receipt` while the next assessment
+recorded `bridge_delivered: false`, which looks like the disagreement §37.3 forbids. It is not. The two
+bars are genuinely different and each was right about its own question:
+
+- `bridge_receipt` asks whether **the candidate realized the carrier**: current receipts settle the clue or
+  one of its source handouts, and an exact excerpt states that evidence's `relation` and the current
+  stakes. The turn-6 text did exactly that — the list tracks tenants, not buyers; the money is clean.
+- `bridge_delivered` asks whether **the Keeper's text made the causal relation to the selected core claim
+  land for the player**. That turn stopped at "it is the people who move in, not the money" and never
+  reached Corbitt's lingering will; the following turn did, and was recorded `bridge_delivered: true` with
+  its own quote.
+
+**So the kernel does not derive `bridge_delivered` from `reentry_review`, and must not.** Collapsing them
+would report a bridge as landed the moment its carrier was realized, which is exactly the confusion between
+holding evidence and understanding it that this whole section exists to prevent — §37.3 already says
+"acquisition is not understanding". The agreement §37.3 requires is over the **acquired-evidence
+predicate**, not over the delivery judgment: no consumer may read a bridge the audit accepted as carried
+back as *zero acquired evidence*, and the accepted run confirms that holds (`story_context` listed
+`globe-unpublished-story` acquired at `delivery_turn: 6`). A conservative `bridge_delivered` on the
+acquisition turn costs nothing structurally: the reentry is retained one more turn, and the mode selection
+of §37.3 reads it only to decide whether a *later* renewed deviation may introduce a second bridge.
+
 ### 37.8 The extended live gate is accepted (2026-09-13)
 
 Retained campaign **`midgame-bridge-live-22`** (runs `midgame-bridge-live-22-run`,
@@ -5736,12 +5776,11 @@ the host's unnamed `adaptation.status` scan and the `resume`/`recent` projection
 run, so the restart is accepted as recovery-without-Keeper-memory but does not isolate the unnamed-status
 path from the resume projection.
 
-**Recorded, not fixed here.** The memory lane under grok-4.6 low recorded `bridge_delivered: false` for
-turn 6 although that turn's Keeper text stated the relation and the packet's `story_context` already
-listed the evidence as acquired at `delivery_turn: 6`; the next turn corrected it to `aligned` /
-`bridge_delivered: true`. And `AUDIT_LIMITS.time_ms` is 30000 for a whole player input while one
-continuity review under grok-4.6 low measured 21–30 s, so the `max_rewrites: 1` repair rarely fits and the
-Keeper effectively gets one review attempt per utterance.
+**Two observations from this run, both since decided in §37.9.** The acquisition turn passed
+`bridge_receipt` while its assessment recorded `bridge_delivered: false` — researched and kept: the two
+bars ask different questions and both were right, so the kernel does not derive one from the other. And
+the review allowance was reshaped, because one continuity review under grok-4.6 low measured 21–30 s
+against a shared 30 s budget, which made the repair `max_rewrites: 1` permits unaffordable.
 
 Full retained evidence: [the extended gate working notes](../research/midgame-bridge-live-20260913-notes.md).
 

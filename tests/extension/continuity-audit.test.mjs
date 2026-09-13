@@ -135,7 +135,7 @@ test('interrupted reservations are never silently refunded after restart', async
     const a = new AuditBudget(scope); a.start(); a.close();
     assert.throws(() => new AuditBudget(scope), /paused/);
     const saved = JSON.parse(await readFile(join(scope, 'review-budget.json'), 'utf8'));
-    assert.equal(saved.requests, 6); assert.equal(saved.ms, 30000); assert.ok(saved.active);
+    assert.equal(saved.requests, 6); assert.equal(saved.ms, AUDIT_LIMITS.per_review_ms); assert.ok(saved.active);
     const explicit = new AuditBudget(scope, 'player-retry'); explicit.close();
     const next = JSON.parse(await readFile(join(scope, 'review-budget.json'), 'utf8'));
     assert.equal(next.previous[0].requests, 6); assert.equal(next.requests, 0);
@@ -343,4 +343,39 @@ test('a refused placement defers as authority_unavailable and keeps the reentry 
     assert.ok(continuityArtifactErrors(honest, chosen, {'context.json': {...refusedContext,
         causal_reentry: {...causal.causal_reentry, mode: 'clarify_known', known: [{name: 'old-report', relation: 'supports'}]}}})
         .some(error => error.path === '/continuity_review/reentry_review/basis'));
+});
+
+/**
+ * Contract §37.9: one review reserves one review's worth of time, so the repair `max_rewrites` permits is
+ * actually affordable. Retained live evidence `midgame-bridge-live-21`: under a lane model whose single
+ * review costs 21–30 s, the old whole-remainder reservation left the second review a few seconds.
+ */
+test('each review reserves one review worth of time, so the permitted repair is affordable', () => {
+    assert.ok(AUDIT_LIMITS.time_ms >= AUDIT_LIMITS.per_review_ms * (AUDIT_LIMITS.max_rewrites + 1),
+        'the shared allowance must hold the reviews max_rewrites already permits');
+    const slow = 30000; // one real grok-4.6 low review, measured
+    let spent = 0, reviews = 0;
+    while (true) {
+        const reserved = Math.min(AUDIT_LIMITS.per_review_ms, AUDIT_LIMITS.time_ms - spent);
+        if (reserved < slow) break;
+        spent += slow; reviews++;
+        if (spent > AUDIT_LIMITS.time_ms) { reviews--; break; }
+    }
+    assert.ok(reviews >= AUDIT_LIMITS.max_rewrites + 1,
+        `a ${slow} ms review must still fit the initial review plus ${AUDIT_LIMITS.max_rewrites} repair, got ${reviews}`);
+});
+
+test('a single review can never outspend its own cap', async () => {
+    const scope = await mkdtemp(join(directory, 'per-review-'));
+    const budget = new AuditBudget(scope, 'input-a');
+    try {
+        assert.equal(budget.start().timeoutMs, AUDIT_LIMITS.per_review_ms);
+        budget.finish(1, 0);
+        // The second review gets its own cap, not the leftovers of the first.
+        assert.equal(budget.start().timeoutMs, AUDIT_LIMITS.per_review_ms);
+        budget.finish(1, 0);
+    } finally { budget.close(); }
+    const state = JSON.parse(await readFile(join(scope, 'review-budget.json'), 'utf8'));
+    assert.equal(state.blocked, null);
+    assert.ok(state.ms <= AUDIT_LIMITS.time_ms);
 });

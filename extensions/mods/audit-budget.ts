@@ -50,7 +50,9 @@ export class AuditBudget {
     start(preparationMs = 0): {max_requests: number; max_artifact_repairs: number; timeoutMs: number} {
         const requests = Math.min(this.limits.per_review, this.limits.max_requests - this.state.requests);
         this.state.ms += Math.max(0, preparationMs);
-        const ms = this.limits.time_ms - this.state.ms;
+        // One review reserves one review's worth, never the whole remaining allowance: otherwise the first
+        // review eats the budget and the repair `max_rewrites` permits is unaffordable (§37.9).
+        const ms = Math.min(this.limits.per_review_ms, this.limits.time_ms - this.state.ms);
         if (requests <= 0 || ms <= 0) this.fail('The shared review allowance is exhausted');
         this.state.active = {requests, ms, started_at: Date.now()} satisfies Reservation;
         // Charge ahead: a crashed host cannot silently refund a partly consumed session.

@@ -181,12 +181,22 @@ delivered. Honest caveat: both the host's unnamed `adaptation.status` scan and t
 the retained proposal without the Keeper remembering it, but it does not isolate the unnamed-status path
 from the resume projection.
 
-### Still open, recorded and out of scope here
+### Two observations, researched to a decision (contract §37.9)
 
-- The memory lane under grok-4.6 low recorded `bridge_delivered: false` for turn 6 even though that turn's
-  Keeper text plainly stated the relation and the packet's `story_context` already listed
-  `globe-unpublished-story` as acquired at `delivery_turn: 6`. The next turn corrected it to `aligned` /
-  `bridge_delivered: true`, so nothing was lost, but the turn-6 call is a lane under-read.
-- `AUDIT_LIMITS.time_ms` is 30000 for a whole player input while a single continuity review under
-  grok-4.6 low measured 21–30 s. In practice the Keeper gets one review attempt per utterance: the
-  `max_rewrites: 1` repair rarely fits. This is a capacity observation, not a change made here.
+**The turn-6 `bridge_delivered: false` is correct, not a lane under-read.** I first read it as a
+disagreement with the audit's passing `bridge_receipt`. Reading both bars against the turn text says
+otherwise: `bridge_receipt` asks whether the candidate realized the carrier and stated *that evidence's*
+relation and stakes, which turn 6 did; `bridge_delivered` asks whether the Keeper's text made the causal
+relation **to the selected core claim** land, and turn 6 stopped at "it is the people who move in, not the
+money" without reaching Corbitt's lingering will. Turn 7 reached it and was recorded `true`. Deriving one
+from the other would report a bridge as landed the moment its carrier was realized — the exact confusion
+between holding evidence and understanding it that §37 exists to prevent. **No code change**; the contract
+now says why, so it is not re-litigated as a bug later.
+
+**The review allowance was reshaped.** `AUDIT_LIMITS` had one shared `time_ms: 30000` per player input and
+`AuditBudget.start()` reserved *all* remaining time for the first review, so on a lane whose single review
+costs 21–30 s the repair that `max_rewrites: 1` permits got the leftovers — usually none. That is an
+accidental limit overriding the intended one. Now `per_review_ms: 40000`, `time_ms: 80000`, and each review
+reserves `min(per_review_ms, remaining)`. Caps, not targets: fast lane models are unaffected. Worst-case
+audit cost per turn rises 30 s → 80 s, and only on a turn needing revise **and** repair — a turn that
+before §38 could not be delivered at all. Covered by two tests; the old formula is killed by both.
