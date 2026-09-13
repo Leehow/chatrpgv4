@@ -42,6 +42,8 @@ The closeout validation below was run against the current 1.2.16 relation-field 
 
 All model probes and genuine play used DeepSeek Flash only; no Astra or Grok was used.
 
+After this evidence was recorded, the user authorized `xai/grok-4.6` at low reasoning effort for the remaining extended live gate. No Grok run was started during this closeout.
+
 ## Genuine play — core mainline accepted on retained live20 evidence
 
 **The earlier core genuine-play acceptance is superseded.** Primary acceptance had been campaign `midgame-reentry-live-18` (runs `midgame-reentry-live-18b-run`, `midgame-reentry-live-18c-run`), with the main session as sole player through `tests/play/driver.py`, one natural utterance per turn. **That raw campaign and playtest evidence was accidentally deleted by a worktree closeout and no longer exists**, so the results below are **`invalid-for-acceptance`** as independently inspectable raw evidence and are retained only as historical claims; their missing paths are not cited as current evidence:

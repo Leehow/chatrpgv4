@@ -99,7 +99,9 @@ seams `tests/extension/source-audit.test.mjs`, existing Mod job bridge/runtime s
 `tests/play/test_driver.py`, and `tests/play/driver.py` for actual play; no new elaborate
 harness and no tests that merely copy prompt wording. No two pytest processes in parallel.
 Then resume the retained real campaign with the main session as sole player, one natural
-utterance at a time, DeepSeek Flash only (no Astra/Grok). Preserve refusal of the bible,
+utterance at a time. The remaining extended gate may use `xai/grok-4.6` at low reasoning
+effort, authorized by the user on 2026-09-13; select it before activation and keep it fixed.
+Do not use Astra. Preserve refusal of the bible,
 cover another reasonable detour and later causal explanation, and continue toward a
 natural ending or real blockage, not until a turn quota. Never end/grade it failed merely
 because a compatible detail is absent from the book. Keep actual uninformed-human UI
@@ -434,10 +436,11 @@ and never counts as `bridge_delivered`, so the next turn retains the reentry unt
 acquisition/delivery stage — quoting or realizing the contents as learned — alone requires the clue/source-handout
 receipt and `bridge_receipt`, while the placement/offer stage needs no receipt and no further
 `source_rebinding` because the accepted rebinding already authorizes placement;
-true play uses `tests/play/driver.py`, this main session as sole player, **DeepSeek Flash only**, one natural
-utterance per turn, covering active wrong theory with nonzero receipts, informed refusal of the core thread, a
+true play uses `tests/play/driver.py`, this main session as sole player, one natural utterance per turn; the
+remaining extended gate may use `xai/grok-4.6` at low reasoning effort, selected before activation and fixed
+for the run, covering active wrong theory with nonzero receipts, informed refusal of the core thread, a
 detached ongoing direction, a delivered causal bridge, renewed deviation, and eventual coherent continuation
-— no fake Keeper/scripted player, no Astra/Grok.
+— no fake Keeper/scripted player and no Astra.
 
 Implementation is in place; acceptance is **not** claimed yet. The retained turn-7 zero-evidence failure is the
 current failed acceptance evidence for the shared acquired-evidence predicate, and the same turn's handout at
