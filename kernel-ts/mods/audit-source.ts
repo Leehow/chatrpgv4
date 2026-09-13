@@ -34,9 +34,10 @@ export async function auditSourceEvidence(context: KernelContext, campaign: Pick
                 ...(typeof preparationWait.name === 'string' && preparationWait.name ? {name: preparationWait.name} : {})};
         // Contract §37.6: the independent source review refused the placement this reentry needs. That is
         // host-owned structural state, not prose, and it is what makes an authority_unavailable defer lawful.
-        if (rebindingRefused && string(rebindingRefused.name))
-            row(files['context.json']).rebinding_refused = {name: string(rebindingRefused.name),
-                ...(string(rebindingRefused.summary) ? {summary: string(rebindingRefused.summary)} : {})};
+        const refusedName = typeof rebindingRefused?.name === 'string' ? rebindingRefused.name : '';
+        const refusedSummary = typeof rebindingRefused?.summary === 'string' ? rebindingRefused.summary : '';
+        if (refusedName)
+            row(files['context.json']).rebinding_refused = {name: refusedName, ...(refusedSummary ? {summary: refusedSummary} : {})};
     }
     return {files, binding: jsonDigest({files, current, party}), descriptor: {schema: 1, files: Object.keys(files),
         current_input: current.player_text, pending_choice: current.pending_choice,

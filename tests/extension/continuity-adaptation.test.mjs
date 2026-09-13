@@ -10,7 +10,7 @@ const evidence = join(root, '.coc/playtests/continuity-contracts');
 await mkdir(evidence, {recursive: true});
 const directory = await mkdtemp(join(evidence, 'suite-'));
 await writeFile(join(directory, 'classification.json'), JSON.stringify({kind: 'contract-fixture', live_play: false, model_calls: 0}));
-await build({stdin: {contents: `export {createKernelContext} from './kernel-ts/context.ts'; export {nativeAdvisoryLocks} from './kernel-ts/native-locks.ts'; export {createKernelRuntime} from './kernel-ts/registry.ts'; export {ModuleGraph} from './kernel-ts/read/module-graph.ts'; export {ModuleStore} from './kernel-ts/modules/store.ts'; export {loadModule,loadCampaignModule} from './kernel-ts/read/campaign.ts'; export {report as mergeReport} from './kernel-ts/worldline/confluence-plan.ts'; export {continuityView} from './kernel-ts/read/continuity.ts'; export {storyAssessmentContext,storyReentry} from './kernel-ts/read/story.ts'; export {threadSection} from './kernel-ts/read/thread.ts'; export {normalizeChanges,adaptedGraph} from './kernel-ts/adaptation/graph.ts';`, resolveDir: root, sourcefile: 'test-api.ts'},
+await build({stdin: {contents: `export {createKernelContext} from './kernel-ts/context.ts'; export {nativeAdvisoryLocks} from './kernel-ts/native-locks.ts'; export {createKernelRuntime} from './kernel-ts/registry.ts'; export {ModuleGraph} from './kernel-ts/read/module-graph.ts'; export {ModuleStore} from './kernel-ts/modules/store.ts'; export {loadModule,loadCampaignModule} from './kernel-ts/read/campaign.ts'; export {report as mergeReport} from './kernel-ts/worldline/confluence-plan.ts'; export {continuityView} from './kernel-ts/read/continuity.ts'; export {storyAssessmentContext,storyReentry} from './kernel-ts/read/story.ts'; export {threadSection} from './kernel-ts/read/thread.ts'; export {normalizeChanges,adaptedGraph} from './kernel-ts/adaptation/graph.ts'; export {auditSourceEvidence} from './kernel-ts/mods/audit-source.ts';`, resolveDir: root, sourcefile: 'test-api.ts'},
     outfile: join(directory, 'api.mjs'), bundle: true, packages: 'external', platform: 'node', format: 'esm', logLevel: 'silent'});
 const api = await import(pathToFileURL(join(directory, 'api.mjs')).href);
 const closers = []; after(async () => {for (const close of closers) await close();});
@@ -497,4 +497,28 @@ test('a contradicted placement reports the reviewer own words and tells the keep
     assert.match(status.instruction, /Do not prepare the same placement again/);
     // The generic sentence is kept; it is simply no longer all the Keeper is told.
     assert.match(status.reason, /did not support every change/);
+});
+
+/**
+ * Contract §37.6: the projection must carry a real refusal and nothing else. An absent one used to reach
+ * the auditor as the Python-compatible placeholder strings that `string()` returns for null.
+ */
+test('rebinding_refused reaches the auditor only when a real refusal was recorded', async () => {
+    const t = await table();
+    const campaign = {id: 'c1'};
+    const world = await t.world();
+    const turn = JSON.parse(await readFile(join(t.home, '.coc/campaigns/c1/turn.json'), 'utf8'));
+    const module = await api.loadCampaignModule(t.context, 'the-haunting', world);
+    const party = JSON.parse(await readFile(join(t.home, '.coc/campaigns/c1/party/thomas-hayes.json'), 'utf8'));
+    const evidenceFor = (refused) => api.auditSourceEvidence(t.context, campaign, module, world, turn, [party], true, null, refused);
+
+    const absent = await evidenceFor(null);
+    assert.equal(Object.hasOwn(absent.files['context.json'], 'rebinding_refused'), false);
+    const empty = await evidenceFor({});
+    assert.equal(Object.hasOwn(empty.files['context.json'], 'rebinding_refused'), false);
+    const real = await evidenceFor({name: 'report-to-the-office', summary: 'The source keeps that copy elsewhere.'});
+    assert.deepEqual(real.files['context.json'].rebinding_refused,
+        {name: 'report-to-the-office', summary: 'The source keeps that copy elsewhere.'});
+    const nameOnly = await evidenceFor({name: 'report-to-the-office'});
+    assert.deepEqual(nameOnly.files['context.json'].rebinding_refused, {name: 'report-to-the-office'});
 });
