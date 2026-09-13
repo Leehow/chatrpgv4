@@ -129,6 +129,8 @@ interface TableState {
 	/** The prose the floor steer dropped; if the second leg brings no prose and no narrate, this closes the turn as before. */
 	floorDraft?: string;
 	readingWait?: boolean;
+	/** Failed material reads automatically retried once in this player turn, keyed by the kernel's exact read identity. */
+	readingRetries: Set<string>;
 	/** A host note owed to the Keeper at agent_end rather than delivered as prose (the reading wait). */
 	deliveryFix?: { kind: string; text: string };
 	roundTrips: number;
@@ -536,6 +538,8 @@ export default function (pi: ExtensionAPI) {
 		table.steeredThisTurn = false;
 		table.toolCallsThisTurn = 0;
 		table.floorDraft = undefined;
+		table.readingWait = false;
+		table.readingRetries.clear();
 		table.deliveryFix = undefined;
 		table.attachments = [];
 		table.mapAttachments = [];
@@ -996,7 +1000,16 @@ export default function (pi: ExtensionAPI) {
 			try { result = (await state.kernel.call<Record<string, unknown>>(spec.method, payload, onProgress)) ?? {}; }
 			catch (failure) {
 				if (!(isKernelError(failure)) || failure.details?.reason !== "material_pending" || !reading || !readingModule) throw failure;
-				await reading.ensure(readingModule, { ...(failure.details.read as Record<string, unknown>), foreground: true }, signal);
+				const read = { ...(failure.details.read as Record<string, unknown>), foreground: true };
+				try {
+					await reading.ensure(readingModule, read, signal);
+				} catch (readFailure) {
+					if (!isKernelError(readFailure) || readFailure.details?.reason !== "reading_failed" || signal?.aborted) throw readFailure;
+					const retryKey = JSON.stringify([read.purpose ?? "", read.focus ?? "", read.question ?? "", read.guidance_key ?? ""]);
+					if (state.readingRetries.has(retryKey)) throw readFailure;
+					state.readingRetries.add(retryKey);
+					await reading.ensure(readingModule, { ...read, retry: true }, signal);
+				}
 				result = (await state.kernel.call<Record<string, unknown>>(spec.method, payload, onProgress)) ?? {};
 			}
 			// Deferred Mod bookkeeping completes after the verb that opened this turn, never before it.
@@ -1240,6 +1253,7 @@ export default function (pi: ExtensionAPI) {
 				closedThisRun: false,
 				steeredThisTurn: false,
 				toolCallsThisTurn: 0,
+				readingRetries: new Set(),
 				roundTrips: 0,
 				mintedCallIds: new Map(),
 				rejected: new Map(),
@@ -1394,6 +1408,7 @@ export default function (pi: ExtensionAPI) {
 			state.toolCallsThisTurn = 0;
 			state.floorDraft = undefined;
 			state.readingWait = false;
+			state.readingRetries.clear();
 			state.deliveryFix = undefined;
 			state.roundTrips = 0;
 			state.attachments = [];
@@ -1431,6 +1446,19 @@ export default function (pi: ExtensionAPI) {
 				},
 			};
 		} catch (error) {
+			if (isKernelError(error) && error.code === "turn_state" && state.readingWait
+				&& (state.state === "open" || state.state === "acting")) {
+				// The prior source-wait correction belongs to the run that timed out. A later player
+				// input cannot enter until that kernel turn closes, so give this run a fresh, bounded
+				// chance to narrate the wait instead of inheriting the spent steer forever.
+				state.closedThisRun = false;
+				state.steeredThisTurn = false;
+				state.floorDraft = undefined;
+				state.deliveryFix = {
+					kind: "reading-wait",
+					text: "The previous player turn is still open after source preparation paused. Close that existing turn now with narrate: briefly explain that the source is not ready, do not imply the pending action happened, and await free player input.",
+				};
+			}
 			await record({
 				tool: "table.player_input",
 				started_at: startedAt,

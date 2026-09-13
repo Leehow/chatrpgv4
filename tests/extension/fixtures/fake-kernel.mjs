@@ -14,6 +14,8 @@
  *   FAKE_KERNEL_NO_FACTS   "1" 时 narrate 不回 facts/extraction（切片 0、1 的内核）
  *   FAKE_KERNEL_DIRECTOR   JSON 对象，合并进胶囊的 `director` 节（用来摆出 override 之类的分支）
  *   FAKE_KERNEL_NO_DIRECTOR "1" 时胶囊不带 `director` 节（切片 0–2 的内核）
+ *   FAKE_KERNEL_STRICT_TURN "1" rejects player_input while the current turn remains open or acting
+ *   FAKE_KERNEL_MATERIAL_PENDING "1" makes the first table.apply request one detail read before replay
  *   FAKE_KERNEL_HANDOUT    JSON 对象，`apply` 带 handout 效果时作为 `attachment` 回（契约 §14.8）
  *   FAKE_KERNEL_CASH       调查员起始现金，缺省 50（`apply` 的 cash 效果按它算前后，契约 §5）
  *   FAKE_KERNEL_BACKFILL   JSON 整数数组：还没抽过的回合，`memory.job` 的缺省派发按序取（#20 补抽）；
@@ -47,6 +49,7 @@ const WORKSPACE=LOG?dirname(LOG):process.argv[process.argv.indexOf('--workspace'
 let received = 0;
 let turn = 0;
 let state = "awaiting_player";
+let materialPending = process.env.FAKE_KERNEL_MATERIAL_PENDING === "1";
 
 // 契约第 4 节：能回 pending_turn，说明上次进程死在回合中途，状态是 open 或 acting。
 if (process.env.FAKE_KERNEL_PENDING === "1") {
@@ -678,6 +681,10 @@ function handle(method, params) {
 			};
 		}
 		case "table.player_input":
+			if (process.env.FAKE_KERNEL_STRICT_TURN === "1" && state !== "awaiting_player" && state !== "asked") {
+				return { ok: false, error: { code: "turn_state", message: `table.player_input is not allowed while the turn is '${state}'`,
+					fix: "finish the current turn with narrate or ask first" } };
+			}
 			turn += 1;
 			state = "open";
 			turnMechanics = [];
@@ -701,6 +708,12 @@ function handle(method, params) {
 			return resolve(params);
 		case "table.apply": {
 			state = "acting";
+			if (materialPending) {
+				materialPending = false;
+				return { ok: false, error: { code: "needs", message: "the destination material is not ready",
+					fix: "read the requested source material, then retry the original action",
+					details: { reason: "material_pending", read: { purpose: "detail", focus: "farm", question: "" } } } };
+			}
 			const effects = params.effects ?? [];
 			// 整批先校验后写（契约 §5）：任一条不成立整批不写，收据也不发。
 			for (let index = 0; index < effects.length; index += 1) {

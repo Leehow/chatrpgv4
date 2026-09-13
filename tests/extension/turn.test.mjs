@@ -63,6 +63,94 @@ test("a source timeout yields the turn instead of allowing another source query"
 	assert.equal(table.kernelRequests().filter(r => r.method === "table.ask").length, 0);
 });
 
+test("a player input rejected after a source timeout gets a fresh bounded close-turn correction", async t => {
+	const waitNotice = "The source preparation has not finished yet.";
+	const table = await openTable({
+		env: { FAKE_KERNEL_STRICT_TURN: "1" },
+		responses: [
+			fauxAssistantMessage([fauxToolCall("lookup", { kind: "source", query: "farm", question: "arrival details" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage(""),
+			fauxAssistantMessage(""),
+			fauxAssistantMessage(""),
+			fauxAssistantMessage([fauxToolCall("narrate", { text: waitNotice })], { stopReason: "toolUse" }),
+			fauxAssistantMessage(waitNotice),
+		],
+	});
+	t.after(() => table.dispose());
+	table.emit("coc:reading-bridge", { async ensure() {
+		throw Object.assign(new Error("source read timed out"), { details: { reason: "reading_timeout" } });
+	} });
+
+	await table.session.prompt("I set out for the farm.");
+	await waitForIdle(table.session);
+	await table.session.prompt("I set out for the farm again.");
+	await waitForIdle(table.session);
+
+	const requests = table.kernelRequests();
+	assert.equal(requests.filter(row => row.method === "table.player_input").length, 2, "the kernel remains authoritative and rejects the second input");
+	assert.equal(requests.filter(row => row.method === "table.narrate").length, 1, "the later run receives a fresh chance to close the timed-out turn");
+	assert.equal(assistantTexts(table.session).at(-1), waitNotice);
+});
+
+test("material_pending retries the exact failed read once, then replays the original apply", async t => {
+	const table = await openTable({
+		env: { FAKE_KERNEL_MATERIAL_PENDING: "1" },
+		responses: [
+			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "move", to: "farm", travel_minutes: 10 }] })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("narrate", { text: "You reach the farm." })], { stopReason: "toolUse" }),
+			fauxAssistantMessage("You reach the farm."),
+		],
+	});
+	t.after(() => table.dispose());
+	const reads = [];
+	table.emit("coc:reading-bridge", { async ensure(_moduleId, params) {
+		reads.push(params);
+		if (reads.length === 1) throw Object.assign(new Error("the retained detail read failed"), {
+			code: "needs",
+			details: { reason: "reading_failed" },
+			toToolText() { return "needs: the retained detail read failed"; },
+		});
+		return { state: "ready" };
+	} });
+
+	await table.session.prompt("Go to the farm.");
+	await waitForIdle(table.session);
+
+	assert.deepEqual(reads, [
+		{ purpose: "detail", focus: "farm", question: "", foreground: true },
+		{ purpose: "detail", focus: "farm", question: "", foreground: true, retry: true },
+	]);
+	assert.equal(table.kernelRequests().filter(row => row.method === "table.apply").length, 2, "the original kernel action is replayed only after reading succeeds");
+});
+
+test("a failed material retry stops after the single automatic continuation", async t => {
+	const table = await openTable({
+		env: { FAKE_KERNEL_MATERIAL_PENDING: "1" },
+		responses: [
+			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "move", to: "farm", travel_minutes: 10 }] })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("narrate", { text: "The farm source is still unavailable." })], { stopReason: "toolUse" }),
+			fauxAssistantMessage("The farm source is still unavailable."),
+		],
+	});
+	t.after(() => table.dispose());
+	const reads = [];
+	table.emit("coc:reading-bridge", { async ensure(_moduleId, params) {
+		reads.push(params);
+		throw Object.assign(new Error("the retained detail read failed"), {
+			code: "needs",
+			details: { reason: "reading_failed" },
+			toToolText() { return "needs: the retained detail read failed"; },
+		});
+	} });
+
+	await table.session.prompt("Go to the farm.");
+	await waitForIdle(table.session);
+
+	assert.equal(reads.length, 2, "the host does not start a third reading attempt");
+	assert.equal(reads[1].retry, true);
+	assert.equal(table.kernelRequests().filter(row => row.method === "table.apply").length, 1, "the refused action is not replayed after the repair fails");
+});
+
 test("一个玩家回合：七个工具、胶囊、call_id、rendered_text 交付", async (t) => {
 	const table = await openTable({
 		responses: [
