@@ -92,6 +92,32 @@ test("a player input rejected after a source timeout gets a fresh bounded close-
 	assert.equal(assistantTexts(table.session).at(-1), waitNotice);
 });
 
+test("a source-wait steer is spent once so the Keeper's own prose still closes the turn", async t => {
+	// The real Cold Harvest turn hung here: the Keeper answered the wait with prose instead of a narrate
+	// call, the host dropped that text on every leg, and once the first steer was spent agent_end stopped
+	// steering -- leaving the turn open with nothing delivered, so every later player input failed
+	// turn_state. The drop is worth one leg; after that the prose closes the turn as an implicit narrate.
+	const notice = "The farm's source is still being read, so you have not set out and no time has passed.";
+	const table = await openTable({ responses: [
+		fauxAssistantMessage([fauxToolCall("lookup", { kind: "source", query: "farm", question: "arrival details" })], { stopReason: "toolUse" }),
+		fauxAssistantMessage(notice),
+		fauxAssistantMessage(notice),
+	] });
+	t.after(() => table.dispose());
+	table.emit("coc:reading-bridge", { async ensure() {
+		throw Object.assign(new Error("source read timed out"), { details: { reason: "reading_timeout" } });
+	} });
+
+	await table.session.prompt("I set out for the farm.");
+	await waitForIdle(table.session);
+
+	assert.equal(table.kernelRequests().filter(row => row.method === "table.narrate").length, 1,
+		"the second prose leg closes the turn through narrate instead of hanging it open");
+	assert.equal(assistantTexts(table.session).at(-1), notice, "the player finally sees the honest wait notice");
+	assert.equal(customMessages(table.session).filter(row => row.details?.kind === "reading-wait").length, 1,
+		"the source-wait steer is spent once, not re-sent on every leg");
+});
+
 test("material_pending retries the exact failed read once, then replays the original apply", async t => {
 	const table = await openTable({
 		env: { FAKE_KERNEL_MATERIAL_PENDING: "1" },

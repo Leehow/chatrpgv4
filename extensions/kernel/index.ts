@@ -1630,7 +1630,12 @@ export default function (pi: ExtensionAPI) {
 			const canClose = state.state === "open" || state.state === "acting"
 				|| (state.state === "awaiting_player" && state.openingPending);
 			if (!prose || !canClose || state.closedThisRun) return;
-			if (state.readingWait) {
+			// A source wait asks the Keeper to say so through narrate itself. That steer is spent once, like
+			// the two below it: prose on the second leg closes the turn implicitly, which is still a narrate
+			// and still records its receipt. Without the guard the drop repeated for every leg, agent_end
+			// stopped steering once the first steer was spent, and the turn stayed open with nothing
+			// delivered -- so every later player input failed turn_state and the campaign could not continue.
+			if (state.readingWait && !state.steeredThisTurn) {
 				state.deliveryFix = { kind: "reading-wait", text: "Source preparation is pending. Use narrate to explain the preparation wait briefly and await free input; do not offer story options." };
 				return { message: { ...event.message, content: blocks.filter(block => block.type !== "text") } };
 			}
