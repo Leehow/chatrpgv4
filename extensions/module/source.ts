@@ -266,13 +266,32 @@ async function renderSourcePage(pdf: string, cache: string, page: number, option
 	} finally { await close(); }
 }
 
-export async function sourceAsset(pdf: string, cache: string, regions: Array<{ page: number; box?: number[] }>, destination: string) {
+export async function sourceAsset(pdf: string, cache: string, regions: Array<{ page: number; box?: number[]; redactions?: number[][] }>, destination: string) {
 	if (!regions.length) throw new Error("an image asset needs an explicit source region");
 	const parts = [];
 	let measuredWidth = 0, measuredHeight = 0;
 	for (const region of regions) {
 		const rendered = await sourcePage(pdf, cache, region.page, { box: region.box });
 		const part = await loadImage(rendered.path as string);
+		// Redactions use the same normalized rotated-page frame as the crop. Paint them
+		// before the derivative crosses the player asset boundary.
+		if (Array.isArray(region.redactions) && region.redactions.length) {
+			const crop = validateBox(region.box), masked = createCanvas(part.width, part.height), maskContext = masked.getContext("2d");
+			maskContext.drawImage(part, 0, 0);
+			maskContext.fillStyle = "#ffffff";
+			for (const raw of region.redactions) {
+				const mask = validateBox(raw);
+				const x0 = Math.max(0, (mask[0] - crop[0]) / (crop[2] - crop[0]) * part.width);
+				const y0 = Math.max(0, (mask[1] - crop[1]) / (crop[3] - crop[1]) * part.height);
+				const x1 = Math.min(part.width, (mask[2] - crop[0]) / (crop[2] - crop[0]) * part.width);
+				const y1 = Math.min(part.height, (mask[3] - crop[1]) / (crop[3] - crop[1]) * part.height);
+				if (x1 > x0 && y1 > y0) maskContext.fillRect(x0, y0, x1 - x0, y1 - y0);
+			}
+			measuredWidth = Math.max(measuredWidth, masked.width); measuredHeight += masked.height;
+			if (measuredWidth * measuredHeight > 20_000_000) throw new Error("this image asset is too large; represent its authored parts separately");
+			parts.push(masked);
+			continue;
+		}
 		measuredWidth = Math.max(measuredWidth, part.width); measuredHeight += part.height;
 		if (measuredWidth * measuredHeight > 20_000_000) throw new Error("this image asset is too large; represent its authored parts separately");
 		parts.push(part);

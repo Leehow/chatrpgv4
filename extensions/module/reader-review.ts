@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { readerInput, type ReaderRequest, type ReaderOutcome } from "./reader.ts";
+import { draftHasMapRegions } from "./map-publication.ts";
 
 type Row = Record<string, any>;
 function numeric(value: any, path: string): string[] {
@@ -17,8 +18,11 @@ export function reviewUnits(draft: Row): string[][] {
 	const groups = new Map<string, Set<string>>();
 	for (const collection of ["nodes", "claims"]) for (const [i, row] of (draft[collection] ?? []).entries()) {
 		const path = `/${collection}/${i}`;
-		groups.set(path, new Set([path, ...(collection === "nodes" ? numeric(Object.fromEntries(
-			Object.entries(row.properties ?? {}).filter(([k]) => k !== "image_sources")), path + "/properties") : [])]));
+		const pointers = new Set([path, ...(collection === "nodes" ? numeric(Object.fromEntries(
+			Object.entries(row.properties ?? {}).filter(([k]) => k !== "image_sources")), path + "/properties") : [])]);
+		if (collection === "nodes" && Array.isArray(row.properties?.map_regions) && row.properties.map_regions.length)
+			pointers.add(`${path}/properties/map_regions`);
+		groups.set(path, pointers);
 	}
 	for (const path of draft.critical ?? []) {
 		const parent = [...groups.keys()].find(p => path === p || path.startsWith(p + "/"));
@@ -136,12 +140,15 @@ export async function reviewCandidate(options: {
 			const eventLog = join(cwd, "events.jsonl");
 			active++;
 			options.record({ lane: "reading", event: "review_concurrency", unit: index + 1, attempt, active, capacity });
+			const mapBrief = draftHasMapRegions(options.draft) && (paths.includes("/coverage") || paths.some(path => path.endsWith("/map_regions")))
+				? " For map_regions, check classification, region-place correspondence, independently revealable units for the requested use, and annotation exclusion against original images. A whole-map region is missing necessary current material when the source shows separately knowable areas. Uncertain geometry stays unavailable; do not widen a box. "
+				: "";
 			try {
 				const run = await options.run({ cwd, model: options.model.id, thinking: options.model.thinking,
 					...(guidanceBytes?{imageHistory:4}:{}),
 					submission:!!guidanceBytes || options.task.purpose === "opening",
 					systemPrompt: options.instructions, source: options.source, signal: options.signal, eventLog,
-					brief: (guidanceBytes ? readerInput({task:unitTask, draft:options.draft, guidance:JSON.parse(guidanceBytes)}) : readerInput({task:unitTask,draft:options.draft})) + " Independently review only task.required_review against original images using pdf. Keep the full graph as context. Produce checked paths, verdict, source_refs and reason, plus missing (only necessary current material). Never edit the draft. " + (requiredPages.length ? "For /coverage, view every review_scope_pages page as evidence, not as a whole-range extraction assignment. State the requested use from task.purpose/focus/question in your reason. An empty detail question requests the focused entity's current use and necessary dependencies, not its whole chapter. Compare that use to the candidate for omitted discoverable facts and investigation connections, including when no clue or conclusion was proposed. Every missing item must identify its source and explain which requested use or immediate dependency would fail without it; appearing on a viewed page or map is insufficient. " : "") + (guidanceBytes ? "Also review guidance.json under the Independent review instructions and include guidance:{approved,issues} in the same review. Never modify guidance.json. Pass this small review object directly to submit_reading as your sole final tool call; a separate write followed by submit would waste another model request. " : options.task.purpose === "opening" ? "Pass the review to submit_reading as your sole final tool call; no separate final prose is needed. " : "Write review.json. ") + "Finish this unit and stop.",
+					brief: (guidanceBytes ? readerInput({task:unitTask, draft:options.draft, guidance:JSON.parse(guidanceBytes)}) : readerInput({task:unitTask,draft:options.draft})) + " Independently review only task.required_review against original images using pdf. Keep the full graph as context. Produce checked paths, verdict, source_refs and reason, plus missing (only necessary current material). Never edit the draft. " + (requiredPages.length ? "For /coverage, view every review_scope_pages page as evidence, not as a whole-range extraction assignment. State the requested use from task.purpose/focus/question in your reason. An empty detail question requests the focused entity's current use and necessary dependencies, not its whole chapter. Compare that use to the candidate for omitted discoverable facts and investigation connections, including when no clue or conclusion was proposed. Every missing item must identify its source and explain which requested use or immediate dependency would fail without it; appearing on a viewed page or map is insufficient. " : "") + mapBrief + (guidanceBytes ? "Also review guidance.json under the Independent review instructions and include guidance:{approved,issues} in the same review. Never modify guidance.json. Pass this small review object directly to submit_reading as your sole final tool call; a separate write followed by submit would waste another model request. " : options.task.purpose === "opening" ? "Pass the review to submit_reading as your sole final tool call; no separate final prose is needed. " : "Write review.json. ") + "Finish this unit and stop.",
 					onEvent(event) {
 						if (event.type === "tool_execution_end" && !event.isError && event.result?.details?.kind === "source_pages")
 							imageCalls.set(event.toolCallId, event.result.details.observations);

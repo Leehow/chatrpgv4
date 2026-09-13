@@ -44,13 +44,20 @@ export function mapRegions(graph: ModuleGraph, node: Row): Row[] {
             throw new RpcError('invalid_params', `map region ${repr(id)} uses a private source without reviewed redactions`, {
                 fix: 'use a player-safe/revealable source, or independently review explicit redactions and set safe_after_redactions',
             });
+        if (region.source_box == null)
+            throw new RpcError('invalid_params', `map region ${repr(id)} needs source_box`);
         return {
             id,
             name,
             ...(typeof region.level === 'string' && region.level.trim() ? { level: region.level.trim() } : {}),
             source_asset: graph.handle(source),
             source_node: source.node_id,
-            source_box: box(region.source_box ?? [0, 0, 1, 1], `map region ${repr(id)} source_box`),
+            // Reviewed publication metadata may bind bytes independently of graph generation.
+            ...(typeof row(source.properties).source_digest === 'string' && row(source.properties).source_digest.trim()
+                ? { source_digest: row(source.properties).source_digest.trim() }
+                : typeof row(source.properties).asset_digest === 'string' && row(source.properties).asset_digest.trim()
+                    ? { source_digest: row(source.properties).asset_digest.trim() } : {}),
+            source_box: box(region.source_box, `map region ${repr(id)} source_box`),
             placement: box(region.placement, `map region ${repr(id)} placement`),
             ...(redactions.length ? { redactions } : {}),
         };
@@ -84,7 +91,9 @@ export async function mapView(graph: ModuleGraph, world: Row, asset: AssetReader
         const source = await asset(graph.moduleId, region.source_node), path = source?.path;
         layers.push({
             region: region.id, label: regionLabels[region.id] ?? region.id, level: region.level ? levelLabels[region.level] ?? null : null,
+            source_asset: region.source_asset,
             placement: region.placement, source_box: region.source_box, redactions: region.redactions ?? [],
+            ...(typeof region.source_digest === 'string' ? { source_digest: region.source_digest } : {}),
             path: typeof path === 'string' ? path : null,
             media_type: source?.media_type ?? null,
         });
@@ -103,24 +112,26 @@ export async function mapView(graph: ModuleGraph, world: Row, asset: AssetReader
 export async function revealMap(context: {graph: ModuleGraph; world: Row; turn: Row; callId: string; mint(base: string): string}, effect: Row, asset: AssetReader): Promise<{receipt: Row; event: Row; view: Row}> {
     const name = typeof effect.name === 'string' && effect.name.trim() ? effect.name.trim() : '';
     if (!name) throw new RpcError('invalid_params', 'a map effect needs name');
+    if (typeof effect.label !== 'string' || !effect.label.trim())
+        throw new RpcError('invalid_params', 'a map effect needs a player-facing label in play_language');
     const node = mapNode(context.graph, name), handle = context.graph.handle(node), regions = mapRegions(context.graph, node), chosen = chooseRegions(regions, effect.regions);
-    const knowledge = row(context.world.map_knowledge), before = knownMapRegions(context.world, handle), after = [...before];
-    for (const region of chosen) if (!after.includes(region.id)) after.push(region.id);
-    context.world.map_knowledge = { ...knowledge, [handle]: after };
-    if(typeof effect.label!=='string'||!effect.label.trim())throw new RpcError('invalid_params','a map effect needs a player-facing label in play_language');
-    const label=effect.label.trim(), supplied = row(effect.region_labels), chosenIds=new Set(chosen.map(region=>region.id)),
-        unknownLabels = Object.keys(supplied).filter(key => !chosenIds.has(key)),missingLabels=[...chosenIds].filter(key=>typeof supplied[key]!=='string'||!supplied[key].trim());
+    const label = effect.label.trim(), supplied = row(effect.region_labels), chosenIds = new Set(chosen.map(region => region.id)),
+        unknownLabels = Object.keys(supplied).filter(key => !chosenIds.has(key)), missingLabels = [...chosenIds].filter(key => typeof supplied[key] !== 'string' || !supplied[key].trim());
     if (unknownLabels.length || missingLabels.length || Object.values(supplied).some(value => typeof value !== 'string' || !value.trim()))
         throw new RpcError('invalid_params', 'region_labels must map every chosen region id to one non-empty player-facing label', {details:{unknown:unknownLabels,missing:missingLabels}});
-    const suppliedLevels=row(effect.level_labels), chosenLevels=new Set(chosen.flatMap(region=>region.level?[region.level]:[])),unknownLevels=Object.keys(suppliedLevels).filter(key=>!chosenLevels.has(key)),missingLevels=[...chosenLevels].filter(key=>typeof suppliedLevels[key]!=='string'||!suppliedLevels[key].trim());
-    if(unknownLevels.length||missingLevels.length||Object.values(suppliedLevels).some(value=>typeof value!=='string'||!value.trim()))
-        throw new RpcError('invalid_params','level_labels must map every chosen source level name to one non-empty player-facing label',{details:{unknown:unknownLevels,missing:missingLevels}});
-    const mapLabels=row(context.world.map_labels), priorLabels=row(mapLabels[handle]), savedRegions={...row(priorLabels.regions)},savedLevels={...row(priorLabels.levels)};
-    for(const region of chosen)if(typeof supplied[region.id]==='string')savedRegions[region.id]=supplied[region.id].trim();
-    for(const [level,value] of Object.entries(suppliedLevels))savedLevels[level]=(value as string).trim();
-    context.world.map_labels={...mapLabels,[handle]:{title:label,regions:savedRegions,levels:savedLevels}};
-    const visibleLabel=(region:Row)=>savedRegions[region.id]??region.id,
-        visibleLevel=(region:Row)=>region.level?savedLevels[region.level]??null:null,
+    const suppliedLevels = row(effect.level_labels), chosenLevels = new Set(chosen.flatMap(region => region.level ? [region.level] : [])),
+        unknownLevels = Object.keys(suppliedLevels).filter(key => !chosenLevels.has(key)), missingLevels = [...chosenLevels].filter(key => typeof suppliedLevels[key] !== 'string' || !suppliedLevels[key].trim());
+    if (unknownLevels.length || missingLevels.length || Object.values(suppliedLevels).some(value => typeof value !== 'string' || !value.trim()))
+        throw new RpcError('invalid_params', 'level_labels must map every chosen source level name to one non-empty player-facing label', {details:{unknown:unknownLevels,missing:missingLevels}});
+    const knowledge = row(context.world.map_knowledge), before = knownMapRegions(context.world, handle), after = [...before];
+    for (const region of chosen) if (!after.includes(region.id)) after.push(region.id);
+    const mapLabels = row(context.world.map_labels), priorLabels = row(mapLabels[handle]), savedRegions = {...row(priorLabels.regions)}, savedLevels = {...row(priorLabels.levels)};
+    for (const region of chosen) savedRegions[region.id] = (supplied[region.id] as string).trim();
+    for (const [level, value] of Object.entries(suppliedLevels)) savedLevels[level] = (value as string).trim();
+    context.world.map_knowledge = { ...knowledge, [handle]: after };
+    context.world.map_labels = {...mapLabels, [handle]: {title: label, regions: savedRegions, levels: savedLevels}};
+    const visibleLabel = (region: Row) => savedRegions[region.id] ?? region.id,
+        visibleLevel = (region: Row) => region.level ? savedLevels[region.level] ?? null : null,
         receipt: Row = {
             id: context.mint(`map:${handle}-t${context.turn.turn}`), kind: 'map', call_id: context.callId,
             map: handle, name: context.graph.displayName(node), label,

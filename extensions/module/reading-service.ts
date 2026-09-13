@@ -425,7 +425,12 @@ export class ReadingService implements ReadingBridge {
 						validateMapRegions(draft);
 						for (const node of publishableAssetNodes(draft, job.purpose)) {
 							if (typeof node.node_id !== "string" || !/^[a-z][a-z0-9-]{0,159}$/.test(node.node_id)) throw new Error("asset identifiers must be semantic kebab names");
-							const asset = await sourceAsset(job.source.path, cache, node.properties.image_sources, join(cwd, "assets", `${node.node_id}.png`));
+							const mapRedactions = (draft.nodes ?? []).flatMap((map: Row) => (map.properties?.map_regions ?? [])
+								.filter((region: Row) => typeof region.source_asset === "string" && [node.node_id, node.node_id.replace(/^asset-/, "")].includes(region.source_asset))
+								.flatMap((region: Row) => Array.isArray(region.redactions) ? region.redactions : []));
+							const imageSources = (node.properties.image_sources ?? []).map((region: Row) => ({ ...region,
+								...(mapRedactions.length ? { redactions: mapRedactions } : {}) }));
+							const asset = await sourceAsset(job.source.path, cache, imageSources, join(cwd, "assets", `${node.node_id}.png`));
 							assets.push({ node_id: node.node_id, ...asset });
 						}
 					}

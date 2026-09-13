@@ -27,5 +27,5 @@ it('never mounts an image for an unavailable map',()=>{
   render(<Delivery details={{mechanics:[{kind:'map',map:'house',name:'House',available:false,regions:[]}],
     ui:{words:{mechanics:{pending:'尚未就绪'}}}}}/>)
   expect(screen.queryByRole('img')).toBeNull()
-  expect(screen.getByText('尚未就绪')).toBeTruthy()
+  expect(screen.getAllByText('尚未就绪').length).toBeGreaterThan(0)
 })

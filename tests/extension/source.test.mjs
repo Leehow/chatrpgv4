@@ -107,6 +107,15 @@ test("a handout preserves its explicitly declared source regions in order", asyn
 	assert.deepEqual(Array.from(ctx.getImageData(100, image.height - 100, 1, 1).data), [0, 0, 255, 255]);
 });
 
+test("private source redactions are painted into the derivative", async t => {
+	const { file, cache } = await fixture(t);
+	const output = join(cache, "redacted.png");
+	const asset = await sourceAsset(file, cache, [{ page: 1, redactions: [[.25, .25, .75, .75]] }], output);
+	const image = await loadImage(asset.path), canvas = createCanvas(image.width, image.height), ctx = canvas.getContext("2d");
+	ctx.drawImage(image, 0, 0);
+	assert.deepEqual(Array.from(ctx.getImageData(Math.floor(image.width / 2), Math.floor(image.height / 2), 1, 1).data), [255, 255, 255, 255]);
+});
+
 test("reader JPEGs and revealable PNGs have separate verified caches", async t => {
   const {file, cache} = await fixture(t);
   const jpeg = await sourcePage(file, cache, 1, {pixels:512,format:'jpeg'});

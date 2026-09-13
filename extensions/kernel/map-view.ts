@@ -42,7 +42,13 @@ export async function renderMapView(viewValue: unknown, options: {modulesRoot:st
         sourcePaths.push(sourcePath);
     }
     const sourceDigests=[];
-    for(const path of sourcePaths)sourceDigests.push(createHash('sha256').update(await readFile(path)).digest('hex'));
+    for(const [index,path] of sourcePaths.entries()){
+        const digest=createHash('sha256').update(await readFile(path)).digest('hex');
+        sourceDigests.push(digest);
+        // A reviewed source digest is authoritative; a changed byte set is unavailable,
+        // never silently rendered against an older authorization.
+        if(typeof layers[index].source_digest==='string' && layers[index].source_digest.trim() && layers[index].source_digest.trim()!==digest)return base;
+    }
     viewId=createHash('sha256').update(JSON.stringify([MAP_RENDERER_VERSION,map,revision,regions.map(region=>region.id),layers.map((layer,index)=>({
         source:sourceDigests[index],source_box:layer.source_box,placement:layer.placement,redactions:layer.redactions}))])).digest('hex').slice(0,20);
     const x0=Math.min(...layers.map(layer=>layer.placement[0])),y0=Math.min(...layers.map(layer=>layer.placement[1])),

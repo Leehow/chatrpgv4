@@ -128,8 +128,10 @@ export class ModuleStore {
             if (!keys.some(value => typeof value === 'string' && normalize(value) === key))
                 continue;
             const resolved = { ...item };
-            if (truth(item.path))
+            if (truth(item.path)) {
                 resolved.path = childPath(this.moduleDir(id), string(item.path));
+                if (!await this.context.snapshots.isFile(resolved.path)) resolved.path = null;
+            }
             return resolved;
         }
         return null;
