@@ -9,6 +9,12 @@ const repo=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const parent=join(repo,'.build.noindex/pipicoc');
 fs.mkdirSync(parent,{recursive:true});
 const stage=fs.mkdtempSync(join(parent,'package-')),out=join(repo,'build');
+// The staging directory holds an assembled runtime, a nested package-runtime closure, and the
+// App this run replaces. None of it outlives the run, and the runtime is assembled read-only,
+// so restore write permission before unlinking it on every exit path including failure.
+const purgeStage=()=>{try{execFileSync('/bin/chmod',['-R','u+w',stage],{stdio:'ignore'});}catch{}try{fs.rmSync(stage,{recursive:true,force:true});}catch{}};
+process.on('exit',purgeStage);
+for(const signal of ['SIGINT','SIGTERM','SIGHUP'])process.on(signal,()=>{purgeStage();process.exit(1);});
 fs.mkdirSync(out,{recursive:true});
 const target=join(out,'PipiCOC.app'),identity=process.env.PIPICOC_SIGN_IDENTITY||'PipiUI Dev';
 if(fs.existsSync(target)&&execFileSync('/bin/ps',['-axo','command='],{encoding:'utf8'}).split('\n').some(line=>line.trim().startsWith(join(target,'Contents/MacOS/'))))

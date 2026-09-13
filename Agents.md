@@ -154,6 +154,17 @@ Grok 系模型屡次把「交付」当目标、把意图当配菜，也屡次静
 
 唯一环境由 `.python-version`、`pyproject.toml` 与提交的 `uv.lock` 定义。所有 Python 命令从仓库根以 `uv run --frozen python …` 运行（别处加 `--project <repo>`）；子进程用 `sys.executable`；不从 `PATH` 挑 `python`。升级 Python 或依赖是一次跨 `.python-version`/`pyproject`/`uv.lock`/文档的原子改动。
 
+## 打包只有一个落点
+
+成品 App 只有一个家，暂存目录一个都不许留。
+
+- 唯一成品是 `~/leehow/code/pipicoc-build/PipiCOC.app`，`/Applications/PipiCOC.app` 是指向它的符号链接。禁止用真实副本覆盖那个链接；要验收就跑链接指向的那一份，不许为了验收再装第二份。
+- 每次打包产生的暂存目录必须在本次进程退出前删掉，成功、抛异常、被信号杀都要删。运行时资源是只读组装的，删之前先 `chmod -R u+w`，否则 `rmSync` 会以 `ENOTEMPTY` 失败。
+- 禁止往 `/Applications` 写临时或带随机后缀的 bundle（例如 `.PipiCOC-<主题>-XXXXXX`）。装到唯一路径，或者不装。
+- 回滚备份不是留着 bundle 的理由。最多留一份上一版，且必须随暂存目录一起销毁。
+
+事故记录：2026-09-13 查出 `pipicoc/package.mjs` 的 `mkdtemp` 全文没有任何清理，`scripts/package-runtime.mjs` 里还嵌套了第二个同样漏的 `mkdtemp`。四天打包漏下 46 个暂存目录共 87 GB，每个里面躺着一份被遗弃的 `previous-PipiCOC.app`、一份嵌套的 `.package-runtime-*` 闭包和一份重复的组装运行时；另有 7 个 worktree 各自留着 720–750 MB 的 `build/PipiCOC.app`。磁盘被打到 96%。
+
 ## 开发方法
 
 - **契约先行**：先在 `docs/kernel-rpc.md` 写形状，再开工；worker 只按契约写，形状对不上以契约为准，集成时补回归用例。
