@@ -72,26 +72,26 @@ test('artifact validation collects exact locations and accepts compact passing r
 
     const bridgeText = 'The marked report connects the repeated tragedies to Corbitt.';
     const causal = {causal_reentry: {mode: 'introduce_evidence', thread: {name: 'house-haunted', claim: 'Corbitt caused the tragedies.'}, known: [],
-        bridge: {clue: 'old-report', source_handouts: ['old-report-handout']},
+        bridge: {clue: 'old-report', relation: 'supports', source_handouts: ['old-report-handout']},
         authority: {current_scene: 'athens', clue_here: false}}, current_input: 'Show me what reached Athens.', receipts: []};
     assert.ok(continuityArtifactErrors(pass(), bridgeText, {'context.json': causal}).some(error => error.path === '/continuity_review/reentry_review'));
     const refused = {missing: [], findings: [{reason: 'The bridge is absent.', fix: 'Settle old-report and state its causal relation.'}],
         continuity_review: {verdict: 'revise', summary: 'The causal bridge is missing.', conflicts: [],
-            reentry_review: {verdict: 'revise', basis: 'none', quote: null, clue: null}}};
+            reentry_review: {verdict: 'revise', basis: 'none', quote: null, clue: null, relation: null}}};
     assert.deepEqual(continuityArtifactErrors(refused, bridgeText, {'context.json': causal}), []);
     const receiptContext = {...causal, causal_reentry: {...causal.causal_reentry,
         authority: {current_scene: 'athens', clue_here: true}}, receipts: [{kind: 'clue', clue: 'old-report'}]};
     const realized = {missing: [], findings: [], continuity_review: {verdict: 'pass', summary: 'The bridge landed.', conflicts: [],
-        reentry_review: {verdict: 'pass', basis: 'bridge_receipt', quote: bridgeText, clue: 'old-report'}}};
+        reentry_review: {verdict: 'pass', basis: 'bridge_receipt', quote: bridgeText, clue: 'old-report', relation: 'supports'}}};
     assert.deepEqual(continuityArtifactErrors(realized, bridgeText, {'context.json': receiptContext}), []);
     assert.ok(continuityArtifactErrors(realized, bridgeText, {'context.json': {...causal,
         receipts: [{kind: 'handout', handout: 'old-report-handout'}]}}).some(error => error.path === '/continuity_review/reentry_review/basis'));
     const waiting = {missing: [], findings: [], continuity_review: {verdict: 'pass', summary: 'The retained work is pending.', conflicts: [],
-        reentry_review: {verdict: 'defer', basis: 'preparation_wait', quote: 'Preparation is pending.', clue: null}}};
+        reentry_review: {verdict: 'defer', basis: 'preparation_wait', quote: 'Preparation is pending.', clue: null, relation: null}}};
     assert.deepEqual(continuityArtifactErrors(waiting, 'Preparation is pending.', {'context.json': {...causal, preparation_wait: {kind: 'adaptation', name: 'athens'}}}), []);
     const offered = {missing: [], findings: [], continuity_review: {verdict: 'pass',
         summary: 'The carrier is within reach and the choice remains open.', conflicts: [],
-        reentry_review: {verdict: 'defer', basis: 'bridge_offer', quote: bridgeText, clue: 'old-report'}}};
+        reentry_review: {verdict: 'defer', basis: 'bridge_offer', quote: bridgeText, clue: 'old-report', relation: 'supports'}}};
     const offeredContext = {...causal, causal_reentry: {...causal.causal_reentry,
         authority: {current_scene: 'athens', clue_here: true}}};
     assert.deepEqual(continuityArtifactErrors(offered, bridgeText, {'context.json': offeredContext}), []);
@@ -106,8 +106,11 @@ test('artifact validation collects exact locations and accepts compact passing r
         current_input: 'I turn to an unrelated catalogue.', receipts: []};
     const clarified = {missing: [], findings: [], continuity_review: {verdict: 'pass',
         summary: 'The acquired report was connected to the present stakes.', conflicts: [],
-        reentry_review: {verdict: 'pass', basis: 'acquired_clarification', quote: bridgeText, clue: 'old-report'}}};
+        reentry_review: {verdict: 'pass', basis: 'acquired_clarification', quote: bridgeText, clue: 'old-report', relation: 'supports'}}};
     assert.deepEqual(continuityArtifactErrors(clarified, bridgeText, {'context.json': clarificationContext}), []);
+    const reversed = structuredClone(clarified); reversed.continuity_review.reentry_review.relation = 'contradicts';
+    assert.ok(continuityArtifactErrors(reversed, bridgeText, {'context.json': clarificationContext})
+        .some(error => error.path === '/continuity_review/reentry_review/relation'));
     assert.ok(continuityArtifactErrors(offered, bridgeText, {'context.json': clarificationContext})
         .some(error => error.path === '/continuity_review/reentry_review/basis'));
 });
@@ -213,7 +216,7 @@ test('new jobs expose focused context with full fallback, bind accepted reports,
     assert.ok(focused.coverage.full_evidence_files.includes('history.json'));
     await writeFile(join(job.cwd, 'result.json'), JSON.stringify({...pass(), continuity_review: {...pass().continuity_review,
         locus_review: {verdict: 'pass', mode: 'same_locus', locus: null, claim: null, basis: 'active_scene'},
-        reentry_review: {verdict: 'defer', basis: 'preparation_wait', quote: 'The old register ends before the inheritance.', clue: null}}}));
+        reentry_review: {verdict: 'defer', basis: 'preparation_wait', quote: 'The old register ends before the inheritance.', clue: null, relation: null}}}));
     assert.equal((await call('mods.accept', {job: job.job})).continuity_review.verdict, 'pass');
     assert.equal((await call('mods.accept', {job: job.job})).continuity_review.verdict, 'pass');
     const changed = await call('mods.job', {role: 'audit', input: {text: 'Another compatible sentence.'}});

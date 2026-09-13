@@ -60,7 +60,7 @@ export function continuityArtifactErrors(value: any, candidate: string, files: R
     if (sceneCommitment && !object(review.locus_review))
         add('/continuity_review/locus_review', 'Required object: {verdict, mode, locus, claim, basis}; do not use location_review');
     if (causalReentry && review.verdict !== 'unavailable' && !object(review.reentry_review))
-        add('/continuity_review/reentry_review', 'Required object: {verdict, basis, quote, clue}');
+        add('/continuity_review/reentry_review', 'Required object: {verdict, basis, quote, clue, relation}');
     if (!['pass', 'revise', 'unavailable'].includes(review.verdict)) add('/continuity_review/verdict', 'Expected pass, revise or unavailable');
     if (!words(review.summary)) add('/continuity_review/summary', 'Expected nonempty bounded text');
     const evidenceStrings = new Map<string, string[]>(), conflicts = list(review.conflicts, '/continuity_review/conflicts', 10);
@@ -123,11 +123,12 @@ export function continuityArtifactErrors(value: any, candidate: string, files: R
     }
     if (causalReentry && object(review.reentry_review)) {
         const reentry = review.reentry_review, path = '/continuity_review/reentry_review';
-        if (keys(reentry, ['verdict', 'basis', 'quote', 'clue'], path)) {
+        if (keys(reentry, ['verdict', 'basis', 'quote', 'clue', 'relation'], path)) {
             if (!['pass', 'revise', 'defer'].includes(reentry.verdict)) add(`${path}/verdict`, 'Expected pass, revise or defer');
             if (!['bridge_receipt', 'bridge_offer', 'acquired_clarification', 'player_discharge', 'preparation_wait', 'none'].includes(reentry.basis))
                 add(`${path}/basis`, 'Expected bridge_receipt, bridge_offer, acquired_clarification, player_discharge, preparation_wait or none');
             const bridge = row(causalReentry.bridge), bridgeClue = bridge.clue, known = array(causalReentry.known).map(value => row(value).name);
+            const knownRow = array(causalReentry.known).map(row).find(value => value.name === reentry.clue);
             const mode = causalReentry.mode ?? (bridgeClue ? 'introduce_evidence' : 'clarify_known');
             if (!['clarify_known', 'introduce_evidence'].includes(mode)) add(`${path}/basis`, 'causal_reentry.mode is invalid');
             const receipts = array(context.receipts), handouts = array(bridge.source_handouts);
@@ -147,6 +148,7 @@ export function continuityArtifactErrors(value: any, candidate: string, files: R
             if (reentry.basis === 'bridge_receipt') {
                 if (!hasBridgeReceipt) add(`${path}/basis`, 'No current clue or handout receipt settles the supplied bridge');
                 if (reentry.clue !== bridgeClue) add(`${path}/clue`, 'Copy causal_reentry.bridge.clue exactly');
+                if (reentry.relation !== bridge.relation) add(`${path}/relation`, 'Copy causal_reentry.bridge.relation exactly');
                 if (row(causalReentry.authority).clue_here !== true)
                     add(`${path}/basis`, 'The effective graph does not make this bridge clue discoverable at the current scene; accept source_rebinding first');
             } else if (reentry.basis === 'bridge_offer') {
@@ -154,9 +156,14 @@ export function continuityArtifactErrors(value: any, candidate: string, files: R
                 if (row(causalReentry.authority).clue_here !== true)
                     add(`${path}/basis`, 'The bridge cannot be offered until the effective graph makes it discoverable at the current scene');
                 if (reentry.clue !== bridgeClue) add(`${path}/clue`, 'Copy causal_reentry.bridge.clue exactly');
+                if (reentry.relation !== bridge.relation) add(`${path}/relation`, 'Copy causal_reentry.bridge.relation exactly');
             } else if (['acquired_clarification', 'player_discharge'].includes(reentry.basis)) {
                 if (!known.length || !known.includes(reentry.clue)) add(`${path}/clue`, 'Name one acquired causal_reentry.known evidence row');
-            } else if (reentry.clue !== null) add(`${path}/clue`, `${reentry.basis} uses clue null`);
+                if (!knownRow || reentry.relation !== knownRow.relation) add(`${path}/relation`, 'Copy the selected causal_reentry.known row relation exactly');
+            } else {
+                if (reentry.clue !== null) add(`${path}/clue`, `${reentry.basis} uses clue null`);
+                if (reentry.relation !== null) add(`${path}/relation`, `${reentry.basis} uses relation null`);
+            }
             if (reentry.basis === 'preparation_wait' && !object(context.preparation_wait)) add(`${path}/basis`, 'No host-owned preparation_wait is active');
             if (reentry.basis === 'preparation_wait' && reentry.verdict !== 'defer') add(`${path}/verdict`, 'A real preparation wait uses defer');
             if (reentry.basis === 'bridge_offer' && reentry.verdict !== 'defer') add(`${path}/verdict`, 'A choice-preserving bridge offer uses defer');
