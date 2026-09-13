@@ -1,6 +1,6 @@
 # Adaptation routing, scene commitment and pending preparation — implementation and acceptance
 
-Date: 2026-09-12 (evidence run timestamps 2026-09-13 UTC). Current Mods: narration-audit 1.2.8 and enhanced-items 1.1.9. Contract: ../kernel-rpc.md section 36.15. Plan: ../plans/story-continuity-and-adaptation.md. Human UI, packaging and integration remain pending. No package, deployment or remote publication was performed, and all `.coc` evidence is retained.
+Date: 2026-09-12 (evidence run timestamps 2026-09-13 UTC). Current Mods: narration-audit 1.2.8 and enhanced-items 1.1.9. Contract: ../kernel-rpc.md section 36.15. Plan: ../plans/story-continuity-and-adaptation.md. Human UI and packaging remain pending; integration is complete (merge `5a193568`). No package, deployment or remote publication was performed, and all `.coc` evidence is retained.
 
 ## Confirmed failure class
 
@@ -72,7 +72,15 @@ These pairs prove that a door, a cabinet or a station is not promoted by its nou
 - `tests/play/test_driver.py`: **14/14 passed**.
 - An earlier full Python test run was **1244 passed, 1 skipped, 2 failed** after 1473.72 s; both failures are outside this slice and reflect current branch expectations for memory-projection keys and an older narration-audit heading. **No clean full Python suite is claimed.**
 
-All `.coc` evidence is retained. Human UI, packaging and integration remain pending.
+All `.coc` evidence is retained. Human UI and packaging remain pending.
+
+## Integration result
+
+Merge commit `5a193568` integrated `codex/story-continuity` with the prior 0.9.2a head `3ee1e4b0`. Conflict resolution preserved the mainline turn-illustration work as `docs/kernel-rpc.md` section 35 and renumbered story continuity/adaptation to section 36.
+
+Post-merge validation passed: `npm run build:runtime`, `npm run check:kernel`, the complete `npm run test:ext` at **869/869**, and `uv run --frozen python -m pytest tests/kernel/test_apply_item_cash.py tests/kernel/test_memory.py tests/kernel/test_recall.py tests/play/test_driver.py -q` at **40/40 in 117.74 s**.
+
+The earlier full Python-suite run remains historical evidence: **1244 passed, 1 skipped, 2 out-of-slice failures**. It is not rewritten into a clean full-suite claim; the post-merge Python run above is a bounded targeted selection, not the full suite. Human UI and packaging remain pending.
 
 ## Primary-source analogues
 

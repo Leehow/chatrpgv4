@@ -318,5 +318,12 @@ Pending authorizes no arrival or change.
 
 Acceptance state: routing/purpose, the semantic promotion pairs, the adapted destinations, the retained
 pending state, and the genuine Athens play are recorded in
-[the adaptation-routing report](../research/adaptation-routing-scene-commitment-2026-09-12.md). Human UI,
-packaging and integration remain pending, and no clean full Python suite is claimed.
+[the adaptation-routing report](../research/adaptation-routing-scene-commitment-2026-09-12.md). Human UI
+and packaging remain pending. Integration is complete: merge `5a193568` integrated
+`codex/story-continuity` with `3ee1e4b0`, conflict resolution preserved the mainline turn illustrations as
+contract section 35 and renumbered story continuity/adaptation to section 36, and post-merge validation
+passed `npm run build:runtime`, `npm run check:kernel`, complete `npm run test:ext` 869/869, and the bounded
+Python selection `tests/kernel/test_apply_item_cash.py tests/kernel/test_memory.py
+tests/kernel/test_recall.py tests/play/test_driver.py` 40/40 in 117.74 s. The earlier full Python-suite
+note (1244 passed, 1 skipped, 2 out-of-slice failures) remains historical and no clean full Python suite is
+claimed.

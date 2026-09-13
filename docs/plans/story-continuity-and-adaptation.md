@@ -228,8 +228,7 @@ work. The pending status itself authorizes no arrival or change.
 Full implementation seams and evidence are in
 [the adaptation-routing report](../research/adaptation-routing-scene-commitment-2026-09-12.md). It records
 the old live waits, the final frozen adaptation probes, the paired semantic cabinet/station probes, the
-genuine Athens play, the failed `adaptation-pending-live` evidence, and current validation. Human UI,
-packaging and integration remain pending; no clean full Python suite is claimed.
+genuine Athens play, the failed `adaptation-pending-live` evidence, and current validation. Human UI and packaging remain pending; integration is complete — merge `5a193568` integrated `codex/story-continuity` with `3ee1e4b0`, preserved mainline turn illustrations as contract section 35 and renumbered this work to section 36, and post-merge validation passed `npm run build:runtime`, `npm run check:kernel`, complete `npm run test:ext` 869/869, and the bounded Python selection `tests/kernel/test_apply_item_cash.py tests/kernel/test_memory.py tests/kernel/test_recall.py tests/play/test_driver.py` 40/40 in 117.74 s. The earlier full Python-suite note (1244 passed, 1 skipped, 2 out-of-slice failures) remains historical and no clean full Python suite is claimed.
 
 Primary-source analogues were used proportionally and did not override project constraints:
 [Anthropic, "Building effective agents"](https://www.anthropic.com/engineering/building-effective-agents)
