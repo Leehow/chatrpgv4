@@ -522,3 +522,35 @@ test('rebinding_refused reaches the auditor only when a real refusal was recorde
     const nameOnly = await evidenceFor({name: 'report-to-the-office'});
     assert.deepEqual(nameOnly.files['context.json'].rebinding_refused, {name: 'report-to-the-office'});
 });
+
+/**
+ * Contract §37.2: `truncated` tells the memory lane its evidence was cut. It used to be
+ * `connections.length > limit` from the shared continuity view — and this caller deliberately asks for only
+ * its selected threads, so on `the-haunting` (6 conclusions, 3 core threads) it was true on every turn.
+ */
+test('story_context truncation reports a real cut, not that the graph holds other conclusions', () => {
+    const start = graph.handle(graph.startScene());
+    const world = (discovered) => ({active_scene: start, discovered_clues: discovered, handouts_shown: [], npc_presence: {}});
+    const context = (discovered) => api.storyAssessmentContext(graph, world(discovered), [], [], [], 'main', 0, 99);
+
+    // The graph reaches more conclusions than the packet selects, and that alone is not a cut.
+    const whole = context([]);
+    assert.ok(graph.kind('conclusion').length > whole.threads.length, 'the module must hold more conclusions than selected threads');
+    assert.equal(whole.truncated, false);
+
+    // Pick a selected thread that carries more acquired clues than the compact projection keeps.
+    const selected = whole.threads.map(thread => {
+        const node = graph.find(thread.thread);
+        const clues = (graph.incoming.get(node.node_id) ?? []).filter(edge => edge.relation_kind === 'supports')
+            .map(edge => graph.nodes.get(edge.from_node_id)).filter(value => value?.node_kind === 'clue').map(value => graph.handle(value));
+        return {name: thread.thread, clues};
+    }).find(thread => thread.clues.length >= 3);
+    assert.ok(selected, 'this test needs a selected thread with at least three supporting clues');
+
+    assert.equal(context(selected.clues.slice(0, 2)).truncated, false);
+    const cut = context(selected.clues.slice(0, 3));
+    assert.equal(cut.truncated, true);
+    const thread = cut.threads.find(value => value.thread === selected.name);
+    assert.equal(thread.supporting.length + thread.contradicting.length, 2,
+        'a truncated thread keeps the acquired rows the projection could carry; erasing them is the live-18 turn-3 failure');
+});

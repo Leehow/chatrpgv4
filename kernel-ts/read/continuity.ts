@@ -103,9 +103,12 @@ export function continuityView(graph: ModuleGraph, world: Row, records: Row[] = 
         delete result.guidance;
         result.hypotheses = [];
         delete result.corrections;
+        // `acquired_total` survives the slice so a consumer can tell "this row is compacted" (always true
+        // here) from "acquired evidence was actually dropped" (contract §37.2).
         result.connections = result.connections.map((c: Row) => ({name: c.name, claim: chars(c.claim, 200), disclosure: c.disclosure,
             evidence: [...c.evidence].sort((a: Row, b: Row) => Number(b.acquired) - Number(a.acquired)).slice(0, 2).map((e: Row) => ({name: e.name, relation: e.relation, acquired: e.acquired,
                 summary: chars(e.summary, 100), turns: e.deliveries.map((d: Row) => d.turn)})),
+            acquired_total: array(c.evidence).filter((e: Row) => row(e).acquired === true).length,
             truncated: true}));
     }
     const budget = options.budget ?? 10000;

@@ -47,10 +47,20 @@ export function storyAssessmentContext(graph: ModuleGraph, world: Row, records: 
         return {thread: thread.name, claim: thread.claim, importance: thread.importance,
             supporting: project('supports'), contradicting: project('contradicts')};
     });
+    // Contract §37.2: `truncated` means this packet's evidence was cut, not that the graph holds other
+    // conclusions. `continuity.truncated` reports the latter — it is `connections.length > limit`, and this
+    // caller deliberately asks for only its selected threads, so it was true on every turn and told the lane
+    // its evidence might be incomplete when nothing had been dropped.
+    const cut = threads.some(thread => {
+        const connection = connections.find(value => row(value).name === thread.name);
+        if (!connection) return true;
+        const kept = array(row(connection).evidence).filter(value => row(value).acquired === true).length;
+        return number(row(connection).acquired_total) > kept;
+    });
     return {threads: supplied,
         last_assessment: previous ? {turn: previous.turn, status: previous.status, thread: previous.thread, frame: previous.frame,
             bridge_delivered: previous.bridge_delivered, delivery_quote: previous.delivery_quote} : null,
-        truncated: continuity.truncated === true};
+        truncated: cut};
 }
 
 /** A prior semantic finding becomes one actionable row only while its selected source thread remains open. */

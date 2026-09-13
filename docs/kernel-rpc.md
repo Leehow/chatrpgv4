@@ -5486,7 +5486,7 @@ Reuse the existing post-commit memory extraction lane and its `memory.job` / `me
 }
 ```
 
-**Importance is authored, and candidate selection is causal.** `importance` is the tier the module authored on the conclusion; the kernel does not invent or upgrade it. Prefer `critical` and `core` conclusions: when any unresolved `critical`/`core` thread exists, `threads` supplies only those. When the module declares no `critical`/`core` conclusion, `threads` supplies only the highest authored tier present. Lower-importance procedure, hook, route, and presentation conclusions never displace a core causal thread. `supporting`/`contradicting` list only already acquired evidence, each with the turn it was delivered; `truncated` is `true` when the continuity budget cut the evidence. `last_assessment` is the latest stored assessment bound to the active worldline and loop; a mismatching worldline or loop yields no previous assessment rather than a stale one.
+**Importance is authored, and candidate selection is causal.** `importance` is the tier the module authored on the conclusion; the kernel does not invent or upgrade it. Prefer `critical` and `core` conclusions: when any unresolved `critical`/`core` thread exists, `threads` supplies only those. When the module declares no `critical`/`core` conclusion, `threads` supplies only the highest authored tier present. Lower-importance procedure, hook, route, and presentation conclusions never displace a core causal thread. `supporting`/`contradicting` list only already acquired evidence, each with the turn it was delivered; `truncated` is `true` when this packet's own evidence was cut — a selected thread whose connection was dropped, or one whose acquired rows did not fit the compact projection. It is **not** true merely because the graph holds conclusions this packet did not select; that is the normal state, since §37.2 selects only critical/core threads (see §37.9). `last_assessment` is the latest stored assessment bound to the active worldline and loop; a mismatching worldline or loop yields no previous assessment rather than a stale one.
 
 **`story_assessment_context` uses the existing compact continuity evidence projection (input compaction only).** The thread rows this lane packet carries are the compact continuity evidence projection the other consumers already use, and they need only the evidence semantic name, the `supports`/`contradicts` relation, the `acquired` flag and the latest `delivery_turn`. Full source refs, claims, prose and NPC dossiers do not belong in this lane packet: the lane reads as a writer what the projection has already produced, and it is not a place to re-derive them. This is input compaction for the existing lane — not new semantic inference, not memory storage, not a model call.
 
@@ -5725,6 +5725,19 @@ back as *zero acquired evidence*, and the accepted run confirms that holds (`sto
 `globe-unpublished-story` acquired at `delivery_turn: 6`). A conservative `bridge_delivered` on the
 acquisition turn costs nothing structurally: the reentry is retained one more turn, and the mode selection
 of §37.3 reads it only to decide whether a *later* renewed deviation may introduce a second bridge.
+
+**`story_context.truncated` now reports a cut instead of the module's shape.** It read
+`continuityView`'s own `truncated`, which is `connections.length > limit` — "there were more connections
+than I showed you". That is right for the shared view and wrong for this packet: `storyAssessmentContext`
+deliberately asks for exactly its selected threads, so on `the-haunting` (6 conclusions, 3 critical
+threads) the flag was `true` on **every turn**, telling the memory lane its evidence might be incomplete
+when nothing had been dropped. Measured on the accepted campaign's own state: 3 connections kept, limit 3,
+all selected threads present with their acquired evidence, `truncated: true`. The packet now computes it
+from what happened to the selected threads — a thread whose connection is absent, or one whose acquired
+rows did not fit the compact projection, which the projection reports as `acquired_total` beside the rows
+it kept. `continuityView.truncated` keeps its own meaning for its other consumers. A signal that is
+constitutively true carries no information, and this one nudged a semantic lane toward reading its own
+packet as incomplete every single turn.
 
 ### 37.8 The extended live gate is accepted (2026-09-13)
 

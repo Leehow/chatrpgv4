@@ -76,10 +76,13 @@ process.on('SIGTERM',()=>{});setInterval(()=>{},1000);\n`);
   const running=git.run('example',['status']);
   const rejected=assert.rejects(running,/cancelled/);
   let pids;
-  for(let attempt=0;attempt<100;attempt++){
+  // The fixture spawns two Node processes before it writes this file; a full-suite run under load needs
+  // more than the one second this used to allow, which made the whole suite flaky.
+  const deadline=Date.now()+30000;
+  while(Date.now()<deadline){
     try{pids=JSON.parse(await readFile(pidPath,'utf8'));break;}catch{await delay(10);}
   }
-  assert.equal(pids?.length,2);
+  assert.equal(pids?.length,2,'the managed git fixture never reported its pids');
   await git.close();await rejected;
   for(const pid of pids)assert.throws(()=>process.kill(pid,0),{code:'ESRCH'});
 });
