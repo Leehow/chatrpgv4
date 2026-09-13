@@ -227,6 +227,7 @@ import {
   redactAuthStatus,
   reservedProviderClaimError,
   resolveContributedCatalog,
+  type ContributionClaim,
 } from "./extension-provider-contract.js";
 import { handleExtEmit, toolResultDetailsField } from "./extension-channels.js";
 import { ExtensionUiChannel, EXTUI_TIMEOUT_MS } from "./extension-ui-channel.js";
@@ -1807,17 +1808,39 @@ const providerOf = (ref?: string): string | undefined => {
 const isRecord = (value: any): value is Record<string, any> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 /**
- * Image support is declared by the catalog (`input` array). A model that declares
- * nothing is assumed image-capable: pi rejects unsupported image parts itself, and
- * the host never infers capability from provider or model names.
+ * Image support is declared by `input` or an explicit host capability. Any explicit
+ * non-image declaration wins; a model that declares nothing is assumed image-capable.
+ * The host never infers capability from provider or model names.
  */
 function supportsImagesFor(
   _modelId: string,
   _provider: string,
   input?: unknown,
+  declared?: unknown,
 ): boolean {
+  if (declared === false) return false;
   if (Array.isArray(input)) return input.some((x) => x === "image");
+  if (declared === true) return true;
   return true;
+}
+/** Extension declarations restore authoritative input metadata onto sparse or stale runtime rows. */
+function mergeContributedImageSupport(
+  models: Model[],
+  claims: readonly ContributionClaim[],
+  authenticatedProviders: ReadonlySet<string>,
+): Model[] {
+  const collisions = new Set(detectContributionCollisions(claims).map((item) => item.extensionId));
+  const declared = new Map<string, unknown>();
+  for (const claim of claims) {
+    const provider = claim.contribution.provider;
+    if (!claim.enabled || collisions.has(claim.extensionId) || !authenticatedProviders.has(provider.id)) continue;
+    for (const model of provider.models) if (model.input !== undefined) declared.set(`${provider.id}/${model.id}`, model.input);
+  }
+  if (!declared.size) return models;
+  return models.map((model) => {
+    const input = declared.get(`${model.provider}/${model.id}`);
+    return input === undefined ? model : { ...model, supportsImages: supportsImagesFor(model.id, model.provider, input) };
+  });
 }
 function thinkingLevelMapFrom(value: unknown): ThinkingLevelMap | undefined {
   if (!isRecord(value)) return undefined;
@@ -1907,7 +1930,7 @@ function hostModelFromPi(raw: any, fallbackProvider?: string, inherited: any = {
     ...(reasoning === undefined ? {} : { reasoning }),
     ...(thinkingLevelMap === undefined ? {} : { thinkingLevelMap }),
     ...(thinkingConfigurable === undefined ? {} : { thinkingConfigurable }),
-    supportsImages: supportsImagesFor(id, provider, raw?.input ?? inherited?.input),
+    supportsImages: supportsImagesFor(id, provider, raw?.input ?? inherited?.input, raw?.supportsImages ?? inherited?.supportsImages),
     ...(capabilities === undefined ? {} : { capabilities }),
   };
 }
@@ -8909,7 +8932,7 @@ export class PiHostBackend implements HostBackend {
           if (await readCocBinding(selected.path)) throw this.cocRefusal("opening_bound", "This session already has a campaign; create a new session");
         }
         const data = await this.cocOnboarding.invoke(request, sid, {
-          id: `${state.model.provider}/${state.model.id}`, thinking: state.thinkingLevel, vision: state.model.supportsImages === true,
+          id: `${state.model.provider}/${state.model.id}`, thinking: state.thinkingLevel, vision: state.model.supportsImages !== false,
         });
         if (sid && ["begin", "select", "converse"].includes(String(request.action)) && state.model.provider !== "unknown") {
           await this.setModel(sid, state.model.provider, state.model.id);
@@ -9746,7 +9769,7 @@ export class PiHostBackend implements HostBackend {
     for (const model of extra.models) {
       next.push(hostModelFromPi(model, model.provider));
     }
-    return next;
+    return mergeContributedImageSupport(next, usable, authenticatedProviders);
   }
   private fallbackModelIfMissing(): void {
     const current = this.modelState.model;
