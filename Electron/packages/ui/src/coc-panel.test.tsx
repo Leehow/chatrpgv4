@@ -150,13 +150,16 @@ it('develops a portrait when the mount is clicked', async () => {
 });
 
 /**
- * The empty mount invites the click: one centered line, nothing more. What is missing is said
- * only after the click that found it missing (portrait_no_model, below).
+ * The empty mount invites the click: one line centered in the photograph's own box (the avatar
+ * geometry), so it centers in the frame whatever the mount button's height. What is missing is
+ * said only after the click that found it missing (portrait_no_model, below).
  */
 it('writes a one-line invitation on the empty mount', async () => {
   const {container}=render(<Panel api={host({ok:true,data:{campaign:'c1',view:view()}})}/>);
   const mount=await screen.findByText(say('zh-Hans','sheet','portraitCta'));
   expect(mount.className).toBe('coc-sheet-portrait-hint');
+  expect(mount.getAttribute('aria-hidden')).toBe('true');
+  expect(mount.parentElement?.className).toBe('coc-sheet-identity');
   expect(container.querySelector('button.coc-sheet-portrait')).toBeTruthy();
   expect(container.querySelector('.coc-sheet-portrait-note')).toBeNull();
 });
@@ -184,6 +187,8 @@ it('pops the settings hint after a click that found no image model', async () =>
   await screen.findByText(say('zh-Hans','sheet','portraitCta'));
   fireEvent.click(container.querySelector('button.coc-sheet-portrait')!);
   await screen.findByText(say('zh-Hans','sheet','portraitHint'));
+  // While the hint note shows, the invitation steps aside instead of doubling the text.
+  expect(screen.queryByText(say('zh-Hans','sheet','portraitCta'))).toBeNull();
   expect(container.querySelector('.coc-sheet-avatar')).toBeNull();
 });
 
