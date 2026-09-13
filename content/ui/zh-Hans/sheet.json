@@ -47,6 +47,7 @@
   "npcs": "人物",
   "occupation": "职业",
   "portraitBusy": "正在冲洗照片……",
+  "portraitCta": "点击冲洗照片。",
   "portraitFailed": "照片没能冲洗出来。",
   "portraitGenerate": "冲洗调查员的照片",
   "portraitHint": "在设置中加入生图模型后,点击此处冲洗照片。",

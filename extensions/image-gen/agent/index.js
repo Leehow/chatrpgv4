@@ -36,7 +36,11 @@ function explicitModel(readModel, modelParam) {
 async function resolveVendorTarget(readModel, ctx, modelParam) {
 	const spec = modelParam ?? readModel()?.model;
 	if (!spec) {
-		throw new Error(`no image model is configured and grok-build is not logged in — ${CONFIG_HINT}`);
+		// A stable code lets host lanes tell "go configure a model" from a vendor
+		// failure without matching on this sentence.
+		const error = new Error(`no image model is configured and grok-build is not logged in — ${CONFIG_HINT}`);
+		error.code = "image_model_unconfigured";
+		throw error;
 	}
 	const { provider: providerSpec, modelId } = parseModelSpec(spec);
 	const vendor = routeByModelId(modelId);

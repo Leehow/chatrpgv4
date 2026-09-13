@@ -96,3 +96,16 @@ test('a vendor failure answers with an error code and the mount stays empty', as
   assert.equal(answer.identity_art, undefined);
   assert.deepEqual(await readdir(join(home, '.coc', 'campaigns', 'c1')), []);
 });
+
+test('an unconfigured image model answers its own code, so the panel can point at Settings', async () => {
+  const {home, sheet} = await table({generate: async () => {
+    const error = new Error('no image model is configured and grok-build is not logged in');
+    error.code = 'image_model_unconfigured';
+    throw error;
+  }});
+  const answer = await sheet({portrait: 'generate'});
+  assert.equal(answer.status, 'error');
+  assert.equal(answer.code, 'portrait_no_model');
+  assert.equal(answer.identity_art, undefined);
+  assert.deepEqual(await readdir(join(home, '.coc', 'campaigns', 'c1')), []);
+});

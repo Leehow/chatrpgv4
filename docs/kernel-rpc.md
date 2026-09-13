@@ -2485,9 +2485,15 @@ ledger. The kernel never reads, writes or validates the image.
   receipt and not evidence; regenerating overwrites it. Sheet reads attach it
   as `identity_art.portrait` (same data-URL transport as the backplate), so the
   portrait survives restarts without a second generation.
-- **Failure** (no credential, vendor error) leaves the mount empty and returns
-  an error code; the panel's caption is a sheet-surface word (English authored,
-  projected per §23), not an authored string in code.
+- **Failure** leaves the mount empty and returns an error code; the panel's
+  caption is a sheet-surface word (English authored, projected per §23), not an
+  authored string in code. `portrait_no_model` means the image-gen dispatch
+  reported no configured image model (its `image_model_unconfigured` error
+  code); the panel answers that one with the settings hint. `portrait_unavailable`
+  is every other generation failure and gets the generic caption. (Amended
+  2026-09-12: the idle mount carries only the one-line click invitation,
+  centered in the frame; the settings hint appears after a click that found no
+  model, not statically on the empty frame.)
 - The panel enables the mount only while the investigator has no portrait;
   once one exists the mount is static artwork again — regeneration stays a
   deliberate lane action, never a casual click. While the lane runs the mount
