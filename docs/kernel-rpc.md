@@ -2044,6 +2044,17 @@ those observed physical pages, falling back to the draft's source pages only whe
 is task context, not graph vocabulary or world state. The coverage reviewer must actually view those pages in its
 own image context; observations by other reviewers do not count for that unit.
 
+**Observed pages do not define the preparation boundary.** `purpose`, `focus` and `question`
+define it. For detail without a question, prepare the focused entity for its current use and
+its necessary dependencies; a location focus does not request its whole chapter. Navigation,
+surrounding context, map labels and a broad source page range do not make every entity or
+investigation branch there ready material. Keep later destinations thin. Each coverage omission
+must explain which requested use or immediate dependency would fail without that fact, as well
+as identify its source. Already accepted context still counts. A repair follows this same scope;
+an earlier review's unrelated suggestions cannot expand it. The host supplies `review_scope_pages`
+only to the coverage unit, preserving those pages as evidence rather than assigning them to every
+fact reviewer. All proposed facts still receive their required review.
+
 The coverage reviewer compares source to candidate, not only candidate to source: discoverable propositions and
 their connections, delivery and gates, knowing NPCs, and clue propositions versus physical carriers are checked for
 the prepared task scope. It also checks that supported delivery semantics reach the existing runtime fields and tags

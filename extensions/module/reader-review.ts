@@ -55,7 +55,7 @@ export function checkReviewEvidence(review: Row, paths: string[], pages: Set<num
 	if (requiredPages.some(page => !pages.has(page))) throw new Error('scope review did not view every assigned source page');
 }
 
-const reviewProtocol = 'source-review-groups-v4';
+const reviewProtocol = 'source-review-groups-v5';
 const digest = (value: string | Buffer) => createHash('sha256').update(value).digest('hex');
 function canonical(value: any): string {
 	if (Array.isArray(value)) return '[' + value.map(canonical).join(',') + ']';
@@ -128,7 +128,9 @@ export async function reviewCandidate(options: {
 			const cwd = await mkdtemp(join(unitRoot, `attempt-${attempt}-`));
 			await writeFile(join(cwd, "draft.json"), JSON.stringify(options.draft) + "\n");
 			if (guidanceBytes) await writeFile(join(cwd, "guidance.json"), guidanceBytes);
-			const unitTask = { ...options.task, required_review: paths, ...(requiredPages.length ? {review_scope_pages: requiredPages} : {}) };
+			// Observed navigation/context pages belong to coverage, not every fact unit.
+			const {review_scope_pages: _scopePages, ...taskContext} = options.task;
+			const unitTask = { ...taskContext, required_review: paths, ...(requiredPages.length ? {review_scope_pages: requiredPages} : {}) };
 			await writeFile(join(cwd, "task.json"), JSON.stringify(unitTask) + "\n");
 			const imageCalls = new Map<string, Row[]>(), pages = new Set<number>();
 			const eventLog = join(cwd, "events.jsonl");
@@ -139,7 +141,7 @@ export async function reviewCandidate(options: {
 					...(guidanceBytes?{imageHistory:4}:{}),
 					submission:!!guidanceBytes || options.task.purpose === "opening",
 					systemPrompt: options.instructions, source: options.source, signal: options.signal, eventLog,
-					brief: (guidanceBytes ? readerInput({task:unitTask, draft:options.draft, guidance:JSON.parse(guidanceBytes)}) : readerInput({task:unitTask,draft:options.draft})) + " Independently review only task.required_review against original images using pdf. Keep the full graph as context. Produce checked paths, verdict, source_refs and reason, plus missing (only necessary current material). Never edit the draft. " + (requiredPages.length ? "For /coverage, view every review_scope_pages page and compare the prepared source scope to the candidate for omitted discoverable facts and investigation connections, including when no clue or conclusion was proposed. " : "") + (guidanceBytes ? "Also review guidance.json under the Independent review instructions and include guidance:{approved,issues} in the same review. Never modify guidance.json. Pass this small review object directly to submit_reading as your sole final tool call; a separate write followed by submit would waste another model request. " : options.task.purpose === "opening" ? "Pass the review to submit_reading as your sole final tool call; no separate final prose is needed. " : "Write review.json. ") + "Finish this unit and stop.",
+					brief: (guidanceBytes ? readerInput({task:unitTask, draft:options.draft, guidance:JSON.parse(guidanceBytes)}) : readerInput({task:unitTask,draft:options.draft})) + " Independently review only task.required_review against original images using pdf. Keep the full graph as context. Produce checked paths, verdict, source_refs and reason, plus missing (only necessary current material). Never edit the draft. " + (requiredPages.length ? "For /coverage, view every review_scope_pages page as evidence, not as a whole-range extraction assignment. State the requested use from task.purpose/focus/question in your reason. An empty detail question requests the focused entity's current use and necessary dependencies, not its whole chapter. Compare that use to the candidate for omitted discoverable facts and investigation connections, including when no clue or conclusion was proposed. Every missing item must identify its source and explain which requested use or immediate dependency would fail without it; appearing on a viewed page or map is insufficient. " : "") + (guidanceBytes ? "Also review guidance.json under the Independent review instructions and include guidance:{approved,issues} in the same review. Never modify guidance.json. Pass this small review object directly to submit_reading as your sole final tool call; a separate write followed by submit would waste another model request. " : options.task.purpose === "opening" ? "Pass the review to submit_reading as your sole final tool call; no separate final prose is needed. " : "Write review.json. ") + "Finish this unit and stop.",
 					onEvent(event) {
 						if (event.type === "tool_execution_end" && !event.isError && event.result?.details?.kind === "source_pages")
 							imageCalls.set(event.toolCallId, event.result.details.observations);
