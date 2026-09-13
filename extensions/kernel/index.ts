@@ -130,6 +130,10 @@ interface TableState {
 	floorDraft?: string;
 	/** A retained background preparation owns the rest of this turn until the Keeper briefly yields to the player. */
 	preparationWait?: { kind: "source" | "adaptation"; name?: string; status?: string };
+	/** Contract §37.6: the independent source review refused the placement this turn's reentry needs.
+	 * Host-owned, from the kernel's own adaptation result — never prose — and cleared when a later
+	 * proposal is pending, ready or accepted, or when the next turn opens. */
+	rebindingRefused?: { name: string; summary?: string };
 	/** Cold recovery scans the retained adaptation surface once; later jobs are tracked in memory. */
 	adaptationScanned: boolean;
 	/** A host note owed to the Keeper at agent_end rather than delivered as prose. */
@@ -545,6 +549,7 @@ export default function (pi: ExtensionAPI) {
 		table.deliveryToolCallId = undefined;
 		table.closedThisRun = false;
 		table.strandedTurn = undefined;
+		table.rebindingRefused = undefined;
 		table.steeredThisTurn = false;
 		table.toolCallsThisTurn = 0;
 		table.floorDraft = undefined;
@@ -1008,6 +1013,7 @@ export default function (pi: ExtensionAPI) {
         if (Array.isArray(payload.effects)) payload.effects = payload.effects.map(effect => ({...(effect as Record<string, unknown>)}));
         if (spec.name === 'narrate' && state.preparationWait) payload.preparation_wait = {
           kind: state.preparationWait.kind, ...(state.preparationWait.name ? {name: state.preparationWait.name} : {})};
+        if (spec.name === 'narrate' && state.rebindingRefused) payload.rebinding_refused = {...state.rebindingRefused};
         await mods.prepare(spec.name, payload, signal);
       }
 			try {
@@ -1039,6 +1045,17 @@ export default function (pi: ExtensionAPI) {
 				pi.events.emit('coc:adaptation-status', status);
 			}
 			else if (spec.name === 'lookup' && params.kind === 'adaptation') state.preparationWait = undefined;
+			if (spec.name === 'lookup' && params.kind === 'adaptation' && asString(result.purpose) === 'source_rebinding') {
+				// §37.6: remember a refused placement so the Keeper is not told to prepare it again, and so an
+				// honest turn that continues the chosen action without the evidence has a lawful basis.
+				if (asString(result.status) === 'failed') {
+					const refused = result.refused as Record<string, unknown> | undefined;
+					const summary = asString(refused?.summary) || asString((refused?.contradicted as string[] | undefined)?.[0])
+						|| asString((refused?.issues as string[] | undefined)?.[0]);
+					state.rebindingRefused = { name: asString(result.name), ...(summary ? { summary } : {}) };
+				}
+				else if (['pending', 'reviewing', 'ready', 'accepted'].includes(asString(result.status))) state.rebindingRefused = undefined;
+			}
 			await record({
 				tool: spec.name,
 				call_id: payload.call_id ?? null,
@@ -1439,6 +1456,7 @@ export default function (pi: ExtensionAPI) {
 			state.state = result.state ?? "open";
 			state.callOrdinal = 0;
 			state.strandedTurn = undefined;
+			state.rebindingRefused = undefined;
 			state.mintedCallIds.clear();
 			state.rejected.clear();
 			state.callKeys.clear();
@@ -1706,7 +1724,8 @@ export default function (pi: ExtensionAPI) {
 			try {
 				const params: Record<string, unknown> = { campaign: state.campaign, call_id: callId, text: prose, implicit: true,
 					...(state.preparationWait ? {preparation_wait: {kind: state.preparationWait.kind,
-						...(state.preparationWait.name ? {name: state.preparationWait.name} : {})}} : {}) };
+						...(state.preparationWait.name ? {name: state.preparationWait.name} : {})}} : {}),
+					...(state.rebindingRefused ? {rebinding_refused: {...state.rebindingRefused}} : {}) };
 				await mods?.prepare(tool, params, state.lanes.signal);
 				const result = (await state.kernel.call<Record<string, unknown>>(`table.${tool}`, params)) ?? {};
 				applyToolSuccess(state, tool, "implicit", result);

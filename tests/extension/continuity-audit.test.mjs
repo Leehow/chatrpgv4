@@ -301,3 +301,46 @@ test('an undelivered turn whose review still works is not released', async t => 
     assert.equal(inputs.length, 2);
     assert.ok(inputs.every(input => input.params.release === undefined));
 });
+
+/**
+ * Contract §37.6: the independent source review can refuse the placement the reentry needs. Retained live
+ * evidence `midgame-bridge-live-21` turn 3 had no lawful basis left at that point, so the Keeper kept
+ * resubmitting the contradicted placement and no turn could be delivered.
+ */
+test('a refused placement defers as authority_unavailable and keeps the reentry standing', () => {
+    const chosen = 'You keep walking to the adjuster and pull the Chandler Street policies yourself.';
+    const causal = {causal_reentry: {mode: 'introduce_evidence', thread: {name: 'house-haunted', claim: 'Corbitt caused the tragedies.'}, known: [],
+        bridge: {clue: 'old-report', relation: 'supports', source_handouts: ['old-report-handout']},
+        authority: {current_scene: 'state-street', clue_here: false}}, current_input: 'I walk to State Street.', receipts: []};
+    const refusedContext = {...causal, rebinding_refused: {name: 'report-to-the-office',
+        summary: 'The source keeps that copy at the newspaper morgue and gives Knott no such document.'}};
+    const honest = {missing: [], findings: [], continuity_review: {verdict: 'pass',
+        summary: 'No lawful placement exists yet, so the chosen action continues and the thread stands.', conflicts: [],
+        reentry_review: {verdict: 'defer', basis: 'authority_unavailable', quote: chosen, clue: 'old-report', relation: 'supports'}}};
+    assert.deepEqual(continuityArtifactErrors(honest, chosen, {'context.json': refusedContext}), []);
+
+    // Without the recorded refusal the basis is not available: the Keeper must still reach a lawful stage.
+    assert.ok(continuityArtifactErrors(honest, chosen, {'context.json': causal})
+        .some(error => error.path === '/continuity_review/reentry_review/basis'));
+    // Nor once the effective graph does authorize the carrier here.
+    assert.ok(continuityArtifactErrors(honest, chosen, {'context.json': {...refusedContext,
+        causal_reentry: {...causal.causal_reentry, authority: {current_scene: 'state-street', clue_here: true}}}})
+        .some(error => error.path === '/continuity_review/reentry_review/basis'));
+    // Nor once the receipt has actually landed.
+    assert.ok(continuityArtifactErrors(honest, chosen, {'context.json': {...refusedContext, receipts: [{kind: 'clue', clue: 'old-report'}]}})
+        .some(error => error.path === '/continuity_review/reentry_review/basis'));
+    // It is a structural defer, never a pass, and it copies the bridge's own clue and relation.
+    const asPass = structuredClone(honest); asPass.continuity_review.reentry_review.verdict = 'pass';
+    assert.ok(continuityArtifactErrors(asPass, chosen, {'context.json': refusedContext})
+        .some(error => error.path === '/continuity_review/reentry_review/verdict'));
+    const wrongRelation = structuredClone(honest); wrongRelation.continuity_review.reentry_review.relation = 'contradicts';
+    assert.ok(continuityArtifactErrors(wrongRelation, chosen, {'context.json': refusedContext})
+        .some(error => error.path === '/continuity_review/reentry_review/relation'));
+    const invented = structuredClone(honest); invented.continuity_review.reentry_review.quote = 'A line the candidate never wrote.';
+    assert.ok(continuityArtifactErrors(invented, chosen, {'context.json': refusedContext})
+        .some(error => error.path === '/continuity_review/reentry_review/quote'));
+    // clarify_known never reaches for it.
+    assert.ok(continuityArtifactErrors(honest, chosen, {'context.json': {...refusedContext,
+        causal_reentry: {...causal.causal_reentry, mode: 'clarify_known', known: [{name: 'old-report', relation: 'supports'}]}}})
+        .some(error => error.path === '/continuity_review/reentry_review/basis'));
+});

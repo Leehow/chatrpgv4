@@ -133,7 +133,12 @@ export class AdaptationJobs {
             && jsonDigest([await this.instructions(), ADAPTATION_FIELDS]) === job.contract;
     }
     private view(job: Row): Row {
-        return {name: job.name, status: job.status, reason: job.error ?? null,
+        // Contract §37.6: a refusal the Keeper cannot read is a refusal it repeats. The independent
+        // reviewer's own words travel to the surface, not the generic sentence the failure carries.
+        const refusal = row(job.refusal);
+        return {name: job.name, purpose: job.purpose, status: job.status, reason: job.error ?? null,
+            ...(job.status === 'failed' && Object.keys(refusal).length ? {refused: refusal,
+                instruction: 'The independent source review contradicted this exact placement. Do not prepare the same placement again: propose a materially different one the original source supports, or continue the chosen action without it and leave the causal thread standing.'} : {}),
             ...(job.status === 'ready' ? {changes: array(job.preview), instruction: 'This reviewed proposal changes no fiction until apply adaptation accepts it; use ordinary effects afterwards.'} : {})};
     }
     async prepare(params: Row): Promise<Row> {
@@ -300,8 +305,18 @@ export class AdaptationJobs {
         const checked = array(review.checked), count = job.rebase ? job.previous.length : job.changes.length;
         const indices = new Set(checked.filter(c => c.verdict === 'supported' && typeof c.reason === 'string' && c.reason.trim()).map(c => c.index));
         if (review.verdict !== 'supported' || !Array.isArray(review.issues) || review.issues.length || typeof review.summary !== 'string' || !review.summary.trim() || indices.size !== count ||
-            Array.from({length: count}, (_, i) => i).some(i => !indices.has(i)) || checked.length !== count)
+            Array.from({length: count}, (_, i) => i).some(i => !indices.has(i)) || checked.length !== count) {
+            const line = (value: unknown) => chars(string(value), 400);
+            const refusal: Row = {
+                ...(string(review.summary).trim() ? {summary: line(review.summary)} : {}),
+                ...(array(review.issues).length ? {issues: array(review.issues).slice(0, 4).map(line)} : {}),
+                ...(checked.some(entry => row(entry).verdict !== 'supported')
+                    ? {contradicted: checked.filter(entry => row(entry).verdict !== 'supported').slice(0, 4).map(entry => line(row(entry).reason))}
+                    : {})
+            };
+            if (Object.keys(refusal).length) { job.refusal = refusal; await this.save(job); }
             return fail('Independent review did not support every change without unresolved issues', 'adaptation_review_failed');
+        }
         job.review_digest = jsonDigest(review); job.status = 'ready'; await this.save(job); return this.view(job);
     }
     async cancel(params: Row): Promise<Row> {

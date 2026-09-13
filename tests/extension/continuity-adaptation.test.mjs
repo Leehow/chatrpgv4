@@ -469,3 +469,32 @@ test('real worldline fork and switch load their own adaptations, and a divergent
     await assert.rejects(t.call('table.apply', {call_id: `t${n}-c1`, effects: [{kind: 'merge', name: 'joined', lines: ['main', 'side']}]}), e => e.details?.reason === 'adaptation_merge_conflict');
     assert.equal(JSON.stringify(await t.world()), before);
 });
+
+/**
+ * Contract §37.6: a refusal the Keeper cannot read is a refusal it repeats. Retained live evidence
+ * `midgame-bridge-live-21` shows the same contradicted placement prepared twice because the surface said
+ * only "Independent review did not support every change without unresolved issues".
+ */
+test('a contradicted placement reports the reviewer own words and tells the keeper not to repeat it', async () => {
+    const starting = graph.startScene(), clue = graph.nodes.get(graph.sceneClueIds(starting)[0]);
+    const rebinding = [{kind: 'clue_at', clue: graph.handle(clue), scene: graph.handle(starting),
+        sources: [clue.name], reason: 'Let the existing evidence be discoverable where the player stands.'}];
+    const t = await table(), p = await prepare(t, 'Report to the office', rebinding, 'source_rebinding');
+    const contradiction = 'The source keeps that copy at the newspaper morgue and gives Knott no such document.';
+    await assert.rejects(review(t, p, {verdict: 'contradicted', summary: contradiction,
+        issues: ['clue_at contradicts the canonical discoverable-at newspaper-morgue.'],
+        checked: [{index: 0, verdict: 'contradicted', reason: contradiction}]}),
+        error => error.details?.reason === 'adaptation_review_failed');
+    // The lane host records the failure the way the runtime does.
+    await t.call('adaptation.fail', {name: p.name, key: p.key, attempt: p.attempt, error: 'Independent review did not support every change without unresolved issues'});
+
+    const status = await t.call('adaptation.status', {name: p.name});
+    assert.equal(status.status, 'failed');
+    assert.equal(status.purpose, 'source_rebinding');
+    assert.equal(status.refused.summary, contradiction);
+    assert.deepEqual(status.refused.issues, ['clue_at contradicts the canonical discoverable-at newspaper-morgue.']);
+    assert.deepEqual(status.refused.contradicted, [contradiction]);
+    assert.match(status.instruction, /Do not prepare the same placement again/);
+    // The generic sentence is kept; it is simply no longer all the Keeper is told.
+    assert.match(status.reason, /did not support every change/);
+});

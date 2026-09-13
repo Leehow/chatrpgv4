@@ -5463,7 +5463,7 @@ Acceptance covers: a missing ordinary key gets no adaptation preparation; a firs
 
 ## 37. Midgame causal re-entry: reliable detection and a grounded bridge (core mainline implemented and genuine-play accepted; extended live gate pending)
 
-The adaptation and continuity infrastructure of §36 is integrated. The midgame causal-logic mainline is implemented and its static/code status stands, and its core genuine-play acceptance is **accepted on the retained `midgame-reentry-live-20` evidence**: the prior primary-acceptance campaign `midgame-reentry-live-18` (runs `midgame-reentry-live-18b-run`, `midgame-reentry-live-18c-run`) has raw evidence that was accidentally deleted by a worktree closeout and is now `invalid-for-acceptance` as independently inspectable raw evidence — an operator evidence-retention failure, not a product pass — so the accepted result rests on the retained live20 chain (turn-2 acquisition of `globe-unpublished-story` through Ruth Blake's 1918 withheld Globe file after ordinary play; turn-3 stored `misframed` frame for `house-haunted-by-corbitt`; turn-4 under 1.2.15 the wrong-direction failure, kept as failed evidence, not a pass; 1.2.16's `relation` fix; turn-5 corrected candidate passed audit job `8a186efaaa015298f4da7e7a5182e3eda6a346d44ddff53ca6918ec211ef3396` and turn-6 `player_discharge` passed audit job `80d5601af739a1ebbc513820561c88561b8b460f75995d043755d55b755c8ecc`, storing `aligned` in `memory/story.jsonl` at commit `c3a0d29` without forcing the player into the house). The retained `midgame-reentry-live-19` run is a semantic-model failure, not acceptance. The reentry contract itself remains implemented: a midgame explicit `misframed` frame is assessed post-commit, the next turn projects a deterministic reentry mode, and the checked audit validates a permitted basis with the selected evidence's `relation`. Current versions are **story-thread 1.2.6** and **narration-audit 1.2.16** with DeepSeek Flash only, and the current retained evidence worktree is `/Users/haoli/leehow/code/chatrpgv4-wt-midgame-evidence`, which will be locked and retained and must not be closed or deleted. The extended `introduce_evidence` / `source_rebinding` / `bridge_offer` live gate remains **PENDING**: its contracts and static seams are implemented but no successful post-1.2.16 live chain through those stages was completed, so §37.5 item 11 remains unaccepted and the gate is tracked separately. This section is the versioned contract for the slice that closes the gap. Verified implementation, current 1.2.16 static validation (`npm run check:kernel` passed; targeted continuity/adaptation/audit/turn 59/59; targeted relation validation 11/11; full `npm run test:ext` 883/883 exit 0), earlier adjacent validation (targeted Python `tests/kernel/test_memory.py` + `tests/play/test_driver.py` 29/29 and runtime build passed before the relation-only change), and the retained genuine-play evidence are in [the midgame causal re-entry checkpoint](../research/midgame-causal-reentry-2026-09-13.md). Historical failed-evidence paragraphs remain preserved and are not rewritten by this checkpoint.
+The adaptation and continuity infrastructure of §36 is integrated. The midgame causal-logic mainline is implemented and its static/code status stands, and its core genuine-play acceptance is **accepted on the retained `midgame-reentry-live-20` evidence**: the prior primary-acceptance campaign `midgame-reentry-live-18` (runs `midgame-reentry-live-18b-run`, `midgame-reentry-live-18c-run`) has raw evidence that was accidentally deleted by a worktree closeout and is now `invalid-for-acceptance` as independently inspectable raw evidence — an operator evidence-retention failure, not a product pass — so the accepted result rests on the retained live20 chain (turn-2 acquisition of `globe-unpublished-story` through Ruth Blake's 1918 withheld Globe file after ordinary play; turn-3 stored `misframed` frame for `house-haunted-by-corbitt`; turn-4 under 1.2.15 the wrong-direction failure, kept as failed evidence, not a pass; 1.2.16's `relation` fix; turn-5 corrected candidate passed audit job `8a186efaaa015298f4da7e7a5182e3eda6a346d44ddff53ca6918ec211ef3396` and turn-6 `player_discharge` passed audit job `80d5601af739a1ebbc513820561c88561b8b460f75995d043755d55b755c8ecc`, storing `aligned` in `memory/story.jsonl` at commit `c3a0d29` without forcing the player into the house). The retained `midgame-reentry-live-19` run is a semantic-model failure, not acceptance. The reentry contract itself remains implemented: a midgame explicit `misframed` frame is assessed post-commit, the next turn projects a deterministic reentry mode, and the checked audit validates a permitted basis with the selected evidence's `relation`. Current versions are **story-thread 1.2.6** and **narration-audit 1.2.16** with DeepSeek Flash only, and the current retained evidence worktree is `/Users/haoli/leehow/code/chatrpgv4-wt-midgame-evidence`, which will be locked and retained and must not be closed or deleted. The extended `introduce_evidence` / `source_rebinding` / `bridge_offer` live gate remains **PENDING**: its contracts and static seams are implemented but no successful post-1.2.16 live chain through those stages was completed, so §37.5 item 11 remains unaccepted and the gate is tracked separately. This section is the versioned contract for the slice that closes the gap. Verified implementation, current 1.2.16 static validation (`npm run check:kernel` passed; targeted continuity/adaptation/audit/turn 59/59; targeted relation validation 11/11; full `npm run test:ext` 883/883 exit 0), earlier adjacent validation (targeted Python `tests/kernel/test_memory.py` + `tests/play/test_driver.py` 29/29 and runtime build passed before the relation-only change), and the retained genuine-play evidence are in [the midgame causal re-entry checkpoint](../research/midgame-causal-reentry-2026-09-13.md). Historical failed-evidence paragraphs remain preserved and are not rewritten by this checkpoint. **Superseded by §37.6 (2026-09-13): current versions are story-thread 1.2.7 and narration-audit 1.2.17**, which add the `authority_unavailable` basis for a placement the independent source review refused; version numbers named in the historical paragraphs below record what was current when each finding was taken.
 
 ### 37.1 Objective and constraints
 
@@ -5635,10 +5635,66 @@ Overall pass requires a passing `reentry_review` or a structural defer, and a `b
 
 **Accounting.** Preserve the §13.7/§31 rule that ordinary `offerLedger` rows count but never nag. Add separate telemetry/acceptance accounting for story assessment status, reentry projected, and `bridge_delivered`; do not turn offer feedback into an obligation. All player-visible words are written by the Keeper in `play_language`; stored frame/delivery excerpts retain their original text. All authored system instructions stay English.
 
+### 37.6 A refused placement: `rebinding_refused` and the `authority_unavailable` basis (2026-09-13)
+
+`mode: introduce_evidence` with `authority.clue_here: false` permits exactly one route — accept a
+`source_rebinding` first. Retained live evidence (`midgame-bridge-live-21`, campaign turn 3) shows what
+happens when that route is closed from the other side: the Keeper prepared the rebinding, and the
+independent adaptation review **contradicted** it, correctly, because the proposed placement would have
+invented an NPC's possession of a document the source keeps at the newspaper morgue. Every basis was then
+unreachable, the audit could only revise, and the Keeper — told nothing but a generic failure sentence —
+prepared the same placement again on the next turn. The turn-lifecycle half of that deadlock is §38; this
+subsection removes its cause.
+
+**A refusal the Keeper cannot read is a refusal it repeats.** `adaptation.prepare`/`adaptation.status`
+now carry the job's `purpose`, and a `failed` job carries `refused` — the independent reviewer's own
+`summary`, `issues` and per-change `contradicted` reasons, each bounded — plus one instruction: do not
+prepare the same placement again; propose a materially different one the original source supports, or
+continue the chosen action without it. The generic `reason` sentence stays; it is no longer all there is.
+This is the §31 adoption end of an error that already existed in the retained review artifact.
+
+**`story-thread` 1.2.7** acts on it: a `failed` rebinding means that placement is refused, not that the
+bridge must be retried verbatim. The Keeper either prepares a materially different placement — a different
+scene, carrier or provenance — or plays the action the player actually chose, claims no evidence and no
+placement, and leaves the causal thread standing for a later turn.
+
+**`context.rebinding_refused` is host-owned structural state.** The host records `{name, summary?}` when a
+`source_rebinding` result for this turn reports `failed`, clears it when a later proposal reports
+`pending`/`reviewing`/`ready`/`accepted`, and clears it when the next turn opens. It rides on the `narrate`
+payload beside `preparation_wait` and reaches `context.json` the same way. It is never inferred from prose
+and never set because the Keeper says a placement is impossible.
+
+**`authority_unavailable` (narration-audit 1.2.17)** is the resulting basis:
+
+| basis | verdict | requirements |
+| --- | --- | --- |
+| `authority_unavailable` | `defer` | `mode` is `introduce_evidence`; `context.rebinding_refused` exists; `causal_reentry.authority.clue_here` is `false`; no bridge clue or source-handout receipt is current; `clue` exactly copies `causal_reentry.bridge.clue` and `relation` exactly copies `causal_reentry.bridge.relation`; `quote` is an exact candidate excerpt continuing the action the player chose, claiming no evidence, no acquisition, no placement and no preparation that is not running |
+
+It is a structural defer beside `preparation_wait` and `bridge_offer`: the turn is delivered, no receipt is
+minted, `bridge_delivered` stays `false`, and the next turn carries the reentry again until the player acts
+or a later valid discharge occurs. It never applies when `authority.clue_here` is `true`, when a bridge
+receipt is current, or merely because the Keeper has not tried — only a recorded refusal makes it lawful.
+
+### 37.7 Acceptance for §37.6
+
+1. A `failed` `source_rebinding` reports `purpose`, `refused.summary`/`issues`/`contradicted` and the
+   do-not-repeat instruction, taken from the independent review's own artifact.
+2. With `context.rebinding_refused` present, `authority.clue_here` false and no bridge receipt, a candidate
+   that continues the player's chosen action without claiming the evidence is `authority_unavailable`
+   `defer` and the turn is delivered.
+3. The same basis is refused when `authority.clue_here` is `true`, when a bridge receipt is current, or
+   when no `rebinding_refused` is recorded.
+4. `bridge_delivered` stays `false` and the reentry is carried into the next turn.
+
 ### 37.4 The three ends (§31)
 
 - **Writer:** `memory.submit`, after model extraction in the existing lane; authority for the placement change itself is written by the effective graph/adaptation layer (settled `source_rebinding`), which sets `causal_reentry.authority.clue_here`. The kernel also writes `mode` (`clarify_known` | `introduce_evidence`) deterministically from the acquired evidence on the selected thread plus the earlier same-worldline/loop/thread assessments: `clarify_known` when `known` is nonempty and no earlier assessment before the current one recorded `bridge_delivered: true`, otherwise `introduce_evidence`.
 - **Reader:** the `story-thread` projection in the capsule; `story-thread` **1.2.6** is the Keeper/action consumer of the narration-audit 1.2.16 modes, the `relation` rule and the 1.2.13 `bridge_offer` basis, whose placement/offer and acquisition/delivery stages are separated by 1.2.14. It reads `mode` and acts on it: for `clarify_known` it connects one already acquired `known` row, states how it supports or contradicts the selected claim **in that row's own `relation` direction** and why it matters now, and continues the player's chosen action, opening no adaptation and inventing no clue; for `introduce_evidence` it reads `authority.clue_here` and the current `current_input` and tells the Keeper whether to prepare/accept `source_rebinding` first (authority false), settle only the exact clue/handout receipt the chosen action needs (authority true and the player chose to receive/read/examine it), or narrate an unforced `bridge_offer` and leave the choice open (authority true and the player did not choose it), realizing the supplied bridge in its own `relation` direction; it never asks for `source_rebinding` again once authority is true, and it never treats a `new_destination` scene's creation-time no-clue description as a permanent prohibition on adding an existing clue's delivery relation through a later reviewed `source_rebinding`, nor creates a flag, ruling, note or adaptation that would forbid the bridge or freeze the scene clue-free.
+- **Refused placement (§37.6):** the writer is the independent adaptation review, whose contradiction is
+  recorded on the job and surfaced as `refused`; the host carries it as `rebinding_refused`; the reader is
+  `story-thread` **1.2.7**, which stops resubmitting that placement; the actor is the Keeper, who plays the
+  chosen action honestly, and narration-audit **1.2.17**, which accepts that as `authority_unavailable`
+  `defer` and keeps the reentry standing.
 - **Actor:** under `clarify_known` the Keeper realizes one known evidence row in that row's own `relation` direction using the existing seven verbs; under `introduce_evidence` the Keeper realizes the reentry's supplied `bridge` in its own `relation` direction. The narration-audit 1.2.16 modes accept only `acquired_clarification`/`player_discharge` for `clarify_known` and `bridge_receipt`/`bridge_offer` for `introduce_evidence`, each carrying the selected row's or bridge's `relation`; the 1.2.14 stage separation reads/verifies the unforced offer as a structural `defer` and the receipt-backed realization as `bridge_receipt`, and the next memory assessment records whether a bridge was delivered, with later player input showing alignment. Tied together: the kernel writes `mode` from acquired evidence plus prior assessments, `story-thread` acts on it, the audit validates the permitted basis and its relation, and the effective graph/adaptation layer writes authority.
 
 ### 37.5 Acceptance

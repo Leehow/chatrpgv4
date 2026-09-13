@@ -11,7 +11,7 @@ import {array, row, string, type Row} from '../read/values.js';
 import {continuityAuditContext} from './continuity-audit.js';
 
 export const SOURCE_AUDIT = 'audit.source.v1';
-export async function auditSourceEvidence(context: KernelContext, campaign: Pick<CampaignWritePort, 'id'>, module: LoadedModule, world: Row, turn: Row, party: Row[], continuity = false, preparationWait: Row | null = null) {
+export async function auditSourceEvidence(context: KernelContext, campaign: Pick<CampaignWritePort, 'id'>, module: LoadedModule, world: Row, turn: Row, party: Row[], continuity = false, preparationWait: Row | null = null, rebindingRefused: Row | null = null) {
     const original = module.adapted ? await pinnedSource(context, row(world.adaptation).source) : module;
     const source = (loaded: LoadedModule) => ({graph: loaded.graph.raw,
         material: [...loaded.graph.nodes.values()].map(node => ({name: loaded.graph.handle(node), status: loaded.material(node.node_id)}))});
@@ -32,6 +32,11 @@ export async function auditSourceEvidence(context: KernelContext, campaign: Pick
         if (preparationWait && ['source', 'adaptation'].includes(string(preparationWait.kind)))
             row(files['context.json']).preparation_wait = {kind: preparationWait.kind,
                 ...(typeof preparationWait.name === 'string' && preparationWait.name ? {name: preparationWait.name} : {})};
+        // Contract §37.6: the independent source review refused the placement this reentry needs. That is
+        // host-owned structural state, not prose, and it is what makes an authority_unavailable defer lawful.
+        if (rebindingRefused && string(rebindingRefused.name))
+            row(files['context.json']).rebinding_refused = {name: string(rebindingRefused.name),
+                ...(string(rebindingRefused.summary) ? {summary: string(rebindingRefused.summary)} : {})};
     }
     return {files, binding: jsonDigest({files, current, party}), descriptor: {schema: 1, files: Object.keys(files),
         current_input: current.player_text, pending_choice: current.pending_choice,
