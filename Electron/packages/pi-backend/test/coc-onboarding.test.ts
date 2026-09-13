@@ -46,9 +46,9 @@ it('joins one background presentation across status polls',async()=>{
 it('patches only the owning phase and retains conversation binding across delayed completion',async()=>{
   // Controlled promises exercise coordinator races only; this is not gameplay.
   const {host,home}=await service();
-  const pending:Array<{action:string;resolve:(value:any)=>void}>=[];
-  vi.spyOn(host as any,'run').mockImplementation((action:any)=>action==='converse'?Promise.resolve({}):
-    new Promise(resolve=>pending.push({action,resolve})));
+  const pending:Array<{action:string;data:any;resolve:(value:any)=>void}>=[];
+  vi.spyOn(host as any,'run').mockImplementation((action:any,data:any)=>action==='converse'?Promise.resolve({}):
+    new Promise(resolve=>pending.push({action,data,resolve})));
   let job=await host.invoke({action:'select',source:'module',module_id:'book-1',name:'Book'},'one',model);
   pending.shift()!.resolve({module_id:'book-1',guidance:{scene:'Dock'},guidance_key:'a'.repeat(64)});
   await new Promise(resolve=>setTimeout(resolve,0));
@@ -56,7 +56,10 @@ it('patches only the owning phase and retains conversation binding across delaye
   job=await host.invoke({action:'converse',id:job.id},'one',model);
   const campaign=job.campaign;
   await host.invoke({action:'pause',id:job.id},'one',model);
-  await host.invoke({action:'resume',id:job.id},'one',model);
+  const retryModel={id:'test/retry-provider',thinking:'high',vision:true};
+  await host.invoke({action:'resume',id:job.id},'one',retryModel);
+  expect(pending[1].data.model).toBe(retryModel.id);
+  expect(pending[1].data.thinking).toBe(retryModel.thinking);
   pending[0].resolve({opening_ready:true});
   await new Promise(resolve=>setTimeout(resolve,0));
   let saved=JSON.parse(await readFile(join(home,'.coc/imports',job.id,'job.json'),'utf8'));
