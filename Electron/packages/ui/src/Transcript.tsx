@@ -328,16 +328,17 @@ export const MessageView = memo(function MessageView({ message, showFooter, docu
   const copyMessage = marked ? {...message, content:withoutMechanicsMarkers(marked)} : message
   const copyDisabled = !copyMessage.content.trim()
   const canBranch = Boolean(onBranch && branchMessageIds?.has(message.id))
-  // §35: illustration is a narration affordance — assistant prose rows only,
-  // settled ones (never a live stream, never a presentation card).
-  const canIllustrate = Boolean(onIllustrate && message.role === 'assistant' && message.content.trim() && !message.presentation && !message.streaming)
-  const illustrationNode = illustration && message.role === 'assistant' && !message.presentation ? <IllustrationMount state={illustration} words={actionWords} /> : undefined
+  // §35: illustration is a narration affordance — assistant prose rows only, settled ones
+  // (never a live stream). Mechanics turns are presentation rows whose prose is the marked
+  // text, so the check rides the same content Copy uses, not the renderer kind.
+  const canIllustrate = Boolean(onIllustrate && message.role === 'assistant' && !message.streaming && copyMessage.content.trim())
+  const illustrationNode = illustration && message.role === 'assistant' ? <IllustrationMount state={illustration} words={actionWords} /> : undefined
   const copy = () => { void onCopy(copyMessage).catch(() => undefined) }
   const time = showFooter && message.timestamp ? <time className="message-time" dateTime={new Date(message.timestamp).toISOString()}>{messageTime(message.timestamp)}</time> : null
   const alignment = message.role === 'user' ? 'trailing' : 'leading'
   const actions = (showFooter || canBranch || canIllustrate) && !signal ? <MessageActionBar onBranch={canBranch ? () => onBranch?.(message) : undefined} branchDisabled={branchDisabled} onIllustrate={canIllustrate ? () => onIllustrate?.(message) : undefined} illustrateBusy={illustration?.status === 'busy'} illustrateDisabled={illustrateDisabled} words={actionWords} alignment={alignment} canCopy canResend={message.role === 'user' && Boolean(message.content.trim())} canJump={canJump && !canBranch && message.role === 'assistant'} copyDisabled={copyDisabled} resendDisabled={resendDisabled} onCopy={copy} onResend={() => onResend(message)} onJump={onJump} copied={copied} /> : null
   const footer = actions || time ? <div className="message-footer">{time}{actions}</div> : null
-  if (message.presentation) return <><PresentationEntry message={message} onChoose={onChoose} onDraftOverride={onDraftOverride} />{marked && <div className="message presentation-footer">{footer}</div>}</>
+  if (message.presentation) return <><PresentationEntry message={message} illustration={illustrationNode} onChoose={onChoose} onDraftOverride={onDraftOverride} />{marked && <div className="message presentation-footer">{footer}</div>}</>
   if (message.role === 'compaction') return <CompactionDivider message={message} />
   if (message.role === 'user') return signal ? <article className="message user-message subagent-signal-message"><div className="subagent-signal-stack"><SubagentSignalCard content={message.content} documentBasePath={documentBasePath} onOpenDocument={onOpenDocument} />{time}</div></article> : <article className="message user-message" data-user-prompt={message.id}><div className="user-message-stack"><UserMessageBubble text={message.content} images={message.images} /></div>{footer}</article>
   if (message.role === 'tool') { const notice = parseSubagentNotice(message.content); return notice ? <article className="message assistant-message"><CollapsibleActivityCard kind="result" label="子任务" summary={notice.name} meta={`${notice.ok ? '成功' : '失败'} · ${notice.cost}`} error={!notice.ok}><pre><TruncatedText text={message.content} /></pre></CollapsibleActivityCard>{footer}</article> : <article className="system-message tool-message"><div><TruncatedText text={message.content} /></div>{footer}</article> }
@@ -364,12 +365,13 @@ function presentationWord(details: unknown, surface: string, key: string): strin
   return typeof word==='string'?word:key
 }
 
-function PresentationEntry({message,onChoose,onDraftOverride}:{message:ChatMessage}&PresentationActionProps) {
+function PresentationEntry({message,illustration,onChoose,onDraftOverride}:{message:ChatMessage;illustration?:ReactNode}&PresentationActionProps) {
   useToolRenderers()
   const data=message.presentation!
   if(data.renderer==='coc-character-draft')return <article className="message assistant-message"><CocCharacterDraft data={data.details as any} onPresentation={onChoose?async()=>await onChoose(data,'presentation') as any:undefined} onRendered={onChoose?async()=>{await onChoose(data,'previewed')}:undefined} onOverride={onDraftOverride?async(request)=>await onDraftOverride(data,request):undefined}/></article>
   const render=getToolRenderer(data.renderer)?.render
   return <article className="message assistant-message" data-presentation={data.renderer}>
+    {illustration}
     {render ? render({tool:{id:message.id,name:data.renderer,input:'',startedAt:0,finished:true},content:'',details:data.details,onSelectOption:onChoose?async(option)=>{await onChoose(data,option)}:undefined,elapsed:()=>''}) : <p role="status">{presentationWord(data.details,'transcript','loading')}</p>}
   </article>
 }

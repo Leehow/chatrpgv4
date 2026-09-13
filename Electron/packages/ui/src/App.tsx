@@ -45,7 +45,7 @@ import { LiveSubagentBindingProvider } from './LiveSubagentBinding'
 import { Transcript, type IllustrationState } from './Transcript'
 import { EmptySetupGuide } from './EmptySetupGuide'
 import { parseSubagentSignal } from './subagent-signal'
-import { appendLiveUserMessage, applySecretRedact, applyStreamEvent, assistantEndedAwaitingModel, assistantLooksSettled, finishStreamingMessage, reopenAssistantForNextCompletion, reconcileHistorySnapshot, transcriptFingerprint, type ChatMessage } from './transcript-model'
+import { appendLiveUserMessage, applySecretRedact, applyStreamEvent, assistantEndedAwaitingModel, assistantLooksSettled, finishStreamingMessage, reopenAssistantForNextCompletion, reconcileHistorySnapshot, transcriptFingerprint, withoutMechanicsMarkers, type ChatMessage } from './transcript-model'
 import { DismissibleError } from './DismissibleError'
 import { displaySecretPlaceholders } from './secret-display'
 import { toolDisplaySummary } from './tool-summary'
@@ -2266,7 +2266,9 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
   useEffect(() => { setIllustrations({}); illustrationListLoadedForRef.current = null }, [selectedSession])
   const messageActionWordsRef = useRef<Record<string,string> | undefined>(undefined)
   messageActionWordsRef.current = timeline?.ui?.words?.['message-actions']
-  const illustrationGate = Boolean(productId === 'pipicoc' && selectedSession && timeline?.hostSessionId === selectedSession && timeline?.status === 'ready' && typeof timeline?.campaign === 'string' && host.invokeExtension)
+  // Bound, not "ready": a cold graph answer (no live agent yet) carries neither `status` nor
+  // `campaign`, while every unbound answer from either path names status "unbound".
+  const illustrationGate = Boolean(productId === 'pipicoc' && selectedSession && timeline?.hostSessionId === selectedSession && timeline?.status !== 'unbound' && host.invokeExtension)
   useEffect(() => {
     if (!illustrationGate || !selectedSession || !host.invokeExtension) return
     if (illustrationListLoadedForRef.current === selectedSession) return
@@ -2308,7 +2310,9 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
     if (!selectedSession || !host.invokeExtension || sessionWorking || branchBusy) return
     if (illustrations[message.id]?.status === 'busy') return
     setIllustrations(current => ({...current, [message.id]: {status:'busy'}}))
-    void host.invokeExtension('coc-keeper','illustration.generate',{messageId:message.id, text:displaySecretPlaceholders(message.content)}, {sessionId:selectedSession}).then(result => {
+    const marked = (message.presentation?.details as { marked_text?: unknown } | undefined)?.marked_text
+    const source = typeof marked === 'string' && marked.trim() ? withoutMechanicsMarkers(marked) : message.content
+    void host.invokeExtension('coc-keeper','illustration.generate',{messageId:message.id, text:displaySecretPlaceholders(source)}, {sessionId:selectedSession}).then(result => {
       if (result.ok) return // {status:'generating'} — the push settles the row.
       setIllustrations(current => ({...current, [message.id]: {status:'error', code:result.error?.code ?? 'unknown'}}))
       setProjectError(result.error?.message || 'Illustration failed')

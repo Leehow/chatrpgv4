@@ -8721,6 +8721,34 @@ export class PiHostBackend implements HostBackend {
     await callColdKernel(resolve(this.managedNodeModulesRoot,".."),context.home,"table.switch",
       {campaign:context.campaign,line},this.env,this.cocRuntime);
   }
+  /** §35: the campaign's illustration index, answered without a live agent (same files the pack writes). */
+  private async cocIllustrationImage(folder:string,file:string):Promise<string|undefined> {
+    const mime=({png:"image/png",jpg:"image/jpeg",webp:"image/webp"} as Record<string,string>)[file.split(".").pop()??""];
+    if(!mime)return undefined;
+    try{return `data:${mime};base64,${(await fs.readFile(join(folder,file))).toString("base64")}`;}
+    catch{return undefined;}
+  }
+  private async cocIllustrationIndex(home:string,campaign:string):Promise<{folder:string;index:Record<string,string>}> {
+    const folder=join(home,".coc","campaigns",campaign,"illustrations");
+    try{
+      const raw=JSON.parse(await fs.readFile(join(folder,"index.json"),"utf8"));
+      return {folder,index:isRecord(raw)?raw as Record<string,string>:{}};
+    }catch{return {folder,index:{}};}
+  }
+  private async cocIllustration(home:string,campaign:string,messageId:string):Promise<string|undefined> {
+    const {folder,index}=await this.cocIllustrationIndex(home,campaign);
+    const file=index[messageId];
+    return file?this.cocIllustrationImage(folder,file):undefined;
+  }
+  private async cocIllustrations(home:string,campaign:string):Promise<Array<{messageId:string;image:string}>> {
+    const {folder,index}=await this.cocIllustrationIndex(home,campaign);
+    const images:Array<{messageId:string;image:string}>=[];
+    for(const [messageId,file] of Object.entries(index)){
+      const image=await this.cocIllustrationImage(folder,file);
+      if(image)images.push({messageId,image});
+    }
+    return images;
+  }
   private async cocTimeline(sid:string,method:string,params:Record<string,unknown>):Promise<ExtInvokeResult> {
     if(method!=="timeline.graph") {
       const previous=this.cocTimelineMutation;
@@ -8950,6 +8978,41 @@ export class PiHostBackend implements HostBackend {
         const code=this.cocCode(error);
         return this.cocDenied(code==='internal'&&details?.reason==='campaign_locked'?'operation_in_progress':code,error instanceof Error?error.message:String(error));
       }
+    }
+    // §35 turn illustrations. Reads fall back to the campaign's own folder when no live agent
+    // answers (a restored session spawns lazily); generate spawns it, exactly like a first prompt.
+    if (id === "coc-keeper" && (method === "illustration.list" || method === "illustration.get")) {
+      const sid = isRecord(optsValue) && typeof optsValue.sessionId === "string" ? optsValue.sessionId : "";
+      const live = sid ? this.live.get(sid) : undefined;
+      if (live && this.liveProcessUsable(live) && this.extensions.isMounted(sid, id)) {
+        return this.enqueueExtInvoke(sid, id, method, params);
+      }
+      const messageId = isRecord(params) && typeof params.messageId === "string" ? params.messageId : undefined;
+      if (method === "illustration.get" && !messageId) return this.cocDenied("invalid_params", "illustration.get needs the message id");
+      if (!sid) return method === "illustration.list" ? { ok: true, data: { images: [] } } : this.cocDenied("no_session", "Select a session first");
+      try {
+        const binding = await readCocBinding((await this.locate(sid)).path);
+        if (method === "illustration.list") return { ok: true, data: { images: binding ? await this.cocIllustrations(binding.home, binding.campaign) : [] } };
+        const image = binding && messageId ? await this.cocIllustration(binding.home, binding.campaign, messageId) : undefined;
+        return image
+          ? { ok: true, data: { messageId: messageId!, image } }
+          : this.cocDenied("illustration_not_found", "this message has no illustration");
+      } catch (error) { return this.cocDenied(this.cocCode(error), error instanceof Error ? error.message : String(error)); }
+    }
+    if (id === "coc-keeper" && method === "illustration.generate") {
+      const sid = isRecord(optsValue) && typeof optsValue.sessionId === "string" ? optsValue.sessionId : "";
+      if (!sid) return this.cocDenied("no_session", "Select a session first");
+      try {
+        const live = this.live.get(sid);
+        if (!live || !this.liveProcessUsable(live)) {
+          await this.ensure(sid);
+          // The pack learns its campaign from the kernel bridge during session_start; one round
+          // trip after spawn is what lets the lane answer instead of refusing table_not_open.
+          await this.command(sid, { type: "get_state" });
+        }
+        if (!this.extensions.isMounted(sid, id)) return this.cocDenied("capability_denied", "extension not mounted on session");
+        return this.enqueueExtInvoke(sid, id, method, params);
+      } catch (error) { return this.cocDenied(this.cocCode(error), error instanceof Error ? error.message : String(error)); }
     }
     if(id==='coc-keeper' && (method==='draft-previewed'||method==='draft-presentation')) {
       const sid=isRecord(optsValue)&&typeof optsValue.sessionId==='string'?optsValue.sessionId:'';
