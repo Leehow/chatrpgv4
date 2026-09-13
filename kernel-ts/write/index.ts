@@ -585,10 +585,50 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         preflightCampaign(snapshot.meta, snapshot.world, snapshot.turn, snapshot.party);
         await initializeMods(campaign, snapshot, true);
         const turn = snapshot.turn, text = required(params, 'text')!;
-        if (!['awaiting_player', 'asked'].includes(turn.state))
+        // Contract §38: a turn the Keeper's run left undelivered is stranded, and the host — never prose,
+        // never a verdict — may release it so the player can act again. Nothing is narrated or committed.
+        const release = params.release;
+        if (release !== undefined && release !== 'stranded')
+            throw new RpcError('invalid_params', 'release must be "stranded"', {
+                fix: 'omit release, or pass release: "stranded" to close a turn the Keeper left undelivered',
+                details: { release: release ?? null }
+            });
+        const stranded = release === 'stranded';
+        if (stranded && !['open', 'acting'].includes(turn.state))
+            throw new RpcError('invalid_params', `a turn that is ${repr(turn.state)} is not stranded`, {
+                fix: 'release only a turn the Keeper opened and left undelivered',
+                details: { turn: turn.turn, state: turn.state }
+            });
+        if (!stranded && !['awaiting_player', 'asked'].includes(turn.state))
             throw turnStateError(turn, 'table.player_input', 'finish the current turn with narrate or ask first');
         let next = number(turn.turn), pending = null;
-        if (turn.state === 'asked') {
+        if (stranded) {
+            await campaign.writeTurnRecord({
+                turn: next,
+                player_text: turn.player_text ?? null,
+                receipts: array(turn.receipts),
+                text: null,
+                rendered_text: null,
+                calls: turn.calls || {},
+                commit: null,
+                closed_by: 'stranded',
+                opened_at: turn.opened_at ?? null,
+                closed_at: nowIso(),
+                pending_choice: null,
+                capsule: turn.capsule ?? null,
+                world: tableSnapshot(snapshot, module.graph),
+                worldline: turn.worldline ?? null
+            });
+            await campaign.appendEvent(next, {
+                type: 'turn-stranded',
+                data: {
+                    receipts: array(turn.receipts).map(receipt => string(row(receipt).id))
+                }
+            });
+            await campaign.telemetry({ lane: 'turn', event: 'stranded', turn: next, receipts: array(turn.receipts).length });
+            next++;
+        }
+        else if (turn.state === 'asked') {
             next++;
             pending = turn.pending_choice ?? null;
         }

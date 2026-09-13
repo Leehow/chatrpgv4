@@ -79,10 +79,12 @@ committed        --扩展交付完成后自动-->    awaiting_player（turn+1）
 
 `committed` 是一个时刻，不是 `turn.json.state` 存得下的值：`narrate` 成功后内核直接写下一回合的 `awaiting_player`，代码里 grep 不到这个状态字符串。它表示「这一回合的记录、事件批与 git 提交已落」。
 asked            --table.player_input-->   open       新回合，胶囊带出待决
+open|acting      --table.player_input release:"stranded"-->  open   上一轮守秘人没交付就结束了；搁浅回合按 closed_by: "stranded" 落记录，开 turn+1（第 38 节）
 ```
 
 - `awaiting_player` 与 `committed` 期间，除 `table.open`、`table.status`、`table.capsule`、`table.look`、`table.lookup`、`table.recall` 外一切方法报 `turn_state`。
 - `narrate` 成功后内核自行把状态推到 `awaiting_player` 并递增 `turn`；「交付完成」是扩展侧的事，内核不等待。
+- 回合永远要能还给玩家：`open`/`acting` 的回合若上一轮代理运行结束时什么都没交付、而且连续性复核已被暂停（在新玩家输入之前批不了任何草稿），宿主用 `table.player_input` 的 `release: "stranded"` 把它按 `closed_by: "stranded"` 落记录并开下一回合。不叙述、不提交、不当成复核通过；复核还能用的未交付回合不算搁浅，照旧走下一条的恢复路径。契约见第 38 节。
 - `table.open` 返回时若 `turn.json` 的 `state` 是 `open` 或 `acting`，说明上次进程在回合中途结束：返回 `pending_turn`，含玩家原文、已落收据、尚欠的步骤描述；扩展把它注入给守秘人接着做完。
 
 ## 5. 方法
@@ -114,8 +116,8 @@ result：
 ```
 
 ### table.player_input（切片 0）
-params：`{"text": "<玩家原文>"}`。
-- 状态必须是 `awaiting_player` 或 `asked`，否则 `turn_state`。写逐字记录，开新回合，`turn.json` 进 `open`，发 `turn-started` 与 `player-declared` 事件。
+params：`{"text": "<玩家原文>", "release"?: "stranded"}`。
+- 状态必须是 `awaiting_player` 或 `asked`，否则 `turn_state`；带 `release: "stranded"` 时 `open`/`acting` 也接受（第 38 节），其余状态带这个参数报 `invalid_params`。写逐字记录，开新回合，`turn.json` 进 `open`，发 `turn-started` 与 `player-declared` 事件。
 result：`{"turn": int, "state": "open", "capsule": {...见第 6 节}}`。
 
 ### table.capsule（切片 0）
@@ -5673,3 +5675,99 @@ Implementation: post-commit memory story assessment over core authored threads; 
 Performance: the retained live20 aligned delivery was 16.1 s with only `narrate`, and the whole `midgame-reentry-live-20b-run` was 81.7 s across four driver attempts and seven tool calls. The deleted `midgame-reentry-live-18` run reportedly had a decisive `clarify_known` delivery of 15.948 s that avoided adaptation and a later aligned/library turn of 89.542 s with 10 `lookup` calls; those figures are `invalid-for-acceptance` along with the deleted raw evidence and are recorded here only as historical claims, and the lookup-heavy figure is classified as repeated lookup/model behavior rather than dynamic graph adaptation; no claim is made that all turns meet the 30 s target.
 
 The extended **`introduce_evidence` / `source_rebinding` / `bridge_offer`** live gate is **PENDING**. The earlier Greece/off-script retained failures drove bridge authority, `bridge_offer`, wait recovery and the no-clue-scene fixes; their contracts and static seams are implemented, but a successful post-1.2.16 live chain through those stages was not completed. Human UI acceptance, integration and packaging remain pending/out of scope. Full retained evidence: [the midgame causal re-entry checkpoint](../research/midgame-causal-reentry-2026-09-13.md).
+
+## 38. A turn always ends: releasing a stranded turn (2026-09-13)
+
+A turn that a player opened must always be able to return to that player, and a review that can approve
+nothing must not also be able to end the campaign. Until this section the state
+machine of §4 had one exit from `open`/`acting` — a successful `narrate` or `ask` — and one guard on
+`table.player_input`: the turn must be `awaiting_player` or `asked`. Retained live evidence
+(`midgame-bridge-live-21`, campaign turn 3, 2026-09-13) shows those two rules can close on each other and
+brick a campaign permanently, across process restarts. This section adds the missing exit. It is a
+turn-lifecycle rule, not a reentry rule; §37 is only where it was found.
+
+### 38.1 The retained deadlock
+
+The turn carried a projected `causal_reentry` with `mode: introduce_evidence`, `known: []` and
+`authority.clue_here: false`, so §37 permits exactly one lawful route: accept a `source_rebinding` first.
+The Keeper prepared one, and the independent adaptation review **contradicted** it — correctly, because the
+proposed placement would have invented an NPC's possession of a document the source keeps elsewhere. With
+that refusal, no `reentry_review` basis remained: `bridge_receipt`/`bridge_offer` need
+`authority.clue_here: true`; `acquired_clarification`/`player_discharge` need nonempty `known`;
+`preparation_wait` needs a live pending/reviewing job, and the job was terminal `failed`; `none` is by
+definition `revise`. The audit budget then blocked the review for that input, so every further `narrate`
+returned `needs` / `continuity_review_unavailable` — while the REFUSAL_BUDGET escape hatch tells the Keeper
+to "close the turn with narrate", the one thing the paused review had made impossible. A write had already
+landed that turn, so `turn.json` read `acting`, and every subsequent `table.player_input` was refused
+`turn_state`. A cold restart changed nothing: the state is on disk.
+
+**Both ends of the seam already agreed the player should speak again.** The host's `agent_settled` handler
+forwards a waiting input when the turn is closed **or** `reviewUnavailable` is set. The kernel never read
+that intent. This is the §31 shape: a writer with no reader.
+
+### 38.2 `table.player_input` accepts `release: "stranded"`
+
+`table.player_input` gains one optional parameter, `release`, whose only value is `"stranded"`.
+
+- Without it, the guard of §4/§5 is unchanged: `awaiting_player` or `asked`, else `turn_state`.
+- With it, `open` and `acting` are also accepted. Any other state rejects the parameter as
+  `invalid_params`: a delivered turn is not stranded, and stranding is never a way to discard a turn the
+  Keeper could still finish.
+- The kernel closes the stranded turn honestly before opening the next one. It writes that turn's record
+  with `closed_by: "stranded"`, `text: null`, `rendered_text: null`, `commit: null`, and its
+  `player_text`, `receipts`, `calls`, `capsule`, `opened_at`, `closed_at` and world snapshot preserved
+  exactly as they stand, and appends a `turn-stranded` event. It then opens turn n+1 exactly as an
+  ordinary `table.player_input` does.
+- A stranded turn is **not** a delivered turn. There is no git commit, no memory extraction job, no
+  Director adoption row, no offer-ledger row, no checkpoint and no transcript keeper line. Every consumer
+  that requires a delivery already filters on `closed_by === "narrate"` with a commit, so a stranded record
+  is inert to memory, continuity, continuation, source audit and story assessment.
+- Evidence is preserved, never discarded: the receipts that did land stay on the stranded record, and the
+  record is written before the next turn opens.
+
+### 38.3 Who may declare a turn stranded
+
+**The host, from its own retained run state, and never from prose or a verdict.** A turn is stranded when
+an agent run ended leaving it `open`/`acting` with nothing delivered — no `narrate`, no `ask` — **and** the
+continuity review for it is paused, so no draft can be approved until new player input arrives. Those are
+structural facts the host already records (`renderedText`, `closedThisRun`, `reviewUnavailable`, and the
+retained `reviewStatus` a restart reads at `table.open`). The host marks the turn stranded at
+`agent_settled`, and a restart that finds a `pending_turn` under a paused retained review marks it there,
+because that recovered turn can never be delivered either. The mark is carried on the next
+`table.player_input` and cleared as soon as a turn opens.
+
+An undelivered turn whose review still works is **not** stranded: the §4 recovery path stands, the guard
+still refuses the player input, and the Keeper finishes the turn it started. Stranding is never set because
+a review returned `revise`, because a candidate was refused by admission, or because the Keeper is slow —
+a `revise` inside a live run is not stranding, since the Keeper may still repair and deliver.
+
+**This is not a bypass of review.** Nothing is narrated, nothing is committed, no verdict is treated as a
+pass, and an unavailable review still authorizes nothing (§32). It only stops an unavailable review from
+also ending the campaign. The player gets the table back and may act again; the Keeper's next run sees the
+same unresolved reentry, and — because a new player input is a new review context — a fresh review
+allowance in which to reach a lawful draft.
+
+### 38.4 The three ends (§31)
+
+- **Writer:** the host, at `agent_settled` and at a `table.open` that finds a `pending_turn` under a paused
+  retained review, from its own run state; `before_agent_start` carries the mark, and the kernel writes the
+  stranded turn record and the `turn-stranded` event.
+- **Reader:** `table.player_input`'s state guard, and every delivery consumer through the existing
+  `closed_by === "narrate"` predicate, which a stranded record deliberately fails.
+- **Actor:** the player, who can speak again, and the Keeper, whose next run gets a new review context on
+  the same unresolved turn state.
+
+### 38.5 Acceptance
+
+1. A turn in `acting` whose agent run ended with no delivery under a paused review accepts the next
+   `table.player_input` with `release: "stranded"`, writes a `closed_by: "stranded"` record carrying that
+   turn's receipts, and opens turn n+1 with a capsule.
+2. Without `release`, the same call still fails `turn_state`; with `release` on an `awaiting_player` or
+   `asked` turn it fails `invalid_params`.
+3. A stranded record produces no commit, no memory job, no checkpoint, no Director adoption row and no
+   keeper transcript line, and is not read back as a delivery by continuity, continuation, source audit or
+   story assessment.
+4. An undelivered turn whose review still works is **not** released: the player input is still refused
+   `turn_state` and the §4 recovery path is unchanged.
+5. Live: the retained `midgame-bridge-live-21` deadlock cannot recur — after a paused review strands a
+   turn, the player's next utterance opens a new turn on the same unresolved reentry.

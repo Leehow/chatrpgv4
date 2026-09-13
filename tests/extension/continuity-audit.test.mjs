@@ -6,6 +6,7 @@ import {pathToFileURL} from 'node:url';
 import {build} from 'esbuild';
 import {continuityArtifactErrors, normalizeContinuityArtifact, AUDIT_LIMITS} from '../../kernel-ts/mods/audit-result.ts';
 import {AuditBudget, reviewUnavailable} from '../../extensions/mods/audit-budget.ts';
+import {KernelError} from '../../extensions/kernel/client.ts';
 import auditSubmit from '../../extensions/mods/audit-submit.ts';
 import {auditEvidenceView} from '../../extensions/mods/audit-evidence.ts';
 import modsExtension from '../../extensions/mods/index.ts';
@@ -257,4 +258,46 @@ for (const implicit of [false, true]) test(`unavailable ${implicit ? 'implicit' 
     await session.session.prompt('Continue.'); await waitForIdle(session.session);
     assert.equal(audits, 1); assert.equal(session.kernelRequests().filter(r => r.method === 'table.narrate').length, 0);
     assert.ok(assistantTexts(session.session).every(text => !text.includes('Unapproved') && !text.includes('Should never')));
+});
+
+/**
+ * Contract §38: a paused review must not also end the campaign. Retained live evidence
+ * `midgame-bridge-live-21` turn 3 stayed `acting` forever because the review approved nothing and the
+ * kernel then refused every further player utterance.
+ */
+test('a turn left undelivered under a paused review is released on the next player input', async t => {
+    const session = await openTable({retainAt: directory, responses: [
+        fauxAssistantMessage([fauxToolCall('look', {focus: 'scene'})], {stopReason: 'toolUse'}),
+        fauxAssistantMessage([fauxToolCall('narrate', {text: 'Unapproved draft.'})], {stopReason: 'toolUse'}),
+        fauxAssistantMessage([fauxToolCall('look', {focus: 'scene'})], {stopReason: 'toolUse'}),
+        fauxAssistantMessage('Should never be consumed.')]});
+    t.after(() => session.dispose());
+    session.emit('coc:mods-bridge', {async after() {}, async prepare(method) {
+        if (method === 'narrate') throw reviewUnavailable('Fixture budget exhausted');
+    }});
+    await session.session.prompt('I listen at the door.'); await waitForIdle(session.session);
+    await session.session.prompt('I give up on the door.'); await waitForIdle(session.session);
+    const inputs = session.kernelRequests().filter(request => request.method === 'table.player_input');
+    assert.equal(inputs.length, 2);
+    assert.equal(inputs[0].params.release, undefined);
+    assert.equal(inputs[1].params.release, 'stranded');
+});
+
+test('an undelivered turn whose review still works is not released', async t => {
+    const session = await openTable({retainAt: directory, responses: [
+        fauxAssistantMessage([fauxToolCall('look', {focus: 'scene'})], {stopReason: 'toolUse'}),
+        fauxAssistantMessage([fauxToolCall('narrate', {text: 'A draft the kernel refuses.'})], {stopReason: 'toolUse'}),
+        fauxAssistantMessage([fauxToolCall('look', {focus: 'scene'})], {stopReason: 'toolUse'}),
+        fauxAssistantMessage('Should never be consumed.')]});
+    t.after(() => session.dispose());
+    session.emit('coc:mods-bridge', {async after() {}, async prepare(method) {
+        // Not a review pause: the Keeper may still repair and deliver, so the turn is not stranded.
+        if (method === 'narrate') throw new KernelError({code: 'needs', message: 'The turn floor is not met',
+            details: {reason: 'turn_floor'}});
+    }});
+    await session.session.prompt('I listen at the door.'); await waitForIdle(session.session);
+    await session.session.prompt('I keep listening.'); await waitForIdle(session.session);
+    const inputs = session.kernelRequests().filter(request => request.method === 'table.player_input');
+    assert.equal(inputs.length, 2);
+    assert.ok(inputs.every(input => input.params.release === undefined));
 });

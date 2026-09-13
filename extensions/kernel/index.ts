@@ -136,6 +136,9 @@ interface TableState {
 	deliveryFix?: { kind: string; text: string };
 	/** A review operation stopped; only genuine new player input can start a linked retry. */
 	reviewUnavailable?: string;
+	/** Contract §38: an agent run ended leaving this turn open with nothing delivered, so no one can
+	 * finish it any more. The next player input releases it instead of being refused turn_state. */
+	strandedTurn?: boolean;
 	roundTrips: number;
 	mintedCallIds: Map<string, string>;
 	/** Calls the kernel rejected this turn: key of name+params to a count and the last error. Blocked on the third identical resend. */
@@ -541,6 +544,7 @@ export default function (pi: ExtensionAPI) {
 		table.renderedText = undefined;
 		table.deliveryToolCallId = undefined;
 		table.closedThisRun = false;
+		table.strandedTurn = undefined;
 		table.steeredThisTurn = false;
 		table.toolCallsThisTurn = 0;
 		table.floorDraft = undefined;
@@ -1342,6 +1346,9 @@ export default function (pi: ExtensionAPI) {
 				if (review?.paused) {
 					pauseReview(table, new KernelError({code: 'needs', message: 'The retained review is paused',
 						details: {reason: 'continuity_review_unavailable', cause: review.reason}}));
+					// Contract §38: the retained review cannot approve any draft, so this recovered turn can
+					// never be delivered. It is stranded; the player's next input opens a new turn.
+					table.strandedTurn = true;
 					return;
 				}
 				const owed = (pending.owed ?? []).join(", ") || "narrate";
@@ -1398,7 +1405,14 @@ export default function (pi: ExtensionAPI) {
 		return { action: "handled" };
 	});
 	pi.on("agent_settled", () => {
-		if (!table || (!CLOSED_STATES.has(table.state) && !table.reviewUnavailable)) return;
+		if (!table) return;
+		// Contract §38: this run is over. A turn it left undelivered under a paused review can never be
+		// delivered — the review approves no draft until new player input — so it is stranded from here on.
+		// An undelivered turn whose review still works is not stranded: the Keeper may finish it next run.
+		if ((table.state === "open" || table.state === "acting")
+			&& !table.closedThisRun && table.renderedText === undefined && table.reviewUnavailable)
+			table.strandedTurn = true;
+		if (!CLOSED_STATES.has(table.state) && !table.reviewUnavailable) return;
 		const next = waitingInputs.shift();
 		if (next) pi.sendUserMessage([{ type: "text", text: next.text }, ...(next.images ?? [])]);
 	});
@@ -1412,14 +1426,19 @@ export default function (pi: ExtensionAPI) {
 		const text = event.prompt;
 		const startedAt = new Date().toISOString();
 		const began = Date.now();
+		// Contract §38: the previous run left this turn open with nothing delivered, so it is stranded and
+		// can no longer be finished by anyone. Release it so the player can act again. This is the host's
+		// own run state — not prose, not a verdict — and it neither narrates nor commits anything.
+		const strandedTurn = state.strandedTurn === true && (state.state === "open" || state.state === "acting");
 		try {
 			const result = await state.kernel.call<{ turn?: number; state?: TurnState; capsule?: unknown }>(
 				"table.player_input",
-				{ campaign: state.campaign, text },
+				{ campaign: state.campaign, text, ...(strandedTurn ? { release: "stranded" } : {}) },
 			);
 			state.turn = typeof result.turn === "number" ? result.turn : state.turn + 1;
 			state.state = result.state ?? "open";
 			state.callOrdinal = 0;
+			state.strandedTurn = undefined;
 			state.mintedCallIds.clear();
 			state.rejected.clear();
 			state.callKeys.clear();
