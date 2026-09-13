@@ -30,16 +30,21 @@ async function table() {
     const world = () => readFile(join(home, '.coc/campaigns/c1/world.json'), 'utf8').then(JSON.parse);
     return {home, context, runtime, call, world};
 }
-async function prepare(t, name = 'New witness route', changes) {
+async function prepare(t, name = 'New witness route', changes, purpose = 'new_destination') {
     const starting = graph.startScene(), clue = graph.nodes.get(graph.sceneClueIds(starting)[0]);
     const planned = changes ?? [
-        {kind: 'add_scene', name: 'Harbor guesthouse', description: 'A guesthouse where the same case can be discussed.', based_on: graph.handle(starting), sources: [starting.name], reason: 'The investigator chose to visit the harbor.'},
+        {kind: 'add_scene', name: 'Harbor guesthouse', description: 'A guesthouse where the same case can be discussed.', based_on: graph.handle(starting), sources: [graph.handle(starting)], reason: 'The investigator chose to visit the harbor.'},
         {kind: 'route', from: graph.handle(starting), to: 'Harbor guesthouse', sources: [starting.name], reason: 'Ordinary travel to the harbor.'},
         {kind: 'clue_at', clue: graph.handle(clue), scene: 'Harbor guesthouse', sources: [clue.name], reason: 'The witness brings the existing evidence.'}
     ];
-    const p = await t.call('adaptation.prepare', {name, request: 'Carry existing evidence to a guesthouse.', anchors: [starting.name]});
+    const p = await t.call('adaptation.prepare', {name, purpose, request: 'Carry existing evidence to a guesthouse.', anchors: [starting.name]});
     const index = JSON.parse(await readFile(join(p.task.cwd, 'request.json'), 'utf8'));
     assert.equal(index.schema, 2);
+    assert.equal(index.purpose, purpose);
+    const focus = JSON.parse(await readFile(join(p.task.cwd, 'focus.json'), 'utf8'));
+    assert.equal(focus.purpose, purpose);
+    assert.ok(focus.source.length > 0 && focus.source.length <= 12);
+    assert.ok(focus.recent_history.some(record => record.rendered_text === 'The investigator hears the commission.'));
     assert.deepEqual(index.creator_contract.required_change_fields, ['kind', 'reason', 'sources']);
     assert.ok(!Object.hasOwn(index, 'original'));
     const history = JSON.parse(await readFile(join(p.task.cwd, index.files.history), 'utf8'));
@@ -47,6 +52,9 @@ async function prepare(t, name = 'New witness route', changes) {
     assert.ok(history.every(record => !Object.hasOwn(record, 'capsule')));
     await writeFile(join(p.task.cwd, 'result.json'), JSON.stringify({explanation: 'Contract fixture only.', changes: planned}));
     const draft = await t.call('adaptation.draft', {name, key: p.task.key, attempt: p.task.attempt});
+    const candidate = JSON.parse(await readFile(join(draft.task.cwd, 'candidate.json'), 'utf8'));
+    assert.ok(!Object.hasOwn(candidate, 'effective'));
+    assert.equal(candidate.deterministic.purpose_validated, true);
     return {name, key: p.task.key, attempt: p.task.attempt, task: draft.task, planned};
 }
 async function review(t, p, override = {}) {
@@ -121,10 +129,15 @@ test('base continuity lookup works through the kernel; preparation and review ch
     const view = await cold.handlers['table.look']({campaign: 'c1', focus: 'scene'});
     assert.ok(JSON.stringify(view).includes('Harbor guesthouse'));
     assert.ok(JSON.stringify(view).includes('campaign_adaptation'));
-    const original = await t.call('table.lookup', {kind: 'module', query: 'Harbor guesthouse', canonical_source: true});
+    const ordinaryMiss = await t.call('table.lookup', {kind: 'module', query: 'ordinary brass key', expected_kind: 'object'});
+    assert.equal(ordinaryMiss.status, 'not_found'); assert.ok(!ordinaryMiss.preparation); assert.match(ordinaryMiss.note, /define\/object\/item/);
+    const untypedMiss = await t.call('table.lookup', {kind: 'module', query: 'another ordinary passerby'});
+    assert.ok(!untypedMiss.preparation); assert.match(untypedMiss.note, /first-appearance/);
+    const original = await t.call('table.lookup', {kind: 'module', query: 'Harbor guesthouse', expected_kind: 'scene', canonical_source: true});
     assert.deepEqual(original.entities, []);
     assert.equal(original.preparation.kind, 'adaptation');
     assert.equal(original.preparation.action, 'prepare');
+    assert.equal(original.preparation.purpose, 'new_destination');
     await t.call('table.narrate', {call_id: 't1-c4', text: 'The investigator studies the existing evidence at the Harbor guesthouse.'});
     assert.equal((await t.call('journal.job', {turn: 1})).scene.name, 'Harbor guesthouse');
 });
@@ -159,23 +172,28 @@ test('closed operations refuse numeric rewrites, already encountered scenes, dup
         {...common, kind: 'add_npc', name: '__proto__', description: 'Unsafe state key', agenda: 'None'},
         {...common, kind: 'add_scene', name: graph.startScene().name, description: 'Duplicate', based_on: scene}
     ]) assert.throws(() => api.normalizeChanges(graph, [], world, [change], 'fixture'));
+    assert.throws(() => api.normalizeChanges(graph, [], world, [{op: 'add_scene', name: 'Wrong field', description: 'No.', based_on: scene,
+        reason: 'Fixture.', sources: [scene]}], 'fixture'), e => e.details?.field === 'kind' && /not "op"/.test(e.fix));
 });
 
 test('supporting NPC knowledge and new handout renditions are available without automatic presence or discovery', async () => {
     const t = await table(), start = graph.startScene(),
         clue = graph.kind('clue').find(node => graph.out.get(node.node_id)?.some(edge => edge.relation_kind === 'supports')),
         handout = graph.kind('handout')[0];
-    const changes = [
+    const npcChanges = [
         {kind: 'add_npc', name: 'Harbor clerk', description: 'A supporting witness.', agenda: 'Explain the records.', sources: [start.name], reason: 'A witness to the existing case.'},
-        {kind: 'npc_knows', npc: 'Harbor clerk', clue: graph.handle(clue), sources: [clue.name], reason: 'The witness handled this evidence.'},
-        {kind: 'handout', name: 'Harbor copy', text: 'An acquired-evidence rendition.', based_on: handout.name, sources: [handout.name], reason: 'A separate campaign copy.'}
+        {kind: 'npc_knows', npc: 'Harbor clerk', clue: graph.handle(clue), sources: [clue.name], reason: 'The witness handled this evidence.'}
     ];
-    const before = await t.world(), p = await prepare(t, 'Witness and copy', changes), ready = await review(t, p);
+    const before = await t.world(), p = await prepare(t, 'Witness', npcChanges, 'persistent_npc'), ready = await review(t, p);
     assert.equal(ready.changes[0].agenda, 'Explain the records.');
     await t.call('table.apply', {call_id: 't1-c1', effects: [{kind: 'adaptation', name: p.name}]});
+    const copy = await prepare(t, 'Harbor copy', [{kind: 'handout', name: 'Harbor copy', text: 'An acquired-evidence rendition.', based_on: handout.name,
+        sources: [handout.name], reason: 'A separate campaign copy.'}], 'handout');
+    await review(t, copy);
+    await t.call('table.apply', {call_id: 't1-c2', effects: [{kind: 'adaptation', name: copy.name}]});
     assert.equal((await t.world()).npc_presence['Harbor clerk'], undefined);
     assert.deepEqual((await t.world()).discovered_clues, before.discovered_clues);
-    await t.call('table.apply', {call_id: 't1-c2', effects: [{kind: 'npc', name: 'Harbor clerk', to: graph.handle(start)}]});
+    await t.call('table.apply', {call_id: 't1-c3', effects: [{kind: 'npc', name: 'Harbor clerk', to: graph.handle(start)}]});
     const npc = await t.call('table.look', {focus: 'npc', name: 'Harbor clerk'});
     assert.ok(JSON.stringify(npc).includes(graph.handle(clue)));
     assert.ok(JSON.stringify(npc).includes('campaign_adaptation'));
@@ -183,10 +201,10 @@ test('supporting NPC knowledge and new handout renditions are available without 
     const knowledge = continuity.connections.flatMap(c => c.evidence).flatMap(e => e.people).find(person => person.name === 'Harbor clerk');
     assert.equal(knowledge.origin.kind, 'campaign_adaptation');
     assert.equal(knowledge.origin.reason, 'The witness handled this evidence.');
-    const shown = await t.call('table.apply', {call_id: 't1-c3', effects: [{kind: 'handout', name: 'Harbor copy'}]});
+    const shown = await t.call('table.apply', {call_id: 't1-c4', effects: [{kind: 'handout', name: 'Harbor copy'}]});
     assert.equal(shown.attachment.available, true);
     assert.match(await readFile(shown.attachment.path, 'utf8'), /An acquired-evidence rendition/);
-    await t.call('table.narrate', {call_id: 't1-c4', text: 'Harbor clerk offers the copy.'});
+    await t.call('table.narrate', {call_id: 't1-c5', text: 'Harbor clerk offers the copy.'});
     assert.ok((await t.call('journal.job', {turn: 1})).recordable.includes('Harbor clerk'));
     const audit = await t.call('mods.job', {role: 'audit', input: {text: 'Harbor clerk remains here.'}});
     const originalGraph = JSON.parse(await readFile(join(audit.cwd, 'original.json'), 'utf8')).graph;
@@ -209,7 +227,7 @@ test('accepted source stays pinned across shared publication until a reviewed re
     await store.writeModule(await store.writeGraph(meta, next));
     assert.equal((await t.call('table.lookup', {kind: 'module', query: 'Safe Pier'})).entities.length, 0);
     assert.equal((await t.call('table.lookup', {kind: 'module', query: 'Safe Pier', canonical_source: true})).entities.length, 1);
-    const r = await t.call('adaptation.prepare', {name: 'Source refresh', request: 'Review the new source generation.', anchors: [graph.startScene().name], rebase: true});
+    const r = await t.call('adaptation.prepare', {name: 'Source refresh', purpose: 'rebase', request: 'Review the new source generation.', anchors: [graph.startScene().name], rebase: true});
     await writeFile(join(r.task.cwd, 'result.json'), JSON.stringify({changes: [], explanation: 'Rebase fixture.'}));
     const d = await t.call('adaptation.draft', {name: r.name, key: r.task.key, attempt: r.task.attempt});
     const count = (await t.world()).adaptation.records.flatMap(x => x.changes).length;
@@ -221,7 +239,7 @@ test('accepted source stays pinned across shared publication until a reviewed re
 });
 
 test('a retry has a new attempt owner; old results cannot finish or fail the replacement', async () => {
-    const t = await table(), params = {name: 'Retry ownership', request: 'Prepare a witness route.', anchors: [graph.startScene().name]};
+    const t = await table(), params = {name: 'Retry ownership', purpose: 'new_destination', request: 'Prepare a witness route.', anchors: [graph.startScene().name]};
     const first = await t.call('adaptation.prepare', params);
     const second = await t.call('adaptation.prepare', {...params, retry: true});
     assert.notEqual(first.task.attempt, second.task.attempt);
@@ -229,6 +247,18 @@ test('a retry has a new attempt owner; old results cannot finish or fail the rep
     await t.call('adaptation.fail', {name: params.name, key: first.task.key, attempt: first.task.attempt, error: 'Obsolete failure'});
     assert.equal((await t.call('adaptation.status', {name: params.name})).status, 'pending');
     await assert.rejects(t.call('table.apply', {call_id: 't1-c1', effects: [{kind: 'adaptation', name: params.name}, {kind: 'time', minutes: 1}]}));
+});
+
+test('prepare requires a closed purpose and rejects graph changes outside that purpose', async () => {
+    const t = await table(), scene = graph.startScene(), before = JSON.stringify(await t.world());
+    await assert.rejects(t.call('adaptation.prepare', {name: 'Missing purpose', request: 'A vague change.', anchors: [scene.name]}),
+        e => e.code === 'invalid_params' && /purpose/.test(e.message));
+    const p = await t.call('adaptation.prepare', {name: 'Not an NPC', purpose: 'persistent_npc', request: 'Keep one recurring witness.', anchors: [scene.name]});
+    await writeFile(join(p.task.cwd, 'result.json'), JSON.stringify({explanation: 'Wrong closed shape.', changes: [{kind: 'add_scene', name: 'Wrong room',
+        description: 'This is structurally a scene.', based_on: graph.handle(scene), sources: [scene.name], reason: 'Contract mismatch fixture.'}]}));
+    await assert.rejects(t.call('adaptation.draft', {name: p.name, key: p.task.key, attempt: p.task.attempt}),
+        e => e.code === 'invalid_params' && e.details?.field === 'purpose');
+    assert.equal(JSON.stringify(await t.world()), before);
 });
 
 test('an unknown destination points to preparation, and a label-only rename cannot claim an arrival', async () => {
@@ -272,7 +302,7 @@ test('real worldline fork and switch load their own adaptations, and a divergent
     await t.call('table.narrate', {call_id: `t${n}-c2`, text: 'Contract fork closes.'});
     assert.equal((await t.call('table.lookup', {kind: 'module', query: 'Harbor guesthouse'})).entities.length, 1);
     n = await turn('Prepare another possible witness.');
-    const second = await prepare(t, 'Side witness', [{kind: 'add_npc', name: 'Dockhand', description: 'A supporting witness.', agenda: 'Explain records.', sources: [graph.startScene().name], reason: 'An alternative supporting role.'}]);
+    const second = await prepare(t, 'Side witness', [{kind: 'add_npc', name: 'Dockhand', description: 'A supporting witness.', agenda: 'Explain records.', sources: [graph.startScene().name], reason: 'An alternative supporting role.'}], 'persistent_npc');
     await review(t, second);
     await t.call('table.apply', {call_id: `t${n}-c1`, effects: [{kind: 'adaptation', name: second.name}]});
     await t.call('table.narrate', {call_id: `t${n}-c2`, text: 'Contract side turn closes.'});

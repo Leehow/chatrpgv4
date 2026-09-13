@@ -128,8 +128,9 @@ interface TableState {
 	toolCallsThisTurn: number;
 	/** The prose the floor steer dropped; if the second leg brings no prose and no narrate, this closes the turn as before. */
 	floorDraft?: string;
-	readingWait?: boolean;
-	/** A host note owed to the Keeper at agent_end rather than delivered as prose (the reading wait). */
+	/** A retained background preparation owns the rest of this turn until the Keeper briefly yields to the player. */
+	preparationWait?: { kind: "source" | "adaptation"; name?: string };
+	/** A host note owed to the Keeper at agent_end rather than delivered as prose. */
 	deliveryFix?: { kind: string; text: string };
 	/** A review operation stopped; only genuine new player input can start a linked retry. */
 	reviewUnavailable?: string;
@@ -810,7 +811,18 @@ export default function (pi: ExtensionAPI) {
 	 * proposal is reused, admitting and refusing alike (contract §32.4).
 	 */
 	async function admitAction(state: TableState, tool: "resolve" | "apply", payload: Record<string, unknown>, signal?: AbortSignal): Promise<void> {
-		const proposal = admissionRequest(tool, payload, { party: state.party.map((member) => member.name), scene: state.scene, ...(state.answering ? { answered: state.answering } : {}) });
+		const destinations: Array<{requested: string; handle?: string; label?: string; summary?: string}> = [];
+		if (tool === 'apply' && Array.isArray(payload.effects)) for (const effect of payload.effects as Array<Record<string, unknown>>) {
+			if (effect.kind !== 'move' || typeof effect.to !== 'string' || destinations.some(value => value.requested === effect.to)) continue;
+			try {
+				const found = await state.kernel.call<{entities?: Array<Record<string, unknown>>}>('table.lookup',
+					{campaign: state.campaign, kind: 'module', query: effect.to, expected_kind: 'scene', limit: 1});
+				const entity = found.entities?.[0];
+				if (entity) destinations.push({requested: effect.to, handle: asString(entity.name), label: asString(entity.display_name), summary: asString(entity.summary)});
+			} catch { /* The authoritative apply path will report a missing or invalid destination. */ }
+		}
+		const proposal = admissionRequest(tool, payload, { party: state.party.map((member) => member.name), scene: state.scene,
+			...(destinations.length ? {destinations} : {}), ...(state.answering ? { answered: state.answering } : {}) });
 		if (!proposal) return;
 		const digest = keyDigest(proposal.key);
 		// Lane rows name the verb as `verb`: `tool` is the tool-call row's own column, and readers
@@ -938,6 +950,13 @@ export default function (pi: ExtensionAPI) {
 		pi.events.emit('coc:review-status', status);
 	}
 
+	function preparationWaitInstruction(wait: NonNullable<TableState["preparationWait"]>): string {
+		if (wait.kind === "source") {
+			return "Source preparation is pending. Use narrate only to tell the player that preparation is still running, then return control without a story menu. Do not start another query, narrate a result, or imply that the refused action or elapsed game time happened.";
+		}
+		return `Adaptation preparation${wait.name ? ` for ${wait.name}` : ""} is still running. Use narrate only to tell the player that preparation is pending, then return control without moving, charging, or introducing the destination. Inspect the same proposal after new player input.`;
+	}
+
 	async function runTool(
 		spec: CocToolSpec,
 		toolCallId: string,
@@ -1001,6 +1020,14 @@ export default function (pi: ExtensionAPI) {
 				result.note = "This is published graph material. Use lookup kind source only if an original-page recheck is needed.";
 			}
 			applyToolSuccess(state, spec.name, toolCallId, result);
+			const adaptationPending = spec.name === 'lookup' && params.kind === 'adaptation' && ['pending', 'reviewing'].includes(String(result.status));
+			if (adaptationPending) {
+				state.preparationWait = { kind: "adaptation", name: asString(result.name) };
+				const status = {campaign: state.campaign, turn: state.turn, name: result.name, status: result.status,
+					message: result.service_status};
+				pi.appendEntry('coc-adaptation-status', status);
+				pi.events.emit('coc:adaptation-status', status);
+			}
 			await record({
 				tool: spec.name,
 				call_id: payload.call_id ?? null,
@@ -1026,7 +1053,9 @@ export default function (pi: ExtensionAPI) {
 			};
 		} catch (error) {
 			const code = isKernelError(error) ? error.code : "internal";
-			if ((error as { details?: { reason?: string } })?.details?.reason === "reading_timeout") state.readingWait = true;
+			if ((error as { details?: { reason?: string } })?.details?.reason === "reading_timeout") {
+				state.preparationWait = { kind: "source" };
+			}
 			const detail = refusalDetail(error);
 			// `code` alone collapses every refusal of one family into one word. The kernel's own
 			// `reason` is a closed authored field, and without it a failure lane cannot tell a
@@ -1397,7 +1426,7 @@ export default function (pi: ExtensionAPI) {
 			state.steeredThisTurn = false;
 			state.toolCallsThisTurn = 0;
 			state.floorDraft = undefined;
-			state.readingWait = false;
+			state.preparationWait = undefined;
 			state.deliveryFix = undefined;
 			state.roundTrips = 0;
 			state.attachments = [];
@@ -1475,8 +1504,8 @@ export default function (pi: ExtensionAPI) {
 			await record({ tool: name, started_at: new Date().toISOString(), ok: false, code: "blocked", reason: TURN_CLOSED_REASON });
 			return { block: true, reason: TURN_CLOSED_REASON };
 		}
-		if (state.readingWait && name !== "narrate") {
-			return { block: true, reason: "Source reading is still pending. Use narrate with an honest preparation notice and return control without a story menu; do not start another query, narrate a result, or imply that the refused action or elapsed game time happened. A new player input can continue the existing reading." };
+		if (state.preparationWait && name !== "narrate") {
+			return { block: true, terminate: true, reason: preparationWaitInstruction(state.preparationWait) };
 		}
 		// The same call with the same parameters, resent unchanged: the kernel's answer will not change.
 		// A Keeper once sent one set of parameters thirteen times and was refused every time; after two
@@ -1606,8 +1635,8 @@ export default function (pi: ExtensionAPI) {
 			const canClose = state.state === "open" || state.state === "acting"
 				|| (state.state === "awaiting_player" && state.openingPending);
 			if (!prose || !canClose || state.closedThisRun) return;
-			if (state.readingWait) {
-				state.deliveryFix = { kind: "reading-wait", text: "Source preparation is pending. Use narrate to explain the preparation wait briefly and await free input; do not offer story options." };
+			if (state.preparationWait) {
+				state.deliveryFix = { kind: `${state.preparationWait.kind}-wait`, text: preparationWaitInstruction(state.preparationWait) };
 				return { message: { ...event.message, content: blocks.filter(block => block.type !== "text") } };
 			}
 			// The kernel left a pending choice for the player (a defence in combat) and the Keeper only wrote
@@ -1737,6 +1766,11 @@ export default function (pi: ExtensionAPI) {
 		if (state.closedThisRun || state.renderedText) return;
 		if (state.reviewUnavailable) return;
 		if (state.steeredThisTurn) return;
+		if (state.preparationWait) {
+			state.steeredThisTurn = true;
+			sendHost(preparationWaitInstruction(state.preparationWait), `${state.preparationWait.kind}-wait`);
+			return;
+		}
 		// The kernel refused the implicit delivery: hand its own fix back, once.
 		const deliveryFix = state.deliveryFix;
 		state.deliveryFix = undefined;

@@ -4,7 +4,7 @@ import {mkdir, mkdtemp, readFile, writeFile} from 'node:fs/promises';
 import {join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {build} from 'esbuild';
-import {continuityArtifactErrors, AUDIT_LIMITS} from '../../kernel-ts/mods/audit-result.ts';
+import {continuityArtifactErrors, normalizeContinuityArtifact, AUDIT_LIMITS} from '../../kernel-ts/mods/audit-result.ts';
 import {AuditBudget, reviewUnavailable} from '../../extensions/mods/audit-budget.ts';
 import auditSubmit from '../../extensions/mods/audit-submit.ts';
 import {auditEvidenceView} from '../../extensions/mods/audit-evidence.ts';
@@ -44,6 +44,29 @@ test('artifact validation collects exact locations and accepts compact passing r
     assert.deepEqual(continuityArtifactErrors(conflict(), 'His childhood was described.', {'memory.json': ['The childhood account was withdrawn.']}), []);
     const falsePass = conflict(); falsePass.continuity_review.verdict = 'pass';
     assert.ok(continuityArtifactErrors(falsePass, 'His childhood was described.', {'memory.json': ['The childhood account was withdrawn.']}).some(e => e.path.endsWith('/verdict')));
+    const candidate = 'You arrive at the Athens guesthouse and stay there for two days.';
+    const locationFiles = {'context.json': {location_authority: {requires_review: true, current_scene: 'commission-briefing', move_receipts: [],
+        rule: 'Time does not move the party.'}}};
+    const invalidLocation = {missing: [], findings: [], continuity_review: {verdict: 'pass', summary: 'Allowed.', conflicts: [],
+        location_review: {verdict: 'pass', current_scene: 'commission-briefing', asserted_elsewhere: ['You arrive at the Athens guesthouse'], basis: 'current_scene'}}};
+    assert.ok(continuityArtifactErrors(invalidLocation, candidate, locationFiles).some(e => e.path === '/continuity_review/location_review/verdict'));
+    const revisedLocation = {missing: [], findings: [], continuity_review: {verdict: 'revise', summary: 'No move was settled.',
+        conflicts: [{claim: 'You arrive at the Athens guesthouse', reason: 'No move receipt exists.', evidence: [{file: 'context.json', quote: 'Time does not move the party.'}]}],
+        location_review: {verdict: 'revise', current_scene: 'commission-briefing', asserted_elsewhere: ['You arrive at the Athens guesthouse'], basis: 'none'}}};
+    assert.deepEqual(continuityArtifactErrors(revisedLocation, candidate, locationFiles), []);
+    const locusFiles = {'context.json': {scene_commitment: {requires_review: true, active: {handle: 'office', name: 'Office'}, moves: [],
+        promotion_test: 'Promote only an ongoing gameplay locus.'}}};
+    const unsupportedLocus = {missing: [], findings: [], continuity_review: {verdict: 'pass', summary: 'Allowed.', conflicts: [],
+        locus_review: {verdict: 'pass', mode: 'new_locus', locus: 'Athens guesthouse', claim: 'You arrive at the Athens guesthouse', basis: 'none'}}};
+    assert.ok(continuityArtifactErrors(unsupportedLocus, candidate, locusFiles).some(e => e.path === '/continuity_review/locus_review/verdict'));
+    const revisedLocus = {missing: [], findings: [], continuity_review: {verdict: 'revise', summary: 'A new ongoing locus is unsupported.', conflicts: [],
+        locus_review: {verdict: 'revise', mode: 'new_locus', locus: 'Athens guesthouse', claim: 'You arrive at the Athens guesthouse', basis: 'none'}}};
+    assert.deepEqual(continuityArtifactErrors(revisedLocus, candidate, locusFiles), []);
+    const contradictoryAggregate = structuredClone(revisedLocus); contradictoryAggregate.continuity_review.verdict = 'pass';
+    assert.equal(normalizeContinuityArtifact(contradictoryAggregate).continuity_review.verdict, 'revise');
+    const transition = {missing: [], findings: [], continuity_review: {verdict: 'pass', summary: 'Travel remains transitional.', conflicts: [],
+        locus_review: {verdict: 'pass', mode: 'transition', locus: null, claim: null, basis: 'active_scene'}}};
+    assert.deepEqual(continuityArtifactErrors(transition, candidate, locusFiles), []);
 });
 
 test('budget spans revisions, prevents concurrent owners and retains linked explicit retries', async () => {
@@ -125,10 +148,15 @@ test('new jobs expose focused context with full fallback, bind accepted reports,
     const focused = JSON.parse(await readFile(join(job.cwd, 'context.json'), 'utf8'));
     assert.equal(focused.clock.minutes, 0);
     assert.equal(typeof focused.clock.at, 'string');
+    assert.equal(focused.scene.handle, 'commission-briefing');
+    assert.equal(focused.scene_commitment.active.handle, 'commission-briefing');
+    assert.deepEqual(focused.scene_commitment.moves, []);
+    assert.match(focused.scene_commitment.promotion_test, /ongoing locus for subsequent player action or durable location-bound state/);
     assert.ok(focused.recent_history[0].truncated); assert.ok((await readFile(join(job.cwd, 'history.json'), 'utf8')).length > 3000);
     assert.equal(focused.recent_history[1].player_text, 'Leave the book with the witness; do not take it.');
     assert.ok(focused.coverage.full_evidence_files.includes('history.json'));
-    await writeFile(join(job.cwd, 'result.json'), JSON.stringify(pass()));
+    await writeFile(join(job.cwd, 'result.json'), JSON.stringify({...pass(), continuity_review: {...pass().continuity_review,
+        locus_review: {verdict: 'pass', mode: 'same_locus', locus: null, claim: null, basis: 'active_scene'}}}));
     assert.equal((await call('mods.accept', {job: job.job})).continuity_review.verdict, 'pass');
     assert.equal((await call('mods.accept', {job: job.job})).continuity_review.verdict, 'pass');
     const changed = await call('mods.job', {role: 'audit', input: {text: 'Another compatible sentence.'}});

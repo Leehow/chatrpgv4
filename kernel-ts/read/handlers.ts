@@ -363,18 +363,26 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
             }
             if (kind === "module") {
                 const query = required(params, "query");
-                const entities = graph.search(query).map(node => graph.entityView(node));
+                const expected = params.expected_kind;
+                const expectedKinds = ['scene', 'npc', 'clue', 'object', 'handout'];
+                if (expected != null && (typeof expected !== 'string' || !expectedKinds.includes(expected)))
+                    unsupported('expected_kind', expected, expectedKinds, 'unknown expected module entity kind');
+                const entities = graph.search(query, expected ? 64 : 8).filter(node => !expected || node.node_kind === expected).slice(0, 8).map(node => graph.entityView(node));
                 const scene = !entities.length && typeof world.active_scene === 'string' ? graph.find(world.active_scene, ['scene']) : null;
                 const sourceNodes = array(row(scene?.campaign_origin).sources).map(id => graph.nodes.get(id)).filter((node): node is Row => node !== undefined);
+                const missingScene = !entities.length && expected === 'scene';
                 return {
                     query,
+                    ...(expected ? {expected_kind: expected} : {}),
                     entities,
                     ...(!entities.length ? {
                         status: 'not_found',
-                        note: 'This query matches no playable entity. If the player chose a new physical destination, prepare its campaign adaptation below, accept the ready proposal alone, then apply move to its new scene name before narrating arrival. A label or via cannot create a destination. If this was only a question about a name, keep it unconfirmed rather than inventing it.',
-                        preparation: {tool: 'lookup', kind: 'adaptation', action: 'prepare', name: query.slice(0, 120),
+                        note: missingScene
+                            ? 'This explicitly requested destination scene is absent. Prepare and review it before movement or arrival narration.'
+                            : 'No graph entity matched. Do not open graph adaptation for a physical object or a compatible first-appearance supporting person. Use define/object/item for physical state; ordinary scenery and a one-off person may remain narration. If the player actually chose a missing destination, repeat this lookup with expected_kind scene.',
+                        ...(missingScene ? {preparation: {tool: 'lookup', kind: 'adaptation', action: 'prepare', purpose: 'new_destination', name: query.slice(0, 120),
                             anchors: (sourceNodes.length ? sourceNodes : scene ? [scene] : []).slice(0, 4).map(node => node.name),
-                            request: 'Describe the player-chosen destination and its limited connection to the existing campaign. Preserve source causes and all established facts; no automatic clue, NPC appearance, danger or movement.'}
+                            request: 'Describe the player-chosen destination and its limited connection to the existing campaign. Preserve source causes and all established facts; no automatic clue, NPC appearance, danger or movement.'}} : {})
                     } : {})
                 };
             }

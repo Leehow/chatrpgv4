@@ -28,6 +28,7 @@ async function readerContext(context: RuntimeContext, request: ReaderRequest, si
     "coc-source": [context.nodeExecutable, context.entrypoints.source],
   };
   const env = { ...context.env };
+  if (!request.maxRequests) delete env.PI_COC_READER_MAX_REQUESTS;
   for (const [name, command] of Object.entries(commands)) {
     const path = join(bin, name);
     await writeFile(path, `#!/bin/sh\nexec ${command.map(quote).join(" ")} "$@"\n`);
@@ -37,6 +38,7 @@ async function readerContext(context: RuntimeContext, request: ReaderRequest, si
   // The session launcher leaves grok-build's image tools to image-gen; a lane mounts neither, and
   // says the same thing rather than depending on having inherited it.
   return Object.freeze({ ...context, env: Object.freeze({ ...env, PI_GROK_BUILD_IMAGE_TOOLS: "0", PATH: `${bin}${delimiter}${env.PATH ?? ""}`,
+    ...(request.maxRequests ? {PI_COC_READER_MAX_REQUESTS: String(request.maxRequests)} : {}),
     PI_COC_RUNTIME_OPTIONS: helperOptions(context), PI_COC_READER_CHECK: join(bin, "coc-read-check") }) });
 }
 

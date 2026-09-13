@@ -75,8 +75,11 @@ export function normalizeChanges(source: ModuleGraph, previous: Row[], world: Ro
     for (const [index, value] of input.entries()) {
         if (!value || typeof value !== 'object' || Array.isArray(value)) throw new RpcError('invalid_params', 'Each adaptation change must be an object');
         const kind = string(value.kind), fields = Object.hasOwn(ADAPTATION_FIELDS, kind) ? ADAPTATION_FIELDS[kind] : undefined;
-        if (!fields || Object.keys(value).some(key => !['kind', 'reason', 'sources', ...fields].includes(key)))
-            throw new RpcError('invalid_params', 'Use only the declared fields of a closed adaptation operation', {details: {index, operations: Object.keys(ADAPTATION_FIELDS)}});
+        if (!fields) throw new RpcError('invalid_params', `Change ${index} needs field kind naming one closed adaptation operation`, {
+            fix: 'Use "kind", not "op" or "operation".', details: {index, field: 'kind', operations: Object.keys(ADAPTATION_FIELDS)}});
+        const extra = Object.keys(value).filter(key => !['kind', 'reason', 'sources', ...fields].includes(key));
+        if (extra.length) throw new RpcError('invalid_params', `Change ${index} has fields outside ${kind}: ${extra.join(', ')}`, {
+            fix: `Keep only kind, reason, sources, ${fields.join(', ')}.`, details: {index, field: extra[0], operation: kind, allowed: ['kind', 'reason', 'sources', ...fields]}});
         if (!Array.isArray(value.sources) || !value.sources.length || value.sources.length > 12)
             throw new RpcError('invalid_params', 'Each change must name its original source anchors');
         const graph = adaptedGraph(source, [...previous, ...changes]);

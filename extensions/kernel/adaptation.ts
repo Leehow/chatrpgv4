@@ -3,13 +3,18 @@ import { join } from 'node:path';
 import { readFile, writeFile } from 'node:fs/promises';
 import type { HostRuntime } from '../../runtime/host.ts';
 import { KernelError, isKernelError } from './client.ts';
+import { readerInput } from '../module/reader.ts';
+
+const FOREGROUND_WAIT_MS = 12_000;
+const TASK_TIMEOUT_MS = 30_000;
+const TASK_MAX_REQUESTS = 6;
 
 type Call = (method: string, params: Record<string, any>) => Promise<any>;
 export function adaptationService(runtime: HostRuntime, call: Call, model: () => {name: string; thinking?: any}) {
     const tasks = new Map<string, {campaign: string; name: string; run: Promise<void>; controller: AbortController}>();
     async function waitFor(task: {run: Promise<void>; controller: AbortController}, signal?: AbortSignal) {
         const configured = Number(process.env.PI_COC_ADAPTATION_WAIT_MS);
-        const wait = Number.isFinite(configured) && configured >= 0 ? configured : 120000;
+        const wait = Number.isFinite(configured) && configured >= 0 ? configured : FOREGROUND_WAIT_MS;
         let timer: ReturnType<typeof setTimeout> | undefined;
         let stop: (() => void) | undefined;
         try {
@@ -23,12 +28,17 @@ export function adaptationService(runtime: HostRuntime, call: Call, model: () =>
             while (task) {
                 for (let pass = 1; pass <= 2; pass++) {
                     const selected = model();
+                    const focus = JSON.parse(await readFile(join(task.cwd, 'focus.json'), 'utf8'));
+                    const inline = readerInput(focus);
+                    const supplied = inline.startsWith('Read task.json') ? 'Read focus.json first; it is the bounded host-owned input.' : inline;
                     await writeFile(join(task.cwd, `run-model-${pass}.json`), JSON.stringify({model: selected.name, thinking: selected.thinking, role: task.role}));
                     const outcome = await runtime.runTask({kind: 'reader', request: {cwd: task.cwd, systemPrompt: task.system_prompt,
                         model: selected.name, thinking: selected.thinking, tools: 'read,write,edit,bash',
+                        timeoutMs: TASK_TIMEOUT_MS, maxRequests: TASK_MAX_REQUESTS, adaptation: {role: task.role},
                         eventLog: join(task.cwd, `events-${pass}.jsonl`),
-                        brief: 'Read request.json and the named inputs needed for the task. Review also reads candidate.json. Use the supplied node for large JSON, never Python. Do not read repository/build code, event/model logs, search the filesystem, or look for PDFs. The host owns deterministic validation; do not run coc-read-check. Write result.json using tools, preserve inputs, and stop.' +
-                            (pass > 1 ? ' Read feedback.json: correct only the reported deterministic schema/reference problem while preserving valid source-grounded choices. This is the only repair attempt.' : '')}}, controller.signal);
+                        brief: 'Use the focused input already below. Review also reads candidate.json. Do not enumerate files or inspect raw schemas. Read a named full file only when focus.json identifies a specific evidence gap. Use the supplied node for a necessary large JSON lookup, never Python. Do not read repository/build code, event/model logs, search the filesystem, or look for PDFs. The host owns deterministic validation; do not run coc-read-check. Submit the result object with submit_adaptation; do not write result.json directly or output the JSON as prose. Stop within six model calls.' +
+                            (pass > 1 ? ' Read feedback.json: correct only the reported deterministic schema/reference problem while preserving valid source-grounded choices. This is the only repair attempt.' : '') +
+                            `\n${supplied}`}}, controller.signal);
                     if (!outcome.ok) throw new Error(`Adaptation ${task.role} task failed (${outcome.code ?? 'interrupted'})`);
                     try {
                         const result = await call(task.role === 'create' ? 'adaptation.draft' : 'adaptation.review', {...payload, key: task.key, attempt: task.attempt});
@@ -55,12 +65,7 @@ export function adaptationService(runtime: HostRuntime, call: Call, model: () =>
             for (const task of tasks.values()) if (task.campaign === payload.campaign && task.name === result.name) task.controller.abort();
             return result;
         }
-        if (action === 'status') {
-            const result = await call('adaptation.status', payload);
-            const active = [...tasks.values()].findLast(task => task.campaign === payload.campaign && task.name === result.name);
-            if (active && ['pending', 'reviewing'].includes(result.status)) await waitFor(active, signal);
-            return call('adaptation.status', payload);
-        }
+        if (action === 'status') return pendingStatus(await call('adaptation.status', payload));
         const prepared = await call('adaptation.prepare', payload);
         if (prepared.task) {
             const key = JSON.stringify([payload.campaign, prepared.name, prepared.task.key, prepared.task.attempt]);
@@ -73,8 +78,14 @@ export function adaptationService(runtime: HostRuntime, call: Call, model: () =>
             const task = tasks.get(key)!;
             await waitFor(task, signal);
         }
-        const result = await call('adaptation.status', payload);
-        if (['pending', 'reviewing'].includes(result.status)) result.service_status = 'The retained preparation is still running. No fictional event or player action has happened. Inspect the same proposal by name; a changed campaign requires fresh preparation.';
-        return result;
+        return pendingStatus(await call('adaptation.status', payload));
     }};
+}
+
+function pendingStatus(result: Record<string, any>): Record<string, any> {
+    if (['pending', 'reviewing'].includes(result.status)) {
+        result.service_status = 'The retained preparation is still running in the background. No fictional event or player action has happened. Do not poll it again in this turn. Use narrate only to tell the player that preparation is pending and end the turn; inspect the same proposal by name after new player input.';
+        result.retry_after_ms = 2000;
+    }
+    return result;
 }

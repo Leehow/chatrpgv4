@@ -4,17 +4,87 @@ import { join } from 'node:path';
 import type { KernelContext } from '../context.js';
 import type { HandlerGroup } from '../handlers.js';
 import { RpcError } from '../errors.js';
-import { jsonDigest, pythonJsonDumps, parsePythonJson, storedJson } from '../json.js';
+import { jsonDigest, parsePythonJson, storedJson } from '../json.js';
 import { writeJsonAtomic } from '../fileio.js';
 import { CampaignSnapshot, loadModule, loadCampaignModule } from '../read/campaign.js';
 import { resolveReference, referenceName } from '../read/references.js';
-import { array, row, string, normalize, clone, type Row } from '../read/values.js';
+import { array, row, string, normalize, chars, type Row } from '../read/values.js';
+import { continuityView } from '../read/continuity.js';
 import { nowIso } from '../write/store.js';
 import { ADAPTATION_FIELDS, adaptationChanges, adaptedGraph, normalizeChanges } from './graph.js';
 import { snapshotSource, pinnedSource } from './source.js';
 import type { ApplyContext } from '../apply/index.js';
 
 const fail = (message: string, reason = 'adaptation_invalid'): never => { throw new RpcError('needs', message, {details: {reason}, fix: 'Inspect this proposal by name; retry preparation only after resolving the reported cause'}); };
+const PURPOSES = ['new_destination', 'persistent_npc', 'source_rebinding', 'handout', 'rebase'] as const;
+type Purpose = typeof PURPOSES[number];
+const PURPOSE_CHANGES: Record<Purpose, readonly string[]> = {
+    new_destination: Object.keys(ADAPTATION_FIELDS),
+    persistent_npc: ['add_npc', 'npc_knows'],
+    source_rebinding: ['scene', 'clue_at', 'route', 'npc_knows'],
+    handout: ['handout'],
+    rebase: []
+};
+function purpose(params: Row, rebase: boolean): Purpose {
+    const value = params.purpose;
+    if (typeof value !== 'string' || !PURPOSES.includes(value as Purpose))
+        throw new RpcError('invalid_params', `Adaptation prepare needs purpose: ${PURPOSES.join(' | ')}`);
+    if ((value === 'rebase') !== rebase)
+        throw new RpcError('invalid_params', 'purpose rebase and rebase true must be used together');
+    return value as Purpose;
+}
+function validatePurpose(value: Purpose, changes: Row[]) {
+    const allowed = PURPOSE_CHANGES[value], kinds = changes.map(change => string(change.kind));
+    const invalid = kinds.find(kind => !allowed.includes(kind));
+    if (invalid) throw new RpcError('invalid_params', `Adaptation purpose ${value} does not permit ${invalid}`, {details: {field: 'purpose', purpose: value, allowed: [...allowed]}});
+    const required = value === 'new_destination' ? 'add_scene' : value === 'persistent_npc' ? 'add_npc' : value === 'handout' ? 'handout' : null;
+    if (required && !kinds.includes(required))
+        throw new RpcError('invalid_params', `Adaptation purpose ${value} requires ${required}`, {details: {field: 'purpose', purpose: value, required}});
+    if (value === 'rebase' && changes.length)
+        throw new RpcError('invalid_params', 'A rebase adaptation permits no new changes', {details: {field: 'purpose', purpose: value}});
+}
+function focusedNodes(graph: any, roots: Row[]): Row[] {
+    const ids = new Set<string>();
+    for (const node of roots) if (node?.node_id && ids.size < 12) ids.add(node.node_id);
+    for (const id of [...ids]) {
+        for (const edge of [...(graph.out.get(id) ?? []), ...(graph.incoming.get(id) ?? [])]) {
+            if (ids.size >= 12) break;
+            const other = edge.from_node_id === id ? edge.to_node_id : edge.from_node_id;
+            if (graph.nodes.has(other)) ids.add(other);
+        }
+    }
+    return [...ids].flatMap(id => {
+        const node = graph.nodes.get(id); if (!node) return [];
+        return [{...graph.entityView(node), claims: (graph.claimsBySubject.get(id) ?? []).slice(0, 4).map((claim: Row) =>
+            Object.fromEntries(['predicate', 'object', 'source_refs'].filter(key => claim[key] != null).map(key => [key, claim[key]])))}];
+    });
+}
+function canonicalizeAnchorReferences(graph: any, anchors: string[], input: unknown): unknown {
+    if (!Array.isArray(input)) return input;
+    const choices = new Map<string, Set<string>>();
+    for (const anchor of anchors) {
+        const node = resolveReference(graph, anchor), canonical = referenceName(graph, node);
+        for (const value of [graph.handle(node), node.name, node.node_id]) {
+            const key = normalize(value); if (!key) continue;
+            const values = choices.get(key) ?? new Set<string>(); values.add(canonical); choices.set(key, values);
+        }
+    }
+    const canonical = (value: unknown): unknown => {
+        if (typeof value !== 'string') return value;
+        const values = choices.get(normalize(value));
+        return values?.size === 1 ? [...values][0] : value;
+    };
+    return input.map(value => {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+        const change: Row = {...value};
+        if (Array.isArray(change.sources)) change.sources = change.sources.map(canonical);
+        for (const field of ['scene', 'clue', 'from', 'to', 'npc', 'based_on']) if (change[field] != null) change[field] = canonical(change[field]);
+        return change;
+    });
+}
+const compactReceipt = (receipt: Row): Row => Object.fromEntries(
+    ['id', 'kind', 'call_id', 'actor', 'subject', 'npc', 'scene', 'clue', 'handout', 'name', 'from', 'to', 'delta', 'before', 'after']
+        .filter(key => receipt[key] != null).map(key => [key, receipt[key]]));
 const named = (value: unknown): string => {
     if (typeof value !== 'string' || !value.trim() || value.length > 120) throw new RpcError('invalid_params', 'Give this proposal a short semantic name');
     return value.trim();
@@ -69,6 +139,7 @@ export class AdaptationJobs {
         const name = named(params.name), {snapshot, current, pin} = await this.state(params.campaign);
         if (!['open', 'acting'].includes(snapshot.turn.state)) return fail('Prepare an adaptation during the current player turn');
         const rebase = params.rebase === true;
+        const requestedPurpose = purpose(params, rebase);
         if (rebase && array(snapshot.turn.receipts).length) return fail('Rebase only at the start of a turn before any effect');
         if (typeof params.request !== 'string' || !params.request.trim() || params.request.length > 6000)
             throw new RpcError('invalid_params', 'Explain the source-connected adaptation to prepare');
@@ -82,7 +153,7 @@ export class AdaptationJobs {
             anchors.push(referenceName(current.graph, node));
         }
         const instructions = await this.instructions(), contract = jsonDigest([instructions, ADAPTATION_FIELDS]);
-        const key = jsonDigest(['adaptation-packet-v2', contract, name, pin, current.graph.digest, current.generation, params.request, anchors, rebase]);
+        const key = jsonDigest(['adaptation-packet-v2', contract, name, pin, current.graph.digest, current.generation, params.request, anchors, requestedPurpose, rebase]);
         const path = join(this.root(snapshot.id), key);
         if (await this.context.snapshots.pathExists(join(path, 'job.json'))) {
             const old: Row = {...await artifact(join(path, 'job.json')), path};
@@ -95,19 +166,43 @@ export class AdaptationJobs {
         const attempt = (await this.context.snapshots.pathExists(join(path, 'job.json')) ? Number((await artifact(join(path, 'job.json'))).attempt) : 0) + 1;
         const work = join(path, `attempt-${attempt}`);
         await mkdir(join(work, 'create'), {recursive: true}); await mkdir(join(work, 'review'), {recursive: true});
-        const job: Row = {key, path, work, attempt, campaign: snapshot.id, name, pin, source, contract, source_digest: current.graph.digest,
+        const job: Row = {key, path, work, attempt, campaign: snapshot.id, name, purpose: requestedPurpose, anchors, pin, source, contract, source_digest: current.graph.digest,
             source_generation: current.generation, previous, rebase, status: 'pending', created: nowIso()};
         const handouts = await snapshot.handoutTexts(snapshot.records.flatMap(record => array(record.receipts)));
         const currentScene = effective.graph.scene(snapshot.world.active_scene);
         const contextScene = base.graph.nodes.get(currentScene.node_id) ?? array(row(currentScene.campaign_origin).sources)
             .map(id => base.graph.nodes.get(id)).find(node => node?.node_kind === 'scene');
-        const files: Row = {original: 'original.json', effective: 'effective.json', world: 'world.json', party: 'party.json',
+        const candidates = await snapshot.log('memory/candidates.jsonl');
+        const baseRoots = anchors.flatMap(anchor => { try { return [resolveReference(base.graph, anchor)]; } catch { return []; } });
+        if (contextScene && !baseRoots.some(node => node.node_id === contextScene.node_id)) baseRoots.push(contextScene);
+        const recentHistory = snapshot.records.slice(-6).map(record => ({turn: record.turn, player_text: chars(string(record.player_text), 1200),
+            rendered_text: chars(string(record.rendered_text), 1600), receipts: array(record.receipts).map(compactReceipt)}));
+        const focusWorld = {...snapshot.world, ...(contextScene ? {active_scene: base.graph.handle(contextScene)} : {})};
+        const focus = {schema: 1, purpose: requestedPurpose, request: params.request, current_input: snapshot.turn.player_text,
+            allowed_operations: PURPOSE_CHANGES[requestedPurpose], required_operation: requestedPurpose === 'new_destination' ? 'add_scene' : requestedPurpose === 'persistent_npc' ? 'add_npc' : requestedPurpose === 'handout' ? 'handout' : null,
+            change_example: {kind: requestedPurpose === 'persistent_npc' ? 'add_npc' : requestedPurpose === 'handout' ? 'handout' : 'add_scene',
+                note: 'Every change uses the exact kind field. New names are plain; copy kind-qualified existing references from anchors or source.name.'},
+            anchors, source: focusedNodes(base.graph, baseRoots),
+            effective_scene: effective.graph.entityView(currentScene),
+            world: Object.fromEntries(['active_scene', 'visited_scenes', 'scene_trail', 'discovered_clues', 'flags', 'clock', 'npc_presence', 'handouts_shown']
+                .filter(key => snapshot.world[key] != null).map(key => [key, snapshot.world[key]])),
+            party: snapshot.party.map(actor => ({name: actor.name, occupation: actor.occupation ?? null})),
+            current_receipts: array(snapshot.turn.receipts).map(compactReceipt), recent_history: recentHistory,
+            recent_history_complete: snapshot.records.length <= recentHistory.length,
+            continuity: continuityView(base.graph, focusWorld, snapshot.records, candidates, {anchors, limit: 4, budget: 6000}),
+            prior_changes: previous,
+            ordinary_alternatives: {physical_item: 'Use apply define/object/item; physical items are not graph adaptations.',
+                first_appearance_npc: 'A compatible first-appearance supporting person may remain narration. Promote only when recurring identity or sourced knowledge must persist.',
+                scenery: 'Compatible ordinary scenery may remain narration.'},
+            full_files: ['original.json', 'effective.json', 'world.json', 'party.json', 'current-receipts.json', 'history.json', 'handouts.json', 'memory.json'],
+            full_file_rule: 'Read a full file only for a named evidence gap absent from this focus. Do not enumerate schemas or files.'};
+        const files: Row = {focus: 'focus.json', original: 'original.json', effective: 'effective.json', world: 'world.json', party: 'party.json',
             prior_changes: 'prior-changes.json', current_receipts: 'current-receipts.json', history: 'history.json', handouts: 'handouts.json', memory: 'memory.json'};
-        const inputs: Row = {original: base.graph.raw, effective: effective.graph.raw, world: snapshot.world, party: snapshot.party,
+        const inputs: Row = {focus, original: base.graph.raw, effective: effective.graph.raw, world: snapshot.world, party: snapshot.party,
             prior_changes: previous, current_receipts: snapshot.turn.receipts,
             history: snapshot.records.map(record => ({turn: record.turn, player_text: record.player_text ?? null, rendered_text: record.rendered_text ?? '', receipts: record.receipts ?? [], world: record.world ?? null})),
-            handouts: Object.fromEntries(handouts), memory: await snapshot.log('memory/candidates.jsonl')};
-        const request = {schema: 2, request: params.request, anchors, rebase, play_language: snapshot.meta.play_language,
+            handouts: Object.fromEntries(handouts), memory: candidates};
+        const request = {schema: 2, request: params.request, purpose: requestedPurpose, anchors, rebase, play_language: snapshot.meta.play_language,
             current_input: snapshot.turn.player_text, files,
             source_scene: contextScene?.node_kind === 'scene' ? referenceName(base.graph, contextScene) : null,
             creator_contract: {result_fields: ['explanation', 'changes'], required_change_fields: ['kind', 'reason', 'sources'],
@@ -142,7 +237,9 @@ export class AdaptationJobs {
         if (!job.rebase && Array.isArray(value.changes) && value.changes.length === 0)
             return fail(`Draft declined: ${string(value.explanation || 'No supported change could be prepared').slice(0, 1600)}`, 'adaptation_declined');
         const source = await pinnedSource(this.context, job.source), state = await this.state(job.campaign);
-        const changes = job.rebase ? [] : normalizeChanges(source.graph, job.previous, state.snapshot.world, value.changes, job.key);
+        const changes = job.rebase ? [] : normalizeChanges(source.graph, job.previous, state.snapshot.world,
+            canonicalizeAnchorReferences(source.graph, array(job.anchors).map(string), value.changes), job.key);
+        validatePurpose(job.purpose as Purpose, changes);
         if (changes.some(change => change.id && state.snapshot.party.some(actor => normalize(actor.name) === normalize(change.name))))
             return fail('An added entity cannot reuse an investigator name');
         if (job.rebase && array(value.changes).length) return fail('A rebase must preserve the accepted changes exactly');
@@ -150,7 +247,9 @@ export class AdaptationJobs {
         for (const change of all) for (const id of array(change.sources))
             if (source.material(id) !== 'ready') return fail('The candidate depends on unread source material', 'adaptation_material_missing');
         const effective = adaptedGraph(source.graph, all);
-        const candidate = {changes, effective: effective.raw, explanation: value.explanation ?? '', rebase: job.rebase};
+        const candidate = {changes, explanation: value.explanation ?? '', rebase: job.rebase,
+            deterministic: {closed_fields: true, references_resolved: true, purpose_validated: true,
+                original_graph_unchanged: true, generated_ids_kernel_owned: true}};
         job.draft_digest = jsonDigest(candidate); job.changes = changes;
         job.preview = changes.map(c => ({kind: c.kind, ...(c.name ? {name: c.name} : {}), reason: c.reason,
             ...Object.fromEntries(['from', 'to', 'scene', 'npc', 'clue', 'based_on'].filter(field => c[field]).map(field => {

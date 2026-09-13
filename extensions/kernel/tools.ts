@@ -33,11 +33,11 @@ const AdaptationEffect = Type.Object({
 });
 
 const MoveEffect = Type.Object({
-	kind: StringEnum(["move"] as const, { description: "walk to another scene" }),
-	to: Type.String({ description: "the actual destination scene name. For a new place absent from the graph, first lookup kind adaptation action prepare, accept the ready named proposal with apply adaptation, then move. Never substitute the current scene for a missing destination. Naming the current scene only renames its display label and moves nobody" }),
+	kind: StringEnum(["move"] as const, { description: "change the persistent gameplay locus; ordinary spatial description inside the current locus needs no move" }),
+	to: Type.String({ description: "the registered persistent gameplay locus that subsequent action or durable location-bound state will use. For a chosen locus absent from the graph, first lookup kind module with expected_kind scene, then prepare and accept the returned adaptation before moving. Never substitute or relabel another physical place" }),
 	travel_minutes: Type.Optional(Type.Integer({ description: "minutes spent on the way; omitted means the value on the graph edge" })),
 	via: Type.Optional(Type.String({ description: "how they got there when the way is not one of the exits you were given — through an unlatched upper window, down a coal chute, following someone in. Say it and the move lands; without it an unlisted destination is refused, and then the world stays where it was while your narration moves on" })),
-	label: Type.Optional(Type.String({ description: "a display name for the SAME place in the player's language, never a different location. This cannot turn an office into a hotel or create a new scene. Omitted means the existing name" })),
+	label: Type.Optional(Type.String({ description: "a display name for the SAME registered gameplay locus in the player's language. It cannot substitute a different locus. Omitted means the existing name" })),
 });
 
 const ClueEffect = Type.Object({
@@ -373,17 +373,19 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 		label: "Lookup",
 		method: "table.lookup",
 		description:
-			"Search the module graph for what the capsule did not answer. The briefing for kind secret with scope scene — the clues in this scene still undiscovered, the secrets and agendas of those present, the Keeper's notes — is already in the capsule; do not look it up again. Use scope module only when you want the whole book's secrets and ending nodes. With kind module it finds entities on the graph by name or alias, at most 8 rows, each with a summary, visibility and relations: use it to confirm whether a name the player mentioned exists in this book. It matches the names and handles on the graph, so search with the module's own names or a name that appeared in the capsule; a translated keyword will not find anything. The kinds rule and catalog answer not_implemented in this slice.",
+			"Search the module graph for what the capsule did not answer. The briefing for kind secret with scope scene — the clues in this scene still undiscovered, the secrets and agendas of those present, the Keeper's notes — is already in the capsule; do not look it up again. Use scope module only when you want the whole book's secrets and ending nodes. With kind module it finds entities on the graph by name or alias, at most 8 rows, each with a summary, visibility and relations. Say expected_kind when the role matters; only a missing scene advertises adaptation. A physical object uses define/object/item, while compatible scenery and a first-appearance supporting person may remain narration. Promote a recurring NPC only when persistent identity or sourced knowledge is needed. Adaptation is reserved for persistent graph topology, not ordinary detail. The kinds rule and catalog answer not_implemented in this slice.",
 		promptSnippet: "Look up an entity the capsule did not answer, or the whole book's secrets and endings",
 		parameters: Type.Object({
 			kind: StringEnum(["module", "source", "secret", "rule", "catalog", "continuity", "adaptation"] as const, {
-				description: "module searches known names; an absent destination needs adaptation, not fictional arrival. continuity joins acquired evidence and causal relationships. adaptation prepare drafts a new source-connected venue/carrier, status reads its review, cancel stops it; accept a ready named proposal through apply adaptation, then move. source without question prepares missing material; with question rechecks original pages",
+					description: "module searches known names; use expected_kind scene for a possible absent destination. continuity joins acquired evidence and causal relationships. adaptation prepare requires a purpose and drafts persistent source-connected graph topology; status is nonblocking, cancel stops it. source without question prepares missing material; with question rechecks original pages",
 			}),
 			query: Type.Optional(Type.String({ description: "module/rule/catalog: a name or search text. continuity: a semantic entity name, never a prose question; omit query when using anchors. source: entity name, with detail in question. Omissible for secret." })),
+			expected_kind: Type.Optional(StringEnum(['scene', 'npc', 'clue', 'object', 'handout'] as const, {description: 'module only: the graph role being sought. Only an explicit scene miss may offer a new-destination adaptation'})),
 			anchors: Type.Optional(Type.Array(Type.String(), {maxItems: 12, description: "continuity/adaptation: source entity, clue or conclusion names to connect"})),
 			limit: Type.Optional(Type.Integer({minimum: 1, maximum: 12})),
 			action: Type.Optional(StringEnum(["prepare", "status", "cancel"] as const)),
 			name: Type.Optional(Type.String({description: "adaptation: a memorable proposal name, reused for status, cancel or acceptance"})),
+			purpose: Type.Optional(StringEnum(['new_destination', 'persistent_npc', 'source_rebinding', 'handout', 'rebase'] as const, {description: 'required for adaptation prepare. Physical objects and first-appearance supporting NPCs have no adaptation purpose'})),
 			request: Type.Optional(Type.String({description: "adaptation: the player's actual direction and the source-connected change to prepare; never an instruction to force a player choice"})),
 			rebase: Type.Optional(Type.Boolean({description: "prepare review of the latest source with the existing accepted adaptations, at a safe start of turn"})),
 			question: Type.Optional(Type.String({ description: "for source only: the precise original-page question; ordinary module queries do not start reading" })),

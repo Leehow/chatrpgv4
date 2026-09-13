@@ -1,3 +1,19 @@
+# 1.2.8
+
+- Make locus_review the single structured scene-promotion decision; its revision is actionable without a duplicate conflict.
+
+# 1.2.7
+
+- Treat active_scene as a persistent gameplay locus. Review scene promotion by future play and durable location-bound state, never by physical motion vocabulary or enumerated micro-locations.
+
+# 1.2.6
+
+Location authority covers asserted arrival or residence at a distinct persistent destination, not ordinary repositioning, a threshold, leaving the room or building, or travel in progress; location conflicts cite the short exact context rule or move_status string.
+
+# 1.2.5
+
+Location authority distinguishes elapsed time from movement and rejects arrival or residence outside the current scene without a settled move.
+
 # 1.2.4
 
 Use typed read-only evidence views for targeted lookups instead of repeatedly exploring raw JSON layouts. Include executable sheet weapons in focused actor context.

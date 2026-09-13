@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {mkdtemp, mkdir} from 'node:fs/promises';
+import {mkdtemp, mkdir, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {adaptationService} from '../../extensions/kernel/adaptation.ts';
@@ -9,7 +9,10 @@ import {admissionRequest} from '../../extensions/kernel/admission.ts';
 
 async function fixture({hold = false, fail = false, badDraft = false, rejectReview = false} = {}) {
     const root = await mkdtemp(join(tmpdir(), 'adaptation-host-contract-'));
-    for (const role of ['create', 'review']) await mkdir(join(root, role));
+    for (const role of ['create', 'review']) {
+        await mkdir(join(root, role));
+        await writeFile(join(root, role, 'focus.json'), JSON.stringify({purpose: 'new_destination', request: 'Create one source-connected route.'}));
+    }
     const calls = [], runs = [], owner = new AbortController();
     let status = 'pending', release, draftCalls = 0;
     const delayed = new Promise(resolve => release = resolve);
@@ -46,6 +49,10 @@ test('the host runs a fresh creator and reviewer with tools and explicit model, 
         for (const run of f.runs) {
             assert.equal(run.request.model, 'deepseek/deepseek-v4-flash');
             assert.equal(run.request.tools, 'read,write,edit,bash');
+            assert.equal(run.request.maxRequests, 6);
+            assert.equal(run.request.timeoutMs, 30000);
+            assert.equal(run.request.adaptation.role, run.request.cwd.endsWith('/create') ? 'create' : 'review');
+            assert.match(run.request.brief, /<input_json>/);
         }
         assert.notEqual(f.runs[0].request.cwd, f.runs[1].request.cwd);
         assert.deepEqual(f.calls.filter(c => ['adaptation.draft', 'adaptation.review'].includes(c.method)).map(c => c.args.attempt), [1, 1]);
@@ -59,6 +66,9 @@ test('pending is an honest status and explicit cancellation aborts retained prep
     try {
         const result = await f.service.lookup({campaign: 'c1', action: 'prepare', name: 'New route'});
         assert.equal(result.status, 'pending'); assert.match(result.service_status, /No fictional event/);
+        assert.match(result.service_status, /Use narrate only/);
+        const began = Date.now(), status = await f.service.lookup({campaign: 'c1', action: 'status', name: 'New route'});
+        assert.equal(status.status, 'pending'); assert.ok(Date.now() - began < 100, 'status must not open another foreground wait');
         assert.equal((await f.service.lookup({campaign: 'c1', action: 'cancel', name: 'New route'})).status, 'cancelled');
         f.release(); await new Promise(resolve => setTimeout(resolve, 20));
         assert.ok(!f.calls.some(c => c.method === 'adaptation.review'));
@@ -98,4 +108,13 @@ test('admission reuse distinguishes travel time, display destination and payment
         const changed = structuredClone(effects); changed[index][field] = value;
         assert.notEqual(key(changed), base);
     }
+});
+
+test('move admission sees the registered scene identity and binds it into verdict reuse', () => {
+    const effect = [{kind: 'move', to: 'Atlantic Hotel', label: '雅典家庭旅馆'}];
+    const scope = summary => ({scene: {handle: 'office', label: 'Office'}, destinations: [{requested: 'Atlantic Hotel', handle: 'Atlantic Hotel',
+        label: '大西洋旅馆', summary}]});
+    const proposal = admissionRequest('apply', {effects: effect}, scope('A plain hotel in Boston.'));
+    assert.match(proposal.lines[0], /registered_destination=.*plain hotel in Boston/);
+    assert.notEqual(proposal.key, admissionRequest('apply', {effects: effect}, scope('A guesthouse in Athens.')).key);
 });

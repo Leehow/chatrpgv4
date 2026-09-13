@@ -17,10 +17,16 @@ export function continuityAuditContext(graph: ModuleGraph, world: Row, turn: Row
     const corrections = candidates.filter(value => value.kind === 'keeper_correction' && value.superseded_by == null);
     const objects = objectContext(world), sourceNodes = [...new Set([...graph.sceneClueIds(scene), ...array(world.discovered_clues).slice(-4)])]
         .flatMap(name => { const node = graph.find(name); return node ? [node] : []; });
+    const moves = array(turn.receipts).filter(receipt => receipt.kind === 'move');
     return {
         current_input: turn.player_text ?? null,
         clock: clockSection(graph, world),
-        scene: {name: graph.displayName(scene), question: recordOf(scene).dramatic_question ?? null},
+        scene: {handle: graph.handle(scene), name: graph.displayName(scene), question: recordOf(scene).dramatic_question ?? null},
+        scene_commitment: {requires_review: true,
+            active: {handle: graph.handle(scene), name: graph.displayName(scene), summary: chars(graph.summary(scene), 700)},
+            moves: moves.map(receipt => pick(receipt, ['from', 'to', 'from_label', 'to_label', 'minutes'])),
+            definition: 'active_scene is the persistent gameplay locus, not a physical coordinate.',
+            promotion_test: 'A distinct place needs a scene and move only when it becomes the ongoing locus for subsequent player action or durable location-bound state. Spatial wording, scale and motion do not decide this.'},
         present: Object.entries(row(world.npc_presence)).filter(([, at]) => at === world.active_scene).map(([name]) => ({name: index.canonicalName(`npc:${graph.find(name)?.node_id ?? name}`)})),
         receipts: array(turn.receipts).map(receipt => pick(receipt, ['kind', 'actor_label', 'skill', 'passed', 'from_label', 'to_label', 'minutes', 'clue', 'label', 'summary', 'how', 'from', 'to', 'owner', 'delta', 'before', 'after', 'name', 'text', 'condition', 'visibility'])),
         actors: party.map(person => ({name: person.name, equipment: person.equipment ?? [], cash: person.cash ?? null,

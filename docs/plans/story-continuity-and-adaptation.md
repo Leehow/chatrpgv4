@@ -190,3 +190,52 @@ Commits5817faf1,9c124aaa,5499b4d0 andbc1d2aa1 implement the new continuity capab
 Validation: driver14/14; kernel Mod/memory/capsule50/50; final extension850/850; typecheck and runtime build passed. Latest frozen probes matched18/18 semantic expectations plus2/2 separately labeled completion-only checks, median3093ms, range1495-9432ms, at most3calls. The real one-call exhaustion probe correctly paused and is not a gameplay pass.
 
 Genuine play completed20delivery attempts through turn41, ending the paid inquiry after a cellar discovery; median25.609s end-to-end and6.6225s in the narrate preparation/review/commit interval. One19.2s undelivered review attempt is retained separately; later explicit recovery completed without repeating resolve/apply. Dynamic graph work still caused two long turns. The natural ending preserves the unresolved haunting and does not claim combat acceptance. Full evidence, intermediate failures, current state and limitations are in [the repair report](../research/continuity-review-repair-2026-09-12.md). Human UI acceptance, integration and packaging remain outside this completed code-validation slice.
+
+## Current checkpoint (2026-09-12): adaptation routing, scene commitment and pending preparation
+
+The checkpoint above is historical. It recorded narration-audit 1.2.4, the continuity-review repair and
+the first genuine-play ending; its evidence is retained unchanged and is not rewritten here. This
+checkpoint supersedes it as the current state of the branch.
+
+Current audit version is **narration-audit 1.2.8** (with enhanced-items 1.1.9). The version moves because
+two rules landed on the same contract section: the scene-commitment heading is now 1.2.8 (carried from
+1.2.7), and the pending-preparation turn rule is new. Older headings and their evidence remain valid as
+historical descriptions.
+
+The persistent-locus promotion rule: `active_scene` is a persistent gameplay locus, not physical
+coordinates. A distinct place is promoted to a registered scene only when it becomes the ongoing context
+for subsequent player action or durable location-bound state (its own affordances, discoverable clues,
+NPC/object presence, or intended return); otherwise it is same-locus detail or transition and needs no
+scene. This is one semantic test, not an enumeration of doors, balconies, cabinets, vehicles or other
+nouns, and the noun or its size never decides.
+
+Adaptation-purpose routing: `lookup kind adaptation action prepare` carries a closed `purpose`
+(`new_destination | persistent_npc | source_rebinding | handout | rebase`) that the kernel structurally
+validates against the closed change set before acceptance. Ordinary fiction and physical objects no
+longer advertise adaptation; only an explicit `expected_kind: scene` miss returns a new-destination
+preparation. Creator and reviewer decide the open semantics in a focused, tool-enabled pair — one
+creator and one reviewer, bounded per-run provider requests and wall time — with the focus packet inlined
+or bounded rather than letting the child explore raw schemas.
+
+Destination identity admission: existing target handle, display and summary are projected into admission
+so a label cannot substitute the persistent locus the player actually chose.
+
+Pending-preparation turn state: when `prepare` returns pending with retained background work, that work
+owns the rest of the turn. Only a short `narrate` that honestly says preparation is pending may close
+it; all other Keeper tools are blocked, and the ordinary `agent_end` floor must not restart ordinary
+work. The pending status itself authorizes no arrival or change.
+
+Full implementation seams and evidence are in
+[the adaptation-routing report](../research/adaptation-routing-scene-commitment-2026-09-12.md). It records
+the old live waits, the final frozen adaptation probes, the paired semantic cabinet/station probes, the
+genuine Athens play, the failed `adaptation-pending-live` evidence, and current validation. Human UI,
+packaging and integration remain pending; no clean full Python suite is claimed.
+
+Primary-source analogues were used proportionally and did not override project constraints:
+[Anthropic, "Building effective agents"](https://www.anthropic.com/engineering/building-effective-agents)
+for routing distinct work types into a simple composable pattern, and the Microsoft Azure architecture
+pattern for
+[asynchronous request-reply](https://learn.microsoft.com/en-us/azure/architecture/patterns/async-request-reply)
+for returning a pending/status result instead of holding a foreground request. Both informed the shape of
+the routing and the pending-preparation state; the repository's own contract and acceptance rules remain
+authoritative.
