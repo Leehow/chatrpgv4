@@ -8,12 +8,11 @@ export default function readerPdf(pi: any) {
 	pi.on("session_shutdown", () => closeSourceDocuments());
 	pi.registerTool({ name: "pdf", label: "Read original PDF pages",
 		description: "Inspect native bookmarks/page labels with no arguments; use overview for one navigation-only contact sheet of at most 20 contiguous physical pages; or view exact physical pages as source evidence. Reopen overview candidates with pages before using facts. Physical pages start at 1; box optionally zooms exact pages.",
-		parameters: Type.Union([
-			Type.Object({}, {additionalProperties:false}),
-			Type.Object({pages:Type.Array(Type.Integer({minimum:1}),{minItems:1,maxItems:12}),
-				box:Type.Optional(Type.Array(Type.Number({minimum:0,maximum:1}),{minItems:4,maxItems:4}))},{additionalProperties:false}),
-			Type.Object({overview:Type.Object({first_page:Type.Integer({minimum:1}),last_page:Type.Integer({minimum:1})},{additionalProperties:false})},{additionalProperties:false}),
-		]),
+		parameters: Type.Object({
+			pages:Type.Optional(Type.Array(Type.Integer({minimum:1}),{minItems:1,maxItems:12})),
+			box:Type.Optional(Type.Array(Type.Number({minimum:0,maximum:1}),{minItems:4,maxItems:4})),
+			overview:Type.Optional(Type.Object({first_page:Type.Integer({minimum:1}),last_page:Type.Integer({minimum:1})},{additionalProperties:false})),
+		},{additionalProperties:false}),
 		async execute(_id: string, params: any, signal: AbortSignal) {
 			const config = JSON.parse(process.env.PI_COC_READER_SOURCE ?? "null");
 			if (!config) throw new Error("This reader has no bound PDF");

@@ -21,6 +21,7 @@ test("the private pdf tool keeps info, overview and exact evidence as three dist
 	const previous=process.env.PI_COC_READER_SOURCE;process.env.PI_COC_READER_SOURCE=JSON.stringify({pdf:source,cache});
 	t.after(()=>{if(previous===undefined)delete process.env.PI_COC_READER_SOURCE;else process.env.PI_COC_READER_SOURCE=previous;});
 	let tool,shutdown;readerPdf({on(name,handler){if(name==="session_shutdown")shutdown=handler;},registerTool(value){tool=value;}});
+	assert.equal(tool.parameters.type,"object");assert.equal(Object.hasOwn(tool.parameters,"anyOf"),false);assert.equal(tool.parameters.required,undefined);
 	const signal=new AbortController().signal,info=await tool.execute("info",{},signal);
 	assert.equal(info.details.kind,"source_info");
 	const overview=await tool.execute("overview",{overview:{first_page:1,last_page:1}},signal);
