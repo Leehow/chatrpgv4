@@ -7,7 +7,7 @@ import { ReadingService } from "../../extensions/module/reading-service.ts";
 import { KernelError } from "../../extensions/kernel/client.ts";
 
 const ROOT = resolve(import.meta.dirname, "../..");
-const PLAYABILITY_MESSAGE = "the opening is not playable: [] [{\"code\":\"clue_supports_nothing\",\"node_id\":\"clue-family-fled\"}]";
+const FINISH_SEMANTIC_MESSAGE = "the independent review found missing or incorrect material: [{\"description\":\"the opening needs its clue nodes and relations\"}]";
 
 function openingDraft(repaired = false) {
 	const nodes = [
@@ -66,7 +66,7 @@ async function runFinishRepairFixture(t, { rejectEveryFinish = false, transportF
 			if (params.outcome === "completed") {
 				completionAttempts++;
 				if (transportFailure) throw new KernelError({ code: "internal", message: "kernel request timed out" });
-				if (completionAttempts === 1 || rejectEveryFinish) throw new KernelError({ code: "invalid_params", message: PLAYABILITY_MESSAGE });
+				if (completionAttempts === 1 || rejectEveryFinish) throw new KernelError({ code: "invalid_params", message: FINISH_SEMANTIC_MESSAGE });
 				return { state: "ready" };
 			}
 			return { state: params.outcome };
@@ -79,7 +79,7 @@ async function runFinishRepairFixture(t, { rejectEveryFinish = false, transportF
 	return { cwd, readTasks, finishCalls, readRounds, completionAttempts };
 }
 
-test("a finish-time opening rejection gets one source-grounded repair after the normal rounds are spent", async t => {
+test("a finish-time independent-review rejection gets one source-grounded repair after the normal rounds are spent", async t => {
 	const result = await runFinishRepairFixture(t);
 	assert.equal(result.readRounds, 3);
 	assert.equal(result.completionAttempts, 2);
@@ -87,20 +87,20 @@ test("a finish-time opening rejection gets one source-grounded repair after the 
 	const repair = result.readTasks[1].repair;
 	assert.deepEqual(repair.draft, "draft.json");
 	assert.deepEqual(repair.baseline, "baseline.json");
-	assert.equal(repair.findings.error, `invalid_params: ${PLAYABILITY_MESSAGE}`);
+	assert.equal(repair.findings.error, `invalid_params: ${FINISH_SEMANTIC_MESSAGE}`);
 	assert.deepEqual(JSON.parse(await readFile(join(result.cwd, "baseline.json"), "utf8")), openingDraft(false));
 	assert.deepEqual(JSON.parse(await readFile(join(result.cwd, "draft.json"), "utf8")), openingDraft(true));
 	assert.deepEqual(JSON.parse(await readFile(join(result.cwd, "observations.json"), "utf8")).read_pages, [4, 5]);
 	assert.equal(result.finishCalls.at(-1).outcome, "failed", "the finally replay remains bounded after successful publication");
 });
 
-test("a repeated finish-time opening rejection ends as a failed job without another repair loop", async t => {
+test("a repeated finish-time invalid-params rejection ends as a failed job without another repair loop", async t => {
 	const result = await runFinishRepairFixture(t, { rejectEveryFinish: true });
 	assert.equal(result.readRounds, 3);
 	assert.equal(result.completionAttempts, 2);
 	assert.equal(result.finishCalls.length, 3);
 	assert.equal(result.finishCalls.at(-1).outcome, "failed");
-	assert.equal(result.finishCalls.at(-1).detail, `invalid_params: ${PLAYABILITY_MESSAGE}`);
+	assert.equal(result.finishCalls.at(-1).detail, `invalid_params: ${FINISH_SEMANTIC_MESSAGE}`);
 });
 
 test("a finish transport failure does not consume the semantic repair continuation", async t => {

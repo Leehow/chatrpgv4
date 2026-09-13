@@ -58,9 +58,8 @@ function validCheckpoint(checkpoint: Row, bytes: Buffer, job: Row): boolean {
 const delay = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
 const error = (reason: string, message: string, fix: string, extra: Row = {}) =>
 	new KernelError({ code: "needs", message, fix, details: { reason, ...extra } });
-function openingPlayabilityRejection(failure: unknown, job: Row): boolean {
-	return job.purpose === "opening" && isKernelError(failure) && failure.code === "invalid_params"
-		&& failure.message.startsWith("the opening is not playable:");
+function openingFinishSemanticRejection(failure: unknown, job: Row): boolean {
+	return job.purpose === "opening" && isKernelError(failure) && failure.code === "invalid_params";
 }
 
 export class ReadingService implements ReadingBridge {
@@ -310,7 +309,7 @@ export class ReadingService implements ReadingBridge {
 		let detail = "the reader did not produce a valid draft";
 		try {
 			if (!model.vision) throw error("vision_required", "the reader has no image input", "select a model that supports images");
-			// Reader/check/review failures keep the existing two rounds. One opening-playability rejection
+			// Reader/check/review failures keep the existing two rounds. One opening semantic rejection
 			// from publication can add only its own source-grounded repair round.
 			let lastRound = 2, finishRepairUsed = false;
 			for (let round = 1; round <= lastRound && !signal.aborted; round++) {
@@ -448,7 +447,7 @@ export class ReadingService implements ReadingBridge {
 						} catch { /* no completed read to invalidate */ }
 					}
 					detail = isKernelError(failure) ? failure.toToolText() : String(failure);
-					if (publishing && openingPlayabilityRejection(failure, job) && !finishRepairUsed) {
+					if (publishing && openingFinishSemanticRejection(failure, job) && !finishRepairUsed) {
 						finishRepairUsed = true;
 						lastRound = Math.max(lastRound, round + 1);
 					}
