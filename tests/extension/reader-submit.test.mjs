@@ -23,7 +23,8 @@ async function setup(t,reviewing=false,purpose="guidance"){
  await readerSubmit({on(name,fn){handlers[name]=fn},registerTool(value){tool=value},async exec(file,args,options){
   try{return {...await promisify(execFile)(file,args,options),code:0}}catch(error){return {code:error.code,stdout:error.stdout,stderr:error.stderr}}}});
  const see=()=>handlers.context({messages:[{role:'toolResult',content:[{type:'image',data:'AA=='}],details:{kind:'source_pages',observations:[{page:1}]}}]});
- return {tool,see,dir};
+ const overview=()=>handlers.context({messages:[{role:'toolResult',content:[{type:'image',data:'AA=='}],details:{kind:'source_overview',manifest:{tiles:[{page:1}]}}}]});
+ return {tool,see,overview,dir};
 }
 
 test('small reader input is supplied up front while oversized input retains file access',()=>{
@@ -42,6 +43,12 @@ test('failed draft and unseen source checks return to repair before a terminatin
  assert.deepEqual(JSON.parse(await readFile(join(dir,'draft.json'),'utf8')),draft);
  see();assert.equal((await tool.execute('fixed',{})).terminate,true);
  await assert.rejects(tool.execute('cancel',{},AbortSignal.abort()),/cancelled/);
+});
+
+test('a contact-sheet overview cannot satisfy source-reference evidence',async t=>{
+	const {tool,overview}=await setup(t);
+	overview();
+	await assert.rejects(tool.execute('overview-only',{draft,guidance}),/View original physical pages/);
 });
 
 test('review submission preserves negative findings and refuses unread citations or edited candidates',async t=>{

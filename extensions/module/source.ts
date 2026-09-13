@@ -9,6 +9,7 @@ import { createCanvas, loadImage, type Canvas, type SKRSContext2D } from "@napi-
 const require = createRequire(import.meta.url);
 const pdfRoot = dirname(require.resolve("pdfjs-dist/package.json"));
 export const sourceRenderVersion = `pdfjs-${version}:canvas-${require("@napi-rs/canvas/package.json").version}:page-v2`;
+export const sourceOverviewVersion = `${sourceRenderVersion}:overview-v1`;
 export type Box = [number, number, number, number];
 type PdfCanvas = {canvas: Canvas; context: SKRSContext2D};
 interface PdfCanvasFactory {create(width: number, height: number): PdfCanvas; destroy(target: PdfCanvas): void}
@@ -144,6 +145,71 @@ export async function sourcePage(pdf: string, cache: string, page: number, optio
 	const work = renderSourcePage(pdf,cache,page,options).finally(()=>{if(pageRequests.get(key)===work)pageRequests.delete(key);});
 	pageRequests.set(key,work);
 	return work;
+}
+
+export async function sourceOverview(pdf: string, cache: string, firstPage: number, lastPage: number, signal?: AbortSignal) {
+	if (!Number.isInteger(firstPage) || !Number.isInteger(lastPage) || firstPage < 1 || lastPage < firstPage)
+		throw new Error("overview needs an ordered positive integer physical-page range");
+	if (lastPage - firstPage + 1 > 20) throw new Error("overview accepts at most 20 contiguous physical pages");
+	if (signal?.aborted) throw new Error("Source overview cancelled");
+	const { document, sha256, close } = await openPdf(pdf);
+	try {
+		if (lastPage > document.numPages) throw new Error(`overview range ${firstPage}-${lastPage} is outside this PDF (1-${document.numPages})`);
+		const key = createHash("sha256").update(JSON.stringify({ sha256, first_page:firstPage, last_page:lastPage, version:sourceOverviewVersion })).digest("hex");
+		await mkdir(cache, {recursive:true});
+		const path = join(resolve(cache), `overview-${key}.jpg`), metaPath = join(resolve(cache), `overview-${key}.json`);
+		let result: Record<string, unknown> | undefined;
+		try {
+			const meta = JSON.parse(await readFile(metaPath,"utf8")), bytes = await readFile(path);
+			if (meta.key === key && meta.image_sha256 === createHash("sha256").update(bytes).digest("hex")) result = {...meta,path,reused:true};
+		} catch { /* a missing or damaged overview is rendered again */ }
+		if (!result) {
+			const labels = await document.getPageLabels(), count = lastPage-firstPage+1;
+			const columns=4,margin=24,gap=16,sheetWidth=1600,tileWidth=Math.floor((sheetWidth-margin*2-gap*(columns-1))/columns);
+			const imageHeight=232,labelHeight=60,tileHeight=imageHeight+labelHeight,rows=Math.ceil(count/columns);
+			const sheetHeight=margin*2+rows*tileHeight+(rows-1)*gap;
+			const sheet=createCanvas(sheetWidth,sheetHeight), context=sheet.getContext("2d");
+			context.fillStyle="#e8ebef";context.fillRect(0,0,sheetWidth,sheetHeight);
+			const tiles:Record<string,unknown>[]=[];
+			const fit=(value:string,width:number)=>{
+				if(context.measureText(value).width<=width)return value;
+				let text=value;while(text.length&&context.measureText(text+"...").width>width)text=text.slice(0,-1);
+				return text+"...";
+			};
+			for(let index=0;index<count;index++) {
+				if(signal?.aborted)throw new Error("Source overview cancelled");
+				const page=firstPage+index,row=Math.floor(index/columns),column=index%columns;
+				const x=margin+column*(tileWidth+gap),y=margin+row*(tileHeight+gap);
+				context.fillStyle="#ffffff";context.fillRect(x,y,tileWidth,tileHeight);
+				context.strokeStyle="#aeb4bc";context.lineWidth=2;context.strokeRect(x+1,y+1,tileWidth-2,tileHeight-2);
+				const pdfPage=await document.getPage(page),base=pdfPage.getViewport({scale:1});
+				const scale=Math.min((tileWidth-12)/base.width,(imageHeight-12)/base.height),viewport=pdfPage.getViewport({scale});
+				const factory=document.canvasFactory as PdfCanvasFactory;
+				const tile=factory.create(Math.max(1,Math.ceil(viewport.width)),Math.max(1,Math.ceil(viewport.height)));
+				try {
+					await pdfPage.render({canvas:tile.canvas as unknown as HTMLCanvasElement,canvasContext:tile.context as unknown as CanvasRenderingContext2D,viewport}).promise;
+					context.drawImage(tile.canvas,x+(tileWidth-tile.canvas.width)/2,y+(imageHeight-tile.canvas.height)/2);
+				} finally {factory.destroy(tile);pdfPage.cleanup();}
+				const pdfLabel=typeof labels?.[page-1]==="string"?labels[page-1]:null;
+				context.fillStyle="#111827";context.font="bold 20px sans-serif";context.textBaseline="middle";
+				context.fillText(`Physical page ${page}`,x+10,y+imageHeight+18);
+				if(pdfLabel&&pdfLabel!==String(page)) {
+					context.fillStyle="#4b5563";context.font="16px sans-serif";
+					context.fillText(fit(`PDF label ${pdfLabel}`,tileWidth-20),x+10,y+imageHeight+43);
+				}
+				tiles.push({page,pdf_label:pdfLabel,row,column,tile:[x,y,tileWidth,tileHeight]});
+			}
+			const bytes=sheet.toBuffer("image/jpeg",88),image_sha256=createHash("sha256").update(bytes).digest("hex");
+			const meta={key,version:sourceOverviewVersion,file_sha256:sha256,first_page:firstPage,last_page:lastPage,
+				width:sheetWidth,height:sheetHeight,media_type:"image/jpeg",image_sha256,tiles};
+			const imageTemporary=`${path}.${process.pid}.${randomUUID()}.tmp`,metaTemporary=`${metaPath}.${randomUUID()}.tmp`;
+			await writeFile(imageTemporary,bytes);await rename(imageTemporary,path);
+			await writeFile(metaTemporary,JSON.stringify(meta)+"\n");await rename(metaTemporary,metaPath);
+			result={...meta,path,reused:false};
+		}
+		await appendFile(join(resolve(cache),"overviews.jsonl"),JSON.stringify({at:new Date().toISOString(),...result})+"\n");
+		return result;
+	} finally {await close();}
 }
 
 async function renderSourcePage(pdf: string, cache: string, page: number, options: { box?: number[]; pixels?: number; format?: "png" | "jpeg" }) {

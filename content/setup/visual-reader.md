@@ -8,6 +8,8 @@ System instructions and findings are English. Preserve authored names and facts 
 
 Prefer the pdf tool: with no pages it returns native bookmarks and page labels, then pass selected physical pages to receive images directly. Native navigation locates material but does not establish its facts. When bookmarks are absent, inspect contents and opening pages, then follow references. The fallback page command ends in `page`; append a physical page number starting at 1. Optional `--box x0,y0,x1,y1` requests a normalized region of the displayed, rotated page. Use it for small print and crowded tables. Read the returned image with read. Printed page labels and physical page numbers are different: verify referenced pages instead of assuming a fixed offset. The source has no imposed chapter boundary; follow references wherever the current task requires.
 
+Use `overview:{first_page,last_page}` only when bookmarks, page labels and known source refs do not locate a visually distinctive target such as a map or handout. It returns a labelled contact sheet for at most 20 contiguous physical pages. The sheet and its tile manifest are navigation only: nominate candidate physical pages, then reopen them with `pages` before writing any fact, source_ref, image_sources or map region. Never cite or review from an overview.
+
 Image history is bounded. During index/read phases, write sourced entries into draft.json incrementally while the relevant images are in view, rather than waiting until the end of a long reading to reconstruct them from memory. Reopen a page when uncertain. Preserve the spelling and unusual details of authored documents, including intentional errors; do not correct them into a more plausible story.
 
 ## Index phase

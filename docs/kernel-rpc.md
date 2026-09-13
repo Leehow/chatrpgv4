@@ -1647,14 +1647,15 @@ repeating successful reading after Pi has already recovered a provider failure.
 
 `module.json` 增加 `reading_version: 1` 和 `source_document: {path, file_sha256, page_count}`。路径相对模组目录，必须落在该目录内。来源发布后不可原位替换。同文件重复导入返回已有模组；同 id 不同摘要报 `invalid_params` 并给出创建新模组的 `fix`。哈希和内部作业标识只在宿主与内核间传递。
 
-宿主翻页命令的两种操作：
+宿主私有 PDF 工具的三种互斥操作：
 
 - `info`：返回真实页数、已有书签与页面标签。没有书签返回空数组，不由程序猜章节。
 - `page <page> [--box x0,y0,x1,y1]`：按需渲染并返回图片路径、物理页号、裁剪范围和实际尺寸；读者再用 Pi `read` 看图。`page` 是从 1 起的物理页序，印刷页码只是标签。`box` 是应用 PDF 旋转后的可视整页上、左为原点的归一化矩形；满足 `0 <= x0 < x1 <= 1` 与 `0 <= y0 < y1 <= 1`。内核持久化 `pdf_index = page - 1`，只在边界转换一次。
+- `overview {first_page,last_page}`：最多 20 个连续物理页的一张固定布局联络表，格子同时标物理页与 PDF 页标签，并返回页到格子的 manifest。它只在原生导航和既有引用不足时帮助定位；结果是 `source_overview`，不产生 `source_pages` observations，不能满足 source ref、草稿提交或独立复核的原页证据。读者选中候选后必须用 `page` 重新打开原页。
 
 书中“见第 N 页”的印刷引用由读者对照原页或可靠 PDF 页标签定位，不能用固定页差在全书或不同版本间推算。2026-09-07 样本已出现物理第 100 页对应印刷 97 的情况；这只是该页证据，不是全局偏移规则。首个交付仍是一份完整 PDF 一个来源；分卷正文与独立手卡册不自动拼接成同一来源。
 
-缓存位于模组内 `cache/pages/`，键包含原文件摘要、物理页、渲染参数与裁剪。只生成请求的页；裁剪从原 PDF 渲染，不能放大已经缩小的预览图冒充细节。宿主保存请求记录，读者会话保留实际图片 `read` 事件与失败，不能把“生成了图片”记成“模型已看过”。缓存不是真相，也不替代原 PDF。
+缓存位于模组内 `cache/pages/`。原页缓存键包含原文件摘要、物理页、渲染参数与裁剪；联络表缓存键包含原文件摘要、连续物理范围和固定布局版本。只生成请求的页；裁剪从原 PDF 渲染，不能放大已经缩小的预览图冒充细节。原页请求写 `requests.jsonl`，联络表导航另写 `overviews.jsonl`。读者会话保留实际图片事件与失败，不能把联络表或“生成了图片”记成“模型已看过原页”。缓存不是真相，也不替代原 PDF。
 
 沿用 `sections.json` 作为阅读索引，新的记录形状为 `{name, pages: [[first,last], ...], topics: [string], entities: [string], references: [{name, pages?}], state: "indexed"|"unreadable"}`；页范围在此用从 0 起的物理页序、两端包含。不同主题可重叠，未读范围必须引用实际查看过的目录或标题页，不要求全页覆盖。`topics/entities/references` 由读者判断，程序只检查形状与范围；索引是定位信息，不是事实图，不授权规则结算。全局梗概中的事实要成为游戏依据，仍须走 22.3 的细读与复核。
 
