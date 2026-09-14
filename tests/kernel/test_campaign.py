@@ -30,6 +30,20 @@ def test_create_and_list(kernel):
     assert kernel.err("campaign.create", {"id": CAMPAIGN + "y", "module": MODULE, "pregen": "nobody"})["code"] == "invalid_params"
 
 
+def test_a_telemetry_only_directory_does_not_block_creating_the_campaign(kernel):
+    """Setup prepares a fresh PDF before it creates the campaign, and the reading lane writes
+    `<home>/.coc/campaigns/<bound id>/telemetry.jsonl` while it does. A log directory is not a
+    campaign: campaign.list, guardCampaign and campaign.read all key on `campaign.json`, so create
+    must too -- otherwise the normal fresh-PDF setup order permanently locks its own campaign id."""
+    directory = campaign_dir(kernel.workspace)
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "telemetry.jsonl").write_text('{"lane":"reading"}\n', encoding="utf-8")
+    created = create_campaign(kernel)["campaign"]
+    assert created["id"] == CAMPAIGN and created["status"] == "active"
+    assert (directory / "campaign.json").exists()
+    assert (directory / "telemetry.jsonl").read_text(encoding="utf-8") == '{"lane":"reading"}\n'
+
+
 def test_create_writes_layout_and_first_commit(kernel):
     create_campaign(kernel)
     directory = campaign_dir(kernel.workspace)

@@ -368,7 +368,11 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             throw new RpcError('invalid_params', 'campaign id must be a short slug', {
                 fix: "use letters, digits, '.', '_' or '-' (max 64 chars)"
             });
-        if (await context.snapshots.pathExists(join(context.campaignsRoot, id)))
+        // Existence is `campaign.json`, the same marker campaign.list, guardCampaign and
+        // campaign.read use. The directory alone is not a campaign: reading/table/memory telemetry
+        // mkdirs `<campaigns>/<id>/telemetry.jsonl` for the session's bound id, and setup prepares
+        // a fresh PDF (which records reading telemetry) before it creates the campaign (#88).
+        if (await context.snapshots.pathExists(join(context.campaignsRoot, id, 'campaign.json')))
             throw new RpcError('invalid_params', `campaign ${repr(id)} already exists`, {
                 fix: 'pick another id or open the existing campaign'
             });
@@ -464,12 +468,13 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         await mkdir(context.campaignsRoot, {
             recursive: true
         });
+        // Idempotent: a telemetry-only directory (or a crashed earlier attempt) may already exist.
         await mkdir(campaign.directory, {
-            recursive: false
+            recursive: true
         });
         try {
-            await mkdir(campaign.path('party'));
-            await mkdir(campaign.path('turns'));
+            await mkdir(campaign.path('party'), { recursive: true });
+            await mkdir(campaign.path('turns'), { recursive: true });
             if (sheet)
                 await campaign.writeSheet(sheet);
             if (world != null)
