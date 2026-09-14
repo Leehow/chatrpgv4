@@ -15,6 +15,9 @@ await build({stdin:{contents:[
   `export {createKernelContext} from ${JSON.stringify(join(ROOT,'kernel-ts/context.ts'))};`,
   `export {createWriteRuntime} from ${JSON.stringify(join(ROOT,'kernel-ts/write/index.ts'))};`,
   `export {PythonRandom} from ${JSON.stringify(join(ROOT,'kernel-ts/random.ts'))};`,
+  `export {SettleContext, presentOpponents} from ${JSON.stringify(join(ROOT,'kernel-ts/resolve/context.ts'))};`,
+  `export {presentOpponents as combatOpponents} from ${JSON.stringify(join(ROOT,'kernel-ts/combat/execution.ts'))};`,
+  `export {presentOpponents as chaseOpponents} from ${JSON.stringify(join(ROOT,'kernel-ts/chase/bindings.ts'))};`,
   `export {diskFiles,restoreTree} from ${JSON.stringify(join(ROOT,'kernel-ts/worldline/history.ts'))};`,
 ].join('\n'),sourcefile:'writer-test-api.ts',resolveDir:ROOT,loader:'ts'},outfile:join(output,'api.mjs'),bundle:true,packages:'external',platform:'node',format:'esm',target:'node22',logLevel:'silent'});
 const api=await import(pathToFileURL(join(output,'api.mjs')).href);
@@ -79,6 +82,70 @@ test('the turn transaction preserves receipt replay without advancing the owner 
   await assert.rejects(fresh.beginWrite('table.resolve',{...params,action:{...params.action,skill:'Spot Hidden'}}),error=>error.code==='idempotency_conflict');
   const cursor=JSON.parse(await readFile(join(home,'.coc/campaigns/c1/turn.json'),'utf8'));
   assert.equal(cursor.state,'acting');assert.equal(cursor.receipts.length,1);
+});
+
+test('ask and narrate share delivery formatting while retaining their distinct records and turn transitions',async t=>{
+  for(const method of ['ask','narrate'])await t.test(method,async()=>{
+    const home=await mkdtemp(join(evidence,`delivery-${method}-`));
+    const context=await api.createKernelContext({workspace:home,content:CONTENT,env:environment()});
+    try {
+      const runtime=api.createWriteRuntime(context);
+      await runtime.handlers['campaign.create'](create);
+      await runtime.handlers['table.player_input']({campaign:'c1',text:'I wait.'});
+      const action={campaign:'c1',call_id:'t1-c1'},transaction=await runtime.transaction(action);
+      const receipt={kind:'time',id:'time:t1-c1',minutes:5};
+      await transaction.commitResolve({callId:action.call_id,params:action,result:{receipts:[receipt]},receipts:[receipt],events:[]});
+      const params={campaign:'c1',call_id:'t1-c2',text:'Waiting {{time}} ends. {{time}} {{unknown}}',
+        ...(method==='ask'?{prompt:'Stay or leave?',options:['Stay','Leave']}: {})};
+      const result=await runtime.handlers[`table.${method}`](params);
+      assert.equal(result.rendered_text,'Waiting ends.');
+      assert.equal(result.marked_text.match(/\{\{time\}\}/g).length,1);
+      assert.deepEqual(result.dropped_markers.unknown,['unknown']);
+      assert.deepEqual(result.dropped_markers.duplicate,['time']);
+      assert.equal(result.mechanics.length,1);
+      assert.equal(result.mechanics[0].receipt,receipt.id);
+      assert.equal(Object.hasOwn(result,'placed'),false,'internal marker bindings never enter the wire');
+      const campaign=await runtime.campaign({campaign:'c1'}),record=await campaign.readTurnRecord(1),cursor=await campaign.readTurn();
+      assert.equal(record.closed_by,method);
+      assert.equal(record.closed_how,'explicit');
+      assert.equal(record.text,params.text);
+      assert.equal(record.rendered_text,result.rendered_text);
+      assert.deepEqual(record.mechanics,result.mechanics);
+      assert.deepEqual(record.labels,result.labels);
+      assert.deepEqual(record.receipts,[receipt]);
+      assert.equal(Object.hasOwn(record,'dropped_markers'),false);
+      assert.equal(Object.hasOwn(record,'marked_text'),method==='narrate');
+      assert.equal(cursor.state,method==='ask'?'asked':'awaiting_player');
+      assert.equal(cursor.turn,method==='ask'?1:2);
+      assert.equal(record.commit,method==='ask'?null:result.commit);
+      assert.deepEqual(await runtime.handlers[`table.${method}`](params),{...result,replayed:true});
+    } finally {await context.git.close();}
+  });
+});
+
+test('a mechanics-only ask still allows no story text and keeps an empty delivery',async t=>{
+  const home=await mkdtemp(join(evidence,'empty-ask-'));
+  const context=await api.createKernelContext({workspace:home,content:CONTENT,env:environment()});
+  t.after(()=>context.git.close());const runtime=api.createWriteRuntime(context);
+  await runtime.handlers['campaign.create'](create);
+  const result=await runtime.handlers['table.ask']({campaign:'c1',call_id:'t0-c1',kind:'mechanics',options:['accept']});
+  assert.equal(result.rendered_text,'');assert.deepEqual(result.mechanics,[]);
+  for(const field of ['marked_text','dropped_markers','placed'])assert.equal(Object.hasOwn(result,field),false);
+  const record=await (await runtime.campaign({campaign:'c1'})).readTurnRecord(0);
+  assert.equal(record.text,'');assert.equal(record.rendered_text,'');assert.equal(record.commit,null);
+});
+
+test('combat and chase use the same current-scene NPC query without mixing their engines',()=>{
+  assert.equal(api.combatOpponents,api.presentOpponents);assert.equal(api.chaseOpponents,api.presentOpponents);
+  const here={node_id:'npc-here'},there={node_id:'npc-there'},profile={hp_current:10};
+  const world={active_scene:'study',npc_presence:{here:'study',unknown:'study',there:'hall'}};
+  const context=Object.assign(Object.create(api.SettleContext.prototype),{
+    transaction:{world},module:{graph:{find:handle=>({here,there}[handle]??null)}},
+    npcProfile:handle=>handle==='here'?profile:null,
+  });
+  assert.deepEqual(api.presentOpponents(context),[['here',here,profile]]);
+  world.active_scene='hall';assert.deepEqual(api.presentOpponents(context),[['there',there,null]]);
+  world.active_scene='empty';assert.deepEqual(api.presentOpponents(context),[]);
 });
 
 test('unlocked RNG reseeds on open and player input using the saved main-line seed',async t=>{

@@ -25,7 +25,8 @@ import { validateDifficulty } from '../setup/difficulty.js';
 import { resolveStartScene } from '../modules/visual.js';
 import { loadModuleContract, validSourceLanguage } from '../modules/contract.js';
 import { defaultModPlan, preflightCampaign as validateContributions, rebuildNpcLedger, updateNpcLedger, stanceTable, writeEpisode } from './contributions.js';
-import { bindMarkers, droppedMarkers, stripMarkers, asciiSlug, facts, publicContext, directorAdoption, offerLedger, placeUnplacedMaps } from './text.js';
+import { asciiSlug, facts, publicContext, directorAdoption, offerLedger } from './text.js';
+import { deliveryText, deliveryRecord } from './delivery.js';
 import { readableTurn, rebuildTurn, syncCheckpoint, resumeView, checkpointFromRecord, writeCheckpoint } from './continuation.js';
 import {activeName} from '../read/worldline.js';
 import {eventOf} from '../worldline/index.js';
@@ -249,7 +250,12 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         snapshot.jsonFiles.set('turn.json', snapshot.turn);
         return snapshot;
     }
-    async function load(params: Row, ready = false, requireTurn = true, repair = true, preload = true): Promise<{
+    async function load(params: Row, { allowReady = false, requireTurn = true, repairLegacyTrail: repair = true, preload = true }: {
+        allowReady?: boolean;
+        requireTurn?: boolean;
+        repairLegacyTrail?: boolean;
+        preload?: boolean;
+    } = {}): Promise<{
         campaign: CampaignWriter;
         snapshot: CampaignSnapshot;
         module: LoadedModule;
@@ -259,7 +265,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         snapshot.world = clone(snapshot.world);
         snapshot.turn = clone(snapshot.turn);
         if(preload)snapshot.party = await snapshot.files('party');
-        const status = string(snapshot.meta.status), statuses = ready ? ['ready_for_table', 'active', 'completed'] : ['active', 'completed'];
+        const status = string(snapshot.meta.status), statuses = allowReady ? ['ready_for_table', 'active', 'completed'] : ['active', 'completed'];
         if (!statuses.includes(status)) {
             const steps = status === 'setting_up' ? row(await context.snapshots.readJson(join(context.content, 'setup', 'steps.json'))) : {};
             throw new RpcError('campaign_not_ready', `campaign ${repr(snapshot.id)} is ${repr(status)}`, {
@@ -516,7 +522,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         const starter = join(context.content, 'starters', string(meta.module_id), 'module-graph.json');
         if (!await context.snapshots.pathExists(metadata) && await context.snapshots.pathExists(starter))
             await registerStarter(context, string(meta.module_id));
-        const loaded = await load(params, true, false), snapshot = loaded.snapshot, module = loaded.module;
+        const loaded = await load(params, { allowReady: true, requireTurn: false }), snapshot = loaded.snapshot, module = loaded.module;
         await initializeMods(campaign, snapshot);
         await validateOntology();
         if (snapshot.meta.status === 'ready_for_table') {
@@ -756,9 +762,8 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         if (truth(ending) && ((ending.scope || 'campaign') === 'campaign' && snapshot.meta.status !== 'completed' || ending.scope === 'chapter' && snapshot.meta.status === 'completed'))
             throw new RpcError('invalid_params', 'a campaign ending must be delivered with narrate, not ask');
         if(truth(turn.worldline))throw new RpcError('invalid_params','a turn that forks or switches the worldline cannot be closed by ask',{fix:"close this turn with narrate; ask on the new line's first turn",details:{worldline:row(turn.worldline).operation??null}});
-        const receipts = [...array(turn.receipts)], binding = text ? bindMarkers(text, receipts) : null;
-        const placedMaps = binding ? placeUnplacedMaps(binding.text, receipts, binding.placed) : { text: text || '', placed: {} }, placed = placedMaps.placed;
-        const dropped = binding ? droppedMarkers(binding, receipts) : null, stripped = binding ? stripMarkers(placedMaps.text) : text;
+        const receipts = [...array(turn.receipts)];
+        const { placed, ...delivery } = deliveryText(text, receipts);
         const language = await playLanguageOf(context, snapshot.meta);
         await stanceTable(context);
         const n = number(turn.turn), pending = {
@@ -768,22 +773,16 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             binds,
             kind
         };
-        const rendered = stripped ? stripped.trim() : '', projected = mechanics(receipts, placed, await snapshot.handoutTexts(receipts)), labels = await playerGlossary(context, language);
+        const rendered = delivery.rendered_text, projected = mechanics(receipts, placed, await snapshot.handoutTexts(receipts)), labels = await playerGlossary(context, language);
         const result: Row = {
             pending_choice: pending,
             interaction: {
                 ...pending,
                 play_language: language
             },
-            rendered_text: rendered,
+            ...delivery,
             mechanics: projected,
             labels,
-            ...(truth(placed) ? {
-                marked_text: placedMaps.text
-            } : {}),
-            ...(dropped ? {
-                dropped_markers: dropped
-            } : {}),
             turn: n,
             state: 'asked'
         };
@@ -791,23 +790,9 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         turn.state = 'asked';
         rememberCall(turn, started.callId, params, result);
         const world = tableSnapshot(snapshot, module.graph), record = {
-            turn: n,
-            player_text: turn.player_text ?? null,
-            receipts,
-            text: text || '',
-            rendered_text: rendered,
-            mechanics: projected,
-            labels,
-            calls: turn.calls || {},
-            commit: null,
+            ...deliveryRecord(turn, text, receipts, result, world),
             closed_by: 'ask',
             closed_how: 'explicit',
-            opened_at: turn.opened_at ?? null,
-            closed_at: nowIso(),
-            pending_choice: pending,
-            world,
-            capsule: turn.capsule ?? null,
-            intents: [...array(turn.intents)],
             director_adoption: await adoption(campaign, module, turn, world, 'ask')
         };
         await campaign.writeTurnRecord(record);
@@ -836,9 +821,8 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         report?.('load');
         preflightCampaign(snapshot.meta, snapshot.world, turn, snapshot.party);
         await validateMods(snapshot.world);
-        const text = required(params, 'text')!, receipts = [...array(turn.receipts)], binding = bindMarkers(text, receipts);
-        const placedMaps = placeUnplacedMaps(binding.text, receipts, binding.placed), placed = placedMaps.placed;
-        const dropped = droppedMarkers(binding, receipts), rendered = stripMarkers(placedMaps.text);
+        const text = required(params, 'text')!, receipts = [...array(turn.receipts)];
+        const { placed, ...delivery } = deliveryText(text, receipts), rendered = delivery.rendered_text;
         const language = await playLanguageOf(context, snapshot.meta);
         // Nothing is read out of the prose. Figures travel as the mechanics projection and the
         // frontend draws them (2026-09-09 user decision, contract section 16.3); whether the words
@@ -852,19 +836,13 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             publicContext(snapshot.party, row(row(snapshot.meta.setup).handoff).prologue, earlier)), labels = await playerGlossary(context, language);
         report?.('project');
         const result: Row = {
-            rendered_text: rendered,
+            ...delivery,
             mechanics: projected,
             labels,
             turn: n,
             receipt,
             commit: null,
             facts: factLists,
-            ...(truth(placed) ? {
-                marked_text: placedMaps.text
-            } : {}),
-            ...(dropped ? {
-                dropped_markers: dropped
-            } : {}),
             extraction: {
                 job_id: `extract:${campaign.id}:t${n}`
             }
@@ -873,27 +851,11 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         const recordPath = campaign.path(campaign.recordName(n)), hadRecord = await context.snapshots.pathExists(recordPath);
         rememberCall(turn, started.callId, params, result);
         const record: Row = {
-            turn: n,
-            player_text: turn.player_text ?? null,
-            receipts,
-            text,
-            rendered_text: rendered,
-            mechanics: projected,
-            labels,
-            calls: turn.calls || {},
-            ...(truth(placed) ? {
-                marked_text: placedMaps.text
-            } : {}),
-            commit: null,
+            ...deliveryRecord(turn, text, receipts, result, world),
+            ...(delivery.marked_text ? { marked_text: delivery.marked_text } : {}),
             closed_by: 'narrate',
             closed_how: truth(params.implicit) ? 'implicit' : 'explicit',
-            opened_at: turn.opened_at ?? null,
-            closed_at: nowIso(),
-            pending_choice: turn.pending_choice ?? null,
-            capsule: turn.capsule ?? null,
-            world,
             facts: factLists,
-            intents: [...array(turn.intents)],
             director_adoption: await adoption(campaign, module, turn, world, 'narrate'),
             worldline: turn.worldline ?? null
         };
@@ -987,6 +949,6 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             'table.ask': ask,
             'table.narrate': narrate
         }),
-        async transaction(params, options = {}) { const { campaign, snapshot } = await load(params, false, true, options.repairLegacyTrail !== false, options.preload !== false); return createTurnTransaction(campaign, snapshot.world, snapshot.turn); }
+        async transaction(params, options = {}) { const { campaign, snapshot } = await load(params, options); return createTurnTransaction(campaign, snapshot.world, snapshot.turn); }
     };
 }

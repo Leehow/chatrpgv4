@@ -118,7 +118,13 @@ console.log(JSON.stringify({type:'transport_ready'}));\n`);
   const flags = readerCommand("fixture/model", "/task/prompt.md", "low", true, true, { ...context, env: {} });
   assert.equal(flags[0], context.nodeExecutable);
   assert.equal(flags[flags.indexOf("--tools") + 1], "read,write,edit,bash,pdf,submit_reading");
+  assert.equal(flags[flags.indexOf(context.entrypoints.readerSubmit) - 1], "--extension");
   for (const flag of ["--no-session", "--no-context-files", "--no-extensions", "--no-skills"]) assert.ok(flags.includes(flag));
+  const mounted = flags.flatMap((value, index) => value === "-e" ? [flags[index + 1]] : []);
+  assert.deepEqual(mounted, context.entrypoints.providerExtensions);
+  assert.equal(mounted.includes(context.entrypoints.imageGen), false);
+  assert.equal(mounted.includes(context.entrypoints.agent), false);
+  for (const path of context.entrypoints.extensions) assert.equal(mounted.includes(path), false);
   await assert.rejects(runReader({ cwd, brief }), /captured host runtime context/);
 });
 

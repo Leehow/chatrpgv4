@@ -4,7 +4,7 @@ import { accessSync, constants, existsSync, mkdirSync, readFileSync, writeFileSy
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { composeRuntimeContext, type RuntimeHostOptions } from './host.ts';
-import { resourceRootFrom } from './deployment.mjs';
+import { extensionArgs, resourceRootFrom, sessionExtensionPaths } from './deployment.mjs';
 
 export function piLaunch(input: string[], options: RuntimeHostOptions = {}) {
   const env = {...(options.env ?? process.env)};
@@ -50,8 +50,7 @@ export function piLaunch(input: string[], options: RuntimeHostOptions = {}) {
   // session can be switched to is a model a lane can still run. image-gen registers tools, not a
   // provider, and stays a session mount.
   const mounts = !forwarded.includes('--no-extensions')
-    ? ['--no-extensions', ...[...context.entrypoints.extensions, ...context.entrypoints.providerExtensions,
-      context.entrypoints.imageGen].flatMap(path => ['-e', path])] : [];
+    ? ['--no-extensions', ...extensionArgs(sessionExtensionPaths(context.entrypoints))] : [];
   return {command: context.nodeExecutable,
     args: [context.entrypoints.pi, '--no-builtin-tools', '--no-context-files', '--system-prompt', prompt, ...session, ...mounts, ...forwarded],
     // image-gen owns image_gen/image_edit; Pi refuses duplicate tool names, so grok-build-oauth is told not to register its own.

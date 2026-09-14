@@ -53,7 +53,7 @@
     ],
     "extraResources": [
       {
-        "from": "../../product.json",
+        "from": "../../../pipicoc/product.json",
         "to": "product.json"
       },
       {

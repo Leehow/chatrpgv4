@@ -377,6 +377,13 @@ export class SettleContext {
         return output;
     }
 }
+/** Scene-bound NPCs shared by combat and chase; engine-specific eligibility stays with each caller. */
+export function presentOpponents(context: SettleContext): Array<[string, Row, Row | null]> {
+    return entries(context.world.npc_presence).filter(([, at]) => at === context.activeScene).flatMap(([handle]) => {
+        const node = context.graph.find(handle, ['npc']);
+        return node ? [[handle, node, context.npcProfile(handle)] as [string, Row, Row | null]] : [];
+    });
+}
 export function continuableCheck(receipt: Row, actor: any): boolean {
     return receipt.kind === 'roll' && receipt.form !== 'dice' && receipt.actor === actor && !dieHidden(receipt.visibility)
         && ['skill_check', 'characteristic_check'].includes(receipt.roll_kind) && isJsonObject(receipt.check);

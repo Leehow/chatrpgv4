@@ -2,17 +2,17 @@ import { readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 
 /**
- * Which product this Electron build is. PipiUI (this repo) ships `product.json` at the
- * workspace root as the base identity. A downstream product built on the base (Pipi Hydra,
- * Pipi Paper, …) sets `PIPIUI_PRODUCT_CONFIG=<path>` to its own file instead of forking core
- * code — the loader below is the only place that reads it.
+ * Which product this Electron build is. A source checkout reads the canonical product
+ * identity from `pipicoc/product.json`. A downstream product built on the base can set
+ * `PIPIUI_PRODUCT_CONFIG=<path>` to its own file instead of forking core code — the
+ * loader below is the only place that reads it.
  */
 export interface ProductIdentity {
   /** Semantic slug, e.g. `pipiui`, `pipi-hydra`, `pipi-paper`. */
   id: string
   /** Dock / menu bar / window title. Passed to `app.setName`. */
   name: string
-  /** electron-builder `build.appId`. Kept here only so a test can assert packaging agrees. */
+  /** electron-builder `build.appId` for product packagers. */
   appId: string
   /** Directory name under `app.getPath('appData')` this product's userData lives in. */
   userDataDirname: string
@@ -101,13 +101,13 @@ export interface ProductConfigPathLookup {
 
 /**
  * Default `product.json` location when `PIPIUI_PRODUCT_CONFIG` is unset: the packaged
- * `product.json` extraResource, or (dev) the workspace-root file next to this repo's
- * `resources/runtime` — same packaged/dev split as `resolveRuntimeAssets`.
+ * `product.json` extraResource, or (dev) this repository's canonical
+ * `pipicoc/product.json` source.
  */
 export function defaultProductConfigPath(lookup: ProductConfigPathLookup): string {
   if (lookup.packaged) return join(lookup.resourcesPath, 'product.json')
-  // apps/electron/out/main -> out -> electron -> apps -> Electron.
-  return join(lookup.dirname, '..', '..', '..', '..', 'product.json')
+  // apps/electron/out/main -> out -> electron -> apps -> Electron -> repo.
+  return join(lookup.dirname, '..', '..', '..', '..', '..', 'pipicoc', 'product.json')
 }
 
 export interface LoadProductIdentityOptions extends ProductConfigPathLookup {

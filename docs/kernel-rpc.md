@@ -2,16 +2,16 @@
 
 The versioned gameplay Mod interface is specified in section 26. Mod packages do not import kernel internals or Pi objects.
 
-本文件是 Pi 扩展与 Python 内核之间的唯一契约。两侧的实现和两道接缝的测试都以它为准；改契约先改这里。范围标注为「切片 0」的是本轮必须实现的，标注为「保留」的只需要方法存在并返回 `not_implemented` 错误，形状不变。
+本文件是 Pi 扩展与 TypeScript 内核之间的唯一契约。当前生产实现只在 `kernel-ts/`；进程组合见 §27。两侧的实现和接缝测试都以现行契约为准；改契约先改这里。历史切片编号记录实施顺序，不表示当前仍待实现；功能的现行状态以对应小节的最新决定为准。
 
-PDF 直接阅读与按需构图的目标契约见 §22（2026-09-07，待实现）。涉及 PDF/读者/模组车道的后续实现以 §22 为准；§14 与 §20 的旧流水线在切换验收前仅描述现有运行时。实施与退役顺序见 [规格](specs/visual-pdf-reader.md)。
+PDF 直接阅读与按需构图的现行契约见 §22。§14 与 §20 的旧 PDF/OCR 流水线仅保留为历史记录，不是生产入口。实施、退役与验收证据见 [规格](specs/visual-pdf-reader.md)。
 
 规格全文见 GitHub issue #12，切片 0 的验收见 #13。
 
 ## 1. 进程与传输
 
 - 一个 Pi 会话一个内核子进程。扩展在 `session_start` 拉起，`session_shutdown` 关闭。
-- 启动命令：`uv run --frozen python -m coc.rpc --workspace <dir> --content <dir>`，在仓库根目录执行。`--workspace` 是战役状态所在的目录，内核只在其 `.coc/` 下读写；`--content` 是只读内容目录，含 `rulesets/coc7` 与 `starters/<module>`。
+- 宿主按 §27 捕获部署配置并启动编译后的 `build/kernel/rpc.mjs`；业务调用者不自行拼启动命令。战役状态根目录与只读内容目录由宿主传入，内核只在前者的 `.coc/` 下写状态。源码模式与独立包都使用 TypeScript，不回退 Python。
 - stdin 收请求，stdout 发响应，一行一个 JSON 对象，`\n` 分隔，UTF-8。stderr 只写日志。
 - 请求：`{"id": "<string>", "method": "<string>", "params": {...}}`。
 - 成功：`{"id": "<同请求>", "ok": true, "result": {...}}`。
@@ -39,7 +39,7 @@ write while preserving the client draft. Hot and cold UI bridges retain these co
 
 - **opt-in 而不是常开。** 进度帧只在请求带顶层 `"progress": true` 时发出：驾驭器、§23 的 Electron 桥与任何旧客户端的字节流一行不多，不需要同时改。字段放顶层而不进 `params`，是为了不碰 `call_id` 幂等哈希（§2）。
 - **帧是真实阶段边界，不是心跳。** 内核只在流水线真的走过一个阶段时发帧，不发定时器，不报「预计剩余」；慢的真相（比如 git 提交占大头）由帧间间隔自己说出来，不被平滑掉。
-- **Python 对照暂不发帧。** 生产内核是 `kernel-ts`；`kernel/coc/table.py` 的 RPC 对照保持一问一答，需要对照进度帧时另行补。
+- **冻结 Python 对照不发帧，也不补新功能。** 生产内核是 `kernel-ts`；历史对照保持固定版本的一问一答。进度帧的新断言直接检查 TypeScript，不修改对照缓存。
 
 ## 2. 标识法
 
@@ -3783,7 +3783,21 @@ that runtime. Cached or preaccepted guidance keeps the existing behavior.
 Verification must include an uncached installed module, because bundled guidance
 can hide the missing consumer; this is not a gameplay-quality proof.
 
-### 27.2 Runtime selection and failures
+### Implementation decision: behavior-preserving consolidation (2026-09-14)
+
+This consolidation changes internal ownership, not RPC schemas, save formats or player behavior:
+
+- Memory and NPC-journal lanes share the queue/lifecycle implementation, but each lane retains its own queue, model work, job protocol, retry/backfill budget and failure handling. Current-turn jobs precede backfill; open turns suppress backfill; shutdown never waits for model completion.
+- Product identity has one authored source. Source and packaged consumers retain the same identity, icon resolution, profile location and explicit product overrides.
+- Launchers share extension-mount construction, not their policies. The TUI, desktop Keeper and tool-enabled reader retain their separate flags, tool boundaries and startup behavior. No new generic launch framework is introduced.
+- Kernel load call sites name their exceptional options instead of relying on positional booleans. Shared delivery formatting stays separate from state transitions: `ask` still enters `asked`, `narrate` still commits and advances the turn, and `resolve`/`apply` still leave it open. Replay, write ordering, commit rollback, marker placement and record fields remain unchanged.
+- Near-identical participant queries may share one implementation; combat and chase engines remain separate. Shared helpers do not introduce new mutable state or a second authority.
+
+Verification targets the production TypeScript RPC and host seams. Frozen oracle data and existing failure baselines are not relaxed to make the refactor pass. Gameplay acceptance remains the real-table method; deterministic tests are not a substitute.
+
+### 27.2 Historical runtime selection design (superseded by Python retirement)
+
+This subsection retains the migration-stage design, not the current launch instructions. The historical source command was `uv run --frozen python -m coc.rpc --workspace <dir> --content <dir>`; production no longer runs it. Current selection is TypeScript-only as stated at the start of §27.
 
 Stage A keeps the existing Python implementation. The default kernel command is
 the locked uv/Python launch from section 1. `PI_COC_KERNEL_CMD` remains a host-only

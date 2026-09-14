@@ -12,10 +12,10 @@
     "them would flip the check between regression and stale baseline on alternate runs. Each one",
     "carries the reason it cannot be pinned. Adding an id here silences that test -- say why."
   ],
-  "recordedAt": "2026-09-09T19:03:45.174Z",
-  "commit": "76dc70517d3ba11dd907ad61b0b093c7d6d53fda",
-  "treeDirty": false,
-  "count": 196,
+  "recordedAt": "2026-09-14T15:19:53.831Z",
+  "commit": "02feb00bfce67b0be46a39d0a7ec881dcd3cc1e8",
+  "treeDirty": true,
+  "count": 195,
   "flaky": [],
   "failures": [
     "apps/electron/packaging-contract.test.ts [suite failed to run]",
@@ -23,7 +23,6 @@
     "apps/electron/src/main/browser-host.test.ts [suite failed to run]",
     "apps/electron/src/main/browser-tool-extension.test.ts [suite failed to run]",
     "apps/electron/src/main/linux-native-compat.test.ts > linux native glibc packaging contract > pins the linux CI runner to ubuntu-22.04",
-    "apps/electron/src/main/product-identity.test.ts > product identity > loads this repo's own product.json as the base PipiUI identity",
     "apps/electron/src/main/remote-control.test.ts [suite failed to run]",
     "packages/pi-backend/test/boss-terminal-gate.test.ts [suite failed to run]",
     "packages/pi-backend/test/browser-eval-guard.test.ts [suite failed to run]",

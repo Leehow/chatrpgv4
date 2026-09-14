@@ -5,7 +5,6 @@ import { resolve } from 'node:path'
 import { execFileSync, spawnSync } from 'node:child_process'
 import nodeRuntimeAssets from '../../node-runtime-assets.json'
 import workspacePackage from '../../package.json'
-import productJSON from '../../product.json'
 import packageJSON from './package.json'
 
 describe('macOS packaging contract', () => {
@@ -18,6 +17,7 @@ describe('macOS packaging contract', () => {
   const targetPackager = readFileSync(resolve(import.meta.dirname, '../../scripts/package-electron-target.mjs'), 'utf8')
   const runtimePreparer = readFileSync(resolve(import.meta.dirname, '../../scripts/fetch-pi-runtime.mjs'), 'utf8')
   const brokerPackage = JSON.parse(readFileSync(resolve(import.meta.dirname, '../../packs/memory-extension/memory-broker/package.json'), 'utf8'))
+  const productJSON = JSON.parse(readFileSync(resolve(import.meta.dirname, '../../../pipicoc/product.json'), 'utf8'))
   it('packages x64 and arm64 sequentially so their app staging directories cannot race', () => {
     const script = packageJSON.scripts['package:mac']
     expect(script).toMatch(/package-electron-target\.mjs --platform darwin --arch x64 -- --mac --x64 && node .*package-electron-target\.mjs --platform darwin --arch arm64 -- --mac --arm64/)
@@ -37,11 +37,17 @@ describe('macOS packaging contract', () => {
     expect(packageJSON.build.linux.executableName).toBe('pipiui_e')
   })
 
-  it('agrees with product.json on identity, since electron-builder cannot read that file itself', () => {
-    expect(packageJSON.build.appId).toBe(productJSON.appId)
-    expect(packageJSON.build.productName).toBe(productJSON.name)
+  it('ships the canonical product identity resource for packaged runtime loading', () => {
+    expect(productJSON).toMatchObject({
+      id: 'pipicoc',
+      name: 'PipiCOC',
+      appId: 'com.leehow.pipicoc',
+      userDataDirname: 'Pipi/pipicoc',
+      defaultPack: 'coc-keeper',
+      agentMaxDepth: 0,
+    })
     expect(packageJSON.build.extraResources).toContainEqual({
-      from: '../../product.json',
+      from: '../../../pipicoc/product.json',
       to: 'product.json'
     })
   })

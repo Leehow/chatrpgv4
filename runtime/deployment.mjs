@@ -77,6 +77,18 @@ export const HOST_MOUNTS = Object.freeze({
   'prompt-observer': 'kernel/pipiui-prompt-observer.mjs',
 });
 
+const sessionExtensionGroups = entrypoints => [entrypoints.extensions, entrypoints.providerExtensions, [entrypoints.imageGen]];
+export function sessionExtensionPaths(entrypoints) { return Object.freeze(sessionExtensionGroups(entrypoints).flat()); }
+export function desktopSessionExtensionPaths(entrypoints) {
+  const [extensions, providers, imageGen] = sessionExtensionGroups(entrypoints);
+  return Object.freeze([join(entrypoints.hostAssets, HOST_MOUNTS['ext-invoke']), ...extensions, entrypoints.agent, ...providers, ...imageGen]);
+}
+export function readerProviderExtensionPaths(entrypoints) {
+  const [, providers] = sessionExtensionGroups(entrypoints);
+  return Object.freeze([...providers]);
+}
+export function extensionArgs(paths) { return paths.flatMap(path => ['-e', path]); }
+
 function within(root, path) {
   const suffix = relative(root, path);
   return suffix === '' || (!isAbsolute(suffix) && suffix !== '..' && !suffix.startsWith(`..${sep}`));

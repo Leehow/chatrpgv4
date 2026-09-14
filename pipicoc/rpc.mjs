@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { existsSync } from 'node:fs';
-import { compiledEnvironment, readDeployment, resourceRootFrom, runtimeEntrypoints } from '../runtime/deployment.mjs';
+import { compiledEnvironment, desktopSessionExtensionPaths, extensionArgs, readDeployment, resourceRootFrom, runtimeEntrypoints } from '../runtime/deployment.mjs';
 
 export function keeperArguments(args, repo, mode = 'play', entrypoints = runtimeEntrypoints(repo)) {
   if (!['play', 'setup'].includes(mode)) throw new Error(`Unsupported pi-coc mode: ${mode}`);
@@ -20,14 +20,9 @@ export function keeperArguments(args, repo, mode = 'play', entrypoints = runtime
     }
     forwarded.push(args[i]);
   }
-  const mounts = [
-    join(entrypoints.hostAssets, 'kernel', 'pipiui-ext-invoke.mjs'),
-    // Provider extensions come from the one list a lane child mounts too; image-gen registers tools.
-    ...entrypoints.extensions, entrypoints.agent, ...entrypoints.providerExtensions, entrypoints.imageGen,
-  ];
   return [...(mode === 'setup' ? ['setup'] : []), ...forwarded,
     '--no-extensions', '--no-skills', '--no-prompt-templates', '--no-themes',
-    ...mounts.flatMap(path => ['-e', path])];
+    ...extensionArgs(desktopSessionExtensionPaths(entrypoints))];
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

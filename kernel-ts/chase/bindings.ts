@@ -3,25 +3,12 @@ import { RpcError } from '../errors.js';
 import { isJsonObject } from '../json.js';
 import { conditionMet } from '../read/module-graph.js';
 import { SessionView, active } from '../read/session-view.js';
-import { array, entries, integer, kebab, normalize, repr, row, string, truth, type Row } from '../read/values.js';
+import { array, integer, kebab, normalize, repr, row, string, truth, type Row } from '../read/values.js';
 import { SkillResolver } from '../rules/skills.js';
-import type { SettleContext } from '../resolve/context.js';
+import { presentOpponents, type SettleContext } from '../resolve/context.js';
 import { investigatorCombatParticipant, npcCombatParticipant } from '../combat/profiles.js';
 import { CHASE_OUTCOMES, DEFAULT_GAP, DEFAULT_LOCATION_COUNT, generateLocationChain, get, int, or, participantFromCombatSpec } from './model.js';
-export function presentOpponents(context: SettleContext): Array<[
-    string,
-    Row,
-    Row | null
-]> {
-    return entries(context.world.npc_presence).flatMap(([handle, at]) => {
-        const node = at === context.world.active_scene ? context.graph.find(handle, ['npc']) : null;
-        return node ? [[handle, node, context.npcProfile(handle)] as [
-                string,
-                Row,
-                Row | null
-            ]] : [];
-    });
-}
+export { presentOpponents } from '../resolve/context.js';
 export function chaseLocationChain(context: SettleContext): Row[] {
     const graph = context.graph;
     const scene = graph.scene(string(context.world.active_scene));

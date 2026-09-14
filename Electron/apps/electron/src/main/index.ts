@@ -180,8 +180,8 @@ if (protocol?.registerSchemesAsPrivileged) {
 }
 
 if (app) {
-  // `Electron/product.json` (or PIPIUI_PRODUCT_CONFIG for a downstream product) is the only
-  // place the app's identity — display name, userData directory, default product pack,
+  // The canonical product config (or PIPIUI_PRODUCT_CONFIG for a downstream product) is the
+  // only place the app's identity — display name, userData directory, default product pack,
   // shared-credentials directory — comes from. The core never hardcodes one product.
   const product = loadProductIdentity({
     packaged: app.isPackaged,

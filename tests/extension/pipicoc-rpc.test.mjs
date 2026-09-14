@@ -50,10 +50,17 @@ test('UI transport survives while coding persona and tools cannot replace the Ke
   assert.deepEqual(result.slice(0,6), ['--mode','rpc','--session','/tmp/ui.jsonl','--model','provider/model']);
   assert.ok(!result.includes('coding'));
   assert.ok(!result.includes('/host/coding.ts'));
-  for (const name of ['kernel','mods','onboarding','module','memory','table'])
-    assert.equal(result.filter(v => v === `/repo/build/extensions/${name}/index.mjs`).length, 1);
-  assert.equal(result.filter(v => v === '/repo/build/pipicoc/agent.mjs').length, 1);
+  const mounted = result.flatMap((value, index) => value === '-e' ? [result[index + 1]] : []);
+  assert.deepEqual(mounted, [
+    '/repo/build/host/runtime/kernel/pipiui-ext-invoke.mjs',
+    ...['kernel','mods','onboarding','module','memory','table','npc-journal'].map(name => `/repo/build/extensions/${name}/index.mjs`),
+    '/repo/build/pipicoc/agent.mjs',
+    '/repo/build/extensions/image-gen/agent/index.mjs',
+  ]);
   assert.ok(!result.some(value => value.startsWith('/repo/') && value.endsWith('.ts')));
+  const explicitNoExtensions = keeperArguments(['--no-extensions'], '/repo');
+  assert.equal(explicitNoExtensions.filter(value => value === '--no-extensions').length, 2,
+    'desktop keeps the user flag and adds its controlled mount gate');
 });
 
 test('the sheet sends bundled identity art only when requested, without changing the kernel read', async () => {

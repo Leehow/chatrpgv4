@@ -4,7 +4,9 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { defaultProductConfigPath, loadProductIdentity, parseProductIdentity } from './product-identity.js'
 
-const workspaceRoot = join(import.meta.dirname, '..', '..', '..', '..')
+const electronRoot = join(import.meta.dirname, '..', '..', '..', '..')
+const repoRoot = join(electronRoot, '..')
+const builtMainDir = join(electronRoot, 'apps', 'electron', 'out', 'main')
 
 describe('product identity', () => {
   let root = ''
@@ -18,25 +20,54 @@ describe('product identity', () => {
       .toBe(join('/Applications/PipiUI.app/Contents/Resources', 'product.json'))
   })
 
-  it('resolves the dev workspace-root product.json from the built main bundle dirname', () => {
+  it('resolves the dev canonical product.json from the built main bundle dirname', () => {
     expect(defaultProductConfigPath({ packaged: false, resourcesPath: '/unused', dirname: join('/repo', 'Electron', 'apps', 'electron', 'out', 'main') }))
-      .toBe(join('/repo', 'Electron', 'product.json'))
+      .toBe(join('/repo', 'pipicoc', 'product.json'))
   })
 
-  it('loads this repo\'s own product.json as the base PipiUI identity', () => {
+  it('loads the canonical PipiCOC product.json by default in development', () => {
     const identity = loadProductIdentity({
       packaged: false,
       resourcesPath: '/unused',
-      dirname: join(workspaceRoot, 'apps', 'electron', 'out', 'main'),
+      dirname: builtMainDir,
       env: {}
     })
     expect(identity).toEqual({
-      id: 'pipiui',
-      name: 'PipiUI',
-      appId: 'com.leehow.pipiui-electron',
-      userDataDirname: 'Pipi/pipiui',
-      sharedCredentialsDir: '@pipiui/electron/pi-agent'
+      id: 'pipicoc',
+      name: 'PipiCOC',
+      appId: 'com.leehow.pipicoc',
+      userDataDirname: 'Pipi/pipicoc',
+      defaultPack: 'coc-keeper',
+      agentMaxDepth: 0,
+      sharedCredentialsDir: '@pipiui/electron/pi-agent',
+      icon: join(repoRoot, 'pipicoc', 'pipicoc.png')
     })
+  })
+
+  it('loads a packaged product.json from Resources and resolves its icon from that directory', async () => {
+    root = await mkdtemp(join(tmpdir(), 'pipi-product-resources-'))
+    await writeFile(join(root, 'product.json'), JSON.stringify({
+      id: 'pipicoc',
+      name: 'PipiCOC',
+      appId: 'com.leehow.pipicoc',
+      userDataDirname: 'Pipi/pipicoc',
+      defaultPack: 'coc-keeper',
+      agentMaxDepth: 0,
+      sharedCredentialsDir: '@pipiui/electron/pi-agent',
+      icon: 'pipicoc.png'
+    }), 'utf8')
+
+    const identity = loadProductIdentity({
+      packaged: true,
+      resourcesPath: root,
+      dirname: '/unused',
+      env: {}
+    })
+    expect(identity.id).toBe('pipicoc')
+    expect(identity.userDataDirname).toBe('Pipi/pipicoc')
+    expect(identity.defaultPack).toBe('coc-keeper')
+    expect(identity.agentMaxDepth).toBe(0)
+    expect(identity.icon).toBe(join(root, 'pipicoc.png'))
   })
 
   it('PIPIUI_PRODUCT_CONFIG overrides the default path for a downstream product', async () => {
@@ -54,13 +85,12 @@ describe('product identity', () => {
     const identity = loadProductIdentity({
       packaged: false,
       resourcesPath: '/unused',
-      dirname: join(workspaceRoot, 'apps', 'electron', 'out', 'main'),
+      dirname: builtMainDir,
       env: { PIPIUI_PRODUCT_CONFIG: configPath }
     })
     expect(identity.id).toBe('pipi-hydra')
     expect(identity.name).toBe('Pipi Hydra')
     expect(identity.userDataDirname).toBe('Pipi/pipi-hydra')
-    // One line turns the base into a product: the pack a fresh project runs.
     expect(identity.defaultPack).toBe('hydra-workbench')
   })
 
@@ -86,7 +116,7 @@ describe('product identity', () => {
     expect(() => loadProductIdentity({
       packaged: false,
       resourcesPath: '/unused',
-      dirname: '/repo/Electron/apps/electron/out/main',
+      dirname: builtMainDir,
       env: { PIPIUI_PRODUCT_CONFIG: '/no/such/product.json' }
     })).toThrow(/Failed to read product identity/)
   })

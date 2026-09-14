@@ -19,11 +19,11 @@
  * while a turn is open, and a freshly committed turn always goes ahead of it.
  */
 
-import { appendFile, mkdir } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { cocHome, cocMode } from "../lanes/host.ts";
+import { appendJsonl, cocHome, cocMode } from "../lanes/host.ts";
 import { resolveLaneModel, runLane } from "../lanes/subsession.ts";
+import { createLaneQueue, type KernelCall, type LaneJob } from "../lanes/queue.ts";
 
 /** The closed fields and closed enums of a candidate assertion (contract §12.3). No extra field is ever sent to the kernel. */
 const CANDIDATE_KINDS: ReadonlySet<string> = new Set([
@@ -44,16 +44,6 @@ const STATES: ReadonlySet<string> = new Set(["accurate", "uncertain", "distorted
 
 const DEFAULT_MAX_CANDIDATES = 12;
 const DEFAULT_MAX_STATEMENT_CHARS = 400;
-/** How many turns one session may backfill at most (#20); `PI_COC_MEMORY_BACKFILL=0` turns the whole backfill off. */
-const DEFAULT_BACKFILL_JOBS = 5;
-
-/** The budget is read at `session_start`, not at module top level: the test harness loads this several times in one process. */
-function backfillBudget(): number {
-	const raw = process.env.PI_COC_MEMORY_BACKFILL?.trim();
-	if (!raw) return DEFAULT_BACKFILL_JOBS;
-	const parsed = Number.parseInt(raw, 10);
-	return Number.isFinite(parsed) && parsed >= 0 ? parsed : DEFAULT_BACKFILL_JOBS;
-}
 
 interface Candidate {
 	kind: string;
@@ -98,19 +88,6 @@ interface StoryAssessment {
 }
 
 interface MemoryExtraction { candidates: Candidate[]; story?: StoryAssessment }
-
-type KernelCall = (method: string, params: Record<string, unknown>) => Promise<unknown>;
-
-/**
- * One extraction job. With a `turn` it is the turn just committed; without one it is the default
- * dispatch (backfill), where the kernel picks a turn whose job is unfinished and not in the
- * backlog (contract §12.3).
- */
-interface Job {
-	campaign: string;
-	turn?: number;
-	backfill?: boolean;
-}
 
 function names(rows: unknown): string {
 	if (!Array.isArray(rows) || rows.length === 0) return "(none)";
@@ -271,18 +248,13 @@ export default function (pi: ExtensionAPI) {
 	// The setup process has no turns and so no memory to extract: it registers nothing and subscribes to nothing (contract §14.4).
 	if (cocMode() === "setup") return;
 
-	let ctx: ExtensionContext | undefined;
-	let bridge: { campaign: string; call: KernelCall } | undefined;
-	let lanes = new AbortController();
-	let stopped = false;
-	let running = false;
-	/** Freshly committed turns, first come first served; backfill always queues behind this (#20). */
-	const queue: Job[] = [];
-	/** How many backfills this session has left; `backfillDone` stops when the kernel answers `job_id: null`. */
-	let backfillLeft = 0;
-	let backfillDone = false;
-	/** An agent running means a turn is open: backfill starts no new job then, so it does not compete with the delivery. */
-	let agentRunning = false;
+	const scheduler = createLaneQueue(pi, {
+		backfillEnv: "PI_COC_MEMORY_BACKFILL",
+		runJob,
+		onError: (job, error) => record(job.campaign, {
+			turn: job.turn, ok: false, reason: "lane_error", detail: errorText(error),
+		}),
+	});
 
 	// ---- Telemetry --------------------------------------------------------
 
@@ -294,18 +266,13 @@ export default function (pi: ExtensionAPI) {
 			// After the session is disposed the ctx getters throw (docs/pi-host-contract.md §5), and the
 			// lane's continuation may well land after that: read it, treat a throw as "no workspace",
 			// and never let the exception out of the lane.
-			cwd = ctx?.cwd;
+			cwd = scheduler.ctx?.cwd;
 		} catch {
 			/* telemetry must not break a lane */
 		}
 		if (!cwd) return;
 		const path = join(cocHome(cwd), ".coc", "campaigns", campaign, "telemetry.jsonl");
-		try {
-			await mkdir(dirname(path), { recursive: true });
-			await appendFile(path, `${JSON.stringify(line)}\n`, "utf8");
-		} catch {
-			/* same as above */
-		}
+		await appendJsonl(path, line);
 	}
 
 	// ---- One extraction ---------------------------------------------------
@@ -319,7 +286,7 @@ export default function (pi: ExtensionAPI) {
 		note: (row: Record<string, unknown>) => Promise<void>,
 	): Promise<{ ok: true; candidates: number; model: string; story?: StoryAssessment } | { ok: false; reason: string; detail: string }> {
 		const lane = await runLane<MemoryExtraction>({
-			ctx: ctx as ExtensionContext,
+			ctx: scheduler.ctx as ExtensionContext,
 			envName: "PI_COC_MEMORY_MODEL",
 			// The four `lane: "lane-call"` rows this round leaves (contract §12.8.1) travel the job's own
 			// telemetry, so a backfill round is marked as one there too.
@@ -327,7 +294,7 @@ export default function (pi: ExtensionAPI) {
 			record: (row) => note({ turn: packet.turn, job_id: jobId, ...row }),
 			systemPrompt: systemPrompt(packet),
 			input: userInput(packet),
-			signal: lanes.signal,
+			signal: scheduler.signal,
 			shape: (parsed) => shapeExtraction(parsed, packet),
 		});
 		if (!lane.ok) {
@@ -347,12 +314,13 @@ export default function (pi: ExtensionAPI) {
 		}
 	}
 
-	async function runJob(job: Job): Promise<void> {
+	async function runJob(job: LaneJob): Promise<void> {
 		const began = Date.now();
 		// Every backfill telemetry row carries `backfill: true` (contract §12.8): extraction at the table and filling holes stay apart.
 		const note = (row: Record<string, unknown>) =>
 			record(job.campaign, { ...(job.backfill ? { backfill: true } : {}), ...row });
-		const current = bridge;
+		const current = scheduler.bridge;
+		const ctx = scheduler.ctx;
 		if (!current || !ctx) {
 			await note({ turn: job.turn, ok: false, reason: "lane_error", detail: "the kernel bridge is gone; the lane cannot run" });
 			return;
@@ -386,7 +354,7 @@ export default function (pi: ExtensionAPI) {
 			if (job.backfill) {
 				// The default dispatch came back empty: there are no holes left, so this session asks no more (#20).
 				// That is backfill's ordinary ending, and it writes no telemetry — one "nothing to do" line per opening is noise.
-				backfillDone = true;
+				scheduler.stopBackfill();
 				return;
 			}
 			// Nothing to extract for this turn (already extracted, or in the backlog awaiting an explicit redispatch).
@@ -395,7 +363,7 @@ export default function (pi: ExtensionAPI) {
 		}
 
 		let last: { ok: false; reason: string; detail: string } | undefined;
-		for (let tries = 0; tries < 2 && !stopped; tries += 1) {
+		for (let tries = 0; tries < 2 && !scheduler.stopped; tries += 1) {
 			const outcome = await attempt(packet, jobId, job.campaign, current.call, note);
 			if (outcome.ok) {
 				await note({
@@ -413,7 +381,7 @@ export default function (pi: ExtensionAPI) {
 			last = outcome;
 			if (outcome.reason === 'invalid' || outcome.reason === 'model_error') packet = {...packet, validation_feedback: outcome.detail};
 		}
-		if (stopped) return;
+		if (scheduler.stopped) return;
 		const failure = last ?? { reason: "lane_error", detail: "the lane never started" };
 		try {
 			await current.call("memory.fail", {
@@ -443,101 +411,4 @@ export default function (pi: ExtensionAPI) {
 			failed: true,
 		});
 	}
-
-	/**
-	 * The next job to run. A freshly committed turn always goes first: backfill only starts when the
-	 * queue is empty, no turn is open, the budget is not spent, and the kernel has not yet said there
-	 * are no holes left (#20).
-	 */
-	function nextJob(): Job | undefined {
-		const queued = queue.shift();
-		if (queued) return queued;
-		if (stopped || backfillDone || agentRunning || backfillLeft <= 0) return undefined;
-		const current = bridge;
-		if (!current || !ctx) return undefined;
-		backfillLeft -= 1;
-		return { campaign: current.campaign, backfill: true };
-	}
-
-	/** Only one job runs at a time; the rest queue and never overlap. */
-	async function pump(): Promise<void> {
-		if (running) return;
-		running = true;
-		try {
-			while (!stopped) {
-				const job = nextJob();
-				if (!job) break;
-				try {
-					await runJob(job);
-				} catch (error) {
-					// However badly a lane breaks it is still only a lane: it must not become an unhandled
-					// rejection, and it must not block the next job in the queue.
-					await record(job.campaign, {
-						turn: job.turn,
-						ok: false,
-						reason: "lane_error",
-						detail: errorText(error),
-					});
-				}
-			}
-		} finally {
-			running = false;
-		}
-	}
-
-	// ---- Bus --------------------------------------------------------------
-
-	// The kernel extension loads first but only emits the bridge in session_start: both orders must be caught.
-	pi.events.on("coc:kernel-bridge", (data) => {
-		const payload = (data ?? {}) as { campaign?: string; call?: KernelCall };
-		bridge = typeof payload.call === "function" && payload.campaign
-			? { campaign: payload.campaign, call: payload.call }
-			: undefined;
-		// Backfill must still start when the bridge arrives after this extension's session_start; the
-		// other order is kicked by session_start itself (there is no ctx yet, so the pump spins once and returns).
-		if (bridge && ctx && !stopped) void pump().catch(() => undefined);
-	});
-
-	pi.events.on("coc:turn-committed", (data) => {
-		const payload = (data ?? {}) as { campaign?: string; turn?: number };
-		if (stopped || !payload.campaign || typeof payload.turn !== "number") return;
-		queue.push({ campaign: payload.campaign, turn: payload.turn });
-		void pump().catch(() => undefined);
-	});
-
-	// No backfill while a turn is open (#20): an agent running is the player's turn running, and that
-	// includes the delivery, the steer and the recovery runs. `agent_settled` is "this run really
-	// finished"; it is emitted in a finally, so it is never missed.
-	pi.on("agent_start", async () => {
-		agentRunning = true;
-	});
-
-	pi.on("agent_settled", async () => {
-		agentRunning = false;
-		if (!stopped) void pump().catch(() => undefined);
-	});
-
-	pi.on("session_start", async (_event, sessionCtx) => {
-		ctx = sessionCtx;
-		stopped = false;
-		agentRunning = false;
-		lanes = new AbortController();
-		queue.length = 0;
-		// The backfill budget is per session (#20 in contract §12.8): by now the kernel extension has
-		// already emitted the bridge (extension session_start handlers run serially in load order, kernel first).
-		backfillLeft = backfillBudget();
-		backfillDone = backfillLeft <= 0;
-		if (!backfillDone) void pump().catch(() => undefined);
-	});
-
-	pi.on("session_shutdown", async () => {
-		// Shutdown does not wait for the lane: queued jobs are dropped, in-flight ones cut off, and whatever was not extracted comes back on the next default dispatch of `memory.job`.
-		stopped = true;
-		queue.length = 0;
-		backfillLeft = 0;
-		backfillDone = true;
-		lanes.abort();
-		bridge = undefined;
-		ctx = undefined;
-	});
 }

@@ -7,11 +7,12 @@ import { strict as assert } from "node:assert";
 import { execFileSync } from "node:child_process";
 import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
-import { agentExtensionManifests, providerExtensionManifests } from "../../runtime/deployment.mjs";
+import { agentExtensionManifests, desktopSessionExtensionPaths, extensionArgs, providerExtensionManifests,
+	readerProviderExtensionPaths, runtimeEntrypoints, sessionExtensionPaths } from "../../runtime/deployment.mjs";
 import { FAKE_KERNEL, openTable } from "./harness.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -125,6 +126,26 @@ function defaultMounts(root) {
 		'-e', join(root, 'build/extensions/image-gen/agent/index.mjs')];
 }
 
+test("shared extension mount helpers preserve consumer boundaries in source and compiled layouts", () => {
+	for (const layout of ["source", "compiled"]) {
+		const entrypoints = runtimeEntrypoints(REPO, layout);
+		const session = sessionExtensionPaths(entrypoints);
+		assert.ok(session.every(isAbsolute), `${layout} session mount paths are absolute`);
+		assert.deepEqual(extensionArgs(session), defaultMounts(REPO).slice(1));
+		assert.deepEqual(desktopSessionExtensionPaths(entrypoints), [
+			join(entrypoints.hostAssets, "kernel", "pipiui-ext-invoke.mjs"),
+			...entrypoints.extensions,
+			entrypoints.agent,
+			...entrypoints.providerExtensions,
+			entrypoints.imageGen,
+		]);
+		assert.deepEqual(readerProviderExtensionPaths(entrypoints), entrypoints.providerExtensions);
+		assert.equal(readerProviderExtensionPaths(entrypoints).includes(entrypoints.imageGen), false);
+		assert.equal(readerProviderExtensionPaths(entrypoints).includes(entrypoints.agent), false);
+		for (const path of entrypoints.extensions) assert.equal(readerProviderExtensionPaths(entrypoints).includes(path), false);
+	}
+});
+
 test("bin/pi-coc：写 settings.json、导出战役、拼出 pi 的命令行", (t) => {
 	const root = fakeRepo();
 	t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -185,6 +206,32 @@ test("bin/pi-coc：不给战役就不定 session-id，也不导出 PI_COC_CAMPAI
 		...defaultMounts(root),
 		"--mode",
 		"rpc",
+	]);
+});
+
+test("bin/pi-coc preserves explicit extension control flags", (t) => {
+	const root = fakeRepo();
+	t.after(() => rmSync(root, { recursive: true, force: true }));
+
+	const disabled = runLauncher(root, ["--no-extensions", "--model", "fixture/model"]);
+	assert.deepEqual(disabled.args, [
+		"--no-builtin-tools",
+		"--no-context-files",
+		"--system-prompt",
+		join(root, "prompts", "keeper.md"),
+		"--no-extensions",
+		"--model",
+		"fixture/model",
+	]);
+
+	const explicitValue = runLauncher(root, ["--no-extensions=false"]);
+	assert.deepEqual(explicitValue.args, [
+		"--no-builtin-tools",
+		"--no-context-files",
+		"--system-prompt",
+		join(root, "prompts", "keeper.md"),
+		...defaultMounts(root),
+		"--no-extensions=false",
 	]);
 });
 

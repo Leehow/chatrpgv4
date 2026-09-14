@@ -4,7 +4,7 @@ import { RpcError } from '../errors.js';
 import { array, entries, equal, number, repr, row, sorted, string, truth, values, type Row } from '../read/values.js';
 import { defenseOptions } from '../read/session-view.js';
 import { rollExpression } from '../resolve/arithmetic.js';
-import type { SettleContext, ExecutionResult } from '../resolve/context.js';
+import { presentOpponents, type SettleContext, type ExecutionResult } from '../resolve/context.js';
 import { recordEngineRolls } from '../resolve/session-receipts.js';
 import { weaponRows } from '../mods/projection.js';
 import { CombatSession, VALID_OUTCOMES } from './engine.js';
@@ -13,20 +13,7 @@ import { combatOperationFor, investigatorCombatParticipant, moduleWeapons, npcCo
 import { syncCombatants } from './resources.js';
 import { archetypeIds } from '../apply/archetype.js';
 const SELF_RESOLVING = ['aim', 'reload', 'maneuver', 'flee'];
-export function presentOpponents(context: SettleContext): Array<[
-    string,
-    Row,
-    Row | null
-]> {
-    return entries(context.world.npc_presence).filter(([, at]) => at === context.activeScene).flatMap(([handle]) => {
-        const node = context.graph.find(handle, ['npc']);
-        return node ? [[handle, node, context.npcProfile(handle)] as [
-                string,
-                Row,
-                Row | null
-            ]] : [];
-    });
-}
+export { presentOpponents } from '../resolve/context.js';
 const turnState = (message: string, fix?: string, details?: Row): never => { throw new RpcError('turn_state', message, { ...(fix ? { fix } : {}), ...(details && Object.keys(details).length ? { details } : {}) }); };
 export const eligibleParticipant = (participant: Row): boolean => number(participant.hp_current || 0) > 0 && !['dead', 'dying', 'unconscious', 'fled'].some(value => array(participant.conditions).includes(value));
 const cursorActor = (session: CombatSession): string | null => session.initiativeCursor >= 0 && session.initiativeCursor < session.currentInitiative.length ? string(session.currentInitiative[session.initiativeCursor].actor_id) : null;

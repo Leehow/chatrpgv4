@@ -5,7 +5,7 @@ import { mkdir } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { dirname, join, resolve as resolvePath } from "node:path";
 import type { RuntimeContext } from "../../runtime/host.ts";
-import { resourceRootFrom, runtimeEntrypoints } from "../../runtime/deployment.mjs";
+import { extensionArgs, readerProviderExtensionPaths, resourceRootFrom, runtimeEntrypoints } from "../../runtime/deployment.mjs";
 
 /** How long one reader round may run; a timeout counts as a round that did not pass, and leaves its mark in the findings. */
 const DEFAULT_TIMEOUT_MS = 60 * 60 * 1000;
@@ -85,7 +85,7 @@ export function readerCommand(model?: string, systemPrompt?: string, thinking?: 
 		// `--no-extensions` exists so the child starts no second kernel and registers no tools of
 		// its own. A provider extension does neither: it is how a model runs at all, and without it
 		// the table's own model is unresolvable here. `--tools` below stays the allowlist.
-		...entries.providerExtensions.flatMap(path => ["-e", path]),
+		...extensionArgs(readerProviderExtensionPaths(entries)),
 		...(systemPrompt ? ["--extension", entries.readerContext] : []),
 		"--tools",
 		[tools ?? [pdf ? "read,write,edit,bash,pdf" : "read,write,edit,bash", ...(submission ? ["submit_reading"] : [])].join(","), ...(audit ? ['read_audit_evidence', 'submit_audit'] : []), ...(adaptation ? ['submit_adaptation'] : [])].join(','),
