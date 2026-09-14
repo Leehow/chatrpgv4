@@ -22,6 +22,7 @@ import {
 import { coded } from "../ui/errors.ts";
 import { extensionContentRoot } from "../ui/words.ts";
 import type { ReaderRequest, ReaderOutcome } from "./reader.ts";
+import { runPresentationAttempt } from "./presentation-attempt.ts";
 
 /** The lane's instruction, beside the card's own in the same content bundle. */
 const INSTRUCTION = "setup/ui-presentation.md";
@@ -149,44 +150,38 @@ export async function prepareUiWords(options: UiPresentationOptions): Promise<Ui
 	if (!runner) throw coded("preparation_failed", "UI word projection requires its owner runtime");
 
 	const attempt = join(options.home, ".coc/ui-words/attempts", randomUUID());
-	await mkdir(attempt, { recursive: true });
-	await writeFile(join(attempt, "check.mjs"),
+	const checkSource =
 		`import {readFileSync} from 'node:fs';\n` +
 		`import {validateUiPresentation} from ${JSON.stringify(runtimeEntryUrl("uiPresentation", import.meta.url))};\n` +
 		`try {const packet=JSON.parse(readFileSync('texts.json','utf8'));` +
 		`validateUiPresentation(JSON.parse(readFileSync('presentation.json','utf8')),packet.texts);` +
 		`console.log('Presentation valid');}` +
-		`catch(error){console.error(error.message);process.exitCode=1;}\n`);
+		`catch(error){console.error(error.message);process.exitCode=1;}\n`;
 
 	let missing = uiSourceTexts(captions);
 	const projected: Record<string, string> = {};
-	for (let round = 1; round <= 2 && missing.length; round++) {
-		await writeFile(join(attempt, "texts.json"), JSON.stringify({
-			play_language: tag,
-			captions: captions.filter(row => missing.includes(row.text)),
-			texts: missing,
-		}, null, 2));
-		const outcome = await runner({
-			cwd: attempt, systemPrompt: prompt, model: options.model, thinking: options.thinking,
-			signal: options.signal, eventLog: join(attempt, `events-${round}.jsonl`), timeoutMs: 120000,
-			brief: "Read texts.json and write the projected captions to presentation.json. Its \"texts\" object answers exactly the strings texts.json lists, keyed by the source string itself. The file must contain exactly one JSON object, without Markdown or trailing text. Run node check.mjs and correct any error before finishing."
-				+ (round > 1 ? " Read findings.json and supply exactly the strings it still names; the captions already accepted are not asked again." : ""),
-		});
-		if (!outcome.ok || options.signal?.aborted)
-			throw coded(options.signal?.aborted ? "presentation_timeout" : "preparation_failed", "The UI words could not be projected");
-		let value: unknown;
-		try { value = JSON.parse(await readFile(join(attempt, "presentation.json"), "utf8")); }
-		catch (error) {
-			await writeFile(join(attempt, "findings.json"), JSON.stringify({ error: String(error), texts: missing }, null, 2));
-			continue;
-		}
-		Object.assign(projected, acceptedUiTexts(value, missing));
-		missing = missing.filter(text => !projected[text]);
-		if (missing.length)
-			await writeFile(join(attempt, "findings.json"), JSON.stringify({
-				error: "these source strings were not answered with a non-empty string", texts: missing,
+	await runPresentationAttempt({
+		attempt, checkSource, outputFile: "presentation.json", systemPrompt: prompt, runner,
+		model: options.model, thinking: options.thinking, signal: options.signal,
+		prepareRound: async round => {
+			await writeFile(join(attempt, "texts.json"), JSON.stringify({
+				play_language: tag,
+				captions: captions.filter(row => missing.includes(row.text)),
+				texts: missing,
 			}, null, 2));
-	}
+			return "Read texts.json and write the projected captions to presentation.json. Its \"texts\" object answers exactly the strings texts.json lists, keyed by the source string itself. The file must contain exactly one JSON object, without Markdown or trailing text. Run node check.mjs and correct any error before finishing."
+				+ (round > 1 ? " Read findings.json and supply exactly the strings it still names; the captions already accepted are not asked again." : "");
+		},
+		failure: (_outcome, aborted) => coded(aborted ? "presentation_timeout" : "preparation_failed", "The UI words could not be projected"),
+		invalidOutput: error => ({ error: String(error), texts: missing }),
+		accept: value => {
+			Object.assign(projected, acceptedUiTexts(value, missing));
+			missing = missing.filter(text => !projected[text]);
+			return missing.length ? { done: false, findings: {
+				error: "these source strings were not answered with a non-empty string", texts: missing,
+			} } : { done: true };
+		},
+	});
 	if (missing.length)
 		throw coded("preparation_failed", `Incomplete UI word projection: ${missing.length} caption${missing.length === 1 ? "" : "s"} were not projected`);
 

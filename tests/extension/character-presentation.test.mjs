@@ -1,6 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp,mkdir,readFile,writeFile} from 'node:fs/promises';
+import {mkdtemp,mkdir,readFile,readdir,writeFile,rm} from 'node:fs/promises';
+import {createHash} from 'node:crypto';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {cardTexts,prepareCharacterPresentation} from '../../extensions/module/character-presentation.ts';
@@ -322,4 +323,134 @@ test("a failed card round names what the child said, not only that the card fail
  await assert.rejects(prepareCharacterPresentation({...options,
   runner:async()=>({ok:false,code:null,timedOut:false,stderr:''})}),
   error=>{assert.equal(/\(/.test(error.message),false);return true;});
+});
+
+const OK={ok:true,code:0,timedOut:false,ms:1,stderr:'',command:[]};
+const json=async path=>JSON.parse(await readFile(path,'utf8'));
+async function cardFixture(t) {
+ const home=await mkdtemp(join(tmpdir(),'card-attempt-'));
+ t.after(()=>rm(home,{recursive:true,force:true}));
+ const drafts=join(home,'.coc/campaigns/c1/setup/drafts');
+ await mkdir(drafts,{recursive:true});
+ await writeFile(join(drafts,'1.json'),JSON.stringify({play_language:'en',sheet}));
+ const instructions=await readFile(new URL('../../content/setup/character-presentation.md',import.meta.url),'utf8');
+ const directory=join(home,'.coc/character-presentations');
+ const digest=createHash('sha256').update(instructions).digest('hex').slice(0,8);
+ const kit=createHash('sha256').update(JSON.stringify(['en',['Camera']])).digest('hex').slice(0,32);
+ return {options:{home,campaign:'c1',revision:1,play_language:'en'},directory,
+  vocabulary:join(directory,`vocabulary-en-${digest}.json`),finance:join(directory,`equipment-en-${kit}.json`),
+  projection:join(home,'.coc/campaigns/c1/setup/presentations/1-en.json')};
+}
+
+for(const ending of ['rejected','provider','cancel']) test(`card round vocabulary and kit survive a ${ending} second round`,async t=>{
+ const {options,directory,vocabulary,finance,projection}=await cardFixture(t);
+ const controller=new AbortController();let calls=0,attempt;
+ const runner=async request=>{
+  calls++;attempt=request.cwd;
+  assert.equal(request.model,'owner/card');assert.equal(request.thinking,'high');
+  assert.strictEqual(request.signal,controller.signal);assert.equal(request.timeoutMs,120000);
+  assert.equal(request.eventLog,join(attempt,`events-${calls}.jsonl`));
+  assert.ok(request.systemPrompt.endsWith('setup/character-presentation.md'));
+  assert.match(await readFile(join(attempt,'check.mjs'),'utf8'),/validateFinanceEquipment/);
+  await writeFile(request.eventLog,`round ${calls}\n`);
+  const packet=await json(join(attempt,'texts.json'));
+  if(calls===1) {
+   await writeFile(join(attempt,'presentation.json'),JSON.stringify({texts:Object.fromEntries(packet.texts.filter(word=>word!=='Camera').map(word=>[word,`kept:${word}`])),finance_equipment:[]}));
+   return OK;
+  }
+  assert.deepEqual(packet.texts,['Camera']);assert.equal(packet.finance_equipment_required,false);
+  assert.equal((await json(vocabulary)).texts.Parameter,'kept:Parameter');
+  assert.deepEqual(await json(finance),{play_language:'en',equipment:['Camera'],finance_equipment:[]});
+  assert.deepEqual((await json(join(attempt,'findings.json'))).texts,['Camera']);
+  await assert.rejects(readFile(projection),{code:'ENOENT'});
+  assert.match(request.brief,/Read findings.json/);
+  if(ending==='provider')return {...OK,ok:false,code:1,stderr:'Error: owner unavailable'};
+  if(ending==='cancel') {
+   await writeFile(join(attempt,'presentation.json'),JSON.stringify({texts:{Camera:'must not commit'}}));
+   controller.abort();return OK;
+  }
+  await writeFile(join(attempt,'presentation.json'),'{}');return OK;
+ };
+ await assert.rejects(prepareCharacterPresentation({...options,runner,model:'owner/card',thinking:'high',signal:controller.signal}),error=>{
+  assert.equal(error.code,ending==='cancel'?'presentation_timeout':'preparation_failed');
+  if(ending==='provider')assert.match(error.message,/owner unavailable/);
+  else if(ending==='cancel')assert.equal(error.message,'Card presentation could not be prepared');
+  else assert.equal(error.message,'Incomplete card presentation: 1 text were not projected');
+  return true;
+ });
+ assert.equal(calls,2);
+ assert.equal((await json(vocabulary)).texts.Camera,undefined);
+ await assert.rejects(readFile(projection),{code:'ENOENT'});
+ assert.equal((await json(join(attempt,'presentation-round-1.json'))).texts.Parameter,'kept:Parameter');
+ if(ending==='rejected')assert.equal(await readFile(join(attempt,'presentation-round-2.json'),'utf8'),'{}');
+ else await assert.rejects(readFile(join(attempt,'presentation-round-2.json')),{code:'ENOENT'});
+ const fixed=await prepareCharacterPresentation({...options,runner:async request=>{
+  const packet=await json(join(request.cwd,'texts.json'));
+  assert.deepEqual(packet.texts,['Camera']);assert.equal(packet.finance_equipment_required,false);
+  await writeFile(join(request.cwd,'presentation.json'),JSON.stringify({texts:{Camera:'repaired'}}));return OK;
+ }});
+ assert.equal(fixed.texts.Parameter,'kept:Parameter');assert.equal(fixed.texts.Camera,'repaired');
+ assert.deepEqual(await prepareCharacterPresentation(options),fixed,'accepted caches require no runner');
+ assert.equal((await readdir(directory)).filter(file=>file.endsWith('.tmp')).length,0);
+});
+
+for(const repaired of [false,true]) test(`financial validation retries independently of accepted words (repaired=${repaired})`,async t=>{
+ const {options,vocabulary,finance}=await cardFixture(t);let calls=0;
+ const task=prepareCharacterPresentation({...options,runner:async request=>{
+  calls++;const packet=await json(join(request.cwd,'texts.json'));
+  if(calls===2) {
+   assert.deepEqual(packet.texts,[]);assert.equal(packet.finance_equipment_required,true);
+   assert.match(request.brief,/only the financial equipment subset/);
+   assert.ok((await json(vocabulary)).texts.Parameter);
+   await assert.rejects(readFile(finance),{code:'ENOENT'});
+   const findings=await json(join(request.cwd,'findings.json'));
+   assert.equal(findings.finance_equipment_required,true);assert.deepEqual(findings.texts,[]);
+   assert.match(findings.error,/Invalid financial equipment projection/);
+  }
+  await writeFile(join(request.cwd,'presentation.json'),JSON.stringify({texts:Object.fromEntries(packet.texts.map(word=>[word,word])),finance_equipment:calls===2&&repaired?[]:['Invented']}));
+  return OK;
+ }});
+ if(repaired)assert.deepEqual((await task).finance_equipment,[]);
+ else {
+  await assert.rejects(task,{code:'preparation_failed',message:'Invalid financial equipment projection'});
+  await assert.rejects(readFile(finance),{code:'ENOENT'});
+  const result=await prepareCharacterPresentation({...options,runner:async request=>{
+   const packet=await json(join(request.cwd,'texts.json'));
+   assert.deepEqual(packet.texts,[]);assert.equal(packet.finance_equipment_required,true);
+   await writeFile(join(request.cwd,'presentation.json'),' {"texts":{},"finance_equipment":[]} ');return OK;
+  }});
+  assert.deepEqual(result.finance_equipment,[]);
+ }
+ assert.equal(calls,2);assert.equal((await json(vocabulary)).texts.Parameter,'Parameter');
+ assert.deepEqual((await prepareCharacterPresentation(options)).finance_equipment,[]);
+});
+
+for(const ending of ['malformed','missing','throw']) test(`card ${ending} output retains its error and artifact policy`,async t=>{
+ const {options,vocabulary,finance}=await cardFixture(t);let calls=0,attempt;
+ const expected=new Error('owner runner threw');
+ await assert.rejects(prepareCharacterPresentation({...options,runner:async request=>{
+  calls++;attempt=request.cwd;
+  if(ending==='throw')throw expected;
+  if(ending==='malformed')await writeFile(join(attempt,'presentation.json'),'not JSON\n');
+  return OK;
+ }}),error=>{
+  if(ending==='throw')assert.strictEqual(error,expected);
+  else assert.equal(error.code,ending==='missing'?'ENOENT':'preparation_failed');
+  return true;
+ });
+ assert.equal(calls,ending==='malformed'?2:1);
+ await assert.rejects(readFile(vocabulary),{code:'ENOENT'});
+ await assert.rejects(readFile(finance),{code:'ENOENT'});
+ if(ending==='malformed') {
+  for(const round of [1,2])assert.equal(await readFile(join(attempt,`presentation-round-${round}.json`),'utf8'),'not JSON\n');
+  assert.match((await json(join(attempt,'findings.json'))).error,/SyntaxError/);
+ } else await assert.rejects(readFile(join(attempt,'findings.json')),{code:'ENOENT'});
+});
+
+test('a fully known standing projection bypasses the runner and attempt creation',async t=>{
+ const {prepareStandingPresentation}=await import('../../extensions/module/character-presentation.ts');
+ const {options,directory}=await cardFixture(t);
+ const result=await prepareStandingPresentation({...options,view:{play_language:'en',present:['Known person']},known_labels:{'Known person':'Settled name'}});
+ assert.deepEqual(result.texts,{'Known person':'Settled name'});
+ await assert.rejects(readdir(join(directory,'attempts')),{code:'ENOENT'});
 });

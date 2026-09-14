@@ -212,6 +212,127 @@ test("a caption two rounds could not project fails the run rather than being ans
 		/Invalid map word projection request/, "and a tag that is not a tag is refused by shape");
 });
 
+test("invalid map labels are repaired in round two without re-asking accepted words", async () => {
+	const home = await mkdtemp(join(tmpdir(), "map-words-home-"));
+	const packets = [];
+	let attempt;
+	const result = await prepareMapWords({ home, play_language: "cc", runner: async request => {
+		attempt = request.cwd;
+		const packet = JSON.parse(await readFile(join(attempt, "texts.json"), "utf8"));
+		packets.push(packet);
+		assert.equal(request.eventLog, join(attempt, `events-${packets.length}.jsonl`));
+		await writeFile(request.eventLog, "owner event\n");
+		const texts = Object.fromEntries(packet.texts.map(text => [text, `<${text}>`]));
+		if (packets.length === 1) texts["West bedroom"] = "x".repeat(201);
+		else {
+			assert.match(request.brief, /Read findings.json/);
+			assert.deepEqual(JSON.parse(await readFile(join(attempt, "findings.json"), "utf8")), {
+				error: "these source strings were not answered with a non-empty label", texts: ["West bedroom"],
+			});
+		}
+		await writeFile(join(attempt, "presentation.json"), JSON.stringify({ texts }));
+		return { ok: true };
+	} }, ["Upper Story", "West bedroom"]);
+	assert.equal(packets.length, 2);
+	assert.deepEqual(packets[1].texts, ["West bedroom"]);
+	assert.deepEqual(result, { "Upper Story": "<Upper Story>", "West bedroom": "<West bedroom>" });
+	assert.deepEqual((await readdir(attempt)).sort(), ["check.mjs", "events-1.jsonl", "events-2.jsonl", "findings.json", "presentation.json", "texts.json"]);
+});
+
+for (const repair of [true, false]) test(`malformed map JSON is retried without accepting it (repair=${repair})`, async () => {
+	const home = await mkdtemp(join(tmpdir(), "map-words-home-"));
+	let calls = 0;
+	const result = prepareMapWords({ home, play_language: "cc", runner: async request => {
+		calls++;
+		const packet = JSON.parse(await readFile(join(request.cwd, "texts.json"), "utf8"));
+		assert.deepEqual(packet.texts, ["West bedroom"]);
+		if (calls === 2) {
+			const findings = JSON.parse(await readFile(join(request.cwd, "findings.json"), "utf8"));
+			assert.match(findings.error, /SyntaxError/);
+			assert.deepEqual(findings.texts, packet.texts);
+		}
+		await writeFile(join(request.cwd, "presentation.json"), calls === 2 && repair
+			? JSON.stringify({ texts: { "West bedroom": "<West bedroom>" } }) : "not JSON");
+		return { ok: true };
+	} }, ["West bedroom"]);
+	if (repair) assert.deepEqual(await result, { "West bedroom": "<West bedroom>" });
+	else {
+		await assert.rejects(result, error => error.code === "preparation_failed"
+			&& error.message === "Incomplete map word projection: 1 label were not projected");
+		await assert.rejects(readFile(mapWordsCachePath(home, "cc", await mapWordsDigest())), { code: "ENOENT" });
+	}
+	assert.equal(calls, 2);
+});
+
+test("a malformed repair still merges accepted map words with earlier and concurrently cached words before failing", async () => {
+	const home = await mkdtemp(join(tmpdir(), "map-words-home-"));
+	await prepareMapWords({ home, play_language: "cc", runner: runner().run }, ["Entry hall"]);
+	const digest = await mapWordsDigest();
+	const path = mapWordsCachePath(home, "cc", digest);
+	let calls = 0;
+	await assert.rejects(prepareMapWords({ home, play_language: "cc", runner: async request => {
+		calls++;
+		const packet = JSON.parse(await readFile(join(request.cwd, "texts.json"), "utf8"));
+		if (calls === 1) {
+			assert.deepEqual(packet.texts, ["Upper Story", "West bedroom"]);
+			await writeFile(join(request.cwd, "presentation.json"), JSON.stringify({ texts: { "Upper Story": "<Upper Story>" } }));
+		} else {
+			assert.deepEqual(packet.texts, ["West bedroom"]);
+			assert.deepEqual(await readMapWords({ home, play_language: "cc" }), { "Entry hall": "<Entry hall>" }, "round-one acceptance has not yet committed");
+			await writeFile(path, JSON.stringify({ play_language: "cc", digest, texts: { Kitchen: "<Kitchen>" } }));
+			await writeFile(join(request.cwd, "presentation.json"), "not JSON");
+		}
+		return { ok: true };
+	} }, ["Entry hall", "Upper Story", "West bedroom"]), error => error.code === "preparation_failed"
+		&& error.message === "Incomplete map word projection: 1 label were not projected");
+	assert.equal(calls, 2);
+	assert.deepEqual(await readMapWords({ home, play_language: "cc" }), {
+		Kitchen: "<Kitchen>", "Entry hall": "<Entry hall>", "Upper Story": "<Upper Story>",
+	});
+});
+
+for (const aborted of [false, true]) for (const failRound of [1, 2])
+	test(`map execution failure keeps its detail and cancellation identity (abort=${aborted}, round=${failRound})`, async () => {
+		const home = await mkdtemp(join(tmpdir(), "map-words-home-"));
+		const controller = new AbortController();
+		let calls = 0;
+		await assert.rejects(prepareMapWords({ home, play_language: "cc", model: "owner/model", thinking: "high",
+			signal: controller.signal, runner: async request => {
+				calls++;
+				assert.equal(request.model, "owner/model");
+				assert.equal(request.thinking, "high");
+				assert.strictEqual(request.signal, controller.signal);
+				assert.equal(request.timeoutMs, 120000);
+				await writeFile(join(request.cwd, "presentation.json"), JSON.stringify({ texts: { "Upper Story": "<Upper Story>" } }));
+				if (calls < failRound) return { ok: true };
+				if (aborted) controller.abort();
+				return { ok: aborted, code: 1, stderr: "Model not found", timedOut: false };
+			} }, ["Upper Story", "West bedroom"]), error => error.code === (aborted ? "presentation_timeout" : "preparation_failed")
+				&& error.message === (aborted ? "The map words could not be projected" : "The map words could not be projected (Model not found)"));
+		assert.equal(calls, failRound);
+		await assert.rejects(readFile(mapWordsCachePath(home, "cc", await mapWordsDigest())), { code: "ENOENT" },
+			"runner failure still exits before the caller's normal partial-cache commit");
+		assert.equal((await readdir(join(home, ".coc/map-words/attempts"))).length, 1);
+	});
+
+test("empty and cached map requests bypass the runner even without an owner", async () => {
+	const home = await mkdtemp(join(tmpdir(), "map-words-home-"));
+	const fake = runner();
+	assert.deepEqual(await prepareMapWords({ home, play_language: "cc", runner: fake.run }, []), {});
+	assert.deepEqual(await prepareMapWords({ home, play_language: "cc" }, ["  ", "x".repeat(201)]), {});
+	assert.equal(fake.rounds.length, 0);
+	assert.deepEqual(await readdir(home), []);
+	await assert.rejects(prepareMapWords({ home, play_language: "cc" }, ["West bedroom"]), error =>
+		error.code === "preparation_failed" && error.message === "Map word projection requires its owner runtime");
+	assert.deepEqual(await readdir(home), [], "missing owner creates no attempt");
+	await prepareMapWords({ home, play_language: "cc", runner: fake.run }, ["West bedroom"]);
+	const attempts = await readdir(join(home, ".coc/map-words/attempts"));
+	assert.deepEqual(await prepareMapWords({ home, play_language: "cc" }, ["West bedroom"]), { "West bedroom": "<West bedroom>" });
+	assert.deepEqual(await prepareMapWords({ home, play_language: "cc", runner: fake.run }, []), { "West bedroom": "<West bedroom>" });
+	assert.equal(fake.rounds.length, 1);
+	assert.deepEqual(await readdir(join(home, ".coc/map-words/attempts")), attempts);
+});
+
 /** A lane child that answers every asked caption, so a table can drive the whole loop without a model. */
 async function laneChild() {
 	const directory = await mkdtemp(join(tmpdir(), "map-words-lane-"));

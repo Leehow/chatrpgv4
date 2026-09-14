@@ -209,13 +209,24 @@ export function oneLine(turn: number, snapshot: Row, text: any): string {
  *
  *  Telemetry only, on the same law as §13.7: nothing here reaches the next capsule. An offer the Keeper keeps
  *  declining is a fact about the offer, not a debt the Keeper owes. */
+/** Keep clock matching independent of display text and delimiter-shaped names. */
+function clockTargetKey(target: Row): string | null {
+    const threat = normalize(string(target.threat || "")), clock = normalize(string(target.clock || ""));
+    return threat && clock ? JSON.stringify([threat, clock]) : null;
+}
+function clockOfferId(kind: "clock" | "pressure", target: Row): string {
+    return `${kind}:${string(target.threat)}/${string(target.clock)}`;
+}
+function tickedClockTargets(receipts: Row[]): Set<string | null> {
+    return new Set(receipts.filter(receipt => receipt.kind === "threat").map(clockTargetKey).filter(Boolean));
+}
 export function offerLedger(turn: Row): Row | null {
     const capsule = row(turn.capsule), receipts = array(turn.receipts);
     if (!Object.keys(capsule).length)
         return null;
     const clues = new Set(receipts.filter(r => r.kind === "clue").flatMap(r => [r.clue, r.label].filter(truth).map(v => normalize(string(v))))),
         moved = new Set(receipts.filter(r => r.kind === "move").flatMap(r => [r.to, r.to_label].filter(truth).map(v => normalize(string(v))))),
-        ticked = new Set(receipts.filter(r => r.kind === "threat").map(r => `${normalize(string(r.threat))}/${normalize(string(r.clock))}`));
+        ticked = tickedClockTargets(receipts);
     const offers: Row[] = [];
     const offer = (id: string, taken: boolean) => { if (!offers.some(o => o.id === id)) offers.push({id, taken}); };
     for (const entry of array(row(capsule.director).reveal))
@@ -235,7 +246,7 @@ export function offerLedger(turn: Row): Row | null {
     }
     for (const entry of array(row(mods.pacing).threat_clocks))
         if (truth(row(entry).next))
-            offer(`clock:${string(row(entry).threat)}/${string(row(entry).clock)}`, ticked.has(`${normalize(string(row(entry).threat))}/${normalize(string(row(entry).clock))}`));
+            offer(clockOfferId("clock", row(entry)), ticked.has(clockTargetKey(row(entry))));
     const connectionOffers = array(row(mods.thread).connections).map(connection => string(connection.name));
     if (!offers.length && !connectionOffers.length)
         return null;
@@ -294,21 +305,21 @@ export function directorAdoption(graph: ModuleGraph, turn: Row, snapshot: Row, c
     }
     // Turn floor (docs/specs/turn-floor.md D2): which offer rows the receipts show were taken — a move to the
     // route, a clue credited to or a stance moved on the person, a tick on the pressure's clock. Telemetry only.
-    const offer = array(director.offer), taken: string[] = [];
+    const offer = array(director.offer), taken = new Set<string>(), ticked = tickedClockTargets(receipts);
     for (const item of offer) {
-        const o = row(item), who = string(o.who || ""), where = string(o.where || "");
+        const o = row(item), who = string(o.who || ""), where = string(o.where || ""), target = row(o.target);
         const hit = o.kind === 'route' ? receipts.some(r => r.kind === 'move' && string(r.to) === where)
             : o.kind === 'person' ? receipts.some(r => (r.kind === 'clue' && truth(r.from) && sameName(graph, string(r.from), who)) || (r.kind === 'npc' && sameName(graph, string(r.name || r.handle), who)) || (r.kind === 'roll' && truth(r.npc) && sameName(graph, string(r.npc), who)))
-            : o.kind === 'pressure' ? receipts.some(r => r.kind === 'threat' && string(o.line).startsWith(string(r.threat)))
+            : o.kind === 'pressure' ? ticked.has(clockTargetKey(target))
             : false;
         if (hit)
-            taken.push(`${string(o.kind)}:${o.kind === 'route' ? where : who || where}`);
+            taken.add(o.kind === 'pressure' ? clockOfferId('pressure', target) : `${string(o.kind)}:${o.kind === 'route' ? where : who || where}`);
     }
     return {
         beat,
         adopted,
         evidence,
-        ...(offer.length ? { offer_taken: taken } : {})
+        ...(offer.length ? { offer_taken: [...taken] } : {})
     };
 }
 function sameName(graph: ModuleGraph, ref: string, name: string): boolean {

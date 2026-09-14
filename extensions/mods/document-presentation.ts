@@ -1,11 +1,12 @@
 /** A reading projection; source text and acquisition snapshots stay in the kernel. */
 import {createHash, randomUUID} from "node:crypto";
-import {mkdir, readFile, writeFile, rename} from "node:fs/promises";
+import {readFile, writeFile, rename} from "node:fs/promises";
 import {join} from "node:path";
 import {resourceRootFrom,runtimeEntryUrl} from "../../runtime/deployment.mjs";
 import {PLAY_LANGUAGE_TAG} from "../../runtime/ui-words.ts";
 import {coded} from "../ui/errors.ts";
 import {reasoned, readerFailureReason} from "../module/reader.ts";
+import {runPresentationAttempt} from "../module/presentation-attempt.ts";
 import type {ReaderRequest, ReaderOutcome} from "../module/reader.ts";
 
 const resourceRoot = resourceRootFrom(import.meta.url);
@@ -70,33 +71,37 @@ async function reading(options:Options, title:string, text:string, language:stri
   if (!runner) throw coded("preparation_failed", "Document presentation requires its owner runtime");
   const task = (async () => {
     const attempt = join(directory, "attempts", randomUUID());
-    await mkdir(attempt, {recursive:true});
-    await writeFile(join(attempt, "request.json"), JSON.stringify(request, null, 2));
-    await writeFile(join(attempt, "check.mjs"),
-      `import {readFileSync} from "node:fs";
+    let result:{title:string; text:string}|undefined;
+    let failure:unknown;
+    await runPresentationAttempt({
+      attempt, outputFile:"result.json",
+      checkSource:`import {readFileSync} from "node:fs";
 import {validateDocumentReading} from ${JSON.stringify(runtimeEntryUrl('documentPresentation',import.meta.url))};
 validateDocumentReading(JSON.parse(readFileSync("result.json","utf8")),JSON.parse(readFileSync("request.json","utf8")));
-`);
-    let result;
-    for (let round = 1; round <= 2; round++) {
-      const outcome = await runner({cwd:attempt, systemPrompt:prompt,
-        model:options.model, thinking:options.thinking, signal:options.signal, timeoutMs:120000,
-        eventLog:join(attempt, `events-${round}.jsonl`),
-        brief:"Read request.json and write result.json. Run node check.mjs and repair any error."
-          + (round > 1 ? " Read findings.json and repair the retained result." : "")});
-      await writeFile(join(attempt, `run-${round}.json`), JSON.stringify(outcome));
-      if (!outcome.ok || options.signal?.aborted)
-        throw coded(options.signal?.aborted ? "presentation_timeout" : "preparation_failed",
-          reasoned("Document reading could not be prepared", options.signal?.aborted ? undefined : readerFailureReason(outcome)));
-      try {
-        result = validateDocumentReading(JSON.parse(await readFile(join(attempt, "result.json"), "utf8")), request);
-        break;
-      } catch (error) {
-        await writeFile(join(attempt, "findings.json"), JSON.stringify({error:String(error)}));
-        if (round === 2) throw error;
-      }
-    }
-    if (!result) throw coded("preparation_failed", "Document reading could not be validated");
+`,
+      systemPrompt:prompt, model:options.model, thinking:options.thinking, signal:options.signal, runner,
+      prepareRound:async round=>{
+        if (round === 1) await writeFile(join(attempt, "request.json"), JSON.stringify(request, null, 2));
+        return "Read request.json and write result.json. Run node check.mjs and repair any error."
+          + (round > 1 ? " Read findings.json and repair the retained result." : "");
+      },
+      recordOutcome:async (outcome, round)=>{
+        await writeFile(join(attempt, `run-${round}.json`), JSON.stringify(outcome));
+      },
+      failure:(outcome, aborted)=>coded(aborted ? "presentation_timeout" : "preparation_failed",
+        reasoned("Document reading could not be prepared", aborted ? undefined : readerFailureReason(outcome))),
+      invalidOutput:error=>{failure=error; return {error:String(error)};},
+      accept:value=>{
+        try {
+          result = validateDocumentReading(value, request);
+          return {done:true};
+        } catch (error) {
+          failure=error;
+          return {done:false, findings:{error:String(error)}};
+        }
+      },
+    });
+    if (!result) throw failure ?? coded("preparation_failed", "Document reading could not be validated");
     const temporary = join(directory, randomUUID() + ".tmp");
     await writeFile(temporary, JSON.stringify(result)); await rename(temporary, accepted);
     return result;

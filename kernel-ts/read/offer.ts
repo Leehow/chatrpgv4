@@ -25,6 +25,7 @@ export interface OfferSources {
     thread?: Row | null;
     pacing?: Row | null;
     pressures: Row[];
+    obligations?: Row[];
     previous?: Row | null;
 }
 /** Clip at a word boundary and mark the cut: a line the Keeper reads must not end mid-word. */
@@ -70,14 +71,18 @@ function routeRows(where: Row, present: Row[], thread: Row | null | undefined): 
     });
     return rows.sort((a, b) => a.ranked - b.ranked).map(({ ranked: _ranked, ...rest }) => rest);
 }
-function pressureRows(pacing: Row | null | undefined, pressures: Row[]): Row[] {
+function pressureRows(pacing: Row | null | undefined, pressures: Row[], obligations: Row[]): Row[] {
     const clocks = array(pacing?.threat_clocks).filter(clock => truth(row(clock).next)).map(clock => ({
-        kind: "pressure", line: clip(string(row(clock).threat) + " (" + string(row(clock).state) + "): " + string(row(clock).next)), from: "mods.pacing"
+        kind: "pressure", target: { threat: string(row(clock).threat), clock: string(row(clock).clock) },
+        line: clip(string(row(clock).threat) + " (" + string(row(clock).state) + "): " + string(row(clock).next)), from: "mods.pacing"
     }));
     const other = pressures.filter(p => truth(p.name) || truth(p.summary) || truth(p.kind)).map(p => ({
         kind: "pressure", line: clip([string(p.kind || ""), string(p.name || p.summary || "")].filter(Boolean).join(": ")), from: "pressures"
     }));
-    return [...clocks, ...other];
+    const continuations = obligations.filter(o => o.kind === "continuation").map(o => ({
+        kind: "pressure", line: clip([string(o.name), string(o.cue || "")].filter(Boolean).join(": ")), from: "obligations"
+    }));
+    return [...clocks, ...other, ...continuations];
 }
 function consequenceRows(previous: Row | null | undefined): Row[] {
     const receipts = array(previous?.receipts), rows: Row[] = [];
@@ -94,7 +99,7 @@ export function directorOffer(beat: string, sources: OfferSources): Row[] {
     const pools: Record<string, Row[]> = {
         person: personRows(sources.present),
         route: routeRows(sources.where, sources.present, sources.thread),
-        pressure: pressureRows(sources.pacing, sources.pressures),
+        pressure: pressureRows(sources.pacing, sources.pressures, array(sources.obligations)),
         consequence: consequenceRows(sources.previous)
     };
     const order = [...(OFFER_ORDER[beat] ?? DEFAULT_ORDER), ...DEFAULT_ORDER.filter(kind => !(OFFER_ORDER[beat] ?? DEFAULT_ORDER).includes(kind))];
@@ -104,7 +109,7 @@ export function directorOffer(beat: string, sources: OfferSources): Row[] {
         if (next)
             chosen.push(next);
         if (chosen.length >= OFFER_ROWS)
-            return chosen;
+            break;
     }
     for (const kind of order)
         while (chosen.length < OFFER_ROWS && pools[kind]?.length)

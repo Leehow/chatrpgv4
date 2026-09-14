@@ -12,13 +12,12 @@
     "them would flip the check between regression and stale baseline on alternate runs. Each one",
     "carries the reason it cannot be pinned. Adding an id here silences that test -- say why."
   ],
-  "recordedAt": "2026-09-14T15:19:53.831Z",
-  "commit": "02feb00bfce67b0be46a39d0a7ec881dcd3cc1e8",
+  "recordedAt": "2026-09-14T19:29:28.510Z",
+  "commit": "8a3406fbba7cf5386ea47e73eb2827ce25ca4863",
   "treeDirty": true,
-  "count": 195,
+  "count": 194,
   "flaky": [],
   "failures": [
-    "apps/electron/packaging-contract.test.ts [suite failed to run]",
     "apps/electron/release-two-phase.test.ts [suite failed to run]",
     "apps/electron/src/main/browser-host.test.ts [suite failed to run]",
     "apps/electron/src/main/browser-tool-extension.test.ts [suite failed to run]",

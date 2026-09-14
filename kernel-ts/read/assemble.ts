@@ -94,7 +94,7 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
         across = await crossLineReader(campaign, graph, world, present);
     const presentNames = [...present.map(n => graph.displayName(n)), ...present.map(n => graph.handle(n))],
         here = [graph.handle(scene), sceneLabel(graph, world, scene)];
-    const obligations = [...choiceObligation(turn.pending_choice), ...sessionObligation(session), ...continuationRows(continuations, true), ...questObligations(graph, world), ...promiseObligations(memory), ...noteObligations(campaign.logs.get("notes.jsonl") ?? [], presentNames, here), ...loopObligation(worldlines)];
+    const obligations = [...choiceObligation(turn.pending_choice), ...sessionObligation(session), ...continuationRows(continuations), ...questObligations(graph, world), ...promiseObligations(memory), ...noteObligations(campaign.logs.get("notes.jsonl") ?? [], presentNames, here), ...loopObligation(worldlines)];
     const sig = signals({
         graph,
         world,
@@ -120,7 +120,7 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
         where,
         present: presentSection(graph, world, scene, row(campaign.jsonFiles.get("npc-ledger.json")), memory, across),
         known: knownSection(graph, world, scene, party),
-        pressures: [...clocks, ...threatPressures(graph, world, scene, present), ...continuationRows(continuations)],
+        pressures: [...clocks, ...threatPressures(graph, world, scene, present)],
         obligations,
         director,
         situations,
@@ -195,6 +195,7 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
         thread: row(capsule.mods).thread ?? null,
         pacing: row(capsule.mods).pacing ?? null,
         pressures: array(capsule.pressures),
+        obligations: array(capsule.obligations),
         previous: previous ?? null
     });
     // Offer rows go first when the section is over budget; because and grounded_by are the Director's account of itself.

@@ -100,7 +100,7 @@ def test_threat_pressure_when_a_danger_names_a_present_npc(kernel):
     assert threats[0]["cue"] == "; ".join(capsule["where"]["pressure_moves"])
 
 
-def test_rule_pressure_and_continuation_obligation_from_an_unanswered_push(tmp_path):
+def test_continuation_has_one_base_projection_until_answered(tmp_path):
     client = RpcClient(tmp_path / "ws", env={"COC_KERNEL_SEED": "7"})
     try:
         open_turn(client, "我翻抽屉。")
@@ -110,12 +110,11 @@ def test_rule_pressure_and_continuation_obligation_from_an_unanswered_push(tmp_p
         n = int(call_id.rsplit("-c", 1)[1]) + 1
         narrate(client, f"t1-c{n}", "没找到。")
         capsule = client.table("player_input", text="我再试试。")["capsule"]
-        rules = [p for p in capsule["pressures"] if p["kind"] == "rule"]
-        assert [r["name"] for r in rules] == offered
-        assert rules[0]["state"] == "left by last turn, unanswered" and rules[0]["cue"].startswith("needs action.")
+        assert [p for p in capsule["pressures"] if p["kind"] == "rule"] == []
         owed = [o for o in capsule["obligations"] if o["kind"] == "continuation"]
         assert [o["name"] for o in owed] == offered and all(o["who"] == "player" for o in owed)
-        # answering the push closes both rows
+        assert all(o["state"] == "left by last turn, unanswered" and o["cue"].startswith("needs action.") for o in owed)
+        # Answering the push closes the single canonical projection.
         client.table("resolve", call_id="t2-c1", action={"intent": "investigate", "goal": "找线索", "method": "用侦查",
                                                           "skill": "Spot Hidden", "push": True, "stakes": "抽屉卡住"})
         capsule = client.table("capsule")

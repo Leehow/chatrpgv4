@@ -6,25 +6,28 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
 import { assembleRuntime } from '../scripts/package-runtime.mjs';
+import { assemblySignals, removeAssemblyTreeSync } from '../scripts/assembly-workspace.mjs';
+import { createPackageRecipe } from './package-config.mjs';
 const repo=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const parent=join(repo,'.build.noindex/pipicoc');
 fs.mkdirSync(parent,{recursive:true});
 // The App has exactly one copy on disk and it lives in /Applications, because LaunchServices
 // refuses to register a symlink as a bundle: with the real bundle anywhere else, the App is
 // absent from the Applications folder, Launchpad and Spotlight no matter how the link is made.
-// `home` keeps the receipt and a back-link so the old build path still resolves.
-const stage=fs.mkdtempSync(join(parent,'package-')),home=process.env.PIPICOC_APP_HOME||join(homedir(),'leehow/code/pipicoc-build');
+// The recipe keeps the receipt and back-link at the old build home.
 // The staging directory holds an assembled runtime, a nested package-runtime closure, and the
 // App this run replaces. None of it outlives the run, and the runtime is assembled read-only,
 // so restore write permission before unlinking it on every exit path including failure.
-const purgeStage=()=>{try{execFileSync('/bin/chmod',['-R','u+w',stage],{stdio:'ignore'});}catch{}try{fs.rmSync(stage,{recursive:true,force:true});}catch{}};
-process.on('exit',purgeStage);
-for(const signal of ['SIGINT','SIGTERM','SIGHUP'])process.on(signal,()=>{purgeStage();process.exit(1);});
-fs.mkdirSync(home,{recursive:true});
-const target=process.env.PIPICOC_APP_BUNDLE||'/Applications/PipiCOC.app',link=join(home,'PipiCOC.app'),identity=process.env.PIPICOC_SIGN_IDENTITY||'PipiUI Dev';
+const assemblyController=assemblySignals();
+let stage,activeAssembly=null;
+const purgeStage=()=>{if(stage)removeAssemblyTreeSync(stage);};
+try {
+stage=fs.mkdtempSync(join(parent,'package-'));
 const productConfigPath=join(repo,'pipicoc/product.json'),product=JSON.parse(fs.readFileSync(productConfigPath,'utf8'));
-if(typeof product.appId!=='string'||typeof product.name!=='string'||typeof product.icon!=='string'||!product.icon)throw new Error(`Product config at ${productConfigPath} needs appId, name and icon.`);
-const productIconPng=join(dirname(productConfigPath),product.icon),productIconIcns=productIconPng.replace(/\.png$/i,'.icns');
+const {version}=JSON.parse(fs.readFileSync(join(repo,'package.json'),'utf8'));
+const {config,home,target,link,app}=createPackageRecipe({repo,stage,product,version,userHome:homedir(),appHome:process.env.PIPICOC_APP_HOME,appBundle:process.env.PIPICOC_APP_BUNDLE});
+fs.mkdirSync(home,{recursive:true});
+const identity=process.env.PIPICOC_SIGN_IDENTITY||'PipiUI Dev';
 // A run started through the back-link reports that path, so both spellings have to be checked.
 const running=execFileSync('/bin/ps',['-axo','command='],{encoding:'utf8'}).split('\n');
 if(fs.existsSync(target)&&[target,link].some(path=>running.some(line=>line.trim().startsWith(join(path,'Contents/MacOS/')))))
@@ -32,17 +35,15 @@ if(fs.existsSync(target)&&[target,link].some(path=>running.some(line=>line.trim(
 const run=(command,args,cwd=repo,env=process.env)=>execFileSync(command,args,{cwd,env,stdio:'inherit'});
 run('npm',['run','build:runtime']);
 run('npm',['--prefix','Electron','run','build']);
-const assembled=await assembleRuntime({repo,output:join(stage,'runtime'),nodeArchive:process.env.PIPICOC_NODE_ARCHIVE,gitArchive:process.env.PIPICOC_GIT_ARCHIVE});
+activeAssembly=assembleRuntime({repo,output:join(stage,'runtime'),nodeArchive:process.env.PIPICOC_NODE_ARCHIVE,gitArchive:process.env.PIPICOC_GIT_ARCHIVE,signal:assemblyController.signal});
+const assembled=await activeAssembly;
+assemblyController.signal.throwIfAborted();
+activeAssembly=null;
 fs.writeFileSync(join(stage,'pi-coc-runtime.json'),JSON.stringify({schemaVersion:1,kind:'standalone',runtimeRoot:'pi-coc'},null,2)+'\n');
 fs.copyFileSync(productConfigPath,join(stage,'product.json'));
-const config={appId:product.appId,productName:product.name,forceCodeSigning:false,npmRebuild:true,
-  extraMetadata:{version:'0.1.0'},directories:{output:join(stage,'output')},
-  files:['out/**/*','package.json','!node_modules/**/*','node_modules/node-pty/**/*','node_modules/@xterm/headless/**/*','node_modules/@xterm/addon-serialize/**/*'],
-  extraResources:[{from:join(stage,'product.json'),to:'product.json'},{from:join(stage,'pi-coc-runtime.json'),to:'pi-coc-runtime.json'},{from:productIconPng,to:product.icon},{from:join(repo,'Electron/packages/ui/dist/browser'),to:'browser-ui'}],
-  mac:{identity:null,icon:productIconIcns,extendInfo:{CFBundleDisplayName:product.name,CFBundleName:product.name},target:['dir']}};
 fs.writeFileSync(join(stage,'builder.json'),JSON.stringify(config,null,2)+'\n');
 run(join(repo,'Electron/node_modules/.bin/electron-builder'),['--mac','--arm64','--dir','--config',join(stage,'builder.json')],join(repo,'Electron/apps/electron'),{...process.env,CSC_IDENTITY_AUTO_DISCOVERY:'false',CSC_NAME:''});
-const app=join(stage,'output/mac-arm64',`${product.name}.app`),runtime=join(app,'Contents/Resources/pi-coc');
+const runtime=join(app,'Contents/Resources/pi-coc');
 // electron-builder's generic resource filter excludes a root node_modules directory.
 // Copy the separately assembled Node closure after packaging and before signing.
 fs.cpSync(assembled.output,runtime,{recursive:true,verbatimSymlinks:true});
@@ -72,3 +73,11 @@ if(fs.existsSync(link)||fs.lstatSync(link,{throwIfNoEntry:false}))fs.rmSync(link
 fs.symlinkSync(target,link);
 execFileSync('/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister',['-f',target]);
 console.log(target);
+} finally {
+  // The assembler owns its processes and inner work. Never purge their parent
+  // until cancellation, pipe draining and durable diagnostics have settled.
+  try {
+    try{await activeAssembly;}catch(error){if(error.cleanupBlocked)throw error;}
+    purgeStage();
+  } finally { assemblyController.dispose(); }
+}

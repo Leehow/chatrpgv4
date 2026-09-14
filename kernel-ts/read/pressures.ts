@@ -125,11 +125,11 @@ export function unansweredContinuations(previous: Row | null | undefined, receip
     }
     return result;
 }
-export function continuationRows(continuations: Row[], obligation = false): Row[] {
+export function continuationRows(continuations: Row[]): Row[] {
     return continuations.map(value => ({
-        kind: obligation ? "continuation" : "rule",
+        kind: "continuation",
         name: value.decision,
-        ...(obligation ? { who: "player" } : {}),
+        who: "player",
         state: "left by last turn, unanswered",
         ...(array(value.needs).length ? { cue: `needs action.${value.needs.join("/")}` } : {})
     }));

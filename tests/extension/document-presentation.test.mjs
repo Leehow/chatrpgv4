@@ -1,6 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp,readFile,writeFile,rm} from 'node:fs/promises';
+import {mkdtemp,mkdir,readFile,readdir,writeFile,rm} from 'node:fs/promises';
+import {createHash} from 'node:crypto';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {presentDocument,documentPresentationStatus,validateDocumentReading} from '../../extensions/mods/document-presentation.ts';
@@ -123,4 +124,150 @@ test('the artifact gate rejects invented blank-paper writing and oversized text'
   assert.throws(()=>validateDocumentReading({title:'Paper',text:'Invented letter'},{text:''}));
   assert.throws(()=>validateDocumentReading({title:'Paper',text:'x'.repeat(64001)},{text:'source'}));
   assert.throws(()=>validateDocumentReading({title:'Paper',text:''},{text:'source'}));
+});
+
+const OK={ok:true,code:0,timedOut:false,ms:1,stderr:'',command:[]};
+const json=async path=>JSON.parse(await readFile(path,'utf8'));
+const documentSource={name:'Slip',text:'Source text',original:'Source text',version:'one',player_edited:false,play_language:'en'};
+const validReading={title:'Projected title',text:'Projected text'};
+async function documentFixture(t) {
+ const home=await mkdtemp(join(tmpdir(),'document-attempt-'));
+ t.after(()=>rm(home,{recursive:true,force:true}));
+ const instructions=await readFile(new URL('../../extensions/mods/document-presentation.md',import.meta.url),'utf8');
+ const request={title:documentSource.name,text:documentSource.original,play_language:documentSource.play_language};
+ const fingerprint=createHash('sha256').update(JSON.stringify([request,instructions])).digest('hex');
+ const directory=join(home,'.coc/document-presentations',fingerprint);
+ return {options:{home,owner:{}},request,instructions,directory,accepted:join(directory,'accepted.json')};
+}
+
+for(const broken of ['malformed','invalid','missing'])for(const repaired of [false,true])
+ test(`document ${broken} output uses whole-result repair (repaired=${repaired})`,async t=>{
+ const {options,request:packet,directory,accepted}=await documentFixture(t);
+ const controller=new AbortController();let calls=0,attempt;
+ const task=presentDocument({...options,model:'owner/document',thinking:'medium',signal:controller.signal,runner:async request=>{
+  calls++;attempt=request.cwd;
+  assert.ok(attempt.startsWith(join(directory,'attempts')+'/'));
+  assert.equal(request.model,'owner/document');assert.equal(request.thinking,'medium');
+  assert.strictEqual(request.signal,controller.signal);assert.equal(request.timeoutMs,120000);
+  assert.equal(request.eventLog,join(attempt,`events-${calls}.jsonl`));
+  assert.ok(request.systemPrompt.endsWith('extensions/mods/document-presentation.md'));
+  assert.match(await readFile(join(attempt,'check.mjs'),'utf8'),/validateDocumentReading/);
+  assert.deepEqual(await json(join(attempt,'request.json')),packet);
+  await assert.rejects(readFile(accepted),{code:'ENOENT'});
+  await writeFile(request.eventLog,`round ${calls}\n`);
+  if(calls===2) {
+   assert.match(request.brief,/Read findings.json and repair the retained result/);
+   assert.deepEqual(await json(join(attempt,'run-1.json')),OK);
+   assert.match((await json(join(attempt,'findings.json'))).error,
+    broken==='malformed'?/SyntaxError/:broken==='missing'?/ENOENT/:/Invalid document reading/);
+  }
+  if(calls===2&&repaired)await writeFile(join(attempt,'result.json'),JSON.stringify(validReading));
+  else if(broken!=='missing')await writeFile(join(attempt,'result.json'),broken==='malformed'?'not JSON':JSON.stringify({...validReading,extra:'must reject the entire reading'}));
+  return OK;
+ }},documentSource);
+ if(repaired) {
+  assert.equal((await task).text,validReading.text);
+  assert.deepEqual(await json(accepted),validReading);
+  assert.equal((await presentDocument({home:options.home},documentSource)).display_name,validReading.title);
+ } else {
+  await assert.rejects(task,error=>{
+   if(broken==='malformed')assert.ok(error instanceof SyntaxError);
+   else assert.equal(error.code,broken==='missing'?'ENOENT':'preparation_failed');
+   return true;
+  });
+  await assert.rejects(readFile(accepted),{code:'ENOENT'});
+  // The same owner may start a fresh attempt after validation exhaustion.
+  const retried=await presentDocument({...options,runner:async request=>{
+   assert.notEqual(request.cwd,attempt);
+   await writeFile(join(request.cwd,'result.json'),JSON.stringify(validReading));return OK;
+  }},documentSource);
+  assert.equal(retried.text,validReading.text);
+ }
+ assert.equal(calls,2);
+ for(const round of [1,2]) {
+  assert.deepEqual(await json(join(attempt,`run-${round}.json`)),OK);
+  assert.equal(await readFile(join(attempt,`events-${round}.jsonl`),'utf8'),`round ${round}\n`);
+ }
+ assert.ok((await readdir(attempt)).includes('findings.json'),'repair evidence remains after acceptance');
+ assert.equal((await readdir(directory)).filter(file=>file.endsWith('.tmp')).length,0);
+});
+
+for(const ending of ['provider','timeout','cancel-success','cancel-failure','throw'])
+ test(`document ${ending} retains failure identity and clears owner pending work`,async t=>{
+ const {options,accepted}=await documentFixture(t);
+ const controller=new AbortController(),expected=new Error('owner runner threw');
+ let attempt,calls=0;
+ const outcome=ending==='cancel-success'?OK:{...OK,ok:false,code:1,timedOut:ending==='timeout',stderr:'Error: provider unavailable'};
+ await assert.rejects(presentDocument({...options,signal:controller.signal,runner:async request=>{
+  calls++;attempt=request.cwd;
+  if(ending==='throw')throw expected;
+  await writeFile(join(attempt,'result.json'),JSON.stringify(validReading));
+  if(ending.startsWith('cancel'))controller.abort();
+  return outcome;
+ }},documentSource),error=>{
+  if(ending==='throw')assert.strictEqual(error,expected);
+  else {
+   assert.equal(error.code,ending.startsWith('cancel')?'presentation_timeout':'preparation_failed');
+   if(ending.startsWith('cancel'))assert.equal(error.message,'Document reading could not be prepared');
+   else assert.match(error.message,ending==='timeout'?/the run timed out/:/provider unavailable/);
+  }
+  return true;
+ });
+ assert.equal(calls,1);
+ await assert.rejects(readFile(accepted),{code:'ENOENT'});
+ await assert.rejects(readFile(join(attempt,'findings.json')),{code:'ENOENT'});
+ if(ending==='throw')await assert.rejects(readFile(join(attempt,'run-1.json')),{code:'ENOENT'});
+ else assert.deepEqual(await json(join(attempt,'run-1.json')),outcome);
+ const result=await presentDocument({...options,runner:async request=>{
+  calls++;assert.notEqual(request.cwd,attempt);
+  await writeFile(join(request.cwd,'result.json'),JSON.stringify(validReading));return OK;
+ }},documentSource);
+ assert.equal(result.text,validReading.text);assert.equal(calls,2);
+});
+
+test('same-owner callers share a single in-flight reading and later owners reuse its fingerprint cache',async t=>{
+ const {options,directory}=await documentFixture(t);
+ let calls=0,started,release,checkedOwner;
+ const running=new Promise(resolve=>{started=resolve;});
+ const gate=new Promise(resolve=>{release=resolve;});
+ const joined=new Promise(resolve=>{checkedOwner=resolve;});
+ const runner=async request=>{
+  calls++;started();await gate;
+  await writeFile(join(request.cwd,'result.json'),JSON.stringify(validReading));return OK;
+ };
+ const first=presentDocument({...options,runner},documentSource);
+ await running;
+ const second=presentDocument({...options,runner,get owner(){checkedOwner();return options.owner;}},{...documentSource,version:'two'});
+ // cacheFor is reached after the accepted-file miss; hold the first runner until then.
+ await joined;
+ assert.deepEqual(documentPresentationStatus({...options,runner},documentSource),{pending:true});
+ release();
+ const results=await Promise.all([first,second]);
+ assert.equal(calls,1);assert.equal(results[0].text,results[1].text);
+ assert.equal((await readdir(join(directory,'attempts'))).length,1);
+ const cached=await presentDocument({home:options.home,owner:{},runner:async()=>assert.fail('accepted cache must bypass the runner')},documentSource);
+ assert.equal(cached.text,validReading.text);
+});
+
+test('document fingerprints include instructions and reject invalid cache entries without changing source or edits',async t=>{
+ const {options,instructions,directory,accepted}=await documentFixture(t);
+ await mkdir(directory,{recursive:true});
+ await writeFile(accepted,JSON.stringify({title:'Partial cached title'}));
+ let calls=0;
+ const runner=async request=>{
+  calls++;await writeFile(join(request.cwd,'result.json'),JSON.stringify(validReading));return OK;
+ };
+ const source={...documentSource,text:'Player annotation',player_edited:true};
+ const before=structuredClone(source);
+ const first=await presentDocument({...options,runner},source);
+ assert.equal(first.text,'Player annotation');assert.equal(first.original,validReading.text);
+ assert.equal(calls,1);assert.deepEqual(source,before);
+ assert.deepEqual(await json(accepted),validReading);
+ const resourceRoot=join(options.home,'resources');
+ const prompts=join(resourceRoot,'extensions/mods');await mkdir(prompts,{recursive:true});
+ await writeFile(join(prompts,'document-presentation.md'),instructions+'\nUpdated instruction.\n');
+ const changed=await presentDocument({...options,runner,resourceRoot},source);
+ assert.equal(changed.text,'Player annotation');assert.equal(calls,2);
+ assert.deepEqual(await presentDocument({...options,resourceRoot},source),changed);
+ assert.equal((await readdir(join(options.home,'.coc/document-presentations'))).length,2);
 });

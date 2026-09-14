@@ -197,3 +197,98 @@ test('a projected caption must preserve every placeholder including repetition',
   assert.throws(()=>validateUiPresentation({texts:{'Turn {n}':value}},['Turn {n}']));
  assert.deepEqual(acceptedUiTexts({texts:{'Turn {n}':'Turn','Line {name}':'<{name}>'}},['Turn {n}','Line {name}']),{'Line {name}':'<{name}>'});
 });
+
+for (const repair of [true, false]) test(`malformed UI output is retried, with complete-only caching (repair=${repair})`, async () => {
+	const { contentRoot, home } = await fixture();
+	const digest = await uiWordsDigest(contentRoot);
+	const cache = uiWordsCachePath(home, "cc", digest);
+	const packets = [];
+	let attempt;
+	const run = async request => {
+		attempt = request.cwd;
+		const packet = JSON.parse(await readFile(join(attempt, "texts.json"), "utf8"));
+		packets.push(packet);
+		assert.equal(request.eventLog, join(attempt, `events-${packets.length}.jsonl`));
+		assert.equal(request.timeoutMs, 120000);
+		await writeFile(request.eventLog, "owner event\n");
+		await assert.rejects(readFile(cache), { code: "ENOENT" });
+		if (packets.length === 2) {
+			assert.match(request.brief, /Read findings.json/);
+			const findings = JSON.parse(await readFile(join(attempt, "findings.json"), "utf8"));
+			assert.match(findings.error, /SyntaxError/);
+			assert.deepEqual(findings.texts, packet.texts);
+		}
+		await writeFile(join(attempt, "presentation.json"), packets.length === 2 && repair
+			? JSON.stringify({ texts: Object.fromEntries(packet.texts.map(text => [text, `<${text}>`])) }) : "not JSON");
+		return { ok: true };
+	};
+	const result = prepareUiWords({ home, contentRoot, play_language: "cc", runner: run });
+	if (repair) assert.equal((await result).texts.sheet.refresh, "<Refresh>");
+	else {
+		await assert.rejects(result, error => error.code === "preparation_failed"
+			&& error.message === "Incomplete UI word projection: 4 captions were not projected");
+		await assert.rejects(readFile(cache), { code: "ENOENT" });
+	}
+	assert.equal(packets.length, 2);
+	assert.deepEqual(packets[1], packets[0], "no malformed words were accepted");
+	assert.deepEqual((await readdir(attempt)).sort(), ["check.mjs", "events-1.jsonl", "events-2.jsonl", "findings.json", "presentation.json", "texts.json"]);
+});
+
+test("a UI caption that loses a placeholder is repaired without re-asking accepted captions", async () => {
+	const { contentRoot, home } = await fixture();
+	await writeFile(join(contentRoot, "ui/aa/sheet.json"), JSON.stringify({ turn: "Turn {n}", refresh: "Refresh" }));
+	const packets = [];
+	const result = await prepareUiWords({ home, contentRoot, play_language: "cc", runner: async request => {
+		const packet = JSON.parse(await readFile(join(request.cwd, "texts.json"), "utf8"));
+		packets.push(packet);
+		const texts = Object.fromEntries(packet.texts.map(text => [text, `<${text}>`]));
+		if (packets.length === 1) texts["Turn {n}"] = "Turn";
+		else {
+			const findings = JSON.parse(await readFile(join(request.cwd, "findings.json"), "utf8"));
+			assert.deepEqual(findings, { error: "these source strings were not answered with a non-empty string", texts: ["Turn {n}"] });
+		}
+		await writeFile(join(request.cwd, "presentation.json"), JSON.stringify({ texts }));
+		return { ok: true };
+	} });
+	assert.equal(packets.length, 2);
+	assert.deepEqual(packets[1].texts, ["Turn {n}"]);
+	assert.equal(result.texts.sheet.turn, "<Turn {n}>");
+	assert.equal(result.texts.sheet.refresh, "<Refresh>");
+});
+
+for (const aborted of [false, true]) for (const failRound of [1, 2])
+	test(`UI execution failure preserves its code and message without caching (abort=${aborted}, round=${failRound})`, async () => {
+		const { contentRoot, home } = await fixture();
+		const controller = new AbortController();
+		let calls = 0;
+		await assert.rejects(prepareUiWords({ home, contentRoot, play_language: "cc", model: "owner/model", thinking: "high",
+			signal: controller.signal, runner: async request => {
+				calls++;
+				assert.equal(request.model, "owner/model");
+				assert.equal(request.thinking, "high");
+				assert.strictEqual(request.signal, controller.signal);
+				assert.equal(request.timeoutMs, 120000);
+				await writeFile(join(request.cwd, "presentation.json"), JSON.stringify({ texts: { Clues: "<Clues>" } }));
+				if (calls < failRound) return { ok: true };
+				if (aborted) controller.abort();
+				return { ok: aborted, code: 1, stderr: "Model not found", timedOut: false };
+			} }), error => error.code === (aborted ? "presentation_timeout" : "preparation_failed")
+				&& error.message === "The UI words could not be projected");
+		assert.equal(calls, failRound);
+		await assert.rejects(readFile(uiWordsCachePath(home, "cc", await uiWordsDigest(contentRoot))), { code: "ENOENT" });
+		assert.ok((await readdir(await attemptDir(home))).includes("check.mjs"), "failed attempts remain readable");
+	});
+
+test("UI source, seed and cache bypasses require no runner or attempt directory", async () => {
+	const { contentRoot, home } = await fixture();
+	for (const tag of ["aa", "bb"]) await prepareUiWords({ home, contentRoot, play_language: tag });
+	assert.deepEqual(await readdir(home), []);
+	await assert.rejects(prepareUiWords({ home, contentRoot, play_language: "cc" }), error =>
+		error.code === "preparation_failed" && error.message === "UI word projection requires its owner runtime");
+	assert.deepEqual(await readdir(home), [], "missing owner does not create an attempt");
+	await prepareUiWords({ home, contentRoot, play_language: "cc", runner: runner().run });
+	const attempts = await readdir(join(home, ".coc/ui-words/attempts"));
+	const cached = await prepareUiWords({ home, contentRoot, play_language: "cc" });
+	assert.equal(cached.texts.sheet.refresh, "<Refresh>");
+	assert.deepEqual(await readdir(join(home, ".coc/ui-words/attempts")), attempts);
+});

@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
+import { createPackageRecipe } from "../../pipicoc/package-config.mjs";
 
 /**
  * The shell gates the remote-pairing entry behind an enabled `remote-control`
@@ -42,11 +43,19 @@ test("the packaged App ships the browser-ui the remote debug lane serves", () =>
 	// remote-debug.ts resolves <resources>/browser-ui in a packaged App; the PipiCOC
 	// builder config writes its own extraResources list, so the pipiui list carrying
 	// browser-ui does not cover it.
-	const pack = readFileSync(join(REPO, "pipicoc", "package.mjs"), "utf8");
-	assert.ok(
-		pack.includes("dist/browser") && pack.includes("browser-ui"),
-		"pipicoc/package.mjs extraResources must ship packages/ui/dist/browser as browser-ui",
-	);
+	const product = JSON.parse(readFileSync(join(REPO, "pipicoc", "product.json"), "utf8"));
+	const { version } = JSON.parse(readFileSync(join(REPO, "package.json"), "utf8"));
+	const { config } = createPackageRecipe({
+		repo: REPO,
+		stage: join(REPO, ".build.noindex", "remote-control-recipe-test"),
+		product,
+		version,
+		userHome: "/recipe-user",
+	});
+	const resources = config.extraResources.filter(entry => entry.to === "browser-ui");
+	assert.equal(resources.length, 1, "the App must ship exactly one browser-ui resource");
+	assert.equal(resources[0].from, join(REPO, "Electron/packages/ui/dist/browser"));
+	assert.equal(resources[0].to, "browser-ui");
 });
 
 test("the packaged runtime resources include the remote-control package", () => {

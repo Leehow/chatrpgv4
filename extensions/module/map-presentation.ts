@@ -28,6 +28,7 @@ import { PLAY_LANGUAGE_TAG } from "../../runtime/ui-words.ts";
 import { coded } from "../ui/errors.ts";
 import { reasoned, readerFailureReason } from "./reader.ts";
 import type { ReaderRequest, ReaderOutcome } from "./reader.ts";
+import { runPresentationAttempt } from "./presentation-attempt.ts";
 
 /** The lane's instruction, read from the resource root so a packaged run finds the same file. */
 const INSTRUCTION = "extensions/module/map-presentation.md";
@@ -216,40 +217,34 @@ export async function prepareMapWords(options: MapWordsOptions, wanted: readonly
 	const prompt = instructionPath(options.resourceRoot);
 
 	const attempt = join(options.home, `${CACHE}/attempts`, randomUUID());
-	await mkdir(attempt, { recursive: true });
-	await writeFile(join(attempt, "check.mjs"),
+	const checkSource =
 		`import {readFileSync} from 'node:fs';\n` +
 		`import {validateMapPresentation} from ${JSON.stringify(runtimeEntryUrl("mapPresentation", import.meta.url))};\n` +
 		`try {const packet=JSON.parse(readFileSync('texts.json','utf8'));` +
 		`validateMapPresentation(JSON.parse(readFileSync('presentation.json','utf8')),packet.texts);` +
 		`console.log('Presentation valid');}` +
-		`catch(error){console.error(error.message);process.exitCode=1;}\n`);
+		`catch(error){console.error(error.message);process.exitCode=1;}\n`;
 
 	const projected: Record<string, string> = {};
-	for (let round = 1; round <= 2 && missing.length; round++) {
-		await writeFile(join(attempt, "texts.json"), JSON.stringify({ play_language: tag, texts: missing }, null, 2));
-		const outcome = await runner({
-			cwd: attempt, systemPrompt: prompt, model: options.model, thinking: options.thinking,
-			signal: options.signal, eventLog: join(attempt, `events-${round}.jsonl`), timeoutMs: 120000,
-			brief: "Read texts.json and write the projected map words to presentation.json. Its \"texts\" object answers exactly the strings texts.json lists, keyed by the source string itself. The file must contain exactly one JSON object, without Markdown or trailing text. Run node check.mjs and correct any error before finishing."
-				+ (round > 1 ? " Read findings.json and supply exactly the strings it still names; the words already accepted are not asked again." : ""),
-		});
-		if (!outcome.ok || options.signal?.aborted)
-			throw coded(options.signal?.aborted ? "presentation_timeout" : "preparation_failed",
-				reasoned("The map words could not be projected", options.signal?.aborted ? undefined : readerFailureReason(outcome)));
-		let value: unknown;
-		try { value = JSON.parse(await readFile(join(attempt, "presentation.json"), "utf8")); }
-		catch (error) {
-			await writeFile(join(attempt, "findings.json"), JSON.stringify({ error: String(error), texts: missing }, null, 2));
-			continue;
-		}
-		Object.assign(projected, acceptedMapTexts(value, missing));
-		missing = missing.filter(text => !projected[text]);
-		if (missing.length)
-			await writeFile(join(attempt, "findings.json"), JSON.stringify({
+	await runPresentationAttempt({
+		attempt, checkSource, outputFile: "presentation.json", systemPrompt: prompt, runner,
+		model: options.model, thinking: options.thinking, signal: options.signal,
+		prepareRound: async round => {
+			await writeFile(join(attempt, "texts.json"), JSON.stringify({ play_language: tag, texts: missing }, null, 2));
+			return "Read texts.json and write the projected map words to presentation.json. Its \"texts\" object answers exactly the strings texts.json lists, keyed by the source string itself. The file must contain exactly one JSON object, without Markdown or trailing text. Run node check.mjs and correct any error before finishing."
+				+ (round > 1 ? " Read findings.json and supply exactly the strings it still names; the words already accepted are not asked again." : "");
+		},
+		failure: (outcome, aborted) => coded(aborted ? "presentation_timeout" : "preparation_failed",
+			reasoned("The map words could not be projected", aborted ? undefined : readerFailureReason(outcome))),
+		invalidOutput: error => ({ error: String(error), texts: missing }),
+		accept: value => {
+			Object.assign(projected, acceptedMapTexts(value, missing));
+			missing = missing.filter(text => !projected[text]);
+			return missing.length ? { done: false, findings: {
 				error: "these source strings were not answered with a non-empty label", texts: missing,
-			}, null, 2));
-	}
+			} } : { done: true };
+		},
+	});
 	// A word that survived two rounds unanswered is not retried here. What is kept is what validated:
 	// a card whose labels are all in hand is projected, and one still missing a label stays authored
 	// and says so, rather than going out half in each language.

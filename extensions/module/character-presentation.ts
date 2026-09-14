@@ -6,6 +6,7 @@ import {resourceRootFrom,runtimeEntryUrl} from '../../runtime/deployment.mjs';
 import {PLAY_LANGUAGE_TAG} from '../../runtime/ui-words.ts';
 import {coded} from '../ui/errors.ts';
 import {reasoned,readerFailureReason} from './reader.ts';
+import {runPresentationAttempt} from './presentation-attempt.ts';
 import type {ReaderRequest,ReaderOutcome} from './reader.ts';
 const root=resourceRootFrom(import.meta.url);
 export const CARD_TEXT = ['Character draft','Character draft — reply to confirm or describe changes.',
@@ -398,39 +399,42 @@ async function prepareTexts(options:TextOptions,texts:string[]):Promise<{texts:R
   if(!missing.length&&finance)return answer();
   const runner=options.runner;
   if(!runner)throw coded('preparation_failed','Character presentation requires its owner runtime');
-  const attempt=join(options.home,'.coc/character-presentations/attempts',randomUUID());await mkdir(attempt,{recursive:true});
-  await writeFile(join(attempt,'check.mjs'),`import {readFileSync} from 'node:fs';\nimport {validatePresentation,validateFinanceEquipment} from ${JSON.stringify(runtimeEntryUrl('characterPresentation',import.meta.url))};\ntry {const packet=JSON.parse(readFileSync('texts.json','utf8'));const value=JSON.parse(readFileSync('presentation.json','utf8'));validatePresentation(value,packet.texts);if(packet.finance_equipment_required)validateFinanceEquipment(value,packet.equipment);console.log('Presentation valid');}catch(error){console.error(error.message);process.exitCode=1;}\n`);
+  const attempt=join(options.home,'.coc/character-presentations/attempts',randomUUID());
   let failure:unknown;
-  for(let round=1;round<=2;round++) {
-    await writeFile(join(attempt,'texts.json'),JSON.stringify({play_language:language,texts:missing,known_labels:known,
-      equipment,finance_equipment_required:wantEquipment&&!finance},null,2));
-    const outcome=await runner({cwd:attempt,systemPrompt:prompt,model:options.model,thinking:options.thinking,signal:options.signal,eventLog:join(attempt,`events-${round}.jsonl`),timeoutMs:120000,
-      brief:'Read texts.json and write the player-facing text projection to presentation.json. Its "texts" object answers exactly the strings texts.json lists, which are the ones not already projected: words it does not list are already settled and must not be added. The file must contain exactly one JSON object, without Markdown or trailing text. Run node check.mjs and correct any error before finishing.'
+  await runPresentationAttempt({
+    attempt,outputFile:'presentation.json',outputArtifact:round=>`presentation-round-${round}.json`,
+    checkSource:`import {readFileSync} from 'node:fs';\nimport {validatePresentation,validateFinanceEquipment} from ${JSON.stringify(runtimeEntryUrl('characterPresentation',import.meta.url))};\ntry {const packet=JSON.parse(readFileSync('texts.json','utf8'));const value=JSON.parse(readFileSync('presentation.json','utf8'));validatePresentation(value,packet.texts);if(packet.finance_equipment_required)validateFinanceEquipment(value,packet.equipment);console.log('Presentation valid');}catch(error){console.error(error.message);process.exitCode=1;}\n`,
+    systemPrompt:prompt,model:options.model,thinking:options.thinking,signal:options.signal,runner,
+    prepareRound:async round=>{
+      await writeFile(join(attempt,'texts.json'),JSON.stringify({play_language:language,texts:missing,known_labels:known,
+        equipment,finance_equipment_required:wantEquipment&&!finance},null,2));
+      return 'Read texts.json and write the player-facing text projection to presentation.json. Its "texts" object answers exactly the strings texts.json lists, which are the ones not already projected: words it does not list are already settled and must not be added. The file must contain exactly one JSON object, without Markdown or trailing text. Run node check.mjs and correct any error before finishing.'
         +(missing.length?'':' This request lists no texts: write "texts": {} and only the financial equipment subset.')
-        +(round>1?' Read findings.json and supply exactly the entries it still names; the words already accepted are not asked again.':'')});
-    if(!outcome.ok||options.signal?.aborted)throw coded(options.signal?.aborted?'presentation_timeout':'preparation_failed',
-      reasoned('Card presentation could not be prepared',options.signal?.aborted?undefined:readerFailureReason(outcome)));
-    const bytes=await readFile(join(attempt,'presentation.json'),'utf8');
-    await writeFile(join(attempt,`presentation-round-${round}.json`),bytes);
-    let value:unknown;
-    try {value=JSON.parse(bytes);}
-    catch(error){failure=error;await writeFile(join(attempt,'findings.json'),JSON.stringify({error:String(error)}));continue;}
-    const accepted=acceptedTexts(value,missing);
-    if(Object.keys(accepted).length)vocabulary=await mergeVocabulary(vocabularyFile,language,accepted);
-    missing=missing.filter(text=>!vocabulary[text]);
-    if(wantEquipment&&!finance) {
-      try {
-        finance=validateFinanceEquipment(value,equipment);
-        const temp=join(dirname(financeFile),randomUUID()+'.tmp');
-        await writeFile(temp,JSON.stringify({play_language:language,equipment,finance_equipment:finance},null,2));
-        await rename(temp,financeFile);
-      } catch(error){failure=error;}
-    }
-    if(!missing.length&&finance)break;
-    failure??=coded('preparation_failed','Incomplete card presentation');
-    await writeFile(join(attempt,'findings.json'),JSON.stringify({error:String(failure),texts:missing,
-      finance_equipment_required:wantEquipment&&!finance},null,2));
-  }
+        +(round>1?' Read findings.json and supply exactly the entries it still names; the words already accepted are not asked again.':'');
+    },
+    failure:(outcome,aborted)=>coded(aborted?'presentation_timeout':'preparation_failed',
+      reasoned('Card presentation could not be prepared',aborted?undefined:readerFailureReason(outcome))),
+    invalidOutput:error=>{
+      if(!(error instanceof SyntaxError))throw error;
+      failure=error;return {error:String(error)};
+    },
+    accept:async value=>{
+      const accepted=acceptedTexts(value,missing);
+      if(Object.keys(accepted).length)vocabulary=await mergeVocabulary(vocabularyFile,language,accepted);
+      missing=missing.filter(text=>!vocabulary[text]);
+      if(wantEquipment&&!finance) {
+        try {
+          finance=validateFinanceEquipment(value,equipment);
+          const temp=join(dirname(financeFile),randomUUID()+'.tmp');
+          await writeFile(temp,JSON.stringify({play_language:language,equipment,finance_equipment:finance},null,2));
+          await rename(temp,financeFile);
+        } catch(error){failure=error;}
+      }
+      if(!missing.length&&finance)return {done:true};
+      failure??=coded('preparation_failed','Incomplete card presentation');
+      return {done:false,findings:{error:String(failure),texts:missing,finance_equipment_required:wantEquipment&&!finance}};
+    },
+  });
   if(missing.length)throw coded('preparation_failed',`Incomplete card presentation: ${missing.length} text${missing.length===1?'':'s'} were not projected`);
   if(!finance)throw failure instanceof Error?failure:coded('preparation_failed','Invalid financial equipment projection');
   return answer();
