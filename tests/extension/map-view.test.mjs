@@ -47,6 +47,18 @@ test('a reviewed source digest fails closed when same region id bytes change',as
   assert.equal(historical.image,oldBytes);
 });
 
+test('a compatible metadata correction keeps the reviewed digest and delivery available',async()=>{
+  const root=await mkdtemp(join(tmpdir(),'coc-map-compatible-')),path=await source(root),campaignDir=join(root,'.coc/campaigns/c1');
+  const digest=createHash('sha256').update(await readFile(path)).digest('hex');
+  const view=(label)=>({map:'house',name:'House',source_revision:'g1',regions:[{id:'entry',label}],render:{layers:[
+    {path,source_box:[0,0,1,1],placement:[0,0,1,1],source_digest:digest,redactions:[]},
+  ]}});
+  const first=await renderMapView(view('Entry'),{modulesRoot:join(root,'module'),campaignDir,receipt:'map:house-t1'});
+  const correction=await renderMapView(view('Main entrance'),{modulesRoot:join(root,'module'),campaignDir,receipt:'map:house-t2'});
+  assert.equal(first.available,true);assert.equal(correction.available,true);
+  assert.equal(correction.source_revision,'g1');assert.equal(correction.image.startsWith('data:image/png;base64,'),true);
+});
+
 test('a source outside the module jail produces no player image',async()=>{
   const root=await mkdtemp(join(tmpdir(),'coc-map-jail-')),path=await source(root);
   const result=await renderMapView({map:'house',name:'House',regions:[{id:'entry',label:'Entry'}],render:{layers:[

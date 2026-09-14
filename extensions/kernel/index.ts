@@ -1687,6 +1687,9 @@ export default function (pi: ExtensionAPI) {
 				const params: Record<string, unknown> = { campaign: state.campaign, call_id: callId, text: prose, implicit: true };
 				const result = (await state.kernel.call<Record<string, unknown>>(`table.${tool}`, params)) ?? {};
 				applyToolSuccess(state, tool, "implicit", result);
+				const mechanics = withHandouts(state, readMechanics(result));
+				noteMechanics(state, typeof result.turn === "number" ? result.turn : state.turn, mechanics,
+					asString(result.marked_text), result.labels);
 				await record({ tool, call_id: callId, started_at: startedAt, ms: Date.now() - began, ok: true, implicit: true });
 				await record({ tool, event: "turn-closed", round_trips: state.roundTrips, ok: true, implicit: true });
 				rendered = asString(result.rendered_text);

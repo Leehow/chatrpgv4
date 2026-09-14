@@ -1,4 +1,5 @@
 """Map knowledge is canonical state; source pixels remain a host concern."""
+import json
 from pathlib import Path
 
 from conftest import OPENING_SCENE, campaign_dir, create_campaign, narrate, open_turn, read_json
@@ -274,6 +275,47 @@ def test_bad_map_region_rolls_back_the_entire_apply_batch(kernel):
     }])
     assert unlabeled["code"] == "invalid_params"
     assert world(kernel) == before
+
+
+
+def test_map_knowledge_is_isolated_across_worldline_switches(kernel):
+    """§36.1: a fork has its own campaign world snapshot; map reveals do not leak between lines."""
+    from test_worldline import fork, switch
+
+    install_local_map_bytes(kernel)
+    open_turn(kernel, "我记下门厅。")
+    kernel.table("apply", call_id="t1-c1", effects=[reveal(
+        ["ground-entry-hall"], region_labels={"ground-entry-hall": "门厅"},
+        level_labels={"Ground Floor": "一层"}, why="Seen on main.")])
+    narrate(kernel, "t1-c2", "门厅的格局留在记忆里。")
+    fork(kernel, 2, "side")
+    kernel.table("player_input", text="我在另一条路看见客厅。")
+    kernel.table("apply", call_id="t3-c1", effects=[reveal(
+        ["ground-living-room"], region_labels={"ground-living-room": "客厅"},
+        level_labels={"Ground Floor": "一层"}, why="Seen on side.")])
+    assert world(kernel)["map_knowledge"][MAP] == ["ground-entry-hall", "ground-living-room"]
+    narrate(kernel, "t3-c2", "另一条路也留下一点记号。")
+    switch(kernel, 4, "main")
+    assert world(kernel)["map_knowledge"][MAP] == ["ground-entry-hall"]
+    assert [r["id"] for r in kernel.table("look", focus="map", name=MAP)["map_views"][0]["regions"]] == ["ground-entry-hall"]
+
+
+def test_legacy_save_without_map_fields_is_conservative_and_recoverable(kernel):
+    """§36.1: old saves expose no inferred regions; a later explicit apply recreates fields."""
+    install_local_map_bytes(kernel)
+    open_turn(kernel, "我看向门厅。")
+    state_path = campaign_dir(kernel.workspace) / "world.json"
+    state = read_json(state_path)
+    state.pop("map_knowledge", None)
+    state.pop("map_labels", None)
+    state_path.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+    view = kernel.table("look", focus="map", name=MAP)["map_views"][0]
+    assert view["regions"] == [] and view["available"] is False
+    applied = kernel.table("apply", call_id="t1-c1", effects=[reveal(
+        ["ground-entry-hall"], region_labels={"ground-entry-hall": "门厅"},
+        level_labels={"Ground Floor": "一层"}, why="Explicitly seen after loading an old save.")])
+    assert applied["receipts"] == ["map:player-corbitt-house-map-t1"]
+    assert world(kernel)["map_knowledge"] == {MAP: ["ground-entry-hall"]}
 
 
 def test_map_knowledge_is_campaign_scoped(kernel):
