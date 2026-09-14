@@ -11,6 +11,7 @@ import { providerExtensionManifests } from "../../runtime/deployment.mjs";
 import { runtimeCapabilities, runCheck } from "../../runtime/tasks.ts";
 import { readerCommand, runReader } from "../../extensions/module/reader.ts";
 import modsExtension from "../../extensions/mods/index.ts";
+import { LANE_THINKING_DEFAULT } from "../../pipicoc/settings-lane-model.js";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const active = () => new AbortController().signal;
@@ -155,7 +156,7 @@ writeFileSync('launch-argv.json',JSON.stringify(process.argv.slice(2)));\n`);
  * table. A lane pinned to a fast model still ran at the Keeper's own `high`, which is how a continuity
  * review spent its whole wall-clock budget inside a first thinking stream it never finished.
  */
-test("Mod reasoning effort overrides the table's, and does not redirect reader tasks", async t => {
+test("Mod reasoning effort overrides the setting and the default, and does not redirect reader tasks", async t => {
   const home = await temporary(t), executable = join(home, "capture-argv.mjs"), launcher = join(home, "selected node");
   await writeFile(executable, `import {writeFileSync} from 'node:fs';
 writeFileSync('launch-argv.json',JSON.stringify(process.argv.slice(2)));\n`);
@@ -179,6 +180,131 @@ writeFileSync('launch-argv.json',JSON.stringify(process.argv.slice(2)));\n`);
     // The two overrides are independent: an effort choice never moves the lane to another model.
     assert.equal(args[args.indexOf("--model") + 1], "selected/current-model");
   }
+});
+
+/**
+ * Contract §37.10: the lane setting is read when the lane runs, not when the session started.
+ *
+ * The host used to hand the setting down as `PI_COC_MOD_MODEL` in the session's spawn environment,
+ * and a process environment cannot change: on 2026-09-14 an operator moved the choice off
+ * `grok-build/grok-4.6` at 06:42 and the review child launched at 06:43 still ran
+ * `--model grok-build/grok-4.6`, baked in when the session started at 06:30. The setting was
+ * correct, visible in the panel, and inert. This drives two lane children over one context whose
+ * environment never changes, rewriting the settings document between them: under the old behaviour
+ * both children launch with the same model.
+ */
+test("a lane model changed under a running session reaches the next lane child", async t => {
+  const home = await temporary(t), executable = join(home, "capture-argv.mjs"), launcher = join(home, "selected node");
+  await writeFile(executable, `import {writeFileSync} from 'node:fs';
+writeFileSync('launch-argv.json',JSON.stringify(process.argv.slice(2)));\n`);
+  const quote = value => "'" + value.replaceAll("'", "'\\''") + "'";
+  await writeFile(launcher, `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(executable)} "$@"\n`);
+  await chmod(launcher, 0o755);
+  const agent = join(home, "agent");
+  await mkdir(agent, { recursive: true });
+  await json(join(agent, "models-store.json"), { slow: { models: [{ id: "big" }] }, fast: { models: [{ id: "small" }] } });
+  // The environment is captured once, exactly as a spawned session captures it, and never changes.
+  const context = composeRuntimeContext({ owner: "preparation", home },
+    options({ PI_COC_READER_CMD: undefined, PI_COC_MOD_MODEL: undefined, PI_COC_MOD_THINKING: undefined },
+      { agentHome: agent, nodeExecutable: launcher }));
+  const settings = join(agent, "pipiui-settings.json");
+  const choose = (model, level) => json(settings, { extensions: { "coc-keeper": { settings: {
+    "ext.coc-keeper.laneModel": { model }, "ext.coc-keeper.laneThinking": { level } } } } });
+  const launch = async name => {
+    const cwd = join(home, name);
+    await mkdir(cwd);
+    const outcome = await runtimeCapabilities.runTask(context,
+      { kind: "mod", request: { cwd, brief: "Capture launch flags only", model: "slow/big", thinking: "high" } }, active());
+    assert.equal(outcome.ok, true, JSON.stringify(outcome));
+    const args = JSON.parse(await readFile(join(cwd, "launch-argv.json"), "utf8"));
+    return { model: args[args.indexOf("--model") + 1], thinking: args[args.indexOf("--thinking") + 1] };
+  };
+  // Nothing chosen: the model falls back to the caller's (the table's); the effort does not (§37.11).
+  assert.deepEqual(await launch("before"), { model: "slow/big", thinking: LANE_THINKING_DEFAULT });
+  await choose("fast/small", "medium");
+  assert.deepEqual(await launch("after"), { model: "fast/small", thinking: "medium" },
+    "the choice was read when this child started, not when the session did");
+  await choose("slow/big", "high");
+  assert.deepEqual(await launch("back"), { model: "slow/big", thinking: "high" }, "and it moves back the same way");
+  // An unreadable or foreign settings document is one source fewer, never a failed lane.
+  await writeFile(settings, "{ not json");
+  assert.deepEqual(await launch("broken"), { model: "slow/big", thinking: LANE_THINKING_DEFAULT });
+});
+
+/**
+ * The setting stopped travelling in the environment, so what is left there is an operator's own
+ * override — and that still wins. If it did not, a genuine `PI_COC_MOD_MODEL` would have been
+ * quietly demoted to a default by the same change that made the setting live.
+ */
+test("a real environment override still beats the lane setting", async t => {
+  const home = await temporary(t), executable = join(home, "capture-argv.mjs"), launcher = join(home, "selected node");
+  await writeFile(executable, `import {writeFileSync} from 'node:fs';
+writeFileSync('launch-argv.json',JSON.stringify(process.argv.slice(2)));\n`);
+  const quote = value => "'" + value.replaceAll("'", "'\\''") + "'";
+  await writeFile(launcher, `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(executable)} "$@"\n`);
+  await chmod(launcher, 0o755);
+  const agent = join(home, "agent");
+  await mkdir(agent, { recursive: true });
+  await json(join(agent, "models-store.json"), { operator: { models: [{ id: "pinned" }] }, fast: { models: [{ id: "small" }] } });
+  await json(join(agent, "pipiui-settings.json"), { extensions: { "coc-keeper": { settings: {
+    "ext.coc-keeper.laneModel": { model: "fast/small" }, "ext.coc-keeper.laneThinking": { level: "low" } } } } });
+  const context = composeRuntimeContext({ owner: "preparation", home }, options({
+    PI_COC_READER_CMD: undefined, PI_COC_MOD_MODEL: " operator/pinned ", PI_COC_MOD_THINKING: " medium ",
+  }, { agentHome: agent, nodeExecutable: launcher }));
+  const cwd = join(home, "mod");
+  await mkdir(cwd);
+  const outcome = await runtimeCapabilities.runTask(context,
+    { kind: "mod", request: { cwd, brief: "Capture launch flags only", model: "table/own", thinking: "high" } }, active());
+  assert.equal(outcome.ok, true, JSON.stringify(outcome));
+  const args = JSON.parse(await readFile(join(cwd, "launch-argv.json"), "utf8"));
+  assert.equal(args[args.indexOf("--model") + 1], "operator/pinned");
+  assert.equal(args[args.indexOf("--thinking") + 1], "medium");
+});
+
+/**
+ * Contract §37.11: with nothing chosen, a lane runs at its own level and not the table's.
+ *
+ * §37.9 separated the lane's effort from the table's but left "absent means follow the table" as the
+ * default — which is the configuration that then killed two campaigns in one day (`game-9aa4e4ee`
+ * and `game-5779d0fd`, 2026-09-14), both on a table set to `high`, one of them with the lane already
+ * moved to a fast model and the review still killed at the 40 s cap having made one model call. A
+ * review's wall-clock budget is fixed and the table's effort is a Keeper-quality choice; inheriting
+ * one from the other is a wrong coupling, and a knob whose absent value points at the failure is not
+ * a fix. The model still falls back to the table's — any model can finish; the effort does not.
+ */
+test("with nothing chosen a Mod lane runs at its own level, never the table's", async t => {
+  const home = await temporary(t), executable = join(home, "capture-argv.mjs"), launcher = join(home, "selected node");
+  await writeFile(executable, `import {writeFileSync} from 'node:fs';
+writeFileSync('launch-argv.json',JSON.stringify(process.argv.slice(2)));\n`);
+  const quote = value => "'" + value.replaceAll("'", "'\\''") + "'";
+  await writeFile(launcher, `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(executable)} "$@"\n`);
+  await chmod(launcher, 0o755);
+  const agent = join(home, "agent");
+  await mkdir(agent, { recursive: true });
+  await json(join(agent, "models-store.json"), { selected: { models: [{ id: "current-model" }] } });
+  const context = composeRuntimeContext({ owner: "preparation", home },
+    options({ PI_COC_READER_CMD: undefined, PI_COC_MOD_MODEL: undefined, PI_COC_MOD_THINKING: undefined },
+      { agentHome: agent, nodeExecutable: launcher }));
+  // Every effort a table can be set to, including the one that produced both retained failures.
+  for (const table of ["off", "minimal", "low", "medium", "high", "xhigh", "max"]) {
+    const cwd = join(home, `table-${table}`);
+    await mkdir(cwd);
+    const outcome = await runtimeCapabilities.runTask(context,
+      { kind: "mod", request: { cwd, brief: "Capture launch flags only", model: "selected/current-model", thinking: table } }, active());
+    assert.equal(outcome.ok, true, JSON.stringify(outcome));
+    const args = JSON.parse(await readFile(join(cwd, "launch-argv.json"), "utf8"));
+    assert.equal(args[args.indexOf("--thinking") + 1], LANE_THINKING_DEFAULT,
+      `a table on ${table} must not move the lane off its own level`);
+    // The model half is unchanged: a lane with no chosen model still follows the table's.
+    assert.equal(args[args.indexOf("--model") + 1], "selected/current-model");
+  }
+  // And a reader task is untouched by any of it: it is not one of these lanes.
+  const readerCwd = join(home, "reader");
+  await mkdir(readerCwd);
+  await runtimeCapabilities.runTask(context,
+    { kind: "reader", request: { cwd: readerCwd, brief: "Capture launch flags only", model: "selected/current-model", thinking: "high" } }, active());
+  const readerArgs = JSON.parse(await readFile(join(readerCwd, "launch-argv.json"), "utf8"));
+  assert.equal(readerArgs[readerArgs.indexOf("--thinking") + 1], "high");
 });
 
 test("lane children mount the provider extensions, and a lane model is never re-named", async t => {

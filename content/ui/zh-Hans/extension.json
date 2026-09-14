@@ -16,6 +16,8 @@
   "parse_reason_unknown": "内部错误",
   "parse_stage": "解析   {stage}",
   "parse_stage_unknown": "？",
+  "provider_down_notice": "与模型的连接已经连续断了 {streak} 次，最后一次约 {seconds} 秒没有任何返回。这段等待是服务中断，不是守秘人在思考；运行这张桌子的人已经收到通知。",
+  "provider_outage_notice": "这一回合里与模型的连接断了：其中约 {seconds} 秒什么也没有返回，请求只能重发一次。那段等待是服务中断，不是守秘人在思考；你做过的事一样都没丢。",
   "receipt_cash": "现金 {before}->{after}",
   "receipt_cash_plain": "现金",
   "receipt_change": "{resource} {before}->{after}",

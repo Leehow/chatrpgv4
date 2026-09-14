@@ -327,12 +327,16 @@ test('a repeated review outage drops the retry promise and notifies the operator
     // The second outage stops reading as transient, so it cannot be the same sentence as the first.
     assert.notEqual(notices[0].content, notices[1].content);
 
-    // The operator's surface fired once, out of fiction, naming the lane override and the restart.
+    // The operator's surface fired once, out of fiction, naming the lane override and what to do.
     const operator = session.entries('coc-review-status').filter(entry => entry.status === 'down');
     assert.equal(operator.length, 1, JSON.stringify(operator));
     assert.equal(operator[0].streak, 2);
     assert.match(operator[0].fix, /PI_COC_MOD_MODEL/);
-    assert.match(operator[0].fix, /start a new session/);
+    // Contract §37.10: the lane reads the setting when it runs, so the fix is "change it", not
+    // "change it and then restart". The restart instruction was the label on the trap; it cost an
+    // operator the rest of an outage, and it must not survive the trap's removal.
+    assert.doesNotMatch(operator[0].fix, /start a new session/);
+    assert.match(operator[0].fix, /each time it runs/);
 });
 
 test('a landed narrate ends the streak: the next outage reads as transient again', async t => {

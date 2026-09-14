@@ -155,6 +155,15 @@ interface TableState {
 	reviewOutageNotified?: boolean;
 	/** This run already told the player the turn could not be published: one service notice per run. */
 	reviewNoticeSent?: boolean;
+	/** Consecutive provider calls that ended in error with nothing delivered (contract §38.7), counted
+	 * like the review's own. A completed assistant message resets it; a turn boundary does not. */
+	providerOutage: number;
+	providerOutageNotified?: boolean;
+	/** The failed provider call of this run the player is still owed a word about, when it hung long
+	 * enough that the wait was visibly an outage rather than the Keeper thinking. */
+	providerFailure?: { ms: number; streak: number };
+	/** This run already told the player the model connection dropped: one service notice per run. */
+	providerNoticeSent?: boolean;
 	/** Contract §38: an agent run ended leaving this turn open with nothing delivered, so no one can
 	 * finish it any more. The next player input releases it instead of being refused turn_state. */
 	strandedTurn?: boolean;
@@ -251,6 +260,21 @@ const TURN_CLOSED_REASON = "the turn is closed, waiting for the player";
 const REFUSAL_CLASS_LIMIT = 3;
 /** Refusals of any class a turn tolerates before every write but narrate and ask is shut. */
 const REFUSAL_BUDGET = 8;
+/**
+ * How long a provider call must have hung, before dying with nothing, for the player to be owed a
+ * word about it (contract §38.7). Below this a failed-and-retried call is a blip the player never
+ * noticed; above it, it is most of what they sat through, and the retained case is 300 s. The
+ * operator record is written for every failed call regardless -- this line is only about interrupting
+ * the table's own fiction with a service message.
+ *
+ * Read per call, like the lane timeouts, so a host that knows its own provider can move it; the
+ * default is what a table runs with.
+ */
+const PROVIDER_OUTAGE_NOTICE_MS = 60_000;
+function providerNoticeAfterMs(): number {
+	const configured = Number(process.env.PI_COC_PROVIDER_NOTICE_MS);
+	return configured > 0 ? configured : PROVIDER_OUTAGE_NOTICE_MS;
+}
 /** The one host steer of the turn floor (docs/specs/turn-floor.md D4), sent when a turn is about to close on prose alone. */
 const FLOOR_STEER =
 	"This turn used no tool and nothing landed. Read director.offer and the people present: what changes in the world, apply; " +
@@ -270,6 +294,8 @@ let soloKernel: KernelClient | undefined;
 let bridgeGate = { open: false };
 /** When the Keeper's current provider request went out, so `message_end` can time the whole call (§12.8.1). */
 let providerRequestAt: number | undefined;
+/** Which model and provider that request named, so a call that dies can say what died (§38.7). */
+let providerRequestModel: {model?: string; provider?: string} | undefined;
 /** When the previous leg of this run finished, for the case where the provider hook does not run. */
 let legMark: number | undefined;
 /**
@@ -1176,15 +1202,60 @@ export default function (pi: ExtensionAPI) {
 		const escalate = streak >= 2 && !state.reviewOutageNotified;
 		if (escalate) state.reviewOutageNotified = true;
 		// The operator's surface (contract §38, shaped like §32.2's): out of fiction, once per streak,
-		// with the fix. The lane model is read from the setting when the session starts, so a setting
-		// changed under a running table is why "I already switched models" and "it still fails" are both
-		// true -- the notice has to say so, or the person keeps changing something that cannot take.
+		// with the fix. The fix used to end "and then start a new session", because the lane model was
+		// read into the session environment at spawn; it is now read when the lane starts its child
+		// (contract §37.10), so the instruction is the one that actually works -- change it and send
+		// again. Telling an operator to restart a table they could have kept is its own lost turn.
 		const status = {campaign: state.campaign, turn: state.turn, status: escalate ? 'down' : 'unavailable', streak, cause,
 			...(escalate ? {fix: 'The continuity review keeps failing, so finished turns cannot be published. ' +
-				'Choose a faster review model in the Lane model setting, or set PI_COC_MOD_MODEL to a healthy provider/model, ' +
-				'and then start a new session: the lane reads that choice when the session starts, not while it runs.'} : {})};
+				'Choose a faster review model in the Lane model setting: the lane reads that choice each time it runs, ' +
+				'so a change reaches this table on its next review. ' +
+				'PI_COC_MOD_MODEL still overrides the setting, but an environment variable is fixed for the life of a session.'} : {})};
 		pi.appendEntry('coc-review-status', status);
 		pi.events.emit('coc:review-status', status);
+	}
+
+	/**
+	 * A provider call that ended in error, and what it owes whoever was waiting (contract §38.7).
+	 *
+	 * Retained live evidence (campaign `game-5779d0fd`, turn 3, 2026-09-14, from its own telemetry):
+	 * one call hung for 300011 ms and came back `stop_reason: "error"` with no blocks at all; the
+	 * immediate retry answered in 2.6 s and the turn then finished normally. The only thing the player
+	 * ever saw was a spinner reading "still working, 3min49s", and afterwards nothing anywhere said
+	 * that five of those six minutes had been an outage rather than the model thinking. That is the
+	 * §38.5 defect in another lane: an infrastructure failure must not be indistinguishable from
+	 * normal slowness, and a retry that succeeds is not a reason to erase the one that did not.
+	 *
+	 * The 300 s ceiling is not ours to move -- it is not set in this repository, pi gives an extension
+	 * only the observational provider hooks, and there is no interception point at which a shorter
+	 * deadline could be imposed. What is ours is the record. Nothing here may block or fail the turn:
+	 * the entry is written best-effort and the player's word is sent at `agent_end`, after delivery.
+	 */
+	function noteProviderCall(stopReason: string | null, ms: number | null, detail: string | undefined,
+		named: {model?: string; provider?: string} | undefined): void {
+		const state = table;
+		if (!state) return;
+		// A completed assistant message is the proof the provider answered end to end, body stream
+		// included -- so it, and not a turn boundary, is what ends a streak.
+		if (stopReason !== "error") { state.providerOutage = 0; state.providerOutageNotified = false; return; }
+		state.providerOutage += 1;
+		const streak = state.providerOutage;
+		const escalate = streak >= 2 && !state.providerOutageNotified;
+		if (escalate) state.providerOutageNotified = true;
+		// The player is told only about a call that hung long enough to be the wait they sat through.
+		// A provider that errors in a second and is retried successfully is a blip, and a service
+		// notice for it would be noise on a turn that went fine; the operator record is written either way.
+		if (ms !== null && ms >= providerNoticeAfterMs()) state.providerFailure = {ms, streak};
+		const status = {campaign: state.campaign, turn: state.turn, status: escalate ? "down" : "unavailable",
+			streak, ...(ms === null ? {} : {ms}), ...(named?.model ? {model: named.model} : {}),
+			...(named?.provider ? {provider: named.provider} : {}),
+			...(detail ? {detail: detail.slice(0, 200)} : {}),
+			...(escalate ? {fix: "Provider calls for this table keep dying with no answer, and a dead call is " +
+				"charged to the player as waiting. Check the provider's status and this machine's route to it, " +
+				"or move the table to another provider/model."} : {})};
+		try { pi.appendEntry("coc-provider-status", status); }
+		catch { /* the notice must never break a turn */ }
+		pi.events.emit("coc:provider-status", status);
 	}
 
 	function preparationWaitInstruction(wait: NonNullable<TableState["preparationWait"]>): string {
@@ -1556,6 +1627,7 @@ export default function (pi: ExtensionAPI) {
 				admissionRefused: [],
 				admissionOutage: 0,
 				reviewOutage: 0,
+				providerOutage: 0,
 				landed: [],
 				adaptationScanned: false,
 			};
@@ -1688,6 +1760,8 @@ export default function (pi: ExtensionAPI) {
 		if (!state) return;
 		state.reviewUnavailable = undefined;
 		state.reviewNoticeSent = false;
+		state.providerNoticeSent = false;
+		state.providerFailure = undefined;
 		const text = event.prompt;
 		const startedAt = new Date().toISOString();
 		const began = Date.now();
@@ -1932,10 +2006,13 @@ export default function (pi: ExtensionAPI) {
 			providerRequestAt = undefined;
 			legMark = now;
 			const blocks = (event.message.content ?? []) as Array<{type?: string}>;
-			void record({lane: "provider-call", at: new Date().toISOString(), from,
-				ms: mark === undefined ? null : now - mark,
-				stop_reason: (event.message as {stopReason?: string}).stopReason ?? null,
+			const stopReason = (event.message as {stopReason?: string}).stopReason ?? null;
+			const ms = mark === undefined ? null : now - mark;
+			const named = providerRequestModel;
+			providerRequestModel = undefined;
+			void record({lane: "provider-call", at: new Date().toISOString(), from, ms, stop_reason: stopReason,
 				blocks: blocks.map((block) => block?.type ?? "?")});
+			noteProviderCall(stopReason, ms, (event.message as {errorMessage?: string}).errorMessage, named);
 		}
 		const state = table;
 		if (!state || event.message.role !== "assistant") return;
@@ -2079,6 +2156,10 @@ export default function (pi: ExtensionAPI) {
 	pi.on("before_provider_request", async (event, ctx) => {
 		const payload = event.payload as {model?: string; reasoning?: {effort?: string}; reasoning_effort?: string};
 		providerRequestAt = Date.now();
+		// Held for the message that ends this call: a call that dies produces no response row, so the
+		// only place the model and provider it was made against still exist is here (§38.7).
+		providerRequestModel = {...(payload?.model ? {model: payload.model} : {}),
+			...(ctx.model?.provider ? {provider: ctx.model.provider} : {})};
 		await record({lane: "provider-request", at: new Date().toISOString(), model: payload?.model, provider: ctx.model?.provider,
 			reasoning_effort: payload?.reasoning?.effort ?? payload?.reasoning_effort ?? null});
 	});
@@ -2117,6 +2198,32 @@ export default function (pi: ExtensionAPI) {
 				detail: "the Keeper ended on the message carrying the call, so the replacement had nowhere to land" });
 		}
 		if (state.verifierOwed) settleVerifier(state);
+		// Contract §38.7: a provider call died with nothing after holding the table for minutes, and
+		// whether the retry then worked or not, the player watched a spinner that said the model was
+		// thinking. It was not. This is sent after the delivery above, so a turn that did land lands
+		// first and this reads as the footnote it is; it is sent before the §38.5 branch returns,
+		// because a turn can lose both its provider and its review and each is its own fact.
+		const failure = state.providerFailure;
+		state.providerFailure = undefined;
+		if (failure && !state.providerNoticeSent) {
+			state.providerNoticeSent = true;
+			const seconds = Math.round(failure.ms / 1000);
+			let line = failure.streak >= 2
+				? `The connection to the model has now dropped ${failure.streak} times in a row, the last after about ${seconds}s with nothing returned. That wait was an outage, not the Keeper thinking, and the person running this table has been told.`
+				: `The connection to the model dropped during this turn: about ${seconds}s of the wait returned nothing at all, and the request had to be made again. That was an outage, not the Keeper thinking, and nothing you did was lost.`;
+			try {
+				// Both keys written out here: the caption inventory is found by scanning these call
+				// sites, and a key held in a variable is a shipped word nothing asks for.
+				line = (await surface.words()).line(failure.streak >= 2 ? "provider_down_notice" : "provider_outage_notice",
+					{ seconds, streak: failure.streak });
+			} catch {
+				/* an unreadable content root still owes the player the English line */
+			}
+			pi.sendMessage({ customType: "coc-delivery", content: line, display: true,
+				details: { coc_delivery: true, turn: state.turn, provider_outage: true, streak: failure.streak, ms: failure.ms } });
+			void record({ lane: "delivery", turn: state.turn, ok: true, reason: "provider_outage_notice",
+				streak: failure.streak, ms: failure.ms });
+		}
 		if (state.closedThisRun || state.renderedText) return;
 		// Contract §38: the review, not the Keeper, is why this run ends with nothing delivered, and
 		// returning here silently is the whole of what the player experiences. On the turn that found

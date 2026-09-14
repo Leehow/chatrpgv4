@@ -67,7 +67,10 @@ export default function modsExtension(pi: ExtensionAPI): void {
       try {
         outcome = await owner.runTask({kind: 'mod', request: {cwd: job.cwd, systemPrompt: job.system_prompt,
           model: context?.model ? `${context.model.provider}/${context.model.id}` : undefined,
-          thinking: pi.getThinkingLevel?.(), tools: 'read,write,edit,bash', audit: {control}, timeoutMs: limits.timeoutMs,
+          // No `thinking`: a lane's reasoning effort is not the table's, and the runtime decides it
+          // (contract §37.11). Handing the Keeper's own chip down here is what made a review at `high`
+          // spend its whole 40 s budget inside one unfinished thinking stream.
+          tools: 'read,write,edit,bash', audit: {control}, timeoutMs: limits.timeoutMs,
           eventLog: join(job.cwd, `audit-agent-${ordinal}.jsonl`),
           onEvent(event) {
             if (event.type === 'message_end' && (event.message as any)?.role === 'assistant' &&
@@ -129,7 +132,7 @@ export default function modsExtension(pi: ExtensionAPI): void {
       // either way, and then the original failure continues on its way.
       try {
         outcome = await owner.runTask({kind:"mod", request:{cwd:job.cwd, systemPrompt:job.system_prompt, model:modelName,
-          thinking:pi.getThinkingLevel?.(), tools:job.source_review ? "read,write,edit,bash" : "read,write,edit",
+          tools:job.source_review ? "read,write,edit,bash" : "read,write,edit",
           eventLog:join(job.cwd, `agent-${attempt}.jsonl`), brief:base + repair}}, signal);
       }
       catch (error) {

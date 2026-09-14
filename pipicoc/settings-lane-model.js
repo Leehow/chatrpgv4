@@ -29,6 +29,20 @@ export const SETTINGS_THINKING_KEY = "ext.coc-keeper.laneThinking";
  */
 export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 
+/**
+ * What the lanes run at when nothing is chosen here (contract §37.11). The runtime owns this value
+ * (`LANE_THINKING_DEFAULT` in `runtime/tasks.ts`); the copy exists so the panel can show what the
+ * unchosen row actually does, and `tests/extension/coc-lane-model.test.mjs` pins the two together.
+ *
+ * The unchosen row used to mean "follow the table", and that is the configuration that killed two
+ * campaigns in one day. Following the table is no longer reachable at all — not as a row, not as a
+ * stored value. Every level it could have produced is directly selectable above, so it added no
+ * capability; its one distinctive behaviour was to change under the operator when the table's effort
+ * changed, which is precisely the failure. A choice whose only special power is to go wrong later is
+ * not a choice worth keeping.
+ */
+export const LANE_THINKING_DEFAULT = "low";
+
 /** A caption from the answer's `ui` block, or the key itself: a visible gap, never another language. */
 function word(ui, key) {
   const table = ui && typeof ui === "object" && ui.words && typeof ui.words === "object" ? ui.words["lane-model"] : undefined;
@@ -104,7 +118,9 @@ export function createComponent(React) {
       }),
     ];
     const thinkingRows = [
-      { key: "auto", title: t("thinking_auto_title"), subtitle: t("thinking_auto_subtitle"),
+      // The unchosen row shows the level it actually runs at, the way every other row shows its own:
+      // a subtitle saying "follow the table" is how nobody noticed the table was being followed.
+      { key: "auto", title: t("thinking_auto_title"), subtitle: LANE_THINKING_DEFAULT,
         selected: thinking === null, pick: () => chooseThinking(null) },
       ...THINKING_LEVELS.map((level) => ({ key: level, title: level, subtitle: "",
         selected: thinking === level, pick: () => chooseThinking(level) })),
@@ -123,10 +139,11 @@ export function createComponent(React) {
     return h("div", { className: "model-visibility" },
       h("p", { className: "model-modal-state" }, t("lead")),
       h("p", { className: "model-modal-state" }, t("aside")),
-      // Both choices are read when a session starts. Without this line a person changes the model, sees
-      // the running table fail exactly as before, and concludes the faster model did not help -- which
-      // is what happened the day this section grew its second half.
-      h("p", { className: "model-modal-state" }, t("restart")),
+      // Both choices are read when a lane starts a child, not when the session does. They used to be
+      // read at spawn, and a person who changed the model under a running table watched it fail exactly
+      // as before and concluded the faster model had not helped -- the setting was correct, visible and
+      // inert. This line says what the reader now actually does (contract §37.10).
+      h("p", { className: "model-modal-state" }, t("live")),
       failed ? h("div", { className: "model-modal-error", role: "alert" }, t("failed")) : null,
       models.length ? group("lane-model", rows) : h("div", { className: "model-modal-state" }, t("empty")),
       h("p", { className: "model-modal-state" }, t("thinking_lead")),
