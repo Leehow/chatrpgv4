@@ -703,8 +703,9 @@ function handle(method, params) {
 				},
 			};
 		}
-		case "table.player_input":
-			if (process.env.FAKE_KERNEL_STRICT_TURN === "1" && state !== "awaiting_player" && state !== "asked") {
+		case "table.player_input": {
+			const strandedRelease = params.release === "stranded" && (state === "open" || state === "acting");
+			if (process.env.FAKE_KERNEL_STRICT_TURN === "1" && state !== "awaiting_player" && state !== "asked" && !strandedRelease) {
 				return { ok: false, error: { code: "turn_state", message: `table.player_input is not allowed while the turn is '${state}'`,
 					fix: "finish the current turn with narrate or ask first" } };
 			}
@@ -712,6 +713,7 @@ function handle(method, params) {
 			state = "open";
 			turnMechanics = [];
 			return { ok: true, result: { turn, state, capsule: capsule(params.text) } };
+		}
 		case "table.capsule":
 			return { ok: true, result: capsule(null) };
 		case "table.status":

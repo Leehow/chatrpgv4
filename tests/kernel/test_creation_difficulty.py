@@ -334,9 +334,9 @@ def test_a_corrupt_snapshot_fails_loudly_on_the_next_build(kernel):
     assert error["code"] == "invalid_params" and error["details"]["field"] == "difficulty.preset"
 
 
-def test_rolled_pool_assignment_permutes_the_rulebook_results(kernel):
-    plain = begin_draft(kernel, preset("normal"))
-    stated = kernel.ok("setup.draft", {"campaign": CAMPAIGN,
+def test_rolled_pool_assignment_permutes_the_rulebook_results(seeded_kernel):
+    plain = begin_draft(seeded_kernel, preset("normal"))
+    stated = seeded_kernel.ok("setup.draft", {"campaign": CAMPAIGN,
                                        "profile": {"aptitude": {"strong": ["STR"], "weak": ["INT"], "origin": "player"}}})
     generation = stated["sheet"]["creation"]["characteristics"]
     assert generation["method"] == "rolled_pool_assignment"

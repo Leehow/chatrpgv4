@@ -42,7 +42,7 @@ def test_handout_with_authored_text_is_materialized_and_rendered(kernel):
     assert narrated["rendered_text"] == "他把一张剪报推过来。\n\n你读了起来。"
     # §16.2: a text handout's row carries its body so the frontend can unfold it into a readable
     # card -- the materialized file's H1 is the row's own name, so the body drops it.
-    row = {"kind": "handout", "receipt": f"handout:{TEXT_HANDOUT}-t1", "name": receipt["name"],
+    row = {"kind": "handout", "marker": f"handout:{TEXT_HANDOUT}", "receipt": f"handout:{TEXT_HANDOUT}-t1", "name": receipt["name"],
            "available": True, "label": "1918 年环球报未刊稿", "path": attachment["path"],
            "media_type": "text/markdown", "call": "t1-c1"}
     assert narrated["mechanics"] == [{**row, "text": narrated["mechanics"][0]["text"]}]
@@ -62,7 +62,7 @@ def test_handout_without_shipped_bytes_is_declared_unavailable_not_invented(kern
     # prose anyway -- three of the four handouts across three real tables. The result says it in words.
     assert REFERENCE_ONLY in result["note"] and "nothing to look at" in result["note"]
     narrated = kernel.table("narrate", call_id="t1-c2", text="诺特把委托书递过来。")
-    assert narrated["mechanics"] == [{"kind": "handout", "receipt": f"handout:{REFERENCE_ONLY}-t1",
+    assert narrated["mechanics"] == [{"kind": "handout", "marker": f"handout:{REFERENCE_ONLY}", "receipt": f"handout:{REFERENCE_ONLY}-t1",
                                       "name": "Handout 1: Mr. Knott's Commission", "available": False,
                                       "label": "Handout 1: Mr. Knott's Commission", "call": "t1-c1"}]
 

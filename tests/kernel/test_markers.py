@@ -2,8 +2,8 @@
 
 §16.3 took the numbers out of the narration and left the mechanic homeless: the prose carries the
 consequence of a check and nothing says which sentence produced it. These pin the other half --
-the Keeper places a token the kernel handed it, and the delivery a text consumer reads is still
-the prose, with nothing rendered into it by code.
+the Keeper may place a token the kernel handed it, omitted tokens receive deterministic fallback
+positions, and the delivery a text consumer reads is still the prose with nothing rendered into it by code.
 """
 from conftest import CAMPAIGN, PREGEN, open_turn
 
@@ -55,28 +55,29 @@ def test_a_placed_marker_leaves_the_prose_and_lands_on_its_row(kernel):
     assert rows["clue"]["marker"] == "clue:knott-commission"
 
 
-def test_a_receipt_nobody_placed_is_projected_without_a_marker(kernel):
-    """Not an error: requiring a marker per receipt would make every turn brittle, and a receipt
-    is never lost because its position was."""
+def test_a_receipt_nobody_placed_gets_a_fallback_marker_after_the_delivery(kernel):
+    """An omitted position is not an omitted mechanic: explicit markers stay where the Keeper put
+    them and every remaining row is appended in receipt order."""
     open_turn(kernel)
     resolve_search(kernel)
     kernel.table("apply", call_id="t1-c2", effects=[{"kind": "time", "minutes": 10}])
     result = kernel.table("narrate", call_id="t1-c3",
                           text="你翻过桌上的纸{{check:spot-hidden}}。")
 
+    assert result["marked_text"] == "你翻过桌上的纸{{check:spot-hidden}}。\n\n{{time}}"
     rows = {row["kind"]: row for row in result["mechanics"]}
     assert rows["roll"]["marker"] == "check:spot-hidden"
-    assert "marker" not in rows["time"]
+    assert rows["time"]["marker"] == "time"
 
 
-def test_a_delivery_with_no_marker_is_exactly_what_it_was(kernel):
+def test_a_delivery_with_no_explicit_marker_appends_every_mechanic_without_changing_prose(kernel):
     open_turn(kernel)
     resolve_search(kernel)
     text = "你翻过桌上的纸，什么也没找到。"
     result = kernel.table("narrate", call_id="t1-c3", text=text)
     assert result["rendered_text"] == text
-    assert "marked_text" not in result
-    assert all("marker" not in row for row in result["mechanics"])
+    assert result["marked_text"] == f"{text}\n\n{{{{check:spot-hidden}}}}"
+    assert [row["marker"] for row in result["mechanics"]] == ["check:spot-hidden"]
 
 
 def test_a_marker_naming_no_receipt_is_dropped_not_refused(kernel):
@@ -133,6 +134,16 @@ def test_ask_places_markers_the_same_way(kernel):
                           text="你翻过桌上的纸{{check:spot-hidden}}。")
     assert result["rendered_text"].startswith("你翻过桌上的纸。")
     assert result["marked_text"] == "你翻过桌上的纸{{check:spot-hidden}}。"
+    assert result["mechanics"][0]["marker"] == "check:spot-hidden"
+
+
+def test_a_mechanics_ask_without_story_text_still_places_every_row(kernel):
+    open_turn(kernel)
+    resolve_search(kernel)
+    result = kernel.table("ask", call_id="t1-c3", kind="mechanics", binds="check:spot-hidden",
+                          options=["accept"])
+    assert result["rendered_text"] == ""
+    assert result["marked_text"] == "{{check:spot-hidden}}"
     assert result["mechanics"][0]["marker"] == "check:spot-hidden"
 
 

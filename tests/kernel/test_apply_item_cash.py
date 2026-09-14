@@ -76,7 +76,7 @@ def test_item_with_a_weapon_profile_reaches_the_sheet_the_line_and_the_event(ker
 
     narrated = kernel.table("narrate", call_id="t1-c2", text="诺特把枪递过来。\n\n枪很沉。")
     assert narrated["rendered_text"] == "诺特把枪递过来。\n\n枪很沉。"
-    assert narrated["mechanics"] == [{"kind": "item", "receipt": "item:winchester-shotgun-t1-c1", "name": "Winchester shotgun",
+    assert narrated["mechanics"] == [{"kind": "item", "marker": "item:winchester-shotgun", "receipt": "item:winchester-shotgun-t1-c1", "name": "Winchester shotgun",
                                       "quantity": 1, "to": INVESTIGATOR, "label": "温彻斯特霰弹枪", "to_label": INV_NAME,
                                       "from": "Steven Knott", "weapon": SHOTGUN, "call": "t1-c1"}]
     assert f"Item: {INV_NAME} gains 温彻斯特霰弹枪" in narrated["facts"]["committed"]
@@ -157,7 +157,7 @@ def test_loss_needs_the_item_on_the_sheet_and_takes_the_weapon_row_with_it(kerne
     assert weapon_options(kernel) == [".38 Revolver", "unarmed"]
     narrated = kernel.table("narrate", call_id="t1-c5", text="枪掉进了河里。")
     assert narrated["rendered_text"] == "枪掉进了河里。"
-    assert {"kind": "item", "receipt": "item:t1-c4", "name": "温彻斯特霰弹枪", "label": "温彻斯特霰弹枪", "quantity": -1,
+    assert {"kind": "item", "marker": "item", "receipt": "item:t1-c4", "name": "温彻斯特霰弹枪", "label": "温彻斯特霰弹枪", "quantity": -1,
             "to": INVESTIGATOR, "to_label": INV_NAME, "call": "t1-c4"} in narrated["mechanics"]
     assert f"Item: {INV_NAME} loses shotgun shells x2" in narrated["facts"]["committed"]
 
@@ -262,11 +262,11 @@ def test_cash_builds_the_finance_block_from_the_era_table_and_moves_it(kernel):
     narrated = kernel.table("narrate", call_id="t1-c3", text=text)
     assert narrated["rendered_text"] == text
     assert [m for m in narrated["mechanics"] if m["kind"] == "cash"] == [
-        {"kind": "cash", "receipt": receipt_id, "subject": INVESTIGATOR, "subject_label": INV_NAME, "before": b, "after": a,
+        {"kind": "cash", "marker": marker, "receipt": receipt_id, "subject": INVESTIGATOR, "subject_label": INV_NAME, "before": b, "after": a,
          "currency": table["currency"], "call": call_id}
-        for receipt_id, call_id, b, a in (("cash:t1-c1", "t1-c1", start, start + 20),
-                                          ("cash:t1-c2", "t1-c2", start + 20, start + 15),
-                                          ("cash:t1-c2-2", "t1-c2", start + 15, start + 10))]
+        for marker, receipt_id, call_id, b, a in (("cash", "cash:t1-c1", "t1-c1", start, start + 20),
+                                                  ("cash-2", "cash:t1-c2", "t1-c2", start + 20, start + 15),
+                                                  ("cash-3", "cash:t1-c2-2", "t1-c2", start + 15, start + 10))]
     assert f"cash: {INV_NAME} {start} -> {start + 20}" in narrated["facts"]["committed"]
     # history's diff accumulates cash like any resource
     kernel.table("player_input", text="继续。")

@@ -380,15 +380,35 @@ test('one paused run is one outage however many verbs are refused after the paus
     assert.equal(session.entries('coc-review-status').filter(entry => entry.status === 'down').length, 0);
 });
 
-test('an undelivered turn whose review still works is not released', async t => {
+test('a paused review and terminal provider failure still produce one player notice', async t => {
+    const dead = () => fauxAssistantMessage([], {stopReason: 'error', errorMessage: 'Provider 500'});
+    const session = await openTable({retainAt: directory, responses: [
+        fauxAssistantMessage([fauxToolCall('narrate', {text: 'Unapproved draft.'})], {stopReason: 'toolUse'}),
+        dead(), dead(), dead()]});
+    t.after(() => session.dispose());
+    session.emit('coc:mods-bridge', {async after() {}, async prepare(method) {
+        if (method === 'narrate') throw reviewUnavailable('Fixture budget exhausted');
+    }});
+    await session.session.prompt('I listen at the door.'); await waitForIdle(session.session);
+
+    const notices = customMessages(session.session, 'coc-delivery');
+    assert.equal(notices.length, 1, 'operator diagnostics may be separate, but the player gets one result');
+    assert.equal(notices[0].details.review_unavailable, true, 'the review notice already explained the failed turn');
+    assert.equal(notices[0].details.provider_outage, undefined, 'the provider failure must not add a second notice');
+    assert.ok(session.entries('coc-provider-status').length >= 1, 'provider diagnostics remain available to the operator');
+});
+
+test('an undelivered turn whose final provider call dies is released even when review still works', async t => {
     const session = await openTable({retainAt: directory, responses: [
         fauxAssistantMessage([fauxToolCall('look', {focus: 'scene'})], {stopReason: 'toolUse'}),
         fauxAssistantMessage([fauxToolCall('narrate', {text: 'A draft the kernel refuses.'})], {stopReason: 'toolUse'}),
         fauxAssistantMessage([fauxToolCall('look', {focus: 'scene'})], {stopReason: 'toolUse'}),
-        fauxAssistantMessage('Should never be consumed.')]});
+        // The fixture then runs out of provider responses, producing the terminal stop_reason:error
+        // that now strands this otherwise reviewable turn.
+        fauxAssistantMessage([], {stopReason: 'aborted'})]});
     t.after(() => session.dispose());
     session.emit('coc:mods-bridge', {async after() {}, async prepare(method) {
-        // Not a review pause: the Keeper may still repair and deliver, so the turn is not stranded.
+        // Not a review pause: the terminal provider failure is independently sufficient to strand it.
         if (method === 'narrate') throw new KernelError({code: 'needs', message: 'The turn floor is not met',
             details: {reason: 'turn_floor'}});
     }});
@@ -396,7 +416,11 @@ test('an undelivered turn whose review still works is not released', async t => 
     await session.session.prompt('I keep listening.'); await waitForIdle(session.session);
     const inputs = session.kernelRequests().filter(request => request.method === 'table.player_input');
     assert.equal(inputs.length, 2);
-    assert.ok(inputs.every(input => input.params.release === undefined));
+    assert.equal(inputs[0].params.release, undefined);
+    assert.equal(inputs[1].params.release, 'stranded');
+    assert.ok(session.telemetry().some(row => row.lane === 'provider-call' && row.stop_reason === 'error'));
+    assert.equal(customMessages(session.session, 'coc-delivery')
+        .filter(message => message.details.provider_outage && message.details.turn === 1).length, 1);
 });
 
 /**

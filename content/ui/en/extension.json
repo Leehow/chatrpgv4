@@ -17,6 +17,7 @@
   "parse_stage": "parse   {stage}",
   "parse_stage_unknown": "?",
   "provider_down_notice": "The connection to the model has now dropped {streak} times in a row, the last after about {seconds}s with nothing returned. That wait was an outage, not the Keeper thinking, and the person running this table has been told.",
+  "provider_failed_notice": "This turn could not finish because the connection to the model returned no result. Nothing you did was lost — send anything to continue.",
   "provider_outage_notice": "The connection to the model dropped during this turn: about {seconds}s of the wait returned nothing at all, and the request had to be made again. That was an outage, not the Keeper thinking, and nothing you did was lost.",
   "receipt_cash": "cash {before}->{after}",
   "receipt_cash_plain": "cash",

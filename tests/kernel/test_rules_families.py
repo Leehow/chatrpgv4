@@ -306,7 +306,7 @@ def test_luck_spend_and_insufficient_luck(seeded_kernel):
     assert both["code"] == "turn_state"
 
     changes = [m for m in narrate(seeded_kernel, f"t1-c{n + 3}", "你眯起眼。")["mechanics"] if m["kind"] == "change"]
-    assert {"kind": "change", "receipt": changes[-1]["receipt"], "resource": "luck", "subject": "thomas-hayes",
+    assert {"kind": "change", "marker": "change:luck", "receipt": changes[-1]["receipt"], "resource": "luck", "subject": "thomas-hayes",
             "subject_label": "托马斯·海斯", "subject_is_investigator": True, "before": 50, "after": 47,
             "call": f"t1-c{n + 1}", "family": "push-luck"} in changes
     events = read_jsonl(campaign_dir(seeded_kernel.workspace) / "events.jsonl")
@@ -341,7 +341,7 @@ def test_first_aid_on_a_wounded_investigator(seeded_kernel):
         assert seeded_kernel.table("look", focus="investigator")["hp"] == 9
         assert read_json(campaign_dir(seeded_kernel.workspace) / "save" / "healing-state" / "thomas-hayes.json")["current_hp"] == 9
         mechanics = narrate(seeded_kernel, "t1-c2", "你缠好绷带。")["mechanics"]
-        assert {"kind": "change", "receipt": "delta:hp-t1-c1", "resource": "hp", "subject": "thomas-hayes",
+        assert {"kind": "change", "marker": "change:hp", "receipt": "delta:hp-t1-c1", "resource": "hp", "subject": "thomas-hayes",
                 "subject_label": "托马斯·海斯", "subject_is_investigator": True, "before": 8, "after": 9} in mechanics
     else:
         assert outcome["hp_after"] == 8 and result["effects"] == []

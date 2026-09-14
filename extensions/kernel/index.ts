@@ -162,6 +162,9 @@ interface TableState {
 	/** The failed provider call of this run the player is still owed a word about, when it hung long
 	 * enough that the wait was visibly an outage rather than the Keeper thinking. */
 	providerFailure?: { ms: number; streak: number };
+	/** The last provider call in this run ended in error. Any later completed assistant message clears
+	 * this: only a terminal, unrecovered infrastructure failure may strand the turn (contract §38.3). */
+	terminalProviderFailure?: { ms: number | null; streak: number };
 	/** This run already told the player the model connection dropped: one service notice per run. */
 	providerNoticeSent?: boolean;
 	/** Contract §38: an agent run ended leaving this turn open with nothing delivered, so no one can
@@ -1236,10 +1239,16 @@ export default function (pi: ExtensionAPI) {
 		const state = table;
 		if (!state) return;
 		// A completed assistant message is the proof the provider answered end to end, body stream
-		// included -- so it, and not a turn boundary, is what ends a streak.
-		if (stopReason !== "error") { state.providerOutage = 0; state.providerOutageNotified = false; return; }
+		// included -- so it, and not a turn boundary, is what ends a streak and clears a terminal failure.
+		if (stopReason !== "error") {
+			state.terminalProviderFailure = undefined;
+			state.providerOutage = 0;
+			state.providerOutageNotified = false;
+			return;
+		}
 		state.providerOutage += 1;
 		const streak = state.providerOutage;
+		state.terminalProviderFailure = { ms, streak };
 		const escalate = streak >= 2 && !state.providerOutageNotified;
 		if (escalate) state.providerOutageNotified = true;
 		// The player is told only about a call that hung long enough to be the wait they sat through.
@@ -1256,6 +1265,39 @@ export default function (pi: ExtensionAPI) {
 		try { pi.appendEntry("coc-provider-status", status); }
 		catch { /* the notice must never break a turn */ }
 		pi.events.emit("coc:provider-status", status);
+	}
+
+	async function emitProviderNotice(state: TableState, failure: { ms: number; streak: number }, terminal: boolean,
+		turn: number): Promise<void> {
+		const seconds = Math.round(failure.ms / 1000);
+		let line = terminal
+			? `This turn could not finish because the connection to the model returned no result. Nothing you did was lost — send anything to continue.`
+			: failure.streak >= 2
+				? `The connection to the model has now dropped ${failure.streak} times in a row, the last after about ${seconds}s with nothing returned. That wait was an outage, not the Keeper thinking, and the person running this table has been told.`
+				: `The connection to the model dropped during this turn: about ${seconds}s of the wait returned nothing at all, and the request had to be made again. That was an outage, not the Keeper thinking, and nothing you did was lost.`;
+		try {
+			// All keys are written out here: the caption inventory is found by scanning these call
+			// sites, and a key held in a variable is a shipped word nothing asks for.
+			line = (await surface.words()).line(terminal ? "provider_failed_notice"
+				: failure.streak >= 2 ? "provider_down_notice" : "provider_outage_notice",
+				{ seconds, streak: failure.streak });
+		} catch {
+			/* an unreadable content root still owes the player the English line */
+		}
+		pi.sendMessage({ customType: "coc-delivery", content: line, display: true,
+			details: { coc_delivery: true, turn, provider_outage: true, streak: failure.streak, ms: failure.ms } });
+		void record({ lane: "delivery", turn, ok: true, reason: "provider_outage_notice",
+			streak: failure.streak, ms: failure.ms, terminal });
+	}
+
+	function scheduleProviderNotice(state: TableState, failure: { ms: number; streak: number }, terminal: boolean,
+		turn = state.turn): void {
+		if (state.providerNoticeSent) return;
+		// Reserve synchronously so review/provider overlap cannot schedule two messages. Emitting on the
+		// next task keeps pi.sendMessage outside agent_settled; a queued next turn may reset the flag, but
+		// this captured notice neither reads nor writes that new run's state.
+		state.providerNoticeSent = true;
+		setTimeout(() => void emitProviderNotice(state, failure, terminal, turn), 0);
 	}
 
 	function preparationWaitInstruction(wait: NonNullable<TableState["preparationWait"]>): string {
@@ -1742,13 +1784,27 @@ export default function (pi: ExtensionAPI) {
 	});
 	pi.on("agent_settled", () => {
 		if (!table) return;
-		// Contract §38: this run is over. A turn it left undelivered under a paused review can never be
-		// delivered — the review approves no draft until new player input — so it is stranded from here on.
-		// An undelivered turn whose review still works is not stranded: the Keeper may finish it next run.
-		if ((table.state === "open" || table.state === "acting")
-			&& !table.closedThisRun && table.renderedText === undefined && table.reviewUnavailable)
-			table.strandedTurn = true;
-		if (!CLOSED_STATES.has(table.state) && !table.reviewUnavailable) return;
+		// Contract §38: this run is over. A turn left open with no delivery is stranded only when the
+		// host's own state says the infrastructure could not recover: the review stayed paused, or the
+		// final provider call ended in error. A later completed provider message clears the latter mark.
+		const infrastructureEndedRun = Boolean(table.reviewUnavailable || table.terminalProviderFailure);
+		const undelivered = (table.state === "open" || table.state === "acting")
+			&& !table.closedThisRun && table.renderedText === undefined;
+		if (undelivered && infrastructureEndedRun) table.strandedTurn = true;
+		// `agent_settled` is the first point that knows whether automatic retries recovered. Choose one
+		// provider notice here: terminal wording wins over a long-attempt footnote, and an already-sent
+		// review notice wins over both while provider diagnostics remain on their own operator surface.
+		const longFailure = table.providerFailure;
+		table.providerFailure = undefined;
+		if (!table.reviewNoticeSent) {
+			if (undelivered && table.terminalProviderFailure) {
+				const failure = table.terminalProviderFailure;
+				scheduleProviderNotice(table, { ms: failure.ms ?? 0, streak: failure.streak }, true, table.turn);
+			} else if (longFailure) {
+				scheduleProviderNotice(table, longFailure, false, table.turn);
+			}
+		}
+		if (!CLOSED_STATES.has(table.state) && !infrastructureEndedRun) return;
 		const next = waitingInputs.shift();
 		if (next) pi.sendUserMessage([{ type: "text", text: next.text }, ...(next.images ?? [])]);
 	});
@@ -1762,6 +1818,7 @@ export default function (pi: ExtensionAPI) {
 		state.reviewNoticeSent = false;
 		state.providerNoticeSent = false;
 		state.providerFailure = undefined;
+		state.terminalProviderFailure = undefined;
 		const text = event.prompt;
 		const startedAt = new Date().toISOString();
 		const began = Date.now();
@@ -2198,32 +2255,8 @@ export default function (pi: ExtensionAPI) {
 				detail: "the Keeper ended on the message carrying the call, so the replacement had nowhere to land" });
 		}
 		if (state.verifierOwed) settleVerifier(state);
-		// Contract §38.7: a provider call died with nothing after holding the table for minutes, and
-		// whether the retry then worked or not, the player watched a spinner that said the model was
-		// thinking. It was not. This is sent after the delivery above, so a turn that did land lands
-		// first and this reads as the footnote it is; it is sent before the §38.5 branch returns,
-		// because a turn can lose both its provider and its review and each is its own fact.
-		const failure = state.providerFailure;
-		state.providerFailure = undefined;
-		if (failure && !state.providerNoticeSent) {
-			state.providerNoticeSent = true;
-			const seconds = Math.round(failure.ms / 1000);
-			let line = failure.streak >= 2
-				? `The connection to the model has now dropped ${failure.streak} times in a row, the last after about ${seconds}s with nothing returned. That wait was an outage, not the Keeper thinking, and the person running this table has been told.`
-				: `The connection to the model dropped during this turn: about ${seconds}s of the wait returned nothing at all, and the request had to be made again. That was an outage, not the Keeper thinking, and nothing you did was lost.`;
-			try {
-				// Both keys written out here: the caption inventory is found by scanning these call
-				// sites, and a key held in a variable is a shipped word nothing asks for.
-				line = (await surface.words()).line(failure.streak >= 2 ? "provider_down_notice" : "provider_outage_notice",
-					{ seconds, streak: failure.streak });
-			} catch {
-				/* an unreadable content root still owes the player the English line */
-			}
-			pi.sendMessage({ customType: "coc-delivery", content: line, display: true,
-				details: { coc_delivery: true, turn: state.turn, provider_outage: true, streak: failure.streak, ms: failure.ms } });
-			void record({ lane: "delivery", turn: state.turn, ok: true, reason: "provider_outage_notice",
-				streak: failure.streak, ms: failure.ms });
-		}
+		// Provider wording waits for agent_settled, which knows whether retries recovered and schedules
+		// the one selected notice outside that lifecycle event.
 		if (state.closedThisRun || state.renderedText) return;
 		// Contract §38: the review, not the Keeper, is why this run ends with nothing delivered, and
 		// returning here silently is the whole of what the player experiences. On the turn that found

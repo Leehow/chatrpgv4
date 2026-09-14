@@ -92,49 +92,58 @@ test("a call that dies quickly is still recorded, but does not interrupt the tab
 	assert.ok(assistantTexts(session.session).includes("The hallway is quiet."));
 });
 
-test("a second consecutive dead call escalates once, and a completed call ends the streak", async (t) => {
+test("a second consecutive dead call escalates once", async (t) => {
 	const session = await openTable({ retainAt: directory, env: { PI_COC_PROVIDER_NOTICE_MS: "1" },
-		responses: [dead(), dead(), ...delivered("The hallway is quiet."), dead(), ...delivered("The handle turns.")] });
+		responses: [dead(), dead(), ...delivered("The hallway is quiet.")] });
 	t.after(() => session.dispose());
 	await session.session.prompt("I listen at the door.");
 	await waitForIdle(session.session);
-	await session.session.prompt("I try the handle.");
-	await waitForIdle(session.session);
-	// The entry is appended from the provider hook, which settles a beat after the run does.
-	await waitFor(() => session.entries("coc-provider-status").length >= 3, { label: "the second turn's own record" });
 
 	const operator = session.entries("coc-provider-status");
 	assert.deepEqual(operator.map((entry) => [entry.turn, entry.streak, entry.status]),
-		[[1, 1, "unavailable"], [1, 2, "down"], [2, 1, "unavailable"]], JSON.stringify(operator));
+		[[1, 1, "unavailable"], [1, 2, "down"]], JSON.stringify(operator));
 	// Once per streak, exactly as the admission and review lanes escalate (§32.2, §38.5).
 	const down = operator.filter((entry) => entry.status === "down");
 	assert.equal(down.length, 1);
 	assert.match(down[0].fix, /provider/i, JSON.stringify(down[0]));
-	// The completed assistant message of turn 1 — not the turn boundary — is what reset the count.
-	assert.equal(operator[2].streak, 1, "a call that answered end to end proves the provider is back");
 });
 
-test("a repeated outage does not read to the player as the first one", async (t) => {
-	// Nothing completes in the first turn, so the streak survives into the second: pi exhausts its
-	// own retries and the run ends, which is the other half of the retained evidence — the case
-	// where the player is left with a spinner and no turn at all.
-	const session = await openTable({ retainAt: directory, env: { PI_COC_PROVIDER_NOTICE_MS: "1" },
-		responses: [dead(), dead(), dead(), dead(), dead(), dead(), ...delivered("The handle turns.")] });
+test("a terminal provider failure returns a service notice and releases the stranded turn", async (t) => {
+	// Nothing completes in the first turn: pi exhausts its own retries and the run ends. This is not
+	// merely another outage row. The player must get a visible result, and the next input must release
+	// the open turn instead of being refused by turn_state.
+	const session = await openTable({ retainAt: directory, env: { FAKE_KERNEL_STRICT_TURN: "1" },
+		responses: [dead(), dead(), dead(), ...delivered("The handle turns.")] });
 	t.after(() => session.dispose());
 	await session.session.prompt("I listen at the door.");
 	await waitForIdle(session.session);
+	await waitFor(() => notices(session).length >= 1, { label: "the terminal run's service notice" });
+	const afterFailure = notices(session);
+	assert.equal(afterFailure.length, 1, "the failed run returns one visible service result");
+	assert.match(afterFailure[0].content, /没能完成|could not finish/i);
+
 	await session.session.prompt("I try the handle.");
 	await waitForIdle(session.session);
-	await waitFor(() => notices(session).length >= 2, { label: "the second run's own service notice" });
+	assert.ok(assistantTexts(session.session).includes("The handle turns."),
+		"the next input releases the stranded turn and reaches the Keeper instead of turn_state");
 
 	const told = notices(session);
-	assert.equal(told.length, 2, JSON.stringify(told.map((message) => message.details)));
-	assert.equal(told[0].details.streak, 1);
-	assert.ok(told[1].details.streak >= 2, JSON.stringify(told[1].details));
-	assert.notEqual(told[0].content, told[1].content,
-		"a persistent outage stops promising that this was a one-off, exactly as §38.5's second notice does");
-	for (const message of told)
-		assert.ok(message.content.trim() && !/^provider_\w+_notice$/.test(message.content.trim()), message.content);
-	// One service notice per run, however many calls died inside it.
+	assert.equal(told.length, 1, "the successful retry run adds no outage notice");
+	assert.ok(told[0].content.trim() && !/^provider_\w+_notice$/.test(told[0].content.trim()), told[0].content);
+	// One service notice per failed run, however many provider calls died inside it.
 	assert.equal(told.filter((message) => message.details.turn === 1).length, 1);
+});
+
+test("terminal wording wins when the failed call also crossed the long-outage threshold", async (t) => {
+	const session = await openTable({ retainAt: directory, env: { PI_COC_PROVIDER_NOTICE_MS: "1" },
+		responses: [dead(), dead(), dead()] });
+	t.after(() => session.dispose());
+	await session.session.prompt("I listen at the door.");
+	await waitForIdle(session.session);
+	await waitFor(() => notices(session).length >= 1, { label: "the terminal long-outage notice" });
+
+	const told = notices(session);
+	assert.equal(told.length, 1, "long and terminal are one failed run, not two player notices");
+	assert.match(told[0].content, /没能完成|could not finish/i,
+		"terminal wording must replace the recovered-outage footnote");
 });

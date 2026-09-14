@@ -56,12 +56,13 @@ export interface MarkerBinding {
     /** the draft with the dropped occurrences removed and the bound ones left where they stand */
     text: string;
 }
-/** Unplaced map receipts are supplementary material: append their markers so the delivery mounts them in the body. */
-export function placeUnplacedMaps(text: string, receipts: Row[], placed: Row): { text: string; placed: Row } {
+/** Every projected mechanic needs a delivery position. Keep explicit placements where the Keeper wrote
+ * them, then append every omitted receipt marker in receipt order (contract §16.6). */
+export function placeUnplacedMechanics(text: string, receipts: Row[], placed: Row): { text: string; placed: Row } {
     const names = markersFor(receipts), nextPlaced = { ...placed };
     let next = text;
     for (const receipt of receipts) {
-        if (receipt.kind !== 'map' || typeof receipt.id !== 'string') continue;
+        if (typeof receipt.id !== 'string') continue;
         const marker = names.get(receipt.id);
         if (!marker || Object.values(nextPlaced).includes(receipt.id)) continue;
         next = next.trimEnd() ? `${next.trimEnd()}\n\n{{${marker}}}` : `{{${marker}}}`;

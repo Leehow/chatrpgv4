@@ -83,13 +83,13 @@ def test_narration_audit_joins_the_shared_audit_job(kernel):
     job = kernel.ok("mods.job", {"campaign": CAMPAIGN, "role": "audit", "input": {"text": "诺特坐在书桌后面。"}})
     assert job["enabled"]
     prompt = Path(job["system_prompt"]).read_text()
-    assert "# Realisation audit" in prompt
+    assert "# Campaign continuity review" in prompt
     assert "receipts" in read_json(Path(job["cwd"]) / "request.json")
     kernel.ok("mods.configure", {"campaign": CAMPAIGN, "id": "narration-audit", "enabled": False})
     narrate(kernel, "t1-c1", "诺特点头。")
     kernel.table("player_input", text="我继续问。")
     job = kernel.ok("mods.job", {"campaign": CAMPAIGN, "role": "audit", "input": {"text": "诺特摇头。"}})
-    assert not job["enabled"] or "# Realisation audit" not in Path(job["system_prompt"]).read_text()
+    assert not job["enabled"] or "# Campaign continuity review" not in Path(job["system_prompt"]).read_text()
 
 
 def test_instructions_are_full_on_the_first_turn_and_brief_after(kernel):

@@ -52,7 +52,8 @@ def test_a_route_the_keeper_made_lands_and_says_it_was_off_the_graph(kernel):
     moved = kernel.table("apply", call_id="t1-c2",
                          effects=[{"kind": "move", "to": "basement-rites", "via": "从没钉死的二楼窗翻进去",
                                    "travel_minutes": 5}])
-    assert moved["receipts"] == ["move:basement-rites-t1-c2"]
+    # §39: the first arrival also presents the house's player-safe map.
+    assert moved["receipts"] == ["move:basement-rites-t1-c2", "map:player-corbitt-house-map-t1"]
     assert world(kernel)["active_scene"] == "basement-rites"
     receipt = next(r for r in read_json(campaign_dir(kernel.workspace) / "turn.json")["receipts"]
                    if r["id"] == "move:basement-rites-t1-c2")
@@ -197,7 +198,7 @@ def test_damage_effect_rolls_the_dice_and_moves_hp(kernel):
     assert dice["label"] == "damage" and dice["expression"] == "1D6" and dice["total"] == before - after
     assert {"kind": "change", "receipt": "delta:hp-t1-c1", "resource": "hp", "subject": "thomas-hayes",
             "subject_label": "托马斯·海斯", "subject_is_investigator": True, "before": before, "after": after,
-            "call": "t1-c1"} in narrated["mechanics"]
+            "call": "t1-c1", "marker": "change:hp"} in narrated["mechanics"]
     bad = kernel.table_err("apply", call_id="t2-c1", effects=[{"kind": "damage", "dice": "lots"}])
     assert bad["code"] in ("invalid_params", "turn_state")
 

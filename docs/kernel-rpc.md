@@ -93,7 +93,7 @@ open|acting      --table.player_input release:"stranded"-->  open   上一轮守
 
 - `awaiting_player` 与 `committed` 期间，除 `table.open`、`table.status`、`table.capsule`、`table.look`、`table.lookup`、`table.recall` 外一切方法报 `turn_state`。
 - `narrate` 成功后内核自行把状态推到 `awaiting_player` 并递增 `turn`；「交付完成」是扩展侧的事，内核不等待。
-- 回合永远要能还给玩家：`open`/`acting` 的回合若上一轮代理运行结束时什么都没交付、而且连续性复核已被暂停（在新玩家输入之前批不了任何草稿），宿主用 `table.player_input` 的 `release: "stranded"` 把它按 `closed_by: "stranded"` 落记录并开下一回合。不叙述、不提交、不当成复核通过；复核还能用的未交付回合不算搁浅，照旧走下一条的恢复路径。契约见第 38 节。
+- 玩家发出的每一句话都必须终结于一个可见结果：正常交付，或一条说明基础设施未能完成本轮的服务通知。`open`/`acting` 的回合若上一轮代理运行结束时什么都没交付，且宿主自己的运行状态确认本轮已不可恢复（连续性复核已暂停，或最后一次 provider 调用以 `stop_reason: "error"` 结束且本轮没有后续成功调用），宿主用 `table.player_input` 的 `release: "stranded"` 把它按 `closed_by: "stranded"` 落记录并开下一回合。不叙述、不提交、不把基础设施失败当成裁决；同轮已恢复的 provider 错误和复核仍可用的未交付回合都不算搁浅。契约见第 38 节。
 - `table.open` 返回时若 `turn.json` 的 `state` 是 `open` 或 `acting`，说明上次进程在回合中途结束：返回 `pending_turn`，含玩家原文、已落收据、尚欠的步骤描述；扩展把它注入给守秘人接着做完。
 
 ## 5. 方法
@@ -1169,10 +1169,11 @@ passes it through. The scan is literal; no regex reads the prose for meaning.
   Prose asserting a mechanic that has no receipt is the §16.3 family of error.
 - The same marker twice is `invalid_params` with `code_detail: "duplicate_marker"`.
   A receipt happened once and has one place.
-- A receipt no marker placed is **not** an error. It projects exactly as today and
-  the frontend groups it after the delivery. Requiring a marker per receipt would
-  make every turn brittle for a cosmetic gain, and a receipt must never be lost
-  because its position was.
+- A receipt whose marker the Keeper did not place is **not** an error. The kernel
+  appends that marker to the end of `marked_text`, in receipt order, so every
+  projected mechanics row has a stable delivery position. Explicit placements stay
+  where the Keeper put them; the fallback never changes `rendered_text` and never
+  loses a receipt because its position was omitted.
 
 **What the delivery carries.**
 
@@ -1180,11 +1181,13 @@ passes it through. The scan is literal; no regex reads the prose for meaning.
   with every marker removed. The kernel substitutes nothing for a marker: a
   substitution would be player-facing words written in code, which §16.1 forbids.
   A terminal reader therefore sees the prose it sees today.
-- `marked_text` is the same delivery with the markers still in it, for a frontend
-  that can mount a component at the position. It is omitted when no marker was
-  placed, so its presence is the signal that there is anything to mount.
-- Each `mechanics` row of a placed receipt carries its `marker`; unplaced rows
-  carry none, which is how a consumer tells the two groups apart.
+- `marked_text` is the same delivery with explicit markers still in place and all
+  omitted receipt markers appended at the end, for a frontend that can mount each
+  component at a position. It is omitted only when the turn has no projectable
+  mechanics receipt.
+- Every `mechanics` row carries its `marker`. A consumer does not need a second
+  out-of-body group for rows the Keeper omitted; their fallback position is already
+  in `marked_text`.
 - The turn record stores `marked_text` beside `rendered_text` so a consumer can
   re-render a turn it did not watch. The play-language and number checks run on
   `rendered_text`: a marker is not player-facing text.
@@ -6044,8 +6047,9 @@ The extended **`introduce_evidence` / `source_rebinding` / `bridge_offer`** live
 
 ## 38. A turn always ends: releasing a stranded turn (2026-09-13)
 
-A turn that a player opened must always be able to return to that player, and a review that can approve
-nothing must not also be able to end the campaign. Until this section the state
+A turn that a player opened must always be able to return to that player, and every player utterance must
+end in a visible result: a delivery or a service notice. Infrastructure that cannot complete a run must not
+also be able to end the campaign. Until this section the state
 machine of §4 had one exit from `open`/`acting` — a successful `narrate` or `ask` — and one guard on
 `table.player_input`: the turn must be `awaiting_player` or `asked`. Retained live evidence
 (`midgame-bridge-live-21`, campaign turn 3, 2026-09-13) shows those two rules can close on each other and
@@ -6095,17 +6099,21 @@ that intent. This is the §31 shape: a writer with no reader.
 
 **The host, from its own retained run state, and never from prose or a verdict.** A turn is stranded when
 an agent run ended leaving it `open`/`acting` with nothing delivered — no `narrate`, no `ask` — **and** the
-continuity review for it is paused, so no draft can be approved until new player input arrives. Those are
-structural facts the host already records (`renderedText`, `closedThisRun`, `reviewUnavailable`, and the
-retained `reviewStatus` a restart reads at `table.open`). The host marks the turn stranded at
-`agent_settled`, and a restart that finds a `pending_turn` under a paused retained review marks it there,
-because that recovered turn can never be delivered either. The mark is carried on the next
-`table.player_input` and cleared as soon as a turn opens.
+host knows that run ended on an unrecovered infrastructure failure. Today either structural condition is
+sufficient: the continuity review is paused, so no draft can be approved until new player input arrives;
+or the run's final provider call ended with `stop_reason: "error"` and no later completed assistant message
+proved recovery. The host already records these facts (`renderedText`, `closedThisRun`,
+`reviewUnavailable`, the retained `reviewStatus` a restart reads at `table.open`, and provider
+`message_end.stopReason`). It marks the turn stranded at `agent_settled`; a restart that finds a
+`pending_turn` under a paused retained review still marks it at `table.open`. The mark is carried on the
+next `table.player_input` and cleared as soon as a turn opens.
 
-An undelivered turn whose review still works is **not** stranded: the §4 recovery path stands, the guard
-still refuses the player input, and the Keeper finishes the turn it started. Stranding is never set because
-a review returned `revise`, because a candidate was refused by admission, or because the Keeper is slow —
-a `revise` inside a live run is not stranding, since the Keeper may still repair and deliver.
+An earlier provider error followed by a completed assistant message in the **same run** is recovered and
+cannot strand the turn. Likewise, an undelivered turn whose review still works and whose provider did not
+end in error is **not** stranded: the §4 recovery path stands, the guard still refuses the player input,
+and the Keeper finishes the turn it started. Stranding is never set because a review returned `revise`,
+because a candidate was refused by admission, because any earlier provider attempt failed and recovered,
+or because the Keeper is slow — those runs may still repair and deliver.
 
 **This is not a bypass of review.** Nothing is narrated, nothing is committed, no verdict is treated as a
 pass, and an unavailable review still authorizes nothing (§32). It only stops an unavailable review from
@@ -6115,9 +6123,10 @@ allowance in which to reach a lawful draft.
 
 ### 38.4 The three ends (§31)
 
-- **Writer:** the host, at `agent_settled` and at a `table.open` that finds a `pending_turn` under a paused
-  retained review, from its own run state; `before_agent_start` carries the mark, and the kernel writes the
-  stranded turn record and the `turn-stranded` event.
+- **Writer:** the host, at `agent_settled`, from a paused review or an unrecovered terminal provider error,
+  and at a `table.open` that finds a `pending_turn` under a paused retained review, all from its own run
+  state; `before_agent_start` carries the mark, and the kernel writes the stranded turn record and the
+  `turn-stranded` event.
 - **Reader:** `table.player_input`'s state guard, and every delivery consumer through the existing
   `closed_by === "narrate"` predicate, which a stranded record deliberately fails.
 - **Actor:** the player, who can speak again, and the Keeper, whose next run gets a new review context on
@@ -6164,8 +6173,8 @@ kept is its own lost turn.
 3. A stranded record produces no commit, no memory job, no checkpoint, no Director adoption row and no
    keeper transcript line, and is not read back as a delivery by continuity, continuation, source audit or
    story assessment.
-4. An undelivered turn whose review still works is **not** released: the player input is still refused
-   `turn_state` and the §4 recovery path is unchanged.
+4. An undelivered turn whose review still works and whose provider did not end in an unrecovered error is
+   **not** released: the player input is still refused `turn_state` and the §4 recovery path is unchanged.
 5. Live: the retained `midgame-bridge-live-21` deadlock cannot recur — after a paused review strands a
    turn, the player's next utterance opens a new turn on the same unresolved reentry.
 6. A run that ends undelivered under a paused review emits exactly one displayed service notice, in the
@@ -6173,6 +6182,9 @@ kept is its own lost turn.
 7. The outage count rises once per paused run however many verbs are refused after the pause, is reset by a
    landed `narrate` and not by a turn boundary, and from the second consecutive outage the notice drops the
    retry promise and one `coc-review-status` `status: "down"` entry carries the streak and the fix.
+8. A run whose final provider call ends in `error`, with no later completed assistant message and no
+   delivery, emits one service notice and marks the turn stranded. The next player input releases it and
+   opens a new turn. If a later provider call completes in the same run, the turn is not stranded.
 
 ### 38.7 A provider call that dies leaves a trace (2026-09-14)
 
@@ -6214,21 +6226,28 @@ because an outage is a service condition rather than a turn context. From the se
 the entry is `status: "down"` and carries a `fix` (check the provider and the route to it, or move the
 table), once per streak rather than once per call.
 
-**A long call also owes the player a word, and a short one does not.** At `agent_end`, a run in which a
-provider call died after holding the table for at least `PROVIDER_OUTAGE_NOTICE_MS` (60 s by default;
-`PI_COC_PROVIDER_NOTICE_MS` moves it) emits exactly one displayed service notice of its own, in the
-campaign's `play_language` from the extension caption surface (§23) — never prose, never through `narrate`.
+**A long call also owes the player a word, and a short recovered one does not.** Once `agent_end` can see
+that the run has delivered, a provider call that died after holding the table for at least
+`PROVIDER_OUTAGE_NOTICE_MS` (60 s by default; `PI_COC_PROVIDER_NOTICE_MS` moves it) emits exactly one
+displayed service notice of its own, in the campaign's `play_language` from the extension caption surface
+(§23) — never prose, never through `narrate`. An open run keeps the failed-call fact until
+`agent_settled`; a terminal provider failure then emits the notice regardless of duration, because it is
+the run's only visible result.
 It says the connection dropped, roughly how long returned nothing, that this was an outage rather than the
 Keeper thinking, and that nothing the player did was lost; from the second consecutive outage it stops
 reading as a one-off. Below the threshold the operator entry is still written and the table is left alone:
 a provider that errors in a second and is retried is a blip the player never noticed, and a service message
 about it would be noise on a turn that went fine.
 
-**It is sent after the delivery and it can never cost the turn.** The notice goes out below the delivery
-replacement, so a turn that did land lands first and this reads as the footnote it is, and above §38.5's
-own branch, because a turn can lose both its provider and its review and each is its own fact. The entry
-write is best-effort and the caption read falls back to an English line: nothing on this path may block or
-fail a turn.
+**The final run state chooses one player notice, and diagnostics remain separate.** `agent_end` sends a
+long-outage footnote only after an actual delivery, and may send §38.5's paused-review notice; it never
+spends the provider notice on an open turn. `agent_settled`, the first point that knows retries are exhausted,
+turns the retained failed call into the terminal notice. A terminal provider failure therefore wins over
+the long-outage wording and says the turn did not finish; a recovered long failure reads as a footnote after
+the delivery. If the player already
+received the paused-review notice, no second provider notice is displayed, while every provider status row
+and operator entry remains. The entry write is best-effort and the caption read falls back to an English
+line: nothing on this path may block or fail a turn.
 
 **Three ends (§31).** *Writer:* the `message_end` handler, from the provider hooks' own timing. *Reader:*
 the operator, through the `coc-provider-status` entry and bus event, and `kpi.py` through the
@@ -6238,17 +6257,21 @@ sentence. As in §32.7, the escalation is not a telemetry row — the consecutiv
 already say it to the run analysis; only the delivery of the player's notice adds a row
 (`lane: "delivery"`, `reason: "provider_outage_notice"`).
 
-**Acceptance.** A dead call whose retry saves the turn still leaves one operator entry and one player
-notice, and the delivery is unharmed; a dead call below the threshold leaves the entry and no notice; a
-second consecutive dead call escalates once to `status: "down"` with a `fix`, and a completed call — not the
-turn boundary — resets the streak; a run with several dead calls inside it emits one notice, and a second
-run under a surviving streak does not repeat the first run's sentence
-(`tests/extension/provider-outage.test.mjs`).
+**Acceptance.** A dead call whose retry saves the turn still leaves one operator entry and, when it crossed
+the threshold, one player notice while the delivery is unharmed; a recovered dead call below the threshold
+leaves the entry and no notice; a second consecutive dead call escalates once to `status: "down"` with a
+`fix`, and a completed call — not the turn boundary — resets the streak. A terminal failed run emits exactly
+one terminal notice regardless of duration and releases its stranded turn on the next input; crossing the
+long-call threshold must not replace that terminal wording, and a simultaneous paused-review failure still
+produces one player notice while both operator diagnostics remain (`tests/extension/provider-outage.test.mjs`,
+`tests/extension/continuity-audit.test.mjs`).
 
-**What this does not fix, and is not claimed to.** A run whose provider dies for good leaves the turn
-`open`/`acting` with nothing delivered and no paused review, so §38.2's stranding does not apply to it and
-the §4 recovery path stands. The player is now told, which is the defect this section closes; whether such a
-turn should also be releasable is a separate question against §38.3 and is not decided here.
+**A provider that dies for good strands the turn; a recovered failure does not.** When the run ends
+`open`/`acting` with no delivery and its final provider call is still `stop_reason: "error"`, the same
+host-owned fact both forces a service notice and satisfies §38.3. The next player input releases the turn
+through §38.2 instead of hitting `turn_state`. Any later completed assistant message in that run clears the
+terminal-failure mark, so the retained turn-3 shape above — one failed call, a 2.6 s successful retry, then
+a normal delivery — records and reports its outage but is never stranded.
 
 ## 39. Session maps revealed by player knowledge (2026-09-13)
 
@@ -6270,7 +6293,7 @@ The three ends are explicit. The Keeper writes newly learned region knowledge th
 
 A published player map that `depicts` a scene is supplementary material for that place, not a thing the player has to ask for and not a sentence in the story. The first real `apply move` (not a rename) onto such a scene, when that map is not yet in `world.maps_presented`, mints one `map` receipt for the map's player-safe (and independently reviewed `safe_after_redactions`) regions, records the handle on `maps_presented`, and includes the host-only `map_views` payload. It does not write `map_knowledge` for secret rooms, does not require `look`, and does not wait for the Keeper to `apply map`. Returning to a depicted scene does not place the card again.
 
-The receipt is bindable as `{{map:<map-handle>}}` (§16.6). If the Keeper does not place that marker, the kernel appends it to `marked_text` so the frontend mounts the image in the delivery body; `rendered_text` still has no braces. The story text describes the place immersively. It does not mention a map, a floor plan, or what is "on the map"; those words are out of game. The picture is extra material beside the scene, the way a mechanics row is extra material beside the prose.
+The receipt is bindable as `{{map:<map-handle>}}` (§16.6). Like every mechanics receipt, if the Keeper does not place that marker, the kernel appends it to `marked_text` so the frontend mounts the row in the delivery body; `rendered_text` still has no braces. The story text describes the place immersively. It does not mention a map, a floor plan, or what is "on the map"; those words are out of game. The picture is extra material beside the scene, the way every other mechanics row is extra material beside the prose.
 
 **Its player-facing words come from the host's map presentation lane, not from the module.** §39 above requires `apply map` to carry `label`, `region_labels` and `level_labels` in `play_language` because the Keeper writes them. A first-arrival card has no Keeper in its path and so had no writer for those words at all: the kernel mints it out of the module's authored labels -- the map's `display_name`, each region's `name`, each level's name -- which are in whatever language the module was written in. Retained live evidence (campaign `game-5779d0fd-7dac-41de-b1f5-1a0f05132e2a`, turn 2, a table whose `play_language` is `zh-Hans`): one map title, nine region labels and three level labels reached the player in English while every other mechanics row of that turn was in the play language. Both paths produce the same projection shape for the same consumer, so a rule that bound only one of them was a gap in this contract and not merely in an implementation.
 

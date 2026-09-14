@@ -158,8 +158,8 @@ def test_capsule_memory_section_is_the_ranked_head_within_budget(kernel):
     assert 0 < len(hits) < 6 and "memory" in capsule["truncated"]
     assert size(hits) <= 1536
     assert hits[0]["id"] == "mem:t1-1" and hits[0]["kind"] == "knowledge"  # highest overlap, then oldest id
-    # #20 (§12.7): the capsule projects a hit to four fields; the rest is behind recall memory
-    assert set(hits[0]) == {"id", "kind", "statement", "turn"}
+    # §36.12: compact memory retains subject, lifecycle state, and conversation-report authority.
+    assert set(hits[0]) == {"id", "kind", "subject", "statement", "turn", "status", "state", "authority"}
     assert kernel.table("recall", what="memory")["hits"][0]["subject"] == "Steven Knott"
 
 

@@ -29,10 +29,10 @@ def test_labels_ride_on_the_projection_and_the_text_is_verbatim(kernel):
     result = kernel.table("narrate", call_id="t1-c2", text="你出了门。")
     assert result["rendered_text"] == "你出了门。"
     assert result["mechanics"] == [
-        {"kind": "clue", "receipt": "clue:knott-research-leads-t1", "clue": "knott-research-leads", "label": "诺特给的查证方向",
+        {"kind": "clue", "marker": "clue:knott-research-leads", "receipt": "clue:knott-research-leads-t1", "clue": "knott-research-leads", "label": "诺特给的查证方向",
          "summary": "Knott points them toward the Boston Globe, the Central Library / Hall of Records, "
                     "and other paper trails before they rush the house.", "call": "t1-c1"},
-        {"kind": "scene", "receipt": "move:hall-of-records-t1-c1", "from": "commission-briefing", "to": "hall-of-records",
+        {"kind": "scene", "marker": "scene:hall-of-records", "receipt": "move:hall-of-records-t1-c1", "from": "commission-briefing", "to": "hall-of-records",
          "minutes": 0, "from_label": "Knott's Office", "to_label": "市政厅档案室", "call": "t1-c1"},
     ]
 
@@ -44,12 +44,12 @@ def test_every_receipt_is_projected_and_the_turn_closes(kernel):
     result = kernel.table("narrate", call_id="t1-c3", text=text)
     assert result["rendered_text"] == text
     assert [m["kind"] for m in result["mechanics"]] == ["roll", "clue", "time", "scene"]
-    assert result["mechanics"][0] == {"kind": "roll", "receipt": "roll:spot-hidden-t1-c1", "actor": "thomas-hayes",
+    assert result["mechanics"][0] == {"kind": "roll", "marker": "check:spot-hidden", "receipt": "roll:spot-hidden-t1-c1", "actor": "thomas-hayes",
                                       "actor_label": "托马斯·海斯", "actor_is_investigator": True,
                                       "skill": "Spot Hidden", "roll": roll["roll"], "target": 55, "threshold": 55,
                                       "difficulty": "regular", "level": roll["level"], "passed": roll["passed"],
                                       "pushed": False, "visibility": "public", "call": "t1-c1", "family": "core-check"}
-    assert result["mechanics"][2] == {"kind": "time", "receipt": "time:t1-c2", "minutes": 10, "call": "t1-c2"}
+    assert result["mechanics"][2] == {"kind": "time", "marker": "time", "receipt": "time:t1-c2", "minutes": 10, "call": "t1-c2"}
     assert result["mechanics"][3]["minutes"] == 20
     assert result["turn"] == 1 and result["receipt"] == "turn:1" and result["commit"]
     assert git_log(kernel.workspace)[0].startswith("turn 1: 第一段：你掷出")

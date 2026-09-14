@@ -10,6 +10,8 @@ EMITTED = {
     "resource-changed", "decision-settled", "session-changed", "choice-asked", "memory-written", "turn-finalized",
     # §18 (#27)
     "flag-set", "note-written", "ruling-made",
+    # §39: first arrival also presents the player-safe map.
+    "map-revealed",
 }
 
 

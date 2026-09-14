@@ -1,12 +1,12 @@
 /** Shared delivery formatting only; callers own turn transitions, writes and commit recovery. */
 import { array, number, truth, type Row } from '../read/values.js';
 import { nowIso } from './store.js';
-import { bindMarkers, droppedMarkers, placeUnplacedMaps, stripMarkers } from './text.js';
+import { bindMarkers, droppedMarkers, placeUnplacedMechanics, stripMarkers } from './text.js';
 
 export function deliveryText(text: string | null, receipts: Row[]): Row {
-    const binding = text ? bindMarkers(text, receipts) : null;
-    const marked = binding ? placeUnplacedMaps(binding.text, receipts, binding.placed) : { text: text || '', placed: {} };
-    const dropped = binding ? droppedMarkers(binding, receipts) : null;
+    const binding = bindMarkers(text || '', receipts);
+    const marked = placeUnplacedMechanics(binding.text, receipts, binding.placed);
+    const dropped = droppedMarkers(binding, receipts);
     return {
         rendered_text: stripMarkers(marked.text),
         placed: marked.placed,
