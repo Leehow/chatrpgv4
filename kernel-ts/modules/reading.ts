@@ -223,7 +223,9 @@ export class Reading {
                 purpose === 'detail' && !question && await this.materialReady(mid, focus) ||
                 purpose === 'index' && truth(reading.index_complete))
                 return { ...result, state: 'ready' };
-            const source = await this.source(meta), pages: number[] = [];
+            const source = await this.source(meta), pages: number[] = purpose === 'detail' && normalize(focus) === 'map'
+                ? [...new Set(array(row(reading).map_candidates).flatMap((candidate: Row) => array(candidate.pages).map(number)))].filter(page => page >= 1 && page <= source.page_count).sort((a, b) => a - b)
+                : [];
             const identity: any[] = [source.file_sha256, purpose, normalize(focus), question, pages];
             if (purpose === 'guidance')
                 identity.push(guidanceKey);
@@ -504,6 +506,13 @@ export class Reading {
     private async finishIndex(mid: string, meta: Row, job: Row, draft: any, seen: Set<number>): Promise<void> {
         if (!object(draft) || !Array.isArray(draft.sections))
             reject('index draft needs a sections array');
+        if (Object.hasOwn(draft, 'map_candidates')) {
+            if (!Array.isArray(draft.map_candidates)) reject('map_candidates must be a list');
+            for (const candidate of draft.map_candidates) {
+                if (!object(candidate) || typeof candidate.name !== 'string' || !candidate.name.trim() || !Array.isArray(candidate.pages) || !candidate.pages.length || candidate.pages.some((page: any) => !integer(page) || page < 1 || page > number(meta.page_count)))
+                    reject('map candidates need a name and physical page numbers in the original PDF');
+            }
+        }
         if (!seen.size)
             reject('index pages were not viewed as full page images: []');
         const sections = truth(meta.index_file) ? await this.store.sections(mid) : [];
@@ -542,6 +551,8 @@ export class Reading {
         const minPage = (item: Row) => Math.min(...item.pages.map((pair: number[]) => pair[0]));
         await writeJsonAtomic(indexPath, sections.sort((a, b) => minPage(a) - minPage(b) || compareUnicode(a.name, b.name)));
         meta.index_file = relative(await resolvedPath(this.store.moduleDir(mid)), indexPath);
+        if (Array.isArray(draft.map_candidates))
+            meta.reading.map_candidates = draft.map_candidates.map((candidate: Row) => ({ name: candidate.name.trim(), pages: [...new Set(candidate.pages.map(number))].sort((a: unknown, b: unknown) => number(a) - number(b)), ...(typeof candidate.focus === 'string' && candidate.focus.trim() ? { focus: candidate.focus.trim() } : {}) }));
         if (seen.has(1) && typeof draft.title === 'string' && draft.title.trim())
             meta.title = draft.title.trim();
         if (seen.has(1) && typeof draft.language === 'string' && draft.language.trim())
