@@ -68,6 +68,47 @@ export function knownMapRegions(world: Row, map: string): string[] {
     return array(row(world.map_knowledge)[map]).filter(value => typeof value === 'string');
 }
 
+function playerSafeRegions(graph: ModuleGraph, regions: Row[]): Row[] {
+    return regions.filter(region => ['player-safe', 'revealable'].includes(graph.nodes.get(region.source_node)?.visibility));
+}
+
+export function mapsDepictingScene(graph: ModuleGraph, scene: Row): Row[] {
+    const seen = new Set<string>(), result: Row[] = [];
+    const links = [...(graph.incoming.get(scene.node_id) ?? []), ...(graph.incoming.get(graph.handle(scene)) ?? [])];
+    for (const rel of links) {
+        if (rel.relation_kind !== 'depicts') continue;
+        const node = graph.nodes.get(rel.from_node_id);
+        if (!node || seen.has(node.node_id) || !array(row(node.properties).map_regions).length) continue;
+        seen.add(node.node_id);
+        result.push(node);
+    }
+    return result;
+}
+
+async function composeMapView(graph: ModuleGraph, asset: AssetReader, node: Row, selected: Row[], title: string): Promise<Row> {
+    const handle = graph.handle(node), layers: Row[] = [];
+    for (const region of selected) {
+        const source = await asset(graph.moduleId, region.source_node), path = source?.path;
+        layers.push({
+            region: region.id, label: region.name, level: region.level ?? null,
+            source_asset: region.source_asset,
+            placement: region.placement, source_box: region.source_box, redactions: region.redactions ?? [],
+            ...(typeof region.source_digest === 'string' ? { source_digest: region.source_digest } : {}),
+            path: typeof path === 'string' ? path : null,
+            media_type: source?.media_type ?? null,
+        });
+    }
+    return {
+        map: handle,
+        name: graph.displayName(node),
+        label: title,
+        source_revision: graph.digest,
+        regions: selected.map(region => ({ id: region.id, label: region.name, level: region.level ?? null })),
+        available: selected.length > 0 && layers.every(layer => typeof layer.path === 'string' && layer.path),
+        render: { layers },
+    };
+}
+
 function chooseRegions(regions: Row[], requested: unknown): Row[] {
     if (!Array.isArray(requested) || !requested.length || !requested.every(value => typeof value === 'string' && value.trim()))
         throw new RpcError('invalid_params', 'map.regions must be a non-empty list of semantic region names');
@@ -86,27 +127,40 @@ function chooseRegions(regions: Row[], requested: unknown): Row[] {
 export async function mapView(graph: ModuleGraph, world: Row, asset: AssetReader, name: string): Promise<Row> {
     const node = mapNode(graph, name), handle = graph.handle(node), regions = mapRegions(graph, node),
         labels = row(row(world.map_labels)[handle]), regionLabels = row(labels.regions), levelLabels = row(labels.levels),
-        known = new Set(knownMapRegions(world, handle)), selected = regions.filter(region => known.has(region.id)), layers: Row[] = [];
-    for (const region of selected) {
-        const source = await asset(graph.moduleId, region.source_node), path = source?.path;
-        layers.push({
-            region: region.id, label: regionLabels[region.id] ?? region.id, level: region.level ? levelLabels[region.level] ?? null : null,
-            source_asset: region.source_asset,
-            placement: region.placement, source_box: region.source_box, redactions: region.redactions ?? [],
-            ...(typeof region.source_digest === 'string' ? { source_digest: region.source_digest } : {}),
-            path: typeof path === 'string' ? path : null,
-            media_type: source?.media_type ?? null,
-        });
+        known = new Set(knownMapRegions(world, handle)), selected = regions.filter(region => known.has(region.id));
+    const view = await composeMapView(graph, asset, node, selected, labels.title ?? handle);
+    view.regions = selected.map(region => ({ id: region.id, label: regionLabels[region.id] ?? region.id, level: region.level ? levelLabels[region.level] ?? null : null }));
+    for (const layer of array(row(view.render).layers)) {
+        const region = selected.find(item => item.id === layer.region);
+        if (!region) continue;
+        layer.label = regionLabels[region.id] ?? region.id;
+        layer.level = region.level ? levelLabels[region.level] ?? null : null;
     }
-    return {
-        map: handle,
-        name: graph.displayName(node),
-        label: labels.title ?? handle,
-        source_revision: graph.digest,
-        regions: selected.map(region => ({ id: region.id, label: regionLabels[region.id] ?? region.id, level: region.level ? levelLabels[region.level] ?? null : null })),
-        available: selected.length > 0 && layers.every(layer => typeof layer.path === 'string' && layer.path),
-        render: { layers },
-    };
+    return view;
+}
+
+export async function presentArrivalMaps(context: {graph: ModuleGraph; world: Row; turn: Row; callId: string; mint(base: string): string}, asset: AssetReader): Promise<Array<{receipt: Row; event: Row; view: Row}>> {
+    const scene = context.graph.scene(context.world.active_scene), presented = array(context.world.maps_presented).filter(value => typeof value === 'string');
+
+    const out: Array<{receipt: Row; event: Row; view: Row}> = [];
+    for (const node of mapsDepictingScene(context.graph, scene)) {
+        const handle = context.graph.handle(node);
+        if (presented.includes(handle)) continue;
+        const selected = playerSafeRegions(context.graph, mapRegions(context.graph, node));
+        if (!selected.length) continue;
+        presented.push(handle);
+        context.world.maps_presented = [...presented];
+        const title = context.graph.displayName(node), view = await composeMapView(context.graph, asset, node, selected, title);
+        const receipt: Row = {
+            id: context.mint(`map:${handle}-t${context.turn.turn}`), kind: 'map', call_id: context.callId,
+            map: handle, name: title, label: title, supplement: true,
+            regions: selected.map(region => ({ id: region.id, label: region.name, level: region.level ?? null })),
+            known_regions: knownMapRegions(context.world, handle), source_revision: context.graph.digest,
+            why: 'arrival', at: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
+        };
+        out.push({ receipt, event: { type: 'map-revealed', data: { map: handle, regions: selected.map(region => region.id), known_regions: receipt.known_regions, why: 'arrival' } }, view });
+    }
+    return out;
 }
 
 export async function revealMap(context: {graph: ModuleGraph; world: Row; turn: Row; callId: string; mint(base: string): string}, effect: Row, asset: AssetReader): Promise<{receipt: Row; event: Row; view: Row}> {

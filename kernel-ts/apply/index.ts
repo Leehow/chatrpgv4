@@ -21,7 +21,7 @@ import {appendJsonl} from '../fileio.js';
 import {join} from 'node:path';
 import {stageFlag,stageNote,stageRuling,stageThreat} from './bookkeeping.js';
 import {stageClue,stageNpc,stageHandout} from './entities.js';
-import {revealMap} from '../read/maps.js';
+import {presentArrivalMaps,revealMap} from '../read/maps.js';
 import {stageItem,stageCash,commitInventorySheets} from './inventory.js';
 import type {createWorldlineRuntime} from '../worldline/index.js';
 import type {createModRuntime} from '../mods/index.js';
@@ -211,6 +211,15 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                     // was rolled back each time. Nothing commits after a refusal either way; the rest of the
                     // pass exists only to find the other problems worth reporting in the same breath.
                     refused.push({ index, error });
+                }
+            }
+            if (!refused.length && receipts.some(receipt => receipt.kind === 'move' && !receipt.renamed) && contributions.asset) {
+                for (const item of await presentArrivalMaps(context, contributions.asset)) {
+                    receipts.push(item.receipt);
+                    ids.push(string(item.receipt.id));
+                    taken.add(string(item.receipt.id));
+                    events.push({ type: 'map-revealed', data: row(item.event.data), receipt: string(item.receipt.id) });
+                    mapViews.push({...item.view,receipt:item.receipt.id,label:item.receipt.label});
                 }
             }
             if (refused.length) {

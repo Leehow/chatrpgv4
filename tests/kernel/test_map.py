@@ -327,3 +327,40 @@ def test_map_knowledge_is_campaign_scoped(kernel):
 
     create_campaign(kernel, "other-table")
     assert read_json(campaign_dir(kernel.workspace, "other-table") / "world.json")["map_knowledge"] == {}
+
+
+def test_first_arrival_presents_the_depicted_player_map(kernel):
+    install_local_map_bytes(kernel)
+    open_turn(kernel, "我们去科比特宅。")
+    applied = kernel.table("apply", call_id="t1-c1", effects=[{
+        "kind": "move", "to": "corbitt-house-ground", "via": "hired car", "travel_minutes": 20, "label": "科比特宅",
+    }])
+    assert any(item.startswith("map:player-corbitt-house-map") for item in applied["receipts"])
+    assert MAP in world(kernel)["maps_presented"]
+    assert world(kernel).get("map_knowledge", {}) == {}
+    view = applied["map_views"][0]
+    assert view["map"] == MAP
+    assert "hidden-cellar" not in [region["id"] for region in view["regions"]]
+    assert "ground-entry-hall" in [region["id"] for region in view["regions"]]
+    delivered = narrate(kernel, "t1-c2", "宅子立在暮色里，门廊的木板在脚下轻轻一响。")
+    assert "{{map:player-corbitt-house-map" in (delivered.get("marked_text") or "")
+    assert "{{" not in delivered["rendered_text"]
+
+
+def test_returning_does_not_present_the_map_again(kernel):
+    install_local_map_bytes(kernel)
+    open_turn(kernel, "我们去科比特宅。")
+    kernel.table("apply", call_id="t1-c1", effects=[{
+        "kind": "move", "to": "corbitt-house-ground", "via": "hired car", "travel_minutes": 20, "label": "科比特宅",
+    }])
+    narrate(kernel, "t1-c2", "宅子立在暮色里。")
+    kernel.table("player_input", text="我们先回镇上再过来。")
+    kernel.table("apply", call_id="t3-c1", effects=[{
+        "kind": "move", "to": OPENING_SCENE, "travel_minutes": 20, "label": "委托处",
+    }])
+    narrate(kernel, "t3-c2", "你们回到了镇上。")
+    kernel.table("player_input", text="再去那栋宅子。")
+    again = kernel.table("apply", call_id="t5-c1", effects=[{
+        "kind": "move", "to": "corbitt-house-ground", "via": "hired car", "travel_minutes": 20, "label": "科比特宅",
+    }])
+    assert not any(item.startswith("map:") for item in again["receipts"])

@@ -5992,7 +5992,13 @@ Map source preparation is shared module material; `map_knowledge` is campaign st
 
 The visual reader may create region metadata and source assets during opening or demand reading. When a PDF has no published map material, `look {focus:"map", name?}` raises the existing `needs`/`material_pending` gate with `details.read: {purpose:"detail", material:"map", focus, question, pages?}`; the extension sends this descriptor through the existing reading queue, then retries the unchanged look. The closed `material:"map"` discriminator is part of reading-job identity and is carried into `task.json`; it is not a new Keeper tool or scheduler. Built-in modules and already-published maps do not raise this gate. It uses original page images, the existing tool-enabled reader and independent review. Map classification, region-place correspondence and annotation safety remain semantic reader/reviewer decisions; the host checks shapes, references, file confinement and bytes. The kernel never parses a PDF or image. Public titles and added labels follow `play_language`; authored pixels and physical-handout text remain verbatim.
 
-The three ends are explicit. The Keeper writes map knowledge through `apply map`; `look focus=map` and the mechanics projection read it; the Keeper places the prepared view and the player actually opens it.
+The three ends are explicit. The Keeper writes newly learned region knowledge through `apply map`; `look focus=map` and the mechanics projection read it; the first arrival at a depicted scene places the player-safe floor plan as supplementary material in the delivery, and later `apply map` still records what was actually learned.
+
+### 39.2 First arrival places the depicted map in the delivery
+
+A published player map that `depicts` a scene is supplementary material for that place, not a thing the player has to ask for and not a sentence in the story. The first real `apply move` (not a rename) onto such a scene, when that map is not yet in `world.maps_presented`, mints one `map` receipt for the map's player-safe (and independently reviewed `safe_after_redactions`) regions, records the handle on `maps_presented`, and includes the host-only `map_views` payload. It does not write `map_knowledge` for secret rooms, does not require `look`, and does not wait for the Keeper to `apply map`. Returning to a depicted scene does not place the card again.
+
+The receipt is bindable as `{{map:<map-handle>}}` (§16.6). If the Keeper does not place that marker, the kernel appends it to `marked_text` so the frontend mounts the image in the delivery body; `rendered_text` still has no braces. The story text describes the place immersively. It does not mention a map, a floor plan, or what is "on the map"; those words are out of game. The picture is extra material beside the scene, the way a mechanics row is extra material beside the prose.
 
 ### 39.1 Canonical source revisions and compatibility
 

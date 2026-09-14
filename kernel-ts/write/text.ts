@@ -20,6 +20,7 @@ function markerName(receipt: Row): string | null {
         case 'clue': return part('clue', receipt.clue);
         case 'item': return part('item', receipt.name);
         case 'handout': return part('handout', receipt.handout || receipt.name);
+        case 'map': return part('map', receipt.map || receipt.name);
         case 'condition': return part('condition', array(receipt.gained)[0] ?? array(receipt.lost)[0]);
         case 'session': return part('session', receipt.family);
         case 'worldline': return part('worldline', receipt.operation);
@@ -54,6 +55,19 @@ export interface MarkerBinding {
     duplicate: string[];
     /** the draft with the dropped occurrences removed and the bound ones left where they stand */
     text: string;
+}
+/** Unplaced map receipts are supplementary material: append their markers so the delivery mounts them in the body. */
+export function placeUnplacedMaps(text: string, receipts: Row[], placed: Row): { text: string; placed: Row } {
+    const names = markersFor(receipts), nextPlaced = { ...placed };
+    let next = text;
+    for (const receipt of receipts) {
+        if (receipt.kind !== 'map' || typeof receipt.id !== 'string') continue;
+        const marker = names.get(receipt.id);
+        if (!marker || Object.values(nextPlaced).includes(receipt.id)) continue;
+        next = next.trimEnd() ? `${next.trimEnd()}\n\n{{${marker}}}` : `{{${marker}}}`;
+        nextPlaced[marker] = receipt.id;
+    }
+    return { text: next, placed: nextPlaced };
 }
 export function bindMarkers(text: string, receipts: Row[]): MarkerBinding {
     const names = markersFor(receipts);
