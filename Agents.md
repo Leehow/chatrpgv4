@@ -158,8 +158,9 @@ Grok 系模型屡次把「交付」当目标、把意图当配菜，也屡次静
 
 成品 App 只有一个家，暂存目录一个都不许留。
 
-- 唯一成品是 `~/leehow/code/pipicoc-build/PipiCOC.app`，`/Applications/PipiCOC.app` 是指向它的符号链接。禁止用真实副本覆盖那个链接；要验收就跑链接指向的那一份，不许为了验收再装第二份。
-- `pipicoc/package.mjs` 直接写进那个落点，不再经过 `<worktree>/build/`；任何 worktree 里都不该再出现 `build/PipiCOC.app`。要换落点只能设 `PIPICOC_APP_HOME`，别改回仓库内路径。
+- **盘上只有一份 App，它就在 `/Applications/PipiCOC.app`。** 方向不能反：LaunchServices 拒绝把符号链接注册成 bundle（`lsregister -f` 对链接返回 0 却什么都不注册），真 bundle 放在别处时，App 不会出现在应用程序文件夹、启动台和聚焦里，`mdfind` 一条都搜不到。
+- `~/leehow/code/pipicoc-build/` 只放收据 `pipicoc-package.json` 和一条指回 `/Applications/PipiCOC.app` 的回指链接，让旧路径仍然解析得到。要验收就跑 `/Applications` 那一份，不许为了验收再装第二份。
+- `pipicoc/package.mjs` 直接装进 `/Applications`，装完自己修回指链接并跑 `lsregister -f`，不再经过 `<worktree>/build/`；任何 worktree 里都不该再出现 `build/PipiCOC.app`。要换位置只能设 `PIPICOC_APP_BUNDLE` / `PIPICOC_APP_HOME`，别改回仓库内路径。
 - 每次打包产生的暂存目录必须在本次进程退出前删掉，成功、抛异常、被信号杀都要删。运行时资源是只读组装的，删之前先 `chmod -R u+w`，否则 `rmSync` 会以 `ENOTEMPTY` 失败。
 - 禁止往 `/Applications` 写临时或带随机后缀的 bundle（例如 `.PipiCOC-<主题>-XXXXXX`）。装到唯一路径，或者不装。
 - 回滚备份不是留着 bundle 的理由。最多留一份上一版，且必须随暂存目录一起销毁。

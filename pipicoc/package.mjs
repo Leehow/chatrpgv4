@@ -9,18 +9,22 @@ import { assembleRuntime } from '../scripts/package-runtime.mjs';
 const repo=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const parent=join(repo,'.build.noindex/pipicoc');
 fs.mkdirSync(parent,{recursive:true});
-// The App has exactly one home, shared by every worktree: a build under the repo would put a
-// second 720 MB bundle next to each checkout and leave the /Applications symlink ambiguous.
-const stage=fs.mkdtempSync(join(parent,'package-')),out=process.env.PIPICOC_APP_HOME||join(homedir(),'leehow/code/pipicoc-build');
+// The App has exactly one copy on disk and it lives in /Applications, because LaunchServices
+// refuses to register a symlink as a bundle: with the real bundle anywhere else, the App is
+// absent from the Applications folder, Launchpad and Spotlight no matter how the link is made.
+// `home` keeps the receipt and a back-link so the old build path still resolves.
+const stage=fs.mkdtempSync(join(parent,'package-')),home=process.env.PIPICOC_APP_HOME||join(homedir(),'leehow/code/pipicoc-build');
 // The staging directory holds an assembled runtime, a nested package-runtime closure, and the
 // App this run replaces. None of it outlives the run, and the runtime is assembled read-only,
 // so restore write permission before unlinking it on every exit path including failure.
 const purgeStage=()=>{try{execFileSync('/bin/chmod',['-R','u+w',stage],{stdio:'ignore'});}catch{}try{fs.rmSync(stage,{recursive:true,force:true});}catch{}};
 process.on('exit',purgeStage);
 for(const signal of ['SIGINT','SIGTERM','SIGHUP'])process.on(signal,()=>{purgeStage();process.exit(1);});
-fs.mkdirSync(out,{recursive:true});
-const target=join(out,'PipiCOC.app'),identity=process.env.PIPICOC_SIGN_IDENTITY||'PipiUI Dev';
-if(fs.existsSync(target)&&execFileSync('/bin/ps',['-axo','command='],{encoding:'utf8'}).split('\n').some(line=>line.trim().startsWith(join(target,'Contents/MacOS/'))))
+fs.mkdirSync(home,{recursive:true});
+const target=process.env.PIPICOC_APP_BUNDLE||'/Applications/PipiCOC.app',link=join(home,'PipiCOC.app'),identity=process.env.PIPICOC_SIGN_IDENTITY||'PipiUI Dev';
+// A run started through the back-link reports that path, so both spellings have to be checked.
+const running=execFileSync('/bin/ps',['-axo','command='],{encoding:'utf8'}).split('\n');
+if(fs.existsSync(target)&&[target,link].some(path=>running.some(line=>line.trim().startsWith(join(path,'Contents/MacOS/')))))
   throw new Error('Quit the running canonical PipiCOC App before replacing it.');
 const run=(command,args,cwd=repo,env=process.env)=>execFileSync(command,args,{cwd,env,stdio:'inherit'});
 run('npm',['run','build:runtime']);
@@ -59,5 +63,9 @@ try{fs.renameSync(app,target);}catch(error){if(backup)fs.renameSync(backup,targe
 const receipt={app:target,commit:execFileSync('git',['rev-parse','HEAD'],{cwd:repo,encoding:'utf8'}).trim(),createdAt:new Date().toISOString(),kind:'standalone-typescript-runtime',architecture:'arm64',signingIdentity:identity,
   runtimeDescriptor:{schemaVersion:1,kind:'standalone',runtimeRoot:'pi-coc'},node:{version:assembly.node.version,abi:assembly.node.abi},git:assembly.git.version,
   sourcePackageSha256:assembly.sourcePackageSha256,sourceLockSha256:assembly.sourceLockSha256,assemblyEvidence:assembled.evidence,resourceInventoryStage:'before-codesign',signedNative};
-fs.writeFileSync(join(out,'pipicoc-package.json'),JSON.stringify(receipt,null,2)+'\n');
+fs.writeFileSync(join(home,'pipicoc-package.json'),JSON.stringify(receipt,null,2)+'\n');
+// Repair the back-link and re-register, so the Applications entry survives every rebuild.
+if(fs.existsSync(link)||fs.lstatSync(link,{throwIfNoEntry:false}))fs.rmSync(link,{recursive:true,force:true});
+fs.symlinkSync(target,link);
+execFileSync('/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister',['-f',target]);
 console.log(target);

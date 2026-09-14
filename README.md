@@ -86,7 +86,7 @@ pipicoc/dev --campaign <战役名>     # 关闭建卡窗口后，用同一界面
 `PI_COC_HOME` 可显式选择存档根目录。不要在两个窗口同时打开同一战役。
 源码运行与独立 App 组包共用编译入口；前端验收与 PDF 阅读验收分别记录。
 
-本地打包：`node pipicoc/package.mjs`，生成 `~/leehow/code/pipicoc-build/PipiCOC.app`（唯一落点，`PIPICOC_APP_HOME` 可改），以 `PipiUI Dev` 签名。
+本地打包：`node pipicoc/package.mjs`，直接装成 `/Applications/PipiCOC.app`（盘上唯一一份，`PIPICOC_APP_BUNDLE` 可改），以 `PipiUI Dev` 签名；收据与回指链接留在 `~/leehow/code/pipicoc-build/`。
 此配方组装独立 TypeScript 运行时：受管 Node、Git、Pi、原生模块和只读内容都随包提供；运行时描述只保存包内相对路径。Pi 配置、凭据、会话和运行目录位于 App 自有 userData，战役仍保存在用户选择的 COC home。源码模式也只运行 TypeScript，`PI_COC_RUNTIME=python` 会明确报错。
 
 Python 旧内核已从当前树移除。兼容测试通过 `tests/python-oracle.json` 固定的 Git 历史版本，在忽略且只读的 `.cache/python-oracle/` 中取得对照；这里不是开发目录。测试检出必须包含该历史提交，浅克隆需补齐历史。新增规则和修复只写 `kernel-ts/`。Python 测试控制器和原生扩展构建工具仍使用锁定的 uv 环境，不随 App 分发。
