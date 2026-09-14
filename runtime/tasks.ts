@@ -167,7 +167,14 @@ export const runtimeCapabilities: RuntimeCapabilities = Object.freeze({
     ensureActive(signal);
     if (task.kind !== "reader" && task.kind !== "mod") throw new KernelError({ code: "not_implemented", message: "Unknown runtime task" });
     const request: ReaderRequest = { ...task.request, cwd: resolve(context.home, task.request.cwd), signal };
-    if (task.kind === "mod") request.model = context.env.PI_COC_MOD_MODEL?.trim() || request.model;
+    // A lane's model was already separable from the table's, because a slow one is paid by the player.
+    // Its reasoning effort was not, and it rode the table's own chip: a lane pinned to a fast model still
+    // ran at the Keeper's `high`, which is how one continuity review spent its whole 40s budget inside a
+    // single unfinished thinking stream. Both halves of "what the lane runs as" belong to the operator.
+    if (task.kind === "mod") {
+      request.model = context.env.PI_COC_MOD_MODEL?.trim() || request.model;
+      request.thinking = context.env.PI_COC_MOD_THINKING?.trim() || request.thinking;
+    }
     // A fully overridden command is not a Pi child, so its `--model` is never read and the agent
     // registry says nothing about what it can run.
     if (!context.env.PI_COC_READER_CMD?.trim()) await ensureChildRunnableModel(context, request.model);

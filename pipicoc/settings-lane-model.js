@@ -18,6 +18,16 @@
 
 export const SETTINGS_EXTENSION = "coc-keeper";
 export const SETTINGS_KEY = "ext.coc-keeper.laneModel";
+export const SETTINGS_THINKING_KEY = "ext.coc-keeper.laneThinking";
+
+/**
+ * Choosing the lane's model without its reasoning effort only half-separates it from the table: the
+ * lane kept riding the Keeper's own chip, so a table set to `high` ran its continuity review at `high`
+ * too and one review spent its entire budget inside a thinking stream it never finished. The levels
+ * are the runtime's own identifiers, shown as written — a caption we invented here would be a word
+ * table in a file that has no right to one.
+ */
+export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 
 /** A caption from the answer's `ui` block, or the key itself: a visible gap, never another language. */
 function word(ui, key) {
@@ -32,6 +42,12 @@ export function modelReference(setting) {
     ? setting.model.trim() : null;
 }
 
+/** One of the runtime's levels, which is what the child is handed; anything else is not a choice. */
+export function thinkingReference(setting) {
+  const level = setting && typeof setting === "object" && typeof setting.level === "string" ? setting.level.trim() : "";
+  return THINKING_LEVELS.includes(level) ? level : null;
+}
+
 export function createComponent(React) {
   const h = React.createElement;
   const { useEffect, useRef, useState } = React;
@@ -43,6 +59,7 @@ export function createComponent(React) {
     const models = visibility && Array.isArray(visibility.models) ? visibility.models : [];
     const [ui, setUi] = useState(undefined);
     const [current, setCurrent] = useState(undefined);
+    const [thinking, setThinking] = useState(undefined);
     const [failed, setFailed] = useState(false);
     const generation = useRef(0);
     const t = (key) => word(ui, key);
@@ -60,20 +77,23 @@ export function createComponent(React) {
         if (mine !== generation.current) return;
         setUi(words);
         setCurrent(modelReference(stored && stored[SETTINGS_KEY]));
+        setThinking(thinkingReference(stored && stored[SETTINGS_THINKING_KEY]));
       })();
       return () => { generation.current++; };
     }, [api, host]);
 
-    function choose(reference) {
-      setCurrent(reference);
+    function write(key, value, apply) {
+      apply();
       setFailed(false);
       if (!host || !host.updateExtensionSettings) return;
-      void host.updateExtensionSettings(SETTINGS_EXTENSION, { [SETTINGS_KEY]: reference ? { model: reference } : {} })
+      void host.updateExtensionSettings(SETTINGS_EXTENSION, { [key]: value })
         .then((result) => { if (result && result.ok === false) setFailed(true); })
         .catch(() => setFailed(true));
     }
+    const choose = (reference) => write(SETTINGS_KEY, reference ? { model: reference } : {}, () => setCurrent(reference));
+    const chooseThinking = (level) => write(SETTINGS_THINKING_KEY, level ? { level } : {}, () => setThinking(level));
 
-    if (current === undefined) return h("div", { className: "model-modal-state" }, t("lead"));
+    if (current === undefined || thinking === undefined) return h("div", { className: "model-modal-state" }, t("lead"));
 
     const rows = [
       { key: "auto", title: t("auto_title"), subtitle: t("auto_subtitle"), selected: current === null, pick: () => choose(null) },
@@ -83,22 +103,33 @@ export function createComponent(React) {
           selected: current === reference, pick: () => choose(reference) };
       }),
     ];
+    const thinkingRows = [
+      { key: "auto", title: t("thinking_auto_title"), subtitle: t("thinking_auto_subtitle"),
+        selected: thinking === null, pick: () => chooseThinking(null) },
+      ...THINKING_LEVELS.map((level) => ({ key: level, title: level, subtitle: "",
+        selected: thinking === level, pick: () => chooseThinking(level) })),
+    ];
+    const group = (prefix, list) => h("div", null, list.map((row) => h("button", {
+      key: row.key, type: "button", className: "model-row", "aria-pressed": row.selected,
+      "data-testid": `${prefix}-row-${row.key}`, onClick: row.pick,
+      style: { display: "flex", width: "100%", gap: "8px", alignItems: "baseline", cursor: "pointer",
+        background: "none", border: 0, padding: "6px 4px", textAlign: "left", font: "inherit" },
+    },
+      h("input", { type: "radio", checked: row.selected, readOnly: true, "aria-label": row.title }),
+      h("span", { className: "model-row-name" }, row.title),
+      row.subtitle ? h("span", { className: "model-row-id" }, row.subtitle) : null,
+      row.selected ? h("span", { className: "model-row-current" }, t("current")) : null)));
 
     return h("div", { className: "model-visibility" },
       h("p", { className: "model-modal-state" }, t("lead")),
       h("p", { className: "model-modal-state" }, t("aside")),
+      // Both choices are read when a session starts. Without this line a person changes the model, sees
+      // the running table fail exactly as before, and concludes the faster model did not help -- which
+      // is what happened the day this section grew its second half.
+      h("p", { className: "model-modal-state" }, t("restart")),
       failed ? h("div", { className: "model-modal-error", role: "alert" }, t("failed")) : null,
-      models.length
-        ? h("div", null, rows.map((row) => h("button", {
-            key: row.key, type: "button", className: "model-row", "aria-pressed": row.selected,
-            "data-testid": `lane-model-row-${row.key}`, onClick: row.pick,
-            style: { display: "flex", width: "100%", gap: "8px", alignItems: "baseline", cursor: "pointer",
-              background: "none", border: 0, padding: "6px 4px", textAlign: "left", font: "inherit" },
-          },
-            h("input", { type: "radio", checked: row.selected, readOnly: true, "aria-label": row.title }),
-            h("span", { className: "model-row-name" }, row.title),
-            h("span", { className: "model-row-id" }, row.subtitle),
-            row.selected ? h("span", { className: "model-row-current" }, t("current")) : null)))
-        : h("div", { className: "model-modal-state" }, t("empty")));
+      models.length ? group("lane-model", rows) : h("div", { className: "model-modal-state" }, t("empty")),
+      h("p", { className: "model-modal-state" }, t("thinking_lead")),
+      group("lane-thinking", thinkingRows));
   };
 }

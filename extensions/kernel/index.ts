@@ -144,6 +144,14 @@ interface TableState {
 	deliveryFix?: { kind: string; text: string };
 	/** A review operation stopped; only genuine new player input can start a linked retry. */
 	reviewUnavailable?: string;
+	/** Consecutive continuity-review outages (contract §38), counted like the admission lane's own
+	 * (§32.2): the first reads as transient, a streak turns the player's service notice persistent and
+	 * notifies the operator out of fiction, once per streak. A landed narrate resets it; a turn
+	 * boundary does not -- an outage is a service condition, not a turn context. */
+	reviewOutage: number;
+	reviewOutageNotified?: boolean;
+	/** This run already told the player the turn could not be published: one service notice per run. */
+	reviewNoticeSent?: boolean;
 	/** Contract §38: an agent run ended leaving this turn open with nothing delivered, so no one can
 	 * finish it any more. The next player input releases it instead of being refused turn_state. */
 	strandedTurn?: boolean;
@@ -980,6 +988,9 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	function applyToolSuccess(state: TableState, tool: string, toolCallId: string, result: Record<string, unknown>): void {
+		// A landed narrate is the proof that the review is back: it is the only verb the continuity
+		// review gates, so its success -- not a turn boundary -- is what ends an outage streak.
+		if (tool === "narrate") { state.reviewOutage = 0; state.reviewOutageNotified = false; }
 		switch (tool) {
 			case "look":
 			case "lookup":
@@ -1056,8 +1067,23 @@ export default function (pi: ExtensionAPI) {
 	// ---- Tools ------------------------------------------------------------
 	function pauseReview(state: TableState, error: unknown): void {
 		const cause = isKernelError(error) ? String(error.details?.cause ?? error.message) : String(error);
+		// Only the first pause of a run is an outage. Once the review is paused every later tool call
+		// re-throws the same reason from the guard above, and counting those would turn one dead lane
+		// into a streak inside a single run.
+		const outage = state.reviewUnavailable === undefined;
 		state.reviewUnavailable = cause; state.deliveryFix = undefined; state.floorDraft = undefined;
-		const status = {campaign: state.campaign, turn: state.turn, status: 'unavailable', cause};
+		if (outage) state.reviewOutage += 1;
+		const streak = state.reviewOutage;
+		const escalate = streak >= 2 && !state.reviewOutageNotified;
+		if (escalate) state.reviewOutageNotified = true;
+		// The operator's surface (contract §38, shaped like §32.2's): out of fiction, once per streak,
+		// with the fix. The lane model is read from the setting when the session starts, so a setting
+		// changed under a running table is why "I already switched models" and "it still fails" are both
+		// true -- the notice has to say so, or the person keeps changing something that cannot take.
+		const status = {campaign: state.campaign, turn: state.turn, status: escalate ? 'down' : 'unavailable', streak, cause,
+			...(escalate ? {fix: 'The continuity review keeps failing, so finished turns cannot be published. ' +
+				'Choose a faster review model in the Lane model setting, or set PI_COC_MOD_MODEL to a healthy provider/model, ' +
+				'and then start a new session: the lane reads that choice when the session starts, not while it runs.'} : {})};
 		pi.appendEntry('coc-review-status', status);
 		pi.events.emit('coc:review-status', status);
 	}
@@ -1428,6 +1454,7 @@ export default function (pi: ExtensionAPI) {
 				admission: new Map(),
 				admissionRefused: [],
 				admissionOutage: 0,
+				reviewOutage: 0,
 				landed: [],
 				adaptationScanned: false,
 			};
@@ -1556,6 +1583,7 @@ export default function (pi: ExtensionAPI) {
 		const state = table;
 		if (!state) return;
 		state.reviewUnavailable = undefined;
+		state.reviewNoticeSent = false;
 		const text = event.prompt;
 		const startedAt = new Date().toISOString();
 		const began = Date.now();
@@ -1983,7 +2011,34 @@ export default function (pi: ExtensionAPI) {
 		}
 		if (state.verifierOwed) settleVerifier(state);
 		if (state.closedThisRun || state.renderedText) return;
-		if (state.reviewUnavailable) return;
+		// Contract §38: the review, not the Keeper, is why this run ends with nothing delivered, and
+		// returning here silently is the whole of what the player experiences. On the turn that found
+		// this, a Persuade roll, a discovered clue and four registrations had all settled with receipts
+		// and not one word reached the screen -- the engine moved and the fiction did not, which is the
+		// drift the review exists to prevent. The draft cannot be published in its place: it never went
+		// through narrate, so it still carries the machine tokens only a rendered delivery strips
+		// (contract §34.14). What the player is owed is the plain fact that this turn could not be
+		// published, in the table's own language, and whether trying again is worth anything.
+		if (state.reviewUnavailable) {
+			if (!state.reviewNoticeSent) {
+				state.reviewNoticeSent = true;
+				const streak = state.reviewOutage;
+				let line = streak >= 2
+					? `This turn could not be published: its continuity review has failed ${streak} times in a row, so sending it again will not help. The person running this table has been told.`
+					: "This turn could not be published: its continuity review did not finish. Everything already settled is kept — send anything to try again.";
+				try {
+					// Both keys are written out here: the caption inventory is checked by scanning these
+					// call sites, and a key held in a variable is a shipped word nothing asks for.
+					line = (await surface.words()).line(streak >= 2 ? "review_down_notice" : "review_unavailable_notice", { streak });
+				} catch {
+					/* an unreadable content root still owes the player the English line */
+				}
+				pi.sendMessage({ customType: "coc-delivery", content: line, display: true,
+					details: { coc_delivery: true, turn: state.turn, review_unavailable: true, streak } });
+				void record({ lane: "delivery", turn: state.turn, ok: true, reason: "review_unavailable_notice", streak });
+			}
+			return;
+		}
 		if (state.steeredThisTurn) return;
 		if (state.preparationWait) {
 			state.steeredThisTurn = true;

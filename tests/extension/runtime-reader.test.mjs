@@ -150,6 +150,37 @@ writeFileSync('launch-argv.json',JSON.stringify(process.argv.slice(2)));\n`);
   }
 });
 
+/**
+ * Contract §37.9: choosing the lane's model without its reasoning effort only half-separates it from the
+ * table. A lane pinned to a fast model still ran at the Keeper's own `high`, which is how a continuity
+ * review spent its whole wall-clock budget inside a first thinking stream it never finished.
+ */
+test("Mod reasoning effort overrides the table's, and does not redirect reader tasks", async t => {
+  const home = await temporary(t), executable = join(home, "capture-argv.mjs"), launcher = join(home, "selected node");
+  await writeFile(executable, `import {writeFileSync} from 'node:fs';
+writeFileSync('launch-argv.json',JSON.stringify(process.argv.slice(2)));\n`);
+  const quote = value => "'" + value.replaceAll("'", "'\\''") + "'";
+  await writeFile(launcher, `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(executable)} "$@"\n`);
+  await chmod(launcher, 0o755);
+  const agent = join(home, "agent");
+  await mkdir(agent, { recursive: true });
+  await json(join(agent, "models-store.json"), { selected: { models: [{ id: "current-model" }] } });
+  const context = composeRuntimeContext({ owner: "preparation", home }, options({
+    PI_COC_READER_CMD: undefined, PI_COC_MOD_THINKING: " low ",
+  }, { agentHome: agent, nodeExecutable: launcher }));
+  for (const [kind, expected] of [["mod", "low"], ["reader", "high"]]) {
+    const cwd = join(home, kind);
+    await mkdir(cwd);
+    const outcome = await runtimeCapabilities.runTask(context,
+      { kind, request: { cwd, brief: "Capture launch flags only", model: "selected/current-model", thinking: "high" } }, active());
+    assert.equal(outcome.ok, true, JSON.stringify(outcome));
+    const args = JSON.parse(await readFile(join(cwd, "launch-argv.json"), "utf8"));
+    assert.equal(args[args.indexOf("--thinking") + 1], expected);
+    // The two overrides are independent: an effort choice never moves the lane to another model.
+    assert.equal(args[args.indexOf("--model") + 1], "selected/current-model");
+  }
+});
+
 test("lane children mount the provider extensions, and a lane model is never re-named", async t => {
   const home = await temporary(t), executable = join(home, "capture-model.mjs"), launcher = join(home, "selected node"), agent = join(home, "agent"), captured = join(home, "captured", "argv.json");
   await mkdir(join(home, "captured"));

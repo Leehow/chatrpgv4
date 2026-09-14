@@ -1,8 +1,12 @@
 {
   "lead": "Choose the model the Keeper's background lanes use: writing an item's parameters, and auditing an unpublished draft for mechanics it never declared.",
   "aside": "Nothing these lanes write reaches the player, so a quick model here shortens every turn without touching a word of the prose.",
+  "restart": "Both choices are read when a session starts. Change them, then open a new session: a table that is already running keeps the ones it started with.",
   "auto_title": "Follow the table",
   "auto_subtitle": "The lanes run on whichever model the Keeper is set to",
+  "thinking_lead": "Choose the reasoning effort those lanes run at. A review has a fixed time budget, and on a high-effort table one can spend all of it thinking and deliver nothing.",
+  "thinking_auto_title": "Follow the table",
+  "thinking_auto_subtitle": "The lanes run at whichever level the Keeper is set to",
   "current": "In use",
   "empty": "No models in Model Management yet. Sign in a provider there, then come back.",
   "failed": "Reading or writing the lane model failed; try again."

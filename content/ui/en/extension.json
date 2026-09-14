@@ -44,6 +44,8 @@
   "receipt_worldline": "{operation} -> {line}",
   "receipt_worldline_loop": "{operation} -> {line} loop {loop}",
   "receipt_worldline_plain": "worldline",
+  "review_down_notice": "This turn could not be published: its continuity review has failed {streak} times in a row, so sending it again will not help. The person running this table has been told.",
+  "review_unavailable_notice": "This turn could not be published: its continuity review did not finish. Everything already settled is kept — send anything to try again.",
   "session_defence": "defence: {who}",
   "session_defence_options": "defence: {who} ({options})",
   "session_defender_npc": "NPC",

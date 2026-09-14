@@ -5660,6 +5660,7 @@ export class PiHostBackend implements HostBackend {
       this.assertSessionGeneration(id, generation);
       const cocBinding = await readCocBinding(found.path);
       const cocLaneModel = cocBinding ? await this.cocLaneModel() : undefined;
+      const cocLaneThinking = cocBinding ? await this.cocLaneThinking() : undefined;
       // Kept so the live stream can hand a card the campaign's language without re-reading the
       // transcript inside a synchronous reader.
       if (cocBinding) this.cocSessionBindings.set(id, cocBinding);
@@ -5682,6 +5683,7 @@ export class PiHostBackend implements HostBackend {
               ...(this.piCommand.env ?? {}),
               ...(cocBinding ? {PI_COC_CAMPAIGN:cocBinding.campaign,PI_COC_HOME:cocBinding.home, PI_COC_MODE:cocBinding.mode || "play",
                 ...(cocLaneModel && !this.env.PI_COC_MOD_MODEL?.trim() ? {PI_COC_MOD_MODEL:cocLaneModel} : {}),
+                ...(cocLaneThinking && !this.env.PI_COC_MOD_THINKING?.trim() ? {PI_COC_MOD_THINKING:cocLaneThinking} : {}),
                 ...(cocBinding.mode === "setup" ? {PI_COC_SETUP_AUTOSTART:"1"} : {})} : {}),
             }),
             workerEnvFromVault(this.vaultDir, id),
@@ -8693,6 +8695,19 @@ export class PiHostBackend implements HostBackend {
     const model = isRecord(value) && typeof value.model === "string" ? value.model.trim() : "";
     return model || undefined;
   }
+  /**
+   * The reasoning effort those same lanes run at. Choosing the lane's model without choosing its effort
+   * only half-separates it from the table: the lane still rode the Keeper's own chip, so a table set to
+   * `high` ran its continuity review at `high` too, and one such review spent its entire forty-second
+   * budget inside a first thinking stream it never finished — the turn was then refused and the player
+   * was shown nothing. Absent means the lane keeps following the table, which is the old behaviour.
+   */
+  private async cocLaneThinking(): Promise<string | undefined> {
+    const values = readAppExtensionSettingsValues(await this.readSettings(), "coc-keeper", new Set());
+    const value = values["ext.coc-keeper.laneThinking"];
+    const level = isRecord(value) && typeof value.level === "string" ? value.level.trim() : "";
+    return level || undefined;
+  }
   private async cocDifficultySetting(): Promise<Record<string, unknown> | undefined> {
     const values = readAppExtensionSettingsValues(await this.readSettings(), "coc-keeper", new Set());
     const value = values["ext.coc-keeper.difficulty"];
@@ -8981,7 +8996,8 @@ export class PiHostBackend implements HostBackend {
           const state = await this.getModelState(sid);
           const host = this.cocOnboardingRegistry.get({...this.cocRuntime,repo,home:context.home,agentDir:this.sharedProfileDir,env:this.env});
           const reading = host.documentPresentationStatus({campaign:context.campaign,actor:data.actor,name:data.name,version:data.version,play_language:data.play_language,
-            model:this.env.PI_COC_MOD_MODEL?.trim() || await this.cocLaneModel() || `${state.model.provider}/${state.model.id}`,thinking:state.thinkingLevel});
+            model:this.env.PI_COC_MOD_MODEL?.trim() || await this.cocLaneModel() || `${state.model.provider}/${state.model.id}`,
+            thinking:this.env.PI_COC_MOD_THINKING?.trim() || await this.cocLaneThinking() || state.thinkingLevel});
           data = reading.pending ? reading : {...data,display_name:reading.display_name,text:reading.text,original:reading.original};
         }
         if (method.startsWith("mods.document.") && data?.editor?.renderer === "paper") {

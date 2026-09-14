@@ -12,7 +12,7 @@ import {auditEvidenceView} from '../../extensions/mods/audit-evidence.ts';
 import modsExtension from '../../extensions/mods/index.ts';
 import {EventEmitter} from 'node:events';
 import {fauxAssistantMessage, fauxToolCall} from '@earendil-works/pi-ai';
-import {openTable, assistantTexts, waitForIdle} from './harness.mjs';
+import {openTable, assistantTexts, customMessages, waitForIdle} from './harness.mjs';
 
 const root = resolve(import.meta.dirname, '../..'), base = join(root, '.coc/playtests/continuity-audit-contracts');
 await mkdir(base, {recursive: true});
@@ -281,6 +281,99 @@ test('a turn left undelivered under a paused review is released on the next play
     assert.equal(inputs.length, 2);
     assert.equal(inputs[0].params.release, undefined);
     assert.equal(inputs[1].params.release, 'stranded');
+});
+
+/**
+ * Contract §38.5. Releasing the turn kept the campaign alive but said nothing. Retained live evidence
+ * (`game-9aa4e4ee` turn 1, 2026-09-14): a Persuade roll, a clue and four registrations all settled with
+ * receipts, the review timed out, and not one word reached the screen.
+ */
+test('a run left undelivered by the review tells the player instead of going silent', async t => {
+    const session = await openTable({retainAt: directory, responses: [
+        fauxAssistantMessage([fauxToolCall('narrate', {text: 'Unapproved draft.'})], {stopReason: 'toolUse'}),
+        fauxAssistantMessage('Should never be consumed.')]});
+    t.after(() => session.dispose());
+    session.emit('coc:mods-bridge', {async after() {}, async prepare(method) {
+        if (method === 'narrate') throw reviewUnavailable('Fixture budget exhausted');
+    }});
+    await session.session.prompt('I listen at the door.'); await waitForIdle(session.session);
+
+    const notices = customMessages(session.session, 'coc-delivery');
+    assert.equal(notices.length, 1, JSON.stringify(notices));
+    const [notice] = notices;
+    assert.equal(notice.details.review_unavailable, true);
+    assert.equal(notice.details.streak, 1);
+    // The rejected draft is never what goes out: it never passed narrate, so it still carries the machine
+    // tokens only a rendered delivery strips (§34.14).
+    assert.ok(!notice.content.includes('Unapproved'), notice.content);
+    // A caption the surface lacks renders as its own key, which is a visible gap, not a notice.
+    assert.ok(notice.content.trim() && !/^review_\w+_notice$/.test(notice.content.trim()), notice.content);
+});
+
+test('a repeated review outage drops the retry promise and notifies the operator once per streak', async t => {
+    const draft = text => [fauxAssistantMessage([fauxToolCall('narrate', {text})], {stopReason: 'toolUse'}),
+        fauxAssistantMessage('Should never be consumed.')];
+    const session = await openTable({retainAt: directory, responses: [...draft('First draft.'), ...draft('Second draft.')]});
+    t.after(() => session.dispose());
+    session.emit('coc:mods-bridge', {async after() {}, async prepare(method) {
+        if (method === 'narrate') throw reviewUnavailable('Fixture budget exhausted');
+    }});
+    await session.session.prompt('I listen at the door.'); await waitForIdle(session.session);
+    await session.session.prompt('I try the handle.'); await waitForIdle(session.session);
+
+    const notices = customMessages(session.session, 'coc-delivery');
+    assert.equal(notices.length, 2, JSON.stringify(notices));
+    assert.deepEqual(notices.map(notice => notice.details.streak), [1, 2]);
+    // The second outage stops reading as transient, so it cannot be the same sentence as the first.
+    assert.notEqual(notices[0].content, notices[1].content);
+
+    // The operator's surface fired once, out of fiction, naming the lane override and the restart.
+    const operator = session.entries('coc-review-status').filter(entry => entry.status === 'down');
+    assert.equal(operator.length, 1, JSON.stringify(operator));
+    assert.equal(operator[0].streak, 2);
+    assert.match(operator[0].fix, /PI_COC_MOD_MODEL/);
+    assert.match(operator[0].fix, /start a new session/);
+});
+
+test('a landed narrate ends the streak: the next outage reads as transient again', async t => {
+    const draft = text => [fauxAssistantMessage([fauxToolCall('narrate', {text})], {stopReason: 'toolUse'}),
+        fauxAssistantMessage('Should never be consumed.')];
+    const session = await openTable({retainAt: directory,
+        responses: [...draft('First draft.'), ...draft('A draft the review approves.'), ...draft('Third draft.')]});
+    t.after(() => session.dispose());
+    let reviews = 0;
+    session.emit('coc:mods-bridge', {async after() {}, async prepare(method) {
+        // The middle review works, so the turn between the two outages is delivered normally.
+        if (method === 'narrate' && ++reviews !== 2) throw reviewUnavailable('Fixture budget exhausted');
+    }});
+    await session.session.prompt('I listen at the door.'); await waitForIdle(session.session);
+    await session.session.prompt('I try the handle.'); await waitForIdle(session.session);
+    await session.session.prompt('I step back.'); await waitForIdle(session.session);
+
+    const notices = customMessages(session.session, 'coc-delivery').filter(m => m.details.review_unavailable);
+    assert.deepEqual(notices.map(notice => notice.details.streak), [1, 1],
+        'the landed narrate between them reset the count rather than a turn boundary');
+    assert.equal(session.entries('coc-review-status').filter(entry => entry.status === 'down').length, 0,
+        'neither outage ever reached a second consecutive failure');
+});
+
+test('one paused run is one outage however many verbs are refused after the pause', async t => {
+    const session = await openTable({retainAt: directory, responses: [
+        fauxAssistantMessage([fauxToolCall('narrate', {text: 'Unapproved draft.'})], {stopReason: 'toolUse'}),
+        // Every verb after the pause re-throws the same reason from the guard; none of them is a new outage.
+        fauxAssistantMessage([fauxToolCall('look', {focus: 'scene'})], {stopReason: 'toolUse'}),
+        fauxAssistantMessage([fauxToolCall('look', {focus: 'scene'})], {stopReason: 'toolUse'}),
+        fauxAssistantMessage('Should never be consumed.')]});
+    t.after(() => session.dispose());
+    session.emit('coc:mods-bridge', {async after() {}, async prepare(method) {
+        if (method === 'narrate') throw reviewUnavailable('Fixture budget exhausted');
+    }});
+    await session.session.prompt('I listen at the door.'); await waitForIdle(session.session);
+
+    const notices = customMessages(session.session, 'coc-delivery');
+    assert.equal(notices.length, 1, 'one service notice per run');
+    assert.equal(notices[0].details.streak, 1, 'the refusals after the pause did not inflate the streak');
+    assert.equal(session.entries('coc-review-status').filter(entry => entry.status === 'down').length, 0);
 });
 
 test('an undelivered turn whose review still works is not released', async t => {

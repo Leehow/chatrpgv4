@@ -44,6 +44,8 @@
   "receipt_worldline": "{operation} -> {line}",
   "receipt_worldline_loop": "{operation} -> {line} 循环 {loop}",
   "receipt_worldline_plain": "世界线",
+  "review_down_notice": "这一回合没能发布：连续性复核已经连续失败 {streak} 次，再发一次也没用。运行这张桌子的人已经收到通知。",
+  "review_unavailable_notice": "这一回合没能发布：连续性复核没跑完。已经结算的内容都还在——随便说句话就能再试一次。",
   "session_defence": "防御：{who}",
   "session_defence_options": "防御：{who}（{options}）",
   "session_defender_npc": "NPC",

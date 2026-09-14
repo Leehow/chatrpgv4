@@ -36,7 +36,12 @@
           "ext.coc-keeper.laneModel": {
             "type": "object",
             "title": "Lane model",
-            "description": "The model the Keeper's background lanes use to write item parameters and audit an unpublished draft. Absent means they follow the table's own model."
+            "description": "The model the Keeper's background lanes use to write item parameters and audit an unpublished draft. Absent means they follow the table's own model. Read when a session starts."
+          },
+          "ext.coc-keeper.laneThinking": {
+            "type": "object",
+            "title": "Lane reasoning effort",
+            "description": "The reasoning effort those lanes run at. Absent means they follow the table's own level, which on a high-effort table can cost the review its whole time budget. Read when a session starts."
           }
         }
       }

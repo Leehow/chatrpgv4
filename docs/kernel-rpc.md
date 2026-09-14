@@ -5766,6 +5766,18 @@ Fast lane models are unaffected — these are caps, not targets. The worst-case 
 rises from 30 s to 80 s, and only on a turn that needs a revise **and** a repair; before §38 such a turn
 could not be delivered at all.
 
+**A lane's reasoning effort is the operator's, like its model (2026-09-14).** The lane model was already
+separable from the table's, for the reason above: a slow one is paid by the player, and nothing these lanes
+write ever reaches the table. Its *effort* was not — the lane kept riding the table's own chip. A table on
+`high` therefore ran its continuity review on `high` no matter which model the lane was pinned to, and a
+review that gets `per_review_ms` of wall clock can spend all of it inside a first thinking stream it never
+finishes: retained evidence (`game-9aa4e4ee`, 2026-09-14) is two consecutive reviews killed at 40 s having
+made exactly one model call each. Half a separation is not one. `PI_COC_MOD_THINKING` joins
+`PI_COC_MOD_MODEL` as the runtime's override, with a visible setting handed to it the same way; absent, the
+lane still follows the table, which is the previous behaviour. Both are read when a session starts, so a
+change under a running table takes effect on the next one — §38.5 is why the operator is told that rather
+than left to infer it.
+
 **The pre-delivery audit and the post-commit assessment ask different questions, and are left to.** On the
 accepted run's acquisition turn the checked audit passed `bridge_receipt` while the next assessment
 recorded `bridge_delivered: false`, which looks like the disagreement §37.3 forbids. It is not. The two
@@ -5987,7 +5999,34 @@ allowance in which to reach a lawful draft.
 - **Actor:** the player, who can speak again, and the Keeper, whose next run gets a new review context on
   the same unresolved turn state.
 
-### 38.5 Acceptance
+### 38.5 The player is always told, and a streak reaches the operator
+
+Releasing the turn kept the campaign alive but said nothing, and silence is its own defect. Retained live
+evidence (campaign `game-9aa4e4ee`, turn 1, 2026-09-14): a Persuade roll, a discovered clue and four
+queued registrations all settled with receipts, the continuity review timed out, the draft was discarded
+under §34.14, and the run ended with **not one word on screen**. The engine had moved and the fiction had
+not — exactly the drift the review exists to prevent, produced by the review. The player could only read it
+as a dead table.
+
+**A run that ends undelivered because the review was unavailable owes the player a service notice.** The
+host emits it, once per run, as a displayed message of its own, in the campaign's `play_language` from the
+extension caption surface (§23) — not as prose, not as fiction, and not through `narrate`, which the paused
+review refuses by construction. It states that the turn could not be published and that whatever already
+settled is kept. The rejected draft is **never** what gets sent: it never passed `narrate`, so it still
+carries the machine tokens only a rendered delivery strips (§34.14).
+
+**Outage streaks are counted and escalated, exactly as the admission lane's are (§32.2).** A run whose
+review pauses increments a consecutive-outage count held on the host's own table state; a landed `narrate`
+resets it, and a turn boundary does not, because an outage is a service condition rather than a turn
+context. Only the first pause of a run counts: once paused, every later verb re-throws the same reason from
+the guard, and counting those would turn one dead lane into a streak inside a single run. From the second
+consecutive outage the notice stops promising that another try will help, and the host writes one
+out-of-fiction operator entry (`coc-review-status` with `status: "down"`, the streak and a `fix`) naming
+the lane model, the `PI_COC_MOD_MODEL` override, and the fact that **the lane reads that choice when a
+session starts, not while it runs** — without which an operator changes the model, watches the running
+table fail identically, and concludes the change did not help.
+
+### 38.6 Acceptance
 
 1. A turn in `acting` whose agent run ended with no delivery under a paused review accepts the next
    `table.player_input` with `release: "stranded"`, writes a `closed_by: "stranded"` record carrying that
@@ -6001,6 +6040,11 @@ allowance in which to reach a lawful draft.
    `turn_state` and the §4 recovery path is unchanged.
 5. Live: the retained `midgame-bridge-live-21` deadlock cannot recur — after a paused review strands a
    turn, the player's next utterance opens a new turn on the same unresolved reentry.
+6. A run that ends undelivered under a paused review emits exactly one displayed service notice, in the
+   campaign's `play_language`, and never the rejected draft. A second run with no notice owed emits none.
+7. The outage count rises once per paused run however many verbs are refused after the pause, is reset by a
+   landed `narrate` and not by a turn boundary, and from the second consecutive outage the notice drops the
+   retry promise and one `coc-review-status` `status: "down"` entry carries the streak and the fix.
 ## 39. Session maps revealed by player knowledge (2026-09-13)
 
 The map feature uses the existing seven verbs and the existing ModuleGraph, campaign world state, source reader and structured mechanics delivery. It adds no map tool and no second state store. A map is an `asset` or `handout` node whose `properties.map_regions` is a non-empty list. Each row is `{region_id, name, level?, source_asset, source_box, placement, redactions?, safe_after_redactions?}`. `source_box` and `placement` are normalized `[x0,y0,x1,y1]` boxes. The source asset is a graph `asset`; it must be `player-safe` or `revealable`, unless an independently reviewed private source supplies non-empty redactions and explicitly declares `safe_after_redactions: true`. Source variants never share coordinates by assumption.
