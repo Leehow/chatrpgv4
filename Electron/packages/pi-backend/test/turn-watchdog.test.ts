@@ -76,6 +76,31 @@ describe("turn watchdog (fix 3)", () => {
     await backend.close();
   });
 
+  it("does not let a previous run's terminal message settle the current silent provider body", async () => {
+    const { backend, sessionPath } = await fixture();
+    await appendFile(sessionPath, JSON.stringify({
+      type: "message", id: "previous-stop", parentId: null,
+      message: { role: "assistant", content: [{ type: "thinking", thinking: "previous run" }], stopReason: "stop", timestamp: Date.now() - 10_000 },
+      timestamp: new Date(Date.now() - 10_000).toISOString(),
+    }) + "\n");
+    const statuses: string[] = [];
+    const off = backend.subscribe(e => { if (e.channel === "stream" && e.event.type === "status") statuses.push(e.event.status); });
+
+    await backend.handle("sendPrompt", ["s1", "__hold__"]);
+    await eventually(() => statuses.includes("started"));
+    const live = (backend as any).live.get("s1");
+    expect(live.turnStartedAt).toEqual(expect.any(Number));
+    live.lastTurnActivityAt = Date.now() - (TURN_WATCHDOG_TIMEOUT_MS + 5_000);
+
+    await (backend as any).checkTurnWatchdogs();
+    await new Promise(r => setTimeout(r, 100));
+    expect(statuses).toEqual(["started"]);
+    expect((backend as any).queue.isBusy("s1")).toBe(true);
+
+    off();
+    await backend.close();
+  });
+
   it("does not trigger when tail is tool_use (long tool call in progress)", async () => {
     const { backend, sessionPath } = await fixture();
     const statuses: string[] = [];

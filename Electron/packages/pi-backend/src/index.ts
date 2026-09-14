@@ -910,6 +910,8 @@ type Live = {
   pendingExtensionRestart?: boolean;
   /** The child is not a settled turn until all spawn initialization has succeeded. */
   spawnInitializing?: boolean;
+  /** Monotonic timestamp of the current turn's agent_start; terminal evidence older than this run cannot close it. */
+  turnStartedAt?: number;
   /** Monotonic timestamp of the last turn-related event (agent_start, deltas, tool, message_end). */
   lastTurnActivityAt?: number;
   /** Canonical project root. `cwd` may be a session-bound workspace/worktree; identity never follows it. */
@@ -5993,7 +5995,7 @@ export class PiHostBackend implements HostBackend {
       if(e.entry?.customType==='coc-setup-exit')live.cocSetupHandoffPending=true;
       if(e.entry?.customType==='coc-character-draft'&&e.entry?.data?.sheet)this.startDraftPresentation(live.session.id,e.entry.data);
       if(e.entry?.customType==='coc-mechanics')this.startDeliveryPresentation(live.session.id,e.entry);
-      const entry = e.entry?.customType === "coc-setup-opening"
+      const entry = e.entry?.customType === "coc-setup-opening" || e.entry?.customType === "coc-delivery"
         ? visibleHistoryEntry(e.entry,this.sessionSecrets(live.session.id))
         : mechanicsEntry(e.entry, this.cocSessionBindings.get(live.session.id)?.play_language, undefined, this.cocLiveWords(live.session.id));
       if (entry) this.stream({type:"presentation",sessionId:live.session.id,entry});
@@ -6052,7 +6054,8 @@ export class PiHostBackend implements HostBackend {
       // in the same stdout chunk. An async markBusy lets the settle run with a
       // stale epoch and drop the drain that should release the next queued item.
       live.turnEpoch = this.queue.markBusy(id, live.runtimeToken);
-      live.lastTurnActivityAt = Date.now();
+      live.turnStartedAt = Date.now();
+      live.lastTurnActivityAt = live.turnStartedAt;
       live.pendingFinalReconciliation = undefined;
       // A fresh turn invalidates the previous turn's tool identities.
       live.toolNames.clear();
@@ -6739,7 +6742,7 @@ export class PiHostBackend implements HostBackend {
   private touchTurnActivity(live: Live): void {
     live.lastTurnActivityAt = Date.now();
   }
-  private async isSessionTailTerminal(path: string): Promise<boolean> {
+  private async isSessionTailTerminal(path: string, notBefore?: number): Promise<boolean> {
     try {
       const stat = await fs.stat(path);
       const length = Math.min(stat.size, TERMINAL_DURABILITY_TAIL_BYTES);
@@ -6764,6 +6767,8 @@ export class PiHostBackend implements HostBackend {
         if (entry?.type === "message") {
           const message = entry.message;
           if (!message) return false;
+          const timestamp = asTime(entry.timestamp ?? message.timestamp);
+          if (notBefore !== undefined && timestamp < notBefore) return false;
           // Tool-use in progress is not terminal — long tool calls must not be interrupted.
           const content = Array.isArray(message.content) ? message.content : [];
           const hasToolCall = content.some((part: any) => part?.type === "toolCall" || part?.type === "tool_call" || part?.type === "tool_use");
@@ -6802,7 +6807,7 @@ export class PiHostBackend implements HostBackend {
       // behind it ("queued") and nothing ever drains. Require a quiet RPC
       // surface so a genuinely in-flight dispatch is never released.
       if (!turnOpen && live.pending.size > 0) continue;
-      const tailTerminal = await this.isSessionTailTerminal(live.path);
+      const tailTerminal = await this.isSessionTailTerminal(live.path, live.turnStartedAt);
       if (!tailTerminal) {
         console.warn(`[pipi-backend] turn watchdog no tail terminal session=${this.projectionDebugSessionTag(live.session.id)} epoch=${epoch}`);
         continue;

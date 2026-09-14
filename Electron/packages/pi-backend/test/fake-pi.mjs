@@ -148,6 +148,12 @@ readline.createInterface({ input: process.stdin }).on("line", line => {
     if (command.message === "__allow_compact__") { failCompact = false; contextTokens = 240000 }
     ok();
     logPrompt(command.message);
+    if (command.message === "__coc_notice__") {
+      send({ type: "agent_start" });
+      send({ type: "entry_appended", entry: { id: "coc-notice", type: "custom_message", customType: "coc-delivery", content: "The turn returned to the player.", display: true, timestamp: Date.now() } });
+      send({ type: "agent_settled" });
+      return;
+    }
     if (command.message === "__agent_running__" || command.message === "__hold_agent_running__") {
       // A background subagent starts and never ends. `__hold_agent_running__`
       // also parks the Boss turn so cut-in must abort it without sweeping.
