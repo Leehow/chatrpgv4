@@ -15,12 +15,12 @@ The user authorized `xai/grok-4.6` at low reasoning effort for the remaining liv
 - Production is the TypeScript kernel in `kernel-ts/`. Do not restore, modify, or port the retired Python kernel.
 - Core implementation commit: `ded4122cc8710d2ae86d8c5cba2f9d29523e3287` (`feat: reconnect active players to causal story`).
 - Relation-direction repair commit: `3419df4c` (`fix: bind causal evidence direction`).
-- Integration target: local branch `0.9.2a`.
+- Integration target: the current development line — the highest-numbered `0.x.xa` branch (`git branch --list '0.*a' --format='%(refname:short)' | sort -V | tail -1`); at handoff time it was `0.9.2a`, which has since been superseded. Do not target a superseded line.
 - Retained evidence worktree: `/Users/haoli/leehow/code/chatrpgv4-wt-midgame-evidence`.
 - The retained worktree contains ignored `.coc` evidence. Lock and retain it. Never close, remove, clean, reset, or delete its `.coc` directory.
-- The shared checkout `/Users/haoli/leehow/code/chatrpgv4-wt-pi-coc-v2` contains unrelated work on `codex/session-maps`. Do not absorb or alter it.
+- The shared checkout `/Users/haoli/leehow/code/chatrpgv4-wt-pi-coc-v2` is the mainline worktree (latest `0.x.xa`); the unrelated `codex/session-maps` work it carried when this handoff was written has since merged into the line.
 
-For another live acceptance, create a fresh lifecycle-owned worktree from current `0.9.2a`, then create a new campaign and run ID. Never copy or resume a completed save as the new test. Preserve and lock the resulting evidence worktree.
+For another live acceptance, create a fresh lifecycle-owned worktree from the current development line (latest `0.x.xa`), then create a new campaign and run ID. Never copy or resume a completed save as the new test. Preserve and lock the resulting evidence worktree.
 
 ## Implemented behavior
 
