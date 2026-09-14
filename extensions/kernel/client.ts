@@ -13,12 +13,25 @@ export interface KernelProgressFrame {
 	at?: string;
 }
 
+const DEFAULT_ERROR_RECOVERY: Record<string, { retryable: boolean; next: KernelErrorPayload["next"] }> = {
+	needs: { retryable: false, next: "change_input" },
+	needs_choice: { retryable: false, next: "change_input" },
+	invalid_params: { retryable: false, next: "change_input" },
+	unknown_entity: { retryable: false, next: "change_input" },
+	not_reachable: { retryable: false, next: "change_input" },
+	not_here: { retryable: false, next: "change_input" },
+	commit_failed: { retryable: true, next: "retry_same" },
+	operation_in_progress: { retryable: true, next: "retry_same" },
+};
+
 export interface KernelErrorPayload {
 	code: string;
 	message: string;
 	/** The narrower reason inside a coarse `code`, e.g. `play_language_mismatch` under `invalid_params` (contract §5). */
 	code_detail?: string;
 	fix?: string;
+	retryable?: boolean;
+	next?: "retry_same" | "change_input" | "narrate" | "ask" | "stop";
 	details?: Record<string, unknown>;
 }
 
@@ -26,6 +39,8 @@ export interface KernelErrorPayload {
 export class KernelError extends Error {
 	readonly code: string;
 	readonly codeDetail?: string;
+	readonly retryable: boolean;
+	readonly next: "retry_same" | "change_input" | "narrate" | "ask" | "stop";
 	readonly fix?: string;
 	readonly details?: Record<string, unknown>;
 
@@ -34,13 +49,18 @@ export class KernelError extends Error {
 		this.name = "KernelError";
 		this.code = payload.code;
 		this.codeDetail = payload.code_detail;
+		const recovery = DEFAULT_ERROR_RECOVERY[payload.code] ?? { retryable: false, next: "stop" as const };
+		this.retryable = payload.retryable ?? recovery.retryable;
+		this.next = payload.next ?? recovery.next;
 		this.fix = payload.fix;
 		this.details = payload.details;
 	}
 
-	/** One line for the model: `code: message`, plus a line when there is a fix. */
+	/** Recovery lines are unconditional: details projection must not depend on fix wording. */
 	toToolText(): string {
-		return this.fix ? `${this.code}: ${this.message}\nfix: ${this.fix}` : `${this.code}: ${this.message}`;
+		const lines = [`${this.code}: ${this.message}`, `retryable: ${this.retryable}`, `next: ${this.next}`];
+		if (this.fix) lines.push(`fix: ${this.fix}`);
+		return lines.join("\n");
 	}
 }
 

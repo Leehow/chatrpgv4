@@ -22,6 +22,15 @@ PDF 直接阅读与按需构图的目标契约见 §22（2026-09-07，待实现�
 
 错误码闭合枚举：`invalid_params`、`unknown_method`、`not_implemented`、`campaign_not_found`、`campaign_not_ready`、`turn_state`（当前回合状态不允许该方法）、`idempotency_conflict`、`needs`（缺少可补的输入，`details.needs` 给字段与可选值）、`needs_choice`（多个互斥候选，`details.candidates`）、`unknown_entity`（名字在模组图与世界状态中都找不到，`details.candidates` 给相近名字）、`not_reachable`（移动目的地不可达）、`not_here`（线索不在当前场景可得）、`commit_failed`（git 提交失败，回合未关闭）、`internal`。
 
+Every failure also carries `retryable` and `next`. `retryable` is true only when the exact
+request is safe to send again; `next` is a closed recovery action: `retry_same`,
+`change_input`, `narrate`, `ask`, or `stop`. `needs`, `needs_choice`, `invalid_params`,
+`unknown_entity`, `not_reachable`, and `not_here` use `change_input`; `commit_failed` and
+`operation_in_progress` use `retry_same`; `internal` is never an unchanged retry and uses
+`stop`. Other infrastructure failures use `stop` unless their implementation explicitly
+selects a safer action. The host projects both lines into the agent-visible tool result
+unconditionally, independently of `fix` and `details`.
+
 Section 26 adds two closed host-document error codes: `not_owned` refuses access
 after ownership changes; `revision_conflict` refuses a stale document/worldline
 write while preserving the client draft. Hot and cold UI bridges retain these codes.
@@ -259,6 +268,11 @@ same shape sits in the kernel: `set action.defense to one of details.options`,
 `discover one of details.clues_here`, `reveal one of details.echoes`, `name one of
 details.lines`, `details.suggested lists ...`, `details.engine_contract is ...` -- none of
 those keys was projected either.
+
+Recovery is structural rather than prose: **`retryable` and `next` are always rendered**
+to the model, independently of `fix` and `details`. They distinguish a safe unchanged replay
+from a required input change or a safe fallback, without changing refusal budgets,
+idempotency, or the rule that a failed batch has no effect.
 
 The rule, now structural rather than a list: **every `details.<key>` a `fix` text names is
 rendered to the model**, as one line `<key>: <compact JSON>` after the bespoke lines. The

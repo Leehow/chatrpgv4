@@ -60,6 +60,10 @@ test("needs_choice：候选与修正都到模型手上，补 decision 再调一�
 	assert.equal(failed.isError, true, "needs_choice 要标成工具错误");
 	const text = resultText(failed);
 	assert.match(text, /^needs_choice: 这一下有两种规则都接得住/);
+	assert.match(text, /^retryable: false$/m);
+	assert.match(text, /^next: change_input$/m);
+	assert.equal(failed.details.coc_error.retryable, false);
+	assert.equal(failed.details.coc_error.next, "change_input");
 	assert.match(text, /fix: 在 action\.decision 里点名一个候选/);
 	// details 只到扩展和界面：候选必须落进正文，否则守秘人挑不出来。
 	assert.match(text, /candidates:/);
@@ -111,6 +115,9 @@ test("攻击没写武器：内核报 needs 并列出可选，补上 weapon 再�
 	const [failed] = toolResults(table.session, "resolve");
 	assert.equal(failed.isError, true);
 	assert.match(resultText(failed), /missing weapon, one of: 点三八左轮, 撬棍, unarmed/);
+	assert.match(resultText(failed), /^retryable: false$/m);
+	assert.match(resultText(failed), /^next: change_input$/m);
+	assert.equal(failed.details.coc_error.next, "change_input");
 
 	const resolves = table.kernelRequests().filter((entry) => entry.method === "table.resolve");
 	assert.equal(resolves[1].params.action.weapon, "unarmed", "武器名做过空白归一化");

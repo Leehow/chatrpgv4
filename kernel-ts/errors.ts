@@ -8,26 +8,58 @@ export const ERROR_CODES = Object.freeze([
 ] as const);
 export type ErrorCode = typeof ERROR_CODES[number];
 
+/** Recovery instruction carried with every refusal so the Keeper can distinguish a safe
+ * replay from a request that must be repaired first. */
+export const ERROR_NEXT = ["retry_same", "change_input", "narrate", "ask", "stop"] as const;
+export type ErrorNext = typeof ERROR_NEXT[number];
+
+const DEFAULT_ERROR_RECOVERY: Record<ErrorCode, { retryable: boolean; next: ErrorNext }> = {
+  invalid_params: { retryable: false, next: "change_input" },
+  unknown_method: { retryable: false, next: "stop" },
+  not_implemented: { retryable: false, next: "stop" },
+  campaign_not_found: { retryable: false, next: "stop" },
+  campaign_not_ready: { retryable: false, next: "stop" },
+  turn_state: { retryable: false, next: "change_input" },
+  idempotency_conflict: { retryable: false, next: "change_input" },
+  needs: { retryable: false, next: "change_input" },
+  needs_choice: { retryable: false, next: "change_input" },
+  unknown_entity: { retryable: false, next: "change_input" },
+  not_reachable: { retryable: false, next: "change_input" },
+  not_here: { retryable: false, next: "change_input" },
+  not_owned: { retryable: false, next: "change_input" },
+  revision_conflict: { retryable: false, next: "change_input" },
+  commit_failed: { retryable: true, next: "retry_same" },
+  operation_in_progress: { retryable: true, next: "retry_same" },
+  internal: { retryable: false, next: "stop" },
+};
+
 export class RpcError extends Error {
   readonly code: ErrorCode;
+  readonly retryable: boolean;
+  readonly next: ErrorNext;
   readonly fix?: string;
   readonly details?: JsonObject;
   readonly codeDetail?: string;
 
   constructor(code: ErrorCode, message: string, options: {
     fix?: string; details?: JsonObject; codeDetail?: string;
+    retryable?: boolean; next?: ErrorNext;
   } = {}) {
     super(message);
     if (!ERROR_CODES.includes(code)) throw new TypeError(`unknown error code ${code}`);
     this.name = "RpcError";
     this.code = code;
+    this.retryable = options.retryable ?? DEFAULT_ERROR_RECOVERY[code].retryable;
+    this.next = options.next ?? DEFAULT_ERROR_RECOVERY[code].next;
     this.fix = options.fix;
     this.details = options.details;
     this.codeDetail = options.codeDetail;
   }
 
   toJson(): JsonObject {
-    const result: JsonObject = { code: this.code, message: this.message };
+    const result: JsonObject = {
+      code: this.code, message: this.message, retryable: this.retryable, next: this.next,
+    };
     if (this.codeDetail) result.code_detail = this.codeDetail;
     if (this.fix) result.fix = this.fix;
     if (this.details !== undefined) result.details = this.details;

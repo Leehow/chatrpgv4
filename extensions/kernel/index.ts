@@ -1067,6 +1067,7 @@ export default function (pi: ExtensionAPI) {
 					coc_error: {
 						code,
 						message: error instanceof Error ? error.message : String(error),
+						...(isKernelError(error) ? { retryable: error.retryable, next: error.next } : {}),
 						...(isKernelError(error) && error.codeDetail ? { code_detail: error.codeDetail } : {}),
 						...(isKernelError(error) && error.fix ? { fix: error.fix } : {}),
 						...(isKernelError(error) && error.details ? { details: error.details } : {}),
