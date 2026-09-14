@@ -707,3 +707,32 @@ test("host map assembly does not collapse receipt-less maps, but dedupes identic
 	assert.equal(mechanics.filter(row => row.kind === "map").length, 2);
 	assert.deepEqual(mechanics.find(row => row.map === "house").regions, []);
 });
+
+/**
+ * One delivery is one projection.
+ *
+ * `applyToolSuccess`'s own `narrate` case already writes the `coc-mechanics` entry, and the implicit
+ * close wrote a second, identical one right after it. The frontend draws what the session holds, so
+ * every turn the host closed for the Keeper showed the player the same "this turn's mechanics" block
+ * twice — campaign `game-5779d0fd` turn 3 on 2026-09-14: two session entries of identical bytes
+ * against a single row in the turn record. An explicit `narrate` travels one path and never doubled,
+ * which is why only some cards were affected and no suite noticed.
+ */
+test("宿主替守秘人收尾的回合，机制投影只发一条", async (t) => {
+	const table = await openTable({ responses: [
+		fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "time", minutes: 30 }] })], { stopReason: "toolUse" }),
+		fauxAssistantMessage("她把怀表盖合上。半个钟头就这么没了。"),
+	] });
+	t.after(() => table.dispose());
+
+	await table.session.prompt("我在门厅里站着等。");
+	await waitForIdle(table.session);
+
+	const narrates = table.kernelRequests().filter((entry) => entry.method === "table.narrate");
+	assert.equal(narrates.length, 1, "the host closed the turn once");
+	assert.equal(narrates[0].params.implicit, true, "and closed it implicitly");
+
+	const projected = table.entries("coc-mechanics");
+	assert.equal(projected.length, 1, `one delivery owes one projection, not ${projected.length}`);
+	assert.ok(projected[0].mechanics.length >= 1, "and that projection carries the turn's rows");
+});

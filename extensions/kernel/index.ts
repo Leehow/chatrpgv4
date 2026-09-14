@@ -1910,10 +1910,13 @@ export default function (pi: ExtensionAPI) {
 					...(state.rebindingRefused ? {rebinding_refused: {...state.rebindingRefused}} : {}) };
 				await mods?.prepare(tool, params, state.lanes.signal);
 				const result = (await state.kernel.call<Record<string, unknown>>(`table.${tool}`, params)) ?? {};
+				// `applyToolSuccess`'s own `narrate` case already projected the mechanics and noted the
+				// commit. Projecting again here wrote the `coc-mechanics` entry twice for every turn the
+				// host closed implicitly, and the frontend drew what the session held: the player saw the
+				// same "this turn's mechanics" block twice (campaign game-5779d0fd turn 3, two entries of
+				// identical bytes against one row in the turn record). An explicit `narrate` went through
+				// one path and was never affected, which is why only some cards doubled.
 				applyToolSuccess(state, tool, "implicit", result);
-				const mechanics = withHandouts(state, readMechanics(result));
-				noteMechanics(state, typeof result.turn === "number" ? result.turn : state.turn, mechanics,
-					asString(result.marked_text), result.labels);
 				await record({ tool, call_id: callId, started_at: startedAt, ms: Date.now() - began, ok: true, implicit: true });
 				await record({ tool, event: "turn-closed", round_trips: state.roundTrips, ok: true, implicit: true });
 				rendered = asString(result.rendered_text);
