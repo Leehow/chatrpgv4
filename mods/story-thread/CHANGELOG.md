@@ -1,5 +1,9 @@
 # Story Thread
 
+## 1.2.8
+
+- Keep the later-turn reminder under the shared 4 KB capsule budget while retaining the action boundaries for checks, costs, fallback routes, causal re-entry and refused source rebinding. The package version moves because installed Mod bytes are immutable within one version.
+
 ## 1.2.7
 - A refused `source_rebinding` is now an instruction, not a loop. When a rebinding the Keeper prepared comes back `failed`, its `refused` reason names what the independent source review contradicted; the Keeper must not prepare that same placement again. It either proposes a materially different placement the original source supports, or plays the action the player actually chose — claiming no evidence and no placement — and leaves the causal thread standing for a later turn. The audit reads the host-owned `rebinding_refused` and accepts that honest turn as `authority_unavailable` with verdict `defer` (`narration-audit` 1.2.17). No new lane, verb, counter, place list or automatic adaptation.
 - Retained failed evidence: `midgame-bridge-live-21`, campaign turn 3. Mode was `introduce_evidence` with `authority.clue_here` false and `known` empty; the Keeper prepared the required `source_rebinding` and the independent review contradicted it, because the placement would have invented an NPC's possession of a document the source keeps at the newspaper morgue. With no lawful basis left the review paused, `narrate` could never pass, and the turn could not be delivered at all. That deadlock is fixed separately by contract §38; this version removes the cause on the Keeper's side.
