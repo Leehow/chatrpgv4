@@ -1447,10 +1447,22 @@ function redactHistoryEntry(entry: HistoryEntry | undefined, secrets: RevealedSe
 type CocHostPaths = {repo: string; contentRoot: string; home: string};
 function visibleHistoryEntry(entry: any, secrets: RevealedSecret[] = [], language?:string,
   presentations?: ReadonlyMap<number, Record<string, unknown>>, words: CocHistoryWords = {},
-  current?: Record<string, unknown>): HistoryEntry | undefined {
+  current?: Record<string, unknown>, privateCocTranscript = false): HistoryEntry | undefined {
   const mechanics = mechanicsEntry(entry, language, presentations, words, current);
   if (mechanics) return mechanics;
-  if (entry?.type === "message") return redactHistoryEntry(historyEntryFromMessage(entry), secrets);
+  if (entry?.type === "message") {
+    const mapped = redactHistoryEntry(historyEntryFromMessage(entry), secrets);
+    if (!mapped || !privateCocTranscript) return mapped;
+    // The player history keeps delivered assistant prose, but not the retained Keeper evidence that
+    // produced it. Tool-result rows disappear; assistant activity keeps only text ordering so a
+    // settled reconcile cannot resurrect the live thinking/tool summary we deliberately withheld.
+    if (mapped.role === "tool") return undefined;
+    if (mapped.role !== "assistant") return mapped;
+    const { thinking: _thinking, tools: _tools, citations: _citations, fileSources: _fileSources,
+      activities: privateActivities, ...playerEntry } = mapped;
+    const activities = privateActivities?.filter(activity => activity.type === "text");
+    return { ...playerEntry, ...(activities?.length ? { activities } : {}) };
+  }
   if (isVisibleCustomMessage(entry)) {
     const content = text(entry.content);
     if (!content) return undefined;
@@ -1573,6 +1585,8 @@ async function readHistoryFallback(
   const wanted = new Set(pageIds);
   const mappedById = new Map<string, HistoryEntry>();
   const cocBinding = await readCocBinding(path);
+  const privateCocTranscript = Boolean(cocBinding)
+    || (await readSessionMeta(path)).productProfile?.id === "coc-keeper";
   // One directory read per page, not one fetch per mounted card. The chrome's words and the
   // campaign's projected vocabulary are loaded here for the same reason: every card on the page
   // reads them, and a per-row read would open the same three files once per roll.
@@ -1597,7 +1611,7 @@ async function readHistoryFallback(
     }
     if (!wanted.has(entry?.id)) continue;
     const secrets = vaultDir && sessionId ? revealRedactionSecrets(vaultDir, sessionId) : [];
-    const mapped = visibleHistoryEntry(entry, secrets, cocBinding?.play_language, cocPresentations, cocWords, cocDraft);
+    const mapped = visibleHistoryEntry(entry, secrets, cocBinding?.play_language, cocPresentations, cocWords, cocDraft, privateCocTranscript);
     if (!mapped) continue;
     mappedById.set(mapped.id, mapped);
   }

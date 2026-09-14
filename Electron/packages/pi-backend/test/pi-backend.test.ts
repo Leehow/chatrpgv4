@@ -105,6 +105,38 @@ describe("PiHostBackend history structure",()=>{let root="";afterEach(async()=>{
   ]);
 });
 
+it("projects a bound COC history as delivered prose without Keeper activity summaries", async () => {
+  root = await mkdtemp(join(tmpdir(), "pipi-pi-hist-coc-private-"));
+  const cwd = join(root, "project");
+  const dir = join(root, "sessions", "project");
+  await mkdir(dir, { recursive: true });
+  await mkdir(cwd, { recursive: true });
+  const path = join(dir, "session.jsonl");
+  const msg = (id, parentId, message) => JSON.stringify({ type: "message", id, parentId, timestamp: "2026-08-10T00:00:01.000Z", message });
+  await writeFile(path, [
+    JSON.stringify({ type: "session", version: 3, id: "session-1", timestamp: "2026-08-10T00:00:00.000Z", cwd }),
+    JSON.stringify({ type: "custom", id: "binding", parentId: null, customType: "coc-session", data: { campaign: "c1", home: root, play_language: "en" } }),
+    msg("a1", "binding", { role: "assistant", content: [
+      { type: "thinking", thinking: "the hidden culprit is downstairs" },
+      { type: "toolCall", id: "call-1", name: "resolve", arguments: { secret: "keeper-only" } },
+      { type: "text", text: "The editor sets the file on the desk." },
+    ] }),
+    msg("t1", "a1", { role: "toolResult", toolCallId: "call-1", toolName: "resolve", isError: false, content: [{ type: "text", text: "keeper receipt" }] }),
+  ].join("\n") + "\n");
+  const backend = createPiHostBackend({ agentDir: join(root, "agent"), sessionsRoot: join(root, "sessions"), runtimeRoot: join(root, "runtime"), piPath: "node" });
+  const history = await backend.handle("getSessionHistory", ["session-1"]) as any[];
+  expect(history).toEqual([expect.objectContaining({
+    id: "a1",
+    role: "assistant",
+    content: "The editor sets the file on the desk.",
+    activities: [{ type: "text", contentIndex: 2, content: "The editor sets the file on the desk." }],
+  })]);
+  expect(history[0]).not.toHaveProperty("thinking");
+  expect(history[0]).not.toHaveProperty("tools");
+  expect(JSON.stringify(history)).not.toContain("keeper-only");
+  expect(JSON.stringify(history)).not.toContain("keeper receipt");
+});
+
 it("projects typed toolResult images and structured details without leaking base64 into content", async () => {
   root = await mkdtemp(join(tmpdir(), "pipi-pi-hist-img-"));
   const cwd = join(root, "project");
