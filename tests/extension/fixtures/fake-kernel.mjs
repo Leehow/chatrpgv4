@@ -696,6 +696,9 @@ function handle(method, params) {
 			return { ok: true, result: { turn, state, receipts: [], pending_choice: null, mechanics: [...turnMechanics] } };
 		case "table.look":
 			if (state === "open") state = "acting";
+			if (process.env.FAKE_KERNEL_LOOK_MAPS) {
+				return { ok: true, result: { map_views: JSON.parse(process.env.FAKE_KERNEL_LOOK_MAPS) } };
+			}
 			return { ok: true, result: { where: capsule(null).where, present: capsule(null).present } };
 		case "table.lookup":
 			if (state === "open") state = "acting";

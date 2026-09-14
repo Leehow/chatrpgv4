@@ -25,6 +25,7 @@ export interface ReadContributions {
     capsule?(campaign: CampaignSnapshot, module: LoadedModule): Promise<KernelResult>;
     lookupRules?: RuleLookup;
     asset?: AssetReader;
+    requireMapMaterial?(graph: ModuleGraph, params: Row): Promise<void>;
 }
 export function unsupported(field: string, value: any, options: string[], message?: string): never {
     throw new RpcError("invalid_params", message ?? `unsupported ${field} ${repr(value)}`, {
@@ -342,6 +343,8 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
             if (focus === "map") {
                 if (!contributions.asset)
                     throw new RpcError('not_implemented', 'The map asset contribution is unavailable');
+                if (contributions.requireMapMaterial)
+                    await contributions.requireMapMaterial(graph, { ...params, name: params.name ?? graph.handle(scene) });
                 const maps = mapCatalog(graph, world);
                 if (params.name == null)
                     return { maps };

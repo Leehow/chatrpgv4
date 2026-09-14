@@ -148,6 +148,23 @@ export class Reading {
         applyOpeningChoice(graph, chosen, contract);
         return truth((await this.store.opening(graph)).opening_ready);
     }
+    async requireMapMaterial(graph: ModuleGraph, params: Row): Promise<void> {
+        const mid = graph.moduleId, meta = await this.store.module(mid);
+        if (meta.source !== 'pdf') return;
+        const requested = typeof params.name === 'string' && params.name.trim() ? params.name.trim() : 'the current location';
+        const bounded = requested.slice(0, 160);
+        const ready = array(meta.reading?.materials).some(material => material.material === 'map' && normalize(material.focus ?? '') === normalize(bounded));
+        const hasMap = [...graph.nodes.values()].some((node: Row) => array(node.properties?.map_regions).length > 0);
+        if (hasMap || ready) return;
+        const candidates = array(meta.reading?.map_candidates).filter(candidate =>
+            !params.name || normalize(candidate.name) === normalize(params.name) || normalize(candidate.focus ?? '') === normalize(params.name));
+        const pages = [...new Set(candidates.flatMap(candidate => array(candidate.pages).map(number)).filter(page => page > 0))].sort((a, b) => a - b);
+        const question = `Identify the source-backed map material needed to orient investigators at ${bounded}; extract only independently revealable map regions and safe place correspondence.`;
+        throw new RpcError('needs', `the map material for ${bounded} is not prepared`, {
+            fix: 'read the required map material before retrying this unchanged look',
+            details: { reason: 'material_pending', read: { purpose: 'detail', material: 'map', focus: bounded, question, ...(pages.length ? { pages } : {}) } },
+        });
+    }
     async requireMaterial(graph: ModuleGraph, names: any[]): Promise<void> {
         const mid = graph.moduleId;
         if (!await this.store.exists(mid) || !truth((await this.store.module(mid)).reading_version))
@@ -205,6 +222,11 @@ export class Reading {
             const question = truth(params.question) ? params.question : '';
             if (purpose === 'opening' && !truth(focus) && truth(meta.opening_choice))
                 focus = meta.opening_choice.start_scene;
+            const material = params.material;
+            if (material !== undefined && material !== 'map')
+                throw new RpcError('invalid_params', 'material must be map when supplied');
+            if (material !== undefined && purpose !== 'detail')
+                throw new RpcError('invalid_params', 'material is only supported for detail readings');
             if (typeof focus !== 'string' || typeof question !== 'string')
                 throw new RpcError('invalid_params', 'focus and question must be strings');
             if (purpose === 'detail' && !focus.trim())
@@ -223,10 +245,10 @@ export class Reading {
                 purpose === 'detail' && !question && await this.materialReady(mid, focus) ||
                 purpose === 'index' && truth(reading.index_complete))
                 return { ...result, state: 'ready' };
-            const source = await this.source(meta), pages: number[] = purpose === 'detail' && normalize(focus) === 'map'
+            const source = await this.source(meta), pages: number[] = material === 'map'
                 ? [...new Set(array(row(reading).map_candidates).flatMap((candidate: Row) => array(candidate.pages).map(number)))].filter(page => page >= 1 && page <= source.page_count).sort((a, b) => a - b)
                 : [];
-            const identity: any[] = [source.file_sha256, purpose, normalize(focus), question, pages];
+            const identity: any[] = [source.file_sha256, purpose, material ?? '', normalize(focus), question, pages];
             if (purpose === 'guidance')
                 identity.push(guidanceKey);
             const key = jsonDigest(identity);
@@ -246,7 +268,7 @@ export class Reading {
                 if (!truth(params.retry))
                     return { ...result, state: 'blocked', missing: [existing.detail ?? 'reading failed'], fix: 'request the same reading with retry: true' };
             }
-            const job: Row = { job_id: `read-${queue.length + 1}`, key, purpose, focus, question, pages, foreground: truth(params.foreground), state: 'queued', attempts: 0, at: nowIso() };
+            const job: Row = { job_id: `read-${queue.length + 1}`, key, purpose, ...(material ? { material } : {}), focus, question, pages, foreground: truth(params.foreground), state: 'queued', attempts: 0, at: nowIso() };
             if (purpose === 'guidance')
                 for (const key of ['guidance_key', 'play_language', 'occupations'])
                     job[key] = params[key];
@@ -416,7 +438,7 @@ export class Reading {
                     const privateMapSource = node && array(graph.nodes).some(map => array(row(map.properties).map_regions).some(region => row(region).source_asset === node.node_id && row(region).safe_after_redactions === true && truth(row(region).redactions)));
                     if (!node || !['handout', 'asset'].includes(node.node_kind) || (!privateMapSource && !['player-safe', 'revealable'].includes(node.visibility)) || !truth(row(node.properties).image_sources) || (await stat(path)).size > 20 * 1024 * 1024 || await sha256File(path) !== asset.sha256 || !(await readFile(path)).subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])))
                         reject('the rendered asset does not match its reviewed source declaration');
-                    Object.assign(node.properties, { asset_ref: relative(await resolvedPath(this.store.moduleDir(mid)), path), media_type: 'image/png' });
+                    Object.assign(node.properties, { asset_ref: relative(await resolvedPath(this.store.moduleDir(mid)), path), media_type: 'image/png', asset_digest: asset.sha256 });
                 }
                 let checkedGraph = graph;
                 if (job.purpose === 'opening' && truth(job.focus)) {
@@ -448,7 +470,7 @@ export class Reading {
                 meta.opening_ready = defaultOpening.opening_ready;
                 meta.reading.state = meta.opening_ready ? 'ready' : ['skeleton', 'guidance'].includes(job.purpose) ? 'preparing' : 'blocked';
                 meta.reading.viewed_pages = [...new Set([...array(meta.reading.viewed_pages).map(number), ...[...seen].map(page => page - 1)])].sort((a, b) => a - b);
-                meta.reading.materials.push({ key: job.key, purpose: job.purpose, focus: job.focus, question: job.question, node_ids: filled.ready_nodes, generation: number(meta.generation) + 1 });
+                meta.reading.materials.push({ key: job.key, purpose: job.purpose, ...(job.material ? { material: job.material } : {}), focus: job.focus, question: job.question, node_ids: filled.ready_nodes, generation: number(meta.generation) + 1 });
                 meta.status = meta.opening_ready ? 'installed' : 'assembled';
                 this.owned();
                 await this.store.writeGraph(meta, graph);

@@ -597,3 +597,21 @@ test("隐式交付被拒：原稿不留在屏幕上，回合仍等着被关掉",
 	assert.deepEqual(closed, [], "被拒的交付没有关掉回合");
 	assert.deepEqual(table.entries("coc-mechanics"), [], "没有机制投影发出去");
 });
+
+test("host map assembly does not collapse receipt-less maps, but dedupes identical views", async t => {
+	const maps = [
+		{ map: "house", name: "House", view_id: "v-house", regions: [] },
+		{ map: "grounds", name: "Grounds", view_id: "v-grounds", regions: [] },
+		{ map: "house", name: "House", view_id: "v-house", regions: [] }
+	];
+	const table = await openTable({ env: { FAKE_KERNEL_LOOK_MAPS: JSON.stringify(maps) }, responses: [
+		fauxAssistantMessage([fauxToolCall("look", { focus: "map" })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("narrate", { text: "The maps remain distinct." })], { stopReason: "toolUse" }),
+		fauxAssistantMessage("The maps remain distinct."),
+	] });
+	t.after(() => table.dispose());
+	await table.session.prompt("Show me the maps");
+	const mechanics = table.entries("coc-mechanics").at(-1)?.mechanics ?? [];
+	assert.equal(mechanics.filter(row => row.kind === "map").length, 2);
+	assert.deepEqual(mechanics.find(row => row.map === "house").regions, []);
+});

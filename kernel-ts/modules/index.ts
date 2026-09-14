@@ -79,6 +79,7 @@ export function createModuleRuntime(context: KernelContext) {
         request: (params: Row) => reading.request(params),
         queueAdjacentReading: (graph: ModuleGraph, scene: Row) => reading.queueAdjacentReading(graph, scene),
         requireMaterial: (graph: ModuleGraph, names: any[]) => reading.requireMaterial(graph, names),
+        requireMapMaterial: (graph: ModuleGraph, params: Row) => reading.requireMapMaterial(graph, params),
     });
     return Object.freeze({ handlers, source, close: () => reading.close() });
 }

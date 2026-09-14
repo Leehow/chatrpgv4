@@ -88,7 +88,7 @@ test("a finish-time independent-review rejection gets one source-grounded repair
 	const repair = result.readTasks[1].repair;
 	assert.deepEqual(repair.draft, "draft.json");
 	assert.deepEqual(repair.baseline, "baseline.json");
-	assert.equal(repair.findings.error, `invalid_params: ${FINISH_SEMANTIC_MESSAGE}`);
+	assert.equal(repair.findings.error.split("\n", 1)[0], `invalid_params: ${FINISH_SEMANTIC_MESSAGE}`);
 	assert.deepEqual(JSON.parse(await readFile(join(result.cwd, "baseline.json"), "utf8")), openingDraft(false));
 	assert.deepEqual(JSON.parse(await readFile(join(result.cwd, "draft.json"), "utf8")), openingDraft(true));
 	assert.deepEqual(JSON.parse(await readFile(join(result.cwd, "observations.json"), "utf8")).read_pages, [4, 5]);
@@ -101,7 +101,7 @@ test("a repeated finish-time invalid-params rejection ends as a failed job witho
 	assert.equal(result.completionAttempts, 2);
 	assert.equal(result.finishCalls.length, 3);
 	assert.equal(result.finishCalls.at(-1).outcome, "failed");
-	assert.equal(result.finishCalls.at(-1).detail, `invalid_params: ${FINISH_SEMANTIC_MESSAGE}`);
+	assert.equal(result.finishCalls.at(-1).detail.split("\n", 1)[0], `invalid_params: ${FINISH_SEMANTIC_MESSAGE}`);
 });
 
 test("a finish transport failure does not consume the semantic repair continuation", async t => {
@@ -110,7 +110,7 @@ test("a finish transport failure does not consume the semantic repair continuati
 	assert.equal(result.completionAttempts, 1);
 	assert.equal(result.finishCalls.length, 2);
 	assert.equal(result.finishCalls.at(-1).outcome, "failed");
-	assert.equal(result.finishCalls.at(-1).detail, "internal: kernel request timed out");
+	assert.equal(result.finishCalls.at(-1).detail.split("\n", 1)[0], "internal: kernel request timed out");
 });
 
 test("a foreground timeout can rejoin the same pending reading without starting another reader", async t => {

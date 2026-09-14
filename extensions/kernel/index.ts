@@ -722,7 +722,12 @@ export default function (pi: ExtensionAPI) {
 			});
 		}
 		for (const map of pendingMaps) {
-			const existing = rows.find(row => row.kind === 'map' && (row.receipt === map.receipt || row.map === map.map));
+			const hasReceipt = typeof map.receipt === "string" && map.receipt.length > 0;
+			const existing = rows.find(row => {
+				if (row.kind !== "map") return false;
+				if (hasReceipt) return typeof row.receipt === "string" && row.receipt === map.receipt;
+				return typeof row.receipt !== "string" && row.map === map.map && row.view_id === map.view_id;
+			});
 			if (existing) Object.assign(existing, map);
 			else rows.push({...map});
 		}
@@ -745,7 +750,18 @@ export default function (pi: ExtensionAPI) {
 			}
 		}
 		delete result.map_views;
-		if(prepared.length){state.mapAttachments.push(...prepared);result.views=prepared.map(({image,...map})=>map);}
+		if(prepared.length){
+			state.mapAttachments.push(...prepared);
+			// The tool result is Keeper-visible. Keep only the short public summary here;
+			// rendered bytes remain host-only and are delivered through the mechanics entry.
+			result.views=prepared.map(map => {
+				const {image: _image, path: _path, render: _render, level_images, ...summary}=map as MapAttachment & Record<string, unknown>;
+				if (Array.isArray(level_images)) summary.level_images=level_images
+					.filter(level => level && typeof level.level === "string")
+					.map(level => ({level: level.level}));
+				return summary;
+			});
+		}
 	}
 
 	/**
@@ -1005,7 +1021,7 @@ export default function (pi: ExtensionAPI) {
 					await reading.ensure(readingModule, read, signal);
 				} catch (readFailure) {
 					if (!isKernelError(readFailure) || readFailure.details?.reason !== "reading_failed" || signal?.aborted) throw readFailure;
-					const retryKey = JSON.stringify([read.purpose ?? "", read.focus ?? "", read.question ?? "", read.guidance_key ?? ""]);
+					const retryKey = JSON.stringify([read.purpose ?? "", read.material ?? "", read.focus ?? "", read.question ?? "", read.guidance_key ?? ""]);
 					if (state.readingRetries.has(retryKey)) throw readFailure;
 					state.readingRetries.add(retryKey);
 					await reading.ensure(readingModule, { ...read, retry: true }, signal);

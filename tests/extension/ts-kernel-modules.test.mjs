@@ -22,6 +22,7 @@ const exports = [
   ['read/module-graph', ['ModuleGraph']],
   ['read/thread', ['threadSection']],
   ['modules/index', ['createModuleRuntime']],
+  ['modules/reading', ['Reading']],
   ['context', ['createKernelContext']],
   ['locks', ['createAdvisoryLocks']],
 ];
@@ -205,6 +206,20 @@ test('a no-clue prepared scope needs its own semantic review but no numeric clue
   review.checked.push({paths:['/coverage'],verdict:'supported',source_refs:refs,reason:'This prepared interaction has no discoverable investigation facts.'});
   assert.doesNotThrow(()=>api.checkReview(draft,filled,review,2,new Set([1])));
   assert.throws(()=>api.checkReview(draft,filled,{...review,missing:['A source-backed clue was omitted.']},2,new Set([1])),/missing or incorrect material/);
+});
+
+test('a PDF map demand emits a bounded material-pending descriptor with candidate pages', async () => {
+  const reading = new api.Reading({ module: async () => ({ source: 'pdf', reading: { map_candidates: [{ name: 'Farm', pages: [23, 17] }] } }) });
+  const graph = { moduleId: 'book-1', nodes: new Map() };
+  await assert.rejects(reading.requireMapMaterial(graph, { name: 'Farm' }), error => {
+    assert.equal(error.details.reason, 'material_pending');
+    assert.deepEqual(error.details.read, {
+      purpose: 'detail', material: 'map', focus: 'Farm', pages: [17, 23],
+      question: 'Identify the source-backed map material needed to orient investigators at Farm; extract only independently revealable map regions and safe place correspondence.',
+    });
+    return true;
+  });
+  await reading.close();
 });
 
 test('canonical PDF clue properties and knows/supports relations reach the existing thread',()=>{

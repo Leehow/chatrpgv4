@@ -135,7 +135,7 @@ export class ReadingService implements ReadingBridge {
 
 	async ensure(mid: string, params: Row, signal?: AbortSignal): Promise<Row> {
 		if (signal?.aborted || this.stopped) throw error("reading_failed", "reading was cancelled", "retry the reading when ready");
-		const key = JSON.stringify([mid, params.purpose, params.focus ?? "", params.question ?? "", params.guidance_key ?? ""]);
+		const key = JSON.stringify([mid, params.purpose, params.material ?? "", params.focus ?? "", params.question ?? "", params.guidance_key ?? ""]);
 		let request = this.requests.get(key);
 		if (!request) {
 			const pending: PendingReading = { waiters: 0, cancelled: false };
@@ -157,7 +157,7 @@ export class ReadingService implements ReadingBridge {
 					params.purpose === "opening" ? "return control, then call prepare-module again to rejoin the retained preparation"
 						: "use ask to return control; on a later player turn, retry the original action or lookup kind=source with the exact focus and question in details.read; do not invent another question",
 					// The job handle travels beside `read` for telemetry (#65); the fix names only `read`, so the model does not see it.
-					{ read: { purpose: params.purpose, focus: params.focus ?? "", question: params.question ?? "" },
+					{ read: { purpose: params.purpose, ...(params.material ? { material: params.material } : {}), focus: params.focus ?? "", question: params.question ?? "" },
 						...(request.jobId ? { job_id: request.jobId } : {}) })), wait);
 				onAbort = () => {
 					releaseWaiter();
@@ -274,7 +274,7 @@ export class ReadingService implements ReadingBridge {
 		await mkdir(cache, { recursive: true });
 		const commands = { page: `coc-source --pdf ${quote(job.source.path)} --cache ${quote(cache)} page`,
 			check: `coc-read-check --packet ${quote(join(cwd, "task.json"))} --draft ${quote(join(cwd, "draft.json"))}` };
-		const task: Row = { purpose: job.purpose, ...(job.purpose === "opening" ? {opening_batch:true} : {}), module_id: job.module_id, focus: job.focus, question: job.question, pages: job.pages,
+		const task: Row = { purpose: job.purpose, ...(job.material ? { material: job.material } : {}), ...(job.purpose === "opening" ? {opening_batch:true} : {}), module_id: job.module_id, focus: job.focus, question: job.question, pages: job.pages,
 			...(job.purpose === "guidance" ? {play_language:job.play_language, occupations:job.occupations.map((row:Row)=>({name:row.name}))} : {}),
 			source: { page_count: job.source.page_count }, index: job.index, known_nodes: job.known_nodes,
 			known_claims: (job.known_claims ?? []).map((claim: Row) => Object.fromEntries(

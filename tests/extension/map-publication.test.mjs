@@ -136,7 +136,7 @@ async function runMapJob(t, { jobId = "read-2", focus = "farm", question = MAP_Q
 		} });
 	t.after(() => service.close());
 	await service.runJob({
-		job_id: jobId, module_id: "book", purpose: "detail", focus, question, key: `${focus}:${question}`,
+		job_id: jobId, module_id: "book", purpose: "detail", material: "map", focus, question, key: `${focus}:${question}`,
 		foreground: true, lease: "lease-1", work_dir: cwd, resume_from: resumeFrom,
 		source: { path: pdfPath, page_count: 2, file_sha256: fileSha },
 		index: {}, known_nodes: knownNodes ?? [{ node_id: "scene-opening", node_kind: "scene", name: "Opening", ready: true }],
@@ -237,7 +237,7 @@ test("a focused map detail request selects its own task after opening instead of
 	const service = new ReadingService({ home, runtime, model: () => ({ id: "fixture/vision", vision: true, thinking: "off" }),
 		progress() {}, record() {}, async call(method, params) {
 			if (method === "module.read.request") {
-				requests.push({ purpose: params.purpose, focus: params.focus ?? "", question: params.question ?? "", retry: params.retry === true });
+				requests.push({ purpose: params.purpose, ...(params.material ? { material: params.material } : {}), focus: params.focus ?? "", question: params.question ?? "", retry: params.retry === true });
 				if (params.purpose === "opening") return { state: "ready", opening_ready: true };
 				if (claim === "done") return { state: "ready" };
 				if (claim === "idle") claim = "pending";
@@ -247,7 +247,7 @@ test("a focused map detail request selects its own task after opening instead of
 				if (claim !== "pending") return { job_id: null };
 				claim = "running";
 				return {
-					job_id: "read-2", module_id: "book", purpose: "detail", focus: "farm", question: MAP_QUESTION,
+					job_id: "read-2", module_id: "book", purpose: "detail", material: "map", focus: "farm", question: MAP_QUESTION,
 					key: "focused-map", foreground: true, lease: "lease-2", work_dir: cwd,
 					source: { path: pdfPath, page_count: 2, file_sha256: fileSha },
 					index: {}, known_nodes: [{ node_id: "scene-opening", node_kind: "scene", name: "Opening", ready: true }],
@@ -263,13 +263,15 @@ test("a focused map detail request selects its own task after opening instead of
 		} });
 	t.after(() => service.close());
 	assert.equal((await service.ensure("book", { purpose: "opening", foreground: true })).opening_ready, true);
-	await service.ensure("book", { purpose: "detail", focus: "farm", question: MAP_QUESTION, foreground: true });
+	await service.ensure("book", { purpose: "detail", material: "map", focus: "farm", question: MAP_QUESTION, foreground: true });
 	assert.deepEqual(requests[0], { purpose: "opening", focus: "", question: "", retry: false });
 	assert.equal(requests[1].purpose, "detail");
+	assert.equal(requests[1].material, "map");
 	assert.equal(requests[1].focus, "farm");
 	assert.equal(requests[1].question, MAP_QUESTION);
 	const task = JSON.parse(await readFile(join(cwd, "task.json"), "utf8"));
 	assert.equal(task.purpose, "detail");
+	assert.equal(task.material, "map");
 	assert.equal(task.focus, "farm");
 	assert.equal(task.question, MAP_QUESTION);
 	assert.deepEqual(task.known_nodes.map(node => node.node_id), ["scene-opening"]);
