@@ -53,6 +53,37 @@ export function modelLabel(model: { provider: string; id: string }): string {
 	return `${model.provider}/${model.id}`;
 }
 
+const OPENCODE_HOST = "opencode.ai";
+
+function hostOf(baseUrl: string | undefined): string | undefined {
+	if (!baseUrl) return undefined;
+	try {
+		return new URL(baseUrl).hostname;
+	} catch {
+		return undefined;
+	}
+}
+
+/**
+ * The two headers `sdk.js` attaches on the Keeper's streamFn via `mergeProviderAttributionHeaders`.
+ * `complete()` never travels that road (docs/pi-host-contract.md, OpenCode session headers).
+ */
+export function openCodeSessionHeaders(
+	model: { provider: string; baseUrl?: string },
+	sessionId: string | undefined,
+): Record<string, string> | undefined {
+	if (!sessionId) return undefined;
+	if (model.provider !== "opencode" && model.provider !== "opencode-go" && hostOf(model.baseUrl) !== OPENCODE_HOST) {
+		return undefined;
+	}
+	return { "x-opencode-session": sessionId, "x-opencode-client": "pi" };
+}
+
+function sessionIdOf(ctx: ExtensionContext): string | undefined {
+	const value = ctx.sessionManager?.getSessionId?.();
+	return typeof value === "string" && value.trim() ? value : undefined;
+}
+
 /** Models may wrap or repeat JSON: take the first complete top-level object, respecting quoted braces. */
 function extractJsonObject(text: string): string | undefined {
 	const start = text.indexOf("{");
@@ -248,6 +279,7 @@ async function runLaneAttempt<T>(
 		await rows.start(label);
 		let reply: Awaited<ReturnType<ExtensionContext["modelRegistry"]["complete"]>>;
 		try {
+			const headers = openCodeSessionHeaders(resolved.model, sessionIdOf(request.ctx));
 			reply = await request.ctx.modelRegistry.complete(
 				resolved.model,
 				{
@@ -255,7 +287,7 @@ async function runLaneAttempt<T>(
 					messages: [{ role: "user", content: [{ type: "text", text: request.input }] }],
 					// tools omitted: that is what makes this a zero-tool session.
 				},
-				{ signal, ...rows.options },
+				{ signal, ...rows.options, ...(headers ? { headers } : {}) },
 			);
 		} catch (error) {
 			await rows.end({ ok: false });

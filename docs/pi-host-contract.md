@@ -75,6 +75,8 @@ effects remain usable without the UI mount.
 
 这不是绕路，是这条路本来就在扩展面上；但它是一次补全，不是一个会话——嵌套的真会话在 0.85.1 里也起得了，为什么没走、代价是什么，记在第 5 节。
 
+**OpenCode session headers (2026-09-14).** The Keeper's own turns travel `sdk.js`'s `streamFn`, which calls `mergeProviderAttributionHeaders` and sends `x-opencode-session` / `x-opencode-client` for `opencode`, `opencode-go`, and `opencode.ai` hosts. `ctx.modelRegistry.complete()` does not. Console Go then answers `400 MissingSessionID`, the admission lane reports `model_error`, and contract §32.2 refuses the batch as `admission_unavailable` — a live Haunting table (`game-3782bd90`, 2026-09-14) could not walk to the Corbitt house while the Keeper on the same model still narrated. `runLane` therefore attaches the same two headers from `ctx.sessionManager.getSessionId()` when the lane model is one of those OpenCode providers. This is a bypass of a Pi 0.85.1 hole, not a fork; drop it if `complete()` grows the agent streamFn's header merge.
+
 模型选择（契约 §12.5、§12.8）：
 
 | 环境变量 | 车道 | 缺省 |
