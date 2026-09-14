@@ -16,6 +16,7 @@ import { extensionSurface } from "../ui/words.ts";
 import { type KernelClient, KernelError, type KernelProgressFrame, isKernelError } from "./client.ts";
 import { progressPartial } from "./progress.ts";
 import { renderMapView, type MapAttachment } from './map-view.ts';
+import { AUTHORED_MAP_WORDS, KEEPER_MAP_WORDS, mapCardTexts, type MapWordsOptions, prepareMapWords, projectMapCard, readMapWords } from '../module/map-presentation.ts';
 import { COC_TOOLS, COC_TOOL_NAMES, type CocToolSpec, WRITE_TOOLS } from "./tools.ts";
 import { type CommitPayload, runVerifierLane } from "./verifier.ts";
 import {
@@ -48,6 +49,8 @@ interface OpenResult {
 	opening_needed?: boolean;
   mod_context?: unknown;
   setup_prologue?: unknown;
+  /** Contract §39.2: the module's own map captions, for the host's play-language projection. Absent when the module publishes no player map. */
+  authored_map_words?: unknown;
 }
 
 /**
@@ -200,6 +203,17 @@ interface TableState {
 	attachments: HandoutAttachment[];
 	/** Player-safe derivatives prepared by apply map or look focus=map for the next delivery. */
 	mapAttachments: MapAttachment[];
+	/**
+	 * The module's authored map words projected into this campaign's `play_language` (contract
+	 * §39.2), source word to projected word. Held here rather than read at delivery because the
+	 * delivery hop is synchronous and a first-arrival card must never wait on a file, let alone on
+	 * a model.
+	 */
+	mapWords: Record<string, string>;
+	/** Source words a lane run has already been asked for, so a word it could not project is not asked again every turn. */
+	mapWordsAsked: Set<string>;
+	/** The lane runs one at a time per table: two arrivals in one turn share a cache file and would otherwise race it. */
+	mapWordsJob?: Promise<void>;
 	/** Cut off lane completions still in flight when the session ends; they must not hold up the exit. */
 	lanes: AbortController;
 	/** The exact current player text (contract §32.3); a turn with none — the opening — puts nothing to review. */
@@ -775,7 +789,14 @@ export default function (pi: ExtensionAPI) {
 				...(attachment.receipt ? { receipt: attachment.receipt } : {}),
 			});
 		}
-		for (const map of pendingMaps) {
+		for (const pending of pendingMaps) {
+			// The last hop before the player. A card the Keeper wrote is already in the play
+			// language; a first-arrival card is the module's own words (contract §39.2), and it is
+			// projected here rather than when it was minted, so it has the whole Keeper round trip
+			// between `apply move` and the delivery to become ready in. If it is not ready, the card
+			// still goes -- a picture of the place is worth more than a withheld one -- but it goes
+			// saying `words: "source"`, and a telemetry row says which map and how many labels.
+			const map = mapForDelivery(state, pending);
 			const hasReceipt = typeof map.receipt === "string" && map.receipt.length > 0;
 			const existing = rows.find(row => {
 				if (row.kind !== "map") return false;
@@ -786,6 +807,80 @@ export default function (pi: ExtensionAPI) {
 			else rows.push({...map});
 		}
 		return rows;
+	}
+
+	/** The authored words of one prepared card replaced with the projected ones, or the card marked as still owing them. */
+	function mapForDelivery(state: TableState, card: MapAttachment): MapAttachment {
+		if (card.words !== AUTHORED_MAP_WORDS) return card;
+		const projection = projectMapCard(card, state.mapWords);
+		if (projection.projected) return { ...projection.card, words: KEEPER_MAP_WORDS };
+		const texts = mapCardTexts(card);
+		void record({ lane: "map-words", event: "delivered", ok: false, reason: "not_projected", map: card.map,
+			...(card.receipt ? { receipt: card.receipt } : {}), texts: texts.length,
+			missing: texts.filter(text => !state.mapWords[text]).length, ...(state.playLanguage ? { play_language: state.playLanguage } : {}) });
+		return card;
+	}
+
+	/**
+	 * Start the projection a set of authored map words still needs, beside the turn (contract §39.2).
+	 *
+	 * Never awaited by anything on the turn's path: the words are wanted for the delivery, and the
+	 * delivery is one Keeper round trip away, so the lane has that long. A word two rounds could not
+	 * project is not asked for again on this table -- a lane that cannot answer answers no faster the
+	 * fourth time, and the card it is owed to has already gone out saying so.
+	 */
+	function ensureMapWords(state: TableState, texts: readonly string[], why: string): void {
+		const tag = state.playLanguage, owner = runtime;
+		if (!tag || !owner) return;
+		const wanted = [...new Set(texts)].filter(text => !state.mapWords[text] && !state.mapWordsAsked.has(text));
+		if (!wanted.length) return;
+		for (const text of wanted) state.mapWordsAsked.add(text);
+		let model: string | undefined, thinking: string | undefined;
+		try {
+			const chosen = sessionCtx?.model;
+			model = chosen ? `${chosen.provider}/${chosen.id}` : undefined;
+			thinking = pi.getThinkingLevel?.();
+		} catch { /* the session is gone; the lane still runs on the host's own defaults */ }
+		const began = Date.now();
+		const options: MapWordsOptions = { home: owner.home, resourceRoot: owner.resourceRoot, play_language: tag, model, thinking,
+			signal: state.lanes.signal, runner: request => owner.runTask({ kind: "mod", request }, request.signal) };
+		// One run at a time per table: two arrivals in one turn write the same cache file.
+		state.mapWordsJob = (state.mapWordsJob ?? Promise.resolve()).then(async () => {
+			try {
+				state.mapWords = { ...state.mapWords, ...await prepareMapWords(options, wanted) };
+				await record({ lane: "map-words", ok: true, why, texts: wanted.length, ms: Date.now() - began,
+					play_language: tag, ...(model ? { model } : {}) });
+			} catch (error) {
+				// Whatever the lane kept before it failed is still worth having; the rest of the run is
+				// a projection losing a projection, never a turn.
+				state.mapWords = { ...await readMapWords(options).catch(() => ({})), ...state.mapWords };
+				await record({ lane: "map-words", ok: false, why, texts: wanted.length, ms: Date.now() - began,
+					play_language: tag, reason: String(error instanceof Error ? error.message : error).slice(0, 200) });
+			}
+		}).catch(() => undefined);
+	}
+
+	/**
+	 * The module's map words, projected when the table opens rather than when a card is minted.
+	 *
+	 * A first-arrival card is minted inside `apply move` and is on screen at the end of that same
+	 * turn, which is not room for a model round trip. The words are knowable long before then --
+	 * they are the module's, not the campaign's -- so `table.open` hands them over (contract §39.2)
+	 * and the whole module's labels are projected while the player is still reading the opening
+	 * scene. They ride the open result rather than a read of the map catalog because the open
+	 * sequence is the one thing on this connection nothing else is allowed to interleave with.
+	 */
+	function warmMapWords(state: TableState, open: OpenResult): void {
+		const tag = state.playLanguage, owner = runtime;
+		if (!tag || !owner) return;
+		const authored = (Array.isArray(open.authored_map_words) ? open.authored_map_words : []).filter(
+			(word): word is string => typeof word === "string" && word.trim().length > 0);
+		void (async () => {
+			try {
+				state.mapWords = { ...await readMapWords({ home: owner.home, resourceRoot: owner.resourceRoot, play_language: tag }), ...state.mapWords };
+			} catch { /* nothing projected for this tag yet */ }
+			ensureMapWords(state, authored, "open");
+		})();
 	}
 
 	/** Private source layers end here; only a flattened derivative is retained in the conversation row. */
@@ -806,6 +901,10 @@ export default function (pi: ExtensionAPI) {
 		delete result.map_views;
 		if(prepared.length){
 			state.mapAttachments.push(...prepared);
+			// Whatever the open-time warm did not cover -- a map published after it, a label the
+			// catalog did not carry -- is asked for now, so the next card is right even when this
+			// one goes out authored.
+			ensureMapWords(state, prepared.filter(map => map.words === AUTHORED_MAP_WORDS).flatMap(map => mapCardTexts(map)), "arrival");
 			// The tool result is Keeper-visible. Keep only the short public summary here;
 			// rendered bytes remain host-only and are delivered through the mechanics entry.
 			result.views=prepared.map(map => {
@@ -1446,6 +1545,8 @@ export default function (pi: ExtensionAPI) {
 				exhausted: new Map(),
 				attachments: [],
 				mapAttachments: [],
+				mapWords: {},
+				mapWordsAsked: new Set(),
 				lanes: new AbortController(),
 				party: [],
 				present: [],
@@ -1477,6 +1578,9 @@ export default function (pi: ExtensionAPI) {
 				mintCallId: () => (table ? mintCallId(table) : undefined),
 			});
 			pi.events.emit("coc:table-open", { campaign, open });
+			// Contract §39.2: the module's own map labels, projected into this campaign's play
+			// language before the first arrival can need them.
+			warmMapWords(table, open);
 
 			if (ctx.hasUI) {
 				// The campaign's own captions (contract §23): the one line saying the table is open reads
