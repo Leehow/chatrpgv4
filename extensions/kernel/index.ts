@@ -6,7 +6,8 @@
 
 import type { ImageContent } from "@earendil-works/pi-ai";
 import type { AgentToolUpdateCallback, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { appendFile, mkdir } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { appendFile, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { createRuntime, type HostRuntime } from "../../runtime/host.ts";
 import { adaptationService } from './adaptation.ts';
@@ -312,6 +313,44 @@ const surface = extensionSurface();
 let startupError: string | undefined;
 /** Every field of the session_start ctx is computed on access, so holding it is holding a live view of the session. */
 let sessionCtx: ExtensionContext | undefined;
+/** Durable host handoff; cleared only after table.player_input records the stranded release. */
+let watchdogRecoveryFile: string | undefined;
+type WatchdogBinding = "bound" | "stale" | "failed";
+let watchdogTurnBinding: { turn: number; promise: Promise<WatchdogBinding> } | undefined;
+
+async function bindWatchdogRecoveryTurn(turn: number): Promise<WatchdogBinding> {
+	if (!watchdogRecoveryFile) return "bound"; // In-memory extension harness: the env flag is the whole handoff.
+	try {
+		const raw = JSON.parse(await readFile(watchdogRecoveryFile, "utf8")) as Record<string, unknown>;
+		const sessionId = sessionCtx?.sessionManager.getSessionId?.();
+		if (raw.version !== 1 || (typeof raw.sessionId === "string" && sessionId && raw.sessionId !== sessionId)) return "failed";
+		if (typeof raw.turn === "number") {
+			if (raw.turn === turn) return "bound";
+			await rm(watchdogRecoveryFile, { force: true });
+			delete process.env.PI_COC_WATCHDOG_RECOVERY;
+			return "stale";
+		}
+		const temp = `${watchdogRecoveryFile}.tmp-${process.pid}`;
+		await writeFile(temp, `${JSON.stringify({ ...raw, turn })}\n`, "utf8");
+		await rename(temp, watchdogRecoveryFile);
+		return "bound";
+	} catch {
+		return "failed";
+	}
+}
+
+async function clearWatchdogRecovery(): Promise<void> {
+	if (watchdogRecoveryFile) await rm(watchdogRecoveryFile, { force: true }).catch(() => undefined);
+	delete process.env.PI_COC_WATCHDOG_RECOVERY;
+}
+
+function hasTurnTerminalNotice(turn: number): boolean {
+	return sessionCtx?.sessionManager.getBranch().some((entry: any) =>
+		entry?.type === "custom_message" && entry.customType === "coc-delivery"
+		&& entry.details?.turn === turn
+		&& (entry.details?.turn_unfinished === true
+			|| (entry.details?.provider_outage === true && entry.details?.terminal === true))) === true;
+}
 
 function normalizeName(value: unknown): unknown {
 	if (typeof value !== "string") return value;
@@ -1287,7 +1326,7 @@ export default function (pi: ExtensionAPI) {
 			/* an unreadable content root still owes the player the English line */
 		}
 		pi.sendMessage({ customType: "coc-delivery", content: line, display: true,
-			details: { coc_delivery: true, turn, provider_outage: true, streak: failure.streak, ms: failure.ms } });
+			details: { coc_delivery: true, turn, provider_outage: true, terminal, streak: failure.streak, ms: failure.ms } });
 		void record({ lane: "delivery", turn, ok: true, reason: "provider_outage_notice",
 			streak: failure.streak, ms: failure.ms, terminal });
 	}
@@ -1601,6 +1640,14 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_start", async (_event, ctx) => {
 		await shutdownKernel();
 		sessionCtx = ctx;
+		// A watchdog kill cannot emit agent_settled in the dead process. The
+		// Electron host arms this one-process handoff before abort escalation;
+		// consume it exactly once so a retained pending turn is stranded before
+		// queued player input reaches the ordinary turn-state guard.
+		const watchdogRecovery = process.env.PI_COC_WATCHDOG_RECOVERY === "1";
+		const sessionFile = ctx.sessionManager.getSessionFile();
+		watchdogRecoveryFile = sessionFile ? `${sessionFile}.coc-watchdog-recovery.json` : undefined;
+		watchdogTurnBinding = undefined;
 		// A new session gets a new gate: a closure handed out by the previous table can only fail, never touch this kernel.
 		bridgeGate = { open: true };
 		startupError = undefined;
@@ -1737,6 +1784,20 @@ export default function (pi: ExtensionAPI) {
 
 			const pending = open.pending_turn;
 			if (pending) {
+				if (watchdogRecovery) {
+					const promise = bindWatchdogRecoveryTurn(table.turn);
+					watchdogTurnBinding = { turn: table.turn, promise };
+					const binding = await promise;
+					if (binding !== "stale") {
+						// A failed write remains a barrier, not a route into the
+						// paused-review release path. Player input retries the same
+						// binding before it may change the kernel turn.
+						table.strandedTurn = true;
+						if (!hasTurnTerminalNotice(table.turn)) scheduleTurnUnfinishedNotice(table, table.turn);
+						return;
+					}
+					watchdogTurnBinding = undefined;
+				}
 				const review = await mods?.reviewStatus?.(campaign);
 				if (review?.paused) {
 					pauseReview(table, new KernelError({code: 'needs', message: 'The retained review is paused',
@@ -1759,8 +1820,12 @@ export default function (pi: ExtensionAPI) {
 						`Use look to see the scene as it stands, finish this turn, then deliver it with narrate.`,
 					"recovery",
 				);
-			} else if (open.opening_needed) {
-				sendHost(
+			} else {
+				// A retained marker with no retained kernel turn is stale (the
+				// release landed before the previous process died). It must not
+				// authorize stranding some later turn in this process.
+				if (watchdogRecovery) await clearWatchdogRecovery();
+				if (open.opening_needed) sendHost(
 					`Opening the table: ${open.setup_prologue ? "The setup context records a prior meeting only when it contains an opening. In that case continue without repeating arrival, greeting or identity questions; otherwise begin the scene normally. No keys or money were granted. If pending_action exists, preserve that player request instead of asking for the same decision again; carry it forward through normal rules and state receipts, never claim unrecorded resources. Committed prologue: "+JSON.stringify(open.setup_prologue) : ""} this turn has no player input. Write all player-facing words in play_language=${table.playLanguage}. Use look to see the opening scene (lookup for background). Close with narrate and wait for free player input. NPC questions belong naturally in the prose. Do not generate story action menus or options. ` +
             (open.mod_context && mods ? `The opening may settle registered Mod first-contact checks and define/place new objects when the fiction requires them; ordinary adventure actions wait for the player. Active Mod context: ${JSON.stringify(open.mod_context)}` : `Do not call apply or resolve before the first player turn; the only opening writes are ask and narrate.`),
 					"opening",
@@ -1789,6 +1854,8 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_shutdown", async () => {
 		await shutdownKernel();
 		sessionCtx = undefined;
+		watchdogRecoveryFile = undefined;
+		watchdogTurnBinding = undefined;
 	});
 
 	// Keep player messages out of the host-driven opening/recovery loop. Pi's streaming
@@ -1806,7 +1873,16 @@ export default function (pi: ExtensionAPI) {
 		// player's next input — which the state guard would otherwise reject. The cause is irrelevant.
 		const undelivered = (table.state === "open" || table.state === "acting")
 			&& !table.closedThisRun && table.renderedText === undefined;
-		if (undelivered) table.strandedTurn = true;
+		if (undelivered) {
+			table.strandedTurn = true;
+			// If this was the host watchdog's normal abort path, bind its
+			// already-armed sidecar to the kernel turn. The marker remains until
+			// table.player_input durably records the stranded release.
+			if (!watchdogRecoveryFile || existsSync(watchdogRecoveryFile)) {
+				const promise = bindWatchdogRecoveryTurn(table.turn);
+				watchdogTurnBinding = { turn: table.turn, promise };
+			}
+		}
 		// Choose exactly one player notice. A paused-review notice may already have landed at agent_end;
 		// terminal provider wording outranks the generic fallback; recovered long outages remain a
 		// footnote only when the turn actually delivered.
@@ -1846,10 +1922,27 @@ export default function (pi: ExtensionAPI) {
 		// own run state — not prose, not a verdict — and it neither narrates nor commits anything.
 		const strandedTurn = state.strandedTurn === true && (state.state === "open" || state.state === "acting");
 		try {
+			if (strandedTurn && watchdogTurnBinding?.turn === state.turn) {
+				let binding = await watchdogTurnBinding.promise;
+				if (binding === "failed") {
+					const promise = bindWatchdogRecoveryTurn(state.turn);
+					watchdogTurnBinding = { turn: state.turn, promise };
+					binding = await promise;
+				}
+				if (binding !== "bound") throw new KernelError({
+					code: "runtime_unavailable",
+					message: "The watchdog recovery handoff could not be bound to this turn",
+					fix: "retry after the session storage becomes writable",
+				});
+			}
 			const result = await state.kernel.call<{ turn?: number; state?: TurnState; capsule?: unknown }>(
 				"table.player_input",
 				{ campaign: state.campaign, text, ...(strandedTurn ? { release: "stranded" } : {}) },
 			);
+			if (strandedTurn) {
+				await clearWatchdogRecovery();
+				watchdogTurnBinding = undefined;
+			}
 			state.turn = typeof result.turn === "number" ? result.turn : state.turn + 1;
 			state.state = result.state ?? "open";
 			state.callOrdinal = 0;

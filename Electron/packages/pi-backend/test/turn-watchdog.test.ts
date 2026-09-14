@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdtemp, mkdir, rm, writeFile, appendFile } from "node:fs/promises";
+import { access, mkdtemp, mkdir, rm, writeFile, appendFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -17,7 +17,10 @@ async function eventually(check: () => boolean | Promise<boolean>, timeoutMs = 2
   throw new Error("condition was not met before timeout");
 }
 
-async function fixture() {
+async function fixture(options: {
+  stopEscalationDelays?: { termDescendantsMs: number; killDescendantsMs: number; killPiMs: number };
+  env?: NodeJS.ProcessEnv;
+} = {}) {
   root = await mkdtemp(join(tmpdir(), "pipi-watchdog-"));
   const agentDir = join(root, "agent");
   const sessionsRoot = join(root, "sessions");
@@ -27,15 +30,23 @@ async function fixture() {
   await mkdir(cwd, { recursive: true });
   await mkdir(directory, { recursive: true });
   const sessionPath = join(directory, "s1.jsonl");
-  await writeFile(sessionPath, JSON.stringify({ type: "session", version: 3, id: "s1", timestamp: "2026-08-17T00:00:00.000Z", cwd }) + "\n");
+  await writeFile(sessionPath, [
+    JSON.stringify({ type: "session", version: 3, id: "s1", timestamp: "2026-08-17T00:00:00.000Z", cwd }),
+    JSON.stringify({ type: "custom", customType: "coc-session", data: { campaign: "campaign-1", home: root, play_language: "zh-Hans", mode: "play" } }),
+  ].join("\n") + "\n");
+  const spawnEnvs: Array<NodeJS.ProcessEnv> = [];
   const backend = createPiHostBackend({
+    ...options,
     agentDir,
     sessionsRoot,
     runtimeRoot: root,
     piPath: process.execPath,
-    spawn: (_bin, _args, options) => spawn(process.execPath, [new URL("./fake-pi.mjs", import.meta.url).pathname], options) as any,
+    spawn: (_bin, _args, spawnOptions) => {
+      spawnEnvs.push(spawnOptions.env ?? {});
+      return spawn(process.execPath, [new URL("./fake-pi.mjs", import.meta.url).pathname], spawnOptions) as any;
+    },
   });
-  return { backend, sessionPath };
+  return { backend, sessionPath, spawnEnvs };
 }
 
 describe("turn watchdog (fix 3)", () => {
@@ -76,7 +87,7 @@ describe("turn watchdog (fix 3)", () => {
     await backend.close();
   });
 
-  it("does not let a previous run's terminal message settle the current silent provider body", async () => {
+  it("aborts rather than counterfeit-settling when only a previous run has a terminal message", async () => {
     const { backend, sessionPath } = await fixture();
     await appendFile(sessionPath, JSON.stringify({
       type: "message", id: "previous-stop", parentId: null,
@@ -88,18 +99,144 @@ describe("turn watchdog (fix 3)", () => {
 
     await backend.handle("sendPrompt", ["s1", "__hold__"]);
     await eventually(() => statuses.includes("started"));
+    const queued = await backend.handle("enqueueMessage", ["s1", "after-silent-provider"]) as any;
+    expect(queued.outcome).toBe("queued");
     const live = (backend as any).live.get("s1");
     expect(live.turnStartedAt).toEqual(expect.any(Number));
     live.lastTurnActivityAt = Date.now() - (TURN_WATCHDOG_TIMEOUT_MS + 5_000);
 
     await (backend as any).checkTurnWatchdogs();
-    await new Promise(r => setTimeout(r, 100));
+    await eventually(() => statuses.includes("stopped"));
+    // Automatic recovery is not a manual Stop: the real abort lifecycle may
+    // release and drain the player's queued input, but the old terminal row is
+    // never mislabeled as this run's successful settlement.
+    await eventually(async () => ((await backend.handle("listQueue", ["s1"]) as any[]).length === 0));
+    await eventually(() => statuses.filter(status => status === "started").length >= 2);
+
+    off();
+    await backend.close();
+  });
+
+  it("abandons a stale watchdog decision when provider activity resumes during tail I/O", async () => {
+    const { backend } = await fixture();
+    const statuses: string[] = [];
+    const off = backend.subscribe(e => { if (e.channel === "stream" && e.event.type === "status") statuses.push(e.event.status); });
+
+    await backend.handle("sendPrompt", ["s1", "__hold__"]);
+    await eventually(() => statuses.includes("started"));
+    const live = (backend as any).live.get("s1");
+    live.lastTurnActivityAt = Date.now() - (TURN_WATCHDOG_TIMEOUT_MS + 5_000);
+
+    let release!: (state: "other") => void;
+    const tail = new Promise<"other">(resolve => { release = resolve; });
+    const original = (backend as any).sessionTailTurnState.bind(backend);
+    (backend as any).sessionTailTurnState = () => tail;
+    const sweep = (backend as any).checkTurnWatchdogs();
+    await new Promise(resolve => setTimeout(resolve, 10));
+    (backend as any).touchTurnActivity(live);
+    release("other");
+    await sweep;
+    (backend as any).sessionTailTurnState = original;
+
     expect(statuses).toEqual(["started"]);
+    expect(live.hostAbortedTurn).toBe(false);
     expect((backend as any).queue.isBusy("s1")).toBe(true);
 
     off();
     await backend.close();
   });
+
+  it("does not let message_end(error) release an armed watchdog turn before agent_settled", async () => {
+    const { backend } = await fixture();
+    await backend.handle("sendPrompt", ["s1", "__hold__"]);
+    await new Promise(resolve => setTimeout(resolve, 50));
+    const live = (backend as any).live.get("s1");
+    live.watchdogRecoveryArmed = true;
+
+    (backend as any).rpcEvent(live, {
+      type: "message_end",
+      message: { role: "assistant", content: [], stopReason: "error", errorMessage: "abort transport ended" },
+    });
+    await new Promise(resolve => setTimeout(resolve, 25));
+    expect(live.terminalEpoch).not.toBe(live.turnEpoch);
+    expect((backend as any).queue.isBusy("s1")).toBe(true);
+
+    live.watchdogRecoveryArmed = false;
+    await backend.close();
+  });
+
+  it("carries a durable recovery handoff when abort escalation must replace Pi", async () => {
+    const { backend, sessionPath, spawnEnvs } = await fixture({
+      stopEscalationDelays: { termDescendantsMs: 10, killDescendantsMs: 10, killPiMs: 10 },
+    });
+    const statuses: string[] = [];
+    const off = backend.subscribe(e => { if (e.channel === "stream" && e.event.type === "status") statuses.push(e.event.status); });
+
+    await backend.handle("sendPrompt", ["s1", "__hold_stuck__"]);
+    await eventually(() => statuses.includes("started"));
+    const queued = await backend.handle("enqueueMessage", ["s1", "after-forced-recovery"]) as any;
+    expect(queued.outcome).toBe("queued");
+    const live = (backend as any).live.get("s1");
+    live.lastTurnActivityAt = Date.now() - (TURN_WATCHDOG_TIMEOUT_MS + 5_000);
+
+    await (backend as any).checkTurnWatchdogs();
+    await eventually(() => spawnEnvs.length >= 2, 4_000);
+    expect(spawnEnvs[1]?.PI_COC_WATCHDOG_RECOVERY).toBe("1");
+    await eventually(async () => ((await backend.handle("listQueue", ["s1"]) as any[]).length === 0), 4_000);
+    await eventually(() => statuses.filter(status => status === "started").length >= 2, 4_000);
+    await expect(access(`${sessionPath}.coc-watchdog-recovery.json`)).resolves.toBeUndefined();
+
+    off();
+    await backend.close();
+  });
+
+  it("starts recovery after forced abort even when the player queued nothing else", async () => {
+    const { backend, sessionPath, spawnEnvs } = await fixture({
+      stopEscalationDelays: { termDescendantsMs: 10, killDescendantsMs: 10, killPiMs: 10 },
+    });
+    await backend.handle("sendPrompt", ["s1", "__hold_stuck__"]);
+    // The fake acknowledges the prompt before its final same-chunk activity
+    // events have all reached the backend. Backdate only after they drain.
+    await new Promise(resolve => setTimeout(resolve, 50));
+    const live = (backend as any).live.get("s1");
+    live.lastTurnActivityAt = Date.now() - (TURN_WATCHDOG_TIMEOUT_MS + 5_000);
+
+    const firstPid = live.process.pid;
+    await (backend as any).checkTurnWatchdogs();
+    await eventually(() => spawnEnvs.length >= 2, 4_000);
+    expect(spawnEnvs[1]?.PI_COC_WATCHDOG_RECOVERY).toBe("1");
+    await expect(access(`${sessionPath}.coc-watchdog-recovery.json`)).resolves.toBeUndefined();
+
+    let replacement: any;
+    await eventually(() => {
+      replacement = (backend as any).live.get("s1");
+      return replacement?.process?.pid && replacement.process.pid !== firstPid;
+    }, 4_000);
+    replacement.process.kill();
+    await eventually(() => spawnEnvs.length >= 3, 4_000);
+    expect(spawnEnvs[2]?.PI_COC_WATCHDOG_RECOVERY).toBe("1");
+
+    await backend.close();
+  });
+
+  it("retries when a replacement exits during refreshState initialization", async () => {
+    const { backend, sessionPath, spawnEnvs } = await fixture({
+      env: { FAKE_EXIT_DURING_WATCHDOG_RECOVERY: "1" },
+      stopEscalationDelays: { termDescendantsMs: 10, killDescendantsMs: 10, killPiMs: 10 },
+    });
+    await backend.handle("sendPrompt", ["s1", "__hold_stuck__"]);
+    await new Promise(resolve => setTimeout(resolve, 50));
+    const live = (backend as any).live.get("s1");
+    live.lastTurnActivityAt = Date.now() - (TURN_WATCHDOG_TIMEOUT_MS + 5_000);
+
+    await (backend as any).checkTurnWatchdogs();
+    await eventually(() => spawnEnvs.length >= 3, 6_000);
+    expect(spawnEnvs[1]?.PI_COC_WATCHDOG_RECOVERY).toBe("1");
+    expect(spawnEnvs[2]?.PI_COC_WATCHDOG_RECOVERY).toBe("1");
+    await expect(access(`${sessionPath}.coc-watchdog-recovery.json`)).resolves.toBeUndefined();
+
+    await backend.close();
+  }, 10_000);
 
   it("does not trigger when tail is tool_use (long tool call in progress)", async () => {
     const { backend, sessionPath } = await fixture();
@@ -109,14 +246,27 @@ describe("turn watchdog (fix 3)", () => {
     await backend.handle("sendPrompt", ["s1", "__hold__"]);
     await eventually(() => statuses.includes("started"));
 
-    // Tail is assistant with tool_use — must not be considered terminal, watchdog must not fire
-    await appendFile(sessionPath, JSON.stringify({
-      type: "message", id: "tail-tool", parentId: null,
-      message: { role: "assistant", content: [{ type: "tool_use", name: "bash", input: {} }], stopReason: "toolUse", timestamp: Date.now() },
-      timestamp: new Date().toISOString(),
-    }) + "\n");
+    // Two tools started; one result has already become the last message while
+    // the other is still running. The JSONL tail alone no longer shows the
+    // outstanding tool, so the current-epoch live pairing must protect it.
+    await appendFile(sessionPath, [
+      JSON.stringify({
+        type: "message", id: "tail-tool", parentId: null,
+        message: { role: "assistant", content: [
+          { type: "tool_use", id: "tool-a", name: "bash", input: {} },
+          { type: "tool_use", id: "tool-b", name: "bash", input: {} },
+        ], stopReason: "toolUse", timestamp: Date.now() },
+        timestamp: new Date().toISOString(),
+      }),
+      JSON.stringify({
+        type: "message", id: "tool-a-result", parentId: "tail-tool",
+        message: { role: "toolResult", toolCallId: "tool-a", content: [{ type: "text", text: "done" }], timestamp: Date.now() },
+        timestamp: new Date().toISOString(),
+      }),
+    ].join("\n") + "\n");
 
     const live = (backend as any).live.get("s1");
+    live.toolNames.set("tool-b", "bash");
     live.lastTurnActivityAt = Date.now() - (TURN_WATCHDOG_TIMEOUT_MS + 5_000);
 
     await (backend as any).checkTurnWatchdogs();

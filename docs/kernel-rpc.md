@@ -6132,8 +6132,31 @@ The Electron turn watchdog cannot manufacture that boundary. A terminal message 
 not evidence that the current run settled: live state records the current `agent_start` time, and a durable
 assistant stop/error must be at or after it before the watchdog may repair a missing `agent_settled`. This
 matters on a silent provider body: the child may be alive after response headers while the last durable
-message belongs to the prior run. In that case the UI remains busy until the real run ends or the provider
-fails; it is never silently labeled settled.
+message belongs to the prior run. The host therefore keeps the turn busy during its bounded silence window,
+then sends Pi's real `abort` command if the run has produced neither a current terminal message nor a current
+in-flight tool. The in-flight decision comes from the host's current-epoch `tool_execution_start`/`end` pairs,
+not merely from the final JSONL row; several tools may overlap after one result has already been written. Tail
+I/O is also only a snapshot: the host rechecks the live object, epoch, monotonic activity counter, terminal
+fence, tool set and queue gate after every asynchronous read before it may act.
+
+The watchdog does **not** relabel an old row or synthesize `settled`. It atomically arms
+`<session.jsonl>.coc-watchdog-recovery.json` (`{version: 1, sessionId, turnEpoch, createdAt}`) and sends Pi's
+real `abort`. This sidecar is a host lifecycle handoff, not campaign truth or a delivery. When Pi responds
+normally, its `agent_settled` — not an intermediate `message_end(error)`, `agent_stopped` or `agent_error`
+projection — is the terminal boundary: the extension synchronously marks the open turn stranded and schedules
+the no-delivery service notice, then the FIFO may drain. If abort itself is unresponsive and the host must replace the Pi process, the marker makes
+the replacement's environment carry one-shot `PI_COC_WATCHDOG_RECOVERY=1`; `session_start` consumes it,
+marks the retained `pending_turn` stranded, schedules the same notice and suppresses ordinary mid-turn recovery
+before queued player input can reach `table.player_input`. The host starts that replacement even when no later
+input is queued, because the original sentence is already owed its notice. The marker is bound to the retained
+kernel turn and remains through `agent_settled`, replacement initialization, notice delivery and repeated process
+or App exits. Binding is a completion barrier: queued input must await the marker's durable kernel-turn write
+before it may call `table.player_input`. Only a successful `table.player_input(release: "stranded")` clears it;
+if that cleanup fails, the bound turn number prevents the stale marker from stranding a later turn. Both generic
+unfinished notices and terminal provider notices carry a durable terminal-notice discriminator, so another
+replacement never tells the player twice for the same turn. A recovered retry refreshes activity and never
+reaches this boundary.
+Thus a provider may be slow, but it may not leave the player at an infinite spinner or return an empty composer.
 
 **This is not a bypass of review.** Nothing is narrated, nothing is committed, no verdict is treated as a
 pass, and an unavailable review still authorizes nothing (§32). It only stops an unavailable review from

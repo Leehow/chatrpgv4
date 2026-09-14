@@ -83,7 +83,11 @@ function emitTurn(message, images) {
 readline.createInterface({ input: process.stdin }).on("line", line => {
   const command = JSON.parse(line);
   const ok = data => response(command.type, command.id, true, data);
-  if (command.type === "get_available_models") return ok({ models: [{ provider: "fake", id: "fake-1", name: "Fake", reasoning: true }] });
+  if (command.type === "get_available_models") {
+    if (process.env.FAKE_EXIT_DURING_WATCHDOG_RECOVERY === "1"
+      && process.env.PI_COC_WATCHDOG_RECOVERY === "1") process.exit(23);
+    return ok({ models: [{ provider: "fake", id: "fake-1", name: "Fake", reasoning: true }] });
+  }
   if (command.type === "get_state") return ok({ model: activeModel, thinkingLevel: activeThinkingLevel });
   if (command.type === "get_available_thinking_levels") return ok({ levels: ["off", "medium", "high"] });
   if (command.type === "get_session_stats") {

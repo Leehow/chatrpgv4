@@ -69,6 +69,7 @@ test("a provider call that dies is recorded and told, even when the retry saves 
 	assert.equal(told.length, 1, JSON.stringify(told));
 	assert.equal(told[0].details.streak, 1);
 	assert.equal(told[0].details.turn, 1);
+	assert.equal(told[0].details.terminal, false);
 	assert.ok(told[0].content.trim() && !/^provider_\w+_notice$/.test(told[0].content.trim()),
 		`a caption the surface lacks renders as its key, which is a gap and not a notice: ${told[0].content}`);
 
@@ -120,6 +121,7 @@ test("a terminal provider failure returns a service notice and releases the stra
 	await waitFor(() => notices(session).length >= 1, { label: "the terminal run's service notice" });
 	const afterFailure = notices(session);
 	assert.equal(afterFailure.length, 1, "the failed run returns one visible service result");
+	assert.equal(afterFailure[0].details.terminal, true);
 	assert.match(afterFailure[0].content, /没能完成|could not finish/i);
 
 	await session.session.prompt("I try the handle.");
@@ -134,6 +136,45 @@ test("a terminal provider failure returns a service notice and releases the stra
 	assert.equal(told.filter((message) => message.details.turn === 1).length, 1);
 });
 
+test("a cold process consumes the host watchdog handoff before queued player input", async (t) => {
+	// Abort escalation cannot deliver agent_settled from the dead process. The
+	// replacement process receives this one-shot host flag and must perform the
+	// same stranded+notice transition before strict turn_state sees the queued
+	// player sentence.
+	const session = await openTable({ retainAt: directory, env: {
+		FAKE_KERNEL_PENDING: "1",
+		FAKE_KERNEL_STRICT_TURN: "1",
+		PI_COC_WATCHDOG_RECOVERY: "1",
+	}, responses: delivered("The cellar door gives under your hand.") });
+	t.after(() => session.dispose());
+	await waitFor(() => customMessages(session.session, "coc-delivery")
+		.some((message) => message.details.turn_unfinished), { label: "cold watchdog recovery notice" });
+
+	await session.session.prompt("I go down to the cellar.");
+	await waitForIdle(session.session);
+	assert.ok(assistantTexts(session.session).includes("The cellar door gives under your hand."));
+	const playerInput = session.kernelRequests().find((request) => request.method === "table.player_input");
+	assert.equal(playerInput?.params?.release, "stranded",
+		"the replacement process releases the retained turn instead of retrying it or hitting turn_state");
+	assert.equal(process.env.PI_COC_WATCHDOG_RECOVERY, undefined,
+		"the process-local handoff is consumed once and cannot strand a later turn");
+});
+
+test("a failed replacement initialization retains the watchdog handoff for another process", async (t) => {
+	const session = await openTable({ retainAt: directory, env: {
+		PI_COC_WATCHDOG_RECOVERY: "1",
+		FAKE_KERNEL_PENDING: "1",
+		FAKE_KERNEL_ERRORS: JSON.stringify({
+			"table.open": { code: "runtime_unavailable", message: "replacement table.open failed" },
+		}),
+	} });
+	t.after(() => session.dispose());
+	assert.equal(process.env.PI_COC_WATCHDOG_RECOVERY, "1",
+		"session_start failure must not consume the only recovery authority");
+	assert.equal(customMessages(session.session, "coc-delivery").length, 0,
+		"a failed table.open cannot claim the recovery notice was delivered");
+});
+
 test("terminal wording wins when the failed call also crossed the long-outage threshold", async (t) => {
 	const session = await openTable({ retainAt: directory, env: { PI_COC_PROVIDER_NOTICE_MS: "1" },
 		responses: [dead(), dead(), dead()] });
@@ -144,6 +185,7 @@ test("terminal wording wins when the failed call also crossed the long-outage th
 
 	const told = notices(session);
 	assert.equal(told.length, 1, "long and terminal are one failed run, not two player notices");
+	assert.equal(told[0].details.terminal, true);
 	assert.match(told[0].content, /没能完成|could not finish/i,
 		"terminal wording must replace the recovered-outage footnote");
 });

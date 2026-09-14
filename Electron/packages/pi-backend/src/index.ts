@@ -7,7 +7,7 @@ import { readCocBinding, readColdSheet, callColdKernel, mechanicsEntry, draftPre
   type CocHistoryWords, type CocUiWords } from "./coc-view.js";
 import { ChildProcessWithoutNullStreams, execFile, spawn } from "node:child_process";
 import { createExtensionHostWorkers, type ExtensionHostWorkers } from "./extension-host-workers.js";
-import { closeSync, constants as fsConstants, createReadStream, createWriteStream, existsSync, lstatSync, openSync, readFileSync, realpathSync, watch, writeSync, promises as fs, type Dirent } from "node:fs";
+import { closeSync, constants as fsConstants, createReadStream, createWriteStream, existsSync, lstatSync, openSync, readFileSync, realpathSync, rmSync, watch, writeSync, promises as fs, type Dirent } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, extname, isAbsolute, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
@@ -889,6 +889,10 @@ type Live = {
    * case may turn an interrupted UI back into a completed one.
    */
   hostAbortedTurn?: boolean;
+  /** A PipiCOC watchdog abort has a durable cold-process recovery handoff. */
+  watchdogRecoveryArmed?: boolean;
+  /** Identity-safe kill retries for one watchdog epoch. */
+  watchdogEscalationRetries?: number;
   /** Queue turn id from the latest `markBusy`; stale settles must pass this to `queueIdle`. */
   turnEpoch?: number;
   /** The same RPC wrapper is about to start its play child after setup exits. */
@@ -955,6 +959,10 @@ export function classifyCompactionTrigger(args: {
 /** Main-turn watchdog: turnActive with no event for this long is wedged. */
 export const TURN_WATCHDOG_TIMEOUT_MS = 120_000;
 export const TURN_WATCHDOG_CHECK_INTERVAL_MS = 30_000;
+const COC_WATCHDOG_RECOVERY_ENV = "PI_COC_WATCHDOG_RECOVERY";
+function cocWatchdogRecoveryPath(sessionPath: string): string {
+  return `${sessionPath}.coc-watchdog-recovery.json`;
+}
 const TERMINAL_RECONCILIATION_PENDING_RETRY_MS = 250;
 const TERMINAL_RECONCILIATION_PENDING_MAX_RETRIES = 6;
 /** Spawn waits this long for the auth-aware catalog (hosted-search exclusivity),
@@ -2423,6 +2431,7 @@ export class PiHostBackend implements HostBackend {
    * an aborted/compacted turn can drop; settle recycles them to the FIFO head. */
   private unconfirmedSteers = new Map<string, QueuedDispatchPayload[]>();
   private turnWatchdogTimer?: NodeJS.Timeout;
+  private cocWatchdogRecoveryTimers = new Map<string, NodeJS.Timeout>();
   private closed = false;
   private agentTerminalWaiters = new Set<() => void>();
   private bridge: HostBridge;
@@ -3158,6 +3167,8 @@ export class PiHostBackend implements HostBackend {
     this.cutInStopEscalation.cancelAll();
     this.stopOrphanReconcileTimer();
     if (this.turnWatchdogTimer) { clearInterval(this.turnWatchdogTimer); this.turnWatchdogTimer = undefined; }
+    for (const timer of this.cocWatchdogRecoveryTimers.values()) clearTimeout(timer);
+    this.cocWatchdogRecoveryTimers.clear();
     // Stop the resident external-pi worker if one was spawned during this run.
     this.externalAuthRuntime?.stop();
     for (const wake of [...this.agentTerminalWaiters]) wake();
@@ -3368,7 +3379,7 @@ export class PiHostBackend implements HostBackend {
    */
   private async abortSessionTurn(
     sessionId: string,
-    options: { drain: false | "cutIn" },
+    options: { drain: false | "cutIn" | "watchdog"; expectedEpoch?: number },
     expectedToken?: unknown,
   ): Promise<void> {
     const live = this.live.get(sessionId);
@@ -3376,7 +3387,21 @@ export class PiHostBackend implements HostBackend {
       ? expectedToken
       : live?.runtimeToken ?? this.sessionRuntimeToken(sessionId);
     if (!this.sessionRuntimeTokenIsCurrent(sessionId, runtimeToken)) return;
-    if (live) live.hostAbortedTurn = true;
+    if (options.expectedEpoch !== undefined
+      && (!live || live.turnEpoch !== options.expectedEpoch || live.terminalEpoch === options.expectedEpoch)) return;
+    if (live) {
+      live.hostAbortedTurn = true;
+      if (options.drain === "watchdog") {
+        if (!live.watchdogRecoveryArmed) live.watchdogEscalationRetries = 0;
+        live.watchdogRecoveryArmed = true;
+      } else if (options.drain === false && live.watchdogRecoveryArmed) {
+        // An explicit user Stop supersedes automatic revival. Keep the
+        // retained turn for ordinary cold recovery instead of silently
+        // replaying the watchdog's release policy later.
+        this.clearCocWatchdogRecoverySync(live.path);
+        live.watchdogRecoveryArmed = false;
+      }
+    }
     this.extensionUi.abortSession(sessionId);
     if (options.drain === false) {
       // User stop owns the queue: a hung prompt or parked cut-in must not keep
@@ -3389,7 +3414,7 @@ export class PiHostBackend implements HostBackend {
       // session_start/continuation revival must not resurrect the turn until
       // the user explicitly sends again.
       void this.markManualStop(sessionId);
-    } else if (!this.queue.hasPendingCutIn(sessionId)) {
+    } else if (options.drain === "cutIn" && !this.queue.hasPendingCutIn(sessionId)) {
       this.queue.suppressIdleDrain(sessionId, runtimeToken);
     }
     const after = this.live.get(sessionId);
@@ -3419,10 +3444,39 @@ export class PiHostBackend implements HostBackend {
             const liveNow = this.live.get(sessionId);
             if (!liveNow) {
               this.stream({ type: "status", sessionId, status: "stopped", pendingFollowUps: [] });
+              if (options.drain === "watchdog" && live?.path) {
+                this.scheduleCocWatchdogRecovery(sessionId, live.path, runtimeToken);
+              }
+              return;
+            }
+            // Identity refusal means no process was killed. A watchdog must
+            // never release FIFO on the escalation timer alone; keep the live
+            // turn fenced and retain the recovery marker for another attempt.
+            if (liveNow.watchdogRecoveryArmed && !liveNow.exiting) {
+              const retry = (liveNow.watchdogEscalationRetries ?? 0) + 1;
+              liveNow.watchdogEscalationRetries = retry;
+              console.warn(`[pipi-backend] turn watchdog escalation did not replace Pi session=${this.projectionDebugSessionTag(sessionId)} retry=${retry}`);
+              if (retry <= 3) {
+                const targetEpoch = liveNow.turnEpoch;
+                const timer = setTimeout(() => {
+                  const target = this.live.get(sessionId);
+                  if (target !== liveNow || !target.watchdogRecoveryArmed
+                    || target.turnEpoch !== targetEpoch || target.terminalEpoch === targetEpoch) return;
+                  void this.abortSessionTurn(sessionId, { drain: "watchdog", expectedEpoch: targetEpoch }, runtimeToken);
+                }, 1_000);
+                timer.unref?.();
+              }
               return;
             }
             if (liveNow.terminalEpoch !== liveNow.turnEpoch) {
-              this.projectTurnTerminal(liveNow, "stopped");
+              this.projectTurnTerminal(liveNow, "stopped", false, true);
+            }
+            // A killed watchdog run owes its service notice even when the
+            // player typed nothing else. Start the replacement proactively;
+            // ensure waits for the old child exit and injects the durable
+            // recovery handoff into session_start.
+            if (liveNow.watchdogRecoveryArmed) {
+              this.scheduleCocWatchdogRecovery(sessionId, liveNow.path, runtimeToken);
             }
           },
         );
@@ -4337,6 +4391,7 @@ export class PiHostBackend implements HostBackend {
           await this.teardownSessionRuntime(s.header.id);
           await this.queueStore.remove(s.header.id);
           await fs.rm(s.path);
+          await this.clearCocWatchdogRecovery(s.path);
           // The extension-contribution sidecar is session-owned: it must not outlive the
           // session. The helper only removes files this system itself wrote (canonical name,
           // versioned snapshot shape) and never touches anything else in the directory.
@@ -5490,6 +5545,11 @@ export class PiHostBackend implements HostBackend {
       ? expectedGeneration
       : this.sessionRuntimeToken(id) ?? this.beginSessionRuntime(id);
     this.assertSessionGeneration(id, generation);
+    // A child is inserted into `live` before model/thinking/state setup has
+    // finished. Concurrent callers must join that initialization promise,
+    // never treat a writable-but-uninitialized process as recovered.
+    const inFlight = this.ensureInFlight.get(id);
+    if (inFlight) return inFlight;
     const live = this.live.get(id);
     if (live && this.liveProcessUsable(live)) return live;
     if (live && !this.liveProcessUsable(live)) {
@@ -5498,8 +5558,6 @@ export class PiHostBackend implements HostBackend {
       if (this.live.get(id) === live) this.live.delete(id);
       return this.ensure(id, generation);
     }
-    const inFlight = this.ensureInFlight.get(id);
-    if (inFlight) return inFlight;
     this.stopEscalation.cancel(id);
     this.cutInStopEscalation.cancel(id);
     // Archive = total death: transcript/detail reads use findSession/index
@@ -5675,6 +5733,9 @@ export class PiHostBackend implements HostBackend {
       const dotEnv = await this.readDotEnv();
       this.assertSessionGeneration(id, generation);
       const cocBinding = await readCocBinding(found.path);
+      const cocWatchdogRecovery = cocBinding
+        ? await fs.access(cocWatchdogRecoveryPath(found.path)).then(() => true, () => false)
+        : false;
       // Kept so the live stream can hand a card the campaign's language without re-reading the
       // transcript inside a synchronous reader.
       if (cocBinding) this.cocSessionBindings.set(id, cocBinding);
@@ -5704,7 +5765,8 @@ export class PiHostBackend implements HostBackend {
               // still passed through -- by `mergedSpawnEnvironment`'s parent layer, as an operator
               // override rather than as a setting wearing one's clothes.
               ...(cocBinding ? {PI_COC_CAMPAIGN:cocBinding.campaign,PI_COC_HOME:cocBinding.home, PI_COC_MODE:cocBinding.mode || "play",
-                ...(cocBinding.mode === "setup" ? {PI_COC_SETUP_AUTOSTART:"1"} : {})} : {}),
+                ...(cocBinding.mode === "setup" ? {PI_COC_SETUP_AUTOSTART:"1"} : {}),
+                ...(cocWatchdogRecovery ? {[COC_WATCHDOG_RECOVERY_ENV]:"1"} : {})} : {}),
             }),
             workerEnvFromVault(this.vaultDir, id),
           ),
@@ -5740,6 +5802,7 @@ export class PiHostBackend implements HostBackend {
         session,
         runtimeToken: generation,
         spawnInitializing: true,
+        watchdogRecoveryArmed: cocWatchdogRecovery,
       path: found.path,
       cwd: spawnCwd,
       projectRoot: canonicalRoot,
@@ -5827,7 +5890,7 @@ export class PiHostBackend implements HostBackend {
         // `agent_settled`. Without this the UI stays 进行中 forever. Rollback
         // and teardown-owned closes are not completed turns.
         if (!live.exiting && !live.spawnInitializing && this.queue.isBusy(id))
-          this.projectTurnTerminal(live, live.hostAbortedTurn ? "stopped" : "settled");
+          this.projectTurnTerminal(live, live.hostAbortedTurn ? "stopped" : "settled", false, live.watchdogRecoveryArmed === true);
       }
       live.compaction.dispose();
       // A dead writer cannot still be compacting; drop the drain gate so FIFO
@@ -5846,6 +5909,12 @@ export class PiHostBackend implements HostBackend {
         // fence only in that case.
         if (stillCurrent) void this.queueIdle(id, undefined, live.runtimeToken);
         else void this.queueIdle(id, live.turnEpoch, live.runtimeToken);
+        // The durable watchdog decision survives a second process loss before
+        // the player's release. Restart even with an empty FIFO so the owed
+        // notice is not deferred until another sentence.
+        if (stillCurrent && live.watchdogRecoveryArmed && !this.closed) {
+          this.scheduleCocWatchdogRecovery(id, live.path, live.runtimeToken);
+        }
       };
       // Keep the writer lease after Pi exits. Releasing here let another
       // pipiui-electron (dev:browser, a second App) steal the file while this
@@ -5864,7 +5933,7 @@ export class PiHostBackend implements HostBackend {
       this.modelState.thinkingLevel,
     );
     if (spawnThinkingLevel !== undefined) {
-      await this.command(id, {
+      await this.writeCommand(live, {
         type: "set_thinking_level",
         level: spawnThinkingLevel,
       });
@@ -5872,6 +5941,22 @@ export class PiHostBackend implements HostBackend {
     }
       await this.refreshState(live);
       this.assertSessionGeneration(id, generation);
+      // refreshState deliberately tolerates unavailable model metadata, but a
+      // process that exited during those RPCs is not an initialized session.
+      // Propagate that boundary so the watchdog recovery scheduler retries
+      // instead of accepting a dead replacement as success.
+      if (!this.liveProcessUsable(live)) {
+        await (live.exit ?? Promise.resolve());
+        throw live.exitError ?? new PiExitedError(
+          live.process?.exitCode ?? null,
+          live.process?.signalCode ?? null,
+          live.stderrTail,
+        );
+      }
+      // The marker remains until table.player_input has durably released the
+      // stranded kernel turn. A successful process spawn is not that proof:
+      // session_start may have failed, or the process may die again before the
+      // player's next sentence.
       live.spawnInitializing = false;
       return live;
     } catch (error) {
@@ -6049,6 +6134,8 @@ export class PiHostBackend implements HostBackend {
     if (e.type === "agent_start") {
       live.cocSetupHandoffPending=false;
       live.hostAbortedTurn = false;
+      live.watchdogRecoveryArmed = false;
+      live.watchdogEscalationRetries = 0;
       live.compaction.cancel();
       // Must be synchronous: fake-pi/real Pi emit agent_start and agent_settled
       // in the same stdout chunk. An async markBusy lets the settle run with a
@@ -6082,10 +6169,18 @@ export class PiHostBackend implements HostBackend {
       });
     } else if (e.type === "agent_settled") {
       this.requestSessionRedact(id, live.runtimeToken);
-      this.projectTurnTerminal(live, live.hostAbortedTurn ? "stopped" : "settled", true);
+      // The extension has made the stranded decision in memory, but the
+      // durable marker and host recovery flag remain until the next
+      // table.player_input records the release. A second process death before
+      // that point must restart and replay the handoff.
+      this.projectTurnTerminal(live, live.hostAbortedTurn ? "stopped" : "settled", true, true);
     } else if (e.type === "agent_stopped" || e.type === "agent_error") {
       this.requestSessionRedact(id, live.runtimeToken);
-      this.projectTurnTerminal(live, "stopped");
+      // For watchdog recovery only agent_settled proves the extension marked
+      // the turn stranded. If Pi omits it, keep the queue fenced until abort
+      // escalation replaces the process; the durable spawn handoff then owns
+      // the transition. Manual Stop and other errors retain their old path.
+      if (!live.watchdogRecoveryArmed) this.projectTurnTerminal(live, "stopped");
     } else if (e.type === "auto_retry_start" || e.type === "auto_retry_end") {
       // pi is retrying a failed provider call inside the running turn (or the
       // retry loop just finished). Forward it: a silent backoff window — minutes
@@ -6542,8 +6637,18 @@ export class PiHostBackend implements HostBackend {
       }
     }
   }
-  private projectTurnTerminal(live: Live, status: "settled" | "stopped", pushStats = false): boolean {
+  private projectTurnTerminal(
+    live: Live,
+    status: "settled" | "stopped",
+    pushStats = false,
+    allowWatchdogRecovery = false,
+  ): boolean {
     const epoch = live.turnEpoch;
+    // Once watchdog recovery is armed, only a real agent_settled or a proven
+    // process exit/kill may release FIFO. Intermediate message_end/error/final
+    // reconciliation events still render, but cannot outrun the extension's
+    // stranded transition or the cold-process handoff.
+    if (live.watchdogRecoveryArmed && !allowWatchdogRecovery) return false;
     if (epoch === undefined || live.terminalEpoch === epoch) return false;
     live.terminalEpoch = epoch;
     live.pendingFinalReconciliation = undefined;
@@ -6740,13 +6845,56 @@ export class PiHostBackend implements HostBackend {
     this.projectTurnTerminal(live, "settled", true);
   }
   private touchTurnActivity(live: Live): void {
-    live.lastTurnActivityAt = Date.now();
+    // Monotonic even when two events share the same millisecond. The watchdog
+    // snapshots this value across async tail I/O; equality must mean that no
+    // event arrived, not merely that Date.now() tied.
+    live.lastTurnActivityAt = Math.max(Date.now(), (live.lastTurnActivityAt ?? 0) + 1);
   }
-  private async isSessionTailTerminal(path: string, notBefore?: number): Promise<boolean> {
+  private async armCocWatchdogRecovery(live: Live, epoch: number): Promise<boolean> {
+    if (!(live.session.productProfile?.id === "coc-keeper" || this.cocSessionBindings.has(live.session.id))) return false;
+    const path = cocWatchdogRecoveryPath(live.path);
+    const temp = `${path}.tmp-${process.pid}-${crypto.randomUUID()}`;
+    try {
+      await fs.writeFile(temp, `${JSON.stringify({ version: 1, sessionId: live.session.id, turnEpoch: epoch, createdAt: new Date().toISOString() })}\n`, "utf8");
+      await fs.rename(temp, path);
+      return true;
+    } catch (error) {
+      await fs.rm(temp, { force: true }).catch(() => undefined);
+      console.warn(`[pipi-backend] turn watchdog recovery handoff failed session=${this.projectionDebugSessionTag(live.session.id)}: ${error instanceof Error ? error.message : String(error)}`);
+      return false;
+    }
+  }
+  private scheduleCocWatchdogRecovery(sessionId: string, sessionPath: string, runtimeToken: unknown, delayMs = 0): void {
+    if (this.closed || this.cocWatchdogRecoveryTimers.has(sessionId)) return;
+    const timer = setTimeout(() => {
+      this.cocWatchdogRecoveryTimers.delete(sessionId);
+      if (this.closed || !this.sessionRuntimeTokenIsCurrent(sessionId, runtimeToken)) return;
+      void fs.access(cocWatchdogRecoveryPath(sessionPath)).then(
+        async () => {
+          try {
+            await this.ensure(sessionId, runtimeToken);
+          } catch (error) {
+            this.stream({ type: "error", sessionId, content: error instanceof Error ? error.message : String(error) });
+            this.scheduleCocWatchdogRecovery(sessionId, sessionPath, runtimeToken, 1_000);
+          }
+        },
+        () => undefined,
+      );
+    }, delayMs);
+    timer.unref?.();
+    this.cocWatchdogRecoveryTimers.set(sessionId, timer);
+  }
+  private clearCocWatchdogRecoverySync(sessionPath: string): void {
+    try { rmSync(cocWatchdogRecoveryPath(sessionPath), { force: true }); } catch { /* the next cold start safely consumes a leftover marker */ }
+  }
+  private async clearCocWatchdogRecovery(sessionPath: string): Promise<void> {
+    await fs.rm(cocWatchdogRecoveryPath(sessionPath), { force: true }).catch(() => undefined);
+  }
+  private async sessionTailTurnState(path: string, notBefore?: number): Promise<"terminal" | "tool" | "other"> {
     try {
       const stat = await fs.stat(path);
       const length = Math.min(stat.size, TERMINAL_DURABILITY_TAIL_BYTES);
-      if (length <= 0) return false;
+      if (length <= 0) return "other";
       const start = stat.size - length;
       const handle = await fs.open(path, "r");
       let text = "";
@@ -6766,25 +6914,28 @@ export class PiHostBackend implements HostBackend {
         try { entry = JSON.parse(line); } catch { continue; }
         if (entry?.type === "message") {
           const message = entry.message;
-          if (!message) return false;
+          if (!message) return "other";
           const timestamp = asTime(entry.timestamp ?? message.timestamp);
-          if (notBefore !== undefined && timestamp < notBefore) return false;
-          // Tool-use in progress is not terminal — long tool calls must not be interrupted.
+          if (notBefore !== undefined && timestamp < notBefore) return "other";
+          // A current tool-use tail owns the silence: long tool calls must not be interrupted.
           const content = Array.isArray(message.content) ? message.content : [];
           const hasToolCall = content.some((part: any) => part?.type === "toolCall" || part?.type === "tool_call" || part?.type === "tool_use");
-          if (hasToolCall) return false;
+          if (hasToolCall) return "tool";
           if (message.role === "assistant" && (message.stopReason === "stop" || message.stopReason === "error" || message.stopReason === "aborted")) {
-            return true;
+            return "terminal";
           }
-          return false;
+          return "other";
         }
-        // Abort or custom abort markers also considered terminal
-        if (entry?.type === "abort" || entry?.type === "aborted") return true;
+        // Abort or custom abort markers also considered terminal.
+        if (entry?.type === "abort" || entry?.type === "aborted") return "terminal";
       }
     } catch {
-      return false;
+      return "other";
     }
-    return false;
+    return "other";
+  }
+  private async isSessionTailTerminal(path: string, notBefore?: number): Promise<boolean> {
+    return (await this.sessionTailTurnState(path, notBefore)) === "terminal";
   }
   private async checkTurnWatchdogs(): Promise<void> {
     if (this.closed) return;
@@ -6798,6 +6949,7 @@ export class PiHostBackend implements HostBackend {
       // Must not trigger while queue thinks idle but live still shows busy phantom — check turnActive via queue
       if (!this.queue.isBusy(live.session.id)) continue;
       const turnOpen = epoch !== undefined && live.terminalEpoch !== epoch;
+      const privateCoc = live.session.productProfile?.id === "coc-keeper" || this.cocSessionBindings.has(live.session.id);
       // Live already closed this turn (or none ever started), yet the queue
       // gate is still held: the settle's queue-side release was lost (notifyIdle
       // fenced out by a lifecycle/current-session check). projectTurnTerminal
@@ -6807,12 +6959,42 @@ export class PiHostBackend implements HostBackend {
       // behind it ("queued") and nothing ever drains. Require a quiet RPC
       // surface so a genuinely in-flight dispatch is never released.
       if (!turnOpen && live.pending.size > 0) continue;
-      const tailTerminal = await this.isSessionTailTerminal(live.path, live.turnStartedAt);
-      if (!tailTerminal) {
-        console.warn(`[pipi-backend] turn watchdog no tail terminal session=${this.projectionDebugSessionTag(live.session.id)} epoch=${epoch}`);
+      // The live tool map is current-epoch authority (cleared at agent_start,
+      // paired at tool_execution_start/end). A JSONL tail alone cannot protect
+      // two concurrent tools after one of their result rows lands.
+      if (turnOpen && live.toolNames.size > 0) continue;
+      const tailState = await this.sessionTailTurnState(live.path, live.turnStartedAt);
+      // Tail I/O yields. Recheck every authority snapshot before acting so a
+      // recovered provider response, a real settle, or FIFO's next epoch can
+      // never be aborted using the old turn's decision.
+      const current = this.live.get(live.session.id);
+      if (current !== live || current.turnEpoch !== epoch || current.lastTurnActivityAt !== active
+        || !this.queue.isBusy(live.session.id) || current.toolNames.size > 0) continue;
+      const stillOpen = epoch !== undefined && current.terminalEpoch !== epoch;
+      if (tailState !== "terminal") {
+        if (!stillOpen || tailState === "tool" || current.hostAbortedTurn || !privateCoc) {
+          console.warn(`[pipi-backend] turn watchdog no tail terminal session=${this.projectionDebugSessionTag(live.session.id)} epoch=${epoch} tail=${tailState}`);
+          continue;
+        }
+        // A provider body can remain alive forever without writing a current
+        // JSONL message. Arm a durable cold-process handoff first, then end the
+        // actual run through Pi's abort lifecycle. A normal agent_settled lets
+        // the extension notify and strand in-process; if abort escalation must
+        // replace Pi, the next process receives PI_COC_WATCHDOG_RECOVERY and
+        // performs that same transition before FIFO drains the player's input.
+        const recoveryArmed = await this.armCocWatchdogRecovery(current, epoch);
+        const afterArm = this.live.get(live.session.id);
+        if (!recoveryArmed || afterArm !== current || afterArm.turnEpoch !== epoch
+          || afterArm.lastTurnActivityAt !== active || afterArm.terminalEpoch === epoch
+          || afterArm.toolNames.size > 0 || !this.queue.isBusy(live.session.id)) {
+          if (recoveryArmed) await this.clearCocWatchdogRecovery(current.path);
+          continue;
+        }
+        console.warn(`[pipi-backend] turn watchdog aborting silent run session=${this.projectionDebugSessionTag(live.session.id)} epoch=${epoch} idleMs=${now - active}`);
+        await this.abortSessionTurn(live.session.id, { drain: "watchdog", expectedEpoch: epoch }, live.runtimeToken);
         continue;
       }
-      if (!turnOpen) {
+      if (!stillOpen) {
         console.warn(`[pipi-backend] turn watchdog releasing leaked queue gate session=${this.projectionDebugSessionTag(live.session.id)} epoch=${epoch} idleMs=${now - active}`);
         await this.queue.notifyIdle(live.session.id);
         continue;
@@ -6925,12 +7107,15 @@ export class PiHostBackend implements HostBackend {
   }
   /** Pi model ids are not provider-unique. Never silently accept a same-id sibling. */
   private async selectExactModel(live: Live, provider: string, modelId: string) {
+    // Spawn initialization already owns this exact live process. Routing these
+    // commands back through ensure() would await the initialization promise
+    // that is currently executing and deadlock every spawn.
     for (let attempt = 0; attempt < 2; attempt += 1) {
-      await this.command(live.session.id, { type: "set_model", provider, modelId });
-      const state = await this.command(live.session.id, { type: "get_state" });
+      await this.writeCommand(live, { type: "set_model", provider, modelId });
+      const state = await this.writeCommand(live, { type: "get_state" });
       if (state.model?.provider === provider && state.model?.id === modelId) return;
     }
-    const state = await this.command(live.session.id, { type: "get_state" });
+    const state = await this.writeCommand(live, { type: "get_state" });
     throw new Error(
       `Pi 模型选择未生效：期望 ${provider}/${modelId}，实际 ${state.model?.provider ?? "unknown"}/${state.model?.id ?? "unknown"}`,
     );
@@ -6968,7 +7153,9 @@ export class PiHostBackend implements HostBackend {
 
   private async refreshState(live: Live) {
     try {
-      const models = await this.command(live.session.id, {
+      // This also runs inside spawn initialization, so use the owned live
+      // process directly rather than recursively joining ensureInFlight.
+      const models = await this.writeCommand(live, {
         type: "get_available_models",
       });
       const catalogModels = this.models;
@@ -6988,8 +7175,8 @@ export class PiHostBackend implements HostBackend {
           ...(capabilities === undefined ? {} : { capabilities }),
         };
       });
-      const state = await this.command(live.session.id, { type: "get_state" });
-      const levels = await this.command(live.session.id, {
+      const state = await this.writeCommand(live, { type: "get_state" });
+      const levels = await this.writeCommand(live, {
         type: "get_available_thinking_levels",
       });
       const reportedModel = state.model ? hostModelFromPi(state.model) : undefined;
@@ -7005,7 +7192,7 @@ export class PiHostBackend implements HostBackend {
         previous?.thinkingLevel,
       ) ?? reportedThinkingLevel ?? "off";
       if (thinkingLevel !== reportedThinkingLevel && availableThinkingLevels.includes(thinkingLevel))
-        await this.command(live.session.id, { type: "set_thinking_level", level: thinkingLevel });
+        await this.writeCommand(live, { type: "set_thinking_level", level: thinkingLevel });
       this.sessionModelStates.set(live.session.id, {
         model,
         thinkingLevel,
