@@ -67,5 +67,6 @@
   "table_investigator_unnamed": "unnamed investigator",
   "table_open": "{title}  turn {turn}  {scene}",
   "table_scene_unknown": "unknown scene",
-  "table_value_unknown": "?"
+  "table_value_unknown": "?",
+  "turn_unfinished_notice": "This turn ended without a delivered result. Anything already settled is kept — send anything to continue."
 }

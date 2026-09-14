@@ -93,7 +93,7 @@ open|acting      --table.player_input release:"stranded"-->  open   上一轮守
 
 - `awaiting_player` 与 `committed` 期间，除 `table.open`、`table.status`、`table.capsule`、`table.look`、`table.lookup`、`table.recall` 外一切方法报 `turn_state`。
 - `narrate` 成功后内核自行把状态推到 `awaiting_player` 并递增 `turn`；「交付完成」是扩展侧的事，内核不等待。
-- 玩家发出的每一句话都必须终结于一个可见结果：正常交付，或一条说明基础设施未能完成本轮的服务通知。`open`/`acting` 的回合若上一轮代理运行结束时什么都没交付，且宿主自己的运行状态确认本轮已不可恢复（连续性复核已暂停，或最后一次 provider 调用以 `stop_reason: "error"` 结束且本轮没有后续成功调用），宿主用 `table.player_input` 的 `release: "stranded"` 把它按 `closed_by: "stranded"` 落记录并开下一回合。不叙述、不提交、不把基础设施失败当成裁决；同轮已恢复的 provider 错误和复核仍可用的未交付回合都不算搁浅。契约见第 38 节。
+- 玩家发出的每一句话都必须终结于一个可见结果：正常交付，或一条说明本轮没有完成的服务通知。`open`/`acting` 的回合若代理运行已经 `agent_settled` 而什么都没交付，宿主不猜原因，直接标为搁浅；下一条输入用 `table.player_input` 的 `release: "stranded"` 把它按 `closed_by: "stranded"` 落记录并开新回合。不叙述、不提交、不把失败当成裁决；仍在运行或同轮已经恢复并交付的情况不算搁浅。契约见第 38 节。
 - `table.open` 返回时若 `turn.json` 的 `state` 是 `open` 或 `acting`，说明上次进程在回合中途结束：返回 `pending_turn`，含玩家原文、已落收据、尚欠的步骤描述；扩展把它注入给守秘人接着做完。
 
 ## 5. 方法
@@ -3724,7 +3724,7 @@ real browser. A generated card or deterministic fixture is not real-table eviden
 
 ### Current implementation decision: bounded assembly and one recipe (2026-09-14)
 
-The assembler owns its heavy work directory, and the App packager owns its outer stage. Imported and direct-CLI assembly stop/settle their owned children and clean heavy work on success, exception, SIGINT, SIGTERM and SIGHUP, restoring owned read-only permissions first. SIGKILL/power-loss recovery is not claimed. A successful requested output remains; existing output is rejected untouched, and failed task-owned partial output is cleaned. Known text logs and diagnostic JSON are retained under a run-owned `.build.noindex` diagnostics directory outside disposable staging, without archives, dependencies, binaries or bundles. `evidence` and the App receipt's `assemblyEvidence` point there; full workspaces are not retained on failure. All `.coc` evidence remains outside cleanup ownership.
+The assembler owns its heavy work directory, and the App packager owns its outer stage. Imported and direct-CLI assembly stop/settle their owned children and clean heavy work on success, exception, SIGINT, SIGTERM and SIGHUP, restoring owned read-only permissions first. SIGKILL/power-loss recovery is not claimed. A successful requested output remains; existing output is rejected untouched, and failed task-owned partial output is cleaned. Known text logs and diagnostic JSON are retained under a run-owned `.build.noindex` diagnostics directory outside disposable staging, capped at 256 KiB per file with truncation recorded, without archives, dependencies, binaries or bundles. `evidence` and the App receipt's `assemblyEvidence` point there; full workspaces are not retained on ordinary failure. An owned process group whose stop cannot be confirmed after bounded TERM/KILL waits instead reports `cleanupBlocked`; outer cleanup must not delete active paths or treat that inability as success. This is not a selectable retention mode. All `.coc` evidence remains outside cleanup ownership.
 
 The root package manifest's existing `version` is the sole App version source; product identity does not acquire a second version field, and branch/extension versions are not substituted. The executable packager consumes an import-safe pure configuration recipe which behavior tests also execute. The obsolete `Electron/scripts/package-product.mjs` entry refuses before building, downloading, staging or spawning, pointing to `node pipicoc/package.mjs`; unrelated build/dev and lower-level vendored tooling remain. Applicable package safety checks migrate to the current recipe/lifecycle; obsolete PipiUI assertions are retired, not blanket-skipped. Failure-baseline changes are generated removals only. This decision does not authorize actual App installation, packaging or restart as a test.
 
@@ -6109,22 +6109,24 @@ that intent. This is the §31 shape: a writer with no reader.
 ### 38.3 Who may declare a turn stranded
 
 **The host, from its own retained run state, and never from prose or a verdict.** A turn is stranded when
-an agent run ended leaving it `open`/`acting` with nothing delivered — no `narrate`, no `ask` — **and** the
-host knows that run ended on an unrecovered infrastructure failure. Today either structural condition is
-sufficient: the continuity review is paused, so no draft can be approved until new player input arrives;
-or the run's final provider call ended with `stop_reason: "error"` and no later completed assistant message
-proved recovery. The host already records these facts (`renderedText`, `closedThisRun`,
-`reviewUnavailable`, the retained `reviewStatus` a restart reads at `table.open`, and provider
-`message_end.stopReason`). It marks the turn stranded at `agent_settled`; a restart that finds a
+an agent run has fully settled while leaving it `open`/`acting` with nothing delivered — no successful
+`narrate`, no `ask`, and no retained delivery waiting to be placed. The cause is deliberately not part of
+the predicate. A paused continuity review, a terminal provider error, a Keeper that spent its one repair
+steer and then returned only thinking, and any future failure shape are the same lifecycle fact once the
+run has ended: nobody remains who can finish that turn before new player input, while the state guard would
+reject that input. The host already records the complete predicate (`state`, `closedThisRun`,
+`renderedText`, and `agent_settled`). It marks the turn stranded at `agent_settled`; a restart that finds a
 `pending_turn` under a paused retained review still marks it at `table.open`. The mark is carried on the
 next `table.player_input` and cleared as soon as a turn opens.
 
-An earlier provider error followed by a completed assistant message in the **same run** is recovered and
-cannot strand the turn. Likewise, an undelivered turn whose review still works and whose provider did not
-end in error is **not** stranded: the §4 recovery path stands, the guard still refuses the player input,
-and the Keeper finishes the turn it started. Stranding is never set because a review returned `revise`,
-because a candidate was refused by admission, because any earlier provider attempt failed and recovered,
-or because the Keeper is slow — those runs may still repair and deliver.
+Failures that recover and deliver inside the same run are not stranded. A `revise`, admission refusal,
+provider retry or slow Keeper is not stranding while the run is still live; the Keeper may still repair and
+deliver. Once that run settles without delivery, however, the lifecycle predicate is complete and the
+cause no longer grants a special exemption. Retained App evidence
+(`game-e0877a4e-fde9-430b-b0d0-d22c8868ce5c`, turn 4, 2026-09-14) is the non-infrastructure case: the
+provider completed successfully twice, the review was available, the one preparation-wait steer was spent,
+and the Keeper's second completion contained thinking but no text or tool call. The UI returned to an empty
+composer with no result until this general rule replaced the earlier cause list.
 
 **This is not a bypass of review.** Nothing is narrated, nothing is committed, no verdict is treated as a
 pass, and an unavailable review still authorizes nothing (§32). It only stops an unavailable review from
@@ -6134,9 +6136,9 @@ allowance in which to reach a lawful draft.
 
 ### 38.4 The three ends (§31)
 
-- **Writer:** the host, at `agent_settled`, from a paused review or an unrecovered terminal provider error,
-  and at a `table.open` that finds a `pending_turn` under a paused retained review, all from its own run
-  state; `before_agent_start` carries the mark, and the kernel writes the stranded turn record and the
+- **Writer:** the host, at `agent_settled`, from the run's state/delivery facts regardless of cause, and at
+  a `table.open` that finds a `pending_turn` under a paused retained review, all from its own run state;
+  `before_agent_start` carries the mark, and the kernel writes the stranded turn record and the
   `turn-stranded` event.
 - **Reader:** `table.player_input`'s state guard, and every delivery consumer through the existing
   `closed_by === "narrate"` predicate, which a stranded record deliberately fails.
@@ -6184,8 +6186,9 @@ kept is its own lost turn.
 3. A stranded record produces no commit, no memory job, no checkpoint, no Director adoption row and no
    keeper transcript line, and is not read back as a delivery by continuity, continuation, source audit or
    story assessment.
-4. An undelivered turn whose review still works and whose provider did not end in an unrecovered error is
-   **not** released: the player input is still refused `turn_state` and the §4 recovery path is unchanged.
+4. A still-live run is never released merely because it has not delivered yet. Once `agent_settled` records
+   the same `open`/`acting` no-delivery state, the next player input is released regardless of whether the
+   review and provider were healthy.
 5. Live: the retained `midgame-bridge-live-21` deadlock cannot recur — after a paused review strands a
    turn, the player's next utterance opens a new turn on the same unresolved reentry.
 6. A run that ends undelivered under a paused review emits exactly one displayed service notice, in the
@@ -6194,8 +6197,13 @@ kept is its own lost turn.
    landed `narrate` and not by a turn boundary, and from the second consecutive outage the notice drops the
    retry promise and one `coc-review-status` `status: "down"` entry carries the streak and the fix.
 8. A run whose final provider call ends in `error`, with no later completed assistant message and no
-   delivery, emits one service notice and marks the turn stranded. The next player input releases it and
-   opens a new turn. If a later provider call completes in the same run, the turn is not stranded.
+   delivery, emits one provider-specific service notice and marks the turn stranded. The next player input
+   releases it and opens a new turn. If a later provider call completes and the run delivers, it is not
+   stranded.
+9. Any other run that settles `open`/`acting` with no delivery emits exactly one cause-neutral service
+   notice, preserves whatever settled, and marks the turn stranded. An already-sent review notice or the
+   provider-specific terminal notice suppresses the generic one; the player never gets two failure notices
+   for one run.
 
 ### 38.7 A provider call that dies leaves a trace (2026-09-14)
 

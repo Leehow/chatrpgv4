@@ -8,7 +8,7 @@ import {join} from 'node:path';
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { extensionWords } from "../../extensions/ui/words.ts";
-import { assistantTexts, customMessages, openTable, waitForIdle } from "./harness.mjs";
+import { assistantTexts, customMessages, openTable, waitFor, waitForIdle } from "./harness.mjs";
 
 const SEVEN = ["apply", "ask", "look", "lookup", "narrate", "recall", "resolve"];
 
@@ -208,6 +208,32 @@ test("a source-wait steer is spent once so the Keeper's own prose still closes t
 	assert.equal(assistantTexts(table.session).at(-1), notice, "the player finally sees the honest wait notice");
 	assert.equal(customMessages(table.session).filter(row => row.details?.kind === "reading-wait").length, 1,
 		"the source-wait steer is spent once, not re-sent on every leg");
+});
+
+test("a settled thinking-only run returns a service notice and releases the turn", async t => {
+	const thought = () => fauxAssistantMessage([{ type: "thinking", thinking: "private Keeper reasoning" }], { stopReason: "stop" });
+	const table = await openTable({ env: { FAKE_KERNEL_STRICT_TURN: "1" }, responses: [
+		thought(),
+		thought(),
+		fauxAssistantMessage([fauxToolCall("narrate", { text: "The next turn reaches the player." })], { stopReason: "toolUse" }),
+		fauxAssistantMessage("The next turn reaches the player."),
+	] });
+	t.after(() => table.dispose());
+
+	await table.session.prompt("I wait for the preparation.");
+	await waitForIdle(table.session);
+	await waitFor(() => customMessages(table.session, "coc-delivery").some(message => message.details.turn_unfinished),
+		{ label: "the settled run's generic service notice" });
+	const notices = customMessages(table.session, "coc-delivery").filter(message => message.details.turn_unfinished);
+	assert.equal(notices.length, 1, "one settled run gets one cause-neutral result");
+	assert.match(notices[0].content, /没有交付结果|without a delivered result/i);
+
+	await table.session.prompt("Continue.");
+	await waitForIdle(table.session);
+	assert.ok(assistantTexts(table.session).includes("The next turn reaches the player."),
+		"the next input releases the stranded turn instead of being refused by turn_state");
+	const inputs = table.kernelRequests().filter(request => request.method === "table.player_input");
+	assert.equal(inputs[1].params.release, "stranded");
 });
 
 test("material_pending retries the exact failed read once, then replays the original apply", async t => {

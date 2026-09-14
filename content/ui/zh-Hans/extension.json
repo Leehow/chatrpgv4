@@ -67,5 +67,6 @@
   "table_investigator_unnamed": "未命名调查员",
   "table_open": "{title}  第 {turn} 回合  {scene}",
   "table_scene_unknown": "未知场景",
-  "table_value_unknown": "？"
+  "table_value_unknown": "？",
+  "turn_unfinished_notice": "这一回合结束时没有交付结果。已经结算的内容都还在——随便说句话就能继续。"
 }

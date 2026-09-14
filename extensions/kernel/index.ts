@@ -167,6 +167,8 @@ interface TableState {
 	terminalProviderFailure?: { ms: number | null; streak: number };
 	/** This run already told the player the model connection dropped: one service notice per run. */
 	providerNoticeSent?: boolean;
+	/** This settled run already scheduled the generic no-delivery notice. */
+	turnNoticeSent?: boolean;
 	/** Contract §38: an agent run ended leaving this turn open with nothing delivered, so no one can
 	 * finish it any more. The next player input releases it instead of being refused turn_state. */
 	strandedTurn?: boolean;
@@ -1300,6 +1302,21 @@ export default function (pi: ExtensionAPI) {
 		setTimeout(() => void emitProviderNotice(state, failure, terminal, turn), 0);
 	}
 
+	async function emitTurnUnfinishedNotice(state: TableState, turn: number): Promise<void> {
+		let line = "This turn ended without a delivered result. Anything already settled is kept — send anything to continue.";
+		try { line = (await surface.words()).line("turn_unfinished_notice"); }
+		catch { /* an unreadable content root still owes the player the English line */ }
+		pi.sendMessage({ customType: "coc-delivery", content: line, display: true,
+			details: { coc_delivery: true, turn, turn_unfinished: true } });
+		void record({ lane: "delivery", turn, ok: true, reason: "turn_unfinished_notice" });
+	}
+
+	function scheduleTurnUnfinishedNotice(state: TableState, turn = state.turn): void {
+		if (state.turnNoticeSent) return;
+		state.turnNoticeSent = true;
+		setTimeout(() => void emitTurnUnfinishedNotice(state, turn), 0);
+	}
+
 	function preparationWaitInstruction(wait: NonNullable<TableState["preparationWait"]>): string {
 		if (wait.kind === "source") {
 			return "Source preparation is pending. Use narrate only to tell the player that preparation is still running, then return control without a story menu. Do not start another query, narrate a result, or imply that the refused action or elapsed game time happened.";
@@ -1784,27 +1801,28 @@ export default function (pi: ExtensionAPI) {
 	});
 	pi.on("agent_settled", () => {
 		if (!table) return;
-		// Contract §38: this run is over. A turn left open with no delivery is stranded only when the
-		// host's own state says the infrastructure could not recover: the review stayed paused, or the
-		// final provider call ended in error. A later completed provider message clears the latter mark.
-		const infrastructureEndedRun = Boolean(table.reviewUnavailable || table.terminalProviderFailure);
+		// Contract §38: the run itself is the structural boundary. If it settled with the turn still
+		// open/acting and no narrate/ask delivery, there is no actor left who can finish it before the
+		// player's next input — which the state guard would otherwise reject. The cause is irrelevant.
 		const undelivered = (table.state === "open" || table.state === "acting")
 			&& !table.closedThisRun && table.renderedText === undefined;
-		if (undelivered && infrastructureEndedRun) table.strandedTurn = true;
-		// `agent_settled` is the first point that knows whether automatic retries recovered. Choose one
-		// provider notice here: terminal wording wins over a long-attempt footnote, and an already-sent
-		// review notice wins over both while provider diagnostics remain on their own operator surface.
+		if (undelivered) table.strandedTurn = true;
+		// Choose exactly one player notice. A paused-review notice may already have landed at agent_end;
+		// terminal provider wording outranks the generic fallback; recovered long outages remain a
+		// footnote only when the turn actually delivered.
 		const longFailure = table.providerFailure;
 		table.providerFailure = undefined;
 		if (!table.reviewNoticeSent) {
 			if (undelivered && table.terminalProviderFailure) {
 				const failure = table.terminalProviderFailure;
 				scheduleProviderNotice(table, { ms: failure.ms ?? 0, streak: failure.streak }, true, table.turn);
+			} else if (undelivered) {
+				scheduleTurnUnfinishedNotice(table, table.turn);
 			} else if (longFailure) {
 				scheduleProviderNotice(table, longFailure, false, table.turn);
 			}
 		}
-		if (!CLOSED_STATES.has(table.state) && !infrastructureEndedRun) return;
+		if (!CLOSED_STATES.has(table.state) && !undelivered) return;
 		const next = waitingInputs.shift();
 		if (next) pi.sendUserMessage([{ type: "text", text: next.text }, ...(next.images ?? [])]);
 	});
@@ -1817,6 +1835,7 @@ export default function (pi: ExtensionAPI) {
 		state.reviewUnavailable = undefined;
 		state.reviewNoticeSent = false;
 		state.providerNoticeSent = false;
+		state.turnNoticeSent = false;
 		state.providerFailure = undefined;
 		state.terminalProviderFailure = undefined;
 		const text = event.prompt;
