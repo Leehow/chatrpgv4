@@ -4,11 +4,14 @@ import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { homedir } from 'node:os';
 import { assembleRuntime } from '../scripts/package-runtime.mjs';
 const repo=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const parent=join(repo,'.build.noindex/pipicoc');
 fs.mkdirSync(parent,{recursive:true});
-const stage=fs.mkdtempSync(join(parent,'package-')),out=join(repo,'build');
+// The App has exactly one home, shared by every worktree: a build under the repo would put a
+// second 720 MB bundle next to each checkout and leave the /Applications symlink ambiguous.
+const stage=fs.mkdtempSync(join(parent,'package-')),out=process.env.PIPICOC_APP_HOME||join(homedir(),'leehow/code/pipicoc-build');
 // The staging directory holds an assembled runtime, a nested package-runtime closure, and the
 // App this run replaces. None of it outlives the run, and the runtime is assembled read-only,
 // so restore write permission before unlinking it on every exit path including failure.

@@ -2626,7 +2626,7 @@ Keeper with the main session as player, as explicitly requested for this slice.
 The local App embeds only the frontend. A packaged `pi-coc-runtime.json` points
 to the canonical checkout and installed Node executable; the checkout and its
 Python/Pi dependencies must remain available. No credentials enter the bundle.
-The build artifact is `build/PipiCOC.app`; the installed App is `/Applications/PipiCOC.app`.
+The build artifact is `~/leehow/code/pipicoc-build/PipiCOC.app` (overridable with `PIPICOC_APP_HOME`); the installed App is `/Applications/PipiCOC.app`, a symlink to it.
 Keeper, preparation workers and cold UI kernel reads share the resolved command
 environment, including the packaged tool PATH. Finder launches must not depend
 on an interactive shell environment. This remains a local development package.
