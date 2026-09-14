@@ -5773,11 +5773,14 @@ write ever reaches the table. Its *effort* was not — the lane kept riding the 
 review that gets `per_review_ms` of wall clock can spend all of it inside a first thinking stream it never
 finishes: retained evidence (`game-9aa4e4ee`, 2026-09-14) is two consecutive reviews killed at 40 s having
 made exactly one model call each. Half a separation is not one. `PI_COC_MOD_THINKING` joins
-`PI_COC_MOD_MODEL` as the runtime's override, with a visible setting handed to it the same way; absent, the
-lane still follows the table, which is the previous behaviour. Both were then read when a session *started*,
-so a change under a running table took effect only on the next one, and §38.5 said so rather than leave the
-operator to infer it. **That half of this decision is superseded by §37.10: a label on a trap is not a fix,
-and the choice is now read when the lane runs.**
+`PI_COC_MOD_MODEL` as the runtime's override, with a visible setting handed to it the same way.
+
+**Two halves of this decision were wrong and are superseded.** It read "absent, the lane still follows the
+table, which is the previous behaviour" — that default is now the lane's own level (§37.11), because
+keeping the previous behaviour as the default kept the failure as the default. And both values were read
+when a session *started*, so a change under a running table took effect only on the next one; §38.5 said so
+rather than leave the operator to infer it, and §37.10 removed the trap the sentence was describing. A label
+on a trap is not a fix, and a knob whose unchosen value points at the failure is not one either.
 
 **The pre-delivery audit and the post-commit assessment ask different questions, and are left to.** On the
 accepted run's acquisition turn the checked audit passed `bridge_receipt` while the next assessment
@@ -5867,6 +5870,59 @@ name into a spawn environment again (`tests/extension/coc-lane-model.test.mjs`),
 does nothing at all while a stale variable is still there to win. §38.5's escalation text and the
 settings section's own line now say what the reader does — change it and send again — instead of
 asking for a restart the product no longer needs.
+
+### 37.11 The lane's reasoning effort has its own default, and never the table's (2026-09-14)
+
+§37.9 made the lane's effort choosable and left its *unchosen* value as "follow the table". That unchosen
+value is the configuration that fails, and it killed two campaigns in one day.
+
+- **`game-9aa4e4ee`** (2026-09-14, morning). Table on `high`. Two consecutive continuity reviews were killed
+  at the 40 s `per_review_ms` cap having made exactly one model call each; the turn was refused and the
+  player was shown nothing. That run is the evidence §38.5 was written from.
+- **`game-5779d0fd`** (2026-09-14, live playtest, turn 9). Same table effort `high`, the lane model already
+  moved to the fast `deepseek-extended/deepseek-flash`, context grown to roughly 212k. `narrate` failed
+  `needs` after 40 605 ms; §38.5's service notice fired correctly and the turn stranded. Setting
+  `ext.coc-keeper.laneThinking` to `low` and restarting fixed it on the spot: the next turn settled in 40 s
+  with `narrate ok` in 20.6 s.
+
+**Why this is a wrong coupling and not a tuning value.** A continuity review has a fixed wall-clock budget
+(`AUDIT_LIMITS.per_review_ms` 40 s, `time_ms` 80 s, §37.9). The table's reasoning effort is a
+Keeper-quality choice about the fiction, and it has no relation to that budget. Reading one off the other
+is not a conservative default; it is an unrelated dial wired to a deadline. And it degrades with play: as a
+campaign's context grows, *any* table left on a high effort eventually crosses the cap, whichever lane
+model is chosen — which is why the second campaign failed on a fast model, and why "pick a faster lane
+model" is not the whole answer.
+
+**So the lane runs at its own level when nothing is chosen.** `runtime/tasks.ts` resolves a `mod` task's
+effort as `PI_COC_MOD_THINKING` → the `laneThinking` setting → `LANE_THINKING_DEFAULT`. The caller's own
+`thinking` — the table's — is no longer consulted for these lanes at all, and the two Mod call sites that
+used to hand `pi.getThinkingLevel()` down stopped doing so, because a writer whose value is always
+outranked reads as a promise the runtime does not keep. `reader` tasks are unchanged: they are not these
+lanes and have no such budget.
+
+**The default is `low`, on the authorized lane models' own thinking maps rather than on taste.**
+`grok-build/grok-4.6` maps `off` to `null`, so pi's `clampThinkingLevel` moves a requested `off` *upward* to
+`minimal`; the DeepSeek family maps `minimal` to `null` and moves that up to `low`. `low` is the one level
+both support as written, so it is the only candidate whose meaning does not change when the lane model
+does — and a default that means different things on different models is the same wrong coupling in another
+costume. It is also the value the second campaign was recovered with. `off` is rejected for the same reason
+the repo already records elsewhere: it is not honoured uniformly, and a level that silently becomes
+something else is not a floor.
+
+**Following the table is not kept, even as an explicit choice.** It adds no capability — every level it
+could have produced is directly selectable — and its one distinctive behaviour is to change under the
+operator when the table's effort changes, which is exactly the failure. Keeping it would mean a stored
+sentinel that is not a level, a row in the panel, and a reachable configuration whose only special power is
+to go wrong later. The panel's unchosen row now shows the level it will actually run, the way every other
+row shows its own; a row whose subtitle said "follow the table" is how nobody noticed the table was being
+followed.
+
+**Acceptance.** With nothing chosen and no environment override, a `mod` lane launches at
+`LANE_THINKING_DEFAULT` for every one of the seven efforts a table can be set to, while its *model* still
+falls back to the table's; a `reader` task in the same context still launches at the table's effort
+(`tests/extension/runtime-reader.test.mjs`). The setting and `PI_COC_MOD_THINKING` both still outrank the
+default, in that order. The panel's advertised level is pinned to the runtime's, and no sentinel for
+following the table is accepted (`tests/extension/coc-lane-model.test.mjs`).
 
 ### 37.8 The extended live gate is accepted (2026-09-13)
 

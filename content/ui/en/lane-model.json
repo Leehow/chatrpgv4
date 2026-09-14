@@ -4,9 +4,8 @@
   "live": "Both choices take effect on the next lane the table runs — a review, an item's parameters — so a change reaches a table that is already running without restarting it.",
   "auto_title": "Follow the table",
   "auto_subtitle": "The lanes run on whichever model the Keeper is set to",
-  "thinking_lead": "Choose the reasoning effort those lanes run at. A review has a fixed time budget, and on a high-effort table one can spend all of it thinking and deliver nothing.",
-  "thinking_auto_title": "Follow the table",
-  "thinking_auto_subtitle": "The lanes run at whichever level the Keeper is set to",
+  "thinking_lead": "Choose the reasoning effort those lanes run at. A review has a fixed time budget, and a lane that spends it all thinking delivers nothing — so the lanes do not follow the table's effort; they run at their own steady level unless you pick one here.",
+  "thinking_auto_title": "The lane's own level",
   "current": "In use",
   "empty": "No models in Model Management yet. Sign in a provider there, then come back.",
   "failed": "Reading or writing the lane model failed; try again."

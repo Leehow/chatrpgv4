@@ -158,6 +158,28 @@ async function childCatalog(agentHome: string): Promise<ReadonlyMap<string, Read
 const LANE_SETTINGS_FILE = "pipiui-settings.json";
 const LANE_EXTENSION = "coc-keeper";
 
+/**
+ * The reasoning effort a `mod` lane child runs at when nobody has chosen one (contract §37.11).
+ *
+ * Not the table's. A continuity review has a fixed wall-clock budget (`AUDIT_LIMITS.per_review_ms`,
+ * 40 s), and the table's reasoning effort is a Keeper-quality choice with no relation to it; a
+ * review that gets 40 s of clock at `high` can spend all of it inside a first thinking stream it
+ * never finishes, and as a campaign's context grows any table left on a high effort eventually
+ * crosses that cap whichever lane model is picked. Two campaigns died of exactly this on
+ * 2026-09-14 (§37.11), both on a table set to `high`, one of them with the lane already moved to a
+ * fast model. A knob whose absent value points at the failure is not a fix, so the absent value is
+ * now the lane's own.
+ *
+ * `low` rather than `off` or `minimal`, on the authorized lane models' own thinking maps rather
+ * than on taste: `grok-build/grok-4.6` maps `off` to null, so pi's `clampThinkingLevel` moves a
+ * requested `off` *up* to `minimal`; the DeepSeek family maps `minimal` to null and moves that up
+ * to `low`. `low` is the one level both support as written, so it is the only one whose meaning
+ * does not change when the lane model does -- and a default that means different things on
+ * different models is the same wrong coupling in another costume. It is also what the second
+ * campaign was recovered with: set to `low`, the next turn settled in 40 s with `narrate` in 20.6 s.
+ */
+const LANE_THINKING_DEFAULT = "low";
+
 async function laneChoice(agentHome: string): Promise<{ model?: string; thinking?: string }> {
   let stored: unknown;
   try {
@@ -208,16 +230,17 @@ export const runtimeCapabilities: RuntimeCapabilities = Object.freeze({
     ensureActive(signal);
     if (task.kind !== "reader" && task.kind !== "mod") throw new KernelError({ code: "not_implemented", message: "Unknown runtime task" });
     const request: ReaderRequest = { ...task.request, cwd: resolve(context.home, task.request.cwd), signal };
-    // A lane's model was already separable from the table's, because a slow one is paid by the player.
-    // Its reasoning effort was not, and it rode the table's own chip: a lane pinned to a fast model still
-    // ran at the Keeper's `high`, which is how one continuity review spent its whole 40s budget inside a
-    // single unfinished thinking stream. Both halves of "what the lane runs as" belong to the operator.
-    // The choice is read now rather than inherited from the session's environment, so a model
-    // changed under a running table reaches the next lane child instead of the next session.
+    // What a lane child runs as is decided here, and only here. The model still falls back to the
+    // table's when nobody has chosen one -- a slow model is paid by the player, but any model can
+    // finish. The effort does not fall back to the table at all (`LANE_THINKING_DEFAULT`): a review
+    // has a fixed wall-clock budget and the table's effort is a Keeper-quality choice with no
+    // relation to it, so inheriting one from the other is a wrong coupling rather than a default.
+    // The choice is read now rather than inherited from the session's environment, so a change under
+    // a running table reaches the next lane child instead of the next session.
     if (task.kind === "mod") {
       const chosen = await laneChoice(context.agentHome);
       request.model = context.env.PI_COC_MOD_MODEL?.trim() || chosen.model || request.model;
-      request.thinking = context.env.PI_COC_MOD_THINKING?.trim() || chosen.thinking || request.thinking;
+      request.thinking = context.env.PI_COC_MOD_THINKING?.trim() || chosen.thinking || LANE_THINKING_DEFAULT;
     }
     // A fully overridden command is not a Pi child, so its `--model` is never read and the agent
     // registry says nothing about what it can run.
