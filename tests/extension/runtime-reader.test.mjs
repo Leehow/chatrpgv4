@@ -181,6 +181,85 @@ writeFileSync('launch-argv.json',JSON.stringify(process.argv.slice(2)));\n`);
   }
 });
 
+/**
+ * Contract §37.10: the lane setting is read when the lane runs, not when the session started.
+ *
+ * The host used to hand the setting down as `PI_COC_MOD_MODEL` in the session's spawn environment,
+ * and a process environment cannot change: on 2026-09-14 an operator moved the choice off
+ * `grok-build/grok-4.6` at 06:42 and the review child launched at 06:43 still ran
+ * `--model grok-build/grok-4.6`, baked in when the session started at 06:30. The setting was
+ * correct, visible in the panel, and inert. This drives two lane children over one context whose
+ * environment never changes, rewriting the settings document between them: under the old behaviour
+ * both children launch with the same model.
+ */
+test("a lane model changed under a running session reaches the next lane child", async t => {
+  const home = await temporary(t), executable = join(home, "capture-argv.mjs"), launcher = join(home, "selected node");
+  await writeFile(executable, `import {writeFileSync} from 'node:fs';
+writeFileSync('launch-argv.json',JSON.stringify(process.argv.slice(2)));\n`);
+  const quote = value => "'" + value.replaceAll("'", "'\\''") + "'";
+  await writeFile(launcher, `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(executable)} "$@"\n`);
+  await chmod(launcher, 0o755);
+  const agent = join(home, "agent");
+  await mkdir(agent, { recursive: true });
+  await json(join(agent, "models-store.json"), { slow: { models: [{ id: "big" }] }, fast: { models: [{ id: "small" }] } });
+  // The environment is captured once, exactly as a spawned session captures it, and never changes.
+  const context = composeRuntimeContext({ owner: "preparation", home },
+    options({ PI_COC_READER_CMD: undefined, PI_COC_MOD_MODEL: undefined, PI_COC_MOD_THINKING: undefined },
+      { agentHome: agent, nodeExecutable: launcher }));
+  const settings = join(agent, "pipiui-settings.json");
+  const choose = (model, level) => json(settings, { extensions: { "coc-keeper": { settings: {
+    "ext.coc-keeper.laneModel": { model }, "ext.coc-keeper.laneThinking": { level } } } } });
+  const launch = async name => {
+    const cwd = join(home, name);
+    await mkdir(cwd);
+    const outcome = await runtimeCapabilities.runTask(context,
+      { kind: "mod", request: { cwd, brief: "Capture launch flags only", model: "slow/big", thinking: "high" } }, active());
+    assert.equal(outcome.ok, true, JSON.stringify(outcome));
+    const args = JSON.parse(await readFile(join(cwd, "launch-argv.json"), "utf8"));
+    return { model: args[args.indexOf("--model") + 1], thinking: args[args.indexOf("--thinking") + 1] };
+  };
+  // Nothing chosen yet: the lane runs what the caller asked for, which is the table's own model.
+  assert.deepEqual(await launch("before"), { model: "slow/big", thinking: "high" });
+  await choose("fast/small", "low");
+  assert.deepEqual(await launch("after"), { model: "fast/small", thinking: "low" },
+    "the choice was read when this child started, not when the session did");
+  await choose("slow/big", "high");
+  assert.deepEqual(await launch("back"), { model: "slow/big", thinking: "high" }, "and it moves back the same way");
+  // An unreadable or foreign settings document is one source fewer, never a failed lane.
+  await writeFile(settings, "{ not json");
+  assert.deepEqual(await launch("broken"), { model: "slow/big", thinking: "high" });
+});
+
+/**
+ * The setting stopped travelling in the environment, so what is left there is an operator's own
+ * override — and that still wins. If it did not, a genuine `PI_COC_MOD_MODEL` would have been
+ * quietly demoted to a default by the same change that made the setting live.
+ */
+test("a real environment override still beats the lane setting", async t => {
+  const home = await temporary(t), executable = join(home, "capture-argv.mjs"), launcher = join(home, "selected node");
+  await writeFile(executable, `import {writeFileSync} from 'node:fs';
+writeFileSync('launch-argv.json',JSON.stringify(process.argv.slice(2)));\n`);
+  const quote = value => "'" + value.replaceAll("'", "'\\''") + "'";
+  await writeFile(launcher, `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(executable)} "$@"\n`);
+  await chmod(launcher, 0o755);
+  const agent = join(home, "agent");
+  await mkdir(agent, { recursive: true });
+  await json(join(agent, "models-store.json"), { operator: { models: [{ id: "pinned" }] }, fast: { models: [{ id: "small" }] } });
+  await json(join(agent, "pipiui-settings.json"), { extensions: { "coc-keeper": { settings: {
+    "ext.coc-keeper.laneModel": { model: "fast/small" }, "ext.coc-keeper.laneThinking": { level: "low" } } } } });
+  const context = composeRuntimeContext({ owner: "preparation", home }, options({
+    PI_COC_READER_CMD: undefined, PI_COC_MOD_MODEL: " operator/pinned ", PI_COC_MOD_THINKING: " medium ",
+  }, { agentHome: agent, nodeExecutable: launcher }));
+  const cwd = join(home, "mod");
+  await mkdir(cwd);
+  const outcome = await runtimeCapabilities.runTask(context,
+    { kind: "mod", request: { cwd, brief: "Capture launch flags only", model: "table/own", thinking: "high" } }, active());
+  assert.equal(outcome.ok, true, JSON.stringify(outcome));
+  const args = JSON.parse(await readFile(join(cwd, "launch-argv.json"), "utf8"));
+  assert.equal(args[args.indexOf("--model") + 1], "operator/pinned");
+  assert.equal(args[args.indexOf("--thinking") + 1], "medium");
+});
+
 test("lane children mount the provider extensions, and a lane model is never re-named", async t => {
   const home = await temporary(t), executable = join(home, "capture-model.mjs"), launcher = join(home, "selected node"), agent = join(home, "agent"), captured = join(home, "captured", "argv.json");
   await mkdir(join(home, "captured"));

@@ -5774,9 +5774,10 @@ review that gets `per_review_ms` of wall clock can spend all of it inside a firs
 finishes: retained evidence (`game-9aa4e4ee`, 2026-09-14) is two consecutive reviews killed at 40 s having
 made exactly one model call each. Half a separation is not one. `PI_COC_MOD_THINKING` joins
 `PI_COC_MOD_MODEL` as the runtime's override, with a visible setting handed to it the same way; absent, the
-lane still follows the table, which is the previous behaviour. Both are read when a session starts, so a
-change under a running table takes effect on the next one — §38.5 is why the operator is told that rather
-than left to infer it.
+lane still follows the table, which is the previous behaviour. Both were then read when a session *started*,
+so a change under a running table took effect only on the next one, and §38.5 said so rather than leave the
+operator to infer it. **That half of this decision is superseded by §37.10: a label on a trap is not a fix,
+and the choice is now read when the lane runs.**
 
 **The pre-delivery audit and the post-commit assessment ask different questions, and are left to.** On the
 accepted run's acquisition turn the checked audit passed `bridge_receipt` while the next assessment
@@ -5813,6 +5814,59 @@ rows did not fit the compact projection, which the projection reports as `acquir
 it kept. `continuityView.truncated` keeps its own meaning for its other consumers. A signal that is
 constitutively true carries no information, and this one nudged a semantic lane toward reading its own
 packet as incomplete every single turn.
+
+### 37.10 The lane choice is read when the lane runs, not when the session started (2026-09-14)
+
+§37.9 handed the visible lane settings to the runtime the way an operator would: as
+`PI_COC_MOD_MODEL` and `PI_COC_MOD_THINKING` in the spawned session's environment. A process
+environment cannot change. So the model a table's background lanes ran on was the one that stood
+when that session started, and every later change to the setting was correct, visible in the panel,
+and inert.
+
+**Retained live evidence (2026-09-14).** During an outage the operator moved `laneModel` off
+`grok-build/grok-4.6` to a fast model at 06:42. The continuity-review child launched at 06:43 still
+ran `--model grok-build/grok-4.6`; `ps eww` on the session showed `PI_COC_MOD_MODEL=grok-build/grok-4.6`,
+baked in at 06:30 when the session started. The reasonable reading from outside — "I already switched
+to a fast model and it still fails" — was exactly wrong, and the rest of that outage went into
+chasing the wrong thing. The same day's mitigation made the settings section and §38.5's escalation
+*say* "read when a session starts". That is a label on a trap, and it is not what a person who has
+just changed a setting needs to be told.
+
+**The setting is now read at task time and the environment variable is left to the operator.** The
+host no longer injects either value into a child's environment. `runtime/tasks.ts` reads the current
+choice from the host's own settings document under `context.agentHome` — the same directory
+`childCatalog` already reads `models-store.json` and `models.json` from — each time it starts a `mod`
+lane child. Precedence, highest first: a genuine `PI_COC_MOD_MODEL` / `PI_COC_MOD_THINKING` in the
+host's environment, then the setting, then what the caller asked for (the table's own model and
+effort). Nothing is mirrored anywhere: the store the panel writes is the store the lane reads, so
+there is no second copy to drift.
+
+**Why not push the change into the running session instead.** The host has an `ext-invoke` channel to
+a live session and could have sent the new value down it. Two things rule it out. A pushed value
+still has to be delivered to a session whose agent is *at that moment* blocked on the slow lane the
+operator is trying to escape — which is precisely when the change is made — so it lands after the
+thing it was meant to fix. And the lane also runs with no such host at all (the CLI table), where
+nothing would ever push. A read at the moment of use needs neither a sender nor a session to be idle.
+
+**Failure is open, in both directions.** No settings document, an unreadable or half-written one, or
+another product's shape is one source fewer and never a failed lane: the caller's own choice stands,
+which is the behaviour that predates the setting. And an operator environment variable still wins, so
+making the setting live did not quietly demote the override to a default.
+
+**Three ends (§31).** *Writer:* the settings panel, through the host's ordinary extension-settings
+write. *Reader:* `runtime/tasks.ts`, at every `mod` task. *Actor:* the lane child, which launches with
+that model and effort. The seam that used to sit between writer and reader — a spawn environment — is
+gone rather than widened.
+
+**Acceptance.** Two lane children run over one runtime context whose environment never changes, with
+the settings document rewritten between them: the second launches with the new model and effort, the
+third with them changed back (`tests/extension/runtime-reader.test.mjs`). A real
+`PI_COC_MOD_MODEL`/`PI_COC_MOD_THINKING` beats the setting in the same test file. And the host is
+checked at the source for the other half, which no runtime test can see: it must not write either
+name into a spawn environment again (`tests/extension/coc-lane-model.test.mjs`), because a live read
+does nothing at all while a stale variable is still there to win. §38.5's escalation text and the
+settings section's own line now say what the reader does — change it and send again — instead of
+asking for a restart the product no longer needs.
 
 ### 37.8 The extended live gate is accepted (2026-09-13)
 
@@ -6022,9 +6076,13 @@ context. Only the first pause of a run counts: once paused, every later verb re-
 the guard, and counting those would turn one dead lane into a streak inside a single run. From the second
 consecutive outage the notice stops promising that another try will help, and the host writes one
 out-of-fiction operator entry (`coc-review-status` with `status: "down"`, the streak and a `fix`) naming
-the lane model, the `PI_COC_MOD_MODEL` override, and the fact that **the lane reads that choice when a
-session starts, not while it runs** — without which an operator changes the model, watches the running
-table fail identically, and concludes the change did not help.
+the lane model and the `PI_COC_MOD_MODEL` override. That `fix` originally also said the lane reads the
+choice when a session starts, so change it and restart — because it did, and without that sentence an
+operator changes the model, watches the running table fail identically, and concludes the change did not
+help. **§37.10 removed the trap the sentence was describing:** the lane now reads the choice each time it
+runs, so the `fix` says to change it and send again, and adds that `PI_COC_MOD_MODEL` still overrides the
+setting but is fixed for the life of a session. Telling an operator to restart a table they could have
+kept is its own lost turn.
 
 ### 38.6 Acceptance
 
@@ -6045,6 +6103,83 @@ table fail identically, and concludes the change did not help.
 7. The outage count rises once per paused run however many verbs are refused after the pause, is reset by a
    landed `narrate` and not by a turn boundary, and from the second consecutive outage the notice drops the
    retry promise and one `coc-review-status` `status: "down"` entry carries the streak and the fix.
+
+### 38.7 A provider call that dies leaves a trace (2026-09-14)
+
+§38.5 settled a principle wider than the review lane it was written for: **an infrastructure failure must
+not be indistinguishable from normal slowness.** The provider call itself was the one place that still was.
+
+**Retained live evidence** (campaign `game-5779d0fd-7dac-41de-b1f5-1a0f05132e2a`, turn 3, 2026-09-14, from
+the campaign's own `telemetry.jsonl`):
+
+```
+{"turn":3,"lane":"provider-request", "at":"2026-09-14T13:06:45.933Z", ...}
+{"turn":3,"lane":"provider-call",    "at":"2026-09-14T13:11:45.944Z","from":"request","ms":300011,"stop_reason":"error","blocks":[]}
+{"turn":3,"lane":"provider-request", "at":"2026-09-14T13:11:47.968Z", ...}
+{"turn":3,"lane":"provider-response","at":"2026-09-14T13:11:50.600Z","status":200}
+```
+
+One call held the line for 300 s and came back with nothing at all — no blocks, no response row, only the
+error. The immediate retry answered in 2.6 s and the turn then finished normally in about a minute. The
+player saw one spinner reading 「模型仍在处理 · 已用时 3min49s」, and once the retry succeeded nothing
+anywhere said that five of those six minutes had been an outage rather than the model thinking. A retry
+that happens to work is not a reason to erase the call that did not.
+
+**The 300 s ceiling is not ours, and is deliberately not touched.** It is set nowhere in this repository,
+`@earendil-works/pi-ai` does not read `API_TIMEOUT_MS`, and pi gives an extension only the observational
+`before_provider_request` / `after_provider_response` hooks — there is no interception point at which a
+shorter deadline could be imposed. What is in scope is the record.
+
+**Every failed call reaches the operator.** `message_end` already times the whole call and writes the
+`lane: "provider-call"` row; a row whose `stop_reason` is `error` now also writes one out-of-fiction
+`coc-provider-status` session entry and `coc:provider-status` bus event, in the shape of §38.5's
+`coc-review-status` and §32.2's `coc-admission-status`: `{campaign, turn, status, streak, ms, model?,
+provider?, detail?, fix?}`. `ms` is how long the table waited for nothing, which is the whole point. The
+model and provider come from the request hook, held across the call, because a call that dies produces no
+response row and that is the only place they still exist.
+
+**Streaks are counted the same way the other two lanes count them.** A completed assistant message — the
+proof the provider answered end to end, body stream included — resets the count; a turn boundary does not,
+because an outage is a service condition rather than a turn context. From the second consecutive failure
+the entry is `status: "down"` and carries a `fix` (check the provider and the route to it, or move the
+table), once per streak rather than once per call.
+
+**A long call also owes the player a word, and a short one does not.** At `agent_end`, a run in which a
+provider call died after holding the table for at least `PROVIDER_OUTAGE_NOTICE_MS` (60 s by default;
+`PI_COC_PROVIDER_NOTICE_MS` moves it) emits exactly one displayed service notice of its own, in the
+campaign's `play_language` from the extension caption surface (§23) — never prose, never through `narrate`.
+It says the connection dropped, roughly how long returned nothing, that this was an outage rather than the
+Keeper thinking, and that nothing the player did was lost; from the second consecutive outage it stops
+reading as a one-off. Below the threshold the operator entry is still written and the table is left alone:
+a provider that errors in a second and is retried is a blip the player never noticed, and a service message
+about it would be noise on a turn that went fine.
+
+**It is sent after the delivery and it can never cost the turn.** The notice goes out below the delivery
+replacement, so a turn that did land lands first and this reads as the footnote it is, and above §38.5's
+own branch, because a turn can lose both its provider and its review and each is its own fact. The entry
+write is best-effort and the caption read falls back to an English line: nothing on this path may block or
+fail a turn.
+
+**Three ends (§31).** *Writer:* the `message_end` handler, from the provider hooks' own timing. *Reader:*
+the operator, through the `coc-provider-status` entry and bus event, and `kpi.py` through the
+`provider-call` rows that already said `error`. *Actor:* the operator, who can see that a wait was an
+outage and act on the provider rather than the Keeper; and the player, who is told the same thing in one
+sentence. As in §32.7, the escalation is not a telemetry row — the consecutive `stop_reason: "error"` rows
+already say it to the run analysis; only the delivery of the player's notice adds a row
+(`lane: "delivery"`, `reason: "provider_outage_notice"`).
+
+**Acceptance.** A dead call whose retry saves the turn still leaves one operator entry and one player
+notice, and the delivery is unharmed; a dead call below the threshold leaves the entry and no notice; a
+second consecutive dead call escalates once to `status: "down"` with a `fix`, and a completed call — not the
+turn boundary — resets the streak; a run with several dead calls inside it emits one notice, and a second
+run under a surviving streak does not repeat the first run's sentence
+(`tests/extension/provider-outage.test.mjs`).
+
+**What this does not fix, and is not claimed to.** A run whose provider dies for good leaves the turn
+`open`/`acting` with nothing delivered and no paused review, so §38.2's stranding does not apply to it and
+the §4 recovery path stands. The player is now told, which is the defect this section closes; whether such a
+turn should also be releasable is a separate question against §38.3 and is not decided here.
+
 ## 39. Session maps revealed by player knowledge (2026-09-13)
 
 The map feature uses the existing seven verbs and the existing ModuleGraph, campaign world state, source reader and structured mechanics delivery. It adds no map tool and no second state store. A map is an `asset` or `handout` node whose `properties.map_regions` is a non-empty list. Each row is `{region_id, name, level?, source_asset, source_box, placement, redactions?, safe_after_redactions?}`. `source_box` and `placement` are normalized `[x0,y0,x1,y1]` boxes. The source asset is a graph `asset`; it must be `player-safe` or `revealable`, unless an independently reviewed private source supplies non-empty redactions and explicitly declares `safe_after_redactions: true`. Source variants never share coordinates by assumption.

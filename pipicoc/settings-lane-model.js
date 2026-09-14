@@ -123,10 +123,11 @@ export function createComponent(React) {
     return h("div", { className: "model-visibility" },
       h("p", { className: "model-modal-state" }, t("lead")),
       h("p", { className: "model-modal-state" }, t("aside")),
-      // Both choices are read when a session starts. Without this line a person changes the model, sees
-      // the running table fail exactly as before, and concludes the faster model did not help -- which
-      // is what happened the day this section grew its second half.
-      h("p", { className: "model-modal-state" }, t("restart")),
+      // Both choices are read when a lane starts a child, not when the session does. They used to be
+      // read at spawn, and a person who changed the model under a running table watched it fail exactly
+      // as before and concluded the faster model had not helped -- the setting was correct, visible and
+      // inert. This line says what the reader now actually does (contract §37.10).
+      h("p", { className: "model-modal-state" }, t("live")),
       failed ? h("div", { className: "model-modal-error", role: "alert" }, t("failed")) : null,
       models.length ? group("lane-model", rows) : h("div", { className: "model-modal-state" }, t("empty")),
       h("p", { className: "model-modal-state" }, t("thinking_lead")),

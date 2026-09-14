@@ -135,6 +135,47 @@ async function childCatalog(agentHome: string): Promise<ReadonlyMap<string, Read
 }
 
 /**
+ * The lane model and reasoning effort the operator has chosen **right now**.
+ *
+ * Read at task time, from the same directory `childCatalog` already reads its registries from,
+ * because a process environment cannot change and this choice must. The host used to hand the
+ * setting down as `PI_COC_MOD_MODEL`/`PI_COC_MOD_THINKING` in the session's spawn environment, so
+ * the value a table ran with was the one that stood when its session started, hours earlier.
+ * Retained live evidence (2026-09-14): the operator moved `laneModel` off `grok-build/grok-4.6` at
+ * 06:42; the continuity-review child launched at 06:43 still ran `--model grok-build/grok-4.6`, and
+ * `ps eww` on the session showed the old value baked in at 06:30. The change was visible in the
+ * settings panel, correct, and inert — which reads from the outside exactly like "the faster model
+ * did not help", and cost the operator the rest of the outage chasing the wrong thing.
+ *
+ * Only the *setting* moved here. A real `PI_COC_MOD_MODEL` in the host's own environment is the
+ * operator's override and still wins over this, in `runTask` below.
+ *
+ * The store is the host's own settings document; there is no second copy of the choice to drift
+ * from it. Every failure to read it — absent file, half-written JSON, another product's shape, a
+ * deployment with no such host at all (the CLI table) — is one source fewer and never an error: the
+ * lane then runs on whatever the caller asked for, which is the behaviour that predates the setting.
+ */
+const LANE_SETTINGS_FILE = "pipiui-settings.json";
+const LANE_EXTENSION = "coc-keeper";
+
+async function laneChoice(agentHome: string): Promise<{ model?: string; thinking?: string }> {
+  let stored: unknown;
+  try {
+    const settings = JSON.parse(await readFile(join(agentHome, LANE_SETTINGS_FILE), "utf8"));
+    const slot = settings?.extensions?.[LANE_EXTENSION];
+    stored = slot?.settings;
+  } catch { /* no host settings document, or an unreadable one: the caller's own choice stands */ }
+  const pick = (key: string, field: string): string | undefined => {
+    const value = (stored as Record<string, unknown> | undefined)?.[key] as Record<string, unknown> | undefined;
+    const chosen = value && typeof value === "object" ? value[field] : undefined;
+    return typeof chosen === "string" && chosen.trim() ? chosen.trim() : undefined;
+  };
+  const model = pick("ext.coc-keeper.laneModel", "model");
+  const thinking = pick("ext.coc-keeper.laneThinking", "level");
+  return { ...(model ? { model } : {}), ...(thinking ? { thinking } : {}) };
+}
+
+/**
  * Refuse a lane model the child could not resolve, instead of letting it die unexplained.
  *
  * The child mounts the provider extensions (`providerExtensions`) and reads the agent home's
@@ -171,9 +212,12 @@ export const runtimeCapabilities: RuntimeCapabilities = Object.freeze({
     // Its reasoning effort was not, and it rode the table's own chip: a lane pinned to a fast model still
     // ran at the Keeper's `high`, which is how one continuity review spent its whole 40s budget inside a
     // single unfinished thinking stream. Both halves of "what the lane runs as" belong to the operator.
+    // The choice is read now rather than inherited from the session's environment, so a model
+    // changed under a running table reaches the next lane child instead of the next session.
     if (task.kind === "mod") {
-      request.model = context.env.PI_COC_MOD_MODEL?.trim() || request.model;
-      request.thinking = context.env.PI_COC_MOD_THINKING?.trim() || request.thinking;
+      const chosen = await laneChoice(context.agentHome);
+      request.model = context.env.PI_COC_MOD_MODEL?.trim() || chosen.model || request.model;
+      request.thinking = context.env.PI_COC_MOD_THINKING?.trim() || chosen.thinking || request.thinking;
     }
     // A fully overridden command is not a Pi child, so its `--model` is never read and the agent
     // registry says nothing about what it can run.

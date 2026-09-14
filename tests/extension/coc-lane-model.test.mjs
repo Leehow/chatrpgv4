@@ -31,6 +31,27 @@ test("the section is registered where the settings UI and the package both look"
   assert.ok(SETTINGS_KEY in manifest.app.settings.schema.properties, "the stored key is undeclared");
 });
 
+/**
+ * Contract §37.10: the setting must not travel in the session's spawn environment.
+ *
+ * It used to. The host resolved `ext.coc-keeper.laneModel` at spawn and wrote it into the child's
+ * `PI_COC_MOD_MODEL`, and `runtime/tasks.ts` treats that variable as the operator's override, which
+ * wins over everything. A process environment cannot change, so the value a table ran with was the
+ * one that stood when its session started: on 2026-09-14 the choice moved off `grok-build/grok-4.6`
+ * at 06:42 and the review child launched at 06:43 still ran it, baked in at 06:30. Reading the
+ * setting live does nothing at all while the stale variable is still there to win — this is the half
+ * of the fix no runtime test can see, so it is checked at the source.
+ */
+test("the host does not hand the lane setting to a child as an environment variable", async () => {
+  const host = await readFile(join(ROOT, "Electron", "packages", "pi-backend", "src", "index.ts"), "utf8");
+  // A read (`this.env.PI_COC_MOD_MODEL`) is the operator's own override and stays. A write
+  // (`PI_COC_MOD_MODEL:` inside an environment object) is the setting wearing its clothes.
+  assert.deepEqual([...host.matchAll(/PI_COC_MOD_(?:MODEL|THINKING)\s*:/g)].map(match => match[0]), [],
+    "the lane setting is being injected into a spawn environment again");
+  assert.ok(/this\.env\.PI_COC_MOD_MODEL\?\.trim\(\)/.test(host),
+    "the operator's own environment override is no longer honoured");
+});
+
 test("only a provider/model reference is a choice; anything else follows the table", () => {
   assert.equal(modelReference({ model: "deepseek-extended/deepseek-flash" }), "deepseek-extended/deepseek-flash");
   assert.equal(modelReference({ model: "  xai/grok-4.6  " }), "xai/grok-4.6");
