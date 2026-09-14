@@ -218,7 +218,7 @@ params：`{"call_id", "text": "<本回合叙述>"}`（`placement` 已废止：�
 
 result：`{"rendered_text": "<即 text，正文原样>"..., "mechanics": [...], "turn": int, "receipt": "turn:<n>", "commit": "<短 sha>", "facts": {...}, "extraction": {"job_id"}}`；`facts` 与 `extraction` 见 12.5 与 12.3。提交之后的链（检查点、episode、抽取任务）在 12.2–12.3，其中任何一步失败都不撤销已成功的提交：回合已关，失败只进遥测与 backlog。
 
-开桌回合（turn 0）：`table.open` 返回 `opening_needed: true` 时，扩展先让守秘人 `look`，再 `narrate` 开场；此时状态从 `awaiting_player` 直接允许 `narrate`，内核视作 turn 0 的关闭。
+开桌回合（turn 0）：`table.open` 返回 `opening_needed: true` 时，扩展先让守秘人 `look`，再 `narrate` 开场；此时状态从 `awaiting_player` 直接允许 `narrate`，内核视作 turn 0 的关闭。开场也允许两类 Mod 写：带 `action.decision` 的 `resolve`（该 decision 必须是活跃 Mod 贡献的检查——与内核 `allowOpening` 同一条规则，`kernel-ts/resolve/index.ts` 按 `activeMods.contributes.checks` 比对）与仅含 `define`/`object`/`ability` 的 `apply`；两者都要求 `coc:mods-bridge` 已宣布。`decision` 若被挂在调用顶层而不是 `action` 里（schema 的家在 `action.decision`），扩展在判定前把它归一到 `action`，不再让一次合法开场骰死于字段摆放；Mod 桥尚未宣布时，这类调用先短暂等待桥就位（`PI_COC_MODS_WAIT_MS`，缺省 1500，0 关闭），超时后的拒绝只说桥未就绪、可重试（`cause: "mods_bridge_pending"`），不使用「等玩家说话」的关闭态文案。
 
 ## 6. 回合胶囊（切片 0 三节）
 
@@ -248,7 +248,7 @@ result：`{"rendered_text": "<即 text，正文原样>"..., "mechanics": [...], 
 - 七个工具用 TypeBox 定义参数，描述里写清用法与何时用；`resolve.action.intent` 用枚举；`apply.effects` 用 kind 判别联合。工具面固定，不调用 `setActiveTools` 变形。
 - `call_id` 铸造：每次会改状态的调用（`resolve`、`apply`、`ask`、`narrate`）递增回合内计数器；读调用不带。
 - `before_agent_start`：把玩家 prompt 交给 `table.player_input`，把返回的胶囊作为 `customType: "coc-capsule"`、`display: false` 的消息注入。宿主自己发出的消息（恢复、开场）不是玩家输入，不进 `player_input`。
-- `tool_call`：同名同参的调用在本回合被内核拒过两次后第三次拦下，理由里复述上次的错误（原样重发不会有不同结果）；`awaiting_player`/`committed` 拒写；`narrate` 成功后同一批次余下的调用一律 `block` 并说明回合已关闭；`apply`/`resolve` 的名字做大小写与空白归一化。
+- `tool_call`：同名同参的调用在本回合被内核拒过两次后第三次拦下，理由里复述上次的错误（原样重发不会有不同结果）；`awaiting_player`/`committed` 拒写（开场 Mod 车道例外，见 §5：带 `action.decision` 的 resolve 与纯 define/object/ability 的 apply 在开场放行，顶层 `decision` 先归一进 `action`；Mod 桥未就绪时给可重试的桥未就绪文案，而不是关闭态文案）；`narrate` 成功后同一批次余下的调用一律 `block` 并说明回合已关闭；`apply`/`resolve` 的名字做大小写与空白归一化。
 - `message_end`：带工具调用的助手消息只保留调用块，删掉其中的文本：守秘人在调用前写的过程话不是台词。本回合 `narrate` 或 `ask` 已返回 `rendered_text` 时，把随后那条助手消息的文本整体替换为 `rendered_text`；守秘人在工具之后写的正文被丢弃。守秘人写了正文却没调 `narrate` 就收工时，宿主替它关回合：把正文原样作为 `text` 调 `table.narrate`。内核因玩家语言脚本核退回（`play_language_mismatch`）时**不交付**：宿主把这条助手消息里的正文块丢掉（被拒的草稿不能当交付立着），在 `agent_end` 带着内核自己的 `fix` 催一次，下一轮的 `narrate`/`ask` 才关回合。这是唯一的确定性地板（数字核已于 2026-09-09 移除，宿主再也不催守秘人往正文里补数字）。
 
 内核留有 `for: player` 的待决（战斗里的防御）而守秘人只写了正文时，宿主**不替它问**：内核铸的待决 `prompt` 是英文的守秘人用语（§16.1），摆到玩家面前就破了「玩家看的字只由守秘人按 play_language 写」。宿主丢掉这份草稿、催一次（`agent_end` 那条已有的待决催促），由守秘人自己用玩家的语言 `ask`。同一回合已经催过还是只写正文，就按 `narrate` 关掉回合：待决留着，胶囊下一回合照样把它摆出来，回合不挂死。

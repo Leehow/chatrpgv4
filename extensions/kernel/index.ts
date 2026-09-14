@@ -496,6 +496,25 @@ export default function (pi: ExtensionAPI) {
   let mods: {prepare(method: string, payload: Record<string, any>, signal?: AbortSignal): Promise<void>;
     after?(method: string, payload: Record<string, any>, signal?: AbortSignal): Promise<void>} | undefined;
   pi.events.on("coc:mods-bridge", value => { mods = value as typeof mods; });
+	/**
+	 * The Mods extension announces its bridge during extension loading, so on a slow load an opening
+	 * Mod call can land before it. The opening lane waits briefly for the bridge (PI_COC_MODS_WAIT_MS,
+	 * default 1500 ms, 0 disables) instead of refusing a roll the opening is meant to allow; when the
+	 * wait expires the refusal says the bridge is pending -- retryable -- and not the closed-state text.
+	 */
+	function modsBridgeWaitMs(): number {
+		const raw = process.env.PI_COC_MODS_WAIT_MS?.trim();
+		if (!raw) return 1500;
+		const value = Number(raw);
+		return Number.isFinite(value) && value >= 0 ? value : 1500;
+	}
+	async function modsBridgeWait(timeoutMs: number): Promise<boolean> {
+		if (mods) return true;
+		if (timeoutMs <= 0) return false;
+		const deadline = Date.now() + timeoutMs;
+		while (!mods && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 20));
+		return Boolean(mods);
+	}
 	// A background projection has written this tag's captions (contract §23): drop the authored
 	// words this extension was standing on, so the next line it notifies with is the player's.
 	pi.events.on("coc:ui-words", (data) => { surface.refresh((data as { tag?: unknown } | undefined)?.tag); });
@@ -1698,15 +1717,19 @@ export default function (pi: ExtensionAPI) {
 		// A session (combat, chase, sanity bout) is not a turn state: it leaves the turn in acting, so the
 		// ask that hands a pending defence back to the player takes the ordinary road and is not blocked here.
 		const openingNarrate = (name === "narrate" || name === "ask") && state.openingPending && state.state === "awaiting_player";
-    const openingMod = mods && state.openingPending && state.state === "awaiting_player" && (
-      (name === "resolve" && typeof (input.action as any)?.decision === "string") ||
-      (name === "apply" && Array.isArray(input.effects) && input.effects.length > 0 && input.effects.every((e:any) => ["define","object","ability"].includes(e?.kind))));
+		const openingModShape = state.openingPending && state.state === "awaiting_player" && (
+			(name === "resolve" && typeof (input.action as any)?.decision === "string") ||
+			(name === "apply" && Array.isArray(input.effects) && input.effects.length > 0 && input.effects.every((e:any) => ["define","object","ability"].includes(e?.kind))));
+		const openingMod = openingModShape && (mods ? true : await modsBridgeWait(modsBridgeWaitMs()));
 		if (!openingNarrate && !openingMod && CLOSED_STATES.has(state.state)) {
+			const bridgePending = openingModShape && !mods;
 			const reason =
 				state.state === "asked"
 					? "the turn was already handed to the player with ask; wait for the answer"
-					: `the turn state is ${state.state}, so nothing may change state: wait for the player to speak, or use only look, lookup and recall`;
-			await record({ tool: name, started_at: new Date().toISOString(), ok: false, code: "turn_state", reason });
+					: bridgePending
+						? "the Mod layer has not announced itself yet, so this opening Mod call cannot be judged: retry the same call; the opening's Mod checks become available as soon as it does"
+						: `the turn state is ${state.state}, so nothing may change state: wait for the player to speak, or use only look, lookup and recall`;
+			await record({ tool: name, started_at: new Date().toISOString(), ok: false, code: "turn_state", reason, ...(bridgePending ? { cause: "mods_bridge_pending" } : {}) });
 			return { block: true, reason };
 		}
 		if (name === "ask" && !input.binds && state.pendingChoice?.for === "player" && state.pendingChoice.name) {
@@ -1725,6 +1748,14 @@ export default function (pi: ExtensionAPI) {
 		if (name === "resolve") {
 			const action = input.action as Record<string, unknown> | undefined;
 			if (!action) return;
+			// A Keeper sometimes hangs `decision` off the call instead of off `action`, where the schema
+			// puts it (tools.ts) and where the opening Mod lane checks it. Hoist it: a legitimate Mod roll
+			// must not die on field placement, and the kernel reads `action.decision` to match the Mod's
+			// contributed check. The stray key is dropped so nothing downstream sees two homes for it.
+			if (input.decision !== undefined) {
+				if (action.decision === undefined) action.decision = input.decision;
+				delete input.decision;
+			}
 			// actor may now be an NPC name too, and weapon/spell must match the graph and the equipment table (contract §11.1, §11.4).
 			for (const key of ["actor", "target", "skill", "decision", "weapon", "spell"]) {
 				if (action[key] !== undefined) action[key] = normalizeName(action[key]);
