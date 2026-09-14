@@ -1,9 +1,117 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { createHash } from "node:crypto";
 import { ReadingService } from "../../extensions/module/reading-service.ts";
+import { KernelError } from "../../extensions/kernel/client.ts";
+
+const ROOT = resolve(import.meta.dirname, "../..");
+const FINISH_SEMANTIC_MESSAGE = "the independent review found missing or incorrect material: [{\"description\":\"the opening needs its clue nodes and relations\"}]";
+
+function openingDraft(repaired = false) {
+	const nodes = [
+		{ node_id: "scene-opening", node_kind: "scene", name: "Opening", summary: "The investigation begins here.",
+			source_refs: [{ page: 4 }], visibility: "player-safe", properties: { is_entrance: true } },
+		{ node_id: "clue-family-fled", node_kind: "clue", name: "The family fled", summary: "The family left before the denunciation.",
+			source_refs: [{ page: 4 }], visibility: "keeper-only", properties: { delivery_kind: "npc_dialogue" } },
+	];
+	if (repaired) nodes.push({ node_id: "conclusion-denunciation", node_kind: "conclusion", name: "The denunciation drove them out",
+		summary: "The denunciation explains the family's flight.", source_refs: [{ page: 5 }], visibility: "keeper-only", properties: {} });
+	return { nodes, claims: repaired ? [{ subject_id: "clue-family-fled", predicate: "supports", object: { node_id: "conclusion-denunciation" },
+		truth_status: "authorial", visibility: "keeper-only", source_refs: [{ page: 5 }] }] : [],
+		dependencies: [], critical: [], ready_nodes: ["scene-opening", "clue-family-fled"], coverage: {} };
+}
+
+async function runFinishRepairFixture(t, { rejectEveryFinish = false, transportFailure = false } = {}) {
+	const home = await mkdtemp(join(tmpdir(), "coc-finish-repair-"));
+	t.after(() => rm(home, { recursive: true, force: true }));
+	const cwd = join(home, "work", "attempt-1"), cache = join(home, ".coc", "modules", "book", "cache", "pages");
+	await mkdir(cwd, { recursive: true });
+	const readTasks = [], finishCalls = [];
+	let readRounds = 0, completionAttempts = 0;
+	const runtime = {
+		contentRoot: join(ROOT, "content"),
+		async runTask({ request }) {
+			if (request.prompt.phase === "read") {
+				readRounds++;
+				if (readRounds === 1) return { ok: false, code: 1, timedOut: false, ms: 1, stderr: "fixture read failure", command: [] };
+				const task = JSON.parse(await readFile(join(request.cwd, "task.json"), "utf8"));
+				readTasks.push(task);
+				const repaired = !!task.repair, page = repaired ? 5 : 4, image = join(cache, `page-${page}.png`), call = `read-${readRounds}`;
+				await writeFile(join(request.cwd, "draft.json"), JSON.stringify(openingDraft(repaired)) + "\n");
+				await appendFile(join(cache, "requests.jsonl"), JSON.stringify({ file_sha256: "source-sha", path: image, page, box: [0, 0, 1, 1] }) + "\n");
+				request.onEvent?.({ type: "tool_execution_end", toolCallId: call, isError: false,
+					result: { content: [{ type: "image" }], details: { kind: "source_pages", observations: [{ path: image, page }] } } });
+				await writeFile(request.eventLog + ".images.jsonl", JSON.stringify({ included: [call] }) + "\n");
+				return { ok: true, code: 0, timedOut: false, ms: 2, stderr: "", command: [] };
+			}
+			const task = JSON.parse(await readFile(join(request.cwd, "task.json"), "utf8"));
+			const pages = task.review_scope_pages?.length ? task.review_scope_pages : [4];
+			await writeFile(join(request.cwd, "review.json"), JSON.stringify({ checked: [{ paths: task.required_review,
+				verdict: "supported", source_refs: pages.map(page => ({ page })), reason: "fixture source support" }], missing: [] }) + "\n");
+			const call = `review-${task.required_review.join("-")}`;
+			request.onEvent?.({ type: "tool_execution_end", toolCallId: call, isError: false,
+				result: { content: [{ type: "image" }], details: { kind: "source_pages", observations: pages.map(page => ({ path: join(cache, `page-${page}.png`), page })) } } });
+			await writeFile(request.eventLog + ".images.jsonl", JSON.stringify({ included: [call] }) + "\n");
+			return { ok: true, code: 0, timedOut: false, ms: 2, stderr: "", command: [] };
+		},
+		async check() { return { ok: true }; },
+		async sourceInfo() { throw new Error("not a guidance job"); },
+	};
+	const service = new ReadingService({ home, runtime, model: () => ({ id: "fixture/vision", vision: true, thinking: "off" }),
+		progress() {}, record() {}, async call(method, params) {
+			assert.equal(method, "module.read.finish");
+			finishCalls.push(params);
+			if (params.outcome === "completed") {
+				completionAttempts++;
+				if (transportFailure) throw new KernelError({ code: "internal", message: "kernel request timed out" });
+				if (completionAttempts === 1 || rejectEveryFinish) throw new KernelError({ code: "invalid_params", message: FINISH_SEMANTIC_MESSAGE });
+				return { state: "ready" };
+			}
+			return { state: params.outcome };
+		} });
+	t.after(() => service.close());
+	const job = { job_id: "read-1", module_id: "book", purpose: "opening", focus: "scene-opening", foreground: true, lease: "lease-1",
+		work_dir: cwd, source: { path: join(home, "source.pdf"), page_count: 8, file_sha256: "source-sha" },
+		index: {}, known_nodes: [], known_claims: [], vocabulary: {}, coverage_domains: [] };
+	await service.runJob(job, new AbortController().signal);
+	return { cwd, readTasks, finishCalls, readRounds, completionAttempts };
+}
+
+test("a finish-time independent-review rejection gets one source-grounded repair after the normal rounds are spent", async t => {
+	const result = await runFinishRepairFixture(t);
+	assert.equal(result.readRounds, 3);
+	assert.equal(result.completionAttempts, 2);
+	assert.equal(result.readTasks.length, 2);
+	const repair = result.readTasks[1].repair;
+	assert.deepEqual(repair.draft, "draft.json");
+	assert.deepEqual(repair.baseline, "baseline.json");
+	assert.equal(repair.findings.error.split("\n", 1)[0], `invalid_params: ${FINISH_SEMANTIC_MESSAGE}`);
+	assert.deepEqual(JSON.parse(await readFile(join(result.cwd, "baseline.json"), "utf8")), openingDraft(false));
+	assert.deepEqual(JSON.parse(await readFile(join(result.cwd, "draft.json"), "utf8")), openingDraft(true));
+	assert.deepEqual(JSON.parse(await readFile(join(result.cwd, "observations.json"), "utf8")).read_pages, [4, 5]);
+	assert.equal(result.finishCalls.at(-1).outcome, "failed", "the finally replay remains bounded after successful publication");
+});
+
+test("a repeated finish-time invalid-params rejection ends as a failed job without another repair loop", async t => {
+	const result = await runFinishRepairFixture(t, { rejectEveryFinish: true });
+	assert.equal(result.readRounds, 3);
+	assert.equal(result.completionAttempts, 2);
+	assert.equal(result.finishCalls.length, 3);
+	assert.equal(result.finishCalls.at(-1).outcome, "failed");
+	assert.equal(result.finishCalls.at(-1).detail.split("\n", 1)[0], `invalid_params: ${FINISH_SEMANTIC_MESSAGE}`);
+});
+
+test("a finish transport failure does not consume the semantic repair continuation", async t => {
+	const result = await runFinishRepairFixture(t, { transportFailure: true });
+	assert.equal(result.readRounds, 2);
+	assert.equal(result.completionAttempts, 1);
+	assert.equal(result.finishCalls.length, 2);
+	assert.equal(result.finishCalls.at(-1).outcome, "failed");
+	assert.equal(result.finishCalls.at(-1).detail.split("\n", 1)[0], "internal: kernel request timed out");
+});
 
 test("a foreground timeout can rejoin the same pending reading without starting another reader", async t => {
 	const prior = process.env.PI_COC_READ_WAIT_MS;
@@ -214,4 +322,93 @@ test("cancellation before the request returns retires only that queued job witho
 	await until(() => finished.length === 1);
 	assert.equal(finished[0].job_id, "pending");
 	assert.equal(finished[0].outcome, "cancelled");
+});
+
+// A retry that inherits a failed job's draft owes the source-based repair round (contract section 22).
+// Re-verifying identical bytes under identical instructions cannot re-scope them, so an over-broad
+// draft would otherwise be re-reviewed for every retry and never shrink.
+function detailDraft(nodes) {
+	return { nodes, claims: [], dependencies: [], critical: [], ready_nodes: nodes.map(node => node.node_id), coverage: {} };
+}
+const wideDraft = detailDraft([
+	{ node_id: "location-farm", node_kind: "location", name: "Farm", summary: "The collective farm.", source_refs: [{ page: 17 }], visibility: "keeper-only", properties: {} },
+	{ node_id: "npc-unrelated", node_kind: "npc", name: "Unrelated", summary: "A late-scenario figure.", source_refs: [{ page: 44 }], visibility: "keeper-only", properties: {} },
+]);
+
+async function runResumeFixture(t, { previousJobId }) {
+	const home = await mkdtemp(join(tmpdir(), "coc-resume-scope-"));
+	t.after(() => rm(home, { recursive: true, force: true }));
+	const key = "job-key-1", fileSha = "source-sha";
+	const previous = join(home, "work", previousJobId, "attempt-1");
+	const cwd = join(home, "work", "read-2", "attempt-1");
+	const cache = join(home, ".coc", "modules", "book", "cache", "pages");
+	await mkdir(previous, { recursive: true });
+	await mkdir(cwd, { recursive: true });
+	await mkdir(cache, { recursive: true });
+	const draftBytes = JSON.stringify(wideDraft) + "\n";
+	await writeFile(join(previous, "draft.json"), draftBytes);
+	await writeFile(join(previous, "packet.json"), JSON.stringify({ key, source: { file_sha256: fileSha } }));
+	await writeFile(join(previous, "findings.json"), JSON.stringify({ error: "Review unit 26: Error: Request timed out." }));
+	// The interrupted attempt's own checkpoint names the job that produced it.
+	await writeFile(join(previous, "read-complete.json"), JSON.stringify({ job_id: previousJobId,
+		draft_sha256: createHash("sha256").update(draftBytes).digest("hex"),
+		observations: { file_sha256: fileSha, read_pages: [17, 44], full_pages: [], review_pages: [] } }));
+	const phases = [], readTasks = [];
+	const runtime = {
+		contentRoot: join(ROOT, "content"),
+		async runTask({ request }) {
+			phases.push(request.prompt.phase);
+			if (request.prompt.phase === "read") {
+				readTasks.push(JSON.parse(await readFile(join(request.cwd, "task.json"), "utf8")));
+				// The repair drops the out-of-scope node and keeps the in-scope one unchanged.
+				await writeFile(join(request.cwd, "draft.json"), JSON.stringify(detailDraft([wideDraft.nodes[0]])) + "\n");
+			}
+			const task = JSON.parse(await readFile(join(request.cwd, "task.json"), "utf8"));
+			// A reviewer must be seen to view every page assigned to it, so the fixture cites its whole scope.
+			const cited = request.prompt.phase === "verify" && task.review_scope_pages?.length ? task.review_scope_pages : [17];
+			if (request.prompt.phase === "verify")
+				await writeFile(join(request.cwd, "review.json"), JSON.stringify({ checked: [{ paths: task.required_review,
+					verdict: "supported", source_refs: cited.map(page => ({ page })), reason: "fixture source support" }], missing: [] }) + "\n");
+			const call = `call-${phases.length}`;
+			for (const page of cited)
+				await appendFile(join(cache, "requests.jsonl"), JSON.stringify({ file_sha256: fileSha, path: join(cache, `page-${page}.png`), page, box: [0, 0, 1, 1] }) + "\n");
+			request.onEvent?.({ type: "tool_execution_end", toolCallId: call, isError: false,
+				result: { content: [{ type: "image" }], details: { kind: "source_pages", observations: cited.map(page => ({ path: join(cache, `page-${page}.png`), page })) } } });
+			await writeFile(request.eventLog + ".images.jsonl", JSON.stringify({ included: [call] }) + "\n");
+			return { ok: true, code: 0, timedOut: false, ms: 2, stderr: "", command: [] };
+		},
+		async check() { return { ok: true }; },
+		async sourceInfo() { throw new Error("not a guidance job"); },
+	};
+	const finished = [];
+	const service = new ReadingService({ home, runtime, model: () => ({ id: "fixture/vision", vision: true, thinking: "off" }),
+		progress() {}, record() {}, async call(method, params) { finished.push(params); return { state: "ready" }; } });
+	t.after(() => service.close());
+	await service.runJob({ job_id: "read-2", module_id: "book", purpose: "detail", focus: "farm", question: "prepare the farm map",
+		key, foreground: true, lease: "lease-1", work_dir: cwd, resume_from: previous,
+		source: { path: join(home, "source.pdf"), page_count: 48, file_sha256: fileSha },
+		index: {}, known_nodes: [], known_claims: [], vocabulary: {}, coverage_domains: [] }, new AbortController().signal);
+	// The verify phase fans out into one reviewer run per unit; the order of phases is what matters here.
+	return { cwd, phases: phases.filter((phase, index) => phase !== phases[index - 1]), readTasks, finished };
+}
+
+test("a retry resuming a failed job re-reads the source so an over-broad draft can be re-scoped", async t => {
+	const result = await runResumeFixture(t, { previousJobId: "read-1" });
+	assert.deepEqual(result.phases, ["read", "verify"], "the inherited checkpoint must not skip the repair read");
+	assert.equal(result.readTasks.length, 1);
+	assert.equal(result.readTasks[0].repair.findings.error, "Review unit 26: Error: Request timed out.",
+		"the reader is told concretely why the previous job failed");
+	assert.deepEqual(JSON.parse(await readFile(join(result.cwd, "baseline.json"), "utf8")), wideDraft,
+		"the retained draft stays available as input rather than being discarded");
+	assert.deepEqual(JSON.parse(await readFile(join(result.cwd, "draft.json"), "utf8")).nodes.map(n => n.node_id), ["location-farm"]);
+	assert.equal(JSON.parse(await readFile(join(result.cwd, "read-complete.json"), "utf8")).job_id, "read-2",
+		"the checkpoint names the job whose own read produced it, so only that job's own attempt may skip reading");
+	assert.ok(result.finished.some(call => call.outcome === "completed"), "the re-scoped draft still publishes");
+});
+
+test("a job resuming its own interrupted attempt keeps the completed read and verifies only", async t => {
+	const result = await runResumeFixture(t, { previousJobId: "read-2" });
+	assert.deepEqual(result.phases, ["verify"], "an interruption must not pay for the source reading twice");
+	assert.equal(result.readTasks.length, 0);
+	assert.ok(result.finished.some(call => call.outcome === "completed"));
 });

@@ -7,7 +7,7 @@
 import type { ImageContent } from "@earendil-works/pi-ai";
 import type { AgentToolUpdateCallback, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { appendFile, mkdir } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { createRuntime, type HostRuntime } from "../../runtime/host.ts";
 import { adaptationService } from './adaptation.ts';
 export { kernelCommand } from "../../runtime/host.ts";
@@ -15,6 +15,7 @@ import { cocHome, cocMode } from "../lanes/host.ts";
 import { extensionSurface } from "../ui/words.ts";
 import { type KernelClient, KernelError, type KernelProgressFrame, isKernelError } from "./client.ts";
 import { progressPartial } from "./progress.ts";
+import { renderMapView, type MapAttachment } from './map-view.ts';
 import { COC_TOOLS, COC_TOOL_NAMES, type CocToolSpec, WRITE_TOOLS } from "./tools.ts";
 import { type CommitPayload, runVerifierLane } from "./verifier.ts";
 import {
@@ -136,6 +137,9 @@ interface TableState {
 	rebindingRefused?: { name: string; summary?: string };
 	/** Cold recovery scans the retained adaptation surface once; later jobs are tracked in memory. */
 	adaptationScanned: boolean;
+	readingWait?: boolean;
+	/** Failed material reads automatically retried once in this player turn, keyed by the kernel's exact read identity. */
+	readingRetries: Set<string>;
 	/** A host note owed to the Keeper at agent_end rather than delivered as prose. */
 	deliveryFix?: { kind: string; text: string };
 	/** A review operation stopped; only genuine new player input can start a linked retry. */
@@ -186,6 +190,8 @@ interface TableState {
 	verifierOwed?: { turn: number };
 	/** Handout attachments landed by `apply` this turn (contract §14.8), waiting to join the mechanics projection. */
 	attachments: HandoutAttachment[];
+	/** Player-safe derivatives prepared by apply map or look focus=map for the next delivery. */
+	mapAttachments: MapAttachment[];
 	/** Cut off lane completions still in flight when the session ends; they must not hold up the exit. */
 	lanes: AbortController;
 	/** The exact current player text (contract §32.3); a turn with none — the opening — puts nothing to review. */
@@ -553,8 +559,11 @@ export default function (pi: ExtensionAPI) {
 		table.steeredThisTurn = false;
 		table.toolCallsThisTurn = 0;
 		table.floorDraft = undefined;
+		table.readingWait = false;
+		table.readingRetries.clear();
 		table.deliveryFix = undefined;
 		table.attachments = [];
+		table.mapAttachments = [];
 		// Action admission (contract §32.3): who plays, where they stand, what the setup already told
 		// them, and — on a recovered turn — the words the broken turn was answering.
 		table.party = (open.investigators ?? []).flatMap((sheet) => {
@@ -702,7 +711,9 @@ export default function (pi: ExtensionAPI) {
 	function withHandouts(state: TableState, mechanics: Array<Record<string, unknown>>): Array<Record<string, unknown>> {
 		const pending = state.attachments;
 		state.attachments = [];
-		if (pending.length === 0) return mechanics;
+		const pendingMaps = state.mapAttachments;
+		state.mapAttachments = [];
+		if (pending.length === 0 && pendingMaps.length === 0) return mechanics;
 		const rows = mechanics.map((row) => ({ ...row }));
 		for (const attachment of pending) {
 			void record({
@@ -731,7 +742,47 @@ export default function (pi: ExtensionAPI) {
 				...(attachment.receipt ? { receipt: attachment.receipt } : {}),
 			});
 		}
+		for (const map of pendingMaps) {
+			const hasReceipt = typeof map.receipt === "string" && map.receipt.length > 0;
+			const existing = rows.find(row => {
+				if (row.kind !== "map") return false;
+				if (hasReceipt) return typeof row.receipt === "string" && row.receipt === map.receipt;
+				return typeof row.receipt !== "string" && row.map === map.map && row.view_id === map.view_id;
+			});
+			if (existing) Object.assign(existing, map);
+			else rows.push({...map});
+		}
 		return rows;
+	}
+
+	/** Private source layers end here; only a flattened derivative is retained in the conversation row. */
+	async function prepareMapViews(state: TableState, result: Record<string, unknown>): Promise<void> {
+		if (!Array.isArray(result.map_views)) return;
+		const campaignDir=dirname(state.telemetryPath),modulesRoot=resolve(campaignDir,'../../modules'),prepared:MapAttachment[]=[];
+		for(const value of result.map_views) {
+			const receipt=value&&typeof value==='object'&&typeof (value as Record<string,unknown>).receipt==='string'?(value as Record<string,unknown>).receipt as string:undefined;
+			try {
+				const map=await renderMapView(value,{modulesRoot,campaignDir,...(receipt?{receipt}:{})});
+				if(map)prepared.push(map);
+			} catch {
+				const row=value&&typeof value==='object'?value as Record<string,unknown>:{};
+				if(typeof row.map==='string')prepared.push({kind:'map',...(receipt?{receipt}:{}),map:row.map,name:typeof row.name==='string'?row.name:row.map,
+					view_id:'unavailable',regions:Array.isArray(row.regions)?row.regions as Record<string,unknown>[]:[],levels:[],available:false});
+			}
+		}
+		delete result.map_views;
+		if(prepared.length){
+			state.mapAttachments.push(...prepared);
+			// The tool result is Keeper-visible. Keep only the short public summary here;
+			// rendered bytes remain host-only and are delivered through the mechanics entry.
+			result.views=prepared.map(map => {
+				const {image: _image, path: _path, render: _render, level_images, ...summary}=map as MapAttachment & Record<string, unknown>;
+				if (Array.isArray(level_images)) summary.level_images=level_images
+					.filter(level => level && typeof level.level === "string")
+					.map(level => ({level: level.level}));
+				return summary;
+			});
+		}
 	}
 
 	/**
@@ -1027,7 +1078,16 @@ export default function (pi: ExtensionAPI) {
             }
 			catch (failure) {
 				if (!(isKernelError(failure)) || failure.details?.reason !== "material_pending" || !reading || !readingModule) throw failure;
-				await reading.ensure(readingModule, { ...(failure.details.read as Record<string, unknown>), foreground: true }, signal);
+				const read = { ...(failure.details.read as Record<string, unknown>), foreground: true };
+				try {
+					await reading.ensure(readingModule, read, signal);
+				} catch (readFailure) {
+					if (!isKernelError(readFailure) || readFailure.details?.reason !== "reading_failed" || signal?.aborted) throw readFailure;
+					const retryKey = JSON.stringify([read.purpose ?? "", read.material ?? "", read.focus ?? "", read.question ?? "", read.guidance_key ?? ""]);
+					if (state.readingRetries.has(retryKey)) throw readFailure;
+					state.readingRetries.add(retryKey);
+					await reading.ensure(readingModule, { ...read, retry: true }, signal);
+				}
 				result = (await state.kernel.call<Record<string, unknown>>(spec.method, payload, onProgress)) ?? {};
 			}
 			// Deferred Mod bookkeeping completes after the verb that opened this turn, never before it.
@@ -1035,6 +1095,7 @@ export default function (pi: ExtensionAPI) {
 			if (spec.name === "lookup" && params.kind === "module" && params.question) {
 				result.note = "This is published graph material. Use lookup kind source only if an original-page recheck is needed.";
 			}
+			await prepareMapViews(state,result);
 			applyToolSuccess(state, spec.name, toolCallId, result);
 			const adaptationPending = spec.name === 'lookup' && params.kind === 'adaptation' && ['pending', 'reviewing'].includes(String(result.status));
 			if (adaptationPending) {
@@ -1083,6 +1144,7 @@ export default function (pi: ExtensionAPI) {
 			const code = isKernelError(error) ? error.code : "internal";
 			if ((error as { details?: { reason?: string } })?.details?.reason === "reading_timeout") {
 				state.preparationWait = { kind: "source" };
+				state.readingWait = true;
 			}
 			const detail = refusalDetail(error);
 			// `code` alone collapses every refusal of one family into one word. The kernel's own
@@ -1108,6 +1170,7 @@ export default function (pi: ExtensionAPI) {
 					coc_error: {
 						code,
 						message: error instanceof Error ? error.message : String(error),
+						...(isKernelError(error) ? { retryable: error.retryable, next: error.next } : {}),
 						...(isKernelError(error) && error.codeDetail ? { code_detail: error.codeDetail } : {}),
 						...(isKernelError(error) && error.fix ? { fix: error.fix } : {}),
 						...(isKernelError(error) && error.details ? { details: error.details } : {}),
@@ -1295,6 +1358,7 @@ export default function (pi: ExtensionAPI) {
 				closedThisRun: false,
 				steeredThisTurn: false,
 				toolCallsThisTurn: 0,
+				readingRetries: new Set(),
 				roundTrips: 0,
 				mintedCallIds: new Map(),
 				rejected: new Map(),
@@ -1305,6 +1369,7 @@ export default function (pi: ExtensionAPI) {
 				callRounds: new Map(),
 				exhausted: new Map(),
 				attachments: [],
+				mapAttachments: [],
 				lanes: new AbortController(),
 				party: [],
 				present: [],
@@ -1471,9 +1536,12 @@ export default function (pi: ExtensionAPI) {
 			state.steeredThisTurn = false;
 			state.toolCallsThisTurn = 0;
 			state.floorDraft = undefined;
+			state.readingWait = false;
+			state.readingRetries.clear();
 			state.deliveryFix = undefined;
 			state.roundTrips = 0;
 			state.attachments = [];
+			state.mapAttachments = [];
 			// A new player input is a new context (contract §32.4): no verdict outlives it.
 			state.playerText = text;
 			state.admission = new Map();
@@ -1516,6 +1584,19 @@ export default function (pi: ExtensionAPI) {
 				},
 			};
 		} catch (error) {
+			if (isKernelError(error) && error.code === "turn_state" && state.readingWait
+				&& (state.state === "open" || state.state === "acting")) {
+				// The prior source-wait correction belongs to the run that timed out. A later player
+				// input cannot enter until that kernel turn closes, so give this run a fresh, bounded
+				// chance to narrate the wait instead of inheriting the spent steer forever.
+				state.closedThisRun = false;
+				state.steeredThisTurn = false;
+				state.floorDraft = undefined;
+				state.deliveryFix = {
+					kind: "reading-wait",
+					text: "The previous player turn is still open after source preparation paused. Close that existing turn now with narrate: briefly explain that the source is not ready, do not imply the pending action happened, and await free player input.",
+				};
+			}
 			await record({
 				tool: "table.player_input",
 				started_at: startedAt,
@@ -1690,8 +1771,18 @@ export default function (pi: ExtensionAPI) {
 			const canClose = state.state === "open" || state.state === "acting"
 				|| (state.state === "awaiting_player" && state.openingPending);
 			if (!prose || !canClose || state.closedThisRun) return;
-			if (state.preparationWait) {
+			const sourceWait = state.readingWait || state.preparationWait?.kind === "source";
+			if (state.preparationWait && !sourceWait) {
 				state.deliveryFix = { kind: `${state.preparationWait.kind}-wait`, text: preparationWaitInstruction(state.preparationWait) };
+				return { message: { ...event.message, content: blocks.filter(block => block.type !== "text") } };
+			}
+			// A source wait asks the Keeper to say so through narrate itself. That steer is spent once, like
+			// the two below it: prose on the second leg closes the turn implicitly, which is still a narrate
+			// and still records its receipt. Without the guard the drop repeated for every leg, agent_end
+			// stopped steering once the first steer was spent, and the turn stayed open with nothing
+			// delivered -- so every later player input failed turn_state and the campaign could not continue.
+			if (sourceWait && !state.steeredThisTurn) {
+				state.deliveryFix = { kind: "reading-wait", text: "Source preparation is pending. Use narrate to explain the preparation wait briefly and await free input; do not offer story options." };
 				return { message: { ...event.message, content: blocks.filter(block => block.type !== "text") } };
 			}
 			// The kernel left a pending choice for the player (a defence in combat) and the Keeper only wrote
@@ -1729,6 +1820,9 @@ export default function (pi: ExtensionAPI) {
 				await mods?.prepare(tool, params, state.lanes.signal);
 				const result = (await state.kernel.call<Record<string, unknown>>(`table.${tool}`, params)) ?? {};
 				applyToolSuccess(state, tool, "implicit", result);
+				const mechanics = withHandouts(state, readMechanics(result));
+				noteMechanics(state, typeof result.turn === "number" ? result.turn : state.turn, mechanics,
+					asString(result.marked_text), result.labels);
 				await record({ tool, call_id: callId, started_at: startedAt, ms: Date.now() - began, ok: true, implicit: true });
 				await record({ tool, event: "turn-closed", round_trips: state.roundTrips, ok: true, implicit: true });
 				rendered = asString(result.rendered_text);
@@ -1830,7 +1924,8 @@ export default function (pi: ExtensionAPI) {
 		if (state.steeredThisTurn) return;
 		if (state.preparationWait) {
 			state.steeredThisTurn = true;
-			sendHost(preparationWaitInstruction(state.preparationWait), `${state.preparationWait.kind}-wait`);
+			const kind = state.preparationWait.kind === "source" ? "reading-wait" : `${state.preparationWait.kind}-wait`;
+			sendHost(preparationWaitInstruction(state.preparationWait), kind);
 			return;
 		}
 		// The kernel refused the implicit delivery: hand its own fix back, once.

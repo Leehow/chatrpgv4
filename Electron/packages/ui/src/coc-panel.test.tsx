@@ -150,14 +150,16 @@ it('develops a portrait when the mount is clicked', async () => {
 });
 
 /**
- * An undeveloped mount is not a blank frame: it says what is missing (an image model in Settings)
- * and that a click develops the photograph, in the sheet's own projected words. The busy and the
- * failure captions still take the mount over while they are showing.
+ * The empty mount invites the click: one line centered in the photograph's own box (the avatar
+ * geometry), so it centers in the frame whatever the mount button's height. What is missing is
+ * said only after the click that found it missing (portrait_no_model, below).
  */
-it('writes on the empty mount how a photograph gets developed', async () => {
+it('writes a one-line invitation on the empty mount', async () => {
   const {container}=render(<Panel api={host({ok:true,data:{campaign:'c1',view:view()}})}/>);
-  const mount=await screen.findByText(say('zh-Hans','sheet','portraitHint'));
+  const mount=await screen.findByText(say('zh-Hans','sheet','portraitCta'));
   expect(mount.className).toBe('coc-sheet-portrait-hint');
+  expect(mount.getAttribute('aria-hidden')).toBe('true');
+  expect(mount.parentElement?.className).toBe('coc-sheet-identity');
   expect(container.querySelector('button.coc-sheet-portrait')).toBeTruthy();
   expect(container.querySelector('.coc-sheet-portrait-note')).toBeNull();
 });
@@ -170,6 +172,23 @@ it('leaves the mount empty and says so when a portrait cannot be developed', asy
   await screen.findByText(say('zh-Hans','sheet','identityTitle'));
   fireEvent.click(container.querySelector('button.coc-sheet-portrait')!);
   await screen.findByText(say('zh-Hans','sheet','portraitFailed'));
+  expect(container.querySelector('.coc-sheet-avatar')).toBeNull();
+});
+
+/**
+ * The settings hint is the answer to a click that found no image model (portrait_no_model),
+ * never a static caption on the frame: the player reads it when it applies to them.
+ */
+it('pops the settings hint after a click that found no image model', async () => {
+  const data={campaign:'c1',view:view()};
+  const refused={status:'error',view:null,campaign:'c1',code:'portrait_no_model',reason:'no image model is configured',ui:ui('zh-Hans')};
+  const api=host({ok:true,data},{ok:true,data:refused});
+  const {container}=render(<Panel api={api}/>);
+  await screen.findByText(say('zh-Hans','sheet','portraitCta'));
+  fireEvent.click(container.querySelector('button.coc-sheet-portrait')!);
+  await screen.findByText(say('zh-Hans','sheet','portraitHint'));
+  // While the hint note shows, the invitation steps aside instead of doubling the text.
+  expect(screen.queryByText(say('zh-Hans','sheet','portraitCta'))).toBeNull();
   expect(container.querySelector('.coc-sheet-avatar')).toBeNull();
 });
 

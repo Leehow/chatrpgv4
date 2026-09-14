@@ -21,11 +21,12 @@ import {appendJsonl} from '../fileio.js';
 import {join} from 'node:path';
 import {stageFlag,stageNote,stageRuling,stageThreat} from './bookkeeping.js';
 import {stageClue,stageNpc,stageHandout} from './entities.js';
+import {revealMap} from '../read/maps.js';
 import {stageItem,stageCash,commitInventorySheets} from './inventory.js';
 import type {createWorldlineRuntime} from '../worldline/index.js';
 import type {createModRuntime} from '../mods/index.js';
 import type {CampaignWriter} from '../write/store.js';
-const KINDS = ['ability', 'adaptation', 'cash', 'clue', 'damage', 'define', 'dossier', 'ending', 'flag', 'fork', 'handout', 'item', 'merge', 'move', 'note', 'npc', 'object', 'ruling', 'switch', 'threat', 'time'];
+const KINDS = ['ability', 'adaptation', 'cash', 'clue', 'damage', 'define', 'dossier', 'ending', 'flag', 'fork', 'handout', 'item', 'map', 'merge', 'move', 'note', 'npc', 'object', 'ruling', 'switch', 'threat', 'time'];
 export interface ApplyContext {
     readonly kernel: KernelContext;
     readonly transaction: TurnTransaction;
@@ -83,18 +84,18 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                 throw new RpcError('invalid_params', 'params.effects must be a non-empty list');
             if (effects.some(effect => isJsonObject(effect) && effect.kind === 'adaptation') && effects.length !== 1)
                 throw new RpcError('invalid_params', 'Accept an adaptation alone; ordinary effects belong to later calls');
-            const available = (kind: string) => kind === 'adaptation' ? !!contributions.adaptation : ['clue','npc','item','cash','flag','note','ruling','threat'].includes(kind) || (['define','object','ability','dossier'].includes(kind)?!!contributions.mods:['fork','switch','merge'].includes(kind)?!!contributions.worldlines:kind==='handout'?!!contributions.asset:['time', 'damage', 'move'].includes(kind) ? !!contributions.resources : kind === 'ending' ? !!contributions.ending : false);
+            const available = (kind: string) => kind === 'adaptation' ? !!contributions.adaptation : ['clue','npc','item','cash','flag','note','ruling','threat'].includes(kind) || (['define','object','ability','dossier'].includes(kind)?!!contributions.mods:['fork','switch','merge'].includes(kind)?!!contributions.worldlines:['handout','map'].includes(kind)?!!contributions.asset:['time', 'damage', 'move'].includes(kind) ? !!contributions.resources : kind === 'ending' ? !!contributions.ending : false);
             // A partial backend refuses unimplemented batches before any domain draws or writes.
             for (const [index, effect] of effects.entries())
                 if (isJsonObject(effect) && typeof effect.kind === 'string' && KINDS.includes(effect.kind) && !available(effect.kind))
                     throw atIndex(new RpcError('not_implemented', `effect kind ${repr(effect.kind)} has no implementation in this TypeScript kernel yet`), index);
             const module = await loadCampaignModule(kernel, string((await campaign.readCampaign()).module_id), transaction.world), graph = module.graph;
-            const authored: Row = { move: 'to', clue: 'clue', npc: 'name', handout: 'name' };
-            const kinds: Record<string, string[]> = { move: ['scene'], clue: ['clue'], npc: ['npc'], handout: ['handout', 'asset'] };
+            const authored: Row = { move: 'to', clue: 'clue', npc: 'name', handout: 'name', map: 'name' };
+            const kinds: Record<string, string[]> = { move: ['scene'], clue: ['clue'], npc: ['npc'], handout: ['handout', 'asset'], map: ['handout', 'asset'] };
             const names = effects.filter(isJsonObject).filter(effect => Object.hasOwn(authored, string(effect.kind))).map(effect => {
                 const name = effect[authored[string(effect.kind)]];
                 if (typeof name !== 'string') return name;
-                const node = effect.kind === 'handout' ? graph.find(name, ['handout']) ?? graph.find(name, ['asset']) : graph.find(name, kinds[string(effect.kind)]);
+                const node = ['handout','map'].includes(string(effect.kind)) ? graph.find(name, ['handout']) ?? graph.find(name, ['asset']) : graph.find(name, kinds[string(effect.kind)]);
                 return node?.node_id ?? name;
             });
             if (truth(module.meta.reading_version) && (!contributions.requireMaterial || !contributions.materialReady))
@@ -109,7 +110,7 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
             }
             const staged: Row = clone(transaction.world), taken = new Set(array(turn.receipts).map(value => string(value.id)));
             const receipts: Row[] = [], events: DomainEvent[] = [], ids: string[] = [];
-            const stagedSheets=new Map<string,Row>(),stagedNotes:Row[]=[],stagedRulings:Row[]=[],attachments:Row[]=[],already:string[]=[];
+            const stagedSheets=new Map<string,Row>(),stagedNotes:Row[]=[],stagedRulings:Row[]=[],attachments:Row[]=[],mapViews:Row[]=[],already:string[]=[];
             const context: ApplyContext = { kernel, transaction, campaign, world: staged, turn, graph, module, callId: started.callId, ordinal: started.ordinal,
                 mint(base) { let id = base, next = 2; while (taken.has(id))
                     id = `${base}-${next++}`; taken.add(id); return id; },
@@ -169,6 +170,9 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                     else if(kind==='npc')({receipt,event}=await stageNpc(context,effect) as {receipt:Row;event:DomainEvent});
                     else if(kind==='handout'){
                         ({receipt,event}=await stageHandout(context,effect,module.asset ? (_id, name) => module.asset!(name) : contributions.asset!) as {receipt:Row;event:DomainEvent});attachments.push(receipt.attachment);
+                    }
+                    else if(kind==='map'){
+                        const mapped=await revealMap(context,effect,contributions.asset!);receipt=mapped.receipt;event=mapped.event as DomainEvent;mapViews.push({...mapped.view,receipt:receipt.id,label:receipt.label});
                     }
                     else if(kind==='item')({receipt,event}=await stageItem(context,effect,stagedSheets,()=>{
                         if(!contributions.weaponCatalog)throw new RpcError('not_implemented','The weapon catalog contribution is unavailable');return contributions.weaponCatalog(graph);
@@ -257,6 +261,7 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                 const missing=array(result.attachments).filter(value=>!truth(value.available)).map(value=>string(value.handout));
                 if(missing.length)result.note=`No card exists for ${missing.join(', ')}: the receipt landed, and the player has nothing to look at. Say what the document holds in your narration rather than handing it over.`;
             }
+            if(mapViews.length)result.map_views=mapViews;
             if(already.length){result.already_discovered=already;if(!receipts.length)result.replayed=true;}
             if(stagedWorldline){turn.worldline=stagedWorldline;result.worldline={operation:stagedWorldline.operation,line:stagedWorldline.line,mode:stagedWorldline.mode??null,loop:number(stagedWorldline.loop),when:"after this turn's narrate commits"};}
             await transaction.commitResolve({ callId: started.callId, params: callParams, result, receipts, events });

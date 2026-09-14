@@ -353,6 +353,7 @@ export class CocOnboardingHost {
         this.patch(job,{state:job.campaign?'conversing':'paused',preparation});
         for(const target of targets)this.children.get(this.phaseKey(job,target))?.abort();
       } else if (params.action === 'resume' || params.action === 'opening') {
+        if (!model.vision && job.source !== 'starter') throw refuse('model_without_images', 'Choose a model with image input');
         if (!job.module_id) {
           const path=join(this.folder(job.id),'source.pdf');
           if(job.received!==job.size||!existsSync(path))throw refuse('upload_retry', 'Select the PDF again to retry its upload');
@@ -360,7 +361,7 @@ export class CocOnboardingHost {
           Object.assign(job,this.patch(job,{module_id:inspected.module_id,pages:inspected.page_count}));
         }
         if(params.scene&&job.campaign)throw refuse('opening_bound', 'The opening is already bound to character creation');
-        const updated=this.patch(job,{start_scene:params.scene||job.start_scene});
+        const updated=this.patch(job,{start_scene:params.scene||job.start_scene,model:model.id,thinking:model.thinking});
         this.prepare(updated,true);
       } else if (params.action === 'dismiss') {
         if ([...this.children.keys()].some(key=>key.startsWith(job.id+':')) || ['uploading','inspecting'].includes(job.state)) throw refuse('preparation_pause_first', 'Pause preparation before choosing another scenario');

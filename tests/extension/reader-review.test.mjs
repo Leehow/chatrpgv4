@@ -23,9 +23,10 @@ test('scope coverage must observe its own source pages, not only report a suppor
  assert.doesNotThrow(()=>checkReviewEvidence(review,['/coverage'],new Set([1,2]),[1,2]));
 });
 
-test('the scope reviewer receives actual read pages and its omission finding survives aggregation',async()=>{
+test('only coverage receives all observed pages while every unit retains the exact requested use',async t=>{
  const cwd=await mkdtemp(join(tmpdir(),'coc-scope-review-')),tasks=[];
- const pages=await reviewCandidate({cwd,task:{purpose:'detail',focus:'Room',review_scope_pages:[1,2]},
+ t.after(()=>rm(cwd,{recursive:true,force:true}));
+ const pages=await reviewCandidate({cwd,task:{purpose:'detail',focus:'Room',question:'Prepare the authored map and safe reveal regions.',review_scope_pages:[1,2]},
  draft:{nodes:[{node_id:'scene-room',properties:{},source_refs:[{page:1}]}],claims:[],coverage:{},ready_nodes:['scene-room']},
  instructions:'unused',round:1,model:{id:'fixture/vision'},source:{pdf:'unused',cache:'unused'},signal:new AbortController().signal,
  record(){},progress(){},async run(request){
@@ -38,9 +39,41 @@ test('the scope reviewer receives actual read pages and its omission finding sur
  }});
  assert.deepEqual(pages.sort(),[1,2]);
  assert.equal(tasks.filter(task=>task.required_review.includes('/coverage')).length,1);
+ for(const task of tasks){
+  assert.equal(task.focus,'Room');
+  assert.equal(task.question,'Prepare the authored map and safe reveal regions.');
+  assert.deepEqual(task.review_scope_pages,task.required_review.includes('/coverage')?[1,2]:undefined);
+ }
  const review=JSON.parse(await readFile(join(cwd,'review.json'),'utf8'));
  assert.deepEqual(review.missing,['A sourced discoverable proposition is absent.']);
  assert.ok(review.checked.some(item=>item.paths.includes('/coverage')));
+});
+
+test('omitted fields retry only their unit and retained complete units survive a resumed batch',async t=>{
+ const cwd=await mkdtemp(join(tmpdir(),'coc-review-omission-'));t.after(()=>rm(cwd,{recursive:true,force:true}));
+ const counts=new Map(),records=[];let omit=true;
+ const options={cwd,cacheRoot:join(cwd,'cache'),reviewVersion:'fixture',task:{purpose:'detail',focus:'Room',question:'',review_scope_pages:[1,2,3]},
+  draft:{nodes:[{node_id:'scene-room',source_refs:[{page:1}],properties:{}},{node_id:'rule-cold',source_refs:[{page:2}],properties:{temperature:3}}],claims:[],ready_nodes:['scene-room']},
+  instructions:'unused',round:1,model:{id:'fixture/vision'},source:{pdf:'unused',cache:'unused',file_sha256:'a'.repeat(64)},signal:new AbortController().signal,progress(){},record(row){records.push(row)},
+  async run(request){
+   const task=JSON.parse(await readFile(join(request.cwd,'task.json'),'utf8')),root=task.required_review[0];
+   counts.set(root,(counts.get(root)||0)+1);
+   const pages=root==='/coverage'?[1,2,3]:root==='/nodes/0'?[1]:[2];
+   assert.equal(task.question,'');
+   request.onEvent({type:'tool_execution_end',toolCallId:'pages',isError:false,result:{details:{kind:'source_pages',observations:pages.map(page=>({page}))}}});
+   await writeFile(request.eventLog+'.images.jsonl',JSON.stringify({included:['pages']})+'\n');
+   const paths=omit&&root==='/nodes/1'?[root]:task.required_review;
+   await writeFile(join(request.cwd,'review.json'),JSON.stringify({checked:[{paths,verdict:'supported',source_refs:pages.map(page=>({page}))}],missing:[]}));
+   return {ok:true,ms:1,stderr:''};
+  }};
+ await assert.rejects(reviewCandidate(options),/review omitted assigned fields/);
+ assert.equal(counts.get('/nodes/0'),1);assert.equal(counts.get('/coverage'),1);assert.equal(counts.get('/nodes/1'),2);
+ omit=false;
+ assert.deepEqual((await reviewCandidate({...options,round:2})).sort(),[1,2,3]);
+ assert.equal(counts.get('/nodes/0'),1);assert.equal(counts.get('/coverage'),1);assert.equal(counts.get('/nodes/1'),3);
+ assert.equal(records.filter(row=>row.reused).length,2);
+ const review=JSON.parse(await readFile(join(cwd,'review.json'),'utf8'));
+ assert.ok(review.checked.some(row=>row.paths.includes('/nodes/1/properties/temperature')));
 });
 
 test('a source reviewer keeps recovered provider errors as evidence without repeating the review',async t=>{

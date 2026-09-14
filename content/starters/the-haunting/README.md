@@ -32,17 +32,14 @@ The graph also catalogs every reviewed scenario page, the 18 source image
 regions, two player-delivery image variants, and ten information cards. Only
 semantic metadata is committed. Exact Rulebook page text, handout bodies, map
 bytes, illustrations, hashes, and source manifests remain in the ignored local
-module-assets root. A source owner can install those local bytes with:
+module-assets root. A source owner can provide local bytes through the module's
+relative `asset_ref` entries (for example,
+`assets/source/corbitt-house-keeper-map-ground.jpg`). Keep source pages and
+preview derivatives in the local, ignored module-assets area and use the graph's
+`image_sources` page/box metadata to produce the preview; do not commit source
+bytes, absolute paths, or a source bundle.
 
-```bash
-uv run --frozen python plugins/coc-keeper/scripts/coc_starter_graph.py \
-  install-local-assets --workspace . \
-  --starter-dir plugins/coc-keeper/references/starter-scenarios/the-haunting \
-  --source-bundle /absolute/path/to/validated/source-bundle \
-  --packs-dir /absolute/path/to/english-source-handout-packs
-```
-
-Without that private source bundle, the structured graph and open derivative
+Without those private local bytes, the structured graph and open derivative
 materialized views remain playable; unavailable media never becomes invented
 content or a reveal receipt.
 

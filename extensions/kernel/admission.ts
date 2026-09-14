@@ -73,7 +73,7 @@ export interface AdmissionScope {
  * that carries one of them is reviewed whole and refused whole; a batch of only the other kinds
  * (Keeper bookkeeping, NPC movement, pacing, world switches, Mod registration) is not reviewed.
  */
-const TRIGGER_KINDS: ReadonlySet<string> = new Set(["move", "clue", "time", "cash", "item", "handout"]);
+const TRIGGER_KINDS: ReadonlySet<string> = new Set(["move", "clue", "time", "cash", "item", "handout", "map"]);
 
 /** `resolve` decision families that are never a voluntary player action: the rules or the table run them. */
 const EXEMPT_DECISION_PREFIXES: readonly string[] = ["sanity:", "development:"];
@@ -151,7 +151,7 @@ export function admissionRequest(tool: string, payload: Record<string, unknown>,
 		};
 		const signature = (effect: Record<string, unknown>): Record<string, unknown> => {
 			const kind = text(effect.kind) ?? "?";
-			const keys = ["to", "label", "travel_minutes", "clue", "minutes", "delta", "name", "subject", "from", "with", "quantity", "dice", "scope"];
+			const keys = ["to", "label", "travel_minutes", "clue", "minutes", "delta", "name", "regions", "region_labels", "level_labels", "subject", "from", "with", "quantity", "dice", "scope"];
 			return { kind, ...Object.fromEntries(keys.map((k) => [k, effect[k]]).filter(([, v]) => v !== undefined && v !== null && v !== "")) };
 		};
 		const key = canonical({ tool, effects: effects.map(signature).map(canonical).sort(), destinations: scope.destinations ?? [] });

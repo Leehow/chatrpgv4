@@ -14,6 +14,8 @@
  *   FAKE_KERNEL_NO_FACTS   "1" 时 narrate 不回 facts/extraction（切片 0、1 的内核）
  *   FAKE_KERNEL_DIRECTOR   JSON 对象，合并进胶囊的 `director` 节（用来摆出 override 之类的分支）
  *   FAKE_KERNEL_NO_DIRECTOR "1" 时胶囊不带 `director` 节（切片 0–2 的内核）
+ *   FAKE_KERNEL_STRICT_TURN "1" rejects player_input while the current turn remains open or acting
+ *   FAKE_KERNEL_MATERIAL_PENDING "1" makes the first table.apply request one detail read before replay
  *   FAKE_KERNEL_HANDOUT    JSON 对象，`apply` 带 handout 效果时作为 `attachment` 回（契约 §14.8）
  *   FAKE_KERNEL_CASH       调查员起始现金，缺省 50（`apply` 的 cash 效果按它算前后，契约 §5）
  *   FAKE_KERNEL_BACKFILL   JSON 整数数组：还没抽过的回合，`memory.job` 的缺省派发按序取（#20 补抽）；
@@ -32,6 +34,7 @@
  */
 
 import { appendFileSync } from "node:fs";
+import { dirname, join } from 'node:path';
 import { SETUP_STEPS, SETUP_TABLE } from "./setup-steps.mjs";
 
 const LOG = process.env.FAKE_KERNEL_LOG;
@@ -41,10 +44,12 @@ const CAMPAIGNS = process.env.FAKE_KERNEL_CAMPAIGNS
 	: [{ id: "test-camp", title: "闹鬼的房子", module_id: "the-haunting", status: "active", turn: 0 }];
 const EXIT_AFTER = process.env.FAKE_KERNEL_EXIT_AFTER ? Number(process.env.FAKE_KERNEL_EXIT_AFTER) : 0;
 const DIRECTOR_PATCH = process.env.FAKE_KERNEL_DIRECTOR ? JSON.parse(process.env.FAKE_KERNEL_DIRECTOR) : {};
+const WORKSPACE=LOG?dirname(LOG):process.argv[process.argv.indexOf('--workspace')+1];
 
 let received = 0;
 let turn = 0;
 let state = "awaiting_player";
+let materialPending = process.env.FAKE_KERNEL_MATERIAL_PENDING === "1";
 
 // 契约第 4 节：能回 pending_turn，说明上次进程死在回合中途，状态是 open 或 acting。
 if (process.env.FAKE_KERNEL_PENDING === "1") {
@@ -696,6 +701,10 @@ function handle(method, params) {
 			};
 		}
 		case "table.player_input":
+			if (process.env.FAKE_KERNEL_STRICT_TURN === "1" && state !== "awaiting_player" && state !== "asked") {
+				return { ok: false, error: { code: "turn_state", message: `table.player_input is not allowed while the turn is '${state}'`,
+					fix: "finish the current turn with narrate or ask first" } };
+			}
 			turn += 1;
 			state = "open";
 			turnMechanics = [];
@@ -707,6 +716,9 @@ function handle(method, params) {
 			return { ok: true, result: { turn, state, receipts: [], pending_choice: null, mechanics: [...turnMechanics] } };
 		case "table.look":
 			if (state === "open") state = "acting";
+			if (process.env.FAKE_KERNEL_LOOK_MAPS) {
+				return { ok: true, result: { map_views: JSON.parse(process.env.FAKE_KERNEL_LOOK_MAPS) } };
+			}
 			return { ok: true, result: { where: capsule(null).where, present: capsule(null).present } };
 		case "table.lookup":
 			if (state === "open") state = "acting";
@@ -720,6 +732,12 @@ function handle(method, params) {
 			return resolve(params);
 		case "table.apply": {
 			state = "acting";
+			if (materialPending) {
+				materialPending = false;
+				return { ok: false, error: { code: "needs", message: "the destination material is not ready",
+					fix: "read the requested source material, then retry the original action",
+					details: { reason: "material_pending", read: { purpose: "detail", focus: "farm", question: "" } } } };
+			}
 			const effects = params.effects ?? [];
 			// 整批先校验后写（契约 §5）：任一条不成立整批不写，收据也不发。
 			for (let index = 0; index < effects.length; index += 1) {
@@ -768,6 +786,10 @@ function handle(method, params) {
 				if (effect.kind === "time") {
 					mechanic({ kind: "time", minutes: effect.minutes });
 				}
+				if (effect.kind === "map") {
+					mechanic({kind:'map',receipt:`map:${params.call_id}`,map:effect.name,name:effect.label??effect.name,
+						regions:(effect.regions??[]).map(id=>({id,label:effect.region_labels?.[id]??id,level:Object.values(effect.level_labels??{})[0]??null})),source_revision:'fixture'});
+				}
 			}
 			// Handouts (contract §14.8): the projection carries only the name, and the extension fills in
 			// where the file is from `attachment` (§16.2).
@@ -785,6 +807,10 @@ function handle(method, params) {
 								receipt: `handout:${handout.name ?? "handout-1"}`,
 							})
 				: undefined;
+			const map=effects.find(effect=>effect.kind==='map');
+			const mapViews=map&&process.env.FAKE_KERNEL_MAP==='1'?[{receipt:`map:${params.call_id}`,map:map.name,name:map.label??map.name,label:map.label,
+				source_revision:'fixture',regions:(map.regions??[]).map(id=>({id,label:map.region_labels?.[id]??id,level:Object.values(map.level_labels??{})[0]??null})),available:true,render:{layers:(map.regions??[]).map(id=>({region:id,label:map.region_labels?.[id]??id,level:Object.values(map.level_labels??{})[0]??null,
+					path:join(WORKSPACE,'.coc/modules/the-haunting/map.png'),placement:[0,0,1,1],source_box:[0,0,1,1],redactions:[]}))}}]:undefined;
 			return {
 				ok: true,
 				result: {
@@ -797,6 +823,7 @@ function handle(method, params) {
 					world: { active_scene: SCENE.name, clock: "1925-06-01T09:15" },
 					material_ready: true,
 					...(attachment ? { attachment } : {}),
+					...(mapViews ? { map_views: mapViews } : {}),
 				},
 			};
 		}

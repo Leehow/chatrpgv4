@@ -147,7 +147,8 @@
         "media_type": "image/jpeg",
         "role": "keeper-map",
         "pdf_index": 452,
-        "local_bytes_required": true
+        "local_bytes_required": true,
+        "image_sources": [{"page": 453, "box": [0.14, 0.61, 0.87, 0.94]}]
       },
       "source_refs": [
         {
@@ -431,9 +432,94 @@
       "properties": {
         "asset_ref": "assets/player/corbitt-house-investigator-map.png",
         "media_type": "image/png",
-        "role": "player-delivery",
+        "role": "player-map",
         "pdf_index": 462,
-        "local_bytes_required": true
+        "local_bytes_required": true,
+        "image_sources": [{"page": 463, "box": [0.1, 0.04, 0.9, 0.98]}],
+        "map_regions": [
+          {
+            "region_id": "upper-west-bedroom",
+            "name": "West bedroom",
+            "level": "Upper Story",
+            "source_asset": "player-corbitt-house-map",
+            "source_box": [0.12, 0.17, 0.35, 0.35],
+            "placement": [0.12, 0.17, 0.35, 0.35]
+          },
+          {
+            "region_id": "upper-middle-bedroom",
+            "name": "Middle bedroom",
+            "level": "Upper Story",
+            "source_asset": "player-corbitt-house-map",
+            "source_box": [0.35, 0.17, 0.56, 0.35],
+            "placement": [0.35, 0.17, 0.56, 0.35]
+          },
+          {
+            "region_id": "upper-east-bedroom",
+            "name": "East bedroom",
+            "level": "Upper Story",
+            "source_asset": "player-corbitt-house-map",
+            "source_box": [0.56, 0.17, 0.76, 0.35],
+            "placement": [0.56, 0.17, 0.76, 0.35]
+          },
+          {
+            "region_id": "upper-landing",
+            "name": "Upper landing and stairs",
+            "level": "Upper Story",
+            "source_asset": "player-corbitt-house-map",
+            "source_box": [0.76, 0.14, 0.93, 0.37],
+            "placement": [0.76, 0.14, 0.93, 0.37]
+          },
+          {
+            "region_id": "ground-entry-hall",
+            "name": "Ground-floor entry hall",
+            "level": "Ground Floor",
+            "source_asset": "player-corbitt-house-map",
+            "source_box": [0.12, 0.49, 0.93, 0.59],
+            "placement": [0.12, 0.49, 0.93, 0.59]
+          },
+          {
+            "region_id": "ground-living-room",
+            "name": "Living room",
+            "level": "Ground Floor",
+            "source_asset": "player-corbitt-house-map",
+            "source_box": [0.12, 0.57, 0.4, 0.7],
+            "placement": [0.12, 0.57, 0.4, 0.7]
+          },
+          {
+            "region_id": "ground-dining-room",
+            "name": "Dining room",
+            "level": "Ground Floor",
+            "source_asset": "player-corbitt-house-map",
+            "source_box": [0.4, 0.57, 0.68, 0.7],
+            "placement": [0.4, 0.57, 0.68, 0.7]
+          },
+          {
+            "region_id": "ground-kitchen",
+            "name": "Kitchen",
+            "level": "Ground Floor",
+            "source_asset": "player-corbitt-house-map",
+            "source_box": [0.68, 0.57, 0.93, 0.7],
+            "placement": [0.68, 0.57, 0.93, 0.7]
+          },
+          {
+            "region_id": "basement-storage",
+            "name": "Basement storage",
+            "level": "Basement",
+            "source_asset": "player-corbitt-house-map",
+            "source_box": [0.12, 0.73, 0.54, 0.98],
+            "placement": [0.48, 0.73, 0.9, 0.98]
+          },
+          {
+            "region_id": "hidden-cellar",
+            "name": "Hidden cellar",
+            "level": "Basement",
+            "source_asset": "corbitt-house-keeper-map-basement",
+            "source_box": [0.0, 0.0, 0.58, 1.0],
+            "placement": [0.08, 0.73, 0.48, 0.98],
+            "redactions": [[0.4, 0.27, 0.68, 0.5], [0.12, 0.46, 0.93, 0.63]],
+            "safe_after_redactions": true
+          }
+        ]
       },
       "source_refs": [
         {

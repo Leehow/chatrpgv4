@@ -94,14 +94,22 @@ def test_reprojection_reproduces_the_committed_graph(module_id):
 
 
 @pytest.mark.skipif(not OLD_HAUNTING.exists(), reason="the old tree's the-haunting IR is not on this machine")
-def test_the_haunting_reprojects_byte_for_byte_given_the_three_literals_the_old_script_hardcoded():
+def test_the_haunting_old_projection_diff_is_only_the_new_typescript_map_metadata():
     result = run_script("diff", "--starter-dir", str(OLD_HAUNTING),
                         "--against", str(CONTENT_DIR / "starters" / "the-haunting" / "module-graph.json"),
                         "--module-summary", "A source-bound 1920s Boston investigation of the Corbitt House.",
                         "--source-document-id", "source-document-keeper-rulebook-40th-the-haunting",
                         "--source-document-name", "Keeper Rulebook 40th Anniversary - The Haunting")
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert json.loads(result.stdout)["identical"] is True
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert json.loads(result.stdout) == {
+        "identical": False,
+        "differences": [
+            "/nodes[asset-corbitt-house-keeper-map-basement]/properties/image_sources: missing in new",
+            "/nodes[asset-player-corbitt-house-map]/properties/image_sources: missing in new",
+            "/nodes[asset-player-corbitt-house-map]/properties/map_regions: missing in new",
+            '/nodes[asset-player-corbitt-house-map]/properties/role: "player-map" -> "player-delivery"',
+        ],
+    }
 
 
 @pytest.mark.parametrize("module_id", sorted(STARTERS))

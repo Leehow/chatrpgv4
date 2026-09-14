@@ -47,6 +47,7 @@
   "npcs": "NPCs",
   "occupation": "Occupation",
   "portraitBusy": "Developing the photograph…",
+  "portraitCta": "Click to develop the photograph.",
   "portraitFailed": "The photograph could not be developed.",
   "portraitGenerate": "Develop the investigator's photograph",
   "portraitHint": "Add an image model in Settings, then click to develop the photograph.",

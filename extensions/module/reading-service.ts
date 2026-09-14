@@ -6,6 +6,7 @@ import { KernelError , isKernelError } from "../kernel/client.ts";
 import { readerInput, wakeReaderSlots } from "./reader.ts";
 import { reviewCandidate } from "./reader-review.ts";
 import { sourceAsset, closeSourceDocuments, sourceRenderVersion } from "./source.ts";
+import { publishableAssetNodes, validateMapRegions } from "./map-publication.ts";
 import type { HostRuntime } from "../../runtime/host.ts";
 
 type Row = Record<string, any>;
@@ -58,6 +59,9 @@ function validCheckpoint(checkpoint: Row, bytes: Buffer, job: Row): boolean {
 const delay = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
 const error = (reason: string, message: string, fix: string, extra: Row = {}) =>
 	new KernelError({ code: "needs", message, fix, details: { reason, ...extra } });
+function openingFinishSemanticRejection(failure: unknown, job: Row): boolean {
+	return job.purpose === "opening" && isKernelError(failure) && failure.code === "invalid_params";
+}
 
 export class ReadingService implements ReadingBridge {
 	private stopped = false;
@@ -131,7 +135,7 @@ export class ReadingService implements ReadingBridge {
 
 	async ensure(mid: string, params: Row, signal?: AbortSignal): Promise<Row> {
 		if (signal?.aborted || this.stopped) throw error("reading_failed", "reading was cancelled", "retry the reading when ready");
-		const key = JSON.stringify([mid, params.purpose, params.focus ?? "", params.question ?? "", params.guidance_key ?? ""]);
+		const key = JSON.stringify([mid, params.purpose, params.material ?? "", params.focus ?? "", params.question ?? "", params.guidance_key ?? ""]);
 		let request = this.requests.get(key);
 		if (!request) {
 			const pending: PendingReading = { waiters: 0, cancelled: false };
@@ -153,7 +157,7 @@ export class ReadingService implements ReadingBridge {
 					params.purpose === "opening" ? "return control, then call prepare-module again to rejoin the retained preparation"
 						: "use ask to return control; on a later player turn, retry the original action or lookup kind=source with the exact focus and question in details.read; do not invent another question",
 					// The job handle travels beside `read` for telemetry (#65); the fix names only `read`, so the model does not see it.
-					{ read: { purpose: params.purpose, focus: params.focus ?? "", question: params.question ?? "" },
+					{ read: { purpose: params.purpose, ...(params.material ? { material: params.material } : {}), focus: params.focus ?? "", question: params.question ?? "" },
 						...(request.jobId ? { job_id: request.jobId } : {}) })), wait);
 				onAbort = () => {
 					releaseWaiter();
@@ -270,7 +274,7 @@ export class ReadingService implements ReadingBridge {
 		await mkdir(cache, { recursive: true });
 		const commands = { page: `coc-source --pdf ${quote(job.source.path)} --cache ${quote(cache)} page`,
 			check: `coc-read-check --packet ${quote(join(cwd, "task.json"))} --draft ${quote(join(cwd, "draft.json"))}` };
-		const task: Row = { purpose: job.purpose, ...(job.purpose === "opening" ? {opening_batch:true} : {}), module_id: job.module_id, focus: job.focus, question: job.question, pages: job.pages,
+		const task: Row = { purpose: job.purpose, ...(job.material ? { material: job.material } : {}), ...(job.purpose === "opening" ? {opening_batch:true} : {}), module_id: job.module_id, focus: job.focus, question: job.question, pages: job.pages,
 			...(job.purpose === "guidance" ? {play_language:job.play_language, occupations:job.occupations.map((row:Row)=>({name:row.name}))} : {}),
 			source: { page_count: job.source.page_count }, index: job.index, known_nodes: job.known_nodes,
 			known_claims: (job.known_claims ?? []).map((claim: Row) => Object.fromEntries(
@@ -297,7 +301,10 @@ export class ReadingService implements ReadingBridge {
 						if (job.purpose === "guidance" && checkpoint.guidance_sha256 !== sha(await readFile(join(cwd,"guidance.json")))) throw new Error("guidance checkpoint mismatch");
 						Object.assign(observations, checkpoint.observations, { review_pages: [] });
 						await writeFile(join(cwd, "read-complete.json"), JSON.stringify(checkpoint) + "\n");
-						readComplete = !checkpoint.requires_repair;
+						// Only this job's own interrupted attempt may skip reading. A retry that inherits a
+						// failed job's draft owes the source-based repair round (§22): re-verifying identical
+						// bytes under identical instructions cannot re-scope them, so it can only fail again.
+						readComplete = !checkpoint.requires_repair && checkpoint.job_id === job.job_id;
 					}
 				}
 			} catch { /* a partial draft remains useful input, but only a host checkpoint skips reading */ }
@@ -306,8 +313,12 @@ export class ReadingService implements ReadingBridge {
 		let detail = "the reader did not produce a valid draft";
 		try {
 			if (!model.vision) throw error("vision_required", "the reader has no image input", "select a model that supports images");
-			for (let round = 1; round <= 2 && !signal.aborted; round++) {
+			// Reader/check/review failures keep the existing two rounds. One opening semantic rejection
+			// from publication can add only its own source-grounded repair round.
+			let lastRound = 2, finishRepairUsed = false;
+			for (let round = 1; round <= lastRound && !signal.aborted; round++) {
 				let phaseCompleted = false;
+				let publishing = false;
 				try {
 					const phases: Array<"index" | "read" | "verify"> = job.purpose === "index" ? (readComplete ? [] : ["index"]) : (readComplete ? ["verify"] : ["read", "verify"]);
 					for (const phase of phases) {
@@ -403,7 +414,7 @@ export class ReadingService implements ReadingBridge {
 						await writeFile(join(cwd, "observations.json"), JSON.stringify(observations) + "\n");
 						if (phase === "read" || phase === "index") {
 							readComplete = true;
-							await writeFile(join(cwd, "read-complete.json"), JSON.stringify({ draft_sha256: sha(await readFile(join(cwd, "draft.json"))),
+							await writeFile(join(cwd, "read-complete.json"), JSON.stringify({ job_id: job.job_id, draft_sha256: sha(await readFile(join(cwd, "draft.json"))),
 								...(job.purpose === "guidance" ? {guidance_sha256:sha(await readFile(join(cwd,"guidance.json")))} : {}), observations }) + "\n");
 						}
 						phaseCompleted = true;
@@ -411,16 +422,22 @@ export class ReadingService implements ReadingBridge {
 					const assets = [];
 					if (job.purpose !== "index") {
 						const draft = JSON.parse(await readFile(join(cwd, "draft.json"), "utf8"));
-						for (const node of draft.nodes ?? []) {
-							if (job.purpose === "opening" && !draft.ready_nodes?.includes(node.node_id)) continue;
-							if (!["handout", "asset"].includes(node.node_kind) || !["player-safe", "revealable"].includes(node.visibility) || !node.properties?.image_sources?.length) continue;
+						validateMapRegions(draft);
+						for (const node of publishableAssetNodes(draft, job.purpose)) {
 							if (typeof node.node_id !== "string" || !/^[a-z][a-z0-9-]{0,159}$/.test(node.node_id)) throw new Error("asset identifiers must be semantic kebab names");
-							const asset = await sourceAsset(job.source.path, cache, node.properties.image_sources, join(cwd, "assets", `${node.node_id}.png`));
+							const mapRedactions = (draft.nodes ?? []).flatMap((map: Row) => (map.properties?.map_regions ?? [])
+								.filter((region: Row) => typeof region.source_asset === "string" && [node.node_id, node.node_id.replace(/^asset-/, "")].includes(region.source_asset))
+								.flatMap((region: Row) => Array.isArray(region.redactions) ? region.redactions : []));
+							const imageSources = (node.properties.image_sources ?? []).map((region: Row) => ({ ...region,
+								...(mapRedactions.length ? { redactions: mapRedactions } : {}) }));
+							const asset = await sourceAsset(job.source.path, cache, imageSources, join(cwd, "assets", `${node.node_id}.png`));
 							assets.push({ node_id: node.node_id, ...asset });
 						}
 					}
+					publishing = true;
 					await this.deps.call("module.read.finish", { module_id: job.module_id, job_id: job.job_id, lease: job.lease,
 						outcome: "completed", draft_path: join(cwd, "draft.json"), review_path: join(cwd, "review.json"), assets });
+					publishing = false;
 					return;
 				} catch (failure) {
 					// Provider/transport failure during verification preserves the completed read.
@@ -434,6 +451,10 @@ export class ReadingService implements ReadingBridge {
 						} catch { /* no completed read to invalidate */ }
 					}
 					detail = isKernelError(failure) ? failure.toToolText() : String(failure);
+					if (publishing && openingFinishSemanticRejection(failure, job) && !finishRepairUsed) {
+						finishRepairUsed = true;
+						lastRound = Math.max(lastRound, round + 1);
+					}
 					let review: Row | undefined;
 					try { review = JSON.parse(await readFile(join(cwd, "review.json"), "utf8")); } catch { /* no review yet */ }
 					await writeFile(join(cwd, "findings.json"), JSON.stringify({ error: detail,

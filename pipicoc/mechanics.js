@@ -152,6 +152,27 @@ const CSS = `
 .coc-mech-fold-body{margin:2px 0 10px 34px;padding:10px 14px;border-left:2px solid var(--border-strong);
   font-family:var(--coc-serif);font-size:13.5px;line-height:1.75;white-space:pre-wrap;color:var(--text);
   max-height:340px;overflow:auto}
+.coc-map{display:block;padding:0}
+.coc-map-head{display:flex;align-items:center;gap:10px;padding:6px 2px;list-style:none;cursor:pointer}
+.coc-map-head::-webkit-details-marker{display:none}
+.coc-map-head::after{content:"▸";color:var(--subtle);font-size:11px;transition:transform .12s ease}
+.coc-map[open]>.coc-map-head::after{transform:rotate(90deg)}
+.coc-map-body{margin:2px 0 10px 34px;border-left:2px solid var(--border-strong);padding:9px 12px}
+.coc-map-tools{display:flex;align-items:center;gap:8px;margin-bottom:8px;color:var(--muted);font-size:11px}
+.coc-map-tools input{width:130px;accent-color:var(--accent)}
+.coc-map-levels{margin-left:auto;display:flex;gap:4px}
+.coc-map-levels button{border:1px solid var(--border);border-radius:999px;background:transparent;color:var(--muted);
+  padding:2px 7px;font:inherit;cursor:pointer}
+.coc-map-levels button[aria-pressed="true"]{color:var(--accent);border-color:var(--accent);background:color-mix(in oklab,var(--accent) 9%,transparent)}
+.coc-map-viewport{max-height:520px;overflow:auto;border:1px solid var(--border);border-radius:8px;
+  background:#171613;overscroll-behavior:contain;cursor:grab;touch-action:none;user-select:none}
+.coc-map-viewport[data-panning="1"]{cursor:grabbing}
+.coc-map-image{display:block;height:auto;max-width:none;transform-origin:top left;pointer-events:none}
+.coc-map-regions{margin-top:7px;color:var(--subtle);font-size:11px}
+.coc-map-empty{margin:2px 0 10px 34px;padding:9px 12px;color:var(--muted);font-size:12.5px}
+.coc-map-levels button{display:inline-flex;align-items:center;gap:5px}
+.coc-map-thumb{width:28px;height:18px;object-fit:cover;border-radius:3px;display:block;
+  background:color-mix(in oklab, var(--border) 55%, transparent)}
 
 /* The table changed history — the largest thing a row can say, so even standing alone it gets
    the accent rail a settlement group would. */
@@ -237,6 +258,8 @@ const ICONS = {
   handout: [["path", { d: "M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" }],
             ["polyline", { points: "14 3 14 8 19 8" }], ["line", { x1: 8.5, y1: 13, x2: 15.5, y2: 13 }],
             ["line", { x1: 8.5, y1: 17, x2: 13.5, y2: 17 }]],
+  map: [["path", {d:"M3 6.5 8.5 3l7 3.5L21 3v14.5L15.5 21l-7-3.5L3 21z"}],
+        ["line",{x1:8.5,y1:3,x2:8.5,y2:17.5}],["line",{x1:15.5,y1:6.5,x2:15.5,y2:21}]],
   fallback: [["circle", { cx: 12, cy: 12, r: 8.5 }]],
 };
 
@@ -251,6 +274,51 @@ function text(value) {
 
 function num(value) {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+/** A player-safe raster derivative. File paths, remote URLs and SVG data never reach the <img>. */
+function playerImage(value) {
+  return typeof value === "string" && /^data:image\/(png|jpeg|jpg|webp|gif);base64,/i.test(value);
+}
+
+function knownLevelImages(row) {
+  return (Array.isArray(row?.level_images) ? row.level_images : [])
+    .filter(item => isRecord(item) && text(item.level) && playerImage(item.image))
+    .map(item => ({ level: text(item.level), image: item.image }));
+}
+
+function knownRegionLabels(row) {
+  return (Array.isArray(row?.regions) ? row.regions : [])
+    .map(region => isRecord(region) ? text(region.label || region.id) : text(region))
+    .filter(Boolean);
+}
+
+/** Scroll the viewport by pointer drag. Local only: no model, no kernel, no campaign write. */
+function panViewport(event) {
+  if (event.button) return;
+  const viewport = event.currentTarget;
+  if (!viewport) return;
+  const originX = event.clientX, originY = event.clientY;
+  const originLeft = viewport.scrollLeft, originTop = viewport.scrollTop;
+  viewport.dataset.panning = "1";
+  if (viewport.setPointerCapture && event.pointerId != null) viewport.setPointerCapture(event.pointerId);
+  function move(next) {
+    viewport.scrollLeft = originLeft - (next.clientX - originX);
+    viewport.scrollTop = originTop - (next.clientY - originY);
+  }
+  function stop(next) {
+    viewport.dataset.panning = "";
+    if (viewport.releasePointerCapture && next.pointerId != null) {
+      try { viewport.releasePointerCapture(next.pointerId); } catch { /* already released */ }
+    }
+    viewport.removeEventListener("pointermove", move);
+    viewport.removeEventListener("pointerup", stop);
+    viewport.removeEventListener("pointercancel", stop);
+  }
+  viewport.addEventListener("pointermove", move);
+  viewport.addEventListener("pointerup", stop);
+  viewport.addEventListener("pointercancel", stop);
+  event.preventDefault();
 }
 
 /**
@@ -363,6 +431,68 @@ export function createComponent(React) {
         h("span", { className: "coc-mech-ico", "aria-hidden": "true" }, icon(kindKey)),
         ...(Array.isArray(children) ? children : [children])),
       h("div", { className: "coc-mech-fold-body" }, body));
+  }
+
+  function MapRow(props) {
+    const { row, name, t } = props;
+    const [zoom, setZoom] = React.useState(100);
+    const [broken, setBroken] = React.useState(false);
+    const variants = knownLevelImages(row);
+    const [level, setLevel] = React.useState(variants[0]?.level || "");
+    const shown = variants.find(item => item.level === level)?.image || (playerImage(row.image) ? row.image : "");
+    const openable = row.available === true && Boolean(shown) && !broken;
+    const regionLabels = knownRegionLabels(row);
+    const stamp = openable ? t("available") : t("pending");
+    return h("details", {
+      className: "coc-mech-row coc-map",
+      "data-kind": "map",
+      "data-map": text(row.map) || undefined,
+      "data-view": text(row.view_id) || undefined,
+      "data-receipt": text(row.receipt) || undefined,
+      title: name,
+      onToggle: event => { if (event.currentTarget.open) setBroken(false); },
+    },
+      h("summary", { className: "coc-map-head" },
+        h("span", { className: "coc-mech-ico", "aria-hidden": "true" }, icon("map")),
+        h("span", { className: "coc-mech-body" }, name),
+        h(Stamp, { tone: openable ? "pass" : "plain" }, stamp)),
+      openable
+        ? h("div", { className: "coc-map-body" },
+            h("label", { className: "coc-map-tools" },
+              h("input", {
+                type: "range", min: "50", max: "240", step: "10", value: zoom,
+                "aria-label": name,
+                onChange: event => setZoom(Number(event.target.value)),
+              }),
+              h("span", null, `${zoom}%`),
+              variants.length > 1
+                ? h("span", { className: "coc-map-levels" }, variants.map(item =>
+                    h("button", {
+                      key: item.level,
+                      type: "button",
+                      title: item.level,
+                      "aria-pressed": item.level === level,
+                      onClick: () => setLevel(item.level),
+                    },
+                      h("img", {
+                        className: "coc-map-thumb", src: item.image, alt: "",
+                        draggable: "false", "aria-hidden": "true",
+                      }),
+                      item.level)))
+                : null),
+            h("div", {
+              className: "coc-map-viewport",
+              onPointerDown: panViewport,
+            }, h("img", {
+              className: "coc-map-image",
+              src: shown,
+              alt: name,
+              draggable: "false",
+              style: { width: `${zoom}%` },
+              onError: () => setBroken(true),
+            })),
+            regionLabels.length ? h("div", { className: "coc-map-regions" }, regionLabels.join(" · ")) : null)
+        : h("div", { className: "coc-map-empty" }, t("pending")));
   }
 
   function renderRow(row, t, term, index) {
@@ -519,6 +649,13 @@ export function createComponent(React) {
         }
         return h(FoldRow, { key, kindKey: "handout", kindLabel, body },
           h("span", { className: "coc-mech-body" }, name), stamp);
+      }
+      case "map": {
+        const name = term(text(row.label || row.name || row.map));
+        return h(MapRow, {
+          key: `${text(row.receipt)}:${text(row.view_id)}:${text(row.map)}:${index}`,
+          row, name, t,
+        });
       }
       default:
         // An unknown kind is a kernel that grew a receipt this file has not met. Name it rather

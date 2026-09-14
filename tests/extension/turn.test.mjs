@@ -3,12 +3,32 @@
  */
 
 import { strict as assert } from "node:assert";
+import {mkdirSync,copyFileSync} from 'node:fs';
+import {join} from 'node:path';
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { extensionWords } from "../../extensions/ui/words.ts";
 import { assistantTexts, customMessages, openTable, waitForIdle } from "./harness.mjs";
 
 const SEVEN = ["apply", "ask", "look", "lookup", "narrate", "recall", "resolve"];
+
+test('a map reveal becomes one flattened conversation image and hides its source instructions',async t=>{
+	const table=await openTable({env:{FAKE_KERNEL_MAP:'1'},responses:[
+		fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'map',name:'house-map',regions:['entry'],region_labels:{entry:'门厅'},level_labels:{'Ground Floor':'一层'},label:'宅邸地图',why:'看见了门厅'}]})],{stopReason:'toolUse'}),
+		fauxAssistantMessage([fauxToolCall('narrate',{text:'你记下了眼前的格局。'})],{stopReason:'toolUse'}),
+		fauxAssistantMessage('你记下了眼前的格局。'),
+	]});
+	t.after(()=>table.dispose());
+	const moduleDir=join(table.workspace,'.coc/modules/the-haunting');mkdirSync(moduleDir,{recursive:true});
+	copyFileSync(join(process.cwd(),'tests/kernel/fixtures/bundle-tiny/assets/map-dock.png'),join(moduleDir,'map.png'));
+	await table.session.prompt('我查看门厅并记下地图');
+	const [entry]=table.entries('coc-mechanics'),map=entry.mechanics.find(row=>row.kind==='map');
+	assert.equal(map.available,true);assert.match(map.image,/^data:image\/png;base64,/);assert.equal(typeof map.view_id,'string');assert.equal(typeof map.receipt,'string');
+	assert.equal(map.regions[0].id,'entry');assert.equal('path' in map,false);assert.equal('render' in map,false);
+	const results=table.session.messages.filter(message=>message.role==='toolResult').map(message=>message.details);
+	assert.ok(results.every(result=>!result?.map_views),'private render instructions do not return to the Keeper');
+});
+
 
 test("source preparation preserves an empty question while explicit rechecks retain their question", async t => {
 	const table = await openTable({ responses: [
@@ -133,6 +153,120 @@ test("cold recovery exposes one retained adaptation by semantic name before othe
 	const requests = table.kernelRequests();
 	assert.ok(requests.findIndex(row => row.method === "adaptation.status" && row.params.name === "athens-study")
 		< requests.findIndex(row => row.method === "table.narrate"));
+});
+
+test("a player input rejected after a source timeout gets a fresh bounded close-turn correction", async t => {
+	const waitNotice = "The source preparation has not finished yet.";
+	const table = await openTable({
+		env: { FAKE_KERNEL_STRICT_TURN: "1" },
+		responses: [
+			fauxAssistantMessage([fauxToolCall("lookup", { kind: "source", query: "farm", question: "arrival details" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage(""),
+			fauxAssistantMessage(""),
+			fauxAssistantMessage(""),
+			fauxAssistantMessage([fauxToolCall("narrate", { text: waitNotice })], { stopReason: "toolUse" }),
+			fauxAssistantMessage(waitNotice),
+		],
+	});
+	t.after(() => table.dispose());
+	table.emit("coc:reading-bridge", { async ensure() {
+		throw Object.assign(new Error("source read timed out"), { details: { reason: "reading_timeout" } });
+	} });
+
+	await table.session.prompt("I set out for the farm.");
+	await waitForIdle(table.session);
+	await table.session.prompt("I set out for the farm again.");
+	await waitForIdle(table.session);
+
+	const requests = table.kernelRequests();
+	assert.equal(requests.filter(row => row.method === "table.player_input").length, 2, "the kernel remains authoritative and rejects the second input");
+	assert.equal(requests.filter(row => row.method === "table.narrate").length, 1, "the later run receives a fresh chance to close the timed-out turn");
+	assert.equal(assistantTexts(table.session).at(-1), waitNotice);
+});
+
+test("a source-wait steer is spent once so the Keeper's own prose still closes the turn", async t => {
+	// The real Cold Harvest turn hung here: the Keeper answered the wait with prose instead of a narrate
+	// call, the host dropped that text on every leg, and once the first steer was spent agent_end stopped
+	// steering -- leaving the turn open with nothing delivered, so every later player input failed
+	// turn_state. The drop is worth one leg; after that the prose closes the turn as an implicit narrate.
+	const notice = "The farm's source is still being read, so you have not set out and no time has passed.";
+	const table = await openTable({ responses: [
+		fauxAssistantMessage([fauxToolCall("lookup", { kind: "source", query: "farm", question: "arrival details" })], { stopReason: "toolUse" }),
+		fauxAssistantMessage(notice),
+		fauxAssistantMessage(notice),
+	] });
+	t.after(() => table.dispose());
+	table.emit("coc:reading-bridge", { async ensure() {
+		throw Object.assign(new Error("source read timed out"), { details: { reason: "reading_timeout" } });
+	} });
+
+	await table.session.prompt("I set out for the farm.");
+	await waitForIdle(table.session);
+
+	assert.equal(table.kernelRequests().filter(row => row.method === "table.narrate").length, 1,
+		"the second prose leg closes the turn through narrate instead of hanging it open");
+	assert.equal(assistantTexts(table.session).at(-1), notice, "the player finally sees the honest wait notice");
+	assert.equal(customMessages(table.session).filter(row => row.details?.kind === "reading-wait").length, 1,
+		"the source-wait steer is spent once, not re-sent on every leg");
+});
+
+test("material_pending retries the exact failed read once, then replays the original apply", async t => {
+	const table = await openTable({
+		env: { FAKE_KERNEL_MATERIAL_PENDING: "1" },
+		responses: [
+			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "move", to: "farm", travel_minutes: 10 }] })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("narrate", { text: "You reach the farm." })], { stopReason: "toolUse" }),
+			fauxAssistantMessage("You reach the farm."),
+		],
+	});
+	t.after(() => table.dispose());
+	const reads = [];
+	table.emit("coc:reading-bridge", { async ensure(_moduleId, params) {
+		reads.push(params);
+		if (reads.length === 1) throw Object.assign(new Error("the retained detail read failed"), {
+			code: "needs",
+			details: { reason: "reading_failed" },
+			toToolText() { return "needs: the retained detail read failed"; },
+		});
+		return { state: "ready" };
+	} });
+
+	await table.session.prompt("Go to the farm.");
+	await waitForIdle(table.session);
+
+	assert.deepEqual(reads, [
+		{ purpose: "detail", focus: "farm", question: "", foreground: true },
+		{ purpose: "detail", focus: "farm", question: "", foreground: true, retry: true },
+	]);
+	assert.equal(table.kernelRequests().filter(row => row.method === "table.apply").length, 2, "the original kernel action is replayed only after reading succeeds");
+});
+
+test("a failed material retry stops after the single automatic continuation", async t => {
+	const table = await openTable({
+		env: { FAKE_KERNEL_MATERIAL_PENDING: "1" },
+		responses: [
+			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "move", to: "farm", travel_minutes: 10 }] })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("narrate", { text: "The farm source is still unavailable." })], { stopReason: "toolUse" }),
+			fauxAssistantMessage("The farm source is still unavailable."),
+		],
+	});
+	t.after(() => table.dispose());
+	const reads = [];
+	table.emit("coc:reading-bridge", { async ensure(_moduleId, params) {
+		reads.push(params);
+		throw Object.assign(new Error("the retained detail read failed"), {
+			code: "needs",
+			details: { reason: "reading_failed" },
+			toToolText() { return "needs: the retained detail read failed"; },
+		});
+	} });
+
+	await table.session.prompt("Go to the farm.");
+	await waitForIdle(table.session);
+
+	assert.equal(reads.length, 2, "the host does not start a third reading attempt");
+	assert.equal(reads[1].retry, true);
+	assert.equal(table.kernelRequests().filter(row => row.method === "table.apply").length, 1, "the refused action is not replayed after the repair fails");
 });
 
 test("一个玩家回合：七个工具、胶囊、call_id、rendered_text 交付", async (t) => {
@@ -554,4 +688,22 @@ test("隐式交付被拒：原稿不留在屏幕上，回合仍等着被关掉",
 	const closed = table.telemetry().filter((row) => row.event === "turn-closed");
 	assert.deepEqual(closed, [], "被拒的交付没有关掉回合");
 	assert.deepEqual(table.entries("coc-mechanics"), [], "没有机制投影发出去");
+});
+
+test("host map assembly does not collapse receipt-less maps, but dedupes identical views", async t => {
+	const maps = [
+		{ map: "house", name: "House", view_id: "v-house", regions: [] },
+		{ map: "grounds", name: "Grounds", view_id: "v-grounds", regions: [] },
+		{ map: "house", name: "House", view_id: "v-house", regions: [] }
+	];
+	const table = await openTable({ env: { FAKE_KERNEL_LOOK_MAPS: JSON.stringify(maps) }, responses: [
+		fauxAssistantMessage([fauxToolCall("look", { focus: "map" })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("narrate", { text: "The maps remain distinct." })], { stopReason: "toolUse" }),
+		fauxAssistantMessage("The maps remain distinct."),
+	] });
+	t.after(() => table.dispose());
+	await table.session.prompt("Show me the maps");
+	const mechanics = table.entries("coc-mechanics").at(-1)?.mechanics ?? [];
+	assert.equal(mechanics.filter(row => row.kind === "map").length, 2);
+	assert.deepEqual(mechanics.find(row => row.map === "house").regions, []);
 });

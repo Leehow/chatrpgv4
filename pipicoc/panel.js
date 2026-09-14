@@ -57,9 +57,11 @@ const CSS = `
 .coc-sheet-portrait-live:disabled{cursor:wait}
 .coc-sheet-portrait-note{position:absolute;left:6%;right:6%;bottom:8%;padding:2px 4px;background:#eee2ceee;
   color:var(--passport-muted);font:500 11px/1.5 var(--coc-serif);text-align:center}
-/* An undeveloped mount explains itself: what is missing, and that a click develops it. */
-.coc-sheet-portrait-hint{position:absolute;left:9%;right:9%;top:44%;transform:translateY(-50%);
-  color:var(--passport-muted);font:500 12px/1.8 var(--coc-serif);text-align:center}
+/* The invitation centers in the photograph's own box (the avatar geometry), never in the mount
+   button's taller box; clicks pass through to the mount below. */
+.coc-sheet-portrait-hint{position:absolute;z-index:2;pointer-events:none;left:11.64%;top:17.72cqi;
+  width:32.59%;height:43.45cqi;display:flex;align-items:center;justify-content:center;
+  padding:0 8%;box-sizing:border-box;color:var(--passport-muted);font:500 12px/1.8 var(--coc-serif);text-align:center}
 .coc-sheet-record{min-width:0}
 .coc-sheet-name{margin:0;min-width:0;color:var(--passport-ink);font:600 clamp(24px,7cqi,36px)/1.35 var(--coc-serif);
   letter-spacing:-.025em;overflow-wrap:anywhere}
@@ -960,7 +962,8 @@ export function createComponent(React) {
           // The caption stays a projected word (contract §23); the lane's English reason is
           // diagnostic, so it goes to the console rather than dying with the answer.
           try { console.debug("coc-sheet: portrait generation failed:", data && data.reason ? data.reason : data); } catch {}
-          setPortraitNote(code === "portrait_no_description" ? t("portraitNoDescription") : t("portraitFailed"));
+          setPortraitNote(code === "portrait_no_description" ? t("portraitNoDescription")
+            : code === "portrait_no_model" ? t("portraitHint") : t("portraitFailed"));
           portraitNoteTimer.current = setTimeout(() => setPortraitNote(null), 5000);
         }
       } catch {
@@ -1052,6 +1055,8 @@ export function createComponent(React) {
           draggable:false}) : null,
         sheet && art.seal ? h("img", {className:"coc-sheet-seal", src:art.seal, alt:"", width:281, height:279,
           "aria-hidden":true, draggable:false}) : null,
+        sheet && !art.portrait && !portraitBusy && !portraitNote
+          ? h("div", {className:"coc-sheet-portrait-hint", "aria-hidden":true}, t("portraitCta")) : null,
         h("header", {className:"coc-sheet-head"},
           h("p", {className:"coc-sheet-document-title", dir:"auto"}, t("identityTitle")),
           eraMark ? h("span", {className:"coc-sheet-era", dir:"auto"}, eraMark) : null),
@@ -1061,8 +1066,7 @@ export function createComponent(React) {
                 "aria-label":t("portraitGenerate"), disabled:portraitBusy,
                 onClick:()=>{void generatePortrait();}},
                 portraitBusy || portraitNote ? h("span", {className:"coc-sheet-portrait-note"},
-                  portraitBusy ? t("portraitBusy") : portraitNote)
-                  : h("span", {className:"coc-sheet-portrait-hint"}, t("portraitHint")))
+                  portraitBusy ? t("portraitBusy") : portraitNote) : null)
             : h("div", {className:"coc-sheet-portrait", "aria-hidden":true}),
           h("div", {className:"coc-sheet-record"},
             h("h2", {className:"coc-sheet-name", dir:"auto"}, sheet ? text(sheet.name) || text(sheet.id) : t("noInvestigator")),

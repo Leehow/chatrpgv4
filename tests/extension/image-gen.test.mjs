@@ -362,7 +362,12 @@ test("dispatch: neither grok nor a configured model errors naming /image-gen:mod
 	createImageGenExtension({ grok: { usable: async () => false }, readConfiguredModel: () => undefined })(api);
 	await assert.rejects(
 		tools.get("image_gen").execute("call-1", { prompt: "a cat" }, undefined, undefined, fakeCtx()),
-		/image-gen:model/,
+		(error) => {
+			// The stable code is how host lanes tell "go configure a model" from a vendor failure.
+			assert.match(error.message, /image-gen:model/);
+			assert.equal(error.code, "image_model_unconfigured");
+			return true;
+		},
 	);
 });
 

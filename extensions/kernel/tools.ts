@@ -252,6 +252,16 @@ const HandoutEffect = Type.Object({
 	label: Type.Optional(Type.String({ description: "an optional player-facing title" })),
 });
 
+const MapEffect = Type.Object({
+	kind: Type.Literal("map"),
+	name: Type.String({ description: "the semantic name of a source-backed map" }),
+	regions: Type.Array(Type.String({ description: "a semantic region name returned by look focus map" }), { minItems: 1 }),
+	region_labels: Type.Record(Type.String(),Type.String({description:"every chosen region id's player-facing name in play_language"})),
+	level_labels: Type.Record(Type.String(),Type.String({description:"every chosen source level name's player-facing name in play_language; use an empty object when none has a level"})),
+	label: Type.String({ description: "the player-facing map title in play_language" }),
+	why: Type.String({ description: "what established that the investigators know these regions" }),
+});
+
 const ResolveAction = Type.Object({
 	actor: Type.Optional(
 		Type.String({
@@ -361,11 +371,11 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 		promptSnippet: "See the side the capsule did not answer: scene, NPC, investigator, clues, the clock, or the session underway",
 		parameters: Type.Object({
 			focus: Type.Optional(
-				StringEnum(["scene", "npc", "investigator", "clues", "time", "session", "object"] as const, {
+				StringEnum(["scene", "npc", "investigator", "clues", "time", "session", "object", "map"] as const, {
 					description: "which side to look at; defaults to scene",
 				}),
 			),
-			name: Type.Optional(Type.String({ description: "the entity name to look at when focus is npc" })),
+			name: Type.Optional(Type.String({ description: "the entity name to look at when focus is npc, object, or map" })),
 		}),
 	},
 	{
@@ -494,11 +504,11 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 		label: "Apply",
 		method: "table.apply",
 		description:
-			"Land this turn's changes to the world: move walks to another scene (the result carries the destination scene, so no second look is needed), clue gives the investigator a clue, time advances the world clock, damage hurts the investigator with the rulebook's dice (a fall, fire, suffocation — harm with no attacker), item makes something change hands, cash makes money go up or down, handout delivers a prepared card or image by name. Use handout to give the player the existing original-page image; no transcription or source recheck is needed to deliver it. The whole batch is validated before anything is written, and one bad effect writes none of them, so you can list everything that happened this turn in one call. What happens in your narration without an apply did not happen: walking is a move, seeing is a clue, time spent is a time, something gained or handed over is an item, money in or out is a cash. Everything picked up, bought, taken away or used up is an item and reaches the investigator sheet; if it is a weapon, put the profile name from the rules table in weapon, or that gun will never fire later. Money spent, earned or paid out is a cash with a signed delta, and the kernel works out the before and after itself. Someone walking into or out of the scene is an npc with to (a scene name, here, or away) — until you land it, they are not in the room and cannot be targeted; npc also takes stance when you decide where someone stands with the party for a reason the dice did not settle. A destination may be an exit of the current scene or any scene on the way in (where.back lists them nearest first, which is how you back out of a lair with no exits); an unreachable one reports not_reachable with both lists, and a clue that is not here reports not_here. fork, switch and merge change which worldline the table is playing: none of them happens during the call — the kernel performs it after this turn's narrate commits, so you narrate the change first and the player's next line lands on the new line. At most one of the three per turn, it must be the last effect of the batch, and a turn that carries one cannot be closed with ask. A merge called without dispositions reports needs and lists every conflict with the modes its class allows, having written nothing; settle them and call again. threat moves a threat's clock one segment closer, and its receipt hands back what the book makes visible at that segment and what a full clock means; the clock is yours to run, and nothing else moves it.",
-		promptSnippet: "Land this turn's world changes: move, clue, time, handout, item, cash",
+			"Land this turn's changes to the world: move walks to another scene, clue gives the investigator a clue, time advances the clock, damage hurts, item and cash change possessions, handout delivers a document, and map reveals only named source-backed regions the investigators learned. Use look focus map to inspect semantic map and region names; map why states what established that knowledge. The whole batch is validated before anything is written, and one bad effect writes none of them. What happens in narration without an apply did not happen. Viewing an already delivered map is a UI action and changes nothing. fork, switch and merge take effect after narrate commits; at most one may be last in a batch. threat moves one authored threat clock.",
+		promptSnippet: "Land this turn's world changes: move, clue, time, handout, map, item, cash",
 		parameters: Type.Object({
 			effects: Type.Array(
-				Type.Union([EndingEffect, AdaptationEffect, MoveEffect, ClueEffect, TimeEffect, DamageEffect, ItemEffect, DefineEffect, ObjectEffect, AbilityEffect, CashEffect, FlagEffect, NoteEffect, RulingEffect, NpcEffect, ThreatEffect, ForkEffect, SwitchEffect, MergeEffect, HandoutEffect]),
+				Type.Union([EndingEffect, AdaptationEffect, MoveEffect, ClueEffect, TimeEffect, DamageEffect, ItemEffect, DefineEffect, ObjectEffect, AbilityEffect, CashEffect, FlagEffect, NoteEffect, RulingEffect, NpcEffect, ThreatEffect, ForkEffect, SwitchEffect, MergeEffect, HandoutEffect, MapEffect]),
 				{ minItems: 1, description: "the changes to land this turn, in the order they happened" },
 			),
 		}),

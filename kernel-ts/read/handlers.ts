@@ -15,8 +15,9 @@ import { clockSection, sceneLabel, clueLabel, npcsPresent, cluesHere, whereSecti
 import { crossLineReader } from "./worldline.js";
 import { mechanics } from "./mechanics.js";
 import { publicSheet, objectLook } from "./mods.js";
+import { mapCatalog, mapView, type AssetReader } from './maps.js';
 import { array, row, entries, number, truth, string, repr, normalize, clone, sorted, type Row } from "./values.js";
-const LOOK_FOCUS = ["clues", "investigator", "npc", "object", "scene", "session", "time"];
+const LOOK_FOCUS = ["clues", "investigator", "map", "npc", "object", "scene", "session", "time"];
 const LOOKUP_KINDS = ["catalog", "module", "rule", "secret", "continuity"];
 export type RuleLookup = (campaign: CampaignSnapshot, module: LoadedModule, params: Row) => Promise<KernelResult>;
 export interface ReadContributions {
@@ -24,6 +25,8 @@ export interface ReadContributions {
     touchActing?(campaign: CampaignSnapshot): Promise<void>;
     capsule?(campaign: CampaignSnapshot, module: LoadedModule): Promise<KernelResult>;
     lookupRules?: RuleLookup;
+    asset?: AssetReader;
+    requireMapMaterial?(graph: ModuleGraph, params: Row): Promise<void>;
 }
 export function unsupported(field: string, value: any, options: string[], message?: string): never {
     throw new RpcError("invalid_params", message ?? `unsupported ${field} ${repr(value)}`, {
@@ -338,6 +341,16 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
                     discovered_clues: [...array(world.discovered_clues)],
                     clues_here: cluesHere(graph, world, scene)
                 };
+            if (focus === "map") {
+                if (!contributions.asset)
+                    throw new RpcError('not_implemented', 'The map asset contribution is unavailable');
+                if (contributions.requireMapMaterial)
+                    await contributions.requireMapMaterial(graph, { ...params, name: params.name ?? graph.handle(scene) });
+                const maps = mapCatalog(graph, world);
+                if (params.name == null)
+                    return { maps };
+                return { maps, map_views: [await mapView(graph, world, contributions.asset, required(params, 'name'))] };
+            }
             if (focus === "session") {
                 await campaign.preload("view");
                 const view = new SessionView(campaign, graph, campaign.party, world);

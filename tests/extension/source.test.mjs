@@ -4,7 +4,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createCanvas, loadImage } from "@napi-rs/canvas";
-import { sourceAsset, sourceInfo, sourcePage } from "../../extensions/module/source.ts";
+import { sourceAsset, sourceInfo, sourceOverview, sourcePage } from "../../extensions/module/source.ts";
 
 function pdf(rotation = 0) {
 	const stream = "1 0 0 rg 0 0 100 100 re f 0 0 1 rg 100 0 100 100 re f";
@@ -16,6 +16,25 @@ function pdf(rotation = 0) {
 	for (let i = 0; i < objects.length; i++) { offsets.push(Buffer.byteLength(text)); text += `${i + 1} 0 obj\n${objects[i]}\nendobj\n`; }
 	const xref = Buffer.byteLength(text);
 	text += `xref\n0 5\n0000000000 65535 f \n${offsets.slice(1).map(n => String(n).padStart(10, "0") + " 00000 n ").join("\n")}\ntrailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+	return text;
+}
+
+function labelledPdf(marker = "a") {
+	const count=4,pageObjects=[];
+	for(let index=0;index<count;index++) {
+		const page=4+index*2,content=page+1,color=((marker.charCodeAt(0)+index*37)%200)/255;
+		const stream=`${color.toFixed(3)} 0 ${(1-color).toFixed(3)} rg 0 0 200 120 re f`;
+		pageObjects.push({page,content,pageBody:`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 120]${index===1?" /Rotate 90":""} /Resources << >> /Contents ${content} 0 R >>`,
+			contentBody:`<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`});
+	}
+	const objects=["<< /Type /Catalog /Pages 2 0 R /PageLabels 3 0 R >>",
+		`<< /Type /Pages /Kids [${pageObjects.map(row=>`${row.page} 0 R`).join(" ")}] /Count ${count} >>`,
+		"<< /Nums [0 << /S /r >> 2 << /P (A-) /S /D /St 5 >>] >>",
+		...pageObjects.flatMap(row=>[row.pageBody,row.contentBody])];
+	let text=`%PDF-1.7\n% ${marker}\n`;const offsets=[0];
+	for(let index=0;index<objects.length;index++){offsets.push(Buffer.byteLength(text));text+=`${index+1} 0 obj\n${objects[index]}\nendobj\n`;}
+	const xref=Buffer.byteLength(text),size=objects.length+1;
+	text+=`xref\n0 ${size}\n0000000000 65535 f \n${offsets.slice(1).map(value=>String(value).padStart(10,"0")+" 00000 n ").join("\n")}\ntrailer\n<< /Size ${size} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
 	return text;
 }
 
@@ -88,6 +107,15 @@ test("a handout preserves its explicitly declared source regions in order", asyn
 	assert.deepEqual(Array.from(ctx.getImageData(100, image.height - 100, 1, 1).data), [0, 0, 255, 255]);
 });
 
+test("private source redactions are painted into the derivative", async t => {
+	const { file, cache } = await fixture(t);
+	const output = join(cache, "redacted.png");
+	const asset = await sourceAsset(file, cache, [{ page: 1, redactions: [[.25, .25, .75, .75]] }], output);
+	const image = await loadImage(asset.path), canvas = createCanvas(image.width, image.height), ctx = canvas.getContext("2d");
+	ctx.drawImage(image, 0, 0);
+	assert.deepEqual(Array.from(ctx.getImageData(Math.floor(image.width / 2), Math.floor(image.height / 2), 1, 1).data), [255, 255, 255, 255]);
+});
+
 test("reader JPEGs and revealable PNGs have separate verified caches", async t => {
   const {file, cache} = await fixture(t);
   const jpeg = await sourcePage(file, cache, 1, {pixels:512,format:'jpeg'});
@@ -121,4 +149,30 @@ test('concurrent identical source pages share rendering and changed file identit
  const {closeSourceDocuments}=await import('../../extensions/module/source.ts');await closeSourceDocuments();
  const again=await sourcePage(file,cache,1,{pixels:512});assert.equal(again.reused,true);assert.equal(again.image_sha256,fresh.image_sha256);
  await closeSourceDocuments();
+});
+
+test("a labelled contact sheet has stable tiles, a separate cache log and byte-identity invalidation",async t=>{
+	const root=await mkdtemp(join(tmpdir(),"coc-overview-"));t.after(()=>rm(root,{recursive:true,force:true}));
+	const file=join(root,"source.pdf"),cache=join(root,"pages");await writeFile(file,labelledPdf("a"));
+	const first=await sourceOverview(file,cache,1,4),second=await sourceOverview(file,cache,1,4);
+	assert.equal(first.reused,false);assert.equal(second.reused,true);assert.equal(first.path,second.path);
+	assert.deepEqual(first.tiles,second.tiles);
+	assert.deepEqual(first.tiles.map(tile=>[tile.page,tile.pdf_label,tile.row,tile.column]),[[1,"i",0,0],[2,"ii",0,1],[3,"A-5",0,2],[4,"A-6",0,3]]);
+	assert.equal(first.width,1600);assert.ok(first.height>250);
+	const image=await loadImage(first.path),canvas=createCanvas(image.width,image.height),context=canvas.getContext("2d");context.drawImage(image,0,0);
+	for(const tile of first.tiles){const [x,y,width,height]=tile.tile,pixels=context.getImageData(x+6,y+height-56,width-12,50).data;
+		let dark=0;for(let i=0;i<pixels.length;i+=4)if(pixels[i]<100&&pixels[i+1]<100&&pixels[i+2]<100)dark++;assert.ok(dark>20,`page ${tile.page} label is visible`);}
+	await assert.rejects(readFile(join(cache,"requests.jsonl")),error=>error.code==="ENOENT");
+	assert.equal((await readFile(join(cache,"overviews.jsonl"),"utf8")).trim().split("\n").length,2);
+	const oldPath=first.path,oldSource=first.file_sha256;await writeFile(file,labelledPdf("b"));
+	const changed=await sourceOverview(file,cache,1,4);assert.equal(changed.reused,false);assert.notEqual(changed.path,oldPath);assert.notEqual(changed.file_sha256,oldSource);
+});
+
+test("contact-sheet ranges fail before page rendering and cancellation stays bounded",async t=>{
+	const root=await mkdtemp(join(tmpdir(),"coc-overview-range-"));t.after(()=>rm(root,{recursive:true,force:true}));
+	const file=join(root,"source.pdf"),cache=join(root,"pages");await writeFile(file,labelledPdf());
+	for(const [first,last] of [[0,1],[2,1],[1.5,2],[1,2.5],[1,21]])await assert.rejects(sourceOverview(file,cache,first,last),/overview/);
+	await assert.rejects(sourceOverview(file,cache,1,5),/outside this PDF/);
+	await assert.rejects(sourceOverview(file,cache,1,4,AbortSignal.abort()),/cancelled/);
+	await assert.rejects(readFile(join(cache,"overviews.jsonl")),error=>error.code==="ENOENT");
 });

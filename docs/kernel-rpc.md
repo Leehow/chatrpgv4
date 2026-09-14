@@ -22,6 +22,15 @@ PDF 直接阅读与按需构图的目标契约见 §22（2026-09-07，待实现�
 
 错误码闭合枚举：`invalid_params`、`unknown_method`、`not_implemented`、`campaign_not_found`、`campaign_not_ready`、`turn_state`（当前回合状态不允许该方法）、`idempotency_conflict`、`needs`（缺少可补的输入，`details.needs` 给字段与可选值）、`needs_choice`（多个互斥候选，`details.candidates`）、`unknown_entity`（名字在模组图与世界状态中都找不到，`details.candidates` 给相近名字）、`not_reachable`（移动目的地不可达）、`not_here`（线索不在当前场景可得）、`commit_failed`（git 提交失败，回合未关闭）、`internal`。
 
+Every failure also carries `retryable` and `next`. `retryable` is true only when the exact
+request is safe to send again; `next` is a closed recovery action: `retry_same`,
+`change_input`, `narrate`, `ask`, or `stop`. `needs`, `needs_choice`, `invalid_params`,
+`unknown_entity`, `not_reachable`, and `not_here` use `change_input`; `commit_failed` and
+`operation_in_progress` use `retry_same`; `internal` is never an unchanged retry and uses
+`stop`. Other infrastructure failures use `stop` unless their implementation explicitly
+selects a safer action. The host projects both lines into the agent-visible tool result
+unconditionally, independently of `fix` and `details`.
+
 Section 26 adds two closed host-document error codes: `not_owned` refuses access
 after ownership changes; `revision_conflict` refuses a stale document/worldline
 write while preserving the client draft. Hot and cold UI bridges retain these codes.
@@ -261,6 +270,11 @@ same shape sits in the kernel: `set action.defense to one of details.options`,
 `discover one of details.clues_here`, `reveal one of details.echoes`, `name one of
 details.lines`, `details.suggested lists ...`, `details.engine_contract is ...` -- none of
 those keys was projected either.
+
+Recovery is structural rather than prose: **`retryable` and `next` are always rendered**
+to the model, independently of `fix` and `details`. They distinguish a safe unchanged replay
+from a required input change or a safe fallback, without changing refusal budgets,
+idempotency, or the rule that a failed batch has no effect.
 
 The rule, now structural rather than a list: **every `details.<key>` a `fix` text names is
 rendered to the model**, as one line `<key>: <compact JSON>` after the bespoke lines. The
@@ -1649,14 +1663,15 @@ repeating successful reading after Pi has already recovered a provider failure.
 
 `module.json` 增加 `reading_version: 1` 和 `source_document: {path, file_sha256, page_count}`。路径相对模组目录，必须落在该目录内。来源发布后不可原位替换。同文件重复导入返回已有模组；同 id 不同摘要报 `invalid_params` 并给出创建新模组的 `fix`。哈希和内部作业标识只在宿主与内核间传递。
 
-宿主翻页命令的两种操作：
+宿主私有 PDF 工具的三种互斥操作：
 
 - `info`：返回真实页数、已有书签与页面标签。没有书签返回空数组，不由程序猜章节。
 - `page <page> [--box x0,y0,x1,y1]`：按需渲染并返回图片路径、物理页号、裁剪范围和实际尺寸；读者再用 Pi `read` 看图。`page` 是从 1 起的物理页序，印刷页码只是标签。`box` 是应用 PDF 旋转后的可视整页上、左为原点的归一化矩形；满足 `0 <= x0 < x1 <= 1` 与 `0 <= y0 < y1 <= 1`。内核持久化 `pdf_index = page - 1`，只在边界转换一次。
+- `overview {first_page,last_page}`：最多 20 个连续物理页的一张固定布局联络表，格子同时标物理页与 PDF 页标签，并返回页到格子的 manifest。它只在原生导航和既有引用不足时帮助定位；结果是 `source_overview`，不产生 `source_pages` observations，不能满足 source ref、草稿提交或独立复核的原页证据。读者选中候选后必须用 `page` 重新打开原页。
 
 书中“见第 N 页”的印刷引用由读者对照原页或可靠 PDF 页标签定位，不能用固定页差在全书或不同版本间推算。2026-09-07 样本已出现物理第 100 页对应印刷 97 的情况；这只是该页证据，不是全局偏移规则。首个交付仍是一份完整 PDF 一个来源；分卷正文与独立手卡册不自动拼接成同一来源。
 
-缓存位于模组内 `cache/pages/`，键包含原文件摘要、物理页、渲染参数与裁剪。只生成请求的页；裁剪从原 PDF 渲染，不能放大已经缩小的预览图冒充细节。宿主保存请求记录，读者会话保留实际图片 `read` 事件与失败，不能把“生成了图片”记成“模型已看过”。缓存不是真相，也不替代原 PDF。
+缓存位于模组内 `cache/pages/`。原页缓存键包含原文件摘要、物理页、渲染参数与裁剪；联络表缓存键包含原文件摘要、连续物理范围和固定布局版本。只生成请求的页；裁剪从原 PDF 渲染，不能放大已经缩小的预览图冒充细节。原页请求写 `requests.jsonl`，联络表导航另写 `overviews.jsonl`。读者会话保留实际图片事件与失败，不能把联络表或“生成了图片”记成“模型已看过原页”。缓存不是真相，也不替代原 PDF。
 
 沿用 `sections.json` 作为阅读索引，新的记录形状为 `{name, pages: [[first,last], ...], topics: [string], entities: [string], references: [{name, pages?}], state: "indexed"|"unreadable"}`；页范围在此用从 0 起的物理页序、两端包含。不同主题可重叠，未读范围必须引用实际查看过的目录或标题页，不要求全页覆盖。`topics/entities/references` 由读者判断，程序只检查形状与范围；索引是定位信息，不是事实图，不授权规则结算。全局梗概中的事实要成为游戏依据，仍须走 22.3 的细读与复核。
 
@@ -1713,7 +1728,13 @@ Keeper 工具总数仍是七个。`lookup {kind: "module", query}` 查现有图�
 
 只重试缺资料的整批动作，不重跑该回合此前已落收据的动作。发布不改写旧收据、已交付正文或世界状态。可用新图补充资料，但冲突不能暗中改变已经裁定的事实。
 
+若后续同一动作再次遇到 `material_pending`，而对 `details.read` 中完全相同的 `purpose/focus/question/guidance_key` 续接后确认任务已是 `reading_failed`，宿主可在当前玩家回合内为该读取身份自动发送一次 `retry: true`，成功后仍只重放原动作。这个额度按读取身份单次消费；修复再次失败就把真实拒绝交回 Keeper，不循环。`reading_timeout`、取消信号、传输或内部错误不触发这次自动修复，也不改写读取问题。
+
 沿用有界读者超时；前台等待的总时限初值 120 秒，超时返回 `needs` 与 `details.reason: "reading_timeout"`，任务进度保留。超时不是一次新的阅读请求，也不是自动再次执行动作。原玩家输入与已完成收据保留；对同一目标再次 `lookup` 只加入已有任务继续等待，不重复起读者。Pi 的工具取消信号取消本调用拥有的前台阅读，宿主结束该读者及其工具子进程后用 `module.read.finish` 记 cancelled；共享任务只解除当前等待，不杀另一调用仍需要的任务。失败后 `lookup retry:true` 明确重试。取消不回滚此前成功的游戏动作，也不自动重发玩家输入或让 Keeper 补写未知情节。实际等待分布由验收记录决定是否调整此值。
+
+等待超时后的旧玩家回合若仍为 `open/acting`，下一条玩家输入仍由内核以 `turn_state` 拒绝；宿主不越过该拒绝，也不自动重发输入。此时旧的单次修正状态不得沿用：宿主为这次运行重新给一次有界修正，要求 Keeper 用 `narrate` 诚实说明资料尚未就绪并关闭旧回合。旧回合关闭后，玩家可再次提交原动作；这次提交才进入正常材料检查和上面的同读取单次失败修复。
+
+这次「用 `narrate` 说明等待」的修正**只花一次**，与 pending-ask 和回合地板两处同法：Keeper 在等待期写了正文而没有调 `narrate`，宿主丢一次正文并给出这一次修正；同一回合的下一条正文按隐式交付关闭回合——隐式关闭本身就是 `narrate`，照样落收据。丢弃不许每条都做：steer 花掉之后 `agent_end` 不再补发，回合就会一直 `open` 且什么都没交付，之后每条玩家输入都被 `turn_state` 拒绝，战役再也走不下去（Cold Harvest 第 2 回合实测，provider 两次都返回了 text）。
 
 成功的读取结果通过原工具调用返回，不在桌外偷偷触发一个新的 Keeper 回合。背景预读仅在空闲时启动；素材就绪后进入后续胶囊，不自行叙事。
 
@@ -1744,7 +1765,7 @@ RPC 顶层错误枚举沿用 §1；具体原因放在 `details.reason`：`bad_pd
 - 复核结果允许单条 `path` 或同来源同结论的 `paths: [pointer, ...]`。每个 required_review 字段仍须显式列出，程序逐一核对；仅合并重复的来源和理由，不用父对象自动覆盖未列出的数字。真实短本近 200 条复核义务暴露了重复输出成本，此形状减少文书量而不删核对项。
 - 同一请求的修正读取可以沿用成功抽取检查点中未改变节点/claim 的图片阅读证据；按语义 id 与规范 JSON 比较记录，新增或改变记录的引用页必须在修正会话重新看过。独立复核仍用本次复核会话自己的图片证据，不能用旧阅读代替复核。
 - 真入口开场发现：图谱 era 为公元 80 年，守秘人却说 210 年；turn 0 没有玩家输入胶囊，而 look 只含 where/present。开场 look 因此复用已有 fitted_module_section，把时代、设定与全局简报一起交给守秘人；不另造简报格式，也不修改旧叙述记录。
-- 真桌按需读取发现：一次等待超时后，KP 换 query 又排入同义问题，玩家回合超过 300 秒。扩展在本轮首次 reading_timeout 后只允许 ask 交还控制权；新的 player_input 才清除此等待状态。纯文本退回同样经既有隐式交付路径关闭为 ask，不能隐式 narrate 冒充已读取结果。
+- 真桌按需读取发现：一次等待超时后，KP 换 query 又排入同义问题，玩家回合超过 300 秒。扩展在本轮首次 `reading_timeout` 后只允许 `narrate` 诚实交还控制权；新的 player_input 才清除此等待状态。若旧回合未关而新输入被内核拒绝，该运行获得一份新的单次关闭修正，不能继承已经耗尽的 steer 而永久卡住；拒绝的输入不自动重发。
 - 前台等待只等所请求的材料 ready，不等待整条队列清空。队列处理继续独立运行，避免排在后面的预读或其他请求拖住已经完成的前台结果。跨扩展错误用结构判断保留 code/fix/details，不能用构造器实例身份丢失修正说明。
 - 长本真实请求曾累计约 39 MiB 页图并报 413。读者保留 `--no-extensions` 禁止自动加载，但显式加载仅含 context hook 的 reader-context；它不注册工具、不起内核。每次请求只保留最近至多四张、合计约 8 MiB 的页图，始终保留最新图；其他文本和工具配对不改。被省略且尚未送入上下文的图明确提示重新 read，宿主只把 context 日志中真正保留的图计入阅读证据，不把单纯渲染或被省略的图记作读过。
 - 长本开场已触及旧单 section 读者的 15 分钟上限。统一读者每阶段上限改为 60 分钟，仍可配置；玩家前台等待仍为 120 秒，届时交还控制权。任务上限不代表响应时间承诺。
@@ -2040,6 +2061,17 @@ candidate and the source pages actually read for this preparation. A host-only `
 those observed physical pages, falling back to the draft's source pages only when observations are unavailable. This
 is task context, not graph vocabulary or world state. The coverage reviewer must actually view those pages in its
 own image context; observations by other reviewers do not count for that unit.
+
+**Observed pages do not define the preparation boundary.** `purpose`, `focus` and `question`
+define it. For detail without a question, prepare the focused entity for its current use and
+its necessary dependencies; a location focus does not request its whole chapter. Navigation,
+surrounding context, map labels and a broad source page range do not make every entity or
+investigation branch there ready material. Keep later destinations thin. Each coverage omission
+must explain which requested use or immediate dependency would fail without that fact, as well
+as identify its source. Already accepted context still counts. A repair follows this same scope;
+an earlier review's unrelated suggestions cannot expand it. The host supplies `review_scope_pages`
+only to the coverage unit, preserving those pages as evidence rather than assigning them to every
+fact reviewer. All proposed facts still receive their required review.
 
 The coverage reviewer compares source to candidate, not only candidate to source: discoverable propositions and
 their connections, delivery and gates, knowing NPCs, and clue propositions versus physical carriers are checked for
@@ -2487,9 +2519,15 @@ ledger. The kernel never reads, writes or validates the image.
   receipt and not evidence; regenerating overwrites it. Sheet reads attach it
   as `identity_art.portrait` (same data-URL transport as the backplate), so the
   portrait survives restarts without a second generation.
-- **Failure** (no credential, vendor error) leaves the mount empty and returns
-  an error code; the panel's caption is a sheet-surface word (English authored,
-  projected per §23), not an authored string in code.
+- **Failure** leaves the mount empty and returns an error code; the panel's
+  caption is a sheet-surface word (English authored, projected per §23), not an
+  authored string in code. `portrait_no_model` means the image-gen dispatch
+  reported no configured image model (its `image_model_unconfigured` error
+  code); the panel answers that one with the settings hint. `portrait_unavailable`
+  is every other generation failure and gets the generic caption. (Amended
+  2026-09-12: the idle mount carries only the one-line click invitation,
+  centered in the frame; the settings hint appears after a click that found no
+  model, not statically on the empty frame.)
 - The panel enables the mount only while the investigator has no portrait;
   once one exists the mount is static artwork again — regeneration stays a
   deliberate lane action, never a casual click. While the lane runs the mount
@@ -2687,6 +2725,8 @@ Player-view correction: PipiCOC renders delivered story, user input and structur
 A detail/source lookup must contain a nonempty named focus/query. A question adds scope but does not replace the target; this keeps retries from changing their identity by filling in a missing target later. Empty requests are rejected before dispatch; they must never create a generic, reusable detail job that hides which player need was answered.
 
 Concurrent reading additionally excludes the same normalized focus: a foreground question about a scene being prepared in the background waits for that scene's publication, then claims a fresh context. Independent targets keep the foreground slot. This avoids two readers independently rewriting the same previously-thin scene. Existing failed attempts retain all artifacts and explicit retry claims a fresh published context.
+
+A read-completion checkpoint names the job whose own read phase produced it, and only that job's own later attempt may use it to skip reading. An interruption therefore still does not pay for the source reading twice, while an explicit `retry: true` that inherits a failed job's draft always begins with the source-based repair read: the retained draft and its findings are the reader's input, not a settled result. Re-reviewing identical bytes under identical instructions cannot re-scope them, so without this a draft that grew out of scope would be re-verified on every retry, spend the whole foreground budget on its own review units, and never reach the repair round that would shrink it.
 
 Early structure milestone: the high-level prepare service first requests `purpose: skeleton` for a new source. One tool-enabled Pi reads only navigation, overview and entry evidence, publishing the existing graph vocabulary with empty ready_nodes after independent review. This exposes authored opening choices before detailed preparation. A skeleton never sets opening_ready or material readiness. The chosen opening then uses the normal scoped read/review path. Low-level opening/detail requests still have no full-index prerequisite; existing reviewed graphs reuse their structure.
 
@@ -5938,3 +5978,26 @@ allowance in which to reach a lawful draft.
    `turn_state` and the §4 recovery path is unchanged.
 5. Live: the retained `midgame-bridge-live-21` deadlock cannot recur — after a paused review strands a
    turn, the player's next utterance opens a new turn on the same unresolved reentry.
+## 39. Session maps revealed by player knowledge (2026-09-13)
+
+The map feature uses the existing seven verbs and the existing ModuleGraph, campaign world state, source reader and structured mechanics delivery. It adds no map tool and no second state store. A map is an `asset` or `handout` node whose `properties.map_regions` is a non-empty list. Each row is `{region_id, name, level?, source_asset, source_box, placement, redactions?, safe_after_redactions?}`. `source_box` and `placement` are normalized `[x0,y0,x1,y1]` boxes. The source asset is a graph `asset`; it must be `player-safe` or `revealable`, unless an independently reviewed private source supplies non-empty redactions and explicitly declares `safe_after_redactions: true`. Source variants never share coordinates by assumption.
+
+`apply {effects:[{kind:"map", name, regions:[...], region_labels, level_labels, label, why}]}` records newly established spatial knowledge. `name` and every region are semantic names; `region_labels` must map every chosen id and `level_labels` must map every source level among them to player-facing words in `play_language` (an empty object when none has a level); `label` does the same for the map; `why` states what in the fiction established the knowledge. The kernel validates all references and the complete label sets before commit, unions the region ids into `world.map_knowledge[map]`, keeps the supplied words in `world.map_labels[map]`, and emits one `map` receipt plus `map-revealed`. Visiting a scene, hearing a place name, receiving a handout, or an asset being `player-safe` never writes this state by itself. A rejected batch writes none of it. The same call id replays normally.
+
+The receipt carries `{map, name, label, regions, known_regions, source_revision, why}`. Its mechanics projection carries only the map/title, revealed region labels, source revision and receipt identity. Private source paths, full images, unrevealed region rows, redaction boxes and placement geometry do not enter that projection. A host-only `map_views` payload resolves the source assets and is consumed before the tool result reaches the Keeper. The host crops and redacts the authorized layers, composes only their known bounding box onto an opaque background, writes an immutable campaign derivative, and replaces the private payload with a short availability summary. Only that flattened derivative is placed in the `coc-mechanics` entry as a structured `map` row.
+
+`look {focus:"map"}` lists map and region semantic names with their current known flags. With `name`, it also prepares the current known view without changing state; the next `ask` or `narrate` can place it in the conversation. Opening, zooming, panning and reopening an existing card are renderer-local reads: no RPC, model call, turn, clock, receipt, item, clue or movement results. An unavailable source produces a named unavailable row and never falls back to the private base image.
+
+Map source preparation is shared module material; `map_knowledge` is campaign state. New campaigns start with `{}`. Worldline confluence unions known regions under the existing cross-line knowledge policy. A card embeds the immutable derivative for its delivery-time source revision and known set, so an old card cannot silently become a later or foreign view. Source repair or replacement cannot apply an old region layout to changed bytes without a newly reviewed graph generation.
+
+The visual reader may create region metadata and source assets during opening or demand reading. When a PDF has no published map material, `look {focus:"map", name?}` raises the existing `needs`/`material_pending` gate with `details.read: {purpose:"detail", material:"map", focus, question, pages?}`; the extension sends this descriptor through the existing reading queue, then retries the unchanged look. The closed `material:"map"` discriminator is part of reading-job identity and is carried into `task.json`; it is not a new Keeper tool or scheduler. Built-in modules and already-published maps do not raise this gate. It uses original page images, the existing tool-enabled reader and independent review. Map classification, region-place correspondence and annotation safety remain semantic reader/reviewer decisions; the host checks shapes, references, file confinement and bytes. The kernel never parses a PDF or image. Public titles and added labels follow `play_language`; authored pixels and physical-handout text remain verbatim.
+
+The three ends are explicit. The Keeper writes map knowledge through `apply map`; `look focus=map` and the mechanics projection read it; the Keeper places the prepared view and the player actually opens it.
+
+### 39.1 Canonical source revisions and compatibility
+
+A delivered map is bound to a **reviewed source revision**, not merely to a semantic map id or a renderer view hash. The canonical revision is the reviewed ModuleGraph generation (`graph.digest`) plus any reviewed per-asset byte digest carried in the published asset metadata (`source_digest` or `asset_digest`). The map view carries that binding as `source_revision`; each rendered layer may carry the reviewed `source_digest`. Publication is the only writer of these reviewed digests: a file changed in place without a new reviewed publication is not a correction and is unavailable.
+
+A **compatible correction** keeps the same reviewed map generation identity, source asset identity, source byte digest, region ids, source boxes, placements, redactions and safety review; only non-geometric metadata such as a spelling or player-language label may change. Such a correction may reuse the existing authorization and delivery-time derivative. Any changed source bytes, source boxes, placements, redactions, region correspondence, safety classification or map geometry is an **incompatible update**. It requires a new reviewed publication and a new canonical revision before any region is rendered. Until then, current map reads return the existing authorized metadata with `available: false` (or an equivalent `review`/`preparing` status); they never apply old region authorization to the new bytes. The host compares a supplied reviewed `source_digest` with the confined file bytes and fails closed on mismatch.
+
+Historical cards retain their embedded delivery-time derivative and source-revision fields. They are not re-rendered when the module or campaign changes. A current-map read is evaluated against the active reviewed revision and may be unavailable while an incompatible update awaits review. Campaign knowledge remains in existing world state, and worldline fork/switch/confluence do not create a second map store or transfer a derivative across campaigns. Map offers may be measured but never feed obligations or quotas into later turns.

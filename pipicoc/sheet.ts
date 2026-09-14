@@ -253,8 +253,12 @@ export function registerSheetPanel(pi: ExtensionAPI, deps: SheetPanelDeps = {}):
 		try {
 			image = await generatePortrait(context, { prompt: `${PORTRAIT_STYLE}${era}. ${description}`, aspectRatio: "3:4" });
 		} catch (error) {
+			// The image-gen dispatch stamps "not configured" with a stable code; the panel answers
+			// that one with the settings hint, everything else with the generic failure caption.
+			const code = (error as { code?: unknown })?.code === "image_model_unconfigured"
+				? "portrait_no_model" : "portrait_unavailable";
 			return answer({
-				...base, status: "error", code: "portrait_unavailable",
+				...base, status: "error", code,
 				reason: error instanceof Error ? error.message : String(error),
 			});
 		}
