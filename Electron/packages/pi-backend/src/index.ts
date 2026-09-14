@@ -873,6 +873,8 @@ type Live = {
    *  `tool_execution_end` can prove which tool produced a result. Consumed on
    *  end and cleared per turn. */
   toolNames: Map<string, string>;
+  /** Startup catch-up dedupe for authoritative presentation entries. */
+  projectedPresentationIds: Set<string>;
   /** Turn epoch of the idle-fold nudge's own short turn. Only a
    *  `context_manage` fold inside this exact epoch is attributable to the
    *  idle scheduler; a fold in any other turn is an unconfirmed-trigger fold. */
@@ -2432,6 +2434,8 @@ export class PiHostBackend implements HostBackend {
   private unconfirmedSteers = new Map<string, QueuedDispatchPayload[]>();
   private turnWatchdogTimer?: NodeJS.Timeout;
   private cocWatchdogRecoveryTimers = new Map<string, NodeJS.Timeout>();
+  /** Earliest unread presentation byte for one watchdog recovery chain. */
+  private cocWatchdogPresentationOffsets = new Map<string, number>();
   private closed = false;
   private agentTerminalWaiters = new Set<() => void>();
   private bridge: HostBridge;
@@ -3169,6 +3173,7 @@ export class PiHostBackend implements HostBackend {
     if (this.turnWatchdogTimer) { clearInterval(this.turnWatchdogTimer); this.turnWatchdogTimer = undefined; }
     for (const timer of this.cocWatchdogRecoveryTimers.values()) clearTimeout(timer);
     this.cocWatchdogRecoveryTimers.clear();
+    this.cocWatchdogPresentationOffsets.clear();
     // Stop the resident external-pi worker if one was spawned during this run.
     this.externalAuthRuntime?.stop();
     for (const wake of [...this.agentTerminalWaiters]) wake();
@@ -5736,6 +5741,9 @@ export class PiHostBackend implements HostBackend {
       const cocWatchdogRecovery = cocBinding
         ? await fs.access(cocWatchdogRecoveryPath(found.path)).then(() => true, () => false)
         : false;
+      const cocStartupOffset = cocBinding
+        ? this.cocWatchdogPresentationOffsets.get(found.path) ?? (await fs.stat(found.path)).size
+        : undefined;
       // Kept so the live stream can hand a card the campaign's language without re-reading the
       // transcript inside a synchronous reader.
       if (cocBinding) this.cocSessionBindings.set(id, cocBinding);
@@ -5814,6 +5822,7 @@ export class PiHostBackend implements HostBackend {
       followUps: [],
       toolArgs: new Map(),
       toolNames: new Map(),
+      projectedPresentationIds: new Set(),
       messageEpoch: 0,
       compaction: new ProactiveCompactionScheduler({
         configuration: this.compactionConfiguration,
@@ -5953,6 +5962,17 @@ export class PiHostBackend implements HostBackend {
           live.stderrTail,
         );
       }
+      const startupPresentationFound = await this.replayCocStartupPresentations(live, cocStartupOffset);
+      this.assertSessionGeneration(id, generation);
+      if (this.live.get(id) !== live || !this.liveProcessUsable(live)) {
+        await (live.exit ?? Promise.resolve());
+        throw live.exitError ?? new PiExitedError(
+          live.process?.exitCode ?? null,
+          live.process?.signalCode ?? null,
+          live.stderrTail,
+        );
+      }
+      if (startupPresentationFound) this.cocWatchdogPresentationOffsets.delete(found.path);
       // The marker remains until table.player_input has durably released the
       // stranded kernel turn. A successful process spawn is not that proof:
       // session_start may have failed, or the process may die again before the
@@ -6077,13 +6097,21 @@ export class PiHostBackend implements HostBackend {
     // every late event before it can touch queue, telemetry, or projections.
     if (!this.sessionRuntimeTokenIsCurrent(live.session.id, live.runtimeToken)) return;
     if (e.type === "entry_appended") {
+      if (e.entry?.customType === "coc-delivery") this.cocWatchdogPresentationOffsets.delete(live.path);
       if(e.entry?.customType==='coc-setup-exit')live.cocSetupHandoffPending=true;
       if(e.entry?.customType==='coc-character-draft'&&e.entry?.data?.sheet)this.startDraftPresentation(live.session.id,e.entry.data);
       if(e.entry?.customType==='coc-mechanics')this.startDeliveryPresentation(live.session.id,e.entry);
       const entry = e.entry?.customType === "coc-setup-opening" || e.entry?.customType === "coc-delivery"
         ? visibleHistoryEntry(e.entry,this.sessionSecrets(live.session.id))
         : mechanicsEntry(e.entry, this.cocSessionBindings.get(live.session.id)?.play_language, undefined, this.cocLiveWords(live.session.id));
-      if (entry) this.stream({type:"presentation",sessionId:live.session.id,entry});
+      if (entry) {
+        const presentationId = typeof e.entry?.id === "string" ? e.entry.id : undefined;
+        const projected = live.projectedPresentationIds ??= new Set<string>();
+        if (!presentationId || !projected.has(presentationId)) {
+          if (presentationId) projected.add(presentationId);
+          this.stream({type:"presentation",sessionId:live.session.id,entry});
+        }
+      }
     }
     try {
       const model =
@@ -6855,8 +6883,10 @@ export class PiHostBackend implements HostBackend {
     const path = cocWatchdogRecoveryPath(live.path);
     const temp = `${path}.tmp-${process.pid}-${crypto.randomUUID()}`;
     try {
+      const presentationOffset = (await fs.stat(live.path)).size;
       await fs.writeFile(temp, `${JSON.stringify({ version: 1, sessionId: live.session.id, turnEpoch: epoch, createdAt: new Date().toISOString() })}\n`, "utf8");
       await fs.rename(temp, path);
+      this.cocWatchdogPresentationOffsets.set(live.path, presentationOffset);
       return true;
     } catch (error) {
       await fs.rm(temp, { force: true }).catch(() => undefined);
@@ -6885,10 +6915,40 @@ export class PiHostBackend implements HostBackend {
     this.cocWatchdogRecoveryTimers.set(sessionId, timer);
   }
   private clearCocWatchdogRecoverySync(sessionPath: string): void {
+    this.cocWatchdogPresentationOffsets.delete(sessionPath);
     try { rmSync(cocWatchdogRecoveryPath(sessionPath), { force: true }); } catch { /* the next cold start safely consumes a leftover marker */ }
   }
   private async clearCocWatchdogRecovery(sessionPath: string): Promise<void> {
+    this.cocWatchdogPresentationOffsets.delete(sessionPath);
     await fs.rm(cocWatchdogRecoveryPath(sessionPath), { force: true }).catch(() => undefined);
+  }
+  private async replayCocStartupPresentations(live: Live, offset?: number): Promise<boolean> {
+    if (offset === undefined) return false;
+    let found = false;
+    try {
+      const lines = createInterface({
+        input: createReadStream(live.path, { encoding: "utf8", start: offset }),
+        crlfDelay: Infinity,
+      });
+      for await (const line of lines) {
+        if (this.live.get(live.session.id) !== live
+          || !this.sessionRuntimeTokenIsCurrent(live.session.id, live.runtimeToken)) return found;
+        let raw: any;
+        try { raw = JSON.parse(line); } catch { continue; }
+        const projected = live.projectedPresentationIds ??= new Set<string>();
+        if (raw?.type !== "custom_message" || raw.customType !== "coc-delivery"
+          || typeof raw.id !== "string") continue;
+        found = true;
+        if (projected.has(raw.id)) continue;
+        const entry = visibleHistoryEntry(raw, this.sessionSecrets(live.session.id));
+        if (!entry) continue;
+        projected.add(raw.id);
+        this.stream({ type: "presentation", sessionId: live.session.id, entry });
+      }
+    } catch (error) {
+      console.warn(`[pipi-backend] COC startup presentation catch-up failed session=${this.projectionDebugSessionTag(live.session.id)}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    return found;
   }
   private async sessionTailTurnState(path: string, notBefore?: number): Promise<"terminal" | "tool" | "other"> {
     try {

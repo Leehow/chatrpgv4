@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { access, mkdtemp, mkdir, rm, writeFile, appendFile } from "node:fs/promises";
+import { access, mkdtemp, mkdir, rm, stat, writeFile, appendFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -238,6 +238,36 @@ describe("turn watchdog (fix 3)", () => {
     await backend.close();
   }, 10_000);
 
+  it("retries when a replacement exits during startup presentation catch-up", async () => {
+    const { backend, spawnEnvs } = await fixture({
+      stopEscalationDelays: { termDescendantsMs: 10, killDescendantsMs: 10, killPiMs: 10 },
+    });
+    await backend.handle("sendPrompt", ["s1", "__hold_stuck__"]);
+    await new Promise(resolve => setTimeout(resolve, 50));
+    const first = (backend as any).live.get("s1");
+    const firstPid = first.process.pid;
+    first.lastTurnActivityAt = Date.now() - (TURN_WATCHDOG_TIMEOUT_MS + 5_000);
+
+    const replay = (backend as any).replayCocStartupPresentations.bind(backend);
+    let interrupted = false;
+    (backend as any).replayCocStartupPresentations = async (live: any, offset: number | undefined) => {
+      if (!interrupted && live.process.pid !== firstPid) {
+        interrupted = true;
+        live.process.kill();
+        await live.exit;
+        return false;
+      }
+      return replay(live, offset);
+    };
+
+    await (backend as any).checkTurnWatchdogs();
+    await eventually(() => spawnEnvs.length >= 3, 6_000);
+    expect(interrupted).toBe(true);
+    expect(spawnEnvs[2]?.PI_COC_WATCHDOG_RECOVERY).toBe("1");
+
+    await backend.close();
+  }, 10_000);
+
   it("does not trigger when tail is tool_use (long tool call in progress)", async () => {
     const { backend, sessionPath } = await fixture();
     const statuses: string[] = [];
@@ -357,6 +387,60 @@ describe("turn watchdog (fix 3)", () => {
     // The leaked gate is released and the parked prompt drains as a new turn.
     await eventually(async () => ((await backend.handle("listQueue", ["s1"]) as any[]).length === 0));
     await eventually(() => statuses.filter(s => s === "started").length >= 2);
+
+    off();
+    await backend.close();
+  });
+
+  it("retains the earliest recovery offset across process replacement", async () => {
+    const { backend, sessionPath } = await fixture();
+    const presentations: any[] = [];
+    const off = backend.subscribe(event => {
+      if (event.channel === "stream" && event.event.type === "presentation") presentations.push(event.event.entry);
+    });
+    await backend.handle("sendPrompt", ["s1", "hello"]);
+    const live = (backend as any).live.get("s1");
+    const offset = (await stat(sessionPath)).size;
+    (backend as any).cocWatchdogPresentationOffsets.set(sessionPath, offset);
+    const raw = {
+      type: "custom_message", customType: "coc-delivery", display: true,
+      id: "previous-replacement-delivery", parentId: null, timestamp: new Date().toISOString(),
+      content: "The first replacement wrote this before it exited.",
+      details: { coc_delivery: true, turn: 5, turn_unfinished: true },
+    };
+    await appendFile(sessionPath, `${JSON.stringify(raw)}\n`);
+    live.process.kill();
+    await live.exit;
+
+    await backend.handle("sendPrompt", ["s1", "after-replacement"]);
+    expect(presentations.filter(entry => entry.id === raw.id)).toHaveLength(1);
+    expect((backend as any).cocWatchdogPresentationOffsets.has(sessionPath)).toBe(false);
+
+    off();
+    await backend.close();
+  });
+
+  it("replays a coc-delivery written before the startup event stream exactly once", async () => {
+    const { backend, sessionPath } = await fixture();
+    const presentations: any[] = [];
+    const off = backend.subscribe(event => {
+      if (event.channel === "stream" && event.event.type === "presentation") presentations.push(event.event.entry);
+    });
+    await backend.handle("sendPrompt", ["s1", "hello"]);
+    const live = (backend as any).live.get("s1");
+    const offset = (await stat(sessionPath)).size;
+    const raw = {
+      type: "custom_message", customType: "coc-delivery", display: true,
+      id: "startup-delivery", parentId: null, timestamp: new Date().toISOString(),
+      content: "This turn ended without a delivered result.",
+      details: { coc_delivery: true, turn: 5, turn_unfinished: true },
+    };
+    await appendFile(sessionPath, `${JSON.stringify(raw)}\n`);
+
+    await (backend as any).replayCocStartupPresentations(live, offset);
+    expect(presentations.filter(entry => entry.id === raw.id)).toHaveLength(1);
+    (backend as any).rpcEvent(live, { type: "entry_appended", entry: raw });
+    expect(presentations.filter(entry => entry.id === raw.id)).toHaveLength(1);
 
     off();
     await backend.close();

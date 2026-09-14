@@ -6154,8 +6154,14 @@ or App exits. Binding is a completion barrier: queued input must await the marke
 before it may call `table.player_input`. Only a successful `table.player_input(release: "stranded")` clears it;
 if that cleanup fails, the bound turn number prevents the stale marker from stranding a later turn. Both generic
 unfinished notices and terminal provider notices carry a durable terminal-notice discriminator, so another
-replacement never tells the player twice for the same turn. A recovered retry refreshes activity and never
-reaches this boundary.
+replacement never tells the player twice for the same turn. Pi runs `session_start` before its RPC event stream
+is subscribed, so the Electron host records the JSONL byte offset when it arms watchdog recovery, preserves that
+earliest unread offset across failed replacement attempts, and after initialization replays any newly appended
+`coc-delivery` presentation whose id was not already seen live. It rechecks generation, live identity and process
+liveness after that asynchronous replay; a child that exits during catch-up is another failed replacement, not a
+successful initialization. A durable notice can therefore never become an empty timestamp merely because it
+was written during replacement startup. A recovered
+retry refreshes activity and never reaches this boundary.
 Thus a provider may be slow, but it may not leave the player at an infinite spinner or return an empty composer.
 
 **This is not a bypass of review.** Nothing is narrated, nothing is committed, no verdict is treated as a
