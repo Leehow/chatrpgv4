@@ -410,6 +410,45 @@ describe("product packs over an additive base", () => {
     await backend.close();
   });
 
+  it("keeps coc-keeper setup streams private before a campaign binding exists", async () => {
+    root = await mkdtemp(join(tmpdir(), "pipi-pack-coc-setup-private-"));
+    const project = join(root, "workspace");
+    const pkg = join(projectPiAgentDir(project), "extensions", "coc-keeper");
+    await mkdir(pkg, { recursive: true });
+    await writeFile(join(pkg, "pipiui-extension.json"), JSON.stringify({
+      id: "coc-keeper",
+      name: "COC Keeper",
+      version: "1.0.0",
+      category: "workflow",
+      capabilities: [],
+      defaultEnabled: false,
+      dependencies: { required: [] },
+      app: { ui: { layout: { center: "pipi.conversation" } } },
+    }));
+    const backend = backendFor({
+      defaultPack: "coc-keeper",
+      resourceMode: "explicit",
+      piPath: process.execPath,
+      spawn: (_bin: string, _args: string[], options: Record<string, never>) =>
+        spawn(process.execPath, [new URL("./fake-pi.mjs", import.meta.url).pathname], options) as never,
+    });
+    const added = await backend.handle("addProject", [project]) as { id: string };
+    const session = await backend.handle("newSession", [added.id, "COC setup"]) as {
+      id: string;
+      productProfile?: { id: string };
+    };
+    expect(session.productProfile?.id).toBe("coc-keeper");
+    const events: any[] = [];
+    const off = backend.subscribe(event => events.push(event));
+    await backend.handle("sendPrompt", [session.id, "go"]);
+    await new Promise(resolve => setTimeout(resolve, 30));
+    const streamed = events.filter(event => event.channel === "stream").map(event => event.event);
+    expect(streamed.some(event => event.type === "status" && event.status === "settled")).toBe(true);
+    expect(streamed.filter(event => ["text", "thinking", "tool_call", "tool_result"].includes(event.type))).toEqual([]);
+    off();
+    await backend.close();
+  });
+
   it("assembles a form from registry-owned runtime packages", async () => {
     root = await mkdtemp(join(tmpdir(), "pipi-pack-coding-spawn-"));
     const project = join(root, "workspace");
