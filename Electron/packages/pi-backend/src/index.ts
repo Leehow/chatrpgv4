@@ -5659,8 +5659,6 @@ export class PiHostBackend implements HostBackend {
       const dotEnv = await this.readDotEnv();
       this.assertSessionGeneration(id, generation);
       const cocBinding = await readCocBinding(found.path);
-      const cocLaneModel = cocBinding ? await this.cocLaneModel() : undefined;
-      const cocLaneThinking = cocBinding ? await this.cocLaneThinking() : undefined;
       // Kept so the live stream can hand a card the campaign's language without re-reading the
       // transcript inside a synchronous reader.
       if (cocBinding) this.cocSessionBindings.set(id, cocBinding);
@@ -5681,9 +5679,15 @@ export class PiHostBackend implements HostBackend {
             mergedSpawnEnvironment(this.env, dotEnv, {
               ...output.env,
               ...(this.piCommand.env ?? {}),
+              // The lane model and effort are deliberately NOT handed down here. A process
+              // environment cannot change, so a setting injected at spawn is the value that stood
+              // when this session started, and an operator who changes it under a running table
+              // watches the table fail identically (2026-09-14). The lane reads the choice from the
+              // settings document at task time instead (`runtime/tasks.ts`, contract §37.10). Only a
+              // genuine `PI_COC_MOD_MODEL`/`PI_COC_MOD_THINKING` in this host's own environment is
+              // still passed through -- by `mergedSpawnEnvironment`'s parent layer, as an operator
+              // override rather than as a setting wearing one's clothes.
               ...(cocBinding ? {PI_COC_CAMPAIGN:cocBinding.campaign,PI_COC_HOME:cocBinding.home, PI_COC_MODE:cocBinding.mode || "play",
-                ...(cocLaneModel && !this.env.PI_COC_MOD_MODEL?.trim() ? {PI_COC_MOD_MODEL:cocLaneModel} : {}),
-                ...(cocLaneThinking && !this.env.PI_COC_MOD_THINKING?.trim() ? {PI_COC_MOD_THINKING:cocLaneThinking} : {}),
                 ...(cocBinding.mode === "setup" ? {PI_COC_SETUP_AUTOSTART:"1"} : {})} : {}),
             }),
             workerEnvFromVault(this.vaultDir, id),
@@ -8685,9 +8689,14 @@ export class PiHostBackend implements HostBackend {
   /**
    * The model the Keeper's background lanes run on. They followed the table's own model, and a slow
    * one is paid by the player: one audit on record spent fifty of its fifty-eight seconds inside a
-   * single model turn, and nothing those lanes write ever reaches the table. `PI_COC_MOD_MODEL` is
-   * where the runtime already looks, so the visible setting is handed to it rather than to a second
-   * path -- an explicit environment variable still wins, because that is the operator's override.
+   * single model turn, and nothing those lanes write ever reaches the table.
+   *
+   * A live session no longer asks this: the lane reads the setting itself when it starts a child
+   * (`runtime/tasks.ts`), because a spawn environment freezes the choice for the life of the session
+   * and this one has to be changeable under a running table. What remains here is the host's own
+   * cold path -- the document-presentation lane it runs outside any session -- where reading the
+   * setting at call time is already live. An explicit environment variable still wins: that is the
+   * operator's override, and it is the only thing `PI_COC_MOD_MODEL` should ever mean.
    */
   private async cocLaneModel(): Promise<string | undefined> {
     const values = readAppExtensionSettingsValues(await this.readSettings(), "coc-keeper", new Set());
@@ -8701,6 +8710,7 @@ export class PiHostBackend implements HostBackend {
    * `high` ran its continuity review at `high` too, and one such review spent its entire forty-second
    * budget inside a first thinking stream it never finished — the turn was then refused and the player
    * was shown nothing. Absent means the lane keeps following the table, which is the old behaviour.
+   * Like the model above, a live session reads this itself; this is the cold path's copy.
    */
   private async cocLaneThinking(): Promise<string | undefined> {
     const values = readAppExtensionSettingsValues(await this.readSettings(), "coc-keeper", new Set());

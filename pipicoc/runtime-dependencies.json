@@ -87,6 +87,7 @@
     "build/extensions/module/character-presentation.mjs",
     "build/extensions/mods/document-presentation.mjs",
     "build/extensions/module/ui-presentation.mjs",
+    "build/extensions/module/map-presentation.mjs",
     "build/host/runtime/kernel/pipiui-ext-invoke.mjs",
     "build/host/runtime/kernel/pipiui-secret-vault.mjs",
     "build/host/runtime/kernel/pipiui-update-center.mjs",
@@ -96,7 +97,7 @@
   ],
   "buildDirectories": ["kernel", "runtime", "pipicoc", "extensions", "host"],
   "resourceDirectories": ["prompts", "content", "mods", "extensions/deepseek", "extensions/image-gen", "extensions/grok-build-oauth", "extensions/remote-control"],
-  "resourceFiles": ["extensions/mods/document-presentation.md", "pipicoc/install", "pipiui-extension.json", "bin/pi-coc", "bin/pi-coc-setup", "bin/coc-read-check", "bin/coc-source", "pipicoc/rpc"],
+  "resourceFiles": ["extensions/mods/document-presentation.md", "extensions/module/map-presentation.md", "pipicoc/install", "pipiui-extension.json", "bin/pi-coc", "bin/pi-coc-setup", "bin/coc-read-check", "bin/coc-source", "pipicoc/rpc"],
   "uiFiles": [
     "panel.js", "mods-panel.js", "timeline.js", "mechanics.js", "choices.js", "preparation.js",
     "settings-difficulty.js",

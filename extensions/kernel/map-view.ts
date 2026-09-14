@@ -6,7 +6,10 @@ import { createCanvas, loadImage } from '@napi-rs/canvas';
 
 type Row = Record<string, any>;
 const MAP_RENDERER_VERSION=1;
-export type MapAttachment = {kind:'map'; receipt?:string; map:string; name:string; label?:string; source_revision?:string; view_id:string; regions:Row[]; levels:string[]; available:boolean; image?:string; media_type?:string; level_images?:Array<{level:string;image:string}>};
+export type MapAttachment = {kind:'map'; receipt?:string; map:string; name:string; label?:string;
+    /** Which leg wrote the words on this card (contract §39.2): `play_language` when the Keeper did, `source` while they are still the module's own. */
+    words?:string;
+    source_revision?:string; view_id:string; regions:Row[]; levels:string[]; available:boolean; image?:string; media_type?:string; level_images?:Array<{level:string;image:string}>};
 
 function record(value: unknown): Row { return value && typeof value === 'object' && !Array.isArray(value) ? value as Row : {}; }
 function rows(value: unknown): Row[] { return Array.isArray(value) ? value.filter(item => item && typeof item === 'object' && !Array.isArray(item)) : []; }
@@ -28,7 +31,8 @@ export async function renderMapView(viewValue: unknown, options: {modulesRoot:st
     const layers = rows(record(view.render).layers);
     const revision = typeof view.source_revision === 'string' ? view.source_revision : '';
     let viewId = createHash('sha256').update(JSON.stringify([MAP_RENDERER_VERSION,map, revision, regions.map(region => region.id)])).digest('hex').slice(0, 20);
-    const base:MapAttachment = {kind:'map',...(options.receipt?{receipt:options.receipt}:{}),map,name,...(label?{label}:{}),source_revision:revision,view_id:viewId,regions,
+    const words=typeof view.words==='string'&&view.words?view.words:undefined;
+    const base:MapAttachment = {kind:'map',...(options.receipt?{receipt:options.receipt}:{}),map,name,...(label?{label}:{}),...(words?{words}:{}),source_revision:revision,view_id:viewId,regions,
         levels:[...new Set(regions.flatMap(region=>region.level?[region.level]:[]))],available:false};
     if (!regions.length || layers.length !== regions.length) return base;
     let modulesReal:string;try{modulesReal=await realpath(options.modulesRoot);}catch{return base;}

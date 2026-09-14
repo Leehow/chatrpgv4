@@ -212,6 +212,11 @@ export function mechanicsOf(receipt: Row, texts: ReadonlyMap<string, string> = n
             source_revision: receipt.source_revision ?? null,
         };
         labeled(out, "label", receipt.label);
+        // Which leg wrote the words above (contract §39.2). The host reads it to know whether this
+        // card still owes a projection, and a delivered card that still says `source` is the record
+        // that one shipped unprojected -- the only way that failure is visible after the fact.
+        if (typeof receipt.words === "string" && receipt.words)
+            out.words = receipt.words;
         return out;
     }
     return null;

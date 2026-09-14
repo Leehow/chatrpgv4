@@ -72,6 +72,40 @@ function playerSafeRegions(graph: ModuleGraph, regions: Row[]): Row[] {
     return regions.filter(region => ['player-safe', 'revealable'].includes(graph.nodes.get(region.source_node)?.visibility));
 }
 
+/** A card never prints more captions than this; a module larger than this is asking for a different feature. */
+const MAX_AUTHORED_MAP_WORDS = 200;
+
+/**
+ * Every word the module's published maps could print on a player's card, distinct and ordered.
+ *
+ * Handed to the host at `table.open` (contract §39.2) because a first-arrival card is minted inside
+ * `apply move` and is on screen at the end of that same turn -- no room for the presentation lane
+ * that has to put these words in the play language. They are the module's, not the campaign's, so
+ * they are knowable the moment the table opens and are sent once, rather than discovered when a
+ * card already needs them.
+ *
+ * Only player-safe regions contribute, exactly as `presentArrivalMaps` selects them: a secret room's
+ * authored name is module truth and has no business being sent anywhere for translation. Region ids
+ * never contribute either -- they are the machine handle the Keeper names a region by, and they are
+ * never drawn.
+ */
+export function authoredMapWords(graph: ModuleGraph): string[] {
+    const words: string[] = [];
+    for (const node of mapNodes(graph)) {
+        words.push(graph.displayName(node));
+        let regions: Row[] = [];
+        // A map whose regions do not resolve publishes nothing and is reported where publication is
+        // checked; it must not take the whole open down with it.
+        try { regions = playerSafeRegions(graph, mapRegions(graph, node)); }
+        catch { continue; }
+        for (const region of regions) {
+            words.push(region.name);
+            if (region.level) words.push(region.level);
+        }
+    }
+    return [...new Set(words.filter(value => typeof value === 'string' && value.trim().length > 0))].sort().slice(0, MAX_AUTHORED_MAP_WORDS);
+}
+
 export function mapsDepictingScene(graph: ModuleGraph, scene: Row): Row[] {
     const seen = new Set<string>(), result: Row[] = [];
     const links = [...(graph.incoming.get(scene.node_id) ?? []), ...(graph.incoming.get(graph.handle(scene)) ?? [])];
@@ -124,6 +158,18 @@ function chooseRegions(regions: Row[], requested: unknown): Row[] {
     return chosen;
 }
 
+/**
+ * Which leg wrote the player-facing words on a map card (contract §23, §39.2).
+ *
+ * `apply map` carries words the Keeper wrote in `play_language`; a first-arrival card carries the
+ * module's authored labels, which are in whatever language the module was written in. Both produce
+ * the same projection shape for the same consumer, so without this the second is indistinguishable
+ * from the first and reaches the player as authored -- which is exactly how a Chinese table was
+ * handed an English floor plan (campaign `game-5779d0fd`, turn 2). The host's presentation lane
+ * reads this to know which cards it still owes words for.
+ */
+export const KEEPER_WORDS = 'play_language', AUTHORED_WORDS = 'source';
+
 export async function mapView(graph: ModuleGraph, world: Row, asset: AssetReader, name: string): Promise<Row> {
     const node = mapNode(graph, name), handle = graph.handle(node), regions = mapRegions(graph, node),
         labels = row(row(world.map_labels)[handle]), regionLabels = row(labels.regions), levelLabels = row(labels.levels),
@@ -136,6 +182,10 @@ export async function mapView(graph: ModuleGraph, world: Row, asset: AssetReader
         layer.label = regionLabels[region.id] ?? region.id;
         layer.level = region.level ? levelLabels[region.level] ?? null : null;
     }
+    // Every word here came out of `world.map_labels`, which only `apply map` writes: the Keeper
+    // wrote them in play_language, and an unrevealed region falls back to its own id, never to the
+    // authored label. Nothing on this view is owed a projection.
+    view.words = KEEPER_WORDS;
     return view;
 }
 
@@ -151,9 +201,13 @@ export async function presentArrivalMaps(context: {graph: ModuleGraph; world: Ro
         presented.push(handle);
         context.world.maps_presented = [...presented];
         const title = context.graph.displayName(node), view = await composeMapView(context.graph, asset, node, selected, title);
+        // No Keeper ran for this card, so every word on it is the module's own. It is marked as
+        // authored rather than passed off as play-language words the way `apply map`'s are; the
+        // host projects them before delivery (§39.2) and says so when it could not.
+        view.words = AUTHORED_WORDS;
         const receipt: Row = {
             id: context.mint(`map:${handle}-t${context.turn.turn}`), kind: 'map', call_id: context.callId,
-            map: handle, name: title, label: title, supplement: true,
+            map: handle, name: title, label: title, words: AUTHORED_WORDS, supplement: true,
             regions: selected.map(region => ({ id: region.id, label: region.name, level: region.level ?? null })),
             known_regions: knownMapRegions(context.world, handle), source_revision: context.graph.digest,
             why: 'arrival', at: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
@@ -188,7 +242,7 @@ export async function revealMap(context: {graph: ModuleGraph; world: Row; turn: 
         visibleLevel = (region: Row) => region.level ? savedLevels[region.level] ?? null : null,
         receipt: Row = {
             id: context.mint(`map:${handle}-t${context.turn.turn}`), kind: 'map', call_id: context.callId,
-            map: handle, name: context.graph.displayName(node), label,
+            map: handle, name: context.graph.displayName(node), label, words: KEEPER_WORDS,
             regions: chosen.map(region => ({ id: region.id, label: visibleLabel(region), level: visibleLevel(region) })),
             known_regions: after, source_revision: context.graph.digest,
             why: typeof effect.why === 'string' && effect.why.trim() ? effect.why.trim() : null,
