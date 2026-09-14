@@ -13,6 +13,7 @@ import { DirectorGraph, TextGraph, Ontology } from '../read/content.js';
 import { RuleObservations } from '../read/rule-facts.js';
 import { buildCapsule } from '../read/assemble.js';
 import { mechanics } from '../read/mechanics.js';
+import { authoredMapWords } from '../read/maps.js';
 import { sceneLabel } from '../read/capsule.js';
 import { tableSnapshot, playerGlossary, unsupported, type ReadContributions } from '../read/handlers.js';
 import { playLanguages, playLanguageOf } from '../read/languages.js';
@@ -551,6 +552,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         else
             resumes.delete(campaign.id);
         const scene = module.graph.scene(snapshot.world.active_scene), line = row(row(snapshot.meta.worldlines)[activeName(snapshot.meta)]);
+        const mapWords = authoredMapWords(module.graph);
         return {
             campaign: snapshot.meta,
             turn: {
@@ -579,6 +581,10 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             }),
             setup_prologue: opening ? row(row(snapshot.meta.setup).handoff).prologue ?? null : null,
             module_reading: moduleReading,
+            // Contract §39.2: the module's own map captions, so the host's presentation lane can put
+            // them in the campaign's play_language before the first arrival mints a card out of them.
+            // Omitted entirely by a module that publishes no player map.
+            ...(mapWords.length ? { authored_map_words: mapWords } : {}),
             resume,
             worldline: {
                 name: activeName(snapshot.meta),

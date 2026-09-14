@@ -20,6 +20,7 @@ export const COMPILED_ENTRIES = Object.freeze({
   auditSubmit: 'build/extensions/mods/audit-submit.mjs',
   adaptationSubmit: 'build/extensions/kernel/adaptation-submit.mjs',
   uiPresentation: 'build/extensions/module/ui-presentation.mjs',
+  mapPresentation: 'build/extensions/module/map-presentation.mjs',
 });
 export const COC_EXTENSIONS = Object.freeze(['kernel', 'mods', 'onboarding', 'module', 'memory', 'table', 'npc-journal']);
 /**

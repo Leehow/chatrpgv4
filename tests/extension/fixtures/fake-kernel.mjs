@@ -8,6 +8,7 @@
  *   FAKE_KERNEL_OPENING    "1" 时 table.open 回 opening_needed: true
  *   FAKE_KERNEL_PENDING    "1" 时 table.open 回 pending_turn
  *   FAKE_KERNEL_RESUME     "1" 时 table.open 回 resume（续行检查点，契约 §12.2）
+ *   FAKE_KERNEL_MAP_WORDS  JSON 字符串数组：table.open 回 authored_map_words（契约 §39.2）
  *   FAKE_KERNEL_CAMPAIGNS  campaign.list 的 JSON 数组
  *   FAKE_KERNEL_ERRORS     {"<method>": {"code","message","fix"?}} 的 JSON，命中就回错误信封
  *   FAKE_KERNEL_EXIT_AFTER 收到第 N 个请求后直接退出（测重启）
@@ -677,6 +678,8 @@ function handle(method, params) {
 				ok: true,
 				result: {
 					campaign: { id: params.campaign, title: "闹鬼的房子", module_id: "the-haunting", play_language: "zh-Hans" },
+					// 契约 §39.2：模组自己写的地图字，交给宿主的展示车道投影。
+					...(process.env.FAKE_KERNEL_MAP_WORDS ? { authored_map_words: JSON.parse(process.env.FAKE_KERNEL_MAP_WORDS) } : {}),
 					turn: { number: turn, state },
 					investigators: [
 						{ id: "thomas-hayes", name: "托马斯·海耶斯", occupation: "记者", hp: 12, san: 55, mp: 11, luck: 60 },
