@@ -14,6 +14,31 @@ import {mkdirSync, readFileSync, writeFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {dirname, join, resolve} from 'node:path';
 
+/**
+ * The recovery metadata this kernel grew after the freeze: `retryable` and `next`, carried by every
+ * error frame since "Make PipiCOC tool failures actionable". The retired implementation never wrote
+ * them, so no captured outcome can contain them, and comparing a live frame against one reads two
+ * deliberate fields as a difference -- which is how one commit left every error-frame case in six
+ * suites red at once.
+ *
+ * They are dropped from the LIVE side only, and only off an error frame. The captured outcomes are
+ * kept exactly as the reference printed them: they are evidence, and writing a field into them that
+ * the reference never produced would make the evidence say something untrue. This is the same move
+ * the scope-review divergence already makes in `ts-kernel-modules` -- keep every prior assertion on
+ * the unchanged payload, and let the addition be asserted where it belongs. These two fields have
+ * their own tests (`kernel-error-bridge`, `resolve`); what these suites compare is the ported
+ * vocabulary, which the addition did not change.
+ */
+export const POST_FREEZE_ERROR_FIELDS = Object.freeze(["retryable", "next"]);
+export function withoutPostFreezeRecovery(value) {
+  if (Array.isArray(value)) return value.map(withoutPostFreezeRecovery);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(Object.entries(value).map(([key, inner]) => {
+    if (key !== "error" || !inner || typeof inner !== "object" || Array.isArray(inner)) return [key, withoutPostFreezeRecovery(inner)];
+    return [key, Object.fromEntries(Object.entries(inner).filter(([field]) => !POST_FREEZE_ERROR_FIELDS.includes(field)))];
+  }));
+}
+
 const FIXTURES = resolve(import.meta.dirname, 'fixtures/oracle');
 const digestOf = source => createHash('sha256').update(source).digest('hex').slice(0, 16);
 /**

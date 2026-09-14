@@ -1,4 +1,4 @@
-import {expected as outcome} from "./oracle-fixture.mjs";
+import {expected as outcome, withoutPostFreezeRecovery} from "./oracle-fixture.mjs";
 import {createHash} from "node:crypto";
 import {pythonOracleRoot} from "../python-oracle.mjs";
 import assert from 'node:assert/strict';
@@ -48,7 +48,7 @@ const unlocalized = value => Array.isArray(value) ? value.map(unlocalized)
   : value;
 const capture = action => {
   try { return { value: decoded(action()) }; }
-  catch (error) { return { error: typeof error.toJson === 'function' ? decoded(error.toJson()) : { name: error.name, message: error.message } }; }
+  catch (error) { return withoutPostFreezeRecovery({ error: typeof error.toJson === 'function' ? decoded(error.toJson()) : { name: error.name, message: error.message } }); }
 };
 const REFERENCE = String.raw`
 import hashlib,json,sys

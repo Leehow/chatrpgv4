@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { withoutPostFreezeRecovery } from "./oracle-fixture.mjs";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { fstatSync } from "node:fs";
@@ -57,7 +58,7 @@ test("the public vocabulary and error frames match the locked Python reference",
   const historicalHandlers = Object.freeze(Object.fromEntries(Object.entries(handlers)
     .filter(([name]) => !currentOnly.has(name))));
   for (const row of reference.rpc.invalid) {
-    assert.deepEqual(decode(await api.handleLine(row.line, historicalHandlers)), row.response, row.line);
+    assert.deepEqual(withoutPostFreezeRecovery(decode(await api.handleLine(row.line, historicalHandlers))), row.response, row.line);
   }
   const currentError = decode(await api.handleLine('{"id":"current","method":"unknown"}', handlers));
   assert.deepEqual(currentError.error.details.methods, [...api.KNOWN_METHODS].sort());
@@ -170,7 +171,7 @@ test("actual JSONL subprocess serves hello and existing campaigns and drains EOF
   assert.deepEqual(responses[0].result, reference.rpc.hello);
   const listLine = run.stdout.split("\n")[1];
   assert.equal(listLine, '{"id": "list", "ok": true, "result": ' + reference.rpc.campaign_list_line + '}');
-  assert.deepEqual(responses[2].error, {code: "invalid_params", message: "params.campaign is required"});
+  assert.deepEqual(responses[2].error, {code: "invalid_params", message: "params.campaign is required", next: "change_input", retryable: false});
   assert.equal(responses[3].error.code, "unknown_method");
   assert.deepEqual(responses[4].result, reference.rpc.hello);
   assert.match(run.stderr, /ready workspace=/);

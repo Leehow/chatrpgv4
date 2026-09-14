@@ -1,4 +1,4 @@
-import {expected as outcome} from "./oracle-fixture.mjs";
+import {expected as outcome, withoutPostFreezeRecovery} from "./oracle-fixture.mjs";
 import {pythonOracleRoot} from "../python-oracle.mjs";
 import assert from 'node:assert/strict';
 import { after, test } from 'node:test';
@@ -140,7 +140,7 @@ function oracle(operation,data) {
     return result.stdout;
   },REFERENCE));
 }
-function captured(run) {try{return {value:run()};}catch(error){if(typeof error.toJson==='function')return {error:error.toJson()};throw error;}}
+function captured(run) {try{return {value:run()};}catch(error){if(typeof error.toJson==='function')return withoutPostFreezeRecovery({error:error.toJson()});throw error;}}
 function same(actual,expected,label) {assert.equal(api.canonicalJson(actual),api.canonicalJson(expected),label);}
 async function rows(t,cases,expected,run) {for(const [index,entry] of cases.entries())await t.test(entry.label||String(index),async()=>same(await run(entry,index),expected[index],entry.label));}
 

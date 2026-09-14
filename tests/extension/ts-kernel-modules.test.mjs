@@ -1,4 +1,4 @@
-import {expected as outcome} from "./oracle-fixture.mjs";
+import {expected as outcome, withoutPostFreezeRecovery} from "./oracle-fixture.mjs";
 import {pythonOracleRoot} from "../python-oracle.mjs";
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
@@ -84,7 +84,7 @@ function capture(case_) {
     return { value };
   } catch (error) {
     if (typeof error.toJson !== 'function') throw error;
-    return { error: error.toJson() };
+    return withoutPostFreezeRecovery({ error: error.toJson() });
   }
 }
 

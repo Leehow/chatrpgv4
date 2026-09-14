@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {withoutPostFreezeRecovery} from './oracle-fixture.mjs';
 import {createHash} from 'node:crypto';
 import {mkdtemp, readFile, rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
@@ -24,7 +25,7 @@ test('shared definition and bounded document validation owes each draft its outc
       const value = api.parsePythonJson(expected.source), before = api.canonicalJson(value);
       let actual;
       try { actual = {result:api.canonicalJson(expected.kind==='document' ? api.validateDocumentSeed(value) : api.validateDefinition(value,expected.options))}; }
-      catch (error) { actual = typeof error.toJson==='function' ? {error:error.toJson()} : {exception:{name:error.name,message:error.message}}; }
+      catch (error) { actual = typeof error.toJson==='function' ? withoutPostFreezeRecovery({error:error.toJson()}) : {exception:{name:error.name,message:error.message}}; }
       const {label,source,kind,options,...outcome} = expected;
       if ('result' in outcome && 'result' in actual) assert.equal(digest(actual.result),digest(outcome.result),label);
       else assert.deepEqual(actual,outcome,label);
