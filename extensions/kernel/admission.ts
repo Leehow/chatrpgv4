@@ -267,13 +267,22 @@ export function admissionRefusal(proposal: AdmissionProposal, verdict: Admission
 	});
 }
 
-/** No review, no authority (contract §32.2): the Keeper is told the service status, and tells the player as such. */
-export function admissionUnavailable(proposal: AdmissionProposal, reason: string, detail: string): KernelError {
+/**
+ * No review, no authority (contract §32.2): the Keeper is told the service status, and tells the
+ * player as such. The first failure of a streak reads as transient — the player's next input may try
+ * again. A repeated one drops that promise: the operator has been notified out of fiction, and the
+ * player is not asked to resend words that were never the problem.
+ */
+export function admissionUnavailable(proposal: AdmissionProposal, reason: string, detail: string, streak = 1): KernelError {
+	const landed = "Only this batch is unsettled: whatever this turn already settled with a receipt (a roll made, an effect that landed) did happen and is narrated as usual. For this batch, do not roll or land anything, do not narrate its effects as having happened, and do not retry it";
+	const fix = streak >= 2
+		? `${landed}. The review service has failed ${streak} times in a row now, so a resend will not fix it: tell the player plainly in narrate, as a service notice and not as fiction, that the table cannot settle actions until the person running it restores the review service — they have been notified outside the game — and do not promise that the next input will work.`
+		: `${landed} this turn; tell the player plainly in narrate, as a service notice and not as fiction, that the table could not settle that part for the moment. The player's next input can try again.`;
 	return new KernelError({
 		code: "needs",
 		message: "The action review is unavailable, so this action cannot be settled now",
-		fix: "Only this batch is unsettled: whatever this turn already settled with a receipt (a roll made, an effect that landed) did happen and is narrated as usual. For this batch, do not roll or land anything, do not narrate its effects as having happened, and do not retry it this turn; tell the player plainly in narrate, as a service notice and not as fiction, that the table could not settle that part for the moment. The player's next input can try again.",
-		details: { reason: "admission_unavailable", cause: reason, detail: detail.slice(0, 200), proposed: proposal.lines, tool: proposal.tool },
+		fix,
+		details: { reason: "admission_unavailable", cause: reason, detail: detail.slice(0, 200), streak, proposed: proposal.lines, tool: proposal.tool },
 	});
 }
 

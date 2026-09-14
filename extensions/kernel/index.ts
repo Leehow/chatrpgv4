@@ -210,6 +210,12 @@ interface TableState {
 	/** Verdicts by proposal key (contract §32.4): valid for this turn only, cleared with the next player input. */
 	admission: Map<string, AdmissionVerdict>;
 	admissionRefused: string[];
+	/** Consecutive failed reviews (contract §32.2's outage): the first failure reads as transient, a
+	 * streak turns the service notice persistent and notifies the operator out of fiction, once per
+	 * streak. A live verdict resets it; a turn boundary does not -- an outage is a service condition,
+	 * not a turn context. */
+	admissionOutage: number;
+	admissionOutageNotified?: boolean;
 	/** What this turn has already settled through the kernel, one line each, so an entailed step is visible as such. */
 	landed: string[];
 	/** The options of the `ask` that closed the last turn, and, once the next input arrives, the ones this turn answers (contract §32.1). */
@@ -924,8 +930,33 @@ export default function (pi: ExtensionAPI) {
 		const outcome = await reviewAdmission({ ctx, proposal, context, record: (row) => record({ verb: tool, ...row }), ...(signal ? { signal } : {}) });
 		if (!outcome.ok) {
 			await record({ lane: "admission", verb: tool, ok: false, reason: outcome.reason, detail: outcome.detail.slice(0, 200), ms: outcome.ms, key: digest, ...(outcome.model ? { model: outcome.model } : {}) });
-			throw admissionUnavailable(proposal, outcome.reason, outcome.detail);
+			state.admissionOutage += 1;
+			const streak = state.admissionOutage;
+			if (streak >= 2 && !state.admissionOutageNotified) {
+				state.admissionOutageNotified = true;
+				// The operator's surface (contract §32.2): out of fiction, once per streak, with the fix.
+				const status = {
+					campaign: state.campaign,
+					turn: state.turn,
+					status: "down",
+					streak,
+					cause: outcome.reason,
+					detail: outcome.detail.slice(0, 200),
+					...(outcome.model ? { model: outcome.model } : {}),
+					fix: "The action review keeps failing, so player actions keep being refused. Switch the table to another model, or set PI_COC_ADMISSION_MODEL to a healthy provider/model and start a new session.",
+				};
+				try {
+					pi.appendEntry("coc-admission-status", status);
+				} catch {
+					/* the notice must never break a turn */
+				}
+				pi.events.emit("coc:admission-status", status);
+			}
+			throw admissionUnavailable(proposal, outcome.reason, outcome.detail, streak);
 		}
+		// A live verdict, admitting or refusing, proves the review is back: the outage streak ends.
+		state.admissionOutage = 0;
+		state.admissionOutageNotified = false;
 		await settle(outcome.verdict, false, outcome.ms, outcome.model);
 	}
 
@@ -1377,6 +1408,7 @@ export default function (pi: ExtensionAPI) {
 				recent: [],
 				admission: new Map(),
 				admissionRefused: [],
+				admissionOutage: 0,
 				landed: [],
 				adaptationScanned: false,
 			};

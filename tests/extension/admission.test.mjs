@@ -318,3 +318,94 @@ test("the player's answer to an ask is not a new proposal: the resolve that sett
 	assert.equal(kernelCalls(table, "table.resolve").length, 2, "both resolves reached the kernel");
 	assert.deepEqual(admissionRows(table).map((row) => row.verdict), ["authorized"]);
 });
+
+test("a repeated outage stops promising a resend and notifies the operator once per streak", async (t) => {
+	const table = await openTable({
+		responses: [
+			// Turn 1: two gated calls, and the lane cannot resolve its model for either.
+			fauxAssistantMessage([fauxToolCall("resolve", { action: { intent: "investigate", goal: "翻剪报", method: "用图书馆使用查旧闻" } })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "time", minutes: 30 }] })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("narrate", { text: "桌子暂时没法结算。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage("after"),
+			// Turn 2: the player resends, the outage continues.
+			fauxAssistantMessage([fauxToolCall("resolve", { action: { intent: "investigate", goal: "翻剪报", method: "再翻一次旧闻" } })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("narrate", { text: "还是结算不了。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage("after"),
+		],
+		// No provider by that name: every review fails before it starts.
+		env: { PI_COC_ADMISSION_MODEL: "nobody/home" },
+	});
+	t.after(() => table.dispose());
+	await table.session.prompt("我翻剪报");
+
+	// The first failure of the streak reads as transient: the next input may try again.
+	const [firstResolve] = toolResultTexts(table.session, "resolve");
+	assert.match(firstResolve, /The player's next input can try again/);
+	assert.doesNotMatch(firstResolve, /notified outside the game/);
+
+	// The second consecutive failure is an outage: no resend promise, the operator has been told.
+	const [firstApply] = toolResultTexts(table.session, "apply");
+	assert.match(firstApply, /failed 2 times in a row/);
+	assert.match(firstApply, /notified outside the game/);
+	assert.doesNotMatch(firstApply, /next input can try again/);
+	assert.equal(kernelCalls(table, "table.apply").length, 0);
+
+	// The operator's surface fired once, out of fiction, with the cause and the fix.
+	const notices = table.entries("coc-admission-status");
+	assert.equal(notices.length, 1, JSON.stringify(notices));
+	assert.equal(notices[0].status, "down");
+	assert.equal(notices[0].streak, 2);
+	assert.equal(notices[0].cause, "model_unavailable");
+	assert.match(notices[0].fix, /PI_COC_ADMISSION_MODEL/);
+
+	// A later turn in the same outage stays persistent and does not notify again.
+	await table.session.prompt("我再试一次");
+	const [, secondResolve] = toolResultTexts(table.session, "resolve");
+	assert.match(secondResolve, /failed 3 times in a row/);
+	assert.match(secondResolve, /notified outside the game/);
+	assert.equal(table.entries("coc-admission-status").length, 1);
+});
+
+test("a live verdict resets the outage streak: the next failure reads as transient again", async (t) => {
+	const badVerdict = () => fauxAssistantMessage(JSON.stringify({ verdict: "sure, go ahead" }));
+	const moveTurn = (to, narration) => [
+		fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "move", to }] })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("narrate", { text: narration })], { stopReason: "toolUse" }),
+		fauxAssistantMessage("after"),
+	];
+	const table = await openTable({
+		responses: [
+			...moveTurn("reading-room", "结算不了。"),
+			...moveTurn("clip-archive", "还是结算不了。"),
+			...moveTurn("stack-room", "你到了书库。"),
+			...moveTurn("photo-morgue", "又结算不了了。"),
+		],
+		laneResponses: {
+			admission: [
+				badVerdict(), // turn 1: bad_output, streak 1 — transient
+				badVerdict(), // turn 2: bad_output, streak 2 — persistent, notified
+				verdict({ verdict: "authorized", grounds: "the player named the stacks" }), // turn 3: live verdict — reset
+				badVerdict(), // turn 4: bad_output, streak 1 again — transient
+			],
+		},
+	});
+	t.after(() => table.dispose());
+
+	await table.session.prompt("我去阅览室");
+	const [first] = toolResultTexts(table.session, "apply");
+	assert.match(first, /next input can try again/);
+
+	await table.session.prompt("我去剪报库");
+	const [, second] = toolResultTexts(table.session, "apply");
+	assert.match(second, /notified outside the game/);
+	assert.equal(table.entries("coc-admission-status").length, 1);
+
+	await table.session.prompt("我去书库");
+	assert.equal(kernelCalls(table, "table.apply").length, 1, "the live verdict admitted the third move");
+
+	await table.session.prompt("我去照片室");
+	const [, , , fourth] = toolResultTexts(table.session, "apply");
+	assert.match(fourth, /next input can try again/);
+	assert.doesNotMatch(fourth, /notified outside the game/);
+	assert.equal(table.entries("coc-admission-status").length, 1, "the new streak has not reached two");
+});

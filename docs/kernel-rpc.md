@@ -4872,10 +4872,28 @@ A refusal reaches the Keeper as an ordinary tool refusal (§8's `code: message` 
   move, spend or land anything for it, not to resend the same action in other words, and to close with
   `narrate` putting that choice in front of the player in the fiction, without a menu.
 - `needs` with `details.reason: "admission_unavailable"` (`details.cause` is the lane's failure reason:
-  `model_unavailable`, `model_error`, `bad_output`, `timeout`, `session_gone`) — no review, no authority.
+  `model_unavailable`, `model_error`, `bad_output`, `timeout`, `session_gone`; `details.streak` is how
+  many reviews in a row have failed) — no review, no authority.
   The `fix` tells the Keeper to say so to the player as a service notice, not as fiction, and to
   narrate nothing as having happened. **Unavailability refuses; it never admits.** The alternative to an
   unreviewed action is not a reviewed one, it is a Keeper choosing for the player.
+
+One failure reads as transient, a streak as an outage (2026-09-14, live table `game-3782bd90`: a lane
+provider fault — the lane's `complete()` lacked the OpenCode session headers, docs/pi-host-contract.md —
+refused every review while the Keeper on the same model still narrated, and two player turns were spent
+asking for a resend that could never work). The first unavailable refusal of a streak keeps the `fix`
+above: the next input may try again. From the second consecutive failure the `fix` drops that promise —
+the Keeper says the table cannot settle actions until the person running it restores the review
+service, that they have been told outside the game, and that the next input is not promised to work —
+and the host leaves a `coc-admission-status` session entry plus a `coc:admission-status` bus event,
+`{campaign, turn, status: "down", streak, cause, detail, model, fix}`, once per streak: the operator
+learns out of fiction that the review lane is down and how to restore it (switch the table model, or
+set `PI_COC_ADMISSION_MODEL` and start a new session), instead of the table discovering it one player
+turn at a time. Any live verdict, admitting or refusing, resets the streak; a turn boundary does not —
+an outage is a service condition, not a turn context. A startup probe of the lane was considered and
+rejected: it spends a model call at every table open on a check whose success guarantees nothing about
+the calls that matter, and the streak fires exactly where unavailability is met — the escalation, not a
+pre-flight check, is the operator's signal.
 
 The refusal counts against §8's identical-resend strike like any kernel refusal, and the Keeper's own
 `why`, `goal`, `method` and `stakes` are the proposal, never evidence of consent — the reviewer is told
@@ -4956,7 +4974,10 @@ on a verdict, `{verb, ok: false, reason, detail, ms}` when the review could not 
 `{verb, ok: true, skipped: "no_player_text"}` on the opening. `key` is a digest of the canonical proposal,
 never shown to a model. The lane's four `lane-call` rows carry `subsession: "admission"` (§12.8.1). The
 tool-call row of a refused call keeps its own columns and records `reason: action_not_authorized` or
-`admission_unavailable`. `tests/play/kpi.py`'s `admission` section reports reviews, reuse, skips,
+`admission_unavailable`. The outage escalation of §32.2 is not a telemetry row: it is the
+`coc-admission-status` session entry and bus event, once per streak, because its reader is the
+operator, not the run analysis — the consecutive `ok: false` rows already say the same thing to
+`kpi.py`. `tests/play/kpi.py`'s `admission` section reports reviews, reuse, skips,
 verdict counts, unavailability by cause, and the review time apart from delivery time. Whether a
 refusal was right is a human reading of the turn record.
 
@@ -4975,7 +4996,9 @@ the kernel; admitted batches go through unchanged with their minted `call_id`; t
 carries the player's words, the investigator, the scene and the stage, and none of the capsule's
 Keeper-only material; a reworded proposal is refused with the earlier refusal in its context, an
 identical one reuses its verdict, and a new player input re-evaluates; unavailability and malformed
-answers refuse with the service-status `fix`; bookkeeping, NPC actors, sanity checks and renames are
+answers refuse with the service-status `fix`; a repeated outage drops the resend promise from that
+`fix` and escalates once per streak to the operator (`coc-admission-status`), and any live verdict
+resets the streak; bookkeeping, NPC actors, sanity checks and renames are
 not reviewed; a recovered turn is reviewed against the pending turn's own words
 (`tests/extension/admission.test.mjs`). `facts.public`, the affordance rows, the `known` gates and the
 `affordance:` offers are pinned in `tests/kernel` (`test_facts_warn.py`, `test_capsule.py`,
