@@ -12,40 +12,35 @@ KNOTT = "Steven Knott"
 KNOTT_HANDLE = "steven-knott"
 KNOTT_ID = "npc-steven-knott"
 MOD = "npc-voice"
-VERSION = "0.0.1"
+VERSION = read_json(WORKTREE / "mods" / "npc-voice" / "mod.json")["version"]
 SAMPLE = {"key": "sample_lines", "label": "sounds like", "shape": "lines",
           "ask": "two short lines in this person's own words when the book prints their speech, one at ease and one under strain"}
 
 
-def package(tmp_path, *, vocabulary=SAMPLE):
-    """A real installable package: Natural NPC's files under this fixture's id and contribution."""
-    path = tmp_path / f"package-{MOD}"
+def package(tmp_path, *, vocabulary=SAMPLE, name="voice-fixture"):
+    """A real installable package under a fixture id: Natural NPC's files with the given contribution."""
+    path = tmp_path / f"package-{name}"
     shutil.copytree(WORKTREE / "mods" / "natural-npc", path)
     manifest = read_json(path / "mod.json")
-    manifest["id"] = MOD
-    manifest["version"] = VERSION
+    manifest["id"] = name
+    manifest["version"] = "0.0.1"
     manifest["default_enabled"] = False
-    manifest["settings"] = {"coarse_language": True}
-    manifest["settings_schema"] = {"coarse_language": {"title": {"en": "Coarse language", "zh-Hans": "粗口"}}}
     manifest["contributes"]["vocabulary"] = {"actor_profile_keys": [vocabulary]}
     for check in manifest["contributes"]["checks"]:
-        check["name"] = f"{MOD}:first-impression"
-    manifest["contributes"]["audit_on_decisions"] = [f"{MOD}:first-impression"]
+        check["name"] = f"{name}:first-impression"
+    manifest["contributes"]["audit_on_decisions"] = [f"{name}:first-impression"]
     (path / "mod.json").write_text(json.dumps(manifest))
     return path
 
 
 def configure(client, **change):
-    """Mod configuration lands only between turns (a change during a turn is pending until commit)."""
+    """The shipped package is on by default; configuration lands only between turns (a change during a turn is pending until commit)."""
     return client.ok("mods.configure", {"campaign": CAMPAIGN, "id": MOD, "version": VERSION, "enabled": True, **change})
 
 
-def on(client, tmp_path):
-    client.ok("mods.install", {"path": str(package(tmp_path))})
-    create_campaign(client)
-    narrate_opening(client)
-    configure(client)
-    client.table("player_input", text="我仔细观察诺特。")
+def on(client, tmp_path=None):
+    """The shipped npc-voice package, on by default, with turn 1 open."""
+    open_turn(client)
 
 
 def settle(client, call_id="t1-c1"):
@@ -69,13 +64,21 @@ def present(client):
 
 
 def test_the_shape_is_checked_at_install(kernel, tmp_path):
-    error = kernel.err("mods.install", {"path": str(package(tmp_path, vocabulary={**SAMPLE, "shape": "poem"}))})
+    error = kernel.err("mods.install", {"path": str(package(tmp_path, vocabulary={**SAMPLE, "key": "verses", "shape": "poem"}))})
     assert error["code"] == "invalid_params" and "shape" in error["message"]
 
 
-def test_nobody_needs_lines_while_the_package_is_off(kernel, tmp_path):
-    kernel.ok("mods.install", {"path": str(package(tmp_path))})
-    open_turn(kernel)
+def test_the_shipped_package_declares_the_word_the_lane_writes(kernel):
+    manifest = read_json(WORKTREE / "mods" / "npc-voice" / "mod.json")
+    assert manifest["default_enabled"] is True and manifest["settings"] == {"coarse_language": True}
+    assert manifest["contributes"]["vocabulary"]["actor_profile_keys"][0] == {**SAMPLE, "ask": manifest["contributes"]["vocabulary"]["actor_profile_keys"][0]["ask"]}
+
+
+def test_nobody_needs_lines_while_the_package_is_off(kernel):
+    create_campaign(kernel)
+    narrate_opening(kernel)
+    configure(kernel, enabled=False)
+    kernel.table("player_input", text="我仔细观察诺特。")
     assert job(kernel) == {"job_id": None}
 
 
