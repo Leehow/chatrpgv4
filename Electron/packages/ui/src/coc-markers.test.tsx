@@ -264,6 +264,131 @@ describe('the card draws a marked delivery', () => {
   })
 })
 
+/**
+ * The delta badge is base-10 arithmetic, because the player reads its digits (contract §16.2).
+ *
+ * A cash receipt carries only its endpoints — the kernel settles money exactly and hands over
+ * `before: 9, after: 8.98` with no delta at all. The card made the difference itself with
+ * `after - before`, and IEEE-754 answered `-0.019999999999999574`, which is what a player buying a
+ * two-cent newspaper was shown. Both resource rows compute a delta, so both are pinned here.
+ */
+describe('a resource delta is drawn in the scale it was given', () => {
+  const CASH = {
+    kind: 'cash', receipt: 'cash:t50-c1', subject: 'investigator', subject_label: '哈里森·韦尔',
+    before: 9, after: 8.98, currency: 'USD',
+  }
+  const CHANGE = {
+    kind: 'change', receipt: 'delta:san-t50-c2', subject: 'investigator', subject_is_investigator: true,
+    subject_label: '哈里森·韦尔', resource: 'san', before: 50, after: 45,
+  }
+
+  it.each([
+    [9, 8.98, '-0.02'],
+    [8.98, 9, '+0.02'],
+    [0.3, 0.1, '-0.2'],
+    [1.1, 1.3, '+0.2'],
+    [10, 9.995, '-0.005'],
+  ])('differences cash on its own digits (%s -> %s)', (before, after, badge) => {
+    const { container } = render(
+      <Delivery details={{ play_language: 'zh-Hans', turn: 50, mechanics: [{ ...CASH, before, after }] }} />,
+    )
+    expect(container.querySelector('.coc-mech-delta')?.textContent).toBe(badge)
+    // The endpoints are the kernel's own and are printed untouched.
+    expect(container.querySelector('.coc-mech-figure')?.textContent).toContain(String(after))
+  })
+
+  it.each([
+    [50, 45, '-5'],
+    [9, 8.98, '-0.02'],
+    [0.3, 0.1, '-0.2'],
+  ])('differences a resource change the same way (%s -> %s)', (before, after, badge) => {
+    const { container } = render(
+      <Delivery details={{ play_language: 'zh-Hans', turn: 50, mechanics: [{ ...CHANGE, before, after }] }} />,
+    )
+    expect(container.querySelector('.coc-mech-delta')?.textContent).toBe(badge)
+  })
+
+  it('draws no badge when nothing moved', () => {
+    const { container } = render(
+      <Delivery details={{ play_language: 'zh-Hans', turn: 50, mechanics: [{ ...CASH, before: 8.98, after: 8.98 }] }} />,
+    )
+    expect(container.querySelector('.coc-mech-delta')).toBeNull()
+  })
+})
+
+/**
+ * A check the difficulty moved is decided at a bar the card has to draw (contract §16.2).
+ *
+ * From a real table's turn 12: a hard Intimidate against a 15 is settled at 7, and a 10 failed.
+ * The kernel had `difficulty` and `threshold` on the row the whole time and `mechanics.js` read
+ * neither, so the player was shown `10 /15` under a failure stamp — which in CoC's one arithmetic
+ * rule says the product cannot subtract. Every regular check on that table read correctly, so
+ * nothing but a non-regular difficulty exposes it.
+ *
+ * The expectations are composed from the shipped captions rather than transcribed: renaming a
+ * caption has to travel here, and a caption deleted from the surface must not silently pass.
+ */
+describe('a roll says what its difficulty demanded', () => {
+  const HARD = {
+    kind: 'roll', receipt: 'roll:intimidate-t12-c1', actor: 'edwin-crow', actor_label: '埃德温·克罗',
+    actor_is_investigator: true, skill: 'Intimidate', roll: 10, target: 15, threshold: 7,
+    difficulty: 'hard', level: 'failure', passed: false, pushed: false, visibility: 'public',
+    family: 'social',
+  }
+  /** The chip the card owes, built from `content/ui/<tag>/mechanics.json` itself. */
+  const need = (tag: string, difficulty: string, n: number) =>
+    say(tag, 'mechanics', 'needs')
+      .replace('{level}', say(tag, 'mechanics', `difficulty.${difficulty}`))
+      .replace('{n}', String(n))
+
+  it.each([
+    ['zh-Hans', 'hard', 7],
+    ['en', 'hard', 7],
+    ['zh-Hans', 'extreme', 3],
+    ['en', 'extreme', 3],
+  ])('draws the bar the die was compared against (%s, %s)', (play_language, difficulty, threshold) => {
+    const { container } = render(
+      <Delivery details={{ play_language, turn: 12, mechanics: [{ ...HARD, difficulty, threshold }] }} />,
+    )
+    expect(container.querySelector('.coc-mech-need')?.textContent).toBe(need(play_language, difficulty, threshold))
+    // The target stays: it is the investigator's own skill, and the row is its receipt.
+    expect(container.querySelector('.coc-mech-target')?.textContent).toBe('/15')
+    expect(container.querySelector('.coc-mech-stamp')?.textContent).toBe(say(play_language, 'mechanics', 'fail'))
+  })
+
+  it('stays silent when the difficulty moved nothing', () => {
+    // `regular`'s threshold is the target already drawn, so a chip there would repeat a number
+    // and teach the player that the chip means something it does not.
+    const { container } = render(
+      <Delivery details={{ play_language: 'zh-Hans', turn: 5, mechanics: [ROLL] }} />,
+    )
+    expect(container.querySelector('.coc-mech-need')).toBeNull()
+    expect(container.querySelector('.coc-mech-target')?.textContent).toBe('/50')
+  })
+
+  it('never draws the bar for a roll the rules keep from the player', () => {
+    // §16.5: a concealed roll prints no figure at all, and the threshold is a figure — half the
+    // investigator's own skill, and the shape of the check they were not allowed to see.
+    const { container } = render(
+      <Delivery details={{ play_language: 'zh-Hans', turn: 12, mechanics: [{ ...HARD, visibility: 'concealed' }] }} />,
+    )
+    expect(container.querySelector('.coc-mech-need')).toBeNull()
+    expect(container.textContent).not.toContain('7')
+    expect(container.querySelector('.coc-mech-stamp')?.textContent).toBe(say('zh-Hans', 'mechanics', 'concealed'))
+  })
+
+  it('still prints the true bar for a difficulty the surface has no word for', () => {
+    // The numbers are the test; the word is the gloss. A difficulty added to the rules data
+    // before a caption exists must not take the figure down with it.
+    const { container } = render(
+      <Card details={{ ui: ui('zh-Hans', { mechanics: { 'difficulty.hard': undefined } }), play_language: 'zh-Hans',
+        turn: 12, mechanics: [HARD] }} />,
+    )
+    expect(container.querySelector('.coc-mech-need')?.textContent).toContain('7')
+    expect(container.querySelector('.coc-mech-need')?.textContent).toContain('hard')
+  })
+})
+
 describe('the plain copy of a drawn delivery is folded away', () => {
   const card = (marked: string): ChatMessage => ({
     id: 'm1', role: 'assistant', content: '', timestamp: 1,
