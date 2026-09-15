@@ -132,6 +132,37 @@ result：`{"turn": int, "state": "open", "capsule": {...见第 6 节}}`。
 ### table.capsule（切片 0）
 result：胶囊，同第 6 节。任何状态可调。
 
+**Approved bounded-context amendment (2026-09-15; implementation/integration and live acceptance pending).**
+See [bounded-play-context](specs/bounded-play-context.md), D5–D8. Host-only params add
+`rehydrate?: boolean`. `rehydrate: true` forces the existing full module briefing, craft context
+and active Mod instruction builders; it does not reopen a turn, consume `firstStyleTurn` or
+pending resume, write files, or change game state. Ordinary calls retain their lifecycle.
+The existing result envelopes are retained: `table.capsule` returns its capsule fields directly,
+with transport-only `_context` alongside them; it does not gain a new `capsule` wrapper.
+`table.player_input` keeps `{turn, state, capsule}` and adds the same sibling metadata:
+`_context: {version: 1, campaign, worldline, loop, turn, source_revision, memory_coverage}`.
+`source_revision` is an opaque digest of the effective briefing sources, including the module
+and active packages. If optional binding-source I/O is unavailable, return `source_revision: null`
+with `unavailable: true` and a bounded reason; the host must retain a conservative context rather
+than claim a valid rebase. Coverage I/O failure is reported separately as
+`memory_coverage.status: "unavailable"`, with unknown counts left unknown. Neither advisory path
+may turn a successfully opened player turn into a failed reply. Legacy scene-trail reconstruction
+for `rehydrate: true` stays in the read snapshot, never on disk.
+The host stores this binding on the injected message; opaque identity is not model-visible.
+This is a read/cache identity, not a new authoritative state store.
+
+`memory_coverage` is bounded to 4096 serialized UTF-8 bytes: recent pending/failed committed-turn
+ranges, counts of older gaps, and public recall arguments to page their existing history.
+It derives from existing turn records and memory job/backlog state, without new mutable memory
+files or synchronous extraction. Successful-empty extraction is complete but does not guarantee
+semantic coverage. The Keeper may recall an original when a gap matters; gaps never create plot
+obligations. Candidate ranking adds the current scene and up to four most-recent acquired evidence
+names, using existing continuity evidence predicates, to present NPCs and investigators. Keep
+correction-first ordering, the six-row/section-byte budget, and `conversation_report` authority.
+Inherited worldlines follow canonical restore snapshots, not equality filters on candidate origins.
+The task-3 outbound/fold policy will cache and invalidate this rehydration by context epoch;
+that host consumption is not claimed implemented by this contract amendment.
+
 ### table.status（切片 0）
 result：`{"turn": int, "state": "...", "receipts": [...本回合收据摘要], "pending_choice": null | {...}}`。
 
@@ -148,7 +179,7 @@ params：`{"kind": "module"|"secret"|"rule"|"catalog", "query": "<名字或问�
 
 ### table.recall（切片 0：transcript；切片 2 三路齐全，见 12.4）
 params：`{"what": "transcript"|"memory"|"history", ...}`，三路各自的参数与结果在 12.4。
-- `transcript`：返回区间内逐字记录，缺省最近 3 回合；切片 2 加候选卡与经摘要校验的原文读取。
+- `transcript`：缺省最近 3 回合的有界卡片，不隐式返回全文；原文分页与完整性校验见 12.4 的新契约。
 
 ### table.resolve（切片 0：普通检定；切片 1 全族见第 11 节）
 params：
@@ -497,6 +528,91 @@ RuleGraph 的每个决策声明输入槽位与归属。宿主锁定槽位由内�
 
 ### 12.4 `recall` 三路
 
+#### Approved bounded recall contract (2026-09-15)
+
+This amendment implements the interface decisions in [bounded-play-context](specs/bounded-play-context.md),
+D1/D6/D7/D8. The bounded recall implementation and migrated contract tests are integrated; real-table acceptance
+remains pending. The legacy evidence below is not proof of the new bounds. Keep the seven verbs and existing filters/history fields wherever
+compatible. All three modes cap each serialized JSON response at **12288 UTF-8 bytes (12 KiB)**,
+including annotations and continuation metadata. Listings contain at most **20 rows** per page;
+text pages contain at most **4096 Unicode code points**, shortened further to fit total response
+bytes. No all-text/unlimited escape exists, and original files are never shortened.
+
+Public `recall` arguments (beside existing query filters) add:
+
+```
+read?: {turn: integer, role: "player"|"keeper", offset?: integer >= 0, limit?: integer >= 1}
+page?: {offset?: integer >= 0, limit?: integer >= 1,
+        section?: "cards"|"timeline"|"events"|"diff"|"hits"}
+detail?: {section: "cards"|"timeline"|"events"|"diff"|"hits", index: integer >= 0,
+          offset?: integer >= 0, limit?: integer >= 1}
+```
+
+- **Transcript browse:** `what: "transcript"`, existing `turns`/`role` filters, default last
+  three turns. Cards only even for one-to-three-turn ranges; never automatic `entries`.
+  Cards expose turn, role, total character count, a bounded original head, and a complete public
+  `read` reference. `page` selects listing rows in the stable turn/role order; its offset defaults
+  to 0 and limit to 20, with byte pressure allowed to reduce the actual row count.
+- **Transcript read:** `read` selects one original utterance. Offset defaults to 0 and limit to
+  4096 code points. Return total characters, actual returned range, `truncated`, and exact `next`
+  arguments; next offsets follow the actual returned end without splitting surrogate pairs.
+  Verify the complete original against the canonical turn record before slicing. Preserve
+  `verified` and `verification_scope: "record_integrity_only"`: matching recorded words is not
+  module truth, nor an authority upgrade. A failed comparison stays unverified, not repaired.
+- **History:** default range remains the latest 20 turns. Default section is `diff` when `diff`
+  is supplied, otherwise `events` when `types` is supplied, otherwise `timeline`. Select other
+  sections explicitly with `page.section`. Each response returns only the selected section's
+  rows (`timeline`, `events` or `diff`), not all three collections. Preserve event filters,
+  timeline fields and receipt-derived changes. The new diff wire shape is
+  `{from, to, diff: [{kind: "scene"|"clock"|"clue"|"resource"|"session"|"move", ...}]}`:
+  `from`/`to` are top-level turn bounds; `diff` is an ordered, pageable row list, not the legacy
+  nested full-diff object below. Omitted/more metadata and `next` identify remaining rows.
+  Oversized rows expose their type/turn where applicable and a `detail` locator, never an
+  apparently complete silently truncated fact. Existing internal `lines`/`line`
+  capabilities retain their worldline semantics; they gain no public schema exposure in this slice
+  and cannot bypass the response ceiling.
+- **Memory:** retain `about`, `turns`, `kinds`, `include_superseded` and existing deterministic
+  entity selection/ordering; expose the already accepted `promise` kind. Legacy top-level `limit`
+  remains a positive requested memory page size (default 12), clamped to 20; larger legacy requests
+  are accepted and clamped, not schema-rejected. `page.limit` takes precedence.
+  Remaining `hits` page within one stable source snapshot. Keep candidate `status`, `state`,
+  correction/supersession/source annotations and `authority: "conversation_report"`. Missing or
+  superseded evidence does not become a current fact; no semantic classifier or promotion is added.
+- **Structured detail:** `detail` selects one row by its section and zero-based snapshot index,
+  returning that original row's JSON serialization as bounded `text` pages, with total/range,
+  `truncated` and `next`. Its offset/limit count Unicode code points, default 0/4096. This is not
+  transcript `read`, not a summary, and not a bypass of the response cap. Concatenated pages
+  reconstruct the original structured row's JSON text.
+
+Every returned `next` or `read`/`detail` reference is a **complete public recall argument object**,
+including `what` and relevant query filters, not a fragment or a model-copied opaque cursor.
+Context reconstruction uses this same RPC with host-only `_context_read: true`: it reads canonical
+records without advancing `open` to `acting` or persisting legacy cache repair. The Keeper tool
+strips that private flag from model-supplied arguments. The internal bridge retains raw snapshot
+metadata for its own paging and registers returned public references with the same host-owned
+binding store; no second original-text cache or unbounded model read is introduced.
+The kernel returns host-only `_snapshot` beside the result data. The host strips it from both
+model-visible content and tool-result details, stores it against canonical public continuation
+arguments, then reattaches it as an internal RPC parameter. It never appears in the public tool schema.
+Bind source identity internally to campaign, active worldline, loop and source digest; compute
+query source digests once per RPC, not once per row. Fresh initial offset-0 requests create a
+fresh binding. An unknown/stale continuation returns a bounded refresh instruction with public
+page-0 arguments; it must not silently rebind the old offset to changed content. Worldline switches,
+rewinds, restarts without a compatible host binding and concurrent mutation obey this same rule.
+
+**Implementation evidence (2026-09-15).** The 10 focused bounded-recall checks and 5 public-schema
+checks passed, alongside 27 migrated kernel-controller checks and 2 worldline-recall checks.
+Cold review passed after adding type/turn to oversized event references and retaining small
+legacy top-level `lines` on every history section. Large worldline trees use a bound timeline/detail
+reference instead. Stale-page refusals name `details.refresh`, a complete public first-page request.
+These are deterministic TS/real-Pi interface checks, not gameplay acceptance.
+
+#### Legacy slice-2 shape (superseded where it conflicts with the amendment above)
+
+The paragraphs below preserve the original wire design/evidence. In particular their automatic
+`entries`, whole-utterance read, 40/30/200-row limits and combined unbounded history output are
+superseded, not alternative compatibility modes.
+
 - **memory**：params `{"what": "memory", "about"?: [名], "turns"?: [from, to], "kinds"?: [...], "include_superseded"?: bool, "limit"?: ≤ 30}`。收窄全是确定性的：`about` 里的名字先精确匹配图上名字、别名与 `scene_labels`，不中时取「一个名字里的整词」（`Knott` → Steven Knott），人（调查员、NPC）优先于地点与线索，仍歧义则 `unknown_entity` 且 `fix` 列出候选名；命中按图上名字与别名归一化后精确匹配 `subject`、`knowers`、`entities`；`turns` 落在 `valid_from_turn`；缺省不含已关闭的。排序：与 `about`（缺省取当前在场实体加调查员）重叠数多者先，再按种类权重（#20：`world_event`、`knowledge`、`relationship`、`promise` 先于 `belief`、`player_preference`、`keeper_correction`，`player_assertion` 最后——它多半是玩家输入的复述，守秘人已经读过），再按 `valid_from_turn` 晚者先。result `{"what": "memory", "about": [...], "hits": [{"id", "kind", "subject", "knowers", "entities", "statement", "privacy", "state", "confidence", "status", "turn", "superseded_by"?}]}`。不接受散文筛选，没有关键词与正则。
 - **transcript**：params `{"what": "transcript", "turns"?: [from, to], "role"?: "player"|"keeper", "read"?: {"turn", "role"}}`。不带 `read` 时返回 `cards: [{"turn", "role", "chars", "head": "<前 80 字>"}]`（区间缺省最近 3 回合，最多 40 张），并在区间 ≤ 3 回合时同时返回切片 0 的 `entries`；带 `read` 时返回 `{"turn", "role", "text", "verified": bool}`，`verified` 表示逐字记录里的文本与 `turns/NNNN.json` 记录（守秘人取 `rendered_text`，玩家取 `player_text`）的 sha256 一致；不一致仍返回文本但 `verified: false`。
 - **history**：params `{"what": "history", "turns"?: [from, to], "types"?: [事件类型], "diff"?: [turn_a, turn_b]}`。result `{"timeline": [{"turn", "commit", "scene", "clock", "closed_by", "receipts": {"roll": n, "move": n, "clue": n, "delta": n, "session": n, "time": n}, "head": "<守秘人交付前 60 字>"}], "events": [...]（按 `types` 过滤，最多 200 条，缺省不含 `player-declared` 之外的原文）, "diff"?: {"from", "to", "scene": [a, b], "clock": [a, b], "clues_added": [名], "resources": [{"subject", "resource", "from", "to"}], "sessions": [{"turn", "family", "transition", "outcome"?}], "moves": [{"turn", "from", "to"}]}}`。`diff` 只从回合记录里的收据累计，不读 git 对象。
@@ -529,6 +645,10 @@ RuleGraph 的每个决策声明输入槽位与归属。宿主锁定槽位由内�
 - 同一 `call_id` 的 `narrate` 重放返回已存的结果，不再提交；这是唯一的「不重复提交」机制，扩展不做补偿。
 
 ### 12.7 胶囊新增节（切片 2）
+
+The approved bounded-context amendment at `table.capsule` above adds host binding and bounded
+coverage beside the capsule envelope, not a new narrative section. Its scene/evidence candidate
+anchors amend the historical default below; current authority fields remain those in §36.11.
 
 - `memory`（≤ 1.5KB）：`recall memory` 缺省排序的前 6 条命中，投影成 `{id, kind, statement, turn}`（#20：`knowers`/`entities`/`privacy`/`confidence`/`state` 不进胶囊，要的时候 `recall memory` 拿全条），预算内装得下的条数因此翻倍；没有候选时为空数组。
 - `warnings`（≤ 1KB）：12.5。
@@ -574,6 +694,10 @@ RuleGraph 的每个决策声明输入槽位与归属。宿主锁定槽位由内�
 - 一次车道调用最多四行，最少一行（`start`；模型解析不出时连 `start` 都没有，那种情况原有的 `lane: verifier ok:false reason:model_unavailable` 行照旧交代）。适配器不实现 `onPayload`/`onResponse` 时对应的行就没有——**没有行就是没有测到，不许拿别处的数补**。
 
 ### 12.9 内核的决定（已实现）
+
+Historical decisions below retain their evidence. The approved §12.4 amendment supersedes their
+30-hit/200-event caps and unpaged full-hit returns; new recall/rehydration implementation and live
+acceptance remain pending until their dedicated checks are recorded.
 
 - **回合记录带世界快照。** `narrate` 与 `ask` 写的 `turns/NNNN.json` 多一个 `world` 块：`{scene: {name, display_name}, clock, present: [NPC 名], investigators: [{id, name, hp, san, mp, luck}], session, pending_choice}`，是回合关闭那一刻的状态；`narrate` 的记录另存 `facts`。检查点、episode、`memory.job` 的任务包、`history` 的时间线与 `diff` 全从这个块读，不碰可变的 `world.json`，也不读 git 对象。turn 0 被 `player_input` 隐式关闭时同样写快照。
 - **检查点与 HEAD 的同步。** `table.open` 先让检查点跟上 HEAD：HEAD 的回合号从提交信息 `turn <n>:` 读，回合记录缺 `commit` 时补上再重建；检查点缺失、损坏、或 `commit`/`turn` 与 HEAD 不符都算「HEAD 领先」，`resume.rebuilt: true`。还没有任何 `narrate` 提交时不动检查点。`turn.json` 丢失或损坏：有检查点 → `fresh_turn(checkpoint.turn + 1)`；若检查点之后有一条 `ask` 关闭的记录，则重建成那一回合的 `asked` 并带回 `pending_choice`（玩家的回答还落得下去）；一次提交都没有时重建成 turn 0。`resume` 只在 `open` 后本进程第一次 `player_input` 的胶囊里出现一次。
@@ -1485,6 +1609,62 @@ and Pi 0.85.1 `docs/models.md` (`thinkingLevelMap`).
 
 ### 19.2 COC 自己的上下文折叠
 
+#### Approved bounded-context successor (task 3 pending; live acceptance pending)
+
+[bounded-play-context](specs/bounded-play-context.md), D1–D5/D8/D9, is the approved successor to
+this section's cumulative fold. One pure selection policy in the table extension serves both the
+outbound `context` projection and persisted `session_before_compact` adapter; no second compressor,
+model summary, Pi fork, new memory store or foreground semantic lane is introduced.
+
+- Closed-history contribution has a **32 KiB serialized UTF-8 ceiling per outbound request**,
+  with at most 4 KiB of omission/coverage/recall metadata inside that same budget. Prefer the latest
+  two committed player/Keeper pairs, newest first; oversized historical quotes are labeled partial
+  and carry original turn/role/range plus full bounded-read arguments (§12.4).
+- Current user input, current capsule, system instructions and every message of an unresolved
+  current exchange are protected and accounted separately. A successful `narrate` does not release
+  the still-running Pi exchange. A pending-choice answer does not erase its context prematurely.
+  If protected/fixed inputs alone exceed capacity, report that limitation, not successful compression.
+- Use `_context` and committed delivery/session bindings, not prose, to identify campaign, line,
+  loop and canonical turn. Rehydrate the current full briefing via `table.capsule {rehydrate:true}`
+  when an epoch loses/invalidates it. Cache the stable prefix across tool round trips; invalidate
+  on new player input, restart, line/loop or source/recovery changes and explicit compaction.
+- Old capsules/tools leave only the closed-history view. Host notes expire only through their
+  closed structural kind and turn binding; unknown/persistent notes are retained conservatively
+  or regenerated explicitly. Missing bindings/capsule preserve the affected active region with
+  bounded degraded/capacity diagnostics, not an aggressive guessed cut.
+- Fold the same selected view with a safe retained suffix: no orphan tool result, split unfinished
+  exchange or blind fallback to Pi's cut. No safe/progressing cut means explicit cancellation or
+  degradation, never Pi's generic model summary. `prepareCompaction` failure before the hook does
+  not disable outbound history bounds. Keep `PI_COC_COMPACT_AT` at 70% by default for token-pressure
+  persistence, honor unknown post-compaction usage, and suppress repeated same-source no-progress work.
+  Retained raw message bytes (latest kept boundary onward plus the latest summary, excluding old
+  compaction details) also trigger persistence above 128 KiB. Projected provider usage alone cannot
+  detect a growing raw message array; this storage-pressure measure is bytes, not claimed tokens.
+  A host-minted input epoch in message details and the capsule bus binds the current message even if
+  optional kernel metadata initially degraded. It never enters model content. Known prior COC
+  deliveries and turn-scoped host notes expire before the proven current boundary; do not compare
+  turn ordinals across worldlines when expiring them.
+- Version-2 fold metadata is a bounded manifest of policy version, source/binding, retention/cut
+  ranges, measured sizes and omission reasons, not an accumulating `lines` archive. Old version-1
+  entries remain readable but are neither rewritten nor copied wholesale into new details. Raw
+  Pi sessions and canonical campaign evidence stay intact. The cut-plus-summary API can replace
+  an old region with bounded text today; selective outbound projection handles its remaining
+  single-cut limitation. Upstream per-entry cuts are not a prerequisite.
+- Existing telemetry records trigger/outcome, identity (host-only), protected/history bytes,
+  capsule/fixed estimates, recall pages/bytes, coverage, cache/rehydration, no-progress reason and
+  duration. Provider input/cache tokens and latency are actual measurements only when available;
+  estimates stay labeled. None of these counts enter plot obligations.
+
+Implementation and actual outbound-Pi integration checks belong to `bounded-context-policy`;
+genuine continuity/restart/cost verification belongs to `context-live-acceptance`. Neither is
+claimed complete by this interface amendment or the legacy tests below.
+
+#### Legacy cumulative fold (superseded design; retained evidence)
+
+The following describes the pre-amendment implementation. Its growing verbatim summary and
+fallback cut are not the new guarantee; its claim that bounded replacement requires upstream
+support is superseded by the decision above.
+
 Pi 的缺省压缩不知道这张桌子哪些东西是可再生的。接 `session_before_compact`。**这个钩子表达不了「按条目挑着丢」**：它的返回是一个切点加一段摘要，Pi 用摘要替换切点之前的一切。所以「整段丢那些、原样留这些」只能实现成「选好切点，把要留的原样抄进摘要」。COC 口径如下：
 
 - **整段丢**：所有 `coc-capsule` 消息（每回合重新生成，旧的一律是废页）、带工具调用的助手消息与工具结果消息（收据在内核里，`recall` 能拿回来）、上一次折叠自己写的那条说明。（`coc-mechanics` 是 `CustomEntry`，本来就不进模型上下文，丢它不改变守秘人看到的东西。）
@@ -1496,6 +1676,11 @@ Pi 的缺省压缩不知道这张桌子哪些东西是可再生的。接 `sessio
 判据是**条目类型与回合距离，不是内容语义**——不读文本、不做相关性判断（`Agents.md`「语义问题不许硬编码」）。
 
 ### 19.3 验收
+
+The checks below describe the legacy slice. New bounded-context acceptance additionally requires
+the specification's executable outbound-request, Unicode paging, source invalidation, read-only
+rehydration, protected-exchange and genuine table/restart/cost checks; implementation/live status
+remains pending, and legacy synthetic fold tests are not gameplay evidence.
 
 - 扩展用例：五个子命令各自的输出形状与 `mode !== "tui"` 的降级；折叠钩子在一个造出来的长会话上按类型丢对了东西、留下了玩家输入与交付、补了那条宿主消息；`before_agent_start` 的阈值触发。
 - 真桌：一局跑到需要压缩（或把阈值调低逼出来），压缩之后守秘人接着走三回合不丢状态：场景、待决、在场 NPC、上一条线索都还在（它们本来就每回合从胶囊来）；桌上用 `/coc model` 换一次模型，下一回合生效且回合状态机没被打断。
@@ -3764,7 +3949,8 @@ book still does not grant a spell. Documents, containers, consumables and other
 existing capabilities stay; an attack usage must not overwrite them.
 
 **Who writes, who reads, who acts.** Creator prepares a draft; the kernel accepts
-it through `apply usage` into `world.objects.usages`. `look`, Mod context, ability
+it through `apply usage` (or the host-only prepared-usage entry below) into
+`world.objects.usages`. `look`, Mod context, ability
 projection and combat resolution read those records. The Keeper selects a usage by
 natural name; registration receipts and attack receipts name the same instance and
 usage. Offer ledgers only count; unused usages are not next-turn obligations.
@@ -3841,6 +4027,83 @@ stamps `_provenance` as `{mod, digest, job}`. Stage must re-validate the job, th
 instance and the `physical_basis` before the batch commits; a stale or mismatched
 basis is a refusal, not a silent rewrite. Failed, cancelled or refused jobs keep
 their evidence and do not pretend the item worked.
+
+#### Prepared usages (prefetch)
+
+**Who writes, who reads, who acts.** After a committed turn the host may request
+optional usage proposals for physical instances in the active scene or held by
+investigators/NPCs. The same tool-enabled creator writes at most one plausible
+attack usage from the object's physical facts; the kernel validates and registers
+it in `world.objects.usages`. The existing Keeper projections and reuse/resolve
+paths read it. The Keeper alone chooses whether to use it for a later authorized
+action. Prefetch is not a player action: it produces no receipt, offer-ledger entry,
+clock advancement, world-time change, action/resource consumption or admission
+request. It neither claims that the player acted nor recommends an unused object.
+Only the accepted data, retained job directory and telemetry record preparation.
+
+The host reads `mods.prefetch.targets {campaign}` before scanning. This read-only
+RPC returns `{campaign, worldline, turn, state, pending_choice, active_scene,
+instances}`. Each instance has `{id, name, owner: {kind, id?, name?},
+definition_digest, condition, has_any_usage, covered}`; owner kind is
+`investigator`, `npc`, `scene` or `other` (including an immediate object container).
+Scope is physical instances in the active scene or held by investigators/NPCs,
+including instances nested in their containers, not the whole world. Owner is the
+immediate owner; containment is followed only to establish scope. There is no
+24-row projection limit. `worldline` is the active worldline (or null), `turn`,
+`state` and `pending_choice` are the retained turn fields, and `active_scene` is
+the world scene handle (or null).
+
+`has_any_usage` counts every retained usage record for the instance, regardless
+of provenance or current applicability. `covered` checks for `accepted.json`
+under the same current proposal identity and job-directory function used by job
+creation and acceptance. Positive and null negative results both count; unfinished
+jobs do not. A changed physical basis or provider/worldline binding selects a new
+key. With no active usage provider, `covered` is false. The RPC returns all
+in-scope instances honestly, including those with usages: filtering such instances,
+in-flight deduplication, serial scheduling and budgets belong to the host.
+
+This method creates no job directories, registers no usages, writes no campaign
+or world state, emits no receipts, advances no clocks and leaves pending choices
+unchanged. It does not prepare a proposal as a side effect of checking coverage.
+
+The host calls `mods.job` with `role: "usage"` and
+`input: {object: <instance natural name>, propose: true}`. No staged `preview` is
+allowed: proposals concern existing instances, not pending player effects.
+`request.json` keeps the same usage facts and catalogs; its input marks a proposal,
+not a player's utterance. The creator supplies its own natural usage name and
+capability description, writes the ordinary single-usage `result.json` shape, or
+writes JSON `null` when no reasonable attack usage exists. This is the same
+creator and validation contract, not a new semantic lane or a name classifier.
+
+The proposal key contains campaign, active worldline, immutable object identity
+and physical basis, `propose: true`, and the same provider/package version binding
+as action jobs. It has no turn stamp, receipts or other mutable turn context.
+The first retained request has a separate digest checked at acceptance. Repeated
+requests under the same basis reuse that directory, including accepted negative
+results; a changed basis gets a new key. Host scanning, serial concurrency and the
+per-turn budget belong to the host (default two, zero disables new prefetch).
+
+Only `mods.prefetch.accept {campaign, job}` accepts proposal jobs. It reuses all
+ordinary usage validation, provider/worldline checks and physical-basis checks,
+then directly registers the accepted record without `table.apply` or a receipt.
+It returns `{usage, physical_basis, provenance: {mod, digest, job, prefetched: true}}`;
+`usage` is null for an accepted negative result, retained in `accepted.json` and
+telemetry without a world write. Positive results carry this provenance unchanged
+into the immutable record. Acceptance is idempotent; duplicate accepts do not
+append duplicate records. `mods.accept` refuses proposals with reason
+`prefetch_accept_required`; `mods.prefetch.accept` refuses action jobs with reason
+`action_accept_required`. The ordinary action path never sets `prefetched`;
+`reused_usage` keeps its existing reference-to-registered-record meaning.
+
+Failures are silent to the player and retained only as job evidence and telemetry;
+they do not fake success, block play or bind a speculative result to an action.
+Prefetch is an independent, optional, discardable supplement, never permission to
+defer a usage the player already requested. Action jobs remain bound to their
+original turn. Applicability and invalidation are identical to action-generated
+records, including ownership/resource rules at execution. Worldline snapshots,
+forks and conflicts retain their existing behavior; a job may not cross worldlines.
+Disabling the generator stops new proposals but leaves accepted applicable records
+usable through the ordinary projection and resolve paths.
 
 #### Immutable usage records and reuse
 
@@ -3924,8 +4187,9 @@ original `resolve` can continue. It does not ask the player for a second input
 that only means "the system finished registering". Timeout, cancel or host
 restart keep the job evidence and an explicit pending state; they must not fake
 success or blindly resubmit the attack. A recovered result may bind only to the
-still-valid original action; a stale result must not affect another turn,
-worldline or a now-different instance.
+still-valid original action; an action-bound stale result must not affect another
+turn, worldline or a now-different instance. Independent prepared usages follow the
+prefetch entry above, never this action-recovery path.
 
 Prepare, accept and execute are distinct: a prepared draft is not possession; an
 accepted usage is not a settled attack. Each `apply` batch stays atomic; `resolve`
@@ -3934,7 +4198,8 @@ show the object held and the attack not rolled — they do not grant the object 
 second time.
 
 First implementation cut (`held-object-usage`): already-held instances only. The
-host waits; it does not defer usage.
+host waits; it does not defer a usage requested by the current player action.
+Optional prefetch before such a request is a separate path, not action deferral.
 
 Next cut (`scene-object-action`): a same-batch `define` / `object` / `usage` may
 resolve through a staged view (definition, instance, usage) and then validate and
@@ -3964,9 +4229,22 @@ The new execution path must not use that field as a permission gate. No historic
 campaign is batch-migrated; a campaign lock still changes only on an explicit
 upgrade. Closing Enhanced Items leaves accepted applicable usages executable.
 
+#### Preparation progress
+
+While an in-turn definition or usage batch is preparing, the host emits
+`mods-progress` on its panel channel with
+`{campaign, role: "define"|"usage", objects: [<natural names>], done, total}`.
+`done >= total` clears the line. The TUI shows the same line as a footer status
+while the batch is in flight and clears it on completion, failure or shutdown;
+background prefetch stays silent. Player-visible captions come from the shipped
+ui-words surfaces (`content/ui/en/mods.json`, keys `progress.define` and
+`progress.usage`, with `{objects}`, `{done}`, `{total}` placeholders) and are
+projected per play language through the presenter lane: code carries no
+per-language table or branch. Long object lists are clipped to two names.
+
 #### Receipts, events and tests
 
-New usage provisionally reuses existing `kind: "definition"` receipts, adding
+Action-triggered new usage provisionally reuses existing `kind: "definition"` receipts, adding
 `object` and `usage` fields, and the existing `definition-created` event, so this
 slice does not mint an event kind with no consumer. Combat settlement receipts
 also name the usage and the instance. Host-minted usage ids and job paths never
@@ -3988,6 +4266,20 @@ followed the unique method in §10 and Agents.md on campaign
 rewritten to make a slice look done.
 
 ### The kernel's decisions (`objects.usages.v1`; implemented 2026-09-15)
+
+- Prepared usages use `mods.job`'s `input.propose: true` variant and the independent
+  `mods.prefetch.accept` entry. Stable proposal keys exclude turn/request-context
+  digests; the first request digest is retained separately for tamper checks.
+  Positive and null negative results retain `{mod, digest, job, prefetched: true}`.
+  Positive acceptance uses `registerUsage` and existing inventory projection, not
+  apply staging, receipts or clock effects. Action jobs retain their turn binding.
+  Host scanning, budgets and silent failure reporting are a separate host slice.
+
+- `mods.prefetch.targets` reads campaign files without transaction initialization
+  or legacy repair. Proposal identity, key hashing and job-directory resolution
+  are shared with creation/acceptance, so checking coverage never creates a job.
+  Immediate owner metadata and all retained usage records are projected without
+  applying the host's skip-used policy or budget.
 
 **Status.** Implemented and verified 2026-09-15. The TypeScript kernel, host and
 Enhanced Items 1.2.1 cover held-object usage, staged scene usage, stateful
@@ -4805,6 +5097,11 @@ attack, before any close call and before the basement.
   audit rightly did not.
 
 ### 30.7 `contributes.brief`: the first turn long, the turns after short (2026-09-10 user decision)
+
+**Approved 2026-09-15 amendment (implementation/integration pending):** the ordinary first-turn
+lifecycle below is retained, but host-only `table.capsule {rehydrate:true}` also forces `full` using
+these same builders without consuming the first-turn marker. See the capsule amendment and §19.2.
+The recorded measurements below concern the original full/brief switch, not new rehydration acceptance.
 
 §30.6 measured the cost: every package's `instructions` re-sent every turn, 12KB of a 33KB capsule. The user's
 decision is the §13.6 pattern. A package may add `"brief": "<file>.md"` beside `instructions` (a `brief` without
@@ -5949,8 +6246,12 @@ It emits **at most one `reentry` object**, only from the latest current-worldlin
 
 **Deterministic reentry mode.** The row adds `mode: "clarify_known" | "introduce_evidence"`, selected structurally from the acquired evidence and prior assessments on the same worldline/loop/thread, never from prose, a keyword list, a counter or a physical-place list. Physical location never decides the mode; `authority.clue_here` remains a placement/authority fact for the acquisition stage only.
 
-- **`clarify_known`** is selected when the chosen thread has acquired known evidence (`known` is nonempty) **and** no earlier assessment on the same worldline/loop/thread before the current assessment recorded `bridge_delivered: true`. This is the first misunderstanding while the thread already carries evidence the player holds: the Keeper can connect what is already known, so the row needs **no new bridge** and does not open adaptation. The Keeper must use **one known evidence row**, explicitly state how it supports or contradicts the selected core claim and why it matters now, and then continue the player's chosen action. It must not open adaptation and must not invent or deliver a new clue.
-- **`introduce_evidence`** is selected when `known` is empty, **or** an earlier assessment on the same worldline/loop/thread already recorded `bridge_delivered: true` and a later player frame is still `misframed`/`detached`. It keeps the existing concrete `bridge`, authority, `source_rebinding`, `bridge_offer` and `bridge_receipt` flow described below. This prevents repeating the same clarification after renewed deviation, while avoiding graph work on the first misunderstanding.
+- **`clarify_known`** is selected when the chosen thread has acquired known evidence (`known` is nonempty) **and** no *unanswered* earlier delivery stands on the same worldline/loop/thread before the current assessment. This is a misunderstanding while the thread already carries evidence the player holds: the Keeper can connect what is already known, so the row needs **no new bridge** and does not open adaptation. The Keeper must use **one known evidence row**, explicitly state how it supports or contradicts the selected core claim and why it matters now, and then continue the player's chosen action. It must not open adaptation and must not invent or deliver a new clue.
+- **`introduce_evidence`** is selected when `known` is empty, **or** an earlier assessment on the same worldline/loop/thread recorded `bridge_delivered: true`, no later `aligned` assessment on that same thread followed it, and a later player frame is still `misframed`/`detached`. It keeps the existing concrete `bridge`, authority, `source_rebinding`, `bridge_offer` and `bridge_receipt` flow described below. This prevents repeating the same clarification after renewed deviation, while avoiding graph work on a misunderstanding the held evidence can answer.
+
+**A delivered bridge closes `clarify_known` until the player answers it, not forever (2026-09-15).** The prior rule read `bridge_delivered: true` as a permanent property of the thread: one delivery at any earlier turn forced `introduce_evidence` for the rest of that worldline, however much evidence the player went on to acquire and however long they stayed on the thread. A **later `aligned` assessment on the same worldline/loop/thread, after the last row that recorded `bridge_delivered: true`**, resets it, and the mode again follows the evidence the player holds. The reset trigger is the memory lane's own stored per-thread verdict — the same authority, on the same row family, that wrote `bridge_delivered` — so it introduces no counter, no keyword, no turn decay, no new model call and no second signal. The alternatives were rejected for that reason: a turn or assessment count is the counter this section forbids; a later `unclear`/`misframed` row is not evidence of re-engagement; and resetting on newly acquired evidence would fire with no semantic signal at all, since `known` being nonempty is already that fact. After an `aligned`, a later `detached` or `misframed` frame is a fresh first misunderstanding, which is exactly the state `clarify_known` was written for.
+
+**`known` carries the thread's held evidence, not a sample.** `known` is the only place the audit lets a clarification name its evidence, so the projection keeps every acquired row up to six rather than the first three; a cap below the thread's authored evidence count made clues the player was holding unnameable. The same rule applies one level down, in the compact continuity projection both this row and `story_context` read: acquired rows are what the consumer must see and the unacquired remainder is optional context, so the compact evidence cap keeps every acquired row (to six) and fills to two with the rest, and the per-context byte budget sheds those optional rows before it sheds a whole thread. The fixed two-row compact slice was a projection cut with no budget behind it, and it is what showed the memory lane two of the four clues the player actually held (§37.2).
 
 `bridge_delivered` remains the feedback recorded by the post-commit assessment; the mode selection reads the assessments that preceded the current one, so a first misunderstanding with acquired evidence never triggers adaptation, and a renewed misframe after a successful delivery may introduce exactly one new source-grounded bridge.
 
@@ -5993,7 +6294,9 @@ The earlier blanket statement that new evidence always needs its own receipt the
 
 **Mode-permitted bases and the evidence relation (narration-audit 1.2.15; `relation` added by 1.2.16).** `causal_reentry.mode` closes which bases may pass. Under `mode: clarify_known` the audit accepts **only** `acquired_clarification` or `player_discharge`; neither may revise, and neither may demand a bridge receipt/offer or a source rebinding. Under `mode: introduce_evidence` the existing `bridge_receipt`/`bridge_offer` bases and their authority rules apply, and `acquired_clarification`/`player_discharge` remain available for evidence the player already holds. A basis outside its mode's permitted set does not pass and does not revise silently; the auditor returns exactly one finding naming the mode and the lawful basis. The `none` revise keeps exactly one finding and, under `clarify_known`, tells the Keeper to connect one acquired `known` row and continue the chosen action rather than to prepare any adaptation. Every passing or deferring basis now also carries the evidence's `relation` (1.2.16): `acquired_clarification`/`player_discharge` must set it exactly to the selected `known` row's relation, and the quote must use that evidence in that row's own direction — a `supports` row may not be quoted to argue against the selected thread, and a `contradicts` row may not be quoted to argue for it; `bridge_receipt`/`bridge_offer` must set it exactly to `causal_reentry.bridge.relation`; `preparation_wait`/`none` use `null`.
 
-**Pre-delivery enforcement (narration-audit 1.2.10, reentry sub-review 1.2.11, bridge authority 1.2.12, bridge offer 1.2.13, two-stage separation 1.2.14, reentry modes 1.2.15, evidence relation 1.2.16).** The enabled continuity audit now enforces the reentry before the turn is delivered, not only after it through the next assessment. When `causal_reentry` is present in the audit context, the auditor first compares `current_input` semantically: an explicit demonstration of the selected core causal connection and its present stakes, or informed refusal at that core level, discharges the reentry and needs no finding. Otherwise the candidate prose must realize `causal_reentry.bridge` before ordinary pacing — using the exact named clue or fact, or a source-grounded equivalent already authorized by current receipts — and must state how that evidence supports or contradicts `causal_reentry.thread.claim` and why it matters now. An analogous invented incident, a vague warning, atmosphere, a detached recap, a route name, a menu, or merely saying that preparation is happening is not realization. `bridge_delivered` requires at least one acquired supporting or contradicting evidence row on the selected thread: quoting or realizing evidence contents as learned must first land through the clue's or handout's existing receipt, and vague warning or atmosphere cannot count. That receipt requirement covers *acquired/read contents only* and is subordinate to the `bridge_offer` exception above: an authority-true unforced offer of the exact carrier, which claims no reading or acquisition, needs no receipt. Changed persistent placement needs reviewed `source_rebinding` already settled, and handing out a source-located carrier at a scene the effective graph does not make discoverable is not authority: that is what the kernel-projected bridge-authority boolean (1.2.12) enforces. When `authority.clue_here` is `true` the accepted rebinding already settles placement, so the audit requires no further `source_rebinding` and never revises a compliant offer for a missing receipt. The audit creates neither. When the bridge is unmet the audit adds one actionable finding whose fix names `causal_reentry.bridge.clue` and states how to reach a lawful stage: require `source_rebinding` first only when authority is false, otherwise state what the offer or the receipt-backed realization still lacks; never ask for `source_rebinding`, or for a receipt, when authority is true and the candidate is a compliant offer. It sets overall `continuity_review` to `revise`; it does not require a duplicate conflict, because an omitted bridge is not contradictory history.
+**Decision (2026-09-15): the reentry steers, it does not gate.** Retained live evidence, campaign `game-83177d61-ab11-4d58-b8ec-cf8b9c98d5a4` on `the-haunting`: turn 47 delivered a bridge on `house-haunted-by-corbitt` (`bridge_delivered: true`); turns 62, 63, 64 and 80 assessed `aligned` on that same thread; turn 87 assessed the movement-and-logistics sentence 「我现在就动身去环球报那栋楼，到了不下铁门，就在门厅站定」 as `detached` from it — while the player was walking to the newspaper to publish the story that *is* that thread, holding four of its five supporting clues (`globe-unpublished-story`, `dooley-macario-madness`, `poltergeist-bed`, `upstairs-disturbance`). Because turn 47 had made the prior-delivery flag permanent, the mode was forced to `introduce_evidence`; the one unacquired clue, `gabriela-night-visitor`, is authored at a sanitarium, so `authority.clue_here` was false everywhere the player stood. With no host-owned `preparation_wait` or `rebinding_refused`, 1.2.10 left exactly three exits — the player reciting the thesis, an adaptation importing the last missing clue, or a recorded refusal — and turns 88, 89 and 90 published **nothing** despite settled receipts (a hard-success Persuade, a move, an NPC arrival) while the Keeper burned `max_rewrites` on `source_rebinding` attempts that failed on anchors. Turn 91 passed first try only because the player happened to state the core claim verbatim. That is the same shape as the destination-identity defect: a rule written against a real abuse — the Keeper inventing an analogous incident or drifting off the mystery — had no concept of *the player is on a legitimate chosen path that is not the projected bridge*. The user's ruling is that the reentry is **steering, not a gate**. This reverses the publication requirement 1.2.10 introduced; it does not reverse the anti-fabrication rules, which stand unchanged.
+
+**Pre-delivery enforcement, as it now stands (narration-audit 1.2.10, reentry sub-review 1.2.11, bridge authority 1.2.12, bridge offer 1.2.13, two-stage separation 1.2.14, reentry modes 1.2.15, evidence relation 1.2.16, steering 1.2.19).** The enabled continuity audit still decides the reentry before the turn is delivered rather than only after it, but what it decides is whether the candidate **damages** the selected thread, not whether the candidate reached the bridge. When `causal_reentry` is present in the audit context, the auditor first compares `current_input` semantically: an explicit demonstration of the selected core causal connection and its present stakes, or informed refusal at that core level, discharges the reentry and needs no finding. Otherwise `reentry_review` may return `revise` **only** when the candidate (a) contradicts the selected thread's claim or evidence the player has already acquired, or (b) invents an analogous incident, fabricates a carrier, or claims that evidence arrived, was read, or was acquired without its receipt. Those are the two abuses this enforcement was written for, and they remain revisions. Everything else defers and is delivered: an unrealized bridge on a turn the player spent on their own chosen line is `chosen_action` with verdict `defer`, the reentry is retained, and the turn goes out. The reentry never becomes a publication requirement, and an unmet bridge is never by itself a reason to withhold a turn whose receipts already settled. `bridge_offer`, `bridge_receipt`, `acquired_clarification` and `player_discharge` keep their meanings, their authority rules and their `relation` direction rules exactly. The receipt rule is unchanged and is not the gate: quoting or realizing evidence contents as learned, or claiming acquisition, must land through the clue's or handout's existing receipt, and `bridge_delivered` still requires at least one acquired supporting or contradicting evidence row on the selected thread; vague warning or atmosphere cannot count. That receipt requirement covers *acquired/read contents only* and stays subordinate to the `bridge_offer` exception: an authority-true unforced offer of the exact carrier, which claims no reading or acquisition, needs no receipt. Changed persistent placement still needs reviewed `source_rebinding` already settled, and handing out a source-located carrier at a scene the effective graph does not make discoverable is still not authority (1.2.12); when `authority.clue_here` is `true` the accepted rebinding already settles placement, so the audit requires no further `source_rebinding` and never revises a compliant offer for a missing receipt. The audit creates neither receipt nor adaptation, and it never directs the Keeper to open a `source_rebinding` whose only purpose is to satisfy the review. When it does revise for one of the two abuses, it adds one actionable finding naming what contradicts or what was claimed without a receipt, and sets overall `continuity_review` to `revise`; it does not require a duplicate conflict.
 
 **Bridge authority is kernel-projected (narration-audit 1.2.12).** Prose guidance alone did not enforce the existing placement rule: retained live turn 7 of `midgame-reentry-live-15` showed the Keeper could hand out the selected source handout at Athens without first accepting `source_rebinding`, even though the bridge clue was source-located at the Chapel ruins, and the handout receipt made the checked audit pass. The audit context's `causal_reentry` therefore carries kernel-projected bridge authority: the current scene plus a boolean establishing whether the effective graph currently makes the bridge clue discoverable there. The boolean is computed from the effective graph after accepted adaptations, never from model prose or the stale `source_scenes` list, so the source-authored location ranking cannot override an accepted rebinding and cannot be overridden by narration either. It adds no physical-location enumeration, no automatic adaptation and no new semantic model call; it closes the existing `source_rebinding` rule structurally.
 
@@ -6016,14 +6319,15 @@ The `basis` is one of these closed cases, and `quote`/`clue`/`relation` satisfy 
 | `bridge_offer` | `defer` | bridge authority `causal_reentry.authority.clue_here` is `true` (1.2.12) and there is no current bridge clue or source-handout receipt; the effective graph already authorizes the exact carrier to appear at this scene, so the offer is the placement/offer stage and needs no receipt (1.2.14); `clue` exactly copies `causal_reentry.bridge.clue` and `relation` exactly copies `causal_reentry.bridge.relation` (1.2.16); `quote` is an exact candidate excerpt expressing the carrier's visible identity and provenance, its causal bearing on the selected claim in that relation's direction, the current stakes, and an open player choice — it claims no act of taking, reading, accepting, spending time on, believing or acting on the evidence (1.2.13) |
 | `acquired_clarification` | `pass` | `mode` is `clarify_known`; `causal_reentry.known` is nonempty; `clue` names one known evidence row and `relation` exactly copies that row's relation (1.2.16); `quote` is an exact candidate excerpt explicitly connecting that evidence and the stakes in that row's relation direction — a `supports` row may not be quoted to argue against the selected thread and a `contradicts` row may not be quoted to argue for it. The candidate connects one already acquired row and opens no adaptation; it invents and delivers no new clue |
 | `player_discharge` | `pass` | `causal_reentry.known` is nonempty; `clue` names one known evidence row and `relation` exactly copies that row's relation (1.2.16); `quote` is an exact `current_input` excerpt demonstrating the selected core connection in that row's relation direction and informed refusal or action |
+| `chosen_action` | `defer` | the candidate continues the action the player actually chose without reaching the reentry, and neither contradicts the selected thread or its acquired evidence nor claims any evidence, arrival, acquisition or placement (1.2.19). Lawful under **both** modes and requiring no host-owned field: no `preparation_wait`, no `rebinding_refused`, no authority state. `clue` and `relation` are `null`; `quote` is an exact candidate excerpt continuing that chosen action. A current bridge clue or source-handout receipt makes this basis unlawful — that is `bridge_receipt`. The reentry is retained and never `bridge_delivered`, so the next turn carries it again |
 | `preparation_wait` | `defer` | `context.preparation_wait` must exist; `clue` and `relation` are `null`; `quote` exactly copies the candidate's honest wait-only notice |
-| `none` | `revise` | `quote`, `clue` and `relation` are `null`; add exactly one finding telling the Keeper how to reach a lawful stage — under `mode: clarify_known`, connect one already acquired `known` row in that row's own relation direction and continue the chosen action, with no adaptation; under `mode: introduce_evidence`, prepare and accept `source_rebinding` first when `authority.clue_here` is false, and when it is `true`, either deliver the evidence through its existing clue/handout receipt and state the relation plus the stakes, or produce a compliant `bridge_offer` that leaves the choice open. Never require `source_rebinding` or a receipt when authority is `true` and the candidate is a compliant offer |
+| `none` | `revise` | reserved for the two abuses (1.2.19): the candidate contradicts the selected thread's claim or already acquired evidence, or it invents an analogous incident, fabricates a carrier, or claims evidence arrived, was read or was acquired without its receipt. `quote`, `clue` and `relation` are `null`; add exactly one finding naming what contradicts or what was claimed without a receipt, and how to withdraw it. A candidate that simply did not reach the bridge is **not** this basis — it is `chosen_action` `defer`. The finding never asks for a `source_rebinding` whose only purpose is to satisfy this review, never asks for one when `authority.clue_here` is `true`, and never asks for a receipt when the candidate is a compliant offer |
 
-Overall pass requires a passing `reentry_review` or a structural defer, and a `bridge_offer` defer is one such structural defer: the turn is delivered and the reentry is retained (never counted as delivered), so the next turn carries the reentry until the player acts or a later valid discharge occurs. A structured revise overrides a contradictory aggregate pass and is not duplicated as a conflict. When bridge authority at the current scene is false, the audit requires the Keeper to prepare and accept `source_rebinding` first, and `bridge_receipt`/`bridge_offer` cannot be used; when it is `true`, the audit never requires `source_rebinding` again and never revises an authority-true compliant offer merely for a missing receipt, and `bridge_receipt` then applies only to acquired/read contents. Under `mode: clarify_known` the audit accepts **only** `acquired_clarification` or `player_discharge` as successful bases; neither may revise, and neither may demand a bridge receipt, a bridge offer or a source rebinding. `bridge_receipt` and `bridge_offer` are the lawful bases only under `mode: introduce_evidence`. `acquired_clarification` and `player_discharge` use already acquired evidence and do not require the clue to remain at the current scene, and `preparation_wait` and `none` keep their existing meanings. `locus_review` keeps its schema and gains no field.
+Overall pass requires a passing `reentry_review` or a structural defer. There are four structural defers — `bridge_offer`, `chosen_action`, `preparation_wait` and `authority_unavailable` — and `chosen_action` is the one that needs no host-owned state at all, because the player's own chosen line is not a condition the host records. A `bridge_offer` defer is one such structural defer: the turn is delivered and the reentry is retained (never counted as delivered), so the next turn carries the reentry until the player acts or a later valid discharge occurs. A structured revise overrides a contradictory aggregate pass and is not duplicated as a conflict. When bridge authority at the current scene is false, the audit requires the Keeper to prepare and accept `source_rebinding` first, and `bridge_receipt`/`bridge_offer` cannot be used; when it is `true`, the audit never requires `source_rebinding` again and never revises an authority-true compliant offer merely for a missing receipt, and `bridge_receipt` then applies only to acquired/read contents. Under `mode: clarify_known` the audit accepts **only** `acquired_clarification` or `player_discharge` as successful bases; neither may revise, and neither may demand a bridge receipt, a bridge offer or a source rebinding. `bridge_receipt` and `bridge_offer` are the lawful bases only under `mode: introduce_evidence`. `acquired_clarification` and `player_discharge` use already acquired evidence and do not require the clue to remain at the current scene; `chosen_action` is lawful under both modes and requires no authority state, no receipt and no host-owned field; `preparation_wait` keeps its existing meaning, and `none` is now reserved for the two abuses named above. `locus_review` keeps its schema and gains no field.
 
 **The post-commit assessment is unchanged.** `bridge_offer` is an audit-basis defer only; it does not write `story`. The next post-commit assessment still records `bridge_delivered: false` because no receipt landed, so the next turn retains the reentry until the player acts or a later valid discharge occurs. `bridge_offer` adds no Keeper verb, no lane, no forced clue, no automatic adaptation, no physical-place list and no opaque id.
 
-**Deferral is structural, not inferred (narration-audit 1.2.10).** A reentry may be deferred for an honest background wait only when `context.preparation_wait` exists with `kind` `source` or `adaptation`. The host passes `preparation_wait` only from its actual retained background state: no receipts, no new mail, an empty or quiet turn, generic waiting, and a candidate that merely says preparation is happening cannot establish pending preparation. When `context.preparation_wait` exists, the candidate must only tell the player that the exact retained preparation is pending and must claim no result, movement, new evidence, elapsed fictional time or unrelated event. Without `context.preparation_wait`, a projected reentry must be discharged by `current_input` at the selected core causal level or realized from the supplied bridge before delivery. `locus_review` keeps its schema; no new output field is added. The earlier inference-based deferral (from the mere absence of receipts) is withdrawn.
+**Deferral is structural, not inferred (narration-audit 1.2.10; the fourth structural defer added by 1.2.19).** Every deferral is still structural: the auditor never infers one from the mere absence of receipts, from a quiet turn, or from a candidate that merely says preparation is happening. What changed on 2026-09-15 is that being on the player's own chosen line is itself a structural case, and it is the only one that needs no host-owned field. A reentry may be deferred for an honest **background wait** only when `context.preparation_wait` exists with `kind` `source` or `adaptation`; the host passes that field only from its actual retained background state, and when it exists the candidate must only tell the player that the exact retained preparation is pending and must claim no result, movement, new evidence, elapsed fictional time or unrelated event. A reentry may be deferred for a **refused placement** only when `context.rebinding_refused` exists (§37.6). A reentry is deferred as **`chosen_action`** when the candidate continues the action the player actually chose without reaching the reentry and without either abuse — no host-owned field is consulted, because there is no host state that records that the player chose something else; the exact candidate excerpt is what the reviewer must copy, and a settled bridge receipt makes the basis unlawful. Without any of these, a projected reentry is discharged by `current_input` at the selected core causal level, realized from the supplied bridge, or deferred as `chosen_action`; it is revised only for a contradiction or a fabrication. `locus_review` keeps its schema; no new output field is added. The earlier inference-based deferral (from the mere absence of receipts) remains withdrawn, and the 1.2.10 rule that an unrealized bridge must revise is withdrawn by the 2026-09-15 decision above.
 
 **Live failure that motivated two-stage `bridge_offer` (retained, `midgame-reentry-live-15f-run`, driver attempts 2-4 around campaign turn 9; not yet fixed or accepted).** The run accepted `source_rebinding` for `globe-unpublished-story` into the Athens pension (adaptation receipt `7f1866baa199b5ae`), so bridge authority `causal_reentry.authority.clue_here` became `true`. The Keeper then bundled the clue, handout, item transfer and 25 minutes of reading into one batch; action admission correctly refused it because the player had chosen only to mail the travel pages and had not chosen to receive or read the clipping. The continuity audit then rejected a narration that merely offered the newly available clipping, so the Keeper had no lawful way to put the missing choice into the fiction and the turn stayed undelivered. This is retained failed evidence: the rules forbade settling a choice the player had not made, yet also forbade offering it. Narration-audit 1.2.13 adds the `bridge_offer` basis to close this seam, and narration-audit 1.2.14 separates the placement/offer stage from the acquisition/delivery stage so that this offer can no longer be revised for a missing receipt; P5 remains open until a retest records a delivered offer whose choice the player actually takes. The Keeper/action consumer of that basis is `story-thread` **1.2.6**: its Mod text tells the Keeper to prepare/accept `source_rebinding` when `authority.clue_here` is false, to settle only the exact clue/handout receipt the current `current_input` chose when it is true, and otherwise to narrate an unforced `bridge_offer` and stop — so the writer (effective graph/adaptation authority), the reader/verifier (the 1.2.13 `bridge_offer` defer) and the actor (`story-thread` 1.2.6 telling the Keeper the action) close the same loop. Under `mode: clarify_known` the same text tells the Keeper to connect one already acquired `known` row in that row's own `relation` direction and continue the chosen action instead, opening no adaptation.
 
@@ -6276,6 +6580,66 @@ falls back to the table's; a `reader` task in the same context still launches at
 (`tests/extension/runtime-reader.test.mjs`). The setting and `PI_COC_MOD_THINKING` both still outrank the
 default, in that order. The panel's advertised level is pinned to the runtime's, and no sentinel for
 following the table is accepted (`tests/extension/coc-lane-model.test.mjs`).
+
+### 37.12 A lane child's idle timeout is its own, and is measured, not derived from its budget (2026-09-15)
+
+§37.11's rule with a second dial. `runtime/launch.ts` writes `httpIdleTimeoutMs: 60000` into the agent
+home so a provider connection that answers and then says nothing becomes a retryable *timeout error*
+rather than an un-retryable watchdog abort — and that number is the table's, sized as twice the worst
+time-to-headers across 15,942 retained table requests. Every `pi` child reads the same file, including
+the Mod continuity-review child. That child's own wall-clock budget is `AUDIT_LIMITS.per_review_ms`,
+40 s. **A timeout longer than the budget can never fire.** The child's own timer kills it first, so
+the one failure the 60 s setting exists to convert is, in this lane, always a SIGTERM at the end of
+the budget with no reason attached.
+
+- `.coc/mods/jobs/f1336e40…` — request sent 2026-09-15T04:08:20.656Z, no provider response at all,
+  killed `code 143 timedOut` after 40,031 ms.
+- `…/playtest-evidence/pipicoc-20260914/homes/m-main/.coc/mods/jobs/b6242e2a…` — headers and first
+  chunks at 04:46:03, then 38 s of silence, killed after 40,015 ms.
+
+Both are on the build that already carried the 60 s setting. Both reached the Keeper as
+`continuity_review_unavailable`, which latches the turn's review budget (§37.9).
+
+**A fraction of `timeoutMs` is the wrong rule, for §37.11's reason in another costume.** How long a
+healthy stream goes quiet is a property of the transport and the model; how much allowance is left is
+a property of the accounting. Wiring one to the other is the same unrelated-dial-to-a-deadline
+mistake, and it fails in the direction that hurts: the reservation shrinks (a second review under
+`AUDIT_LIMITS.time_ms` gets only what remains), so "half the budget" lands *inside* the healthy
+distribution exactly when the allowance is tight, and aborts reviews that would have finished. The
+threshold is therefore measured from the lane's own retained streams.
+
+**25 s (`LANE_HTTP_IDLE_TIMEOUT_MS`), from 103 children and 4,075 gaps.** Across every retained
+`audit-agent-*.jsonl` in this worktree and in the 2026-09-14 playtest homes, the gaps between a lane
+child's streamed events put the worst *healthy* mid-stream silence at 16.42 s — a real one, inside a
+`thinking_delta` stream that went on to settle — with p99.9 at 10.79 s; the worst time-to-first-token
+is 10.49 s, and a whole child's wall clock runs 6.53 s at the median, 12.02 s at p90, 22.43 s at its
+worst. 25 s clears the worst observed healthy silence by half again and leaves 13 s of a 40 s budget
+for the retry pi schedules 2 s later. Nothing clamps it against a shrunken reservation on purpose: a
+threshold that cannot fire inside what is left is simply today's behaviour, which is the right
+fallback. `PI_COC_MOD_HTTP_IDLE_TIMEOUT_MS` in the host's environment outranks it, the way
+`PI_COC_MOD_TIMEOUT_MS` outranks the budget beside it.
+
+**The seam is pi's project scope, not the agent home.** The agent-home value is written once and
+never re-asserted because it is the operator's, so the lane may not move it. Pi deep-merges
+`<cwd>/.pi/settings.json` over the agent home's for one process, and loads it only for a *trusted*
+project — a print-mode child with no UI answers the trust question "no", so the file without
+`--approve` is read by nobody. `runReader` therefore writes both or neither, for `mod` tasks only:
+`reader` rounds have an hour and no such budget, and buying them a shorter idle timeout would only
+abort reads that are answering slowly. The `.pi` directory is **recreated from nothing on every
+run**: `--approve` trusts the whole project scope, the attempts of one review share a working
+directory the child itself can write to, and a `SYSTEM.md`, `APPEND_SYSTEM.md`, `extensions` or
+`skills` left behind would be writing the next attempt's startup.
+
+**Acceptance** (`tests/extension/lane-idle-timeout.test.mjs`). The constant is pinned against both
+quantities it sits between — above the 16.42 s worst healthy silence, and far enough below
+`AUDIT_LIMITS.per_review_ms` to hold pi's 2 s backoff plus a median child. A `mod` task writes
+`{httpIdleTimeoutMs}` into its own `cwd/.pi/settings.json` and launches with `--approve`; a `reader`
+task in the same context gets neither; the agent home's settings file is unchanged. A `.pi` directory
+carrying a previous attempt's `APPEND_SYSTEM.md`, stray `extensions` and a longer timeout is gone
+after the next run. And the behavioural half, which no amount of writing the file can satisfy: a real
+`pi` child, against a socket that sends headers and a first chunk and then stops, raises `terminated`
+inside its budget, retries on pi's own auto-retry, and returns an answer — where before it streamed
+nothing further and was killed at the end.
 
 ### 37.8 The extended live gate is accepted (2026-09-13)
 
@@ -6675,6 +7039,14 @@ revised, timed out, or never started. `model` is read from the child's own comma
 resolves the lane model (§37.10) and the request cannot say which one ran. The row is best-effort and never
 fails a review. This is a diagnostic row, not an escalation: §38.5's `coc-review-status` entry is unchanged.
 
+**`cause` is `details.cause`, never the wrapper message.** `reviewUnavailable()` gives all eight of its
+distinct conditions one `message` — *"Continuity review is paused; no draft was approved"* — and puts the
+condition itself in `details.cause`. A row carrying the message says nothing: H-MAIN turn 42 (a review that
+ran, submitted, and exhausted `max_rewrites`: `The bounded Keeper repair did not resolve the review`) and
+H-MAIN turn 43 (a child killed at the cap having submitted nothing: `The private reviewer ended without a
+checked submission`) printed the same sentence, and the two are opposite operational facts. `reason` stays
+the closed contract field it is; `cause` is what separates the families.
+
 **`mod_audit_stale` is a race, not a verdict, and must not latch the turn.** `mods.job` pins the evidence
 digest; `mods.accept` recomputes it and refuses a binding that moved, with the fix *"Retry the same narration
 to prepare a current source audit; do not reroll settled actions"*. The Mod bridge turned that refusal into
@@ -6717,6 +7089,103 @@ which receives a retryable refusal with a fix it can act on, and the operator, t
 surfaces `mod_audit_stale` to the caller, and the next `narrate` of the same turn runs a real review and can
 be delivered; every other accept failure still blocks; a review that passes, a review that is refused, and a
 review whose runtime is missing each leave one `lane: "continuity-review"` row
+(`tests/extension/continuity-audit.test.mjs`).
+
+### 38.9 A streak counts outages, not the guard doing its job (2026-09-15)
+
+§38.5 escalates a table to `status: "down"` on the second consecutive review pause: the player is told
+another attempt is pointless, and the operator is handed the lane-model fix. `pauseReview` counted every
+pause, whatever caused it. Half of the streak that first triggered it had no lane problem at all.
+
+Retained evidence, `game-83177d61` (2026-09-15), from its own `telemetry.jsonl` and review accounting:
+
+| turn | child | retained cause | streak |
+|---|---|---|---|
+| 42 | `submitted: true`, 17 386 ms | `The bounded Keeper repair did not resolve the review` | 1 |
+| 43 | `submitted: false`, killed at 40 014 ms | `The private reviewer ended without a checked submission` | 2 |
+
+Turn 42 is `max_rewrites` (§37.9) working exactly as designed: the review ran twice, submitted twice and
+refused twice, and the input ended. **A table is not down because its reviewer disagreed.** Turn 43 is a
+dead stream. Summed, they produced an escalation whose wording and whose fix were wrong for one of the two.
+
+**So a pause carries its kind, and only a service pause accumulates.** `reviewUnavailable(cause, service)`
+puts `service` in `details` beside `cause`; `AuditBudget.fail(cause, service)` records it in the retained
+accounting as `blocked_service`, so a later review of the same input replays the kind instead of re-reading
+a verdict end as a fresh outage. Every branch in which the reviewer *reached a conclusion*, or in which the
+allowance those conclusions consumed ran out, is `service: false`: `max_rewrites`, the same rejected draft
+resubmitted, a `verdict: "unavailable"` submission, and every exhausted-allowance end. Everything else — a
+child that submitted nothing, an unreadable or interrupted accounting file, a lock another review holds, a
+missing runtime — stays `service: true`. `reason` is unchanged: both kinds still end the player's input and
+the Keeper's lawful response to either is identical, so splitting the closed contract field would buy
+nothing.
+
+The operator entry gains `service`, so `coc-review-status` says which kind it was rather than leaving it to
+be inferred from the cause sentence. A verdict pause emits `status: "unavailable"` with no `fix`, and never
+raises the streak on its own; two genuine outages still escalate once, exactly as before.
+
+**This is not a relaxation.** A verdict pause still ends the input, still publishes nothing, and still
+requires new player input — the guard is untouched. What changes is only whether that counts as evidence
+that the lane is broken.
+
+**Three ends (§31).** *Writer:* `AuditBudget`, at the site that knows which bound fired. *Reader:*
+`pauseReview`, and the operator through `coc-review-status`. *Actor:* the operator, who is no longer sent to
+change a lane model over a disagreement; and the player, who is no longer told that trying again is
+pointless when it is not.
+
+**Acceptance.** Two consecutive verdict pauses leave `streak: 0`, emit no `down` entry and no `fix`, and
+leave the player the "send anything to try again" wording; two consecutive service pauses still reach
+`streak: 2`, `status: "down"` and the lane-model fix; a retained block replays its own kind
+(`tests/extension/continuity-audit.test.mjs`).
+
+### 38.10 The player notice states what happened and what is worth doing (2026-09-15)
+
+§38.9 made the *streak* honest. The three sentences the player actually reads were not, and two of
+them were false on live tables.
+
+**A review that finished is not a review that "did not finish".** `review_unavailable_notice` says
+the continuity review did not finish. On H-MAIN turn 42 (`game-83177d61`) two reviews ran, both
+submitted, and took 23.2 s and 17.4 s; the input ended on `rewrites(1) >= max_rewrites(1)`, the
+bound §37.9 exists to enforce. The one fact the player was given about their own turn was wrong, and
+it pointed them at the wrong remedy: nothing about that turn was going to be fixed by waiting.
+
+**A streak is not a locked table.** `review_down_notice` said *"sending it again will not help"*.
+`before_agent_start` clears `reviewUnavailable`, every new input opens a turn with a fresh allowance,
+and a landed `narrate` zeroes `reviewOutage`; a streak changes the wording and nothing else. The
+playtest run that found this recorded the table as unrecoverable and stopped on that sentence, then
+sent one more line and received a complete turn. A notice that stops a player who could have carried
+on is a worse outcome than the outage it describes.
+
+**So the notice is chosen by the kind of pause, not by the streak alone.** `pauseReview` pins the
+kind of the pause that stopped the review (`reviewPauseService`) on the same first pause that owns
+the streak, because every later verb in the run re-throws through the guard, whose error carries no
+`service` at all and would relabel a verdict as a dead lane by its own second symptom. Three
+captions on the `extension` surface:
+
+| pause | caption | what it tells the player |
+|---|---|---|
+| `service: false` | `review_verdict_notice` | the review read the turn and did not approve it; settled work is kept; send anything and the Keeper writes it again |
+| `service: true`, streak < 2 | `review_unavailable_notice` | the review did not finish; send anything to try again |
+| `service: true`, streak ≥ 2 | `review_down_notice` | it has failed `{streak}` times; sending again does still open a fresh attempt, and if it keeps failing, pick a quicker model under **Lane model** in settings — the next review uses it without restarting this table (§37.10) |
+
+The streak line names the only operator lever the product actually has, in the words of the setting
+that carries it, rather than telling the player to stop. `details.service` travels on the delivery
+message and on the `lane: "delivery"` telemetry row beside `streak`, so which sentence was chosen is
+recoverable from a transcript.
+
+`mods.review.status` gains `service`, read from the retained accounting's `blocked_service`, so a
+turn recovered through the watchdog replays the kind that blocked it instead of counting a retained
+verdict end as a fresh outage. An invalid or unreadable accounting file and an interrupted
+reservation answer `service: true` in their own right.
+
+**Three ends (§31).** *Writer:* `pauseReview`, from the pause that stopped the review. *Reader:* the
+delivery notice at `agent_settled`, and anyone reading the telemetry row. *Actor:* the player, who
+is told whether another attempt is worth anything, and the operator, who is pointed at Lane model
+rather than at nothing.
+
+**Acceptance.** A verdict pause and a service pause in the same table produce different sentences,
+and the verdict one never says "did not finish"; a verdict pause on a table already at `streak: 2`
+still reads as a verdict; a service streak of 2 names Lane model and never says another attempt is
+pointless; the verbs refused after a verdict pause do not relabel the run
 (`tests/extension/continuity-audit.test.mjs`).
 
 ## 39. Session maps revealed by player knowledge (2026-09-13)

@@ -8,6 +8,8 @@ import { emitToPanel } from "../../pipicoc/host-bridge.ts";
 import { presentDocument } from "./document-presentation.ts";
 import type { HostRuntime } from "../../runtime/host.ts";
 import {AuditBudget, reviewUnavailable} from './audit-budget.ts';
+import {resolveUiWordsSync} from '../../runtime/ui-words.ts';
+import {extensionContentRoot, extensionHome, fill} from '../ui/words.ts';
 
 type Call = (method: string, params: Record<string, unknown>) => Promise<any>;
 
@@ -26,12 +28,18 @@ const errorText = (error: unknown): string => (error instanceof Error ? error.me
  * starts more workers than the batch has distinct jobs.
  */
 const MOD_POOL_DEFAULT = 8;
+function prefetchLimit(): number {
+  const value = process.env.PI_COC_MOD_PREFETCH_LIMIT;
+  const configured = value?.trim() ? Number(value) : NaN;
+  return Number.isFinite(configured) && configured >= 0 ? Math.floor(configured) : 2;
+}
 function modPoolSize(): number {
   const configured = Number(process.env.PI_COC_MOD_CONCURRENCY);
   return Number.isFinite(configured) && configured >= 1 ? Math.floor(configured) : MOD_POOL_DEFAULT;
 }
 export interface ModBridge {
-  reviewStatus?(campaign: string): Promise<{paused?: boolean; reason?: string}>;
+  /** `service` is §38.9's kind, replayed from the retained accounting; absent reads as a service pause. */
+  reviewStatus?(campaign: string): Promise<{paused?: boolean; reason?: string; service?: boolean}>;
   prepare(method: string, payload: Record<string, any>, signal?: AbortSignal): Promise<void>;
   /** After the verb landed, so deferred registration can complete in a turn the Keeper never writes in. */
   after(method: string, payload: Record<string, any>, signal?: AbortSignal): Promise<void>;
@@ -43,13 +51,97 @@ export default function modsExtension(pi: ExtensionAPI): void {
   let mintCallId: (() => string | undefined) | undefined;
   let context: ExtensionContext | undefined;
   let inputToken: string | undefined;
+  let language: unknown;
+  pi.events.on("coc:table-open", value => { language = (value as any)?.open?.campaign?.play_language; });
+  pi.events.on("coc:session-bound", value => { language = (value as any)?.play_language; });
   let record: ((row: Record<string, unknown>) => void) | undefined;
   pi.events.on("coc:kernel-bridge", (data) => {
     call = (data as any)?.call; runtime = (data as any)?.runtime; mintCallId = (data as any)?.mintCallId;
     record = (data as any)?.record;
   });
   pi.on("session_start", async (_event, ctx) => { context = ctx; });
-  pi.on("before_agent_start", async (_event, ctx) => { context = ctx; inputToken = randomUUID(); });
+  pi.on("before_agent_start", async (_event, ctx) => { cancelPrefetch(); context = ctx; inputToken = randomUUID(); });
+  pi.on("input", () => { cancelPrefetch(); });
+
+  let prefetchEpoch = 0, prefetching: Promise<void> | undefined;
+  let prefetchController: AbortController | undefined;
+  let stopped = false;
+  const prefetchedTurns = new Set<string>();
+  function cancelPrefetch(): void {
+    prefetchEpoch++;
+    prefetchController?.abort(new Error('Usage prefetch yielded to foreground work'));
+  }
+  pi.events.on('coc:turn-committed', data => {
+    const committed = data as {campaign?: string; turn?: number};
+    const limit = prefetchLimit();
+    if (stopped || !call || !runtime || !limit || typeof committed?.campaign !== 'string' || typeof committed.turn !== 'number') return;
+    const campaign = committed.campaign, turn = committed.turn, current = call, epoch = prefetchEpoch, prior = prefetching;
+    // Leave the committing call immediately. A later input invalidates even a scan waiting in this chain.
+    const work = (async () => {
+      if (prior) await prior;
+      // Deferred inventory registration owns its creator first; optional work never races that batch.
+      if (outstanding) await outstanding;
+      await new Promise<void>(resolve => setImmediate(resolve));
+      if (stopped || epoch !== prefetchEpoch) return;
+      const controller = new AbortController();
+      prefetchController = controller;
+      // Commit events name the delivered turn; the retained idle turn may already be its successor.
+      const ready = (view: any): boolean => !stopped && epoch === prefetchEpoch && view.turn >= turn
+        && view.state === 'awaiting_player' && !view.pending_choice;
+      const scan = {scanned: 0, candidates: 0, started: 0, skipped: {has_any_usage: 0, covered: 0},
+        reason: 'not_idle', retained_turn: null as number | null, state: null as string | null, worldline: null as string | null};
+      try {
+        const view = await current('mods.prefetch.targets', {campaign});
+        scan.retained_turn = view.turn; scan.state = view.state; scan.worldline = view.worldline;
+        scan.scanned = view.instances.length;
+        const candidates = view.instances.filter((item: any) => {
+          if (item.has_any_usage) { scan.skipped.has_any_usage++; return false; }
+          if (item.covered) { scan.skipped.covered++; return false; }
+          return true;
+        });
+        scan.candidates = candidates.length;
+        if (!ready(view)) return;
+        const key = JSON.stringify([campaign, view.worldline, turn]);
+        if (prefetchedTurns.has(key)) { scan.reason = 'duplicate_commit'; return; }
+        prefetchedTurns.add(key);
+        scan.reason = 'completed';
+        for (const item of candidates.slice(0, limit)) {
+          if (controller.signal.aborted) break;
+          const latest = await current('mods.prefetch.targets', {campaign});
+          if (!ready(latest)) { scan.reason = 'not_idle'; break; }
+          if (latest.worldline !== view.worldline) { scan.reason = 'worldline_changed'; break; }
+          const target = latest.instances.find((value: any) => value.id === item.id);
+          if (!target || target.has_any_usage || target.covered) continue;
+          const began = Date.now();
+          try {
+            const guard = async () => {
+              const state = await current('mods.prefetch.targets', {campaign});
+              if (!ready(state) || state.worldline !== view.worldline) controller.abort(new Error('Usage prefetch is no longer idle'));
+              controller.signal.throwIfAborted();
+            };
+            scan.started++;
+            const result = await task(campaign, 'usage', {object: target.name, propose: true}, controller.signal, undefined, guard);
+            note({lane: 'usage-prefetch', campaign, turn, object: target.name, prefetched: true,
+              ok: true, enabled: result !== null, negative: result?.usage === null,
+              job: result?.provenance?.job ?? null, ms: Date.now() - began});
+          } catch (error) {
+            note({lane: 'usage-prefetch', campaign, turn, object: target.name, prefetched: true,
+              ok: false, cancelled: controller.signal.aborted, cause: errorText(error), ms: Date.now() - began,
+              ...(isKernelError(error) ? {code: error.code, ...error.details} : {})});
+          }
+        }
+      } catch (error) {
+        scan.reason = 'failed';
+        note({lane: 'usage-prefetch', campaign, turn, prefetched: true, ok: false, cause: errorText(error)});
+      } finally {
+        if (controller.signal.aborted) scan.reason = 'cancelled';
+        note({lane: 'usage-prefetch', event: 'scan', campaign, turn, prefetched: true, ...scan});
+        if (prefetchController === controller) prefetchController = undefined;
+      }
+    })();
+    prefetching = work;
+    void work.finally(() => { if (prefetching === work) prefetching = undefined; });
+  });
 
   /**
    * One campaign telemetry row per continuity review (contract §12.8). The review is a `mod` child,
@@ -80,11 +172,19 @@ export default function modsExtension(pi: ExtensionAPI): void {
       note({...telemetry, ok: true, ms: Date.now() - began, verdict: result?.continuity_review?.verdict ?? null});
       return result;
     } catch (error) {
-      const reason = isKernelError(error) ? error.details?.reason : undefined;
+      const details = isKernelError(error) ? error.details : undefined;
+      const reason = details?.reason;
+      // `reviewUnavailable()` gives all eight of its distinct conditions the same `message`
+      // ("Continuity review is paused; no draft was approved"); which one actually fired lives in
+      // `details.cause`, and only there. Recording the message made a review that ran twice, submitted
+      // twice and refused twice (H-MAIN turn 42: `The bounded Keeper repair did not resolve the
+      // review`) indistinguishable from a lane that never answered — on the one row whose whole
+      // purpose is telling those apart.
+      const cause = typeof details?.cause === 'string' && details.cause ? details.cause : errorText(error);
       note({...telemetry, ok: false, ms: Date.now() - began,
         ...(isKernelError(error) ? {code: error.code} : {}),
         ...(reason ? {reason: String(reason)} : {}),
-        cause: errorText(error)});
+        cause});
       throw error;
     }
   }
@@ -169,16 +269,19 @@ export default function modsExtension(pi: ExtensionAPI): void {
     } finally { budget.close(); }
   }
 
-  async function task(campaign: string, role: "create" | "usage" | "audit", input: unknown, signal?: AbortSignal, preview?: Record<string, any>[]): Promise<any> {
+  async function task(campaign: string, role: "create" | "usage" | "audit", input: unknown, signal?: AbortSignal, preview?: Record<string, any>[], guard?: () => Promise<void>): Promise<any> {
     if (!call) throw new KernelError({code:"needs",message:"Mod kernel bridge is unavailable"});
     const current = call, owner = runtime, began = Date.now();
+    const proposal = role === 'usage' && (input as any)?.propose === true;
+    const acceptMethod = proposal ? 'mods.prefetch.accept' : 'mods.accept';
     if (role === "usage") signal?.throwIfAborted();
     const job = await current("mods.job", preview === undefined ? {campaign, role, input} : {campaign, role, input, preview});
     if (role === "usage") signal?.throwIfAborted();
     if (!job.enabled) return null;
     if (job.continuity_review) return continuityTask(campaign, job, input, began, signal);
     if (job.accepted) {
-      const result = await current("mods.accept", {campaign, job:job.job});
+      await guard?.();
+      const result = await current(acceptMethod, {campaign, job:job.job});
       if (role === "usage") signal?.throwIfAborted();
       return result;
     }
@@ -199,6 +302,7 @@ export default function modsExtension(pi: ExtensionAPI): void {
       // batch that died mid-flight could not be told from one that timed out. The attempt is recorded
       // either way, and then the original failure continues on its way.
       try {
+        await guard?.();
         outcome = await owner.runTask({kind:"mod", request:{cwd:job.cwd, systemPrompt:job.system_prompt, model:modelName,
           tools:job.source_review || role === "usage" ? "read,write,edit,bash" : "read,write,edit",
           eventLog:join(job.cwd, `agent-${attempt}.jsonl`), brief:base + repair}}, signal);
@@ -217,12 +321,17 @@ export default function modsExtension(pi: ExtensionAPI): void {
         fix:"Retry the same request to resume the retained job",
         details:{reason:"mod_agent_failed", role, source_review:job.source_review === true, timed_out:outcome.timedOut, ms:outcome.ms, exit:outcome.code ?? null, signal:outcome.signal ?? null}});
       try {
-        if (role === "create" || role === "usage") {
+        // The ordinary usage checker accepts objects only. A proposal may explicitly decline with
+        // JSON null; the same kernel acceptance gate validates that negative result and retains it.
+        const negative = proposal && JSON.parse(await readFile(join(job.cwd, 'result.json'), 'utf8')) === null;
+        if ((role === "create" || role === "usage") && !negative) {
           const check = await owner.check({kind:role === "usage" ? "object-usage" : "mod-definition", draft:join(job.cwd,"result.json")}, signal);
           if (role === "usage") signal?.throwIfAborted();
           if (!check.ok) throw new Error(JSON.stringify(check.fix ? {error: check.error, fix: check.fix} : check.error ?? check));
         }
-        const result = await current("mods.accept", {campaign, job:job.job});
+        await guard?.();
+        if (role === "usage") signal?.throwIfAborted();
+        const result = await current(acceptMethod, {campaign, job:job.job});
         if (role === "usage") signal?.throwIfAborted();
         return result;
       }
@@ -245,8 +354,24 @@ export default function modsExtension(pi: ExtensionAPI): void {
    * the app is told how far along it is: a tool call that emits nothing for minutes is indistinguishable
    * from a wedged one. A view that cannot be reached never fails a turn (`emitToPanel` swallows).
    */
-  function announce(campaign: string, done: number, total: number): void {
-    void emitToPanel("coc-keeper", "mods-progress", {campaign, done, total});
+  function announce(campaign: string, done: number, total: number, effects: Record<string, any>[]): void {
+    const role = effects[0]?.kind === "usage" ? "usage" : "define";
+    const objects = [...new Set(effects.map(effect => role === 'usage' ? effect.object : effect.name)
+      .filter((name): name is string => typeof name === 'string' && !!name))];
+    void emitToPanel("coc-keeper", "mods-progress", {campaign, role, objects, done, total});
+    // Definitions may run beside a delivered turn. Only in-turn usage owns this TUI status.
+    if (role !== "usage" || !context?.hasUI) return;
+    try {
+      if (done >= total) { context.ui.setStatus("coc-mods", undefined); return; }
+      const key = "progress.usage";
+      let template = key;
+      try {
+        template = resolveUiWordsSync({contentRoot: extensionContentRoot(runtime?.contentRoot),
+          home: extensionHome(runtime?.home), tag: language}).words.mods?.[key] ?? key;
+      } catch { /* Missing words remain visible as a key, not another language's caption. */ }
+      const label = objects.slice(0, 2).join(', ') + (objects.length > 2 ? ' …' : '');
+      context.ui.setStatus('coc-mods', fill(template, {objects: label, done, total}));
+    } catch { /* A view that is gone cannot fail preparation. */ }
   }
 
   /**
@@ -267,13 +392,13 @@ export default function modsExtension(pi: ExtensionAPI): void {
     const jobs = owners.filter((owner, index) => owner === index);
     const total = jobs.length, results: any[] = new Array(defines.length), failures: unknown[] = new Array(defines.length);
     let done = 0, next = 0;
-    announce(campaign, done, total);
+    announce(campaign, done, total, jobs.map(index => defines[index]));
     const worker = async (): Promise<void> => {
       for (let slot = next++; slot < total; slot = next++) {
         const index = jobs[slot];
         try { results[index] = await task(campaign, defines[index].kind === "usage" ? "usage" : "create", inputs[index], signal, previews[index]); }
         catch (error) { failures[index] = error; }
-        announce(campaign, ++done, total);
+        announce(campaign, ++done, total, jobs.map(index => defines[index]));
       }
     };
     if (total > 0) await Promise.all(Array.from({length: Math.min(modPoolSize(), total)}, worker));
@@ -437,6 +562,7 @@ export default function modsExtension(pi: ExtensionAPI): void {
      * opened this one, so completing here needs no write authority it does not already have.
      */
     async after(method, payload, signal) {
+      if (method === 'player_input') cancelPrefetch();
       if (typeof payload.campaign !== "string") return;
       // Preparing a reading can never fail a verb that already landed, so it is started, never awaited.
       if (method === "apply") warm(payload.campaign, carriers(payload.effects ?? []));
@@ -446,6 +572,7 @@ export default function modsExtension(pi: ExtensionAPI): void {
       catch (error) { void emitToPanel("coc-keeper", "mods-progress", {campaign: payload.campaign, done: 0, total: 0, deferred_failed: errorText(error)}); }
     },
     async prepare(method, payload, signal) {
+      cancelPrefetch();
       if (["apply", "resolve", "narrate", "ask"].includes(method) && typeof payload.campaign === "string")
         await resume(payload.campaign, signal);
       if (method === "apply") {
@@ -495,5 +622,11 @@ export default function modsExtension(pi: ExtensionAPI): void {
   };
   // Subscribe/announce during extension loading, before kernel session_start opens the table.
   pi.events.emit("coc:mods-bridge", bridge);
-  pi.on("session_shutdown", async () => { pi.events.emit("coc:mods-bridge", undefined); });
+  pi.on("session_shutdown", async () => {
+    stopped = true;
+    cancelPrefetch();
+    if (context?.hasUI) context.ui.setStatus("coc-mods", undefined);
+    context = undefined;
+    pi.events.emit("coc:mods-bridge", undefined);
+  });
 }

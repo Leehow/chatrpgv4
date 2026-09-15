@@ -7,6 +7,7 @@ import { whereSection, clockSection, npcsPresent, cluesHere, presentSection, kno
 import { playedRecords, signals, directorSection } from "./director.js";
 import { EntityIndex, capsuleMemory, noteObligations, rulingsForCapsule, promiseObligations } from "./memory.js";
 import { clockPressures, threatPressures, unansweredContinuations, continuationRows, questObligations, choiceObligation, sessionObligation } from "./pressures.js";
+import { evidenceAcquired, evidenceDeliveryRecords } from "./continuity.js";
 import { worldlineSection, crossLineReader, loopObligation, worldlineSignals } from "./worldline.js";
 import { modContext } from "./mods.js";
 import { directorOffer, directorRecovery } from "./offer.js";
@@ -14,6 +15,7 @@ import { pythonJsonDumps, utf8Bytes } from "../json.js";
 import { playLanguageOf } from "./languages.js";
 import { RpcError } from "../errors.js";
 import { array, row, number, string, truth, chars, clone, type Row } from "./values.js";
+import type { ModuleGraph } from "./module-graph.js";
 export const HEAD = "Everything at the start of this turn: the clock, the undiscovered clues here and their gates, the secrets " +
     "and agendas of those present, the way back and the exits, pressures and obligations, the rule-layer " +
     "situations, the Director's suggested beat, related memory and the style contract. Do not look/lookup " +
@@ -57,6 +59,19 @@ export const SLICE3_BUDGETS: Readonly<Record<string, number>> = Object.freeze({
     // 1536 since the turn floor (docs/specs/turn-floor.md D1): the brief form carries the four floor lines beside the beat's directives.
     style: 1536
 });
+export function evidenceAnchors(graph: ModuleGraph, world: Row, records: Row[], limit = 4): string[] {
+    return [...graph.kind("clue"), ...graph.kind("handout")]
+        .flatMap(node => {
+            const deliveries = evidenceDeliveryRecords(graph, node, records);
+            return deliveries.length && evidenceAcquired(graph, world, node, records)
+                ? [{ name: graph.handle(node), turn: Math.max(...deliveries.map(record => number(record.turn))) }]
+                : [];
+        })
+        .sort((left, right) => right.turn - left.turn || left.name.localeCompare(right.name))
+        .slice(0, limit)
+        .map(anchor => anchor.name);
+}
+
 export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedModule, options: {
     styleFull?: boolean;
     moduleBrief?: boolean;
@@ -100,7 +115,8 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
     const worldlines = await worldlineSection(campaign, graph, world, scene, present),
         across = await crossLineReader(campaign, graph, world, present);
     const presentNames = [...present.map(n => graph.displayName(n)), ...present.map(n => graph.handle(n))],
-        here = [graph.handle(scene), sceneLabel(graph, world, scene)];
+        here = [graph.handle(scene), sceneLabel(graph, world, scene)],
+        memoryAnchors = [...presentNames, ...party.map(sheet => string(sheet.name)), graph.handle(scene), ...evidenceAnchors(graph, world, campaign.records)];
     const obligations = [...choiceObligation(turn.pending_choice), ...sessionObligation(session), ...continuationRows(continuations), ...questObligations(graph, world), ...promiseObligations(memory), ...noteObligations(campaign.logs.get("notes.jsonl") ?? [], presentNames, here), ...loopObligation(worldlines)];
     const sig = signals({
         graph,
@@ -133,7 +149,7 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
         situations,
         worldlines,
         rulings: rulingsForCapsule(campaign.logs.get("rulings.jsonl") ?? [], session?.kind ?? null, present.map(n => graph.handle(n)), graph.handle(scene), graph.moduleId, party.map(sheet => `investigator:${string(sheet.id)}`)),
-        memory: capsuleMemory(memory, new EntityIndex(graph, party, row(world.scene_labels)), [...present.map(n => graph.displayName(n)), ...party.map(sheet => string(sheet.name))]),
+        memory: capsuleMemory(memory, new EntityIndex(graph, party, row(world.scene_labels)), memoryAnchors),
         style: craft.style(language, string(meta.register || "purist"), director.beat, full),
         recent: campaign.records.filter(record => number(record.turn) < number(turn.turn) && (truth(record.player_text) || truth(record.rendered_text))).slice(-2).map(record => ({
             turn: record.turn,

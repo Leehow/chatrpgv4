@@ -12,6 +12,7 @@ import { CampaignWriter, nowIso } from '../write/store.js';
 import { noteMemory, readNpcLedger } from '../write/contributions.js';
 import { buildJob, correctionJob, committedRecords, defaultJobTurn, fail, logs, openJob, parseJobId, readJob, submit } from './jobs.js';
 import { history, recallMemory, transcript } from './recall.js';
+import {validateRecallRequest} from './pages.js';
 /** The verifier's finding kinds, `play_language_mismatch` among them: the kernel makes no language refusal of its own (contract section 23). */
 const FINDINGS = ['reveal', 'uncommitted_state', 'player_agency', 'play_language_mismatch', 'unmarked_speech'];
 async function warn(campaign: CampaignWriter, params: Row): Promise<Row> {
@@ -130,10 +131,12 @@ export function createMemoryHandlers(context: KernelContext, writer: ReturnType<
             return fail(loaded.campaign, job, string(params.job_id), turn, params.reason, params.detail);
         },
         'table.recall': async (params) => {
-            const { campaign: snapshot, module } = await readCampaign(context, params, false, true, writer.read), what = params.what;
+            validateRecallRequest(params);
+            const contextRead = params._context_read === true;
+            const { campaign: snapshot, module } = await readCampaign(context, params, false, true, writer.read, contextRead), what = params.what;
             if (!['history', 'memory', 'transcript'].includes(what as string))
                 unsupported('what', what, ['history', 'memory', 'transcript'], `unknown recall kind ${repr(what)}`);
-            await writer.read.touchActing!(snapshot);
+            if (!contextRead) await writer.read.touchActing!(snapshot);
             const campaign = await writer.campaign(params), current = number(snapshot.turn.turn);
             return what === 'transcript' ? transcript(campaign, current, params) : what === 'history' ? history(campaign, current, params) : recallMemory(campaign, module.graph, snapshot.world, params);
         }

@@ -14,6 +14,7 @@ vi.mock('@xterm/addon-fit', () => ({ FitAddon: class { fit = vi.fn(); dispose = 
 
 import { App } from './App'
 import { createMockHost } from './mock-host'
+import modsWords from '../../../../content/ui/en/mods.json'
 
 beforeEach(() => {
   vi.useRealTimers()
@@ -33,14 +34,20 @@ afterEach(() => {
 describe('active-turn waiting placeholder', () => {
   // An `apply` that defines objects runs host-side Mod agents for minutes and streams nothing, so the
   // only surface that keeps moving through the call — the waiting line — carries the pack's own count.
-  it('carries CoC mod-definition progress while the tool call runs, and drops it when the phase turns', async () => {
+  it.each(['define', 'usage'] as const)('carries CoC %s progress using ui-words and clears on completion and phase changes', async role => {
     let listener: ((event: StreamEvent) => void) | undefined
     // The host broadcasts one ext channel to every subscriber (App already
     // stacks several coc-keeper blocks), so the double keeps a list, not a slot.
     const extListeners: Array<(event: { type: string; payload?: unknown }) => void> = []
     const emitExt = (event: { type: string; payload?: unknown }) => { for (const emit of [...extListeners]) emit(event) }
     const base = createMockHost()
+    const words = {
+      ...modsWords,
+      // A projected caption deliberately differs from the authored English source.
+      'progress.usage': 'Projected preparation {objects} [{done}/{total}]',
+    }
     const host: PipiHostAPI = { ...base,
+      invokeExtension: vi.fn(async () => ({ok: true, data: {campaign: 'c1', ui: {words: {mods: words}}}})),
       subscribeStream: (_sessionId, callback) => { listener = callback; return () => { listener = undefined } },
       subscribeExt: (extensionId: string, callback: (event: { type: string; payload?: unknown }) => void) => {
         if (extensionId !== 'coc-keeper') return () => undefined
@@ -55,12 +62,29 @@ describe('active-turn waiting placeholder', () => {
 
     act(() => { listener?.({ type: 'status', sessionId: 'welcome', status: 'started', pendingFollowUps: ['host'] }) })
     act(() => { listener?.({ type: 'tool_call', sessionId: 'welcome', toolCallId: 'apply-1', name: 'apply', delta: '{"effects":[]}' }) })
-    act(() => { emitExt({ type: 'mods-progress', payload: { campaign: 'c1', done: 2, total: 7 } }) })
-    await waitFor(() => expect(document.querySelector('.waiting-placeholder__detail')?.textContent).toContain('生成物品定义 2/7'))
+    const payload = { campaign: 'c1', role, objects: ['Lamp', 'Rope', 'Chair'], done: 2, total: 7 }
+    const expected = role === 'define' ? 'Generating item definitions 2/7' : 'Projected preparation Lamp, Rope … [2/7]'
+    act(() => { emitExt({ type: 'mods-progress', payload }) })
+    await waitFor(() => expect(document.querySelector('.waiting-placeholder__detail')?.textContent).toContain(expected))
+    expect(document.querySelector('.waiting-placeholder__detail')?.textContent).not.toContain('Chair')
 
-    // The last definition lands: the count stops claiming work that is no longer running.
-    act(() => { emitExt({ type: 'mods-progress', payload: { campaign: 'c1', done: 7, total: 7 } }) })
-    await waitFor(() => expect(document.querySelector('.waiting-placeholder__detail')?.textContent).not.toContain('生成物品定义'))
+    // The last task lands: the count stops claiming work that is no longer running.
+    act(() => { emitExt({ type: 'mods-progress', payload: {...payload, done: 7} }) })
+    await waitFor(() => expect(document.querySelector('.waiting-placeholder__detail')?.textContent).not.toContain(expected))
+
+    // Leaving the tool phase also clears an unfinished batch, even if its terminal event was lost.
+    act(() => { emitExt({ type: 'mods-progress', payload }) })
+    await waitFor(() => expect(document.querySelector('.waiting-placeholder__detail')?.textContent).toContain(expected))
+    act(() => { listener?.({ type: 'tool_result', sessionId: 'welcome', toolCallId: 'apply-1', content: 'ok', isError: false }) })
+    await waitFor(() => expect(document.querySelector('.waiting-placeholder__detail')?.textContent ?? '').not.toContain(expected))
+    act(() => { listener?.({ type: 'tool_call', sessionId: 'welcome', toolCallId: 'apply-2', name: 'apply', delta: '{}' }) })
+    expect(document.querySelector('.waiting-placeholder__detail')?.textContent ?? '').not.toContain(expected)
+
+    // An empty/reset batch must remove an earlier count, not leave it standing.
+    act(() => { emitExt({ type: 'mods-progress', payload }) })
+    await waitFor(() => expect(document.querySelector('.waiting-placeholder__detail')?.textContent).toContain(expected))
+    act(() => { emitExt({ type: 'mods-progress', payload: {...payload, done: 0, total: 0} }) })
+    await waitFor(() => expect(document.querySelector('.waiting-placeholder__detail')?.textContent).not.toContain(expected))
   })
 
   it('folds a host-driven turn (resumed/read-only session) once it settles', async () => {

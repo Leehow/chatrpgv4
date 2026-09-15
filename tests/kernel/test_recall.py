@@ -25,30 +25,40 @@ def three_turns(client):
     return first, second
 
 
+def transcript_card(turn, role, chars, head):
+    return {"turn": turn, "role": role, "chars": chars, "head": head,
+            "read": {"what": "transcript", "read": {"turn": turn, "role": role, "offset": 0, "limit": 4096}}}
+
+
 def test_transcript_cards_then_verified_read(kernel):
     first, second = three_turns(kernel)
     default = kernel.table("recall", what="transcript")
     assert default["turns"] == [1, 3]
     assert default["cards"] == [
-        {"turn": 1, "role": "player", "chars": 7, "head": "第一回合的话。"},
-        {"turn": 1, "role": "keeper", "chars": len(first["rendered_text"]), "head": "第一回合的交付。 第二段。"},
-        {"turn": 2, "role": "player", "chars": 7, "head": "第二回合的话。"},
-        {"turn": 2, "role": "keeper", "chars": len(second["rendered_text"]), "head": "第二回合的交付。过了 5 分钟。"},
-        {"turn": 3, "role": "player", "chars": 7, "head": "第三回合的话。"},
+        transcript_card(1, "player", 7, "第一回合的话。"),
+        transcript_card(1, "keeper", len(first["rendered_text"]), "第一回合的交付。\n\n第二段。"),
+        transcript_card(2, "player", 7, "第二回合的话。"),
+        transcript_card(2, "keeper", len(second["rendered_text"]), "第二回合的交付。过了 5 分钟。"),
+        transcript_card(3, "player", 7, "第三回合的话。"),
     ]
-    assert [e["text"] for e in default["entries"]][:2] == ["第一回合的话。", first["rendered_text"]]  # slice-0 rows kept
+    assert "entries" not in default  # D7: browse is cards only; the prose needs an explicit read
     wide = kernel.table("recall", what="transcript", turns=[0, 3])
-    assert "entries" not in wide and wide["cards"][0] == {"turn": 0, "role": "keeper", "chars": 15, "head": "开场。 诺特把钥匙拍在桌上。"}
+    assert "entries" not in wide and wide["cards"][0] == transcript_card(0, "keeper", 15, "开场。\n\n诺特把钥匙拍在桌上。")
     assert [c["role"] for c in kernel.table("recall", what="transcript", role="keeper")["cards"]] == ["keeper", "keeper"]
 
     keeper = kernel.table("recall", what="transcript", read={"turn": 1, "role": "keeper"})
+    assert isinstance(keeper.pop("_snapshot"), str)
     assert keeper == {"what": "transcript", "turn": 1, "role": "keeper", "text": first["rendered_text"], "verified": True,
-                      "verification_scope": "record_integrity_only"}
+                      "verification_scope": "record_integrity_only", "total_chars": len(first["rendered_text"]),
+                      "range": {"offset": 0, "end": len(first["rendered_text"])}, "truncated": False}
     player = kernel.table("recall", what="transcript", read={"turn": 2, "role": "player"})
+    player.pop("_snapshot")
     assert player == {"what": "transcript", "turn": 2, "role": "player", "text": "第二回合的话。", "verified": True,
-                      "verification_scope": "record_integrity_only"}
+                      "verification_scope": "record_integrity_only", "total_chars": 7,
+                      "range": {"offset": 0, "end": 7}, "truncated": False}
     missing = kernel.table_err("recall", what="transcript", read={"turn": 3, "role": "keeper"})
-    assert missing["code"] == "invalid_params" and {"turn": 3, "role": "player"} in missing["details"]["available"]
+    assert missing["code"] == "invalid_params" and missing["details"] == {"turn": 3, "role": "keeper"}
+    assert "card" in missing["fix"]  # the next step is a browse card, not an available-rows list
     assert kernel.table_err("recall", what="transcript", read={"turn": "1", "role": "keeper"})["code"] == "invalid_params"
 
 
@@ -103,27 +113,35 @@ def test_history_timeline_events_and_diff(kernel):
          "receipts": {"roll": 1, "move": 0, "clue": 0, "delta": 1, "session": 0, "time": 0}, "head": head_of(second)},
     ]
     assert result["timeline"][0]["commit"]
-    all_types = {e["type"] for e in result["events"]}
+    assert "events" not in result  # D7: one ordered section per page; timeline is the default
+    events = kernel.table("recall", what="history", page={"section": "events"})["events"]
+    all_types = {e["type"] for e in events}
     assert {"turn-started", "player-declared", "scene-moved", "clue-discovered", "time-advanced", "roll-resolved",
             "resource-changed", "turn-finalized"} <= all_types
-    assert result["events"] == read_jsonl(campaign_dir(kernel.workspace) / "events.jsonl")
+    assert events == read_jsonl(campaign_dir(kernel.workspace) / "events.jsonl")
 
     moves = kernel.table("recall", what="history", types=["scene-moved"])["events"]
     assert [(e["turn"], e["data"]["to"]) for e in moves] == [(1, "hall-of-records")]
     assert kernel.table("recall", what="history", turns=[2, 2])["timeline"][0]["turn"] == 2
-    assert all(e["turn"] == 2 for e in kernel.table("recall", what="history", turns=[2, 2])["events"])
+    assert all(e["turn"] == 2 for e in kernel.table("recall", what="history", turns=[2, 2], page={"section": "events"})["events"])
     assert kernel.table_err("recall", what="history", types=["dreamed"])["code"] == "invalid_params"
 
-    diff = kernel.table("recall", what="history", diff=[0, 2])["diff"]
-    assert diff == {
-        "from": 0, "to": 2, "scene": [OPENING_SCENE, "hall-of-records"], "clock": [0, 20],
-        "clues_added": ["knott-keys"],
-        "resources": [{"subject": "thomas-hayes", "resource": "hp", "from": 12, "to": hp_after}],
-        "sessions": [], "moves": [{"turn": 1, "from": OPENING_SCENE, "to": "hall-of-records"}],
-    }
-    later = kernel.table("recall", what="history", diff=[1, 2])["diff"]
-    assert later["clues_added"] == [] and later["moves"] == [] and later["scene"] == ["hall-of-records", "hall-of-records"]
-    assert later["resources"] == [{"subject": "thomas-hayes", "resource": "hp", "from": 12, "to": hp_after}]
+    result = kernel.table("recall", what="history", diff=[0, 2])
+    assert result["from"] == 0 and result["to"] == 2
+    assert result["diff"] == [
+        {"kind": "scene", "from": OPENING_SCENE, "to": "hall-of-records"},
+        {"kind": "clock", "from": 0, "to": 20},
+        {"kind": "clue", "clue": "knott-keys"},
+        {"kind": "resource", "subject": "thomas-hayes", "resource": "hp", "from": 12, "to": hp_after},
+        {"kind": "move", "turn": 1, "from": OPENING_SCENE, "to": "hall-of-records"},
+    ]
+    later = kernel.table("recall", what="history", diff=[1, 2])
+    assert later["from"] == 1 and later["to"] == 2
+    assert later["diff"] == [
+        {"kind": "scene", "from": "hall-of-records", "to": "hall-of-records"},
+        {"kind": "clock", "from": 20, "to": 20},
+        {"kind": "resource", "subject": "thomas-hayes", "resource": "hp", "from": 12, "to": hp_after},
+    ]
     assert kernel.table_err("recall", what="history", diff=[0, 3])["details"]["closed_turns"] == [0, 1, 2]
     assert kernel.table_err("recall", what="history", diff=[2, 1])["code"] == "invalid_params"
     # nothing above read git: a rewritten record is what the diff sees
@@ -131,7 +149,7 @@ def test_history_timeline_events_and_diff(kernel):
     record = read_json(path)
     record["receipts"] = [r for r in record["receipts"] if r["kind"] != "clue"]
     path.write_text(json.dumps(record, ensure_ascii=False), encoding="utf-8")
-    assert kernel.table("recall", what="history", diff=[0, 2])["diff"]["clues_added"] == []
+    assert [r for r in kernel.table("recall", what="history", diff=[0, 2])["diff"] if r["kind"] == "clue"] == []
 
 
 def test_recall_memory_about_takes_one_word_of_a_name_people_first(kernel):

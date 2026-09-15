@@ -270,8 +270,10 @@ def test_cash_builds_the_finance_block_from_the_era_table_and_moves_it(kernel):
     assert f"cash: {INV_NAME} {start} -> {start + 20}" in narrated["facts"]["committed"]
     # history's diff accumulates cash like any resource
     kernel.table("player_input", text="继续。")
-    diff = kernel.table("recall", what="history", diff=[0, 1])["diff"]
-    assert diff["resources"] == [{"subject": INVESTIGATOR, "resource": "cash", "from": start, "to": start + 10}]
+    diff = kernel.table("recall", what="history", diff=[0, 1])
+    assert diff["from"] == 0 and diff["to"] == 1
+    assert [r for r in diff["diff"] if r["kind"] == "resource"] == [
+        {"kind": "resource", "subject": INVESTIGATOR, "resource": "cash", "from": start, "to": start + 10}]
 
 
 def json_weapons():

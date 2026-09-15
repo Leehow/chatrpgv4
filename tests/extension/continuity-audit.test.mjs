@@ -13,6 +13,7 @@ import modsExtension from '../../extensions/mods/index.ts';
 import {EventEmitter} from 'node:events';
 import {fauxAssistantMessage, fauxToolCall} from '@earendil-works/pi-ai';
 import {openTable, assistantTexts, customMessages, waitForIdle} from './harness.mjs';
+import {extensionWords} from '../../extensions/ui/words.ts';
 
 const root = resolve(import.meta.dirname, '../..'), base = join(root, '.coc/playtests/continuity-audit-contracts');
 await mkdir(base, {recursive: true});
@@ -576,4 +577,315 @@ test('a reviewer that never submitted still blocks the turn and says so once', a
     assert.equal(lane.length, 1, JSON.stringify(rows));
     assert.deepEqual([lane[0].ok, lane[0].reason, lane[0].timed_out, lane[0].submitted, lane[0].model],
         [false, 'continuity_review_unavailable', true, false, 'lane/slow-1']);
+});
+
+/**
+ * Contract §38.8 / §37.9. Retained live evidence (H-MAIN `game-83177d61` turn 42, 2026-09-15): both reviews
+ * ran and submitted (19.4 s, 17.4 s, no timeout), the first said `revise`, the Keeper took its one bounded
+ * repair, and the second said `revise` again — so `max_rewrites` ended the input exactly as designed. The
+ * telemetry row called that `Continuity review is paused; no draft was approved`, which is
+ * `reviewUnavailable`'s one-size message rather than the condition, and it reads as infrastructure.
+ * The row must carry `details.cause`, or it cannot do the only job it has.
+ */
+test('a bounded repair refused twice is recorded as the verdict it was, not as an unreachable review', async () => {
+    const cwd = await mkdtemp(join(directory, 'repair-')), scope = join(cwd, 'budget');
+    const rows = []; let bridge, reviews = 0;
+    const pi = {events: new EventEmitter(), on() {}};
+    pi.events.on('coc:mods-bridge', value => bridge = value); modsExtension(pi);
+    pi.events.emit('coc:kernel-bridge', {
+        record: row => rows.push(row),
+        call: async method => {
+            if (method === 'mods.job') return {enabled: true, continuity_review: true, cwd, job: `draft-${reviews}`,
+                review_scope: scope, limits: AUDIT_LIMITS, focus: {}, system_prompt: join(cwd, 'prompt.md')};
+            return method === 'mods.accept' ? conflict() : {};
+        },
+        runtime: {async runTask(task) {
+            reviews++;
+            const control = JSON.parse(await readFile(join(cwd, task.request.audit.control), 'utf8'));
+            await writeFile(join(cwd, control.status_file), JSON.stringify({requests: 1, artifact_repairs: 0, submitted: true, unavailable: ''}));
+            task.request.onEvent({type: 'tool_execution_end', toolName: 'submit_audit', result: {details: {kind: 'audit_submission'}}});
+            return {ok: true, ms: 1, code: 0, timedOut: false, command: ['pi', '--model', 'lane/fixture-1']};
+        }}});
+
+    // The first refusal is the one bounded repair `max_rewrites` permits.
+    await assert.rejects(bridge.prepare('narrate', {campaign: 'c1', text: 'A draft.'}),
+        error => error.details?.reason === 'mod_narrative_repair');
+    // The repaired draft really is re-reviewed as its own job, and refused again: that ends the input.
+    await assert.rejects(bridge.prepare('narrate', {campaign: 'c1', text: 'A repaired draft.'}),
+        error => error.details?.reason === 'continuity_review_unavailable');
+    assert.equal(reviews, 2, 'the repair must be submitted to a second real review');
+    assert.equal(JSON.parse(await readFile(join(scope, 'review-budget.json'), 'utf8')).blocked,
+        'The bounded Keeper repair did not resolve the review');
+
+    const lane = rows.filter(row => row.lane === 'continuity-review');
+    assert.equal(lane.length, 2, JSON.stringify(rows));
+    assert.deepEqual([lane[0].ok, lane[0].verdict], [true, 'revise']);
+    assert.deepEqual([lane[1].ok, lane[1].submitted, lane[1].timed_out], [false, true, undefined],
+        'a verdict-driven end never wears a timeout');
+    assert.equal(lane[1].cause, 'The bounded Keeper repair did not resolve the review');
+});
+
+/**
+ * Contract §38.9. Retained live evidence (`game-83177d61`, 2026-09-15): turn 42 ended on the one
+ * bounded repair `max_rewrites` permits (`The bounded Keeper repair did not resolve the review`,
+ * `submitted: true`) and became `streak: 1`; turn 43's child was killed at its cap having submitted
+ * nothing and became `streak: 2`. One design decision plus one dead stream escalated the table to
+ * `down`, told the player another attempt was pointless, and handed the operator a lane-model fix for
+ * a problem half the streak did not have.
+ */
+test('a verdict-driven pause is not an outage, and never escalates the table on its own', async t => {
+    const draft = text => [fauxAssistantMessage([fauxToolCall('narrate', {text})], {stopReason: 'toolUse'}),
+        fauxAssistantMessage('Should never be consumed.')];
+    const session = await openTable({retainAt: directory, responses: [...draft('First draft.'), ...draft('Second draft.')]});
+    t.after(() => session.dispose());
+    // Both runs end the way `max_rewrites` ends one: the reviewer answered, and refused.
+    session.emit('coc:mods-bridge', {async after() {}, async prepare(method) {
+        if (method === 'narrate') throw reviewUnavailable('The bounded Keeper repair did not resolve the review', false);
+    }});
+    await session.session.prompt('I listen at the door.'); await waitForIdle(session.session);
+    await session.session.prompt('I try the handle instead.'); await waitForIdle(session.session);
+
+    const statuses = session.entries('coc-review-status');
+    assert.equal(statuses.length, 2, JSON.stringify(statuses));
+    assert.deepEqual(statuses.map(entry => entry.streak), [0, 0], 'the guard refusing twice is not a two-outage streak');
+    assert.deepEqual(statuses.map(entry => entry.status), ['unavailable', 'unavailable']);
+    assert.ok(statuses.every(entry => entry.service === false && !entry.fix),
+        'a verdict pause must not hand the operator a lane-model fix');
+    // The player keeps the wording that is true for it: settled work is kept, and sending again works.
+    const notices = customMessages(session.session, 'coc-delivery').filter(message => message.details?.review_unavailable);
+    assert.equal(notices.length, 2);
+    assert.ok(notices.every(notice => notice.details.streak < 2), JSON.stringify(notices.map(n => n.details)));
+});
+
+/** The other half of §38.9: a real outage still counts, still escalates, and still reaches the operator. */
+test('a service outage still accumulates a streak and still escalates once', async t => {
+    const draft = text => [fauxAssistantMessage([fauxToolCall('narrate', {text})], {stopReason: 'toolUse'}),
+        fauxAssistantMessage('Should never be consumed.')];
+    const session = await openTable({retainAt: directory, responses: [...draft('First draft.'), ...draft('Second draft.')]});
+    t.after(() => session.dispose());
+    session.emit('coc:mods-bridge', {async after() {}, async prepare(method) {
+        if (method === 'narrate') throw reviewUnavailable('The private reviewer ended without a checked submission');
+    }});
+    await session.session.prompt('I listen at the door.'); await waitForIdle(session.session);
+    await session.session.prompt('I try the handle instead.'); await waitForIdle(session.session);
+
+    const statuses = session.entries('coc-review-status');
+    assert.deepEqual(statuses.map(entry => entry.streak), [1, 2]);
+    assert.deepEqual(statuses.map(entry => entry.status), ['unavailable', 'down']);
+    assert.ok(statuses.every(entry => entry.service === true));
+    assert.match(statuses[1].fix, /Lane model setting/);
+});
+
+/**
+ * Contract §38.10. §38.9 made the *streak* honest; the sentences the player reads were still not.
+ *
+ * Two of them were false on live tables. (1) `review_unavailable_notice` says the review "did not
+ * finish" — H-MAIN turn 42 ran two reviews that both finished and both submitted (23.2 s and 17.4 s)
+ * and ended on `max_rewrites`, so the one fact the player was given about their own turn was wrong.
+ * (2) `review_down_notice` said "sending it again will not help". It is not true and never was:
+ * `before_agent_start` clears `reviewUnavailable`, every input opens a turn with a fresh allowance,
+ * and a landed narrate zeroes the streak. The run that found this stopped a live table on that
+ * sentence and then delivered a complete turn from the very next message.
+ *
+ * So the notice is chosen by the kind of pause, not by the streak alone, and the streak line points
+ * at the lever that exists (Lane model / Lane thinking, read on the next review — §37.10) instead of
+ * at a dead end.
+ */
+const undelivered = text => [fauxAssistantMessage([fauxToolCall('narrate', {text})], {stopReason: 'toolUse'}),
+    fauxAssistantMessage('Should never be consumed.')];
+const playerNotices = session => customMessages(session.session, 'coc-delivery').filter(m => m.details?.review_unavailable);
+/** The captions the table's own play language carries -- no tag is named, §23 settles it from the data. */
+const spoken = () => extensionWords(undefined);
+/** The one authored source every projection is made from: where the wording rules are checked. */
+const authored = () => extensionWords('en');
+
+test('a verdict pause and a service pause are different sentences, and neither claims the other', async t => {
+    const words = await spoken(), source = await authored();
+    const session = await openTable({retainAt: directory, responses: [...undelivered('First.'), ...undelivered('Second.')]});
+    t.after(() => session.dispose());
+    let run = 0;
+    session.emit('coc:mods-bridge', {async after() {}, async prepare(method) {
+        if (method !== 'narrate') return;
+        // Run 1 is the reviewer reaching a conclusion; run 2 is the lane failing to answer at all.
+        throw ++run === 1
+            ? reviewUnavailable('The bounded Keeper repair did not resolve the review', false)
+            : reviewUnavailable('The private reviewer ended without a checked submission');
+    }});
+    await session.session.prompt('I listen at the door.'); await waitForIdle(session.session);
+    await session.session.prompt('I try the handle instead.'); await waitForIdle(session.session);
+
+    const notices = playerNotices(session);
+    assert.equal(notices.length, 2, JSON.stringify(notices.map(n => n.content)));
+    assert.deepEqual(notices.map(n => n.details.service), [false, true]);
+    assert.equal(notices[0].content, words.line('review_verdict_notice', {streak: 0}));
+    assert.equal(notices[1].content, words.line('review_unavailable_notice', {streak: 1}));
+    assert.notEqual(notices[0].content, notices[1].content);
+    // The specific lie, in the authored source the projection is made from: a review that ran,
+    // submitted and refused is not a review that did not finish.
+    assert.doesNotMatch(source.word('review_verdict_notice'), /did not finish/i);
+    assert.match(source.word('review_verdict_notice'), /did not approve/i);
+    assert.match(source.word('review_unavailable_notice'), /did not finish/i);
+    // And neither sentence may render as its own key: that is a caption gap, not a notice.
+    assert.ok(notices.every(n => !/^review_\w+_notice$/.test(n.content.trim())));
+});
+
+test('a service streak never tells the player another attempt is pointless, and names the lever that is real', async t => {
+    const words = await spoken(), source = await authored();
+    const session = await openTable({retainAt: directory, responses: [...undelivered('First.'), ...undelivered('Second.')]});
+    t.after(() => session.dispose());
+    session.emit('coc:mods-bridge', {async after() {}, async prepare(method) {
+        if (method === 'narrate') throw reviewUnavailable('The private reviewer ended without a checked submission');
+    }});
+    await session.session.prompt('I listen at the door.'); await waitForIdle(session.session);
+    await session.session.prompt('I try the handle instead.'); await waitForIdle(session.session);
+
+    const notices = playerNotices(session);
+    assert.deepEqual(notices.map(n => n.details.streak), [1, 2]);
+    assert.equal(notices[1].content, words.line('review_down_notice', {streak: 2}));
+    assert.match(notices[1].content, /2/, 'the streak still travels into the sentence');
+    const down = source.word('review_down_notice');
+    // The judgment call the player was making when this was found: whether to keep playing this
+    // table. The old sentence answered it wrongly and cost a live table the rest of a session.
+    assert.doesNotMatch(down, /will not help|no use|pointless/i, down);
+    // What a repeated outage is actually evidence for, in the words of the setting that fixes it.
+    assert.match(down, /Lane model/, down);
+    // §37.10: the setting reaches a table that is already running, so the line says so rather than
+    // repeating §38.5's withdrawn "and then start a new session".
+    assert.match(down, /without restarting/i, down);
+    assert.doesNotMatch(down, /start a new session|reopen (the|this) table/i, down);
+});
+
+test('a verdict pause keeps its own wording on a table a streak has already escalated', async t => {
+    const words = await spoken();
+    const session = await openTable({retainAt: directory,
+        responses: [...undelivered('First.'), ...undelivered('Second.'), ...undelivered('Third.')]});
+    t.after(() => session.dispose());
+    let run = 0;
+    session.emit('coc:mods-bridge', {async after() {}, async prepare(method) {
+        if (method !== 'narrate') return;
+        // Two genuine outages take the table to `down`; the third pause is the reviewer disagreeing.
+        throw ++run <= 2
+            ? reviewUnavailable('The private reviewer ended without a checked submission')
+            : reviewUnavailable('The bounded Keeper repair did not resolve the review', false);
+    }});
+    for (const text of ['I listen at the door.', 'I try the handle instead.', 'I step back and wait.']) {
+        await session.session.prompt(text); await waitForIdle(session.session);
+    }
+
+    const notices = playerNotices(session);
+    assert.equal(notices.length, 3, JSON.stringify(notices.map(n => n.details)));
+    // §38.9 leaves the streak standing at 2 across a verdict pause, so a notice chosen by the streak
+    // alone would announce a dead lane on the one turn whose reviewer answered in 17 seconds.
+    assert.equal(notices[2].details.streak, 2);
+    assert.equal(notices[2].details.service, false);
+    assert.equal(notices[2].content, words.line('review_verdict_notice', {streak: 2}));
+    assert.notEqual(notices[2].content, notices[1].content);
+});
+
+test('the verbs refused after a verdict pause do not relabel the run as a dead lane', async t => {
+    const words = await spoken();
+    const session = await openTable({retainAt: directory, responses: [
+        fauxAssistantMessage([fauxToolCall('narrate', {text: 'Unapproved draft.'})], {stopReason: 'toolUse'}),
+        // The guard re-throws for every later verb, and its error carries no kind at all.
+        fauxAssistantMessage([fauxToolCall('look', {focus: 'scene'})], {stopReason: 'toolUse'}),
+        fauxAssistantMessage([fauxToolCall('look', {focus: 'scene'})], {stopReason: 'toolUse'}),
+        fauxAssistantMessage('Should never be consumed.')]});
+    t.after(() => session.dispose());
+    session.emit('coc:mods-bridge', {async after() {}, async prepare(method) {
+        if (method === 'narrate') throw reviewUnavailable('The bounded Keeper repair did not resolve the review', false);
+    }});
+    await session.session.prompt('I listen at the door.'); await waitForIdle(session.session);
+
+    // The guard has to have actually re-entered `pauseReview`, or this proves nothing: one entry per
+    // pause, so more than one entry is the re-throw the kind must survive.
+    const statuses = session.entries('coc-review-status');
+    assert.ok(statuses.length > 1, `the later verbs never reached the guard: ${JSON.stringify(statuses)}`);
+    assert.ok(statuses.every(entry => entry.service === false), JSON.stringify(statuses));
+    const notices = playerNotices(session);
+    assert.equal(notices.length, 1, 'one notice per run');
+    assert.equal(notices[0].details.service, false, 'the pause that stopped the review owns the kind');
+    assert.equal(notices[0].content, words.line('review_verdict_notice', {streak: 0}));
+});
+
+/**
+ * Contract §37.3 (2026-09-15): the projected reentry is steering, not a gate. Retained live evidence
+ * `game-83177d61-ab11-4d58-b8ec-cf8b9c98d5a4` (`the-haunting`, turns 87-91): a bridge delivered at turn 47
+ * had locked `mode` to `introduce_evidence`, the one unacquired clue on the thread is authored at the
+ * sanitarium so `authority.clue_here` was false at the newspaper, and with no host-owned `preparation_wait`
+ * or `rebinding_refused` the only lawful sub-review left was `none`/`revise`. Turns 88, 89 and 90 published
+ * nothing at all while their receipts sat settled. The real reentry is built here from the module graph, the
+ * campaign world and the assessments file, not from a hand-written context.
+ */
+test('the real the-haunting reentry defers on the player\'s own line and revises only a fabricated arrival', async () => {
+    const home = await mkdtemp(join(directory, 'steering-'));
+    const context = await api.createKernelContext({workspace: home, content: join(root, 'content'), seed: 'reentry-steering', locks: api.nativeAdvisoryLocks(),
+        env: {...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1'}});
+    const runtime = api.createKernelRuntime(context); closers.push(() => runtime.close());
+    const call = (method, params = {}) => runtime.handlers[method]({campaign: 'c1', ...params});
+    await call('campaign.create', {id: 'c1', module: 'the-haunting', pregen: 'thomas-hayes', play_language: 'en'});
+    await call('table.open');
+    await call('table.narrate', {call_id: 't0-c1', text: 'Knott hands over the commission.'});
+    await call('table.player_input', {text: 'I start with the newspapers and the neighbours.'});
+    // Four of the thread's five clues, each acquired where the book puts it. The fifth,
+    // `gabriela-night-visitor`, is authored at the sanitarium, so the bridge is out of reach at the morgue.
+    const held = [['neighborhood-gossip', 'dooley-macario-madness'], ['corbitt-house-ground', 'upstairs-disturbance'],
+        ['upper-floor-bedroom', 'poltergeist-bed'], ['newspaper-morgue', 'globe-unpublished-story']];
+    await call('table.apply', {call_id: 't1-c1', effects: held.flatMap(([scene, clue]) => [
+        {kind: 'move', to: scene, via: 'contract fixture route', travel_minutes: 0}, {kind: 'clue', clue}])});
+    await call('table.narrate', {call_id: 't1-c2', text: 'The clippings pile up on the morgue counter.'});
+
+    const thread = 'house-haunted-by-corbitt';
+    await mkdir(join(home, '.coc/campaigns/c1/memory'), {recursive: true});
+    await writeFile(join(home, '.coc/campaigns/c1/memory/story.jsonl'), [
+        {turn: 47, worldline: 'main', loop: 0, status: 'misframed', thread, frame: 'It is only bad luck in one address.',
+            bridge_delivered: true, delivery_quote: 'The same will keeps returning to that address.'},
+        {turn: 87, worldline: 'main', loop: 0, status: 'detached', thread, frame: 'I set out for the Globe building now.',
+            bridge_delivered: false, delivery_quote: null}].map(row => JSON.stringify(row)).join('\n') + '\n');
+
+    const turn = await call('table.player_input', {text: 'I set out for the Globe building now and wait in the lobby.'});
+    const reentry = turn.capsule.mods.thread.reentry;
+    assert.equal(reentry.mode, 'introduce_evidence', 'the delivered bridge stands unanswered, so this is the live turn-87 state');
+    assert.equal(reentry.bridge.clue, 'gabriela-night-visitor');
+    assert.equal(reentry.known.length, 4, 'every clue the player holds on this thread is nameable');
+
+    const candidate = 'The lobby clock ticks past the hour while the desk clerk finishes with the man ahead of you.';
+    const job = await call('mods.job', {role: 'audit', input: {text: candidate}});
+    const focused = JSON.parse(await readFile(join(job.cwd, 'context.json'), 'utf8'));
+    assert.equal(focused.causal_reentry.mode, 'introduce_evidence');
+    assert.equal(focused.causal_reentry.authority.clue_here, false, 'the last clue is authored at the sanitarium, not here');
+    assert.equal(focused.preparation_wait, undefined);
+    assert.equal(focused.rebinding_refused, undefined);
+    const files = {'context.json': focused};
+    const locus = {verdict: 'pass', mode: 'same_locus', locus: null, claim: null, basis: 'active_scene'};
+
+    // The turn the player actually played is deliverable: an unmet bridge is distance, not damage.
+    const deferred = {missing: [], findings: [], continuity_review: {verdict: 'pass',
+        summary: 'The draft continued the action the player chose and claimed no reentry evidence.', conflicts: [],
+        reentry_review: {verdict: 'defer', basis: 'chosen_action', quote: candidate, clue: null, relation: null},
+        locus_review: locus}};
+    assert.deepEqual(continuityArtifactErrors(deferred, candidate, files), []);
+    await writeFile(join(job.cwd, 'result.json'), JSON.stringify(deferred));
+    assert.equal((await call('mods.accept', {job: job.job})).continuity_review.verdict, 'pass', 'the turn is delivered');
+
+    // The defer is checked, not free: it copies the candidate, never passes, and yields to a settled receipt.
+    const invented = structuredClone(deferred); invented.continuity_review.reentry_review.quote = 'A line the candidate never wrote.';
+    assert.ok(continuityArtifactErrors(invented, candidate, files).some(error => error.path === '/continuity_review/reentry_review/quote'));
+    const asPass = structuredClone(deferred); asPass.continuity_review.reentry_review.verdict = 'pass';
+    assert.ok(continuityArtifactErrors(asPass, candidate, files).some(error => error.path === '/continuity_review/reentry_review/verdict'));
+    assert.ok(continuityArtifactErrors(deferred, candidate, {'context.json': {...focused,
+        receipts: [...focused.receipts, {kind: 'clue', clue: 'gabriela-night-visitor'}]}})
+        .some(error => error.path === '/continuity_review/reentry_review/basis'), 'a settled bridge receipt is bridge_receipt');
+
+    // Fabricating the sanitarium testimony as arrived is the abuse this review still exists for.
+    const fabricated = 'The sanitarium testimony from Gabriela Macario reaches you here: she names the night visitor as Corbitt himself.';
+    const claimed = {missing: [], findings: [], continuity_review: {verdict: 'pass', summary: 'The bridge landed.', conflicts: [],
+        reentry_review: {verdict: 'pass', basis: 'bridge_receipt', quote: fabricated, clue: 'gabriela-night-visitor', relation: 'supports'},
+        locus_review: locus}};
+    assert.ok(continuityArtifactErrors(claimed, fabricated, files).some(error => error.path === '/continuity_review/reentry_review/basis'),
+        'no receipt and no authority settles that clue here');
+    const revised = {missing: [], findings: [{reason: 'The candidate states that the sanitarium testimony arrived, with no receipt and no placement.',
+        fix: 'Withdraw the claim that gabriela-night-visitor reached the investigator; nothing settled it.'}],
+        continuity_review: {verdict: 'revise', summary: 'The draft claims evidence that never landed.', conflicts: [],
+            reentry_review: {verdict: 'revise', basis: 'none', quote: null, clue: null, relation: null}, locus_review: locus}};
+    assert.deepEqual(continuityArtifactErrors(revised, fabricated, files), [], 'revise stays available for a fabricated arrival');
 });

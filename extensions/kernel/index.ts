@@ -19,15 +19,19 @@ import { progressPartial } from "./progress.ts";
 import { renderMapView, type MapAttachment } from './map-view.ts';
 import { AUTHORED_MAP_WORDS, KEEPER_MAP_WORDS, mapCardTexts, type MapWordsOptions, prepareMapWords, projectMapCard, readMapWords } from '../module/map-presentation.ts';
 import { COC_TOOLS, COC_TOOL_NAMES, type CocToolSpec, WRITE_TOOLS } from "./tools.ts";
+import { RecallPages } from "./recall-pages.ts";
+import { randomUUID } from "node:crypto";
 import { type CommitPayload, runVerifierLane } from "./verifier.ts";
 import {
 	type AdmissionContext,
+	type AdmissionDestination,
 	type AdmissionVerdict,
 	ADMITTING_VERDICTS,
 	admissionRefusal,
 	admissionRequest,
 	admissionUnavailable,
 	keyDigest,
+	registeredDestination,
 	reviewAdmission,
 } from "./admission.ts";
 
@@ -114,6 +118,7 @@ interface TableState {
 	state: TurnState;
 	/** The ordinal of state-changing calls minted this turn. */
 	callOrdinal: number;
+	recallPages: RecallPages;
 	/** Turn 0: the table has opened but not yet narrated, so narrate is allowed straight out of awaiting_player. */
 	openingPending: boolean;
 	/** narrate/ask has returned rendered_text and is waiting to replace the assistant message. */
@@ -160,6 +165,11 @@ interface TableState {
 	deliveryFix?: { kind: string; text: string };
 	/** A review operation stopped; only genuine new player input can start a linked retry. */
 	reviewUnavailable?: string;
+	/** Which kind of pause that was (§38.9): a service outage, or the reviewer reaching a conclusion.
+	 * The streak is service-only, so it can no longer be read backwards to tell the player which of the
+	 * two happened -- a verdict pause on a table that already carried two outages would otherwise be
+	 * announced as a dead lane. Set once per run, from the pause that actually stopped the review. */
+	reviewPauseService?: boolean;
 	/** Consecutive continuity-review outages (contract §38), counted like the admission lane's own
 	 * (§32.2): the first reads as transient, a streak turns the player's service notice persistent and
 	 * notifies the operator out of fiction, once per streak. A landed narrate resets it; a turn
@@ -665,7 +675,7 @@ export default function (pi: ExtensionAPI) {
 	/** A message the host sends itself is marked as such: it is not player input and does not go to table.player_input. */
 	function sendHost(content: string, kind: string): void {
 		pi.sendMessage(
-			{ customType: "coc-host", content, display: false, details: { coc_host: true, kind } },
+			{ customType: "coc-host", content, display: false, details: { coc_host: true, kind, scope: "turn", campaign: table?.campaign, turn: table?.turn } },
 			{ triggerTurn: true },
 		);
 	}
@@ -1173,14 +1183,17 @@ export default function (pi: ExtensionAPI) {
 	 * proposal is reused, admitting and refusing alike (contract §32.4).
 	 */
 	async function admitAction(state: TableState, tool: "resolve" | "apply", payload: Record<string, unknown>, signal?: AbortSignal): Promise<void> {
-		const destinations: Array<{requested: string; handle?: string; label?: string; summary?: string}> = [];
+		const destinations: AdmissionDestination[] = [];
 		if (tool === 'apply' && Array.isArray(payload.effects)) for (const effect of payload.effects as Array<Record<string, unknown>>) {
 			if (effect.kind !== 'move' || typeof effect.to !== 'string' || destinations.some(value => value.requested === effect.to)) continue;
 			try {
 				const found = await state.kernel.call<{entities?: Array<Record<string, unknown>>}>('table.lookup',
 					{campaign: state.campaign, kind: 'module', query: effect.to, expected_kind: 'scene', limit: 1});
 				const entity = found.entities?.[0];
-				if (entity) destinations.push({requested: effect.to, handle: asString(entity.name), label: asString(entity.display_name), summary: asString(entity.summary)});
+				// The place's authored names travel with the projection: without them the reviewer
+				// reads the handle's slug as the place and refuses a move into the building the
+				// player just named (contract 32; 2026-09-15, turns 83 and 86).
+				if (entity) destinations.push(registeredDestination(effect.to, entity));
 			} catch { /* The authoritative apply path will report a missing or invalid destination. */ }
 		}
 		const proposal = admissionRequest(tool, payload, { party: state.party.map((member) => member.name), scene: state.scene,
@@ -1348,12 +1361,26 @@ export default function (pi: ExtensionAPI) {
 	// ---- Tools ------------------------------------------------------------
 	function pauseReview(state: TableState, error: unknown): void {
 		const cause = isKernelError(error) ? String(error.details?.cause ?? error.message) : String(error);
+		// Contract §38.9: the streak counts *service* outages, never the guard doing its job. A review
+		// that ran, submitted and refused the one bounded repair `max_rewrites` permits ends the input
+		// exactly as designed, and a table is not "down" because its reviewer disagreed twice. Retained
+		// evidence (game-83177d61): turn 42's `max_rewrites` end became streak 1 and turn 43's dead
+		// child streak 2, so the player was told another attempt was pointless and the operator was
+		// handed a lane-model fix for a problem one of the two halves did not have.
+		const observed = !isKernelError(error) || error.details?.service !== false;
 		// Only the first pause of a run is an outage. Once the review is paused every later tool call
 		// re-throws the same reason from the guard above, and counting those would turn one dead lane
 		// into a streak inside a single run.
 		const outage = state.reviewUnavailable === undefined;
+		// §38.10: the kind belongs to the pause that stopped the review, and is pinned by the same first
+		// pause that owns the streak. The guard's re-throw carries `cause` but no `service` at all, so
+		// every later verb in the run reads as an outage; a verdict pause would otherwise be relabelled
+		// a dead lane by its own second symptom -- in the player's notice, and on the operator entry,
+		// which announced `service: true` for a review that had already answered.
+		if (outage) state.reviewPauseService = observed;
+		const service = state.reviewPauseService ?? observed;
 		state.reviewUnavailable = cause; state.deliveryFix = undefined; state.floorDraft = undefined;
-		if (outage) state.reviewOutage += 1;
+		if (outage && service) state.reviewOutage += 1;
 		const streak = state.reviewOutage;
 		const escalate = streak >= 2 && !state.reviewOutageNotified;
 		if (escalate) state.reviewOutageNotified = true;
@@ -1362,7 +1389,7 @@ export default function (pi: ExtensionAPI) {
 		// read into the session environment at spawn; it is now read when the lane starts its child
 		// (contract §37.10), so the instruction is the one that actually works -- change it and send
 		// again. Telling an operator to restart a table they could have kept is its own lost turn.
-		const status = {campaign: state.campaign, turn: state.turn, status: escalate ? 'down' : 'unavailable', streak, cause,
+		const status = {campaign: state.campaign, turn: state.turn, status: escalate ? 'down' : 'unavailable', streak, cause, service,
 			...(escalate ? {fix: 'The continuity review keeps failing, so finished turns cannot be published. ' +
 				'Choose a faster review model in the Lane model setting: the lane reads that choice each time it runs, ' +
 				'so a change reaches this table on its next review. ' +
@@ -1502,6 +1529,12 @@ export default function (pi: ExtensionAPI) {
 		// update channel; each frame becomes one partial result on the tool status line.
 		const onProgress = onUpdate ? (frame: KernelProgressFrame) => onUpdate(progressPartial(frame)) : undefined;
 		try {
+			if (spec.name === "recall") {
+				delete payload._snapshot;
+				delete payload._context_read;
+				const {_context_read: _privateRead, ...publicParams} = params;
+				Object.assign(payload, state.recallPages.prepare(publicParams));
+			}
 			if (state.reviewUnavailable) throw new KernelError({code: 'needs', message: 'The review is paused until new player input',
 				details: {reason: 'continuity_review_unavailable', cause: state.reviewUnavailable}});
 			// The recovery gate (contract §40). The Director asked for a recovery this turn and nothing that
@@ -1568,6 +1601,7 @@ export default function (pi: ExtensionAPI) {
 				}
 				result = (await state.kernel.call<Record<string, unknown>>(spec.method, payload, onProgress)) ?? {};
 			}
+			if (spec.name === "recall") result = state.recallPages.accept(result);
 			// Deferred Mod bookkeeping completes after the verb that opened this turn, never before it.
 			if (mods?.after) await mods.after(spec.name, payload, signal);
 			if (spec.name === "lookup" && params.kind === "module" && params.question) {
@@ -1603,6 +1637,7 @@ export default function (pi: ExtensionAPI) {
 				ok: true,
 				...(spec.name === "resolve" ? resolveTelemetry(result as ResolveResult) : {}),
 				...readTelemetry(spec.name, params),
+				...(spec.name === "recall" ? {response_bytes: Buffer.byteLength(JSON.stringify(result), "utf8")} : {}),
 			});
 			if (spec.name === "narrate" || spec.name === "ask") {
 				// A turn inside a session must be accountable on its own: round trips in combat are not the same as in investigation.
@@ -1619,6 +1654,8 @@ export default function (pi: ExtensionAPI) {
 				details: result,
 			};
 		} catch (error) {
+			if (spec.name === "recall") error = state.recallPages.diagnostic(error);
+			if (spec.name === "recall" && isKernelError(error) && error.details?.reason === "recall_page_stale") state.recallPages.forget(params);
 			const code = isKernelError(error) ? error.code : "internal";
 			if ((error as { details?: { reason?: string } })?.details?.reason === "reading_timeout") {
 				state.preparationWait = { kind: "source" };
@@ -1744,10 +1781,13 @@ export default function (pi: ExtensionAPI) {
 	/** The RPC closure that goes onto the bus: once the gate is closed a late lane call fails on the spot instead of waking the kernel subprocess. */
 	function bridgeCall(kernel: KernelClient): (method: string, params: Record<string, unknown>) => Promise<unknown> {
 		const gate = bridgeGate;
-		return (method, params) =>
-			gate.open
-				? kernel.call(method, params)
-				: Promise.reject(new KernelError({ code: "internal", message: `the kernel is closed; ${method} is not sent` }));
+		return async (method, params) => {
+			if (!gate.open) throw new KernelError({code: "internal", message: `the kernel is closed; ${method} is not sent`});
+			const result = await kernel.call(method, params);
+			// Register public references, but retain the original host-only snapshot. accept returns a separate model view.
+			if (method === "table.recall" && table && result && typeof result === "object") table.recallPages.accept(result as Record<string, unknown>);
+			return result;
+		};
 	}
 
 	async function shutdownKernel(): Promise<void> {
@@ -1838,6 +1878,7 @@ export default function (pi: ExtensionAPI) {
 				turn: 0,
 				state: "awaiting_player",
 				callOrdinal: 0,
+				recallPages: new RecallPages(),
 				openingPending: false,
 				session: null,
 				pendingChoice: null,
@@ -1941,8 +1982,10 @@ export default function (pi: ExtensionAPI) {
 				}
 				const review = await mods?.reviewStatus?.(campaign);
 				if (review?.paused) {
+					// §38.9: the retained accounting already records which kind blocked it, so a recovered
+					// turn replays that kind instead of re-reading a verdict end as a fresh outage.
 					pauseReview(table, new KernelError({code: 'needs', message: 'The retained review is paused',
-						details: {reason: 'continuity_review_unavailable', cause: review.reason}}));
+						details: {reason: 'continuity_review_unavailable', cause: review.reason, service: review.service !== false}}));
 					// Contract §38: the retained review cannot approve any draft, so this recovered turn can
 					// never be delivered. It is stranded; the player's next input opens a new turn.
 					table.strandedTurn = true;
@@ -2076,7 +2119,7 @@ export default function (pi: ExtensionAPI) {
 					fix: "retry after the session storage becomes writable",
 				});
 			}
-			const result = await state.kernel.call<{ turn?: number; state?: TurnState; capsule?: unknown }>(
+			const result = await state.kernel.call<{ turn?: number; state?: TurnState; capsule?: unknown; _context?: unknown }>(
 				"table.player_input",
 				{ campaign: state.campaign, text, ...(strandedTurn ? { release: "stranded" } : {}) },
 			);
@@ -2140,17 +2183,21 @@ export default function (pi: ExtensionAPI) {
 			// Contract §13.9: the capsule enters the model context verbatim. Another extension that wants to
 			// see it (the table display reads the director beat) takes it off the bus rather than parsing that
 			// host message a second time, and never alters its JSON.
+			const contextEpoch = randomUUID();
 			pi.events.emit("coc:capsule", {
+				epoch: contextEpoch,
 				campaign: state.campaign,
 				turn: state.turn,
 				capsule: result.capsule ?? {},
+				context: result._context,
+				answering: state.answering,
 			});
 			return {
 				message: {
 					customType: "coc-capsule",
 					content: JSON.stringify(result.capsule ?? {}),
 					display: false,
-					details: { coc_host: true, turn: state.turn },
+					details: { coc_host: true, turn: state.turn, epoch: contextEpoch, context: result._context },
 				},
 			};
 		} catch (error) {
@@ -2179,7 +2226,7 @@ export default function (pi: ExtensionAPI) {
 					customType: "coc-host",
 					content: `The kernel did not accept that player input: ${errorText(error)}`,
 					display: false,
-					details: { coc_host: true, kind: "player-input-failed" },
+					details: { coc_host: true, kind: "player-input-failed", scope: "turn", campaign: state.campaign, turn: state.turn },
 				},
 			};
 		}
@@ -2549,19 +2596,38 @@ export default function (pi: ExtensionAPI) {
 			if (!state.reviewNoticeSent) {
 				state.reviewNoticeSent = true;
 				const streak = state.reviewOutage;
-				let line = streak >= 2
-					? `This turn could not be published: its continuity review has failed ${streak} times in a row, so sending it again will not help. The person running this table has been told.`
+				// Contract §38.10. Three sentences, because the player is deciding one thing -- whether
+				// to send again -- and the three situations answer it differently.
+				//
+				// A *verdict* pause (§38.9 `service: false`) is the reviewer having read the draft and
+				// declined it, most often on `max_rewrites`. Saying the review "did not finish" there is
+				// simply false: H-MAIN turn 42 ran two reviews that both submitted (23.2 s and 17.4 s).
+				//
+				// A service streak is not a locked table. `before_agent_start` clears
+				// `reviewUnavailable`, every new input opens a turn with a fresh allowance, and a landed
+				// narrate zeroes `reviewOutage`. The old line told the player "sending it again will not
+				// help"; the run that found this defect stopped a live table on that sentence and then
+				// delivered a complete turn from the very next message. What a repeated outage is
+				// actually evidence for is the lane model, which the Lane model / Lane thinking settings
+				// change for the next review without restarting the table (§37.10) -- so that, and not a
+				// dead end, is what the streak line says.
+				const verdict = state.reviewPauseService === false;
+				let line = verdict
+					? "This turn could not be published: the continuity review read it and did not approve it. Everything already settled is kept — send anything and the Keeper writes this turn again."
+					: streak >= 2
+					? `This turn could not be published: its continuity review has failed ${streak} times in a row. Everything already settled is kept, and sending again does start a fresh attempt — but if it keeps failing, pick a quicker model under Lane model in settings; the next review uses it without restarting this table. The person running this table has been told.`
 					: "This turn could not be published: its continuity review did not finish. Everything already settled is kept — send anything to try again.";
 				try {
-					// Both keys are written out here: the caption inventory is checked by scanning these
-					// call sites, and a key held in a variable is a shipped word nothing asks for.
-					line = (await surface.words()).line(streak >= 2 ? "review_down_notice" : "review_unavailable_notice", { streak });
+					// All three keys are written out here: the caption inventory is checked by scanning
+					// these call sites, and a key held in a variable is a shipped word nothing asks for.
+					line = (await surface.words()).line(
+						verdict ? "review_verdict_notice" : streak >= 2 ? "review_down_notice" : "review_unavailable_notice", { streak });
 				} catch {
 					/* an unreadable content root still owes the player the English line */
 				}
 				pi.sendMessage({ customType: "coc-delivery", content: line, display: true,
-					details: { coc_delivery: true, turn: state.turn, review_unavailable: true, streak } });
-				void record({ lane: "delivery", turn: state.turn, ok: true, reason: "review_unavailable_notice", streak });
+					details: { coc_delivery: true, turn: state.turn, review_unavailable: true, streak, service: !verdict } });
+				void record({ lane: "delivery", turn: state.turn, ok: true, reason: "review_unavailable_notice", streak, service: !verdict });
 			}
 			return;
 		}

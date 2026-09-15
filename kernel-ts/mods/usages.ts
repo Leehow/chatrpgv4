@@ -42,6 +42,12 @@ export function validateUsageRequest(input: any): Row {
         return fail('Usage request needs bounded object, name and description');
     return {object:input.object, name:input.name, description:input.description};
 }
+export function validateUsageProposal(input: any): Row {
+    if (!isJsonObject(input) || !bounded(input.object,120) || input.propose !== true
+        || Object.keys(input).some(key => !['object','propose'].includes(key)))
+        return fail('Usage proposal needs only a bounded object and propose: true');
+    return {object:input.object, propose:true};
+}
 const records = (world: Row, item: Row) => values(row(row(world.objects).usages)).filter(usage => usage.object_id === item.id);
 const fresh = (world: Row, item: Row, usage: Row) => equal(usage.physical_basis, usagePhysicalBasis(world,item));
 export function findAcceptedUsage(world: Row, name: string | Row, usageName: string): Row | null {

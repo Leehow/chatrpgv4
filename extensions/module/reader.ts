@@ -1,7 +1,7 @@
 /** A tool-enabled Pi child for one visual reading or review phase. */
 import { spawn } from "node:child_process";
 import { createWriteStream } from "node:fs";
-import { mkdir } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { dirname, join, resolve as resolvePath } from "node:path";
 import type { RuntimeContext } from "../../runtime/host.ts";
@@ -25,6 +25,15 @@ export interface ReaderRequest {
 	thinking?: string;
 	signal?: AbortSignal;
 	timeoutMs?: number;
+	/**
+	 * This child's own HTTP idle timeout, in milliseconds, instead of the agent home's.
+	 *
+	 * Written as project settings in the child's own working directory, which is why the command
+	 * gains `--approve`: pi reads `<cwd>/.pi/settings.json` only for a trusted project, and merges
+	 * it over the agent home's for this process alone. The operator's own `httpIdleTimeoutMs` keeps
+	 * governing the table, and is neither read nor rewritten here.
+	 */
+	httpIdleTimeoutMs?: number;
 	/** Host-owned provider-call ceiling for a bounded child task. */
 	maxRequests?: number;
 	systemPrompt?: string;
@@ -102,6 +111,28 @@ export function readerCommand(model?: string, systemPrompt?: string, thinking?: 
 	];
 }
 
+/**
+ * Give one child its own HTTP idle timeout without touching the operator's.
+ *
+ * The agent home's `httpIdleTimeoutMs` is written once and never re-asserted (`runtime/launch.ts`),
+ * because it is the operator's value for the table. A child whose wall-clock budget is shorter than
+ * that value can never reach it: its own timer kills it first, so a stalled stream becomes a SIGTERM
+ * with no reason instead of the retryable transport error pi's auto-retry already recovers from.
+ * Pi's project scope is the per-child seam: `<cwd>/.pi/settings.json` is deep-merged over the agent
+ * home's, for this process only, and only when the run is `--approve`d.
+ *
+ * The directory is recreated from nothing every run. `--approve` trusts the whole project scope, and
+ * the attempts of one review share a working directory the child itself can write to, so a child
+ * that left a `SYSTEM.md`, `APPEND_SYSTEM.md`, `extensions` or `skills` behind would be writing the
+ * next attempt's startup. Host-owned means the host is the only writer, every time.
+ */
+async function writeChildSettings(cwd: string, httpIdleTimeoutMs: number): Promise<void> {
+	const dir = join(cwd, ".pi");
+	await rm(dir, { recursive: true, force: true });
+	await mkdir(dir, { recursive: true });
+	await writeFile(join(dir, "settings.json"), JSON.stringify({ httpIdleTimeoutMs }, null, 2) + "\n");
+}
+
 /** A lane keeps its own sentence; the child's reason rides along when there is one. */
 export const reasoned = (sentence: string, reason?: string) => reason ? `${sentence} (${reason})` : sentence;
 
@@ -172,10 +203,14 @@ export async function runReader(request: ReaderRequest, context?: RuntimeContext
 
 async function runOwnedReader(request: ReaderRequest, context: RuntimeContext): Promise<ReaderOutcome> {
 	const began = Date.now();
+	const ownSettings = !!request.httpIdleTimeoutMs && !context.env.PI_COC_READER_CMD?.trim();
 	let command: string[];
 	try {
 		command = readerCommand(request.model, request.systemPrompt, request.thinking, !!request.source, request.submission, context, request.tools, !!request.audit, !!request.adaptation);
 		if (request.eventLog && !context.env.PI_COC_READER_CMD?.trim()) command.splice(command.length - 1, 0, "--mode", "json");
+		// Without this the file below is read by nobody: pi loads project settings only for a trusted
+		// project, and a print-mode child with no UI answers the trust question "no".
+		if (ownSettings) command.splice(command.length - 1, 0, "--approve");
 		command.push(request.brief);
 	} catch (error) {
 		return {
@@ -206,6 +241,11 @@ async function runOwnedReader(request: ReaderRequest, context: RuntimeContext): 
 	delete env.PI_COC_CAMPAIGN;
 	delete env.PI_COC_MODE;
 	if (request.signal?.aborted) return { ok: false, code: null, timedOut: false, ms: 0, stderr: "", command, error: "cancelled" };
+	if (ownSettings) {
+		try { await writeChildSettings(request.cwd, request.httpIdleTimeoutMs!); }
+		catch (error) { return { ok: false, code: null, timedOut: false, ms: 0, stderr: "", command,
+			error: `the child settings could not be written: ${error instanceof Error ? error.message : String(error)}` }; }
+	}
 	if (request.eventLog) await mkdir(dirname(request.eventLog), { recursive: true });
 	if (request.eventLog) {
 		env.PI_COC_READER_IMAGES_LOG = request.eventLog + ".images.jsonl";

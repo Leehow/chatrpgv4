@@ -4,7 +4,9 @@ import { ModuleGraph, recordOf, moduleDeclaration, describeCondition, conditionS
 import { entries, values, array, row, number, truth, string, normalize, chars, length, words, clone, type Row } from "./values.js";
 import { clueGate, structureType } from "./director.js";
 export const jsonSize = (value: any): number => Buffer.byteLength(pythonJsonDumps(value), "utf8");
-export const sceneLabel = (graph: ModuleGraph, world: Row, scene: Row): string => string(row(world.scene_labels)[graph.handle(scene)] || graph.displayName(scene));
+/** A campaign label first, then what the module calls the place, and the handle's slug only when
+ *  the module named it nothing else (contract §32, the place layer). */
+export const sceneLabel = (graph: ModuleGraph, world: Row, scene: Row): string => string(row(world.scene_labels)[graph.handle(scene)] || graph.placeName(scene));
 export function clueLabel(graph: ModuleGraph, world: Row, handle: string): string {
     const label = row(world.clue_labels)[handle];
     if (typeof label === "string" && label.trim())
@@ -46,6 +48,9 @@ export function whereSection(graph: ModuleGraph, world: Row, scene: Row, materia
     const record = recordOf(scene),
         exits = graph.sceneExits(scene).map(exit => ({
         to: exit.to,
+        // The way out was named by its handle alone, so a Keeper reading the capsule saw a slug and
+        // wrote the player a slug; the place the module named was one lookup away and never taken.
+        ...(sceneLabel(graph, world, graph.scene(exit.to)) !== exit.to ? { display_name: sceneLabel(graph, world, graph.scene(exit.to)) } : {}),
         ...(Object.hasOwn(exit, "travel_minutes") ? { travel_minutes: exit.travel_minutes } : {}),
         ...(truth(exit.when) && row(exit.when).kind !== "always" ? { unlock_when: {
                 condition: describeCondition(exit.when),

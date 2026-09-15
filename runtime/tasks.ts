@@ -181,6 +181,38 @@ const LANE_EXTENSION = "coc-keeper";
  */
 const LANE_THINKING_DEFAULT = "low";
 
+/**
+ * How long a lane child's provider connection may say nothing before its transport gives up
+ * (contract §37.12).
+ *
+ * Not the table's, and not a fraction of the child's budget either. The agent home's
+ * `httpIdleTimeoutMs` is 60 s -- chosen in `runtime/launch.ts` as twice the worst time-to-headers
+ * across 15,942 retained table requests -- while a continuity review gets `AUDIT_LIMITS.per_review_ms`
+ * (40 s) of wall clock. A timeout larger than the budget can never fire: the child's own timer kills
+ * it first, so a connection that answers and then goes quiet costs the whole budget and arrives as a
+ * SIGTERM with no reason, instead of the retryable "terminated" that pi's own auto-retry recovers
+ * from. Two retained runs are exactly this shape: `.coc/mods/jobs/f1336e40...` sent its request at
+ * 04:08:20.656Z, received nothing at all, and was killed at 40,031 ms; `homes/m-main/.coc/mods/jobs/
+ * b6242e2a...` took headers and its first chunks at 04:46:03, went silent for 38 s, and was killed at
+ * 40,015 ms.
+ *
+ * **A fraction of `timeoutMs` would be the wrong rule.** How long a healthy stream goes quiet has
+ * nothing to do with how much allowance is left, and the reservation shrinks: a second review under
+ * `AUDIT_LIMITS.time_ms` reserves only what remains, so "half the budget" lands *inside* the healthy
+ * distribution exactly when the allowance is tight, and turns reviews that would have finished into
+ * aborted ones. The threshold is a property of the transport, so it is measured from the transport.
+ *
+ * **25 s, from the lane's own retained streams.** Across 103 continuity-review children and the 4,075
+ * gaps between their streamed events (`audit-agent-*.jsonl`), the worst healthy mid-stream silence is
+ * 16.42 s -- a real one, inside a thinking stream that went on to settle -- with p99.9 at 10.79 s and
+ * the worst time-to-first-token at 10.49 s. 25 s clears the worst observed healthy silence by half
+ * again, and still leaves 13 s of a 40 s budget for the retry pi schedules 2 s later: more than the
+ * 6.53 s median and near the 12.02 s p90 of a whole child's wall clock. Nothing clamps it against a
+ * shrunken reservation on purpose -- a timeout that cannot fire inside what is left is simply today's
+ * behaviour, which is the right thing to fall back to.
+ */
+export const LANE_HTTP_IDLE_TIMEOUT_MS = 25_000;
+
 async function laneChoice(agentHome: string): Promise<{ model?: string; thinking?: string }> {
   let stored: unknown;
   try {
@@ -242,6 +274,9 @@ export const runtimeCapabilities: RuntimeCapabilities = Object.freeze({
       const chosen = await laneChoice(context.agentHome);
       request.model = context.env.PI_COC_MOD_MODEL?.trim() || chosen.model || request.model;
       request.thinking = context.env.PI_COC_MOD_THINKING?.trim() || chosen.thinking || LANE_THINKING_DEFAULT;
+      // Same shape as the budget knob below: the host's own environment is the operator's override.
+      const idle = Number(context.env.PI_COC_MOD_HTTP_IDLE_TIMEOUT_MS);
+      request.httpIdleTimeoutMs ??= idle > 0 ? idle : LANE_HTTP_IDLE_TIMEOUT_MS;
     }
     // A fully overridden command is not a Pi child, so its `--model` is never read and the agent
     // registry says nothing about what it can run.

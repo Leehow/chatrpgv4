@@ -45,6 +45,41 @@ export function recordOf(node: Row | null | undefined): Row {
         record = row(props.runtime_projection).record;
     return record && !Array.isArray(record) && typeof record === "object" ? record : Object.fromEntries(entries(props).filter(([k]) => k !== "runtime_projection"));
 }
+/**
+ * The authored identity of a place: the name the book calls it, and the names a table will call it
+ * by. A scene handle is a slug, and a slug names a room ("newspaper-morgue") where the book named a
+ * building ("Boston Globe offices"); the module writes both, but the identity sat under
+ * `runtime_projection.record`, which `entityView` strips, so it reached nobody. That is the whole
+ * defect behind three stalled turns of 2026-09-15: the action-admission reviewer (contract 32) was
+ * handed `{handle, label, summary}` built from the slug three times over, and could not tell that
+ * `newspaper-morgue` *is* the Globe the player had just walked into.
+ *
+ * Additive, and deliberately not a rename: `displayName` still answers with the module's own
+ * `display_name`/`name`/`title` where one is authored, because a module may write both and mean
+ * different things by them (mystery-house's `clip-morgue` displays as the Evening Transcript while
+ * carrying a canonical name of its own). Identity is what a name *refers to*; display name is what
+ * the table calls it.
+ */
+export function destinationIdentity(node: Row | null | undefined): Row | null {
+    const identity = row(recordOf(node).destination_identity),
+        text = (value: any): string => typeof value === "string" ? value.trim() : "",
+        canonical = text(identity.canonical_name),
+        aliases = [...new Set(array(identity.aliases).map(text).filter(Boolean))];
+    if (!canonical && !aliases.length)
+        return null;
+    return { ...(canonical ? { canonical_name: canonical } : {}), ...(aliases.length ? { aliases } : {}) };
+}
+/** Every authored name for the place a node is, canonical first; empty for a node with no identity. */
+export const destinationNames = (node: Row | null | undefined): string[] => {
+    const identity = row(destinationIdentity(node));
+    return [...(typeof identity.canonical_name === "string" ? [identity.canonical_name] : []), ...array(identity.aliases)];
+};
+/** The authored answer to "can they walk in": `discoverability` and `direct_entry`, as the book set them. */
+export function destinationAccess(node: Row | null | undefined): Row | null {
+    const access = row(recordOf(node).destination_access),
+        picked = Object.fromEntries(["discoverability", "direct_entry"].map(key => [key, access[key]]).filter(([, value]) => typeof value === "string"));
+    return Object.keys(picked).length ? picked : null;
+}
 export function moduleDeclaration(node: Row | null | undefined): Row {
     if (!node)
         return {};
@@ -152,6 +187,80 @@ export class ModuleGraph {
         const record = recordOf(node);
         return [node.node_id, this.handle(node), node.name || "", ...array(node.aliases), ...["display_name", "name", "scene_id", "title"].map(k => record[k]).filter(v => typeof v === "string")].filter(Boolean);
     }
+    /**
+     * What `search` matches on: the name keys plus the place names the module authored. A Keeper
+     * looking up the destination a player just named -- "the Boston Globe" -- found nothing, and
+     * `table.lookup kind=module expected_kind=scene` reads nothing as a destination to *prepare*:
+     * a second scene, adapted into the campaign, for a place the book had already registered.
+     *
+     * Only `search`. `nameKeys` also builds the `names` index that `resolve` and `candidates` read,
+     * where a name is an identifier: an alias there changes which handle an exact name resolves to
+     * and which candidates a miss suggests, and the frozen captures in `ts-kernel-read` show it
+     * does (`resolve "unlisted-person"` gains a candidate off "ruined chapel"). Discovery is the
+     * seam that was broken; the identifier lookup was not.
+     */
+    searchKeys(node: Row): string[] {
+        return [...this.nameKeys(node), ...destinationNames(node)];
+    }
+    /**
+     * The place a name belongs to, or null: the registered scene whose own identity already covers
+     * it. Two shapes, both exact on authored words and neither of them a list:
+     *
+     *  - the name IS one of the place's names ("Boston Globe" -> `newspaper-morgue`);
+     *  - one of the place's names opens or closes the name, and the name holds more ("Boston Globe
+     *    lobby", "the counter at the Boston Globe") -- a part, entrance, room or counter of a place
+     *    that the module registered whole.
+     *
+     * The second is `phraseWithin` with its arguments the other way round. `resolve` asks whether a
+     * shorter query sits anchored inside a longer authored key ("Nemesio Sánchez" in "Professor
+     * Nemesio Sánchez"); this asks whether a shorter authored key sits anchored inside a longer
+     * request. Anchoring is what makes it safe without a vocabulary of "lobby", "entrance", "desk":
+     * a place's name at one end of a phrase qualifies that place, and in the middle it does not.
+     *
+     * Two or more words are required of the authored name, exactly as `resolve` requires of a
+     * phrase: a single word is a hint, not an identity, and "morgue" belongs to no one building.
+     * Ties between different scenes answer null -- an ambiguous name is not a covered one.
+     */
+    placeOf(name: string, kinds: string[] = ["scene"]): Row | null {
+        const key = normalize(name);
+        if (!key)
+            return null;
+        const requested = key.split(" ");
+        let best: { length: number; nodes: Set<string> } | null = null;
+        for (const node of this.nodes.values()) {
+            if (!kinds.includes(node.node_kind))
+                continue;
+            for (const authored of [...this.nameKeys(node), ...destinationNames(node)]) {
+                const place = normalize(authored), words = place.split(" ");
+                if (!place)
+                    continue;
+                const covers = place === key || (words.length >= 2 && phraseWithin(words, requested));
+                if (!covers)
+                    continue;
+                if (!best || words.length > best.length)
+                    best = { length: words.length, nodes: new Set([node.node_id]) };
+                else if (words.length === best.length)
+                    best.nodes.add(node.node_id);
+            }
+        }
+        return best && best.nodes.size === 1 ? this.nodes.get([...best.nodes][0])! : null;
+    }
+    /**
+     * What to call a place in front of the Keeper. `displayName` answers with the handle when the
+     * module authored no display name, and a handle is a slug: the capsule, the exits and the trail
+     * said "newspaper-morgue" for a place the same module calls the Boston Globe offices.
+     *
+     * Separate from `displayName` on purpose. `displayName` is the graph's naming of any node and is
+     * compared against the retired implementation case for case; this is the place layer, and it
+     * only ever fills a gap `displayName` was going to answer with the slug.
+     */
+    placeName(node: Row): string {
+        const display = this.displayName(node);
+        if (display !== this.handle(node))
+            return display;
+        const identity = row(destinationIdentity(node));
+        return typeof identity.canonical_name === "string" && identity.canonical_name ? identity.canonical_name : display;
+    }
     handle(node: Row): string {
         if (this.semanticNames.has(node.node_id)) return this.semanticNames.get(node.node_id)!;
         return node.node_kind === "scene" && typeof recordOf(node).scene_id === "string" ? recordOf(node).scene_id : stripPrefix(node.node_id, node.node_kind);
@@ -200,6 +309,18 @@ export class ModuleGraph {
                 return this.nodes.get([...owners][0])!;
             if (owners.size > 1)
                 throw ambiguous([...owners]);
+        }
+        // Last: the place layer. A scene asked for by one of the names its own module gives the
+        // place -- or by a part, entrance or counter of it -- is that scene, not an absent
+        // destination. Absent is an expensive answer here: `apply move` turns it into
+        // `destination_missing`, and `lookup` turns it into "prepare this destination", which
+        // minted a second `add_scene` for the Boston Globe on 2026-09-15 while the creator's own
+        // reason said "Same building". Only for a caller that asked for scenes, and only after
+        // every identifier path has missed, so no handle, alias or phrase match changes meaning.
+        if (kinds?.includes("scene")) {
+            const place = this.placeOf(name, kinds);
+            if (place && wanted(place.node_id))
+                return place;
         }
         throw new RpcError("unknown_entity", `no ${what} named ${repr(name)} in the module graph`, {
             fix: "pick a name from details.candidates or look first",
@@ -546,7 +667,7 @@ export class ModuleGraph {
         ]> = [],
             summaries: Row[] = [];
         array(this.raw.nodes).forEach((node, order) => {
-            const keys = this.nameKeys(node).map(normalize);
+            const keys = this.searchKeys(node).map(normalize);
             if (keys.includes(key))
                 exact.push(node);
             else {
@@ -597,6 +718,8 @@ export class ModuleGraph {
             display_name: this.displayName(node),
             kind: node.node_kind,
             summary: this.summary(node),
+            ...(destinationIdentity(node) ? { destination_identity: destinationIdentity(node) } : {}),
+            ...(destinationAccess(node) ? { destination_access: destinationAccess(node) } : {}),
             properties: Object.fromEntries(entries(row(node.properties)).filter(([k]) => !["runtime_projection", "asset_ref"].includes(k))),
             visibility: node.visibility ?? null,
             relations: this.relationsOf(node),

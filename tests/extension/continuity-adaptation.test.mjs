@@ -574,19 +574,77 @@ test('story_context truncation reports a real cut, not that the graph holds othe
     assert.ok(graph.kind('conclusion').length > whole.threads.length, 'the module must hold more conclusions than selected threads');
     assert.equal(whole.truncated, false);
 
-    // Pick a selected thread that carries more acquired clues than the compact projection keeps.
+    // Pick a selected thread that carries more acquired clues than the compact projection keeps. The cap is
+    // four (§37.3, 2026-09-15): it matches what this caller projects per relation, so a thread holding four
+    // acquired clues is carried whole and only a fifth is a real cut. The prior cap of two reported a cut for
+    // any thread with three acquired rows and showed the lane two of them.
     const selected = whole.threads.map(thread => {
         const node = graph.find(thread.thread);
         const clues = (graph.incoming.get(node.node_id) ?? []).filter(edge => edge.relation_kind === 'supports')
             .map(edge => graph.nodes.get(edge.from_node_id)).filter(value => value?.node_kind === 'clue').map(value => graph.handle(value));
         return {name: thread.thread, clues};
-    }).find(thread => thread.clues.length >= 3);
-    assert.ok(selected, 'this test needs a selected thread with at least three supporting clues');
+    }).find(thread => thread.clues.length >= 6);
+    // A thread whose supports are all acquired leaves the packet entirely, so exercising a real evidence cut
+    // at a cap of four needs a thread with at least six supporting clues.
+    assert.ok(selected, 'this test needs a selected thread with at least six supporting clues');
 
-    assert.equal(context(selected.clues.slice(0, 2)).truncated, false);
-    const cut = context(selected.clues.slice(0, 3));
+    const whole4 = context(selected.clues.slice(0, 4));
+    assert.equal(whole4.truncated, false);
+    const carried = whole4.threads.find(value => value.thread === selected.name);
+    assert.equal(carried.supporting.length + carried.contradicting.length, 4,
+        'four held clues reach the lane whole: showing two of them is the live turn-87 failure');
+
+    const cut = context(selected.clues.slice(0, 5));
     assert.equal(cut.truncated, true);
     const thread = cut.threads.find(value => value.thread === selected.name);
-    assert.equal(thread.supporting.length + thread.contradicting.length, 2,
+    assert.equal(thread.supporting.length + thread.contradicting.length, 4,
         'a truncated thread keeps the acquired rows the projection could carry; erasing them is the live-18 turn-3 failure');
+});
+
+/**
+ * Contract §37.3 (2026-09-15): `bridge_delivered` was read as a permanent property of the thread, so one
+ * delivered bridge closed `clarify_known` for the rest of the worldline. Retained live evidence
+ * `game-83177d61-ab11-4d58-b8ec-cf8b9c98d5a4` (`the-haunting`): turn 47 delivered a bridge on
+ * `house-haunted-by-corbitt`, turns 62/63/64/80 assessed `aligned` on that same thread, and turn 87 was still
+ * forced into `introduce_evidence` while the player held four of its five clues. A later `aligned` row on the
+ * same worldline/loop/thread now resets it. Driven through the real reader: the assessments file and the
+ * campaign world on disk, not a hand-built assessment row.
+ */
+test('a later aligned assessment reopens clarify_known on a thread whose bridge was already delivered', async () => {
+    const t = await table('I want to know why these families all broke in the same house.');
+    const thread = 'house-haunted-by-corbitt';
+    // Four of this thread's five clues, each acquired where the book puts it; the fifth,
+    // `gabriela-night-visitor`, is authored at the sanitarium, which is why the bridge is out of reach here.
+    const held = [['neighborhood-gossip', 'dooley-macario-madness'], ['corbitt-house-ground', 'upstairs-disturbance'],
+        ['upper-floor-bedroom', 'poltergeist-bed'], ['newspaper-morgue', 'globe-unpublished-story']];
+    await t.call('table.apply', {call_id: 't1-c1', effects: held.flatMap(([scene, clue]) => [
+        {kind: 'move', to: scene, via: 'contract fixture route', travel_minutes: 0}, {kind: 'clue', clue}])});
+    await t.call('table.narrate', {call_id: 't1-c2', text: 'The clippings pile up on the morgue counter.'});
+    const world = await t.world();
+    assert.equal(world.active_scene, 'newspaper-morgue');
+    for (const [, clue] of held) assert.ok(world.discovered_clues.includes(clue), `${clue} is acquired on disk`);
+
+    const storyPath = join(t.home, '.coc/campaigns/c1/memory/story.jsonl');
+    await mkdir(join(t.home, '.coc/campaigns/c1/memory'), {recursive: true});
+    const row = (turn, status, extra = {}) => ({turn, worldline: 'main', loop: 0, status, thread,
+        frame: 'It is only a run of bad luck in one address.', bridge_delivered: false, delivery_quote: null, ...extra});
+    const delivered = row(47, 'misframed', {bridge_delivered: true, delivery_quote: 'The same will keeps returning to that address.'});
+    const realigned = row(80, 'aligned', {frame: 'Corbitt is still working in that house.'});
+    const deviated = row(87, 'detached', {frame: 'I set out for the Globe building now.'});
+    const write = rows => writeFile(storyPath, rows.map(value => JSON.stringify(value)).join('\n') + '\n');
+
+    await write([delivered, realigned, deviated]);
+    const reopened = await t.call('table.player_input', {text: 'I set out for the Globe building now.'});
+    const reentry = reopened.capsule.mods.thread.reentry;
+    assert.equal(reentry.thread.name, thread);
+    assert.equal(reentry.mode, 'clarify_known', 'the player came back to this thread, so held evidence may be clarified again');
+    assert.equal(reentry.bridge, undefined);
+    assert.equal(reentry.known.length, 4, 'every clue the player holds on this thread is nameable by the audit');
+    await t.call('table.narrate', {call_id: 't2-c1', text: 'You cross to the Globe building.'});
+
+    await write([delivered, deviated]);
+    const stillOpen = await t.call('table.player_input', {text: 'I set out for the Globe building now.'});
+    assert.equal(stillOpen.capsule.mods.thread.reentry.mode, 'introduce_evidence',
+        'without a realignment the delivered bridge still stands unanswered');
+    assert.equal(stillOpen.capsule.mods.thread.reentry.bridge.clue, 'gabriela-night-visitor');
 });

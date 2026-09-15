@@ -21,13 +21,13 @@
  * kernel's, the chrome around them is data.
  */
 
-import type { CompactionResult, ExtensionAPI, ExtensionContext, SessionEntry } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { appendJsonl, cocHome, cocMode } from "../lanes/host.ts";
 import { type ExtensionWords, extensionSurface } from "../ui/words.ts";
 import { type CommandDeps, registerCocCommand } from "./commands.ts";
-import { compactAt, FOLD_NOTE_KIND, foldContext } from "./fold.ts";
+import { installContextPolicy } from "./context-runtime.ts";
 
 /** The session summary of contract §11.5; a missing field just means that piece is not shown. */
 interface SessionSummary {
@@ -471,128 +471,8 @@ export default function (pi: ExtensionAPI) {
 	};
 	registerCocCommand(pi, deps);
 
-	// ---- The COC context fold (contract §19.2) ----------------------------
-
-	/**
-	 * The one host message that follows a fold. It says where the table state is — in the next
-	 * turn's capsule, as it is every turn — and what this turn still owes, taken from the capsule's
-	 * own structural fields. It never restates the story: that is what the fold's summary keeps.
-	 */
-	function foldNote(byThisTable: boolean): string {
-		const turn = (capsule?.turn ?? {}) as Record<string, unknown>;
-		const pending = (turn.pending_choice ?? null) as { name?: string; prompt?: string } | null;
-		const obligations = Array.isArray(capsule?.obligations) ? (capsule.obligations as unknown[]).length : 0;
-		const owed = pending
-			? `This turn owes the player an answer to: ${pending.name ?? pending.prompt ?? "the pending choice"}.`
-			: obligations > 0
-				? `${obligations} obligation(s) are open; the capsule lists them.`
-				: "Nothing is pending on your side right now.";
-		// Pi can compact on its own if this table's fold could name no cut point; then the first
-		// sentence would not be true, so it is only said when the fold was in fact this table's.
-		const what = byThisTable
-			? "The table's context was folded. Older turn capsules, mechanics projections and tool round trips were dropped whole; " +
-				"every player line and every delivered narration was kept word for word. "
-			: "The context was compacted. ";
-		return (
-			`${what}Do not try to remember the table state from what is left: the next turn's capsule carries the scene, the clock, ` +
-			`who is present, the pressures and the obligations, exactly as it does every turn, and recall brings back anything older. ${owed}`
-		);
-	}
-
-	pi.on("session_before_compact", async (event) => {
-		const fold = foldContext({
-			entries: event.branchEntries as SessionEntry[],
-			fallbackFirstKeptEntryId: event.preparation.firstKeptEntryId,
-		});
-		if (!fold) {
-			// No cut point can be named at all: leave the compaction to Pi rather than guess.
-			record({ lane: "fold", ok: false, reason: "no_cut_point", trigger: event.reason });
-			return;
-		}
-		record({
-			lane: "fold",
-			ok: true,
-			trigger: event.reason,
-			folded_entries: fold.folded,
-			kept_lines: fold.lines.length,
-			dropped: fold.dropped,
-			tokens_before: event.preparation.tokensBefore,
-		});
-		const compaction: CompactionResult = {
-			summary: fold.summary,
-			firstKeptEntryId: fold.firstKeptEntryId,
-			tokensBefore: event.preparation.tokensBefore,
-			details: fold.details,
-		};
-		return { compaction };
-	});
-
-	pi.on("session_compact", async (event) => {
-		try {
-			pi.sendMessage(
-				{
-					customType: "coc-host",
-					content: foldNote(event.fromExtension === true),
-					display: false,
-					details: { coc_host: true, kind: FOLD_NOTE_KIND },
-				},
-				{ triggerTurn: false },
-			);
-		} catch {
-			/* the note is a courtesy; a session that will not take it must not break the turn */
-		}
-	});
-
-	/**
-	 * Compact before the turn rather than inside it (contract §19.2). Pi's own threshold fires on
-	 * an assistant message, which in a COC turn is usually in the middle of a tool round trip; the
-	 * table would rather pay the fold now, with the turn state machine untouched. `ctx.compact` is
-	 * fire-and-forget, so it is awaited through its own callbacks — the turn starts on the folded
-	 * context, not beside it.
-	 */
-	pi.on("before_agent_start", async (_event, turnCtx) => {
-		const usage = turnCtx.getContextUsage();
-		const percent = usage?.percent;
-		if (typeof percent !== "number") return;
-		const threshold = compactAt() * 100;
-		if (percent < threshold) return;
-		const began = Date.now();
-		await new Promise<void>((done) => {
-			try {
-				turnCtx.compact({
-					onComplete: () => {
-						record({ lane: "fold", event: "pre-emptive", ok: true, percent, threshold, ms: Date.now() - began });
-						done();
-					},
-					onError: (error) => {
-						// "Nothing to compact" lands here too: the turn goes ahead either way.
-						record({
-							lane: "fold",
-							event: "pre-emptive",
-							ok: false,
-							percent,
-							threshold,
-							ms: Date.now() - began,
-							reason: "compact_failed",
-							detail: error.message.slice(0, 200),
-						});
-						done();
-					},
-				});
-			} catch (error) {
-				record({
-					lane: "fold",
-					event: "pre-emptive",
-					ok: false,
-					percent,
-					threshold,
-					reason: "compact_unavailable",
-					detail: (error instanceof Error ? error.message : String(error)).slice(0, 200),
-				});
-				done();
-			}
-		});
-	});
+	// One policy owns request-local projection and the safe persisted fold (contract §19.2).
+	installContextPolicy(pi, record);
 
 	pi.on("session_start", async (_event, sessionCtx) => {
 		ctx = sessionCtx;
