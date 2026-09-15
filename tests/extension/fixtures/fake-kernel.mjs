@@ -686,7 +686,7 @@ function handle(method, params) {
 					],
 					scene: SCENE,
 					pending_turn: pending
-						? { player_text: "我下地窖", receipts: ["roll:spot-hidden-t1-c1"], owed: ["narrate"], since: "2026-01-01T00:00:00Z", last_call_ordinal: 1 }
+						? { player_text: "我下地窖", receipts: [{ id: "roll:spot-hidden-t1-c1", kind: "roll" }], owed: ["narrate"], since: "2026-01-01T00:00:00Z", last_call_ordinal: 1 }
 						: null,
 					resume: resume
 						? {

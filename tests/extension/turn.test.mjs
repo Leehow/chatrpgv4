@@ -87,6 +87,62 @@ test("a pending adaptation owns the rest of the turn and cannot fall through int
 	assert.equal(assistantTexts(table.session).filter(Boolean).at(-1), "书房还在准备中；这期间你没有移动，也没有花钱。");
 });
 
+test("a preparation that becomes pending after a landed move preserves and delivers that move", async t => {
+	const delivered = "你已经抵达港口售票处；与礼拜堂有关的额外资料仍在准备，除此之外没有新发现。";
+	const table = await openTable({
+		env: { FAKE_KERNEL_ADAPTATION_PENDING: "1", PI_COC_ADAPTATION_WAIT_MS: "0" },
+		responses: [
+			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "move", to: "harbor-ticket-office" }] })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("lookup", { kind: "adaptation", action: "prepare", name: "harbor-chapel-eye-rebinding", purpose: "source_rebinding", request: "Reconnect the chapel evidence at the harbor", anchors: ["scene: harbor-ticket-office"] })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "time", minutes: 10, why: "wait for the source" }] })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("narrate", { text: delivered })], { stopReason: "toolUse" }),
+			fauxAssistantMessage(delivered),
+		],
+	});
+	t.after(() => table.dispose());
+	await table.session.prompt("我现在就去港口，但没有根据的礼拜堂线索先不要编。");
+	await waitForIdle(table.session);
+
+	const requests = table.kernelRequests();
+	assert.equal(requests.filter(row => row.method === "table.apply").length, 1,
+		"the preparation blocks later writes but cannot erase the move that already landed");
+	assert.equal(requests.filter(row => row.method === "table.narrate").length, 1);
+	assert.equal(assistantTexts(table.session).filter(Boolean).at(-1), delivered);
+	const wait = customMessages(table.session, "coc-host").find(message => message.details?.kind === "adaptation-wait");
+	assert.match(wait?.content ?? "", /this turn already settled/i);
+	assert.match(wait?.content ?? "", /apply landed:.*move:/i);
+	assert.doesNotMatch(wait?.content ?? "", /without moving/,
+		"once a move receipt exists, the wait instruction must not tell the Keeper it never happened");
+	assert.equal(customMessages(table.session, "coc-delivery").filter(message => message.details?.turn_unfinished).length, 0,
+		"the settled move is delivered as fiction rather than replaced by a service fallback");
+});
+
+test("cold recovery carries retained receipts into a later preparation wait", async t => {
+	const delivered = "上一进程已经结算的侦查结果仍然有效；额外资料还在准备，本回合不再增加新变化。";
+	const table = await openTable({
+		env: {
+			FAKE_KERNEL_PENDING: "1",
+			FAKE_KERNEL_ADAPTATION_PENDING: "1",
+			PI_COC_ADAPTATION_WAIT_MS: "0",
+		},
+		responses: [
+			fauxAssistantMessage([fauxToolCall("lookup", { kind: "adaptation", action: "prepare", name: "cold-rebinding", purpose: "source_rebinding", request: "Reconnect retained evidence", anchors: ["scene: commission-briefing"] })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "time", minutes: 5, why: "wait" }] })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("narrate", { text: delivered })], { stopReason: "toolUse" }),
+			fauxAssistantMessage(delivered),
+		],
+	});
+	t.after(() => table.dispose());
+	await waitForIdle(table.session);
+
+	const wait = customMessages(table.session, "coc-host").find(message => message.details?.kind === "adaptation-wait");
+	assert.match(wait?.content ?? "", /this turn already settled/i);
+	assert.match(wait?.content ?? "", /receipt already landed: roll:spot-hidden-t1-c1/i);
+	assert.doesNotMatch(wait?.content ?? "", /\[object Object\]/);
+	assert.equal(table.kernelRequests().filter(row => row.method === "table.apply").length, 0);
+	assert.equal(assistantTexts(table.session).filter(Boolean).at(-1), delivered);
+});
+
 test("a later status control can release a retained adaptation wait without reopening other tools early", async t => {
 	const table = await openTable({
 		env: {FAKE_KERNEL_ADAPTATION_PENDING: "1", FAKE_KERNEL_ADAPTATION_READY_ON_SECOND_STATUS: "1", PI_COC_ADAPTATION_WAIT_MS: "0"},

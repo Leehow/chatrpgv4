@@ -652,6 +652,17 @@ export default function (pi: ExtensionAPI) {
 
 	// ---- Turn mirror ------------------------------------------------------
 
+	function recoveredReceiptLabel(receipt: unknown): string {
+		if (typeof receipt === "string" && receipt) return receipt;
+		if (receipt && typeof receipt === "object" && !Array.isArray(receipt)) {
+			const record = receipt as Record<string, unknown>;
+			const id = asString(record.id);
+			if (id) return id;
+			try { return JSON.stringify(record); } catch { return "unreadable receipt"; }
+		}
+		return String(receipt);
+	}
+
 	function applyOpen(open: OpenResult): void {
 		if (!table) return;
 		readingModule = asString(open.campaign?.module_id);
@@ -694,7 +705,11 @@ export default function (pi: ExtensionAPI) {
 		table.playerText = asString(open.pending_turn?.player_text);
 		table.admission = new Map();
 		table.admissionRefused = [];
-		table.landed = [];
+		// A cold recovered turn still owes the consequences already written by
+		// its dead process. Feed those retained receipts into the same wait and
+		// admission context as live noteLanded calls; otherwise a later pending
+		// preparation can falsely tell the Keeper that nothing happened.
+		table.landed = (open.pending_turn?.receipts ?? []).map((receipt) => `receipt already landed: ${recoveredReceiptLabel(receipt)}`);
 	}
 
 	function mintCallId(state: TableState): string {
@@ -1356,12 +1371,15 @@ export default function (pi: ExtensionAPI) {
 		setTimeout(() => void emitTurnUnfinishedNotice(state, turn), 0);
 	}
 
-	function preparationWaitInstruction(wait: NonNullable<TableState["preparationWait"]>): string {
+	function preparationWaitInstruction(state: TableState, wait: NonNullable<TableState["preparationWait"]>): string {
+		if (wait.status && !['pending', 'reviewing'].includes(wait.status))
+			return `Retained adaptation preparation${wait.name ? ` for ${wait.name}` : ''} is ${wait.status}. Use lookup kind=adaptation action=status${wait.name ? ` name=${JSON.stringify(wait.name)}` : ''} before any other tool, then follow that result. Do not invent or restart it under another name.`;
+		if (state.landed.length > 0) {
+			return `${wait.kind === "source" ? "Source" : "Adaptation"} preparation${wait.name ? ` for ${wait.name}` : ""} is still running, but this turn already settled: ${state.landed.join("; ")}. Use narrate to deliver exactly those settled consequences and, if relevant, say the additional source-dependent material is still pending. Do not erase, repeat, or extend the settled effects, and do not introduce any fact the pending preparation has not supplied. Then return control without a story menu.`;
+		}
 		if (wait.kind === "source") {
 			return "Source preparation is pending. Use narrate only to tell the player that preparation is still running, then return control without a story menu. Do not start another query, narrate a result, or imply that the refused action or elapsed game time happened.";
 		}
-		if (wait.status && !['pending', 'reviewing'].includes(wait.status))
-			return `Retained adaptation preparation${wait.name ? ` for ${wait.name}` : ''} is ${wait.status}. Use lookup kind=adaptation action=status${wait.name ? ` name=${JSON.stringify(wait.name)}` : ''} before any other tool, then follow that result. Do not invent or restart it under another name.`;
 		return `Adaptation preparation${wait.name ? ` for ${wait.name}` : ""} is still running. Use narrate only to tell the player that preparation is pending, then return control without moving, charging, or introducing the destination. Inspect the same proposal after new player input.`;
 	}
 
@@ -2067,7 +2085,7 @@ export default function (pi: ExtensionAPI) {
 		const adaptationControl = name === 'lookup' && input.kind === 'adaptation' && ['status', 'cancel'].includes(String(input.action));
 		const retainedTerminal = state.preparationWait?.status && !['pending', 'reviewing'].includes(state.preparationWait.status);
 		if (state.preparationWait && ((retainedTerminal && !adaptationControl) || (!retainedTerminal && name !== "narrate" && !adaptationControl))) {
-			return { block: true, terminate: true, reason: preparationWaitInstruction(state.preparationWait) };
+			return { block: true, terminate: true, reason: preparationWaitInstruction(state, state.preparationWait) };
 		}
 		// The same call with the same parameters, resent unchanged: the kernel's answer will not change.
 		// A Keeper once sent one set of parameters thirteen times and was refused every time; after two
@@ -2214,7 +2232,7 @@ export default function (pi: ExtensionAPI) {
 			if (!prose || !canClose || state.closedThisRun) return;
 			const sourceWait = state.readingWait || state.preparationWait?.kind === "source";
 			if (state.preparationWait && !sourceWait) {
-				state.deliveryFix = { kind: `${state.preparationWait.kind}-wait`, text: preparationWaitInstruction(state.preparationWait) };
+				state.deliveryFix = { kind: `${state.preparationWait.kind}-wait`, text: preparationWaitInstruction(state, state.preparationWait) };
 				return { message: { ...event.message, content: blocks.filter(block => block.type !== "text") } };
 			}
 			// A source wait asks the Keeper to say so through narrate itself. That steer is spent once, like
@@ -2223,7 +2241,9 @@ export default function (pi: ExtensionAPI) {
 			// stopped steering once the first steer was spent, and the turn stayed open with nothing
 			// delivered -- so every later player input failed turn_state and the campaign could not continue.
 			if (sourceWait && !state.steeredThisTurn) {
-				state.deliveryFix = { kind: "reading-wait", text: "Source preparation is pending. Use narrate to explain the preparation wait briefly and await free input; do not offer story options." };
+				state.deliveryFix = { kind: "reading-wait", text: state.preparationWait
+					? preparationWaitInstruction(state, state.preparationWait)
+					: "Source preparation is pending. Use narrate to explain the preparation wait briefly and await free input; do not offer story options." };
 				return { message: { ...event.message, content: blocks.filter(block => block.type !== "text") } };
 			}
 			// The kernel left a pending choice for the player (a defence in combat) and the Keeper only wrote
@@ -2402,7 +2422,7 @@ export default function (pi: ExtensionAPI) {
 		if (state.preparationWait) {
 			state.steeredThisTurn = true;
 			const kind = state.preparationWait.kind === "source" ? "reading-wait" : `${state.preparationWait.kind}-wait`;
-			sendHost(preparationWaitInstruction(state.preparationWait), kind);
+			sendHost(preparationWaitInstruction(state, state.preparationWait), kind);
 			return;
 		}
 		// The kernel refused the implicit delivery: hand its own fix back, once.
