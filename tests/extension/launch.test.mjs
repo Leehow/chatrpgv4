@@ -173,7 +173,7 @@ test("bin/pi-coc：写 settings.json、导出战役、拼出 pi 的命令行", (
 	]);
 
 	const settings = JSON.parse(readFileSync(join(root, ".pi", "coc-agent", "settings.json"), "utf8"));
-	assert.deepEqual(settings, { packages: [root], quietStartup: true });
+	assert.deepEqual(settings, { packages: [root], quietStartup: true, httpIdleTimeoutMs: 60000 });
 });
 
 test("bin/pi-coc：已有 settings.json 只补 packages，不动别的键", (t) => {
@@ -189,6 +189,24 @@ test("bin/pi-coc：已有 settings.json 只补 packages，不动别的键", (t) 
 	assert.deepEqual(settings.packages, ["npm:someone-else@1", root]);
 	assert.equal(settings.defaultModel, "x/y", "别人的设置不动");
 	assert.equal(settings.quietStartup, undefined, "已有配置不硬塞 quietStartup");
+	// 传输空闲超时必须补上：pi 的缺省是 5 分钟，而宿主的回合看门狗 2 分钟就先中止，
+	// 中止是 aborted、永远不重试，于是静默的连接吃掉整个回合（2026-09-15 的 turn 2/7/10）。
+	// 放在看门狗下面，同一场静默变成 timeout 错误，pi 现成的重试路径就能接住它。
+	assert.equal(settings.httpIdleTimeoutMs, 60000, "静默的连接要在看门狗之前失败，才轮得到重试");
+});
+
+test("bin/pi-coc：运营者自己定的空闲超时不被下一次启动覆盖", (t) => {
+	const root = fakeRepo();
+	t.after(() => rmSync(root, { recursive: true, force: true }));
+	const settingsPath = join(root, ".pi", "coc-agent", "settings.json");
+	mkdirSync(dirname(settingsPath), { recursive: true });
+	// 0 是 pi 的「disabled」，也是最容易被「没设过就补上」误判掉的那个值。
+	writeFileSync(settingsPath, JSON.stringify({ packages: [root], httpIdleTimeoutMs: 0 }, null, 2));
+
+	runLauncher(root, ["--campaign", "camp-c"]);
+
+	const settings = JSON.parse(readFileSync(settingsPath, "utf8"));
+	assert.equal(settings.httpIdleTimeoutMs, 0, "运营者写下的值是他的，不是缺省要抢的位置");
 });
 
 test("bin/pi-coc：不给战役就不定 session-id，也不导出 PI_COC_CAMPAIGN", (t) => {

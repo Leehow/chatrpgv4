@@ -1113,7 +1113,16 @@ export default function (pi: ExtensionAPI) {
 		const settle = async (verdict: AdmissionVerdict, reused: boolean, ms: number, model?: string): Promise<void> => {
 			state.admission.set(proposal.key, verdict);
 			const admitted = ADMITTING_VERDICTS.has(verdict.verdict);
-			await record({ lane: "admission", verb: tool, ok: true, verdict: verdict.verdict, admitted, reused, ms, key: digest, ...(model ? { model } : {}) });
+			// A refusal costs the player the whole batch, and until now the row said only which verdict
+			// came back: the reviewer's own reasons and the effects it was judging lived in the thrown
+			// KernelError (which the Keeper reads and nobody keeps) and in a turn record whose `calls`
+			// stay empty for a refused call. That left "the reviewer misread plain words" and "the batch
+			// carried an effect nobody chose" indistinguishable after the fact -- 2026-09-15 turn 2,
+			// where a player asked in plain words for the keys and the address he had just been
+			// promised and the batch was refused whole. The grounds and the proposed effects are
+			// what decide between those two readings, so a refusal now carries them.
+			await record({ lane: "admission", verb: tool, ok: true, verdict: verdict.verdict, admitted, reused, ms, key: digest, ...(model ? { model } : {}),
+				...(admitted ? {} : { grounds: verdict.grounds.slice(0, 200), ...(verdict.missing ? { missing: verdict.missing.slice(0, 160) } : {}), proposed: proposal.lines }) });
 			if (admitted) return;
 			state.admissionRefused.push(`${proposal.lines.join(" | ")} -> ${verdict.verdict}${verdict.missing ? `: ${verdict.missing}` : ""}`);
 			throw admissionRefusal(proposal, verdict);

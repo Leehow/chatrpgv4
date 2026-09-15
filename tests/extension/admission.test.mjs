@@ -71,6 +71,12 @@ test("a refused batch draws no dice, moves no scene and lands no clue: nothing r
 	assert.equal(rows[0].reused, false);
 	assert.equal(rows[0].verb, "apply");
 	assert.equal(rows[0].model, "admission/a1");
+	// A refusal costs the player the whole batch, so the row has to say *why* and *what*: without
+	// the grounds and the proposed effects, a run cannot be read for "the reviewer misjudged plain
+	// words" against "the batch carried an effect nobody chose" (2026-09-15, turn 2).
+	assert.equal(rows[0].grounds, "the player only mentioned newspapers");
+	assert.equal(rows[0].missing, "where and how to look at the newspapers");
+	assert.ok(Array.isArray(rows[0].proposed) && rows[0].proposed.length > 0, JSON.stringify(rows[0]));
 	// The tool row records the refusal under its reason, so a run can be read for false refusals.
 	const refusal = table.telemetry().find((row) => row.tool === "apply" && !row.lane && row.ok === false);
 	assert.equal(refusal?.reason, "action_not_authorized");
