@@ -99,6 +99,24 @@ export class RuleTables {
         error.name = "ValueError";
         throw error;
     }
+    /** The finance periods the rulebook tabulates, in table order. */
+    async financePeriods(): Promise<string[]> {
+        const periods = row(await this.load("cash-assets")).periods;
+        return isJsonObject(periods) ? Object.keys(periods) : [];
+    }
+    /** The period the table itself nominates when a campaign's authored setting has no column of its
+     *  own. Which period stands in is table data, not arithmetic: the kernel never reads a year out of
+     *  authored prose, and never extrapolates a column the rulebook did not print. */
+    async defaultFinancePeriod(): Promise<string> {
+        const table = row(await this.load("cash-assets")), periods = await this.financePeriods();
+        const declared = truth(table.default_period) ? string(table.default_period) : "";
+        if (!periods.includes(declared)) {
+            const error = new Error(`cash-assets names no usable default_period: ${repr(declared)}`);
+            error.name = "ValueError";
+            throw error;
+        }
+        return declared;
+    }
     async cashAndAssets(creditRating: number, period = "1920s"): Promise<Row> {
         const table = row(await this.load("cash-assets")), periods = table.periods;
         const fail = (message: string): never => { const error = new Error(message); error.name = "ValueError"; throw error; };

@@ -1,6 +1,8 @@
 {
   "schema_version": 1,
   "currency": "USD",
+  "default_period": "1920s",
+  "default_period_note": "A campaign's authored setting can be prose, or a year the rulebook never tabulated. When it is not itself one of the periods below, the card is built against this period and the card says which setting it stood in for; nothing here is extrapolated to another year.",
   "eras": {
     "1920s": {"localized_labels": {"zh-Hans": "1920 年代", "en": "1920s"}},
     "modern": {"localized_labels": {"zh-Hans": "现代", "en": "Modern"}}
