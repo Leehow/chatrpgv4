@@ -78,11 +78,21 @@ export function storyReentry(graph: ModuleGraph, world: Row, records: Row[], ass
         return [{clue, name, relation: edge.relation_kind, summary: graph.summary(clue), acquired: evidenceAcquired(graph, world, clue, records),
             turns: deliveries.map(record => record.turn).slice(-3)}];
     });
-    const known = evidence.filter(value => value.acquired).slice(0, 3).map(value => ({
+    // Six, not three: `known` is the only place the audit lets a clarification name its evidence, so a cap
+    // below a thread's authored evidence count hides clues the player is actually holding (contract §37.3).
+    // This reads the graph directly, so it is not subject to the compact continuity projection's own cap.
+    const known = evidence.filter(value => value.acquired).slice(0, 6).map(value => ({
         name: value.name, relation: value.relation, summary: chars(string(value.summary), 180), turns: value.turns
     }));
-    const clarifiedBefore = assessments.some(value => value.worldline === worldline && number(value.loop) === loop
-        && value.thread === assessment.thread && value.bridge_delivered === true && number(value.turn) < number(assessment.turn));
+    // Contract §37.3 (2026-09-15): a delivered bridge closed `clarify_known` permanently for the thread.
+    // A later `aligned` assessment on the same worldline/loop/thread is the same lane's own evidence that the
+    // player came back to it, so the next deviation is a fresh first misunderstanding and may clarify again.
+    const history = assessments.filter(value => value.worldline === worldline && number(value.loop) === loop
+        && value.thread === assessment.thread && number(value.turn) < number(assessment.turn));
+    const delivered = history.filter(value => value.bridge_delivered === true)
+        .sort((a, b) => number(a.turn) - number(b.turn)).at(-1);
+    const realigned = !!delivered && history.some(value => string(value.status) === 'aligned' && number(value.turn) > number(delivered.turn));
+    const clarifiedBefore = !!delivered && !realigned;
     const mode = known.length && !clarifiedBefore ? 'clarify_known' : 'introduce_evidence';
     const bridge = mode === 'introduce_evidence' ? evidence.filter(value => !value.acquired).flatMap(value => {
         const clue = value.clue;
@@ -101,11 +111,13 @@ export function storyReentry(graph: ModuleGraph, world: Row, records: Row[], ass
         thread: {name: line.name, claim: chars(string(graph.summary(conclusion) || line.needs), 360), importance: line.importance},
         known,
         ...(bridge ? {bridge: {...bridge,
-            delivery: 'Carry this existing evidence into the chosen direction through source_rebinding when its source location changes, then settle its existing clue or handout receipt before narration. State how the evidence supports or contradicts the selected thread and why that matters now.'}} : {}),
+            delivery: 'Carry this existing evidence into the chosen direction when the fiction reaches it: use source_rebinding only when its source location genuinely changes, then settle its existing clue or handout receipt before narration, and state how the evidence supports or contradicts the selected thread and why that matters now. This is where the story can go, not a toll on this turn.'}} : {}),
         available: {here: array(line.here).slice(0, 2), handed: array(line.handed).slice(0, 2), next: array(line.next).slice(0, 2),
             fallback: line.fallback ? chars(string(line.fallback), 120) : null},
+        // Steering, not a gate (§37.3, 2026-09-15): this row says where the story can be rejoined. It never
+        // makes delivering the investigator's own chosen action conditional on reaching that place this turn.
         action: mode === 'clarify_known'
-            ? 'Before ordinary pacing, clarify one acquired known evidence row: state how it supports or contradicts the selected thread and why that matters now, then continue the investigator\'s chosen action. Do not open adaptation or introduce another clue.'
-            : 'Before ordinary pacing, realize the supplied bridge and make its causal relation and current stakes explicit. New information keeps its existing authority and receipts; changed persistent placement uses reviewed source_rebinding first. Never retry a refused hook or choose the investigator\'s response.'
+            ? 'Steering, not a toll: when the investigator is confused about this thread, clarify one acquired known evidence row — state how it supports or contradicts the selected thread and why that matters now — and then continue their chosen action. Do not open adaptation or introduce another clue. When their chosen action is its own legitimate line, play that line and leave this reentry standing for a later turn.'
+            : 'Steering, not a toll: realize the supplied bridge when the fiction reaches it, making its causal relation and current stakes explicit. New information keeps its existing authority and receipts; changed persistent placement uses reviewed source_rebinding first, and never open one merely to satisfy a review. When the investigator\'s chosen action is its own legitimate line, play that line, claim no evidence, and leave this reentry standing for a later turn. Never retry a refused hook or choose the investigator\'s response.'
     };
 }
