@@ -48,7 +48,11 @@ export class ModJobs {
             const budget = row(await this.context.snapshots.readJson(path));
             const invalid = budget.version !== 1 || !['requests', 'ms', 'rewrites', 'artifact_repairs'].every(k => typeof budget[k] === 'number' && budget[k] >= 0);
             const reason = invalid ? 'Retained review accounting is invalid' : budget.blocked || (budget.active ? 'An interrupted review retains its allowance' : null);
-            return {enabled: true, paused: !!reason, reason, turn: turn.turn};
+            // §38.9: `blocked_service` travels with the block, so a resumed turn replays the kind the
+            // bound that fired recorded. An invalid file and an interrupted reservation are service
+            // conditions in their own right; only a recorded verdict end answers `service: false`.
+            const service = invalid || !budget.blocked ? true : budget.blocked_service !== false;
+            return {enabled: true, paused: !!reason, reason, service, turn: turn.turn};
         } catch { return {enabled: true, paused: true, reason: 'Retained review accounting is unreadable', turn: turn.turn}; }
     }
     async knownHandouts(graph: ModuleGraph, world: Row): Promise<Row[]> {

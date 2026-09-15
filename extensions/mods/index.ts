@@ -38,7 +38,8 @@ function modPoolSize(): number {
   return Number.isFinite(configured) && configured >= 1 ? Math.floor(configured) : MOD_POOL_DEFAULT;
 }
 export interface ModBridge {
-  reviewStatus?(campaign: string): Promise<{paused?: boolean; reason?: string}>;
+  /** `service` is §38.9's kind, replayed from the retained accounting; absent reads as a service pause. */
+  reviewStatus?(campaign: string): Promise<{paused?: boolean; reason?: string; service?: boolean}>;
   prepare(method: string, payload: Record<string, any>, signal?: AbortSignal): Promise<void>;
   /** After the verb landed, so deferred registration can complete in a turn the Keeper never writes in. */
   after(method: string, payload: Record<string, any>, signal?: AbortSignal): Promise<void>;

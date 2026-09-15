@@ -163,6 +163,11 @@ interface TableState {
 	deliveryFix?: { kind: string; text: string };
 	/** A review operation stopped; only genuine new player input can start a linked retry. */
 	reviewUnavailable?: string;
+	/** Which kind of pause that was (§38.9): a service outage, or the reviewer reaching a conclusion.
+	 * The streak is service-only, so it can no longer be read backwards to tell the player which of the
+	 * two happened -- a verdict pause on a table that already carried two outages would otherwise be
+	 * announced as a dead lane. Set once per run, from the pause that actually stopped the review. */
+	reviewPauseService?: boolean;
 	/** Consecutive continuity-review outages (contract §38), counted like the admission lane's own
 	 * (§32.2): the first reads as transient, a streak turns the player's service notice persistent and
 	 * notifies the operator out of fiction, once per streak. A landed narrate resets it; a turn
@@ -1323,11 +1328,18 @@ export default function (pi: ExtensionAPI) {
 		// evidence (game-83177d61): turn 42's `max_rewrites` end became streak 1 and turn 43's dead
 		// child streak 2, so the player was told another attempt was pointless and the operator was
 		// handed a lane-model fix for a problem one of the two halves did not have.
-		const service = !isKernelError(error) || error.details?.service !== false;
+		const observed = !isKernelError(error) || error.details?.service !== false;
 		// Only the first pause of a run is an outage. Once the review is paused every later tool call
 		// re-throws the same reason from the guard above, and counting those would turn one dead lane
 		// into a streak inside a single run.
 		const outage = state.reviewUnavailable === undefined;
+		// §38.10: the kind belongs to the pause that stopped the review, and is pinned by the same first
+		// pause that owns the streak. The guard's re-throw carries `cause` but no `service` at all, so
+		// every later verb in the run reads as an outage; a verdict pause would otherwise be relabelled
+		// a dead lane by its own second symptom -- in the player's notice, and on the operator entry,
+		// which announced `service: true` for a review that had already answered.
+		if (outage) state.reviewPauseService = observed;
+		const service = state.reviewPauseService ?? observed;
 		state.reviewUnavailable = cause; state.deliveryFix = undefined; state.floorDraft = undefined;
 		if (outage && service) state.reviewOutage += 1;
 		const streak = state.reviewOutage;
@@ -1931,8 +1943,10 @@ export default function (pi: ExtensionAPI) {
 				}
 				const review = await mods?.reviewStatus?.(campaign);
 				if (review?.paused) {
+					// §38.9: the retained accounting already records which kind blocked it, so a recovered
+					// turn replays that kind instead of re-reading a verdict end as a fresh outage.
 					pauseReview(table, new KernelError({code: 'needs', message: 'The retained review is paused',
-						details: {reason: 'continuity_review_unavailable', cause: review.reason}}));
+						details: {reason: 'continuity_review_unavailable', cause: review.reason, service: review.service !== false}}));
 					// Contract §38: the retained review cannot approve any draft, so this recovered turn can
 					// never be delivered. It is stranded; the player's next input opens a new turn.
 					table.strandedTurn = true;
@@ -2532,19 +2546,38 @@ export default function (pi: ExtensionAPI) {
 			if (!state.reviewNoticeSent) {
 				state.reviewNoticeSent = true;
 				const streak = state.reviewOutage;
-				let line = streak >= 2
-					? `This turn could not be published: its continuity review has failed ${streak} times in a row, so sending it again will not help. The person running this table has been told.`
+				// Contract §38.10. Three sentences, because the player is deciding one thing -- whether
+				// to send again -- and the three situations answer it differently.
+				//
+				// A *verdict* pause (§38.9 `service: false`) is the reviewer having read the draft and
+				// declined it, most often on `max_rewrites`. Saying the review "did not finish" there is
+				// simply false: H-MAIN turn 42 ran two reviews that both submitted (23.2 s and 17.4 s).
+				//
+				// A service streak is not a locked table. `before_agent_start` clears
+				// `reviewUnavailable`, every new input opens a turn with a fresh allowance, and a landed
+				// narrate zeroes `reviewOutage`. The old line told the player "sending it again will not
+				// help"; the run that found this defect stopped a live table on that sentence and then
+				// delivered a complete turn from the very next message. What a repeated outage is
+				// actually evidence for is the lane model, which the Lane model / Lane thinking settings
+				// change for the next review without restarting the table (§37.10) -- so that, and not a
+				// dead end, is what the streak line says.
+				const verdict = state.reviewPauseService === false;
+				let line = verdict
+					? "This turn could not be published: the continuity review read it and did not approve it. Everything already settled is kept — send anything and the Keeper writes this turn again."
+					: streak >= 2
+					? `This turn could not be published: its continuity review has failed ${streak} times in a row. Everything already settled is kept, and sending again does start a fresh attempt — but if it keeps failing, pick a quicker model under Lane model in settings; the next review uses it without restarting this table. The person running this table has been told.`
 					: "This turn could not be published: its continuity review did not finish. Everything already settled is kept — send anything to try again.";
 				try {
-					// Both keys are written out here: the caption inventory is checked by scanning these
-					// call sites, and a key held in a variable is a shipped word nothing asks for.
-					line = (await surface.words()).line(streak >= 2 ? "review_down_notice" : "review_unavailable_notice", { streak });
+					// All three keys are written out here: the caption inventory is checked by scanning
+					// these call sites, and a key held in a variable is a shipped word nothing asks for.
+					line = (await surface.words()).line(
+						verdict ? "review_verdict_notice" : streak >= 2 ? "review_down_notice" : "review_unavailable_notice", { streak });
 				} catch {
 					/* an unreadable content root still owes the player the English line */
 				}
 				pi.sendMessage({ customType: "coc-delivery", content: line, display: true,
-					details: { coc_delivery: true, turn: state.turn, review_unavailable: true, streak } });
-				void record({ lane: "delivery", turn: state.turn, ok: true, reason: "review_unavailable_notice", streak });
+					details: { coc_delivery: true, turn: state.turn, review_unavailable: true, streak, service: !verdict } });
+				void record({ lane: "delivery", turn: state.turn, ok: true, reason: "review_unavailable_notice", streak, service: !verdict });
 			}
 			return;
 		}
