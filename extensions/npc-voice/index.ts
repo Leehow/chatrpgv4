@@ -170,6 +170,9 @@ export default function (pi: ExtensionAPI) {
 
 	const scheduler = createLaneQueue(pi, {
 		backfillEnv: "PI_COC_NPCVOICE_BACKFILL",
+		// Off unless asked (user ruling 2026-09-15): a fifty-person book would spend fifty model calls at
+		// the door on people the table may never meet; "present or met first" already covers play.
+		backfillDefault: 0,
 		runJob,
 		onError: (job, error) => record(job.campaign, { ok: false, reason: "lane_error", detail: errorText(error) }),
 	});

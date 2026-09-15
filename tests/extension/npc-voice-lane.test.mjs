@@ -39,7 +39,7 @@ async function openVoice(t, { env = {}, people = [], responses = [], rpc, mode =
 	const workspace = mkdtempSync(join(tmpdir(), "pi-coc-voice-lane-"));
 	const values = {
 		PI_COC_MODE: mode, PI_COC_HOME: workspace, PI_OFFLINE: "1",
-		PI_COC_VOICE_MODEL: "voice/v1", PI_COC_NPCVOICE_BACKFILL: "0", ...env,
+		PI_COC_VOICE_MODEL: "voice/v1", ...env,
 	};
 	const previous = new Map(Object.keys(values).map(key => [key, process.env[key]]));
 	for (const [key, value] of Object.entries(values)) {
@@ -210,12 +210,13 @@ test("a person is tried at most twice in a session, and the re-offered job ends 
 	assert.equal(table.rows().length, 2, "and it is noted once, not once per commit");
 });
 
-for (const budget of ["0", "5"]) {
-	test(`backfill is asked ${budget === "0" ? "never" : "once"} when PI_COC_NPCVOICE_BACKFILL is ${budget}`, async (t) => {
+for (const budget of ["unset", "0", "5"]) {
+	test(`backfill is asked ${budget === "5" ? "once" : "never"} when PI_COC_NPCVOICE_BACKFILL is ${budget}`, async (t) => {
+		// Off unless asked (§40.5, user ruling 2026-09-15): unset is the product default and means never.
 		const table = await openVoice(t, {
-			env: { PI_COC_NPCVOICE_BACKFILL: budget }, people: ["steven-knott"], responses: [answer("a", "b")],
+			env: budget === "unset" ? {} : { PI_COC_NPCVOICE_BACKFILL: budget }, people: ["steven-knott"], responses: [answer("a", "b")],
 		});
-		if (budget === "0") {
+		if (budget !== "5") {
 			await settle(60);
 			assert.equal(table.calls("voice.job").length, 0);
 			assert.deepEqual(table.rows(), []);

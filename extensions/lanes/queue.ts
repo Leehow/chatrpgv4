@@ -15,15 +15,17 @@ export interface LaneJob {
 
 interface QueueOptions {
 	backfillEnv: string;
+	/** Rounds of backfill per session when the env is unset; the journal and memory lanes keep 5, the voice lane 0 (§40.5). */
+	backfillDefault?: number;
 	runJob: (job: LaneJob) => Promise<void>;
 	onError: (job: LaneJob, error: unknown) => Promise<void>;
 }
 
 /** Read at session_start, never at module load. Zero disables backfill, not committed turns. */
-function backfillBudget(envName: string): number {
+function backfillBudget(envName: string, fallback = 5): number {
 	const raw = process.env[envName]?.trim();
 	const parsed = raw ? Number.parseInt(raw, 10) : NaN;
-	return Number.isFinite(parsed) && parsed >= 0 ? parsed : 5;
+	return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
 }
 
 export function createLaneQueue(pi: ExtensionAPI, options: QueueOptions) {
@@ -100,7 +102,7 @@ export function createLaneQueue(pi: ExtensionAPI, options: QueueOptions) {
 		agentRunning = false;
 		lanes = new AbortController();
 		queue.length = 0;
-		backfillLeft = backfillBudget(options.backfillEnv);
+		backfillLeft = backfillBudget(options.backfillEnv, options.backfillDefault);
 		backfillDone = backfillLeft <= 0;
 		// Do not reset running: a previous session's continuation still owns the pump until finally.
 		if (!backfillDone) wake();
