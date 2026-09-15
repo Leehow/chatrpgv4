@@ -11,6 +11,7 @@ import { ModuleGraph, recordOf } from "./module-graph.js";
 import { SessionView } from "./session-view.js";
 import { RuleObservations } from "./rule-facts.js";
 import { buildCapsule } from "./assemble.js";
+import { contextBinding } from "./context.js";
 import { clockSection, sceneLabel, clueLabel, npcsPresent, cluesHere, whereSection, presentSection, npcView, investigatorView, fittedModuleSection } from "./capsule.js";
 import { crossLineReader } from "./worldline.js";
 import { mechanics } from "./mechanics.js";
@@ -23,7 +24,7 @@ export type RuleLookup = (campaign: CampaignSnapshot, module: LoadedModule, para
 export interface ReadContributions {
     repairLegacyTrail?(campaign: CampaignSnapshot): Promise<void>;
     touchActing?(campaign: CampaignSnapshot): Promise<void>;
-    capsule?(campaign: CampaignSnapshot, module: LoadedModule): Promise<KernelResult>;
+    capsule?(campaign: CampaignSnapshot, module: LoadedModule, options?: { rehydrate?: boolean }): Promise<KernelResult>;
     lookupRules?: RuleLookup;
     asset?: AssetReader;
     requireMapMaterial?(graph: ModuleGraph, params: Row): Promise<void>;
@@ -154,7 +155,7 @@ export function tableSnapshot(campaign: CampaignSnapshot, graph: ModuleGraph): R
         pending_choice: view.pendingChoice()
     };
 }
-export async function readCampaign(context: KernelContext, params: Row, frontend = false, minimal = false, contributions: ReadContributions = {}): Promise<{
+export async function readCampaign(context: KernelContext, params: Row, frontend = false, minimal = false, contributions: ReadContributions = {}, readOnlyLegacyTrail = false): Promise<{
     campaign: CampaignSnapshot;
     module: LoadedModule;
 }> {
@@ -176,18 +177,18 @@ export async function readCampaign(context: KernelContext, params: Row, frontend
     if (!minimal)
         await campaign.preload(frontend ? "view" : "all");
     if (!Object.hasOwn(campaign.world, "scene_trail")) {
-        if (!frontend) {
+        if (frontend || readOnlyLegacyTrail) {
+            campaign.world = {
+                ...campaign.world,
+                scene_trail: replayTrail(await campaign.replayEvents())
+            };
+        } else {
             const repair = contributions.repairLegacyTrail;
             if (!repair)
                 return unfinished("Reading this legacy snapshot requires scene-trail persistence; the transaction slice is not implemented");
             await repair(campaign);
             if (!Object.hasOwn(campaign.world, "scene_trail"))
                 throw new RpcError("internal", "Legacy trail repair did not refresh the operation snapshot");
-        } else {
-            campaign.world = {
-                ...campaign.world,
-                scene_trail: replayTrail(await campaign.replayEvents())
-            };
         }
     }
     return {
@@ -301,8 +302,14 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
             };
         },
         "table.capsule": async (params) => {
-            const { campaign, module } = await readCampaign(context, params, false, false, contributions);
-            return contributions.capsule ? contributions.capsule(campaign, module) : buildCapsule(campaign, module);
+            if (params.rehydrate != null && typeof params.rehydrate !== 'boolean')
+                throw new RpcError('invalid_params', 'params.rehydrate must be boolean when supplied');
+            const rehydrate = params.rehydrate === true,
+                { campaign, module } = await readCampaign(context, params, false, false, contributions, rehydrate),
+                view = contributions.capsule
+                    ? await contributions.capsule(campaign, module, { rehydrate })
+                    : await buildCapsule(campaign, module, rehydrate ? { styleFull: true, moduleBrief: true } : {});
+            return { ...view, _context: await contextBinding(campaign, module, view) };
         },
         "table.look": async (params) => {
             const { campaign, module } = await readCampaign(context, params, false, true, contributions),

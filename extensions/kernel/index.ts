@@ -19,6 +19,8 @@ import { progressPartial } from "./progress.ts";
 import { renderMapView, type MapAttachment } from './map-view.ts';
 import { AUTHORED_MAP_WORDS, KEEPER_MAP_WORDS, mapCardTexts, type MapWordsOptions, prepareMapWords, projectMapCard, readMapWords } from '../module/map-presentation.ts';
 import { COC_TOOLS, COC_TOOL_NAMES, type CocToolSpec, WRITE_TOOLS } from "./tools.ts";
+import { RecallPages } from "./recall-pages.ts";
+import { randomUUID } from "node:crypto";
 import { type CommitPayload, runVerifierLane } from "./verifier.ts";
 import {
 	type AdmissionContext,
@@ -114,6 +116,7 @@ interface TableState {
 	state: TurnState;
 	/** The ordinal of state-changing calls minted this turn. */
 	callOrdinal: number;
+	recallPages: RecallPages;
 	/** Turn 0: the table has opened but not yet narrated, so narrate is allowed straight out of awaiting_player. */
 	openingPending: boolean;
 	/** narrate/ask has returned rendered_text and is waiting to replace the assistant message. */
@@ -659,7 +662,7 @@ export default function (pi: ExtensionAPI) {
 	/** A message the host sends itself is marked as such: it is not player input and does not go to table.player_input. */
 	function sendHost(content: string, kind: string): void {
 		pi.sendMessage(
-			{ customType: "coc-host", content, display: false, details: { coc_host: true, kind } },
+			{ customType: "coc-host", content, display: false, details: { coc_host: true, kind, scope: "turn", campaign: table?.campaign, turn: table?.turn } },
 			{ triggerTurn: true },
 		);
 	}
@@ -1468,6 +1471,12 @@ export default function (pi: ExtensionAPI) {
 		// update channel; each frame becomes one partial result on the tool status line.
 		const onProgress = onUpdate ? (frame: KernelProgressFrame) => onUpdate(progressPartial(frame)) : undefined;
 		try {
+			if (spec.name === "recall") {
+				delete payload._snapshot;
+				delete payload._context_read;
+				const {_context_read: _privateRead, ...publicParams} = params;
+				Object.assign(payload, state.recallPages.prepare(publicParams));
+			}
 			if (state.reviewUnavailable) throw new KernelError({code: 'needs', message: 'The review is paused until new player input',
 				details: {reason: 'continuity_review_unavailable', cause: state.reviewUnavailable}});
 			// The recovery gate (contract §40). The Director asked for a recovery this turn and nothing that
@@ -1534,6 +1543,7 @@ export default function (pi: ExtensionAPI) {
 				}
 				result = (await state.kernel.call<Record<string, unknown>>(spec.method, payload, onProgress)) ?? {};
 			}
+			if (spec.name === "recall") result = state.recallPages.accept(result);
 			// Deferred Mod bookkeeping completes after the verb that opened this turn, never before it.
 			if (mods?.after) await mods.after(spec.name, payload, signal);
 			if (spec.name === "lookup" && params.kind === "module" && params.question) {
@@ -1569,6 +1579,7 @@ export default function (pi: ExtensionAPI) {
 				ok: true,
 				...(spec.name === "resolve" ? resolveTelemetry(result as ResolveResult) : {}),
 				...readTelemetry(spec.name, params),
+				...(spec.name === "recall" ? {response_bytes: Buffer.byteLength(JSON.stringify(result), "utf8")} : {}),
 			});
 			if (spec.name === "narrate" || spec.name === "ask") {
 				// A turn inside a session must be accountable on its own: round trips in combat are not the same as in investigation.
@@ -1585,6 +1596,8 @@ export default function (pi: ExtensionAPI) {
 				details: result,
 			};
 		} catch (error) {
+			if (spec.name === "recall") error = state.recallPages.diagnostic(error);
+			if (spec.name === "recall" && isKernelError(error) && error.details?.reason === "recall_page_stale") state.recallPages.forget(params);
 			const code = isKernelError(error) ? error.code : "internal";
 			if ((error as { details?: { reason?: string } })?.details?.reason === "reading_timeout") {
 				state.preparationWait = { kind: "source" };
@@ -1710,10 +1723,13 @@ export default function (pi: ExtensionAPI) {
 	/** The RPC closure that goes onto the bus: once the gate is closed a late lane call fails on the spot instead of waking the kernel subprocess. */
 	function bridgeCall(kernel: KernelClient): (method: string, params: Record<string, unknown>) => Promise<unknown> {
 		const gate = bridgeGate;
-		return (method, params) =>
-			gate.open
-				? kernel.call(method, params)
-				: Promise.reject(new KernelError({ code: "internal", message: `the kernel is closed; ${method} is not sent` }));
+		return async (method, params) => {
+			if (!gate.open) throw new KernelError({code: "internal", message: `the kernel is closed; ${method} is not sent`});
+			const result = await kernel.call(method, params);
+			// Register public references, but retain the original host-only snapshot. accept returns a separate model view.
+			if (method === "table.recall" && table && result && typeof result === "object") table.recallPages.accept(result as Record<string, unknown>);
+			return result;
+		};
 	}
 
 	async function shutdownKernel(): Promise<void> {
@@ -1804,6 +1820,7 @@ export default function (pi: ExtensionAPI) {
 				turn: 0,
 				state: "awaiting_player",
 				callOrdinal: 0,
+				recallPages: new RecallPages(),
 				openingPending: false,
 				session: null,
 				pendingChoice: null,
@@ -2042,7 +2059,7 @@ export default function (pi: ExtensionAPI) {
 					fix: "retry after the session storage becomes writable",
 				});
 			}
-			const result = await state.kernel.call<{ turn?: number; state?: TurnState; capsule?: unknown }>(
+			const result = await state.kernel.call<{ turn?: number; state?: TurnState; capsule?: unknown; _context?: unknown }>(
 				"table.player_input",
 				{ campaign: state.campaign, text, ...(strandedTurn ? { release: "stranded" } : {}) },
 			);
@@ -2106,17 +2123,21 @@ export default function (pi: ExtensionAPI) {
 			// Contract §13.9: the capsule enters the model context verbatim. Another extension that wants to
 			// see it (the table display reads the director beat) takes it off the bus rather than parsing that
 			// host message a second time, and never alters its JSON.
+			const contextEpoch = randomUUID();
 			pi.events.emit("coc:capsule", {
+				epoch: contextEpoch,
 				campaign: state.campaign,
 				turn: state.turn,
 				capsule: result.capsule ?? {},
+				context: result._context,
+				answering: state.answering,
 			});
 			return {
 				message: {
 					customType: "coc-capsule",
 					content: JSON.stringify(result.capsule ?? {}),
 					display: false,
-					details: { coc_host: true, turn: state.turn },
+					details: { coc_host: true, turn: state.turn, epoch: contextEpoch, context: result._context },
 				},
 			};
 		} catch (error) {
@@ -2145,7 +2166,7 @@ export default function (pi: ExtensionAPI) {
 					customType: "coc-host",
 					content: `The kernel did not accept that player input: ${errorText(error)}`,
 					display: false,
-					details: { coc_host: true, kind: "player-input-failed" },
+					details: { coc_host: true, kind: "player-input-failed", scope: "turn", campaign: state.campaign, turn: state.turn },
 				},
 			};
 		}

@@ -7,6 +7,7 @@ import { EntityIndex, queryCandidates } from '../read/memory.js';
 import { npcsPresent } from '../read/capsule.js';
 import { array, row, number, integer, string, truth, sorted, chars, length, words, repr, type Row } from '../read/values.js';
 import { CANDIDATE_KINDS, logs, records, proseOf } from './jobs.js';
+import {RECALL_CHARS, pageOptions, detailOptions, position, publicRecall, recallBytes, recallSnapshot, textPage, rowsPage, rowDetail} from './pages.js';
 const ROLES = ['player', 'keeper'];
 const RECEIPTS = ['roll', 'move', 'clue', 'delta', 'session', 'time'];
 export function parseSpan(value: any, current: number, defaults: number): number[] {
@@ -18,27 +19,34 @@ export function parseSpan(value: any, current: number, defaults: number): number
 }
 export async function transcript(campaign: CampaignWriter, current: number, params: Row): Promise<Row> {
     const all = await logs(campaign, 'transcript.jsonl'), read = params.read;
+    const snapshot = await recallSnapshot(campaign, params, all);
     if (read != null) {
-        if (!isJsonObject(read) || !integer(read.turn) || !ROLES.includes(read.role as string))
-            throw new RpcError('invalid_params', 'read must be {turn: int, role: player|keeper}');
+        if (!isJsonObject(read) || Object.keys(read).some(key => !['turn', 'role', 'offset', 'limit'].includes(key))
+            || !integer(read.turn) || number(read.turn) < 0 || !ROLES.includes(read.role as string))
+            throw new RpcError('invalid_params', 'read must name a turn, role and optional offset/limit');
         const turn = number(read.turn), role = string(read.role), found = all.filter(value => number(value.turn) === turn && value.role === role);
-        if (!found.length) {
-            const keys = [...new Set(all.map(value => JSON.stringify([number(value.turn), value.role])))].map(value => JSON.parse(value));
-            keys.sort((a, b) => a[0] - b[0] || (a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0));
-            throw new RpcError('invalid_params', `no ${role} row for turn ${turn} in the transcript`, { fix: 'pick a card from recall transcript first', details: { turn, role, available: keys.slice(-40).map(([turn, role]) => ({ turn, role })) } });
-        }
+        if (!found.length)
+            throw new RpcError('invalid_params', `no ${role} row for turn ${turn} in the transcript`, {
+                fix: 'Pick a card from recall transcript first.', details: {turn, role},
+            });
         const text = string(found.at(-1)!.text || ''), record = await campaign.readTurnRecord(turn);
         const canonical = record?.[role === 'keeper' ? 'rendered_text' : 'player_text'];
-        return { what: 'transcript', turn, role, text, verified: canonical != null && sha256Text(text) === sha256Text(string(canonical)), verification_scope: 'record_integrity_only' };
+        const offset = position(read.offset, 0, 'read.offset'), limit = position(read.limit, RECALL_CHARS, 'read.limit', true);
+        return textPage(text, offset, limit, {what: 'transcript', turn, role, _snapshot: snapshot,
+            verified: canonical != null && sha256Text(text) === sha256Text(string(canonical)), verification_scope: 'record_integrity_only'},
+            offset => ({what: 'transcript', read: {turn, role, offset, limit}}));
     }
     const span = parseSpan(params.turns, current, 3), role = params.role ?? null;
     if (role !== null && !ROLES.includes(role))
         throw new RpcError('invalid_params', "role must be 'player' or 'keeper'");
-    const entries = all.filter(value => span[0] <= number(value.turn) && number(value.turn) <= span[1] && (role === null || value.role === role));
-    const result: Row = { what: 'transcript', turns: span, cards: entries.slice(-40).map(value => ({ turn: number(value.turn), role: value.role, chars: length(value.text || ''), head: chars(words(value.text || ''), 80) })) };
-    if (span[1] - span[0] + 1 <= 3)
-        result.entries = entries;
-    return result;
+    const latest = new Map<string, Row>();
+    for (const value of all) if (span[0] <= number(value.turn) && number(value.turn) <= span[1] && (role === null || value.role === role))
+        latest.set(`${value.turn}:${value.role}`, value);
+    const cards = [...latest.values()].sort((a, b) => number(a.turn) - number(b.turn) || ROLES.indexOf(a.role) - ROLES.indexOf(b.role))
+        .map(value => ({turn: number(value.turn), role: value.role, chars: length(value.text || ''), head: chars(string(value.text || ''), 80),
+            read: {what: 'transcript', read: {turn: number(value.turn), role: value.role, offset: 0, limit: RECALL_CHARS}}}));
+    const query = {...params, turns: span}, base = {what: 'transcript', turns: span, _snapshot: snapshot};
+    return rowDetail(cards, query, 'cards', base) ?? rowsPage(cards, query, 'cards', base);
 }
 function timelineRow(record: Row): Row {
     const world = row(record.world), counts = Object.fromEntries(RECEIPTS.map(kind => [kind, 0]));
@@ -91,19 +99,34 @@ export async function history(campaign: CampaignWriter, current: number, params:
         if (!Array.isArray(types) || !types.every(value => typeof value === 'string'))
             throw new RpcError('invalid_params', 'types must be a list of event types');
         const unknown = sorted(new Set(types.filter(value => !EVENT_TYPES.has(value))));
-        if (unknown.length) {
-            const options = sorted(EVENT_TYPES);
-            throw new RpcError('invalid_params', `unknown event types ${repr(unknown)}`, { fix: `use one of details.options: ${options.join(', ')}`, details: { field: 'types', options } });
-        }
+        if (unknown.length) throw new RpcError('invalid_params', 'History contains an unsupported event type', {
+            fix: 'Use an event type supplied by the tool schema.', details: {field: 'types'},
+        });
     }
-    const all = await records(campaign), result: Row = { what: 'history', turns: span,
-        timeline: [...all].sort(([a], [b]) => a - b).filter(([turn]) => span[0] <= turn && turn <= span[1]).map(([, value]) => timelineRow(value)),
-        events: (await logs(campaign, 'events.jsonl')).filter(value => span[0] <= number(value.turn, -1) && number(value.turn, -1) <= span[1] && (types == null || types.includes(value.type))).slice(-200) };
-    if (params.diff != null)
-        result.diff = historyDiff(all, params.diff);
-    if (truth(params.lines))
-        result.lines = worldlineTree(await campaign.readCampaign());
-    return result;
+    const all = await records(campaign), events = await logs(campaign, 'events.jsonl');
+    const lines = truth(params.lines) ? worldlineTree(await campaign.readCampaign()) : null;
+    const snapshot = await recallSnapshot(campaign, params, [[...all], events, lines]);
+    const requested = detailOptions(params)?.section ?? pageOptions(params, params.diff != null ? 'diff' : types != null ? 'events' : 'timeline').section;
+    const query = {...params, turns: span}, base: Row = {what: 'history', turns: span, _snapshot: snapshot};
+    const timeline = [...all].sort(([a], [b]) => a - b).filter(([turn]) => span[0] <= turn && turn <= span[1]).map(([, value]) => timelineRow(value));
+    const largeLines = lines != null && recallBytes(lines) > 2048;
+    if (lines) base.lines = largeLines ? {active: chars(string(lines.active), 80), truncated: true,
+        read: {...publicRecall(query), page: {section: 'timeline', offset: timeline.length, limit: 1}}} : lines;
+    let selected: Row[];
+    if (requested === 'events') selected = events.filter(value => span[0] <= number(value.turn, -1) && number(value.turn, -1) <= span[1] && (types == null || types.includes(value.type)));
+    else if (requested === 'timeline') {
+        selected = timeline;
+        if (largeLines) selected.push({kind: 'worldlines', ...lines});
+    } else if (requested === 'diff') {
+        const diff = historyDiff(all, params.diff);
+        base.from = diff.from; base.to = diff.to;
+        selected = [{kind: 'scene', from: diff.scene[0], to: diff.scene[1]}, {kind: 'clock', from: diff.clock[0], to: diff.clock[1]},
+            ...diff.clues_added.map((clue: string) => ({kind: 'clue', clue})),
+            ...diff.resources.map((value: Row) => ({kind: 'resource', ...value})),
+            ...diff.sessions.map((value: Row) => ({kind: 'session', ...value})),
+            ...diff.moves.map((value: Row) => ({kind: 'move', ...value}))];
+    } else throw new RpcError('invalid_params', 'History sections are timeline, events and diff');
+    return rowDetail(selected, query, requested, base) ?? rowsPage(selected, query, requested, base);
 }
 async function lineCandidates(campaign: CampaignWriter, line: string): Promise<Row[]> {
     const raw = await campaign.context.git.lineBlob(campaign.id, line, 'memory/candidates.jsonl') || '', result: Row[] = [];
@@ -161,8 +184,11 @@ export async function recallMemory(campaign: CampaignWriter, graph: ModuleGraph,
     if (kinds != null && (!Array.isArray(kinds) || !kinds.every((kind: any) => CANDIDATE_KINDS.includes(kind))))
         throw new RpcError('invalid_params', 'kinds must be a list of candidate kinds', { fix: `one of ${repr(CANDIDATE_KINDS)}` });
     const limit = Object.hasOwn(params, 'limit') ? params.limit : 12;
-    if (!integer(limit) || number(limit) < 1 || number(limit) > 30)
-        throw new RpcError('invalid_params', 'limit must be 1–30');
+    position(limit, 12, 'limit', true);
     const line = Object.hasOwn(params, 'line') ? params.line : 'current', rows = await candidatesFor(campaign, await campaign.readCampaign(), line);
-    return { what: 'memory', about, line, hits: queryCandidates(rows, index, about, { narrow, turns, kinds, includeSuperseded: truth(params.include_superseded), limit: number(limit) }) };
+    const hits = queryCandidates(rows, index, about, {narrow, turns, kinds, includeSuperseded: truth(params.include_superseded), limit: rows.length});
+    const snapshot = await recallSnapshot(campaign, params, [rows, hits, line]);
+    const query = {...params, page: {limit: number(limit), ...row(params.page)}};
+    const base = {what: 'memory', about, line, _snapshot: snapshot};
+    return rowDetail(hits, query, 'hits', base) ?? rowsPage(hits, query, 'hits', base);
 }

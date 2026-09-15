@@ -151,6 +151,85 @@ and source acceptance remains the host/kernel's responsibility after child exit.
 
 **模型与思考等级在 `pi` 上。** 契约 §19 写的 `ctx.setModel` / `ctx.setThinkingLevel` 在 0.85.1 里不存在：`ExtensionContext` 那边只有只读的 `ctx.model`、`ctx.thinkingLevel`、`ctx.modelRegistry`；改值的是 `pi.setModel(model)`（返回 `false` 表示那个 provider 没配鉴权，模型不换）与 `pi.setThinkingLevel(level)`。`setThinkingLevel` 会**按模型能力把等级夹一下**，所以要用 `pi.getThinkingLevel()` 读回真值再报给人，不能照着请求写。候选清单取 `ctx.modelRegistry.getAvailable()`（配了鉴权的），空了退到 `getAll()`。
 
+#### Approved bounded-context host amendment (2026-09-15)
+
+The approved [bounded-play-context](specs/bounded-play-context.md) specification and kernel RPC
+§12.4/§19.2 supersede the cumulative fold described below. Bounded recall is integrated and its
+focused contract tests pass; rehydration integration is in progress. The unified outbound/fold
+policy is task 3, and genuine table/restart/cost acceptance is task 4.
+No old test or live result below is evidence that these new guarantees already hold.
+
+- The table extension owns one pure selection policy, reused by the outbound `context` hook and
+  `session_before_compact`. The former returns a projected copy of request messages; the latter
+  persists a bounded replacement plus safe retained suffix. Neither deletes or rewrites original
+  session/campaign evidence. No Pi patch, summarization model or independent memory subsystem.
+- Closed-history material per request is at most 32 KiB serialized UTF-8, including at most 4 KiB
+  of coverage/omission/source metadata. Prefer the latest two committed dialogue pairs inside that
+  same budget. Historical excerpts carry explicit partial/range labels and full public recall
+  references. Current input/capsule/instructions and all unresolved current-exchange messages are
+  protected separately; if these alone exceed capacity, report a fixed/current-input limitation.
+- The kernel preserves both existing shapes: `table.capsule` stays a flat capsule with host-only
+  `_context` alongside its fields; `table.player_input` keeps its wrapper with `_context` beside
+  `capsule`. The metadata is `{version:1, campaign, worldline, loop, turn,
+  source_revision, memory_coverage}`. The host retains the structured binding on its injected
+  message, never exposes opaque identity in prose, and uses canonical delivery boundaries rather
+  than guessing from text. Source revision includes effective module/active package inputs.
+  `memory_coverage` is bounded to 4096 bytes, derived from existing committed turns and extraction
+  jobs/backlog, and describes recent pending/failed ranges, older gap counts and recall arguments.
+  It is Keeper-only service evidence, never narrative pressure or a semantic completeness claim;
+  completed-empty extraction remains complete. No new mutable coverage file is created.
+- `table.capsule {rehydrate:true}` is host-only, read-only and preserves the envelope. It requests
+  existing full module/craft/active Mod builders without consuming `firstStyleTurn` or resume,
+  reopening a turn or changing world state. Rehydrate/cache by epoch on cold resume, lost full
+  briefing, or package/source/worldline revision. Reuse the selected prefix through tool round
+  trips; recompute on new player input, restart, line/loop change, explicit compaction or changed
+  recovery binding. Never silently truncate mandatory active package rules to claim capacity.
+- Unknown bindings/capsule failures preserve the affected active region and report bounded
+  degradation; unknown host-message kinds remain conservative exceptions. Only closed structural
+  kind plus turn binding may expire old host requirements. A committed `narrate` alone does not
+  release the rest of an unfinished Pi run; pending-choice context and tool pairs stay intact.
+- A safe fold cannot orphan results or discard unfinished exchanges. Do not blindly fall back to
+  Pi's split-turn cut. No valid/progressing cut returns cancellation/degradation, not a generic
+  model summary. Outbound history bounds do not depend on `prepareCompaction` succeeding first.
+  The 70% `PI_COC_COMPACT_AT` threshold still governs persistence, not projection activation.
+  Unknown post-compaction usage is not a provider measurement; suppress same-source no-progress
+  retries and exercise manual/threshold/overflow with the same policy.
+- Version-2 details carry a bounded policy/source/retention/size manifest. Version-1 `lines` remain
+  readable historical evidence, but are not re-accumulated into version 2. The single-cut API is
+  sufficient for bounded replacement today; only selective retention needs the outbound adapter.
+  The upstream wishlist in §6.6 is therefore an ergonomic request, not an implementation blocker.
+- Recall keeps one public tool: `promise` joins memory kinds; `read` has turn/role and optional
+  nonnegative offset/positive limit; `page` has optional offset/limit/section; `detail` has required
+  section/index plus optional offset/limit. Sections are `cards|timeline|events|diff|hits`.
+  Transcript defaults to cards even over short ranges, never automatic full `entries`. History's
+  default section is diff when requested, otherwise events when types are requested, otherwise
+  timeline; other sections use `page.section`. Only the selected history section's rows return.
+  Diff returns ordered rows with `kind: scene|clock|clue|resource|session|move` under `diff`, with
+  top-level `from`/`to`, not the old full nested object. See §12.4 for the exact wire and filters.
+  Every recall response is at most 12288 UTF-8 bytes including metadata, at most 20 listing rows,
+  and at most 4096 Unicode code points per original-text page. Oversized structured rows use
+  `detail` original-JSON text pages, not silent factual truncation. `verified` with
+  `verification_scope: record_integrity_only` authenticates recording integrity, not module truth.
+- Returned `next`/`read`/`detail` references are complete public recall args. Kernel-only `_snapshot`
+  is removed from both model-visible content and tool-result details; the host maps canonical
+  continuation args to this binding and reattaches it only on the internal RPC. It is absent from
+  the public schema. The kernel validates campaign/worldline/loop/source-digest identity (one source digest per RPC).
+  Unknown/stale continuation yields bounded public page-0 refresh args, never a silently rebound
+  old offset. Compatible inherited history follows canonical worldline snapshots, not origin-field
+  equality. A failed original stays unavailable rather than being synthesized.
+- Account through existing context/fold telemetry: before/after closed-history bytes, protected
+  and fixed/capsule cost, recall pages, coverage, binding/cache/rehydration, trigger/outcome,
+  no-progress reason and duration. Provider input/cache/latency measurements remain distinct from
+  local estimates. Test the actual outgoing request, not just raw `session.messages`; no accounting
+  metric becomes a Keeper obligation.
+
+#### Legacy cumulative fold (superseded behavior; retained evidence)
+
+The descriptions below record the original implementation. Growing summary/details, broad host-note
+retention and fallback cuts are superseded requirements, not alternative new policy modes. The
+claim that the fallback always prevents model summaries is not a new guarantee: missing safe cuts
+must be explicitly cancelled by task 3.
+
 **折叠钩子只收「一个切点 + 一段摘要」。** `session_before_compact` 的返回是 `{cancel?, compaction?}`，`compaction` 是 `CompactionResult`：`{summary, firstKeptEntryId, tokensBefore, details?}`。给了它 Pi 就**不叫模型**，压缩条目记 `fromHook: true`。宿主的 `buildContextEntries` 只认这一个切点：`firstKeptEntryId` 之前的一切换成那段摘要，之后的原样留。**没有「挑着丢某几条」的接口**，所以契约 §19.2 的「整段丢 / 原样留」是这样落的：
 
 - 切点放在**倒数第二回合的开头**（回合的开头 = 一条进上下文的 user 消息，也就是玩家输入）。最近两回合于是原样在上下文里，胶囊、工具往返一条不少。
@@ -230,7 +309,7 @@ and source acceptance remains the host/kernel's responsibility after child exit.
 - **扩展通过总线共享闭包**：kernel 扩展提供 `coc:kernel-bridge`，module 扩展提供 `coc:reading-bridge`。订阅在加载时建立，覆盖两种加载顺序；关闭时撤销桥接并停止自有读者，迟到调用不得重启内核。
 - **出站没有附件通道**：助手消息装不下图片或文件（第 3.3 节）。手卡因此退成「机制投影里的一条 `path` + 遥测」，玩家在 TUI 里看不到文件在哪——前端渲染投影之后才看得到。上游请求见第 6 节第 5 条。
 - **关机之后车道的调用会把内核子进程重新拉起来**：`KernelClient.close()` 之前只是「杀掉子进程 + 拒掉在飞的请求」，但排队里剩下的请求随后照样被 dispatch，而 dispatch 见 `child` 为空就再 spawn 一个——那个新内核没人再 close 它，工作区被它占着，管道也让宿主进程退不出去（`node --test` 因此挂住不退）。车道（记忆抽取、按需深读）是异步的，关机那一刻它们的调用完全可能还排在队里，所以这条路一定会被走到。现在两道闸：`close()` 之后 `dispatch` 直接拒（`client.ts`），并且总线上发出去的那个 RPC 闭包在 `shutdownKernel` 里当场失效（`index.ts` 的 `bridgeGate`）。`uv run` 那一层还是会留下一个短命的孤儿 python（uv 被 SIGTERM 掉之后它才收到 stdin EOF），但它自己会退。
-- **压缩钩子挑不了条目**：`session_before_compact` 只收「一个切点 + 一段摘要」（`CompactionResult`），没有「保留这几条、丢那几条」的接口。我们的绕法是把切点放在倒数第二回合的开头，再由扩展自己把切点之前的条目**确定性地**渲染成摘要（第 3.5 节）。代价是：留下来的玩家输入与交付是原文累积的，长局里这段摘要会随逐字记录一起长——它比原来的上下文小得多（胶囊、工具往返、机制投影全没了），但不是常数。上游请求见第 6 节第 6 条。
+- **Historical limitation, superseded workaround (2026-09-15):** the cut-plus-summary API can already make a bounded replacement; §3.5's approved outbound/fold policy replaces the following growing-summary workaround. Selective per-entry retention remains an API limitation, not a reason to wait for upstream. **压缩钩子挑不了条目**：`session_before_compact` 只收「一个切点 + 一段摘要」（`CompactionResult`），没有「保留这几条、丢那几条」的接口。我们的绕法是把切点放在倒数第二回合的开头，再由扩展自己把切点之前的条目**确定性地**渲染成摘要（第 3.5 节）。代价是：留下来的玩家输入与交付是原文累积的，长局里这段摘要会随逐字记录一起长——它比原来的上下文小得多（胶囊、工具往返、机制投影全没了），但不是常数。上游请求见第 6 节第 6 条。
 - **`ctx.compact()` 不返回 promise**：宿主里是 `void (async () => …)()`，只能用 `onComplete` / `onError` 兜成一个 promise 再 await。上游请求见第 6 节第 7 条。
 - **`ctx` 上没有 `setModel` / `setThinkingLevel`**：它们在 `pi` 上（契约 §19 写错了）。`ctx` 那边只有只读的 `ctx.model`、`ctx.thinkingLevel`、`ctx.modelRegistry`。
 - **子会话没有超时**：`ctx.modelRegistry.complete()` 不接受超时，一个不回答的模型会让车道一直挂着。`runLane` 自己加了 `timeoutMs`（校验车道用 `PI_COC_LANE_TIMEOUT_MS`），超时就 abort 并落一行 `reason: "timeout"` 的遥测。
@@ -244,7 +323,7 @@ and source acceptance remains the host/kernel's responsibility after child exit.
 4. 扩展之间的共享服务：一个有类型的服务注册表，或者让扩展声明依赖另一个扩展的导出。现在跨扩展只能靠 `pi.events` 传 `unknown`，我们在总线上递了一个函数闭包（第 5 节），能用但没有契约保证。
 5. 出站附件：让宿主随一条助手消息交给客户端一个文件（图片、PDF），哪怕只是 RPC 模式下的一个 `attachments` 字段。现在图只能进不能出（第 3.3 节），手卡只好退成机制投影里的一条路径。
 
-6. 压缩钩子能返回一份**要保留的条目清单**，而不是只有一个切点：可再生的条目（我们的回合胶囊、机制投影、工具往返）本来可以整段丢而不必把留下来的东西复制进摘要。
+6. 压缩钩子能返回一份**要保留的条目清单**，而不是只有一个切点：可再生的条目（我们的回合胶囊、机制投影、工具往返）本来可以整段丢而不必把留下来的东西复制进摘要。2026-09-15 correction: this is an ergonomic request, not a prerequisite for bounded history; §3.5's approved policy uses existing cut-plus-summary and outbound projection, with implementation/acceptance pending.
 7. `ctx.compact()` 返回一个 promise（或者至少在 `CompactOptions` 里明说 `onComplete` 是唯一的等待方式）。
 
 提了就在这里记编号与状态；被采纳后删掉第 5 节对应的绕法。
@@ -300,4 +379,4 @@ External check: [xAI streaming guidance](https://docs.x.ai/developers/model-capa
 4. 快照缺、override 也没有时，显示的是 pi 内置目录（`pi-ai/dist/providers/data/<provider>.json`）或网络刷新缓存（pi home 的 `models-store.json`）里的 map。**上游目录数据本身会缺档**：2026-09 实测 `deepseek/deepseek-v4-pro`、`opencode-go/deepseek-v4.1-flash` 等多个 deepseek id 在内置/刷新目录里 `low: null`，而 DeepSeek 官方契约有 low——这不是我们的 bug，是上游数据缺口，根治要提给 pi 上游，本地用快照兜。
 5. 模型的 id 与 provider 要拿运行时证据，不能看名字猜：picker 上叫 "DeepSeek V4.1 Flash" 的模型不在任何 models-store 里，来自实时刷新目录；9 月 12 日按"它是 opencode-go 的模型"加的 override 因此完全没碰到它。查证据：pi home 的 `pipiui-settings.json`、`models-store.json`，或新会话里直接问运行时状态。
 
-**pipicoc 的 pi home 不在仓库里。** 独立 App 的 home 是 `~/Library/Application Support/Pipi/pipicoc/pi-agent`；仓库的 `.pi/coc-agent` 只服务源码模式游玩，`.pi/agent` 只服务本仓库编码会话。本次故障三轮修错地方：先改仓库两个 home、再按猜测改 provider，全都没碰到 App 实际读的那份。**规矩：修配置类故障，第一步先用「哪个进程在出错」定位它读的 home 与文件，再动手**；models.json 永不进库这条不变，所以 App home 的手改没有提交一环，进库的是快照。
+**pipicoc 的 pi home 不在仓库里，而且 App 自己有两个。** pi 子进程（每个会话新起，picker 的档位实际来源）读 `~/Library/Application Support/Pipi/pipicoc/pi-coc/agent`（`runtime-assets.ts`：`join(userData, "pi-coc")/agent`）；App 后端与能力快照安装层读写的是 `~/Library/Application Support/Pipi/pipicoc/pi-agent`（`pi-profile.ts`）。**这两个目录不一致是已确认的产品缺陷**：快照装的 override 落在 pi-agent，会话子进程读 pi-coc/agent——后者 initially 连 models.json 都不存在，于是「快照已修、界面没变」。hydration 又是 reported（子进程）压 catalog（后端），后端那份对了也救不回来。仓库的 `.pi/coc-agent` 只服务源码模式游玩，`.pi/agent` 只服务本仓库编码会话。本次故障四轮修错地方：先改仓库两个 home、再按猜测改 provider、再改 App 的 pi-agent，全都没碰到子进程实际读的那份；定位证据是 `pi-coc/agent/thinking-control.json` 里的 `offeredLevels` 实测。**规矩：修配置类故障，第一步先用「哪个进程在出错」定位它读的 home 与文件，再动手**；models.json 永不进库这条不变，所以 App home 的手改没有提交一环，进库的是快照。

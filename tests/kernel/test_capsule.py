@@ -61,7 +61,9 @@ def test_player_input_capsule_has_all_sections(kernel):
     for name, budget in BUDGETS.items():
         assert size(capsule[name]) <= budget, name
 
-    assert kernel.table("capsule") == capsule
+    refreshed = kernel.table("capsule")
+    assert refreshed.pop("_context") == result["_context"]
+    assert refreshed == capsule
 
 
 def test_look_focus_variants(kernel):
@@ -141,13 +143,15 @@ def test_recall_transcript(kernel):
     open_turn(kernel, "第一回合的话。")
     recalled = kernel.table("recall", what="transcript")
     assert recalled["turns"] == [0, 1]
-    assert [(e["turn"], e["role"], e["text"]) for e in recalled["entries"]] == [
+    assert [(c["turn"], c["role"], c["head"]) for c in recalled["cards"]] == [
         (0, "keeper", "开场。\n\n诺特把钥匙拍在桌上。"),
         (1, "player", "第一回合的话。"),
     ]
+    assert kernel.table("recall", what="transcript", read={"turn": 0, "role": "keeper"})["text"] == "开场。\n\n诺特把钥匙拍在桌上。"
+    assert kernel.table("recall", what="transcript", read={"turn": 1, "role": "player"})["text"] == "第一回合的话。"
     only_player = kernel.table("recall", what="transcript", role="player")
-    assert [e["role"] for e in only_player["entries"]] == ["player"]
-    assert kernel.table("recall", what="transcript", turns=[1, 1])["entries"][0]["turn"] == 1
+    assert [c["role"] for c in only_player["cards"]] == ["player"]
+    assert kernel.table("recall", what="transcript", turns=[1, 1])["cards"][0]["turn"] == 1
     # slice 2: the other two roads are open (12.4); their shapes are covered in test_recall.py
     assert kernel.table("recall", what="memory")["what"] == "memory"
     assert kernel.table("recall", what="history")["what"] == "history"

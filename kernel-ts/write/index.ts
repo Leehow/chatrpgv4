@@ -13,6 +13,7 @@ import { ModuleGraph, recordOf } from '../read/module-graph.js';
 import { DirectorGraph, TextGraph, Ontology } from '../read/content.js';
 import { RuleObservations } from '../read/rule-facts.js';
 import { buildCapsule } from '../read/assemble.js';
+import { contextBinding } from '../read/context.js';
 import { mechanics } from '../read/mechanics.js';
 import { authoredMapWords } from '../read/maps.js';
 import { sceneLabel } from '../read/capsule.js';
@@ -217,13 +218,15 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
     async function capsule(snapshot: CampaignSnapshot, module: LoadedModule, options: {
         consume?: boolean;
         resume?: Row;
+        rehydrate?: boolean;
     } = {}): Promise<Row> {
-        const first = firstStyleTurn.get(snapshot.id), full = first == null || first === number(snapshot.turn.turn);
+        const first = firstStyleTurn.get(snapshot.id), full = first == null || first === number(snapshot.turn.turn),
+            forceFull = full || options.rehydrate === true;
         if (options.consume && first == null)
             firstStyleTurn.set(snapshot.id, number(snapshot.turn.turn));
         return buildCapsule(snapshot, module, {
-            styleFull: full,
-            moduleBrief: full,
+            styleFull: forceFull,
+            moduleBrief: forceFull,
             ...(options.resume ? {
                 resume: options.resume
             } : {})
@@ -727,7 +730,8 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         return {
             turn: next,
             state: 'open',
-            capsule: view
+            capsule: view,
+            _context: await contextBinding(snapshot, module, view)
         };
     }
     async function adoption(campaign: CampaignWriter, module: LoadedModule, turn: Row, snapshot: Row, closedBy: string): Promise<Row | null> {

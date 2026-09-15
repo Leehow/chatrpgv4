@@ -74,8 +74,10 @@ def test_ask_closes_turn_and_pending_choice_carries_over(kernel):
     assert kernel.table("open")["pending_turn"] is None
     record = read_json(campaign_dir(kernel.workspace) / "turns" / "0001.json")
     assert record["closed_by"] == "ask" and record["rendered_text"] == asked["rendered_text"]
-    transcript = kernel.table("recall", what="transcript", role="keeper")["entries"]
-    assert transcript[-1]["text"] == asked["rendered_text"]
+    cards = kernel.table("recall", what="transcript", role="keeper")["cards"]
+    assert (cards[-1]["turn"], cards[-1]["chars"]) == (1, 0)
+    read = kernel.table("recall", what="transcript", read={"turn": 1, "role": "keeper"})
+    assert read["text"] == asked["rendered_text"] and read["verified"] is True
 
     answer = kernel.table("player_input", text="先去报社。")
     assert answer["turn"] == 2

@@ -417,7 +417,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 		label: "Recall",
 		method: "table.recall",
 		description:
-			"Look back, three ways. memory: assertions extracted from past turns; by default the ones about those present and the investigators, narrowed with about for other names and with kinds for the kind. Assertions are candidates: they may be stale, they may be only someone's belief, and believing them is your judgement. transcript: the verbatim record; without read it gives candidate cards (which turn, who spoke, the first 80 characters), and once you see the one you want, read pulls that passage out whole and tells you whether it matches the turn record. history: the timeline — each turn's scene, clock, receipt count and the opening of the delivery — with types for only certain event kinds, and diff to ask what actually changed between two turns. Use it when the player says \"just now\" or \"you said\", or when you pick up a thread from several turns back; never invent from memory something that already happened.",
+			"Look back, three ways, always bounded: at most 12 KiB of JSON including metadata, 20 listing rows, and 4096 Unicode code points per text page; byte pressure may shorten a page further. memory: assertions extracted from past turns, ranked by those present and the investigators; narrow with about and kinds, including promise. These are conversation_report candidates, not module truth: retain status, state, correction and supersession/source annotations; an old belief or superseded statement is not a current fact. transcript: without read, cards only (turn, role, size, bounded original head and read reference), even for one-to-three-turn ranges; never automatic entries of full text. read returns one bounded original-text page, total characters, actual range, truncated and next. verified with verification_scope record_integrity_only means the complete original matches the canonical turn record before slicing, not that the statement is module truth. history: defaults to the latest 20 turns; the default section is diff if diff is supplied, events if types is supplied, otherwise timeline. Select other sections with page.section. Timeline keeps scene, clock, receipts and delivery head; events retain types filters; diff shows receipt-derived changes between two turns. Follow returned next, read or detail references as complete recall arguments, preserving their query filters. page uses a stable listing offset; detail reads one oversized structured row as bounded original JSON text pages, not a summary. A stale or unknown continuation requires the returned page-0 refresh, never reuse its old offset on changed sources. There is no all-text escape; follow pages to reconstruct an original. Use recall for earlier wording or threads; never invent an unavailable original.",
 		promptSnippet: "Look back: memory assertions, verbatim transcript, history timeline",
 		parameters: Type.Object({
 			what: StringEnum(["transcript", "memory", "history"] as const, {
@@ -427,7 +427,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 				Type.Array(Type.Integer(), {
 					minItems: 2,
 					maxItems: 2,
-					description: "turn range [from, to]; transcript defaults to the last 3 turns",
+					description: "turn range [from, to]; transcript defaults to the last 3 turns, history to the last 20 turns",
 				}),
 			),
 			role: Type.Optional(StringEnum(["player", "keeper"] as const, { description: "transcript: only one side's record" })),
@@ -436,9 +436,28 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 					{
 						turn: Type.Integer({ description: "which turn" }),
 						role: StringEnum(["player", "keeper"] as const, { description: "the player's words or the Keeper's delivery" }),
+						offset: Type.Optional(Type.Integer({ minimum: 0, description: "Unicode code-point offset, defaults to 0" })),
+						limit: Type.Optional(Type.Integer({ minimum: 1, description: "requested code points, defaults to and is capped at 4096; response bytes may reduce it" })),
 					},
-					{ description: "transcript: pull one side of one turn out whole; without it you only get candidate cards" },
+					{ description: "transcript: one bounded original-text page; without read, cards only, never implicit full entries" },
 				),
+			),
+			page: Type.Optional(
+				Type.Object({
+					offset: Type.Optional(Type.Integer({ minimum: 0, description: "zero-based listing offset in this source snapshot, defaults to 0" })),
+					limit: Type.Optional(Type.Integer({ minimum: 1, description: "requested listing rows, defaults to 20 and capped at 20; response bytes may reduce it; overrides memory limit" })),
+					section: Type.Optional(StringEnum(["cards", "timeline", "events", "diff", "hits"] as const, {
+						description: "transcript uses cards; memory uses hits; history defaults to diff if diff is supplied, events if types is supplied, otherwise timeline",
+					})),
+				}, { description: "bounded listing page; follow the complete next arguments returned by recall" }),
+			),
+			detail: Type.Optional(
+				Type.Object({
+					section: StringEnum(["cards", "timeline", "events", "diff", "hits"] as const),
+					index: Type.Integer({ minimum: 0, description: "zero-based row index in the bound section; use the returned detail reference" }),
+					offset: Type.Optional(Type.Integer({ minimum: 0, description: "Unicode code-point offset in the original row's JSON text, defaults to 0" })),
+					limit: Type.Optional(Type.Integer({ minimum: 1, description: "requested code points, defaults to and is capped at 4096; response bytes may reduce it" })),
+				}, { description: "one oversized structured row as bounded original JSON text pages, with total/range, truncated and next" }),
 			),
 			about: Type.Optional(
 				Type.Array(Type.String(), {
@@ -453,6 +472,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 							"knowledge",
 							"belief",
 							"relationship",
+							"promise",
 							"player_assertion",
 							"player_preference",
 							"keeper_correction",
@@ -464,7 +484,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 			include_superseded: Type.Optional(
 				Type.Boolean({ description: "memory: include the old rows a later relation has closed out" }),
 			),
-			limit: Type.Optional(Type.Integer({ description: "memory: at most this many rows, capped at 30" })),
+			limit: Type.Optional(Type.Integer({ minimum: 1, description: "memory: requested page rows, defaults to 12, capped at 20; page.limit takes precedence" })),
 			types: Type.Optional(
 				Type.Array(
 					StringEnum(

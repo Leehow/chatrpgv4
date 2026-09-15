@@ -346,7 +346,12 @@ def test_recall_memory_ranks_by_overlap_then_recency_and_narrows_on_about(kernel
     unknown = kernel.table_err("recall", what="memory", about=["Atlantis"])
     assert unknown["code"] == "unknown_entity" and unknown["details"]["query"] == "Atlantis"
     assert kernel.table_err("recall", what="memory", kinds=["rumor"])["code"] == "invalid_params"
-    assert kernel.table_err("recall", what="memory", limit=31)["code"] == "invalid_params"
+    requested = kernel.table("recall", what="memory", limit=31)
+    assert requested["hits"] == default["hits"]
+    assert requested["page"]["count"] == 4 and requested["page"]["total"] == 4
+    assert "next" not in requested
+    assert kernel.table_err("recall", what="memory", limit=0)["code"] == "invalid_params"
+    assert kernel.table_err("recall", what="memory", limit=-1)["code"] == "invalid_params"
     # readable in every state, including awaiting_player
     assert kernel.table("status")["state"] == "awaiting_player"
     assert kernel.table("recall", what="memory", about=[INV])["hits"]
