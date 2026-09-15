@@ -6374,6 +6374,14 @@ revised, timed out, or never started. `model` is read from the child's own comma
 resolves the lane model (§37.10) and the request cannot say which one ran. The row is best-effort and never
 fails a review. This is a diagnostic row, not an escalation: §38.5's `coc-review-status` entry is unchanged.
 
+**`cause` is `details.cause`, never the wrapper message.** `reviewUnavailable()` gives all eight of its
+distinct conditions one `message` — *"Continuity review is paused; no draft was approved"* — and puts the
+condition itself in `details.cause`. A row carrying the message says nothing: H-MAIN turn 42 (a review that
+ran, submitted, and exhausted `max_rewrites`: `The bounded Keeper repair did not resolve the review`) and
+H-MAIN turn 43 (a child killed at the cap having submitted nothing: `The private reviewer ended without a
+checked submission`) printed the same sentence, and the two are opposite operational facts. `reason` stays
+the closed contract field it is; `cause` is what separates the families.
+
 **`mod_audit_stale` is a race, not a verdict, and must not latch the turn.** `mods.job` pins the evidence
 digest; `mods.accept` recomputes it and refuses a binding that moved, with the fix *"Retry the same narration
 to prepare a current source audit; do not reroll settled actions"*. The Mod bridge turned that refusal into

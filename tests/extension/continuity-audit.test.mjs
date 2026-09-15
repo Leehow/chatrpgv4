@@ -577,3 +577,49 @@ test('a reviewer that never submitted still blocks the turn and says so once', a
     assert.deepEqual([lane[0].ok, lane[0].reason, lane[0].timed_out, lane[0].submitted, lane[0].model],
         [false, 'continuity_review_unavailable', true, false, 'lane/slow-1']);
 });
+
+/**
+ * Contract §38.8 / §37.9. Retained live evidence (H-MAIN `game-83177d61` turn 42, 2026-09-15): both reviews
+ * ran and submitted (19.4 s, 17.4 s, no timeout), the first said `revise`, the Keeper took its one bounded
+ * repair, and the second said `revise` again — so `max_rewrites` ended the input exactly as designed. The
+ * telemetry row called that `Continuity review is paused; no draft was approved`, which is
+ * `reviewUnavailable`'s one-size message rather than the condition, and it reads as infrastructure.
+ * The row must carry `details.cause`, or it cannot do the only job it has.
+ */
+test('a bounded repair refused twice is recorded as the verdict it was, not as an unreachable review', async () => {
+    const cwd = await mkdtemp(join(directory, 'repair-')), scope = join(cwd, 'budget');
+    const rows = []; let bridge, reviews = 0;
+    const pi = {events: new EventEmitter(), on() {}};
+    pi.events.on('coc:mods-bridge', value => bridge = value); modsExtension(pi);
+    pi.events.emit('coc:kernel-bridge', {
+        record: row => rows.push(row),
+        call: async method => {
+            if (method === 'mods.job') return {enabled: true, continuity_review: true, cwd, job: `draft-${reviews}`,
+                review_scope: scope, limits: AUDIT_LIMITS, focus: {}, system_prompt: join(cwd, 'prompt.md')};
+            return method === 'mods.accept' ? conflict() : {};
+        },
+        runtime: {async runTask(task) {
+            reviews++;
+            const control = JSON.parse(await readFile(join(cwd, task.request.audit.control), 'utf8'));
+            await writeFile(join(cwd, control.status_file), JSON.stringify({requests: 1, artifact_repairs: 0, submitted: true, unavailable: ''}));
+            task.request.onEvent({type: 'tool_execution_end', toolName: 'submit_audit', result: {details: {kind: 'audit_submission'}}});
+            return {ok: true, ms: 1, code: 0, timedOut: false, command: ['pi', '--model', 'lane/fixture-1']};
+        }}});
+
+    // The first refusal is the one bounded repair `max_rewrites` permits.
+    await assert.rejects(bridge.prepare('narrate', {campaign: 'c1', text: 'A draft.'}),
+        error => error.details?.reason === 'mod_narrative_repair');
+    // The repaired draft really is re-reviewed as its own job, and refused again: that ends the input.
+    await assert.rejects(bridge.prepare('narrate', {campaign: 'c1', text: 'A repaired draft.'}),
+        error => error.details?.reason === 'continuity_review_unavailable');
+    assert.equal(reviews, 2, 'the repair must be submitted to a second real review');
+    assert.equal(JSON.parse(await readFile(join(scope, 'review-budget.json'), 'utf8')).blocked,
+        'The bounded Keeper repair did not resolve the review');
+
+    const lane = rows.filter(row => row.lane === 'continuity-review');
+    assert.equal(lane.length, 2, JSON.stringify(rows));
+    assert.deepEqual([lane[0].ok, lane[0].verdict], [true, 'revise']);
+    assert.deepEqual([lane[1].ok, lane[1].submitted, lane[1].timed_out], [false, true, undefined],
+        'a verdict-driven end never wears a timeout');
+    assert.equal(lane[1].cause, 'The bounded Keeper repair did not resolve the review');
+});
