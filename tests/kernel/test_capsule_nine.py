@@ -9,7 +9,7 @@ from test_rules_families import first_failure, resolve, seed_wound, walk_to_conf
 
 SECTIONS = ("where", "present", "known", "pressures", "obligations", "director", "situations", "memory", "style",
             "recent", "warnings")
-BUDGETS = {"where": 4096, "present": 3072, "known": 3072, "pressures": 1024, "obligations": 1024, "director": 2048,
+BUDGETS = {"where": 4096, "present": 3072, "known": 3072, "pressures": 1024, "obligations": 1024, "director": 3072,  # 3072 since the recovery (contract §40)
            "situations": 1024, "memory": 1536, "style": 1536, "recent": 2048, "warnings": 1024}  # style 1536 since the turn floor
 BEAT_TABLE = json.loads((CONTENT_DIR / "craft" / "beat-directives.json").read_text(encoding="utf-8"))
 TEXT_GRAPH = json.loads((CONTENT_DIR / "craft" / "text-graph.json").read_text(encoding="utf-8"))

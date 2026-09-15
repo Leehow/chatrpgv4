@@ -23,7 +23,7 @@ INVESTIGATOR = "托马斯·海斯"
 #: contract §13.1's byte budgets, by section name.
 SECTION_BUDGETS = {
     "where": 4096, "present": 3072, "known": 3072, "pressures": 1024,
-    "obligations": 1024, "director": 2048, "situations": 1024,
+    "obligations": 1024, "director": 3072, "situations": 1024,
     "memory": 1536, "recent": 2048, "warnings": 1024,
 }
 #: §13.6: the process's first capsule gets every craft directive (2KB); every

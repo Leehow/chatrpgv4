@@ -9,7 +9,7 @@ import { EntityIndex, capsuleMemory, noteObligations, rulingsForCapsule, promise
 import { clockPressures, threatPressures, unansweredContinuations, continuationRows, questObligations, choiceObligation, sessionObligation } from "./pressures.js";
 import { worldlineSection, crossLineReader, loopObligation, worldlineSignals } from "./worldline.js";
 import { modContext } from "./mods.js";
-import { directorOffer } from "./offer.js";
+import { directorOffer, directorRecovery } from "./offer.js";
 import { pythonJsonDumps, utf8Bytes } from "../json.js";
 import { playLanguageOf } from "./languages.js";
 import { RpcError } from "../errors.js";
@@ -27,7 +27,11 @@ export const HEAD = "Everything at the start of this turn: the clock, the undisc
     "loop_available true means this scene can be rewound with apply fork mode: loop, which happens after " +
     "you narrate this turn. director.offer is what can move this turn, in your hand — a person with a want, " +
     "a way that is open, a pressure, a consequence still owed — take it, change it or leave it; an empty turn " +
-    "(nothing landed, nobody acted) is not a quiet scene. style.floor is what every turn owes.";
+    "(nothing landed, nobody acted) is not a quiet scene. style.floor is what every turn owes. " +
+    "director.recovery, when present, is the one part of the Director that is not advice: the player is " +
+    "blocked and its steps name the operation that unblocks them. Take one — its receipt closes the debt — " +
+    "or this turn's first narrate is refused once. It never asks you to choose for the player or to skip a " +
+    "risk the book gates with a check.";
 export const HEAD_MODULE = " This turn also carries a module section (the table briefing, this once): what the book is about, its era, " +
     "the factions, places and people (absent ones included, keeper-only), the ending and conclusion names and " +
     "the structure type; do not lookup the book before opening.";
@@ -44,8 +48,11 @@ export const SLICE2_BUDGETS: Readonly<Record<string, number>> = Object.freeze({
 export const SLICE3_BUDGETS: Readonly<Record<string, number>> = Object.freeze({
     pressures: 1024,
     obligations: 1024,
-    // 2048 since the turn floor (docs/specs/turn-floor.md D2): the offer rides beside because and grounded_by.
-    director: 2048,
+    // 2048 since the turn floor (docs/specs/turn-floor.md D2): the offer rides beside because and grounded_by;
+    // 3072 since the recovery (contract §40), which is the one part of the section the Keeper must answer and
+    // must not cost the offer its seats -- the offer is popped first when the section is over, and at 2560 the
+    // recovery pushed out the consequence still owed, which is the recovery's own first rung.
+    director: 3072,
     situations: 1024,
     // 1536 since the turn floor (docs/specs/turn-floor.md D1): the brief form carries the four floor lines beside the beat's directives.
     style: 1536
@@ -198,6 +205,23 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
         obligations: array(capsule.obligations),
         previous: previous ?? null
     });
+    // The recovery the Director is owed (contract §40), drawn from the same material as the offer: the
+    // unanswered push continuations, the people present, what this room still yields and the ways out.
+    // Unlike the offer it is not advice -- the host refuses the turn's first narrate once when none of it lands.
+    const blocked = number(sig.blocked_attempts) >= number(dg.threshold("recover-blocked-attempts")) ? number(sig.blocked_attempts) : 0;
+    const recovery = directorRecovery(string(row(capsule.director).beat), blocked, {
+        present: array(capsule.present),
+        where: row(capsule.where),
+        affordances: array(row(capsule.where).affordances),
+        thread: row(capsule.mods).thread ?? null,
+        pacing: row(capsule.mods).pacing ?? null,
+        pressures: array(capsule.pressures),
+        obligations: array(capsule.obligations),
+        offer: array(row(capsule.director).offer),
+        previous: previous ?? null
+    });
+    if (recovery)
+        row(capsule.director).recovery = recovery;
     // Offer rows go first when the section is over budget; because and grounded_by are the Director's account of itself.
     const fitted = row(capsule.director);
     while (array(fitted.offer).length && utf8Bytes(pythonJsonDumps(fitted)).length > SLICE3_BUDGETS.director)

@@ -210,8 +210,9 @@ test('Director signals and authored scoring match the Python decision table',asy
     {...base,label:'live bout and pending player choice',turn:{turn:4,pending_choice:{name:'pending'}},sanity:{alice:{bout_active:true}},session:{kind:'sanity_bout',status:'active'}}];
   const expected=oracle('signals',{cases});
   // The frozen oracle predates the turn floor's structural signals (empty_turns, repeat_input, previous_close,
-  // docs/specs/turn-floor.md D3); preserve its remaining projection.
-  const FLOOR_SIGNALS=['empty_turns','repeat_input','previous_close'];
+  // docs/specs/turn-floor.md D3) and the obstacle signal that followed it (blocked_attempts, contract §40);
+  // preserve its remaining projection.
+  const FLOOR_SIGNALS=['empty_turns','repeat_input','previous_close','blocked_attempts'];
   const withoutFloor=sig=>Object.fromEntries(Object.entries(sig).filter(([key])=>!FLOOR_SIGNALS.includes(key)));
   const withoutFloorBecause=section=>({...section,because:section.because.filter(line=>!FLOOR_SIGNALS.some(name=>line.startsWith(name+' = ')))});
   await rows(t,cases,expected,c=>withoutFloor(api.signals({...c,graph,scene:graph.nodes.get(c.scene),present:c.present.map(id=>graph.nodes.get(id)),conditions:s=>c.conditions[s.id]||[],sanity:s=>c.sanity[s.id]||null})));

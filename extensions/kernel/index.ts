@@ -133,6 +133,18 @@ interface TableState {
 	toolCallsThisTurn: number;
 	/** The prose the floor steer dropped; if the second leg brings no prose and no narrate, this closes the turn as before. */
 	floorDraft?: string;
+	/**
+	 * The recovery this turn's capsule said the Director is owed (contract §40), or null when none is.
+	 * A Director beat was advice: `directorAdoption` is telemetry and says so, and on campaign
+	 * game-83177d61 the Keeper declined 43 of 52 signals, six consecutive RECOVERs among them, while
+	 * the player was failing the same STR check against the same nailed cupboard for the third time.
+	 * The host is the only layer that can make a signal a step, and this is where it does it.
+	 */
+	recoveryOwed?: { blocked: number; steps: string[] } | null;
+	/** Whether a receipt that discharges the recovery has landed this turn. */
+	recoveryLanded: boolean;
+	/** The recovery refusal is spent once per turn: a second narrate closes the turn whatever it brings. */
+	recoverySteered: boolean;
 	/** A retained background preparation owns the rest of this turn until the Keeper briefly yields to the player. */
 	preparationWait?: { kind: "source" | "adaptation"; name?: string; status?: string };
 	/** Contract §37.6: the independent source review refused the placement this turn's reentry needs.
@@ -281,6 +293,8 @@ function providerNoticeAfterMs(): number {
 	const configured = Number(process.env.PI_COC_PROVIDER_NOTICE_MS);
 	return configured > 0 ? configured : PROVIDER_OUTAGE_NOTICE_MS;
 }
+/** Receipt kinds that discharge an owed recovery; mirrors `RECOVERY_TAKES` in kernel-ts/read/offer.ts. */
+const RECOVERY_RECEIPT_KINDS = new Set(["clue", "move", "npc", "session", "handout", "map", "item"]);
 /** The one host steer of the turn floor (docs/specs/turn-floor.md D4), sent when a turn is about to close on prose alone. */
 const FLOOR_STEER =
 	"This turn used no tool and nothing landed. Read director.offer and the people present: what changes in the world, apply; " +
@@ -687,6 +701,9 @@ export default function (pi: ExtensionAPI) {
 		table.steeredThisTurn = false;
 		table.toolCallsThisTurn = 0;
 		table.floorDraft = undefined;
+		table.recoveryOwed = null;
+		table.recoveryLanded = false;
+		table.recoverySteered = false;
 		table.readingWait = false;
 		table.readingRetries.clear();
 		table.deliveryFix = undefined;
@@ -1046,6 +1063,20 @@ export default function (pi: ExtensionAPI) {
 			const occupation = asString(sheet?.occupation);
 			state.party.push({ name, ...(occupation ? { occupation } : {}) });
 		}
+		// The one part of the Director section that is not advice (contract §40): when it is present the
+		// player is blocked and the capsule names the operations that unblock them. Read once per capsule.
+		const recovery = (capsule as { director?: { recovery?: unknown } }).director?.recovery as
+			{ blocked?: unknown; steps?: unknown; note?: unknown; takes?: unknown } | undefined;
+		if (recovery && typeof recovery === "object") {
+			const steps = Array.isArray(recovery.steps)
+				? recovery.steps.flatMap((row) => {
+					const step = row as Record<string, unknown> | null;
+					const operation = asString(step?.operation), line = asString(step?.line);
+					return operation || line ? [[operation, line].filter(Boolean).join(" — ")] : [];
+				})
+				: [];
+			state.recoveryOwed = { blocked: typeof recovery.blocked === "number" ? recovery.blocked : 0, steps };
+		}
 		if (Array.isArray(view.recent)) {
 			state.recent = view.recent.flatMap((row) => {
 				const entry = row as Record<string, unknown> | null;
@@ -1055,6 +1086,27 @@ export default function (pi: ExtensionAPI) {
 				return [{ turn, player: asString(entry?.player) ?? null, keeper }];
 			});
 		}
+	}
+
+	/**
+	 * What discharges a recovery the Director asked for (contract §40), read from receipts alone.
+	 *
+	 * The keeper-pacing ladder in receipt form: information reached the player (`clue`, `handout`, `map`,
+	 * `item`), a present person acted (`npc`), the place changed (`move`), a subsystem opened (`session`).
+	 * Plus the rulebook's own retry: a pushed roll restates the stakes and takes the player's confirmation,
+	 * so it is a step, while the same ordinary check opened fresh again is not — the Keeper Rulebook allows
+	 * one retry of a failed check and only as a push. A check that simply went the player's way discharges
+	 * it too: the obstacle moved, whatever the Director was told a turn earlier.
+	 */
+	function noteRecovery(state: TableState, result: Record<string, unknown>): void {
+		if (state.recoveryLanded) return;
+		const ids = Array.isArray(result.receipts) ? result.receipts.map(String) : [];
+		if (ids.some((id) => RECOVERY_RECEIPT_KINDS.has(id.split(":")[0]))) {
+			state.recoveryLanded = true;
+			return;
+		}
+		const outcome = result.outcome as { passed?: unknown; pushed?: unknown } | undefined;
+		if (outcome?.passed === true || outcome?.pushed === true) state.recoveryLanded = true;
 	}
 
 	/** One line per settled call, for the review's "already settled this turn" list. */
@@ -1194,10 +1246,12 @@ export default function (pi: ExtensionAPI) {
 				state.state = "acting";
 				noteResolve(state, result as ResolveResult);
 				noteLanded(state, tool, result);
+				noteRecovery(state, result);
 				break;
 			case "apply": {
 				state.state = "acting";
 				noteLanded(state, tool, result);
+				noteRecovery(state, result);
 				if (readingModule && Array.isArray(result.deepen_queued) && result.deepen_queued.length)
 					pi.events.emit("coc:source-work-queued", {campaign:state.campaign,module_id:readingModule});
 				// Handouts (contract §14.8): the kernel mints the receipt, and the attachment itself is the
@@ -1416,6 +1470,25 @@ export default function (pi: ExtensionAPI) {
 		try {
 			if (state.reviewUnavailable) throw new KernelError({code: 'needs', message: 'The review is paused until new player input',
 				details: {reason: 'continuity_review_unavailable', cause: state.reviewUnavailable}});
+			// The recovery gate (contract §40). The Director asked for a recovery this turn and nothing that
+			// counts as one has landed, so the first narrate is refused once and the capsule's own operations
+			// come back as the fix. Spent once per turn and never on `ask`: whatever the second leg brings
+			// closes the turn, so a Keeper that cannot find a step cannot hang the table on this.
+			// It is the only thing in the system that makes a Director signal a step instead of a line --
+			// campaign game-83177d61 declined 43 of 52 of them, 17 RECOVERs among them, at no cost.
+			if (spec.name === "narrate" && state.recoveryOwed && !state.recoveryLanded && !state.recoverySteered && !state.steeredThisTurn) {
+				state.recoverySteered = true;
+				await record({ lane: "recovery", turn: state.turn, blocked: state.recoveryOwed.blocked,
+					steps: state.recoveryOwed.steps.length, round_trips: state.roundTrips });
+				throw new KernelError({ code: "needs",
+					message: "This turn owes the player a recovery and nothing that counts as one has landed",
+					fix: "Take one of the Director's recovery steps, then narrate: "
+						+ (state.recoveryOwed.steps.join(" | ") || "hand the player something a present person, this room or a way out already holds")
+						+ ". One receipt of kind clue, move, npc, session, handout, map or item discharges it, and so does a pushed roll or a check the player passes."
+						+ " Do not choose for the player, do not skip a risk the book gates with a check, and do not answer this by describing the same state in new words:"
+						+ " put the way forward within reach and let them take it. Nothing has happened yet; this draft was not delivered.",
+					details: { reason: "recovery_owed", blocked: state.recoveryOwed.blocked, steps: state.recoveryOwed.steps } });
+			}
 			if (spec.name === "lookup" && params.kind === "source") {
 				if (!asString(params.query)?.trim()) throw new KernelError({
 					code: "invalid_params", message: "Source lookup needs a named query; question supplies additional scope",
@@ -1737,6 +1810,9 @@ export default function (pi: ExtensionAPI) {
 				closedThisRun: false,
 				steeredThisTurn: false,
 				toolCallsThisTurn: 0,
+				recoveryOwed: null,
+				recoveryLanded: false,
+				recoverySteered: false,
 				readingRetries: new Set(),
 				roundTrips: 0,
 				mintedCallIds: new Map(),
@@ -1993,6 +2069,9 @@ export default function (pi: ExtensionAPI) {
 			state.steeredThisTurn = false;
 			state.toolCallsThisTurn = 0;
 			state.floorDraft = undefined;
+			state.recoveryOwed = null;
+			state.recoveryLanded = false;
+			state.recoverySteered = false;
 			state.readingWait = false;
 			state.readingRetries.clear();
 			state.deliveryFix = undefined;

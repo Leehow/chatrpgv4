@@ -123,3 +123,65 @@ export function directorOffer(beat: string, sources: OfferSources): Row[] {
     }
     return chosen;
 }
+/** The beats that owe the player a way forward. RECOVER is the Director asking for the keeper-pacing
+ *  ladder; CUT is the scene being over and the next place owed. */
+export const RECOVERY_BEATS: readonly string[] = ["RECOVER", "CUT"];
+/** What discharges a recovery, named as the receipt kinds the turn must land. A failed ordinary check
+ *  against the obstacle that is already blocking is not one of them: the Keeper Rulebook allows one retry
+ *  of a failed check and only as a push, so the same check opened fresh again is not a step. */
+export const RECOVERY_TAKES: readonly string[] = ["clue", "move", "npc", "session", "handout", "map", "item"];
+export interface RecoverySources extends OfferSources {
+    affordances: Row[];
+    /** The offer already drawn for this beat: its person and route rows are the second and third rungs. */
+    offer: Row[];
+}
+/** The recovery the Director is owed this turn, written as operations rather than advice.
+ *
+ *  Contract §31: a Director line only reaches the table when it names a next operation and that operation
+ *  is actually called. `beat` and `offer` were advice — `directorAdoption` is telemetry and says so in its
+ *  own comment — and on campaign game-83177d61 the Keeper declined 43 of 52 signals, including six
+ *  consecutive RECOVERs while the player wrote "the sanatorium is out, so I'll ask along this street".
+ *  Every row here names the verb that discharges it, and the host refuses the turn's first `narrate` once
+ *  when none of them landed (contract §40). */
+export function directorRecovery(beat: string, blocked: number, sources: RecoverySources): Row | null {
+    // `blocked` is the blocked-attempt count once it has reached the graph's own threshold, and 0 below it:
+    // the first failure at an obstacle is play -- the risk was real and it cost -- and owes nothing. The beat
+    // can be outranked while the party is still stuck on one check (live turns 60 and 62 scored CUT and
+    // REVEAL at three failures on one cupboard), so the obstacle owes a recovery on its own account.
+    if (!RECOVERY_BEATS.includes(beat) && blocked <= 0)
+        return null;
+    const steps: Row[] = [];
+    // First rung: the world answers what they already did. The rules' own answer to a failed check is the
+    // push -- the player reframes, the Keeper states what failure costs, the player confirms -- and those
+    // continuations are already sitting unanswered in obligations.
+    for (const obligation of array(sources.obligations))
+        if (obligation.kind === "continuation" && string(obligation.name).startsWith("push-luck:"))
+            steps.push({ rung: "consequence", operation: "resolve", decision: string(obligation.name),
+                line: clip(`the failed check is still open to the rules: ${string(obligation.name)} (${string(obligation.cue || "")}). Opening the same check fresh again is not a lawful retry and settles nothing.`) });
+    // Second rung: a person present pushes, asks or offers. A clue they can hand is the receipt that proves it.
+    for (const entry of array(sources.offer)) {
+        const o = row(entry);
+        if (o.kind !== "person")
+            continue;
+        const hands = array(o.can_hand).map(string);
+        steps.push({ rung: "person", operation: hands.length ? "apply clue" : "apply npc", who: string(o.who),
+            ...(hands.length ? { clue: hands[0] } : {}),
+            line: clip(hands.length ? `${string(o.who)} can hand ${hands[0]} now: apply clue with from=${string(o.who)}` : `${string(o.who)} acts on their own want: apply npc with the stance they take and why`) });
+    }
+    // Third rung: more information within reach. An affordance in this room that yields a clue, or the way out.
+    for (const entry of array(sources.affordances)) {
+        const a = row(entry), yields = array(a.clues).map(c => string(row(c).clue)).filter(Boolean);
+        if (yields.length)
+            steps.push({ rung: "information", operation: "apply clue", clue: yields[0], line: clip(`${string(a.id || a.name || "here")} still yields ${yields[0]}: apply clue`) });
+    }
+    for (const entry of array(sources.offer)) {
+        const o = row(entry);
+        if (o.kind === "route")
+            steps.push({ rung: "information", operation: "apply move", where: string(o.where), line: clip(string(o.line)) });
+    }
+    // Three steps, like the offer: the section rides inside the Director's budget beside `because` and the
+    // offer's own rows, and the offer's last seat (the consequence still owed) is popped before it.
+    return { owed: true, blocked, takes: [...RECOVERY_TAKES],
+        steps: steps.slice(0, OFFER_ROWS),
+        note: "One of these lands this turn, or the turn's first narrate is refused once. Make no irreversible choice for the player and skip no risk the book gates with a check: put the way forward within reach and let them take it." };
+}
