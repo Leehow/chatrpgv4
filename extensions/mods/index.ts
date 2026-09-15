@@ -84,19 +84,31 @@ export default function modsExtension(pi: ExtensionAPI): void {
       if (stopped || epoch !== prefetchEpoch) return;
       const controller = new AbortController();
       prefetchController = controller;
-      const ready = (view: any): boolean => !stopped && epoch === prefetchEpoch && view.turn === turn
+      // Commit events name the delivered turn; the retained idle turn may already be its successor.
+      const ready = (view: any): boolean => !stopped && epoch === prefetchEpoch && view.turn >= turn
         && view.state === 'awaiting_player' && !view.pending_choice;
+      const scan = {scanned: 0, candidates: 0, started: 0, skipped: {has_any_usage: 0, covered: 0},
+        reason: 'not_idle', retained_turn: null as number | null, state: null as string | null, worldline: null as string | null};
       try {
         const view = await current('mods.prefetch.targets', {campaign});
+        scan.retained_turn = view.turn; scan.state = view.state; scan.worldline = view.worldline;
+        scan.scanned = view.instances.length;
+        const candidates = view.instances.filter((item: any) => {
+          if (item.has_any_usage) { scan.skipped.has_any_usage++; return false; }
+          if (item.covered) { scan.skipped.covered++; return false; }
+          return true;
+        });
+        scan.candidates = candidates.length;
         if (!ready(view)) return;
         const key = JSON.stringify([campaign, view.worldline, turn]);
-        if (prefetchedTurns.has(key)) return;
+        if (prefetchedTurns.has(key)) { scan.reason = 'duplicate_commit'; return; }
         prefetchedTurns.add(key);
-        const candidates = view.instances.filter((item: any) => !item.has_any_usage && !item.covered).slice(0, limit);
-        for (const item of candidates) {
+        scan.reason = 'completed';
+        for (const item of candidates.slice(0, limit)) {
           if (controller.signal.aborted) break;
           const latest = await current('mods.prefetch.targets', {campaign});
-          if (!ready(latest) || latest.worldline !== view.worldline) break;
+          if (!ready(latest)) { scan.reason = 'not_idle'; break; }
+          if (latest.worldline !== view.worldline) { scan.reason = 'worldline_changed'; break; }
           const target = latest.instances.find((value: any) => value.id === item.id);
           if (!target || target.has_any_usage || target.covered) continue;
           const began = Date.now();
@@ -106,6 +118,7 @@ export default function modsExtension(pi: ExtensionAPI): void {
               if (!ready(state) || state.worldline !== view.worldline) controller.abort(new Error('Usage prefetch is no longer idle'));
               controller.signal.throwIfAborted();
             };
+            scan.started++;
             const result = await task(campaign, 'usage', {object: target.name, propose: true}, controller.signal, undefined, guard);
             note({lane: 'usage-prefetch', campaign, turn, object: target.name, prefetched: true,
               ok: true, enabled: result !== null, negative: result?.usage === null,
@@ -117,8 +130,11 @@ export default function modsExtension(pi: ExtensionAPI): void {
           }
         }
       } catch (error) {
+        scan.reason = 'failed';
         note({lane: 'usage-prefetch', campaign, turn, prefetched: true, ok: false, cause: errorText(error)});
       } finally {
+        if (controller.signal.aborted) scan.reason = 'cancelled';
+        note({lane: 'usage-prefetch', event: 'scan', campaign, turn, prefetched: true, ...scan});
         if (prefetchController === controller) prefetchController = undefined;
       }
     })();

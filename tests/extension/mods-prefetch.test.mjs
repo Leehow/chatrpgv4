@@ -26,13 +26,13 @@ async function harness(t, options = {}) {
   else process.env.PI_COC_MOD_PREFETCH_LIMIT = String(options.limit);
   const priorFetch = globalThis.fetch, priorPort = process.env.PIPIUI_BRIDGE_PORT, priorCapability = process.env.PIPIUI_SESSION_CAPABILITY;
   process.env.PIPIUI_BRIDGE_PORT = '1'; process.env.PIPIUI_SESSION_CAPABILITY = 'test';
-  const events = [], telemetry = [], operations = [], runs = [], jobs = new Map(), hooks = new Map();
+  const events = [], telemetry = [], scans = [], operations = [], runs = [], jobs = new Map(), hooks = new Map();
   globalThis.fetch = async (_url, request) => { events.push(JSON.parse(request.body)); return {}; };
   const pi = {events: new EventEmitter(), on: (name, handler) => hooks.set(name, handler)};
   let bridge, active = 0, peak = 0;
   pi.events.on('coc:mods-bridge', value => { bridge = value; });
   modsExtension(pi);
-  const view = {campaign: 'c1', worldline: 'main', turn: 1, state: 'awaiting_player', pending_choice: null,
+  const view = {campaign: 'c1', worldline: 'main', turn: 2, state: 'awaiting_player', pending_choice: null,
     active_scene: 'Study', instances: options.items ?? [item('Chair')]};
   const call = async (method, params) => {
     operations.push({method, params});
@@ -54,7 +54,7 @@ async function harness(t, options = {}) {
     }
     throw new Error(`Unexpected RPC ${method}`);
   };
-  pi.events.emit('coc:kernel-bridge', {call, record: row => telemetry.push(row), runtime: {
+  pi.events.emit('coc:kernel-bridge', {call, record: row => (row.event === 'scan' ? scans : telemetry).push(row), runtime: {
     async runTask(task, signal) {
       active++; peak = Math.max(peak, active); runs.push({task, signal});
       try {
@@ -74,8 +74,8 @@ async function harness(t, options = {}) {
     }
     await rm(home, {recursive: true, force: true});
   });
-  return {bridge, view, hooks, operations, runs, telemetry, events, home, peak: () => peak,
-    commit: (turn = view.turn) => pi.events.emit('coc:turn-committed', {campaign: 'c1', turn}),
+  return {bridge, view, hooks, operations, runs, telemetry, scans, events, home, peak: () => peak,
+    commit: (turn = view.turn - 1) => pi.events.emit('coc:turn-committed', {campaign: 'c1', turn}),
     input: () => hooks.get('input')({text: 'My next action'})};
 }
 
@@ -86,7 +86,7 @@ test('a real committed turn prepares an uncovered scene object through proposal 
   const delivery = await game.call('table.narrate', {call_id: game.next(), text: 'A second wooden chair waits in the room.'});
   const status = await game.call('table.status'), before = await game.world();
   const h = await harness(t, {call: game.call});
-  h.commit(status.turn);
+  h.commit(delivery.turn);
   assert.equal(h.runs.length, 0, 'the commit event returns before any creator starts');
   await until(() => h.telemetry.length === 1);
   assert.equal(h.telemetry[0].ok, true);
@@ -101,13 +101,27 @@ test('a real committed turn prepares an uncovered scene object through proposal 
   assert.deepEqual(await game.call('table.status'), status);
   assert.ok(delivery.rendered_text);
   assert.equal(h.events.length, 0, 'prefetch does not emit progress or other panel events');
-  assert.equal(h.telemetry[0].turn, status.turn);
+  assert.equal(h.telemetry[0].turn, delivery.turn);
+  assert.equal(status.turn, delivery.turn + 1, 'the retained turn advances at commit');
   assert.equal(h.telemetry[0].lane, 'usage-prefetch');
   await game.call('table.player_input', {text: 'I swing the scene chair.'});
   const effect = {kind: 'usage', object: 'Scene chair', name: 'Swing', description: 'Swing the chair at an attacker'};
   await h.bridge.prepare('apply', {campaign: 'c1', effects: [effect]});
   assert.ok(effect._usage.provenance.reused_usage, 'the ordinary action job reuses the prepared record');
   assert.equal(h.runs.length, 1, 'the action has no creator wait on a prepared hit');
+});
+
+test('a commit starts prefetch on the next retained turn while telemetry belongs to the committed turn', async t => {
+  const h = await harness(t);
+  assert.equal(h.view.turn, 2);
+  h.commit(1);
+  await until(() => h.telemetry.length === 1);
+  assert.equal(h.runs.length, 1);
+  assert.equal(h.telemetry[0].turn, 1);
+  assert.equal(h.telemetry[0].ok, true);
+  assert.equal(h.scans[0].turn, 1);
+  assert.equal(h.scans[0].retained_turn, 2);
+  assert.equal(h.scans[0].started, 1);
 });
 
 test('filtering precedes the default budget; jobs are serial and negative results stay covered across turns', async t => {
@@ -127,7 +141,10 @@ test('filtering precedes the default budget; jobs are serial and negative result
   assert.equal(h.runs.length, 2); assert.equal(h.peak(), 1);
   assert.deepEqual(h.operations.filter(row => row.method === 'mods.job').map(row => row.params.input.object), ['Paper', 'Chair']);
   assert.ok(h.telemetry.every(row => row.negative && row.turn === 1));
-  h.view.turn = 2; h.commit(); await until(() => h.telemetry.length === 3);
+  const scan = h.scans.find(row => row.reason === 'completed');
+  assert.equal(scan.scanned, 5); assert.equal(scan.candidates, 3); assert.equal(scan.started, 2);
+  assert.deepEqual(scan.skipped, {has_any_usage: 1, covered: 1});
+  h.view.turn = 3; h.commit(); await until(() => h.telemetry.length === 3);
   assert.equal(h.operations.filter(row => row.method === 'mods.job').at(-1).params.input.object, 'Third');
   assert.equal(h.telemetry.at(-1).turn, 2);
   assert.equal(h.events.length, 0);
@@ -145,11 +162,14 @@ test('configured zero disables scans, a positive limit bounds work, invalid valu
 });
 
 test('open/acting turns and pending player choices never start a proposal', async t => {
-  for (const [state, pending] of [['open', null], ['acting', null], ['asked', {kind: 'choice'}], ['awaiting_player', {kind: 'defense'}]]) await t.test(state, async t => {
+  for (const [state, pending] of [['open', null], ['acting', null], ['committing', null], ['asked', {kind: 'choice'}], ['awaiting_player', {kind: 'defense'}]]) await t.test(state, async t => {
     const h = await harness(t, {}); h.view.state = state; h.view.pending_choice = pending;
-    h.commit(); await tick(); await tick();
+    h.commit(); await until(() => h.scans.length === 1);
     assert.equal(h.runs.length, 0);
     assert.equal(h.operations.some(row => row.method === 'mods.job'), false);
+    assert.equal(h.scans[0].reason, 'not_idle');
+    assert.equal(h.scans[0].started, 0);
+    assert.equal(h.scans[0].turn, 1);
   });
 });
 
@@ -204,6 +224,29 @@ test('failed, timed-out and malformed proposals stay silent and retain task evid
     assert.equal(h.operations.some(row => ['table.apply', 'mods.prefetch.accept', 'mods.accept'].includes(row.method)), false);
     assert.ok(await readFile(join(h.runs[0].task.request.cwd, 'run-1.json'), 'utf8'));
   });
+});
+
+test('zero candidates still leave a scan summary without player-visible output', async t => {
+  for (const items of [[], [item('Used', {has_any_usage: true}), item('Covered', {covered: true})]]) await t.test(String(items.length), async t => {
+    const h = await harness(t, {items}); h.commit();
+    await until(() => h.scans.length === 1);
+    assert.deepEqual(h.scans[0], {lane: 'usage-prefetch', event: 'scan', campaign: 'c1', turn: 1, prefetched: true,
+      scanned: items.length, candidates: 0, started: 0, skipped: {has_any_usage: items.length / 2, covered: items.length / 2},
+      reason: 'completed', retained_turn: 2, state: 'awaiting_player', worldline: 'main'});
+    assert.equal(h.runs.length, 0); assert.equal(h.events.length, 0);
+  });
+});
+
+test('a worldline switch while the child runs discards its result', async t => {
+  const started = latch(), finish = latch();
+  const h = await harness(t, {async run(task) { started.release(); await finish.promise;
+    await writeFile(join(task.request.cwd, 'result.json'), JSON.stringify(usage('Swing'))); return {ok: true}; }});
+  h.commit(); await started.promise;
+  h.view.worldline = 'branch'; finish.release();
+  await until(() => h.scans.length === 1);
+  assert.equal(h.telemetry[0].ok, false);
+  assert.equal(h.scans[0].reason, 'cancelled');
+  assert.equal(h.operations.some(row => row.method === 'mods.prefetch.accept'), false);
 });
 
 test('a turn that becomes active while the child runs cannot accept its result', async t => {
