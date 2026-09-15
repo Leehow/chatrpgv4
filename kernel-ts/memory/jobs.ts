@@ -6,6 +6,7 @@ import { appendJsonl, writeTextAtomic } from '../fileio.js';
 import { CampaignWriter, nowIso } from '../write/store.js';
 import { committedFacts } from '../write/text.js';
 import { ModuleGraph } from '../read/module-graph.js';
+import { sceneLabel } from '../read/capsule.js';
 import { EntityIndex, queryCandidates } from '../read/memory.js';
 import { storyAssessmentContext } from '../read/story.js';
 import {validateCorrectionRefs, bindCorrectionRefs, applyCorrectionLinks} from './corrections.js';
@@ -88,7 +89,7 @@ export async function buildJob(campaign: CampaignWriter, graph: ModuleGraph, lan
         ...array(row(record.capsule).present).map(value => graph.find(string(row(value).name || value), ['npc'])).filter(truth) as Row[],
         ...array(snapshot.present).map(name => graph.find(string(name), ['npc'])).filter(truth) as Row[]
     ].map(node => [node.node_id, node])).values()];
-    const sceneLabels = row((await campaign.readWorld()).scene_labels), display = string(sceneLabels[graph.handle(scene)] || graph.displayName(scene));
+    const display = sceneLabel(graph, world, scene);
     const known: Row[] = party.map(sheet => ({ name: string(sheet.name), kind: 'investigator' })), allowed: string[] = [];
     for (const node of present) {
         known.push({ name: graph.displayName(node), kind: 'npc' });

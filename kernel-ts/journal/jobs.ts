@@ -5,6 +5,7 @@ import { isJsonObject, jsonDigest } from '../json.js';
 import { appendJsonl } from '../fileio.js';
 import { CampaignWriter, nowIso } from '../write/store.js';
 import { ModuleGraph } from '../read/module-graph.js';
+import { sceneLabel } from '../read/capsule.js';
 import { array, row, clone, string, number, integer, truth, repr, sorted, length, type Row } from '../read/values.js';
 import { FAILURE_REASONS, committedRecords, logs, proseOf, writeLines } from '../memory/jobs.js';
 export const BUDGET = { max_entries: 6, max_description_chars: 300, max_exchange_chars: 200 };
@@ -99,7 +100,7 @@ export async function buildJob(campaign: CampaignWriter, graph: ModuleGraph, lan
     if (!record)
         throw new RpcError('invalid_params', `turn ${turn} has no committed record`, { fix: 'only turns closed by narrate have journal jobs', details: { turn, committed_turns: [...committed.keys()].sort((a, b) => a - b) } });
     const snapshot = row(record.world), scene = graph.scene(string(row(snapshot.scene).name || world.active_scene));
-    const sceneLabels = row((await campaign.readWorld()).scene_labels), display = string(sceneLabels[graph.handle(scene)] || graph.displayName(scene));
+    const display = sceneLabel(graph, world, scene);
     const journal = await readJournal(campaign), named = collectNamed(graph, record, journal.entries);
     const recordable = sorted(new Set(named.map(([name]) => name)));
     const prior: Row[] = [], namedPrior = new Set<string>();
