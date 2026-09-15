@@ -131,8 +131,8 @@ export function continuityArtifactErrors(value: any, candidate: string, files: R
         const reentry = review.reentry_review, path = '/continuity_review/reentry_review';
         if (keys(reentry, ['verdict', 'basis', 'quote', 'clue', 'relation'], path)) {
             if (!['pass', 'revise', 'defer'].includes(reentry.verdict)) add(`${path}/verdict`, 'Expected pass, revise or defer');
-            if (!['bridge_receipt', 'bridge_offer', 'acquired_clarification', 'player_discharge', 'preparation_wait', 'authority_unavailable', 'none'].includes(reentry.basis))
-                add(`${path}/basis`, 'Expected bridge_receipt, bridge_offer, acquired_clarification, player_discharge, preparation_wait, authority_unavailable or none');
+            if (!['bridge_receipt', 'bridge_offer', 'acquired_clarification', 'player_discharge', 'preparation_wait', 'authority_unavailable', 'chosen_action', 'none'].includes(reentry.basis))
+                add(`${path}/basis`, 'Expected bridge_receipt, bridge_offer, acquired_clarification, player_discharge, preparation_wait, authority_unavailable, chosen_action or none');
             const bridge = row(causalReentry.bridge), bridgeClue = bridge.clue, known = array(causalReentry.known).map(value => row(value).name);
             const knownRow = array(causalReentry.known).map(row).find(value => value.name === reentry.clue);
             const mode = causalReentry.mode ?? (bridgeClue ? 'introduce_evidence' : 'clarify_known');
@@ -140,19 +140,22 @@ export function continuityArtifactErrors(value: any, candidate: string, files: R
             const receipts = array(context.receipts), handouts = array(bridge.source_handouts);
             const hasBridgeReceipt = receipts.some(receipt => receipt.kind === 'clue' && receipt.clue === bridgeClue
                 || receipt.kind === 'handout' && [receipt.handout, receipt.name, receipt.label].some(name => handouts.includes(name)));
-            if (mode === 'clarify_known' && !['acquired_clarification', 'player_discharge', 'none'].includes(reentry.basis))
-                add(`${path}/basis`, 'clarify_known permits acquired_clarification, player_discharge or none');
-            if (mode === 'introduce_evidence' && !['bridge_receipt', 'bridge_offer', 'player_discharge', 'preparation_wait', 'authority_unavailable', 'none'].includes(reentry.basis))
-                add(`${path}/basis`, 'introduce_evidence permits bridge_receipt, bridge_offer, player_discharge, preparation_wait, authority_unavailable or none');
+            // §37.3 (2026-09-15): the reentry steers, it does not gate. `chosen_action` is lawful in both
+            // modes and needs no host-owned wait or refusal — an unrealized bridge on a turn the player spent
+            // on their own legitimate line defers and is delivered.
+            if (mode === 'clarify_known' && !['acquired_clarification', 'player_discharge', 'chosen_action', 'none'].includes(reentry.basis))
+                add(`${path}/basis`, 'clarify_known permits acquired_clarification, player_discharge, chosen_action or none');
+            if (mode === 'introduce_evidence' && !['bridge_receipt', 'bridge_offer', 'player_discharge', 'preparation_wait', 'authority_unavailable', 'chosen_action', 'none'].includes(reentry.basis))
+                add(`${path}/basis`, 'introduce_evidence permits bridge_receipt, bridge_offer, player_discharge, preparation_wait, authority_unavailable, chosen_action or none');
             if (['bridge_receipt', 'bridge_offer', 'acquired_clarification'].includes(reentry.basis)) {
                 if (!words(reentry.quote, 1000) || !candidate.includes(reentry.quote)) add(`${path}/quote`, 'Copy an exact candidate excerpt that states the causal relation and stakes');
             } else if (reentry.basis === 'player_discharge') {
                 if (!words(reentry.quote, 1000) || !string(context.current_input).includes(reentry.quote)) add(`${path}/quote`, 'Copy an exact current_input excerpt demonstrating informed causal understanding');
             } else if (reentry.basis === 'preparation_wait') {
                 if (!words(reentry.quote, 1000) || !candidate.includes(reentry.quote)) add(`${path}/quote`, 'Copy the exact candidate preparation-wait notice');
-            } else if (reentry.basis === 'authority_unavailable') {
-                if (!words(reentry.quote, 1000) || !candidate.includes(reentry.quote)) add(`${path}/quote`, 'Copy the exact candidate excerpt continuing the chosen action without the refused evidence');
-            } else if (reentry.quote !== null) add(`${path}/quote`, 'basis none uses quote null');
+            } else if (['authority_unavailable', 'chosen_action'].includes(reentry.basis)) {
+                if (!words(reentry.quote, 1000) || !candidate.includes(reentry.quote)) add(`${path}/quote`, 'Copy the exact candidate excerpt continuing the action the player chose, claiming no reentry evidence');
+            } else if (reentry.quote !== null) add(`${path}/quote`, `basis ${reentry.basis} uses quote null`);
             if (reentry.basis === 'bridge_receipt') {
                 if (!hasBridgeReceipt) add(`${path}/basis`, 'No current clue or handout receipt settles the supplied bridge');
                 if (reentry.clue !== bridgeClue) add(`${path}/clue`, 'Copy causal_reentry.bridge.clue exactly');
@@ -180,12 +183,17 @@ export function continuityArtifactErrors(value: any, candidate: string, files: R
                 if (reentry.clue !== null) add(`${path}/clue`, `${reentry.basis} uses clue null`);
                 if (reentry.relation !== null) add(`${path}/relation`, `${reentry.basis} uses relation null`);
             }
+            if (reentry.basis === 'chosen_action' && hasBridgeReceipt)
+                add(`${path}/basis`, 'A settled bridge receipt uses bridge_receipt, not chosen_action');
             if (reentry.basis === 'preparation_wait' && !object(context.preparation_wait)) add(`${path}/basis`, 'No host-owned preparation_wait is active');
             if (reentry.basis === 'preparation_wait' && reentry.verdict !== 'defer') add(`${path}/verdict`, 'A real preparation wait uses defer');
             if (reentry.basis === 'bridge_offer' && reentry.verdict !== 'defer') add(`${path}/verdict`, 'A choice-preserving bridge offer uses defer');
             if (reentry.basis === 'authority_unavailable' && reentry.verdict !== 'defer') add(`${path}/verdict`, 'A refused placement leaves the reentry standing: use defer');
+            if (reentry.basis === 'chosen_action' && reentry.verdict !== 'defer') add(`${path}/verdict`, 'The player\'s own chosen line leaves the reentry standing: use defer');
+            // `none` is now reserved for real damage — a candidate that contradicts the thread or its acquired
+            // evidence, or that fabricates a carrier or an arrival without a receipt (§37.3, 2026-09-15).
             if (reentry.basis === 'none' && reentry.verdict !== 'revise') add(`${path}/verdict`, 'No causal basis requires revise');
-            if (!['preparation_wait', 'bridge_offer', 'authority_unavailable', 'none'].includes(reentry.basis) && reentry.verdict !== 'pass') add(`${path}/verdict`, 'A realized or discharged bridge uses pass');
+            if (!['preparation_wait', 'bridge_offer', 'authority_unavailable', 'chosen_action', 'none'].includes(reentry.basis) && reentry.verdict !== 'pass') add(`${path}/verdict`, 'A realized or discharged bridge uses pass');
             if (reentry.verdict === 'revise' && review.verdict !== 'revise') add('/continuity_review/verdict', 'A reentry revision requires overall revise');
             if (review.verdict === 'pass' && !['pass', 'defer'].includes(reentry.verdict)) add(`${path}/verdict`, 'Overall pass requires a passing or structurally deferred reentry review');
         }

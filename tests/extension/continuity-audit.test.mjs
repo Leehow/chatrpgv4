@@ -806,3 +806,86 @@ test('the verbs refused after a verdict pause do not relabel the run as a dead l
     assert.equal(notices[0].details.service, false, 'the pause that stopped the review owns the kind');
     assert.equal(notices[0].content, words.line('review_verdict_notice', {streak: 0}));
 });
+
+/**
+ * Contract §37.3 (2026-09-15): the projected reentry is steering, not a gate. Retained live evidence
+ * `game-83177d61-ab11-4d58-b8ec-cf8b9c98d5a4` (`the-haunting`, turns 87-91): a bridge delivered at turn 47
+ * had locked `mode` to `introduce_evidence`, the one unacquired clue on the thread is authored at the
+ * sanitarium so `authority.clue_here` was false at the newspaper, and with no host-owned `preparation_wait`
+ * or `rebinding_refused` the only lawful sub-review left was `none`/`revise`. Turns 88, 89 and 90 published
+ * nothing at all while their receipts sat settled. The real reentry is built here from the module graph, the
+ * campaign world and the assessments file, not from a hand-written context.
+ */
+test('the real the-haunting reentry defers on the player\'s own line and revises only a fabricated arrival', async () => {
+    const home = await mkdtemp(join(directory, 'steering-'));
+    const context = await api.createKernelContext({workspace: home, content: join(root, 'content'), seed: 'reentry-steering', locks: api.nativeAdvisoryLocks(),
+        env: {...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1'}});
+    const runtime = api.createKernelRuntime(context); closers.push(() => runtime.close());
+    const call = (method, params = {}) => runtime.handlers[method]({campaign: 'c1', ...params});
+    await call('campaign.create', {id: 'c1', module: 'the-haunting', pregen: 'thomas-hayes', play_language: 'en'});
+    await call('table.open');
+    await call('table.narrate', {call_id: 't0-c1', text: 'Knott hands over the commission.'});
+    await call('table.player_input', {text: 'I start with the newspapers and the neighbours.'});
+    // Four of the thread's five clues, each acquired where the book puts it. The fifth,
+    // `gabriela-night-visitor`, is authored at the sanitarium, so the bridge is out of reach at the morgue.
+    const held = [['neighborhood-gossip', 'dooley-macario-madness'], ['corbitt-house-ground', 'upstairs-disturbance'],
+        ['upper-floor-bedroom', 'poltergeist-bed'], ['newspaper-morgue', 'globe-unpublished-story']];
+    await call('table.apply', {call_id: 't1-c1', effects: held.flatMap(([scene, clue]) => [
+        {kind: 'move', to: scene, via: 'contract fixture route', travel_minutes: 0}, {kind: 'clue', clue}])});
+    await call('table.narrate', {call_id: 't1-c2', text: 'The clippings pile up on the morgue counter.'});
+
+    const thread = 'house-haunted-by-corbitt';
+    await mkdir(join(home, '.coc/campaigns/c1/memory'), {recursive: true});
+    await writeFile(join(home, '.coc/campaigns/c1/memory/story.jsonl'), [
+        {turn: 47, worldline: 'main', loop: 0, status: 'misframed', thread, frame: 'It is only bad luck in one address.',
+            bridge_delivered: true, delivery_quote: 'The same will keeps returning to that address.'},
+        {turn: 87, worldline: 'main', loop: 0, status: 'detached', thread, frame: 'I set out for the Globe building now.',
+            bridge_delivered: false, delivery_quote: null}].map(row => JSON.stringify(row)).join('\n') + '\n');
+
+    const turn = await call('table.player_input', {text: 'I set out for the Globe building now and wait in the lobby.'});
+    const reentry = turn.capsule.mods.thread.reentry;
+    assert.equal(reentry.mode, 'introduce_evidence', 'the delivered bridge stands unanswered, so this is the live turn-87 state');
+    assert.equal(reentry.bridge.clue, 'gabriela-night-visitor');
+    assert.equal(reentry.known.length, 4, 'every clue the player holds on this thread is nameable');
+
+    const candidate = 'The lobby clock ticks past the hour while the desk clerk finishes with the man ahead of you.';
+    const job = await call('mods.job', {role: 'audit', input: {text: candidate}});
+    const focused = JSON.parse(await readFile(join(job.cwd, 'context.json'), 'utf8'));
+    assert.equal(focused.causal_reentry.mode, 'introduce_evidence');
+    assert.equal(focused.causal_reentry.authority.clue_here, false, 'the last clue is authored at the sanitarium, not here');
+    assert.equal(focused.preparation_wait, undefined);
+    assert.equal(focused.rebinding_refused, undefined);
+    const files = {'context.json': focused};
+    const locus = {verdict: 'pass', mode: 'same_locus', locus: null, claim: null, basis: 'active_scene'};
+
+    // The turn the player actually played is deliverable: an unmet bridge is distance, not damage.
+    const deferred = {missing: [], findings: [], continuity_review: {verdict: 'pass',
+        summary: 'The draft continued the action the player chose and claimed no reentry evidence.', conflicts: [],
+        reentry_review: {verdict: 'defer', basis: 'chosen_action', quote: candidate, clue: null, relation: null},
+        locus_review: locus}};
+    assert.deepEqual(continuityArtifactErrors(deferred, candidate, files), []);
+    await writeFile(join(job.cwd, 'result.json'), JSON.stringify(deferred));
+    assert.equal((await call('mods.accept', {job: job.job})).continuity_review.verdict, 'pass', 'the turn is delivered');
+
+    // The defer is checked, not free: it copies the candidate, never passes, and yields to a settled receipt.
+    const invented = structuredClone(deferred); invented.continuity_review.reentry_review.quote = 'A line the candidate never wrote.';
+    assert.ok(continuityArtifactErrors(invented, candidate, files).some(error => error.path === '/continuity_review/reentry_review/quote'));
+    const asPass = structuredClone(deferred); asPass.continuity_review.reentry_review.verdict = 'pass';
+    assert.ok(continuityArtifactErrors(asPass, candidate, files).some(error => error.path === '/continuity_review/reentry_review/verdict'));
+    assert.ok(continuityArtifactErrors(deferred, candidate, {'context.json': {...focused,
+        receipts: [...focused.receipts, {kind: 'clue', clue: 'gabriela-night-visitor'}]}})
+        .some(error => error.path === '/continuity_review/reentry_review/basis'), 'a settled bridge receipt is bridge_receipt');
+
+    // Fabricating the sanitarium testimony as arrived is the abuse this review still exists for.
+    const fabricated = 'The sanitarium testimony from Gabriela Macario reaches you here: she names the night visitor as Corbitt himself.';
+    const claimed = {missing: [], findings: [], continuity_review: {verdict: 'pass', summary: 'The bridge landed.', conflicts: [],
+        reentry_review: {verdict: 'pass', basis: 'bridge_receipt', quote: fabricated, clue: 'gabriela-night-visitor', relation: 'supports'},
+        locus_review: locus}};
+    assert.ok(continuityArtifactErrors(claimed, fabricated, files).some(error => error.path === '/continuity_review/reentry_review/basis'),
+        'no receipt and no authority settles that clue here');
+    const revised = {missing: [], findings: [{reason: 'The candidate states that the sanitarium testimony arrived, with no receipt and no placement.',
+        fix: 'Withdraw the claim that gabriela-night-visitor reached the investigator; nothing settled it.'}],
+        continuity_review: {verdict: 'revise', summary: 'The draft claims evidence that never landed.', conflicts: [],
+            reentry_review: {verdict: 'revise', basis: 'none', quote: null, clue: null, relation: null}, locus_review: locus}};
+    assert.deepEqual(continuityArtifactErrors(revised, fabricated, files), [], 'revise stays available for a fabricated arrival');
+});

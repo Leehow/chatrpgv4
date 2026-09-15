@@ -32,6 +32,11 @@ export function evidenceAcquired(graph: ModuleGraph, world: Row, node: Row, reco
     return handouts.size > 0 && records.some(record => array(record.receipts).some(receipt => handouts.has(string(receipt.handout))));
 }
 
+/** Compact evidence keeps every acquired row up to this cap; unacquired rows are optional context.
+ *  Four, because that is what `storyAssessmentContext` projects per relation: a compact row this view keeps
+ *  beyond the consumer's own cap is bytes nobody reads, and a cap below it hides evidence the player holds. */
+const COMPACT_EVIDENCE = 4;
+
 export function continuityView(graph: ModuleGraph, world: Row, records: Row[] = [], candidates: Row[] = [], options: Row = {}): Row {
     const limit = options.limit ?? 6;
     if (!Number.isInteger(limit) || limit < 1 || limit > 12)
@@ -105,14 +110,28 @@ export function continuityView(graph: ModuleGraph, world: Row, records: Row[] = 
         delete result.corrections;
         // `acquired_total` survives the slice so a consumer can tell "this row is compacted" (always true
         // here) from "acquired evidence was actually dropped" (contract §37.2).
-        result.connections = result.connections.map((c: Row) => ({name: c.name, claim: chars(c.claim, 200), disclosure: c.disclosure,
-            evidence: [...c.evidence].sort((a: Row, b: Row) => Number(b.acquired) - Number(a.acquired)).slice(0, 2).map((e: Row) => ({name: e.name, relation: e.relation, acquired: e.acquired,
-                summary: chars(e.summary, 100), turns: e.deliveries.map((d: Row) => d.turn)})),
-            acquired_total: array(c.evidence).filter((e: Row) => row(e).acquired === true).length,
-            truncated: true}));
+        // A fixed two-row slice was a projection cut, not a budget: `story_context.supporting` showed two of
+        // the four clues a player actually held, so the memory lane assessed a thread it could not see the
+        // evidence for (contract §37.3, 2026-09-15). Acquired rows are what every consumer must see; the
+        // unacquired remainder is optional context, so the cap keeps every acquired row up to COMPACT_EVIDENCE
+        // and still fills to two with the rest. The byte budget below sheds the optional half first.
+        result.connections = result.connections.map((c: Row) => {
+            const ranked = [...c.evidence].sort((a: Row, b: Row) => Number(b.acquired) - Number(a.acquired));
+            const acquired = ranked.filter((e: Row) => row(e).acquired === true).length;
+            return {name: c.name, claim: chars(c.claim, 200), disclosure: c.disclosure,
+                evidence: ranked.slice(0, Math.max(2, Math.min(COMPACT_EVIDENCE, acquired))).map((e: Row) => ({name: e.name, relation: e.relation, acquired: e.acquired,
+                    summary: chars(e.summary, 100), turns: e.deliveries.map((d: Row) => d.turn)})),
+                acquired_total: array(c.evidence).filter((e: Row) => row(e).acquired === true).length,
+                truncated: true};
+        });
     }
     const budget = options.budget ?? 10000;
-    while (Buffer.byteLength(pythonJsonDumps(result), 'utf8') > budget && result.connections.length) {
+    const over = () => Buffer.byteLength(pythonJsonDumps(result), 'utf8') > budget;
+    // Shed optional rows before whole threads: dropping a connection erases all of its acquired evidence,
+    // which is the failure §37.2 already recorded once.
+    if (options.compact) for (let keep = COMPACT_EVIDENCE - 1; keep >= 2 && over(); keep--)
+        result.connections = result.connections.map((c: Row) => array(c.evidence).length > keep ? {...c, evidence: array(c.evidence).slice(0, keep)} : c);
+    while (over() && result.connections.length) {
         result.connections.pop(); result.truncated = true;
     }
     for (const field of ['hypotheses', 'anchors', 'corrections']) {
