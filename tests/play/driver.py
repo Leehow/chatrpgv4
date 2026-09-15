@@ -854,8 +854,57 @@ def _wait_for_ready(rdir: Path, timeout: float) -> bool:
 # CLI subcommands
 # --------------------------------------------------------------------------
 
+def coc_home() -> Path:
+    """Where `.coc/` lives for this checkout: `PI_COC_HOME` when set (as bin/pi-coc reads it), else the repo root."""
+    raw = os.environ.get("PI_COC_HOME", "").strip()
+    if not raw:
+        return REPO_ROOT
+    expanded = Path(raw).expanduser()
+    return expanded if expanded.is_absolute() else (REPO_ROOT / expanded).resolve()
+
+
+def create_pregen_campaign(campaign: str, pregen: str, module: str, play_language: str) -> None:
+    """The template-sheet entry (user request 2026-09-15): one `campaign.create` against the built kernel,
+    exactly what the kernel test fixtures do, so a table is playable without the five creation turns.
+    The kernel is spoken to directly over its JSON-lines RPC; nothing here fabricates a turn."""
+    entry = REPO_ROOT / "build" / "kernel" / "rpc.mjs"
+    if not entry.is_file():
+        raise RuntimeError("build the kernel first: npm run build:runtime")
+    home = coc_home()
+    request = {"id": "start-pregen", "method": "campaign.create",
+               "params": {"id": campaign, "module": module, "pregen": pregen, "play_language": play_language}}
+    proc = subprocess.Popen(["node", str(entry), "--workspace", str(home), "--content", str(REPO_ROOT / "content")],
+                            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=str(REPO_ROOT))
+    try:
+        out, err = proc.communicate(json.dumps(request) + "\n", timeout=120)
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+    response = None
+    for line in out.splitlines():
+        try:
+            parsed = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict) and parsed.get("id") == request["id"]:
+            response = parsed
+    if not response or not response.get("ok"):
+        raise RuntimeError(f"campaign.create failed: {json.dumps((response or {}).get('error') or err.strip()[-400:] or out.strip()[-400:], ensure_ascii=False)}")
+
+
 def cmd_start(args: argparse.Namespace) -> int:
     campaign = args.campaign
+    if args.pregen:
+        campaign_dir = coc_home() / ".coc" / "campaigns" / campaign
+        if campaign_dir.exists():
+            print(f"campaign {campaign} already exists; --pregen ignored", file=sys.stderr)
+        else:
+            try:
+                create_pregen_campaign(campaign, args.pregen, args.module, args.play_language)
+            except Exception as error:  # noqa: BLE001 - the reason is printed and the start refused
+                print(f"error: {error}", file=sys.stderr)
+                return 1
+            print(f"created campaign {campaign} from pregen {args.pregen} ({args.module}, {args.play_language})")
     run_id = args.run or f"{campaign}-{utc_stamp()}"
     rdir = run_dir(run_id)
     if rdir.exists() and any(rdir.iterdir()):
@@ -999,6 +1048,10 @@ def build_parser() -> argparse.ArgumentParser:
                      help="provider/modelId sent via set_model after start (default %(default)s)")
     sp.add_argument("--launcher", default=None,
                      help="path to bin/pi-coc-compatible launcher (default: env PI_COC_LAUNCHER, then bin/pi-coc)")
+    sp.add_argument("--pregen", default=None, metavar="PREGEN",
+                     help="create the campaign from this starter pregen sheet (e.g. thomas-hayes) and skip character creation")
+    sp.add_argument("--module", default="the-haunting", help="starter module for --pregen (default %(default)s)")
+    sp.add_argument("--play-language", default="zh", help="play language tag for --pregen (default %(default)s)")
     sp.add_argument("--no-default-run", action="store_true",
                      help="do not make this run the default for later turn/stop/log calls")
     sp.add_argument("--env", action="append", default=None, metavar="KEY=VALUE",

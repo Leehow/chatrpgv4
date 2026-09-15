@@ -19,6 +19,40 @@ function resultText(message) {
 		.join("");
 }
 
+/**
+ * §34.16 (2026-09-15): a Keeper that keeps calling tools after its turn closed gets a firmer answer at the
+ * third blocked call and has its run cut at the sixth, so the next player input never waits on a run that
+ * will not settle. Six rounds of `look` after a narrate: six blocked results, the last four say stop, one
+ * `runaway` telemetry row, and nothing after the sixth reaches the hook.
+ */
+test("回合关了还在连番调工具：第三次起回一句「停」，第六次切断这一轮", async (t) => {
+	const look = () => fauxAssistantMessage([fauxToolCall("look", { focus: "scene" })], { stopReason: "toolUse" });
+	const table = await openTable({
+		responses: [
+			fauxAssistantMessage([fauxToolCall("narrate", { text: "门在你身后合上。" })], { stopReason: "toolUse" }),
+			look(), look(), look(), look(), look(), look(), look(), look(),
+			fauxAssistantMessage("这条不该出现"),
+		],
+	});
+	t.after(() => table.dispose());
+
+	await table.session.prompt("我关上门");
+	await waitForIdle(table.session);
+
+	const blocked = toolResults(table.session, "look");
+	assert.ok(blocked.length >= 6 && blocked.length <= 7, `six blocked look results before the cut, got ${blocked.length}`);
+	assert.match(resultText(blocked[0]), /waiting for the player/);
+	assert.match(resultText(blocked[2]), /Call no tool and write nothing more/);
+	assert.match(resultText(blocked[4]), /Call no tool and write nothing more/);
+	// The sixth is the cut itself: Pi reports the abort in place of a block reason.
+	assert.match(resultText(blocked[5]), /Call no tool and write nothing more|aborted/i);
+	const runaway = table.telemetry().filter((row) => row.lane === "runaway");
+	assert.equal(runaway.length, 1);
+	assert.equal(runaway[0].aborted, true);
+	assert.equal(runaway[0].blocked, 6);
+	assert.ok(!assistantTexts(table.session).includes("这条不该出现"), "the run was cut before the queue ran out");
+});
+
 test("narrate 之后，同一批次余下的调用被拒", async (t) => {
 	const table = await openTable({
 		responses: [

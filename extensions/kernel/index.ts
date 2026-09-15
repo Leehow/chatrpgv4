@@ -138,6 +138,8 @@ interface TableState {
 	toolCallsThisTurn: number;
 	/** The Keeper tried a delivery (narrate or ask) this turn, refused or not: a repair flow owns the turn from there, and the speech steer stays out (§40). */
 	deliveryTriedThisTurn: boolean;
+	/** Tool calls blocked because the turn had already closed, in this run (§34.16). */
+	blockedAfterClose: number;
 	/** The prose the floor steer dropped; if the second leg brings no prose and no narrate, this closes the turn as before. */
 	floorDraft?: string;
 	/**
@@ -286,6 +288,10 @@ interface TableState {
 
 const CLOSED_STATES: ReadonlySet<TurnState> = new Set<TurnState>(["awaiting_player", "committed", "asked"]);
 const TURN_CLOSED_REASON = "the turn is closed, waiting for the player";
+/** §34.16: a run that keeps calling tools after its turn closed is told to stop at the third blocked call and cut at the sixth. */
+const TURN_CLOSED_STOP = "The turn is closed and the player has the move. Call no tool and write nothing more; the next player input opens a new turn.";
+const RUNAWAY_STOP_AT = 3;
+const RUNAWAY_ABORT_AT = 6;
 /** Refusals of one class (tool, code, the field the kernel named) a turn tolerates before that tool is shut for the turn. */
 const REFUSAL_CLASS_LIMIT = 3;
 /** Refusals of any class a turn tolerates before every write but narrate and ask is shut. */
@@ -719,6 +725,7 @@ export default function (pi: ExtensionAPI) {
 		table.steeredThisTurn = false;
 		table.toolCallsThisTurn = 0;
 		table.deliveryTriedThisTurn = false;
+		table.blockedAfterClose = 0;
 		table.floorDraft = undefined;
 		table.recoveryOwed = null;
 		table.recoveryLanded = false;
@@ -1889,6 +1896,7 @@ export default function (pi: ExtensionAPI) {
 				steeredThisTurn: false,
 				toolCallsThisTurn: 0,
 				deliveryTriedThisTurn: false,
+				blockedAfterClose: 0,
 				recoveryOwed: null,
 				recoveryLanded: false,
 				recoverySteered: false,
@@ -2150,6 +2158,7 @@ export default function (pi: ExtensionAPI) {
 			state.steeredThisTurn = false;
 			state.toolCallsThisTurn = 0;
 			state.deliveryTriedThisTurn = false;
+			state.blockedAfterClose = 0;
 			state.floorDraft = undefined;
 			state.recoveryOwed = null;
 			state.recoveryLanded = false;
@@ -2238,14 +2247,17 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("agent_start", async () => {
-		if (table) table.closedThisRun = false;
+		if (table) {
+			table.closedThisRun = false;
+			table.blockedAfterClose = 0;
+		}
 	});
 
 	pi.on("turn_start", async () => {
 		if (table) table.roundTrips += 1;
 	});
 
-	pi.on("tool_call", async (event) => {
+	pi.on("tool_call", async (event, ctx) => {
 		const name = event.toolName;
 		if (!COC_TOOL_NAMES.includes(name as never)) return;
 		const input = event.input as Record<string, unknown>;
@@ -2258,8 +2270,17 @@ export default function (pi: ExtensionAPI) {
 		state.toolCallsThisTurn += 1;
 		if (name === "narrate" || name === "ask") state.deliveryTriedThisTurn = true;
 		if (state.closedThisRun) {
-			await record({ tool: name, started_at: new Date().toISOString(), ok: false, code: "blocked", reason: TURN_CLOSED_REASON });
-			return { block: true, reason: TURN_CLOSED_REASON };
+			// §34.16 (2026-09-15): grok-4.6 kept calling look/resolve/apply after the opening closed — 178
+			// blocked calls in seventeen minutes on one table — and the run never settled, so the next player
+			// input timed out waiting for it. Three blocked calls get a firmer answer; the sixth cuts the run.
+			state.blockedAfterClose += 1;
+			const blocked = state.blockedAfterClose;
+			await record({ tool: name, started_at: new Date().toISOString(), ok: false, code: "blocked", reason: TURN_CLOSED_REASON, blocked_after_close: blocked });
+			if (blocked >= RUNAWAY_ABORT_AT) {
+				await record({ lane: "runaway", turn: state.turn, blocked, aborted: true });
+				try { ctx?.abort(); } catch { /* an abort that cannot be delivered leaves the driver's timeout as the last resort */ }
+			}
+			return { block: true, reason: blocked >= RUNAWAY_STOP_AT ? TURN_CLOSED_STOP : TURN_CLOSED_REASON };
 		}
 		const adaptationControl = name === 'lookup' && input.kind === 'adaptation' && ['status', 'cancel'].includes(String(input.action));
 		const retainedTerminal = state.preparationWait?.status && !['pending', 'reviewing'].includes(state.preparationWait.status);

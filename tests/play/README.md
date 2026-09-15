@@ -29,6 +29,20 @@ uv run --frozen python tests/play/driver.py stop
 `stop`/`log`/`status` default to whichever run `start` most recently began.
 `start` defaults `--run` itself to `<campaign>-<UTC timestamp>`.
 
+## Skipping character creation: a template sheet
+
+```bash
+uv run --frozen python tests/play/driver.py start --campaign my-campaign-id --pregen thomas-hayes --model xai/grok-4.6
+```
+
+`--pregen <name>` creates the campaign from a starter's pregenerated investigator
+(`content/starters/<module>/pregens/`, `the-haunting` ships `thomas-hayes` and `eleanor-reed`)
+with one `campaign.create` against the built kernel — the same call the kernel test fixtures
+make — and opens the table on it, so a test run starts at the opening turn instead of after five
+creation turns. `--module` and `--play-language` set the starter and the language (defaults
+`the-haunting`, `zh`). An existing campaign is left alone. This creates a campaign; it never
+fabricates a turn.
+
 ## Switching the keeper model
 
 ```bash
