@@ -6763,7 +6763,7 @@ Spec: `docs/specs/npc-speech.md`. User rulings 2026-09-15: the wrapper form; mar
 
 ### 40.1 The token
 
-A spoken line is written as `{{say:<name>}}…{{/say}}`. The open token carries the speaker's name; the close token is invariant; the spoken words, with whatever quotation marks the play language uses or none, lie between. Narration, gesture and "he said" stay outside. Every line spoken aloud by anyone other than the narrator is wrapped: NPCs, and the investigator when the uptake renders the player's speakable line. Thought, signage, a document's text and reported speech are not lines.
+A spoken line is written as `{{say:<name>}}…{{/say}}`. The open token carries the speaker's name; the close token is invariant; the spoken words lie between, **with the quotation marks the play language writes speech with kept inside the token** (2026-09-15 A/B: "or none" let the Keeper drop 「」 for the token — one 「 in twelve turns against twenty-eight with the marks kept — and the stripped prose read flat; the token wraps the line, it never replaces its marks). Narration, gesture and "he said" stay outside. Every line spoken aloud by anyone other than the narrator is wrapped: NPCs, and the investigator when the uptake renders the player's speakable line. Thought, signage, a document's text and reported speech are not lines.
 
 `<name>` is the person exactly as `present[].name` gives it — the string `apply npc` takes, the string the journal lane copies — never a handle, node id, receipt id or hash (§16.6's invariant). Someone not in `present[]` is written under the label the prose uses for them (`the woman in the black coat`); the same label again is the same person to the host. Name text: anything but `}}` and a line break, trimmed, 1–60 characters.
 

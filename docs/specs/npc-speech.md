@@ -169,6 +169,16 @@ Four lane defects the table found, all in `content/setup/npc-voice.md`'s instruc
 
 **Follow-up landed the same day (branch head after this):** the host speech steer (an implicit delivery with people present and no say token is bounced once, like the floor steer); the lane's strained line is now the person's own way of handling strain and an exclamation mark is named as not a register; `voice.submit` accepts `sample_lines: null, reason: "does_not_speak"` for people the book says do not speak; no other person's name in a line; and the voice guard — a second zero-tool call that reads the lines against the book's `voice` and bounces them once. Not yet re-measured at a table.
 
+**A/B/C on the user's report that the prose went short and dull (2026-09-15, three concurrent tables, sonnet players on one fixed twelve-line route, grok-4.6 low, blind sonnet judge on turns 1/5/9/12 of each):**
+
+| arm | median chars | 「」 | say spans | lively (1-5) | speech clear (1-5) | handoff (1-5) |
+|---|---|---|---|---|---|---|
+| A token, marks optional (the branch as played) | 162 | 1 | 29 | 3.3 | 2.8 | 2.8 |
+| B token, marks kept inside it | 229 | 28 | 26 | 4.5 | 5.0 | 3.0 |
+| C no token, steer off (control) | 167 | 39 | 0 | 4.3 | 5.0 | 4.3 |
+
+The judge named A's four samples as the flat, unmarked set and as the three worst, without knowing the arms. The cause is the contract's "or none": the Keeper took the token as replacing 「」, the kernel stripped the token, and the delivered prose ran speech into narration. B's wording restores the marks, the liveliness and the length; the token itself is not the cost. B's handoff runs a little under C's on four samples each — worth watching, not yet a finding.
+
 Two pre-existing faults the run also surfaced, unrelated to this section: turn 0 took six `mod_audit_stale` refusals and the refusal budget shut `narrate` once; after an `unknown_entity` lookup the Keeper wrote the service state into the story ("this stop is still preparing material"), a §34.1 immersion breach.
 
 Shape of the run: median 137 characters per delivered turn, zero implicit closes, 74 tool calls, 28 admission reviews.
