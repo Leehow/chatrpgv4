@@ -6426,6 +6426,52 @@ be delivered; every other accept failure still blocks; a review that passes, a r
 review whose runtime is missing each leave one `lane: "continuity-review"` row
 (`tests/extension/continuity-audit.test.mjs`).
 
+### 38.9 A streak counts outages, not the guard doing its job (2026-09-15)
+
+§38.5 escalates a table to `status: "down"` on the second consecutive review pause: the player is told
+another attempt is pointless, and the operator is handed the lane-model fix. `pauseReview` counted every
+pause, whatever caused it. Half of the streak that first triggered it had no lane problem at all.
+
+Retained evidence, `game-83177d61` (2026-09-15), from its own `telemetry.jsonl` and review accounting:
+
+| turn | child | retained cause | streak |
+|---|---|---|---|
+| 42 | `submitted: true`, 17 386 ms | `The bounded Keeper repair did not resolve the review` | 1 |
+| 43 | `submitted: false`, killed at 40 014 ms | `The private reviewer ended without a checked submission` | 2 |
+
+Turn 42 is `max_rewrites` (§37.9) working exactly as designed: the review ran twice, submitted twice and
+refused twice, and the input ended. **A table is not down because its reviewer disagreed.** Turn 43 is a
+dead stream. Summed, they produced an escalation whose wording and whose fix were wrong for one of the two.
+
+**So a pause carries its kind, and only a service pause accumulates.** `reviewUnavailable(cause, service)`
+puts `service` in `details` beside `cause`; `AuditBudget.fail(cause, service)` records it in the retained
+accounting as `blocked_service`, so a later review of the same input replays the kind instead of re-reading
+a verdict end as a fresh outage. Every branch in which the reviewer *reached a conclusion*, or in which the
+allowance those conclusions consumed ran out, is `service: false`: `max_rewrites`, the same rejected draft
+resubmitted, a `verdict: "unavailable"` submission, and every exhausted-allowance end. Everything else — a
+child that submitted nothing, an unreadable or interrupted accounting file, a lock another review holds, a
+missing runtime — stays `service: true`. `reason` is unchanged: both kinds still end the player's input and
+the Keeper's lawful response to either is identical, so splitting the closed contract field would buy
+nothing.
+
+The operator entry gains `service`, so `coc-review-status` says which kind it was rather than leaving it to
+be inferred from the cause sentence. A verdict pause emits `status: "unavailable"` with no `fix`, and never
+raises the streak on its own; two genuine outages still escalate once, exactly as before.
+
+**This is not a relaxation.** A verdict pause still ends the input, still publishes nothing, and still
+requires new player input — the guard is untouched. What changes is only whether that counts as evidence
+that the lane is broken.
+
+**Three ends (§31).** *Writer:* `AuditBudget`, at the site that knows which bound fired. *Reader:*
+`pauseReview`, and the operator through `coc-review-status`. *Actor:* the operator, who is no longer sent to
+change a lane model over a disagreement; and the player, who is no longer told that trying again is
+pointless when it is not.
+
+**Acceptance.** Two consecutive verdict pauses leave `streak: 0`, emit no `down` entry and no `fix`, and
+leave the player the "send anything to try again" wording; two consecutive service pauses still reach
+`streak: 2`, `status: "down"` and the lane-model fix; a retained block replays its own kind
+(`tests/extension/continuity-audit.test.mjs`).
+
 ## 39. Session maps revealed by player knowledge (2026-09-13)
 
 The map feature uses the existing seven verbs and the existing ModuleGraph, campaign world state, source reader and structured mechanics delivery. It adds no map tool and no second state store. A map is an `asset` or `handout` node whose `properties.map_regions` is a non-empty list. Each row is `{region_id, name, level?, source_asset, source_box, placement, redactions?, safe_after_redactions?}`. `source_box` and `placement` are normalized `[x0,y0,x1,y1]` boxes. The source asset is a graph `asset`; it must be `player-safe` or `revealable`, unless an independently reviewed private source supplies non-empty redactions and explicitly declares `safe_after_redactions: true`. Source variants never share coordinates by assumption.

@@ -623,3 +623,54 @@ test('a bounded repair refused twice is recorded as the verdict it was, not as a
         'a verdict-driven end never wears a timeout');
     assert.equal(lane[1].cause, 'The bounded Keeper repair did not resolve the review');
 });
+
+/**
+ * Contract §38.9. Retained live evidence (`game-83177d61`, 2026-09-15): turn 42 ended on the one
+ * bounded repair `max_rewrites` permits (`The bounded Keeper repair did not resolve the review`,
+ * `submitted: true`) and became `streak: 1`; turn 43's child was killed at its cap having submitted
+ * nothing and became `streak: 2`. One design decision plus one dead stream escalated the table to
+ * `down`, told the player another attempt was pointless, and handed the operator a lane-model fix for
+ * a problem half the streak did not have.
+ */
+test('a verdict-driven pause is not an outage, and never escalates the table on its own', async t => {
+    const draft = text => [fauxAssistantMessage([fauxToolCall('narrate', {text})], {stopReason: 'toolUse'}),
+        fauxAssistantMessage('Should never be consumed.')];
+    const session = await openTable({retainAt: directory, responses: [...draft('First draft.'), ...draft('Second draft.')]});
+    t.after(() => session.dispose());
+    // Both runs end the way `max_rewrites` ends one: the reviewer answered, and refused.
+    session.emit('coc:mods-bridge', {async after() {}, async prepare(method) {
+        if (method === 'narrate') throw reviewUnavailable('The bounded Keeper repair did not resolve the review', false);
+    }});
+    await session.session.prompt('I listen at the door.'); await waitForIdle(session.session);
+    await session.session.prompt('I try the handle instead.'); await waitForIdle(session.session);
+
+    const statuses = session.entries('coc-review-status');
+    assert.equal(statuses.length, 2, JSON.stringify(statuses));
+    assert.deepEqual(statuses.map(entry => entry.streak), [0, 0], 'the guard refusing twice is not a two-outage streak');
+    assert.deepEqual(statuses.map(entry => entry.status), ['unavailable', 'unavailable']);
+    assert.ok(statuses.every(entry => entry.service === false && !entry.fix),
+        'a verdict pause must not hand the operator a lane-model fix');
+    // The player keeps the wording that is true for it: settled work is kept, and sending again works.
+    const notices = customMessages(session.session, 'coc-delivery').filter(message => message.details?.review_unavailable);
+    assert.equal(notices.length, 2);
+    assert.ok(notices.every(notice => notice.details.streak < 2), JSON.stringify(notices.map(n => n.details)));
+});
+
+/** The other half of §38.9: a real outage still counts, still escalates, and still reaches the operator. */
+test('a service outage still accumulates a streak and still escalates once', async t => {
+    const draft = text => [fauxAssistantMessage([fauxToolCall('narrate', {text})], {stopReason: 'toolUse'}),
+        fauxAssistantMessage('Should never be consumed.')];
+    const session = await openTable({retainAt: directory, responses: [...draft('First draft.'), ...draft('Second draft.')]});
+    t.after(() => session.dispose());
+    session.emit('coc:mods-bridge', {async after() {}, async prepare(method) {
+        if (method === 'narrate') throw reviewUnavailable('The private reviewer ended without a checked submission');
+    }});
+    await session.session.prompt('I listen at the door.'); await waitForIdle(session.session);
+    await session.session.prompt('I try the handle instead.'); await waitForIdle(session.session);
+
+    const statuses = session.entries('coc-review-status');
+    assert.deepEqual(statuses.map(entry => entry.streak), [1, 2]);
+    assert.deepEqual(statuses.map(entry => entry.status), ['unavailable', 'down']);
+    assert.ok(statuses.every(entry => entry.service === true));
+    assert.match(statuses[1].fix, /Lane model setting/);
+});

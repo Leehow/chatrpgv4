@@ -1260,12 +1260,19 @@ export default function (pi: ExtensionAPI) {
 	// ---- Tools ------------------------------------------------------------
 	function pauseReview(state: TableState, error: unknown): void {
 		const cause = isKernelError(error) ? String(error.details?.cause ?? error.message) : String(error);
+		// Contract §38.9: the streak counts *service* outages, never the guard doing its job. A review
+		// that ran, submitted and refused the one bounded repair `max_rewrites` permits ends the input
+		// exactly as designed, and a table is not "down" because its reviewer disagreed twice. Retained
+		// evidence (game-83177d61): turn 42's `max_rewrites` end became streak 1 and turn 43's dead
+		// child streak 2, so the player was told another attempt was pointless and the operator was
+		// handed a lane-model fix for a problem one of the two halves did not have.
+		const service = !isKernelError(error) || error.details?.service !== false;
 		// Only the first pause of a run is an outage. Once the review is paused every later tool call
 		// re-throws the same reason from the guard above, and counting those would turn one dead lane
 		// into a streak inside a single run.
 		const outage = state.reviewUnavailable === undefined;
 		state.reviewUnavailable = cause; state.deliveryFix = undefined; state.floorDraft = undefined;
-		if (outage) state.reviewOutage += 1;
+		if (outage && service) state.reviewOutage += 1;
 		const streak = state.reviewOutage;
 		const escalate = streak >= 2 && !state.reviewOutageNotified;
 		if (escalate) state.reviewOutageNotified = true;
@@ -1274,7 +1281,7 @@ export default function (pi: ExtensionAPI) {
 		// read into the session environment at spawn; it is now read when the lane starts its child
 		// (contract §37.10), so the instruction is the one that actually works -- change it and send
 		// again. Telling an operator to restart a table they could have kept is its own lost turn.
-		const status = {campaign: state.campaign, turn: state.turn, status: escalate ? 'down' : 'unavailable', streak, cause,
+		const status = {campaign: state.campaign, turn: state.turn, status: escalate ? 'down' : 'unavailable', streak, cause, service,
 			...(escalate ? {fix: 'The continuity review keeps failing, so finished turns cannot be published. ' +
 				'Choose a faster review model in the Lane model setting: the lane reads that choice each time it runs, ' +
 				'so a change reaches this table on its next review. ' +
