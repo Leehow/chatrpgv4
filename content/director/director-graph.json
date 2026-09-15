@@ -3956,6 +3956,22 @@
       "falsifiable_by": "A table where 然后呢 is sent twice in a row; compare the beat and the offer on the second."
     },
     {
+      "node_id": "scoring-rule:recover:blocked-attempts",
+      "node_kind": "scoring-rule",
+      "plane": "doctrine",
+      "name": "RECOVER / blocked-attempts",
+      "properties": {
+        "action_ref": "director-action:recover",
+        "condition_id": "blocked-attempts",
+        "value": 0.85,
+        "value_kind": "constant"
+      },
+      "evidence_class": "authored-doctrine",
+      "rationale": "The party has failed the same obstacle -- the same skill against the same target in the same place -- twice without ever passing it. stalled_turns cannot see this: it resets on any clue, move or session receipt, so failing a check, walking away and failing it again reads as progress. Live evidence, campaign game-83177d61: the same nailed cupboard failed on STR against 40 on turns 34, 60 and 62 with stalled_turns at 4, 0 and 2, and the player reported those no-progress attempts as the worst moment of the session. At 0.85 it scores level with the stalled rules, so the recovery ladder leads.",
+      "origin": "director-recovery-2026-09-15",
+      "falsifiable_by": "Replay a checkpoint after one and after two failed checks on the same skill and target in one scene; compare the beat and whether a recovery is owed."
+    },
+    {
       "node_id": "threshold:recover-empty-turns",
       "node_kind": "threshold",
       "plane": "doctrine",
@@ -3970,6 +3986,22 @@
       "rationale": "RECOVER is available from the first empty turn: the floor is owed every turn, so one turn without a receipt is already the sign.",
       "origin": "turn-floor-2026-09-11",
       "falsifiable_by": "Lanes at zero and one empty turn; compare RECOVER availability."
+    },
+    {
+      "node_id": "threshold:recover-blocked-attempts",
+      "node_kind": "threshold",
+      "plane": "doctrine",
+      "name": "recover-blocked-attempts",
+      "properties": {
+        "threshold_id": "recover-blocked-attempts",
+        "value": 2,
+        "comparison": "gte",
+        "subject": "rule_signals.blocked_attempts"
+      },
+      "evidence_class": "authored-doctrine",
+      "rationale": "The first failure is play: the risk was real and it cost. The second failure at the same obstacle is the point at which trying again is the only thing on offer, and the Keeper Rulebook allows exactly one retry of a failed check and only as a push. RECOVER becomes available there.",
+      "origin": "director-recovery-2026-09-15",
+      "falsifiable_by": "Lanes at one and two failed attempts on one obstacle; compare RECOVER availability."
     }
   ],
   "relations": [
@@ -4979,6 +5011,12 @@
       "relation_id": "relation:director:scores-recover-repeated-input",
       "relation_kind": "scores",
       "from_node_id": "scoring-rule:recover:repeated-input",
+      "to_node_id": "director-action:recover"
+    },
+    {
+      "relation_id": "relation:director:scores-recover-blocked-attempts",
+      "relation_kind": "scores",
+      "from_node_id": "scoring-rule:recover:blocked-attempts",
       "to_node_id": "director-action:recover"
     }
   ],

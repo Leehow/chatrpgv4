@@ -3,7 +3,7 @@ import { DirectorGraph, Ontology } from "./content.js";
 import { semanticName } from "./rule-facts.js";
 import { ModuleGraph, recordOf, moduleDeclaration, conditionMet, describeCondition } from "./module-graph.js";
 import { array, row, truth, number, integer, normalize, string, float, round, type Row } from "./values.js";
-const SIGNALS = ["structure_type", "intent", "undiscovered_here", "agenda_npc_present", "dramatic_question", "exit_condition_met", "main_line_complete", "stalled_turns", "empty_turns", "repeat_input", "previous_close", "turns_in_scene", "hp_state", "sanity_state", "session", "last_roll", "pushed_fail_pending", "pending_choice", "clock_near_full", "loop_count", "echoes_here", "loop_available"];
+const SIGNALS = ["structure_type", "intent", "undiscovered_here", "agenda_npc_present", "dramatic_question", "exit_condition_met", "main_line_complete", "stalled_turns", "blocked_attempts", "empty_turns", "repeat_input", "previous_close", "turns_in_scene", "hp_state", "sanity_state", "session", "last_roll", "pushed_fail_pending", "pending_choice", "clock_near_full", "loop_count", "echoes_here", "loop_available"];
 export const HP_STATES = ["healthy", "wounded", "major_wound", "dying", "dead"];
 export const SAN_STATES = ["stable", "shaken", "bout_active", "indefinite"];
 export const playedRecords = (records: Row[], before: number): Row[] => records.filter(r => number(r.turn) < before && truth(r.player_text)).sort((a, b) => number(b.turn) - number(a.turn));
@@ -16,6 +16,40 @@ export function hpState(current: any, maximum: any, conditions: string[]): strin
     if (conditions.includes("major_wound"))
         return "major_wound";
     return (integer(maximum) || typeof maximum === "boolean") && hp < number(maximum) ? "wounded" : "healthy";
+}
+/** The obstacle a failed check was against: the skill, the threshold it had to beat, and the place it was
+ *  tried in. Structure only -- it reads no player text and no narration, so "pry the door open" and "take
+ *  the back off instead" are the same obstacle when both come down to STR against 40 in the same scene,
+ *  and a different skill or a different target is a different obstacle. Dice rolls (damage, a die the
+ *  Keeper asked for) have no threshold to be blocked on and are excluded. */
+export function obstacleKey(record: Row, receipt: Row): string | null {
+    if (receipt.kind !== "roll" || receipt.form === "dice" || !truth(receipt.skill))
+        return null;
+    const threshold = receipt.threshold ?? receipt.target;
+    if (!integer(threshold))
+        return null;
+    return JSON.stringify([string(row(row(record.world).scene).name), normalize(string(receipt.skill)), number(threshold)]);
+}
+/** How many times the party has failed the most-attempted unbeaten obstacle of the scene they are in.
+ *
+ *  `stalled_turns` cannot see this case (contract §40): it resets on any clue, move or
+ *  session receipt, so a player who fails the same check, walks away, comes back and fails it again reads
+ *  as making progress. Live evidence, campaign game-83177d61 turns 34, 60 and 62: the same nailed cupboard,
+ *  STR against 40, failed three times across 28 turns with `stalled_turns = 4, 0, 2`. Only a pass clears an
+ *  obstacle's count; moving away does not, and a clue landed on the way does not pretend the obstacle moved. */
+export function blockedAttempts(played: Row[], scene: string): number {
+    const failures = new Map<string, number>(), cleared = new Set<string>();
+    for (const record of played)
+        for (const receipt of [...array(record.receipts)].reverse()) {
+            const key = obstacleKey(record, receipt);
+            if (key === null || cleared.has(key) || JSON.parse(key)[0] !== scene)
+                continue;
+            if (truth(receipt.passed))
+                cleared.add(key);
+            else
+                failures.set(key, (failures.get(key) ?? 0) + 1);
+        }
+    return Math.max(0, ...failures.values());
 }
 export function intentOfRecord(record?: Row | null): string {
     if (!record)
@@ -116,6 +150,7 @@ export function signals(options: {
         exit_condition_met: array(recordOf(scene).exit_conditions).some(c => conditionMet(c, world)),
         main_line_complete: mainLineComplete(graph, world),
         stalled_turns: stalled,
+        blocked_attempts: blockedAttempts(played, string(graph.handle(scene))),
         empty_turns: empty,
         repeat_input: played.length > 0 && currentText.length > 0 && currentText === previousText,
         previous_close: played.length ? string(played[0].closed_how || "explicit") : "none",
@@ -198,6 +233,8 @@ export function score(dg: DirectorGraph, sig: Row, scene: Row, options: {
         hit("PAYOFF", "structured-entity-overlap", linear(dg.score("PAYOFF", "structured-entity-overlap"), options.overlap));
     if (stalled >= number(dg.threshold("recover-stalled-turns")))
         hit("RECOVER", "stalled-turns");
+    if (number(sig.blocked_attempts) >= number(dg.threshold("recover-blocked-attempts")))
+        hit("RECOVER", "blocked-attempts");
     if (number(sig.empty_turns) >= number(dg.threshold("recover-empty-turns")))
         hit("RECOVER", "empty-turn");
     if (truth(sig.repeat_input))

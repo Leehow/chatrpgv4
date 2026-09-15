@@ -15,6 +15,7 @@
  *   FAKE_KERNEL_NO_FACTS   "1" 时 narrate 不回 facts/extraction（切片 0、1 的内核）
  *   FAKE_KERNEL_DIRECTOR   JSON 对象，合并进胶囊的 `director` 节（用来摆出 override 之类的分支）
  *   FAKE_KERNEL_NO_DIRECTOR "1" 时胶囊不带 `director` 节（切片 0–2 的内核）
+ *   FAKE_KERNEL_CHECK_FAILS "1" 时普通检定判失败（用来摆出「障碍没挪动」的回合）
  *   FAKE_KERNEL_STRICT_TURN "1" rejects player_input while the current turn remains open or acting
  *   FAKE_KERNEL_MATERIAL_PENDING "1" makes the first table.apply request one detail read before replay
  *   FAKE_KERNEL_HANDOUT    JSON 对象，`apply` 带 handout 效果时作为 `attachment` 回（契约 §14.8）
@@ -400,17 +401,20 @@ function resolve(params) {
 			},
 		};
 	}
+	// FAKE_KERNEL_CHECK_FAILS: the ordinary check comes back failed, so a turn can be about an obstacle
+	// that did not move. A push (above) still succeeds: it is the rulebook's own retry, not this check again.
+	const checkPassed = process.env.FAKE_KERNEL_CHECK_FAILS !== "1";
 	mechanic(
 		{
 			kind: "roll",
 			actor: INVESTIGATOR,
 			skill: "Spot Hidden",
-			roll: 42,
+			roll: checkPassed ? 42 : 87,
 			target: 55,
 			threshold: 55,
 			difficulty: "regular",
-			level: "regular",
-			passed: true,
+			level: checkPassed ? "regular" : "failure",
+			passed: checkPassed,
 			visibility: "public",
 		},
 	);
@@ -424,9 +428,9 @@ function resolve(params) {
 				target: 55,
 				difficulty: "regular",
 				threshold: 55,
-				roll: 42,
-				level: "regular",
-				passed: true,
+				roll: checkPassed ? 42 : 87,
+				level: checkPassed ? "regular" : "failure",
+				passed: checkPassed,
 				bonus: 0,
 				penalty: 0,
 			},

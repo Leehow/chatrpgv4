@@ -8,6 +8,7 @@ import { pythonJsonDumps } from '../json.js';
 import { ModuleGraph, recordOf } from '../read/module-graph.js';
 import { mechanicsOf } from '../read/mechanics.js';
 import { npcsPresent } from '../read/capsule.js';
+import { RECOVERY_TAKES } from '../read/offer.js';
 import { array, chars, integer, kebab, normalize, number, row, string, truth, values, words, type Row } from '../read/values.js';
 export const asciiSlug = (text: string, limit = 24): string => text.normalize('NFKD').replace(/[^\x00-\x7f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().split(/\s+/).join('-').slice(0, limit).replace(/-+$/, '');
 const MARKER = /\{\{([a-z0-9][a-z0-9:_-]*)\}\}/g;
@@ -282,8 +283,15 @@ export function directorAdoption(graph: ModuleGraph, turn: Row, snapshot: Row, c
         adopted = evidence.length > 0 || array(snapshot.present).length > 0 && !moves.length;
     }
     else if (beat === 'RECOVER') {
-        evidence = families(['healing', 'development']);
-        adopted = evidence.length > 0 || values(row(turn.calls)).some(c => ['healing', 'development'].includes(row(c.result).family));
+        // What recovery looks like is the keeper-pacing ladder -- the world answers, a present person acts,
+        // more information comes within reach -- plus the rulebook's own retry, the push. The earlier test
+        // read `healing` and `development` families, which are first aid and an experience check: no rung of
+        // the ladder produces either, so a turn that recovered perfectly still reported `adopted: false`
+        // (campaign game-83177d61 turn 49 landed a move, an npc receipt and a clue and read as declined).
+        // Measuring the wrong thing is why 43 of 52 signals looked ignored and no one could tell which were.
+        const pushed = values(row(turn.calls)).some(c => truth(row(c.result).outcome) && truth(row(row(c.result).outcome).pushed));
+        evidence = [...receipts.filter(r => RECOVERY_TAKES.includes(string(r.kind))).map(r => string(r.id)), ...families(['healing', 'development'])];
+        adopted = evidence.length > 0 || pushed;
     }
     else if (beat === 'CUT' || beat === 'ADVANCE') {
         evidence = moves;
