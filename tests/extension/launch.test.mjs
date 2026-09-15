@@ -121,7 +121,7 @@ function defaultMounts(root) {
 	const providers = providerExtensionManifests(root);
 	assert.deepEqual(providers.map(entry => entry.name), ['deepseek', 'grok-build-oauth'],
 		'the fake tree must carry the same provider manifests the repo does');
-	return ['--no-extensions', ...['kernel', 'mods', 'onboarding', 'module', 'memory', 'table', 'npc-journal'].flatMap(name => ['-e', join(root, 'build/extensions', name, 'index.mjs')]),
+	return ['--no-extensions', ...['kernel', 'mods', 'onboarding', 'module', 'memory', 'table', 'npc-journal', 'npc-voice'].flatMap(name => ['-e', join(root, 'build/extensions', name, 'index.mjs')]),
 		...providers.flatMap(entry => ['-e', entry.entry]),
 		'-e', join(root, 'build/extensions/image-gen/agent/index.mjs')];
 }
