@@ -192,6 +192,23 @@ test("a move to a name the module already owns lands on the registered scene, wi
 	assert.deepEqual(world.adaptation?.records ?? [], [], JSON.stringify(world.adaptation));
 });
 
+test("the move rule tells the reviewer what a registered scene is the grain of", async (t) => {
+	const api = await loadExtensionApi(t);
+	const prompt = api.admissionSystemPrompt();
+
+	// The names, so the reviewer reads the destination off them and not off the handle.
+	assert.match(prompt, /canonical_name is the module's own name for the place/);
+	assert.match(prompt, /also_called/);
+	assert.match(prompt, /handle is a file name/);
+	// The grain, so a move to a scene is arrival at the place, not a claim about how far inside.
+	// Direction B is decided by this: without it, "I go to the clipping room but see Wilmot first"
+	// reads as a move that skips the gatekeeper, and the identity alone does not answer it.
+	assert.match(prompt, /A registered scene is the module's whole grain for a place/);
+	assert.match(prompt, /threshold/);
+	assert.match(prompt, /remain proposals of their own, judged on their own/);
+	assert.match(prompt, /refused from both sides cannot be reached by any wording/);
+});
+
 test("a destination with no authored identity is described exactly as it was before", async (t) => {
 	const api = await loadExtensionApi(t);
 	// The addition is additive: a module that names no place for a scene loses nothing and gains

@@ -19,7 +19,7 @@ export function stageMove(context: ApplyContext, effect: Row): {
         if (!(error instanceof RpcError) || error.code !== 'unknown_entity') throw error;
         if (Array.isArray(error.details?.candidates) && error.details.candidates.length) throw error;
         throw new RpcError('unknown_entity', `The destination ${repr(to)} is not an identified scene`, {
-            fix: 'If this is a player-chosen new place, prepare it with lookup kind adaptation, action prepare, a proposal name, a request and original source anchors. Accept the ready proposal alone with apply adaptation, then move to its new scene name. Do not rename the current scene into a different place.',
+            fix: 'A part, entrance, room, floor or counter of a registered place is that place: move to the registered scene and narrate the interior. If this is a genuinely different place the player chose, prepare it with lookup kind adaptation, action prepare, a proposal name, a request and original source anchors. Accept the ready proposal alone with apply adaptation, then move to its new scene name. Do not rename the current scene into a different place.',
             details: {...error.details, reason: 'destination_missing', requested_destination: to, source_anchor: current.name}
         });
     }
