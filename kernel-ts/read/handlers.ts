@@ -398,7 +398,7 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
                     ...(!entities.length ? {
                         status: 'not_found',
                         note: missingScene
-                            ? 'This explicitly requested destination scene is absent. Prepare and review it before movement or arrival narration.'
+                            ? 'This explicitly requested destination scene is absent. A part, entrance, room, floor or counter of a registered place is that place, not an absent one: search the place itself and move there. Prepare and review only a genuinely different physical place, before movement or arrival narration.'
                             : 'No graph entity matched. Do not open graph adaptation for a physical object or a compatible first-appearance supporting person. Use define/object/item for physical state; ordinary scenery and a one-off person may remain narration. If the player actually chose a missing destination, repeat this lookup with expected_kind scene.',
                         ...(missingScene ? {preparation: {tool: 'lookup', kind: 'adaptation', action: 'prepare', purpose: 'new_destination', name: query.slice(0, 120),
                             anchors: (sourceNodes.length ? sourceNodes : scene ? [scene] : []).slice(0, 4).map(node => node.name),

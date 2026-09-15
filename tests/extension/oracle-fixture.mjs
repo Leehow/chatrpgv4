@@ -39,6 +39,32 @@ export function withoutPostFreezeRecovery(value) {
   }));
 }
 
+/**
+ * The authored identity of a place -- `destination_identity`, the name the module's book gives the
+ * building a scene is and the other names it is known by -- projected onto the graph's entity view
+ * after the freeze, so that the action-admission reviewer can tell that the scene handled
+ * `newspaper-morgue` *is* the Boston Globe the player walked into. The retired implementation
+ * stripped the projection record wholesale and never produced the field, so no captured outcome can
+ * carry it, and comparing a live entity view against one reads a deliberate addition as a
+ * difference.
+ *
+ * Dropped from the LIVE side only, and only off an entity view, exactly as `POST_FREEZE_ERROR_FIELDS`
+ * is: the captured outcomes stay as the reference printed them, because they are evidence. The
+ * addition is asserted where it belongs, in `destination-identity.test.mjs`, which reads it off the
+ * real module on disk and follows it to the reviewer.
+ *
+ * The strip is deliberately shallow and applied to an entity view alone. The same key also lives,
+ * authored, deep inside a raw node's `runtime_projection.record`, which `search` returns and the
+ * captures hold exactly as the reference printed it: a strip that went looking for the key
+ * everywhere would delete the module's own data from the live side and report the difference as
+ * agreement.
+ */
+export const POST_FREEZE_ENTITY_FIELDS = Object.freeze(["destination_identity", "destination_access"]);
+export function withoutPostFreezeIdentity(view) {
+  if (!view || typeof view !== "object" || Array.isArray(view)) return view;
+  return Object.fromEntries(Object.entries(view).filter(([key]) => !POST_FREEZE_ENTITY_FIELDS.includes(key)));
+}
+
 const FIXTURES = resolve(import.meta.dirname, 'fixtures/oracle');
 const digestOf = source => createHash('sha256').update(source).digest('hex').slice(0, 16);
 /**

@@ -24,12 +24,14 @@ import { randomUUID } from "node:crypto";
 import { type CommitPayload, runVerifierLane } from "./verifier.ts";
 import {
 	type AdmissionContext,
+	type AdmissionDestination,
 	type AdmissionVerdict,
 	ADMITTING_VERDICTS,
 	admissionRefusal,
 	admissionRequest,
 	admissionUnavailable,
 	keyDigest,
+	registeredDestination,
 	reviewAdmission,
 } from "./admission.ts";
 
@@ -1150,14 +1152,17 @@ export default function (pi: ExtensionAPI) {
 	 * proposal is reused, admitting and refusing alike (contract §32.4).
 	 */
 	async function admitAction(state: TableState, tool: "resolve" | "apply", payload: Record<string, unknown>, signal?: AbortSignal): Promise<void> {
-		const destinations: Array<{requested: string; handle?: string; label?: string; summary?: string}> = [];
+		const destinations: AdmissionDestination[] = [];
 		if (tool === 'apply' && Array.isArray(payload.effects)) for (const effect of payload.effects as Array<Record<string, unknown>>) {
 			if (effect.kind !== 'move' || typeof effect.to !== 'string' || destinations.some(value => value.requested === effect.to)) continue;
 			try {
 				const found = await state.kernel.call<{entities?: Array<Record<string, unknown>>}>('table.lookup',
 					{campaign: state.campaign, kind: 'module', query: effect.to, expected_kind: 'scene', limit: 1});
 				const entity = found.entities?.[0];
-				if (entity) destinations.push({requested: effect.to, handle: asString(entity.name), label: asString(entity.display_name), summary: asString(entity.summary)});
+				// The place's authored names travel with the projection: without them the reviewer
+				// reads the handle's slug as the place and refuses a move into the building the
+				// player just named (contract 32; 2026-09-15, turns 83 and 86).
+				if (entity) destinations.push(registeredDestination(effect.to, entity));
 			} catch { /* The authoritative apply path will report a missing or invalid destination. */ }
 		}
 		const proposal = admissionRequest(tool, payload, { party: state.party.map((member) => member.name), scene: state.scene,

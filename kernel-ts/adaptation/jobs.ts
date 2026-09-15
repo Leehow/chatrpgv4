@@ -8,6 +8,7 @@ import { jsonDigest, parsePythonJson, storedJson } from '../json.js';
 import { writeJsonAtomic } from '../fileio.js';
 import { CampaignSnapshot, loadModule, loadCampaignModule } from '../read/campaign.js';
 import { resolveReference, referenceName } from '../read/references.js';
+import type { ModuleGraph } from '../read/module-graph.js';
 import { array, row, string, normalize, chars, type Row } from '../read/values.js';
 import { continuityView } from '../read/continuity.js';
 import { nowIso } from '../write/store.js';
@@ -16,6 +17,32 @@ import { snapshotSource, pinnedSource } from './source.js';
 import type { ApplyContext } from '../apply/index.js';
 
 const fail = (message: string, reason = 'adaptation_invalid'): never => { throw new RpcError('needs', message, {details: {reason}, fix: 'Inspect this proposal by name; retry preparation only after resolving the reported cause'}); };
+/**
+ * A place the module already registered is never minted a second time.
+ *
+ * `new_destination` requires `add_scene`, so until now the only thing the system could say about a
+ * place-name that was not a handle was "absent -- mint a node". On 2026-09-15 a player said they
+ * would stand in the Boston Globe's lobby at Wilmot's counter; the lookup missed, an adaptation was
+ * prepared, and the creator minted `add_scene "Boston Globe lobby"` `based_on scene-newspaper-morgue`
+ * with its own reason reading "Same building: lobby connects through the hall and iron door to the
+ * existing clipping morgue". Creator and reviewer both knew, and minted anyway, because the shape
+ * left them nothing else to say. The Keeper then moved Arty Wilmot into the copy, while the authored
+ * affordance, the presence requirement and three clues stayed on the original: the player was
+ * standing in a hollow duplicate of a room the book had already written.
+ *
+ * `placeOf` is the whole test -- the same resolver `move.to` uses, on authored names only -- so
+ * there is no second rule here to keep in step with the first.
+ */
+function coveredPlace(graph: ModuleGraph, name: string): Row | null {
+    const place = graph.placeOf(name);
+    return place && normalize(graph.handle(place)) !== normalize(name) ? place : null;
+}
+const samePlace = (graph: ModuleGraph, place: Row, requested: string): never => {
+    throw new RpcError('needs', `${JSON.stringify(requested)} is part of ${JSON.stringify(graph.placeName(place))}, a place this module already registers`, {
+        fix: `Do not adapt a second scene for it. Move to ${JSON.stringify(graph.handle(place))} and narrate the part the player named as the inside of that place; whoever waits there and whatever they ask for are ordinary play, not a new destination.`,
+        details: {reason: 'same_place', requested, scene: graph.handle(place), place: graph.placeName(place)}
+    });
+};
 const PURPOSES = ['new_destination', 'persistent_npc', 'source_rebinding', 'handout', 'rebase'] as const;
 type Purpose = typeof PURPOSES[number];
 const PURPOSE_CHANGES: Record<Purpose, readonly string[]> = {
@@ -149,6 +176,14 @@ export class AdaptationJobs {
         if (rebase && array(snapshot.turn.receipts).length) return fail('Rebase only at the start of a turn before any effect');
         if (typeof params.request !== 'string' || !params.request.trim() || params.request.length > 6000)
             throw new RpcError('invalid_params', 'Explain the source-connected adaptation to prepare');
+        // Before the creator is paid for a turn of work: a destination the module already registers
+        // is not prepared at all. The requested name is what is tested -- the request prose is not,
+        // because a place's name found loose in a paragraph is a substring search over prose, which
+        // is the mistake `phraseWithin` exists to refuse.
+        if (requestedPurpose === 'new_destination') {
+            const covered = coveredPlace(current.graph, name);
+            if (covered) samePlace(current.graph, covered, name);
+        }
         const given = array(params.anchors);
         if (!given.length || given.length > 12 || given.some(a => typeof a !== 'string'))
             throw new RpcError('invalid_params', 'Name one to twelve original source anchors');
@@ -272,6 +307,17 @@ export class AdaptationJobs {
         const changes = job.rebase ? [] : normalizeChanges(source.graph, job.previous, state.snapshot.world,
             canonicalizeAnchorReferences(source.graph, array(job.anchors).map(string), value.changes), job.key);
         validatePurpose(job.purpose as Purpose, changes);
+        // The same test again, on the name the creator actually minted. `prepare` sees the Keeper's
+        // proposal name; the creator is free to choose another, and on 2026-09-15 it did -- the
+        // prepared name and the minted "Boston Globe lobby" were not the same string. One rule, two
+        // gates, and neither of them a signature: "based_on an existing scene, routes both ways, no
+        // new authored content" is equally the shape of a legitimate new room, and refusing on it
+        // would refuse the adaptations this path exists for.
+        for (const change of changes)
+            if (string(change.kind) === 'add_scene') {
+                const covered = coveredPlace(source.graph, string(change.name));
+                if (covered) samePlace(source.graph, covered, string(change.name));
+            }
         if (changes.some(change => change.id && state.snapshot.party.some(actor => normalize(actor.name) === normalize(change.name))))
             return fail('An added entity cannot reuse an investigator name');
         if (job.rebase && array(value.changes).length) return fail('A rebase must preserve the accepted changes exactly');
