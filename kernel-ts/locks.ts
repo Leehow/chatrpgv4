@@ -72,3 +72,13 @@ export async function withExclusiveLock<T>(locks: AdvisoryLocks, path: string, a
   try { return await action(); }
   finally { await lease.release(); }
 }
+/** An exclusive advisory lock where the host provides one. A lock-less embedding runs the action
+ *  directly and relies on the caller's own atomic publication, exactly as the campaign fork does. */
+export async function withOptionalExclusiveLock<T>(locks: AdvisoryLocks, path: string, action: () => Promise<T>): Promise<T> {
+  let lease: LockLease | null;
+  try { lease = await locks.acquire(path, "exclusive", { createParents: true }); }
+  catch (error) { if (error instanceof RpcError && error.code === "not_implemented") return action(); throw error; }
+  if (!lease) throw new RpcError("internal", "advisory lock returned no lease");
+  try { return await action(); }
+  finally { await lease.release(); }
+}

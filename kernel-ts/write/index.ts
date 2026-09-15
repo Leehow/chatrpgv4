@@ -8,7 +8,7 @@ import { RpcError, internalError } from '../errors.js';
 import { sha256Text,isJsonObject } from '../json.js';
 import { fileSize, truncateFile } from '../fileio.js';
 import { CampaignSnapshot, loadModule, loadCampaignModule, replayTrail, type LoadedModule } from '../read/campaign.js';
-import { ensureCampaignModule } from '../modules/campaign-scope.js';
+import { scopedModuleRoot } from '../modules/campaign-scope.js';
 import { ModuleGraph, recordOf } from '../read/module-graph.js';
 import { DirectorGraph, TextGraph, Ontology } from '../read/content.js';
 import { RuleObservations } from '../read/rule-facts.js';
@@ -161,7 +161,8 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
     async function startSetupWorld(value: CampaignWriter, meta: Row): Promise<boolean> {
         if (await context.snapshots.pathExists(value.path('world.json')) && truth(meta.opening_scene))
             return false;
-        const id = string(meta.module_id), scoped = await ensureCampaignModule(context, value.id, id), directory = join(scoped.moduleRoot!, id);
+        const id = string(meta.module_id);
+        const root = await scopedModuleRoot(context, value.id, id) ?? join(context.stateRoot, 'modules'), directory = join(root, id);
         const moduleMeta = await context.snapshots.pathExists(join(directory, 'module.json'))
             ? row(await context.snapshots.readJson(join(directory, 'module.json'))) : {};
         const graphPath = await sourceGraphPath(id, value.id);
@@ -185,8 +186,9 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
     }
     async function sourceGraphPath(moduleId: string, campaign?: string): Promise<string> {
         if (contributions.sourceGraphPath) return contributions.sourceGraphPath(moduleId, campaign);
-        const scoped = campaign === undefined ? context : await ensureCampaignModule(context, campaign, moduleId);
-        return join(scoped.moduleRoot ?? join(context.stateRoot, 'modules'), moduleId, 'module-graph.json');
+        const root = campaign === undefined ? join(context.stateRoot, 'modules')
+            : (await scopedModuleRoot(context, campaign, moduleId) ?? join(context.stateRoot, 'modules'));
+        return join(root, moduleId, 'module-graph.json');
     }
     async function repairLegacyTrail(snapshot: CampaignSnapshot): Promise<void> {
         if (Object.hasOwn(snapshot.world, 'scene_trail'))
@@ -415,8 +417,8 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             missingContribution('visual source creation');
         if(!contributions.mods)await defaultModPlan(context, {});
         if (starter) await registerStarter(context, moduleId);
-        const scoped = await ensureCampaignModule(context, id, moduleId);
-        const moduleMeta = clone(row(await context.snapshots.readJson(join(scoped.moduleRoot!, moduleId, 'module.json'))));
+        const root = await scopedModuleRoot(context, id, moduleId) ?? join(context.stateRoot, 'modules');
+        const moduleMeta = clone(row(await context.snapshots.readJson(join(root, moduleId, 'module.json'))));
         if (!starter && pregen != null)
             throw new RpcError('invalid_params', 'pregens exist only for starters', {
                 fix: 'create the investigator with setup.investigator'
@@ -520,8 +522,8 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         const meta = clone(initial.meta), initialParty = await initial.files('party');
         preflightCampaign(meta, initial.world, {}, initialParty);
         if(!contributions.mods)await defaultModPlan(context, initial.world);
-        const scoped = await ensureCampaignModule(context, initial.id, string(meta.module_id));
-        const metadata = join(scoped.moduleRoot!, string(meta.module_id), 'module.json');
+        const root = await scopedModuleRoot(context, initial.id, string(meta.module_id)) ?? join(context.stateRoot, 'modules');
+        const metadata = join(root, string(meta.module_id), 'module.json');
         const moduleReading = await context.snapshots.pathExists(metadata) && truth(row(await context.snapshots.readJson(metadata)).reading_version);
         if (moduleReading && !contributions.queueAdjacentReading)
             missingContribution('visual source opening and reading queue');

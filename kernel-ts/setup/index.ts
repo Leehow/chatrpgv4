@@ -6,7 +6,7 @@ import { RpcError } from '../errors.js';
 import { isJsonObject } from '../json.js';
 import { loadModule } from '../read/campaign.js';
 import { playLanguageOf } from '../read/languages.js';
-import { ensureCampaignModule } from '../modules/campaign-scope.js';
+import { scopedModuleRoot } from '../modules/campaign-scope.js';
 import { array, row, clone, string, number, integer, truth, repr, type Row } from '../read/values.js';
 import { RuleTables } from '../rules/tables.js';
 import type { createWriteRuntime } from '../write/index.js';
@@ -27,9 +27,9 @@ export class Setup {
     return new Setup(context, writer, tables, steps, await Chargen.create(tables, steps.step('create-investigator')));
   }
   async moduleMeta(id: string, campaign?: string): Promise<Row | null> {
-    const scoped = campaign ? await ensureCampaignModule(this.context, campaign, id) : this.context;
-    const path = join(scoped.moduleRoot ?? join(scoped.stateRoot, 'modules'), id, 'module.json');
-    return await scoped.snapshots.pathExists(path) ? row(await scoped.snapshots.readJson(path)) : null;
+    const root = campaign ? await scopedModuleRoot(this.context, campaign, id) ?? join(this.context.stateRoot, 'modules') : join(this.context.stateRoot, 'modules');
+    const path = join(root, id, 'module.json');
+    return await this.context.snapshots.pathExists(path) ? row(await this.context.snapshots.readJson(path)) : null;
   }
   async campaign(params: Row): Promise<CampaignWriter> { return this.writer.campaign(params, {requireTurn: false, requireWorld: false}); }
   async settingUp(params: Row): Promise<[CampaignWriter, Row]> {

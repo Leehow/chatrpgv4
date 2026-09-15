@@ -2,10 +2,10 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { fork } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdtemp, readFile, readdir, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
 
@@ -169,40 +169,61 @@ test('two kernel processes isolate one source module per campaign in the same ho
   await finish(first, undefined, initial, shard([scene('Dock', true), scene('Tower', true), scene('Cellar'),
     { node_id: 'handout-receipt', node_kind: 'handout', name: 'Receipt', visibility: 'player-safe', source_refs: refs, properties: { image_sources: refs } }],
     ['scene-dock', 'scene-tower', 'handout-receipt'], [route('dock'), route('tower')]), [{ node_id: 'handout-receipt', path: image, sha256: sha(png) }]);
+  // A table's prefetch is not enqueued into the shared library on this campaign's behalf.
+  assert.deepEqual(await call(first, 'inspect.adjacent', A, { name: 'Dock' }), []);
+  await assert.rejects(readdir(store(A)), { code: 'ENOENT' });
+
   const rootJob = await claim(first, undefined, { purpose: 'detail', focus: 'Cellar' });
   await call(first, 'module.read.request', undefined, { purpose: 'detail', focus: 'Dock', question: 'Read the entrance again.' });
-  const root = await inspect(first), rootBytes = await treeDigest(store());
+  const root = await inspect(first); let rootBytes = await treeDigest(store());
   assert.ok(Object.keys(root.meta.reading.completed).length > 0);
   assert.equal((await queue()).filter(job => job.state === 'running').length, 1);
 
-  const seeds = await Promise.all([inspect(first, A), inspect(second, A, 'inspect.module'), inspect(second, B)]);
+  // Reads follow the shared library until a campaign's first private write forks it.
+  const rootReceipt = await call(second, 'module.asset', undefined, { name: 'Receipt' });
+  const before = await Promise.all([inspect(first, A), inspect(second, A, 'inspect.module'), inspect(second, B)]);
   for (const [i, campaign] of [A, A, B].entries()) {
-    const seeded = seeds[i];
-    assert.equal(seeded.digest, root.digest);
-    assert.deepEqual(seeded.graph, root.graph);
-    assert.equal(seeded.meta.generation, root.meta.generation);
-    assert.deepEqual(seeded.meta.source_document, root.meta.source_document);
-    assert.deepEqual(seeded.meta.reading.materials, root.meta.reading.materials);
-    assert.deepEqual(seeded.meta.reading.completed, {});
-    assert.deepEqual(await queue(campaign), []);
-    assert.equal(seeded.sourceCampaign, campaign);
-    assert.equal(seeded.path, seeded.sourcePath);
-    assert.ok(seeded.path.startsWith(store(campaign) + '/'));
-    for (const name of [seeded.meta.graph_file, join(dirname(seeded.meta.graph_file), 'module-graph-manifest.json'), seeded.meta.index_file, seeded.meta.source_document.path])
-      assert.equal(sha(await readFile(join(store(campaign), name))), sha(await readFile(join(store(), name))));
+    const live = before[i];
+    assert.equal(live.digest, root.digest);
+    assert.deepEqual(live.graph, root.graph);
+    assert.equal(live.meta.generation, root.meta.generation);
+    assert.deepEqual(live.meta.reading, root.meta.reading);
+    assert.equal(live.sourceCampaign, undefined);
+    assert.equal(live.path, root.path);
+    assert.equal(live.sourcePath, root.path);
     const asset = await call(second, 'module.asset', campaign, { name: 'Receipt' });
     assert.equal(asset.player_visible, true);
-    assert.ok(asset.asset.path.startsWith(store(campaign) + '/'));
-    assert.equal(seeded.asset.path, asset.asset.path);
-    assert.equal(sha(await readFile(asset.asset.path)), sha(png));
-    const copied = await treeDigest(store(campaign));
-    assert.ok(!Object.keys(copied).some(path => /(?:packet|observations|draft|review)\.json$/.test(path)));
+    assert.equal(asset.asset.path, rootReceipt.asset.path);
+    await assert.rejects(readdir(store(campaign)), { code: 'ENOENT' }, 'no private workspace before the first write');
   }
   assert.deepEqual(await treeDigest(store()), rootBytes);
+  // A scoped claim before any private write reads the shared queue without forking, and a fork
+  // that happens while that lease is open must not reroute the finish into the private queue.
+  const shared = await call(first, 'module.read.request', undefined, { purpose: 'detail', focus: 'Tower', question: 'Read the other entrance.' });
+  const claimedShared = await call(second, 'module.read.claim', A);
+  assert.ok(claimedShared.job_id, 'a scoped claim reads the shared queue');
+  assert.equal(claimedShared.purpose, 'detail');
+  await call(first, 'module.read.request', A, { purpose: 'detail', focus: 'Cellar', question: 'Fork the campaign while a shared lease is open.' });
+  await call(second, 'module.read.finish', A, { job_id: claimedShared.job_id, lease: claimedShared.lease, outcome: 'cancelled' });
+  assert.equal((await queue()).find(job => job.job_id === claimedShared.job_id).state, 'cancelled');
+  assert.equal((await inspect(second, A)).sourceCampaign, A);
+  rootBytes = await treeDigest(store());
 
   const [dock, tower] = await Promise.all([call(first, 'module.opening.choose', A, { scene: 'Dock' }), call(second, 'module.opening.choose', B, { scene: 'Tower' })]);
   assert.equal(dock.start_scene, 'scene-dock'); assert.equal(tower.start_scene, 'scene-tower');
   assert.equal(dock.generation, root.meta.generation + 1); assert.equal(tower.generation, dock.generation);
+  // The fork copied the published generation without any of the library's in-flight work.
+  for (const campaign of [A, B]) {
+    assert.ok(await readFile(join(store(campaign), 'module.json')));
+    const copied = await treeDigest(store(campaign));
+    assert.ok(!Object.keys(copied).some(path => /(?:packet|observations|draft|review)\.json$/.test(path)));
+    for (const name of [root.meta.graph_file, root.meta.source_document.path, root.meta.index_file])
+      assert.equal(sha(await readFile(join(store(campaign), name))), sha(await readFile(join(store(), name))));
+  }
+  const privateReceipt = await call(second, 'module.asset', A, { name: 'Receipt' });
+  assert.ok(privateReceipt.asset.path.startsWith(store(A) + '/'));
+  assert.equal(sha(await readFile(privateReceipt.asset.path)), sha(png));
+  assert.deepEqual(await treeDigest(store()), rootBytes);
   const chosenA = await inspect(first, A), chosenB = await inspect(second, B);
   assert.equal(chosenA.meta.opening_choice.start_scene, 'scene-dock');
   assert.equal(chosenB.meta.opening_choice.start_scene, 'scene-tower');
@@ -220,8 +241,13 @@ test('two kernel processes isolate one source module per campaign in the same ho
   assert.equal(jobA.job_id, jobB.job_id);
   assert.notEqual(jobA.lease, jobB.lease);
   const beforeB = await treeDigest(store(B));
-  for (const [campaign, job] of [[B, jobA], [A, rootJob]])
-    await assert.rejects(call(second, 'module.read.finish', campaign, { job_id: job.job_id, lease: job.lease, outcome: 'cancelled' }), invalid);
+  // A private lease never authorizes another campaign's job; a shared job keeps its own home.
+  await assert.rejects(call(second, 'module.read.finish', B, { job_id: jobA.job_id, lease: jobA.lease, outcome: 'cancelled' }), invalid);
+  const privateA = await treeDigest(store(A));
+  assert.equal((await call(first, 'module.read.finish', A, { job_id: rootJob.job_id, lease: rootJob.lease, outcome: 'cancelled' })).state, 'cancelled');
+  assert.equal((await queue()).find(job => job.job_id === rootJob.job_id).state, 'cancelled');
+  assert.deepEqual(await treeDigest(store(A)), privateA);
+  rootBytes = await treeDigest(store());
   const plate = join(jobA.work_dir, 'plate.png'); await writeFile(plate, png);
   const mapDraft = shard([{ ...scene('Cellar'), summary: 'Cellar contains a ledger.' },
     { node_id: 'asset-plate', node_kind: 'asset', name: 'Atlas Plate', visibility: 'player-safe', source_refs: refs, properties: { image_sources: refs } },
@@ -237,7 +263,6 @@ test('two kernel processes isolate one source module per campaign in the same ho
   assert.equal(untouched.material, 'missing'); assert.equal(untouched.materialReady, false);
   // Map layers resolve the campaign's own published bytes: a same-named library asset is never
   // substituted, and an adapted (pinned) view reports fixed-source semantics instead of library rows.
-  const rootReceipt = await call(second, 'module.asset', undefined, { name: 'Receipt' });
   const mapped = await call(first, 'inspect.map', A, { name: 'handout-atlas', regions: ['dock'], decoy: rootReceipt.asset.path });
   assert.equal(mapped.handle, 'atlas');
   assert.equal(mapped.available, true);
@@ -278,21 +303,50 @@ test('two kernel processes isolate one source module per campaign in the same ho
     await save(metadataPath, { ...coldA.meta, campaign_scope: B });
     await assert.rejects(call(first, 'module.status', A), invalid);
   } finally { await writeFile(metadataPath, metadataBytes); }
+  // A private workspace that lost its binding is damaged, not a campaign that never forked.
+  const heldMeta = metadataPath + '.held';
+  await rename(metadataPath, heldMeta);
+  try { await assert.rejects(call(first, 'module.status', A), error => error.details?.reason === 'module_scope_incomplete'); }
+  finally { await rename(heldMeta, metadataPath); }
   assert.deepEqual(await treeDigest(store(A)), privateBytes);
 
-  // Missing declared artifacts must never leave a readable, partially seeded module.
-  const rootAsset = await call(second, 'module.asset', undefined, { name: 'Receipt' });
-  for (const [kind, path] of [['pdf', join(store(), root.meta.source_document.path)],
-    ['index', join(store(), root.meta.index_file)], ['asset', rootAsset.asset.path]]) {
-    const campaign = `missing-${kind}`, held = path + '.held';
+  // The published graph is the one hard requirement for a fork; the original PDF, the index and
+  // asset bytes are copied when present, and a published generation stays playable without them.
+  const relativeTo = path => path.startsWith('/') ? relative(store(), path) : path;
+  for (const [kind, path, missing] of [['pdf', join(store(), root.meta.source_document.path), root.meta.source_document.path],
+    ['index', join(store(), root.meta.index_file), root.meta.index_file],
+    ['asset', rootReceipt.asset.path, relativeTo(rootReceipt.asset.path)]]) {
+    const campaign = `sparse-${kind}`, held = path + '.held';
     await rename(path, held);
     try {
-      await assert.rejects(call(first, 'module.status', campaign), error => {
-        assert.equal(error.code, 'campaign_not_ready'); assert.ok(error.details?.artifact); return true;
-      });
-      await assert.rejects(readdir(store(campaign)), { code: 'ENOENT' });
+      const chosen = await call(first, 'module.opening.choose', campaign, { scene: 'Dock' });
+      assert.equal(chosen.start_scene, 'scene-dock');
+      assert.ok(await readFile(join(store(campaign), 'module.json')));
+      await assert.rejects(readFile(join(store(campaign), missing)), { code: 'ENOENT' });
+      if (kind === 'index') {
+        // A missing index may not keep claiming a complete one.
+        const meta = await json(join(store(campaign), 'module.json'));
+        assert.equal(meta.reading.index_complete, false);
+        assert.equal(meta.index_file, undefined);
+      }
     } finally { await rename(held, path); }
   }
+  // Without the published graph a fork must refuse and leave no private directory behind.
+  const sourceGraph = join(store(), root.meta.graph_file);
+  const heldGraph = sourceGraph + '.held';
+  await rename(sourceGraph, heldGraph);
+  try {
+    await assert.rejects(call(first, 'module.opening.choose', 'no-graph', { scene: 'Dock' }));
+    await assert.rejects(readdir(store('no-graph')), { code: 'ENOENT' });
+  } finally { await rename(heldGraph, sourceGraph); }
+  // A registered module with no published generation cannot fork either.
+  const unpublished = join(workspace, '.coc', 'modules', 'unpublished');
+  await mkdir(unpublished, { recursive: true });
+  await save(join(unpublished, 'module.json'), { id: 'unpublished', status: 'assembled', source: 'pdf' });
+  try {
+    await assert.rejects(first.call('module.opening.choose', { campaign: 'no-generation', module_id: 'unpublished', scene: 'Dock' }), error => error.code === 'campaign_not_ready');
+    await assert.rejects(readdir(join(workspace, '.coc', 'module-campaigns', 'no-generation', 'modules', 'unpublished')), { code: 'ENOENT' });
+  } finally { await rm(unpublished, { recursive: true, force: true }); }
   assert.deepEqual(await treeDigest(store()), rootBytes);
 
   // Corruption must fail closed in one scope, without changing another scope's source bytes.

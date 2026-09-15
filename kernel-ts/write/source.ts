@@ -10,6 +10,7 @@ import { ModuleGraph, recordOf } from '../read/module-graph.js';
 import { loadModule } from '../read/campaign.js';
 import { readPublishedGraph } from '../read/published-graph.js';
 import { array, row, clone, entries, values, truth, number, string, repr, integer, sorted, equal, type Row } from '../read/values.js';
+import { withOptionalExclusiveLock } from '../locks.js';
 import { nowIso } from './store.js';
 import { validSourceLanguage } from '../modules/contract.js';
 import { childPath, inside, resolvedPath } from '../modules/paths.js';
@@ -370,6 +371,12 @@ export function graphManifest(graph: Row, moduleId: string, generation: number):
     };
 }
 export async function registerStarter(context: KernelContext, id: string): Promise<Row> {
+    // Every registration path shares this lock and re-reads the module inside it, so two first
+    // registrations of one starter cannot race the exclusive graph write.
+    return withOptionalExclusiveLock(context.locks, join(context.stateRoot, 'modules', '.registry.lock'),
+        async () => registerStarterLocked(context, id));
+}
+async function registerStarterLocked(context: KernelContext, id: string): Promise<Row> {
     if (typeof id !== 'string' || !/^[a-z0-9][a-z0-9-]{0,63}$/.test(id))
         throw new RpcError('invalid_params', 'module_id must be a short kebab slug', {
             fix: "lowercase letters, digits and '-' (max 64 chars)", details: { module_id: id ?? null }

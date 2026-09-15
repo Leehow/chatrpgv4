@@ -7,7 +7,7 @@ import { parsePythonJson } from "../json.js";
 import { ModuleGraph, dossierWith } from "./module-graph.js";
 import { readPublishedGraph } from "./published-graph.js";
 import { campaignModule } from '../adaptation/source.js';
-import { ensureCampaignModule } from '../modules/campaign-scope.js';
+import { scopedModuleRoot } from '../modules/campaign-scope.js';
 import { ModuleStore } from '../modules/store.js';
 import { array, row, clone, normalize, stripPrefix, number, repr, type Row } from "./values.js";
 export class CampaignSnapshot {
@@ -140,7 +140,12 @@ export async function loadCampaignModule(context: KernelContext, id: string, wor
     return await campaignModule(context, id, world) ?? loadModule(context, id, campaign);
 }
 export async function loadModule(context: KernelContext, id: string, campaign?: string): Promise<LoadedModule> {
-    if (campaign !== undefined) context = await ensureCampaignModule(context, campaign, id);
+    // Reads follow the shared library until this campaign's first private write forks it.
+    let inScope = false;
+    if (campaign !== undefined) {
+        const root = await scopedModuleRoot(context, campaign, id);
+        if (root !== null) { context = { ...context, moduleRoot: root }; inScope = true; }
+    }
     const moduleRoot = join(context.moduleRoot ?? join(context.stateRoot, "modules"), id),
         metadataPath = join(moduleRoot, "module.json");
     const meta = await context.snapshots.pathExists(metadataPath) ? row(await context.snapshots.readJson(metadataPath)) : {};
@@ -171,8 +176,8 @@ export async function loadModule(context: KernelContext, id: string, campaign?: 
     const {raw, digest} = await readPublishedGraph(context, path, meta, id),
         contract = row(await context.snapshots.readJson(join(context.content, "modules", "module-graph-contract-v3.json")));
     const graph = new ModuleGraph(id, raw, digest, dossierWith(row(contract.actor_dossier), row(meta.vocabulary)));
-    graph.sourceCampaign = campaign;
-    const store = campaign === undefined ? undefined : new ModuleStore(context);
+    graph.sourceCampaign = inScope ? campaign : undefined;
+    const store = inScope ? new ModuleStore(context) : undefined;
     const asset = store ? (name: string) => store.asset(id, name) : undefined;
     if (asset) graph.assetOverride = asset;
     const material = (name: string) => {

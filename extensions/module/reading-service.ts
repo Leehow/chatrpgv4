@@ -120,7 +120,7 @@ export class ReadingService implements ReadingBridge {
 					"choose an accessible, readable original PDF");
 			}
 			const bound = await this.deps.call("module.source.bind", { source,
-				...(mid ? { module_id: mid } : {}), title: basename(path, ".pdf") });
+				...(mid ? { module_id: mid } : {}), ...(campaign !== undefined ? { campaign } : {}), title: basename(path, ".pdf") });
 			mid = bound.module_id;
         }
 		if (!mid) throw error("needs_source", "choose a PDF or an existing module", "pass pdf or module_id");

@@ -6,7 +6,7 @@ import type { ModuleGraph } from '../read/module-graph.js';
 import { equal, repr, row, string, truth, type Row } from '../read/values.js';
 import { Reading } from './reading.js';
 import { ModuleStore } from './store.js';
-import { ensureCampaignModule } from './campaign-scope.js';
+import { ensureCampaignModule, moduleContext, scopedModuleRoot } from './campaign-scope.js';
 function required(params: Row, key: string): string {
     const value = params[key];
     if (value == null || value === '')
@@ -78,32 +78,67 @@ export function createModuleRuntime(context: KernelContext) {
     const library = { store, reading, handlers: handlersFor(store, reading) };
     const scopes = new Map<string, typeof library>();
     let closed = false;
-    const owner = async (campaign: any, id: string) => {
-        if (closed) throw new RpcError('invalid_params', 'the source runtime is closed');
-        if (campaign === undefined) return library;
-        const scoped = await ensureCampaignModule(context, campaign, id);
-        if (closed) throw new RpcError('invalid_params', 'the source runtime is closed');
+    /** Read operations follow the library until the campaign has a private workspace; write
+     *  operations fork it first, so a book that finishes reading after campaign creation still
+     *  reaches the campaign while a diverged campaign stays isolated (contract §22.6). */
+    const scopedRuntime = (campaign: string) => {
         let value = scopes.get(campaign);
         if (!value) {
+            const scoped = moduleContext(context, campaign);
             const store = new ModuleStore(scoped), reading = new Reading(store);
             value = { store, reading, handlers: handlersFor(store, reading) };
             scopes.set(campaign, value);
         }
         return value;
     };
-    const libraryOnly = new Set(['module.source.bind', 'module.register', 'module.list']);
-    const handlers: HandlerGroup = Object.freeze(Object.fromEntries(Object.entries(library.handlers).map(([method, handler]) => [method,
-        async (params: Row) => libraryOnly.has(method) || params.campaign === undefined
-            ? handler(params)
-            : (await owner(params.campaign, required(params, 'module_id'))).handlers[method](params),
+    const owner = async (campaign: any, id: string, fork = false) => {
+        if (closed) throw new RpcError('invalid_params', 'the source runtime is closed');
+        if (campaign === undefined) return library;
+        const value = scopedRuntime(campaign);
+        if (fork) {
+            await ensureCampaignModule(context, campaign, id);
+            return value;
+        }
+        return await scopedModuleRoot(context, campaign, id) !== null ? value : library;
+    };
+    const libraryOnly = new Set(['module.register', 'module.list']);
+    // A scoped request or opening choice is the campaign's first private write and forks it.
+    // Claims and finishes instead follow the workspace that already owns the job, so a shared
+    // prefetch is never stranded by a fork that happened after it was queued.
+    const forking = new Set(['module.read.request', 'module.opening.choose']);
+    const claimsOrFinishes = new Set(['module.read.claim', 'module.read.finish']);
+    const queuedJobs = async (value: typeof library, id: string, jobId?: any): Promise<boolean> =>
+        (await value.store.queue(id)).some(job => jobId === undefined ? job.state === 'queued' : job.job_id === jobId);
+    const dispatch = async (method: string, params: Row): Promise<Row> => {
+        if (libraryOnly.has(method) || params.campaign === undefined || typeof params.module_id !== 'string')
+            return library.handlers[method](params);
+        const id = required(params, 'module_id'), campaign = params.campaign;
+        if (claimsOrFinishes.has(method)) {
+            const value = scopedRuntime(campaign);
+            if (await scopedModuleRoot(context, campaign, id) === null) return library.handlers[method](params);
+            if (method === 'module.read.finish')
+                return (await queuedJobs(value, id, params.job_id) ? value : library).handlers[method](params);
+            if (await queuedJobs(value, id)) return value.handlers[method](params);
+            // No private work is queued; the shared queue may still hold work for this campaign.
+            const shared = await library.handlers[method](params);
+            return row(shared).job_id ? shared : value.handlers[method](params);
+        }
+        return (await owner(campaign, id, forking.has(method))).handlers[method](params);
+    };
+    const handlers: HandlerGroup = Object.freeze(Object.fromEntries(Object.keys(library.handlers).map(method => [method,
+        (params: Row) => dispatch(method, params),
     ])));
     const source = Object.freeze({
         store,
         graphPath: async (moduleId: string, campaign?: string) => (await owner(campaign, moduleId)).store.graphPath(moduleId),
         materialReady: async (moduleId: string, name: string, campaign?: string) => (await owner(campaign, moduleId)).reading.materialReady(moduleId, name),
         openingReady: async (moduleId: string, focus = '', campaign?: string) => (await owner(campaign, moduleId)).reading.openingReady(moduleId, focus),
-        request: async (params: Row) => (await owner(params.campaign, required(params, 'module_id'))).reading.request(params),
-        queueAdjacentReading: async (graph: ModuleGraph, scene: Row) => (await owner(graph.sourceCampaign, graph.moduleId)).reading.queueAdjacentReading(graph, scene),
+        request: async (params: Row) => (await owner(params.campaign, required(params, 'module_id'), true)).reading.request(params),
+        // Before a campaign forks it follows the shared library, so it enqueues nothing there:
+        // a table's prefetch may never write into the shared queue on another table's behalf.
+        queueAdjacentReading: async (graph: ModuleGraph, scene: Row) => graph.sourceCampaign === undefined
+            ? []
+            : (await owner(graph.sourceCampaign, graph.moduleId)).reading.queueAdjacentReading(graph, scene),
         requireMaterial: async (graph: ModuleGraph, names: any[]) => (await owner(graph.sourceCampaign, graph.moduleId)).reading.requireMaterial(graph, names),
         requireMapMaterial: async (graph: ModuleGraph, params: Row) => (await owner(graph.sourceCampaign, graph.moduleId)).reading.requireMapMaterial(graph, params),
     });
