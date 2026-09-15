@@ -3811,6 +3811,24 @@ export class PiHostBackend implements HostBackend {
     this.cocOnboarding?.retryUiWords();
   }
   /**
+   * A binding this host wrote itself, announced to the panels (contract §22.7).
+   *
+   * Every campaign-scoped panel — the sheet, the Mods list, the timeline — answers from a cold read
+   * of the session's recorded binding, and re-reads only when it is told something changed. The
+   * agent half can tell them (`emitToPanel`), but a campaign created through the onboarding worker
+   * is bound by the host before the session's own process exists, so nothing on the agent side is
+   * there to speak. Without this the binding is real on disk while the panels keep drawing the
+   * "no campaign on this session" answer they got at mount, until the player presses retry —
+   * the retry works because the read succeeds, not because retrying did anything.
+   *
+   * Announce only after the binding is durable: a frame ahead of the bytes buys another stale read.
+   */
+  private cocAnnounceBinding(campaign: string): void {
+    for (const type of ["sheet_changed", "mods-changed", "timeline-changed"])
+      emitFrame(this.listeners, {protocolVersion: PIPI_HOST_PROTOCOL_VERSION, channel: "ext.coc-keeper",
+        event: {type, payload: {campaign}}});
+  }
+  /**
    * The play language of every session this host has spawned, so a live card drawn inside the
    * synchronous stream reader can be given the same words the history page would give it.
    */
@@ -9226,12 +9244,17 @@ export class PiHostBackend implements HostBackend {
           const binding = {campaign: data.campaign, home, play_language: language, mode: "setup"};
           await fs.writeFile(selected.path + ".coc.json.tmp", JSON.stringify(binding) + "\n");
           await fs.rename(selected.path + ".coc.json.tmp", selected.path + ".coc.json");
-          await this.renameSession(sid, data.name || "New campaign");
-          await this.ensure(sid);
-          // The process exists before its session_start hooks have delivered the prologue.
-          await this.command(sid,{type:'get_state'});
-          const opening=(await this.readHistoryCached(selected.path,0,30,sid)).find(entry=>entry.role==='assistant'&&entry.content);
-          if(opening)this.stream({type:'presentation',sessionId:sid,entry:opening});
+          // The binding is durable from here, so the panels are owed it whatever the rest of this
+          // opening does. Starting the session can fail, and the player would still be sitting in
+          // front of a campaign whose sheet says there is no campaign.
+          try {
+            await this.renameSession(sid, data.name || "New campaign");
+            await this.ensure(sid);
+            // The process exists before its session_start hooks have delivered the prologue.
+            await this.command(sid,{type:'get_state'});
+            const opening=(await this.readHistoryCached(selected.path,0,30,sid)).find(entry=>entry.role==='assistant'&&entry.content);
+            if(opening)this.stream({type:'presentation',sessionId:sid,entry:opening});
+          } finally {this.cocAnnounceBinding(binding.campaign);}
         }
         return {ok: true, data};
       } catch (error) { return this.cocDenied(this.cocCode(error), error instanceof Error ? error.message : String(error)); }

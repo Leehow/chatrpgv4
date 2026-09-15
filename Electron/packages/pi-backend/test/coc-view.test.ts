@@ -132,6 +132,78 @@ it('converse waits for startup and immediately projects the persisted first ques
   }finally{unsubscribe();await backend.close();}
 });
 
+it('a campaign the host binds is announced, so the cold-read panels stop saying there is none',async()=>{
+  // The first-entry defect: the panels answer from `readCocBinding` and re-read only when told.
+  // A campaign created through the onboarding worker is bound by the host before the session's own
+  // process exists, so the agent half cannot speak for it -- and without an announcement here the
+  // sheet keeps drawing `unbound` over a campaign that is already on disk, until the player
+  // presses retry. A transport seam fixture, not gameplay.
+  const {cp}=await import('node:fs/promises');
+  const {existsSync}=await import('node:fs');
+  const {createPiHostBackend}=await import('../src/index.js');
+  const repo=resolve(import.meta.dirname,'../../../..'),root=await mkdtemp(join(tmpdir(),'coc-binding-announce-'));
+  const profile=join(root,'profile'),pack=join(profile,'extensions/coc-keeper');await mkdir(pack,{recursive:true});
+  await cp(join(repo,'pipiui-extension.json'),join(pack,'pipiui-extension.json'));await cp(join(repo,'pipicoc'),join(pack,'pipicoc'),{recursive:true});
+  const preparation={invoke:async()=>({campaign:'announce-fixture',name:'Announced book',play_language:'en'}),close:async()=>{}};
+  const registry={get:()=>preparation,close:async()=>{}};
+  const backend=createPiHostBackend({agentDir:profile,sessionsRoot:join(root,'sessions'),runtimeRoot:join(root,'runtime'),defaultPack:'coc-keeper',managedNodeModulesRoot:join(repo,'node_modules'),cocOnboardingRegistry:registry as any,spawn:()=>{throw new Error('No model is needed to bind a campaign');}});
+  let sessionPath='';
+  // Sampled synchronously inside the listener: an announcement that outruns the bytes it announces
+  // only buys the panel another stale read, so the order is part of what is being asserted.
+  const announced:Array<{type:string;campaign:unknown;durable:boolean}>=[];
+  const unsubscribe=backend.subscribe(frame=>{
+    if(frame.channel!=='ext.coc-keeper')return;
+    announced.push({type:(frame.event as any).type,campaign:((frame.event as any).payload||{}).campaign,
+      durable:!!sessionPath&&existsSync(sessionPath+'.coc.json')});
+  });
+  try {
+    await backend.handle('addProject',[root]);const projects=await backend.handle('listProjects',[]) as any[];
+    const session=await backend.handle('newSession',[projects[0].id]) as any;
+    sessionPath=(await (backend as any).locate(session.id)).path;
+    // The state the player starts in, and the exact answer the panel was stuck on.
+    expect(await readCocBinding(sessionPath)).toBeUndefined();
+    expect(await backend.handle('invokeExtension',['coc-keeper','sheet',{},{sessionId:session.id}]))
+      .toMatchObject({ok:true,data:{status:'unbound',campaign:null}});
+    vi.spyOn(backend as any,'getModelState').mockResolvedValue({model:{provider:'unknown',id:'fixture'},thinkingLevel:'low'});
+    vi.spyOn(backend as any,'ensure').mockResolvedValue({});
+    vi.spyOn(backend as any,'command').mockResolvedValue({isStreaming:false});
+    const result=await backend.handle('invokeExtension',['coc-keeper','onboarding',{action:'converse',id:'import-fixture'},{sessionId:session.id}]) as any;
+    expect(result.ok).toBe(true);
+    // The binding the panels read is real...
+    expect((await readCocBinding(sessionPath))?.campaign).toBe('announce-fixture');
+    // ...and every campaign-scoped panel was told, by name, after it was durable.
+    expect(announced.map(row=>row.type).sort()).toEqual(['mods-changed','sheet_changed','timeline-changed']);
+    expect(announced.map(row=>row.campaign)).toEqual(['announce-fixture','announce-fixture','announce-fixture']);
+    expect(announced.map(row=>row.durable)).toEqual([true,true,true]);
+  }finally{unsubscribe();await backend.close();}
+});
+
+it('a campaign stays announced even when starting its session fails',async()=>{
+  // The announcement is owed to the binding, not to a clean startup: a session that could not be
+  // started still leaves the player looking at a campaign the sheet would otherwise disown.
+  const {cp}=await import('node:fs/promises');
+  const {createPiHostBackend}=await import('../src/index.js');
+  const repo=resolve(import.meta.dirname,'../../../..'),root=await mkdtemp(join(tmpdir(),'coc-binding-announce-fail-'));
+  const profile=join(root,'profile'),pack=join(profile,'extensions/coc-keeper');await mkdir(pack,{recursive:true});
+  await cp(join(repo,'pipiui-extension.json'),join(pack,'pipiui-extension.json'));await cp(join(repo,'pipicoc'),join(pack,'pipicoc'),{recursive:true});
+  const preparation={invoke:async()=>({campaign:'stubborn-fixture',name:'Stubborn book',play_language:'en'}),close:async()=>{}};
+  const registry={get:()=>preparation,close:async()=>{}};
+  const backend=createPiHostBackend({agentDir:profile,sessionsRoot:join(root,'sessions'),runtimeRoot:join(root,'runtime'),defaultPack:'coc-keeper',managedNodeModulesRoot:join(repo,'node_modules'),cocOnboardingRegistry:registry as any,spawn:()=>{throw new Error('No model is needed to bind a campaign');}});
+  const announced:string[]=[];
+  const unsubscribe=backend.subscribe(frame=>{if(frame.channel==='ext.coc-keeper')announced.push((frame.event as any).type);});
+  try {
+    await backend.handle('addProject',[root]);const projects=await backend.handle('listProjects',[]) as any[];
+    const session=await backend.handle('newSession',[projects[0].id]) as any;
+    const sessionPath=(await (backend as any).locate(session.id)).path;
+    vi.spyOn(backend as any,'getModelState').mockResolvedValue({model:{provider:'unknown',id:'fixture'},thinkingLevel:'low'});
+    vi.spyOn(backend as any,'ensure').mockRejectedValue(new Error('the session would not start'));
+    const result=await backend.handle('invokeExtension',['coc-keeper','onboarding',{action:'converse',id:'import-fixture'},{sessionId:session.id}]) as any;
+    expect(result.ok).toBe(false);
+    expect((await readCocBinding(sessionPath))?.campaign).toBe('stubborn-fixture');
+    expect(announced).toContain('sheet_changed');
+  }finally{unsubscribe();await backend.close();}
+});
+
 it('the converse worker input carries only the stored difficulty, never a renderer-supplied one',async()=>{
   // A transport seam fixture for contract §33.1: the host is the difficulty's only authority.
   const {cp}=await import('node:fs/promises');
