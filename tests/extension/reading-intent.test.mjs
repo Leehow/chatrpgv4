@@ -104,7 +104,7 @@ test("the read row names its job and the physical pages the reader consumed", as
 	const service = new ReadingService({ home, runtime, model: () => ({ id: "fixture/vision", vision: true, thinking: "off" }), progress() {},
 		record: (row) => rows.push(row), async call(method, params) { calls.push({ method, params }); return { state: "ready" }; } });
 	const job = { job_id: "read-3", module_id: "book", purpose: "detail", focus: "hotel-espana", question: "", pages: [], foreground: true, lease: "L1",
-		work_dir: cwd, at: new Date().toISOString(), source: { path: join(home, "book.pdf"), page_count: 60, file_sha256: "abc" },
+		work_dir: cwd, at: new Date().toISOString(), source: { path: join(home, ".coc", "modules", "book", "source.pdf"), page_count: 60, file_sha256: "abc" },
 		index: {}, known_nodes: [], known_claims: [], vocabulary: {}, coverage_domains: [] };
 	await service.runJob(job, new AbortController().signal);
 	const read = rows.find((row) => row.phase === "read");

@@ -8,16 +8,21 @@ import readerContext, { boundImages, confineReaderEnvironment, createReaderToolG
 
 const quote = value => "'" + value.replaceAll("'", "'\\''") + "'";
 
-async function confinementFixture(t) {
+async function confinementFixture(t, options = {}) {
 	const home = await mkdtemp(join(tmpdir(), "reader-confinement-"));
 	t.after(() => rm(home, { recursive: true, force: true }));
-	const cwd = join(home, ".coc", "modules", "book", "work", "read-1", "attempt-1");
-	const cache = join(home, ".coc", "modules", "book", "cache", "pages");
-	const source = join(home, ".coc", "modules", "book", "source.pdf");
+	// A campaign-scoped read owns a private module workspace; a library read uses the shared one.
+	const module = options.campaign
+		? join(home, ".coc", "module-campaigns", options.campaign, "modules", "book")
+		: join(home, ".coc", "modules", "book");
+	const cwd = join(module, "work", "read-1", "attempt-1");
+	const cache = join(module, "cache", "pages");
+	const source = join(module, "source.pdf");
 	const outside = await mkdtemp(join(tmpdir(), "reader-outside-"));
 	t.after(() => rm(outside, { recursive: true, force: true }));
 	await mkdir(join(cwd, "host-bin"), { recursive: true });
-	await mkdir(cache, { recursive: true });
+	await mkdir(join(home, ".coc", "modules"), { recursive: true });
+	if (!options.withoutCache) await mkdir(cache, { recursive: true });
 	await writeFile(source, "%PDF-1.7\n");
 	for (const name of ["draft.json", "baseline.json", "findings.json", "review.json"])
 		await writeFile(join(cwd, name), "{}\n");
@@ -31,7 +36,7 @@ async function confinementFixture(t) {
 	await writeFile(wrapper, "#!/bin/sh\nexit 0\n");
 	const env = { PI_COC_HOME: home, PI_COC_READER_SOURCE: JSON.stringify({ pdf: source, cache }),
 		PI_COC_READER_CHECK: wrapper, PATH: `${join(cwd, "host-bin")}:/usr/bin:/bin`, HOME: "/Users/example" };
-	return { home, cwd, cache, source, outside, checker, wrapper, env };
+	return { home, module, cwd, cache, source, outside, checker, wrapper, env };
 }
 
 test("the reader blocks read-6 shell traversal before execution and permits only the captured checker", async t => {
@@ -78,7 +83,50 @@ test("an externally rebound PDF or cache fails closed before the private pdf too
 	const guard = createReaderToolGuard(fixture.cwd, {...fixture.env,
 		PI_COC_READER_SOURCE: JSON.stringify({pdf:join(fixture.outside,"secret.txt"),cache:fixture.cache})});
 	assert.match(guard({toolName:"pdf",input:{pages:[1]}}).reason, /blocked pdf/);
-	assert.match(guard({toolName:"read",input:{path:"task.json"}}).reason, /PI_COC_READER_SOURCE is invalid/);
+	assert.match(guard({toolName:"read",input:{path:"task.json"}}).reason, /does not match one internal module/);
+	const guardUnparseable = createReaderToolGuard(fixture.cwd, {...fixture.env, PI_COC_READER_SOURCE: "{"});
+	assert.match(guardUnparseable({toolName:"read",input:{path:"task.json"}}).reason, /PI_COC_READER_SOURCE is invalid/);
+});
+
+test("a campaign's private module workspace is an internal source, not an escape", async t => {
+	const fixture = await confinementFixture(t, { campaign: "game-3dd94f0a" });
+	const guard = createReaderToolGuard(fixture.cwd, fixture.env);
+	// The PDF lives under .coc/module-campaigns/<campaign>/modules/book, never under .coc/modules.
+	assert.equal(guard({ toolName: "pdf", input: { pages: [4] } }), undefined);
+	assert.equal(guard({ toolName: "read", input: { path: fixture.source } }), undefined);
+	const page = join(fixture.cache, "page-4.jpg");
+	await writeFile(page, "image");
+	assert.equal(guard({ toolName: "read", input: { path: page } }), undefined);
+	assert.equal(guard({ toolName: "read", input: { path: "task.json" } }), undefined);
+});
+
+test("a private module PDF paired with another workspace's page cache fails closed", async t => {
+	const fixture = await confinementFixture(t, { campaign: "game-3dd94f0a" });
+	const library = join(fixture.home, ".coc", "modules", "book", "cache", "pages");
+	await mkdir(library, { recursive: true });
+	const guard = createReaderToolGuard(fixture.cwd, { ...fixture.env,
+		PI_COC_READER_SOURCE: JSON.stringify({ pdf: fixture.source, cache: library }) });
+	assert.match(guard({ toolName: "pdf", input: { pages: [1] } }).reason, /blocked pdf/);
+	assert.match(guard({ toolName: "read", input: { path: "task.json" } }).reason,
+		/does not match one internal module/);
+});
+
+test("a freshly seeded workspace whose page cache is not rendered yet still binds its source", async t => {
+	const fixture = await confinementFixture(t, { campaign: "game-3dd94f0a", withoutCache: true });
+	const guard = createReaderToolGuard(fixture.cwd, fixture.env);
+	// The cache is a derived directory the first page render creates; its absence is not a
+	// broken binding, and must not be reported as an invalid PI_COC_READER_SOURCE.
+	assert.equal(guard({ toolName: "pdf", input: { pages: [1] } }), undefined);
+	assert.equal(guard({ toolName: "read", input: { path: "task.json" } }), undefined);
+});
+
+test("a source outside every module workspace is still refused", async t => {
+	const fixture = await confinementFixture(t, { campaign: "game-3dd94f0a" });
+	const stray = join(fixture.home, ".coc", "module-campaigns", "game-3dd94f0a", "source.pdf");
+	await writeFile(stray, "%PDF-1.7\n");
+	const guard = createReaderToolGuard(fixture.cwd, { ...fixture.env,
+		PI_COC_READER_SOURCE: JSON.stringify({ pdf: stray, cache: fixture.cache }) });
+	assert.match(guard({ toolName: "pdf", input: { pages: [1] } }).reason, /blocked pdf/);
 });
 
 test("the extension installs the guard and confines shell startup environment without breaking the agent home", async t => {

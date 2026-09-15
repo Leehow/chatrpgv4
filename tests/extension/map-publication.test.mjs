@@ -94,11 +94,13 @@ async function seePages(request, cache, fileSha, pages) {
 async function runMapJob(t, { jobId = "read-2", focus = "farm", question = MAP_QUESTION, knownNodes, resumeFrom, whole = false, rejectReview = false, rejectFinish = false }) {
 	const home = await mkdtemp(join(tmpdir(), "coc-map-pub-"));
 	t.after(() => rm(home, { recursive: true, force: true }));
-	const pdfPath = join(home, "source.pdf");
+	const moduleDir = join(home, ".coc", "modules", "book");
+	await mkdir(moduleDir, { recursive: true });
+	const pdfPath = join(moduleDir, "source.pdf");
 	await writeFile(pdfPath, mapPdf());
 	const fileSha = createHash("sha256").update(await readFile(pdfPath)).digest("hex");
 	const cwd = join(home, "work", jobId, "attempt-1");
-	const cache = join(home, ".coc", "modules", "book", "cache", "pages");
+	const cache = join(moduleDir, "cache", "pages");
 	await mkdir(cwd, { recursive: true });
 	await mkdir(cache, { recursive: true });
 	const tasks = [], briefs = [], finishes = [];
@@ -201,12 +203,14 @@ test("map_regions are assigned as a review unit with independently revealable-un
 test("a focused map detail request selects its own task after opening instead of inheriting another job", async t => {
 	const home = await mkdtemp(join(tmpdir(), "coc-map-scope-"));
 	t.after(() => rm(home, { recursive: true, force: true }));
-	const pdfPath = join(home, "source.pdf");
+	const moduleDir = join(home, ".coc", "modules", "book");
+	await mkdir(moduleDir, { recursive: true });
+	const pdfPath = join(moduleDir, "source.pdf");
 	await writeFile(pdfPath, mapPdf());
 	const fileSha = createHash("sha256").update(await readFile(pdfPath)).digest("hex");
 	const failed = join(home, "work", "read-1", "attempt-1");
 	const cwd = join(home, "work", "read-2", "attempt-1");
-	const cache = join(home, ".coc", "modules", "book", "cache", "pages");
+	const cache = join(moduleDir, "cache", "pages");
 	await mkdir(failed, { recursive: true });
 	await mkdir(cwd, { recursive: true });
 	await mkdir(cache, { recursive: true });
