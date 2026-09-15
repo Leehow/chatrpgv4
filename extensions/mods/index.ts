@@ -171,11 +171,19 @@ export default function modsExtension(pi: ExtensionAPI): void {
       note({...telemetry, ok: true, ms: Date.now() - began, verdict: result?.continuity_review?.verdict ?? null});
       return result;
     } catch (error) {
-      const reason = isKernelError(error) ? error.details?.reason : undefined;
+      const details = isKernelError(error) ? error.details : undefined;
+      const reason = details?.reason;
+      // `reviewUnavailable()` gives all eight of its distinct conditions the same `message`
+      // ("Continuity review is paused; no draft was approved"); which one actually fired lives in
+      // `details.cause`, and only there. Recording the message made a review that ran twice, submitted
+      // twice and refused twice (H-MAIN turn 42: `The bounded Keeper repair did not resolve the
+      // review`) indistinguishable from a lane that never answered — on the one row whose whole
+      // purpose is telling those apart.
+      const cause = typeof details?.cause === 'string' && details.cause ? details.cause : errorText(error);
       note({...telemetry, ok: false, ms: Date.now() - began,
         ...(isKernelError(error) ? {code: error.code} : {}),
         ...(reason ? {reason: String(reason)} : {}),
-        cause: errorText(error)});
+        cause});
       throw error;
     }
   }

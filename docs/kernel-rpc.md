@@ -6972,6 +6972,14 @@ revised, timed out, or never started. `model` is read from the child's own comma
 resolves the lane model (§37.10) and the request cannot say which one ran. The row is best-effort and never
 fails a review. This is a diagnostic row, not an escalation: §38.5's `coc-review-status` entry is unchanged.
 
+**`cause` is `details.cause`, never the wrapper message.** `reviewUnavailable()` gives all eight of its
+distinct conditions one `message` — *"Continuity review is paused; no draft was approved"* — and puts the
+condition itself in `details.cause`. A row carrying the message says nothing: H-MAIN turn 42 (a review that
+ran, submitted, and exhausted `max_rewrites`: `The bounded Keeper repair did not resolve the review`) and
+H-MAIN turn 43 (a child killed at the cap having submitted nothing: `The private reviewer ended without a
+checked submission`) printed the same sentence, and the two are opposite operational facts. `reason` stays
+the closed contract field it is; `cause` is what separates the families.
+
 **`mod_audit_stale` is a race, not a verdict, and must not latch the turn.** `mods.job` pins the evidence
 digest; `mods.accept` recomputes it and refuses a binding that moved, with the fix *"Retry the same narration
 to prepare a current source audit; do not reroll settled actions"*. The Mod bridge turned that refusal into
@@ -7014,6 +7022,52 @@ which receives a retryable refusal with a fix it can act on, and the operator, t
 surfaces `mod_audit_stale` to the caller, and the next `narrate` of the same turn runs a real review and can
 be delivered; every other accept failure still blocks; a review that passes, a review that is refused, and a
 review whose runtime is missing each leave one `lane: "continuity-review"` row
+(`tests/extension/continuity-audit.test.mjs`).
+
+### 38.9 A streak counts outages, not the guard doing its job (2026-09-15)
+
+§38.5 escalates a table to `status: "down"` on the second consecutive review pause: the player is told
+another attempt is pointless, and the operator is handed the lane-model fix. `pauseReview` counted every
+pause, whatever caused it. Half of the streak that first triggered it had no lane problem at all.
+
+Retained evidence, `game-83177d61` (2026-09-15), from its own `telemetry.jsonl` and review accounting:
+
+| turn | child | retained cause | streak |
+|---|---|---|---|
+| 42 | `submitted: true`, 17 386 ms | `The bounded Keeper repair did not resolve the review` | 1 |
+| 43 | `submitted: false`, killed at 40 014 ms | `The private reviewer ended without a checked submission` | 2 |
+
+Turn 42 is `max_rewrites` (§37.9) working exactly as designed: the review ran twice, submitted twice and
+refused twice, and the input ended. **A table is not down because its reviewer disagreed.** Turn 43 is a
+dead stream. Summed, they produced an escalation whose wording and whose fix were wrong for one of the two.
+
+**So a pause carries its kind, and only a service pause accumulates.** `reviewUnavailable(cause, service)`
+puts `service` in `details` beside `cause`; `AuditBudget.fail(cause, service)` records it in the retained
+accounting as `blocked_service`, so a later review of the same input replays the kind instead of re-reading
+a verdict end as a fresh outage. Every branch in which the reviewer *reached a conclusion*, or in which the
+allowance those conclusions consumed ran out, is `service: false`: `max_rewrites`, the same rejected draft
+resubmitted, a `verdict: "unavailable"` submission, and every exhausted-allowance end. Everything else — a
+child that submitted nothing, an unreadable or interrupted accounting file, a lock another review holds, a
+missing runtime — stays `service: true`. `reason` is unchanged: both kinds still end the player's input and
+the Keeper's lawful response to either is identical, so splitting the closed contract field would buy
+nothing.
+
+The operator entry gains `service`, so `coc-review-status` says which kind it was rather than leaving it to
+be inferred from the cause sentence. A verdict pause emits `status: "unavailable"` with no `fix`, and never
+raises the streak on its own; two genuine outages still escalate once, exactly as before.
+
+**This is not a relaxation.** A verdict pause still ends the input, still publishes nothing, and still
+requires new player input — the guard is untouched. What changes is only whether that counts as evidence
+that the lane is broken.
+
+**Three ends (§31).** *Writer:* `AuditBudget`, at the site that knows which bound fired. *Reader:*
+`pauseReview`, and the operator through `coc-review-status`. *Actor:* the operator, who is no longer sent to
+change a lane model over a disagreement; and the player, who is no longer told that trying again is
+pointless when it is not.
+
+**Acceptance.** Two consecutive verdict pauses leave `streak: 0`, emit no `down` entry and no `fix`, and
+leave the player the "send anything to try again" wording; two consecutive service pauses still reach
+`streak: 2`, `status: "down"` and the lane-model fix; a retained block replays its own kind
 (`tests/extension/continuity-audit.test.mjs`).
 
 ## 39. Session maps revealed by player knowledge (2026-09-13)

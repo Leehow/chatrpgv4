@@ -577,3 +577,100 @@ test('a reviewer that never submitted still blocks the turn and says so once', a
     assert.deepEqual([lane[0].ok, lane[0].reason, lane[0].timed_out, lane[0].submitted, lane[0].model],
         [false, 'continuity_review_unavailable', true, false, 'lane/slow-1']);
 });
+
+/**
+ * Contract §38.8 / §37.9. Retained live evidence (H-MAIN `game-83177d61` turn 42, 2026-09-15): both reviews
+ * ran and submitted (19.4 s, 17.4 s, no timeout), the first said `revise`, the Keeper took its one bounded
+ * repair, and the second said `revise` again — so `max_rewrites` ended the input exactly as designed. The
+ * telemetry row called that `Continuity review is paused; no draft was approved`, which is
+ * `reviewUnavailable`'s one-size message rather than the condition, and it reads as infrastructure.
+ * The row must carry `details.cause`, or it cannot do the only job it has.
+ */
+test('a bounded repair refused twice is recorded as the verdict it was, not as an unreachable review', async () => {
+    const cwd = await mkdtemp(join(directory, 'repair-')), scope = join(cwd, 'budget');
+    const rows = []; let bridge, reviews = 0;
+    const pi = {events: new EventEmitter(), on() {}};
+    pi.events.on('coc:mods-bridge', value => bridge = value); modsExtension(pi);
+    pi.events.emit('coc:kernel-bridge', {
+        record: row => rows.push(row),
+        call: async method => {
+            if (method === 'mods.job') return {enabled: true, continuity_review: true, cwd, job: `draft-${reviews}`,
+                review_scope: scope, limits: AUDIT_LIMITS, focus: {}, system_prompt: join(cwd, 'prompt.md')};
+            return method === 'mods.accept' ? conflict() : {};
+        },
+        runtime: {async runTask(task) {
+            reviews++;
+            const control = JSON.parse(await readFile(join(cwd, task.request.audit.control), 'utf8'));
+            await writeFile(join(cwd, control.status_file), JSON.stringify({requests: 1, artifact_repairs: 0, submitted: true, unavailable: ''}));
+            task.request.onEvent({type: 'tool_execution_end', toolName: 'submit_audit', result: {details: {kind: 'audit_submission'}}});
+            return {ok: true, ms: 1, code: 0, timedOut: false, command: ['pi', '--model', 'lane/fixture-1']};
+        }}});
+
+    // The first refusal is the one bounded repair `max_rewrites` permits.
+    await assert.rejects(bridge.prepare('narrate', {campaign: 'c1', text: 'A draft.'}),
+        error => error.details?.reason === 'mod_narrative_repair');
+    // The repaired draft really is re-reviewed as its own job, and refused again: that ends the input.
+    await assert.rejects(bridge.prepare('narrate', {campaign: 'c1', text: 'A repaired draft.'}),
+        error => error.details?.reason === 'continuity_review_unavailable');
+    assert.equal(reviews, 2, 'the repair must be submitted to a second real review');
+    assert.equal(JSON.parse(await readFile(join(scope, 'review-budget.json'), 'utf8')).blocked,
+        'The bounded Keeper repair did not resolve the review');
+
+    const lane = rows.filter(row => row.lane === 'continuity-review');
+    assert.equal(lane.length, 2, JSON.stringify(rows));
+    assert.deepEqual([lane[0].ok, lane[0].verdict], [true, 'revise']);
+    assert.deepEqual([lane[1].ok, lane[1].submitted, lane[1].timed_out], [false, true, undefined],
+        'a verdict-driven end never wears a timeout');
+    assert.equal(lane[1].cause, 'The bounded Keeper repair did not resolve the review');
+});
+
+/**
+ * Contract §38.9. Retained live evidence (`game-83177d61`, 2026-09-15): turn 42 ended on the one
+ * bounded repair `max_rewrites` permits (`The bounded Keeper repair did not resolve the review`,
+ * `submitted: true`) and became `streak: 1`; turn 43's child was killed at its cap having submitted
+ * nothing and became `streak: 2`. One design decision plus one dead stream escalated the table to
+ * `down`, told the player another attempt was pointless, and handed the operator a lane-model fix for
+ * a problem half the streak did not have.
+ */
+test('a verdict-driven pause is not an outage, and never escalates the table on its own', async t => {
+    const draft = text => [fauxAssistantMessage([fauxToolCall('narrate', {text})], {stopReason: 'toolUse'}),
+        fauxAssistantMessage('Should never be consumed.')];
+    const session = await openTable({retainAt: directory, responses: [...draft('First draft.'), ...draft('Second draft.')]});
+    t.after(() => session.dispose());
+    // Both runs end the way `max_rewrites` ends one: the reviewer answered, and refused.
+    session.emit('coc:mods-bridge', {async after() {}, async prepare(method) {
+        if (method === 'narrate') throw reviewUnavailable('The bounded Keeper repair did not resolve the review', false);
+    }});
+    await session.session.prompt('I listen at the door.'); await waitForIdle(session.session);
+    await session.session.prompt('I try the handle instead.'); await waitForIdle(session.session);
+
+    const statuses = session.entries('coc-review-status');
+    assert.equal(statuses.length, 2, JSON.stringify(statuses));
+    assert.deepEqual(statuses.map(entry => entry.streak), [0, 0], 'the guard refusing twice is not a two-outage streak');
+    assert.deepEqual(statuses.map(entry => entry.status), ['unavailable', 'unavailable']);
+    assert.ok(statuses.every(entry => entry.service === false && !entry.fix),
+        'a verdict pause must not hand the operator a lane-model fix');
+    // The player keeps the wording that is true for it: settled work is kept, and sending again works.
+    const notices = customMessages(session.session, 'coc-delivery').filter(message => message.details?.review_unavailable);
+    assert.equal(notices.length, 2);
+    assert.ok(notices.every(notice => notice.details.streak < 2), JSON.stringify(notices.map(n => n.details)));
+});
+
+/** The other half of §38.9: a real outage still counts, still escalates, and still reaches the operator. */
+test('a service outage still accumulates a streak and still escalates once', async t => {
+    const draft = text => [fauxAssistantMessage([fauxToolCall('narrate', {text})], {stopReason: 'toolUse'}),
+        fauxAssistantMessage('Should never be consumed.')];
+    const session = await openTable({retainAt: directory, responses: [...draft('First draft.'), ...draft('Second draft.')]});
+    t.after(() => session.dispose());
+    session.emit('coc:mods-bridge', {async after() {}, async prepare(method) {
+        if (method === 'narrate') throw reviewUnavailable('The private reviewer ended without a checked submission');
+    }});
+    await session.session.prompt('I listen at the door.'); await waitForIdle(session.session);
+    await session.session.prompt('I try the handle instead.'); await waitForIdle(session.session);
+
+    const statuses = session.entries('coc-review-status');
+    assert.deepEqual(statuses.map(entry => entry.streak), [1, 2]);
+    assert.deepEqual(statuses.map(entry => entry.status), ['unavailable', 'down']);
+    assert.ok(statuses.every(entry => entry.service === true));
+    assert.match(statuses[1].fix, /Lane model setting/);
+});
