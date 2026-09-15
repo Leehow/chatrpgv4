@@ -6472,6 +6472,57 @@ leave the player the "send anything to try again" wording; two consecutive servi
 `streak: 2`, `status: "down"` and the lane-model fix; a retained block replays its own kind
 (`tests/extension/continuity-audit.test.mjs`).
 
+### 38.10 The player notice states what happened and what is worth doing (2026-09-15)
+
+§38.9 made the *streak* honest. The three sentences the player actually reads were not, and two of
+them were false on live tables.
+
+**A review that finished is not a review that "did not finish".** `review_unavailable_notice` says
+the continuity review did not finish. On H-MAIN turn 42 (`game-83177d61`) two reviews ran, both
+submitted, and took 23.2 s and 17.4 s; the input ended on `rewrites(1) >= max_rewrites(1)`, the
+bound §37.9 exists to enforce. The one fact the player was given about their own turn was wrong, and
+it pointed them at the wrong remedy: nothing about that turn was going to be fixed by waiting.
+
+**A streak is not a locked table.** `review_down_notice` said *"sending it again will not help"*.
+`before_agent_start` clears `reviewUnavailable`, every new input opens a turn with a fresh allowance,
+and a landed `narrate` zeroes `reviewOutage`; a streak changes the wording and nothing else. The
+playtest run that found this recorded the table as unrecoverable and stopped on that sentence, then
+sent one more line and received a complete turn. A notice that stops a player who could have carried
+on is a worse outcome than the outage it describes.
+
+**So the notice is chosen by the kind of pause, not by the streak alone.** `pauseReview` pins the
+kind of the pause that stopped the review (`reviewPauseService`) on the same first pause that owns
+the streak, because every later verb in the run re-throws through the guard, whose error carries no
+`service` at all and would relabel a verdict as a dead lane by its own second symptom. Three
+captions on the `extension` surface:
+
+| pause | caption | what it tells the player |
+|---|---|---|
+| `service: false` | `review_verdict_notice` | the review read the turn and did not approve it; settled work is kept; send anything and the Keeper writes it again |
+| `service: true`, streak < 2 | `review_unavailable_notice` | the review did not finish; send anything to try again |
+| `service: true`, streak ≥ 2 | `review_down_notice` | it has failed `{streak}` times; sending again does still open a fresh attempt, and if it keeps failing, pick a quicker model under **Lane model** in settings — the next review uses it without restarting this table (§37.10) |
+
+The streak line names the only operator lever the product actually has, in the words of the setting
+that carries it, rather than telling the player to stop. `details.service` travels on the delivery
+message and on the `lane: "delivery"` telemetry row beside `streak`, so which sentence was chosen is
+recoverable from a transcript.
+
+`mods.review.status` gains `service`, read from the retained accounting's `blocked_service`, so a
+turn recovered through the watchdog replays the kind that blocked it instead of counting a retained
+verdict end as a fresh outage. An invalid or unreadable accounting file and an interrupted
+reservation answer `service: true` in their own right.
+
+**Three ends (§31).** *Writer:* `pauseReview`, from the pause that stopped the review. *Reader:* the
+delivery notice at `agent_settled`, and anyone reading the telemetry row. *Actor:* the player, who
+is told whether another attempt is worth anything, and the operator, who is pointed at Lane model
+rather than at nothing.
+
+**Acceptance.** A verdict pause and a service pause in the same table produce different sentences,
+and the verdict one never says "did not finish"; a verdict pause on a table already at `streak: 2`
+still reads as a verdict; a service streak of 2 names Lane model and never says another attempt is
+pointless; the verbs refused after a verdict pause do not relabel the run
+(`tests/extension/continuity-audit.test.mjs`).
+
 ## 39. Session maps revealed by player knowledge (2026-09-13)
 
 The map feature uses the existing seven verbs and the existing ModuleGraph, campaign world state, source reader and structured mechanics delivery. It adds no map tool and no second state store. A map is an `asset` or `handout` node whose `properties.map_regions` is a non-empty list. Each row is `{region_id, name, level?, source_asset, source_box, placement, redactions?, safe_after_redactions?}`. `source_box` and `placement` are normalized `[x0,y0,x1,y1]` boxes. The source asset is a graph `asset`; it must be `player-safe` or `revealable`, unless an independently reviewed private source supplies non-empty redactions and explicitly declares `safe_after_redactions: true`. Source variants never share coordinates by assumption.
