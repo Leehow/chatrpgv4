@@ -21,9 +21,9 @@ const INSTRUCTION = 'Write exactly two lines this person would say aloud, in the
     'person\'s trade, class, schooling, era and place, with the oaths, slang, half sentences or mannered turns that mouth ' +
     'would produce; when coarse_language is false, no profanity. The book\'s voice, if given, governs. A line a person of ' +
     'another class or trade could say the same way is a failure, and so is a line that reads like writing. Same thought, ' +
-    'two mouths: mocking messy hair, a coarse labourer says 「我操！你他妈头发也太乱了！」 and a respectable man says ' +
-    '「你这是把鸡窝放脑袋上了么？」. No numbers, no rules, no names of things the player has not discovered: hides is who ' +
-    'they are, not what they say aloud. Answer {"sample_lines": ["…", "…"]} and nothing else.';
+    'two mouths: mocking messy hair, a coarse labourer swears at it and a respectable man asks whether that is a hen ' +
+    'coop on your head. No numbers, no rules, no names of things the player has not discovered: hides is who they are, ' +
+    'not what they say aloud. Answer {"sample_lines": ["…", "…"]} and nothing else.';
 export function parseJobId(campaign: CampaignWriter, value: any): string {
     const found = typeof value === 'string' ? /^voice:([A-Za-z0-9][A-Za-z0-9._-]{0,63}):(.+)$/.exec(value) : null;
     if (!found || found[1] !== campaign.id)
