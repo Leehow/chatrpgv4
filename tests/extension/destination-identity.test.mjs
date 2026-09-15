@@ -21,6 +21,8 @@
  */
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -31,6 +33,20 @@ import { openTable, waitForIdle } from "./harness.mjs";
 
 const ROOT = resolve(import.meta.dirname, "../..");
 const MODULE_GRAPH = join(ROOT, "content/starters/the-haunting/module-graph.json");
+
+/** The product kernel over its own RPC, one workspace, requests in order. */
+function kernel(t, requests) {
+	const workspace = mkdtempSync(join(tmpdir(), "coc-place-identity-"));
+	t.after(() => rmSync(workspace, { recursive: true, force: true }));
+	const run = spawnSync(
+		process.execPath,
+		[join(ROOT, "build/kernel/rpc.mjs"), "--workspace", workspace, "--content", join(ROOT, "content")],
+		{ cwd: ROOT, input: requests.map((request, index) => JSON.stringify({ id: String(index), ...request })).join("\n") + "\n", encoding: "utf8" },
+	);
+	const answers = run.stdout.split("\n").filter((line) => line.trim()).map((line) => JSON.parse(line));
+	assert.equal(answers.length, requests.length, `${run.stderr}\n${run.stdout}`);
+	return answers;
+}
 
 /** The authored material this whole seam exists to carry. Read it, do not restate it. */
 const authoredIdentity = async (sceneNodeId) => {
@@ -161,6 +177,23 @@ test("a scene answers to the names the module gives its place, so a Keeper can l
 	assert.equal(found.destination_identity.canonical_name, identity.canonical_name);
 });
 
+test("the move rule tells the reviewer what a registered scene is the grain of", async (t) => {
+	const api = await loadExtensionApi(t);
+	const prompt = api.admissionSystemPrompt();
+
+	// The names, so the reviewer reads the destination off them and not off the handle.
+	assert.match(prompt, /canonical_name is the module's own name for the place/);
+	assert.match(prompt, /also_called/);
+	assert.match(prompt, /handle is a file name/);
+	// The grain, so a move to a scene is arrival at the place, not a claim about how far inside.
+	// Direction B is decided by this: without it, "I go to the clipping room but see Wilmot first"
+	// reads as a move that skips the gatekeeper, and the identity alone does not answer it.
+	assert.match(prompt, /A registered scene is the module's whole grain for a place/);
+	assert.match(prompt, /threshold/);
+	assert.match(prompt, /remain proposals of their own, judged on their own/);
+	assert.match(prompt, /refused from both sides cannot be reached by any wording/);
+});
+
 test("a move to a name the module already owns lands on the registered scene, with nothing adapted", async (t) => {
 	const identity = await authoredIdentity("scene-newspaper-morgue");
 	const table = await openTable({
@@ -192,21 +225,34 @@ test("a move to a name the module already owns lands on the registered scene, wi
 	assert.deepEqual(world.adaptation?.records ?? [], [], JSON.stringify(world.adaptation));
 });
 
-test("the move rule tells the reviewer what a registered scene is the grain of", async (t) => {
-	const api = await loadExtensionApi(t);
-	const prompt = api.admissionSystemPrompt();
+test("a place the module already registers is not adapted a second time", async (t) => {
+	const campaign = "place-containment";
+	const prepare = (name, request) => ({
+		method: "adaptation.prepare",
+		params: { campaign, name, purpose: "new_destination", request, anchors: ["scene: commission-briefing"] },
+	});
+	const [created, opened, , sameBuilding, elsewhere] = kernel(t, [
+		{ method: "campaign.create", params: { id: campaign, module: "the-haunting", pregen: "thomas-hayes", play_language: "en", title: "containment" } },
+		{ method: "table.open", params: { campaign } },
+		{ method: "table.player_input", params: { campaign, text: "I go into the Globe and stand at Wilmot's counter." } },
+		// The live request, word for word in substance: the lobby and the counter of the Globe.
+		prepare("Boston Globe lobby", "The player stands in the lobby at Wilmot's counter and does not go past the iron door."),
+		// A place of its own, whose name no registered identity covers.
+		prepare("Innsmouth ferry landing", "The player takes the coast road to a harbour town the commission never named."),
+	]);
+	assert.equal(created.ok, true, JSON.stringify(created));
+	assert.equal(opened.ok, true, JSON.stringify(opened));
 
-	// The names, so the reviewer reads the destination off them and not off the handle.
-	assert.match(prompt, /canonical_name is the module's own name for the place/);
-	assert.match(prompt, /also_called/);
-	assert.match(prompt, /handle is a file name/);
-	// The grain, so a move to a scene is arrival at the place, not a claim about how far inside.
-	// Direction B is decided by this: without it, "I go to the clipping room but see Wilmot first"
-	// reads as a move that skips the gatekeeper, and the identity alone does not answer it.
-	assert.match(prompt, /A registered scene is the module's whole grain for a place/);
-	assert.match(prompt, /threshold/);
-	assert.match(prompt, /remain proposals of their own, judged on their own/);
-	assert.match(prompt, /refused from both sides cannot be reached by any wording/);
+	assert.equal(sameBuilding.ok, false, JSON.stringify(sameBuilding));
+	assert.equal(sameBuilding.error.details.reason, "same_place", JSON.stringify(sameBuilding.error));
+	assert.equal(sameBuilding.error.details.scene, "newspaper-morgue", JSON.stringify(sameBuilding.error.details));
+	// The refusal has to be actionable, or the Keeper mints the duplicate through another door.
+	assert.match(sameBuilding.error.fix, /Move to "newspaper-morgue"/);
+	assert.match(sameBuilding.error.fix, /narrate the part the player named/);
+
+	// A genuinely different place is still the adaptation path's business: the guard must not be
+	// the new way to refuse everything.
+	assert.notEqual(elsewhere.ok === false && elsewhere.error.details?.reason, "same_place", JSON.stringify(elsewhere));
 });
 
 test("a destination with no authored identity is described exactly as it was before", async (t) => {
