@@ -24,12 +24,12 @@ await expect(backend.handle("mergeWorktree",["session-1","agent-1","run-1"])).re
 expect(await backend.handle("getWorktreeStatus",["session-1","agent-1","run-1"])).toMatchObject({lifecycle:"pendingReview",merge:"ready"});
 await expect(backend.handle("discardWorktree",["session-1","agent-1","run-1"])).rejects.toThrow(/not implemented in this host yet/);expect(await backend.handle("capabilities",[])).toMatchObject({revealInFinder:true});});
 
-it("keeps a bound COC player's live transcript private while status and terminal errors stream",async()=>{
+it("streams a bound COC session's process details, delivery notices and terminal errors",async()=>{
 root=await mkdtemp(join(tmpdir(),"pipi-pi-coc-private-"));const cwd=join(root,"project"),dir=join(root,"sessions","project"),path=join(dir,"session.jsonl");await mkdir(dir,{recursive:true});await mkdir(cwd,{recursive:true});await writeFile(path,[
 JSON.stringify({type:"session",version:3,id:"session-1",timestamp:"2026-08-10T00:00:00.000Z",cwd}),
 JSON.stringify({type:"custom",customType:"coc-session",data:{campaign:"c1",home:root,play_language:"en"}}),
 ].join("\n")+"\n");
-const backend=createPiHostBackend({agentDir:join(root,"agent"),sessionsRoot:join(root,"sessions"),runtimeRoot:join(root,"runtime"),piPath:"node",spawn:(_bin,_args,options)=>spawn("/usr/local/bin/node",[new URL("./fake-pi.mjs",import.meta.url).pathname],{...options,env:{...options.env,PATH:"/usr/local/bin:/usr/bin:/bin"}}) as any});await backend.handle("addProject",[cwd]);const events:any[]=[];const off=backend.subscribe(e=>events.push(e));await backend.handle("sendPrompt",["session-1","go"]);await new Promise(r=>setTimeout(r,30));const streamed=events.filter(e=>e.channel==="stream").map(e=>e.event);expect(streamed.some(e=>e.type==="status"&&e.status==="settled"),JSON.stringify(streamed)).toBe(true);expect(streamed.filter(e=>["text","thinking","tool_call","tool_result","citations","input_file_sources"].includes(e.type))).toEqual([]);
+const backend=createPiHostBackend({agentDir:join(root,"agent"),sessionsRoot:join(root,"sessions"),runtimeRoot:join(root,"runtime"),piPath:"node",spawn:(_bin,_args,options)=>spawn("/usr/local/bin/node",[new URL("./fake-pi.mjs",import.meta.url).pathname],{...options,env:{...options.env,PATH:"/usr/local/bin:/usr/bin:/bin"}}) as any});await backend.handle("addProject",[cwd]);const events:any[]=[];const off=backend.subscribe(e=>events.push(e));await backend.handle("sendPrompt",["session-1","go"]);await new Promise(r=>setTimeout(r,30));const streamed=events.filter(e=>e.channel==="stream").map(e=>e.event);expect(streamed.some(e=>e.type==="status"&&e.status==="settled"),JSON.stringify(streamed)).toBe(true);expect(streamed.map(e=>e.type)).toEqual(expect.arrayContaining(["text","thinking","tool_call","tool_result"]));expect(streamed.some(e=>e.type==="thinking"&&e.delta==="think")).toBe(true);expect(streamed.some(e=>e.type==="text"&&e.delta==="hello")).toBe(true);
 await backend.handle("sendPrompt",["session-1","__coc_notice__"]);await new Promise(r=>setTimeout(r,30));expect(events.some(e=>e.channel==="stream"&&e.event.type==="presentation"&&e.event.entry?.id==="coc-notice"&&e.event.entry.content==="The turn returned to the player."),JSON.stringify(events)).toBe(true);
 await backend.handle("sendPrompt",["session-1","__fail_turn__"]);await new Promise(r=>setTimeout(r,30));expect(events.some(e=>e.channel==="stream"&&e.event.type==="error"&&/Invalid schema/.test(e.event.content)),JSON.stringify(events)).toBe(true);off();await backend.close();});
 
@@ -106,7 +106,7 @@ describe("PiHostBackend history structure",()=>{let root="";afterEach(async()=>{
   ]);
 });
 
-it("projects a bound COC history as delivered prose without Keeper activity summaries", async () => {
+it("retains thinking and tool activity when a bound COC history is reconciled", async () => {
   root = await mkdtemp(join(tmpdir(), "pipi-pi-hist-coc-private-"));
   const cwd = join(root, "project");
   const dir = join(root, "sessions", "project");
@@ -126,16 +126,20 @@ it("projects a bound COC history as delivered prose without Keeper activity summ
   ].join("\n") + "\n");
   const backend = createPiHostBackend({ agentDir: join(root, "agent"), sessionsRoot: join(root, "sessions"), runtimeRoot: join(root, "runtime"), piPath: "node" });
   const history = await backend.handle("getSessionHistory", ["session-1"]) as any[];
-  expect(history).toEqual([expect.objectContaining({
+  expect(history).toHaveLength(2);
+  expect(history[0]).toMatchObject({
     id: "a1",
     role: "assistant",
     content: "The editor sets the file on the desk.",
-    activities: [{ type: "text", contentIndex: 2, content: "The editor sets the file on the desk." }],
-  })]);
-  expect(history[0]).not.toHaveProperty("thinking");
-  expect(history[0]).not.toHaveProperty("tools");
-  expect(JSON.stringify(history)).not.toContain("keeper-only");
-  expect(JSON.stringify(history)).not.toContain("keeper receipt");
+    thinking: "the hidden culprit is downstairs",
+  });
+  expect(history[0].tools).toHaveLength(1);
+  expect(history[0].activities).toEqual(expect.arrayContaining([
+    expect.objectContaining({ type: "thinking" }),
+    expect.objectContaining({ type: "text", contentIndex: 2, content: "The editor sets the file on the desk." }),
+  ]));
+  expect(history[1]).toMatchObject({ role: "tool", toolCallId: "call-1", content: "keeper receipt" });
+  expect(JSON.stringify(history)).toContain("keeper-only");
 });
 
 it("projects typed toolResult images and structured details without leaking base64 into content", async () => {

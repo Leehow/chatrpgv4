@@ -9,7 +9,7 @@ import { createPiHostBackend } from "../src/index.js";
 // few or no thinking_delta events. message_end must diff the final thinking
 // against what actually streamed and repair the missing suffix live — the same
 // repair text already had.
-describe("PiHostBackend thinking catch-up on message_end", () => {
+describe.each([false, true])("PiHostBackend thinking catch-up on message_end (COC: %s)", (coc) => {
   let root = "";
   afterEach(async () => {
     if (root) await (await import("node:fs/promises")).rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 25 });
@@ -21,7 +21,10 @@ describe("PiHostBackend thinking catch-up on message_end", () => {
     const dir = join(root, "sessions", "project");
     await mkdir(dir, { recursive: true });
     await mkdir(cwd, { recursive: true });
-    await writeFile(join(dir, "session.jsonl"), JSON.stringify({ type: "session", version: 3, id: "session-1", timestamp: "2026-08-10T00:00:00.000Z", cwd }) + "\n");
+    await writeFile(join(dir, "session.jsonl"), [
+      JSON.stringify({ type: "session", version: 3, id: "session-1", timestamp: "2026-08-10T00:00:00.000Z", cwd }),
+      ...(coc ? [JSON.stringify({ type: "custom", customType: "coc-session", data: { campaign: "c1", home: root, play_language: "en" } })] : []),
+    ].join("\n") + "\n");
     const backend = createPiHostBackend({
       agentDir: join(root, "agent"),
       sessionsRoot: join(root, "sessions"),

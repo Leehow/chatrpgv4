@@ -410,7 +410,7 @@ describe("product packs over an additive base", () => {
     await backend.close();
   });
 
-  it("keeps coc-keeper setup streams private before a campaign binding exists", async () => {
+  it("streams coc-keeper setup progress before a campaign binding exists", async () => {
     root = await mkdtemp(join(tmpdir(), "pipi-pack-coc-setup-private-"));
     const project = join(root, "workspace");
     const pkg = join(projectPiAgentDir(project), "extensions", "coc-keeper");
@@ -444,7 +444,9 @@ describe("product packs over an additive base", () => {
     await new Promise(resolve => setTimeout(resolve, 30));
     const streamed = events.filter(event => event.channel === "stream").map(event => event.event);
     expect(streamed.some(event => event.type === "status" && event.status === "settled")).toBe(true);
-    expect(streamed.filter(event => ["text", "thinking", "tool_call", "tool_result"].includes(event.type))).toEqual([]);
+    expect(streamed.map(event => event.type)).toEqual(expect.arrayContaining(["text", "thinking", "tool_call", "tool_result"]));
+    expect(streamed.some(event => event.type === "thinking" && event.delta === "think")).toBe(true);
+    expect(streamed.some(event => event.type === "text" && event.delta === "hello")).toBe(true);
     off();
     await backend.close();
   });

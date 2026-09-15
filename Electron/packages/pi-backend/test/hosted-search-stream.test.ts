@@ -263,8 +263,9 @@ describe("hosted search stream projection", () => {
   });
 });
 
-describe("hosted search backend stream", () => {
+describe.each([false, true])("hosted search backend stream (COC: %s)", (coc) => {
   let root = "";
+  const binding = () => JSON.stringify({ type: "custom", customType: "coc-session", data: { campaign: "c1", home: root, play_language: "en" } });
   afterEach(async () => {
     if (root) await (await import("node:fs/promises")).rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 25 });
     root = "";
@@ -276,7 +277,7 @@ describe("hosted search backend stream", () => {
     const dir = join(root, "sessions", "project");
     await mkdir(dir, { recursive: true });
     await mkdir(cwd, { recursive: true });
-    await writeFile(join(dir, "session.jsonl"), `${JSON.stringify({ type: "session", version: 3, id: "session-1", timestamp: "2026-08-10T00:00:00.000Z", cwd })}\n`);
+    await writeFile(join(dir, "session.jsonl"), `${JSON.stringify({ type: "session", version: 3, id: "session-1", timestamp: "2026-08-10T00:00:00.000Z", cwd })}\n${coc ? `${binding()}\n` : ""}`);
     const backend = createPiHostBackend({
       agentDir: join(root, "agent"),
       sessionsRoot: join(root, "sessions"),
@@ -314,7 +315,7 @@ describe("hosted search backend stream", () => {
     const dir = join(root, "sessions", "project");
     await mkdir(dir, { recursive: true });
     await mkdir(cwd, { recursive: true });
-    await writeFile(join(dir, "session.jsonl"), `${JSON.stringify({ type: "session", version: 3, id: "session-1", timestamp: "2026-08-10T00:00:00.000Z", cwd })}\n`);
+    await writeFile(join(dir, "session.jsonl"), `${JSON.stringify({ type: "session", version: 3, id: "session-1", timestamp: "2026-08-10T00:00:00.000Z", cwd })}\n${coc ? `${binding()}\n` : ""}`);
     const backend = createPiHostBackend({
       agentDir: join(root, "agent"),
       sessionsRoot: join(root, "sessions"),
@@ -361,6 +362,7 @@ describe("hosted search backend stream", () => {
     const msg = (id, message) => JSON.stringify({ type: "message", id, parentId: null, timestamp: "2026-08-10T00:00:01.000Z", message });
     await writeFile(path, [
       JSON.stringify({ type: "session", version: 3, id: "session-1", timestamp: "2026-08-10T00:00:00.000Z", cwd }),
+      ...(coc ? [binding()] : []),
       msg("a1", {
         role: "assistant",
         content: [{

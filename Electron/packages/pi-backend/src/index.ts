@@ -1459,22 +1459,10 @@ function redactHistoryEntry(entry: HistoryEntry | undefined, secrets: RevealedSe
 type CocHostPaths = {repo: string; contentRoot: string; home: string};
 function visibleHistoryEntry(entry: any, secrets: RevealedSecret[] = [], language?:string,
   presentations?: ReadonlyMap<number, Record<string, unknown>>, words: CocHistoryWords = {},
-  current?: Record<string, unknown>, privateCocTranscript = false): HistoryEntry | undefined {
+  current?: Record<string, unknown>): HistoryEntry | undefined {
   const mechanics = mechanicsEntry(entry, language, presentations, words, current);
   if (mechanics) return mechanics;
-  if (entry?.type === "message") {
-    const mapped = redactHistoryEntry(historyEntryFromMessage(entry), secrets);
-    if (!mapped || !privateCocTranscript) return mapped;
-    // The player history keeps delivered assistant prose, but not the retained Keeper evidence that
-    // produced it. Tool-result rows disappear; assistant activity keeps only text ordering so a
-    // settled reconcile cannot resurrect the live thinking/tool summary we deliberately withheld.
-    if (mapped.role === "tool") return undefined;
-    if (mapped.role !== "assistant") return mapped;
-    const { thinking: _thinking, tools: _tools, citations: _citations, fileSources: _fileSources,
-      activities: privateActivities, ...playerEntry } = mapped;
-    const activities = privateActivities?.filter(activity => activity.type === "text");
-    return { ...playerEntry, ...(activities?.length ? { activities } : {}) };
-  }
+  if (entry?.type === "message") return redactHistoryEntry(historyEntryFromMessage(entry), secrets);
   if (isVisibleCustomMessage(entry)) {
     const content = text(entry.content);
     if (!content) return undefined;
@@ -1597,8 +1585,6 @@ async function readHistoryFallback(
   const wanted = new Set(pageIds);
   const mappedById = new Map<string, HistoryEntry>();
   const cocBinding = await readCocBinding(path);
-  const privateCocTranscript = Boolean(cocBinding)
-    || (await readSessionMeta(path)).productProfile?.id === "coc-keeper";
   // One directory read per page, not one fetch per mounted card. The chrome's words and the
   // campaign's projected vocabulary are loaded here for the same reason: every card on the page
   // reads them, and a per-row read would open the same three files once per roll.
@@ -1623,7 +1609,7 @@ async function readHistoryFallback(
     }
     if (!wanted.has(entry?.id)) continue;
     const secrets = vaultDir && sessionId ? revealRedactionSecrets(vaultDir, sessionId) : [];
-    const mapped = visibleHistoryEntry(entry, secrets, cocBinding?.play_language, cocPresentations, cocWords, cocDraft, privateCocTranscript);
+    const mapped = visibleHistoryEntry(entry, secrets, cocBinding?.play_language, cocPresentations, cocWords, cocDraft);
     if (!mapped) continue;
     mappedById.set(mapped.id, mapped);
   }
@@ -6147,10 +6133,6 @@ export class PiHostBackend implements HostBackend {
       return;
     }
     const id = live.session.id;
-    // PipiCOC is a player projection: Keeper drafts, reasoning and tool traces remain durable evidence
-    // but never enter the live transcript. The immutable session form covers setup; the retained
-    // campaign binding covers resumed play. Status, terminal errors and presentations remain public.
-    const privateCocTranscript = live.session.productProfile?.id === "coc-keeper" || this.cocSessionBindings.has(id);
     // Pi binds session_start extensions before subscribing its RPC event stream.
     // An extension-owned opening can therefore precede the first agent_start
     // observable by this host. Its first assistant message is real activity;
@@ -6377,7 +6359,7 @@ export class PiHostBackend implements HostBackend {
       if (d.type === "text_delta") {
         const delta = redactor("text", d.contentIndex ?? 0).push(d.delta ?? "");
         live.streamedAssistantText = (live.streamedAssistantText ?? "") + delta;
-        if (!privateCocTranscript) this.stream({
+        this.stream({
           type: "text",
           sessionId: id,
           contentIndex: d.contentIndex ?? 0,
@@ -6393,7 +6375,7 @@ export class PiHostBackend implements HostBackend {
         // and reports nothing, so this is where that gets noticed rather than inferred.
         // In-memory only: the write happens once per message, at message_end.
         this.noteThinkingObserved(id, (d.delta ?? "").length);
-        if (!privateCocTranscript) this.stream({
+        this.stream({
           type: "thinking",
           sessionId: id,
           contentIndex: d.contentIndex ?? 0,
@@ -6409,7 +6391,7 @@ export class PiHostBackend implements HostBackend {
         // until every toolcall_end arrives in one burst.
         const index = d.contentIndex ?? 0;
         if (!live.toolArgs.has(index)) live.toolArgs.set(index, "");
-        if (!privateCocTranscript) this.stream({
+        this.stream({
           type: "tool_call",
           sessionId: id,
           contentIndex: index,
@@ -6422,7 +6404,7 @@ export class PiHostBackend implements HostBackend {
         const index = d.contentIndex ?? 0;
         const delta = redactor("tool", index).push(d.delta ?? "");
         live.toolArgs.set(index, (live.toolArgs.get(index) ?? "") + delta);
-        if (!privateCocTranscript) this.stream({
+        this.stream({
           type: "tool_call",
           sessionId: id,
           contentIndex: index,
@@ -6444,7 +6426,7 @@ export class PiHostBackend implements HostBackend {
             : typeof call.arguments === "string"
               ? redactText(call.arguments, secrets)
               : buffered;
-        if (!privateCocTranscript) this.stream({
+        this.stream({
           type: "tool_call",
           sessionId: id,
           contentIndex: index,
@@ -6454,7 +6436,7 @@ export class PiHostBackend implements HostBackend {
           delta: args,
         });
       }
-      if (!privateCocTranscript && isHostedAssistantEvent(d)) {
+      if (isHostedAssistantEvent(d)) {
         for (const event of projectHostedAssistantEvent(id, d, live.messageEpoch)) {
           this.stream(event);
         }
@@ -6485,26 +6467,24 @@ export class PiHostBackend implements HostBackend {
           const tail = item.flush();
           if (tail) {
             thinkingFlushed += tail;
-            if (!privateCocTranscript) this.stream({ type: "thinking", sessionId: id, contentIndex: 0, segment: endingEpoch, delta: tail });
+            this.stream({ type: "thinking", sessionId: id, contentIndex: 0, segment: endingEpoch, delta: tail });
           }
         });
         live.streamRedactors?.thinking.clear();
         const fullText = redactText(assistantVisibleText(endedMessage.content), secrets);
         const already = (live.streamedAssistantText ?? "") + flushed;
-        if (!privateCocTranscript) {
-          if (already && !fullText.startsWith(already)) {
-            this.stream({type:"text", sessionId:id, contentIndex:0, segment:endingEpoch, delta:fullText, replace:true});
-          } else if (fullText && (!already || (fullText.startsWith(already) && fullText.length > already.length))) {
-            this.stream({
-              type: "text",
-              sessionId: id,
-              contentIndex: 0,
-              segment: endingEpoch,
-              delta: already ? fullText.slice(already.length) : fullText,
-            });
-          } else if (flushed) {
-            this.stream({ type: "text", sessionId: id, contentIndex: 0, segment: endingEpoch, delta: flushed });
-          }
+        if (already && !fullText.startsWith(already)) {
+          this.stream({type:"text", sessionId:id, contentIndex:0, segment:endingEpoch, delta:fullText, replace:true});
+        } else if (fullText && (!already || (fullText.startsWith(already) && fullText.length > already.length))) {
+          this.stream({
+            type: "text",
+            sessionId: id,
+            contentIndex: 0,
+            segment: endingEpoch,
+            delta: already ? fullText.slice(already.length) : fullText,
+          });
+        } else if (flushed) {
+          this.stream({ type: "text", sessionId: id, contentIndex: 0, segment: endingEpoch, delta: flushed });
         }
         live.streamedAssistantText = "";
         // Thinking suffers the same dropped-delta failure mode as text but had no
@@ -6521,7 +6501,7 @@ export class PiHostBackend implements HostBackend {
           .filter((block): block is { index: number; text: string } => block != null);
         const fullThinking = redactText(thinkingBlocks.map((block) => block.text).join(""), secrets);
         const alreadyThinking = (live.streamedAssistantThinking ?? "") + thinkingFlushed;
-        if (!privateCocTranscript && fullThinking && fullThinking.startsWith(alreadyThinking) && fullThinking.length > alreadyThinking.length) {
+        if (fullThinking && fullThinking.startsWith(alreadyThinking) && fullThinking.length > alreadyThinking.length) {
           // Interleaved turns carry several thinking blocks; per-block attribution
           // for mid-turn losses is not attempted. The dominant failure is
           // whole-turn loss, and the missing suffix is keyed to the last block so
@@ -6537,9 +6517,9 @@ export class PiHostBackend implements HostBackend {
         }
         live.streamedAssistantThinking = "";
         const citations = extractHistoryCitations(endedMessage, fullText);
-        if (!privateCocTranscript && citations.length) this.stream({ type: "citations", sessionId: id, citations });
+        if (citations.length) this.stream({ type: "citations", sessionId: id, citations });
         const fileSources = extractHistoryFileSources(endedMessage);
-        if (!privateCocTranscript && fileSources.length) this.stream({ type: "input_file_sources", sessionId: id, sources: fileSources });
+        if (fileSources.length) this.stream({ type: "input_file_sources", sessionId: id, sources: fileSources });
         this.flushThinkingControl();
       }
       // A new message restarts content indexing; drop unclaimed tool buffers and
@@ -6618,7 +6598,7 @@ export class PiHostBackend implements HostBackend {
     } else if (e.type === "tool_execution_end") {
       this.touchTurnActivity(live);
       const { text: resultText, images } = extractResult(e.result?.content)
-      if (!privateCocTranscript) this.stream({
+      this.stream({
         type: "tool_result",
         sessionId: id,
         toolCallId: e.toolCallId,
