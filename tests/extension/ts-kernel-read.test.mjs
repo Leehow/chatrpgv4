@@ -1,4 +1,4 @@
-import {expected as outcome, withoutPostFreezeRecovery} from "./oracle-fixture.mjs";
+import {expected as outcome, withoutPostFreezeIdentity, withoutPostFreezeRecovery} from "./oracle-fixture.mjs";
 import {pythonOracleRoot} from "../python-oracle.mjs";
 import assert from 'node:assert/strict';
 import { after, test } from 'node:test';
@@ -156,7 +156,13 @@ test('ModuleGraph read methods match Python on authored material and ambiguous a
   for(const name of [sceneHandle,graph.displayName(npc),'The Doctor','unlisted-person'])cases.push({label:`resolve ${name}`,python:'resolve',typescript:'resolve',args:[name]});
   for(const query of ['doctor','Knott','library','corridor'])cases.push({label:`search ${query}`,python:'search',typescript:'search',args:[query]});
   const before=api.pythonJsonDumps(raw),expected=oracle('graph',{cases});
-  await rows(t,cases,expected,c=>captured(()=>graph[c.typescript](...(c.node?[graph.nodes.get(c.node)]:[]),...(c.args||[]))));
+  await rows(t,cases,expected,c=>{
+    const result=captured(()=>graph[c.typescript](...(c.node?[graph.nodes.get(c.node)]:[]),...(c.args||[])));
+    // The entity view grew `destination_identity` after the freeze; it is dropped from the live side
+    // here and asserted in `destination-identity.test.mjs`. See POST_FREEZE_ENTITY_FIELDS for why the
+    // captured outcome is evidence and is not edited to match.
+    return c.typescript==='entityView'&&result.value?{...result,value:withoutPostFreezeIdentity(result.value)}:result;
+  });
   assert.equal(api.pythonJsonDumps(raw),before);
   assert.deepEqual(await readFile(graphPath),graphBytes);
 });

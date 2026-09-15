@@ -53,13 +53,34 @@ export interface AdmissionProposal {
 	lines: string[];
 }
 
+/**
+ * One proposed move target as the graph projects it. `handle` is a file name, not a name: the
+ * module authors the place's own name and the names a table calls it by, and until 2026-09-15
+ * neither reached here -- the reviewer read `{handle: "newspaper-morgue", label:
+ * "newspaper-morgue", summary: "scene newspaper morgue"}` (the slug, the slug again, and the slug
+ * de-slugged) and refused a walk into the Boston Globe three turns running, then refused it twice
+ * more from the other side, reading the one node as the single room its slug is named after.
+ */
+export interface AdmissionDestination {
+	requested: string;
+	handle?: string;
+	label?: string;
+	summary?: string;
+	/** The module's own name for the place this scene is. */
+	canonical_name?: string;
+	/** Other authored names for that same place. */
+	aliases?: string[];
+	/** The module's own answer to "can they walk in": `public`/`independent` and their opposites. */
+	access?: Record<string, string>;
+}
+
 export interface AdmissionScope {
 	/** Investigator names at this table; an action by anyone else is NPC initiative, not a player action. */
 	party: string[];
 	/** The current scene's handle and player-facing label: a `move` to it is a rename, not travel. */
 	scene?: { handle?: string; label?: string };
 	/** Exact read-only graph projections for proposed move targets. */
-	destinations?: Array<{ requested: string; handle?: string; label?: string; summary?: string }>;
+	destinations?: AdmissionDestination[];
 	/**
 	 * The closed options of the `ask` the player is answering this turn (dodge, fight_back, push,
 	 * spend_luck, ...). A `resolve` that settles one of them carries the player's own answer, in
@@ -84,6 +105,36 @@ const text = (value: unknown): string | undefined => {
 	const trimmed = value.trim();
 	return trimmed ? trimmed : undefined;
 };
+
+/**
+ * The reviewer's view of one move target, built from the graph's entity view and nothing else.
+ * Keep it tight: the place's names are what tells a reviewer *where* the move goes, and the rest
+ * of the projection record is module truth that the review has no business reading.
+ */
+export function registeredDestination(requested: string, entity: Record<string, unknown>): AdmissionDestination {
+	const identity = (entity.destination_identity ?? {}) as Record<string, unknown>;
+	const canonical = text(identity.canonical_name);
+	const aliases = (Array.isArray(identity.aliases) ? identity.aliases : [])
+		.map((value) => text(value))
+		.filter((value): value is string => value !== undefined)
+		.slice(0, 8);
+	// `discoverability` and `direct_entry`: the module's own answer to whether walking in is a
+	// thing the investigator can simply choose. It is a fact about the place, not about a hidden
+	// outcome, which is the line §32.2 draws around what a review may be told.
+	const declared = (entity.destination_access ?? {}) as Record<string, unknown>;
+	const access = Object.fromEntries(["discoverability", "direct_entry"]
+		.map((key) => [key, text(declared[key])])
+		.filter((pair): pair is [string, string] => pair[1] !== undefined));
+	return {
+		requested,
+		...(text(entity.name) ? { handle: text(entity.name) } : {}),
+		...(text(entity.display_name) ? { label: text(entity.display_name) } : {}),
+		...(text(entity.summary) ? { summary: text(entity.summary) } : {}),
+		...(canonical ? { canonical_name: canonical } : {}),
+		...(aliases.length ? { aliases } : {}),
+		...(Object.keys(access).length ? { access } : {}),
+	};
+}
 
 /** Stable JSON: keys sorted, so the same proposal in a different field order reuses its verdict. */
 function canonical(value: unknown): string {
@@ -147,7 +198,9 @@ export function admissionRequest(tool: string, payload: Record<string, unknown>,
 				.filter(([k, v]) => k !== "kind" && !k.startsWith("_") && v !== undefined && v !== null && v !== "")
 				.map(([k, v]) => `${k}=${typeof v === "string" ? JSON.stringify(v) : JSON.stringify(v)}`);
 			const registered = kind === 'move' ? destination(effect) : undefined;
-			return `apply ${kind}: ${fields.join("; ")}${registered ? `; registered_destination=${JSON.stringify({handle: registered.handle, label: registered.label, summary: registered.summary})}` : ''}`;
+			return `apply ${kind}: ${fields.join("; ")}${registered ? `; registered_destination=${JSON.stringify({handle: registered.handle, label: registered.label, summary: registered.summary,
+					...(registered.canonical_name ? {canonical_name: registered.canonical_name} : {}), ...(registered.aliases?.length ? {also_called: registered.aliases} : {}),
+					...(registered.access ? {access: registered.access} : {})})}` : ''}`;
 		};
 		const signature = (effect: Record<string, unknown>): Record<string, unknown> => {
 			const kind = text(effect.kind) ?? "?";
@@ -186,7 +239,7 @@ export function admissionSystemPrompt(): string {
 		"You are the action-admission reviewer at a Call of Cthulhu table. The Keeper (the game master, an AI) is about to settle an action on the investigator's behalf: roll dice for it, move the investigator somewhere, spend their time or money, hand them a clue or a document, or take or give an item. Answer one question: did the player choose this?",
 		"Judge only from the player's exact current words, what the player was already told (the earlier deliveries), and any still-valid earlier instruction the player gave and did not withdraw. The Keeper's own goal, method, why, how and stakes text describes the proposal; it is not evidence of the player's consent. A Keeper suggestion in earlier narration is not acceptance. Interest in a subject is not a trip to a place. Risk in an action the player chose does not license a different method, destination or target.",
 		"Explicit limits on money, quantity, duration and scope are binding. Compare proposed debits and commitments with the chosen limit; do not round a budget upward, add a deposit, buy extra nights, or use an earlier offer to override the latest choice. A request for one night with a budget of 2.50 does not authorize a debit of 3.00 described as a deposit or two nights. A goal such as lodging authorizes only its chosen scope. If a proposed value exceeds a stated limit, answer not_authorized and identify both values in grounds; the Keeper's why cannot make the excess entailed.",
-		"For a move, registered_destination is authoritative evidence of what the target scene physically is. A label may present that same place in the player's language; it cannot substitute a different city, building or destination. If the player chooses Athens but the registered target is a Boston hotel, answer not_authorized even when label says Athens. A genuinely missing chosen destination must be registered through the reviewed adaptation path before movement.",
+		"For a move, registered_destination is authoritative evidence of what the target scene physically is. Read it by its names, not by its handle: handle is a file name, often the slug of one room, while canonical_name is the module's own name for the place and also_called lists the other names it is known by. A player who names the place by any of those names, in any language, has named this destination. A label may present that same place in the player's language; it cannot substitute a different city, building or destination. If the player chooses Athens but the registered target is a Boston hotel, answer not_authorized even when label says Athens. A genuinely missing chosen destination must be registered through the reviewed adaptation path before movement.",
 		"Verdicts:",
 		"- authorized: the player's words, read in context, choose this actor, goal, method, target, destination and any meaningful cost or commitment.",
 		"- entailed: the player chose the meaningful goal, and this is a routine step that goal requires — crossing the room they asked to search, the minutes a chosen search takes, the roll the chosen method calls for, the way back they already took.",
