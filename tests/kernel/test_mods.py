@@ -203,6 +203,101 @@ def test_prefetch_worldline_snapshot_keeps_records_but_jobs_cannot_cross(kernel)
     assert proposal_job(kernel)["job"] != job["job"]
 
 
+def prefetch_targets(kernel):
+    return kernel.ok("mods.prefetch.targets", {"campaign":CAMPAIGN})
+
+
+def retained_tree(path):
+    paths = [path, *path.rglob("*")] if path.exists() else []
+    return {str(p.relative_to(path)): (p.stat().st_mtime_ns, p.read_bytes() if p.is_file() else None)
+            for p in paths}
+
+
+def test_prefetch_targets_scope_owner_and_unbounded_read_only_projection(kernel):
+    open_turn(kernel)
+    folder = campaign_dir(kernel.workspace)
+    jobs = kernel.workspace / ".coc" / "mods" / "jobs"
+    before = (retained_tree(folder), retained_tree(jobs))
+    assert prefetch_targets(kernel)["instances"] == []
+    assert (retained_tree(folder), retained_tree(jobs)) == before
+    prefetch_object(kernel)
+    placements = [("Scene rod", "here"), ("NPC rod", "Steven Knott"),
+                  ("Remote rod", "corbitt-house-ground"), ("Nested rod", "My rod"),
+                  ("Remote nested rod", "Remote rod")]
+    placements.extend((f"Scene rod {index}", "here") for index in range(25))
+    kernel.table("apply", call_id="t1-c2", effects=[
+        {"kind":"object", "name":name, "definition":"Wooden rod", "to":owner}
+        for name, owner in placements])
+    before = (retained_tree(folder), retained_tree(jobs))
+    result = prefetch_targets(kernel)
+    assert (retained_tree(folder), retained_tree(jobs)) == before
+    instances = {item["name"]:item for item in result["instances"]}
+    assert set(instances) == {"My rod", "Scene rod", "NPC rod", "Nested rod", *[f"Scene rod {i}" for i in range(25)]}
+    world = read_json(folder / "world.json")
+    assert instances["My rod"]["owner"] == world["objects"]["instances"][instances["My rod"]["id"]]["owner"]
+    assert instances["My rod"]["owner"]["kind"] == "investigator"
+    assert instances["NPC rod"]["owner"]["kind"] == "npc"
+    assert instances["Scene rod"]["owner"]["id"] == result["active_scene"]
+    assert instances["Nested rod"]["owner"] == {"kind":"other", "id":instances["My rod"]["id"], "name":"My rod"}
+    for item in instances.values():
+        physical = world["objects"]["instances"][item["id"]]
+        assert item["definition_digest"] == world["objects"]["definitions"][physical["definition"]]["digest"]
+        assert item["condition"] == "intact"
+        assert item["has_any_usage"] is False and item["covered"] is False
+
+
+def test_prefetch_targets_positive_and_action_records_are_marked_even_when_stale(kernel):
+    open_turn(kernel)
+    prefetch_object(kernel)
+    job = proposal_job(kernel)
+    assert prefetch_targets(kernel)["instances"][0]["covered"] is False
+    accept_proposal(kernel, job, prefetch_usage())
+    item = prefetch_targets(kernel)["instances"][0]
+    assert item["has_any_usage"] is True and item["covered"] is True
+    kernel.table("apply", call_id="t1-c2", effects=[{"kind":"object", "name":"My rod", "from":"Thomas Hayes",
+        "to":"Thomas Hayes", "condition":"broken", "why":"The rod snapped."}])
+    item = prefetch_targets(kernel)["instances"][0]
+    assert item["condition"] == "broken"
+    assert item["has_any_usage"] is True and item["covered"] is False
+    kernel.table("apply", call_id="t1-c3", effects=[{"kind":"object", "name":"Action rod", "definition":"Wooden rod", "to":"here"}])
+    request = {"object":"Action rod", "name":"Swing", "description":"Swing the rod."}
+    action = kernel.ok("mods.job", {"campaign":CAMPAIGN, "role":"usage", "input":request})
+    Path(action["cwd"], "result.json").write_text(json.dumps(prefetch_usage()))
+    accepted = kernel.ok("mods.accept", {"campaign":CAMPAIGN, "job":action["job"]})
+    kernel.table("apply", call_id="t1-c4", effects=[{"kind":"usage", **request, "_usage":accepted}])
+    item = next(item for item in prefetch_targets(kernel)["instances"] if item["name"] == "Action rod")
+    assert item["has_any_usage"] is True and item["covered"] is False
+
+
+def test_prefetch_targets_negative_coverage_worldline_and_state_are_read_only(kernel):
+    from test_worldline import fork
+    open_turn(kernel)
+    prefetch_object(kernel)
+    accept_proposal(kernel, proposal_job(kernel), None)
+    folder = campaign_dir(kernel.workspace)
+    jobs = kernel.workspace / ".coc" / "mods" / "jobs"
+    def check():
+        before = (retained_tree(folder), retained_tree(jobs))
+        result = prefetch_targets(kernel)
+        assert (retained_tree(folder), retained_tree(jobs)) == before
+        meta, turn, world = (read_json(folder / name) for name in ("campaign.json", "turn.json", "world.json"))
+        assert {key:result[key] for key in ("campaign", "worldline", "turn", "state", "pending_choice", "active_scene")} == {
+            "campaign":CAMPAIGN, "worldline":meta["active_worldline"], "turn":turn["turn"],
+            "state":turn["state"], "pending_choice":turn["pending_choice"], "active_scene":world["active_scene"]}
+        return result["instances"][0]
+    item = check()
+    assert item["has_any_usage"] is False and item["covered"] is True
+    narrate(kernel, "t1-c2", "I leave the rod alone.")
+    assert check()["covered"] is True
+    fork(kernel, 2, "side")
+    assert check()["covered"] is False
+    turn_path = folder / "turn.json"
+    turn = read_json(turn_path)
+    turn["pending_choice"] = {"kind":"fixture-choice", "options":["wait", "leave"]}
+    turn_path.write_text(json.dumps(turn))
+    check()
+
+
 def test_initial_inventory_is_audited_without_being_mentioned_and_adopted_once(kernel):
     create_campaign(kernel)
     folder = campaign_dir(kernel.workspace)

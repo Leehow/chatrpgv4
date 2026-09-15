@@ -113,6 +113,39 @@ export class ModJobs {
         const party = (await campaign.party() as Row[]).map(sheet => sheets.get(string(sheet.id)) ?? sheet);
         return {world,party};
     }
+    private proposalIdentity(campaign: string, worldline: any, candidates: Row[], input: Row, physicalBasis: Row): Row {
+        return {campaign, prefetch:true, worldline, mod:candidates[0].id, digest:candidates[0].digest,
+            packages:candidates.map(mod => ({id:mod.id,digest:mod.digest})), request:{input,role:'usage'}, physical_basis:physicalBasis};
+    }
+    private jobRoot(key: string): string { return join(this.runtime.root, 'jobs', key); }
+    private jobKey(identity: Row): string {
+        return jsonDigest(identity.prefetch === true
+            ? Object.fromEntries(entries(identity).filter(([name]) => name !== 'usage_request_digest')) : identity);
+    }
+    async prefetchTargets(params: Row): Promise<Row> {
+        // Do not use transaction loading: a read must not repair or initialize an old save.
+        const campaign = await this.writer.campaign(params), world = await campaign.readWorld(),
+            turn = await campaign.readTurn(), meta = await campaign.readCampaign();
+        const candidates = await this.contributors(world,turn,'usage'), objects = row(row(world.objects).instances),
+            used = new Set(values(row(row(world.objects).usages)).map(usage => usage.object_id)), instances: Row[] = [];
+        for (const item of values(objects)) {
+            let owner = row(item.owner);
+            const seen = new Set<string>();
+            while (owner.kind === 'object' && !seen.has(string(owner.id))) {
+                seen.add(string(owner.id)); owner = row(row(objects[string(owner.id)]).owner);
+            }
+            if (!['investigator','npc'].includes(owner.kind) && !(owner.kind === 'scene' && owner.id === world.active_scene)) continue;
+            const basis = usagePhysicalBasis(world,item), immediate = row(item.owner);
+            const covered = candidates.length > 0 && await this.context.snapshots.pathExists(join(this.jobRoot(this.jobKey(
+                this.proposalIdentity(campaign.id,meta.active_worldline ?? null,candidates,{object:item.name,propose:true},basis))), 'accepted.json'));
+            instances.push({id:item.id,name:item.name,
+                owner:{kind:['investigator','npc','scene'].includes(immediate.kind) ? immediate.kind : 'other',
+                    ...Object.fromEntries(['id','name'].filter(key => Object.hasOwn(immediate,key)).map(key => [key,immediate[key]]))},
+                definition_digest:basis.definition_digest,condition:basis.condition,has_any_usage:used.has(item.id),covered});
+        }
+        return {campaign:campaign.id,worldline:meta.active_worldline ?? null,turn:turn.turn,state:turn.state,
+            pending_choice:turn.pending_choice ?? null,active_scene:world.active_scene ?? null,instances};
+    }
     async job(params: Row): Promise<Row> {
         if (params.role === 'create' && isJsonObject(params.input) && params.input.category == null)
             params = {...params,input:{...params.input,category:'item'}};
@@ -151,11 +184,12 @@ export class ModJobs {
             if (preview) request.preview = clone(params.preview);
             request.usage_object = {name:item.name,quantity:item.quantity,state:clone(item.state),definition:clone(row(row(world.objects).definitions)[item.definition])};
         }
-        const identity: Row = {campaign: campaign.id, ...(prefetch ? {prefetch:true} : {turn:turn.turn}), worldline: meta.active_worldline ?? null, mod: packageRow.id, digest: packageRow.digest,
+        const identity: Row = prefetch ? this.proposalIdentity(campaign.id,meta.active_worldline ?? null,candidates,params.input,physicalBasis!)
+            : {campaign: campaign.id, turn:turn.turn, worldline: meta.active_worldline ?? null, mod: packageRow.id, digest: packageRow.digest,
             packages: candidates.map(mod => ({id: mod.id, digest: mod.digest})), request: role === 'audit' ? request : {input: params.input ?? null, role},
-            ...(physicalBasis ? {physical_basis:physicalBasis,...(!prefetch ? {usage_request_digest:jsonDigest(request)} : {})} : {}),
+            ...(physicalBasis ? {physical_basis:physicalBasis,usage_request_digest:jsonDigest(request)} : {}),
             ...(evidence ? {source_binding: evidence.binding} : {})};
-        const key = jsonDigest(identity), root = join(this.runtime.root, 'jobs', key);
+        const key = this.jobKey(identity), root = this.jobRoot(key);
         if (!await this.context.snapshots.pathExists(join(root, 'request.json'))) {
             await mkdir(root, {recursive: true});
             if (evidence) await writeAuditSources(root, evidence.files);
@@ -233,7 +267,7 @@ export class ModJobs {
     private async acceptJob(params: Row, prefetch: boolean): Promise<Row> {
         const key = params.job;
         if (typeof key !== 'string' || key.length !== 64 || !/^[0-9a-f]{64}$/.test(key)) throw new RpcError('invalid_params', 'Unknown Mod job');
-        const root = join(this.runtime.root, 'jobs', key), identity = row(await this.context.snapshots.readJson(join(root, 'identity.json')));
+        const root = this.jobRoot(key), identity = row(await this.context.snapshots.readJson(join(root, 'identity.json')));
         if ((identity.prefetch === true) !== prefetch) throw new RpcError('invalid_params',
             identity.prefetch === true ? 'Proposal jobs require mods.prefetch.accept' : 'Action jobs require mods.accept',
             {details:{reason:identity.prefetch === true ? 'prefetch_accept_required' : 'action_accept_required'}});
@@ -252,8 +286,7 @@ export class ModJobs {
         const continuity = request.role === 'audit' && (await this.contributors(world, turn, 'audit')).some(mod => array(mod.requires).includes(CONTINUITY_AUDIT));
         const sourceAudit = !continuity && request.role === 'audit' && (await this.contributors(world, turn, 'audit')).some(mod => array(mod.requires).includes(SOURCE_AUDIT));
         const keyedRequest = request.role === 'audit' ? request : {input:request.input ?? null,role:request.role};
-        const keyIdentity = prefetch ? Object.fromEntries(entries(identity).filter(([name]) => name !== 'usage_request_digest')) : identity;
-        if (jsonDigest({...keyIdentity,request:keyedRequest}) !== key || identity.usage_request_digest && jsonDigest(request) !== identity.usage_request_digest)
+        if (this.jobKey({...identity,request:keyedRequest}) !== key || identity.usage_request_digest && jsonDigest(request) !== identity.usage_request_digest)
             throw new RpcError('needs',request.role === 'audit' ? 'The retained source-audit request changed' : 'The retained Mod preparation request changed',
                 {details:{reason:request.role === 'audit' ? 'mod_audit_evidence' : 'usage_request_changed',file:'request.json'},
                  fix:'Keep this draft unaccepted; inspect the retained preparation request'});

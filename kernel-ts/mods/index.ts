@@ -60,6 +60,7 @@ export function createModRuntime(context: KernelContext, sources: ModSources = {
       'mods.job': params => jobs.job(params),
       'mods.accept': params => jobs.accept(params),
       'mods.prefetch.accept': params => jobs.acceptPrefetch(params),
+      'mods.prefetch.targets': params => jobs.prefetchTargets(params),
       'mods.review.status': params => jobs.reviewStatus(params),
       'mods.queued': params => jobs.queued(params),
       'mods.list': listing,
