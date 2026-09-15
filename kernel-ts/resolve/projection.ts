@@ -215,6 +215,7 @@ export function modResolveEvents(action:Row,result:Row,receipts:Row[]):DomainEve
         receipt.family??=result.family;
         if(receipt.kind==='roll')events.push({type:'roll-resolved',data:{...orderedObject(entries(receipt).filter(([key])=>!['check','id','kind','call_id','at'].includes(key))),goal:Object.hasOwn(action,'goal')?action.goal:'',method:Object.hasOwn(action,'method')?action.method:''},receipt:receipt.id});
         else if(receipt.kind==='delta')events.push({type:'resource-changed',data:{resource:receipt.resource,subject:receipt.subject,before:receipt.before,after:receipt.after},receipt:receipt.id});
+        else if(receipt.kind==='item')events.push({type:'item-transferred',data:{name:receipt.name,to:receipt.subject_label??receipt.subject,from:receipt.from??null},receipt:receipt.id});
     }
     if(!result.reused)events.push({type:'decision-settled',data:{decision:result.decision,family:result.family,outcome_kind:row(result.outcome).kind??null}});
     return events;
@@ -297,6 +298,12 @@ export function resolveResult(context: SettleContext, settled: Row): {
                     before: receipt.before,
                     after: receipt.after
                 },
+                receipt: receipt.id
+            });
+        else if (receipt.kind === 'item')
+            events.push({
+                type: 'item-transferred',
+                data: {name: receipt.name, to: receipt.subject_label ?? receipt.subject, from: receipt.from ?? null},
                 receipt: receipt.id
             });
         else if (receipt.kind === 'session') {

@@ -229,7 +229,7 @@ export class ResolvePipeline {
         }
         if (active(this.sessions.combat) && isJsonObject(this.sessions.combat?.pending_attack))
             return [COMBAT_DEFEND];
-        if (action.defense != null && !(truth(action.target) && truth(action.weapon)))
+        if (action.defense != null && !(truth(action.target) && truth(action.object ?? action.weapon)))
             return [COMBAT_DEFEND];
         if (active(this.sessions.chase))
             return [`decision:coc7:chase:${this.sessions.chasePendingKind(this.sessions.chase!) || 'move'}`];

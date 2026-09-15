@@ -26,7 +26,7 @@ import {stageItem,stageCash,commitInventorySheets} from './inventory.js';
 import type {createWorldlineRuntime} from '../worldline/index.js';
 import type {createModRuntime} from '../mods/index.js';
 import type {CampaignWriter} from '../write/store.js';
-const KINDS = ['ability', 'adaptation', 'cash', 'clue', 'damage', 'define', 'dossier', 'ending', 'flag', 'fork', 'handout', 'item', 'map', 'merge', 'move', 'note', 'npc', 'object', 'ruling', 'switch', 'threat', 'time'];
+const KINDS = ['ability', 'adaptation', 'cash', 'clue', 'damage', 'define', 'dossier', 'ending', 'flag', 'fork', 'handout', 'item', 'map', 'merge', 'move', 'note', 'npc', 'object', 'ruling', 'switch', 'threat', 'time', 'usage'];
 export interface ApplyContext {
     readonly kernel: KernelContext;
     readonly transaction: TurnTransaction;
@@ -76,15 +76,17 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
             const transaction = await writer.transaction(params, { repairLegacyTrail: false, preload: false }), { campaign, turn } = transaction;
             const effects = params.effects;
             const callParams = Array.isArray(effects) ? { ...params, effects: effects.map(effect => isJsonObject(effect) ? Object.fromEntries(entries(effect).filter(([key]) => !key.startsWith('_'))) : effect) } : params;
-            const opening = Array.isArray(effects) && effects.length > 0 && effects.every(effect => isJsonObject(effect) && ['define', 'object', 'ability'].includes(string(effect.kind)));
+            const opening = Array.isArray(effects) && effects.length > 0 && effects.every(effect => isJsonObject(effect) && ['define', 'object', 'ability', 'usage'].includes(string(effect.kind)));
             const started = await transaction.beginWrite('table.apply', callParams, { allowOpening: opening });
             if (started.kind === 'replay')
                 return started.result;
             if (!Array.isArray(effects) || !effects.length)
                 throw new RpcError('invalid_params', 'params.effects must be a non-empty list');
+            if (effects.some(effect => isJsonObject(effect) && effect.kind === 'usage') && effects.some(effect => !isJsonObject(effect) || !['define','object','usage'].includes(string(effect.kind))))
+                throw new RpcError('invalid_params','A usage preparation batch contains only define, object and usage; apply other actions separately');
             if (effects.some(effect => isJsonObject(effect) && effect.kind === 'adaptation') && effects.length !== 1)
                 throw new RpcError('invalid_params', 'Accept an adaptation alone; ordinary effects belong to later calls');
-            const available = (kind: string) => kind === 'adaptation' ? !!contributions.adaptation : ['clue','npc','item','cash','flag','note','ruling','threat'].includes(kind) || (['define','object','ability','dossier'].includes(kind)?!!contributions.mods:['fork','switch','merge'].includes(kind)?!!contributions.worldlines:['handout','map'].includes(kind)?!!contributions.asset:['time', 'damage', 'move'].includes(kind) ? !!contributions.resources : kind === 'ending' ? !!contributions.ending : false);
+            const available = (kind: string) => kind === 'adaptation' ? !!contributions.adaptation : ['clue','npc','item','cash','flag','note','ruling','threat'].includes(kind) || (['define','object','ability','dossier','usage'].includes(kind)?!!contributions.mods:['fork','switch','merge'].includes(kind)?!!contributions.worldlines:['handout','map'].includes(kind)?!!contributions.asset:['time', 'damage', 'move'].includes(kind) ? !!contributions.resources : kind === 'ending' ? !!contributions.ending : false);
             // A partial backend refuses unimplemented batches before any domain draws or writes.
             for (const [index, effect] of effects.entries())
                 if (isJsonObject(effect) && typeof effect.kind === 'string' && KINDS.includes(effect.kind) && !available(effect.kind))
@@ -182,7 +184,7 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                     else if(kind==='flag')({receipt,event}=stageFlag(context,effect) as {receipt:Row;event:DomainEvent});
                     else if(kind==='note')({receipt,event}=await stageNote(context,effect,stagedNotes) as {receipt:Row;event:DomainEvent});
                     else if(kind==='ruling')({receipt,event}=await stageRuling(context,effect,stagedRulings) as {receipt:Row;event:DomainEvent});
-                    else if(['define','object','ability','dossier'].includes(kind))({receipt,event}=await contributions.mods!.stage(context,effect,stagedSheets));
+                    else if(['define','object','ability','dossier','usage'].includes(kind))({receipt,event}=await contributions.mods!.stage(context,effect,stagedSheets));
                     else {
                         const minutes = effect.minutes;
                         if (!integer(minutes) || number(minutes) < 0)
@@ -245,7 +247,7 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
             const days = contributions.resources ? await contributions.resources.dayBoundary(context, number(row(transaction.world.clock).minutes)) : null;
             await commitInventorySheets(context,stagedSheets);
             await campaign.writeWorld(staged);
-            if(effects.some(effect=>isJsonObject(effect)&&effect.kind==='object'))await contributions.mods!.projectInventory(campaign as CampaignWriter,staged);
+            if(effects.some(effect=>isJsonObject(effect)&&['object','usage'].includes(string(effect.kind))))await contributions.mods!.projectInventory(campaign as CampaignWriter,staged);
             for(const note of stagedNotes)await appendJsonl(join(campaign.directory,'notes.jsonl'),note);
             for(const ruling of stagedRulings)await appendJsonl(join(campaign.directory,'rulings.jsonl'),ruling);
             const material = module.material(graph.scene(staged.active_scene).node_id);

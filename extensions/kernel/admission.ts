@@ -73,7 +73,7 @@ export interface AdmissionScope {
  * that carries one of them is reviewed whole and refused whole; a batch of only the other kinds
  * (Keeper bookkeeping, NPC movement, pacing, world switches, Mod registration) is not reviewed.
  */
-const TRIGGER_KINDS: ReadonlySet<string> = new Set(["move", "clue", "time", "cash", "item", "handout", "map"]);
+const TRIGGER_KINDS: ReadonlySet<string> = new Set(["move", "clue", "time", "cash", "item", "handout", "map", "object", "usage"]);
 
 /** `resolve` decision families that are never a voluntary player action: the rules or the table run them. */
 const EXEMPT_DECISION_PREFIXES: readonly string[] = ["sanity:", "development:"];
@@ -125,9 +125,9 @@ export function admissionRequest(tool: string, payload: Record<string, unknown>,
 		}
 		const pick = (keys: readonly string[]): Record<string, unknown> =>
 			Object.fromEntries(keys.map((k) => [k, action[k]]).filter(([, v]) => v !== undefined && v !== null && v !== ""));
-		const shown = pick(["actor", "intent", "goal", "method", "skill", "target", "weapon", "spell", "object", "stakes", "push", "luck", "defense", "outcome"]);
+		const shown = pick(["actor", "intent", "goal", "method", "skill", "target", "weapon", "spell", "object", "usage", "stakes", "push", "luck", "defense", "outcome"]);
 		const lines = [`resolve (roll the dice for an action): ${Object.entries(shown).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join("; ")}`];
-		const key = canonical({ tool, action: pick(["actor", "intent", "goal", "method", "skill", "target", "weapon", "spell", "object", "push", "luck", "defense"]) });
+		const key = canonical({ tool, action: pick(["actor", "intent", "goal", "method", "skill", "target", "weapon", "spell", "object", "usage", "push", "luck", "defense"]) });
 		return { tool: "resolve", key, lines };
 	}
 	if (tool === "apply") {
@@ -138,6 +138,10 @@ export function admissionRequest(tool: string, payload: Record<string, unknown>,
 			const kind = text(effect?.kind);
 			if (!kind || !TRIGGER_KINDS.has(kind)) return false;
 			if (kind === "move" && here.includes(norm(effect.to)) && !text(effect.label)) return false;
+			if (kind === "object") {
+				// Adoption enriches an owned row; same-owner edits record state rather than transfer it.
+				if (!text(effect.to) || text(effect.adopt) || text(effect.from) && norm(effect.from) === norm(effect.to)) return false;
+			}
 			return true;
 		});
 		if (!triggers) return null;
@@ -151,10 +155,12 @@ export function admissionRequest(tool: string, payload: Record<string, unknown>,
 		};
 		const signature = (effect: Record<string, unknown>): Record<string, unknown> => {
 			const kind = text(effect.kind) ?? "?";
-			const keys = ["to", "label", "travel_minutes", "clue", "minutes", "delta", "name", "regions", "region_labels", "level_labels", "subject", "from", "with", "quantity", "dice", "scope"];
+			const keys = ["to", "label", "travel_minutes", "clue", "minutes", "delta", "name", "regions", "region_labels", "level_labels", "subject", "from", "with", "quantity", "dice", "scope", "object", "description", "category", "adopt", "condition", "weapon", "definition"];
 			return { kind, ...Object.fromEntries(keys.map((k) => [k, effect[k]]).filter(([, v]) => v !== undefined && v !== null && v !== "")) };
 		};
-		const key = canonical({ tool, effects: effects.map(signature).map(canonical).sort(), destinations: scope.destinations ?? [] });
+		const signatures = effects.map(signature).map(canonical);
+		const ordered = effects.some(effect => effect.kind === 'object' || effect.kind === 'usage');
+		const key = canonical({ tool, effects: ordered ? signatures : signatures.sort(), destinations: scope.destinations ?? [] });
 		return { tool: "apply", key, lines: effects.map(describe) };
 	}
 	return null;
@@ -186,6 +192,7 @@ export function admissionSystemPrompt(): string {
 		"You are the action-admission reviewer at a Call of Cthulhu table. The Keeper (the game master, an AI) is about to settle an action on the investigator's behalf: roll dice for it, move the investigator somewhere, spend their time or money, hand them a clue or a document, or take or give an item. Answer one question: did the player choose this?",
 		"Judge only from the player's exact current words, what the player was already told (the earlier deliveries), and any still-valid earlier instruction the player gave and did not withdraw. The Keeper's own goal, method, why, how and stakes text describes the proposal; it is not evidence of the player's consent. A Keeper suggestion in earlier narration is not acceptance. Interest in a subject is not a trip to a place. Risk in an action the player chose does not license a different method, destination or target.",
 		"Explicit limits on money, quantity, duration and scope are binding. Compare proposed debits and commitments with the chosen limit; do not round a budget upward, add a deposit, buy extra nights, or use an earlier offer to override the latest choice. A request for one night with a budget of 2.50 does not authorize a debit of 3.00 described as a deposit or two nights. A goal such as lodging authorizes only its chosen scope. If a proposed value exceeds a stated limit, answer not_authorized and identify both values in grounds; the Keeper's why cannot make the excess entailed.",
+		"An object pickup or transfer is a real proposed action, even beside definition or usage preparation. A usage describes the chosen way an object will be used; preparing it must not invent an attack the player only contemplated. Choosing to take a chair and swing it entails the necessary pickup and parameter preparation, not a different target or method. A different object's or usage's permission is not reusable. Pure owned-equipment adoption and same-owner state recording are bookkeeping; an NPC's own initiative remains not_player_action. Preparing parameters does not settle the attack or grant an extra action.",
 		"For a move, registered_destination is authoritative evidence of what the target scene physically is. A label may present that same place in the player's language; it cannot substitute a different city, building or destination. If the player chooses Athens but the registered target is a Boston hotel, answer not_authorized even when label says Athens. A genuinely missing chosen destination must be registered through the reviewed adaptation path before movement.",
 		"Verdicts:",
 		"- authorized: the player's words, read in context, choose this actor, goal, method, target, destination and any meaningful cost or commitment.",

@@ -43,11 +43,16 @@ Do not replace executable weapon rows, convert money into items, or grant a spel
 merely because a book is owned. Decorative entries need no invented mechanic.
 
 Before a mechanically meaningful new item, weapon or spell appears in delivered
-fiction, use apply define with its name, category, description and optional template.
+fiction, use apply define with its name, description and optional template.
+Physical definitions default to item; explicit legacy weapon and spell categories
+remain supported. A physical category is not permission to attack.
 The host's tool-enabled creator reads the context and presets and prepares validated
 parameters. Then use apply object to create an instance at an NPC, investigator or
-scene. Define and object can be in the same batch. Use unique natural names for
-different instances; names are handles, not disposable IDs.
+scene. Define and object can be in the same batch. If the player's chosen attack uses
+that newly placed or adopted instance immediately, the same batch may continue
+with usage for that instance; keep the batch to define/object/usage only and put
+any clue, time, move or other world change in a separate apply. Use unique natural
+names for different instances; names are handles, not disposable IDs.
 
 Transfer an existing instance with apply object, its instance name, from and to.
 Use consumables with resolve decision objects:use, intent investigate, object set
@@ -64,10 +69,35 @@ equal to its current owner, set condition, and state the causal why. A note is n
 an item-state change. Do not remove a managed item through legacy apply item; a
 broken object remains the same instance and can be repaired or transferred.
 Do not create a replacement or call plain item for the same object. Keep remaining
-ammunition/charges and damage. NPCs and investigators use the instance name in
-resolve.weapon. A held book/artifact and knowing its spell are distinct. Never grant
+ammunition/charges and damage. NPCs and investigators use the same instance name
+in resolve action.object; action.weapon remains a compatible alias and must name
+the same object if both are supplied. A held book/artifact and knowing its spell are distinct. Never grant
 knowledge just because a carrier changed hands. Preserve authored facts; generated
 mechanics complete missing details, they do not revise the source.
+
+For an attack with an existing held instance, first look focus object to inspect
+its accepted usages and current physical condition. Select the existing usage name
+when the same use and physical basis still apply, even if the player rephrased the
+action. If no suitable usage exists, apply {kind:"usage",object:<instance name>,
+name:<usage name>,description:<actual chosen use and context>}. For a scene object
+or unregistered carried row used in the same chosen action, first stage its define
+and object placement or adoption in that same apply, then place the usage after the
+object effect. The tool-enabled creator receives that private staged view, prepares
+and validates the missing profile, and the host waits for real acceptance; then
+continue the player's original action in the same turn with resolve action.object
+and action.usage. Never ask the player to enter numbers or to repeat the action
+just because preparation took time. Failure or cancellation is not a settled hit.
+If acceptance reports usage_stale, usage_request_changed or a changed job binding,
+look at the current object and reconsider the original action before preparing a
+fresh usage request. An ordinary item need not be redefined as weapon. Never copy
+it into a weapon version, reset state or regenerate an accepted applicable usage.
+Different uses may need distinct accepted profiles; when several apply, choose the
+usage name from the player's actual method rather than make the kernel guess. The
+actor's live skill and damage bonus and the instance's live resources govern
+execution. A throw's landing or transfer still requires apply object on that same
+instance. Non-attack uses remain ordinary checks and world changes, not automatic
+combat. Usage preparation does not itself authorize pickup, transfer or attack;
+those still require the corresponding object or resolve effect.
 
 The host checks unpublished narration for undeclared mechanical objects. Repair a
 refusal using define/object, then retry the same narration without rerolling settled

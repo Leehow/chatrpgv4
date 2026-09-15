@@ -186,17 +186,17 @@ export class CombatSession {
         this.participants[id]._dived_for_cover = false;
     } }
     getAmmo(actor: string, weaponId: string): number | null {
-        const magazine = this.weapon(actor, weaponId).magazine;
+        const weapon = this.weapon(actor, weaponId), magazine = weapon.magazine;
         if (magazine == null)
             return null;
-        const ammo = this.participants[actor]._ammo ??= {};
-        if (!Object.hasOwn(ammo, weaponId))
-            ammo[weaponId] = Math.trunc(number(magazine));
-        return Math.trunc(number(ammo[weaponId]));
+        const ammo = this.participants[actor]._ammo ??= {}, resource = string(weapon.object_id ?? weaponId);
+        if (!Object.hasOwn(ammo, resource))
+            ammo[resource] = weapon.object_id ? number(weapon.ammo ?? 0) : Math.trunc(number(magazine));
+        return Math.trunc(number(ammo[resource]));
     }
     setAmmo(actor: string, weaponId: string, rounds: number): void {
-        const magazine = this.weapon(actor, weaponId).magazine, value = Math.max(0, Math.trunc(rounds));
-        (this.participants[actor]._ammo ??= {})[weaponId] = magazine != null ? Math.min(value, Math.trunc(number(magazine))) : value;
+        const weapon = this.weapon(actor, weaponId), magazine = weapon.magazine, value = Math.max(0, Math.trunc(rounds));
+        (this.participants[actor]._ammo ??= {})[string(weapon.object_id ?? weaponId)] = magazine != null ? Math.min(value, Math.trunc(number(magazine))) : value;
     }
     private consumeAmmo(actor: string, id: string, count = 1): number {
         const current = this.getAmmo(actor, id);
@@ -345,8 +345,8 @@ export class CombatSession {
         const threshold = Math.trunc(number(weapon.malfunction));
         if (!Number.isFinite(threshold) || roll < threshold)
             return null;
-        const id = weapon.weapon_id ?? '';
-        this.jammedWeapons.add(`${actor}:${id}`);
+        const id = weapon.weapon_id ?? '', resource = string(weapon.object_id ?? id);
+        this.jammedWeapons.add(`${actor}:${resource}`);
         const event = { malfunction_roll_id: this.rollId(), source_turn_id: turnId, source_actor_id: actor, weapon_id: id,
             weapon_display_name: weapon.display_name ?? id, roll, malfunction_threshold: threshold, effect: 'jammed_until_repaired',
             marker: `[malfunction]${id} roll ${roll} >= ${threshold}: jammed, unusable until repaired[/malfunction]` };
@@ -632,23 +632,23 @@ export class CombatSession {
             return;
         }
         const rounds = number(weapon.reload_rounds || 1), per = number(weapon.ammo_per_reload_round || magazine), remaining = this.participants[actor]._reload_remaining ??= {};
-        const id = string(weaponId), left = number(remaining[id] ?? rounds) - 1, current = this.getAmmo(actor, id) || 0, loaded = Math.min(number(magazine) - current, per);
+        const id = string(weaponId), resource = string(weapon.object_id ?? id), left = number(remaining[resource] ?? rounds) - 1, current = this.getAmmo(actor, id) || 0, loaded = Math.min(number(magazine) - current, per);
         this.setAmmo(actor, id, current + loaded);
         Object.assign(turn, { defense_kind: 'none', opposed_outcome: 'unopposed', weapon_id: weaponId, ammo_loaded: loaded, ammo_after: this.getAmmo(actor, id) });
         this.clearAiming(actor);
         if (left <= 0 || this.getAmmo(actor, id)! >= number(magazine)) {
-            delete remaining[id];
+            delete remaining[resource];
             turn.outcome = 'reload_complete';
         }
         else {
-            remaining[id] = left;
+            remaining[resource] = left;
             turn.outcome = 'reload_in_progress';
             turn.reload_rounds_remaining = left;
         }
     }
     private firearmSkill(attacker: Row, weapon: Row): number {
         const skill = string(weapon.skill ?? '');
-        return number(skill.startsWith('Firearms') ? attacker.firearms_skill || attacker.combat_skill : skill.startsWith('Throw') ? attacker.throw_skill || attacker.combat_skill : attacker.combat_skill);
+        return number(skill.startsWith('Firearms') ? attacker.firearms_skill ?? attacker.combat_skill : skill.startsWith('Throw') ? attacker.throw_skill ?? attacker.combat_skill : attacker.combat_skill);
     }
     private proneAimModifiers(attacker: Row, target: Row | null, firearm: boolean, thrown: boolean, melee: boolean, pointBlank: boolean, bonus: number, penalty: number, mods: Row): [
         number,

@@ -84,9 +84,15 @@ const ItemEffect = Type.Object({
 const DefineEffect = Type.Object({
   kind: StringEnum(["define"] as const),
   name: Type.String({description:"Stable natural name of the new definition, in the campaign's play_language"}),
-  category: StringEnum(["weapon", "spell", "item"] as const),
+  category: Type.Optional(StringEnum(["weapon", "spell", "item"] as const, {description:"Defaults to item for a physical object; legacy weapon and spell definitions remain supported"})),
   description: Type.String({description:"Established appearance, function, era and constraints, in the campaign's play_language; the Mod agent derives executable parameters from these and presets"}),
   template: Type.Optional(Type.String({description:"Optional rulebook or existing definition to use as evidence"})),
+});
+const UsageEffect = Type.Object({
+  kind: StringEnum(["usage"] as const),
+  object: Type.String({description:"Existing held or same-batch staged physical instance name; inspect its usages with look first when it already exists, never duplicate or redefine the object"}),
+  name: Type.String({description:"Natural usage name; reuse an accepted name for the same use and physical basis"}),
+  description: Type.String({description:"Actual chosen use and established context; the creator derives parameters, never ask the player to supply numbers. In a batch with usage include only define/object/usage, wait for acceptance, then continue the original action with resolve"}),
 });
 const ObjectEffect = Type.Object({
   kind: StringEnum(["object"] as const),
@@ -300,11 +306,12 @@ const ResolveAction = Type.Object({
 	weapon: Type.Optional(
 		Type.String({
 			description:
-				"the weapon used to attack, bare hands is unarmed; required when intent is combat, and without it the kernel reports needs and lists the weapons he carries",
+				"Compatible alias for action.object when attacking; bare hands is unarmed. If object and weapon are both supplied they must identify the same physical object, otherwise the kernel refuses",
 		}),
 	),
 	spell: Type.Optional(Type.String({ description: "spell name; give it when casting (intent cast) or when learning a spell from a tome" })),
-  object: Type.Optional(Type.String({description:"Owned consumable instance for decision objects:use; target names its recipient"})),
+  object: Type.Optional(Type.String({description:"Unified held physical instance name for an attack or objects:use/objects:repair; target names the attack target or consumable recipient. Attacks use this or the compatible weapon alias"})),
+  usage: Type.Optional(Type.String({description:"Accepted attack usage name on this instance; required when several applicable usages exist. Reuse a suitable existing usage or prepare a missing one with apply usage before resolving; never changes the instance's identity"})),
 	defense: Type.Optional(
 		StringEnum(["dodge", "fight_back", "none"] as const, {
 			description:
@@ -508,7 +515,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 		promptSnippet: "Land this turn's world changes: move, clue, time, handout, map, item, cash",
 		parameters: Type.Object({
 			effects: Type.Array(
-				Type.Union([EndingEffect, AdaptationEffect, MoveEffect, ClueEffect, TimeEffect, DamageEffect, ItemEffect, DefineEffect, ObjectEffect, AbilityEffect, CashEffect, FlagEffect, NoteEffect, RulingEffect, NpcEffect, ThreatEffect, ForkEffect, SwitchEffect, MergeEffect, HandoutEffect, MapEffect]),
+				Type.Union([EndingEffect, AdaptationEffect, MoveEffect, ClueEffect, TimeEffect, DamageEffect, ItemEffect, DefineEffect, UsageEffect, ObjectEffect, AbilityEffect, CashEffect, FlagEffect, NoteEffect, RulingEffect, NpcEffect, ThreatEffect, ForkEffect, SwitchEffect, MergeEffect, HandoutEffect, MapEffect]),
 				{ minItems: 1, description: "the changes to land this turn, in the order they happened" },
 			),
 		}),

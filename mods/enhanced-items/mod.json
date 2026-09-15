@@ -1,6 +1,6 @@
 {
   "id": "enhanced-items",
-  "version": "1.1.9",
+  "version": "1.2.1",
   "game_api": "pipicoc.game.v1",
   "state_version": 1,
   "author": "PipiCOC",
@@ -16,6 +16,7 @@
   "requires": [
     "definitions.v1",
     "objects.v1",
+    "objects.usages.v1",
     "objects.state.v2",
     "objects.adopt.v1",
     "objects.documents.v1",

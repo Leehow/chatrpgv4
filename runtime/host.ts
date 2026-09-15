@@ -30,7 +30,7 @@ export interface RuntimeHostOptions {
 
 export type RuntimeTask = { kind: "reader" | "mod"; request: Omit<ReaderRequest, "signal"> };
 export type RuntimeCheck = { kind: "source-draft"; packet: string; draft: string }
-	| { kind: "mod-definition"; draft: string };
+	| { kind: "mod-definition" | "object-usage"; draft: string };
 export type RuntimeSource = { pdf: string; cache: string };
 export type RuntimePage = RuntimeSource & { page: number; box?: number[]; pixels?: number; format?: "png" | "jpeg" };
 type SourceInfo = Awaited<ReturnType<typeof import("../extensions/module/source.ts").sourceInfo>>;

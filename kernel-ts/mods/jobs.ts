@@ -14,6 +14,9 @@ import { array, chars, clone, entries, equal, normalize, row, sorted, string, tr
 import { RuleTables } from '../rules/tables.js';
 import type { createWriteRuntime } from '../write/index.js';
 import { validateDefinition, validateDocumentSeed } from './definition.js';
+import {USAGE_CAPABILITY, findAcceptedUsage, usageObject, usagePhysicalBasis, validateUsage, validateUsageRequest} from './usages.js';
+import {stageModEffect} from './stage.js';
+import type {ApplyContext} from '../apply/index.js';
 import { claimedEquipment, queuedRegistrations } from './queue.js';
 import type { ModRuntime } from './runtime.js';
 import {SOURCE_AUDIT, auditSourceEvidence, writeAuditSources, verifyAuditSources, validateSourceReview} from './audit-source.js';
@@ -69,7 +72,8 @@ export class ModJobs {
         return seed;
     }
     async contributors(world: Row, turn: Row, role: string): Promise<Row[]> {
-        if (role === 'create') return (await this.runtime.active(world)).filter(mod => truth(mod.contributes.materializer)).slice(-1);
+        if (role === 'create' || role === 'usage') return (await this.runtime.active(world)).filter(mod => truth(mod.contributes.materializer)
+            && (role !== 'usage' || array(mod.requires).includes(USAGE_CAPABILITY))).slice(-1);
         const decisions = new Set(array(turn.receipts).map(receipt => receipt.decision ?? null)), owners = await this.runtime.decisions(world), providers = await this.runtime.providers(world);
         const result: Row[] = [];
         for (const mod of await this.runtime.effective(world)) {
@@ -96,18 +100,37 @@ export class ModJobs {
         if (category === 'spell') return {spells: await this.tables.spellsTable()};
         return {};
     }
+    private async usagePreview(loaded: Awaited<ReturnType<ModJobs['load']>>, preview: any): Promise<{world: Row; party: Row[]} | null> {
+        if (preview == null) return null;
+        if (!Array.isArray(preview) || preview.length > 128 || preview.some(effect => !isJsonObject(effect) || !['define','object'].includes(string(effect.kind))))
+            throw new RpcError('invalid_params','Usage preview must contain only preceding define and object effects');
+        if (!preview.length) return null;
+        const world = clone(loaded.world), sheets = new Map<string,Row>(), {campaign,turn,graph,module} = loaded;
+        const context: ApplyContext = {kernel:this.context,transaction:loaded,campaign,turn,graph,module,world,callId:'usage-preview',ordinal:0,
+            mint:base=>base, settlement:async()=>{throw new RpcError('invalid_params','Usage preview cannot settle actions');}};
+        for (const effect of preview) await stageModEffect(context,clone(effect),sheets,this);
+        const party = (await campaign.party() as Row[]).map(sheet => sheets.get(string(sheet.id)) ?? sheet);
+        return {world,party};
+    }
     async job(params: Row): Promise<Row> {
-        const {campaign, graph, module, world, turn, meta} = await this.load(params), role = params.role;
-        if (!['create', 'audit'].includes(role)) throw new RpcError('invalid_params', 'Mod job role must be create or audit');
+        if (params.role === 'create' && isJsonObject(params.input) && params.input.category == null)
+            params = {...params,input:{...params.input,category:'item'}};
+        if (params.role === 'usage') params = {...params,input:validateUsageRequest(params.input)};
+        const loaded = await this.load(params), {campaign,graph,module,turn,meta} = loaded, role = params.role;
+        if (params.preview != null && role !== 'usage') throw new RpcError('invalid_params','Only usage jobs accept a staged preview');
+        const preview = role === 'usage' ? await this.usagePreview(loaded,params.preview) : null, world = preview?.world ?? loaded.world;
+        if (!['create', 'usage', 'audit'].includes(role)) throw new RpcError('invalid_params', 'Mod job role must be create, usage or audit');
+        if (role === 'usage') validateUsageRequest(params.input);
+        const physicalBasis = role === 'usage' ? usagePhysicalBasis(world, string(params.input.object)) : null;
         if (role === 'create') {
             const input = params.input;
             if (!isJsonObject(input) || !['weapon', 'spell', 'item'].includes(input.category as string)) throw new RpcError('invalid_params', 'Definition request needs a category and a name');
             if (input.category === 'spell' && array((await this.tables.spellsTable()).spells).some(spell => normalize(string(spell.name)) === normalize(string(input.name))))
                 throw new RpcError('needs', 'This name already belongs to a rulebook spell', {fix: 'use the existing spell, or give a distinct derivative its own name'});
         }
-        const promptField = role === 'create' ? 'materializer' : 'auditor', candidates = await this.contributors(world, turn, role);
+        const promptField = role === 'create' || role === 'usage' ? 'materializer' : 'auditor', candidates = await this.contributors(world, turn, role);
         if (!candidates.length) return {enabled: false};
-        const packageRow = candidates[0], party = await campaign.party() as Row[];
+        const packageRow = candidates[0], party = preview?.party ?? await campaign.party() as Row[];
         const continuity = role === 'audit' && candidates.some(mod => array(mod.requires).includes(CONTINUITY_AUDIT));
         const sourceAudit = !continuity && role === 'audit' && candidates.some(mod => array(mod.requires).includes(SOURCE_AUDIT));
         const wait = row(row(params.input).preparation_wait), refused = row(row(params.input).rebinding_refused);
@@ -118,9 +141,16 @@ export class ModJobs {
             known_handouts: (await this.knownHandouts(graph, world)).map(item => ({name: item.name, preview: chars(item.text, 240)})),
             unregistered_equipment: unregisteredEquipment(party, claimedEquipment(world))};
         if (evidence) request[continuity ? 'continuity_review' : 'source_review'] = evidence.descriptor;
-        if (role === 'create') request.catalogs = await this.presets(string(row(params.input).category));
+        if (role === 'create' || role === 'usage') request.catalogs = await this.presets(role === 'usage' ? 'weapon' : string(row(params.input).category));
+        if (physicalBasis) {
+            const item = usageObject(world,string(params.input.object))!;
+            request.physical_basis = physicalBasis;
+            if (preview) request.preview = clone(params.preview);
+            request.usage_object = {name:item.name,quantity:item.quantity,state:clone(item.state),definition:clone(row(row(world.objects).definitions)[item.definition])};
+        }
         const identity: Row = {campaign: campaign.id, turn: turn.turn, worldline: meta.active_worldline ?? null, mod: packageRow.id, digest: packageRow.digest,
             packages: candidates.map(mod => ({id: mod.id, digest: mod.digest})), request: role === 'audit' ? request : {input: params.input ?? null, role},
+            ...(physicalBasis ? {physical_basis:physicalBasis,usage_request_digest:jsonDigest(request)} : {}),
             ...(evidence ? {source_binding: evidence.binding} : {})};
         const key = jsonDigest(identity), root = join(this.runtime.root, 'jobs', key);
         if (!await this.context.snapshots.pathExists(join(root, 'request.json'))) {
@@ -131,6 +161,14 @@ export class ModJobs {
             const prompts: Buffer[] = [];
             for (const [index, mod] of candidates.entries()) { if (index) prompts.push(Buffer.from('\n\n')); prompts.push(mod.files.get(mod.contributes[promptField])); }
             await writeFile(join(root, 'prompt.md'), Buffer.concat(prompts));
+            if (role === 'usage') {
+                const prior = findAcceptedUsage(world,string(params.input.object),string(params.input.name));
+                if (prior) {
+                    const usage = Object.fromEntries(['name','description','basis','mode','parameters','player_view'].map(name => [name,clone(prior[name])]));
+                    await writeJsonAtomic(join(root,'accepted.json'),{usage,physical_basis:physicalBasis,
+                        provenance:{mod:packageRow.id,digest:packageRow.digest,job:key,reused_usage:prior.id}});
+                }
+            }
             if (role === 'create') {
                 const prior = findNamedObject(row(row(world.objects).definitions), string(params.input.name));
                 if (prior && prior.category === params.input.category) {
@@ -179,11 +217,17 @@ export class ModJobs {
         }
         return {effects, unfinished};
     }
+    private async checkedUsage(raw: any, name: string): Promise<Row> {
+        const usage = validateUsage(raw,{name}), skills = await this.tables.skillsTable();
+        if (!Object.keys(skills).some(skill => normalize(skill) === normalize(string(usage.parameters.skill))))
+            throw new RpcError('invalid_params','Usage skill must name a skill in the active rules tables');
+        return usage;
+    }
     async accept(params: Row): Promise<Row> {
         const key = params.job;
         if (typeof key !== 'string' || key.length !== 64 || !/^[0-9a-f]{64}$/.test(key)) throw new RpcError('invalid_params', 'Unknown Mod job');
         const root = join(this.runtime.root, 'jobs', key), identity = row(await this.context.snapshots.readJson(join(root, 'identity.json')));
-        const {campaign, graph, module, world, turn, meta} = await this.load(params);
+        const loaded = await this.load(params), {campaign,graph,module,world,turn,meta} = loaded;
         // A deferred registration is accepted after delivery, and narrate has already moved the turn on, so
         // the turn is not what pins this job -- the marker the kernel itself wrote is. Campaign, worldline
         // and the package digests below still have to match.
@@ -197,8 +241,11 @@ export class ModJobs {
         if (!equal(providers, identity.packages ?? null)) throw new RpcError('invalid_params', 'The effective Mod provider changed while the job was running');
         const continuity = request.role === 'audit' && (await this.contributors(world, turn, 'audit')).some(mod => array(mod.requires).includes(CONTINUITY_AUDIT));
         const sourceAudit = !continuity && request.role === 'audit' && (await this.contributors(world, turn, 'audit')).some(mod => array(mod.requires).includes(SOURCE_AUDIT));
-        if ((sourceAudit || continuity) && jsonDigest({...identity, request}) !== key) throw new RpcError('needs', 'The retained source-audit request changed',
-            {details: {reason: 'mod_audit_evidence', file: 'request.json'}, fix: 'Keep this draft unpublished; inspect the retained audit request'});
+        const keyedRequest = request.role === 'audit' ? request : {input:request.input ?? null,role:request.role};
+        if (jsonDigest({...identity,request:keyedRequest}) !== key || identity.usage_request_digest && jsonDigest(request) !== identity.usage_request_digest)
+            throw new RpcError('needs',request.role === 'audit' ? 'The retained source-audit request changed' : 'The retained Mod preparation request changed',
+                {details:{reason:request.role === 'audit' ? 'mod_audit_evidence' : 'usage_request_changed',file:'request.json'},
+                 fix:'Keep this draft unaccepted; inspect the retained preparation request'});
         const wait = row(row(request.input).preparation_wait), refused = row(row(request.input).rebinding_refused);
         const evidence = sourceAudit || continuity ? await auditSourceEvidence(this.context, campaign, module, world, turn, await campaign.party() as Row[], continuity, wait, refused) : null;
         if (evidence) {
@@ -206,9 +253,37 @@ export class ModJobs {
                 {details: {reason: 'mod_audit_stale'}, fix: 'Retry the same narration to prepare a current source audit; do not reroll settled actions'});
             await verifyAuditSources(root, evidence.files);
         }
+        let usageWorld = world;
+        if (request.role === 'usage') {
+            try { usageWorld = (await this.usagePreview(loaded,request.preview))?.world ?? world; }
+            catch (error) {
+                if (!(error instanceof RpcError)) throw error;
+                throw new RpcError('needs','The object preparation preview no longer applies',{details:{reason:'usage_stale',cause:error.message},
+                    fix:'Inspect the current object and prepare the still-authorized action again'});
+            }
+        }
+        if (request.role === 'usage' && !equal(usagePhysicalBasis(usageWorld,string(request.input.object)),identity.physical_basis))
+            throw new RpcError('needs','The object physical state changed while its usage was prepared',{details:{reason:'usage_stale'}});
         const acceptedPath = join(root, 'accepted.json');
         if (await this.context.snapshots.pathExists(acceptedPath)) {
+            if (request.role === 'usage') {
+                const stat = await lstat(acceptedPath);
+                if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 512000)
+                    throw new RpcError('invalid_params','Accepted usage must be a bounded regular file');
+            }
             const accepted = row(await this.context.snapshots.readJson(acceptedPath));
+            if (request.role === 'usage') {
+                const usage = await this.checkedUsage(accepted.usage,string(request.input.name)), provenance = row(accepted.provenance);
+                if (!equal(accepted.physical_basis,identity.physical_basis) || provenance.mod !== identity.mod || provenance.digest !== identity.digest || provenance.job !== key
+                    || Object.keys(provenance).some(field => !['mod','digest','job','reused_usage'].includes(field)))
+                    throw new RpcError('invalid_params','Accepted usage provenance or physical basis differs from its job');
+                if (provenance.reused_usage) {
+                    const prior = findAcceptedUsage(usageWorld,string(request.input.object),string(request.input.name));
+                    if (!prior || prior.id !== provenance.reused_usage || prior.digest !== jsonDigest(usage))
+                        throw new RpcError('invalid_params','Accepted usage reuse differs from the registered parameters');
+                }
+                return {...accepted,usage};
+            }
             if (continuity) this.validateContinuity(accepted, request, evidence!.files);
             else if (evidence) validateSourceReview(accepted.source_review, string(row(request.input).text), evidence.files);
             return accepted;
@@ -219,7 +294,10 @@ export class ModJobs {
         if (stat.isSymbolicLink() || stat.size > 512000) throw new RpcError('invalid_params', 'Mod agent did not write a bounded result.json');
         const raw = clone(await this.context.snapshots.readJson(resultPath));
         let result: Row;
-        if (request.role === 'create') {
+        if (request.role === 'usage') {
+            const usage = await this.checkedUsage(raw,string(request.input.name));
+            result = {usage,physical_basis:identity.physical_basis,provenance:{mod:identity.mod,digest:identity.digest,job:key}};
+        } else if (request.role === 'create') {
             if (isJsonObject(raw) && Object.hasOwn(raw, 'document')) raw.document = await this.documentSeed(graph, world, raw.document);
             const value = validateDefinition(raw, {name: request.input.name ?? null, category: request.input.category ?? null});
             if (value.category === 'weapon' && array(active.get(identity.mod)!.requires).includes('weapons.profile.v2') && !Object.hasOwn(value.parameters, 'adds_damage_bonus'))

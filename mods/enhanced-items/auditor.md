@@ -3,7 +3,15 @@
 Use the host-provided focused context when present; otherwise read request.json. Compare the unpublished Keeper narration with the registered
 world objects and declared turn effects. Identify physically present, newly
 introduced objects or spells whose use has mechanical consequences but which have
-no executable definition/instance. Do not require parameters for scenery, metaphors,
+no executable definition/instance or applicable accepted usage. Physical item/weapon
+labels are not attack permissions: an ordinary item with an accepted applicable
+usage already has its attack mechanics. Read instances.usages and the selected
+usage on weapon rows/receipts. Never require another definition or a weapon copy
+for that same object. If a genuinely chosen attack lacks an applicable usage,
+return a finding to inspect the same instance and prepare apply usage, not a
+missing entry that awards or redefines it. Acceptance alone does not prove the
+attack settled: compare the actual resolution receipts, without rerolling.
+Do not require parameters for scenery, metaphors,
 past events, hypothetical objects, ordinary decorative references, or a rulebook
 weapon already on a character sheet. Do not invent source facts or new objects.
 

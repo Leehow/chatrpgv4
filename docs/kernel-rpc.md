@@ -3744,6 +3744,307 @@ conflicts through public interfaces. Then run the required suites and real Grok
 play with this main session as the sole player. UI controls must be exercised in a
 real browser. A generated card or deterministic fixture is not real-table evidence.
 
+### Use-based physical objects: `objects.usages.v1` (2026-09-15)
+
+Direction (user-confirmed; ADR 0005; spec `docs/specs/action-derived-object-usages.md`):
+the object keeps what it is, the action chooses how it is used this time, and the
+usage record describes how that use settles. `item` / `weapon` on a physical
+definition is a compatibility and display label, not an execution gate. Production
+is the TypeScript kernel (`kernel-ts/`). The retired Python kernel is not a second
+implementation and is not restored.
+
+`objects.usages.v1` is a Mod-generated data capability. It lets a materializer
+create and validate usage records for physical instances; it does not add a fake
+RuleGraph resolver node. Execution still goes through the registered combat
+resolver / settlement path for the selected mode. Disabling the generator does not
+delete already accepted, still applicable records; missing parameters then refuse
+generation explicitly and do not fall back to arbitrary damage. Spell knowledge is
+not a physical object: this slice does not merge `spell` with items, and owning a
+book still does not grant a spell. Documents, containers, consumables and other
+existing capabilities stay; an attack usage must not overwrite them.
+
+**Who writes, who reads, who acts.** Creator prepares a draft; the kernel accepts
+it through `apply usage` into `world.objects.usages`. `look`, Mod context, ability
+projection and combat resolution read those records. The Keeper selects a usage by
+natural name; registration receipts and attack receipts name the same instance and
+usage. Offer ledgers only count; unused usages are not next-turn obligations.
+
+#### Apply `usage`
+
+`table.apply` gains
+`{"kind": "usage", "object": "<instance natural name>", "name": "<usage natural name>", "description": "<actual use and context>"}`.
+The Keeper names the held or staged instance, the usage, and the action as it
+happened. The Keeper never submits executable parameters, internal ids,
+weapon_id handles, or an unaccepted draft. Host-private `_usage` and `_provenance`
+carry the accepted packet the way `_definition` / `_provenance` carry a define;
+they are stripped from the public call fingerprint and must not mutate the
+Keeper's original tool arguments.
+
+A new `define` that omits `category` defaults to `item`. Existing `weapon` and
+`spell` define calls stay valid. `category` is not consulted as the entity-attack
+execution gate: an ordinary `item` instance may carry attack usages, and a
+`weapon` instance may be used without treating that label as permission.
+
+`usage` is a contributed Mod effect (`contributions.mods`). A batch still
+validates every effect and then writes, or writes nothing. Opening apply allowlist
+includes `usage` only as pure parameter registration: it does not roll, advance
+the clock, spend an action, change HP, or consume ammunition or charges. Usage
+preparation and an actual physical object pickup / transfer are player actions
+when `playerText` is present, so action-admission reviews them before Mod prepare
+or real apply. Pure `adopt` and same-owner state changes remain bookkeeping; NPC
+resolve keeps its existing exemption. Admission binds the public object, usage,
+definition and ordered effects; private accepted packets and preview fields do
+not enter the admission key. Source truth stays read-only. Damage with an
+attacker is `resolve`, never `apply damage`, `note`, or prose.
+
+#### `mods.job` role `usage` and `mods.accept`
+
+Host-only `mods.job` accepts `role: "usage"` beside the existing `create` role.
+The job input is `{object, name, description}` — the same three fields as the
+apply effect, without `kind`. A host-private top-level `preview` may accompany a
+usage job. It contains only same-batch `define` / `object` effects that have
+already been materialized earlier in that batch and precede this usage. The host
+accepts staged definitions first, then prepares usage jobs against that preview;
+it does not run a half-batch `table.apply` or expose preview data in the Keeper's
+public input.
+
+The kernel builds usage preview by cloning the world and staged sheets and then
+running the same `stageModEffect` path used by real apply. `mods.accept` rebuilds
+that preview, verifies `request_digest`, validates the job, instance and
+`physical_basis`, and refuses bad, stale or mismatched input without writing the
+world. Replay of an accepted job reads stored data and does not invoke a model.
+
+`request.json` sets `role: "usage"`; the kernel supplies object facts (immutable
+definition projection, traits, already accepted usages) and the instance's
+current condition. The creator does not rewrite module truth, invent undiscovered
+facts, or treat player intent as a physical fact. Mode is a model judgment of how
+this action executes, not a new physical-semantic classifier and not a
+name-to-damage table.
+
+The creator writes `result.json` as
+`{name, description, basis, mode, parameters, player_view}`:
+
+- `mode` is the closed execution type `melee` | `thrown` | `firearm`.
+- `parameters` use the existing weapon-parameter shape. Required explicit fields:
+  `skill`, `damage`, `uses_per_round`, `impale`, `adds_damage_bonus`. Range is
+  `base_range_yards` when the profile has a range. `initial_ammo` and every other
+  instance-state supplement are forbidden: ammunition, charges, quantity and
+  condition live only on the instance.
+- `player_view` follows the existing public-field rules for definitions.
+- A record with only `damage` is refused. Unsupported skills or effects, out-of-
+  range dice expressions and ambiguous names refuse before any world write.
+
+`mods.accept` returns
+`{usage: <validated raw>, physical_basis: <kernel-captured basis>, provenance: {mod, digest, job}}`.
+The host copies that entire accepted object onto the usage effect as `_usage` and
+stamps `_provenance` as `{mod, digest, job}`. Stage must re-validate the job, the
+instance and the `physical_basis` before the batch commits; a stale or mismatched
+basis is a refusal, not a silent rewrite. Failed, cancelled or refused jobs keep
+their evidence and do not pretend the item worked.
+
+#### Immutable usage records and reuse
+
+Accepted records append to `world.objects.usages`, keyed by instance, and are
+immutable. They do not replace `world.objects.definitions` or instances. Each
+record carries at least: a host-minted id, the instance, the usage name, the
+supported execution mode, parameters, the captured `physical_basis`, rule /
+executor versions, generation provenance and accepted status. Old rows stay;
+numbers are never overwritten in place.
+
+The kernel captures `physical_basis` bound to the immutable definition digest and
+the instance condition at acceptance. Ownership changes, turn advances,
+ammunition, charges and a rephrased player sentence are not cache-invalidation
+reasons. Reuse is instance + chosen usage name + that physical basis, under a
+compatible rule version. Semantic synonymy is the Keeper selecting an already
+accepted usage; it is not a hash of the original utterance or of the turn text.
+Actor skill values, damage bonus, current range, target defence, ammunition and
+remaining uses are read live at `resolve`. They are not frozen into the usage as
+a permanent generated result.
+
+When material, structure or integrity facts change, old rows remain auditable but
+must not execute without a fresh applicability check. The Keeper may reuse a
+still-applicable record or request a new one for the new condition. The creator
+must not claim the object is repaired by rewriting basis. `jammed` / `broken` are
+not a blanket ban on every usage: a jammed firearm cannot fire and may still be
+used as a melee usage if one is accepted; a broken chair cannot keep an intact
+swing profile, but a usage derived from the remaining structure may. That is
+neither clearing state nor defaulting damaged objects to usable.
+
+Ammunition, charges and quantity exist only on the instance. Multiple usages must
+not clone a magazine or uses pool. Ambiguous stacks of ordinary items still refuse
+under existing quantity / possession rules; this slice does not add a split-stack
+system.
+
+Worldline snapshots include usages with definitions and instances. Conflicting
+records are explicit, never a silent regenerate-and-win. Historical definitions,
+receipts and playtest evidence are not rewritten.
+
+#### `resolve` object, weapon alias and usage selection
+
+`action.object` is the unified physical-instance entry (natural name). Existing
+`action.weapon` remains a compatible alias for the same instance. If both are
+filled and resolve to different objects, the call is refused (`invalid_params`);
+the kernel does not silently pick one. `action.usage` is the optional natural
+usage name. One applicable default attack usage may omit it. Several applicable
+usages require an explicit name; the kernel returns the existing usages and does
+not guess. The player does not choose internal terms: when they already said
+swing versus throw, the Keeper fills `action.usage`.
+
+Unregistered, inapplicable, unheld or not-yet-accepted usages refuse before any
+roll or resource change, with a repairable reason. Default attack selection never
+covers `objects:use`, `objects:repair` or spell decisions. Combat hit skill is
+the selected usage profile's `parameters.skill` (or the mapped legacy weapon
+profile), not `action.skill`. `action.skill` remains the ordinary-check and
+`objects:repair` slot.
+
+A previously accepted weapon definition maps deterministically to a default
+attack usage without calling a model and without rewriting historical rows. A
+newly accepted usage has its own usage id. That id is the combat `weapon_id`.
+Every projected weapon / usage row carries `object_id` back to the single
+physical resource pool. Look, investigator sheet, NPC usable-weapon choice and a
+live combat snapshot all read this same set. Switching usage in an open fight
+refreshes skill, damage, range and uses-per-round from the selected record; it
+does not reset round order, clear participants, or recast instance identity.
+
+Thrown settlement lands only after a real roll settles. It reuses `apply object`'s
+`moveObject` path and the shared `kernel-ts/mods/object-transfer.ts`
+`objectTransferReceipt` builder, preserving the existing `item-transferred` event
+shape. Pending defence, combat-start handoff and refused attacks do not move the
+object early; idempotent replay does not transfer it a second time. This is the
+implemented apply-object state / receipt path, not a Keeper instruction to say
+one more sentence and not an arbitrary direct world mutation.
+
+#### Same-turn prepare and later slices
+
+Define/adopt-only bookkeeping may still take the existing background `mods.queued`
+defer and resume next turn. A usage the current action depends on must not. The
+host prepares that usage on its own concurrent job, waits for `mods.accept`, and
+returns the result to the Keeper who is still handling the same action so the
+original `resolve` can continue. It does not ask the player for a second input
+that only means "the system finished registering". Timeout, cancel or host
+restart keep the job evidence and an explicit pending state; they must not fake
+success or blindly resubmit the attack. A recovered result may bind only to the
+still-valid original action; a stale result must not affect another turn,
+worldline or a now-different instance.
+
+Prepare, accept and execute are distinct: a prepared draft is not possession; an
+accepted usage is not a settled attack. Each `apply` batch stays atomic; `resolve`
+stays idempotent. If pickup already committed and the later attack fails, receipts
+show the object held and the attack not rolled — they do not grant the object a
+second time.
+
+First implementation cut (`held-object-usage`): already-held instances only. The
+host waits; it does not defer usage.
+
+Next cut (`scene-object-action`): a same-batch `define` / `object` / `usage` may
+resolve through a staged view (definition, instance, usage) and then validate and
+write as one batch. Scene materialization, adopt and pickup share that view with
+admission and same-turn continuation. Failure, cancel and restart must not repeat
+acquisition or the roll, and must not reuse the bookkeeping-only defer path.
+
+Following cut (`stateful-multiple-usages`): several usages on one instance (swing
+and throw), condition-gated applicability, shared ammo / charges, landing
+transfers, NPC and investigator using the same instance after a hand-off, and
+switching usage in a live fight. Mechanics JSON and the executor must show the
+same chosen usage.
+
+Compatibility cut (`compatibility-and-live`): old saves, version locks, disabled
+generators, worldline conflicts, and the live-table method in §10. The old-save,
+disabled-generator, explicit-upgrade and worldline regression cases pass; the
+live-table evidence is recorded in the status note under the kernel's decisions
+below.
+
+#### Compatibility that does not authorize execution
+
+`apply item.weapon` still resolves a rules-table profile (`rules-json/weapons.json`).
+Unmanaged equipment rows remain until an explicit adopt; switching a usage must
+not wipe the sheet. After adopt, one asset must not expose two consumable resource
+pools. Compatibility readers may inspect historical `category` to map old data.
+The new execution path must not use that field as a permission gate. No historical
+campaign is batch-migrated; a campaign lock still changes only on an explicit
+upgrade. Closing Enhanced Items leaves accepted applicable usages executable.
+
+#### Receipts, events and tests
+
+New usage provisionally reuses existing `kind: "definition"` receipts, adding
+`object` and `usage` fields, and the existing `definition-created` event, so this
+slice does not mint an event kind with no consumer. Combat settlement receipts
+also name the usage and the instance. Host-minted usage ids and job paths never
+need to be copied by the Keeper.
+
+Test interfaces: the production path is the seven Keeper verbs
+through the TypeScript kernel RPC. Kernel cases cover selection, reuse, atomic
+refusal, ownership / condition, shared resources and live skill / DB — extending
+`tests/kernel/test_mods.py` (run against TS) and `tests/extension/ts-kernel-mods.test.mjs`.
+Host cases cover `mods.job` / `mods.accept` / same-turn continue around
+`extensions/mods/index.ts` and `extensions/kernel/tools.ts`. A test that only
+asserts an internal map grew a row is not enough; it must show the chosen usage
+changed the parameters actually used to settle. `tests/extension/world-state-seams.test.mjs`
+still pairs writes with projections; `tests/extension/system-language.test.mjs`
+still forbids CJK and per-tag language tables in code. Live-table acceptance
+followed the unique method in §10 and Agents.md on campaign
+`object-usages-live-sep15`; the evidence is summarized in the status note below.
+`.coc` campaign, module, transcript and playtest evidence are not deleted or
+rewritten to make a slice look done.
+
+### The kernel's decisions (`objects.usages.v1`; implemented 2026-09-15)
+
+**Status.** Implemented and verified 2026-09-15. The TypeScript kernel, host and
+Enhanced Items 1.2.1 cover held-object usage, staged scene usage, stateful
+multiple usages and admission review. Kernel/play suite: 1276 passed with one
+pre-existing unrelated setup era case deselected after being reproduced failing
+on a clean HEAD checkout. Extension suite: 1214/1215, the one failure a
+load-flaky runtime process-lifetime case that passes 28/28 in isolation.
+Whole-diff review found no critical issue after the accepted-cache, reload-pool,
+pending-defense and public-projection fixes. Real table: campaign
+`object-usages-live-sep15` (Grok 4.6 Keeper, this session as the sole player)
+registered the improvised usage for the held wooden stool through the real usage
+job and tool-enabled creator, rolled the attack, reused the accepted profile on
+the next attack, and recorded the stool as damaged; evidence is retained under
+`.coc/`. No production Python path.
+
+- **Capability and effect.** `objects.usages.v1` is a Mod-generated data
+  capability. Apply input is `{kind: "usage", object, name, description}` only.
+  Default `define.category` is `item` when omitted. `category` is not an attack
+  gate. Execution uses registered combat settlement, not a new RuleGraph resolver
+  node.
+- **Job, preview and accept.** `mods.job` `role: "usage"` input is
+  `{object, name, description}`. Host-private top-level `preview` contains only
+  earlier same-batch materialized `define` / `object` effects. The host accepts
+  define before usage and never commits a half batch. Kernel preview clones world
+  and staged sheets through `stageModEffect`; accept rebuilds preview and checks
+  `request_digest` plus `physical_basis`. Bad or stale data writes nothing.
+- **Creator result.** `request.json` carries the usage role plus kernel-supplied
+  object facts and condition. Creator `result.json` is
+  `{name, description, basis, mode, parameters, player_view}` with closed `mode`
+  `melee|thrown|firearm`, existing weapon parameters, `base_range_yards` for
+  ranged profiles and no `initial_ammo` or other state fields. `mods.accept`
+  returns `{usage, physical_basis, provenance: {mod, digest, job}}`; `_usage` on
+  the effect is that entire accepted object.
+- **Records.** Append-only `world.objects.usages` per instance. `physical_basis`
+  binds definition digest and instance condition. Reuse is instance + usage name +
+  basis, not an utterance hash. Skill, damage bonus, defence, range, ammunition
+  and charges are live at resolve. Ownership, turn, ammo and charges do not
+  invalidate the cache.
+- **Admission and opening.** Opening apply may include `usage` only for pure
+  registration. Usage and real object transfer with `playerText` pass through
+  action-admission before prepare or apply. Pure adopt and same-owner state remain
+  bookkeeping; NPC resolve remains exempt. Admission keys bind object, usage,
+  definition and order while excluding private preview / accepted fields.
+- **Resolve.** `action.object` is the instance; `action.weapon` is an alias;
+  disagreement refuses. `action.usage` is required when more than one usage
+  applies. Combat `weapon_id` is the usage id; rows carry `object_id` to the one
+  resource pool. Projection, combat catalog and ammo write-back share that pool.
+  Hit skill comes from the usage (or mapped legacy weapon) profile.
+- **Transfers and receipts.** Thrown objects move only after real settlement,
+  through `moveObject` and `objectTransferReceipt`, producing the existing
+  `item-transferred` event. Pending defence, combat-start handoff and refused
+  attacks do not transfer early; replay does not duplicate the transfer. This is
+  the apply-object state / receipt implementation path, not a direct world write.
+- **Compatibility.** Legacy `apply item.weapon` stays on the rules table. Old
+  weapon definitions map to a default attack usage without regeneration. Old
+  category may be read to map data and must not authorize execution.
+
 ## 27. Host runtime composition (runtime migration, issue #35)
 
 ### Current implementation decision: bounded assembly and one recipe (2026-09-14)

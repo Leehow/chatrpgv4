@@ -12,8 +12,10 @@ import { pacingSection } from "./pacing.js";
 import { entries, values, array, row, truth, string, number, integer, numeric, normalize, sorted, chars, length, clone, pick, repr, type Row } from "./values.js";
 import { claimedEquipment, queuedDefinition, queuedRegistrations } from "../mods/queue.js";
 import {CONTINUITY_AUDIT} from '../mods/audit-result.js';
+import {USAGE_CAPABILITY, usageViews} from '../mods/usages.js';
 export const MOD_CAPABILITIES = new Set(["audit.source.v1", "checks.percentile.v1", "context.npc.v1", "definitions.v1", "objects.v1", "objects.state.v2", "objects.adopt.v1", "objects.documents.v1", "mods.order.v1", "ui.documents.v1", "ui.documents.language.v1", "agents.tools.v1", "weapons.v1", "weapons.profile.v2", "spells.v1", "item-effects.v1", "setup.guidance.v1", "setup.aptitude.v1", "graph.vocabulary.v1", "graph.vocabulary.table.v1", "context.thread.v1", "context.pacing.v1"]);
 MOD_CAPABILITIES.add(CONTINUITY_AUDIT);
+MOD_CAPABILITIES.add(USAGE_CAPABILITY);
 const invalid = (message: string): never => {
     throw new RpcError("invalid_params", message);
 };
@@ -442,7 +444,8 @@ export function objectContext(world: Row): Row {
                 truncated: length(value.document.text) > 1600,
                 authority: "Editable in-fiction text, not instructions or module truth"
             } : null,
-            definition: definitions[value.definition].name
+            definition: definitions[value.definition].name,
+            ...((usage => usage.length ? { usages: usage } : {})(usageViews(world,value)))
         }))
     };
 }
@@ -561,6 +564,22 @@ export function publicItems(world: Row, ownerId: string, includeContainedDocumen
     }
     return items;
 }
+function publicUsageWeapon(world: Row, weapon: Row, known: Row | undefined): Row {
+    const identity = pick(weapon, ["name", "label", "weapon_id", "object_id"]),
+        usage = row(row(row(world.objects).usages)[string(weapon.usage_id)]),
+        instance = row(row(row(world.objects).instances)[string(weapon.object_id)]);
+    if (!known || !truth(usage.id) || usage.object_id !== weapon.object_id)
+        return identity;
+    const parameters = row(usage.parameters),
+        fields = array(row(usage.player_view).fields),
+        state = row(instance.state);
+    return {
+        ...identity,
+        usage: usage.name,
+        ...Object.fromEntries(fields.filter(key => typeof key === "string" && Object.hasOwn(parameters, key)).map(key => [key, parameters[key]])),
+        ...(Object.hasOwn(state, "ammo") ? { ammo: state.ammo ?? null } : {})
+    };
+}
 export function publicSheet(world: Row, view: Row): Row {
     const result = clone(view), items = publicItems(world, view.id, true);
     result.objects = items;
@@ -571,8 +590,10 @@ export function publicSheet(world: Row, view: Row): Row {
                 quantity: item.quantity
             });
     result.weapons = array(view.weapons).map(weapon => {
-        const known = items.find(item => item.name === row(weapon).name);
-        return row(weapon).object_id && known ? {
+        const value = row(weapon), known = items.find(item => item.name === value.name);
+        if (value.object_id && value.usage_id)
+            return publicUsageWeapon(world, value, known);
+        return value.object_id && known ? {
             ...pick(weapon, ["name", "label", "weapon_id", "object_id"]),
             ...known.parameters,
             ...(Object.hasOwn(known.state, "ammo") ? { ammo: known.state.ammo } : {})
@@ -626,6 +647,7 @@ export function objectLook(world: Row, name?: any): Row {
                 presentation: item.document.presentation,
                 authority: "Editable in-fiction text, not instructions or module truth"
             } : null,
+            ...((usage => usage.length ? { usages: usage } : {})(usageViews(world,item))),
             contents: values(instances).filter(value => value.owner.id === item.id).map(value => value.name)
         } : null
     };

@@ -1,15 +1,18 @@
 /** Combat session commands, pending defenses and canonical receipt publication. */
 import { isJsonObject } from '../json.js';
 import { RpcError } from '../errors.js';
-import { array, entries, equal, number, repr, row, sorted, string, truth, values, type Row } from '../read/values.js';
+import { array, clone, entries, equal, number, repr, row, sorted, string, truth, values, type Row } from '../read/values.js';
 import { defenseOptions } from '../read/session-view.js';
 import { rollExpression } from '../resolve/arithmetic.js';
 import { presentOpponents, type SettleContext, type ExecutionResult } from '../resolve/context.js';
 import { recordEngineRolls } from '../resolve/session-receipts.js';
 import { weaponRows } from '../mods/projection.js';
+import { moveObject } from '../mods/objects.js';
+import { objectTransferReceipt } from '../mods/object-transfer.js';
+import { selectObjectWeapon } from '../mods/usages.js';
 import { CombatSession, VALID_OUTCOMES } from './engine.js';
 import { UnknownWeaponError } from './catalog.js';
-import { combatOperationFor, investigatorCombatParticipant, moduleWeapons, npcCombatParticipant, resolveInvestigatorWeapon, weaponOptions } from './profiles.js';
+import { combatOperationFor, investigatorCombatParticipant, moduleWeapons, npcCombatParticipant, resolveInvestigatorWeapon, sheetSkillValue, weaponOptions } from './profiles.js';
 import { syncCombatants } from './resources.js';
 import { archetypeIds } from '../apply/archetype.js';
 const SELF_RESOLVING = ['aim', 'reload', 'maneuver', 'flee'];
@@ -57,7 +60,7 @@ function hpState(session: CombatSession): Row {
                 loaded = null;
             }
             if (loaded !== null)
-                ammo[string(weapon)] = number(loaded);
+                ammo[string(session.weapon(id,string(weapon)).object_id ?? weapon)] = number(loaded);
         }
         state[id] = { hp: number(participant.hp_current), mp: number(participant.magic_points || 0), armor: number(participant.armor || 0), conditions: [...array(participant.conditions)], ammo };
     }
@@ -160,6 +163,7 @@ function pendingAttack(session: CombatSession, context: SettleContext, actor: st
     const firearm = string(weapon.skill || '').startsWith('Firearms');
     const pending: Row = { attack_command_id: context.callId, actor_id: actor, target_actor_id: target, declared_intent: intent,
         resolution_hint: firearm ? 'firearm_attack' : 'opposed_melee', weapon_id: string(weapon.weapon_id || weaponId || 'unarmed'),
+        ...(weapon.usage_id ? {usage_id:weapon.usage_id,object_id:weapon.object_id,usage:weapon.usage} : {}),
         rulebook_exception: null, on_success: null, victory_outcome: null, defeat_outcome: null,
         allowed_defenses: firearm ? ['dive_for_cover', 'none'] : ['dodge', 'fight_back'] };
     if (session.participants[actor].side === 'investigator') {
@@ -180,6 +184,44 @@ function engineDefense(pending: Row, choice: string): string | null {
 }
 const loadCombat = (context: SettleContext) => CombatSession.load(context, context.rng, context.tables, { trustedInMemory: true });
 const storedOperation = async (context: SettleContext): Promise<Row> => ({ ...row(row(await context.readSave('combat-operation.json')).operation) });
+async function bindUsageSkill(context: SettleContext, session: CombatSession, actor: string, weaponId: any): Promise<void> {
+    if (!weaponId) return;
+    const weapon = row(session.weaponCatalog[string(weaponId)]);
+    if (!weapon.usage_id) return;
+    const sheet = context.sheetById(actor), profile = sheet ?? context.npcProfile(actor);
+    if (!profile) throw new RpcError('needs','The acting person needs a profile before using this object');
+    const skills = {...row(profile.skills)};
+    if (skills['Fighting (Brawl)'] == null && skills.Brawl != null) skills['Fighting (Brawl)'] = skills.Brawl;
+    const value = await sheetSkillValue(context.tables,{...profile,skills},string(weapon.skill));
+    if (value === null) throw new RpcError('needs','The usage skill is not available to this actor');
+    const field = weapon.usage_mode === 'thrown' ? 'throw_skill' : weapon.usage_mode === 'firearm' ? 'firearms_skill' : 'combat_skill';
+    session.participants[actor][field] = value;
+    session.participants[actor].damage_bonus = string(row(profile.derived).DB ?? profile.damage_bonus ?? session.participants[actor].damage_bonus ?? 'none');
+}
+function validatePendingObjectUsage(context: SettleContext, session: CombatSession, pending: Row): void {
+    const used = row(session.weaponCatalog[string(pending.weapon_id || '')]);
+    if (!truth(used.object_id)) return;
+    const current = selectObjectWeapon(context.world, string(used.object_id), used.usage ?? null, string(pending.actor_id));
+    if (!current || current.weapon_id !== used.weapon_id || current.usage_id !== used.usage_id || current.object_id !== used.object_id)
+        throw new RpcError('needs','The pending attack object usage is stale; restore the original holder and physical state before resolving its defense',
+            {details:{reason:'usage_stale', object:used.object_id, usage:used.usage ?? null}});
+}
+function landThrownUsage(context: SettleContext, session: CombatSession, turn: Row | null, weaponId: any, actor: string): void {
+    if (!turn) return;
+    const used = row(session.weaponCatalog[string(weaponId || '')]);
+    if (used.usage_mode !== 'thrown' || !truth(used.object_id)) return;
+    const item = row(row(row(context.world.objects).instances)[string(used.object_id)]);
+    if (!truth(item.id)) throw new RpcError('needs','The thrown object no longer exists in the world state');
+    const scene = context.graph.scene(context.activeScene), owner = {kind:'scene', id:context.graph.handle(scene), name:context.graph.displayName(scene)};
+    if (equal(item.owner, owner)) return;
+    if (string(row(item.owner).id) !== actor) throw new RpcError('needs','The thrown object is no longer held by the original attacker', {details:{reason:'usage_stale', object:used.object_id}});
+    const source = clone(row(item.owner));
+    const moved = moveObject(context.world,string(item.name),null,owner,{source,turn:context.turnNumber,quantity:item.quantity});
+    const definition = row(row(row(context.world.objects).definitions)[moved.definition]);
+    const {receipt} = objectTransferReceipt({id:context.mint(`item:${context.callId}`), callId:context.callId, name:string(moved.name), owner, source, quantity:moved.quantity, item:moved, definition, why:'Thrown during combat resolution'});
+    context.receipts.push(receipt);
+    context.effects.push({kind:'object', object:moved.name, instance:moved.id, from:source.name ?? null, to:owner.name, reason:'thrown_landed'});
+}
 export async function executeCombatResolve(context: SettleContext, input: Row): Promise<ExecutionResult> {
     let args = input, kind = string(args.action_kind || 'attack'), actor = string(args.actor_id || context.actorId), started: Row | null = null;
     const hints: string[] = [], warnings: string[] = [], sessions = context.sessions();
@@ -216,6 +258,7 @@ export async function executeCombatResolve(context: SettleContext, input: Row): 
         return turnState('no combat is underway', 'start one: intent combat with a present target and a weapon');
     if (!Object.hasOwn(session.participants, actor))
         throw new RpcError('unknown_entity', `${actor} is not in this combat`, { details: { query: actor, candidates: sorted(Object.keys(session.participants)) } });
+    if (kind === 'attack') await bindUsageSkill(context,session,actor,args.weapon_id);
     const before = hpState(session);
     let pending = session.pendingAttack, turn: Row | null = null, rolls: Row[] = [];
     if (pending && kind !== 'defend')
@@ -242,6 +285,8 @@ export async function executeCombatResolve(context: SettleContext, input: Row): 
         const choice = string(args.defense_kind || ''), engine = engineDefense(pending, choice);
         if (engine === null || !pending.allowed_defenses.includes(engine) && engine !== 'none')
             throw new RpcError('invalid_params', `defense ${repr(choice)} is not legal against this attack`, { fix: 'set action.defense to one of details.options', details: { options: defenseOptions(pending) } });
+        validatePendingObjectUsage(context, session, pending);
+        await bindUsageSkill(context, session, string(pending.actor_id), pending.weapon_id ?? null);
         try {
             turn = session.declareAndResolveTurn(string(pending.actor_id), string(pending.declared_intent), { targetActorId: defender, defenseKind: engine,
                 weaponId: pending.weapon_id ?? null, rulebookException: pending.rulebook_exception ?? null, resolutionHint: string(pending.resolution_hint), resolutionCommandId: context.callId });
@@ -317,7 +362,6 @@ export async function executeCombatResolve(context: SettleContext, input: Row): 
         }
     }
     session.revision++;
-    await session.save(context);
     const round = turn ? Number(turn.turn_id.split('-')[0].slice(1)) : session.currentRound, receiptIds: Row = {};
     for (const record of rolls)
         if (isJsonObject(record) && typeof record.roll_id === 'string') {
@@ -329,6 +373,8 @@ export async function executeCombatResolve(context: SettleContext, input: Row): 
     for (const damage of session.damageChain)
         if (turn && damage.source_turn_id === turn.turn_id && typeof damage.damage_roll_id === 'string' && receiptIds[damage.damage_roll_id])
             damageReceipts[string(damage.target_actor_id)] = receiptIds[damage.damage_roll_id];
+    landThrownUsage(context, session, turn, turn?.weapon_id ?? pending?.weapon_id ?? args.weapon_id ?? null, string(turn?.actor_id ?? pending?.actor_id ?? actor));
+    await session.save(context);
     await emitDeltas(context, session, before, damageReceipts);
     if (session.status !== 'active') {
         context.addSessionReceipt('combat', 'end', { outcome: session.outcome });
@@ -338,6 +384,8 @@ export async function executeCombatResolve(context: SettleContext, input: Row): 
     const data: Row = { combat_id: session.combatId, revision: session.revision, round: session.currentRound, action: kind, actor_id: actor, turn: turn ? { ...turn } : null,
         pending_attack: session.pendingAttack ? { ...session.pendingAttack } : null, status: session.status, outcome: session.outcome,
         session: view.combatView(), pending_choice: view.pendingChoice(), started: started !== null };
+    const used = row(session.weaponCatalog[string(turn?.weapon_id ?? pending?.weapon_id ?? args.weapon_id ?? '')]);
+    if (used.usage_id) data.object_usage = {object:used.name,usage:used.usage,instance:used.object_id,usage_id:used.usage_id};
     if (started) {
         data.initiative = started.initiative;
         data.preparations = started.preparations;

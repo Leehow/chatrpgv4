@@ -17,9 +17,9 @@ export function checkArguments(input: string[]): RuntimeCheck {
   };
   const kind = take("--kind") ?? "source-draft";
   const draft = take("--draft"), packet = take("--packet");
-  if (args.length || !draft || (kind === "source-draft" ? !packet : kind !== "mod-definition" || packet))
-    throw new Error("Use --packet <task.json> --draft <draft.json>, or --kind mod-definition --draft <result.json>");
-  return kind === "source-draft" ? { kind, packet: packet!, draft } : { kind: "mod-definition", draft };
+  if (args.length || !draft || (kind === "source-draft" ? !packet : !["mod-definition", "object-usage"].includes(kind) || packet))
+    throw new Error("Use --packet <task.json> --draft <draft.json>, or --kind mod-definition|object-usage --draft <result.json>");
+  return kind === "source-draft" ? { kind, packet: packet!, draft } : { kind: kind as "mod-definition" | "object-usage", draft };
 }
 
 export async function checkMain(args: string[]): Promise<number> {

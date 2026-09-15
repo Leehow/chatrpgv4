@@ -6,11 +6,14 @@ import { loadModuleContract } from './modules/contract.js';
 import { checkDraft, checkOpeningBatch, requiredViewPages } from './modules/visual.js';
 import { row } from './read/values.js';
 import { validateDefinition } from './mods/definition.js';
+import {validateUsage} from './mods/usages.js';
 export { pythonJsonDumps as serializeCheckResult } from './json.js';
 export { parsePythonJson as parseCheckResult } from './json.js';
-export async function checkModDefinition(path: string): Promise<{ok: boolean; [key: string]: unknown}> {
+export const checkModDefinition = (path: string) => checkObjectParameters(path,validateDefinition);
+export const checkObjectUsage = (path: string) => checkObjectParameters(path,validateUsage);
+async function checkObjectParameters(path: string, validate: typeof validateUsage): Promise<{ok: boolean; [key: string]: unknown}> {
     try {
-        const value=validateDefinition(await snapshots.readJson(path));
+        const value=validate(await snapshots.readJson(path));
         return {ok:true,name:value.name};
     } catch(error) {
         if(typeof (error as NodeJS.ErrnoException)?.code==='string' && !(error instanceof RpcError)){

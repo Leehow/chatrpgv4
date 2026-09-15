@@ -9,6 +9,7 @@ import { usableWeapon } from '../mods/projection.js';
 import { MANEUVER_ALIASES, MANEUVER_GOALS, VALID_OUTCOMES } from './engine.js';
 import { combatOperationFor, resolveInvestigatorWeapon, weaponOptions } from './profiles.js';
 import { archetypeIds } from '../apply/archetype.js';
+import {selectObjectWeapon, usageObject} from '../mods/usages.js';
 import { executeCombatEnd, executeCombatResolve, presentOpponents } from './execution.js';
 export { CombatSession, combatAttack, resolveOpposed, CLOCK_SAVE_PATHS, rebaseClock } from './engine.js';
 export type { CombatAttackPort, CombatTurnOptions, ParticipantOptions } from './engine.js';
@@ -27,13 +28,9 @@ function damageViews(context: SettleContext): Row[] {
     return context.receipts.filter(receipt => receipt.kind === 'roll' && receipt.form === 'dice').map(receipt => ({ actor: receipt.actor ?? null, label: receipt.skill ?? null,
         expression: receipt.expression ?? null, faces: receipt.faces ?? null, total: receipt.total ?? null, receipt: receipt.id ?? null }));
 }
-/** What to do when the Keeper swings something the sheet does not carry as a weapon (contract §32.9).
- *  An improvised weapon is armed by `apply item` with a rules-table profile in `weapon`; a Mod
- *  definition arms it only when its own category is `weapon`, and an established definition cannot be
- *  regenerated into one later. `admission-e2e-4` turn 33 spent three round trips discovering that, and
- *  then rolled the fight unarmed while the prose swung an iron bar. */
+/** Missing mechanics are prepared on the same physical object, never by cloning it into a weapon. */
 const armingFix = (weapon: string): string =>
-    `set action.weapon to one of details.needs.options, or arm ${weapon} first with apply item: its name plus the rules-table profile in weapon (a heavy blunt tool is club_large), which is what lets an improvised weapon hit. A Mod definition arms a thing only when its own category is weapon, and an established definition cannot be turned into one afterwards.`;
+    `set action.weapon to one of details.needs.options, or prepare ${weapon} with apply usage (object, name and description). Keep an existing object's identity and condition. Unmanaged equipment may still use apply item with a rules-table weapon profile; never use that path to duplicate a managed object.`;
 export function createCombatResolveContribution(): FixedFamilyBinding {
     return Object.freeze<FixedFamilyBinding>({
         matches(ref, capability) { return Object.hasOwn(DECISIONS, ref) && (capability === null || DECISIONS[ref] === capability); },
@@ -63,6 +60,21 @@ export function createCombatResolveContribution(): FixedFamilyBinding {
                 Object.assign(binding, { pending_attack_ref: pending.attack_command_id ?? null, attack_command_id: pending.attack_command_id ?? null,
                     target_actor_id: pending.target_actor_id ?? null, _actor_id: defender });
                 return done();
+            }
+            let objectWeapon: Row | null = null;
+            if (['attack','maneuver','aim','reload'].includes(suffix)) {
+                if (action.object != null && action.weapon != null) {
+                    const weaponUsage = row(row(row(context.world.objects).usages)[string(action.weapon)]);
+                    const namedObject = usageObject(context.world,string(action.object)), namedWeapon = usageObject(context.world,string(weaponUsage.object_id ?? action.weapon));
+                    if (!namedObject || !namedWeapon || namedObject.id !== namedWeapon.id)
+                        throw new RpcError('invalid_params','action.object and action.weapon must name the same physical object');
+                }
+                const query = action.object ?? action.weapon;
+                if (query != null) {
+                    objectWeapon = selectObjectWeapon(context.world,string(query),action.usage,actor);
+                    if (action.object != null && !objectWeapon) throw new RpcError('needs','Place or adopt this object and prepare its usage first');
+                    action = {...action,weapon:objectWeapon?.weapon_id ?? query};
+                }
             }
             if (suffix === 'attack' || suffix === 'maneuver') {
                 if (isNpc) {
@@ -108,8 +120,8 @@ export function createCombatResolveContribution(): FixedFamilyBinding {
                     const weapon = action.weapon;
                     if (weapon == null)
                         throw new RpcError('needs', 'the attack needs the weapon in hand', { fix: 'set action.weapon (unarmed for fists)', details: { needs: { field: 'weapon', options: weaponOptions(context.actor) } } });
-                    usableWeapon(context.world, string(weapon), context.actorId);
-                    const resolved = await resolveInvestigatorWeapon(context.tables, context.actor, string(weapon));
+                    if (!objectWeapon) usableWeapon(context.world, string(weapon), context.actorId);
+                    const resolved = objectWeapon ?? await resolveInvestigatorWeapon(context.tables, context.actor, string(weapon));
                     if (!resolved)
                         throw new RpcError('needs', `${repr(weapon)} is not a weapon the investigator carries`, { fix: armingFix(string(weapon)), details: { needs: { field: 'weapon', options: weaponOptions(context.actor) } } });
                     semantic.weapon_ref = string(resolved.weapon_id);
@@ -143,7 +155,7 @@ export function createCombatResolveContribution(): FixedFamilyBinding {
             if (suffix === 'aim' || suffix === 'reload') {
                 const weapon = action.weapon;
                 if (weapon != null && !isNpc) {
-                    const resolved = await resolveInvestigatorWeapon(context.tables, context.actor, string(weapon));
+                    const resolved = objectWeapon ?? await resolveInvestigatorWeapon(context.tables, context.actor, string(weapon));
                     if (!resolved)
                         throw new RpcError('needs', `${repr(weapon)} is not a weapon the investigator carries`, { fix: armingFix(string(weapon)), details: { needs: { field: 'weapon', options: weaponOptions(context.actor) } } });
                     semantic.weapon_ref = string(resolved.weapon_id);
@@ -205,6 +217,7 @@ export function createCombatResolveContribution(): FixedFamilyBinding {
                 Object.assign(out, { target: pending!.target_actor_id ?? null, defense_options: defenseOptions(pending!), attack_kind: pending!.resolution_hint ?? null });
             if (truth(turn))
                 Object.assign(out, { target: turn.target_actor_id ?? null, turn_outcome: turn.outcome ?? null, defense: turn.defense_kind ?? null, opposed_outcome: turn.opposed_outcome ?? null });
+            if (result.object_usage) out.object_usage = result.object_usage;
             if (result.status === 'concluded')
                 out.combat_outcome = result.outcome ?? null;
             if (truth(result.started)) {

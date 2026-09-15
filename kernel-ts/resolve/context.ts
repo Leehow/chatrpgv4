@@ -170,7 +170,7 @@ export class SettleContext {
             if (receipt.id === id)
                 receipt.continued_by = kind;
     }
-    private mint(base: string): string {
+    mint(base: string): string {
         let candidate = base;
         let counter = 2;
         while (this.minted.has(candidate) || array(this.turn.receipts).some(receipt => receipt.id === candidate))

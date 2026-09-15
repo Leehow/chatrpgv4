@@ -5,18 +5,10 @@ import { publicItems } from '../read/mods.js';
 import { array, row, values, string, truth, normalize, type Row } from '../read/values.js';
 import type { CampaignWriter } from '../write/store.js';
 export { usableWeapon, syncAmmo } from './combat-projection.js';
+import {usageWeaponRows} from './usages.js';
 
 export function weaponRows(world: Row, ownerId: string | null = null): Row[] {
-  const data = row(world.objects), definitions = row(data.definitions), result: Row[] = [];
-  for (const item of values(data.instances)) {
-    const definition = definitions[item.definition];
-    if (definition.category !== 'weapon' || ownerId !== null && item.owner.id !== ownerId) continue;
-    result.push({...definition.parameters, weapon_id: item.id, name: item.name, display_name: item.name, ammo: item.state.ammo ?? null,
-      object_id: item.id, uses_per_round: string(definition.parameters.uses_per_round),
-      impales: Object.hasOwn(definition.parameters, 'impale') ? definition.parameters.impale : false,
-      adds_damage_bonus: Object.hasOwn(definition.parameters, 'adds_damage_bonus') ? definition.parameters.adds_damage_bonus : false});
-  }
-  return result;
+  return usageWeaponRows(world,ownerId);
 }
 export function projectSheet(world: Row, sheet: Row): void {
   sheet.weapons = array(sheet.weapons).filter(item => !isJsonObject(item) || !truth(item.object_id));
@@ -41,7 +33,7 @@ export async function projectInventory(campaign: CampaignWriter, world: Row): Pr
     actor.weapons = [...prior, ...extra];
     for (const weapon of extra) {
       (snapshot.weapon_catalog ??= {})[weapon.weapon_id] = weapon;
-      if (weapon.ammo !== null) (actor._ammo ??= {})[weapon.weapon_id] = weapon.ammo;
+      if (weapon.ammo !== null) (actor._ammo ??= {})[weapon.object_id ?? weapon.weapon_id] = weapon.ammo;
     }
   }
   await campaign.write('save/combat.json', snapshot);

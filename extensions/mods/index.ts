@@ -169,13 +169,19 @@ export default function modsExtension(pi: ExtensionAPI): void {
     } finally { budget.close(); }
   }
 
-  async function task(campaign: string, role: "create" | "audit", input: unknown, signal?: AbortSignal): Promise<any> {
+  async function task(campaign: string, role: "create" | "usage" | "audit", input: unknown, signal?: AbortSignal, preview?: Record<string, any>[]): Promise<any> {
     if (!call) throw new KernelError({code:"needs",message:"Mod kernel bridge is unavailable"});
     const current = call, owner = runtime, began = Date.now();
-    const job = await current("mods.job", {campaign, role, input});
+    if (role === "usage") signal?.throwIfAborted();
+    const job = await current("mods.job", preview === undefined ? {campaign, role, input} : {campaign, role, input, preview});
+    if (role === "usage") signal?.throwIfAborted();
     if (!job.enabled) return null;
     if (job.continuity_review) return continuityTask(campaign, job, input, began, signal);
-    if (job.accepted) return current("mods.accept", {campaign, job:job.job});
+    if (job.accepted) {
+      const result = await current("mods.accept", {campaign, job:job.job});
+      if (role === "usage") signal?.throwIfAborted();
+      return result;
+    }
     if (!owner) throw new KernelError({code:"needs",message:"Mod runtime bridge is unavailable"});
     const model = context?.model;
     const modelName = model ? `${model.provider}/${model.id}` : undefined;
@@ -194,7 +200,7 @@ export default function modsExtension(pi: ExtensionAPI): void {
       // either way, and then the original failure continues on its way.
       try {
         outcome = await owner.runTask({kind:"mod", request:{cwd:job.cwd, systemPrompt:job.system_prompt, model:modelName,
-          tools:job.source_review ? "read,write,edit,bash" : "read,write,edit",
+          tools:job.source_review || role === "usage" ? "read,write,edit,bash" : "read,write,edit",
           eventLog:join(job.cwd, `agent-${attempt}.jsonl`), brief:base + repair}}, signal);
       }
       catch (error) {
@@ -202,6 +208,7 @@ export default function modsExtension(pi: ExtensionAPI): void {
         throw error;
       }
       await writeFile(join(job.cwd, `run-${attempt}.json`), JSON.stringify(outcome, null, 2));
+      if (role === "usage") signal?.throwIfAborted();
       // Which agent ran out of time decides what the Keeper can do about it, and the roles want
       // opposite things: a creator's batch is too big, an auditor's turn is not. A refusal that does
       // not carry the role can only guess, and guessing sent the Keeper to trim `define` effects on
@@ -210,13 +217,21 @@ export default function modsExtension(pi: ExtensionAPI): void {
         fix:"Retry the same request to resume the retained job",
         details:{reason:"mod_agent_failed", role, source_review:job.source_review === true, timed_out:outcome.timedOut, ms:outcome.ms, exit:outcome.code ?? null, signal:outcome.signal ?? null}});
       try {
-        if (role === "create") {
-          const check = await owner.check({kind:"mod-definition", draft:join(job.cwd,"result.json")}, signal);
+        if (role === "create" || role === "usage") {
+          const check = await owner.check({kind:role === "usage" ? "object-usage" : "mod-definition", draft:join(job.cwd,"result.json")}, signal);
+          if (role === "usage") signal?.throwIfAborted();
           if (!check.ok) throw new Error(JSON.stringify(check.fix ? {error: check.error, fix: check.fix} : check.error ?? check));
         }
-        return await current("mods.accept", {campaign, job:job.job});
+        const result = await current("mods.accept", {campaign, job:job.job});
+        if (role === "usage") signal?.throwIfAborted();
+        return result;
       }
       catch (error) {
+        if (role === "usage") signal?.throwIfAborted();
+        // A changed physical basis or job binding cannot be repaired by rewriting result.json.
+        // Return it to the Keeper to inspect the current object and reconsider the original action.
+        if (role === "usage" && isKernelError(error)
+            && (error.details?.reason === "usage_stale" || error.details?.reason === "usage_request_changed" || error.code === "invalid_params")) throw error;
         if (isKernelError(error) && error.code === "not_implemented") throw error;
         if (isKernelError(error) && ["mod_audit_stale", "mod_audit_evidence"].includes(String(error.details?.reason))) throw error;
         if (attempt === 2) throw error;
@@ -235,16 +250,20 @@ export default function modsExtension(pi: ExtensionAPI): void {
   }
 
   /**
-   * Materialize every `define` of one batch. Failures do not cancel the siblings still in flight:
+   * Materialize every `define` or held-object `usage` of one batch. Failures do not cancel siblings:
    * each definition that lands is retained as an accepted job, so the retry the Keeper is told to
    * make resumes from what is already done instead of paying for it twice.
    */
-  async function materialize(campaign: string, defines: Record<string, any>[], signal?: AbortSignal): Promise<void> {
+  async function materialize(campaign: string, defines: Record<string, any>[], signal?: AbortSignal, previews: (Record<string, any>[] | undefined)[] = []): Promise<void> {
     // The kernel keys a job by its request, so two identical defines in one batch are one job directory.
     // Serially the second used to find the first already accepted; together they would race over the same
-    // `result.json`, so they are folded here and share the one run.
-    const inputs = defines.map(effect => ({name:effect.name, category:effect.category, description:effect.description, template:effect.template}));
-    const owners = inputs.map(input => inputs.findIndex(other => JSON.stringify(other) === JSON.stringify(input)));
+    // `result.json`, so they are folded here and share the one run. Usage jobs include the private staged
+    // preview in this key so two equal use descriptions never share a job across different object state.
+    const inputs = defines.map(effect => effect.kind === "usage"
+      ? {object:effect.object, name:effect.name, description:effect.description}
+      : {name:effect.name, category:effect.category ?? "item", description:effect.description, template:effect.template});
+    const requests = inputs.map((input, index) => previews[index] === undefined ? {input} : {input, preview:previews[index]});
+    const owners = requests.map(request => requests.findIndex(other => JSON.stringify(other) === JSON.stringify(request)));
     const jobs = owners.filter((owner, index) => owner === index);
     const total = jobs.length, results: any[] = new Array(defines.length), failures: unknown[] = new Array(defines.length);
     let done = 0, next = 0;
@@ -252,12 +271,12 @@ export default function modsExtension(pi: ExtensionAPI): void {
     const worker = async (): Promise<void> => {
       for (let slot = next++; slot < total; slot = next++) {
         const index = jobs[slot];
-        try { results[index] = await task(campaign, "create", inputs[index], signal); }
+        try { results[index] = await task(campaign, defines[index].kind === "usage" ? "usage" : "create", inputs[index], signal, previews[index]); }
         catch (error) { failures[index] = error; }
         announce(campaign, ++done, total);
       }
     };
-    await Promise.all(Array.from({length: Math.min(modPoolSize(), total)}, worker));
+    if (total > 0) await Promise.all(Array.from({length: Math.min(modPoolSize(), total)}, worker));
     for (const [index, owner] of owners.entries()) {
       if (owner === index) continue;
       results[index] = results[owner];
@@ -267,10 +286,13 @@ export default function modsExtension(pi: ExtensionAPI): void {
     // is attached until every one of them is in hand, so a half-materialized batch never reaches apply.
     for (const [index, failure] of failures.entries()) {
       if (failure !== undefined) throw failure;
-      if (!results[index]) throw new KernelError({code:"needs", message:"Enable a definition-generating Mod before creating new definitions"});
+      if (!results[index]) throw new KernelError({code:"needs", message:defines[index].kind === "usage"
+        ? "Enable a usage-generating Mod before preparing a new object usage"
+        : "Enable a definition-generating Mod before creating new definitions"});
     }
     for (const [index, effect] of defines.entries()) {
-      effect._definition = results[index].definition;
+      if (effect.kind === "usage") effect._usage = results[index];
+      else effect._definition = results[index].definition;
       effect._provenance = results[index].provenance;
     }
   }
@@ -290,6 +312,12 @@ export default function modsExtension(pi: ExtensionAPI): void {
     // about to place its object in the scene, and a definition queued behind that placement would leave the
     // Keeper holding a name the kernel cannot find yet.
     && effects.some(effect => effect?.kind === "object" && typeof effect?.adopt === "string");
+  const usageBatchKind = (effect: Record<string, any>): boolean =>
+    effect?.kind === "define" || effect?.kind === "object" || effect?.kind === "usage";
+  const usagePreview = (effects: Record<string, any>[], index: number): Record<string, any>[] | undefined => {
+    const preview = effects.slice(0, index).filter(effect => effect?.kind === "define" || effect?.kind === "object");
+    return preview.length ? preview : undefined;
+  };
 
   let outstanding: Promise<void> | undefined;
 
@@ -301,7 +329,7 @@ export default function modsExtension(pi: ExtensionAPI): void {
   async function defer(campaign: string, defines: Record<string, any>[], signal?: AbortSignal): Promise<boolean> {
     if (!call) return false;
     const current = call;
-    const inputs = defines.map(effect => ({name:effect.name, category:effect.category, description:effect.description, template:effect.template}));
+    const inputs = defines.map(effect => ({name:effect.name, category:effect.category ?? "item", description:effect.description, template:effect.template}));
     const handles: {index: number; job: any}[] = [];
     for (const [index, input] of inputs.entries()) {
       const job = await current("mods.job", {campaign, role:"create", input});
@@ -422,9 +450,22 @@ export default function modsExtension(pi: ExtensionAPI): void {
         await resume(payload.campaign, signal);
       if (method === "apply") {
         const effects: Record<string, any>[] = payload.effects ?? [];
-        const defines = effects.filter((effect: Record<string, any>) => effect?.kind === "define");
-        if (defines.length && !(registrationOnly(effects) && await defer(payload.campaign, defines, signal)))
-          await materialize(payload.campaign, defines, signal);
+        if (effects.some((effect: Record<string, any>) => effect?.kind === "usage")) {
+          const unsupported = effects.filter((effect: Record<string, any>) => !usageBatchKind(effect)).map(effect => String(effect?.kind ?? "unknown"));
+          if (unsupported.length) throw new KernelError({code:"needs", message:"A usage preparation batch can only contain define, object and usage effects",
+            fix:"Split unrelated world changes into a separate apply before or after the object preparation batch",
+            details:{reason:"usage_batch_scope", unsupported}});
+          const definitions = effects.filter((effect: Record<string, any>) => effect?.kind === "define");
+          await materialize(payload.campaign, definitions, signal);
+          const usageEntries = effects.map((effect, index) => ({effect, index})).filter(entry => entry.effect?.kind === "usage");
+          const usages = usageEntries.map(entry => entry.effect);
+          const previews = usageEntries.map(entry => usagePreview(effects, entry.index));
+          await materialize(payload.campaign, usages, signal, previews);
+        } else {
+          const defines = effects.filter((effect: Record<string, any>) => effect?.kind === "define");
+          if (defines.length && !(registrationOnly(effects) && await defer(payload.campaign, defines, signal)))
+            await materialize(payload.campaign, defines, signal);
+        }
       }
       if ((method === "narrate" || method === "ask") && payload.text) {
         let result: any;

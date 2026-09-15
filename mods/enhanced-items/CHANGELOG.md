@@ -1,3 +1,21 @@
+# 1.2.1
+
+Shortens the later-turn reminder so Mod instructions stay under the runtime budget.
+Campaign state and accepted usages are unchanged; live campaigns pinned to 1.2.0
+keep that package until explicitly upgraded.
+
+# 1.2.0
+
+Requires objects.usages.v1. Existing held physical instances can acquire separate,
+validated melee, thrown or firearm usages without replacing their definitions or
+resetting ownership, condition or remaining resources. Usage preparation uses a
+tool-enabled creator and waits for acceptance in the current action; an accepted
+matching job is reused without running the creator. The same object-preparation
+batch may stage define/object before usage for an immediate scene pickup or
+adoption, while unrelated world changes stay in separate applies. Definitions default to item,
+legacy weapon/spell definitions remain supported, and define/adopt-only background
+bookkeeping is unchanged. Existing campaign records are not rewritten on upgrade.
+
 # 1.1.9
 
 Treat equipment without instances as assessment candidates, not registration obligations; require a concrete mechanical basis for missing-object findings.

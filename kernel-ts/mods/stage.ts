@@ -12,8 +12,10 @@ import { required } from '../write/store.js';
 import { validateDefinition } from './definition.js';
 import { initializeDocument, ownershipChanged, writeDocument } from './documents.js';
 import { defineObject, moveObject, objectInstance, objectRegistry } from './objects.js';
+import { objectTransferReceipt } from './object-transfer.js';
 import { clearRegistration, queueAdoption, queueRegistration, queuedDefinition } from './queue.js';
 import type { ModJobs } from './jobs.js';
+import {registerUsage, validateUsage, validateUsageRequest} from './usages.js';
 
 const field = (value: Row, key: string, fallback: any): any => Object.hasOwn(value, key) ? value[key] : fallback;
 export async function objectOwner(campaign: CampaignWritePort, graph: ModuleGraph, world: Row, name: any): Promise<Row> {
@@ -31,7 +33,19 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
     const {campaign, graph, world, callId} = context, turn = context.turn.turn;
     let effect = original;
     const kind = effect.kind, mint = (id: string) => context.mint(id);
+    if (kind === 'usage') {
+        const input = validateUsageRequest(effect), prepared = row(effect._usage), provenance = row(prepared.provenance);
+        if (!truth(provenance.job)) throw new RpcError('needs',"Usage needs the host's tool-enabled Mod creator",{details:{reason:'mod_generation_required'}});
+        const accepted = await jobs.accept({campaign:campaign.id,job:provenance.job});
+        if (canonicalJson(accepted) !== canonicalJson(prepared)) throw new RpcError('invalid_params','Usage differs from the accepted Mod job');
+        validateUsage(accepted.usage,{name:input.name});
+        const usage = registerUsage(world,input.object,accepted.usage,accepted.physical_basis,provenance);
+        return {receipt:{id:mint(`definition:usage-${callId}`),kind:'definition',name:usage.name,object:input.object,usage:usage.name,
+            usage_id:usage.id,instance:usage.object_id,visibility:'keeper',call_id:callId},
+            event:{type:'definition-created',data:{name:usage.name,object:input.object,capability:'objects.usages.v1'}}};
+    }
     if (kind === 'define') {
+        if (effect.category == null) effect = {...effect,category:'item'};
         // Registration the delivery does not wait on. Nothing about the object is invented here: the marker
         // records only what the Keeper already named plus the job that will produce its parameters, and the
         // receipt says so, so the audit that reads this turn's receipts is told the truth about what landed.
@@ -191,9 +205,7 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
                 why: effect.why ?? null, call_id: callId};
             return {receipt, event: {type: 'resource-changed', data: {resource: receipt.resource, subject: receipt.subject, item: receipt.item, before: receipt.before, after: receipt.after}}};
         }
-        const receipt = {id: mint(`item:${callId}`), kind: 'item', name, label: name, subject: owner.id, subject_label: owner.name, quantity, instance: item.id,
-            from: source?.name ?? null, weapon: definition.category === 'weapon' ? item.id : null, call_id: callId, why: effect.why ?? null, state: clone(item.state)};
-        return {receipt, event: {type: 'item-transferred', data: {name, to: owner.name, from: receipt.from}}};
+        return objectTransferReceipt({id: mint(`item:${callId}`), callId, name, owner, source, quantity, item, definition, why: effect.why ?? null});
     }
     if (kind === 'ability') {
         const owner = await objectOwner(campaign, graph, world, effect.to);
