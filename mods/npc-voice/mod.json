@@ -11,7 +11,7 @@
   "contributes": {
     "instructions": "agent.md", "brief": "brief.md",
     "vocabulary": {"actor_profile_keys": [{
-      "key": "sample_lines", "label": "sounds like",
+      "key": "sample_lines", "label": "sounds like", "shape": "lines",
       "ask": "two short lines in this person's own words when the book prints their speech, one at ease and one under strain"
     }]}
   }
