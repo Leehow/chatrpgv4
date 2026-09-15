@@ -14,7 +14,8 @@ import { array, chars, clone, entries, equal, normalize, row, sorted, string, tr
 import { RuleTables } from '../rules/tables.js';
 import type { createWriteRuntime } from '../write/index.js';
 import { validateDefinition, validateDocumentSeed } from './definition.js';
-import {USAGE_CAPABILITY, findAcceptedUsage, usageObject, usagePhysicalBasis, validateUsage, validateUsageRequest} from './usages.js';
+import {USAGE_CAPABILITY, findAcceptedUsage, registerUsage, usageObject, usagePhysicalBasis, validateUsage, validateUsageProposal, validateUsageRequest} from './usages.js';
+import {projectInventory} from './projection.js';
 import {stageModEffect} from './stage.js';
 import type {ApplyContext} from '../apply/index.js';
 import { claimedEquipment, queuedRegistrations } from './queue.js';
@@ -115,12 +116,14 @@ export class ModJobs {
     async job(params: Row): Promise<Row> {
         if (params.role === 'create' && isJsonObject(params.input) && params.input.category == null)
             params = {...params,input:{...params.input,category:'item'}};
-        if (params.role === 'usage') params = {...params,input:validateUsageRequest(params.input)};
+        const prefetch = params.role === 'usage' && row(params.input).propose === true;
+        if (prefetch && params.preview != null) throw new RpcError('invalid_params','Usage proposals cannot preview pending effects');
+        if (params.role === 'usage') params = {...params,input:prefetch ? validateUsageProposal(params.input) : validateUsageRequest(params.input)};
         const loaded = await this.load(params), {campaign,graph,module,turn,meta} = loaded, role = params.role;
         if (params.preview != null && role !== 'usage') throw new RpcError('invalid_params','Only usage jobs accept a staged preview');
         const preview = role === 'usage' ? await this.usagePreview(loaded,params.preview) : null, world = preview?.world ?? loaded.world;
         if (!['create', 'usage', 'audit'].includes(role)) throw new RpcError('invalid_params', 'Mod job role must be create, usage or audit');
-        if (role === 'usage') validateUsageRequest(params.input);
+        if (role === 'usage' && !prefetch) validateUsageRequest(params.input);
         const physicalBasis = role === 'usage' ? usagePhysicalBasis(world, string(params.input.object)) : null;
         if (role === 'create') {
             const input = params.input;
@@ -137,7 +140,7 @@ export class ModJobs {
         const evidence = sourceAudit || continuity ? await auditSourceEvidence(this.context, campaign, module, world, turn, party, continuity, wait, refused) : null;
         const request: Row = {role, input: params.input ?? null, capabilities: sorted(MOD_CAPABILITIES), play_language: await playLanguageOf(this.context, meta),
             mod_settings: Object.fromEntries(candidates.map(mod => [mod.id, (world as Row).mods.active[mod.id].settings])),
-            scene: whereSection(graph, world, graph.scene(world.active_scene as string)), party, objects: objectContext(world), receipts: field(turn, 'receipts', []),
+            scene: whereSection(graph, world, graph.scene(world.active_scene as string)), party, objects: objectContext(world), receipts: prefetch ? [] : field(turn, 'receipts', []),
             known_handouts: (await this.knownHandouts(graph, world)).map(item => ({name: item.name, preview: chars(item.text, 240)})),
             unregistered_equipment: unregisteredEquipment(party, claimedEquipment(world))};
         if (evidence) request[continuity ? 'continuity_review' : 'source_review'] = evidence.descriptor;
@@ -148,20 +151,22 @@ export class ModJobs {
             if (preview) request.preview = clone(params.preview);
             request.usage_object = {name:item.name,quantity:item.quantity,state:clone(item.state),definition:clone(row(row(world.objects).definitions)[item.definition])};
         }
-        const identity: Row = {campaign: campaign.id, turn: turn.turn, worldline: meta.active_worldline ?? null, mod: packageRow.id, digest: packageRow.digest,
+        const identity: Row = {campaign: campaign.id, ...(prefetch ? {prefetch:true} : {turn:turn.turn}), worldline: meta.active_worldline ?? null, mod: packageRow.id, digest: packageRow.digest,
             packages: candidates.map(mod => ({id: mod.id, digest: mod.digest})), request: role === 'audit' ? request : {input: params.input ?? null, role},
-            ...(physicalBasis ? {physical_basis:physicalBasis,usage_request_digest:jsonDigest(request)} : {}),
+            ...(physicalBasis ? {physical_basis:physicalBasis,...(!prefetch ? {usage_request_digest:jsonDigest(request)} : {})} : {}),
             ...(evidence ? {source_binding: evidence.binding} : {})};
         const key = jsonDigest(identity), root = join(this.runtime.root, 'jobs', key);
         if (!await this.context.snapshots.pathExists(join(root, 'request.json'))) {
             await mkdir(root, {recursive: true});
             if (evidence) await writeAuditSources(root, evidence.files);
             await writeJsonAtomic(join(root, 'request.json'), request);
-            await writeJsonAtomic(join(root, 'identity.json'), Object.fromEntries(entries(identity).filter(([name]) => name !== 'request')));
+            await writeJsonAtomic(join(root, 'identity.json'), {...Object.fromEntries(entries(identity).filter(([name]) => name !== 'request')),
+                ...(prefetch ? {usage_request_digest:jsonDigest(request)} : {})});
             const prompts: Buffer[] = [];
             for (const [index, mod] of candidates.entries()) { if (index) prompts.push(Buffer.from('\n\n')); prompts.push(mod.files.get(mod.contributes[promptField])); }
+            if (prefetch) prompts.push(Buffer.from('\n\nUsage proposal variant: input.propose is true. This is preparation, not a player action. From usage_object and physical_basis, propose at most one most plausible attack usage. Supply its natural name and capability description yourself. Write the ordinary usage object to result.json, or JSON null if no reasonable attack usage exists. Do not invent a player action, rewrite physical facts or initialize instance state.\n'));
             await writeFile(join(root, 'prompt.md'), Buffer.concat(prompts));
-            if (role === 'usage') {
+            if (role === 'usage' && !prefetch) {
                 const prior = findAcceptedUsage(world,string(params.input.object),string(params.input.name));
                 if (prior) {
                     const usage = Object.fromEntries(['name','description','basis','mode','parameters','player_view'].map(name => [name,clone(prior[name])]));
@@ -217,22 +222,27 @@ export class ModJobs {
         }
         return {effects, unfinished};
     }
-    private async checkedUsage(raw: any, name: string): Promise<Row> {
+    private async checkedUsage(raw: any, name: string | null): Promise<Row> {
         const usage = validateUsage(raw,{name}), skills = await this.tables.skillsTable();
         if (!Object.keys(skills).some(skill => normalize(skill) === normalize(string(usage.parameters.skill))))
             throw new RpcError('invalid_params','Usage skill must name a skill in the active rules tables');
         return usage;
     }
-    async accept(params: Row): Promise<Row> {
+    async accept(params: Row): Promise<Row> { return this.acceptJob(params, false); }
+    async acceptPrefetch(params: Row): Promise<Row> { return this.acceptJob(params, true); }
+    private async acceptJob(params: Row, prefetch: boolean): Promise<Row> {
         const key = params.job;
         if (typeof key !== 'string' || key.length !== 64 || !/^[0-9a-f]{64}$/.test(key)) throw new RpcError('invalid_params', 'Unknown Mod job');
         const root = join(this.runtime.root, 'jobs', key), identity = row(await this.context.snapshots.readJson(join(root, 'identity.json')));
+        if ((identity.prefetch === true) !== prefetch) throw new RpcError('invalid_params',
+            identity.prefetch === true ? 'Proposal jobs require mods.prefetch.accept' : 'Action jobs require mods.accept',
+            {details:{reason:identity.prefetch === true ? 'prefetch_accept_required' : 'action_accept_required'}});
         const loaded = await this.load(params), {campaign,graph,module,world,turn,meta} = loaded;
         // A deferred registration is accepted after delivery, and narrate has already moved the turn on, so
         // the turn is not what pins this job -- the marker the kernel itself wrote is. Campaign, worldline
         // and the package digests below still have to match.
         const deferred = queuedRegistrations(world).some(entry => entry.job === key);
-        if (identity.campaign !== campaign.id || (!deferred && !equal(identity.turn, turn.turn)) || !equal(identity.worldline, meta.active_worldline ?? null))
+        if (identity.campaign !== campaign.id || (!prefetch && !deferred && !equal(identity.turn, turn.turn)) || !equal(identity.worldline, meta.active_worldline ?? null))
             throw new RpcError('invalid_params', 'Mod job belongs to another turn or worldline');
         const active = new Map((await this.runtime.active(world)).map(mod => [mod.id, mod]));
         if (!active.has(identity.mod) || active.get(identity.mod)!.digest !== identity.digest) throw new RpcError('invalid_params', 'Mod changed while the job was running');
@@ -242,7 +252,8 @@ export class ModJobs {
         const continuity = request.role === 'audit' && (await this.contributors(world, turn, 'audit')).some(mod => array(mod.requires).includes(CONTINUITY_AUDIT));
         const sourceAudit = !continuity && request.role === 'audit' && (await this.contributors(world, turn, 'audit')).some(mod => array(mod.requires).includes(SOURCE_AUDIT));
         const keyedRequest = request.role === 'audit' ? request : {input:request.input ?? null,role:request.role};
-        if (jsonDigest({...identity,request:keyedRequest}) !== key || identity.usage_request_digest && jsonDigest(request) !== identity.usage_request_digest)
+        const keyIdentity = prefetch ? Object.fromEntries(entries(identity).filter(([name]) => name !== 'usage_request_digest')) : identity;
+        if (jsonDigest({...keyIdentity,request:keyedRequest}) !== key || identity.usage_request_digest && jsonDigest(request) !== identity.usage_request_digest)
             throw new RpcError('needs',request.role === 'audit' ? 'The retained source-audit request changed' : 'The retained Mod preparation request changed',
                 {details:{reason:request.role === 'audit' ? 'mod_audit_evidence' : 'usage_request_changed',file:'request.json'},
                  fix:'Keep this draft unaccepted; inspect the retained preparation request'});
@@ -264,6 +275,19 @@ export class ModJobs {
         }
         if (request.role === 'usage' && !equal(usagePhysicalBasis(usageWorld,string(request.input.object)),identity.physical_basis))
             throw new RpcError('needs','The object physical state changed while its usage was prepared',{details:{reason:'usage_stale'}});
+        if (prefetch && (request.role !== 'usage' || request.preview != null)) throw new RpcError('invalid_params','Invalid retained usage proposal');
+        if (prefetch) validateUsageProposal(request.input);
+        const finishPrefetch = async (accepted: Row): Promise<Row> => {
+            const store = await this.writer.campaign(params);
+            if (accepted.usage !== null) {
+                registerUsage(world,string(request.input.object),accepted.usage,accepted.physical_basis,accepted.provenance);
+                await campaign.writeWorld(world);
+                await projectInventory(store,world);
+            }
+            await store.telemetry({lane:'mods',event:'usage_prefetch_accepted',job:key,object:request.input.object,
+                worldline:identity.worldline,physical_basis:identity.physical_basis,negative:accepted.usage === null});
+            return accepted;
+        };
         const acceptedPath = join(root, 'accepted.json');
         if (await this.context.snapshots.pathExists(acceptedPath)) {
             if (request.role === 'usage') {
@@ -273,16 +297,17 @@ export class ModJobs {
             }
             const accepted = row(await this.context.snapshots.readJson(acceptedPath));
             if (request.role === 'usage') {
-                const usage = await this.checkedUsage(accepted.usage,string(request.input.name)), provenance = row(accepted.provenance);
+                const usage = prefetch && accepted.usage === null ? null : await this.checkedUsage(accepted.usage,prefetch ? null : string(request.input.name)), provenance = row(accepted.provenance);
                 if (!equal(accepted.physical_basis,identity.physical_basis) || provenance.mod !== identity.mod || provenance.digest !== identity.digest || provenance.job !== key
-                    || Object.keys(provenance).some(field => !['mod','digest','job','reused_usage'].includes(field)))
+                    || Object.keys(provenance).some(field => !['mod','digest','job','reused_usage','prefetched'].includes(field))
+                    || (prefetch ? provenance.prefetched !== true || Object.hasOwn(provenance,'reused_usage') : Object.hasOwn(provenance,'prefetched')))
                     throw new RpcError('invalid_params','Accepted usage provenance or physical basis differs from its job');
                 if (provenance.reused_usage) {
                     const prior = findAcceptedUsage(usageWorld,string(request.input.object),string(request.input.name));
                     if (!prior || prior.id !== provenance.reused_usage || prior.digest !== jsonDigest(usage))
                         throw new RpcError('invalid_params','Accepted usage reuse differs from the registered parameters');
                 }
-                return {...accepted,usage};
+                return prefetch ? finishPrefetch({...accepted,usage}) : {...accepted,usage};
             }
             if (continuity) this.validateContinuity(accepted, request, evidence!.files);
             else if (evidence) validateSourceReview(accepted.source_review, string(row(request.input).text), evidence.files);
@@ -295,8 +320,8 @@ export class ModJobs {
         const raw = clone(await this.context.snapshots.readJson(resultPath));
         let result: Row;
         if (request.role === 'usage') {
-            const usage = await this.checkedUsage(raw,string(request.input.name));
-            result = {usage,physical_basis:identity.physical_basis,provenance:{mod:identity.mod,digest:identity.digest,job:key}};
+            const usage = prefetch && raw === null ? null : await this.checkedUsage(raw,prefetch ? null : string(request.input.name));
+            result = {usage,physical_basis:identity.physical_basis,provenance:{mod:identity.mod,digest:identity.digest,job:key,...(prefetch ? {prefetched:true} : {})}};
         } else if (request.role === 'create') {
             if (isJsonObject(raw) && Object.hasOwn(raw, 'document')) raw.document = await this.documentSeed(graph, world, raw.document);
             const value = validateDefinition(raw, {name: request.input.name ?? null, category: request.input.category ?? null});
@@ -321,7 +346,10 @@ export class ModJobs {
             if (evidence) validateSourceReview(raw.source_review, string(row(request.input).text), evidence.files);
             result = raw;
         }
-        await writeJsonAtomic(acceptedPath, result); return result;
+        // Registration has stricter instance/resource guards than draft validation. Never mark a
+        // proposal accepted on disk if those same guards would refuse its ordinary apply path.
+        if (prefetch && result.usage !== null) registerUsage(world,string(request.input.object),result.usage,result.physical_basis,result.provenance);
+        await writeJsonAtomic(acceptedPath, result); return prefetch ? finishPrefetch(result) : result;
     }
     private validateContinuity(raw: unknown, request: Row, files: Row): void {
         const errors = continuityArtifactErrors(raw, string(row(request.input).text), files);

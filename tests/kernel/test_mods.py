@@ -23,6 +23,186 @@ def prepared(kernel, draft):
     return {"kind":"define", **request, "_definition":accepted["definition"], "_provenance":accepted["provenance"]}
 
 
+def prefetch_object(kernel, call_id="t1-c1"):
+    draft = {"name":"Wooden rod", "category":"item", "description":"A solid wooden rod.",
+             "basis":"Fixture physical facts", "parameters":{"effects":[]},
+             "player_view":{"description":"A wooden rod.", "fields":[]}}
+    kernel.table("apply", call_id=call_id, effects=[prepared(kernel, draft),
+        {"kind":"object", "name":"My rod", "definition":draft["name"], "to":"Thomas Hayes"}])
+
+
+def prefetch_usage(name="Swing"):
+    return {"name":name, "description":"Swing the solid rod as a club.", "basis":"Fixture club profile",
+            "mode":"melee", "parameters":{"skill":"Fighting (Brawl)", "damage":"1D6", "uses_per_round":1,
+                                             "impale":False, "adds_damage_bonus":True},
+            "player_view":{"description":"A club swing.", "fields":["damage"]}}
+
+
+def proposal_job(kernel):
+    return kernel.ok("mods.job", {"campaign":CAMPAIGN, "role":"usage", "input":{"object":"My rod", "propose":True}})
+
+
+def accept_proposal(kernel, job, draft):
+    Path(job["cwd"], "result.json").write_text(json.dumps(draft))
+    return kernel.ok("mods.prefetch.accept", {"campaign":CAMPAIGN, "job":job["job"]})
+
+
+def test_prefetch_accept_outside_turn_is_idempotent_without_action_side_effects(kernel):
+    open_turn(kernel)
+    prefetch_object(kernel)
+    narrate(kernel, "t1-c2", "The rod rests beside the desk.")
+    folder = campaign_dir(kernel.workspace)
+    before_world = read_json(folder / "world.json")
+    before_turn = (folder / "turn.json").read_bytes()
+    before_events = (folder / "events.jsonl").read_bytes()
+    job = proposal_job(kernel)
+    identity = read_json(Path(job["cwd"], "identity.json"))
+    assert "turn" not in identity and identity["prefetch"] is True
+    assert read_json(Path(job["cwd"], "request.json"))["receipts"] == []
+    accepted = accept_proposal(kernel, job, prefetch_usage())
+    assert accepted["provenance"]["prefetched"] is True
+    assert kernel.ok("mods.prefetch.accept", {"campaign":CAMPAIGN, "job":job["job"]}) == accepted
+    after = read_json(folder / "world.json")
+    records = after["objects"].pop("usages")
+    before_world["objects"].pop("usages", None)
+    assert after == before_world
+    assert len(records) == 1 and next(iter(records.values()))["provenance"] == accepted["provenance"]
+    assert (folder / "turn.json").read_bytes() == before_turn
+    assert (folder / "events.jsonl").read_bytes() == before_events
+    kernel.table("player_input", text="I inspect the rod.")
+    again = proposal_job(kernel)
+    assert again["job"] == job["job"] and again["accepted"] is True
+    assert kernel.ok("mods.prefetch.accept", {"campaign":CAMPAIGN, "job":job["job"]}) == accepted
+
+
+def test_prefetch_resolve_reuses_record_without_new_creator_job(seeded_kernel):
+    kernel = seeded_kernel
+    open_turn(kernel)
+    n = walk_to_confrontation(kernel)
+    prefetch_object(kernel, f"t1-c{n}")
+    job = proposal_job(kernel)
+    narrate(kernel, f"t1-c{n+1}", "I hold the rod ready.")
+    kernel.table("player_input", text="I swing the rod at Walter Corbitt.")
+    accepted = accept_proposal(kernel, job, prefetch_usage())
+    folder = campaign_dir(kernel.workspace)
+    usage = next(iter(read_json(folder / "world.json")["objects"]["usages"].values()))
+    jobs_before = sorted(Path(job["cwd"]).parent.iterdir())
+    result = kernel.table("resolve", call_id="t2-c1", action={"intent":"combat", "object":"My rod", "usage":"Swing",
+        "target":"Walter Corbitt", "defense":"none"})
+    assert result["outcome"]
+    assert sorted(Path(job["cwd"]).parent.iterdir()) == jobs_before
+    combat = read_json(folder / "save/combat.json")
+    assert usage["id"] in combat["weapon_catalog"]
+    assert combat["weapon_catalog"][usage["id"]]["object_id"] == usage["object_id"]
+    assert combat["weapon_catalog"][usage["id"]]["damage"] == accepted["usage"]["parameters"]["damage"]
+    replay = kernel.ok("mods.job", {"campaign":CAMPAIGN, "role":"usage",
+        "input":{"object":"My rod", "name":"Swing", "description":"Reuse the known swing."}})
+    assert replay["accepted"] is True
+    ordinary = kernel.ok("mods.accept", {"campaign":CAMPAIGN, "job":replay["job"]})
+    assert ordinary["provenance"]["reused_usage"] == usage["id"]
+    assert "prefetched" not in ordinary["provenance"]
+
+
+def test_prefetch_and_action_records_share_physical_invalidation(kernel):
+    open_turn(kernel)
+    prefetch_object(kernel)
+    job = proposal_job(kernel)
+    accept_proposal(kernel, job, prefetch_usage())
+    request = {"object":"My rod", "name":"Strike", "description":"Strike with the rod."}
+    action_job = kernel.ok("mods.job", {"campaign":CAMPAIGN, "role":"usage", "input":request})
+    Path(action_job["cwd"], "result.json").write_text(json.dumps(prefetch_usage("Strike")))
+    action_usage = kernel.ok("mods.accept", {"campaign":CAMPAIGN, "job":action_job["job"]})
+    kernel.table("apply", call_id="t1-c2", effects=[{"kind":"usage", **request, "_usage":action_usage}])
+    kernel.table("apply", call_id="t1-c3", effects=[{"kind":"object", "name":"My rod", "from":"Thomas Hayes", "to":"Thomas Hayes", "condition":"broken", "why":"The rod snapped against the stone wall."}])
+    look = kernel.table("look", focus="object", name="My rod")
+    assert len(look["instance"]["usages"]) == 2 and all(not usage["applicable"] for usage in look["instance"]["usages"])
+    for usage in ("Swing", "Strike"):
+        error = kernel.table_err("resolve", call_id="t1-c4", action={"intent":"combat", "object":"My rod", "usage":usage,
+            "target":"Steven Knott", "defense":"none"})
+        assert error["details"]["reason"] == "usage_required"
+    assert kernel.err("mods.prefetch.accept", {"campaign":CAMPAIGN, "job":job["job"]})["details"]["reason"] == "usage_stale"
+    assert proposal_job(kernel)["job"] != job["job"]
+
+
+def test_prefetch_negative_result_is_retained_and_deduplicated(kernel):
+    open_turn(kernel)
+    prefetch_object(kernel)
+    job = proposal_job(kernel)
+    folder = campaign_dir(kernel.workspace)
+    before = (folder / "world.json").read_bytes()
+    accepted = accept_proposal(kernel, job, None)
+    assert accepted["usage"] is None and accepted["provenance"]["prefetched"] is True
+    assert read_json(Path(job["cwd"], "accepted.json")) == accepted
+    assert (folder / "world.json").read_bytes() == before
+    narrate(kernel, "t1-c2", "I put the rod aside.")
+    kernel.table("player_input", text="I wait.")
+    assert proposal_job(kernel)["job"] == job["job"]
+    assert proposal_job(kernel)["accepted"] is True
+    assert kernel.ok("mods.prefetch.accept", {"campaign":CAMPAIGN, "job":job["job"]}) == accepted
+    telemetry = [json.loads(line) for line in (folder / "telemetry.jsonl").read_text().splitlines()]
+    assert any(r.get("event") == "usage_prefetch_accepted" and r.get("negative") is True for r in telemetry)
+
+
+def test_prefetch_entry_does_not_relax_action_turn_binding(kernel):
+    open_turn(kernel)
+    prefetch_object(kernel)
+    proposal = proposal_job(kernel)
+    assert kernel.err("mods.accept", {"campaign":CAMPAIGN, "job":proposal["job"]})["details"]["reason"] == "prefetch_accept_required"
+    action_job = kernel.ok("mods.job", {"campaign":CAMPAIGN, "role":"usage",
+        "input":{"object":"My rod", "name":"Swing", "description":"Swing the rod."}})
+    Path(action_job["cwd"], "result.json").write_text(json.dumps(prefetch_usage()))
+    assert kernel.err("mods.prefetch.accept", {"campaign":CAMPAIGN, "job":action_job["job"]})["details"]["reason"] == "action_accept_required"
+    narrate(kernel, "t1-c2", "I wait with the rod.")
+    kernel.table("player_input", text="I change my mind.")
+    error = kernel.err("mods.accept", {"campaign":CAMPAIGN, "job":action_job["job"]})
+    assert error["code"] == "invalid_params" and "another turn" in error["message"]
+    assert not Path(action_job["cwd"], "accepted.json").exists()
+
+
+def test_prefetch_rejects_changed_request_without_registering(kernel):
+    open_turn(kernel)
+    prefetch_object(kernel)
+    job = proposal_job(kernel)
+    request_path = Path(job["cwd"], "request.json")
+    request = read_json(request_path)
+    request["usage_object"]["state"]["condition"] = "broken"
+    request_path.write_text(json.dumps(request))
+    Path(job["cwd"], "result.json").write_text(json.dumps(prefetch_usage()))
+    error = kernel.err("mods.prefetch.accept", {"campaign":CAMPAIGN, "job":job["job"]})
+    assert error["details"]["reason"] == "usage_request_changed"
+    assert not Path(job["cwd"], "accepted.json").exists()
+    assert not read_json(campaign_dir(kernel.workspace) / "world.json")["objects"].get("usages")
+
+
+def test_prefetch_records_survive_generator_disable(kernel):
+    open_turn(kernel)
+    prefetch_object(kernel)
+    accept_proposal(kernel, proposal_job(kernel), prefetch_usage())
+    narrate(kernel, "t1-c2", "I keep the rod.")
+    kernel.ok("mods.configure", {"campaign":CAMPAIGN, "id":"enhanced-items", "enabled":False})
+    kernel.table("player_input", text="I examine the rod.")
+    assert proposal_job(kernel)["enabled"] is False
+    look = kernel.table("look", focus="object", name="My rod")
+    assert look["instance"]["usages"][0]["applicable"] is True
+    assert any(w.get("usage") == "Swing" for w in kernel.table("view")["investigators"][0]["weapons"])
+
+
+def test_prefetch_worldline_snapshot_keeps_records_but_jobs_cannot_cross(kernel):
+    from test_worldline import fork
+    open_turn(kernel)
+    prefetch_object(kernel)
+    job = proposal_job(kernel)
+    accepted = accept_proposal(kernel, job, prefetch_usage())
+    narrate(kernel, "t1-c2", "I keep the rod ready.")
+    records = read_json(campaign_dir(kernel.workspace) / "world.json")["objects"]["usages"]
+    fork(kernel, 2, "side")
+    assert read_json(campaign_dir(kernel.workspace) / "world.json")["objects"]["usages"] == records
+    assert next(iter(records.values()))["provenance"] == accepted["provenance"]
+    error = kernel.err("mods.prefetch.accept", {"campaign":CAMPAIGN, "job":job["job"]})
+    assert "worldline" in error["message"]
+    assert proposal_job(kernel)["job"] != job["job"]
+
+
 def test_initial_inventory_is_audited_without_being_mentioned_and_adopted_once(kernel):
     create_campaign(kernel)
     folder = campaign_dir(kernel.workspace)

@@ -13,6 +13,8 @@
   "overridden": "Overridden by",
   "path": "Mod directory or ZIP path",
   "pending": "Change queued until the table is idle",
+  "progress.define": "Generating item definitions {done}/{total}",
+  "progress.usage": "Preparing usage: {objects} {done}/{total}",
   "refresh": "Refresh",
   "settings": "Details and changes",
   "slot.audit": "Narrative audit",

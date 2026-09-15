@@ -13,6 +13,8 @@
   "overridden": "被覆盖",
   "path": "Mod 文件夹或 ZIP 路径",
   "pending": "已排队，将在桌面空闲后生效",
+  "progress.define": "正在生成物品定义 {done}/{total}",
+  "progress.usage": "正在准备用法：{objects} {done}/{total}",
   "refresh": "刷新",
   "settings": "详情与更新记录",
   "slot.audit": "叙事审查",

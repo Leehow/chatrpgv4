@@ -8,6 +8,8 @@ import { emitToPanel } from "../../pipicoc/host-bridge.ts";
 import { presentDocument } from "./document-presentation.ts";
 import type { HostRuntime } from "../../runtime/host.ts";
 import {AuditBudget, reviewUnavailable} from './audit-budget.ts';
+import {resolveUiWordsSync} from '../../runtime/ui-words.ts';
+import {extensionContentRoot, extensionHome, fill} from '../ui/words.ts';
 
 type Call = (method: string, params: Record<string, unknown>) => Promise<any>;
 
@@ -43,6 +45,9 @@ export default function modsExtension(pi: ExtensionAPI): void {
   let mintCallId: (() => string | undefined) | undefined;
   let context: ExtensionContext | undefined;
   let inputToken: string | undefined;
+  let language: unknown;
+  pi.events.on("coc:table-open", value => { language = (value as any)?.open?.campaign?.play_language; });
+  pi.events.on("coc:session-bound", value => { language = (value as any)?.play_language; });
   let record: ((row: Record<string, unknown>) => void) | undefined;
   pi.events.on("coc:kernel-bridge", (data) => {
     call = (data as any)?.call; runtime = (data as any)?.runtime; mintCallId = (data as any)?.mintCallId;
@@ -245,8 +250,24 @@ export default function modsExtension(pi: ExtensionAPI): void {
    * the app is told how far along it is: a tool call that emits nothing for minutes is indistinguishable
    * from a wedged one. A view that cannot be reached never fails a turn (`emitToPanel` swallows).
    */
-  function announce(campaign: string, done: number, total: number): void {
-    void emitToPanel("coc-keeper", "mods-progress", {campaign, done, total});
+  function announce(campaign: string, done: number, total: number, effects: Record<string, any>[]): void {
+    const role = effects[0]?.kind === "usage" ? "usage" : "define";
+    const objects = [...new Set(effects.map(effect => role === 'usage' ? effect.object : effect.name)
+      .filter((name): name is string => typeof name === 'string' && !!name))];
+    void emitToPanel("coc-keeper", "mods-progress", {campaign, role, objects, done, total});
+    // Definitions may run beside a delivered turn. Only in-turn usage owns this TUI status.
+    if (role !== "usage" || !context?.hasUI) return;
+    try {
+      if (done >= total) { context.ui.setStatus("coc-mods", undefined); return; }
+      const key = "progress.usage";
+      let template = key;
+      try {
+        template = resolveUiWordsSync({contentRoot: extensionContentRoot(runtime?.contentRoot),
+          home: extensionHome(runtime?.home), tag: language}).words.mods?.[key] ?? key;
+      } catch { /* Missing words remain visible as a key, not another language's caption. */ }
+      const label = objects.slice(0, 2).join(', ') + (objects.length > 2 ? ' …' : '');
+      context.ui.setStatus('coc-mods', fill(template, {objects: label, done, total}));
+    } catch { /* A view that is gone cannot fail preparation. */ }
   }
 
   /**
@@ -267,13 +288,13 @@ export default function modsExtension(pi: ExtensionAPI): void {
     const jobs = owners.filter((owner, index) => owner === index);
     const total = jobs.length, results: any[] = new Array(defines.length), failures: unknown[] = new Array(defines.length);
     let done = 0, next = 0;
-    announce(campaign, done, total);
+    announce(campaign, done, total, jobs.map(index => defines[index]));
     const worker = async (): Promise<void> => {
       for (let slot = next++; slot < total; slot = next++) {
         const index = jobs[slot];
         try { results[index] = await task(campaign, defines[index].kind === "usage" ? "usage" : "create", inputs[index], signal, previews[index]); }
         catch (error) { failures[index] = error; }
-        announce(campaign, ++done, total);
+        announce(campaign, ++done, total, jobs.map(index => defines[index]));
       }
     };
     if (total > 0) await Promise.all(Array.from({length: Math.min(modPoolSize(), total)}, worker));
@@ -495,5 +516,9 @@ export default function modsExtension(pi: ExtensionAPI): void {
   };
   // Subscribe/announce during extension loading, before kernel session_start opens the table.
   pi.events.emit("coc:mods-bridge", bridge);
-  pi.on("session_shutdown", async () => { pi.events.emit("coc:mods-bridge", undefined); });
+  pi.on("session_shutdown", async () => {
+    if (context?.hasUI) context.ui.setStatus("coc-mods", undefined);
+    context = undefined;
+    pi.events.emit("coc:mods-bridge", undefined);
+  });
 }

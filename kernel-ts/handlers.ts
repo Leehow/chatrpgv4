@@ -24,7 +24,7 @@ export const KNOWN_METHODS = Object.freeze([
   "module.list", "module.status", "module.register", "module.opening.choose", "module.asset",
   "investigator.list", "investigator.get", "investigator.save", "investigator.load",
   "mods.list", "mods.configure", "mods.order", "mods.document.view", "mods.document.apply",
-  "mods.install", "mods.defaults", "mods.context", "mods.job", "mods.accept", "mods.queued", "mods.review.status",
+  "mods.install", "mods.defaults", "mods.context", "mods.job", "mods.accept", "mods.prefetch.accept", "mods.queued", "mods.review.status",
   "adaptation.prepare", "adaptation.status", "adaptation.draft", "adaptation.review", "adaptation.cancel", "adaptation.fail",
 ] as const);
 

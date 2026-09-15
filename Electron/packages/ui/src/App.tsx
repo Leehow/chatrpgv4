@@ -545,7 +545,7 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
   const [waitingVisible, setWaitingVisible] = useState(false)
   const [waitingPhase, setWaitingPhase] = useState<WaitingPhase>('awaiting')
   const [waitingDetail, setWaitingDetail] = useState<string | undefined>(undefined)
-  const [modsProgress, setModsProgress] = useState<string | undefined>(undefined)
+  const [modsProgress, setModsProgress] = useState<{role: 'define' | 'usage'; objects: string[]; done: number; total: number} | undefined>(undefined)
   const [stoppingSessionId, setStoppingSessionId] = useState<string | null>(null)
   const [stopError, setStopError] = useState<{ sessionId: string; message: string } | null>(null)
   const [lease, setLease] = useState<SessionLease | null>(null)
@@ -1052,13 +1052,17 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
   // leaves the tool phase, so a stale count can never outlive the call it belongs to.
   useEffect(() => subscribeExt(host, 'coc-keeper', event => {
     if (event?.type !== 'mods-progress') return
-    const payload = (event.payload ?? {}) as { done?: unknown; total?: unknown }
-    const done = typeof payload.done === 'number' ? payload.done : null
-    const total = typeof payload.total === 'number' ? payload.total : null
-    if (done === null || total === null || total <= 0) return
-    setModsProgress(done >= total ? undefined : `生成物品定义 ${done}/${total}`)
+    const payload = (event.payload ?? {}) as { role?: unknown; objects?: unknown; done?: unknown; total?: unknown }
+    const done = typeof payload.done === 'number' && Number.isFinite(payload.done) ? payload.done : null
+    const total = typeof payload.total === 'number' && Number.isFinite(payload.total) ? payload.total : null
+    if (done === null || total === null) return
+    setModsProgress(total <= 0 || done >= total ? undefined : {
+      role: payload.role === 'usage' ? 'usage' : 'define', done, total,
+      objects: Array.isArray(payload.objects) ? payload.objects.filter((name): name is string => typeof name === 'string') : [],
+    })
   }), [host])
   useEffect(() => { if (waitingPhase !== 'tool') setModsProgress(undefined) }, [waitingPhase])
+  useEffect(() => { setModsProgress(undefined) }, [selectedSession])
   useEffect(() => {
     if (!host.setEventProjectionSession) return
     void host.setEventProjectionSession(selectedSession || undefined).catch(() => undefined)
@@ -2828,8 +2832,15 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
   // The first-response wait (any active main turn) takes precedence at the
   // transcript tail; while it is hidden, a running background subagent keeps the
   // tail alive with a stable-timed phase=tool indicator and no stop button.
-  const waitingDetailShown = modsProgress && waitingPhase === 'tool'
-    ? waitingDetail ? `${waitingDetail} · ${modsProgress}` : modsProgress
+  const modsProgressKey = modsProgress ? `progress.${modsProgress.role}` : ''
+  const modsProgressValues: Record<string, string | number> = modsProgress ? {
+    ...modsProgress,
+    objects: modsProgress.objects.slice(0, 2).join(', ') + (modsProgress.objects.length > 2 ? ' …' : ''),
+  } : {}
+  const modsProgressLine = modsProgress && (timeline?.ui?.words?.mods?.[modsProgressKey] ?? modsProgressKey)
+    .replace(/\{([A-Za-z0-9_]+)\}/g, (placeholder: string, key: string) => String(modsProgressValues[key] ?? placeholder))
+  const waitingDetailShown = modsProgressLine && waitingPhase === 'tool'
+    ? waitingDetail ? `${waitingDetail} · ${modsProgressLine}` : modsProgressLine
     : waitingDetail
   const firstResponseWaiting = waitingVisible && waitingStartedAt !== null
     ? { startedAt: waitingStartedAt, phase: waitingPhase, detail: waitingDetailShown, onStop: stopSelectedSession }
