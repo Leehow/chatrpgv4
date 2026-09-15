@@ -2399,7 +2399,8 @@ export default function (pi: ExtensionAPI) {
 			// the draft and asks for the same turn with its lines wrapped; the second leg is honoured however it
 			// comes, and a second leg that brings nothing falls back to this draft like the floor steer's.
 			// Nothing here reads the prose: a machine token is searched for, and present[] is the capsule's.
-			if (state.present.length > 0 && !opening && !state.steeredThisTurn && !/\{\{say:/.test(prose)) {
+			// PI_COC_SPEECH_STEER=0 turns the steer off for an experiment (a control arm); the product default is on.
+			if (process.env.PI_COC_SPEECH_STEER?.trim() !== "0" && state.present.length > 0 && !opening && !state.steeredThisTurn && !/\{\{say:/.test(prose)) {
 				state.floorDraft = prose;
 				state.deliveryFix = { kind: "speech", text: SPEECH_STEER };
 				await record({ lane: "speech", turn: state.turn, steered: true, present: state.present.length });
