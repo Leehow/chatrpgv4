@@ -6,6 +6,7 @@ import type { ModuleGraph } from '../read/module-graph.js';
 import { equal, repr, row, string, truth, type Row } from '../read/values.js';
 import { Reading } from './reading.js';
 import { ModuleStore } from './store.js';
+import { ensureCampaignModule } from './campaign-scope.js';
 function required(params: Row, key: string): string {
     const value = params[key];
     if (value == null || value === '')
@@ -14,9 +15,8 @@ function required(params: Row, key: string): string {
         throw new RpcError('invalid_params', `params.${key} must be a string`);
     return value;
 }
-export function createModuleRuntime(context: KernelContext) {
-    const store = new ModuleStore(context), reading = new Reading(store);
-    const handlers: HandlerGroup = Object.freeze({
+function handlersFor(store: ModuleStore, reading: Reading): HandlerGroup {
+    return Object.freeze({
         'module.source.bind': params => reading.bind(params),
         'module.read.request': params => reading.request(params),
         'module.read.claim': params => reading.claim(params),
@@ -72,14 +72,43 @@ export function createModuleRuntime(context: KernelContext) {
             return { module_id: id, asset: entry, player_visible: ['player-safe', 'revealable'].includes(entry.visibility) };
         },
     });
+}
+export function createModuleRuntime(context: KernelContext) {
+    const store = new ModuleStore(context), reading = new Reading(store);
+    const library = { store, reading, handlers: handlersFor(store, reading) };
+    const scopes = new Map<string, typeof library>();
+    let closed = false;
+    const owner = async (campaign: any, id: string) => {
+        if (closed) throw new RpcError('invalid_params', 'the source runtime is closed');
+        if (campaign === undefined) return library;
+        const scoped = await ensureCampaignModule(context, campaign, id);
+        if (closed) throw new RpcError('invalid_params', 'the source runtime is closed');
+        let value = scopes.get(campaign);
+        if (!value) {
+            const store = new ModuleStore(scoped), reading = new Reading(store);
+            value = { store, reading, handlers: handlersFor(store, reading) };
+            scopes.set(campaign, value);
+        }
+        return value;
+    };
+    const libraryOnly = new Set(['module.source.bind', 'module.register', 'module.list']);
+    const handlers: HandlerGroup = Object.freeze(Object.fromEntries(Object.entries(library.handlers).map(([method, handler]) => [method,
+        async (params: Row) => libraryOnly.has(method) || params.campaign === undefined
+            ? handler(params)
+            : (await owner(params.campaign, required(params, 'module_id'))).handlers[method](params),
+    ])));
     const source = Object.freeze({
         store,
-        materialReady: (moduleId: string, name: string) => reading.materialReady(moduleId, name),
-        openingReady: (moduleId: string, focus = '') => reading.openingReady(moduleId, focus),
-        request: (params: Row) => reading.request(params),
-        queueAdjacentReading: (graph: ModuleGraph, scene: Row) => reading.queueAdjacentReading(graph, scene),
-        requireMaterial: (graph: ModuleGraph, names: any[]) => reading.requireMaterial(graph, names),
-        requireMapMaterial: (graph: ModuleGraph, params: Row) => reading.requireMapMaterial(graph, params),
+        graphPath: async (moduleId: string, campaign?: string) => (await owner(campaign, moduleId)).store.graphPath(moduleId),
+        materialReady: async (moduleId: string, name: string, campaign?: string) => (await owner(campaign, moduleId)).reading.materialReady(moduleId, name),
+        openingReady: async (moduleId: string, focus = '', campaign?: string) => (await owner(campaign, moduleId)).reading.openingReady(moduleId, focus),
+        request: async (params: Row) => (await owner(params.campaign, required(params, 'module_id'))).reading.request(params),
+        queueAdjacentReading: async (graph: ModuleGraph, scene: Row) => (await owner(graph.sourceCampaign, graph.moduleId)).reading.queueAdjacentReading(graph, scene),
+        requireMaterial: async (graph: ModuleGraph, names: any[]) => (await owner(graph.sourceCampaign, graph.moduleId)).reading.requireMaterial(graph, names),
+        requireMapMaterial: async (graph: ModuleGraph, params: Row) => (await owner(graph.sourceCampaign, graph.moduleId)).reading.requireMapMaterial(graph, params),
     });
-    return Object.freeze({ handlers, source, close: () => reading.close() });
+    return Object.freeze({ handlers, source, close: async () => {
+        closed = true;
+        await Promise.all([reading.close(), ...[...scopes.values()].map(value => value.reading.close())]);
+    } });
 }

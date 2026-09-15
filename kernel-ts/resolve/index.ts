@@ -99,7 +99,7 @@ export function createResolveRuntime(kernel: KernelContext, writer: ResolveWrite
             snapshot.meta = await transaction.campaign.readCampaign();
             snapshot.world = transaction.world;
             snapshot.turn = transaction.turn;
-            const module = await loadCampaignModule(kernel, string(snapshot.meta.module_id), snapshot.world);
+            const module = await loadCampaignModule(kernel, string(snapshot.meta.module_id), snapshot.world, transaction.campaign.id);
             const graph = module.graph;
             const action = params.action;
             const contributed = isJsonObject(action) && (await activeMods(kernel, transaction.world)).some(mod => array(mod.contributes.checks).some(check => check.name === action.decision));

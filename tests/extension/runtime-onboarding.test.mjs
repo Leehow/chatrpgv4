@@ -49,7 +49,7 @@ function fixture(t, worker) {
   writeFileSync(join(starter, 'starter-listing.json'), JSON.stringify({listed: true, title: {en: 'Selected content'}, blurb: {en: 'Relocated catalog'}}));
   writeFileSync(join(starter, 'module-graph.json'), JSON.stringify({nodes: [{node_kind: 'module', name: 'Selected content'}]}));
   const kernel = join(base, 'kernel transport fixture.mjs');
-  // This fixture answers transport/setup calls only. It is not a Keeper or gameplay evidence.
+  // This fixture answers transport/setup/source-read shape calls only. It is not a Keeper or gameplay evidence.
   writeFileSync(kernel, `
 import {createInterface} from 'node:readline';
 import {appendFileSync,existsSync,mkdirSync,readdirSync,writeFileSync} from 'node:fs';
@@ -57,11 +57,12 @@ import {join} from 'node:path';
 const home=process.env.PI_COC_HOME;
 createInterface({input:process.stdin}).on('line',line=>{
  const request=JSON.parse(line),p=request.params;
- appendFileSync(join(home,'kernel-events.jsonl'),JSON.stringify({pid:process.pid,method:request.method,cwd:process.cwd(),
+ appendFileSync(join(home,'kernel-events.jsonl'),JSON.stringify({pid:process.pid,method:request.method,params:p,cwd:process.cwd(),
   home,agentHome:process.env.PI_CODING_AGENT_DIR,campaign:process.env.PI_COC_CAMPAIGN,value:process.env.RUNTIME_CAPTURED,late:process.env.RUNTIME_LATE})+'\\n');
  let result={};
  if(request.method==='module.list')result={modules:[{id:'owned-module',status:'installed',source:'pdf'}]};
  if(request.method==='setup.occupations')result={occupations:[{name:'Journalist'}]};
+ if(request.method==='module.read.request')result={state:'ready',job_id:'opening-ready'};
  if(request.method==='campaign.list')result={campaigns:existsSync(join(home,'.coc/campaigns'))?readdirSync(join(home,'.coc/campaigns')).map(id=>({id})):[]};
  if(request.method==='campaign.create'){
   const path=join(home,'.coc/campaigns',p.id);mkdirSync(path,{recursive:true});
@@ -85,6 +86,11 @@ createInterface({input:process.stdin}).on('line',line=>{
     rmSync(base, {recursive: true, force: true});
   });
   return {base, resourceRoot, contentRoot, home, agentHome, nodeExecutable, env, options, active};
+}
+
+function bundleRealOnboardingWorker(f) {
+  buildSync({entryPoints: [join(root, 'pipicoc/onboarding-worker.ts')], outfile: join(f.resourceRoot, 'build/pipicoc/onboarding-worker.mjs'),
+    bundle: true, platform: 'node', format: 'esm', target: 'node22', packages: 'external', logLevel: 'silent'});
 }
 
 function observe(process) {
@@ -240,6 +246,25 @@ test('independent real setup workers retain campaign binding and saved presentat
   const found = await observe(clues).complete;
   assert.equal(found.code, 0, found.stderr);
   assert.deepEqual(JSON.parse(readFileSync(join(f.home, '.coc/campaigns/campaign-one/setup/presentations/clues-en.json'), 'utf8')), {play_language: 'en', texts: {}});
+});
+
+test('the real opening worker scopes targeted source preparation to its campaign', async t => {
+  const f = fixture(t);
+  bundleRealOnboardingWorker(f);
+  const host = createPreparationHost(f.home, f.options);
+  const task = host.start('opening', {campaign: 'campaign-scoped', module_id: 'owned-module', start_scene: 'Dock', play_language: 'en'});
+  f.active.push(task);
+  const output = await observe(task).complete;
+  assert.equal(output.code, 0, output.stderr);
+  assert.deepEqual(output.events.find(event => event.type === 'result')?.data,
+    {ok: true, module_id: 'owned-module', opening_ready: true});
+  const request = kernelEvents(f.home).find(event => event.method === 'module.read.request');
+  assert.ok(request, 'opening preparation did not request source reading');
+  assert.equal(request.params.campaign, 'campaign-scoped');
+  assert.equal(request.params.module_id, 'owned-module');
+  assert.equal(request.params.purpose, 'opening');
+  assert.equal(request.params.focus, 'Dock');
+  assert.equal(request.params.foreground, true);
 });
 
 test('cancelling a real cold worker awaits kernel exit and permits a fresh owner to retry', async t => {

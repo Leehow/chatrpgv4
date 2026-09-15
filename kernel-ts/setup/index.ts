@@ -6,6 +6,7 @@ import { RpcError } from '../errors.js';
 import { isJsonObject } from '../json.js';
 import { loadModule } from '../read/campaign.js';
 import { playLanguageOf } from '../read/languages.js';
+import { ensureCampaignModule } from '../modules/campaign-scope.js';
 import { array, row, clone, string, number, integer, truth, repr, type Row } from '../read/values.js';
 import { RuleTables } from '../rules/tables.js';
 import type { createWriteRuntime } from '../write/index.js';
@@ -25,9 +26,10 @@ export class Setup {
     const tables = new RuleTables(context), steps = await SetupSteps.create(context);
     return new Setup(context, writer, tables, steps, await Chargen.create(tables, steps.step('create-investigator')));
   }
-  async moduleMeta(id: string): Promise<Row | null> {
-    const path = join(this.context.stateRoot, 'modules', id, 'module.json');
-    return await this.context.snapshots.pathExists(path) ? row(await this.context.snapshots.readJson(path)) : null;
+  async moduleMeta(id: string, campaign?: string): Promise<Row | null> {
+    const scoped = campaign ? await ensureCampaignModule(this.context, campaign, id) : this.context;
+    const path = join(scoped.moduleRoot ?? join(scoped.stateRoot, 'modules'), id, 'module.json');
+    return await scoped.snapshots.pathExists(path) ? row(await scoped.snapshots.readJson(path)) : null;
   }
   async campaign(params: Row): Promise<CampaignWriter> { return this.writer.campaign(params, {requireTurn: false, requireWorld: false}); }
   async settingUp(params: Row): Promise<[CampaignWriter, Row]> {
@@ -42,7 +44,7 @@ export class Setup {
     let campaign: CampaignWriter;
     try { campaign = await this.campaign(params); }
     catch (error) { if (error instanceof RpcError && error.code === 'campaign_not_found') return {...table, completed: [], state: {campaign: id}}; throw error; }
-    const meta = await campaign.readCampaign(), moduleId = string(meta.module_id || ''), module = moduleId ? await this.moduleMeta(moduleId) : null;
+    const meta = await campaign.readCampaign(), moduleId = string(meta.module_id || ''), module = moduleId ? await this.moduleMeta(moduleId, campaign.id) : null;
     const starter = await this.context.snapshots.pathExists(join(this.context.content, 'starters', moduleId, 'module-graph.json'));
     const kind = starter ? 'starter' : meta.opening_scene != null ? 'module' : 'pdf', completed = new Set(['choose-source', 'create-campaign']);
     if (this.steps.applies('prepare-module', kind) && module && (module.status === 'installed' || module.opening_ready === true || Object.hasOwn(row(module.character_guidance), meta.guidance_key))) completed.add('prepare-module');
@@ -77,7 +79,7 @@ export class Setup {
     for (const [field, value] of [['allocation', allocation], ['interest_allocation', interestAllocation]] as Array<[string, any]>)
       if (value != null && typeof value !== 'string') throw new RpcError('invalid_params', `params.${field} must be a policy name from the steps table`,
         {fix: 'use one of details.options: spread, fill', details: {field, options: [...ALLOCATION_POLICIES]}});
-    const moduleId = string(meta.module_id), bookEra = await moduleAvailable(this.context, moduleId, this.writer) ? moduleEra((await loadModule(this.context, moduleId)).graph) : null;
+    const moduleId = string(meta.module_id), bookEra = await moduleAvailable(this.context, moduleId, this.writer, campaign.id) ? moduleEra((await loadModule(this.context, moduleId, campaign.id)).graph) : null;
     const era = truth(params.era) ? params.era : bookEra || '1920s';
     if (typeof era !== 'string') throw new RpcError('invalid_params', 'params.era must be a string');
     const party = await campaign.party(), id = truth(params.id) ? params.id : defaultInvestigatorId(name, party.length + 1);
@@ -106,8 +108,8 @@ export class Setup {
     const issues = imported ? [] : party.flatMap(completeness);
     if (issues.length) throw new RpcError('campaign_not_ready', 'Complete the actual card before opening play', {codeDetail: 'incomplete_investigator', details: {issues}});
     if (!imported && (!truth(row(meta.setup).confirmed_revision) || row(meta.setup).confirmed_revision !== row(meta.setup).draft_revision)) throw new RpcError('needs', 'Confirm the displayed draft before completing setup', {codeDetail: 'preview_required'});
-    const moduleId = string(meta.module_id), module = await this.moduleMeta(moduleId);
-    const ready = module && (truth(module.reading_version) ? await this.writer.setupOpeningReady(moduleId, meta.opening_scene || '') : module.status === 'installed' || module.opening_ready === true);
+    const moduleId = string(meta.module_id), module = await this.moduleMeta(moduleId, campaign.id);
+    const ready = module && (truth(module.reading_version) ? await this.writer.setupOpeningReady(moduleId, meta.opening_scene || '', campaign.id) : module.status === 'installed' || module.opening_ready === true);
     if (!ready) {
       meta.setup ??= {}; meta.setup.waiting_for_opening = true; await campaign.writeCampaign(meta);
       throw new RpcError('campaign_not_ready', `module ${repr(moduleId)} is not installed and not opening_ready`,

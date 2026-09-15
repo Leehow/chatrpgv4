@@ -59,7 +59,7 @@ export function createMemoryHandlers(context: KernelContext, writer: ReturnType<
                 details: { status: snapshot.meta.status }
             });
         snapshot.world = await campaign.readWorld();
-        const module = await loadCampaignModule(context, string(snapshot.meta.module_id), snapshot.world);
+        const module = await loadCampaignModule(context, string(snapshot.meta.module_id), snapshot.world, campaign.id);
         snapshot.jsonFiles.set('world.json', snapshot.world);
         if (!Object.hasOwn(snapshot.world, 'scene_trail'))
             await writer.read.repairLegacyTrail!(snapshot);

@@ -38,7 +38,7 @@ export function createKernelRuntime(context: KernelContext): {
     const writer = createWriteRuntime(context, { openingReady: modules.source.openingReady,
         mods,
         worldlines,
-        sourceGraphPath: id => modules.source.store.graphPath(id),
+        sourceGraphPath: modules.source.graphPath,
         queueAdjacentReading: modules.source.queueAdjacentReading,
         libraryWriteBack: createLibraryWriteBack(context) });
     const resolver = createResolveRuntime(context, writer, { beforeMain:mods.resolveBeforeMain,requireMaterial: modules.source.requireMaterial, development: createDevelopmentFamily(), healing:createHealingResolveContribution(), sanity:createSanityFamily(),magic:createMagicFamily({effects:mods.magicEffects}),combat:createCombatResolveContribution(),chase:createChaseResolveContribution() });

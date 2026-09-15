@@ -21,7 +21,7 @@ export async function snapshotSource(context: KernelContext, module: LoadedModul
     const root = join(context.stateRoot, 'adaptation-sources'); await mkdir(root, {recursive: true});
     const assets: Row = {};
     for (const node of [...module.graph.kind('handout'), ...module.graph.kind('asset')]) {
-        const item = await asset(module.graph.moduleId, node.node_id);
+        const item = module.asset ? await module.asset(node.node_id) : await asset(module.graph.moduleId, node.node_id);
         if (!item) continue;
         if (typeof item.path === 'string') {
             let bytes: Buffer | undefined;

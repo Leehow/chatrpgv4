@@ -59,11 +59,12 @@ function lookupPath(context: Record<string, unknown>, path: string): unknown {
 
 /**
  * Contract §5: `campaign` is required in the parameters of every `table.*` and `setup.*` call;
- * the `module.*` calls of §14.3 are addressed by module id (several campaigns share one module) and carry no campaign.
- * When the table does not name `campaign`, fill it in by this rule rather than guessing from the method name.
+ * source operations use the campaign workspace (§22.6), even before campaign creation.
+ * Binding, registration and listing remain library operations; module.prepare keeps its initial work unscoped.
  */
 function wantsCampaign(method: string): boolean {
-	return method.startsWith("setup.") || method.startsWith("table.");
+	return method.startsWith("setup.") || method.startsWith("table.") ||
+		(method.startsWith("module.") && !["module.source.bind", "module.register", "module.list"].includes(method));
 }
 
 export default function (pi: ExtensionAPI) {

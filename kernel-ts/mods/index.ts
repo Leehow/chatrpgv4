@@ -31,7 +31,7 @@ export function createModRuntime(context: KernelContext, sources: ModSources = {
   async function busy(campaign: CampaignWriter, world: Row): Promise<boolean> {
     const turn = await campaign.readTurn();
     if (['open', 'acting'].includes(turn.state) || truth(turn.pending_choice)) return true;
-    const meta = await campaign.readCampaign(), graph = (await loadCampaignModule(context, meta.module_id, world)).graph;
+    const meta = await campaign.readCampaign(), graph = (await loadCampaignModule(context, meta.module_id, world, campaign.id)).graph;
     const snapshot = new CampaignSnapshot(context, campaign.id);
     snapshot.meta = meta; snapshot.world = world; snapshot.turn = turn;
     await snapshot.preload('view');

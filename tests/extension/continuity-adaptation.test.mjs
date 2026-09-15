@@ -10,7 +10,7 @@ const evidence = join(root, '.coc/playtests/continuity-contracts');
 await mkdir(evidence, {recursive: true});
 const directory = await mkdtemp(join(evidence, 'suite-'));
 await writeFile(join(directory, 'classification.json'), JSON.stringify({kind: 'contract-fixture', live_play: false, model_calls: 0}));
-await build({stdin: {contents: `export {createKernelContext} from './kernel-ts/context.ts'; export {nativeAdvisoryLocks} from './kernel-ts/native-locks.ts'; export {createKernelRuntime} from './kernel-ts/registry.ts'; export {ModuleGraph} from './kernel-ts/read/module-graph.ts'; export {ModuleStore} from './kernel-ts/modules/store.ts'; export {loadModule,loadCampaignModule} from './kernel-ts/read/campaign.ts'; export {report as mergeReport} from './kernel-ts/worldline/confluence-plan.ts'; export {continuityView} from './kernel-ts/read/continuity.ts'; export {storyAssessmentContext,storyReentry} from './kernel-ts/read/story.ts'; export {threadSection} from './kernel-ts/read/thread.ts'; export {normalizeChanges,adaptedGraph} from './kernel-ts/adaptation/graph.ts'; export {auditSourceEvidence} from './kernel-ts/mods/audit-source.ts';`, resolveDir: root, sourcefile: 'test-api.ts'},
+await build({stdin: {contents: `export {createKernelContext} from './kernel-ts/context.ts'; export {nativeAdvisoryLocks} from './kernel-ts/native-locks.ts'; export {createKernelRuntime} from './kernel-ts/registry.ts'; export {ModuleGraph} from './kernel-ts/read/module-graph.ts'; export {ModuleStore} from './kernel-ts/modules/store.ts'; export {ensureCampaignModule,moduleContext} from './kernel-ts/modules/campaign-scope.ts'; export {loadModule,loadCampaignModule} from './kernel-ts/read/campaign.ts'; export {report as mergeReport} from './kernel-ts/worldline/confluence-plan.ts'; export {continuityView} from './kernel-ts/read/continuity.ts'; export {storyAssessmentContext,storyReentry} from './kernel-ts/read/story.ts'; export {threadSection} from './kernel-ts/read/thread.ts'; export {normalizeChanges,adaptedGraph} from './kernel-ts/adaptation/graph.ts'; export {auditSourceEvidence} from './kernel-ts/mods/audit-source.ts';`, resolveDir: root, sourcefile: 'test-api.ts'},
     outfile: join(directory, 'api.mjs'), bundle: true, packages: 'external', platform: 'node', format: 'esm', logLevel: 'silent'});
 const api = await import(pathToFileURL(join(directory, 'api.mjs')).href);
 const closers = []; after(async () => {for (const close of closers) await close();});
@@ -357,7 +357,24 @@ test('supporting NPC knowledge and new handout renditions are available without 
 });
 
 test('accepted source stays pinned across shared publication until a reviewed rebase; other campaigns remain unadapted', async () => {
-    const t = await table(), p = await prepare(t); await review(t, p);
+    const content = join(root, 'content'), home = await mkdtemp(join(directory, 'campaign-'));
+    const context = await api.createKernelContext({workspace: home, content, seed: 'continuity', locks: api.nativeAdvisoryLocks(),
+        env: {...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1'}});
+    const seedStore = new api.ModuleStore(context);
+    await seedStore.register('the-haunting');
+    for (const ref of new Set(raw.nodes.map(node => node?.properties?.asset_ref).filter(ref => typeof ref === 'string' && ref))) {
+        const parts = ref.split('/');
+        await mkdir(join(seedStore.moduleDir('the-haunting'), ...parts.slice(0, -1)), {recursive: true});
+        await writeFile(join(seedStore.moduleDir('the-haunting'), ...parts), '');
+    }
+    const runtime = api.createKernelRuntime(context); closers.push(() => runtime.close());
+    const call = (method, params = {}) => runtime.handlers[method]({campaign: 'c1', ...params});
+    await call('campaign.create', {id: 'c1', module: 'the-haunting', pregen: 'thomas-hayes', play_language: 'en'});
+    await call('table.open');
+    await call('table.narrate', {call_id: 't0-c1', text: 'The investigator hears the commission.'});
+    await call('table.player_input', {text: 'I want to understand how these events connect.'});
+    const world = () => readFile(join(home, '.coc/campaigns/c1/world.json'), 'utf8').then(JSON.parse);
+    const t = {home, context, runtime, call, world}, p = await prepare(t); await review(t, p);
     await t.call('table.apply', {call_id: 't1-c1', effects: [{kind: 'adaptation', name: p.name}]});
     const originalSource = (await t.world()).adaptation.source;
     await t.call('table.narrate', {call_id: 't1-c2', text: 'The preparation is retained.'});
@@ -365,20 +382,39 @@ test('accepted source stays pinned across shared publication until a reviewed re
     await t.call('campaign.create', {id: 'c2', module: 'the-haunting', pregen: 'thomas-hayes', play_language: 'en'});
     await t.call('table.open', {campaign: 'c2'});
     assert.equal((await t.call('table.lookup', {campaign: 'c2', kind: 'module', query: 'Harbor guesthouse'})).entities.length, 0);
-    const store = new api.ModuleStore(t.context), meta = await store.module('the-haunting');
-    const next = structuredClone(raw); next.nodes.push({node_id: 'location-safe-pier', node_kind: 'location', name: 'Safe Pier', summary: 'New source material.', properties: {}});
-    await store.writeModule(await store.writeGraph(meta, next));
+    const c1SourceContext = await api.ensureCampaignModule(t.context, 'c1', 'the-haunting');
+    await api.ensureCampaignModule(t.context, 'c2', 'the-haunting');
+    const safePier = {node_id: 'location-safe-pier', node_kind: 'location', name: 'Safe Pier', summary: 'New source material.', properties: {}};
+    const publishSafePier = async store => {
+        const meta = await store.module('the-haunting'), next = structuredClone(await store.readGraph('the-haunting') ?? raw);
+        next.nodes = next.nodes.filter(node => node.node_id !== safePier.node_id);
+        next.nodes.push(safePier);
+        await store.writeModule(await store.writeGraph(meta, next));
+    };
+    await publishSafePier(new api.ModuleStore(t.context));
     assert.equal((await t.call('table.lookup', {kind: 'module', query: 'Safe Pier'})).entities.length, 0);
+    assert.equal((await t.call('table.lookup', {kind: 'module', query: 'Safe Pier', canonical_source: true})).entities.length, 0);
+    assert.equal((await t.call('table.lookup', {campaign: 'c2', kind: 'module', query: 'Safe Pier'})).entities.length, 0);
+    assert.equal((await t.call('table.lookup', {campaign: 'c2', kind: 'module', query: 'Safe Pier', canonical_source: true})).entities.length, 0);
+    await publishSafePier(new api.ModuleStore(c1SourceContext));
     assert.equal((await t.call('table.lookup', {kind: 'module', query: 'Safe Pier', canonical_source: true})).entities.length, 1);
+    assert.equal((await t.call('table.lookup', {kind: 'module', query: 'Safe Pier'})).entities.length, 0);
+    assert.equal((await t.call('table.lookup', {campaign: 'c2', kind: 'module', query: 'Safe Pier', canonical_source: true})).entities.length, 0);
+    const originalSourcePath = join(t.home, '.coc/adaptation-sources', `${originalSource}.json`);
+    const originalSourceBytes = await readFile(originalSourcePath, 'utf8');
+    assert.ok(!originalSourceBytes.includes('Safe Pier'));
     const r = await t.call('adaptation.prepare', {name: 'Source refresh', purpose: 'rebase', request: 'Review the new source generation.', anchors: [graph.startScene().name], rebase: true});
     await writeFile(join(r.task.cwd, 'result.json'), JSON.stringify({changes: [], explanation: 'Rebase fixture.'}));
     const d = await t.call('adaptation.draft', {name: r.name, key: r.task.key, attempt: r.task.attempt});
     const count = (await t.world()).adaptation.records.flatMap(x => x.changes).length;
     await review(t, {name: r.name, key: r.task.key, attempt: r.task.attempt, task: d.task, planned: Array.from({length: count}, () => null)});
     await t.call('table.apply', {call_id: 't2-c1', effects: [{kind: 'adaptation', name: r.name}]});
+    assert.equal(await readFile(originalSourcePath, 'utf8'), originalSourceBytes);
     assert.equal((await t.call('table.lookup', {kind: 'module', query: 'Safe Pier'})).entities.length, 1);
+    assert.equal((await t.call('table.lookup', {kind: 'module', query: 'Safe Pier', canonical_source: true})).entities.length, 1);
     assert.equal((await t.call('table.lookup', {kind: 'module', query: 'Harbor guesthouse'})).entities.length, 1);
-    assert.ok(await readFile(join(t.home, '.coc/adaptation-sources', `${originalSource}.json`)));
+    assert.equal((await t.call('table.lookup', {campaign: 'c2', kind: 'module', query: 'Safe Pier'})).entities.length, 0);
+    assert.equal((await t.call('table.lookup', {campaign: 'c2', kind: 'module', query: 'Safe Pier', canonical_source: true})).entities.length, 0);
 });
 
 test('a retry has a new attempt owner; old results cannot finish or fail the replacement', async () => {

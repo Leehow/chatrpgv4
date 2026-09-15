@@ -194,7 +194,7 @@ export async function tableGraph(context: KernelContext, params: Row): Promise<R
         return value;
     };
     const moduleId = string(campaign.meta.module_id),
-        graph = moduleId ? (await loadCampaignModule(context, moduleId, campaign.world)).graph : null;
+        graph = moduleId ? (await loadCampaignModule(context, moduleId, campaign.world, campaign.id)).graph : null;
     const nodes = kept.map(commit => {
         const { kind, turn } = kinds.get(commit.sha)!, clock = clockOf(commit);
         return {

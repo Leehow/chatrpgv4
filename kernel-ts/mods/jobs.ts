@@ -28,7 +28,7 @@ export class ModJobs {
     }
     private async load(params: Row) {
         const transaction = await this.writer.transaction(params, {preload: false});
-        const meta = await transaction.campaign.readCampaign(), module = await loadCampaignModule(this.context, string(meta.module_id), transaction.world);
+        const meta = await transaction.campaign.readCampaign(), module = await loadCampaignModule(this.context, string(meta.module_id), transaction.world, transaction.campaign.id);
         return {...transaction, meta, module, graph: module.graph};
     }
     private reviewScope(campaign: string, meta: Row, turn: Row): string {

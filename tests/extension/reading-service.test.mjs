@@ -24,7 +24,7 @@ function openingDraft(repaired = false) {
 		dependencies: [], critical: [], ready_nodes: ["scene-opening", "clue-family-fled"], coverage: {} };
 }
 
-async function runFinishRepairFixture(t, { rejectEveryFinish = false, transportFailure = false } = {}) {
+async function runFinishRepairFixture(t, { rejectEveryFinish = false, transportFailure = false, campaign } = {}) {
 	const home = await mkdtemp(join(tmpdir(), "coc-finish-repair-"));
 	t.after(() => rm(home, { recursive: true, force: true }));
 	const cwd = join(home, "work", "attempt-1"), cache = join(home, ".coc", "modules", "book", "cache", "pages");
@@ -76,7 +76,7 @@ async function runFinishRepairFixture(t, { rejectEveryFinish = false, transportF
 	const job = { job_id: "read-1", module_id: "book", purpose: "opening", focus: "scene-opening", foreground: true, lease: "lease-1",
 		work_dir: cwd, source: { path: join(home, "source.pdf"), page_count: 8, file_sha256: "source-sha" },
 		index: {}, known_nodes: [], known_claims: [], vocabulary: {}, coverage_domains: [] };
-	await service.runJob(job, new AbortController().signal);
+	await service.runJob(job, new AbortController().signal, campaign);
 	return { cwd, readTasks, finishCalls, readRounds, completionAttempts };
 }
 
@@ -152,19 +152,107 @@ test("a reused book with several openings requires a choice for this preparation
 	const calls = [];
 	const candidates = [{ scene: "one", name: "Opening 1", summary: "Serve an arrest order." },
 		{ scene: "two", name: "Opening 2", summary: "Investigate the production failure." }];
-	const service = new ReadingService({ home: "/unused", model: () => { throw new Error("the source is already prepared"); }, progress() {}, record() {},
+	const service = new ReadingService({ home: "/unused", campaign: () => "campaign-bound", model: () => { throw new Error("the source is already prepared"); }, progress() {}, record() {},
 		async call(method, params) {
 			calls.push({ method, params });
 			if (method === "module.status") return { opening_ready: true, opening_candidates: candidates };
-			if (method === "module.opening.choose") return { opening_ready: true };
 			if (method === "module.read.request") return { state: "ready" };
 			throw new Error("unexpected source work");
 		} });
 	t.after(() => service.dispose());
 	await assert.rejects(service.prepare({ module_id: "book-1" }), e => e.code === "needs_choice" && e.details.candidates[1].summary === candidates[1].summary);
 	assert.deepEqual(calls.map(c => c.method), ["module.read.request", "module.status"]);
-	assert.equal((await service.prepare({ module_id: "book-1", start_scene: "two" })).opening_ready, true);
-	assert.equal(calls.find(c => c.method === "module.opening.choose").params.scene, "two");
+	assert.equal((await service.prepare({ module_id: "book-1", start_scene: "two", campaign: "campaign-explicit" })).opening_ready, true);
+	assert.equal(calls.at(-1).params.purpose, "opening");
+	assert.equal(calls.at(-1).params.focus, "two");
+	assert.ok(calls.every(c => !Object.hasOwn(c.params, "campaign")), "initial preparation must explicitly use the library");
+	assert.ok(calls.every(c => c.method !== "module.opening.choose"), "the player's opening must not be stored in the library");
+});
+
+test("targeted preparation and ordinary foreground requests use their captured campaign", async t => {
+	let campaign = "campaign-a";
+	const calls = [], releases = [];
+	const service = new ReadingService({ home: "/unused", campaign: () => campaign,
+		model: () => { throw new Error("already prepared"); }, progress() {}, record() {},
+		async call(method, params) {
+			calls.push({ method, params });
+			assert.equal(method, "module.read.request");
+			return new Promise(resolve => releases.push(() => resolve({ state: "ready", campaign: params.campaign })));
+		} });
+	t.after(() => service.close());
+	const params = { purpose: "detail", focus: "Tower", foreground: true };
+	const a = service.ensure("book", params);
+	campaign = "campaign-b";
+	const b = service.ensure("book", params);
+	assert.equal(calls.length, 2, "identical requests in different campaigns must not deduplicate");
+	releases.splice(0).forEach(release => release());
+	assert.deepEqual((await Promise.all([a, b])).map(row => row.campaign), ["campaign-a", "campaign-b"]);
+	const targeted = service.prepare({ module_id: "book", start_scene: "Tower", targeted: true, retry: true });
+	assert.equal(calls.at(-1).params.campaign, "campaign-b");
+	assert.equal(calls.at(-1).params.focus, "Tower");
+	assert.equal(calls.at(-1).params.retry, true);
+	releases.splice(0).forEach(release => release());
+	await targeted;
+	const explicit = service.prepare({ module_id: "book", start_scene: "Cellar", targeted: true, campaign: "campaign-a" });
+	assert.equal(calls.at(-1).params.campaign, "campaign-a");
+	releases.splice(0).forEach(release => release());
+	await explicit;
+});
+
+test("same-module pumps, foreground promotion and cancellation retain separate campaign scopes", async t => {
+	let campaign = "campaign-a";
+	const calls = [], records = [], claimed = new Set(), signals = new Map(), jobs = new Map();
+	const service = new ReadingService({ home: "/unused", campaign: () => campaign,
+		model: () => { throw new Error("mock reader only"); }, progress() {}, record(row) { records.push(row); },
+		async call(method, params) {
+			calls.push({ method, params });
+			if (method === "module.read.request") return { state: "reading", job_id: "same-job" };
+			if (method === "module.read.claim") {
+				if (claimed.has(params.campaign)) return { job_id: null };
+				claimed.add(params.campaign);
+				return { job_id: "same-job", lease: `lease-${params.campaign}`, purpose: "detail", foreground: false };
+			}
+			if (method === "module.read.finish") return {};
+			throw new Error("unexpected operation");
+		} });
+	t.after(() => service.close());
+	service.runJob = async (job, signal, scope) => {
+		jobs.set(scope, job); signals.set(scope, signal);
+		await new Promise(resolve => signal.addEventListener("abort", resolve, { once: true }));
+		throw new Error("reader cancelled");
+	};
+	const backgroundA = service.prefetch("book", "wake-a");
+	await until(() => signals.size === 1);
+	campaign = "campaign-b";
+	const backgroundB = service.prefetch("book", "wake-b");
+	await until(() => signals.size === 2);
+	const params = { purpose: "detail", focus: "Tower", foreground: true };
+	const abortA = new AbortController(), abortB = new AbortController();
+	const a = assert.rejects(service.ensure("book", { ...params, campaign: "campaign-a" }, abortA.signal), /cancelled/);
+	await until(() => jobs.get("campaign-a").foreground === true);
+	assert.equal(jobs.get("campaign-b").foreground, false, "foreground promotion must not change another scope's same job id");
+	const b = assert.rejects(service.ensure("book", params, abortB.signal), /cancelled/);
+	await until(() => jobs.get("campaign-b").foreground === true);
+	campaign = "campaign-later";
+	abortA.abort(); await a;
+	await until(() => calls.some(c => c.method === "module.read.finish"));
+	assert.equal(signals.get("campaign-b").aborted, false);
+	assert.deepEqual(calls.filter(c => c.method === "module.read.finish").map(c => [c.params.campaign, c.params.lease, c.params.outcome]),
+		[["campaign-a", "lease-campaign-a", "cancelled"]]);
+	abortB.abort(); await b;
+	await Promise.all([backgroundA, backgroundB]);
+	assert.deepEqual(calls.filter(c => c.method === "module.read.finish").map(c => [c.params.campaign, c.params.lease, c.params.outcome]),
+		[["campaign-a", "lease-campaign-a", "cancelled"], ["campaign-b", "lease-campaign-b", "cancelled"]]);
+	assert.ok(calls.every(c => ["campaign-a", "campaign-b"].includes(c.params.campaign)));
+	assert.deepEqual(records.filter(row => row.event === "concurrency").map(row => [row.campaign, row.wake]),
+		[["campaign-a", "wake-a"], ["campaign-b", "wake-b"]]);
+});
+
+test("publication repair and final replay finish in the job's captured campaign", async t => {
+	const result = await runFinishRepairFixture(t, { campaign: "campaign-a" });
+	assert.equal(result.completionAttempts, 2);
+	assert.equal(result.finishCalls.length, 3);
+	assert.ok(result.finishCalls.every(row => row.campaign === "campaign-a"));
 });
 
 test("an unavailable original PDF reports bad_pdf before registering source work", async t => {
@@ -303,10 +391,11 @@ test("simultaneous cancellation of all shared waiters aborts the reader", async 
 });
 
 test("cancellation before the request returns retires only that queued job without starting its reader", async t => {
-	let resolveRequest, queued = false;
-	const finished = [];
-	const service = new ReadingService({ home: "/unused", model: () => { throw new Error("cancelled job must not launch a reader"); }, progress() {}, record() {},
+	let resolveRequest, queued = false, campaign = "campaign-a";
+	const finished = [], calls = [];
+	const service = new ReadingService({ home: "/unused", campaign: () => campaign, model: () => { throw new Error("cancelled job must not launch a reader"); }, progress() {}, record() {},
 		async call(method, params) {
+			calls.push({ method, params });
 			if (method === "module.read.request") return new Promise(resolve => { resolveRequest = resolve; });
 			if (method === "module.read.claim") { if (!queued) return { job_id: null }; queued = false; return { job_id: "pending" }; }
 			if (method === "module.read.finish") { finished.push(params); return {}; }
@@ -317,11 +406,13 @@ test("cancellation before the request returns retires only that queued job witho
 	const pending = assert.rejects(service.ensure("book", { purpose: "detail", focus: "Tower" }, abort.signal), /cancelled/);
 	abort.abort();
 	await pending;
+	campaign = "campaign-b";
 	queued = true;
 	resolveRequest({ state: "queued", job_id: "pending" });
 	await until(() => finished.length === 1);
 	assert.equal(finished[0].job_id, "pending");
 	assert.equal(finished[0].outcome, "cancelled");
+	assert.ok(calls.every(c => c.params.campaign === "campaign-a"), "late cancellation must not follow a changed binding");
 });
 
 // A retry that inherits a failed job's draft owes the source-based repair round (contract section 22).

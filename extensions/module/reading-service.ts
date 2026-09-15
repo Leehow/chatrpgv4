@@ -17,6 +17,7 @@ export interface ReadingBridge {
 }
 interface Dependencies {
 	call: Call;
+	campaign?(): string | undefined;
 	home: string;
 	runtime?: HostRuntime;
 	model(): { id: string; vision: boolean; thinking?: string };
@@ -71,10 +72,18 @@ export class ReadingService implements ReadingBridge {
 	private controllers = new Map<string, AbortController>();
 	private jobs = new Map<string, Row>();
 	private cancelledJobs = new Set<string>();
-	/** Per module, the reason of the most recent wake no claim has answered yet: the claim row names it (contract §22, #65). */
+	/** Per scoped module, the reason of the most recent wake no claim has answered yet: the claim row names it (contract §22, #65). */
 	private wakes = new Map<string, string>();
 	private readonly deps: Dependencies;
 	constructor(deps: Dependencies) { this.deps = deps; }
+	private campaign(params: Row): string | undefined {
+		// null explicitly selects the library, even when this service is bound to a campaign.
+		return params.campaign === null ? undefined : params.campaign ?? this.deps.campaign?.();
+	}
+	private call(method: string, params: Row, campaign: string | undefined): Promise<any> {
+		const { campaign: _scope, ...rest } = params;
+		return this.deps.call(method, { ...rest, ...(campaign !== undefined ? { campaign } : {}) });
+	}
 	private runtime(): HostRuntime {
 		if (!this.deps.runtime) throw new Error("Source reading requires its owner's runtime");
 		return this.deps.runtime;
@@ -89,12 +98,14 @@ export class ReadingService implements ReadingBridge {
 
 	prefetch(moduleId: string, reason = 'requested'): Promise<void> {
 		if (this.stopped) return Promise.resolve();
-		this.deps.record({lane:'reading',event:'prefetch_wake',module_id:moduleId,reason});
-		this.wakes.set(moduleId, reason);
-		return this.pump(moduleId);
+		const campaign = this.deps.campaign?.();
+		this.deps.record({lane:'reading',event:'prefetch_wake',module_id:moduleId,campaign,reason});
+		this.wakes.set(JSON.stringify([campaign, moduleId]), reason);
+		return this.pump(moduleId, campaign);
 	}
 
 	async prepare(params: Row, signal?: AbortSignal): Promise<Row> {
+		const campaign = this.campaign(params);
 		let mid = params.module_id;
 		if (params.pdf) {
 			const model = this.deps.model();
@@ -114,32 +125,32 @@ export class ReadingService implements ReadingBridge {
         }
 		if (!mid) throw error("needs_source", "choose a PDF or an existing module", "pass pdf or module_id");
 		if (params.purpose === "guidance") {
-			const result = await this.ensure(mid, {...params, focus: params.start_scene || "", foreground:true}, signal);
+			const result = await this.ensure(mid, {...params, campaign:null, focus: params.start_scene || "", foreground:true}, signal);
 			return {...result, module_id:mid};
 		}
 		if (params.start_scene && params.targeted === true) {
-			await this.ensure(mid, {purpose:"opening", focus:params.start_scene, foreground:true, retry:params.retry===true}, signal);
+			await this.ensure(mid, {purpose:"opening", campaign:campaign ?? null, focus:params.start_scene, foreground:true, retry:params.retry===true}, signal);
 			return {ok:true, module_id:mid, opening_ready:true};
 		}
-		await this.ensure(mid, { purpose: "skeleton", foreground: true, retry: params.retry === true }, signal);
+		await this.ensure(mid, { purpose: "skeleton", campaign: null, foreground: true, retry: params.retry === true }, signal);
 		const status = await this.deps.call("module.status", { module_id: mid });
 		if (!params.start_scene && status.opening_candidates?.length > 1) {
 			throw new KernelError({ code: "needs_choice", message: "choose the opening for this new campaign",
 				fix: "match the player's intent to the candidate summaries, then pass its scene as start_scene in prepare-module",
 				details: { field: "start_scene", candidates: status.opening_candidates } });
 		}
-		if (params.start_scene) await this.deps.call("module.opening.choose", { module_id: mid, scene: params.start_scene });
-		await this.ensure(mid, { purpose: "opening", foreground: true, retry: params.retry === true }, signal);
+		await this.ensure(mid, { purpose: "opening", campaign: null, focus: params.start_scene ?? "", foreground: true, retry: params.retry === true }, signal);
 		return { ok: true, module_id: mid, opening_ready: true };
 	}
 
 	async ensure(mid: string, params: Row, signal?: AbortSignal): Promise<Row> {
 		if (signal?.aborted || this.stopped) throw error("reading_failed", "reading was cancelled", "retry the reading when ready");
-		const key = JSON.stringify([mid, params.purpose, params.material ?? "", params.focus ?? "", params.question ?? "", params.guidance_key ?? ""]);
+		const campaign = this.campaign(params);
+		const key = JSON.stringify([campaign, mid, params.purpose, params.material ?? "", params.focus ?? "", params.question ?? "", params.guidance_key ?? ""]);
 		let request = this.requests.get(key);
 		if (!request) {
 			const pending: PendingReading = { waiters: 0, cancelled: false };
-			const task = this.fulfil(mid, params, pending).finally(() => this.requests.delete(key));
+			const task = this.fulfil(mid, params, pending, campaign).finally(() => this.requests.delete(key));
 			task.catch(() => undefined);
 			request = Object.assign(pending, { task });
 			this.requests.set(key, request);
@@ -163,7 +174,7 @@ export class ReadingService implements ReadingBridge {
 					releaseWaiter();
 					if (request.waiters === 0) {
 						request.cancelled = true;
-						if (request.jobId) this.cancelJob(mid, request.jobId);
+						if (request.jobId) this.cancelJob(mid, request.jobId, campaign);
 					}
 					reject(error("reading_failed", "reading was cancelled", "retry explicitly when ready"));
 				};
@@ -177,24 +188,24 @@ export class ReadingService implements ReadingBridge {
 		}
 	}
 
-	private cancelJob(mid: string, jobId: string) {
-		const key = JSON.stringify([mid, jobId]);
+	private cancelJob(mid: string, jobId: string, campaign: string | undefined) {
+		const key = JSON.stringify([campaign, mid, jobId]);
 		this.cancelledJobs.add(key);
 		this.controllers.get(key)?.abort();
-		void this.pump(mid);
+		void this.pump(mid, campaign);
 	}
 
-	private async fulfil(mid: string, params: Row, request: PendingReading): Promise<Row> {
+	private async fulfil(mid: string, params: Row, request: PendingReading, campaign: string | undefined): Promise<Row> {
 		let retry = params.retry === true;
 		while (!this.stopped && !request.cancelled) {
-			const response = await this.deps.call("module.read.request", { ...params, module_id: mid, retry });
+			const response = await this.call("module.read.request", { ...params, module_id: mid, retry }, campaign);
 			if (params.foreground && response.job_id) {
-				const running = this.jobs.get(JSON.stringify([mid,response.job_id]));
+				const running = this.jobs.get(JSON.stringify([campaign, mid,response.job_id]));
 				if (running) { running.foreground = true; wakeReaderSlots(); }
 			}
 			request.jobId = response.job_id;
 			if (request.cancelled) {
-				if (request.jobId) this.cancelJob(mid, request.jobId);
+				if (request.jobId) this.cancelJob(mid, request.jobId, campaign);
 				break;
 			}
 			retry = false;
@@ -205,16 +216,17 @@ export class ReadingService implements ReadingBridge {
 					fix: "choose one candidate using start_scene in prepare-module", details: choice });
 				throw error("reading_failed", (response.missing ?? []).join("; ") || "the reading could not prepare this material", response.fix ?? "retry explicitly");
 			}
-			await Promise.race([this.pump(mid), delay(150)]);
+			await Promise.race([this.pump(mid, campaign), delay(150)]);
 			await delay(150);
 		}
 		throw error("reading_failed", request.cancelled ? "reading was cancelled" : "the reader host shut down",
 			request.cancelled ? "retry explicitly when ready" : "resume in a new session");
 	}
 
-	private pump(mid: string): Promise<void> {
-		const running = this.pumps.get(mid);
-		if (running) { this.pumpWakes.get(mid)?.(); return running; }
+	private pump(mid: string, campaign: string | undefined): Promise<void> {
+		const scope = JSON.stringify([campaign, mid]);
+		const running = this.pumps.get(scope);
+		if (running) { this.pumpWakes.get(scope)?.(); return running; }
 		const active = new Set<Promise<void>>();
 		let wakeRequested = false;
 		const task = (async () => {
@@ -222,19 +234,19 @@ export class ReadingService implements ReadingBridge {
 			try {
 				while (!this.stopped) {
 					wakeRequested = false;
-					const wake = new Promise<void>(resolve => this.pumpWakes.set(mid, () => {wakeRequested = true; resolve();}));
+					const wake = new Promise<void>(resolve => this.pumpWakes.set(scope, () => {wakeRequested = true; resolve();}));
 					while (active.size < capacity && !this.stopped) {
-						const job = await this.deps.call("module.read.claim", { module_id: mid, owner: `host-${process.pid}` });
+						const job = await this.call("module.read.claim", { module_id: mid, owner: `host-${process.pid}` }, campaign);
 						// A wake does not choose a job; the claim does. The row that names the job names the wake it answered,
 						// and a wake that found nothing queued says so instead of leaving no trace (#65).
-						const wake = this.wakes.get(mid);
-						this.wakes.delete(mid);
+						const wake = this.wakes.get(scope);
+						this.wakes.delete(scope);
 						if (!job.job_id) {
-							if (wake !== undefined) this.deps.record({ lane: "reading", event: "claim_empty", module_id: mid, wake });
+							if (wake !== undefined) this.deps.record({ lane: "reading", event: "claim_empty", module_id: mid, campaign, wake });
 							break;
 						}
 						capacity = Math.max(1, Number(job.concurrency) || 1);
-						const key = JSON.stringify([mid, job.job_id]);
+						const key = JSON.stringify([campaign, mid, job.job_id]);
 						const controller = new AbortController();
 						this.controllers.set(key, controller);
 						this.jobs.set(key,job);
@@ -242,32 +254,32 @@ export class ReadingService implements ReadingBridge {
 						const work = (async () => {
 							try {
 								if (controller.signal.aborted) throw new Error("reading was cancelled");
-								await this.runJob(job, controller.signal);
+								await this.runJob(job, controller.signal, campaign);
 							}
 							catch (failure) {
 								try {
-									await this.deps.call("module.read.finish", { module_id: mid, job_id: job.job_id, lease: job.lease,
-										outcome: controller.signal.aborted ? "cancelled" : "failed", detail: String(failure) });
+									await this.call("module.read.finish", { module_id: mid, job_id: job.job_id, lease: job.lease,
+										outcome: controller.signal.aborted ? "cancelled" : "failed", detail: String(failure) }, campaign);
 								} catch { /* a closed kernel releases its leases; retained attempts remain reclaimable */ }
 							}
 							finally { this.controllers.delete(key); this.jobs.delete(key); this.cancelledJobs.delete(key); }
 						})();
 						const tracked = work.finally(() => active.delete(tracked));
 						active.add(tracked);
-						this.deps.record({lane: "reading", event: "concurrency", module_id: mid, job_id: job.job_id, purpose: job.purpose, focus: job.focus ?? "", ...(wake !== undefined ? { wake } : {}),
+						this.deps.record({lane: "reading", event: "concurrency", module_id: mid, campaign, job_id: job.job_id, purpose: job.purpose, focus: job.focus ?? "", ...(wake !== undefined ? { wake } : {}),
 							active: active.size, capacity, foreground:job.foreground === true, queue_wait_ms: Number.isFinite(Date.parse(job.at)) ? Math.max(0,Date.now()-Date.parse(job.at)) : undefined});
 					}
 					if (!active.size) { if (wakeRequested) continue; return; }
 					await Promise.race([...active, wake]);
 				}
 			} finally { await Promise.allSettled([...active]); }
-		})().finally(() => { this.pumps.delete(mid); this.pumpWakes.delete(mid); if(wakeRequested&&!this.stopped)void this.pump(mid).catch(()=>undefined); });
+		})().finally(() => { this.pumps.delete(scope); this.pumpWakes.delete(scope); if(wakeRequested&&!this.stopped)void this.pump(mid, campaign).catch(()=>undefined); });
 		task.catch(() => undefined);
-		this.pumps.set(mid, task);
+		this.pumps.set(scope, task);
 		return task;
 	}
 
-	private async runJob(job: Row, signal: AbortSignal) {
+	private async runJob(job: Row, signal: AbortSignal, campaign?: string) {
 		const model = this.deps.model();
 		const cwd = job.work_dir;
 		const cache = join(this.deps.home, ".coc", "modules", job.module_id, "cache", "pages");
@@ -339,7 +351,7 @@ export class ReadingService implements ReadingBridge {
 							} catch { /* the first draft has not been written */ }
 						}
 						const instructions = join(cwd, `instructions-${phase}.md`);
-						this.deps.progress({ module_id: job.module_id, stage: phase === "read" && job.purpose === "skeleton" ? "skeleton" : phase, focus: job.focus, of: job.source.page_count });
+						this.deps.progress({ module_id: job.module_id, campaign, stage: phase === "read" && job.purpose === "skeleton" ? "skeleton" : phase, focus: job.focus, of: job.source.page_count });
 						if (phase === "verify") {
 							if (job.purpose === "opening") {
 								try {
@@ -357,8 +369,8 @@ export class ReadingService implements ReadingBridge {
 									priority: () => job.foreground === false ? "background" : "foreground",
 									prompt: { phase: "verify", guidance: job.purpose === "guidance" } } }, request.signal),
 								// Every verify row names the job and round it belongs to (#65); the reviewer adds unit and attempt.
-								record: row => this.deps.record({ module_id: job.module_id, job_id: job.job_id, purpose: job.purpose, focus: job.focus ?? "", round, ...row }),
-								progress: row => this.deps.progress({ module_id: job.module_id, ...row }) });
+								record: row => this.deps.record({ module_id: job.module_id, job_id: job.job_id, purpose: job.purpose, focus: job.focus ?? "", round, ...row, campaign }),
+								progress: row => this.deps.progress({ module_id: job.module_id, ...row, campaign }) });
 							await writeFile(join(cwd, "observations.json"), JSON.stringify(observations) + "\n");
 							phaseCompleted = true;
 							continue;
@@ -397,7 +409,7 @@ export class ReadingService implements ReadingBridge {
 							} catch (failure) { pageLogFailure = failure; }
 						}
 						const pagesRead = [...new Set(rows.map(row => row.page))];
-						this.deps.record({ lane: "reading", module_id: job.module_id, job_id: job.job_id, purpose: job.purpose, focus: job.focus ?? "",
+						this.deps.record({ lane: "reading", module_id: job.module_id, campaign, job_id: job.job_id, purpose: job.purpose, focus: job.focus ?? "",
 							model: model.id, thinking: model.thinking, phase, round, ms: run.ms, ok: run.ok, image_reads: imagePaths.size,
 							...(run.ok && !pageLogFailure ? { pages: pagesRead } : {}) });
 						if (!run.ok) throw new Error(run.error || (run.timedOut ? "reader timed out" : run.stderr || "reader failed"));
@@ -435,8 +447,8 @@ export class ReadingService implements ReadingBridge {
 						}
 					}
 					publishing = true;
-					await this.deps.call("module.read.finish", { module_id: job.module_id, job_id: job.job_id, lease: job.lease,
-						outcome: "completed", draft_path: join(cwd, "draft.json"), review_path: join(cwd, "review.json"), assets });
+					await this.call("module.read.finish", { module_id: job.module_id, job_id: job.job_id, lease: job.lease,
+						outcome: "completed", draft_path: join(cwd, "draft.json"), review_path: join(cwd, "review.json"), assets }, campaign);
 					publishing = false;
 					return;
 				} catch (failure) {
@@ -464,8 +476,8 @@ export class ReadingService implements ReadingBridge {
 			}
 		} finally {
 			// Completed jobs replay here; failed attempts release their claim and preserve all artifacts.
-			await this.deps.call("module.read.finish", { module_id: job.module_id, job_id: job.job_id, lease: job.lease,
-				outcome: signal.aborted ? "cancelled" : "failed", detail }).catch(() => undefined);
+			await this.call("module.read.finish", { module_id: job.module_id, job_id: job.job_id, lease: job.lease,
+				outcome: signal.aborted ? "cancelled" : "failed", detail }, campaign).catch(() => undefined);
 		}
 	}
 }

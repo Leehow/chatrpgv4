@@ -17,7 +17,7 @@ export async function readPublishedGraph(context: KernelContext, path: string, m
         });
     };
     const contained = async (candidate: string, component: string): Promise<string> => {
-        const base = await realpath(join(context.stateRoot, 'modules', moduleId));
+        const base = await realpath(join(context.moduleRoot ?? join(context.stateRoot, 'modules'), moduleId));
         const actual = await realpath(candidate).catch(() => resolve(candidate)), part = relative(base, actual);
         if (part === '..' || part.startsWith('..' + sep) || resolve(base, part) !== actual) invalid(component);
         return actual;

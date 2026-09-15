@@ -9,6 +9,8 @@ export interface KernelContext {
   readonly workspace: string;
   readonly content: string;
   readonly stateRoot: string;
+  /** Only source storage is scoped; campaign state and runtime capabilities keep their owner. */
+  readonly moduleRoot?: string;
   readonly campaignsRoot: string;
   readonly snapshots: SnapshotReader;
   readonly git: GitRuntime;

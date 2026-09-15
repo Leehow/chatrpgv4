@@ -28,8 +28,8 @@ export function eraMismatch(graph: ModuleGraph, sheet: Row): Row | null {
   const book = moduleEra(graph), era = sheet.era;
   return typeof era === 'string' && era && book && era !== book ? {sheet: era, module: book} : null;
 }
-export async function moduleAvailable(context: KernelContext, id: string, writer: ReturnType<typeof createWriteRuntime>): Promise<boolean> {
-  const graph = await writer.sourceGraphPath(id);
+export async function moduleAvailable(context: KernelContext, id: string, writer: ReturnType<typeof createWriteRuntime>, campaign?: string): Promise<boolean> {
+  const graph = await writer.sourceGraphPath(id, campaign);
   return await context.snapshots.pathExists(graph) ||
     await context.snapshots.pathExists(join(context.content, 'starters', id, 'module-graph.json'));
 }
@@ -173,7 +173,7 @@ export function createLibraryHandlers(context: KernelContext, writer: ReturnType
       await campaign.writeSheet(sheet);
       meta.investigators = (await campaign.party()).map(item => string(item.id));
       const moduleId = string(meta.module_id || '');
-      const mismatch = moduleId && await moduleAvailable(context, moduleId, writer) ? eraMismatch((await loadModule(context, moduleId)).graph, sheet) : null;
+      const mismatch = moduleId && await moduleAvailable(context, moduleId, writer, campaign.id) ? eraMismatch((await loadModule(context, moduleId, campaign.id)).graph, sheet) : null;
       if (mismatch) meta.era_mismatch = mismatch;
       if (meta.status === 'setting_up') {
         const block = {...row(meta.setup)}, receipts = [...array(block.receipts)];

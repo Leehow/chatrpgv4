@@ -89,7 +89,7 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
             for (const [index, effect] of effects.entries())
                 if (isJsonObject(effect) && typeof effect.kind === 'string' && KINDS.includes(effect.kind) && !available(effect.kind))
                     throw atIndex(new RpcError('not_implemented', `effect kind ${repr(effect.kind)} has no implementation in this TypeScript kernel yet`), index);
-            const module = await loadCampaignModule(kernel, string((await campaign.readCampaign()).module_id), transaction.world), graph = module.graph;
+            const module = await loadCampaignModule(kernel, string((await campaign.readCampaign()).module_id), transaction.world, campaign.id), graph = module.graph;
             const authored: Row = { move: 'to', clue: 'clue', npc: 'name', handout: 'name', map: 'name' };
             const kinds: Record<string, string[]> = { move: ['scene'], clue: ['clue'], npc: ['npc'], handout: ['handout', 'asset'], map: ['handout', 'asset'] };
             const names = effects.filter(isJsonObject).filter(effect => Object.hasOwn(authored, string(effect.kind))).map(effect => {

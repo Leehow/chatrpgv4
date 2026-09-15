@@ -172,7 +172,7 @@ export async function readCampaign(context: KernelContext, params: Row, frontend
             details: { status }
         });
     }
-    const module = await loadCampaignModule(context, string(campaign.meta.module_id), campaign.world);
+    const module = await loadCampaignModule(context, string(campaign.meta.module_id), campaign.world, campaign.id);
     if (!minimal)
         await campaign.preload(frontend ? "view" : "all");
     if (!Object.hasOwn(campaign.world, "scene_trail")) {
@@ -363,7 +363,7 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
         },
         "table.lookup": async (params): Promise<KernelResult> => {
             const { campaign, module: activeModule } = await readCampaign(context, params, false, true, contributions),
-                module = params.canonical_source === true ? await loadModule(context, campaign.meta.module_id) : activeModule,
+                module = params.canonical_source === true ? await loadModule(context, campaign.meta.module_id, campaign.id) : activeModule,
                 { graph } = module,
                 { world } = campaign,
                 kind = params.kind;

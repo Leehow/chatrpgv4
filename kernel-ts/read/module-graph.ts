@@ -111,6 +111,8 @@ const phraseWithin = (phrase: string[], key: string[]): boolean => {
     return opens || closes;
 };
 export class ModuleGraph {
+    /** Source queue/asset routing only; never authored graph data. */
+    sourceCampaign?: string;
     /** Only the campaign resolver installs this pinned material authority. */
     materialOverride?: (name: string) => string;
     assetOverride?: (name: string) => Promise<Row | null>;

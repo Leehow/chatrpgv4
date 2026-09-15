@@ -149,13 +149,22 @@ export class Reading {
         return truth((await this.store.opening(graph)).opening_ready);
     }
     async requireMapMaterial(graph: ModuleGraph, params: Row): Promise<void> {
-        const mid = graph.moduleId, meta = await this.store.module(mid);
-        if (meta.source !== 'pdf') return;
         const requested = typeof params.name === 'string' && params.name.trim() ? params.name.trim() : 'the current location';
         const bounded = requested.slice(0, 160);
-        const ready = array(meta.reading?.materials).some(material => material.material === 'map' && normalize(material.focus ?? '') === normalize(bounded));
         const hasMap = [...graph.nodes.values()].some((node: Row) => array(node.properties?.map_regions).length > 0);
-        if (hasMap || ready) return;
+        if (hasMap) return;
+        // An adapted campaign plays a pinned source: it neither inherits later library publications
+        // nor reads new material into the pinned view. New map material enters through a reviewed
+        // rebase, so the shared library is never consulted here.
+        if (graph.materialOverride)
+            throw new RpcError('needs', `the pinned source has no prepared map for ${bounded}`, {
+                fix: 'prepare and review the source material as an adaptation rebase before showing this map',
+                details: { reason: 'adaptation_material_missing', focus: bounded },
+            });
+        const mid = graph.moduleId, meta = await this.store.module(mid);
+        if (meta.source !== 'pdf') return;
+        const ready = array(meta.reading?.materials).some(material => material.material === 'map' && normalize(material.focus ?? '') === normalize(bounded));
+        if (ready) return;
         const candidates = array(meta.reading?.map_candidates).filter(candidate =>
             !params.name || normalize(candidate.name) === normalize(params.name) || normalize(candidate.focus ?? '') === normalize(params.name));
         const pages = [...new Set(candidates.flatMap(candidate => array(candidate.pages).map(number)).filter(page => page > 0))].sort((a, b) => a - b);
@@ -399,6 +408,10 @@ export class Reading {
             const meta = await this.store.module(mid), queue = await this.store.queue(mid), job = queue.find(job => job.job_id === params.job_id);
             if (!job)
                 throw new RpcError('invalid_params', 'unknown reading job');
+            // Completion is idempotent for this attempt, not for a same-named job in
+            // another campaign. The persisted token also authorizes a cold replay.
+            if (typeof params.lease !== 'string' || !params.lease || job.lease !== params.lease)
+                throw new RpcError('invalid_params', 'this reading attempt no longer owns publication');
             const committed = row(row(meta.reading).completed)[job.job_id];
             if (truth(committed)) {
                 Object.assign(job, { state: 'completed', result: committed });

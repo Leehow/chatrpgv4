@@ -121,8 +121,11 @@ export function mapsDepictingScene(graph: ModuleGraph, scene: Row): Row[] {
 
 async function composeMapView(graph: ModuleGraph, asset: AssetReader, node: Row, selected: Row[], title: string): Promise<Row> {
     const handle = graph.handle(node), layers: Row[] = [];
+    // A campaign or adapted graph resolves its own published assets; the injected reader is the
+    // library path only for graphs that carry no scope (module administration and starters).
+    const readAsset = graph.assetOverride ?? ((name: string) => asset(graph.moduleId, name));
     for (const region of selected) {
-        const source = await asset(graph.moduleId, region.source_node), path = source?.path;
+        const source = await readAsset(region.source_node), path = source?.path;
         layers.push({
             region: region.id, label: region.name, level: region.level ?? null,
             source_asset: region.source_asset,

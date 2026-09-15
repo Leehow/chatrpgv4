@@ -35,7 +35,7 @@ export default function (pi: ExtensionAPI) {
         retireReader();
         const home = bridge.runtime.home, current = bridge;
         reading = new ReadingService({
-            call: current.call, runtime: current.runtime, home,
+            call: current.call, campaign: () => campaign, runtime: current.runtime, home,
             model: () => {
                 const id = current.runtime.readerModel || (ctx?.model ? `${ctx.model.provider}/${ctx.model.id}` : "");
                 const slash = id.indexOf("/");
@@ -47,7 +47,7 @@ export default function (pi: ExtensionAPI) {
                 const line = { at: new Date().toISOString(), ...row };
                 try { pi.appendEntry("coc-telemetry", line); } catch { /* a closed session cannot accept entries */ }
                 void appendJsonl(join(home, ".coc", "reading-telemetry.jsonl"), line).catch(() => undefined);
-                if (campaign) void appendJsonl(join(home, ".coc", "campaigns", campaign, "telemetry.jsonl"), line).catch(() => undefined);
+                if (row.campaign) void appendJsonl(join(home, ".coc", "campaigns", row.campaign, "telemetry.jsonl"), line).catch(() => undefined);
             },
         });
         pi.events.emit("coc:reading-bridge", reading);

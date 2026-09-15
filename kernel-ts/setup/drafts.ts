@@ -128,7 +128,7 @@ export class SetupDrafts {
       const state = meta.setup ??= {};
       const seed = previous ? previous.seed : truth(state.draft_seed) ? state.draft_seed : string(this.setup.context.rng.getrandbits(64));
       if (!Object.hasOwn(state, 'draft_seed')) { state.draft_seed = seed; await campaign.writeCampaign(meta); }
-      const graph = (await loadModule(this.setup.context, meta.module_id)).graph;
+      const graph = (await loadModule(this.setup.context, meta.module_id, campaign.id)).graph;
       const selected = truth(meta.opening_scene) ? graph.scene(meta.opening_scene) : graph.startScene();
       const sourceEra = row(row(selected.properties).investigator_setup).era || moduleEra(graph), periods = Object.keys(row(await this.setup.tables.load('cash-assets')).periods);
       const era = profile.era || sourceEra || '1920s';
@@ -360,7 +360,7 @@ export class SetupDrafts {
       const meta = await campaign.readCampaign(), state = meta.setup ??= {};
       if (truth(state.prologue)) return {recorded: true};
       if (meta.status !== 'setting_up') throw new RpcError('invalid_params', 'prologue recording belongs to setup');
-      const graph = (await loadModule(this.setup.context, meta.module_id)).graph, scene = graph.scene(params.scene);
+      const graph = (await loadModule(this.setup.context, meta.module_id, campaign.id)).graph, scene = graph.scene(params.scene);
       const selected = truth(meta.opening_scene) ? graph.scene(meta.opening_scene) : graph.startScene();
       if (graph.handle(scene) !== graph.handle(selected)) throw new RpcError('invalid_params', 'the prologue must use the authored opening scene');
       const guide = params.guide ?? null;

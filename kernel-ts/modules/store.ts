@@ -29,7 +29,7 @@ export class ModuleStore {
         graph: ModuleGraph;
     }>();
     private contractPromise?: Promise<ModuleContract>;
-    constructor(readonly context: KernelContext) { this.root = join(context.stateRoot, 'modules'); }
+    constructor(readonly context: KernelContext) { this.root = context.moduleRoot ?? join(context.stateRoot, 'modules'); }
     contract(): Promise<ModuleContract> { return this.contractPromise ??= loadModuleContract(this.context); }
     /** Contract 28.2: the words the installed packages add to the reader's dossier ask. Read per
      *  build rather than cached, so installing or defaulting a package changes the next book and

@@ -170,7 +170,8 @@ async function main() {
       await call('module.register', {module_id: input.module_id});
       return await withGuidance({module_id: input.module_id, opening_ready: true});
     }
-    reader = new ReadingService({call, runtime:runtime!, home: input.home, model: () => ({id: input.model, vision: true, thinking: input.thinking}),
+    reader = new ReadingService({call, campaign: () => input.campaign, runtime:runtime!, home: input.home,
+      model: () => ({id: input.model, vision: true, thinking: input.thinking}),
       progress: data => emit('progress', data), record: data => emit('telemetry', data)});
     let retry = input.retry === true;
     const occupations = await call('setup.occupations');

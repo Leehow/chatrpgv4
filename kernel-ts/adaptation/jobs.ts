@@ -107,7 +107,7 @@ export class AdaptationJobs {
     private async state(campaign: string) {
         this.root(campaign);
         const snapshot = await CampaignSnapshot.open(this.context, campaign); await snapshot.preload();
-        const current = await loadModule(this.context, snapshot.meta.module_id);
+        const current = await loadModule(this.context, snapshot.meta.module_id, snapshot.id);
         // A pending preparation is allowed to cross an honest wait-only narrate and a later status
         // request. Those change HEAD, turn and player text but not the world the proposal will alter.
         // World/party/line plus source generation still invalidate every material change; final apply
@@ -165,7 +165,7 @@ export class AdaptationJobs {
             const old: Row = {...await artifact(join(path, 'job.json')), path};
             if (!params.retry) return {...this.view(old), task: ['pending', 'reviewing'].includes(old.status) ? this.task(old, old.status === 'reviewing' ? 'review' : 'create') : null};
         }
-        const effective = await loadCampaignModule(this.context, snapshot.meta.module_id, snapshot.world);
+        const effective = await loadCampaignModule(this.context, snapshot.meta.module_id, snapshot.world, snapshot.id);
         const base = rebase ? current : effective.adapted ? await pinnedSource(this.context, row(snapshot.world.adaptation).source) : current;
         const source = effective.adapted && !rebase ? row(snapshot.world.adaptation).source : await snapshotSource(this.context, base, this.asset);
         const previous = adaptationChanges(snapshot.world);

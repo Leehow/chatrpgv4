@@ -8,6 +8,7 @@ import { RpcError, internalError } from '../errors.js';
 import { sha256Text,isJsonObject } from '../json.js';
 import { fileSize, truncateFile } from '../fileio.js';
 import { CampaignSnapshot, loadModule, loadCampaignModule, replayTrail, type LoadedModule } from '../read/campaign.js';
+import { ensureCampaignModule } from '../modules/campaign-scope.js';
 import { ModuleGraph, recordOf } from '../read/module-graph.js';
 import { DirectorGraph, TextGraph, Ontology } from '../read/content.js';
 import { RuleObservations } from '../read/rule-facts.js';
@@ -104,8 +105,8 @@ function initialWorld(graph: ModuleGraph, chosen: string | null): [
 export interface WriteContributions {
     worldlines?: ReturnType<typeof createWorldlineRuntime>;
     libraryWriteBack?(campaign: CampaignWriter, record: Row): Promise<void>;
-    openingReady?(moduleId: string, focus?: string): Promise<boolean>;
-    sourceGraphPath?(moduleId: string): Promise<string>;
+    openingReady?(moduleId: string, focus?: string, campaign?: string): Promise<boolean>;
+    sourceGraphPath?(moduleId: string, campaign?: string): Promise<string>;
     queueAdjacentReading?(graph: ModuleGraph, scene: Row): Promise<string[]>;
     mods?: {
         initializeWorld(world: Row): Promise<boolean>;
@@ -121,8 +122,8 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         requireWorld?: boolean;
     }): Promise<CampaignWriter>;
     startSetupWorld(campaign: CampaignWriter, meta: Row): Promise<boolean>;
-    setupOpeningReady(moduleId: string, focus?: string): Promise<boolean>;
-    sourceGraphPath(moduleId: string): Promise<string>;
+    setupOpeningReady(moduleId: string, focus?: string, campaign?: string): Promise<boolean>;
+    sourceGraphPath(moduleId: string, campaign?: string): Promise<string>;
     transaction(params: Row, options?: {
         repairLegacyTrail?: boolean;
         preload?: boolean;
@@ -160,17 +161,17 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
     async function startSetupWorld(value: CampaignWriter, meta: Row): Promise<boolean> {
         if (await context.snapshots.pathExists(value.path('world.json')) && truth(meta.opening_scene))
             return false;
-        const id = string(meta.module_id), directory = join(context.stateRoot, 'modules', id);
+        const id = string(meta.module_id), scoped = await ensureCampaignModule(context, value.id, id), directory = join(scoped.moduleRoot!, id);
         const moduleMeta = await context.snapshots.pathExists(join(directory, 'module.json'))
             ? row(await context.snapshots.readJson(join(directory, 'module.json'))) : {};
-        const graphPath = await sourceGraphPath(id);
+        const graphPath = await sourceGraphPath(id, value.id);
         if (!await context.snapshots.pathExists(graphPath))
             return false;
         if (moduleMeta.reading_version) {
-            if (!await setupOpeningReady(id, meta.opening_scene || ''))
+            if (!await setupOpeningReady(id, meta.opening_scene || '', value.id))
                 return false;
         }
-        const module = await loadModule(context, id), [world, opening] = initialWorld(module.graph, meta.opening_scene || null);
+        const module = await loadModule(context, id, value.id), [world, opening] = initialWorld(module.graph, meta.opening_scene || null);
         await value.writeWorld(world);
         meta.opening_scene = opening;
         meta.module_digest = module.graph.digest;
@@ -178,12 +179,14 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         await value.writeCampaign(meta);
         return true;
     }
-    async function setupOpeningReady(moduleId: string, focus?: string): Promise<boolean> {
+    async function setupOpeningReady(moduleId: string, focus?: string, campaign?: string): Promise<boolean> {
         const ready = contributions.openingReady;
-        return ready ? ready(moduleId, focus) : missingContribution('visual source opening');
+        return ready ? ready(moduleId, focus, campaign) : missingContribution('visual source opening');
     }
-    async function sourceGraphPath(moduleId: string): Promise<string> {
-        return contributions.sourceGraphPath ? contributions.sourceGraphPath(moduleId) : join(context.stateRoot, 'modules', moduleId, 'module-graph.json');
+    async function sourceGraphPath(moduleId: string, campaign?: string): Promise<string> {
+        if (contributions.sourceGraphPath) return contributions.sourceGraphPath(moduleId, campaign);
+        const scoped = campaign === undefined ? context : await ensureCampaignModule(context, campaign, moduleId);
+        return join(scoped.moduleRoot ?? join(context.stateRoot, 'modules'), moduleId, 'module-graph.json');
     }
     async function repairLegacyTrail(snapshot: CampaignSnapshot): Promise<void> {
         if (Object.hasOwn(snapshot.world, 'scene_trail'))
@@ -278,7 +281,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
                 },
             });
         }
-        const module = await loadCampaignModule(context, string(snapshot.meta.module_id), snapshot.world);
+        const module = await loadCampaignModule(context, string(snapshot.meta.module_id), snapshot.world, snapshot.id);
         if (repair)
             await repairLegacyTrail(snapshot);
         if(preload)await snapshot.preload();
@@ -411,12 +414,14 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         if (existing.reading_version && !contributions.openingReady)
             missingContribution('visual source creation');
         if(!contributions.mods)await defaultModPlan(context, {});
-        const moduleMeta = starter ? await registerStarter(context, moduleId) : clone(existing);
+        if (starter) await registerStarter(context, moduleId);
+        const scoped = await ensureCampaignModule(context, id, moduleId);
+        const moduleMeta = clone(row(await context.snapshots.readJson(join(scoped.moduleRoot!, moduleId, 'module.json'))));
         if (!starter && pregen != null)
             throw new RpcError('invalid_params', 'pregens exist only for starters', {
                 fix: 'create the investigator with setup.investigator'
             });
-        const loaded = starter || await context.snapshots.pathExists(await sourceGraphPath(moduleId)) ? await loadModule(context, moduleId) : null, graph = loaded?.graph;
+        const loaded = starter || await context.snapshots.pathExists(await sourceGraphPath(moduleId, id)) ? await loadModule(context, moduleId, id) : null, graph = loaded?.graph;
         const title = required(params, 'title', true) || (graph ? graph.title() : string(moduleMeta.title || moduleId));
         let sheet: Row | null = null;
         if (pregen != null) {
@@ -447,7 +452,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             if (!graph || resolveStartScene(graph.raw, chosen, await loadModuleContract(context)) == null)
                 throw new RpcError('invalid_params', 'start_scene must name an authored opening');
         }
-        const playable = graph && (!moduleMeta.reading_version || await setupOpeningReady(moduleId, chosen || ''));
+        const playable = graph && (!moduleMeta.reading_version || await setupOpeningReady(moduleId, chosen || '', id));
         const [world, start] = playable ? initialWorld(graph!, chosen) : [null, chosen && graph ? graph.handle(graph.scene(chosen)) : null], modConfiguration = await initializeNewWorld(world || {});
         const meta: Row = {
             id,
@@ -515,14 +520,12 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         const meta = clone(initial.meta), initialParty = await initial.files('party');
         preflightCampaign(meta, initial.world, {}, initialParty);
         if(!contributions.mods)await defaultModPlan(context, initial.world);
-        const metadata = join(context.stateRoot, 'modules', string(meta.module_id), 'module.json');
+        const scoped = await ensureCampaignModule(context, initial.id, string(meta.module_id));
+        const metadata = join(scoped.moduleRoot!, string(meta.module_id), 'module.json');
         const moduleReading = await context.snapshots.pathExists(metadata) && truth(row(await context.snapshots.readJson(metadata)).reading_version);
         if (moduleReading && !contributions.queueAdjacentReading)
             missingContribution('visual source opening and reading queue');
         if(!contributions.worldlines)await ensureMain(campaign, meta);
-        const starter = join(context.content, 'starters', string(meta.module_id), 'module-graph.json');
-        if (!await context.snapshots.pathExists(metadata) && await context.snapshots.pathExists(starter))
-            await registerStarter(context, string(meta.module_id));
         const loaded = await load(params, { allowReady: true, requireTurn: false }), snapshot = loaded.snapshot, module = loaded.module;
         await initializeMods(campaign, snapshot);
         await validateOntology();
