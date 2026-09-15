@@ -188,10 +188,115 @@ const CSS = `
   background:color-mix(in oklab, var(--accent) 6%, transparent)}
 `;
 
+/* >>> speaker colour: shared verbatim between pipicoc/mechanics.js and pipicoc/panel.js <<<
+ *
+ * Contract §40.4. A pack renderer is imported from a `data:` URL (`controlled-component-loader.ts`
+ * turns the host-read source into one), so a relative import of a sibling file cannot resolve and
+ * these two renderers have no module to share. Everything between the two markers is therefore
+ * authored once and copied byte for byte into both files; `tests/extension/speaker-colour.test.mjs`
+ * fails the moment the copies drift.
+ *
+ * The allocation itself cannot be copied: the delivery card and the legend swatch have to land on
+ * the same slot for the same person, so there is one table, and the only thing two `data:` modules
+ * of one window share is that window. It is memory and nothing more — no colour is written to the
+ * NPC record, to the campaign or to `localStorage` (§40.4), and a reload allocates again from the
+ * transcript's own order.
+ */
+const SPEAKER_SLOTS = 16;
+const SPEAKER_TABLE = "__pipicocSpeakerSlots1";
+
+/** The palette: sixteen hues, a light value and a dark value each, plus the investigator's own
+ *  ink outside them. The shell puts `data-scheme` on its own `<main>` (App.tsx), so the dark half
+ *  follows the theme the player chose rather than the operating system's. The hues are the only
+ *  new host string §40.4 allows; they are colours, not words. */
+const SPEAKER_CSS = `
+.coc-say,.coc-say-dot{
+  --coc-say-pc:oklch(0.40 0.025 255);
+  --coc-say-0:oklch(0.47 0.145 20);   --coc-say-1:oklch(0.47 0.145 42);
+  --coc-say-2:oklch(0.47 0.145 65);   --coc-say-3:oklch(0.47 0.145 88);
+  --coc-say-4:oklch(0.47 0.145 112);  --coc-say-5:oklch(0.47 0.145 135);
+  --coc-say-6:oklch(0.47 0.145 158);  --coc-say-7:oklch(0.47 0.145 180);
+  --coc-say-8:oklch(0.47 0.145 202);  --coc-say-9:oklch(0.47 0.145 224);
+  --coc-say-10:oklch(0.47 0.145 246); --coc-say-11:oklch(0.47 0.145 268);
+  --coc-say-12:oklch(0.47 0.145 290); --coc-say-13:oklch(0.47 0.145 310);
+  --coc-say-14:oklch(0.47 0.145 330); --coc-say-15:oklch(0.47 0.145 350)}
+[data-scheme="dark"] :is(.coc-say,.coc-say-dot){
+  --coc-say-pc:oklch(0.86 0.020 255);
+  --coc-say-0:oklch(0.80 0.115 20);   --coc-say-1:oklch(0.80 0.115 42);
+  --coc-say-2:oklch(0.80 0.115 65);   --coc-say-3:oklch(0.80 0.115 88);
+  --coc-say-4:oklch(0.80 0.115 112);  --coc-say-5:oklch(0.80 0.115 135);
+  --coc-say-6:oklch(0.80 0.115 158);  --coc-say-7:oklch(0.80 0.115 180);
+  --coc-say-8:oklch(0.80 0.115 202);  --coc-say-9:oklch(0.80 0.115 224);
+  --coc-say-10:oklch(0.80 0.115 246); --coc-say-11:oklch(0.80 0.115 268);
+  --coc-say-12:oklch(0.80 0.115 290); --coc-say-13:oklch(0.80 0.115 310);
+  --coc-say-14:oklch(0.80 0.115 330); --coc-say-15:oklch(0.80 0.115 350)}
+
+/* A spoken line is tinted, and wears a hairline rule at the point it begins, so a reader who does
+   not separate these hues still sees that a line starts here and that it is not the narrator's. */
+.coc-say{color:var(--coc-say-ink,inherit);
+  border-left:2px solid color-mix(in oklab,var(--coc-say-ink,currentColor) 55%,transparent);
+  padding-left:.34em;margin-left:.08em}
+
+/* The legend, beside the journal row for the same person. Decoration only: the name is right
+   next to it, so the dot says nothing a screen reader has to hear. */
+.coc-say-dot{display:inline-block;flex:none;width:8px;height:8px;border-radius:50%;
+  margin-right:7px;vertical-align:baseline;background:var(--coc-say-ink,var(--muted))}
+`;
+
+/** FNV-1a over the anchor, one UTF-16 code unit at a time, low byte first, so a CJK label hashes
+ *  as readily as an ASCII handle. */
+function speakerHash(anchor) {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < anchor.length; index += 1) {
+    const code = anchor.charCodeAt(index);
+    hash = Math.imul(hash ^ (code & 0xff), 0x01000193);
+    hash = Math.imul(hash ^ ((code >>> 8) & 0xff), 0x01000193);
+  }
+  return hash >>> 0;
+}
+
+/**
+ * The slot an anchor owns: its hash slot, or the first free one after it.
+ *
+ * The probe runs in the order the window first shows a person, so two people at one table never
+ * share a hue and a reload paints the same colours in the same order. Once all sixteen are taken
+ * the probe gives the hash slot back rather than leave a line uncoloured.
+ */
+function speakerSlot(anchor) {
+  const scope = typeof globalThis === "object" && globalThis ? globalThis : {};
+  const table = scope[SPEAKER_TABLE] && scope[SPEAKER_TABLE].held instanceof Map
+    ? scope[SPEAKER_TABLE]
+    : (scope[SPEAKER_TABLE] = { held: new Map(), taken: new Set() });
+  const known = table.held.get(anchor);
+  if (known !== undefined) return known;
+  let slot = speakerHash(anchor) % SPEAKER_SLOTS;
+  for (let step = 0; step < SPEAKER_SLOTS && table.taken.has(slot); step += 1) {
+    slot = (slot + 1) % SPEAKER_SLOTS;
+  }
+  table.taken.add(slot);
+  table.held.set(anchor, slot);
+  return slot;
+}
+
+/**
+ * The ink for one speaker, as a reference into the palette above.
+ *
+ * An investigator is never hashed: the player's own voice keeps the one fixed ink outside the hash
+ * palette, so it reads the same on every turn of every table. Everyone else takes a hue by their
+ * anchor -- a person of the graph by their handle, a label by its own text (§40.4). A speaker with
+ * no anchor at all gets no ink rather than somebody else's.
+ */
+function speakerInk(anchor, who) {
+  if (who === "investigator") return "var(--coc-say-pc)";
+  const key = typeof anchor === "string" ? anchor.trim() : "";
+  return key ? `var(--coc-say-${speakerSlot(key)})` : "";
+}
+/* >>> end speaker colour <<< */
+
 if (typeof document !== "undefined" && !document.getElementById(STYLE_ID)) {
   const style = document.createElement("style");
   style.id = STYLE_ID;
-  style.textContent = CSS;
+  style.textContent = CSS + SPEAKER_CSS;
   document.head.append(style);
 }
 
@@ -268,6 +373,20 @@ const ICONS = {
         ["line",{x1:8.5,y1:3,x2:8.5,y2:17.5}],["line",{x1:15.5,y1:6.5,x2:15.5,y2:21}]],
   fallback: [["circle", { cx: 12, cy: 12, r: 8.5 }]],
 };
+
+/**
+ * The §40 speech wrapper, matched by its shape and by nothing else.
+ *
+ * `{{say:<name>}}` opens a spoken line and `{{/say}}` closes it. The name is up to sixty
+ * characters that are neither a brace nor a line break, because the play language is open (§23):
+ * a speaker may be named in any script, and the ASCII marker grammar of §16.6 matches none of
+ * them, so a name outside ASCII would leave its braces on the page for the player to read.
+ */
+const SAY_TOKEN = /\{\{say:([^{}\n]{1,60})\}\}|\{\{\/say\}\}/g;
+
+/** Whatever else is still in braces once the card has placed its rows. §40.4: no brace reaches
+ *  the player, whether it named a receipt this card could not draw or nothing at all. */
+const LOOSE_TOKEN = /\{\{[^{}\n]*\}\}/g;
 
 function isRecord(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -745,6 +864,9 @@ export function createComponent(React) {
    * Reading order is the whole point, so nothing is reordered and nothing is dropped -- a marker
    * whose row is not here (a keeper-only roll the projection already hid) leaves its text runs
    * joined rather than a hole. Paragraph breaks inside a run survive as their own blocks.
+   *
+   * A §40 say token is not a marker and is not cut here: `{{say:knott}}` happens to fit the ASCII
+   * marker grammar, but it names no row, so it stays in its text run for `proseBlocks` to read.
    */
   function splitDelivery(marked, rows) {
     const byMarker = new Map(rows.filter(row => typeof row.marker === "string").map(row => [row.marker, row]));
@@ -764,11 +886,75 @@ export function createComponent(React) {
     return { parts, unplaced: rows.filter(row => !row.marker || byMarker.has(row.marker)) };
   }
 
-  function proseBlocks(chunk, key) {
-    // The markers are gone from these runs; what is left is the keeper's own paragraphing.
-    return chunk.replace(/\{\{[a-z0-9][a-z0-9:_-]*\}\}/g, "").split(/\n{2,}/)
-      .map(block => block.trim()).filter(Boolean)
-      .map((block, index) => h("p", { className: "coc-mech-para", key: `${key}:${index}` }, block));
+  /** One paragraph with its outer whitespace gone, spans and all: a piece that trims away empty
+   *  hands the trimming on to its neighbour, so a span that begins a paragraph starts at a word. */
+  function trimPieces(pieces) {
+    const kept = pieces.map(piece => ({ ...piece }));
+    while (kept.length) {
+      kept[0].text = kept[0].text.replace(/^\s+/, "");
+      if (kept[0].text) break;
+      kept.shift();
+    }
+    while (kept.length) {
+      const last = kept[kept.length - 1];
+      last.text = last.text.replace(/\s+$/, "");
+      if (last.text) break;
+      kept.pop();
+    }
+    return kept;
+  }
+
+  /**
+   * One text run of the delivery, cut at its §40 say tokens and laid out as the keeper's paragraphs.
+   *
+   * `state` belongs to the whole card and not to this run. A mechanics card drawn in the middle of
+   * a spoken line leaves that span open, and the words on the far side of the card are still the
+   * same person's, in the same colour — the kernel put the card where it happened, and a line does
+   * not change mouths because a receipt landed inside it. An open span the delivery never closes
+   * simply ends with the delivery.
+   *
+   * `state.spans` counts opens in text order, which is the order `speech[]` arrives in (§40.2), so
+   * a span and its speaker are matched by position. Nothing here reads a name to decide anything.
+   */
+  function proseBlocks(chunk, key, state, speaker) {
+    const pieces = [];
+    let last = 0;
+    SAY_TOKEN.lastIndex = 0;
+    for (let match = SAY_TOKEN.exec(chunk); match; match = SAY_TOKEN.exec(chunk)) {
+      pieces.push({ text: chunk.slice(last, match.index), span: state.span });
+      if (match[1] === undefined) state.span = null;
+      else {
+        const name = match[1].trim();
+        state.span = name ? { name, order: state.spans++ } : null;
+      }
+      last = match.index + match[0].length;
+    }
+    pieces.push({ text: chunk.slice(last), span: state.span });
+
+    const paragraphs = [[]];
+    for (const piece of pieces) {
+      // The mechanics markers this card placed are already gone from these runs; a marker whose
+      // row was not here, and anything else left in braces, goes now — §40.4: no brace reaches
+      // the player, whatever it named.
+      const parts = piece.text.replace(LOOSE_TOKEN, "").split(/\n{2,}/);
+      for (let index = 0; index < parts.length; index += 1) {
+        if (index) paragraphs.push([]);
+        if (parts[index]) paragraphs[paragraphs.length - 1].push({ text: parts[index], span: piece.span });
+      }
+    }
+    return paragraphs.map(trimPieces).filter(paragraph => paragraph.length)
+      .map((paragraph, index) => h("p", { className: "coc-mech-para", key: `${key}:${index}` },
+        paragraph.map((piece, at) => {
+          if (!piece.span) return piece.text;
+          const voice = speaker(piece.span);
+          return h("span", {
+            key: at,
+            className: "coc-say",
+            "data-who": voice.who,
+            ...(voice.title ? { title: voice.title } : {}),
+            ...(voice.ink ? { style: { "--coc-say-ink": voice.ink } } : {}),
+          }, piece.text);
+        })));
   }
 
   /** @param {{content: string, details?: unknown}} props */
@@ -782,6 +968,25 @@ export function createComponent(React) {
     const term = (name) => (typeof glossary[name] === "string" && glossary[name]) || name;
     const t = (key, fallback) => word(details.ui, "mechanics", key, fallback);
 
+    /**
+     * Who a span belongs to, and what colour that makes it (§40.4).
+     *
+     * The card never reads a name to decide what kind of speaker it has: the `who` a `speech` row
+     * carries says it by its own shape, and the anchor the hue hangs on is whatever that shape
+     * holds — the NPC's graph handle, the investigator's id, or the label's own text. A delivery
+     * recorded before §40, or a span past the end of `speech[]`, falls back to the name written in
+     * the token, which is exactly what an unresolved speaker is: a label.
+     */
+    const speech = (Array.isArray(details.speech) ? details.speech : []).filter(isRecord);
+    const speaker = (span) => {
+      const row = isRecord(speech[span.order]) ? speech[span.order] : {};
+      const who = isRecord(row.who) ? row.who : {};
+      const npc = text(who.npc), investigator = text(who.investigator), label = text(who.label);
+      const kind = npc ? "npc" : investigator ? "investigator" : "label";
+      const name = text(who.name) || label || span.name;
+      return { who: kind, title: term(name), ink: speakerInk(npc || investigator || label || span.name, kind) };
+    };
+
     const prose = text(details.rendered_text);
     const all = (Array.isArray(details.mechanics) ? details.mechanics : []).filter(playerReads);
     const marked = text(details.marked_text);
@@ -789,10 +994,13 @@ export function createComponent(React) {
     // put where the sentence is by whoever holds both. The host folds away the plain copy.
     if (marked) {
       const { parts, unplaced } = splitDelivery(marked, all);
+      // One open span for the whole delivery, and one running count of spans, because both cross
+      // the cards that interrupt them (§40.4).
+      const state = { span: null, spans: 0 };
       return h("div", { className: "coc-mech coc-mech-inline" },
         parts.map((part, index) => part.row
           ? h("div", { className: "coc-mech-here", key: `row:${index}` }, renderRow(part.row, t, term, index))
-          : proseBlocks(part.text, `text:${index}`)),
+          : proseBlocks(part.text, `text:${index}`, state, speaker)),
         unplaced.length
           ? h("section", { className: "coc-mech-list", "aria-label": t("mechanics") },
               h("h2", { className: "coc-mech-cap" }, t("mechanics")),

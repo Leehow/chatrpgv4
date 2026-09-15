@@ -277,6 +277,9 @@ function wordTable(value:unknown):Record<string,string> {
  * rename a skill the rules already name. `words.ui` is the product's chrome for the binding's
  * language; without it a renderer draws identifiers rather than guessing a language.
  */
+/** The §40.1 say wrapper, by shape only: the name may be in any script, so the ASCII marker
+ *  grammar of §16.6 does not see it. No `g` flag — `test` here must not carry a `lastIndex`. */
+const SAY_TOKEN=/\{\{say:[^{}\n]{1,60}\}\}/;
 export function mechanicsEntry(row:any, language?:string, presentations?:ReadonlyMap<number,Record<string,unknown>>,
   words:CocHistoryWords={}, current?:Record<string,unknown>): HistoryEntry | undefined {
   const lanes=wordTable(words.lanes), chrome=words.ui?{ui:words.ui}:{};
@@ -298,14 +301,22 @@ export function mechanicsEntry(row:any, language?:string, presentations?:Readonl
   }
   if(row?.type!=='custom'||row.customType!=='coc-mechanics'||!Array.isArray(row.data?.mechanics))return;
   const mechanics=row.data.mechanics.filter((x:any)=>x&&typeof x==='object'&&x.visibility!=='keeper').map(concealFigures);
-  if(!mechanics.length)return;
   // §16.6: the delivery with its markers still in it, when the Keeper placed any. It rides with the
   // rows because one component has to own both to draw a row where the sentence is.
-  const marked=typeof row.data.marked_text==='string'&&row.data.marked_text?{marked_text:row.data.marked_text}:{};
+  const markedText=typeof row.data.marked_text==='string'?row.data.marked_text:'';
+  const marked=markedText?{marked_text:markedText}:{};
+  // §40.2: who spoke each span, in text order, so the card can colour it (§40.4). This projection
+  // is the one road to both cards — the live delivery and the restored transcript come through
+  // here — so a field left out here never reaches the player's screen at all.
+  const speech=Array.isArray(row.data.speech)&&row.data.speech.length?{speech:row.data.speech}:{};
+  // A turn can settle nothing and still be spoken. Before §40 a delivery with no visible row had
+  // nothing for this card to draw and the plain copy stood in for it; now the marked text carries
+  // the say tokens, and without the card the player reads the braces.
+  if(!mechanics.length&&!SAY_TOKEN.test(markedText))return;
   const tag=row.data.play_language??language;
   return {id:row.id,role:'assistant',content:'',timestamp:Date.parse(row.timestamp)||0,
     presentation:{renderer:'coc-mechanics',details:{turn:row.data.turn,mechanics,labels:{...lanes,...wordTable(row.data.labels)},
-      ...marked,...(tag?{play_language:tag}:{}),...chrome}}};
+      ...marked,...speech,...(tag?{play_language:tag}:{}),...chrome}}};
 }
 export async function readColdSheet(repo:string, context:CocBinding, previewRevision?:number, env:NodeJS.ProcessEnv=process.env, runtimeOptions:CocColdRuntimeOptions={}):Promise<unknown> {
   return callColdKernel(repo, context.home, previewRevision===undefined?'table.view':'setup.previewed', {campaign:context.campaign,...(previewRevision===undefined?{}:{revision:previewRevision})}, env, runtimeOptions);

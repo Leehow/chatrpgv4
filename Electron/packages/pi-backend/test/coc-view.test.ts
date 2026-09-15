@@ -29,6 +29,37 @@ it('a concealed roll keeps its row and loses every figure',()=>{
     expect(drawn[0]).not.toHaveProperty(figure);
   expect(JSON.stringify(entry)).not.toContain('extreme');
 });
+/**
+ * §40.2's `speech[]` is the only thing that says who spoke a span, and this projection is the one
+ * road to both cards -- the live delivery and the restored transcript both come through
+ * `mechanicsEntry`. A field left out of the object built here never reaches the player's screen,
+ * whatever the kernel recorded, and the card would then colour a conversation by its labels.
+ */
+it('carries the speech rows of a delivery to the card',()=>{
+  const speech=[{who:{npc:'steven-knott',name:'Knott'},text:'"Locked since the war."'},
+    {who:{label:'the woman in the black coat'},text:'"He already did."'}];
+  const entry=mechanicsEntry({type:'custom',id:'spoken',customType:'coc-mechanics',timestamp:'2026-09-15',
+    data:{turn:6,play_language:'en',speech,marked_text:'{{say:Knott}}"Locked since the war."{{/say}}{{time}}',
+      mechanics:[{kind:'time',minutes:5,marker:'time'}]}})!;
+  expect((entry.presentation?.details as any).speech).toEqual(speech);
+});
+
+/**
+ * A turn can settle nothing and still be spoken. Before §40 a delivery with no visible row had
+ * nothing for this card to draw, so the plain assistant copy stood in for it; now the marked text
+ * carries say tokens, and with no card the player reads the braces.
+ */
+it('draws a card for a delivery that only spoke',()=>{
+  const row={type:'custom',id:'say-only',customType:'coc-mechanics',timestamp:'2026-09-15',
+    data:{turn:7,play_language:'zh-Hans',mechanics:[],marked_text:'{{say:诺特}}「锁了很久了。」{{/say}}'}};
+  const entry=mechanicsEntry(row,'zh-Hans')!;
+  expect(entry.presentation?.renderer).toBe('coc-mechanics');
+  expect((entry.presentation?.details as any).marked_text).toContain('{{say:诺特}}');
+  // A delivery with neither a visible row nor a spoken line still has no card of its own.
+  expect(mechanicsEntry({...row,data:{...row.data,marked_text:'你站在门前。'}},'zh-Hans')).toBeUndefined();
+  expect(mechanicsEntry({...row,data:{...row.data,marked_text:''}},'zh-Hans')).toBeUndefined();
+});
+
 it('missing binding stays missing and a recorded binding wins over a legacy sidecar',async()=>{
   const root=await mkdtemp(join(tmpdir(),'coc-binding-'));const file=join(root,'session.jsonl');await writeFile(file,'');
   expect(await readCocBinding(file)).toBeUndefined();
