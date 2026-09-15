@@ -110,6 +110,10 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
                 throw new RpcError('invalid_params', `the source already gives ${graph.displayName(node)} ${key} ${repr(authored)}`,
                     {fix: 'the book\'s own word stands; establish this only for someone the source leaves silent',
                      details: {field: 'dossier.values', actor: handle, key, authored_value: authored}});
+            const shape = array(row(row(mod.contributes).vocabulary).actor_profile_keys).find(entry => string(entry.key) === key);
+            if (row(shape).shape === 'lines')
+                throw new RpcError('invalid_params', `${key} is written by the package's own lane, not at the table`,
+                    {fix: 'leave this word to the npc-voice lane; it fills it for anyone the source leaves silent', details: {field: 'dossier.values', key}});
             if (typeof value !== 'string' || !value.trim() || value.length > 200)
                 throw new RpcError('invalid_params', `dossier.values.${key} must be one bounded line`,
                     {fix: 'say what the table established, in a phrase', details: {field: `dossier.values.${key}`}});

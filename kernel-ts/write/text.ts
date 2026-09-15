@@ -10,6 +10,7 @@ import { mechanicsOf } from '../read/mechanics.js';
 import { npcsPresent } from '../read/capsule.js';
 import { RECOVERY_TAKES } from '../read/offer.js';
 import { array, chars, integer, kebab, normalize, number, row, string, truth, values, words, type Row } from '../read/values.js';
+import { SAY_TOKENS, isSayMarker } from './speech.js';
 export const asciiSlug = (text: string, limit = 24): string => text.normalize('NFKD').replace(/[^\x00-\x7f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().split(/\s+/).join('-').slice(0, limit).replace(/-+$/, '');
 const MARKER = /\{\{([a-z0-9][a-z0-9:_-]*)\}\}/g;
 function markerName(receipt: Row): string | null {
@@ -75,6 +76,9 @@ export function bindMarkers(text: string, receipts: Row[]): MarkerBinding {
     const names = markersFor(receipts);
     const available = new Map([...names].map(([id, marker]) => [marker, id])), placed: Row = {}, unknown: string[] = [], duplicate: string[] = [];
     const cleaned = text.replace(MARKER, (whole: string, marker: string) => {
+        // A say token is not a mechanics marker (§40.2): it names a person, not a receipt, and it stands.
+        if (isSayMarker(marker))
+            return whole;
         if (!available.has(marker)) {
             if (!unknown.includes(marker))
                 unknown.push(marker);
@@ -101,7 +105,7 @@ export function droppedMarkers(binding: MarkerBinding, receipts: Row[]): Row | n
         note: 'dropped from the delivery: a marker names a receipt this turn landed, and stands at one point in the text. What was dropped named nothing this turn, or repeated one already placed; the prose went out without it.'
     };
 }
-export const stripMarkers = (text: string): string => text.replace(MARKER, '').replace(/[ \t]{2,}/g, ' ').trim();
+export const stripMarkers = (text: string): string => text.replace(SAY_TOKENS, '').replace(MARKER, '').replace(/[ \t]{2,}/g, ' ').trim();
 export function committedFacts(receipts: Row[], snapshot: Row, label: (id: any) => string, player: any): string[] {
     const committed: string[] = [];
     if (typeof player === 'string' && player.trim())

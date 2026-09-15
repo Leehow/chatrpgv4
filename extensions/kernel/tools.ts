@@ -525,7 +525,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 		label: "Ask",
 		method: "table.ask",
 		description:
-			"Close with a structured interaction only for a required mechanical decision. Ordinary story questions belong in narrate prose and await free input. kind mechanics forbids a prompt and uses only closed action identifiers: push, spend_luck, accept, dodge, fight_back, flee. Never automatically ask how to handle a failed check; normally narrate its fictional consequence. Questions and options are JSON for frontend controls, never part of rendered prose. text contains fiction only, and takes the same {{marker}} placement narrate does. After the call write no more prose.",
+			"Close with a structured interaction only for a required mechanical decision. Ordinary story questions belong in narrate prose and await free input. kind mechanics forbids a prompt and uses only closed action identifiers: push, spend_luck, accept, dodge, fight_back, flee. Never automatically ask how to handle a failed check; normally narrate its fictional consequence. Questions and options are JSON for frontend controls, never part of rendered prose. text contains fiction only, and takes the same {{marker}} placement and {{say:Name}}…{{/say}} wrapping of spoken lines narrate does. After the call write no more prose.",
 		promptSnippet: "Hand one choice back to the player, and close the turn with it",
 		parameters: Type.Object({
 			text: Type.Optional(
@@ -545,10 +545,10 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 		label: "Narrate",
 		method: "table.narrate",
 		description:
-			"Deliver story text and close the turn. Describe fiction and observable consequences only. Roll values, targets, grades, resource accounting, elapsed time as a figure (minutes, hours) and rule options are exclusively mechanics JSON rendered by the frontend and its clock. Do not repeat them in text or ask how to handle a failed check. Use the campaign play_language. Mark where each mechanic happened: resolve and apply hand back markers (the `markers` list in their result — copy a name exactly), and writing {{that-marker}} at the point in the sentence where it happened lets the frontend draw the roll or the change there instead of after everything. Place only markers this turn handed back, each at most once; leaving one out is fine and simply groups it at the end. A marker naming nothing this turn is dropped from the delivery and reported in dropped_markers — the prose still goes out, but that mechanic never landed, so do not write it as done. After delivery write no more prose.",
+			"Deliver story text and close the turn. Describe fiction and observable consequences only. Roll values, targets, grades, resource accounting, elapsed time as a figure (minutes, hours) and rule options are exclusively mechanics JSON rendered by the frontend and its clock. Do not repeat them in text or ask how to handle a failed check. Use the campaign play_language. Mark where each mechanic happened: resolve and apply hand back markers (the `markers` list in their result — copy a name exactly), and writing {{that-marker}} at the point in the sentence where it happened lets the frontend draw the roll or the change there instead of after everything. Place only markers this turn handed back, each at most once; leaving one out is fine and simply groups it at the end. A marker naming nothing this turn is dropped from the delivery and reported in dropped_markers — the prose still goes out, but that mechanic never landed, so do not write it as done. Wrap every spoken line as {{say:Name}}…{{/say}} with Name exactly as present[].name gives it (a label for anyone not present); the kernel strips the tokens and the frontend colours each speaker. After delivery write no more prose.",
 		promptSnippet: "Deliver this turn's narration and close the turn",
 		parameters: Type.Object({
-			text: Type.String({ description: "this turn's narration, delivered to the player verbatim, with each mechanic's {{marker}} at the point it happened" }),
+			text: Type.String({ description: "this turn's narration, delivered to the player verbatim, with each mechanic's {{marker}} at the point it happened and every spoken line inside {{say:Name}}…{{/say}}" }),
 		}),
 	},
 ];

@@ -93,7 +93,7 @@
   "floor_lines": [
     "uptake: enact the player's declared action or words from the world's view; one word is still a declaration",
     "answer: settled outcomes perceptible; when nothing settled, someone present acts or the scene changes (director.offer)",
-    "voice: anyone present the exchange touches speaks a line in their own voice",
+    "voice: anyone present the exchange touches speaks a line in their own voice, inside {{say:Name}}…{{/say}}",
     "handoff: stop only when the player holds enough to judge (scene, clues, people) and has more than one real thing to do; a midpoint with nothing to decide is not a stop; never a menu"
   ]
 }

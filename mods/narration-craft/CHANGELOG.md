@@ -1,5 +1,8 @@
 # Narration Craft
 
+## 1.2.1
+- The brief names the say token (contract §40): every line anyone speaks aloud sits inside `{{say:Name}}…{{/say}}`, so the frontend can draw it in its speaker's colour. Nothing else changes; the per-turn brief ceiling of §30.7 is 5000 bytes since §40.6.
+
 ## 1.2.0
 - States the turn floor as craft (docs/specs/turn-floor.md): uptake, the world's answer, a voice, the handoff; the routine-turn warning returns as craft, not as a budget; a one-word input gets a full turn; `director.offer` is named as what can move when nothing landed; the handoff is the spotlight rule — stop only when the player has enough to judge and more than one real thing to do, never at a midpoint with nothing to decide. Two live tables (medians 167 and 37 characters, 11 of 12 turns closed by the host with no tool call) showed that 1.1.0's retirement of the ladder had also retired the only floor language.
 - Adds `density_guide` (`off` | `on`, default `off`): with `on`, the brief carries the play language's expected density per beat as an expectation the kernel never counts. No `*_chars` ceilings and no paragraph caps return.

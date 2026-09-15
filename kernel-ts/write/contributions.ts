@@ -289,6 +289,16 @@ export function foldNpcTurn(ledger: Row, graph: ModuleGraph, record: Row, table:
             }
         }
     }
+    // Who spoke this turn (contract §40.3): a resolved say span names a person by handle.
+    for (const line of array(record.speech)) {
+        const id = npcId(graph, row(row(line).who).npc);
+        if (!id)
+            continue;
+        const item = entry(ledger, id), spoke = row(item.spoke);
+        if (spoke.last_turn === turn)
+            continue;
+        item.spoke = { turns: number(spoke.turns) + 1, last_turn: turn };
+    }
     for (const name of array(row(record.world).present)) {
         const id = npcId(graph, name);
         if (!id)

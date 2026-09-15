@@ -65,7 +65,7 @@ export async function buildVocabulary(context: KernelContext): Promise<Row> {
             const name = string(entry.key), owner = claimed.get(name);
             if (owner != null) { displaced.push({ key: name, mod: string(mod.id), kept_by: owner }); continue; }
             claimed.set(name, string(mod.id));
-            keys.push({ key: name, label: string(entry.label), ask: string(entry.ask), mod: string(mod.id), version: string(mod.version) });
+            keys.push({ key: name, label: string(entry.label), ask: string(entry.ask), ...(entry.shape === "lines" ? { shape: "lines" } : {}), mod: string(mod.id), version: string(mod.version) });
         }
     return { actor_profile_keys: keys, ...(displaced.length ? { displaced } : {}) };
 }
@@ -95,8 +95,11 @@ export function validateVocabulary(manifest: Row): void {
         invalid("Contributed actor profile keys must be a list of one to eight");
     const seen = new Set<string>();
     for (const entry of keys) {
-        if (!plain(entry) || sorted(Object.keys(entry)).join(",") !== "ask,key,label")
-            invalid("A contributed profile key needs exactly a key, a label and an ask");
+        if (!plain(entry) || !["ask,key,label", "ask,key,label,shape"].includes(sorted(Object.keys(entry)).join(",")))
+            invalid("A contributed profile key needs exactly a key, a label and an ask, and at most a shape");
+        // Contract §40.5: `shape: "lines"` makes the value a list of at most two bounded strings.
+        if (Object.hasOwn(entry, "shape") && !["line", "lines"].includes(entry.shape))
+            invalid("A contributed profile key's shape is line or lines");
         if (typeof entry.key !== "string" || !/^[a-z][a-z0-9_-]{0,39}$/.test(entry.key))
             invalid("A contributed profile key must be a lowercase semantic slug");
         for (const [field, limit] of [["label", 40], ["ask", 400]] as const)

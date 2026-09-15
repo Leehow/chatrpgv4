@@ -20,7 +20,7 @@ import { runLane } from "../lanes/subsession.ts";
 import { extensionContentRoot } from "../ui/words.ts";
 
 /** The closed set of finding kinds; a row of any other kind is dropped whole. */
-const FINDING_KINDS: ReadonlySet<string> = new Set(["reveal", "uncommitted_state", "player_agency", "play_language_mismatch"]);
+const FINDING_KINDS: ReadonlySet<string> = new Set(["reveal", "uncommitted_state", "player_agency", "play_language_mismatch", "unmarked_speech"]);
 
 /** The kernel takes at most 10 (§12.5), so trim here rather than have the whole batch judged invalid_params. */
 const MAX_FINDINGS = 10;
@@ -52,6 +52,8 @@ export interface CommitPayload {
 	rendered_text: string;
 	/** The language-neutral projection of this turn's receipts (contract §16.2); not sent to the lane. */
 	mechanics?: unknown[];
+	/** The spoken lines the say tokens marked (contract §40.2): `[{who, text}]`; absent on old kernels. */
+	speech?: unknown[];
 }
 
 function factLines(facts: unknown[] | undefined): string {
@@ -69,13 +71,14 @@ export async function verifierSystemPrompt(playLanguage?: string, contentRoot?: 
 	const tag = await playLanguageTag(extensionContentRoot(contentRoot), playLanguage);
 	return [
 		"You are doing an after-the-fact verification pass for a Call of Cthulhu Keeper. The prose you read has already been delivered to the player and cannot be changed; you only report, you never rewrite.",
-		"Look for four kinds of problem, and report none if you find none:",
+		"Look for five kinds of problem, and report none if you find none:",
 		"- reveal: the prose says something from the Keeper-only list that the player has not yet earned at the table. What the already-public list shows the player was told before — their own name and occupation, the setup's prologue, earlier deliveries — is not a reveal when it is said again.",
 		"- uncommitted_state: the prose claims a state change that is not on the committed-facts list — moving somewhere, gaining a clue, a number going up or down, time passing.",
 		"- player_agency: the prose makes a voluntary choice for the player that he did not declare (a choice, something he said, an action he took).",
 		`- play_language_mismatch: the player-facing prose is not written in ${tag}. Judge the prose as a reader of that language would, not by counting characters; proper names, quoted rules terms and dice notation are not a mismatch.`,
+		"- unmarked_speech: a line someone speaks aloud that is not listed under [Spoken lines] below. Reported speech, thought, signage and a document's text are not lines.",
 		"Answer with one JSON object only, no code fence and no explanation:",
-		'{"findings":[{"kind":"reveal"|"uncommitted_state"|"player_agency"|"play_language_mismatch","quote":"<the sentence from the prose, word for word, <=120 chars>","why":"<=200 chars>"}]}',
+		'{"findings":[{"kind":"reveal"|"uncommitted_state"|"player_agency"|"play_language_mismatch"|"unmarked_speech","quote":"<the sentence from the prose, word for word, <=120 chars>","why":"<=200 chars>"}]}',
 		'With no problems, answer {"findings":[]}.',
 		"The quote must be taken verbatim from the prose: change one character, splice two sentences, or add a mark of punctuation, and the row is dropped.",
 		`Write why in ${tag}.`,
@@ -97,6 +100,12 @@ export function buildVerifierInput(payload: CommitPayload): string {
 		"",
 		"[Already public: what the player was told before this turn; a Keeper-only fact that this list shows was already told is not a reveal, and restating it is not an invention]",
 		factLines(payload.facts?.public),
+		"",
+		"[Spoken lines: every line the Keeper marked as speech; a spoken line in the prose that is not here is unmarked_speech]",
+		factLines(Array.isArray(payload.speech) ? payload.speech.map(line => {
+			const row = line as { who?: { name?: string; label?: string }; text?: string };
+			return `${row.who?.name ?? row.who?.label ?? "?"}: ${row.text ?? ""}`;
+		}) : undefined),
 	].join("\n");
 }
 

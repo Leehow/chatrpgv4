@@ -29,6 +29,7 @@ import { loadModuleContract, validSourceLanguage } from '../modules/contract.js'
 import { defaultModPlan, preflightCampaign as validateContributions, rebuildNpcLedger, updateNpcLedger, stanceTable, writeEpisode } from './contributions.js';
 import { asciiSlug, facts, publicContext, directorAdoption, offerLedger } from './text.js';
 import { deliveryText, deliveryRecord } from './delivery.js';
+import { speakerResolver } from './speech.js';
 import { readableTurn, rebuildTurn, syncCheckpoint, resumeView, checkpointFromRecord, writeCheckpoint } from './continuation.js';
 import {activeName} from '../read/worldline.js';
 import {eventOf} from '../worldline/index.js';
@@ -774,7 +775,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             throw new RpcError('invalid_params', 'a campaign ending must be delivered with narrate, not ask');
         if(truth(turn.worldline))throw new RpcError('invalid_params','a turn that forks or switches the worldline cannot be closed by ask',{fix:"close this turn with narrate; ask on the new line's first turn",details:{worldline:row(turn.worldline).operation??null}});
         const receipts = [...array(turn.receipts)];
-        const { placed, ...delivery } = deliveryText(text, receipts);
+        const { placed, ...delivery } = deliveryText(text, receipts, speakerResolver(module.graph, snapshot.world, snapshot.party));
         const language = await playLanguageOf(context, snapshot.meta);
         await stanceTable(context);
         const n = number(turn.turn), pending = {
@@ -833,7 +834,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         preflightCampaign(snapshot.meta, snapshot.world, turn, snapshot.party);
         await validateMods(snapshot.world);
         const text = required(params, 'text')!, receipts = [...array(turn.receipts)];
-        const { placed, ...delivery } = deliveryText(text, receipts), rendered = delivery.rendered_text;
+        const { placed, ...delivery } = deliveryText(text, receipts, speakerResolver(module.graph, snapshot.world, snapshot.party)), rendered = delivery.rendered_text;
         const language = await playLanguageOf(context, snapshot.meta);
         // Nothing is read out of the prose. Figures travel as the mechanics projection and the
         // frontend draws them (2026-09-09 user decision, contract section 16.3); whether the words

@@ -104,7 +104,7 @@ def test_instructions_are_full_on_the_first_turn_and_brief_after(kernel):
     assert all(row["form"] == "brief" for row in later.values()), "every built-in package with instructions carries a brief"
     assert later["story-thread"]["instruction"].startswith("# Story Thread (reminder)")
     assert len(later["enhanced-items"]["instruction"]) < len(first["enhanced-items"]["instruction"]) / 3
-    assert sum(len(row["instruction"].encode()) for row in later.values()) < 4000
+    assert sum(len(row["instruction"].encode()) for row in later.values()) < 5000  # contract §40.6 raised §30.7 from 4000
     host = {row["mod"]: row for row in kernel.ok("mods.context", {"campaign": CAMPAIGN})["instructions"]}
     assert all(row["form"] == "full" for row in host.values()), "the host-facing context is always the full text"
 

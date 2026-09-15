@@ -78,6 +78,9 @@ function collectNamed(graph: ModuleGraph, record: Row, entries: Row): Array<[str
     };
     for (const name of array(row(record.world).present))
         add(npcNode(graph, name));
+    // A resolved say span is a person who spoke (contract §40.3); the handle resolves through find.
+    for (const line of array(record.speech))
+        add(npcNode(graph, row(row(line).who).npc));
     for (const receipt of array(record.receipts)) {
         if (receipt.kind === 'clue')
             add(npcNode(graph, receipt.from));
@@ -116,6 +119,7 @@ export async function buildJob(campaign: CampaignWriter, graph: ModuleGraph, lan
         present: present.map(node => graph.displayName(node)),
         investigators: party.map(sheet => ({ id: string(sheet.id), name: string(sheet.name) })),
         player_text: record.player_text ?? null, keeper_text: proseOf(record.rendered_text),
+        speech: array(record.speech).flatMap(line => npcNode(graph, row(row(line).who).npc) ? [{ name: string(row(row(line).who).name), text: string(row(line).text) }] : []),
         recordable, prior, budget: { ...BUDGET }, instruction: instruction(language), _named: named };
 }
 export async function openJob(campaign: CampaignWriter, packet: Row): Promise<Row> {

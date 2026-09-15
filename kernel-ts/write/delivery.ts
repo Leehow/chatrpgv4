@@ -2,16 +2,22 @@
 import { array, number, truth, type Row } from '../read/values.js';
 import { nowIso } from './store.js';
 import { bindMarkers, droppedMarkers, placeUnplacedMechanics, stripMarkers } from './text.js';
+import { speechPass, unresolvedSpeakers, type SpeakerResolver } from './speech.js';
 
-export function deliveryText(text: string | null, receipts: Row[]): Row {
-    const binding = bindMarkers(text || '', receipts);
+/** The say pass runs first (§40.2) so `bindMarkers` never meets a say token as a marker naming no
+ *  receipt; with no resolver every name is a label, which is what a caller without a table gets. */
+export function deliveryText(text: string | null, receipts: Row[], resolve: SpeakerResolver = name => ({ label: name })): Row {
+    const spoken = speechPass(text || '', resolve);
+    const binding = bindMarkers(spoken.text, receipts);
     const marked = placeUnplacedMechanics(binding.text, receipts, binding.placed);
-    const dropped = droppedMarkers(binding, receipts);
+    const dropped = droppedMarkers(binding, receipts), unresolved = unresolvedSpeakers(spoken.speech);
     return {
         rendered_text: stripMarkers(marked.text),
         placed: marked.placed,
-        ...(truth(marked.placed) ? { marked_text: marked.text } : {}),
+        speech: spoken.speech,
+        ...(truth(marked.placed) || spoken.speech.length ? { marked_text: marked.text } : {}),
         ...(dropped ? { dropped_markers: dropped } : {}),
+        ...(unresolved.length ? { unresolved_speakers: { names: unresolved, note: 'these say tokens named nobody at the table and stand as labels; a person present is named exactly as present[].name gives it' } } : {}),
     };
 }
 
@@ -23,6 +29,7 @@ export function deliveryRecord(turn: Row, text: string | null, receipts: Row[], 
         text: text || '',
         rendered_text: delivery.rendered_text,
         mechanics: delivery.mechanics,
+        speech: array(delivery.speech),
         labels: delivery.labels,
         calls: turn.calls || {},
         commit: null,

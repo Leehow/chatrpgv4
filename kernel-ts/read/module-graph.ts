@@ -39,6 +39,7 @@ export function dossierWith(dossier: Row, recorded: Row | null | undefined): Row
         });
     return contributed.length ? { ...dossier, contributed } : dossier;
 }
+const lines = (value: any): value is string[] => Array.isArray(value) && value.length > 0 && value.length <= 2 && value.every(line => typeof line === "string" && line.trim());
 export function recordOf(node: Row | null | undefined): Row {
     const props = row(node?.properties),
         record = row(props.runtime_projection).record;
@@ -444,10 +445,13 @@ export class ModuleGraph {
         const profile: Row = {};
         for (const key of dossierKeys(this.dossier)) {
             let value = row(node.properties)[key];
-            if (!(typeof value === "string" && value.trim()))
+            if (!(typeof value === "string" && value.trim()) && !lines(value))
                 value = recordOf(node)[key];
             if (typeof value === "string" && value.trim())
                 profile[key] = value.trim();
+            // A `shape: "lines"` word (§40.5) is authored as a short list of lines.
+            else if (lines(value))
+                profile[key] = value.map((line: string) => line.trim());
         }
         return profile;
     }

@@ -204,6 +204,8 @@ function npcHistory(ledger: Row, memories: Map<string, Row>): Row | null {
     const tried = array(ledger.interactions).slice(-3).map(item => `turn ${string(item.turn)}: ${[string(item.approach || item.kind || ""), ...(typeof item.level === "string" && item.level ? [item.level] : [])].filter(Boolean).join(" ")}`);
     if (tried.length)
         result.tried = tried;
+    if (truth(row(ledger.spoke).turns))
+        result.last_spoke_turn = row(ledger.spoke).last_turn ?? null;
     if (truth(ledger.dead))
         result.dead_since_turn = row(ledger.dead).turn ?? null;
     return truth(result) ? result : null;

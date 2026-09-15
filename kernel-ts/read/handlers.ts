@@ -208,7 +208,7 @@ async function present(campaign: CampaignSnapshot, module: LoadedModule): Promis
 }
 /** The player's NPC notebook: newest-seen first, at most six exchanges each, newest first. The journal never
  *  stores death; `dead_since_turn` is merged from the ledger, the sole truth, at projection time. */
-async function npcJournalSection(campaign: CampaignSnapshot): Promise<Row[]> {
+async function npcJournalSection(campaign: CampaignSnapshot, graph?: ModuleGraph): Promise<Row[]> {
     let stored: Row = {}, ledger: Row = {};
     try {
         stored = row(await campaign.optional("npc-journal.json"));
@@ -219,8 +219,10 @@ async function npcJournalSection(campaign: CampaignSnapshot): Promise<Row[]> {
     }
     catch { /* Death simply does not project when the ledger cannot be read. */ }
     return Object.entries(row(stored.entries)).map(([id, value]) => {
-        const entry = row(value), dead = row(row(ledger[id]).dead);
+        const entry = row(value), dead = row(row(ledger[id]).dead), node = graph?.nodes.get(id);
         return {
+            // The handle a say span carries (§40.2), so the legend swatch and the line share one anchor.
+            id: node ? graph!.handle(node) : id,
             name: string(entry.name),
             description: string(entry.description),
             seen_count: number(entry.seen_count),
@@ -281,7 +283,7 @@ export async function tableView(context: KernelContext, params: Row): Promise<Ro
         state: turn.state,
         investigators: campaign.party.map(sheet => publicSheet(world, investigatorView(sheet))),
         clues: { discovered },
-        npcs: { journal: await npcJournalSection(campaign) },
+        npcs: { journal: await npcJournalSection(campaign, graph) },
         labels: await playerGlossary(context, language)
     };
 }

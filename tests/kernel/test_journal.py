@@ -58,7 +58,7 @@ def test_job_packet_shape_and_the_closed_recordable_set(kernel):
     narrated = first_turn(kernel)
     packet = job(kernel)
     assert set(packet) == {"job_id", "turn", "commit", "scene", "present", "investigators", "player_text",
-                           "keeper_text", "recordable", "prior", "budget", "instruction"}
+                           "keeper_text", "speech", "recordable", "prior", "budget", "instruction"}
     assert packet["job_id"] == "journal:c1:t1" and packet["turn"] == 1 and packet["commit"] == narrated["commit"]
     assert packet["scene"] == {"name": "commission-briefing", "display_name": "Knott's Office"}
     assert packet["present"] == [KNOTT]
@@ -227,9 +227,11 @@ def test_table_view_projects_the_journal_for_the_player(kernel):
     journal = kernel.ok("table.view", {"campaign": CAMPAIGN})["npcs"]["journal"]
     assert [e["name"] for e in journal] == [CORBITT, KNOTT], "newest last_seen_turn first"
     corbitt, knott = journal
-    assert set(corbitt) == {"name", "description", "seen_count", "last_seen_turn", "exchanges"}
+    # `id` is the handle a say span carries (contract §40.3): the legend swatch and the line share one anchor.
+    assert set(corbitt) == {"id", "name", "description", "seen_count", "last_seen_turn", "exchanges"}
+    assert corbitt["id"] == "walter-corbitt" and knott["id"] == "steven-knott"
     assert "dead_since_turn" not in corbitt
-    assert set(knott) == {"name", "description", "seen_count", "last_seen_turn", "dead_since_turn", "exchanges"}
+    assert set(knott) == {"id", "name", "description", "seen_count", "last_seen_turn", "dead_since_turn", "exchanges"}
     assert knott["dead_since_turn"] == 5
     assert knott["seen_count"] == 1 and knott["last_seen_turn"] == 1
     assert [e["turn"] for e in knott["exchanges"]] == [8, 7, 6, 5, 4, 3], "at most six, newest first"
