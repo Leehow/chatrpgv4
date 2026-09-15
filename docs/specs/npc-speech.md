@@ -1,6 +1,6 @@
 # NPC speech: one marker for every spoken line, colour by speaker, and a voice for people the book left silent
 
-_Date: 2026-09-15. Status: spec, not implemented. Contract home when it lands: a new section (§40; §-numbers are stable ids, nothing is renumbered). Baseline model for every acceptance claim: `xai/grok-4.6`, thinking `low` (user ruling 2026-09-11). User rulings 2026-09-15, recorded in full under "Rulings": the wrapper form, marking is mandatory and the brief ceiling is raised to make room, colours are hashed and never stored, the model never reads or writes a high-entropy id, and the `sample_lines` lane is specified here._
+_Date: 2026-09-15. Status: implemented on branch `claude/npc-speech-20260915` (contract §40; kernel + host + package + lane merged there, worktree `/private/tmp/chatrpgv4-wt-npc-speech`). Suites on the branch: `npm run test:ext` 1240/1241 (the one failure is the pre-existing load-time flake `run with a log discards late stdout…`, green alone); kernel pytest green but for the pre-existing `test_fast_guidance` era case (fails on the base commit too); host vitest targeted 199/199. **Not yet done: the real-table acceptance below (twenty turns, grok-4.6 low), the blind two-mouths test, and the second-model wrap rate.** Contract home: §40 (§-numbers are stable ids, nothing is renumbered). Baseline model for every acceptance claim: `xai/grok-4.6`, thinking `low` (user ruling 2026-09-11). User rulings 2026-09-15, recorded in full under "Rulings": the wrapper form, marking is mandatory and the brief ceiling is raised to make room, colours are hashed and never stored, the model never reads or writes a high-entropy id, the `sample_lines` lane is specified here, coarse language is on by default as a package setting with a sidebar toggle._
 
 ## Problem statement
 
@@ -154,9 +154,18 @@ Measured on a real table, live Keeper, one human player, one line per turn, `xai
 - Host: a `DeliveryCard` test rendering `marked_text` with mixed tokens — a span cut by a card keeps its colour on both sides; two anchors hashing to one slot get different slots; a label reused twice gets one slot.
 - Mutation check on each product fix (the standing rule: a fix without a test the mutation kills is not covered).
 
-## Open question for the user
+## Coarse language (ruled 2026-09-15)
 
-Coarse language is part of the ruling (a labourer swears). Whether a table can turn it down — a `npc-voice` setting such as `coarse_language: on | off`, default `on`, passed to the lane and the Keeper as one line — is a product choice, not made here. Without it, every table gets the register the person has.
+A table can turn it down: `npc-voice` carries `settings.coarse_language` (boolean, default `true`), rendered as a checkbox by the sidebar Mods panel like every boolean package setting, passed to the Keeper in the instruction row's `settings` and to the lane in the job packet. Off means no profanity; the register otherwise stays the person's.
+
+## Implementation notes (2026-09-15)
+
+- `speech[].who.npc` is the graph **handle**, not the node id: the whole narrate result is the tool text the model reads. The journal projection's `id` is the same handle, so the panel swatch and the card share one anchor.
+- The lane's failure enum is `journal.fail`'s (`invalid | lane_error | model_error`); its write appends the §28.7 event `dossier-established` rather than a new event type.
+- The host's colour block is authored once and copied byte-for-byte into `pipicoc/mechanics.js` and `pipicoc/panel.js` (pack renderers load from `data:` URLs and cannot import siblings); `tests/extension/speaker-colour.test.mjs` fails if the copies drift. The slot table lives on `globalThis` for the session, nothing persisted; if the sheet panel renders before the transcript it allocates first, so the transcript's colours are reload-stable but a panel-first render can shift which anchor takes which slot.
+- Three host leaks were found and closed on the way: the fold that hides the plain assistant copy of a delivery had to learn the token (or a spoken turn printed twice), `mechanicsEntry` builds `details` from a named field list (so `speech` had to be added or both render paths dropped it), and a say-only delivery with no mechanics rows got no card at all.
+- Starvation the lane cannot fix: a person whose job failed twice in a session stays first in `voice.job`'s order and blocks everyone behind them; the lane ends its drain there and notes `skipped: "retry_budget"`. A kernel-side fix (a failed job moves to the back, or a `skip` list) is owed if it shows at a real table.
+- `content/setup/**` is CJK-guarded, so the lane instruction carries the two-mouths example in English; `mods/npc-voice/agent.md` carries it verbatim.
 
 ## Out of scope, named
 
