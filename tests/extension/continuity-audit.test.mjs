@@ -500,3 +500,80 @@ test('a single review can never outspend its own cap', async () => {
     assert.equal(state.blocked, null);
     assert.ok(state.ms <= AUDIT_LIMITS.time_ms);
 });
+
+/**
+ * Contract §38.8. Retained live evidence (A-MAIN `game-7dca41f9` turn 4, 2026-09-15): `mods.job` pinned the
+ * audit evidence at 04:39:47, the **memory lane of the previous turn** appended three candidates to
+ * `memory.json` at 04:39:51 while the reviewer was running, and `mods.accept` at 04:39:56 refused the very
+ * binding it had prepared. The bridge turned that retryable race into `AuditBudget.fail`, so every later
+ * `narrate` of that turn returned `continuity_review_unavailable` in 1 ms and the turn was stranded with
+ * zero narration.
+ */
+test('a review whose evidence moved under it is retryable, not a blocked turn', async () => {
+    const cwd = await mkdtemp(join(directory, 'stale-')), scope = join(cwd, 'budget');
+    const rows = [];
+    let bridge, accepts = 0, reviews = 0;
+    const pi = {events: new EventEmitter(), on() {}};
+    pi.events.on('coc:mods-bridge', value => bridge = value); modsExtension(pi);
+    pi.events.emit('coc:kernel-bridge', {
+        record: row => rows.push(row),
+        call: async (method, params) => {
+            if (method === 'mods.job') return {enabled: true, continuity_review: true, cwd, job: `draft-${reviews}`,
+                review_scope: scope, limits: AUDIT_LIMITS, focus: {}, system_prompt: join(cwd, 'prompt.md')};
+            if (method !== 'mods.accept') return {};
+            // The first accept is the retained race; the second sees evidence that stopped moving.
+            if (++accepts === 1) throw new KernelError({code: 'needs', message: 'Source audit no longer matches the current campaign evidence',
+                fix: 'Retry the same narration to prepare a current source audit; do not reroll settled actions',
+                details: {reason: 'mod_audit_stale'}});
+            assert.equal(params.job, 'draft-1', 'the retry must be reviewed as its own job, against fresh evidence');
+            return pass();
+        },
+        runtime: {async runTask(task) {
+            reviews++;
+            const control = JSON.parse(await readFile(join(cwd, task.request.audit.control), 'utf8'));
+            await writeFile(join(cwd, control.status_file), JSON.stringify({requests: 1, artifact_repairs: 0, submitted: true, unavailable: ''}));
+            task.request.onEvent({type: 'tool_execution_end', toolName: 'submit_audit', result: {details: {kind: 'audit_submission'}}});
+            return {ok: true, ms: 1, code: 0, timedOut: false, command: ['pi', '--model', 'lane/fixture-1']};
+        }}});
+
+    // The Keeper is handed the kernel's own retryable refusal, never the paused-review one.
+    await assert.rejects(bridge.prepare('narrate', {campaign: 'c1', text: 'A draft.'}),
+        error => error.details?.reason === 'mod_audit_stale' && /Retry the same narration/.test(error.fix ?? ''));
+    assert.equal(JSON.parse(await readFile(join(scope, 'review-budget.json'), 'utf8')).blocked, null,
+        'a stale binding must not block the turn: the kernel asked for exactly this retry');
+
+    // …and the retry inside the same player input really runs a second review and is delivered.
+    await bridge.prepare('narrate', {campaign: 'c1', text: 'A draft.'});
+    assert.equal(reviews, 2, 'the retry pays for a whole review rather than reusing the refused one');
+    assert.equal(JSON.parse(await readFile(join(scope, 'review-budget.json'), 'utf8')).blocked, null);
+
+    // §38.8: one telemetry row per review, and the refused one says why.
+    const lane = rows.filter(row => row.lane === 'continuity-review');
+    assert.equal(lane.length, 2, JSON.stringify(rows));
+    assert.deepEqual([lane[0].ok, lane[0].reason, lane[0].code], [false, 'mod_audit_stale', 'needs']);
+    assert.equal(lane[0].submitted, true);
+    assert.equal(lane[0].model, 'lane/fixture-1');
+    assert.deepEqual([lane[1].ok, lane[1].verdict], [true, 'pass']);
+    assert.equal(typeof lane[1].ms, 'number');
+});
+
+/** §38.8: every other accept failure still blocks, and it still leaves its own row. */
+test('a reviewer that never submitted still blocks the turn and says so once', async () => {
+    const cwd = await mkdtemp(join(directory, 'unsubmitted-')), scope = join(cwd, 'budget');
+    const rows = [];
+    let bridge;
+    const pi = {events: new EventEmitter(), on() {}};
+    pi.events.on('coc:mods-bridge', value => bridge = value); modsExtension(pi);
+    pi.events.emit('coc:kernel-bridge', {
+        record: row => rows.push(row),
+        call: async method => method === 'mods.job' ? {enabled: true, continuity_review: true, cwd, job: 'draft',
+            review_scope: scope, limits: AUDIT_LIMITS, focus: {}, system_prompt: join(cwd, 'prompt.md')} : {},
+        runtime: {async runTask() { return {ok: false, ms: AUDIT_LIMITS.per_review_ms, code: 143, timedOut: true, command: ['pi', '--model', 'lane/slow-1']}; }}});
+    await assert.rejects(bridge.prepare('narrate', {campaign: 'c1', text: 'A draft.'}),
+        error => error.details?.reason === 'continuity_review_unavailable');
+    assert.ok(JSON.parse(await readFile(join(scope, 'review-budget.json'), 'utf8')).blocked);
+    const lane = rows.filter(row => row.lane === 'continuity-review');
+    assert.equal(lane.length, 1, JSON.stringify(rows));
+    assert.deepEqual([lane[0].ok, lane[0].reason, lane[0].timed_out, lane[0].submitted, lane[0].model],
+        [false, 'continuity_review_unavailable', true, false, 'lane/slow-1']);
+});

@@ -43,11 +43,54 @@ export default function modsExtension(pi: ExtensionAPI): void {
   let mintCallId: (() => string | undefined) | undefined;
   let context: ExtensionContext | undefined;
   let inputToken: string | undefined;
-  pi.events.on("coc:kernel-bridge", (data) => { call = (data as any)?.call; runtime = (data as any)?.runtime; mintCallId = (data as any)?.mintCallId; });
+  let record: ((row: Record<string, unknown>) => void) | undefined;
+  pi.events.on("coc:kernel-bridge", (data) => {
+    call = (data as any)?.call; runtime = (data as any)?.runtime; mintCallId = (data as any)?.mintCallId;
+    record = (data as any)?.record;
+  });
   pi.on("session_start", async (_event, ctx) => { context = ctx; });
   pi.on("before_agent_start", async (_event, ctx) => { context = ctx; inputToken = randomUUID(); });
 
+  /**
+   * One campaign telemetry row per continuity review (contract §12.8). The review is a `mod` child,
+   * not a §12.8.1 subsession, so it left no `lane` row at all: three retained `continuity_review_unavailable`
+   * turns (H-MAIN t17, A-MAIN t4, M-MAIN t9, 2026-09-15) could only be told apart by reading
+   * `.coc/mods/jobs/<digest>/audit-attempt-N.json` by hand, and the absence of any lane row read from the
+   * outside as "the review was never started" when in fact two of the three had been started and killed
+   * at the 40 s `per_review_ms` cap. A lane whose only failure signal is somebody else's missing row is
+   * not observable.
+   */
+  function note(row: Record<string, unknown>): void {
+    try { record?.({lane: 'continuity-review', ...row}); }
+    catch { /* telemetry must never break a review */ }
+  }
+
+  /** The model the child actually ran with: the runtime resolves it (§37.10), so the request cannot say. */
+  function ranWith(outcome: any): string | undefined {
+    const command: unknown = outcome?.command;
+    if (!Array.isArray(command)) return undefined;
+    const at = command.indexOf('--model');
+    return at >= 0 && typeof command[at + 1] === 'string' ? command[at + 1] : undefined;
+  }
+
   async function continuityTask(campaign: string, job: any, input: any, began: number, signal?: AbortSignal) {
+    const telemetry: Record<string, unknown> = {job: job?.job ?? null};
+    try {
+      const result = await runContinuityReview(campaign, job, input, began, signal, telemetry);
+      note({...telemetry, ok: true, ms: Date.now() - began, verdict: result?.continuity_review?.verdict ?? null});
+      return result;
+    } catch (error) {
+      const reason = isKernelError(error) ? error.details?.reason : undefined;
+      note({...telemetry, ok: false, ms: Date.now() - began,
+        ...(isKernelError(error) ? {code: error.code} : {}),
+        ...(reason ? {reason: String(reason)} : {}),
+        cause: errorText(error)});
+      throw error;
+    }
+  }
+
+  async function runContinuityReview(campaign: string, job: any, input: any, began: number, signal: AbortSignal | undefined,
+    telemetry: Record<string, unknown>) {
     if (!call || !runtime) throw reviewUnavailable('The review runtime is unavailable');
     const current = call, owner = runtime, budget = new AuditBudget(job.review_scope, inputToken, job.limits);
     let reserved = false, requests = 0, artifactRepairs = 0;
@@ -88,6 +131,11 @@ export default function modsExtension(pi: ExtensionAPI): void {
       try { status = JSON.parse(await readFile(join(job.cwd, statusFile), 'utf8')); } catch { /* An absent status is not a submission. */ }
       if (Number.isInteger(status.requests) && status.requests >= 0) requests = Math.max(requests, status.requests);
       if (Number.isInteger(status.artifact_repairs) && status.artifact_repairs >= 0) artifactRepairs = Math.max(artifactRepairs, status.artifact_repairs);
+      telemetry.attempt = ordinal; telemetry.requests = requests; telemetry.submitted = submitted;
+      telemetry.child_ms = outcome.ms ?? null;
+      if (outcome.timedOut) telemetry.timed_out = true;
+      const model = ranWith(outcome);
+      if (model) telemetry.model = model;
       try {
         if (!outcome.ok || !submitted || status.unavailable) budget.fail(status.unavailable || outcome.error || 'The private reviewer ended without a checked submission');
         const result = await current('mods.accept', {campaign, job: job.job});
@@ -103,6 +151,20 @@ export default function modsExtension(pi: ExtensionAPI): void {
     } catch (error) {
       finish();
       if (isKernelError(error) && error.details?.reason === 'continuity_review_unavailable') throw error;
+      // `mod_audit_stale` is the kernel saying the campaign evidence moved *under* a review that was
+      // already running, and its own `fix` is "retry the same narration to prepare a current source
+      // audit". Blocking the budget on it converted that retryable host-side race into a permanent
+      // per-turn latch: the turn could never be delivered, and §38 stranded it. Retained evidence
+      // (A-MAIN `game-7dca41f9` turn 4, 2026-09-15): `mods.job` pinned the evidence at 04:39:47, the
+      // memory lane for turn 3 appended three candidates at 04:39:51 while the reviewer ran, and
+      // `mods.accept` at 04:39:56 refused the binding it had itself prepared — after which every
+      // further `narrate` returned `continuity_review_unavailable` in 1 ms.
+      //
+      // Nothing is skipped by letting it through: the retry builds a *new* job against fresh evidence
+      // and pays for a whole new review, and the shared allowance (`AUDIT_LIMITS`, §37.9) still bounds
+      // how many of those one player input may buy. The non-continuity audit path below has always
+      // re-raised this refusal for the same reason; only this path swallowed it.
+      if (isKernelError(error) && error.details?.reason === 'mod_audit_stale') throw error;
       budget.fail(errorText(error));
     } finally { budget.close(); }
   }

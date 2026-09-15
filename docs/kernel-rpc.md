@@ -6352,6 +6352,72 @@ through §38.2 instead of hitting `turn_state`. Any later completed assistant me
 terminal-failure mark, so the retained turn-3 shape above — one failed call, a 2.6 s successful retry, then
 a normal delivery — records and reports its outage but is never stranded.
 
+### 38.8 A stale review binding is retryable, and the review lane is observable (2026-09-15)
+
+Three retained `continuity_review_unavailable` turns from one browser playtest (2026-09-15) had three
+different causes and, from the campaign's own telemetry, one indistinguishable shape: a long `narrate` that
+returned `needs`, one `review_unavailable_notice`, and a stranded turn.
+
+| run | `narrate` | retained cause in `review-budget.json` |
+|---|---|---|
+| H-MAIN `game-83177d61` t17 | 40 735 ms | `The private reviewer ended without a checked submission` (child killed at `per_review_ms`) |
+| M-MAIN `game-3dd94f0a` t9 | 40 266 ms | the same; the child's stream stalled 1.6 s in and never resumed |
+| A-MAIN `game-7dca41f9` t4 | 8 934 ms | `Source audit no longer matches the current campaign evidence` |
+
+**The review is not a §12.8.1 subsession, so it wrote no lane row at all.** It is a `mod` child run through
+`runtime.runTask`, and its only record was `.coc/mods/jobs/<digest>/audit-attempt-N.json` next to the job.
+Read from the campaign, the absence of any lane row looked like a review that had never been started; two of
+the three had in fact been started and killed at the 40 s cap. **Every continuity review now writes exactly
+one `lane: "continuity-review"` telemetry row** — `{job, ok, ms, attempt?, requests?, submitted?, child_ms?,
+timed_out?, model?, verdict? | code?, reason?, cause?}` — on the turn that paid for it, whether it passed,
+revised, timed out, or never started. `model` is read from the child's own command line, because the runtime
+resolves the lane model (§37.10) and the request cannot say which one ran. The row is best-effort and never
+fails a review. This is a diagnostic row, not an escalation: §38.5's `coc-review-status` entry is unchanged.
+
+**`mod_audit_stale` is a race, not a verdict, and must not latch the turn.** `mods.job` pins the evidence
+digest; `mods.accept` recomputes it and refuses a binding that moved, with the fix *"Retry the same narration
+to prepare a current source audit; do not reroll settled actions"*. The Mod bridge turned that refusal into
+`AuditBudget.fail`, which writes `blocked` into the turn's retained review accounting — permanently, for the
+rest of that player input. A refusal the kernel declares retryable became a refusal nothing could retry, and
+§38 stranded the turn.
+
+A-MAIN turn 4 is the evidence, and the writer that moved the evidence was the host's own:
+
+```
+{"turn":4,"tool":"narrate","ms":12196,"ok":false,"reason":"mod_narrative_repair"}   04:39:29 → revise
+{"turn":4,"tool":"narrate","started_at":"...T04:39:47.313Z","ms":8934,...}          the repair's review runs
+{"lane":"lane-call","turn":3,"subsession":"memory","at":"...T04:39:51.260Z","phase":"end","ok":true}
+{"lane":"memory","turn":3,"ok":true,"ms":78315,"candidates":3}                      3 rows appended to memory.json
+{"turn":4,"tool":"narrate","ms":8934,"ok":false,"reason":"continuity_review_unavailable"}
+{"turn":4,"tool":"narrate","ms":1,"ok":false,"reason":"continuity_review_unavailable"}
+```
+
+The memory lane for **turn 3** landed its candidates while **turn 4**'s review was in flight; `memory.json`
+is part of the audit evidence and therefore of the binding, so `mods.accept` refused the very packet it had
+prepared 9 s earlier. Nothing was wrong with the draft, the reviewer, or the allowance.
+
+**So `mod_audit_stale` propagates to the Keeper unchanged instead of blocking the budget.** The Keeper reads
+the kernel's own message and fix and retries the same narration; `mods.job` then pins fresh evidence, and a
+new review runs against it. Nothing is skipped and no verdict is assumed: the retry pays for a whole review,
+and `AUDIT_LIMITS` (§37.9) still bounds how many reviews one player input may buy — an exhausted allowance
+blocks exactly as before. The non-continuity audit path had always re-raised this refusal; only the
+continuity path swallowed it.
+
+**A reviewer that never submitted still latches, deliberately.** The H-MAIN and M-MAIN shape is §37.9's:
+the lane model did not answer inside `per_review_ms`. Retrying buys a second dead 40 s and then blocks
+anyway on the shared `time_ms`, which is why §38.5 escalates to the operator with "choose a faster review
+model" rather than retrying. Only the binding race is reclassified here.
+
+**Three ends (§31).** *Writer:* the Mod bridge, from the kernel's own `details.reason`. *Reader:* the Keeper,
+which receives a retryable refusal with a fix it can act on, and the operator, through the new telemetry row.
+*Actor:* the Keeper, which re-narrates the same draft in the same turn rather than losing it.
+
+**Acceptance.** A `mods.accept` that refuses `mod_audit_stale` leaves the review accounting unblocked and
+surfaces `mod_audit_stale` to the caller, and the next `narrate` of the same turn runs a real review and can
+be delivered; every other accept failure still blocks; a review that passes, a review that is refused, and a
+review whose runtime is missing each leave one `lane: "continuity-review"` row
+(`tests/extension/continuity-audit.test.mjs`).
+
 ## 39. Session maps revealed by player knowledge (2026-09-13)
 
 The map feature uses the existing seven verbs and the existing ModuleGraph, campaign world state, source reader and structured mechanics delivery. It adds no map tool and no second state store. A map is an `asset` or `handout` node whose `properties.map_regions` is a non-empty list. Each row is `{region_id, name, level?, source_asset, source_box, placement, redactions?, safe_after_redactions?}`. `source_box` and `placement` are normalized `[x0,y0,x1,y1]` boxes. The source asset is a graph `asset`; it must be `player-safe` or `revealable`, unless an independently reviewed private source supplies non-empty redactions and explicitly declares `safe_after_redactions: true`. Source variants never share coordinates by assumption.

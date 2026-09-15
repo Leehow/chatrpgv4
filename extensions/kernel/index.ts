@@ -1781,6 +1781,10 @@ export default function (pi: ExtensionAPI) {
 				// id here too instead of inventing one the kernel refuses -- and never reuses a live ordinal,
 				// which the kernel would read as a replay and answer with somebody else's result.
 				mintCallId: () => (table ? mintCallId(table) : undefined),
+				// The campaign's telemetry file (contract §12.8). The Mod bridge runs the continuity review
+				// inside the Keeper's own tool call, so its rows belong on this turn's line like any other;
+				// a bridge consumer that writes its own path would have to guess the turn as well.
+				record: (row: Record<string, unknown>) => void record(row),
 			});
 			pi.events.emit("coc:table-open", { campaign, open });
 			// Contract §39.2: the module's own map labels, projected into this campaign's play
