@@ -199,8 +199,16 @@ function displayHistoryEntry(entry: HistoryEntry): HistoryEntry {
   }
 }
 
-/** The `{{marker}}` shape the kernel mints (contract §16.6). Literal: nothing here reads prose. */
-const MECHANICS_MARKER = /\{\{[a-z0-9][a-z0-9:_-]*\}\}/g
+/**
+ * The machine tokens the kernel mints: the `{{marker}}` of §16.6 and the `{{say:…}}…{{/say}}`
+ * wrapper of §40.1. Literal: nothing here reads prose.
+ *
+ * Both have to go, because this is what decides whether the card is already drawing a delivery.
+ * The plain copy of a turn is `rendered_text`, which carries neither kind; if the say tokens were
+ * left in, a spoken turn would stop matching its own card and the narration would print twice. The
+ * say name is matched by shape alone — any script, the play language is open (§23).
+ */
+const MECHANICS_MARKER = /\{\{[a-z0-9][a-z0-9:_-]*\}\}|\{\{say:[^{}\n]{1,60}\}\}|\{\{\/say\}\}/g
 
 /** A delivery with its markers taken out, the way the kernel strips them for `rendered_text`. */
 export function withoutMechanicsMarkers(text: string): string {
