@@ -142,6 +142,73 @@ test("every difficulty the rules tabulate has a word, and the chip that carries 
 		assert.ok(needs.includes(slot), `the \`needs\` caption still carries ${slot}`);
 });
 
+/**
+ * Every requirement chip against every grade chip, for one tag's captions.
+ *
+ * The comparison is between what a player actually sees, so the demanded difficulty is put through
+ * its own chip template (`needs … · ≤n`) first: the two axes are told apart by whole chips, and a
+ * caption is only safe if it stays distinguishable inside the frame it is drawn in. Containment,
+ * not equality -- a grade chip swallowed whole by the requirement chip ("hard" beside
+ * "needs hard · ≤7") is the same collision with a number stapled on.
+ *
+ * `level.regular` and `level.failure` are silent on purpose (they repeat the pass/fail stamp), so
+ * the pairs compared are whichever values the surface actually carries a word for.
+ */
+function axisClashes(words, graded, achieved, label) {
+	const word = key => typeof words[key] === "string" && words[key].trim() ? words[key].trim() : null;
+	const needs = word("needs");
+	assert.ok(needs, `${label} carries the \`needs\` template`);
+	const demanded = graded.map(name => [name, word(`difficulty.${name}`)]).filter(([, value]) => value)
+		.map(([name, value]) => [name, needs.replace("{level}", value).replace("{n}", "7")]);
+	const grades = achieved.map(name => [name, word(`level.${name}`)]).filter(([, value]) => value);
+	const clashes = [];
+	for (const [name, bar] of demanded)
+		for (const [grade, outcome] of grades)
+			if (bar.includes(outcome) || outcome.includes(bar))
+				clashes.push(`${label}: difficulty.${name} ("${bar}") and level.${grade} ("${outcome}") do not read apart`);
+	return { clashes, pairs: demanded.length * grades.length };
+}
+
+test("the difficulty a check demanded and the grade the die achieved never read as the same word", () => {
+	// Two independent fields on one receipt, and CoC spells three of their values identically.
+	// `difficulty` is what the check demanded (`regular|hard|extreme`); `level` is what the die
+	// achieved (the keys of `success-levels.json`). A STR check against 55 rolled as a 13 is
+	// `difficulty: regular, level: hard`, and while `difficulty.hard` and `level.hard` were both
+	// the bare word the card's grade chip was read as the demanded difficulty -- every table, every
+	// turn, including by the person running the playtest that found it.
+	//
+	// The separation is vocabulary, not code, so this is where it has to be pinned: a caption is
+	// one string edit away from collapsing the two axes again, and nothing downstream would notice.
+	// Both shipped tags are read, not just the authored one -- `content/ui/<tag>/` is a seed that
+	// outranks the projection cache, so a collision reintroduced in the seed reaches a player
+	// directly without any lane having a say.
+	const graded = Object.entries(JSON.parse(readFileSync(join(REPO, "content/rulesets/coc7/rules-json/difficulty-levels.json"), "utf8")))
+		.filter(([, block]) => block && typeof block === "object" && Object.hasOwn(block, "divisor")).map(([name]) => name);
+	const achieved = Object.keys(JSON.parse(readFileSync(join(REPO, "content/rulesets/coc7/rules-json/success-levels.json"), "utf8")).levels);
+	assert.ok(graded.length >= 3 && achieved.length >= 6, `both axes were read from the rules data (${graded.length} difficulties, ${achieved.length} levels)`);
+	// The overlap is the whole point: a rules change that stopped the two axes sharing a value
+	// would make every assertion below vacuous, so it is asserted rather than assumed.
+	assert.ok(graded.filter(name => achieved.includes(name)).length >= 2,
+		`the two axes still share value names (${graded.filter(name => achieved.includes(name)).join(", ")})`);
+	const clashes = [];
+	const tags = readdirSync(join(REPO, "content/ui"), { withFileTypes: true }).filter(entry => entry.isDirectory()).map(entry => entry.name);
+	for (const tag of tags) {
+		const words = JSON.parse(readFileSync(join(REPO, "content/ui", tag, "mechanics.json"), "utf8"));
+		const found = axisClashes(words, graded, achieved, `content/ui/${tag}`);
+		assert.ok(found.pairs >= 9, `content/ui/${tag}/mechanics.json carries both vocabularies (${found.pairs} pairs compared)`);
+		clashes.push(...found.clashes);
+	}
+	assert.deepEqual(clashes, [], `the demanded difficulty and the achieved grade share a word:\n${clashes.join("\n")}`);
+	// Mutation: the loop above is worth its runtime only if the wording it replaced would fail it.
+	// This is the caption set as it shipped on 2026-09-15 -- the grade chip bare, the requirement
+	// chip wrapping the same word -- reconstructed from the authored file rather than transcribed,
+	// so it stays the real "before" even as the surrounding captions change.
+	const authored = JSON.parse(readFileSync(join(REPO, "content/ui/en/mechanics.json"), "utf8"));
+	const collapsed = axisClashes({ ...authored, "level.hard": authored["difficulty.hard"] }, graded, achieved, "before");
+	assert.ok(collapsed.clashes.some(line => line.includes("difficulty.hard") && line.includes("level.hard")),
+		`the guard catches the collision it exists for, and reported: ${collapsed.clashes.join("; ") || "nothing"}`);
+});
+
 test("the guard is not decoration: it still catches a word with no caption", () => {
 	// Mutation: the assertions above are only worth their runtime if removing a caption fails them.
 	for (const key of ["die.bout_of_madness_table", "outcome.investigators_win", "resource.document", "difficulty.hard", "needs"])

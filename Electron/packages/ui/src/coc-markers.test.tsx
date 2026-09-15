@@ -389,6 +389,79 @@ describe('a roll says what its difficulty demanded', () => {
   })
 })
 
+/**
+ * The two axes a roll row draws are told apart by their words (contract §16.2).
+ *
+ * `difficulty` is what the check demanded; `level` is what the die achieved. CoC spells three of
+ * their values identically, and the card drew both of them bare — so H-MAIN's turn 68, a STR check
+ * against 55 rolled as a 13 (`difficulty: regular, level: hard`), printed `力量 13 /55 困难 通过`
+ * and every reader took that 困难 for the difficulty of a check the keeper had called regular. The
+ * card was telling the truth about a field nobody could tell it was talking about.
+ *
+ * Nothing in the renderer can settle this: both chips ask for a caption and print what comes back.
+ * So the fix is two vocabularies — the demanded word framed as a requirement, the achieved word
+ * named as an outcome — and what is pinned here is that the frames survive on one row together.
+ */
+describe('a roll tells the difficulty it demanded apart from the grade it achieved', () => {
+  /** H-MAIN turn 68, as the kernel wrote it: regular difficulty, hard success. */
+  const GRADED = {
+    kind: 'roll', receipt: 'roll:str-t68-c1', actor: 'harrison-wells', actor_label: '哈里森·韦尔',
+    actor_is_investigator: true, skill: 'STR', roll: 13, target: 55, threshold: 55,
+    difficulty: 'regular', level: 'hard', passed: true, pushed: false, visibility: 'public',
+  }
+  const need = (tag: string, difficulty: string, n: number) =>
+    say(tag, 'mechanics', 'needs')
+      .replace('{level}', say(tag, 'mechanics', `difficulty.${difficulty}`))
+      .replace('{n}', String(n))
+
+  it.each(['zh-Hans', 'en'])('keeps the achieved grade off the difficulty vocabulary (%s)', tag => {
+    // The reported receipt itself. `regular` draws no requirement chip, so the grade chip stands
+    // alone beside the figures — which is precisely why it was read as the difficulty.
+    const { container } = render(<Delivery details={{ play_language: tag, turn: 68, mechanics: [GRADED] }} />)
+    expect(container.querySelector('.coc-mech-need')).toBeNull()
+    const grade = container.querySelector('.coc-mech-lv')?.textContent ?? ''
+    expect(grade).toBe(say(tag, 'mechanics', 'level.hard'))
+    for (const name of ['regular', 'hard', 'extreme'])
+      expect(grade).not.toBe(say(tag, 'mechanics', `difficulty.${name}`))
+  })
+
+  it.each([
+    ['zh-Hans', 'hard', 27],
+    ['en', 'hard', 27],
+    ['zh-Hans', 'extreme', 11],
+    ['en', 'extreme', 11],
+  ])('draws both axes on one row with neither chip swallowing the other (%s, %s)', (tag, difficulty, threshold) => {
+    // The worst case for the collision: the demanded difficulty and the achieved grade carry the
+    // same rules value, so the two chips sit side by side naming the same CoC word for two
+    // different things. Containment, not inequality, is the assertion — the requirement chip wraps
+    // its word in `needs … · ≤n`, so a bare grade chip beside it is the same ambiguity with a
+    // number stapled on, and `toBe`-style inequality would call that a pass.
+    const { container } = render(
+      <Delivery details={{ play_language: tag, turn: 68,
+        mechanics: [{ ...GRADED, difficulty, threshold, level: difficulty }] }} />,
+    )
+    const demanded = container.querySelector('.coc-mech-need')?.textContent ?? ''
+    const achieved = container.querySelector('.coc-mech-lv')?.textContent ?? ''
+    expect(demanded).toBe(need(tag, difficulty, threshold))
+    expect(achieved).toBe(say(tag, 'mechanics', `level.${difficulty}`))
+    expect(demanded).not.toContain(achieved)
+    expect(achieved).not.toContain(demanded)
+  })
+
+  it('leaves the two grades that are not difficulties alone', () => {
+    // `critical` and `fumble` name no difficulty, so they need no disambiguation and must not
+    // acquire one: a fumble is the loudest thing on the card and reads as itself.
+    for (const [level, passed] of [['critical', true], ['fumble', false]] as const) {
+      const { container } = render(
+        <Delivery details={{ play_language: 'zh-Hans', turn: 68, mechanics: [{ ...GRADED, level, passed }] }} />,
+      )
+      expect(container.querySelector('.coc-mech-lv')?.textContent).toBe(say('zh-Hans', 'mechanics', `level.${level}`))
+      expect(container.querySelector('.coc-mech-row')?.getAttribute('data-grade')).toBe(level)
+      cleanup()
+    }
+  })
+})
+
 describe('the plain copy of a drawn delivery is folded away', () => {
   const card = (marked: string): ChatMessage => ({
     id: 'm1', role: 'assistant', content: '', timestamp: 1,

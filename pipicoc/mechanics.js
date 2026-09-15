@@ -557,6 +557,19 @@ export function createComponent(React) {
         // The grade the kernel already assigned. Emphasis follows it — an extreme success and a
         // fumble are the two things a table talks about afterwards, so they get the weight.
         const grade = row.passed ? (level === "extreme" || level === "critical" ? level : "") : (level === "fumble" ? "fumble" : "");
+        // Two independent axes share three of CoC's words, and this row draws both of them:
+        // `difficulty` is what the check *demanded* (`regular|hard|extreme`, below), `level` is
+        // what the die *achieved* (`critical|extreme|hard|regular|failure|fumble`, here). A STR
+        // check at 55 rolled as a 13 is `difficulty: regular, level: hard`, and while both chips
+        // said only "hard" the player read the achieved grade as the demanded one — a check the
+        // keeper never called hard was reported as one, every turn, in the one place a receipt is
+        // supposed to be legible.
+        //
+        // So the two vocabularies are kept apart in `content/ui/<tag>/mechanics.json` rather than
+        // here: `difficulty.*` names a bar (`hard`), `level.*` names an outcome (`hard success`),
+        // and the requirement chip frames its own with `needs … · ≤n`. Nothing in this file may
+        // gloss one axis with the other's key — that is what made them collide.
+        //
         // `regular` and `failure` carry no word on purpose: they say what the stamp already says,
         // and an empty chip beside the stamp is worse than none.
         const levelWord = level ? t(`level.${level}`, "") : "";
