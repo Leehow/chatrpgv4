@@ -299,8 +299,10 @@ export class Chargen {
     }
     return Object.fromEntries(entries(allocations).filter(([, points]) => points > 0));
   }
-  async build(options: {investigatorId: string; name: string; occupationId: any; concept: string | null; age: any; sex: any; method: any; seed: string; era: string; difficulty?: any; allocation?: any; interestAllocation?: any; aptitude?: any; occupationSkills?: string[]; interestSkills?: string[]}): Promise<[Row, Row]> {
+  async build(options: {investigatorId: string; name: string; occupationId: any; concept: string | null; age: any; sex: any; method: any; seed: string; era: string; sourceEra?: string | null; difficulty?: any; allocation?: any; interestAllocation?: any; aptitude?: any; occupationSkills?: string[]; interestSkills?: string[]}): Promise<[Row, Row]> {
     const {investigatorId, name, concept, age, sex, method, seed, era, occupationSkills, interestSkills} = options;
+    // The setting the book authored, when the rulebook had no column of its own for it (§23.4).
+    const sourceEra = typeof options.sourceEra === 'string' && options.sourceEra.trim() && options.sourceEra.trim() !== era ? options.sourceEra.trim() : null;
     if (!METHODS.includes(method)) throw new ChargenError('method', "method must be one of ('quick_fire', 'rolled')", {options: [...METHODS]});
     const [occupationName, spec] = this.occupation(options.occupationId), policy = this.allocationPolicy(options.allocation), formula = parseFormula(spec.skill_point_formula || '');
     const interestPolicy = this.allocationPolicy(options.interestAllocation, 'interest_allocation');
@@ -354,19 +356,37 @@ export class Chargen {
         pool: interestPool, spent: interestSpent, allocations: interest, unspent: interestTotal - interestSpent,
         allocation: interestApplied, tiers: interestApplied === 'spread' ? interestPolicy.tiers : null, source: interestPolicy.source}};
     let finance: Row | null;
-    try { finance = await this.tables.cashAndAssets(credit, era); trace.finance = {available: true, source: `cash-assets.periods.${era}`}; }
-    catch (error) { if (!(error instanceof Error) || error.name !== 'ValueError') throw error; finance = null; trace.finance = {available: false, reason: error.message, source: 'cash-assets.periods'}; }
+    // Every number on the card names the table row it came from; a period that stood in for an
+    // authored setting the rulebook never tabulated says so in the same place, so the substitution
+    // is auditable from the card alone rather than inferred from a missing match (§23.4).
+    const financeSource = `cash-assets.periods.${era}`;
+    const substitution = sourceEra ? {substituted_for: sourceEra, note: `the rulebook tabulates no finance period for ${repr(sourceEra)}; the ${era} column stands in`} : {};
+    try { finance = await this.tables.cashAndAssets(credit, era); finance.source = financeSource; if (sourceEra) Object.assign(finance, substitution); trace.finance = {available: true, source: financeSource, ...substitution}; }
+    catch (error) { if (!(error instanceof Error) || error.name !== 'ValueError') throw error; finance = null; trace.finance = {available: false, reason: error.message, source: 'cash-assets.periods', ...substitution}; }
     trace.equipment = {source: null, note: 'equipment.json records carry no occupation field; no default kit is invented'};
     trace.allocation = policy; trace.interest_allocation = {...interestPolicy, applied: interestApplied};
     if (diff) trace.difficulty = diff.record;
-    const sheet: Row = {schema_version: 1, id: investigatorId, name, occupation: occupationName, era, age, sex,
+    const sheet: Row = {schema_version: 1, id: investigatorId, name, occupation: occupationName, era, ...(sourceEra ? {setting_era: sourceEra} : {}), age, sex,
       characteristics: {...Object.fromEntries(this.characteristics.map(key => [key, Math.trunc(number(characteristics[key]))])), LUCK: luck.value}, derived: derived.values,
       skills: Object.fromEntries(entries(values).sort(([a], [b]) => compareUnicode(a, b))), weapons: [], equipment: [], backstory: {concept}, credit_rating: credit,
       cash: finance ? `${string(finance.cash.amount)} ${finance.cash.currency}` : null, finance, creation: trace};
     const receipt: Row = {id: `investigator:${investigatorId}`, kind: 'investigator', investigator: investigatorId, name, occupation: occupationName, method: string(generated.method), seed, choices_pending: pending,
-      allocation: policy.policy, interest_allocation: interestApplied, occupation_unspent: points - spent, occupation_reserved: sum(reserved.map((item: Row) => number(item.points))), interest_unspent: interestTotal - interestSpent, finance_available: finance !== null,
+      allocation: policy.policy, interest_allocation: interestApplied, occupation_unspent: points - spent, occupation_reserved: sum(reserved.map((item: Row) => number(item.points))), interest_unspent: interestTotal - interestSpent, finance_available: finance !== null, ...(sourceEra ? {finance_period: era, setting_era: sourceEra} : {}),
       ...(diff ? {difficulty: diff.record} : {})};
     return [sheet, receipt];
   }
+}
+/** Which rulebook era's tables a card is built from (contract §23.4).
+ *
+ *  An authored era is a setting, not a table key: it can be prose spanning years ("1895 (default);
+ *  investigators then enter 1287"), and it is never string-matched or read for a year. When it is not
+ *  itself one of the rulebook's periods, the table's own nominated period stands in and the authored
+ *  text is carried back so the card, its provenance and the player are told what it stood in for.
+ *  Setup therefore always has a way through; it never blocks a table on a setting the rulebook never
+ *  tabulated, and never silently rewrites the setting into a table key. */
+export async function resolveRulebookEra(tables: RuleTables, authored: unknown): Promise<{era: string; substitutedFor: string | null; options: string[]}> {
+  const options = await tables.financePeriods(), authoredText = typeof authored === 'string' ? authored.trim() : '';
+  if (authoredText && options.includes(authoredText)) return {era: authoredText, substitutedFor: null, options};
+  return {era: await tables.defaultFinancePeriod(), substitutedFor: authoredText || null, options};
 }
 export function defaultInvestigatorId(name: string, ordinal: number): string { const slug = kebab(name); return slug && /^[a-z0-9][a-z0-9-]*$/.test(slug) ? slug : `inv-${ordinal}`; }

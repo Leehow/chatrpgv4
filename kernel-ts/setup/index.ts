@@ -12,7 +12,7 @@ import type { createWriteRuntime } from '../write/index.js';
 import { type CampaignWriter, nowIso } from '../write/store.js';
 import { commit, CommitFailed } from '../write/history.js';
 import { moduleAvailable, moduleEra } from '../library/index.js';
-import { Chargen, ChargenError, ALLOCATION_POLICIES, defaultInvestigatorId } from './chargen.js';
+import { Chargen, ChargenError, ALLOCATION_POLICIES, defaultInvestigatorId, resolveRulebookEra } from './chargen.js';
 import { SetupSteps } from './steps.js';
 import { SetupDrafts } from './drafts.js';
 import { investigatorRow, completeness } from './sheet.js';
@@ -57,7 +57,8 @@ export class Setup {
     const draft = await this.drafts.load(campaign, meta);
     if (draft) state.draft = await this.drafts.result(draft);
     state.prologue = row(meta.setup).prologue ?? null; state.guidance_key = meta.guidance_key ?? null; state.notes = row(meta.setup).notes ?? null;
-    state.rulebook_eras = Object.keys(row(await this.tables.load('cash-assets')).periods);
+    state.rulebook_eras = await this.tables.financePeriods();
+    state.default_rulebook_era = await this.tables.defaultFinancePeriod();
     state.start_scene = meta.opening_scene ?? null; state.waiting_for_opening = truth(row(meta.setup).waiting_for_opening);
     return {...table, completed: ordered, state};
   }
@@ -78,13 +79,18 @@ export class Setup {
       if (value != null && typeof value !== 'string') throw new RpcError('invalid_params', `params.${field} must be a policy name from the steps table`,
         {fix: 'use one of details.options: spread, fill', details: {field, options: [...ALLOCATION_POLICIES]}});
     const moduleId = string(meta.module_id), bookEra = await moduleAvailable(this.context, moduleId, this.writer) ? moduleEra((await loadModule(this.context, moduleId)).graph) : null;
-    const era = truth(params.era) ? params.era : bookEra || '1920s';
-    if (typeof era !== 'string') throw new RpcError('invalid_params', 'params.era must be a string');
+    if (params.era != null && typeof params.era !== 'string') throw new RpcError('invalid_params', 'params.era must be a string');
+    // The book's era is its setting and may be prose the rulebook never tabulated; resolving it here
+    // keeps the card's tables real instead of quietly losing the standard sheet and the finance block
+    // to a key no table has, and the substitution travels onto the card (§23.4).
+    const authored = truth(params.era) ? string(params.era) : bookEra || '';
+    const resolved = await resolveRulebookEra(this.tables, authored);
+    const era = resolved.era;
     const party = await campaign.party(), id = truth(params.id) ? params.id : defaultInvestigatorId(name, party.length + 1);
     if (typeof id !== 'string' || !id.trim()) throw new RpcError('invalid_params', 'params.id must be a slug');
     if (party.some(sheet => string(sheet.id) === id)) throw new RpcError('invalid_params', `investigator ${repr(id)} already exists in this campaign`, {fix: 'give another id, or another name'});
     let sheet: Row, receipt: Row;
-    try { [sheet, receipt] = await this.chargen.build({investigatorId: id, name, occupationId: params.occupation ?? null, concept, age, sex, method, seed, era, difficulty: meta.difficulty ?? null, allocation, interestAllocation}); }
+    try { [sheet, receipt] = await this.chargen.build({investigatorId: id, name, occupationId: params.occupation ?? null, concept, age, sex, method, seed, era, sourceEra: resolved.substitutedFor, difficulty: meta.difficulty ?? null, allocation, interestAllocation}); }
     catch (error) {
       if (!(error instanceof ChargenError)) throw error;
       if (error.stage === 'occupation') throw new RpcError('needs', error.message, {fix: 'call setup.occupations and pass one of its ids', details: {needs: {field: 'occupation', options: row(error.expected).options ?? null}}});

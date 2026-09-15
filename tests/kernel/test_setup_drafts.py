@@ -1,9 +1,10 @@
 """Actual draft values, acknowledgment and commit are one versioned contract."""
 import copy
 import json
+import shutil
 from pathlib import Path
 
-from conftest import CAMPAIGN, campaign_dir, read_json
+from conftest import CAMPAIGN, CONTENT_DIR, RpcClient, campaign_dir, read_json
 
 
 def profile():
@@ -323,3 +324,74 @@ def test_a_weapon_the_rulebook_never_printed_is_refused_with_the_profiles_and_a_
     modern = [entry["display_name"] for entry in era.values() if entry.get("eras") == ["modern"]]
     assert modern and not [name for name in modern if name in error["details"]["weapons"]], "a 1920s draft is not offered modern guns"
     assert kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": {**profile(), "era": "1920s", "weapons": []}})["completeness"]["valid"]
+
+
+def authored_era_content(tmp_path, era):
+    """A copy of the starter whose book declares the era this campaign is actually set in."""
+    content = tmp_path / "content"
+    shutil.copytree(CONTENT_DIR, content)
+    path = content / "starters" / "the-haunting" / "module-graph.json"
+    graph = json.loads(path.read_text(encoding="utf-8"))
+    node = next(node for node in graph["nodes"] if node["node_kind"] == "module")
+    document = next(entry for entry in node["properties"]["runtime_projection"]["documents"]
+                    if entry["filename"] == "module-meta.json")
+    document["root"]["era"] = era
+    path.write_text(json.dumps(graph, ensure_ascii=False), encoding="utf-8")
+    return content
+
+
+# The playtested book: the authored era is prose naming two years the rulebook never tabulated.
+AUTHORED_ERA = "1895 (default); investigators then enter 1287"
+
+
+def test_an_era_the_rulebook_never_tabulated_builds_the_card_and_says_what_stood_in(tmp_path):
+    """A PDF book set in 1895 left a table with no investigator at all: the draft refused, told the
+    Keeper to keep setup blocked, and the Keeper truthfully told the player the campaign could not
+    start. A finance column the rulebook never printed is not a reason to have no character. The
+    table's own nominated period stands in, and every place the number is sourced says which setting
+    it stood in for, so the substitution is auditable from the card rather than silent."""
+    client = RpcClient(tmp_path / "workspace", content=authored_era_content(tmp_path, AUTHORED_ERA))
+    try:
+        client.ok("campaign.create", {"id": CAMPAIGN, "module": "the-haunting", "play_language": "en"})
+        default_period = json.loads((CONTENT_DIR / "rulesets/coc7/rules-json/cash-assets.json")
+                                    .read_text(encoding="utf-8"))["default_period"]
+        draft = client.ok("setup.draft", {"campaign": CAMPAIGN, "profile": profile()})
+        assert draft["completeness"]["valid"], "an untabulated setting must not cost the table its investigator"
+        sheet = draft["sheet"]
+        assert sheet["era"] == default_period, "the card is built against a period the rulebook actually prints"
+        assert sheet["setting_era"] == AUTHORED_ERA, "the authored setting is kept, never rewritten into a table key"
+        finance = sheet["finance"]
+        assert finance is not None and finance["period"] == default_period
+        assert finance["source"] == f"cash-assets.periods.{default_period}", "the numbers name the row they came from"
+        assert finance["substituted_for"] == AUTHORED_ERA, "a stand-in period is on the card, not inferred from a missing match"
+        trace = sheet["creation"]["finance"]
+        assert trace["available"] is True and trace["source"] == f"cash-assets.periods.{default_period}"
+        assert trace["substituted_for"] == AUTHORED_ERA and default_period in trace["note"]
+        assert sheet["cash"] == f"{finance['cash']['amount']} {finance['cash']['currency']}"
+        # The point of all of this: this campaign can now reach the table.
+        client.ok("setup.previewed", {"campaign": CAMPAIGN, "revision": draft["revision"]})
+        client.ok("setup.confirm", {"campaign": CAMPAIGN, "revision": draft["revision"], "consent": "approved"})
+        assert client.ok("setup.complete", {"campaign": CAMPAIGN})["status"] == "ready_for_table"
+    finally:
+        client.close()
+
+
+def test_a_period_the_agent_invents_is_still_refused_with_the_closed_set(tmp_path):
+    """The stand-in is the kernel's floor for an authored setting, not a licence for the setup agent
+    to pass a table key of its own invention; an explicit choice is still checked against the table."""
+    client = RpcClient(tmp_path / "workspace", content=authored_era_content(tmp_path, AUTHORED_ERA))
+    try:
+        client.ok("campaign.create", {"id": CAMPAIGN, "module": "the-haunting", "play_language": "en"})
+        error = client.err("setup.draft", {"campaign": CAMPAIGN, "profile": {**profile(), "era": AUTHORED_ERA}})
+        assert error["code"] == "needs" and error["details"]["field"] == "era"
+        assert error["details"]["source_era"] == AUTHORED_ERA
+        table = json.loads((CONTENT_DIR / "rulesets/coc7/rules-json/cash-assets.json").read_text(encoding="utf-8"))
+        assert error["details"]["options"] == list(table["periods"]), "the closed set is the table's own periods"
+        assert "blocked" not in (error.get("fix") or ""), "the refusal must not hand the agent a dead end"
+        # The agent's own semantic pick from the closed set is honoured, and still records the setting.
+        picked = client.ok("setup.draft", {"campaign": CAMPAIGN, "profile": {**profile(), "era": "modern"}})
+        assert picked["sheet"]["era"] == "modern"
+        assert picked["sheet"]["finance"]["substituted_for"] == AUTHORED_ERA
+        assert picked["sheet"]["finance"]["source"] == "cash-assets.periods.modern"
+    finally:
+        client.close()

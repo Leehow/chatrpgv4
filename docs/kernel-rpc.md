@@ -1881,11 +1881,25 @@ acceptance milestones: `docs/specs/fast-guided-pdf-onboarding.md`.
 
 Browser finding: authored `era` may be prose spanning several years. It must not
 be interpreted with string matching or overwritten to satisfy a finance table.
-`setup.draft.profile.era` therefore accepts an existing `cash-assets.periods` key.
-When omitted and the authored value is not already a supported key, the kernel
-returns the source description and closed supported options; the setup agent
-chooses semantically and retries. Chargen arithmetic is unchanged. Entrance-specific
-`investigator_setup.era` takes precedence over book-wide era for that campaign.
+`setup.draft.profile.era` therefore accepts an existing `cash-assets.periods` key,
+and an explicit value that names no period is `needs` with the closed set, so the
+setup agent can pick semantically and retry. An authored era, however, never blocks
+the table: a book set in a year the rulebook never tabulated once left a campaign
+with no investigator at all, because the refusal and the setup prompt both told the
+agent to keep setup blocked. The card is instead built against `cash-assets`'s own
+`default_period` — which period stands in is table data, never arithmetic over the
+authored text — and the substitution is carried where the numbers are sourced:
+`sheet.finance.source`, `sheet.finance.substituted_for`, the same pair under
+`sheet.creation.finance` with a note, `sheet.setting_era`, and `finance_period` /
+`setting_era` on the investigator receipt. `sheet.era` stays a real rulebook key so
+the standard sheet, weapons and equipment tables resolve; the authored setting is
+kept beside it rather than rewritten into a key. The setup agent states the
+substitution to the player once, in the play language, and carries on. The same
+resolution runs on `setup.investigator`, which previously passed authored prose
+straight through and produced a card with neither a standard sheet nor a finance
+block — incomplete by `completeness`, so that campaign could not open play either.
+Chargen arithmetic is unchanged. Entrance-specific `investigator_setup.era` takes
+precedence over book-wide era for that campaign.
 
 Pi 0.85.1's idle `ctx.shutdown()` only sets a pending flag. After the idle handoff
 handler returns, the frontend uses the existing onboarding start operation to

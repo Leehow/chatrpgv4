@@ -13,7 +13,7 @@ const APTITUDE_CAPABILITY = 'setup.aptitude.v1';
 const NOTE_VALUE_LIMIT = 400;
 import type { CampaignWriter } from '../write/store.js';
 import type { Setup } from './index.js';
-import { ChargenError, parseFormula, evaluateFormula } from './chargen.js';
+import { ChargenError, parseFormula, evaluateFormula, resolveRulebookEra } from './chargen.js';
 import { BACKSTORY, completeness, nonempty } from './sheet.js';
 const FIELDS = ['name', 'occupation', 'age', 'sex', 'concept', 'occupation_skills', 'interest_skills', 'own_language', 'backstory', 'key_connection', 'equipment', 'weapons', 'era', 'aptitude', 'occupation_stated'];
 const APTITUDE = ['strong', 'weak'], APTITUDE_FIELDS = [...APTITUDE, 'origin'];
@@ -130,11 +130,17 @@ export class SetupDrafts {
       if (!Object.hasOwn(state, 'draft_seed')) { state.draft_seed = seed; await campaign.writeCampaign(meta); }
       const graph = (await loadModule(this.setup.context, meta.module_id)).graph;
       const selected = truth(meta.opening_scene) ? graph.scene(meta.opening_scene) : graph.startScene();
-      const sourceEra = row(row(selected.properties).investigator_setup).era || moduleEra(graph), periods = Object.keys(row(await this.setup.tables.load('cash-assets')).periods);
-      const era = profile.era || sourceEra || '1920s';
-      if (!periods.includes(era)) throw new RpcError('needs', 'No applicable rulebook finance period has been selected for the authored era', {
-        fix: 'Choose profile.era from the returned options only when it matches the source setting, then retry in this turn. If no period applies, keep setup blocked; do not approximate or invent finance tables. Do not ask the player to fix a system parameter.',
-        details: {field: 'era', source_era: sourceEra, options: periods}});
+      // The book's authored era is a setting, not a table key, and can be prose spanning years. An
+      // explicitly chosen profile.era is the setup agent's own semantic pick and must name a real
+      // period; an authored era the rulebook never tabulated never blocks the table — the period the
+      // table nominates stands in, and the card records what it stood in for (§23.4).
+      const sourceEra = row(row(selected.properties).investigator_setup).era || moduleEra(graph);
+      const chosen = typeof profile.era === 'string' ? profile.era.trim() : '';
+      const resolved = await resolveRulebookEra(this.setup.tables, chosen || sourceEra);
+      if (chosen && !resolved.options.includes(chosen)) throw new RpcError('needs', 'profile.era must name a rulebook finance period', {
+        fix: "Pass the period from details.options that reads closest to the authored setting, or omit profile.era and let the table's own period stand in. Either way the card records which setting the period stood in for, so say that once to the player. Do not copy authored prose as a table key, and do not ask the player to fix a system parameter.",
+        details: {field: 'era', source_era: sourceEra ?? null, options: resolved.options}});
+      const era = resolved.era, authoredEra = typeof sourceEra === 'string' && sourceEra.trim() && sourceEra.trim() !== era ? sourceEra.trim() : null;
       // Prose moves a characteristic only through a package that opened that door (§23.4, §26).
       let stated: Row | null = null;
       try { stated = this.setup.chargen.aptitude(profile.aptitude ?? null); }
@@ -146,7 +152,7 @@ export class SetupDrafts {
       }
       let sheet: Row, receipt: Row;
       try { [sheet, receipt] = await this.setup.chargen.build({investigatorId: 'investigator', name: profile.name, occupationId: profile.occupation, concept: profile.concept,
-        age: Object.hasOwn(profile, 'age') ? profile.age : 27, sex: profile.sex ?? null, method: 'rolled', seed, era, difficulty: meta.difficulty ?? null, aptitude: profile.aptitude ?? null,
+        age: Object.hasOwn(profile, 'age') ? profile.age : 27, sex: profile.sex ?? null, method: 'rolled', seed, era, sourceEra: authoredEra, difficulty: meta.difficulty ?? null, aptitude: profile.aptitude ?? null,
         occupationSkills: profile.occupation_skills, interestSkills: profile.interest_skills}); }
       catch (error) { if (!(error instanceof ChargenError) && (!(error instanceof Error) || !['ValueError', 'KeyError'].includes(error.name))) throw error;
         throw new RpcError('needs', error.message, {details: {expected: error instanceof ChargenError ? error.expected : null}}); }
