@@ -28,6 +28,11 @@ const errorText = (error: unknown): string => (error instanceof Error ? error.me
  * starts more workers than the batch has distinct jobs.
  */
 const MOD_POOL_DEFAULT = 8;
+function prefetchLimit(): number {
+  const value = process.env.PI_COC_MOD_PREFETCH_LIMIT;
+  const configured = value?.trim() ? Number(value) : NaN;
+  return Number.isFinite(configured) && configured >= 0 ? Math.floor(configured) : 2;
+}
 function modPoolSize(): number {
   const configured = Number(process.env.PI_COC_MOD_CONCURRENCY);
   return Number.isFinite(configured) && configured >= 1 ? Math.floor(configured) : MOD_POOL_DEFAULT;
@@ -54,7 +59,72 @@ export default function modsExtension(pi: ExtensionAPI): void {
     record = (data as any)?.record;
   });
   pi.on("session_start", async (_event, ctx) => { context = ctx; });
-  pi.on("before_agent_start", async (_event, ctx) => { context = ctx; inputToken = randomUUID(); });
+  pi.on("before_agent_start", async (_event, ctx) => { cancelPrefetch(); context = ctx; inputToken = randomUUID(); });
+  pi.on("input", () => { cancelPrefetch(); });
+
+  let prefetchEpoch = 0, prefetching: Promise<void> | undefined;
+  let prefetchController: AbortController | undefined;
+  let stopped = false;
+  const prefetchedTurns = new Set<string>();
+  function cancelPrefetch(): void {
+    prefetchEpoch++;
+    prefetchController?.abort(new Error('Usage prefetch yielded to foreground work'));
+  }
+  pi.events.on('coc:turn-committed', data => {
+    const committed = data as {campaign?: string; turn?: number};
+    const limit = prefetchLimit();
+    if (stopped || !call || !runtime || !limit || typeof committed?.campaign !== 'string' || typeof committed.turn !== 'number') return;
+    const campaign = committed.campaign, turn = committed.turn, current = call, epoch = prefetchEpoch, prior = prefetching;
+    // Leave the committing call immediately. A later input invalidates even a scan waiting in this chain.
+    const work = (async () => {
+      if (prior) await prior;
+      // Deferred inventory registration owns its creator first; optional work never races that batch.
+      if (outstanding) await outstanding;
+      await new Promise<void>(resolve => setImmediate(resolve));
+      if (stopped || epoch !== prefetchEpoch) return;
+      const controller = new AbortController();
+      prefetchController = controller;
+      const ready = (view: any): boolean => !stopped && epoch === prefetchEpoch && view.turn === turn
+        && view.state === 'awaiting_player' && !view.pending_choice;
+      try {
+        const view = await current('mods.prefetch.targets', {campaign});
+        if (!ready(view)) return;
+        const key = JSON.stringify([campaign, view.worldline, turn]);
+        if (prefetchedTurns.has(key)) return;
+        prefetchedTurns.add(key);
+        const candidates = view.instances.filter((item: any) => !item.has_any_usage && !item.covered).slice(0, limit);
+        for (const item of candidates) {
+          if (controller.signal.aborted) break;
+          const latest = await current('mods.prefetch.targets', {campaign});
+          if (!ready(latest) || latest.worldline !== view.worldline) break;
+          const target = latest.instances.find((value: any) => value.id === item.id);
+          if (!target || target.has_any_usage || target.covered) continue;
+          const began = Date.now();
+          try {
+            const guard = async () => {
+              const state = await current('mods.prefetch.targets', {campaign});
+              if (!ready(state) || state.worldline !== view.worldline) controller.abort(new Error('Usage prefetch is no longer idle'));
+              controller.signal.throwIfAborted();
+            };
+            const result = await task(campaign, 'usage', {object: target.name, propose: true}, controller.signal, undefined, guard);
+            note({lane: 'usage-prefetch', campaign, turn, object: target.name, prefetched: true,
+              ok: true, enabled: result !== null, negative: result?.usage === null,
+              job: result?.provenance?.job ?? null, ms: Date.now() - began});
+          } catch (error) {
+            note({lane: 'usage-prefetch', campaign, turn, object: target.name, prefetched: true,
+              ok: false, cancelled: controller.signal.aborted, cause: errorText(error), ms: Date.now() - began,
+              ...(isKernelError(error) ? {code: error.code, ...error.details} : {})});
+          }
+        }
+      } catch (error) {
+        note({lane: 'usage-prefetch', campaign, turn, prefetched: true, ok: false, cause: errorText(error)});
+      } finally {
+        if (prefetchController === controller) prefetchController = undefined;
+      }
+    })();
+    prefetching = work;
+    void work.finally(() => { if (prefetching === work) prefetching = undefined; });
+  });
 
   /**
    * One campaign telemetry row per continuity review (contract §12.8). The review is a `mod` child,
@@ -174,16 +244,19 @@ export default function modsExtension(pi: ExtensionAPI): void {
     } finally { budget.close(); }
   }
 
-  async function task(campaign: string, role: "create" | "usage" | "audit", input: unknown, signal?: AbortSignal, preview?: Record<string, any>[]): Promise<any> {
+  async function task(campaign: string, role: "create" | "usage" | "audit", input: unknown, signal?: AbortSignal, preview?: Record<string, any>[], guard?: () => Promise<void>): Promise<any> {
     if (!call) throw new KernelError({code:"needs",message:"Mod kernel bridge is unavailable"});
     const current = call, owner = runtime, began = Date.now();
+    const proposal = role === 'usage' && (input as any)?.propose === true;
+    const acceptMethod = proposal ? 'mods.prefetch.accept' : 'mods.accept';
     if (role === "usage") signal?.throwIfAborted();
     const job = await current("mods.job", preview === undefined ? {campaign, role, input} : {campaign, role, input, preview});
     if (role === "usage") signal?.throwIfAborted();
     if (!job.enabled) return null;
     if (job.continuity_review) return continuityTask(campaign, job, input, began, signal);
     if (job.accepted) {
-      const result = await current("mods.accept", {campaign, job:job.job});
+      await guard?.();
+      const result = await current(acceptMethod, {campaign, job:job.job});
       if (role === "usage") signal?.throwIfAborted();
       return result;
     }
@@ -204,6 +277,7 @@ export default function modsExtension(pi: ExtensionAPI): void {
       // batch that died mid-flight could not be told from one that timed out. The attempt is recorded
       // either way, and then the original failure continues on its way.
       try {
+        await guard?.();
         outcome = await owner.runTask({kind:"mod", request:{cwd:job.cwd, systemPrompt:job.system_prompt, model:modelName,
           tools:job.source_review || role === "usage" ? "read,write,edit,bash" : "read,write,edit",
           eventLog:join(job.cwd, `agent-${attempt}.jsonl`), brief:base + repair}}, signal);
@@ -222,12 +296,17 @@ export default function modsExtension(pi: ExtensionAPI): void {
         fix:"Retry the same request to resume the retained job",
         details:{reason:"mod_agent_failed", role, source_review:job.source_review === true, timed_out:outcome.timedOut, ms:outcome.ms, exit:outcome.code ?? null, signal:outcome.signal ?? null}});
       try {
-        if (role === "create" || role === "usage") {
+        // The ordinary usage checker accepts objects only. A proposal may explicitly decline with
+        // JSON null; the same kernel acceptance gate validates that negative result and retains it.
+        const negative = proposal && JSON.parse(await readFile(join(job.cwd, 'result.json'), 'utf8')) === null;
+        if ((role === "create" || role === "usage") && !negative) {
           const check = await owner.check({kind:role === "usage" ? "object-usage" : "mod-definition", draft:join(job.cwd,"result.json")}, signal);
           if (role === "usage") signal?.throwIfAborted();
           if (!check.ok) throw new Error(JSON.stringify(check.fix ? {error: check.error, fix: check.fix} : check.error ?? check));
         }
-        const result = await current("mods.accept", {campaign, job:job.job});
+        await guard?.();
+        if (role === "usage") signal?.throwIfAborted();
+        const result = await current(acceptMethod, {campaign, job:job.job});
         if (role === "usage") signal?.throwIfAborted();
         return result;
       }
@@ -458,6 +537,7 @@ export default function modsExtension(pi: ExtensionAPI): void {
      * opened this one, so completing here needs no write authority it does not already have.
      */
     async after(method, payload, signal) {
+      if (method === 'player_input') cancelPrefetch();
       if (typeof payload.campaign !== "string") return;
       // Preparing a reading can never fail a verb that already landed, so it is started, never awaited.
       if (method === "apply") warm(payload.campaign, carriers(payload.effects ?? []));
@@ -467,6 +547,7 @@ export default function modsExtension(pi: ExtensionAPI): void {
       catch (error) { void emitToPanel("coc-keeper", "mods-progress", {campaign: payload.campaign, done: 0, total: 0, deferred_failed: errorText(error)}); }
     },
     async prepare(method, payload, signal) {
+      cancelPrefetch();
       if (["apply", "resolve", "narrate", "ask"].includes(method) && typeof payload.campaign === "string")
         await resume(payload.campaign, signal);
       if (method === "apply") {
@@ -517,6 +598,8 @@ export default function modsExtension(pi: ExtensionAPI): void {
   // Subscribe/announce during extension loading, before kernel session_start opens the table.
   pi.events.emit("coc:mods-bridge", bridge);
   pi.on("session_shutdown", async () => {
+    stopped = true;
+    cancelPrefetch();
     if (context?.hasUI) context.ui.setStatus("coc-mods", undefined);
     context = undefined;
     pi.events.emit("coc:mods-bridge", undefined);
