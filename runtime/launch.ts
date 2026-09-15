@@ -6,6 +6,32 @@ import { fileURLToPath } from 'node:url';
 import { composeRuntimeContext, type RuntimeHostOptions } from './host.ts';
 import { extensionArgs, resourceRootFrom, sessionExtensionPaths } from './deployment.mjs';
 
+/**
+ * How long a provider connection may say nothing before the transport gives up.
+ *
+ * Pi turns this setting into undici's `headersTimeout` and `bodyTimeout` (its own default is five
+ * minutes) and into the per-request SDK timeout. A table does not have five minutes: the host's
+ * turn watchdog (`TURN_WATCHDOG_TIMEOUT_MS`, two minutes) fires first, and what it produces is an
+ * *abort*, which pi correctly never retries -- `_prepareRetry` runs on `stopReason: "error"` only,
+ * because auto-retrying a cancellation would defeat the cancellation. So a connection that answers
+ * and then says nothing costs the player the whole turn, while a connection that fails outright is
+ * retried three times at two-second backoff and costs him one red line (2026-09-15: turn 14's
+ * `Connection error.` recovered in 2 s; turns 2, 7 and 10 went silent and were aborted at 126 s,
+ * 129 s and 147 s with nothing delivered).
+ *
+ * Under the watchdog, the same silence becomes a timeout *error*, which the retry patterns in
+ * pi-ai already match ("timeout", "timed out", "terminated") -- so the existing retry path covers
+ * it and nothing new has to be invented. The four silent streams on record that no watchdog cut
+ * short are the proof: each ended at ~302 s, at this very timer, as `stop_reason: "error"`.
+ *
+ * One minute rather than a guess: across the 15,942 provider requests on disk the gap between the
+ * request and its response headers is 770 ms at the median, 12.4 s at p99.9 and 29.7 s at its
+ * worst, and not one exceeded 30 s. This is an *idle* timeout, not a budget for the answer: a
+ * streaming reply resets it on every chunk, and the slowest healthy turn on record still streams.
+ */
+const HTTP_IDLE_TIMEOUT_SETTING = 'httpIdleTimeoutMs';
+const HTTP_IDLE_TIMEOUT_MS = 60_000;
+
 export function piLaunch(input: string[], options: RuntimeHostOptions = {}) {
   const env = {...(options.env ?? process.env)};
   const root = options.resourceRoot ?? resourceRootFrom(import.meta.url, env);
@@ -34,15 +60,26 @@ export function piLaunch(input: string[], options: RuntimeHostOptions = {}) {
   const path = join(context.agentHome, 'settings.json');
   if (!existsSync(path)) {
     writeFileSync(path, JSON.stringify(context.layout === 'source'
-      ? {packages: [context.resourceRoot], quietStartup: true} : {quietStartup: true}, null, 2) + '\n');
-  } else if (context.layout === 'source') {
+      ? {packages: [context.resourceRoot], quietStartup: true, httpIdleTimeoutMs: HTTP_IDLE_TIMEOUT_MS}
+      : {quietStartup: true, httpIdleTimeoutMs: HTTP_IDLE_TIMEOUT_MS}, null, 2) + '\n');
+  } else {
     const settings = JSON.parse(readFileSync(path, 'utf8'));
     if (!settings || typeof settings !== 'object' || Array.isArray(settings)) throw new Error(`${path} must contain an object`);
-    const packages = Array.isArray(settings.packages) ? settings.packages : [];
-    if (!packages.includes(context.resourceRoot)) {
-      settings.packages = [...packages, context.resourceRoot];
-      writeFileSync(path, JSON.stringify(settings, null, 2) + '\n');
+    let changed = false;
+    if (context.layout === 'source') {
+      const packages = Array.isArray(settings.packages) ? settings.packages : [];
+      if (!packages.includes(context.resourceRoot)) {
+        settings.packages = [...packages, context.resourceRoot];
+        changed = true;
+      }
     }
+    // Written once, never re-asserted: the operator's own value, including a deliberate 0
+    // ("disabled"), is theirs and this must not walk over it on the next launch.
+    if (!(HTTP_IDLE_TIMEOUT_SETTING in settings)) {
+      settings[HTTP_IDLE_TIMEOUT_SETTING] = HTTP_IDLE_TIMEOUT_MS;
+      changed = true;
+    }
+    if (changed) writeFileSync(path, JSON.stringify(settings, null, 2) + '\n');
   }
   const hostSession = forwarded.some(arg => arg === '--session' || arg.startsWith('--session='));
   const session = campaign && !hostSession ? ['--session-id', `coc-${mode === 'setup' ? 'setup-' : ''}${campaign}`] : [];

@@ -1113,7 +1113,16 @@ export default function (pi: ExtensionAPI) {
 		const settle = async (verdict: AdmissionVerdict, reused: boolean, ms: number, model?: string): Promise<void> => {
 			state.admission.set(proposal.key, verdict);
 			const admitted = ADMITTING_VERDICTS.has(verdict.verdict);
-			await record({ lane: "admission", verb: tool, ok: true, verdict: verdict.verdict, admitted, reused, ms, key: digest, ...(model ? { model } : {}) });
+			// A refusal costs the player the whole batch, and until now the row said only which verdict
+			// came back: the reviewer's own reasons and the effects it was judging lived in the thrown
+			// KernelError (which the Keeper reads and nobody keeps) and in a turn record whose `calls`
+			// stay empty for a refused call. That left "the reviewer misread plain words" and "the batch
+			// carried an effect nobody chose" indistinguishable after the fact -- 2026-09-15 turn 2,
+			// where a player asked in plain words for the keys and the address he had just been
+			// promised and the batch was refused whole. The grounds and the proposed effects are
+			// what decide between those two readings, so a refusal now carries them.
+			await record({ lane: "admission", verb: tool, ok: true, verdict: verdict.verdict, admitted, reused, ms, key: digest, ...(model ? { model } : {}),
+				...(admitted ? {} : { grounds: verdict.grounds.slice(0, 200), ...(verdict.missing ? { missing: verdict.missing.slice(0, 160) } : {}), proposed: proposal.lines }) });
 			if (admitted) return;
 			state.admissionRefused.push(`${proposal.lines.join(" | ")} -> ${verdict.verdict}${verdict.missing ? `: ${verdict.missing}` : ""}`);
 			throw admissionRefusal(proposal, verdict);
@@ -2354,8 +2363,18 @@ export default function (pi: ExtensionAPI) {
 	});
 	pi.on("after_provider_response", async (event, ctx) => {
 		const requestId = Object.entries(event.headers).find(([name]) => ["x-request-id", "request-id"].includes(name.toLowerCase()))?.[1];
-		await record({lane: "provider-response", at: new Date().toISOString(), provider: ctx.model?.provider,
+		// Pi awaits this hook inside the adapter's `onResponse`, which runs *before* the first body
+		// byte is read, so every millisecond spent here is a millisecond the response stream is not
+		// being consumed. `at` is stamped on entry and says nothing about when the hook returned:
+		// on a run that answers 200 and then produces no block at all (2026-09-15, turn 2: 200 in
+		// 612 ms, then 126 s and `blocks: []` before the host watchdog aborted it), the rows on disk
+		// cannot tell "the provider sent nothing" from "the host blocked before reading". This row
+		// decides it -- absent or near zero and the silence was on the wire, not in here (§38.7).
+		const at = Date.now();
+		await record({lane: "provider-response", at: new Date(at).toISOString(), provider: ctx.model?.provider,
 			status: event.status, ...(requestId ? {request_id: requestId} : {})});
+		const hookMs = Date.now() - at;
+		if (hookMs >= 1000) await record({lane: "provider-response-hook", at: new Date().toISOString(), hook_ms: hookMs});
 	});
 
 	pi.on("agent_end", async () => {
