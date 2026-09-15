@@ -20,7 +20,9 @@
  *    Psychology read the player themselves declared must appear, or their own check is
  *    indistinguishable from the Keeper talking, which is how this card came to look empty.
  * 2. **Nothing is computed.** Every number is printed as the receipt carries it. The one
- *    exception is a delta's sign, which is subtraction of two numbers the kernel already gave.
+ *    exception is a delta's sign, which is subtraction of two numbers the kernel already gave —
+ *    and even that is done in base 10 (`exactDelta`), because on money the binary difference of
+ *    two clean decimals is not a clean decimal, and the player reads the result.
  *
  * The visual system: one turn's mechanics arrive together, so they sit on one bordered slip
  * under a small caption. Each row leads with its kind's glyph on a disc; colour is earned, never
@@ -116,6 +118,10 @@ const CSS = `
 /* Emphasis follows the success level the kernel graded — it is not decoration, it is the grade. */
 .coc-mech-lv{font-size:10.5px;font-weight:650;padding:1px 6px;border-radius:5px;white-space:nowrap;
   color:var(--muted);background:color-mix(in oklab, var(--muted) 14%, transparent)}
+/* What the check demanded, when a difficulty moved the bar off the target. It is a condition,
+   not a grade, so it stays outlined and quiet beside the graded chip rather than filled. */
+.coc-mech-need{flex:none;font-size:10.5px;font-weight:600;padding:1px 6px;border-radius:5px;
+  white-space:nowrap;font-variant-numeric:tabular-nums;color:var(--subtle);border:1px solid var(--border)}
 .coc-mech-row[data-grade="extreme"] .coc-mech-num,
 .coc-mech-row[data-grade="critical"] .coc-mech-num{font-size:19px;color:var(--accent)}
 .coc-mech-row[data-grade="extreme"] .coc-mech-lv,
@@ -274,6 +280,40 @@ function text(value) {
 
 function num(value) {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+/** Decimal places in a number's own JSON spelling, or null when it is not spelled plainly. */
+function decimalPlaces(value) {
+  const text = String(value);
+  if (!/^-?\d+(?:\.\d+)?$/.test(text)) return null;
+  const point = text.indexOf(".");
+  return point < 0 ? 0 : text.length - point - 1;
+}
+
+/**
+ * `after - before`, differenced on the two numbers' own digits.
+ *
+ * This is the one piece of arithmetic on the card, and in binary floating point it is not safe
+ * for money: a two-cent newspaper took an investigator from 9 to 8.98 and the badge printed
+ * `-0.019999999999999574` at the player. The kernel was clean — a cash receipt carries no delta
+ * at all, only the two endpoints — so the noise was made here, by `after - before`.
+ *
+ * The kernel settles cash in exact base 10 (`kernel-ts/apply/cash.ts`); this renderer has no
+ * import map and cannot share that code, so it does the same thing in the small: scale both
+ * endpoints to the finer of their two decimal spellings, subtract as integers, and put the point
+ * back. An integer resource (SAN 50 → 45) has scale 1 and comes out −5, exactly as before.
+ *
+ * A value JavaScript spells in exponent form, or a scale too fine to hold as a safe integer, is
+ * outside anything a resource on this card uses; those fall back to the plain subtraction rather
+ * than being silently mis-scaled.
+ */
+function exactDelta(before, after) {
+  if (before === undefined || after === undefined) return undefined;
+  const places = [decimalPlaces(before), decimalPlaces(after)];
+  if (places.some(value => value === null)) return after - before;
+  const factor = 10 ** Math.max(...places);
+  const end = Math.round(after * factor), start = Math.round(before * factor);
+  return Number.isSafeInteger(end) && Number.isSafeInteger(start) ? (end - start) / factor : after - before;
 }
 
 /** A player-safe raster derivative. File paths, remote URLs and SVG data never reach the <img>. */
@@ -520,6 +560,23 @@ export function createComponent(React) {
         // `regular` and `failure` carry no word on purpose: they say what the stamp already says,
         // and an empty chip beside the stamp is worse than none.
         const levelWord = level ? t(`level.${level}`, "") : "";
+        // The bar the die was actually compared against (§16.2's `threshold`), drawn whenever the
+        // difficulty moved it off the target.
+        //
+        // Without it the row contradicts its own stamp. A hard Intimidate against a 15 is decided
+        // at 7, so `10 /15  fail` reads to a player as the product getting CoC's one rule wrong —
+        // 10 is under 15. The kernel had both numbers all along and this card printed neither:
+        // `difficulty` and `threshold` had no reader in this file at all. They are not prose
+        // restated (the rule against numbers in narration is about the keeper's sentences); this
+        // is the structured slip where a receipt is supposed to be legible.
+        //
+        // `regular` is silent because its threshold *is* the target already drawn — the test is
+        // the two numbers, not the word, so a difficulty this file has no caption for still says
+        // the true figure.
+        const bar = num(row.threshold), difficulty = text(row.difficulty);
+        const needWord = bar !== undefined && bar !== num(row.target) && difficulty
+          ? fill(t("needs"), { level: t(`difficulty.${difficulty}`, term(difficulty)), n: bar })
+          : "";
         return h(Row, { key, kindKey: "roll", kindLabel, grade, family },
           h("span", { className: "coc-mech-body" },
             who ? h("span", { className: "coc-mech-who" }, `${who} `) : null,
@@ -527,6 +584,7 @@ export function createComponent(React) {
           h("span", { className: "coc-mech-figure" },
             h(N, null, text(row.roll)),
             h("span", { className: "coc-mech-target" }, `/${text(row.target)}`)),
+          needWord ? h("span", { className: "coc-mech-need" }, needWord) : null,
           levelWord ? h("span", { className: "coc-mech-lv" }, levelWord) : null,
           row.pushed ? h("span", { className: "coc-mech-faces" }, t("pushed")) : null,
           h(Stamp, { tone: row.passed ? "pass" : "fail" }, row.passed ? t("pass") : t("fail")));
@@ -548,8 +606,9 @@ export function createComponent(React) {
       case "change": {
         const before = num(row.before);
         const after = num(row.after);
-        // The only arithmetic here, and it is subtraction of two numbers the kernel handed over.
-        const delta = before !== undefined && after !== undefined ? after - before : undefined;
+        // The only arithmetic here, and it is subtraction of two numbers the kernel handed over —
+        // done on their digits, because in binary the difference of two decimals is not one.
+        const delta = exactDelta(before, after);
         return h(Row, { key, kindKey: "change", kindLabel, family },
           h("span", { className: "coc-mech-body" },
             row.item ? h("span", { className: "coc-mech-who" }, `${term(text(row.item))} `) : row.subject_is_investigator === true
@@ -596,7 +655,8 @@ export function createComponent(React) {
       case "cash": {
         const before = num(row.before);
         const after = num(row.after);
-        const delta = before !== undefined && after !== undefined ? after - before : undefined;
+        // Cash is the decimal resource: a purchase of 0.02 is the case that exposed `after - before`.
+        const delta = exactDelta(before, after);
         return h(Row, { key, kindKey: "cash", kindLabel, family },
           h("span", { className: "coc-mech-body" }, text(row.subject_label || row.subject)),
           h("span", { className: "coc-mech-figure" },

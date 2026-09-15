@@ -97,6 +97,43 @@ it('keeps passport words live, the era unlabelled and decoration across refreshe
   expect(container.querySelector('.coc-sheet-seal')?.getAttribute('src')).toContain('AQ==');
 });
 
+/**
+ * The credential's dateline is the setting's year, never the finance column's table key (§23.4).
+ *
+ * A book set in 1895 is costed off the `1920s` column because the rulebook tabulates no 1895
+ * prices, and the sheet says so in `setting_era`. Drawing `sheet.era` regardless headed a
+ * credential `1920` on a panel whose clock read 1895年1月25日 — the same document disagreeing with
+ * itself about the century. The authored setting is prose the contract forbids string-matching, so
+ * the year comes from `clock.at`, which the kernel derives from the module's own start stamp.
+ */
+describe('the credential is dated by the setting, not the finance table', () => {
+  const substituted = { ...investigator, era: '1920s', setting_era: '1895 (default); investigators then enter 1287' };
+  const answer = (over: Record<string, unknown>) =>
+    ({ ok: true, data: { status: 'ready', campaign: 'c1', view: view(over) } });
+
+  it('takes the year from the in-world clock when the era is a stand-in key', async () => {
+    const { container } = render(<Panel api={host(answer({ investigators: [substituted], clock: { minutes: 75, at: '1895-01-25T02:00' } }))} />);
+    await screen.findByText(say('zh-Hans', 'sheet', 'identityTitle'));
+    expect(container.querySelector('.coc-sheet-era')?.textContent).toBe('1895');
+    expect(container.querySelector('.coc-sheet-era')?.textContent).not.toBe('1920');
+  });
+
+  it('keeps the authored setting in the book\'s own words when the module named no clock', async () => {
+    // No stamp to derive a year from, and no licence to read one out of the sentence: the card
+    // prints the setting it was given rather than a table key that is not the setting at all.
+    const { container } = render(<Panel api={host(answer({ investigators: [substituted], clock: { minutes: 75 } }))} />);
+    await screen.findByText(say('zh-Hans', 'sheet', 'identityTitle'));
+    expect(container.querySelector('.coc-sheet-era')?.textContent).toBe(substituted.setting_era);
+  });
+
+  it('still draws the rulebook era when nothing was substituted for it', async () => {
+    // The ordinary campaign: `era` is the setting, and the clock does not get to overrule it.
+    const { container } = render(<Panel api={host(answer({ investigators: [{ ...investigator, era: '1920s' }], clock: { minutes: 75, at: '1925-06-02T09:30' } }))} />);
+    await screen.findByText(say('zh-Hans', 'sheet', 'identityTitle'));
+    expect(container.querySelector('.coc-sheet-era')?.textContent).toBe('1920');
+  });
+});
+
 it('looks the investigator sex up in the lane words, falling back to the sheet\'s own word', async () => {
   // The identity lane projects the setup model's word per play language: a projection in the
   // labels shows, an unprojected word falls back to the sheet's own, and a sheet without a sex

@@ -1033,8 +1033,21 @@ export function createComponent(React) {
     }
     const concept = sheet && isRecord(sheet.backstory) ? term(text(sheet.backstory.concept)) : "";
     // Canonical numeric era notation only, not a language detector or a guessed issue date.
+    //
+    // `sheet.era` is a rulebook table key, and §23.4 lets it stand in for a setting the rulebook
+    // never tabulated: a book set in 1895 builds its card off the `1920s` finance column and says
+    // so in `sheet.setting_era`. That substitution is an accounting fact about the money, so a
+    // credential headed `1920` beside a panel whose clock reads 25 January 1895 tells the player
+    // their own document is from the wrong century. Where the sheet admits the key is a stand-in, the
+    // dateline comes from `clock.at` instead — the kernel's own in-world stamp, canonical ISO, so
+    // nothing here reads the authored era sentence, which the contract forbids interpreting by
+    // string matching. A table with no clock keeps the authored setting in the book's own words.
     const era = text(sheet?.era);
-    const eraMark = /^(\d{4})s?$/.exec(era)?.[1] || term(era);
+    const settingEra = text(sheet?.setting_era);
+    const standing = storyTime(isRecord(view?.clock) ? view.clock.at : null);
+    const eraMark = settingEra
+      ? (standing ? String(standing.y) : term(settingEra))
+      : (/^(\d{4})s?$/.exec(era)?.[1] || term(era));
     const art = identityArt.current || {};
 
     return h("div", { className: "coc-sheet", role: "region", ref: sheetRoot, ...(props.title ? { "aria-label": props.title } : {}) },

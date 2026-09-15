@@ -121,9 +121,30 @@ test("every outcome a session can settle on, and every resource a mod moves, has
 	assert.deepEqual(missing, [], `content/ui/en/mechanics.json is missing:\n${missing.join("\n")}`);
 });
 
+test("every difficulty the rules tabulate has a word, and the chip that carries it keeps both figures", () => {
+	// A non-regular difficulty moves the bar the die is compared against, and until 2026-09-15 the
+	// card drew neither the difficulty nor the threshold: a hard check against a 15 was settled at
+	// 7, and `10 /15` under a failure stamp read as the product getting CoC's arithmetic backwards.
+	// The bar is now drawn, so the same rule as the dice above applies to its gloss -- the levels
+	// are rules data (`divisor` rows in difficulty-levels.json), and a level the chrome has no
+	// caption for would reach a player as the engine's English key.
+	const levels = JSON.parse(readFileSync(join(REPO, "content/rulesets/coc7/rules-json/difficulty-levels.json"), "utf8"));
+	const graded = Object.entries(levels).filter(([, block]) => block && typeof block === "object" && Object.hasOwn(block, "divisor"));
+	assert.ok(graded.length >= 3, `the difficulty table was found (${graded.length} graded levels)`);
+	const missing = graded.map(([name]) => `difficulty.${name}`)
+		.filter(key => typeof chrome[key] !== "string" || !chrome[key].trim());
+	assert.deepEqual(missing, [], `content/ui/en/mechanics.json is missing:\n${missing.join("\n")}`);
+	// The chip is one caption with two holes in it. A template that lost either one would still be
+	// a string the renderer prints, and the figure the whole fix exists for would vanish silently.
+	const needs = chrome.needs;
+	assert.equal(typeof needs, "string", "content/ui/en/mechanics.json has a `needs` caption");
+	for (const slot of ["{level}", "{n}"])
+		assert.ok(needs.includes(slot), `the \`needs\` caption still carries ${slot}`);
+});
+
 test("the guard is not decoration: it still catches a word with no caption", () => {
 	// Mutation: the assertions above are only worth their runtime if removing a caption fails them.
-	for (const key of ["die.bout_of_madness_table", "outcome.investigators_win", "resource.document"])
+	for (const key of ["die.bout_of_madness_table", "outcome.investigators_win", "resource.document", "difficulty.hard", "needs"])
 		assert.ok(typeof chrome[key] === "string" && chrome[key].trim(), `${key} is the caption this guard checks for`);
 	assert.equal(chrome["die.no_such_die"], undefined, "an unnamed die has no caption to find");
 	assert.ok(literals("skill").size > 5, "the kernel's own skill literals are still readable from source");
