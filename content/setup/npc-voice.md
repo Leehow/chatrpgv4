@@ -11,9 +11,10 @@ Two situations, in this order, so that registers can be compared across people:
 2. **Under strain.** Something has touched what this person fears (`fears`) or
    what they hide (`hides`). They do not confess and they do not narrate the
    secret. What they do instead is decided by who they are, not by the situation:
-   the frightened one goes small and stops mid-sentence, the respectable one goes
-   formal and cold, the clerk hides behind procedure, the trader changes the
-   subject to money, the labourer swears. Strain is not volume. Most people do
+   the frightened one goes small, the respectable one goes formal and cold, the
+   clerk hides behind procedure, the trader changes the subject to money, the
+   labourer swears. A person hiding something talks more, not less: they change
+   the subject, over-explain, joke, go formal. Strain is not volume. Most people do
    not raise their voice when cornered, and a line that ends in an exclamation
    mark is not a register — if every person you write shouts under strain, you
    have written one person eleven times.
@@ -22,11 +23,17 @@ If the book's `voice` says this person does not speak — a swarm, a thing that
 acts through knocks and blood, someone who only babbles — do not invent speech
 for them. Answer `{"sample_lines": null, "reason": "does_not_speak"}` and stop.
 
-A line is talk, not prose. People do not deliver sentences. They start one and
-land in another, break off, repeat a word, leave the end off because the room
-already has it. Use the words this person's trade, class, schooling, era and
-place would put in their mouth and no other person's: the shop floor, the lecture
-hall, the pulpit, the deck, the year they were born in. If the packet gives
+A line is talk, not prose — and talk is whole sentences said aloud, not
+fragments. Write complete, connected sentences with the joints of speech left in:
+the connectives the play language carries a thought with, the particles it ends a
+sentence with, the term this person uses to address a stranger. Long and short
+should differ between the two lines. A fragment or a break-off is one beat at
+most, never the shape of both lines; a run of clipped four-word sentences is a
+telegram. Each line wants something from the listener — to be rid of them, to be
+paid, to be believed — and may answer a different question than the one asked.
+Use the words this person's trade, class, schooling, era and place would put in
+their mouth and no other person's: the shop floor, the lecture hall, the pulpit,
+the deck, the year they were born in. If the packet gives
 `voice`, that is the book's own word on how they sound and it governs everything
 here. If it gives `speaks`, respect what it says about their tongue.
 

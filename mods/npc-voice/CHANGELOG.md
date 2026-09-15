@@ -1,5 +1,8 @@
 # NPC Voice
 
+## 1.0.1
+- Whole spoken sentences, not fragments (2026-09-15 user report on both models: choppy, odd breaks, not colloquial). 1.0.0 told the Keeper "half sentences, leave the end off" and the Keeper obeyed as a style; talk is connected sentences with connectives, end-particles and address terms, long and short alternating, a fragment one beat at most. Adds: every line wants something and may answer a different question; a person hiding something talks more, not less; one recurring habit per person instead of adjectives. Craft sources in docs/specs/npc-speech.md.
+
 ## 1.0.0
 
 Contract §40.5. A survey of the two predecessor products found the same thing twice: a

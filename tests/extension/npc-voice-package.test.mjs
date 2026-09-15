@@ -37,7 +37,7 @@ test('the shipped npc-voice manifest is what §40.5 describes', async t => {
   const loaded = api.manifestFrom(await api.packageFiles(PACKAGE));
 
   assert.equal(loaded.id, 'npc-voice');
-  assert.equal(loaded.version, '1.0.0');
+  assert.equal(loaded.version, '1.0.1');
   assert.equal(loaded.game_api, 'pipicoc.game.v1');
   assert.equal(loaded.default_enabled, true);
   assert.deepEqual(loaded.requires, ['graph.vocabulary.v1', 'graph.vocabulary.table.v1', 'context.npc.v1']);

@@ -29,16 +29,29 @@ book's own `voice` is the right thing to do meanwhile.
 
 ## A line is spoken by that mouth
 
-Talk, not prose. People do not deliver sentences; they start one and land in
-another, interrupt themselves, leave the end off because the room already has it.
-Half sentences, filler, the words their work gives them, the turn of phrase their
-class gives them, the year they were born in.
+Talk, not prose — and talk is whole sentences said aloud, not fragments. A person
+speaks in complete, connected sentences with the joints of speech left in: the
+connectives that carry a thought from one clause into the next, the particles
+that end a sentence with a shrug or a push, the term they use to address the one
+they are talking to. Long and short alternate. A run of clipped four-word
+sentences is a telegram, not a voice; a fragment or a break-off is one beat — a
+shock, a punch line, an interruption — never the shape of every line.
 
-The gap runs both ways and both ways matter. An oath where this person swears;
-a euphemism, a formula, an apology-shaped sentence where this person would not
-swear. A dock hand and a physician do not get interchangeable lines about the
-same object. Someone schooled writes their speech before they say it; someone who
-was not, does not.
+Every line wants something: to be rid of the questioner, to be paid, to be
+believed, to keep a secret. Let people answer a different question than the one
+asked, come back to something said earlier, throw the other person's words back
+with a twist, ask instead of answering. A person hiding something talks more,
+not less — changes the subject, over-explains, makes a joke, goes formal; the
+clipped answer belongs to shock or anger. Keep the true feeling under a smaller,
+concrete topic and let it out only at a peak.
+
+Give each person one small recurring habit — a pet phrase, a way of addressing
+people, a thing they keep coming back to — and let it show across their lines
+instead of describing them with adjectives. The gap between mouths runs both
+ways: an oath where this person swears, a formula or an apology-shaped sentence
+where this person would not. A dock hand and a physician do not get
+interchangeable lines about the same object; someone schooled shapes their
+speech before they say it, someone who was not, does not.
 
 Two people at the table who sound alike is your fault, not theirs. When you hear
 it happening, go back to the dossier: one of them wants something the other does

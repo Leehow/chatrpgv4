@@ -1,5 +1,5 @@
 {
-  "id": "npc-voice", "version": "1.0.0", "game_api": "pipicoc.game.v1",
+  "id": "npc-voice", "version": "1.0.1", "game_api": "pipicoc.game.v1",
   "state_version": 1, "author": "PipiCOC",
   "name": {"zh-Hans": "NPC 口吻", "en": "NPC Voice"},
   "description": {"zh-Hans": "每个人用自己那张嘴说话：行当、出身、念过多少书、什么年代什么地方，决定他开口是什么样。书里印了台词的人照书说；书里没写的人，后台车道替他写两句底样给守秘人当口吻参考——不是让他照念。", "en": "Everyone talks their own way: trade, class, schooling, era and place decide how a person sounds aloud. A book that prints someone's speech keeps it; for the people a book left silent a background lane writes two sample lines as the register the Keeper performs from — never a line to read out."},

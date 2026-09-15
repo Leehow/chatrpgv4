@@ -136,6 +136,8 @@ interface TableState {
 	 * that ends on prose with none is steered once toward the capsule before the host closes it.
 	 */
 	toolCallsThisTurn: number;
+	/** The Keeper tried a delivery (narrate or ask) this turn, refused or not: a repair flow owns the turn from there, and the speech steer stays out (§40). */
+	deliveryTriedThisTurn: boolean;
 	/** The prose the floor steer dropped; if the second leg brings no prose and no narrate, this closes the turn as before. */
 	floorDraft?: string;
 	/**
@@ -716,6 +718,7 @@ export default function (pi: ExtensionAPI) {
 		table.rebindingRefused = undefined;
 		table.steeredThisTurn = false;
 		table.toolCallsThisTurn = 0;
+		table.deliveryTriedThisTurn = false;
 		table.floorDraft = undefined;
 		table.recoveryOwed = null;
 		table.recoveryLanded = false;
@@ -1885,6 +1888,7 @@ export default function (pi: ExtensionAPI) {
 				closedThisRun: false,
 				steeredThisTurn: false,
 				toolCallsThisTurn: 0,
+				deliveryTriedThisTurn: false,
 				recoveryOwed: null,
 				recoveryLanded: false,
 				recoverySteered: false,
@@ -2145,6 +2149,7 @@ export default function (pi: ExtensionAPI) {
 			state.closedThisRun = false;
 			state.steeredThisTurn = false;
 			state.toolCallsThisTurn = 0;
+			state.deliveryTriedThisTurn = false;
 			state.floorDraft = undefined;
 			state.recoveryOwed = null;
 			state.recoveryLanded = false;
@@ -2251,6 +2256,7 @@ export default function (pi: ExtensionAPI) {
 			return { block: true, reason: startupError ?? "the kernel is not up, so this table has not opened" };
 		}
 		state.toolCallsThisTurn += 1;
+		if (name === "narrate" || name === "ask") state.deliveryTriedThisTurn = true;
 		if (state.closedThisRun) {
 			await record({ tool: name, started_at: new Date().toISOString(), ok: false, code: "blocked", reason: TURN_CLOSED_REASON });
 			return { block: true, reason: TURN_CLOSED_REASON };
@@ -2447,7 +2453,9 @@ export default function (pi: ExtensionAPI) {
 			// comes, and a second leg that brings nothing falls back to this draft like the floor steer's.
 			// Nothing here reads the prose: a machine token is searched for, and present[] is the capsule's.
 			// PI_COC_SPEECH_STEER=0 turns the steer off for an experiment (a control arm); the product default is on.
-			if (process.env.PI_COC_SPEECH_STEER?.trim() !== "0" && state.present.length > 0 && !opening && !state.steeredThisTurn && !/\{\{say:/.test(prose)) {
+			// A fix already pending (an explicit delivery this turn was refused and its repair steer waits) wins:
+			// the draft goes through the audit like any other, one concern per steer.
+			if (process.env.PI_COC_SPEECH_STEER?.trim() !== "0" && !state.deliveryFix && !state.deliveryTriedThisTurn && state.present.length > 0 && !opening && !state.steeredThisTurn && !/\{\{say:/.test(prose)) {
 				state.floorDraft = prose;
 				state.deliveryFix = { kind: "speech", text: SPEECH_STEER };
 				await record({ lane: "speech", turn: state.turn, steered: true, present: state.present.length });
