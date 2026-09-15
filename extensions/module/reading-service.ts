@@ -1,7 +1,7 @@
 /** A single host service for PDF preparation and foreground/background reading. */
 import { readFile, writeFile, mkdir, copyFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
-import { basename, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { KernelError , isKernelError } from "../kernel/client.ts";
 import { readerInput, wakeReaderSlots } from "./reader.ts";
 import { reviewCandidate } from "./reader-review.ts";
@@ -282,7 +282,10 @@ export class ReadingService implements ReadingBridge {
 	private async runJob(job: Row, signal: AbortSignal, campaign?: string) {
 		const model = this.deps.model();
 		const cwd = job.work_dir;
-		const cache = join(this.deps.home, ".coc", "modules", job.module_id, "cache", "pages");
+		// The page cache belongs to the workspace that owns this PDF, which is the shared library
+		// for a library read and the campaign's private module for a campaign-scoped one. Deriving
+		// it from the bound source keeps host and reader confinement in agreement by construction.
+		const cache = join(dirname(job.source.path), "cache", "pages");
 		await mkdir(cache, { recursive: true });
 		const commands = { page: `coc-source --pdf ${quote(job.source.path)} --cache ${quote(cache)} page`,
 			check: `coc-read-check --packet ${quote(join(cwd, "task.json"))} --draft ${quote(join(cwd, "draft.json"))}` };

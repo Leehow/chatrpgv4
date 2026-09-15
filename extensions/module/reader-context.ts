@@ -11,6 +11,22 @@ const HOST_FILES = new Set(["task.json", "packet.json", "baseline.json", "findin
 const blocked = (tool: string, reason: string): ToolGate => ({ block: true, reason: `Reader confinement blocked ${tool}: ${reason}` });
 const shellQuote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
 
+/** A derived directory may not exist yet: canonicalize the deepest ancestor that does, so two
+ *  spellings of the same not-yet-rendered path still compare equal. */
+function canonical(path: string): string {
+	let cursor = resolve(path);
+	const tail: string[] = [];
+	while (true) {
+		try { return join(realpathSync(cursor), ...tail.slice().reverse()); }
+		catch {
+			const parent = dirname(cursor);
+			if (parent === cursor) return resolve(path);
+			tail.push(basename(cursor));
+			cursor = parent;
+		}
+	}
+}
+
 function within(root: string, target: string): boolean {
 	const suffix = relative(root, target);
 	return suffix === "" || (suffix !== ".." && !suffix.startsWith(`..${sep}`) && !isAbsolute(suffix));
@@ -64,10 +80,17 @@ function sourceRoots(cwd: string, env: NodeJS.ProcessEnv): { task: string; pdf?:
 	try {
 		const source = JSON.parse(env.PI_COC_READER_SOURCE);
 		if (!source || typeof source.pdf !== "string" || typeof source.cache !== "string") throw new Error();
-		const pdf = realpathSync(source.pdf), cache = realpathSync(source.cache);
-		const modules = realpathSync(join(home, ".coc", "modules")), module = dirname(pdf);
-		const expectedCache = realpathSync(join(module, "cache", "pages")), work = realpathSync(join(module, "work"));
-		if (!within(modules, pdf) || basename(pdf) !== "source.pdf" || cache !== expectedCache || !within(work, task))
+		const pdf = realpathSync(source.pdf), module = dirname(pdf), root = dirname(module);
+		// A module workspace is either the shared library `.coc/modules/<id>` or one campaign's
+		// private `.coc/module-campaigns/<campaign>/modules/<id>`. Both are internal; neither is
+		// reachable from the other. The page cache is a derived artifact of whichever one owns the
+		// PDF, so it is compared lexically and may not exist yet on the first read of a fresh seed.
+		const coc = realpathSync(join(home, ".coc")), scope = dirname(root);
+		const internal = within(coc, pdf) && basename(root) === "modules"
+			&& (root === canonical(join(coc, "modules"))
+				|| (basename(dirname(scope)) === "module-campaigns" && dirname(dirname(scope)) === coc));
+		const cache = canonical(source.cache), expectedCache = canonical(join(module, "cache", "pages"));
+		if (!internal || basename(pdf) !== "source.pdf" || cache !== expectedCache || !within(realpathSync(join(module, "work")), task))
 			return { task, error: "the PDF source, cache or task does not match one internal module" };
 		return { task, pdf, cache };
 	} catch { return { task, error: "PI_COC_READER_SOURCE is invalid" }; }

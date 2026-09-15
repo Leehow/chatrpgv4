@@ -74,7 +74,7 @@ async function runFinishRepairFixture(t, { rejectEveryFinish = false, transportF
 		} });
 	t.after(() => service.close());
 	const job = { job_id: "read-1", module_id: "book", purpose: "opening", focus: "scene-opening", foreground: true, lease: "lease-1",
-		work_dir: cwd, source: { path: join(home, "source.pdf"), page_count: 8, file_sha256: "source-sha" },
+		work_dir: cwd, source: { path: join(home, ".coc", "modules", "book", "source.pdf"), page_count: 8, file_sha256: "source-sha" },
 		index: {}, known_nodes: [], known_claims: [], vocabulary: {}, coverage_domains: [] };
 	await service.runJob(job, new AbortController().signal, campaign);
 	return { cwd, readTasks, finishCalls, readRounds, completionAttempts };
@@ -276,7 +276,7 @@ test("a work-directory failure releases its claimed job instead of leaving it ru
 			if (method === "module.read.request") return failed ? { state: "blocked", missing: ["work directory unavailable"] } : { state: "queued" };
 			if (method === "module.read.claim") return failed ? { job_id: null } : {
 				module_id: "book-1", job_id: "read-1", lease: "fixture-lease", work_dir: work, purpose: "opening",
-				source: { path: join(home, "source.pdf"), file_sha256: "fixture", page_count: 1 } };
+				source: { path: join(home, ".coc", "modules", "book-1", "source.pdf"), file_sha256: "fixture", page_count: 1 } };
 			if (method === "module.read.finish") { finishes.push(params); failed = true; return { state: "failed" }; }
 			throw new Error("unexpected operation");
 		} });
@@ -477,7 +477,7 @@ async function runResumeFixture(t, { previousJobId }) {
 	t.after(() => service.close());
 	await service.runJob({ job_id: "read-2", module_id: "book", purpose: "detail", focus: "farm", question: "prepare the farm map",
 		key, foreground: true, lease: "lease-1", work_dir: cwd, resume_from: previous,
-		source: { path: join(home, "source.pdf"), page_count: 48, file_sha256: fileSha },
+		source: { path: join(home, ".coc", "modules", "book", "source.pdf"), page_count: 48, file_sha256: fileSha },
 		index: {}, known_nodes: [], known_claims: [], vocabulary: {}, coverage_domains: [] }, new AbortController().signal);
 	// The verify phase fans out into one reviewer run per unit; the order of phases is what matters here.
 	return { cwd, phases: phases.filter((phase, index) => phase !== phases[index - 1]), readTasks, finished };
