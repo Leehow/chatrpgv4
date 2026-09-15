@@ -1,6 +1,6 @@
 # NPC speech: one marker for every spoken line, colour by speaker, and a voice for people the book left silent
 
-_Date: 2026-09-15. Status: implemented on branch `claude/npc-speech-20260915` (contract §40; kernel + host + package + lane merged there, worktree `/private/tmp/chatrpgv4-wt-npc-speech`). Suites on the branch: `npm run test:ext` 1240/1241 (the one failure is the pre-existing load-time flake `run with a log discards late stdout…`, green alone); kernel pytest green but for the pre-existing `test_fast_guidance` era case (fails on the base commit too); host vitest targeted 199/199. **Not yet done: the real-table acceptance below (twenty turns, grok-4.6 low), the blind two-mouths test, and the second-model wrap rate.** Contract home: §40 (§-numbers are stable ids, nothing is renumbered). Baseline model for every acceptance claim: `xai/grok-4.6`, thinking `low` (user ruling 2026-09-11). User rulings 2026-09-15, recorded in full under "Rulings": the wrapper form, marking is mandatory and the brief ceiling is raised to make room, colours are hashed and never stored, the model never reads or writes a high-entropy id, the `sample_lines` lane is specified here, coarse language is on by default as a package setting with a sidebar toggle._
+_Date: 2026-09-15. Status: implemented and accepted at a real table on branch `claude/npc-speech-20260915` (contract §40). Acceptance run: campaign `speech-0915`, The Haunting in Chinese, `xai/grok-4.6` thinking low, 21 delivered turns, the main session as the only player, one line per turn through `tests/play/driver.py`; evidence under `.coc/campaigns/speech-0915/` and `.coc/playtests/speech-0915-*`. Packaged into `/Applications/PipiCOC.app` from commit 6cc45c040. Suites: `npm run test:ext` 1240/1241 (one pre-existing load-time flake), kernel pytest green but for the pre-existing `test_fast_guidance` era case, host vitest targeted 199/199. **Open: four npc-voice lane defects the table found (see Acceptance results), and the colours were never seen as pixels — screen access was declined.** Contract home: §40 (§-numbers are stable ids). User rulings 2026-09-15 under "Rulings": the wrapper form, marking is mandatory and the brief ceiling is raised, colours are hashed and never stored, the model never reads or writes a high-entropy id, the `sample_lines` lane is specified here, coarse language on by default with a sidebar toggle._
 
 ## Problem statement
 
@@ -142,6 +142,32 @@ Measured on a real table, live Keeper, one human player, one line per turn, `xai
 | the lane's lines are talk | the `sample_lines` of every person the table met | the same blind test on the lane's own lines, ≥ 8 of 10; a labourer and a gentleman never get interchangeable lines |
 | nothing else moved | `pytest tests/kernel` (after `build:runtime`), `npm run test:ext`, pi-backend suite, UI suite | green against their recorded baselines (compare case names, not totals) |
 | a second model | the same twenty turns on the App's `deepseek-v4-flash` | the wrap rate reported, whatever it is: §34.13 showed marker compliance is model-dependent and silent |
+
+## Acceptance results (2026-09-15, real table)
+
+| claim | evidence | verdict |
+|---|---|---|
+| every spoken line is wrapped | 37 spans over 21 turns; the Keeper wrote 37 opens and 37 closes; each turn's prose re-read with its spans blanked, nothing left that reads as speech | pass, 37/37 |
+| every speaker resolved | 0 unresolved labels; three NPCs and the investigator, all by handle | pass |
+| nothing machine reaches the player | no brace in any `rendered_text` | pass |
+| the model never touched an id | no node id, receipt id, hash or prefix in any of the Keeper's own drafts | pass |
+| one person, one colour | the host allocator over the real anchors gives three distinct slots plus the fixed investigator slot, deterministic from transcript order | pass on the data; **the pixels were never seen** (screen access declined). Electron 44's Chromium supports the `oklch()` / `color-mix()` the palette uses |
+| the host gets what it needs | 16 of 40 `coc-mechanics` session entries carry `speech` beside `marked_text` | pass |
+| `sample_lines` arrive | the lane ran for 11 people, every job ok, 11-19 s each | pass |
+| the Keeper performs, does not recite | 1 of 22 sample lines appeared verbatim (Wilmot's first line, which the book's own `voice` all but dictates) | **fail, 1 instance** |
+| different mouths, played lines | ten spans, names stripped, judged blind by a reader who had not seen the session | pass, 9/10 |
+| different mouths, lane lines | one line per character, names stripped, judged blind against the real roster | pass, 10/10 |
+
+Four lane defects the table found, all in `content/setup/npc-voice.md`'s instruction, none in the kernel:
+
+1. **The strained line collapses to one register.** Nine of eleven second lines end in an exclamation mark and four swear, regardless of station: the landlord, the clippings gatekeeper and the quiet basement filer all shout. The at-ease line stays varied (no exclamations, three coarse). One fixed situation for everyone produces one reaction for everyone.
+2. **An authored `voice` was overridden.** Ruth Blake is written "Quiet, practical, basement-warm"; the lane gave her a coarse panicked line. §40.5 and the instruction both say the book governs.
+3. **People the book says do not speak were given speech.** The rat swarm ("No speech — squealing"), Corbitt ("Rarely speaks; acts through knocks, blood, flying furniture") and Vittorio ("Mostly silent") each got two spoken lines, because `shape: "lines"` demands exactly two and the lane has no way to answer "this one has no sample lines".
+4. **A graph name in the book's language leaked into a play-language line**, and `speech[].who.name` carries the same English display name to the host's hover title on a Chinese table.
+
+Two pre-existing faults the run also surfaced, unrelated to this section: turn 0 took six `mod_audit_stale` refusals and the refusal budget shut `narrate` once; after an `unknown_entity` lookup the Keeper wrote the service state into the story ("this stop is still preparing material"), a §34.1 immersion breach.
+
+Shape of the run: median 137 characters per delivered turn, zero implicit closes, 74 tool calls, 28 admission reviews.
 
 ## Tests owed with the implementation
 
