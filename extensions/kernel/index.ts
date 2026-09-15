@@ -2354,8 +2354,18 @@ export default function (pi: ExtensionAPI) {
 	});
 	pi.on("after_provider_response", async (event, ctx) => {
 		const requestId = Object.entries(event.headers).find(([name]) => ["x-request-id", "request-id"].includes(name.toLowerCase()))?.[1];
-		await record({lane: "provider-response", at: new Date().toISOString(), provider: ctx.model?.provider,
+		// Pi awaits this hook inside the adapter's `onResponse`, which runs *before* the first body
+		// byte is read, so every millisecond spent here is a millisecond the response stream is not
+		// being consumed. `at` is stamped on entry and says nothing about when the hook returned:
+		// on a run that answers 200 and then produces no block at all (2026-09-15, turn 2: 200 in
+		// 612 ms, then 126 s and `blocks: []` before the host watchdog aborted it), the rows on disk
+		// cannot tell "the provider sent nothing" from "the host blocked before reading". This row
+		// decides it -- absent or near zero and the silence was on the wire, not in here (§38.7).
+		const at = Date.now();
+		await record({lane: "provider-response", at: new Date(at).toISOString(), provider: ctx.model?.provider,
 			status: event.status, ...(requestId ? {request_id: requestId} : {})});
+		const hookMs = Date.now() - at;
+		if (hookMs >= 1000) await record({lane: "provider-response-hook", at: new Date().toISOString(), hook_ms: hookMs});
 	});
 
 	pi.on("agent_end", async () => {
