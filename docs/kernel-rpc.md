@@ -132,6 +132,37 @@ result：`{"turn": int, "state": "open", "capsule": {...见第 6 节}}`。
 ### table.capsule（切片 0）
 result：胶囊，同第 6 节。任何状态可调。
 
+**Approved bounded-context amendment (2026-09-15; implementation/integration and live acceptance pending).**
+See [bounded-play-context](specs/bounded-play-context.md), D5–D8. Host-only params add
+`rehydrate?: boolean`. `rehydrate: true` forces the existing full module briefing, craft context
+and active Mod instruction builders; it does not reopen a turn, consume `firstStyleTurn` or
+pending resume, write files, or change game state. Ordinary calls retain their lifecycle.
+The existing result envelopes are retained: `table.capsule` returns its capsule fields directly,
+with transport-only `_context` alongside them; it does not gain a new `capsule` wrapper.
+`table.player_input` keeps `{turn, state, capsule}` and adds the same sibling metadata:
+`_context: {version: 1, campaign, worldline, loop, turn, source_revision, memory_coverage}`.
+`source_revision` is an opaque digest of the effective briefing sources, including the module
+and active packages. If optional binding-source I/O is unavailable, return `source_revision: null`
+with `unavailable: true` and a bounded reason; the host must retain a conservative context rather
+than claim a valid rebase. Coverage I/O failure is reported separately as
+`memory_coverage.status: "unavailable"`, with unknown counts left unknown. Neither advisory path
+may turn a successfully opened player turn into a failed reply. Legacy scene-trail reconstruction
+for `rehydrate: true` stays in the read snapshot, never on disk.
+The host stores this binding on the injected message; opaque identity is not model-visible.
+This is a read/cache identity, not a new authoritative state store.
+
+`memory_coverage` is bounded to 4096 serialized UTF-8 bytes: recent pending/failed committed-turn
+ranges, counts of older gaps, and public recall arguments to page their existing history.
+It derives from existing turn records and memory job/backlog state, without new mutable memory
+files or synchronous extraction. Successful-empty extraction is complete but does not guarantee
+semantic coverage. The Keeper may recall an original when a gap matters; gaps never create plot
+obligations. Candidate ranking adds the current scene and up to four most-recent acquired evidence
+names, using existing continuity evidence predicates, to present NPCs and investigators. Keep
+correction-first ordering, the six-row/section-byte budget, and `conversation_report` authority.
+Inherited worldlines follow canonical restore snapshots, not equality filters on candidate origins.
+The task-3 outbound/fold policy will cache and invalidate this rehydration by context epoch;
+that host consumption is not claimed implemented by this contract amendment.
+
 ### table.status（切片 0）
 result：`{"turn": int, "state": "...", "receipts": [...本回合收据摘要], "pending_choice": null | {...}}`。
 
@@ -148,7 +179,7 @@ params：`{"kind": "module"|"secret"|"rule"|"catalog", "query": "<名字或问�
 
 ### table.recall（切片 0：transcript；切片 2 三路齐全，见 12.4）
 params：`{"what": "transcript"|"memory"|"history", ...}`，三路各自的参数与结果在 12.4。
-- `transcript`：返回区间内逐字记录，缺省最近 3 回合；切片 2 加候选卡与经摘要校验的原文读取。
+- `transcript`：缺省最近 3 回合的有界卡片，不隐式返回全文；原文分页与完整性校验见 12.4 的新契约。
 
 ### table.resolve（切片 0：普通检定；切片 1 全族见第 11 节）
 params：
@@ -497,6 +528,91 @@ RuleGraph 的每个决策声明输入槽位与归属。宿主锁定槽位由内�
 
 ### 12.4 `recall` 三路
 
+#### Approved bounded recall contract (2026-09-15)
+
+This amendment implements the interface decisions in [bounded-play-context](specs/bounded-play-context.md),
+D1/D6/D7/D8. The bounded recall implementation and migrated contract tests are integrated; real-table acceptance
+remains pending. The legacy evidence below is not proof of the new bounds. Keep the seven verbs and existing filters/history fields wherever
+compatible. All three modes cap each serialized JSON response at **12288 UTF-8 bytes (12 KiB)**,
+including annotations and continuation metadata. Listings contain at most **20 rows** per page;
+text pages contain at most **4096 Unicode code points**, shortened further to fit total response
+bytes. No all-text/unlimited escape exists, and original files are never shortened.
+
+Public `recall` arguments (beside existing query filters) add:
+
+```
+read?: {turn: integer, role: "player"|"keeper", offset?: integer >= 0, limit?: integer >= 1}
+page?: {offset?: integer >= 0, limit?: integer >= 1,
+        section?: "cards"|"timeline"|"events"|"diff"|"hits"}
+detail?: {section: "cards"|"timeline"|"events"|"diff"|"hits", index: integer >= 0,
+          offset?: integer >= 0, limit?: integer >= 1}
+```
+
+- **Transcript browse:** `what: "transcript"`, existing `turns`/`role` filters, default last
+  three turns. Cards only even for one-to-three-turn ranges; never automatic `entries`.
+  Cards expose turn, role, total character count, a bounded original head, and a complete public
+  `read` reference. `page` selects listing rows in the stable turn/role order; its offset defaults
+  to 0 and limit to 20, with byte pressure allowed to reduce the actual row count.
+- **Transcript read:** `read` selects one original utterance. Offset defaults to 0 and limit to
+  4096 code points. Return total characters, actual returned range, `truncated`, and exact `next`
+  arguments; next offsets follow the actual returned end without splitting surrogate pairs.
+  Verify the complete original against the canonical turn record before slicing. Preserve
+  `verified` and `verification_scope: "record_integrity_only"`: matching recorded words is not
+  module truth, nor an authority upgrade. A failed comparison stays unverified, not repaired.
+- **History:** default range remains the latest 20 turns. Default section is `diff` when `diff`
+  is supplied, otherwise `events` when `types` is supplied, otherwise `timeline`. Select other
+  sections explicitly with `page.section`. Each response returns only the selected section's
+  rows (`timeline`, `events` or `diff`), not all three collections. Preserve event filters,
+  timeline fields and receipt-derived changes. The new diff wire shape is
+  `{from, to, diff: [{kind: "scene"|"clock"|"clue"|"resource"|"session"|"move", ...}]}`:
+  `from`/`to` are top-level turn bounds; `diff` is an ordered, pageable row list, not the legacy
+  nested full-diff object below. Omitted/more metadata and `next` identify remaining rows.
+  Oversized rows expose their type/turn where applicable and a `detail` locator, never an
+  apparently complete silently truncated fact. Existing internal `lines`/`line`
+  capabilities retain their worldline semantics; they gain no public schema exposure in this slice
+  and cannot bypass the response ceiling.
+- **Memory:** retain `about`, `turns`, `kinds`, `include_superseded` and existing deterministic
+  entity selection/ordering; expose the already accepted `promise` kind. Legacy top-level `limit`
+  remains a positive requested memory page size (default 12), clamped to 20; larger legacy requests
+  are accepted and clamped, not schema-rejected. `page.limit` takes precedence.
+  Remaining `hits` page within one stable source snapshot. Keep candidate `status`, `state`,
+  correction/supersession/source annotations and `authority: "conversation_report"`. Missing or
+  superseded evidence does not become a current fact; no semantic classifier or promotion is added.
+- **Structured detail:** `detail` selects one row by its section and zero-based snapshot index,
+  returning that original row's JSON serialization as bounded `text` pages, with total/range,
+  `truncated` and `next`. Its offset/limit count Unicode code points, default 0/4096. This is not
+  transcript `read`, not a summary, and not a bypass of the response cap. Concatenated pages
+  reconstruct the original structured row's JSON text.
+
+Every returned `next` or `read`/`detail` reference is a **complete public recall argument object**,
+including `what` and relevant query filters, not a fragment or a model-copied opaque cursor.
+Context reconstruction uses this same RPC with host-only `_context_read: true`: it reads canonical
+records without advancing `open` to `acting` or persisting legacy cache repair. The Keeper tool
+strips that private flag from model-supplied arguments. The internal bridge retains raw snapshot
+metadata for its own paging and registers returned public references with the same host-owned
+binding store; no second original-text cache or unbounded model read is introduced.
+The kernel returns host-only `_snapshot` beside the result data. The host strips it from both
+model-visible content and tool-result details, stores it against canonical public continuation
+arguments, then reattaches it as an internal RPC parameter. It never appears in the public tool schema.
+Bind source identity internally to campaign, active worldline, loop and source digest; compute
+query source digests once per RPC, not once per row. Fresh initial offset-0 requests create a
+fresh binding. An unknown/stale continuation returns a bounded refresh instruction with public
+page-0 arguments; it must not silently rebind the old offset to changed content. Worldline switches,
+rewinds, restarts without a compatible host binding and concurrent mutation obey this same rule.
+
+**Implementation evidence (2026-09-15).** The 10 focused bounded-recall checks and 5 public-schema
+checks passed, alongside 27 migrated kernel-controller checks and 2 worldline-recall checks.
+Cold review passed after adding type/turn to oversized event references and retaining small
+legacy top-level `lines` on every history section. Large worldline trees use a bound timeline/detail
+reference instead. Stale-page refusals name `details.refresh`, a complete public first-page request.
+These are deterministic TS/real-Pi interface checks, not gameplay acceptance.
+
+#### Legacy slice-2 shape (superseded where it conflicts with the amendment above)
+
+The paragraphs below preserve the original wire design/evidence. In particular their automatic
+`entries`, whole-utterance read, 40/30/200-row limits and combined unbounded history output are
+superseded, not alternative compatibility modes.
+
 - **memory**：params `{"what": "memory", "about"?: [名], "turns"?: [from, to], "kinds"?: [...], "include_superseded"?: bool, "limit"?: ≤ 30}`。收窄全是确定性的：`about` 里的名字先精确匹配图上名字、别名与 `scene_labels`，不中时取「一个名字里的整词」（`Knott` → Steven Knott），人（调查员、NPC）优先于地点与线索，仍歧义则 `unknown_entity` 且 `fix` 列出候选名；命中按图上名字与别名归一化后精确匹配 `subject`、`knowers`、`entities`；`turns` 落在 `valid_from_turn`；缺省不含已关闭的。排序：与 `about`（缺省取当前在场实体加调查员）重叠数多者先，再按种类权重（#20：`world_event`、`knowledge`、`relationship`、`promise` 先于 `belief`、`player_preference`、`keeper_correction`，`player_assertion` 最后——它多半是玩家输入的复述，守秘人已经读过），再按 `valid_from_turn` 晚者先。result `{"what": "memory", "about": [...], "hits": [{"id", "kind", "subject", "knowers", "entities", "statement", "privacy", "state", "confidence", "status", "turn", "superseded_by"?}]}`。不接受散文筛选，没有关键词与正则。
 - **transcript**：params `{"what": "transcript", "turns"?: [from, to], "role"?: "player"|"keeper", "read"?: {"turn", "role"}}`。不带 `read` 时返回 `cards: [{"turn", "role", "chars", "head": "<前 80 字>"}]`（区间缺省最近 3 回合，最多 40 张），并在区间 ≤ 3 回合时同时返回切片 0 的 `entries`；带 `read` 时返回 `{"turn", "role", "text", "verified": bool}`，`verified` 表示逐字记录里的文本与 `turns/NNNN.json` 记录（守秘人取 `rendered_text`，玩家取 `player_text`）的 sha256 一致；不一致仍返回文本但 `verified: false`。
 - **history**：params `{"what": "history", "turns"?: [from, to], "types"?: [事件类型], "diff"?: [turn_a, turn_b]}`。result `{"timeline": [{"turn", "commit", "scene", "clock", "closed_by", "receipts": {"roll": n, "move": n, "clue": n, "delta": n, "session": n, "time": n}, "head": "<守秘人交付前 60 字>"}], "events": [...]（按 `types` 过滤，最多 200 条，缺省不含 `player-declared` 之外的原文）, "diff"?: {"from", "to", "scene": [a, b], "clock": [a, b], "clues_added": [名], "resources": [{"subject", "resource", "from", "to"}], "sessions": [{"turn", "family", "transition", "outcome"?}], "moves": [{"turn", "from", "to"}]}}`。`diff` 只从回合记录里的收据累计，不读 git 对象。
@@ -529,6 +645,10 @@ RuleGraph 的每个决策声明输入槽位与归属。宿主锁定槽位由内�
 - 同一 `call_id` 的 `narrate` 重放返回已存的结果，不再提交；这是唯一的「不重复提交」机制，扩展不做补偿。
 
 ### 12.7 胶囊新增节（切片 2）
+
+The approved bounded-context amendment at `table.capsule` above adds host binding and bounded
+coverage beside the capsule envelope, not a new narrative section. Its scene/evidence candidate
+anchors amend the historical default below; current authority fields remain those in §36.11.
 
 - `memory`（≤ 1.5KB）：`recall memory` 缺省排序的前 6 条命中，投影成 `{id, kind, statement, turn}`（#20：`knowers`/`entities`/`privacy`/`confidence`/`state` 不进胶囊，要的时候 `recall memory` 拿全条），预算内装得下的条数因此翻倍；没有候选时为空数组。
 - `warnings`（≤ 1KB）：12.5。
@@ -574,6 +694,10 @@ RuleGraph 的每个决策声明输入槽位与归属。宿主锁定槽位由内�
 - 一次车道调用最多四行，最少一行（`start`；模型解析不出时连 `start` 都没有，那种情况原有的 `lane: verifier ok:false reason:model_unavailable` 行照旧交代）。适配器不实现 `onPayload`/`onResponse` 时对应的行就没有——**没有行就是没有测到，不许拿别处的数补**。
 
 ### 12.9 内核的决定（已实现）
+
+Historical decisions below retain their evidence. The approved §12.4 amendment supersedes their
+30-hit/200-event caps and unpaged full-hit returns; new recall/rehydration implementation and live
+acceptance remain pending until their dedicated checks are recorded.
 
 - **回合记录带世界快照。** `narrate` 与 `ask` 写的 `turns/NNNN.json` 多一个 `world` 块：`{scene: {name, display_name}, clock, present: [NPC 名], investigators: [{id, name, hp, san, mp, luck}], session, pending_choice}`，是回合关闭那一刻的状态；`narrate` 的记录另存 `facts`。检查点、episode、`memory.job` 的任务包、`history` 的时间线与 `diff` 全从这个块读，不碰可变的 `world.json`，也不读 git 对象。turn 0 被 `player_input` 隐式关闭时同样写快照。
 - **检查点与 HEAD 的同步。** `table.open` 先让检查点跟上 HEAD：HEAD 的回合号从提交信息 `turn <n>:` 读，回合记录缺 `commit` 时补上再重建；检查点缺失、损坏、或 `commit`/`turn` 与 HEAD 不符都算「HEAD 领先」，`resume.rebuilt: true`。还没有任何 `narrate` 提交时不动检查点。`turn.json` 丢失或损坏：有检查点 → `fresh_turn(checkpoint.turn + 1)`；若检查点之后有一条 `ask` 关闭的记录，则重建成那一回合的 `asked` 并带回 `pending_choice`（玩家的回答还落得下去）；一次提交都没有时重建成 turn 0。`resume` 只在 `open` 后本进程第一次 `player_input` 的胶囊里出现一次。
@@ -1485,6 +1609,62 @@ and Pi 0.85.1 `docs/models.md` (`thinkingLevelMap`).
 
 ### 19.2 COC 自己的上下文折叠
 
+#### Approved bounded-context successor (task 3 pending; live acceptance pending)
+
+[bounded-play-context](specs/bounded-play-context.md), D1–D5/D8/D9, is the approved successor to
+this section's cumulative fold. One pure selection policy in the table extension serves both the
+outbound `context` projection and persisted `session_before_compact` adapter; no second compressor,
+model summary, Pi fork, new memory store or foreground semantic lane is introduced.
+
+- Closed-history contribution has a **32 KiB serialized UTF-8 ceiling per outbound request**,
+  with at most 4 KiB of omission/coverage/recall metadata inside that same budget. Prefer the latest
+  two committed player/Keeper pairs, newest first; oversized historical quotes are labeled partial
+  and carry original turn/role/range plus full bounded-read arguments (§12.4).
+- Current user input, current capsule, system instructions and every message of an unresolved
+  current exchange are protected and accounted separately. A successful `narrate` does not release
+  the still-running Pi exchange. A pending-choice answer does not erase its context prematurely.
+  If protected/fixed inputs alone exceed capacity, report that limitation, not successful compression.
+- Use `_context` and committed delivery/session bindings, not prose, to identify campaign, line,
+  loop and canonical turn. Rehydrate the current full briefing via `table.capsule {rehydrate:true}`
+  when an epoch loses/invalidates it. Cache the stable prefix across tool round trips; invalidate
+  on new player input, restart, line/loop or source/recovery changes and explicit compaction.
+- Old capsules/tools leave only the closed-history view. Host notes expire only through their
+  closed structural kind and turn binding; unknown/persistent notes are retained conservatively
+  or regenerated explicitly. Missing bindings/capsule preserve the affected active region with
+  bounded degraded/capacity diagnostics, not an aggressive guessed cut.
+- Fold the same selected view with a safe retained suffix: no orphan tool result, split unfinished
+  exchange or blind fallback to Pi's cut. No safe/progressing cut means explicit cancellation or
+  degradation, never Pi's generic model summary. `prepareCompaction` failure before the hook does
+  not disable outbound history bounds. Keep `PI_COC_COMPACT_AT` at 70% by default for token-pressure
+  persistence, honor unknown post-compaction usage, and suppress repeated same-source no-progress work.
+  Retained raw message bytes (latest kept boundary onward plus the latest summary, excluding old
+  compaction details) also trigger persistence above 128 KiB. Projected provider usage alone cannot
+  detect a growing raw message array; this storage-pressure measure is bytes, not claimed tokens.
+  A host-minted input epoch in message details and the capsule bus binds the current message even if
+  optional kernel metadata initially degraded. It never enters model content. Known prior COC
+  deliveries and turn-scoped host notes expire before the proven current boundary; do not compare
+  turn ordinals across worldlines when expiring them.
+- Version-2 fold metadata is a bounded manifest of policy version, source/binding, retention/cut
+  ranges, measured sizes and omission reasons, not an accumulating `lines` archive. Old version-1
+  entries remain readable but are neither rewritten nor copied wholesale into new details. Raw
+  Pi sessions and canonical campaign evidence stay intact. The cut-plus-summary API can replace
+  an old region with bounded text today; selective outbound projection handles its remaining
+  single-cut limitation. Upstream per-entry cuts are not a prerequisite.
+- Existing telemetry records trigger/outcome, identity (host-only), protected/history bytes,
+  capsule/fixed estimates, recall pages/bytes, coverage, cache/rehydration, no-progress reason and
+  duration. Provider input/cache tokens and latency are actual measurements only when available;
+  estimates stay labeled. None of these counts enter plot obligations.
+
+Implementation and actual outbound-Pi integration checks belong to `bounded-context-policy`;
+genuine continuity/restart/cost verification belongs to `context-live-acceptance`. Neither is
+claimed complete by this interface amendment or the legacy tests below.
+
+#### Legacy cumulative fold (superseded design; retained evidence)
+
+The following describes the pre-amendment implementation. Its growing verbatim summary and
+fallback cut are not the new guarantee; its claim that bounded replacement requires upstream
+support is superseded by the decision above.
+
 Pi 的缺省压缩不知道这张桌子哪些东西是可再生的。接 `session_before_compact`。**这个钩子表达不了「按条目挑着丢」**：它的返回是一个切点加一段摘要，Pi 用摘要替换切点之前的一切。所以「整段丢那些、原样留这些」只能实现成「选好切点，把要留的原样抄进摘要」。COC 口径如下：
 
 - **整段丢**：所有 `coc-capsule` 消息（每回合重新生成，旧的一律是废页）、带工具调用的助手消息与工具结果消息（收据在内核里，`recall` 能拿回来）、上一次折叠自己写的那条说明。（`coc-mechanics` 是 `CustomEntry`，本来就不进模型上下文，丢它不改变守秘人看到的东西。）
@@ -1496,6 +1676,11 @@ Pi 的缺省压缩不知道这张桌子哪些东西是可再生的。接 `sessio
 判据是**条目类型与回合距离，不是内容语义**——不读文本、不做相关性判断（`Agents.md`「语义问题不许硬编码」）。
 
 ### 19.3 验收
+
+The checks below describe the legacy slice. New bounded-context acceptance additionally requires
+the specification's executable outbound-request, Unicode paging, source invalidation, read-only
+rehydration, protected-exchange and genuine table/restart/cost checks; implementation/live status
+remains pending, and legacy synthetic fold tests are not gameplay evidence.
 
 - 扩展用例：五个子命令各自的输出形状与 `mode !== "tui"` 的降级；折叠钩子在一个造出来的长会话上按类型丢对了东西、留下了玩家输入与交付、补了那条宿主消息；`before_agent_start` 的阈值触发。
 - 真桌：一局跑到需要压缩（或把阈值调低逼出来），压缩之后守秘人接着走三回合不丢状态：场景、待决、在场 NPC、上一条线索都还在（它们本来就每回合从胶囊来）；桌上用 `/coc model` 换一次模型，下一回合生效且回合状态机没被打断。
@@ -3764,7 +3949,8 @@ book still does not grant a spell. Documents, containers, consumables and other
 existing capabilities stay; an attack usage must not overwrite them.
 
 **Who writes, who reads, who acts.** Creator prepares a draft; the kernel accepts
-it through `apply usage` into `world.objects.usages`. `look`, Mod context, ability
+it through `apply usage` (or the host-only prepared-usage entry below) into
+`world.objects.usages`. `look`, Mod context, ability
 projection and combat resolution read those records. The Keeper selects a usage by
 natural name; registration receipts and attack receipts name the same instance and
 usage. Offer ledgers only count; unused usages are not next-turn obligations.
@@ -3841,6 +4027,83 @@ stamps `_provenance` as `{mod, digest, job}`. Stage must re-validate the job, th
 instance and the `physical_basis` before the batch commits; a stale or mismatched
 basis is a refusal, not a silent rewrite. Failed, cancelled or refused jobs keep
 their evidence and do not pretend the item worked.
+
+#### Prepared usages (prefetch)
+
+**Who writes, who reads, who acts.** After a committed turn the host may request
+optional usage proposals for physical instances in the active scene or held by
+investigators/NPCs. The same tool-enabled creator writes at most one plausible
+attack usage from the object's physical facts; the kernel validates and registers
+it in `world.objects.usages`. The existing Keeper projections and reuse/resolve
+paths read it. The Keeper alone chooses whether to use it for a later authorized
+action. Prefetch is not a player action: it produces no receipt, offer-ledger entry,
+clock advancement, world-time change, action/resource consumption or admission
+request. It neither claims that the player acted nor recommends an unused object.
+Only the accepted data, retained job directory and telemetry record preparation.
+
+The host reads `mods.prefetch.targets {campaign}` before scanning. This read-only
+RPC returns `{campaign, worldline, turn, state, pending_choice, active_scene,
+instances}`. Each instance has `{id, name, owner: {kind, id?, name?},
+definition_digest, condition, has_any_usage, covered}`; owner kind is
+`investigator`, `npc`, `scene` or `other` (including an immediate object container).
+Scope is physical instances in the active scene or held by investigators/NPCs,
+including instances nested in their containers, not the whole world. Owner is the
+immediate owner; containment is followed only to establish scope. There is no
+24-row projection limit. `worldline` is the active worldline (or null), `turn`,
+`state` and `pending_choice` are the retained turn fields, and `active_scene` is
+the world scene handle (or null).
+
+`has_any_usage` counts every retained usage record for the instance, regardless
+of provenance or current applicability. `covered` checks for `accepted.json`
+under the same current proposal identity and job-directory function used by job
+creation and acceptance. Positive and null negative results both count; unfinished
+jobs do not. A changed physical basis or provider/worldline binding selects a new
+key. With no active usage provider, `covered` is false. The RPC returns all
+in-scope instances honestly, including those with usages: filtering such instances,
+in-flight deduplication, serial scheduling and budgets belong to the host.
+
+This method creates no job directories, registers no usages, writes no campaign
+or world state, emits no receipts, advances no clocks and leaves pending choices
+unchanged. It does not prepare a proposal as a side effect of checking coverage.
+
+The host calls `mods.job` with `role: "usage"` and
+`input: {object: <instance natural name>, propose: true}`. No staged `preview` is
+allowed: proposals concern existing instances, not pending player effects.
+`request.json` keeps the same usage facts and catalogs; its input marks a proposal,
+not a player's utterance. The creator supplies its own natural usage name and
+capability description, writes the ordinary single-usage `result.json` shape, or
+writes JSON `null` when no reasonable attack usage exists. This is the same
+creator and validation contract, not a new semantic lane or a name classifier.
+
+The proposal key contains campaign, active worldline, immutable object identity
+and physical basis, `propose: true`, and the same provider/package version binding
+as action jobs. It has no turn stamp, receipts or other mutable turn context.
+The first retained request has a separate digest checked at acceptance. Repeated
+requests under the same basis reuse that directory, including accepted negative
+results; a changed basis gets a new key. Host scanning, serial concurrency and the
+per-turn budget belong to the host (default two, zero disables new prefetch).
+
+Only `mods.prefetch.accept {campaign, job}` accepts proposal jobs. It reuses all
+ordinary usage validation, provider/worldline checks and physical-basis checks,
+then directly registers the accepted record without `table.apply` or a receipt.
+It returns `{usage, physical_basis, provenance: {mod, digest, job, prefetched: true}}`;
+`usage` is null for an accepted negative result, retained in `accepted.json` and
+telemetry without a world write. Positive results carry this provenance unchanged
+into the immutable record. Acceptance is idempotent; duplicate accepts do not
+append duplicate records. `mods.accept` refuses proposals with reason
+`prefetch_accept_required`; `mods.prefetch.accept` refuses action jobs with reason
+`action_accept_required`. The ordinary action path never sets `prefetched`;
+`reused_usage` keeps its existing reference-to-registered-record meaning.
+
+Failures are silent to the player and retained only as job evidence and telemetry;
+they do not fake success, block play or bind a speculative result to an action.
+Prefetch is an independent, optional, discardable supplement, never permission to
+defer a usage the player already requested. Action jobs remain bound to their
+original turn. Applicability and invalidation are identical to action-generated
+records, including ownership/resource rules at execution. Worldline snapshots,
+forks and conflicts retain their existing behavior; a job may not cross worldlines.
+Disabling the generator stops new proposals but leaves accepted applicable records
+usable through the ordinary projection and resolve paths.
 
 #### Immutable usage records and reuse
 
@@ -3924,8 +4187,9 @@ original `resolve` can continue. It does not ask the player for a second input
 that only means "the system finished registering". Timeout, cancel or host
 restart keep the job evidence and an explicit pending state; they must not fake
 success or blindly resubmit the attack. A recovered result may bind only to the
-still-valid original action; a stale result must not affect another turn,
-worldline or a now-different instance.
+still-valid original action; an action-bound stale result must not affect another
+turn, worldline or a now-different instance. Independent prepared usages follow the
+prefetch entry above, never this action-recovery path.
 
 Prepare, accept and execute are distinct: a prepared draft is not possession; an
 accepted usage is not a settled attack. Each `apply` batch stays atomic; `resolve`
@@ -3934,7 +4198,8 @@ show the object held and the attack not rolled — they do not grant the object 
 second time.
 
 First implementation cut (`held-object-usage`): already-held instances only. The
-host waits; it does not defer usage.
+host waits; it does not defer a usage requested by the current player action.
+Optional prefetch before such a request is a separate path, not action deferral.
 
 Next cut (`scene-object-action`): a same-batch `define` / `object` / `usage` may
 resolve through a staged view (definition, instance, usage) and then validate and
@@ -3964,9 +4229,22 @@ The new execution path must not use that field as a permission gate. No historic
 campaign is batch-migrated; a campaign lock still changes only on an explicit
 upgrade. Closing Enhanced Items leaves accepted applicable usages executable.
 
+#### Preparation progress
+
+While an in-turn definition or usage batch is preparing, the host emits
+`mods-progress` on its panel channel with
+`{campaign, role: "define"|"usage", objects: [<natural names>], done, total}`.
+`done >= total` clears the line. The TUI shows the same line as a footer status
+while the batch is in flight and clears it on completion, failure or shutdown;
+background prefetch stays silent. Player-visible captions come from the shipped
+ui-words surfaces (`content/ui/en/mods.json`, keys `progress.define` and
+`progress.usage`, with `{objects}`, `{done}`, `{total}` placeholders) and are
+projected per play language through the presenter lane: code carries no
+per-language table or branch. Long object lists are clipped to two names.
+
 #### Receipts, events and tests
 
-New usage provisionally reuses existing `kind: "definition"` receipts, adding
+Action-triggered new usage provisionally reuses existing `kind: "definition"` receipts, adding
 `object` and `usage` fields, and the existing `definition-created` event, so this
 slice does not mint an event kind with no consumer. Combat settlement receipts
 also name the usage and the instance. Host-minted usage ids and job paths never
@@ -3988,6 +4266,20 @@ followed the unique method in §10 and Agents.md on campaign
 rewritten to make a slice look done.
 
 ### The kernel's decisions (`objects.usages.v1`; implemented 2026-09-15)
+
+- Prepared usages use `mods.job`'s `input.propose: true` variant and the independent
+  `mods.prefetch.accept` entry. Stable proposal keys exclude turn/request-context
+  digests; the first request digest is retained separately for tamper checks.
+  Positive and null negative results retain `{mod, digest, job, prefetched: true}`.
+  Positive acceptance uses `registerUsage` and existing inventory projection, not
+  apply staging, receipts or clock effects. Action jobs retain their turn binding.
+  Host scanning, budgets and silent failure reporting are a separate host slice.
+
+- `mods.prefetch.targets` reads campaign files without transaction initialization
+  or legacy repair. Proposal identity, key hashing and job-directory resolution
+  are shared with creation/acceptance, so checking coverage never creates a job.
+  Immediate owner metadata and all retained usage records are projected without
+  applying the host's skip-used policy or budget.
 
 **Status.** Implemented and verified 2026-09-15. The TypeScript kernel, host and
 Enhanced Items 1.2.1 cover held-object usage, staged scene usage, stateful
@@ -4805,6 +5097,11 @@ attack, before any close call and before the basement.
   audit rightly did not.
 
 ### 30.7 `contributes.brief`: the first turn long, the turns after short (2026-09-10 user decision)
+
+**Approved 2026-09-15 amendment (implementation/integration pending):** the ordinary first-turn
+lifecycle below is retained, but host-only `table.capsule {rehydrate:true}` also forces `full` using
+these same builders without consuming the first-turn marker. See the capsule amendment and §19.2.
+The recorded measurements below concern the original full/brief switch, not new rehydration acceptance.
 
 §30.6 measured the cost: every package's `instructions` re-sent every turn, 12KB of a 33KB capsule. The user's
 decision is the §13.6 pattern. A package may add `"brief": "<file>.md"` beside `instructions` (a `brief` without
