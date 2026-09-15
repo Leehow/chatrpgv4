@@ -779,6 +779,9 @@ export default function (pi: ExtensionAPI) {
 			...(asString(result.commit) ? { commit: asString(result.commit) } : {}),
 			...(asString(extraction.job_id) ? { job_id: asString(extraction.job_id) } : {}),
 			...(result.facts && typeof result.facts === "object" ? { facts: result.facts as CommitPayload["facts"] } : {}),
+			// Contract §40.2: the spans the delivery actually marked, so the verifier reads what was
+			// said rather than guessing it back out of the prose. A kernel without the pass omits it.
+			...(Array.isArray(result.speech) ? { speech: result.speech } : {}),
 		};
 		state.pendingCommit = payload;
 		pi.events.emit("coc:turn-committed", payload);
@@ -1026,12 +1029,15 @@ export default function (pi: ExtensionAPI) {
 	 * it. It is never injected into the prose: the TUI shows only what the Keeper wrote.
 	 */
 	function noteMechanics(state: TableState, turn: number, mechanics: Array<Record<string, unknown>>,
-		markedText?: string, labels?: unknown): void {
-		if (mechanics.length === 0) return;
+		markedText?: string, labels?: unknown, speech?: unknown[]): void {
+		// §40.2: a delivery may mark say spans and no mechanics at all, and that turn still owes the
+		// host an entry -- the card colours its speakers from this one.
+		const spoken = Array.isArray(speech) && speech.length > 0 ? speech : undefined;
+		if (mechanics.length === 0 && !spoken) return;
 		// §16.6: `marked_text` rides here rather than in the assistant message, because that message
 		// is also what a terminal reader sees and raw `{{...}}` is not prose. A frontend that has it
 		// draws each marked row where the Keeper put it; one that does not reads the message as before.
-		const entry = { turn, mechanics, ...(labels ? { labels } : {}), play_language: state.playLanguage, ...(markedText ? { marked_text: markedText } : {}) };
+		const entry = { turn, mechanics, ...(labels ? { labels } : {}), play_language: state.playLanguage, ...(markedText ? { marked_text: markedText } : {}), ...(spoken ? { speech: spoken } : {}) };
 		try {
 			pi.appendEntry("coc-mechanics", entry);
 		} catch {
@@ -1123,6 +1129,25 @@ export default function (pi: ExtensionAPI) {
 			const scene = asString(world?.active_scene);
 			if (scene && scene !== state.scene?.handle) state.scene = { handle: scene };
 		}
+	}
+
+	/**
+	 * The one `lane: "speech"` row a delivery leaves (contract §40.3): how many spans were marked,
+	 * how many resolved to a person, how many stayed a label, and how many people the capsule had on
+	 * stage. This is what "every spoken line is wrapped" is measured against, per model; nothing here
+	 * reads the spoken words, and a kernel that emits no `speech` leaves no row.
+	 */
+	function noteSpeech(state: TableState, result: Record<string, unknown>, turn: number): void {
+		if (!Array.isArray(result.speech)) return;
+		let resolved = 0, unresolved = 0;
+		for (const row of result.speech) {
+			const who = (row as { who?: unknown } | null)?.who;
+			if (!who || typeof who !== "object") continue;
+			const speaker = who as Record<string, unknown>;
+			if (asString(speaker.npc) || asString(speaker.investigator)) resolved += 1;
+			else if (asString(speaker.label)) unresolved += 1;
+		}
+		void record({ lane: "speech", turn, lines: result.speech.length, resolved, unresolved, present: state.present.length });
 	}
 
 	/** A delivery joins the player-visible window the next review reads. */
@@ -1288,9 +1313,11 @@ export default function (pi: ExtensionAPI) {
 				state.renderedText = typeof result.rendered_text === "string" ? result.rendered_text : undefined;
 				state.deliveryToolCallId = toolCallId;
 				noteDelivered(state, result);
+				noteSpeech(state, result, typeof result.turn === "number" ? result.turn : state.turn);
                 if (result.interaction) pi.appendEntry("coc-choice", result.interaction);
 				noteMechanics(state, typeof result.turn === "number" ? result.turn : state.turn,
-					withHandouts(state, readMechanics(result)), asString(result.marked_text), result.labels);
+					withHandouts(state, readMechanics(result)), asString(result.marked_text), result.labels,
+					Array.isArray(result.speech) ? result.speech : undefined);
 				break;
 			}
 			case "narrate": {
@@ -1300,11 +1327,12 @@ export default function (pi: ExtensionAPI) {
 				state.renderedText = asString(result.rendered_text);
 				state.deliveryToolCallId = toolCallId;
 				noteDelivered(state, result);
+				noteSpeech(state, result, typeof result.turn === "number" ? result.turn : state.turn);
 				// From here on this turn owes a verifier-lane row, whatever the lane turns out to do (ticket #28).
 				state.verifierOwed = { turn: typeof result.turn === "number" ? result.turn : state.turn };
 				const mechanics = withHandouts(state, readMechanics(result));
 				noteMechanics(state, typeof result.turn === "number" ? result.turn : state.turn, mechanics,
-					asString(result.marked_text), result.labels);
+					asString(result.marked_text), result.labels, Array.isArray(result.speech) ? result.speech : undefined);
 				noteCommit(state, result, mechanics);
 				break;
 			}

@@ -53,7 +53,7 @@ test('UI transport survives while coding persona and tools cannot replace the Ke
   const mounted = result.flatMap((value, index) => value === '-e' ? [result[index + 1]] : []);
   assert.deepEqual(mounted, [
     '/repo/build/host/runtime/kernel/pipiui-ext-invoke.mjs',
-    ...['kernel','mods','onboarding','module','memory','table','npc-journal'].map(name => `/repo/build/extensions/${name}/index.mjs`),
+    ...['kernel','mods','onboarding','module','memory','table','npc-journal','npc-voice'].map(name => `/repo/build/extensions/${name}/index.mjs`),
     '/repo/build/pipicoc/agent.mjs',
     '/repo/build/extensions/image-gen/agent/index.mjs',
   ]);

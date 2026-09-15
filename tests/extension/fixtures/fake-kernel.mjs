@@ -442,6 +442,20 @@ function resolve(params) {
 	};
 }
 
+/**
+ * Contract §40.2: the say spans a delivery marked. Only a test that asks for them gets them --
+ * FAKE_KERNEL_SPEECH carries the rows as JSON -- so every other turn test keeps the result it had.
+ */
+function speechRows() {
+	const raw = process.env.FAKE_KERNEL_SPEECH;
+	if (!raw) return {};
+	try {
+		return { speech: JSON.parse(raw) };
+	} catch {
+		return {};
+	}
+}
+
 function handle(method, params) {
 	if (ERRORS[method]) {
 		return { ok: false, error: ERRORS[method] };
@@ -858,6 +872,7 @@ function handle(method, params) {
 					interaction:{name:`ask-choice-t${turn}`,kind:params.kind||'story',prompt:params.prompt||'',options:params.options,play_language:playLanguage},
                     rendered_text: askBody,
 					mechanics: askMechanics,
+					...speechRows(),
 					turn,
 					state,
 				},
@@ -888,6 +903,7 @@ function handle(method, params) {
 				result: {
 					rendered_text: params.text,
 					mechanics,
+					...speechRows(),
 					turn: closed,
 					receipt: `turn:${closed}`,
 					commit: "abc1234",

@@ -18,6 +18,7 @@
       "./extensions/memory",
       "./extensions/table",
       "./extensions/npc-journal",
+      "./extensions/npc-voice",
       "./extensions/deepseek",
       "./extensions/image-gen",
       "./extensions/grok-build-oauth"
