@@ -5976,6 +5976,66 @@ falls back to the table's; a `reader` task in the same context still launches at
 default, in that order. The panel's advertised level is pinned to the runtime's, and no sentinel for
 following the table is accepted (`tests/extension/coc-lane-model.test.mjs`).
 
+### 37.12 A lane child's idle timeout is its own, and is measured, not derived from its budget (2026-09-15)
+
+§37.11's rule with a second dial. `runtime/launch.ts` writes `httpIdleTimeoutMs: 60000` into the agent
+home so a provider connection that answers and then says nothing becomes a retryable *timeout error*
+rather than an un-retryable watchdog abort — and that number is the table's, sized as twice the worst
+time-to-headers across 15,942 retained table requests. Every `pi` child reads the same file, including
+the Mod continuity-review child. That child's own wall-clock budget is `AUDIT_LIMITS.per_review_ms`,
+40 s. **A timeout longer than the budget can never fire.** The child's own timer kills it first, so
+the one failure the 60 s setting exists to convert is, in this lane, always a SIGTERM at the end of
+the budget with no reason attached.
+
+- `.coc/mods/jobs/f1336e40…` — request sent 2026-09-15T04:08:20.656Z, no provider response at all,
+  killed `code 143 timedOut` after 40,031 ms.
+- `…/playtest-evidence/pipicoc-20260914/homes/m-main/.coc/mods/jobs/b6242e2a…` — headers and first
+  chunks at 04:46:03, then 38 s of silence, killed after 40,015 ms.
+
+Both are on the build that already carried the 60 s setting. Both reached the Keeper as
+`continuity_review_unavailable`, which latches the turn's review budget (§37.9).
+
+**A fraction of `timeoutMs` is the wrong rule, for §37.11's reason in another costume.** How long a
+healthy stream goes quiet is a property of the transport and the model; how much allowance is left is
+a property of the accounting. Wiring one to the other is the same unrelated-dial-to-a-deadline
+mistake, and it fails in the direction that hurts: the reservation shrinks (a second review under
+`AUDIT_LIMITS.time_ms` gets only what remains), so "half the budget" lands *inside* the healthy
+distribution exactly when the allowance is tight, and aborts reviews that would have finished. The
+threshold is therefore measured from the lane's own retained streams.
+
+**25 s (`LANE_HTTP_IDLE_TIMEOUT_MS`), from 103 children and 4,075 gaps.** Across every retained
+`audit-agent-*.jsonl` in this worktree and in the 2026-09-14 playtest homes, the gaps between a lane
+child's streamed events put the worst *healthy* mid-stream silence at 16.42 s — a real one, inside a
+`thinking_delta` stream that went on to settle — with p99.9 at 10.79 s; the worst time-to-first-token
+is 10.49 s, and a whole child's wall clock runs 6.53 s at the median, 12.02 s at p90, 22.43 s at its
+worst. 25 s clears the worst observed healthy silence by half again and leaves 13 s of a 40 s budget
+for the retry pi schedules 2 s later. Nothing clamps it against a shrunken reservation on purpose: a
+threshold that cannot fire inside what is left is simply today's behaviour, which is the right
+fallback. `PI_COC_MOD_HTTP_IDLE_TIMEOUT_MS` in the host's environment outranks it, the way
+`PI_COC_MOD_TIMEOUT_MS` outranks the budget beside it.
+
+**The seam is pi's project scope, not the agent home.** The agent-home value is written once and
+never re-asserted because it is the operator's, so the lane may not move it. Pi deep-merges
+`<cwd>/.pi/settings.json` over the agent home's for one process, and loads it only for a *trusted*
+project — a print-mode child with no UI answers the trust question "no", so the file without
+`--approve` is read by nobody. `runReader` therefore writes both or neither, for `mod` tasks only:
+`reader` rounds have an hour and no such budget, and buying them a shorter idle timeout would only
+abort reads that are answering slowly. The `.pi` directory is **recreated from nothing on every
+run**: `--approve` trusts the whole project scope, the attempts of one review share a working
+directory the child itself can write to, and a `SYSTEM.md`, `APPEND_SYSTEM.md`, `extensions` or
+`skills` left behind would be writing the next attempt's startup.
+
+**Acceptance** (`tests/extension/lane-idle-timeout.test.mjs`). The constant is pinned against both
+quantities it sits between — above the 16.42 s worst healthy silence, and far enough below
+`AUDIT_LIMITS.per_review_ms` to hold pi's 2 s backoff plus a median child. A `mod` task writes
+`{httpIdleTimeoutMs}` into its own `cwd/.pi/settings.json` and launches with `--approve`; a `reader`
+task in the same context gets neither; the agent home's settings file is unchanged. A `.pi` directory
+carrying a previous attempt's `APPEND_SYSTEM.md`, stray `extensions` and a longer timeout is gone
+after the next run. And the behavioural half, which no amount of writing the file can satisfy: a real
+`pi` child, against a socket that sends headers and a first chunk and then stops, raises `terminated`
+inside its budget, retries on pi's own auto-retry, and returns an answer — where before it streamed
+nothing further and was killed at the end.
+
 ### 37.8 The extended live gate is accepted (2026-09-13)
 
 Retained campaign **`midgame-bridge-live-22`** (runs `midgame-bridge-live-22-run`,
