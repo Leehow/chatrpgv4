@@ -82,15 +82,42 @@ function systemPrompt(packet: JobPacket): string {
 		"",
 		"Answer with one JSON object only, no code fence and no explanation:",
 		'{"sample_lines":["...","..."]}',
+		'or, only for a person the book says does not speak: {"sample_lines":null,"reason":"does_not_speak"}',
 		"Field rules:",
 		`- exactly ${lines} strings, in that order: at ease first, under strain second.`,
 		`- each line is 1 to ${maxChars} characters, on one line, and the two are not the same line.`,
 		"- write the lines in play_language, and write no key other than sample_lines.",
-		"- no numbers, no rules, no braces, and nothing the player has not discovered.",
+		"- no numbers, no rules, no braces, no other person's name, and nothing the player has not discovered.",
 	].join("\n");
 }
 
-function userInput(packet: JobPacket): string {
+/** The lines the lane came back with, or the book's silence honoured (§40.5). */
+type Lines = { lines: string[] } | { silent: true };
+const SILENT_REASON = "does_not_speak";
+
+/** The second zero-tool call of §40.5's voice guard: does a pair of lines honour the book's one-line `voice`? Register only. */
+function judgePrompt(): string {
+	return [
+		"You check two sample lines against a book's one-line description of how a person sounds. Judge register only:",
+		"manner, temper, how much they say, whether they would raise their voice — never the content of the lines.",
+		"A line that contradicts the description (a quiet person shouting, a formal person cursing) does not honour it.",
+		"Answer with one JSON object only, no code fence and no explanation:",
+		'{"honours":true|false,"why":"<at most 120 characters, in English>"}',
+	].join("\n");
+}
+
+function judgeInput(voice: string, lines: string[]): string {
+	return [`[Voice the book gives them] ${voice}`, "", "[Lines]", ...lines.map((line, index) => `${index + 1}. ${line}`)].join("\n");
+}
+
+function shapeVerdict(parsed: unknown): { honours: boolean; why: string } | undefined {
+	if (!parsed || typeof parsed !== "object") return undefined;
+	const row = parsed as { honours?: unknown; why?: unknown };
+	if (typeof row.honours !== "boolean") return undefined;
+	return { honours: row.honours, why: typeof row.why === "string" ? row.why.trim().slice(0, 200) : "" };
+}
+
+function userInput(packet: JobPacket, objection?: string): string {
 	const npc = packet.npc ?? {};
 	const documents = Array.isArray(packet.documents)
 		? packet.documents.flatMap((row) => (typeof row === "string" && row.trim() ? [row.trim()] : []))
@@ -113,6 +140,7 @@ function userInput(packet: JobPacket): string {
 		"",
 		"[Their own documents]",
 		documents.length ? documents.join("\n\n") : "(none)",
+		...(objection ? ["", `[A reviewer read your last two lines against the voice the book gives them and objected] ${objection}`, "Rewrite both lines so they honour that voice."] : []),
 	].join("\n");
 }
 
@@ -121,9 +149,11 @@ function userInput(packet: JobPacket): string {
  * bounded, the two distinct, no machine token and no line break. Nothing semantic is judged here —
  * no register detector, no language detector, no word list.
  */
-function shapeLines(parsed: unknown, packet: JobPacket): string[] | undefined {
+function shapeLines(parsed: unknown, packet: JobPacket): Lines | undefined {
 	if (!parsed || typeof parsed !== "object") return undefined;
 	const raw = Array.isArray(parsed) ? parsed : (parsed as { sample_lines?: unknown }).sample_lines;
+	// The book's silence, honoured: null lines with the one closed reason, and nothing else on the object.
+	if (raw === null) return (parsed as { reason?: unknown }).reason === SILENT_REASON ? { silent: true } : undefined;
 	const wanted = packet.budget?.lines ?? DEFAULT_LINES;
 	const maxChars = packet.budget?.max_chars ?? DEFAULT_MAX_CHARS;
 	if (!Array.isArray(raw) || raw.length !== wanted) return undefined;
@@ -136,7 +166,7 @@ function shapeLines(parsed: unknown, packet: JobPacket): string[] | undefined {
 		if (lines.includes(line)) return undefined;
 		lines.push(line);
 	}
-	return lines;
+	return { lines };
 }
 
 /** The code of a kernel error envelope is read structurally: instanceof is unreliable across extensions (two module instances). */
@@ -213,8 +243,8 @@ export default function (pi: ExtensionAPI) {
 		campaign: string,
 		call: KernelCall,
 		note: (row: Record<string, unknown>) => Promise<void>,
-	): Promise<{ ok: true; model: string } | { ok: false; reason: string; detail: string }> {
-		const lane = await runLane<string[]>({
+	): Promise<{ ok: true; model: string; voice_check?: string } | { ok: false; reason: string; detail: string }> {
+		const write = (objection?: string) => runLane<Lines>({
 			ctx: scheduler.ctx as ExtensionContext,
 			envName: "PI_COC_VOICE_MODEL",
 			// The four `lane: "lane-call"` rows this round leaves (contract §12.8.1) travel the job's own
@@ -222,18 +252,41 @@ export default function (pi: ExtensionAPI) {
 			lane: "voice",
 			record: (row) => note({ job_id: jobId, ...row }),
 			systemPrompt: systemPrompt(packet),
-			input: userInput(packet),
+			input: userInput(packet, objection),
 			signal: scheduler.signal,
 			shape: (parsed) => shapeLines(parsed, packet),
 		});
+		let lane = await write();
 		if (!lane.ok) {
 			// `voice.fail` takes the journal's enum (`invalid | lane_error | model_error`); the lane's own
 			// four reasons map onto it exactly as the journal lane maps them.
 			return { ok: false, reason: lane.reason === "model_unavailable" ? "lane_error" : "model_error", detail: lane.detail };
 		}
+		// §40.5's voice guard: when the book gives a `voice`, a second zero-tool call reads the two lines
+		// against it and may send them back once with its objection. One bounce, then whatever the rewrite
+		// brings is filed: the guard is a nudge, never a gate, and a judge that cannot answer waives.
+		let voiceCheck: string | undefined;
+		const voice = typeof packet.npc?.voice === "string" ? packet.npc.voice.trim() : "";
+		if (voice && "lines" in lane.value) {
+			const verdict = await runLane<{ honours: boolean; why: string }>({
+				ctx: scheduler.ctx as ExtensionContext, envName: "PI_COC_VOICE_MODEL", lane: "voice",
+				record: (row) => note({ job_id: jobId, check: "voice", ...row }),
+				systemPrompt: judgePrompt(), input: judgeInput(voice, lane.value.lines), signal: scheduler.signal, shape: shapeVerdict,
+			});
+			if (!verdict.ok) voiceCheck = "waived";
+			else if (verdict.value.honours) voiceCheck = "passed";
+			else {
+				const again = await write(verdict.value.why || "the lines do not honour the voice");
+				voiceCheck = "rewritten";
+				if (again.ok) lane = again;
+				else voiceCheck = "rewrite_failed";
+			}
+		}
 		try {
-			await call("voice.submit", { campaign, job_id: jobId, sample_lines: lane.value });
-			return { ok: true, model: lane.model };
+			await call("voice.submit", "lines" in lane.value
+				? { campaign, job_id: jobId, sample_lines: lane.value.lines }
+				: { campaign, job_id: jobId, sample_lines: null, reason: SILENT_REASON });
+			return { ok: true, model: lane.model, ...(voiceCheck ? { voice_check: voiceCheck } : {}) };
 		} catch (error) {
 			const code = errorCode(error);
 			return {
@@ -263,6 +316,7 @@ export default function (pi: ExtensionAPI) {
 			if (outcome.ok) {
 				await note({
 					npc: handle, job_id: jobId, ok: true, ms: Date.now() - began, model: outcome.model,
+					...(outcome.voice_check ? { voice_check: outcome.voice_check } : {}),
 					...(tries > spent ? { retried: true } : {}),
 				});
 				return true;

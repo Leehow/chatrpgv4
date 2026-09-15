@@ -155,3 +155,18 @@ def test_backfill_reaches_people_the_table_has_not_met(kernel, tmp_path):
         offered.add(packet["npc"]["handle"])
         submit(kernel, packet["job_id"], [f"{packet['npc']['name']}一句。", f"{packet['npc']['name']}另一句。"])
     assert "walter-corbitt" in offered and KNOTT_HANDLE in offered
+
+
+def test_the_books_silence_is_honoured_and_the_person_is_never_offered_again(kernel, tmp_path):
+    """§40.5: a swarm or a haunt the book says does not speak gets no invented lines. The lane answers
+    null with the one closed reason, the person is settled without a word reaching the capsule, and
+    `voice.job` moves on."""
+    on(kernel, tmp_path)
+    packet = job(kernel)
+    assert kernel.err("voice.submit", {"campaign": CAMPAIGN, "job_id": packet["job_id"], "sample_lines": None})["details"]["field"] == "reason"
+    result = kernel.ok("voice.submit", {"campaign": CAMPAIGN, "job_id": packet["job_id"], "sample_lines": None, "reason": "does_not_speak"})
+    assert result["sample_lines"] is None and result["reason"] == "does_not_speak"
+    recorded = read_json(campaign_dir(kernel.workspace) / "world.json")["mods"]["state"][MOD]["dossier"][KNOTT_ID]["sample_lines"]
+    assert recorded["value"] is None and recorded["reason"] == "does_not_speak"
+    assert "sounds like" not in present(kernel)[KNOTT]
+    assert job(kernel).get("npc", {}).get("handle") != KNOTT_HANDLE

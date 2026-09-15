@@ -708,6 +708,39 @@ test("守秘人整回合没碰工具就写散文：宿主先催一次 floor，�
 	assert.equal(floorRows[0].steered, true);
 });
 
+/**
+ * §40 host steer (user ruling 2026-09-15): people are on stage and the draft wraps no spoken line.
+ * Once, the draft is dropped and the Keeper is asked for the same turn with its lines wrapped; the
+ * second leg is honoured however it comes. Nothing reads the prose: the host looks for the machine
+ * token and counts the capsule's present[].
+ */
+test("有人在场、草稿里没有 say 记号：宿主催一次 speech，第二段照常隐式交付", async (t) => {
+	const bare = "看门人把钥匙推过来。钥匙在这儿。他没有起身。";
+	const wrapped = "看门人把钥匙推过来。{{say:看门人}}「钥匙在这儿。」{{/say}}他没有起身。";
+	const table = await openTable({
+		responses: [
+			fauxAssistantMessage([fauxToolCall("resolve", { action: { intent: "investigate", goal: "看钥匙", method: "侦查", skill: "Spot Hidden" } })], { stopReason: "toolUse" }),
+			fauxAssistantMessage(bare),
+			fauxAssistantMessage(wrapped),
+		],
+	});
+	t.after(() => table.dispose());
+
+	await table.session.prompt("我看钥匙");
+	await waitForIdle(table.session);
+
+	const steers = customMessages(table.session, "coc-host").filter((message) => message.details?.kind === "speech");
+	assert.equal(steers.length, 1, "one speech steer, no more");
+	assert.match(steers[0].content, /\{\{say:Name\}\}/);
+	const narrates = table.kernelRequests().filter((entry) => entry.method === "table.narrate");
+	assert.deepEqual(narrates.map((entry) => entry.params.text), [wrapped], "the bare draft never reached the kernel; the wrapped leg did");
+	assert.equal(narrates[0].params.implicit, true);
+	assert.ok(!assistantTexts(table.session).includes(bare), "the dropped draft is not in the transcript");
+	const rows = table.telemetry().filter((row) => row.lane === "speech" && row.steered);
+	assert.equal(rows.length, 1);
+	assert.equal(rows[0].present, 1);
+});
+
 test("碰过工具再写散文不催：一次工具调用就够，被拒的也算", async (t) => {
 	const prose = "门框上有一道深深的抓痕。你退后一步。";
 	const table = await openTable({

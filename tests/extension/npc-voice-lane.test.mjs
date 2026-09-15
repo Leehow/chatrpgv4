@@ -12,6 +12,8 @@ import { waitFor } from "./harness.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const answer = (...lines) => fauxAssistantMessage(JSON.stringify({ sample_lines: lines }));
+const silence = () => fauxAssistantMessage(JSON.stringify({ sample_lines: null, reason: "does_not_speak" }));
+const verdict = (honours, why = "") => fauxAssistantMessage(JSON.stringify({ honours, why }));
 const inputText = context => context.messages.flatMap(message => message.content).map(block => block.text ?? "").join("\n");
 
 /** The §40.5 packet: exactly the closed fields, and a job id the model must never see. */
@@ -25,7 +27,7 @@ function packet(handle) {
 		npc: {
 			handle, name: handle === "steven-knott" ? "Steven Knott" : "Dooley",
 			role: "caretaker", wants: "to be left alone", fears: "the cellar stairs",
-			hides: "he knows what walks under the house", voice: "clipped, defensive",
+			hides: "he knows what walks under the house",
 			speaks: "English", would_lie_about: ["the cellar"], deflect_lines: ["Nothing down there."],
 			knowledge: ["the cellar door sticks"],
 		},
@@ -247,4 +249,42 @@ test("setup mode registers no voice lane at all", async (t) => {
 	await settle(60);
 	assert.equal(table.calls("voice.job").length, 0);
 	assert.deepEqual(table.rows(), []);
+});
+
+
+/** A packet carrying the book's `voice`, which is what wakes the guard; the default packet carries none so the other tests stay one call per person. */
+const voiced = (method, params, queue) => method === "voice.job" ? (() => { const p = packet(queue.shift()); return p.npc ? { ...p, npc: { ...p.npc, voice: "clipped, defensive" } } : p; })() : undefined;
+
+test("a person the book says does not speak is filed as silent, with no lines and no judge", async (t) => {
+	const table = await openVoice(t, { people: ["steven-knott"], responses: [silence()] });
+	table.commit(1);
+	await completed(table);
+	assert.deepEqual(table.calls("voice.submit").map(row => row.params), [
+		{ campaign: "camp", job_id: "voice:camp:steven-knott", sample_lines: null, reason: "does_not_speak" },
+	]);
+	assert.equal(table.calls("voice.fail").length, 0);
+	assert.equal(table.rows()[0].ok, true);
+});
+
+test("the voice guard reads the lines against the book's voice and bounces them once", async (t) => {
+	let judge;
+	const table = await openVoice(t, {
+		people: ["steven-knott"], rpc: voiced,
+		responses: [answer("没什么好说的。", "滚！！"), context => { judge = context; return verdict(false, "a clipped man does not scream"); }, answer("没什么好说的。", "……你问这个做什么。")],
+	});
+	table.commit(1);
+	await completed(table);
+	assert.match(judge.systemPrompt, /register only/);
+	assert.match(inputText(judge), /\[Voice the book gives them\] clipped, defensive/);
+	assert.match(inputText(judge), /2\. 滚！！/);
+	assert.deepEqual(table.calls("voice.submit").map(row => row.params.sample_lines), [["没什么好说的。", "……你问这个做什么。"]]);
+	assert.equal(table.rows().find(row => row.npc)?.voice_check, "rewritten");
+});
+
+test("the voice guard lets honoured lines through unchanged", async (t) => {
+	const table = await openVoice(t, { people: ["dooley"], rpc: voiced, responses: [answer("先买份报。", "跟你没关系。"), verdict(true)] });
+	table.commit(1);
+	await completed(table);
+	assert.deepEqual(table.calls("voice.submit").map(row => row.params.sample_lines), [["先买份报。", "跟你没关系。"]]);
+	assert.equal(table.rows().find(row => row.npc)?.voice_check, "passed");
 });

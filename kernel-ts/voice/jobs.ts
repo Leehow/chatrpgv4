@@ -46,7 +46,9 @@ export function packageState(world: Row): Row | null {
     const lock = row(row(row(world.mods).active)[MOD]);
     return truth(lock.enabled) ? lock : null;
 }
-const established = (world: Row, node: Row): boolean => truth(row(row(row(row(row(row(world.mods).state)[MOD]).dossier)[string(node.node_id)])[KEY]).value);
+/** Established is a record under the key, lines or the `does_not_speak` answer: either way the person is settled. */
+const established = (world: Row, node: Row): boolean => Object.hasOwn(row(row(row(row(row(world.mods).state)[MOD]).dossier)[string(node.node_id)]), KEY);
+export const SILENT_REASON = 'does_not_speak';
 /** A person needs lines when the package is on, the source gives none and none is established (§40.5). */
 export function needsLines(graph: ModuleGraph, world: Row, node: Row): boolean {
     return !!packageState(world) && !truth(graph.npcProfile(node)[KEY]) && !established(world, node);
@@ -138,8 +140,8 @@ export function validateLines(value: any): [string, string] {
     return [lines[0], lines[1]];
 }
 /** The one write: into the package's §28.7 namespace, never the graph. Idempotent by digest. */
-export async function submit(campaign: CampaignWriter, graph: ModuleGraph, world: Row, job: Row, value: any, turn: number): Promise<[Row, boolean]> {
-    const handle = string(job.npc), digest = jsonDigest(value ?? null);
+export async function submit(campaign: CampaignWriter, graph: ModuleGraph, world: Row, job: Row, value: any, turn: number, reason?: any): Promise<[Row, boolean]> {
+    const handle = string(job.npc), digest = jsonDigest(value === null ? { reason: reason ?? null } : value ?? null);
     if (job.status === 'done') {
         if (job.lines_sha256 === digest)
             return [clone(row(job.result)), true];
@@ -151,11 +153,17 @@ export async function submit(campaign: CampaignWriter, graph: ModuleGraph, world
         throw new RpcError('invalid_params', `the source already gives ${graph.displayName(node)} ${KEY}`, { fix: 'the book\'s own lines stand; the lane fills only where the source is silent', details: { field: 'sample_lines', actor: handle, authored_value: authored } });
     if (!packageState(world))
         throw new RpcError('invalid_params', `${MOD} is not enabled on this campaign`, { fix: 'enable the package before establishing its words', details: { mod: MOD } });
-    const lines = validateLines(value);
+    // §40.5: a person the book says does not speak (a swarm, a haunt that acts through knocks) has no
+    // lines to write; the lane says so and the person is settled without any. The read side skips a
+    // null value, so nothing reaches the capsule, and `nextPerson` never offers them again.
+    const silent = value === null && reason === SILENT_REASON;
+    if (value === null && !silent)
+        throw new RpcError('invalid_params', `sample_lines null needs reason ${repr(SILENT_REASON)}`, { fix: `answer {"sample_lines": null, "reason": "${SILENT_REASON}"} only for someone the book says does not speak`, details: { field: 'reason' } });
+    const lines = silent ? null : validateLines(value);
     const state = ((world.mods.state ??= {})[MOD] ??= {}), dossier = (state.dossier ??= {}), recorded = (dossier[string(node.node_id)] ??= {});
-    recorded[KEY] = { value: lines, label: LABEL, turn, mod: MOD };
+    recorded[KEY] = { value: lines, label: LABEL, turn, mod: MOD, ...(silent ? { reason: SILENT_REASON } : {}) };
     await campaign.writeWorld(world);
-    const result = { job_id: string(job.job_id), npc: handle, name: graph.displayName(node), sample_lines: lines };
+    const result = { job_id: string(job.job_id), npc: handle, name: graph.displayName(node), sample_lines: lines, ...(silent ? { reason: SILENT_REASON } : {}) };
     await writeJob(campaign, handle, { ...job, status: 'done', lines_sha256: digest, result, completed_at: nowIso() });
     return [result, false];
 }

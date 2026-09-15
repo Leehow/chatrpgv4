@@ -300,6 +300,12 @@ const FLOOR_STEER =
 	"This turn used no tool and nothing landed. Read director.offer and the people present: what changes in the world, apply; " +
 	"what is uncertain, resolve. Then take up the player's words from the world's view, let the world answer, give someone " +
 	"present a line in their own voice, and hand the move back to the player. Close with narrate.";
+/** The one host steer of §40 (user ruling 2026-09-15): people are on stage and the draft wraps no spoken line. */
+const SPEECH_STEER =
+	"People are present and this draft wraps no spoken line. Every line anyone says aloud goes inside " +
+	"{{say:Name}}\u2026{{/say}}, Name exactly as present[].name gives it (the investigator too, when you render " +
+	"the player's words as theirs); a person not in present[] takes the label the prose uses for them. Rewrite " +
+	"the same turn with every spoken line wrapped, and close with narrate. The braces never reach the player.";
 
 let table: TableState | undefined;
 /** In setup mode there is no table, so the kernel subprocess hangs here on its own (contract §14.4). */
@@ -2387,6 +2393,16 @@ export default function (pi: ExtensionAPI) {
 				state.floorDraft = prose;
 				state.deliveryFix = { kind: "floor", text: FLOOR_STEER };
 				await record({ lane: "floor", turn: state.turn, steered: true, round_trips: state.roundTrips });
+				return { message: { ...event.message, content: blocks.filter((block) => block.type !== "text") } };
+			}
+			// §40 (2026-09-15): people are on stage and the draft carries no say token. Once, the host drops
+			// the draft and asks for the same turn with its lines wrapped; the second leg is honoured however it
+			// comes, and a second leg that brings nothing falls back to this draft like the floor steer's.
+			// Nothing here reads the prose: a machine token is searched for, and present[] is the capsule's.
+			if (state.present.length > 0 && !opening && !state.steeredThisTurn && !/\{\{say:/.test(prose)) {
+				state.floorDraft = prose;
+				state.deliveryFix = { kind: "speech", text: SPEECH_STEER };
+				await record({ lane: "speech", turn: state.turn, steered: true, present: state.present.length });
 				return { message: { ...event.message, content: blocks.filter((block) => block.type !== "text") } };
 			}
 			const tool = "narrate";

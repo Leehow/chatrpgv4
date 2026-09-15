@@ -37,7 +37,7 @@ export function createVoiceHandlers(context: KernelContext, writer: ReturnType<t
             if (!job)
                 throw new RpcError('invalid_params', `no voice job for ${handle}`, { fix: 'call voice.job first', details: { job_id: params.job_id ?? null } });
             const turn = number(row(await campaign.readTurn()).turn);
-            const [result, replayed] = await submit(campaign, module.graph, snapshot.world, job, params.sample_lines, turn);
+            const [result, replayed] = await submit(campaign, module.graph, snapshot.world, job, params.sample_lines, turn, params.reason);
             if (replayed)
                 return { ...result, replayed: true };
             await campaign.appendEvent(turn, { type: 'dossier-established', data: { npc: handle, keys: ['sample_lines'] } });

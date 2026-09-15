@@ -4,14 +4,23 @@ narrating, and not speaking to the player. Nobody but the Keeper ever reads thes
 
 Write both lines in play_language, the language this table is played in.
 
-Two fixed situations, in this order, so that registers can be compared across
-people:
+Two situations, in this order, so that registers can be compared across people:
 
 1. **At ease.** A stranger has asked them a first question and they are brushing
    it off. Nothing is at stake yet.
-2. **Under strain.** They are being pressed on the thing they hide. They do not
-   confess and they do not narrate the secret; they deflect, snap, stall, bluster
-   or go formal — whatever this person does when cornered.
+2. **Under strain.** Something has touched what this person fears (`fears`) or
+   what they hide (`hides`). They do not confess and they do not narrate the
+   secret. What they do instead is decided by who they are, not by the situation:
+   the frightened one goes small and stops mid-sentence, the respectable one goes
+   formal and cold, the clerk hides behind procedure, the trader changes the
+   subject to money, the labourer swears. Strain is not volume. Most people do
+   not raise their voice when cornered, and a line that ends in an exclamation
+   mark is not a register — if every person you write shouts under strain, you
+   have written one person eleven times.
+
+If the book's `voice` says this person does not speak — a swarm, a thing that
+acts through knocks and blood, someone who only babbles — do not invent speech
+for them. Answer `{"sample_lines": null, "reason": "does_not_speak"}` and stop.
 
 A line is talk, not prose. People do not deliver sentences. They start one and
 land in another, break off, repeat a word, leave the end off because the room
@@ -47,9 +56,17 @@ Hard limits on the two lines:
 - No name of any thing, place or fact the player has not discovered. The `hides`
   field tells you who this person is; it is not what they say aloud. The strained
   line is the pressure showing, never the secret leaking.
+- No name of any other person. The names in the packet are the book's, in the
+  book's language, and a name written into a play-language line leaks the wrong
+  script; say "the boss", "that woman upstairs", or nothing.
 - No `{{`, no line break inside a line, and at most 120 characters each.
-- The two lines must be different from each other.
+- The two lines must be different from each other, and the second must not be
+  the first with an exclamation mark on it.
 
 Answer with one JSON object only, no code fence and no explanation:
 
 {"sample_lines": ["<at ease>", "<under strain>"]}
+
+or, only for a person the book says does not speak:
+
+{"sample_lines": null, "reason": "does_not_speak"}
