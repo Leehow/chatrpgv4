@@ -145,6 +145,9 @@ interface TableState {
 	deliveryTriedThisTurn: boolean;
 	/** Tool calls blocked because the turn had already closed, in this run (§34.16). */
 	blockedAfterClose: number;
+	/** Blocked calls after the refusal budget was spent (§70): the same runaway
+	 *  escalation as §34.16, for a turn that never opened rather than one that closed. */
+	blockedAfterExhausted: number;
 	/** The prose the floor steer dropped; if the second leg brings no prose and no narrate, this closes the turn as before. */
 	floorDraft?: string;
 	/**
@@ -948,7 +951,7 @@ export default function (pi: ExtensionAPI) {
 		table.steeredThisTurn = false;
 		table.toolCallsThisTurn = 0;
 		table.deliveryTriedThisTurn = false;
-		table.blockedAfterClose = 0;
+		table.blockedAfterClose = 0;		table.blockedAfterExhausted = 0;
 		table.floorDraft = undefined;
 		table.recoveryOwed = null;
 		table.recoveryLanded = false;
@@ -2590,6 +2593,7 @@ export default function (pi: ExtensionAPI) {
 				toolCallsThisTurn: 0,
 				deliveryTriedThisTurn: false,
 				blockedAfterClose: 0,
+				blockedAfterExhausted: 0,
 				recoveryOwed: null,
 				recoveryLanded: false,
 				recoverySteered: false,
@@ -2895,7 +2899,7 @@ export default function (pi: ExtensionAPI) {
 			state.steeredThisTurn = false;
 			state.toolCallsThisTurn = 0;
 			state.deliveryTriedThisTurn = false;
-			state.blockedAfterClose = 0;
+			state.blockedAfterClose = 0;			state.blockedAfterExhausted = 0;
 			state.floorDraft = undefined;
 			state.recoveryOwed = null;
 			state.recoveryLanded = false;
@@ -3003,7 +3007,7 @@ export default function (pi: ExtensionAPI) {
 		if (table) {
 			table.closedThisRun = false;
 			table.runCut = false;
-			table.blockedAfterClose = 0;
+			table.blockedAfterClose = 0;			table.blockedAfterExhausted = 0;		table.blockedAfterExhausted = 0;
 		}
 	});
 
@@ -3118,8 +3122,20 @@ export default function (pi: ExtensionAPI) {
 		state.callRounds.set(event.toolCallId, state.roundTrips);
 		const shut = state.exhausted.get(name);
 		if (shut) {
-			await record({ tool: name, started_at: new Date().toISOString(), ok: false, code: "blocked", reason: "refusal_budget" });
-			return { block: true, reason: shut };
+			// §70: the same escalation §34.16 gives a closed turn, for a turn that never
+			// opened. The budget already told the Keeper to close with narrate; if it keeps
+			// calling anyway, the third block says so harder and the sixth cuts the run.
+			// Without this the refusals were bounded but the turn was not: a Keeper burned
+			// five minutes of blocked calls on a table that could not move.
+			state.blockedAfterExhausted += 1;
+			const blocked = state.blockedAfterExhausted;
+			await record({ tool: name, started_at: new Date().toISOString(), ok: false, code: "blocked", reason: "refusal_budget", blocked_after_exhausted: blocked });
+			if (blocked >= RUNAWAY_ABORT_AT) {
+				await record({ lane: "runaway", turn: state.turn, blocked, aborted: true, after: "refusal_budget" });
+				state.runCut = true;
+				try { ctx?.abort(); } catch { /* an abort that cannot be delivered leaves the driver's timeout as the last resort */ }
+			}
+			return { block: true, reason: blocked >= RUNAWAY_STOP_AT ? `${shut} Call no further tool and write nothing more.` : shut };
 		}
 		const key = `${name}\u0000${JSON.stringify(input)}`;
 		state.callKeys.set(event.toolCallId, key);

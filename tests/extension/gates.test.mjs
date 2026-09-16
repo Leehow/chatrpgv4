@@ -301,3 +301,33 @@ test("宿主自己发的 awaiting_player 拒绝也计入预算：第三次之后
 	// narrate still closes the opening: the budget never shuts the two verbs that end a turn.
 	assert.ok(table.kernelRequests().some((entry) => entry.method === "table.narrate"), "narrate 不受预算影响");
 });
+
+/**
+ * A turn that never opened also has to end (contract §70).
+ *
+ * Real table, 2026-09-16: after the refusal budget was spent the Keeper kept calling. Every call was
+ * blocked cheaply, so the refusals were bounded — but the turn was not: five minutes of blocked calls
+ * on a table that could not move. §34.16's runaway cut only counts blocks after a turn has *closed*;
+ * this one never opened, so it never counted.
+ */
+test("预算耗尽后还在调用：第三次说得更硬，第六次切断这一轮", async (t) => {
+	const attempt = (goal) => fauxAssistantMessage([fauxToolCall("resolve", { action: { intent: "investigate", goal, method: "用侦查看看" } })], { stopReason: "toolUse" });
+	const table = await openTable({
+		env: { FAKE_KERNEL_OPENING: "1" },
+		responses: Array.from({ length: 14 }, (_, i) => attempt(`第 ${i + 1} 次想掷`))
+			.concat([fauxAssistantMessage("收尾")]),
+	});
+	t.after(() => table.dispose());
+
+	await waitForIdle(table.session);
+
+	const texts = toolResults(table.session, "resolve").map(resultText);
+	assert.ok(texts.some((text) => /refused 3 times this turn for the same reason/.test(text)), "先耗尽同类预算");
+	assert.ok(texts.some((text) => /Call no further tool and write nothing more/.test(text)),
+		"耗尽之后继续调用，要得到更硬的回答");
+	const runaway = table.telemetry().filter((row) => row.lane === "runaway" && row.after === "refusal_budget");
+	assert.equal(runaway.length, 1, "跑飞要被切断一次");
+	assert.equal(runaway[0].aborted, true);
+	// The run stops rather than grinding on: not every scripted response is consumed.
+	assert.ok(texts.length < 14, `切断后不该把 14 条都跑完，实际 ${texts.length}`);
+});
