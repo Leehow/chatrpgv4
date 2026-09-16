@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {after, test} from 'node:test';
-import {cp, mkdtemp, mkdir, readdir, readFile, writeFile} from 'node:fs/promises';
+import {cp, mkdtemp, mkdir, readdir, readFile, symlink, writeFile} from 'node:fs/promises';
 import {join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {build} from 'esbuild';
@@ -33,9 +33,25 @@ const materializer = await (async () => {
     return {path, id: manifest.id, version: manifest.version};
 })();
 
-async function table(input = 'I want to understand how these events connect.', {mods = false} = {}) {
+/**
+ * A content root this suite owns, for the one term of the freshness pin that lives on disk rather
+ * than in the campaign: the adaptation instructions. Every entry of the repo's `content/` is reached
+ * through a symlink, so the kernel reads the real tree and this suite cannot write to it; only
+ * `adaptation/` is a real copy, and it is the only thing a test here may edit. The repository's own
+ * `content/adaptation/create.md` and `review.md` are never touched -- other sessions and live tables
+ * are reading that tree.
+ */
+async function ownedContent() {
+    const path = await mkdtemp(join(directory, 'content-'));
+    for (const entry of await readdir(join(root, 'content')))
+        if (entry !== 'adaptation') await symlink(join(root, 'content', entry), join(path, entry));
+    await cp(join(root, 'content/adaptation'), join(path, 'adaptation'), {recursive: true});
+    return path;
+}
+
+async function table(input = 'I want to understand how these events connect.', {mods = false, content = join(root, 'content')} = {}) {
     const home = await mkdtemp(join(directory, 'campaign-'));
-    const context = await api.createKernelContext({workspace: home, content: join(root, 'content'), seed: 'continuity', locks: api.nativeAdvisoryLocks(),
+    const context = await api.createKernelContext({workspace: home, content, seed: 'continuity', locks: api.nativeAdvisoryLocks(),
         env: {...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1'}});
     const runtime = api.createKernelRuntime(context); closers.push(() => runtime.close());
     const call = (method, params = {}) => runtime.handlers[method]({campaign: 'c1', ...params});
@@ -467,6 +483,35 @@ test('a reviewed proposal is still refused when the party the review was shown i
     await writeFile(path, JSON.stringify({...sheet, name: 'Someone else entirely'}));
     await assert.rejects(t.call('table.apply', {call_id: 't1-c2', effects: [{kind: 'adaptation', name: p.name}]}),
         e => e.details?.reason === 'adaptation_stale');
+});
+
+/**
+ * The fourth term of the same freshness conjunction, and the only one that does not live in the
+ * campaign: `contract = digest([create.md, review.md, ADAPTATION_FIELDS])`. A proposal is drafted
+ * under one set of instructions and judged under another, so improving either prompt -- the ordinary
+ * reason anyone edits these files -- must end every proposal already in flight rather than relabel
+ * it as reviewed work. Nothing moves in the campaign here: the world, the party and the source are
+ * all exactly what the review was shown, and the single byte that changed is on disk in a prompt.
+ */
+for (const role of ['create', 'review']) test(`a reviewed proposal is still refused when the ${role} instructions it was drafted under changed`, async () => {
+    const content = await ownedContent();
+    const t = await table(undefined, {content}), p = await prepare(t); await review(t, p);
+    assert.equal((await t.call('adaptation.status', {name: p.name})).status, 'ready');
+    const before = await t.world(), beforeSheet = await t.sheet();
+    const prompt = join(content, 'adaptation', `${role}.md`);
+    await writeFile(prompt, `${await readFile(prompt, 'utf8')}\n\nAlso name the street the new place stands on.\n`);
+    // The case has to isolate the one term, or dropping it from the pin would still pass: no world
+    // field the review read moved, the party it was shown is the same party, and the module source
+    // behind it never republished.
+    assert.deepEqual(movedKeys(before, await t.world()), []);
+    assert.deepEqual(movedKeys(beforeSheet, await t.sheet()), []);
+    await assert.rejects(t.call('table.apply', {call_id: 't1-c1', effects: [{kind: 'adaptation', name: p.name}]}),
+        e => e.details?.reason === 'adaptation_stale');
+    assert.equal(JSON.stringify(await t.world()), JSON.stringify(before), 'a refused acceptance writes nothing');
+    assert.equal((await t.call('adaptation.status', {name: p.name})).status, 'stale',
+        'the proposal is finished, not relabelled as reviewed work drafted under instructions it never read');
+    assert.equal(await readFile(join(root, 'content/adaptation', `${role}.md`), 'utf8').then(text => text.includes('Also name the street')), false,
+        'the repository content tree is reached through symlinks and stays untouched');
 });
 
 test('the world the pin protects is the world the task put in front of the review', async () => {
