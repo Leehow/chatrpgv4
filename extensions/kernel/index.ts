@@ -1483,6 +1483,7 @@ export default function (pi: ExtensionAPI) {
 				noteMechanics(state, typeof result.turn === "number" ? result.turn : state.turn,
 					withHandouts(state, readMechanics(result)), asString(result.marked_text), result.labels,
 					Array.isArray(result.speech) ? result.speech : undefined);
+				noteStanding(state, result, typeof result.turn === "number" ? result.turn : state.turn);
 				break;
 			}
 			case "narrate": {
@@ -1499,6 +1500,7 @@ export default function (pi: ExtensionAPI) {
 				noteMechanics(state, typeof result.turn === "number" ? result.turn : state.turn, mechanics,
 					asString(result.marked_text), result.labels, Array.isArray(result.speech) ? result.speech : undefined);
 				noteCommit(state, result, mechanics);
+				noteStanding(state, result, typeof result.turn === "number" ? result.turn : state.turn);
 				break;
 			}
 		}
@@ -1676,6 +1678,56 @@ export default function (pi: ExtensionAPI) {
 		if (state.turnNoticeSent) return;
 		state.turnNoticeSent = true;
 		setTimeout(() => void emitTurnUnfinishedNotice(state, turn), 0);
+	}
+
+	/**
+	 * Contract §41.6: a state that takes the action away stays in front of the player for as long as
+	 * it stands, said by the host and not left to the Keeper's prose.
+	 *
+	 * `game-83177d61` turn 107 settled `unconscious` and the card said so. Turns 108 to 114 settled
+	 * nothing, so they carried no condition row at all, and what finally reached the player hours
+	 * later was the Keeper choosing to write the state into the fiction -- that he could not move.
+	 * That works and it is not guaranteed: it depends on a Keeper being diligent with the capsule's
+	 * `cannot_act`, and a less diligent one puts the table straight back into three turns of
+	 * declaring actions for an unconscious man.
+	 *
+	 * So it rides the channel the service notices already use -- out of fiction, beside the delivery,
+	 * where the player is already looking when they decide what to say next. That is the difference
+	 * between this and the character sheet, which carries the same states (§41.6) and which the player
+	 * of the retained table never opened.
+	 *
+	 * Said every turn the state stands, and never on the turn it changed: the kernel withholds
+	 * `standing` for a subject whose conditions this turn settled, because the delivery card's own
+	 * `condition` row already names the state and stamps `cannot act`.
+	 */
+	async function emitStandingNotice(state: TableState, standing: Array<Record<string, unknown>>, turn: number): Promise<void> {
+		// The condition names are the delivery card's vocabulary, read from the surface that owns them
+		// rather than copied onto this one. Which names arrive is the rules engine's answer
+		// (`INCAPACITATING_CONDITIONS`), decided when the delivery was projected: nothing here reads a
+		// condition's name to judge what it does.
+		const words = await surface.words();
+		const lines = standing.map((row) => {
+			const named = (Array.isArray(row.conditions) ? row.conditions : [])
+				.map((value) => (typeof value === "string" && value ? words.wordOn("mechanics", `condition.${value}`) : ""))
+				.filter(Boolean);
+			return words.line("standing_condition_notice", { name: asString(row.name) ?? asString(row.investigator) ?? "", state: named.join(" / ") });
+		}).filter(Boolean);
+		if (lines.length === 0) return;
+		pi.sendMessage({ customType: "coc-delivery", content: lines.join("\n"), display: true,
+			details: { coc_delivery: true, turn, standing_conditions: standing } });
+		void record({ lane: "delivery", turn, ok: true, reason: "standing_condition_notice", standing: standing.length });
+	}
+
+	/** The states standing on the party that a delivery says take the action away (§41.6). */
+	function noteStanding(state: TableState, result: Record<string, unknown>, turn: number): void {
+		const standing = (Array.isArray(result.standing) ? result.standing : [])
+			.filter((row): row is Record<string, unknown> => Boolean(row) && typeof row === "object");
+		if (standing.length === 0) return;
+		// On the next task, for the same reason the provider notice is: `pi.sendMessage` stays outside
+		// the tool result, and the player reads the delivery before the line about it.
+		setTimeout(() => void emitStandingNotice(state, standing, turn).catch(() => {
+			/* the notice must never break a turn */
+		}), 0);
 	}
 
 	function preparationWaitInstruction(state: TableState, wait: NonNullable<TableState["preparationWait"]>): string {
