@@ -13,6 +13,7 @@ import { RuleObservations } from "./rule-facts.js";
 import { buildCapsule } from "./assemble.js";
 import { contextBinding } from "./context.js";
 import { clockSection, sceneLabel, clueLabel, npcsPresent, cluesHere, whereSection, presentSection, npcView, investigatorView, fittedModuleSection } from "./capsule.js";
+import { incapacitatedBy } from "../healing/conditions.js";
 import { crossLineReader } from "./worldline.js";
 import { mechanics } from "./mechanics.js";
 import { publicSheet, objectLook } from "./mods.js";
@@ -282,7 +283,19 @@ export async function tableView(context: KernelContext, params: Row): Promise<Ro
         play_language: language,
         turn: turn.turn,
         state: turn.state,
-        investigators: campaign.party.map(sheet => publicSheet(world, investigatorView(sheet))),
+        // Which of the conditions a sheet carries take the action away (§42.6). `conditions` rode this
+        // answer all along and the character sheet drew none of them; the panel marks the ones that
+        // stop the character, and deciding that in a renderer would put a second rules table in a
+        // consumer -- the rules layer answered it once (`INCAPACITATING_CONDITIONS`) and this carries
+        // the answer, so the panel tests a list instead of reading a name.
+        //
+        // Added here and not inside `investigatorView` or `publicSheet`: both are pinned byte for byte
+        // against the frozen historical oracle (`tests/extension/fixtures/oracle`), which is evidence
+        // and not a shape to renegotiate for a new field.
+        investigators: campaign.party.map(sheet => ({
+            ...publicSheet(world, investigatorView(sheet)),
+            incapacitated: incapacitatedBy(sheet.conditions)
+        })),
         clues: { discovered },
         npcs: { journal: await npcJournalSection(campaign, graph) },
         labels: await playerGlossary(context, language)

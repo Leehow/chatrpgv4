@@ -67,12 +67,30 @@ export interface ExtensionWords {
 	word(key: string): string;
 	/** The caption for `key` with its `{placeholders}` filled. */
 	line(key: string, values?: Record<string, unknown>): string;
+	/**
+	 * A caption from another surface's vocabulary, or the key itself.
+	 *
+	 * A word belongs to one surface and is asked for from wherever it is needed: the condition names
+	 * are the delivery card's (`mechanics`), and the host's out-of-fiction state line (§42.6) has to
+	 * say one of them in the play language. Copying those names onto this surface would be a second
+	 * place every new condition has to be translated, and the two copies drift the first time only
+	 * one is projected. The renderers already read across surfaces this way (`pipicoc/panel.js` draws
+	 * the sheet from `sheet` and its item chrome from `paper`); this is that, for an extension.
+	 *
+	 * The caption inventory is scanned from `.word(...)` / `.line(...)` call sites, so a key asked
+	 * for here is deliberately outside it: it is owned and guarded by the surface it lives on.
+	 */
+	wordOn(surface: string, key: string): string;
 }
 
 function surface(loaded: UiWords): ExtensionWords {
 	const words = loaded.words[SURFACE] ?? {};
 	const word = (key: string) => words[key] ?? key;
-	return { tag: loaded.tag, projected: loaded.projected, word, line: (key, values) => fill(word(key), values) };
+	return {
+		tag: loaded.tag, projected: loaded.projected, word,
+		line: (key, values) => fill(word(key), values),
+		wordOn: (name, key) => loaded.words[name]?.[key] ?? key,
+	};
 }
 
 /** The captions for one tag; a value of no tag shape at all reads as the tag the data defaults to. */
@@ -133,7 +151,7 @@ export function extensionSurface(contentRoot?: string, home?: string): Extension
 				const loaded = surface(resolveUiWordsSync({ contentRoot: extensionContentRoot(contentRoot), home: extensionHome(home), tag: requested }));
 				return loaded.projected ? (settled = loaded) : loaded;
 			}
-			catch { return { tag: typeof requested === "string" ? requested : "", projected: false, word: (key) => key, line: (key, values) => fill(key, values) }; }
+			catch { return { tag: typeof requested === "string" ? requested : "", projected: false, word: (key) => key, line: (key, values) => fill(key, values), wordOn: (_surface, key) => key }; }
 		},
 		words(): Promise<ExtensionWords> {
 			return (pending ??= extensionWords(requested, contentRoot, home).then((loaded) => {

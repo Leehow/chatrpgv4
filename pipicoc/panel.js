@@ -118,6 +118,20 @@ const CSS = `
 .coc-vital-max{color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap}
 .coc-vital-track{margin-top:7px;height:4px;border-radius:4px;overflow:hidden;background:var(--border)}
 .coc-vital-fill{height:100%;background:var(--tone);border-radius:inherit;transition:width .25s ease-out}
+/* What the rules hold true of this body, under the numbers that measure it (contract 41.6). The
+   sheet is where a player looks for what is true of a character, and until 2026-09-16 the sheet's
+   own conditions list reached this panel and was drawn nowhere: the Condition section printed HP,
+   SAN and MP and stopped. A state that takes the action away is the loud one, so it earns the
+   colour; a major wound or a fall is real and quiet, and the difference is the rules engine's
+   answer, never this file's reading of a name. */
+.coc-conditions{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px}
+.coc-condition{font-size:11.5px;line-height:1.5;padding:2px 9px;border-radius:999px;
+  border:1px solid var(--border);color:var(--muted);background:var(--surface-raised,var(--surface))}
+.coc-condition[data-blocking="1"]{color:var(--danger);font-weight:650;
+  border-color:color-mix(in srgb,var(--danger) 45%,transparent);
+  background:color-mix(in srgb,var(--danger) 9%,transparent)}
+.coc-condition-stamp{font-size:11.5px;line-height:1.5;padding:2px 9px;border-radius:999px;
+  color:var(--danger);font-weight:650;border:1px dashed color-mix(in srgb,var(--danger) 55%,transparent)}
 /* Three columns preserve the characteristic grouping at every sidebar width. */
 .coc-chars{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}
 .coc-char{min-width:0;border:1px solid var(--border);border-radius:8px;padding:10px;
@@ -714,7 +728,7 @@ export function createComponent(React) {
   }
 
   function Vitals(props) {
-    const { sheet, t, term = value => value } = props;
+    const { sheet, t, term = value => value, ui } = props;
     const derived = isRecord(sheet.derived) ? sheet.derived : {};
     const items = [];
     for (const [label, currentKey, maxKey] of [["HP", "hp", "HP"], ["SAN", "san", "SAN"], ["MP", "mp", "MP"]]) {
@@ -726,7 +740,32 @@ export function createComponent(React) {
     // Luck has no maximum on the sheet (§17.4), so it never grows a bar.
     const luck = numberOr(sheet.luck, undefined);
     if (luck !== undefined) items.push(h(Vital, { key: "luck", label: t("luck"), tone: VITAL_TONE.luck, icon: VITAL_ICON.luck, current: luck }));
-    return items.length ? h(Section, { title: t("condition"), icon: "pulse", anchor: "condition" }, h("div", { className: "coc-vitals" }, items)) : null;
+    /**
+     * The states the rules hold on this body, and which of them stop it.
+     *
+     * The condition words belong to the delivery card's surface, which is the one place this product
+     * names a condition in the play language; asking for them here is the same cross-surface read the
+     * item chrome already makes (`word(ui, "paper", …)`). Copying them onto the sheet surface would
+     * be a second place every new condition has to be projected, and the copies drift.
+     *
+     * Which ones stop the character is `incapacitated`, decided by the rules engine when the view was
+     * projected (§42.6). Nothing here reads a condition's name to judge it — a list of the blocking
+     * ones living in a renderer is exactly the second rules table this repository keeps paying for.
+     */
+    const conditions = (Array.isArray(sheet.conditions) ? sheet.conditions : []).map(text).filter(Boolean);
+    const blocking = (Array.isArray(sheet.incapacitated) ? sheet.incapacitated : []).map(text).filter(Boolean);
+    const states = conditions.length
+      ? h("div", { className: "coc-conditions" },
+          conditions.map(name => h("span", {
+            key: name, className: "coc-condition", "data-blocking": blocking.includes(name) ? "1" : "0",
+          }, word(ui, "mechanics", `condition.${name}`, term(name)))),
+          blocking.length ? h("span", { className: "coc-condition-stamp" }, word(ui, "mechanics", "cannotAct")) : null)
+      : null;
+    return items.length || states
+      ? h(Section, { title: t("condition"), icon: "pulse", anchor: "condition" },
+          items.length ? h("div", { className: "coc-vitals" }, items) : null,
+          states)
+      : null;
   }
 
   function Characteristics(props) {
@@ -1210,7 +1249,7 @@ export function createComponent(React) {
             }, text(member.name) || text(member.id))))
         : null,
       h(Standing, { view, t }),
-      sheet ? h(Vitals, { sheet, t, term }) : null,
+      sheet ? h(Vitals, { sheet, t, term, ui }) : null,
       sheet ? h(Characteristics, { sheet, t, term }) : null,
       sheet ? h(Skills, { sheet, t, term }) : null,
       documentWindow,

@@ -65,6 +65,7 @@
   "setup_packages_failed": "The setup package context is unavailable: {detail}",
   "setup_progress": "setup {done}/{total}  next {step}",
   "setup_progress_ready": "setup {done}/{total}  ready",
+  "standing_condition_notice": "{name} is {state} and takes no action of their own: anything you declare for them will be refused until the state lifts. The character sheet carries it too.",
   "table_campaign_unnamed": "unnamed campaign",
   "table_investigator": "{name}  HP {hp} / SAN {san}",
   "table_investigator_unnamed": "unnamed investigator",

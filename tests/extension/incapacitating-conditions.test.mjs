@@ -1,6 +1,6 @@
 /**
  * A condition that changes what the investigator can do reaches the player, blocks the action, and
- * has a way out (contract §41).
+ * has a way out (contract §42).
  *
  * The retained turns are 107-111 of `game-83177d61` (The Haunting, zh-Hans). Walter Corbitt's claws
  * took the investigator's last 6 hit points and the kernel settled it exactly right -- 0 HP with no
