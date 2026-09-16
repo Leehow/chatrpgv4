@@ -1689,7 +1689,7 @@ async function readHistory(
   sessionId?: string,
   cocHost?: CocHostPaths,
 ): Promise<HistoryEntry[]> {
-  // §62: no size gate here. This path never used SessionManager, so the cap had
+  // §65: no size gate here. This path never used SessionManager, so the cap had
   // nothing to skip — the warning it printed on every read of a long session
   // described a decision that was not being made, and two separate
   // investigations of a stranded table spent themselves on it. The page costs
@@ -4384,7 +4384,7 @@ export class PiHostBackend implements HostBackend {
               name: live?.name ?? s.name ?? "Session",
               updatedAt: Math.max(s.updatedAt, live?.updatedAt ?? 0),
               model: this.sessionModelOf(s),
-              // §62: the paged listing carries the session's recorded form
+              // §65: the paged listing carries the session's recorded form
               // (`toSession`) and this hand-built one did not. The shell reads
               // whichever answered last, so the same session's form appeared
               // and disappeared with the call that refreshed the list.
@@ -5689,7 +5689,7 @@ export class PiHostBackend implements HostBackend {
     // Identity anchor: always the canonical project root, even when a capability has bound
     // this session to a workspace/worktree. Extension discovery stays rooted here.
     const canonicalRoot = isolated?.realProjectRoot ?? found.header.cwd;
-    // §62: both halves of this session's product identity are read together,
+    // §65: both halves of this session's product identity are read together,
     // inside the scan lane, and the read says whether it is an answer at all.
     const spawnIdentity = await this.withStableExtensionScan(
       canonicalRoot,
@@ -5715,7 +5715,7 @@ export class PiHostBackend implements HostBackend {
       id: activePack,
       fingerprint: productSpawnFingerprint(activePack, productSpawn),
     };
-    // §62: a session's recorded form is written from an answer, never from an
+    // §65: a session's recorded form is written from an answer, never from an
     // absence. An unanswered read resolves `base` — the same value a project
     // with no pack resolves to — and stamping that into the JSONL is durable:
     // every later load then reads the table as belonging to another product,
@@ -8763,7 +8763,7 @@ export class PiHostBackend implements HostBackend {
     return (await this.resolveProjectEnablement(projectRoot)).enablement.enabled;
   }
   /**
-   * §62. Both halves of a spawn's product identity — what to mount, and which
+   * §65. Both halves of a spawn's product identity — what to mount, and which
    * form to record — read the same shared mutable registry, and `activePackId`
    * returns `base` whether the project enables no pack or the registry is
    * pointed at some other project. Those two are not the same conclusion, and

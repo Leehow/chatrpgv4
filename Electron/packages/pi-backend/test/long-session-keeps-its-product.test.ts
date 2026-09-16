@@ -7,7 +7,7 @@ import { createPiHostBackend } from "../src/index.js";
 import { projectPiAgentDir } from "../src/project-pi-home.js";
 
 /**
- * §62. A table that is played long enough writes a session JSONL past the
+ * §65. A table that is played long enough writes a session JSONL past the
  * host's 4 MB `SESSION_MANAGER_MAX_BYTES`. The real 68-turn table that
  * prompted this was 8.1 MB; a healthy table alongside it was 4.9 MB and over
  * the same bound. Neither size may cost the table its product: the session

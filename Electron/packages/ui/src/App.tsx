@@ -823,7 +823,7 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
   const activeWorkbenchPlan = useActiveWorkbenchPlan()
   const activeProductPackId = activeWorkbenchPlan.packId
   const productHasPrimarySidebar = activeWorkbenchPlan.containers.some(item => item.location === 'primarySidebar')
-  // §62: the session end of §54's rule. A session that is not in the loaded
+  // §65: the session end of §54's rule. A session that is not in the loaded
   // page, or whose form the host never recorded, has not answered either — and
   // an unanswered end is not "the same form as this project". Keep the three
   // states apart here so neither absence can be read as a disagreement.

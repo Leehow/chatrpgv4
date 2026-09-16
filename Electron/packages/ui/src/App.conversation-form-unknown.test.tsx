@@ -8,7 +8,7 @@ import { createMockHost } from './mock-host'
 afterEach(() => cleanup())
 
 /**
- * §62, the session end of §54. Two answers decide whether a session belongs to
+ * §65, the session end of §54. Two answers decide whether a session belongs to
  * another product, and §54 only taught the shell to wait for one of them. The
  * session's own recorded form can be missing too — the session list has two
  * producers and one of them used to drop the field — and an unrecorded form is
