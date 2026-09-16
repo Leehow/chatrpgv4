@@ -1,5 +1,11 @@
 # NPC Voice
 
+## 1.1.1
+- A mask is not a stamp (chat bench table 2, 2026-09-16: the docker said 「老子喝完就走，伙计」 three times and growled from across the room every turn; the constable stacked all three of his habits in every line). The address term or the ending habit, not both in every sentence; no line said twice at a table; a bystander speaks only with something new. Distinguishability was already 41/41 on the lineup; this is for the other half of the ask, sounding like a person.
+
+## 1.1.0
+- Masks, not sample lines (user ruling 2026-09-16: the spotlight is the player's, NPCs need no personality, they need to be told apart and to sound like people). The two-line `sample_lines` word is replaced by `voice_mask` (one line: address terms, a sentence-ending habit, the level of the words, one pet phrase) and `exchanges` (three "stranger → reply" lines). The capsule seats them in a new `voices` section instead of `present[]`. The instruction stops asking that every line wants something — that rule produced aphorisms — and asks for three things: wear the mask on every line, talk like a person (acknowledge, say the mundane thing, drift and return, no aphorisms), serve the player (react to what was just said, leave something to say back). Research and acceptance in docs/specs/npc-voice-mask.md.
+
 ## 1.0.1
 - Whole spoken sentences, not fragments (2026-09-15 user report on both models: choppy, odd breaks, not colloquial). 1.0.0 told the Keeper "half sentences, leave the end off" and the Keeper obeyed as a style; talk is connected sentences with connectives, end-particles and address terms, long and short alternating, a fragment one beat at most. Adds: every line wants something and may answer a different question; a person hiding something talks more, not less; one recurring habit per person instead of adjectives. Craft sources in docs/specs/npc-speech.md.
 

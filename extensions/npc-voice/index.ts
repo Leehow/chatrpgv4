@@ -1,11 +1,12 @@
 /**
- * The NPC voice lane (contract §40.5, the §17.10 shape, scheduling shared with §12.8).
+ * The NPC voice lane (contract §40.5/§40.7, the §17.10 shape, scheduling shared with §12.8).
  *
  * Most imported books give most people no printed speech at all, so most people at most tables
- * have nothing for the Keeper to perform from. This lane writes two short lines per person — one
- * at ease, one under strain — and `voice.submit` files them under this package's own dossier word
- * (§28.7), where they reach the Keeper as `sounds like`. They are Keeper-facing material like
- * `voice`: never the journal, never `table.view`, never the player.
+ * have nothing for the Keeper to perform from. This lane writes one speech mask per person — how
+ * their speech is marked — and three exchanges showing it in reply, and `voice.submit` files them
+ * under this package's own dossier words (§28.7), where they reach the Keeper in the capsule's
+ * `voices`. They are Keeper-facing material like `voice`: never the journal, never `table.view`,
+ * never the player.
  *
  * The boundaries are the journal lane's own: the lane never blocks narrate (everything here is
  * after the delivery and is not awaited); only one job runs at a time and the rest queue; whatever
@@ -32,8 +33,8 @@ import { resolveLaneModel, runLane } from "../lanes/subsession.ts";
 import { createLaneQueue, type KernelCall, type LaneJob } from "../lanes/queue.ts";
 
 /** Fallbacks only: the kernel's job packet carries the real budget, and these stand in when it does not. */
-const DEFAULT_LINES = 2;
-const DEFAULT_MAX_CHARS = 120;
+const DEFAULT_EXCHANGES = 3;
+const DEFAULT_MAX_CHARS = 200;
 /** One commit can leave several people needing lines; it can never leave an unbounded number. */
 const MAX_JOBS_PER_COMMIT = 6;
 /** Two attempts is one retry (contract §40.5). */
@@ -59,7 +60,8 @@ interface JobPacket {
 		knowledge?: unknown;
 	};
 	documents?: unknown;
-	budget?: { lines?: number; max_chars?: number };
+	taken_masks?: unknown;
+	budget?: { mask_chars?: number; exchanges?: number; max_chars?: number };
 	instruction?: string;
 }
 
@@ -72,42 +74,47 @@ function field(label: string, value: unknown): string[] {
 }
 
 function systemPrompt(packet: JobPacket): string {
-	const lines = packet.budget?.lines ?? DEFAULT_LINES;
+	const exchanges = packet.budget?.exchanges ?? DEFAULT_EXCHANGES;
+	const maskChars = packet.budget?.mask_chars ?? DEFAULT_MAX_CHARS;
 	const maxChars = packet.budget?.max_chars ?? DEFAULT_MAX_CHARS;
 	return [
-		// The instruction is the fixed passage the kernel writes (contract §40.5); the lane passes it
+		// The instruction is the fixed passage the kernel writes (contract §40.7); the lane passes it
 		// on verbatim, rewriting nothing and adding nothing.
 		packet.instruction ??
-			"Write two lines this person would actually say, in the campaign's play language: one at ease, brushing off a stranger's first question, and one under strain, pressed on the thing they hide.",
+			"Write how this person is heard, in the campaign's play language: a mask of one line, then three exchanges of a stranger's words and this person's reply.",
 		"",
 		"Answer with one JSON object only, no code fence and no explanation:",
-		'{"sample_lines":["...","..."]}',
-		'or, only for a person the book says does not speak: {"sample_lines":null,"reason":"does_not_speak"}',
+		'{"voice":{"mask":"...","exchanges":["...","...","..."]}}',
+		'or, only for a person the book says does not speak: {"voice":null,"reason":"does_not_speak"}',
 		"Field rules:",
-		`- exactly ${lines} strings, in that order: at ease first, under strain second.`,
-		`- each line is 1 to ${maxChars} characters, on one line, and the two are not the same line.`,
-		"- write the lines in play_language, and write no key other than sample_lines.",
+		`- mask is one line of 1 to ${maskChars} characters.`,
+		`- exchanges is exactly ${exchanges} strings, in that order: a first question brushed off, something ordinary, something that touches what they hide.`,
+		`- each exchange is 1 to ${maxChars} characters, on one line, and no two are the same line.`,
+		"- write everything in play_language, and write no key other than voice.",
 		"- no numbers, no rules, no braces, no other person's name, and nothing the player has not discovered.",
 	].join("\n");
 }
 
-/** The lines the lane came back with, or the book's silence honoured (§40.5). */
-type Lines = { lines: string[] } | { silent: true };
+/** The voice the lane came back with, or the book's silence honoured (§40.7). */
+type Voice = { mask: string; exchanges: string[] };
+type Lines = { voice: Voice } | { silent: true };
 const SILENT_REASON = "does_not_speak";
 
-/** The second zero-tool call of §40.5's voice guard: does a pair of lines honour the book's one-line `voice`? Register only. */
+/** The second zero-tool call of §40.5's voice guard: do a mask and its exchanges honour the book's one-line `voice`,
+ *  and does every reply wear the mask? Register only. */
 function judgePrompt(): string {
 	return [
-		"You check two sample lines against a book's one-line description of how a person sounds. Judge register only:",
-		"manner, temper, how much they say, whether they would raise their voice — never the content of the lines.",
-		"A line that contradicts the description (a quiet person shouting, a formal person cursing) does not honour it.",
+		"You check a speech mask and three sample exchanges against a book's one-line description of how a person sounds.",
+		"Judge register only: manner, temper, how much they say, whether they would raise their voice — never the content.",
+		"A reply that contradicts the description (a quiet person shouting, a formal person cursing) does not honour it,",
+		"and neither does a reply that does not wear the mask (the address term or the ending habit the mask names is absent from every reply).",
 		"Answer with one JSON object only, no code fence and no explanation:",
 		'{"honours":true|false,"why":"<at most 120 characters, in English>"}',
 	].join("\n");
 }
 
-function judgeInput(voice: string, lines: string[]): string {
-	return [`[Voice the book gives them] ${voice}`, "", "[Lines]", ...lines.map((line, index) => `${index + 1}. ${line}`)].join("\n");
+function judgeInput(voice: string, value: Voice): string {
+	return [`[Voice the book gives them] ${voice}`, "", `[Mask] ${value.mask}`, "", "[Exchanges]", ...value.exchanges.map((line, index) => `${index + 1}. ${line}`)].join("\n");
 }
 
 function shapeVerdict(parsed: unknown): { honours: boolean; why: string } | undefined {
@@ -121,6 +128,9 @@ function userInput(packet: JobPacket, objection?: string): string {
 	const npc = packet.npc ?? {};
 	const documents = Array.isArray(packet.documents)
 		? packet.documents.flatMap((row) => (typeof row === "string" && row.trim() ? [row.trim()] : []))
+		: [];
+	const taken = Array.isArray(packet.taken_masks)
+		? packet.taken_masks.flatMap((row) => (typeof row === "string" && row.trim() ? [row.trim()] : []))
 		: [];
 	return [
 		`[Play language] ${packet.play_language ?? "(unstated)"}`,
@@ -140,7 +150,10 @@ function userInput(packet: JobPacket, objection?: string): string {
 		"",
 		"[Their own documents]",
 		documents.length ? documents.join("\n\n") : "(none)",
-		...(objection ? ["", `[A reviewer read your last two lines against the voice the book gives them and objected] ${objection}`, "Rewrite both lines so they honour that voice."] : []),
+		"",
+		"[Masks other people here already wear]",
+		taken.length ? taken.map((mask) => `- ${mask}`).join("\n") : "(none yet)",
+		...(objection ? ["", `[A reviewer read your mask and exchanges against the voice the book gives them and objected] ${objection}`, "Rewrite the mask and all three exchanges so they honour that voice."] : []),
 	].join("\n");
 }
 
@@ -151,22 +164,31 @@ function userInput(packet: JobPacket, objection?: string): string {
  */
 function shapeLines(parsed: unknown, packet: JobPacket): Lines | undefined {
 	if (!parsed || typeof parsed !== "object") return undefined;
-	const raw = Array.isArray(parsed) ? parsed : (parsed as { sample_lines?: unknown }).sample_lines;
-	// The book's silence, honoured: null lines with the one closed reason, and nothing else on the object.
+	const raw = (parsed as { voice?: unknown }).voice;
+	// The book's silence, honoured: a null voice with the one closed reason, and nothing else on the object.
 	if (raw === null) return (parsed as { reason?: unknown }).reason === SILENT_REASON ? { silent: true } : undefined;
-	const wanted = packet.budget?.lines ?? DEFAULT_LINES;
+	if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+	const wanted = packet.budget?.exchanges ?? DEFAULT_EXCHANGES;
+	const maskChars = packet.budget?.mask_chars ?? DEFAULT_MAX_CHARS;
 	const maxChars = packet.budget?.max_chars ?? DEFAULT_MAX_CHARS;
-	if (!Array.isArray(raw) || raw.length !== wanted) return undefined;
-	const lines: string[] = [];
-	for (const row of raw) {
-		if (typeof row !== "string") return undefined;
-		const line = row.trim();
-		if (line.length < 1 || line.length > maxChars) return undefined;
-		if (line.includes("{{") || line.includes("\n") || line.includes("\r")) return undefined;
-		if (lines.includes(line)) return undefined;
-		lines.push(line);
+	const line = (value: unknown, max: number): string | undefined => {
+		if (typeof value !== "string") return undefined;
+		const text = value.trim();
+		if (text.length < 1 || text.length > max) return undefined;
+		if (text.includes("{{") || text.includes("\n") || text.includes("\r")) return undefined;
+		return text;
+	};
+	const mask = line((raw as { mask?: unknown }).mask, maskChars);
+	if (mask === undefined) return undefined;
+	const rows = (raw as { exchanges?: unknown }).exchanges;
+	if (!Array.isArray(rows) || rows.length !== wanted) return undefined;
+	const exchanges: string[] = [];
+	for (const row of rows) {
+		const text = line(row, maxChars);
+		if (text === undefined || exchanges.includes(text)) return undefined;
+		exchanges.push(text);
 	}
-	return { lines };
+	return { voice: { mask, exchanges } };
 }
 
 /** The code of a kernel error envelope is read structurally: instanceof is unreliable across extensions (two module instances). */
@@ -267,25 +289,25 @@ export default function (pi: ExtensionAPI) {
 		// brings is filed: the guard is a nudge, never a gate, and a judge that cannot answer waives.
 		let voiceCheck: string | undefined;
 		const voice = typeof packet.npc?.voice === "string" ? packet.npc.voice.trim() : "";
-		if (voice && "lines" in lane.value) {
+		if (voice && "voice" in lane.value) {
 			const verdict = await runLane<{ honours: boolean; why: string }>({
 				ctx: scheduler.ctx as ExtensionContext, envName: "PI_COC_VOICE_MODEL", lane: "voice",
 				record: (row) => note({ job_id: jobId, check: "voice", ...row }),
-				systemPrompt: judgePrompt(), input: judgeInput(voice, lane.value.lines), signal: scheduler.signal, shape: shapeVerdict,
+				systemPrompt: judgePrompt(), input: judgeInput(voice, lane.value.voice), signal: scheduler.signal, shape: shapeVerdict,
 			});
 			if (!verdict.ok) voiceCheck = "waived";
 			else if (verdict.value.honours) voiceCheck = "passed";
 			else {
-				const again = await write(verdict.value.why || "the lines do not honour the voice");
+				const again = await write(verdict.value.why || "the mask and exchanges do not honour the voice");
 				voiceCheck = "rewritten";
 				if (again.ok) lane = again;
 				else voiceCheck = "rewrite_failed";
 			}
 		}
 		try {
-			await call("voice.submit", "lines" in lane.value
-				? { campaign, job_id: jobId, sample_lines: lane.value.lines }
-				: { campaign, job_id: jobId, sample_lines: null, reason: SILENT_REASON });
+			await call("voice.submit", "voice" in lane.value
+				? { campaign, job_id: jobId, voice: lane.value.voice }
+				: { campaign, job_id: jobId, voice: null, reason: SILENT_REASON });
 			return { ok: true, model: lane.model, ...(voiceCheck ? { voice_check: voiceCheck } : {}) };
 		} catch (error) {
 			const code = errorCode(error);

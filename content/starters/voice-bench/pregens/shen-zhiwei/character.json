@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "id": "shen-zhiwei",
+  "name": "沈知微",
+  "occupation": "记者",
+  "era": "1920s",
+  "own_language": "Chinese",
+  "age": 27,
+  "sex": "F",
+  "residence": "天津，法租界边上的一间小公寓",
+  "birthplace": "苏州",
+  "characteristics": {"STR": 45, "CON": 55, "SIZ": 50, "DEX": 60, "APP": 65, "INT": 75, "POW": 60, "EDU": 70, "LUCK": 55},
+  "derived": {"HP": 10, "SAN": 60, "MP": 12, "MOV": 8, "DB": "0", "BUILD": 0},
+  "skills": {
+    "Art/Craft (Writing)": 50, "Charm": 50, "Credit Rating": 30, "Dodge": 30, "Fast Talk": 45,
+    "History": 40, "Language (English)": 40, "Library Use": 55, "Listen": 50, "Persuade": 45,
+    "Psychology": 55, "Spot Hidden": 50, "Stealth": 30
+  },
+  "weapons": [],
+  "equipment": ["笔记本和两支铅笔", "《益世报》的记者证", "一把油纸伞", "半包香烟，用来请人说话"],
+  "backstory": {
+    "scenario_id": "voice-bench",
+    "scenario_bound": {
+      "description": "《益世报》跑码头新闻的记者，报馆里唯一的女记者。福顺号沉了，编辑让她去茶馆里「听听人怎么说」。",
+      "significant_people": "教她听人说话的老编辑，去年病故。",
+      "meaningful_locations": "海河码头边的三义茶馆，她常在那里等消息。"
+    },
+    "traits": ["先请人喝茶再问", "记得住每个人的口头禅", "不信官样文章"],
+    "ideology": "人怎么说话，就是他是谁。",
+    "treasured_possessions": "老编辑留下的那支钢笔。",
+    "traits_detail": "话不多，问得准；听人说话时会不自觉地记笔记。"
+  },
+  "credit_rating": 30,
+  "cash": "12 dollars",
+  "notes": "Pregen for the voice bench — a reporter whose job is to make people talk."
+}

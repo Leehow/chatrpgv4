@@ -150,24 +150,48 @@ export function cluesHere(graph: ModuleGraph, world: Row, scene: Row): Row[] {
         };
     });
 }
-function dossier(graph: ModuleGraph, world: Row, node: Row): Row {
+/** Which words of a person are lines-shaped (contract §40.7): the module's bound vocabulary says so for a
+ *  book-authored word, the table record says so for one a lane established. The shape decides the seat:
+ *  `keep` is the whole dossier (look focus=npc), `drop` leaves the lines words out (the capsule's
+ *  present[]), `only` is just them (the capsule's voices). */
+type LinesSeat = "keep" | "drop" | "only";
+function linesShaped(graph: ModuleGraph, established: Row, key: string): boolean {
+    return array(graph.dossier.contributed).some(entry => string(row(entry).key) === key && row(entry).shape === "lines")
+        || row(established[key]).shape === "lines";
+}
+function dossier(graph: ModuleGraph, world: Row, node: Row, seat: LinesSeat = "keep"): Row {
     // The Keeper-facing names and their order come from the contract's actor_dossier, not from a
     // copy kept here: a profile key the spine gains must reach the table, or it was never added
     // (contract 28.4). A key the spine labels nothing arrives under its own name.
     const profile = graph.npcProfile(node), established = tableWords(world, node), spine = new Set<string>();
     const result: Row = {};
+    const seated = (key: string) => seat === "keep" || (seat === "only") === linesShaped(graph, established, key);
     for (const [key, label] of dossierLabels(graph.dossier)) {
         spine.add(key);
         const value = truth(profile[key]) ? profile[key] : row(established[key]).value;
-        if (truth(value))
+        if (truth(value) && seated(key))
             result[label] = value;
     }
     // A word the module was never built under has no place on the build-time spine, and that is the
     // table this door exists for (contract 28.7). The record carries its own name so it still arrives.
     for (const [key, entry] of entries(established))
-        if (!spine.has(key) && truth(row(entry).value))
+        if (!spine.has(key) && truth(row(entry).value) && seated(key))
             result[string(row(entry).label) || key] = row(entry).value;
     return result;
+}
+/** Contract §40.7: the lines-shaped words of everyone present -- a mask and its exchanges, any package's --
+ *  as their own capsule section, so a full room never loses a person to present[]'s budget. A one-line
+ *  list arrives as its line. */
+export function voicesSection(graph: ModuleGraph, world: Row, scene: Row): Row[] {
+    return npcsPresent(graph, world, scene).flatMap(node => {
+        const words = dossier(graph, world, node, "only");
+        if (!truth(words))
+            return [];
+        const entry: Row = { name: graph.displayName(node) };
+        for (const [label, value] of entries(words))
+            entry[label] = Array.isArray(value) && value.length === 1 ? value[0] : value;
+        return [entry];
+    });
 }
 /** Contract 28.7: what a package established at the table, under a word it contributes. The book is
  *  read first and is never overwritten; this fills only where the source is silent. It is read out of
@@ -215,11 +239,11 @@ function npcHistory(ledger: Row, memories: Map<string, Row>): Row | null {
         result.dead_since_turn = row(ledger.dead).turn ?? null;
     return truth(result) ? result : null;
 }
-export function npcEntry(graph: ModuleGraph, world: Row, node: Row, ledger: Row, memories: Map<string, Row>, across: (node: Row) => Row[] = () => []): Row {
+export function npcEntry(graph: ModuleGraph, world: Row, node: Row, ledger: Row, memories: Map<string, Row>, across: (node: Row) => Row[] = () => [], seat: LinesSeat = "keep"): Row {
     const entry: Row = {
         name: graph.displayName(node),
         ...(graph.adaptationOrigin(node.campaign_origin) ? {origin: graph.adaptationOrigin(node.campaign_origin)} : {}),
-        ...dossier(graph, world, node)
+        ...dossier(graph, world, node, seat)
     },
         discovered = new Set(array(world.discovered_clues));
     const knows = graph.npcKnows(node).map(item => ({
@@ -264,10 +288,11 @@ export function npcEntry(graph: ModuleGraph, world: Row, node: Row, ledger: Row,
         entry.from_other_lines = elsewhere;
     return entry;
 }
-export function presentSection(graph: ModuleGraph, world: Row, scene: Row, ledger: Row = {}, memory: Row[] = [], across: (node: Row) => Row[] = () => []): Row[] {
+/** `options.voices` true is the capsule's form (contract §40.7): the lines-shaped words leave the rows for `voices`. */
+export function presentSection(graph: ModuleGraph, world: Row, scene: Row, ledger: Row = {}, memory: Row[] = [], across: (node: Row) => Row[] = () => [], options: { voices?: boolean } = {}): Row[] {
     const memories = new Map(memory.filter(m => truth(m.id)).map(m => [string(m.id), m]));
     const rank = (entry: Row) => truth(row(entry.history).promises) ? 0 : truth(row(entry.history).met_turns) || truth(entry.toward_party) ? 1 : truth(entry.wants) ? 2 : 3;
-    return npcsPresent(graph, world, scene).map(node => npcEntry(graph, world, node, ledger, memories, across)).sort((a, b) => rank(a) - rank(b));
+    return npcsPresent(graph, world, scene).map(node => npcEntry(graph, world, node, ledger, memories, across, options.voices ? "drop" : "keep")).sort((a, b) => rank(a) - rank(b));
 }
 export function npcView(graph: ModuleGraph, world: Row, node: Row, ledger: Row = {}): Row {
     const handle = graph.handle(node),

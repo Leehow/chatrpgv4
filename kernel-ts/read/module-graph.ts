@@ -35,11 +35,12 @@ export function dossierWith(dossier: Row, recorded: Row | null | undefined): Row
             if (!key || core.has(key) || seen.has(key))
                 return [];
             seen.add(key);
-            return [{ key, label: string(row(entry).label) || key }];
+            // A `shape: "lines"` word (contract §40.7) is carried so the capsule can seat it in `voices`.
+            return [{ key, label: string(row(entry).label) || key, ...(row(entry).shape === "lines" ? { shape: "lines" } : {}) }];
         });
     return contributed.length ? { ...dossier, contributed } : dossier;
 }
-const lines = (value: any): value is string[] => Array.isArray(value) && value.length > 0 && value.length <= 2 && value.every(line => typeof line === "string" && line.trim());
+const lines = (value: any): value is string[] => Array.isArray(value) && value.length > 0 && value.length <= 4 && value.every(line => typeof line === "string" && line.trim());
 export function recordOf(node: Row | null | undefined): Row {
     const props = row(node?.properties),
         record = row(props.runtime_projection).record;
@@ -570,7 +571,7 @@ export class ModuleGraph {
                 value = recordOf(node)[key];
             if (typeof value === "string" && value.trim())
                 profile[key] = value.trim();
-            // A `shape: "lines"` word (§40.5) is authored as a short list of lines.
+            // A `shape: "lines"` word (§40.5, §40.7) is authored as a short list of lines: a mask of one, exchanges of three.
             else if (lines(value))
                 profile[key] = value.map((line: string) => line.trim());
         }

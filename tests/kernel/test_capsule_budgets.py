@@ -25,6 +25,7 @@ SECTION_BUDGETS = {
     "where": 4096, "present": 3072, "known": 3072, "pressures": 1024,
     "obligations": 1024, "director": 3072, "situations": 1024,
     "memory": 1536, "recent": 2048, "warnings": 1024,
+    "voices": 3072,  # §40.7: the masks and exchanges of everyone present
 }
 #: §13.6: the process's first capsule gets every craft directive (2KB); every
 #: capsule after that only gets the ones picked for the beat (1KB).

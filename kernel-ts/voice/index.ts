@@ -1,4 +1,6 @@
-/** The npc-voice lane's RPCs (contract §40.5), sharing the campaign writer and its lock like the journal. */
+/** The npc-voice lane's RPCs (contract §40.7), sharing the campaign writer and its lock like the journal. */
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import type { KernelContext } from '../context.js';
 import type { HandlerGroup } from '../handlers.js';
 import { RpcError } from '../errors.js';
@@ -8,7 +10,18 @@ import { npcView } from '../read/capsule.js';
 import { number, repr, row, string, type Row } from '../read/values.js';
 import { createWriteRuntime } from '../write/index.js';
 import { readNpcLedger } from '../write/contributions.js';
-import { buildPacket, fail, nextPerson, openJob, parseJobId, readJob, submit } from './jobs.js';
+import { KEYS, buildPacket, fail, nextPerson, openJob, parseJobId, readJob, submit } from './jobs.js';
+/** The lane instruction is authored content (`content/setup/npc-voice.md`, §40.7); the packet carries it whole.
+ *  Until 1.1.0 nothing read the file and the model saw only the kernel's short fallback passage. */
+async function laneInstruction(context: KernelContext): Promise<string | undefined> {
+    try {
+        const text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(await readFile(join(context.content, 'setup', 'npc-voice.md')));
+        return text.trim() || undefined;
+    }
+    catch {
+        return undefined;
+    }
+}
 export function createVoiceHandlers(context: KernelContext, writer: ReturnType<typeof createWriteRuntime>): HandlerGroup {
     async function load(params: Row) {
         const campaign = await writer.campaign(params), snapshot = new CampaignSnapshot(context, campaign.id);
@@ -28,7 +41,7 @@ export function createVoiceHandlers(context: KernelContext, writer: ReturnType<t
             if (!node)
                 return { job_id: null };
             const ledger = await readNpcLedger(campaign), dossier = npcView(graph, snapshot.world, node, ledger);
-            const packet = buildPacket(campaign, graph, snapshot.world, node, await playLanguageOf(context, snapshot.meta), dossier);
+            const packet = buildPacket(campaign, graph, snapshot.world, node, await playLanguageOf(context, snapshot.meta), dossier, await laneInstruction(context));
             return openJob(campaign, graph.handle(node), packet);
         },
         'voice.submit': async (params) => {
@@ -37,10 +50,10 @@ export function createVoiceHandlers(context: KernelContext, writer: ReturnType<t
             if (!job)
                 throw new RpcError('invalid_params', `no voice job for ${handle}`, { fix: 'call voice.job first', details: { job_id: params.job_id ?? null } });
             const turn = number(row(await campaign.readTurn()).turn);
-            const [result, replayed] = await submit(campaign, module.graph, snapshot.world, job, params.sample_lines, turn, params.reason);
+            const [result, replayed] = await submit(campaign, module.graph, snapshot.world, job, params.voice, turn, params.reason);
             if (replayed)
                 return { ...result, replayed: true };
-            await campaign.appendEvent(turn, { type: 'dossier-established', data: { npc: handle, keys: ['sample_lines'] } });
+            await campaign.appendEvent(turn, { type: 'dossier-established', data: { npc: handle, keys: [...KEYS] } });
             return result;
         },
         'voice.fail': async (params) => {

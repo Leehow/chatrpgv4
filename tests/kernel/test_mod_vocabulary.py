@@ -114,10 +114,10 @@ def test_a_contributed_key_reaches_the_reader_and_the_module_records_it(tmp_path
         client.ok("mods.install", {"path": str(package(tmp_path, name="dialects"))})
         mid, packet = built_module(client, tmp_path, {"agenda": "Keep the room.", "dialect": "Sicilian"})
 
-        # Natural NPC ships `language` and npc-voice ships `sample_lines`, both on by default, so the reader is asked for all three.
+        # Natural NPC ships `language` and npc-voice ships `voice_mask` + `exchanges`, both on by default, so the reader is asked for all four.
         contributed = packet["vocabulary"]["actor_dossier"]["contributed"]
         assert DIALECT in contributed
-        assert {entry["key"] for entry in contributed} == {"language", "sample_lines", "dialect"}
+        assert {entry["key"] for entry in contributed} == {"language", "voice_mask", "exchanges", "dialect"}
         # 28.5: a contributed word never joins the core list. `npcs_without_material` counts that
         # list and only that list, so merging the two here is what would quietly make every
         # under-written actor in every book look finished.
@@ -126,9 +126,9 @@ def test_a_contributed_key_reaches_the_reader_and_the_module_records_it(tmp_path
 
         recorded = read_json(client.workspace / ".coc" / "modules" / mid / "module.json")["vocabulary"]
         by_key = {entry["key"]: entry for entry in recorded["actor_profile_keys"]}
-        assert set(by_key) == {"language", "sample_lines", "dialect"}
+        assert set(by_key) == {"language", "voice_mask", "exchanges", "dialect"}
         assert by_key["dialect"]["mod"] == "dialects" and by_key["language"]["mod"] == "natural-npc"
-        assert by_key["sample_lines"]["mod"] == "npc-voice"  # the shipped voice package (§40.5)
+        assert by_key["voice_mask"]["mod"] == "npc-voice" and by_key["exchanges"]["mod"] == "npc-voice"  # the shipped voice package (§40.7)
     finally:
         client.close()
 
@@ -180,7 +180,7 @@ def test_a_word_no_package_asked_for_does_not_reach_the_table(tmp_path):
     try:
         # `dialects` is not installed here; only Natural NPC's own `language` was ever asked for.
         mid, packet = built_module(client, tmp_path, {"agenda": "Keep the room.", "dialect": "Sicilian"})
-        assert [entry["key"] for entry in packet["vocabulary"]["actor_dossier"]["contributed"]] == ["language", "sample_lines"]
+        assert [entry["key"] for entry in packet["vocabulary"]["actor_dossier"]["contributed"]] == ["language", "voice_mask", "exchanges"]
         tenant = table_npcs(client, played(client, tmp_path, mid))["Tenant"]
         assert tenant["wants"] == "Keep the room."
         assert "dialect" not in tenant and "Sicilian" not in json.dumps(tenant)
@@ -333,7 +333,7 @@ def test_a_table_whose_module_never_carried_the_word_can_still_establish_it(tmp_
     try:
         # Built with only Natural NPC installed: this module was never asked for `dialect` at all.
         mid, packet = built_module(client, tmp_path, {"agenda": "Keep the room."})
-        assert [entry["key"] for entry in packet["vocabulary"]["actor_dossier"]["contributed"]] == ["language", "sample_lines"]
+        assert [entry["key"] for entry in packet["vocabulary"]["actor_dossier"]["contributed"]] == ["language", "voice_mask", "exchanges"]
         client.ok("mods.install", {"path": str(package(tmp_path, name="dialects"))})
         campaign = played(client, tmp_path, mid)
         assert words(client, campaign)["dialect"]["bound"] is False

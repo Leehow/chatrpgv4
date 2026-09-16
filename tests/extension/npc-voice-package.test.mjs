@@ -37,17 +37,19 @@ test('the shipped npc-voice manifest is what §40.5 describes', async t => {
   const loaded = api.manifestFrom(await api.packageFiles(PACKAGE));
 
   assert.equal(loaded.id, 'npc-voice');
-  assert.equal(loaded.version, '1.0.1');
+  assert.equal(loaded.version, '1.1.1');
   assert.equal(loaded.game_api, 'pipicoc.game.v1');
   assert.equal(loaded.default_enabled, true);
   assert.deepEqual(loaded.requires, ['graph.vocabulary.v1', 'graph.vocabulary.table.v1', 'context.npc.v1']);
   assert.deepEqual(loaded.settings, {coarse_language: true});
   assert.equal(loaded.contributes.instructions, 'agent.md');
   assert.equal(loaded.contributes.brief, 'brief.md');
-  const [key] = loaded.contributes.vocabulary.actor_profile_keys;
-  assert.equal(key.key, 'sample_lines');
-  assert.equal(key.label, 'sounds like');
-  assert.match(key.ask, /one at ease and one under strain/);
+  // §40.7: two lines-shaped words, a mask of one line and three exchanges, in this order.
+  const [mask, exchanges] = loaded.contributes.vocabulary.actor_profile_keys;
+  assert.deepEqual([mask.key, mask.label, mask.shape], ['voice_mask', 'mask', 'lines']);
+  assert.match(mask.ask, /sentence-ending habit/);
+  assert.deepEqual([exchanges.key, exchanges.label, exchanges.shape], ['exchanges', 'in exchange', 'lines']);
+  assert.match(exchanges.ask, /up to three exchanges/);
 
   // The package's own per-language words are the one authored place for them (§23): the panel reads
   // the session's tag and falls back to whatever wording the manifest does carry.
@@ -71,14 +73,16 @@ test('the per-turn brief stays inside its 250-byte share of the §30.7 ceiling',
   const brief = await readFile(join(PACKAGE, 'brief.md'));
   assert.ok(brief.byteLength <= 250, `brief.md is ${brief.byteLength} bytes`);
   const text = brief.toString('utf8');
-  assert.match(text, /sounds like/);
+  assert.match(text, /`mask`/);
+  assert.match(text, /never read out/);
   assert.match(text, /coarse_language/);
 });
 
 test("the lane instruction is authored in English and asks for exactly the shape the lane checks", async () => {
   const instruction = await readFile(join(ROOT, 'content/setup/npc-voice.md'), 'utf8');
-  assert.match(instruction, /\{"sample_lines": \["<at ease>", "<under strain>"\]\}/);
-  assert.match(instruction, /120 characters/);
+  assert.match(instruction, /\{"voice": \{"mask": "<one line>", "exchanges": \["<stranger> → <reply>", "<stranger> → <reply>", "<stranger> → <reply>"\]\}\}/);
+  assert.match(instruction, /200 characters/);
+  assert.match(instruction, /taken_masks/);
   assert.match(instruction, /play_language/);
   assert.match(instruction, /coarse_language/);
   // `content/setup/**` is system content and is guarded against CJK by tests/kernel/test_system_language.py,
@@ -96,7 +100,7 @@ test("the lane instruction is authored in English and asks for exactly the shape
  * `material-identity.test.mjs` hangs rather than failing). So this asserts the pair, in both
  * directions, and goes red on whichever half lands alone.
  */
-test('the package declares §40.5 `shape` exactly when the kernel accepts one', async t => {
+test('the package declares §40.5 `shape` exactly when the kernel accepts one (both words, §40.7)', async t => {
   const api = await loader(t);
   const files = await api.packageFiles(PACKAGE);
   const manifest = JSON.parse(new TextDecoder().decode(files.get('mod.json')));
@@ -108,7 +112,7 @@ test('the package declares §40.5 `shape` exactly when the kernel accepts one', 
     .then(() => api.manifestFrom(probe))
     .then(() => undefined, value => value);
   if (declared === undefined) {
-    assert.ok(refusal, 'the kernel accepts `shape` now: declare it on sample_lines in mod.json (§40.5)');
+    assert.ok(refusal, 'the kernel accepts `shape` now: declare it on voice_mask and exchanges in mod.json (§40.7)');
     assert.equal(refusal.code, 'invalid_params');
     assert.match(refusal.message, /exactly a key, a label and an ask/);
     return;

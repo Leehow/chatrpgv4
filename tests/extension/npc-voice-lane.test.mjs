@@ -11,8 +11,10 @@ import { createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager
 import { waitFor } from "./harness.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const answer = (...lines) => fauxAssistantMessage(JSON.stringify({ sample_lines: lines }));
-const silence = () => fauxAssistantMessage(JSON.stringify({ sample_lines: null, reason: "does_not_speak" }));
+/** A voice answer: a mask and three exchanges. `answer(a, b, c)` uses a fixed mask; `answer({mask, exchanges})` is explicit. */
+const voiceOf = (...args) => args.length === 1 && args[0] && typeof args[0] === "object" && !Array.isArray(args[0]) ? args[0] : { mask: "自称俺，句尾带「呗」。", exchanges: args };
+const answer = (...args) => fauxAssistantMessage(JSON.stringify({ voice: voiceOf(...args) }));
+const silence = () => fauxAssistantMessage(JSON.stringify({ voice: null, reason: "does_not_speak" }));
 const verdict = (honours, why = "") => fauxAssistantMessage(JSON.stringify({ honours, why }));
 const inputText = context => context.messages.flatMap(message => message.content).map(block => block.text ?? "").join("\n");
 
@@ -32,8 +34,9 @@ function packet(handle) {
 			knowledge: ["the cellar door sticks"],
 		},
 		documents: ["A rent book in his own hand."],
-		budget: { lines: 2, max_chars: 120 },
-		instruction: "Write two lines this person would say, one at ease and one under strain.",
+		taken_masks: ["自称鄙人，句尾带「这个嘛」。"],
+		budget: { mask_chars: 200, exchanges: 3, max_chars: 200 },
+		instruction: "Write how this person is heard: a mask of one line, then three exchanges.",
 	};
 }
 
@@ -112,20 +115,22 @@ test("a committed turn drains the queue, one job per person, on a closed packet 
 	let seen;
 	const table = await openVoice(t, {
 		people: ["steven-knott", "dooley"],
-		responses: [context => { seen = context; return answer(" 没什么好说的。 ", "你问这个干什么？"); }, answer("随便看看。", "跟你没关系！")],
+		responses: [context => { seen = context; return answer(" 你是谁？ → 没什么好说的。 ", "雨大。 → 大就大呗。", "地窖呢？ → 你问这个干什么？"); }, answer("随便看看。", "跟你没关系！", "走了。")],
 	});
 	table.commit(1);
 	await completed(table, 2);
 	// Three asks: two people and the kernel's `job_id: null`, which is what ends a drain.
 	assert.deepEqual(table.calls("voice.job").map(row => row.params), Array(3).fill({ campaign: "camp" }));
 	assert.deepEqual(table.calls("voice.submit").map(row => row.params), [
-		{ campaign: "camp", job_id: "voice:camp:steven-knott", sample_lines: ["没什么好说的。", "你问这个干什么？"] },
-		{ campaign: "camp", job_id: "voice:camp:dooley", sample_lines: ["随便看看。", "跟你没关系！"] },
+		{ campaign: "camp", job_id: "voice:camp:steven-knott", voice: { mask: "自称俺，句尾带「呗」。", exchanges: ["你是谁？ → 没什么好说的。", "雨大。 → 大就大呗。", "地窖呢？ → 你问这个干什么？"] } },
+		{ campaign: "camp", job_id: "voice:camp:dooley", voice: { mask: "自称俺，句尾带「呗」。", exchanges: ["随便看看。", "跟你没关系！", "走了。"] } },
 	]);
 	assert.equal(table.calls("voice.fail").length, 0);
 	assert.equal(seen.tools, undefined, "the voice lane is a zero-tool subsession");
-	assert.match(seen.systemPrompt, /one at ease and one under strain/);
-	assert.match(seen.systemPrompt, /each line is 1 to 120 characters/);
+	assert.match(seen.systemPrompt, /a mask of one line, then three exchanges/);
+	assert.match(seen.systemPrompt, /mask is one line of 1 to 200 characters/);
+	assert.match(seen.systemPrompt, /exchanges is exactly 3 strings/);
+	assert.match(inputText(seen), /\[Masks other people here already wear\]\n- 自称鄙人，句尾带「这个嘛」。/);
 	assert.match(inputText(seen), /\[Person\] Steven Knott/);
 	assert.match(inputText(seen), /\[Hides\] he knows what walks under the house/);
 	assert.match(inputText(seen), /\[Coarse language\] on/);
@@ -142,7 +147,7 @@ test("a committed turn drains the queue, one job per person, on a closed packet 
 test("one commit cannot become an unbounded run of model calls", async (t) => {
 	const table = await openVoice(t, {
 		people: ["a", "b", "c", "d", "e", "f", "g", "h"],
-		responses: Array(8).fill(null).map((_, index) => answer(`at ease ${index}`, `under strain ${index}`)),
+		responses: Array(8).fill(null).map((_, index) => answer(`at ease ${index}`, `ordinary ${index}`, `under strain ${index}`)),
 	});
 	table.commit(1);
 	await completed(table, 6);
@@ -153,17 +158,20 @@ test("one commit cannot become an unbounded run of model calls", async (t) => {
 	assert.deepEqual(table.queue, ["g", "h"]);
 });
 
-for (const [name, lines] of [
-	["three lines", ["a", "b", "c"]],
-	["one line", ["a"]],
-	["two of the same line", ["same", "same"]],
-	["a line past the budget", ["fine", "x".repeat(121)]],
-	["an empty line", ["fine", "   "]],
-	["a machine token", ["fine", "{{say:Knott}}"]],
-	["a line break", ["fine", "two\nlines"]],
+for (const [name, voice] of [
+	["two exchanges", { mask: "m", exchanges: ["a", "b"] }],
+	["four exchanges", { mask: "m", exchanges: ["a", "b", "c", "d"] }],
+	["two of the same exchange", { mask: "m", exchanges: ["same", "same", "c"] }],
+	["an exchange past the budget", { mask: "m", exchanges: ["fine", "x".repeat(201), "c"] }],
+	["an empty exchange", { mask: "m", exchanges: ["fine", "   ", "c"] }],
+	["a machine token", { mask: "m", exchanges: ["fine", "{{say:Knott}}", "c"] }],
+	["a line break", { mask: "m", exchanges: ["fine", "two\nlines", "c"] }],
+	["no mask", { exchanges: ["a", "b", "c"] }],
+	["a mask past the budget", { mask: "x".repeat(201), exchanges: ["a", "b", "c"] }],
+	["a list where the voice should be", ["a", "b", "c"]],
 ]) {
 	test(`${name} is refused on shape and never submitted`, async (t) => {
-		const table = await openVoice(t, { people: ["steven-knott"], responses: [answer(...lines), answer(...lines)] });
+		const table = await openVoice(t, { people: ["steven-knott"], responses: [answer(voice), answer(voice)] });
 		table.commit(1);
 		await completed(table);
 		assert.equal(table.calls("voice.submit").length, 0);
@@ -176,7 +184,7 @@ for (const [name, lines] of [
 for (const [thrown, reason] of [[{ code: "invalid_params", message: "the source authored this key" }, "invalid"], [{ code: "bridge_closed" }, "lane_error"]]) {
 	test(`a submit refused with ${thrown.code} fails the job as ${reason}`, async (t) => {
 		const table = await openVoice(t, {
-			people: ["steven-knott"], responses: [answer("a", "b"), answer("a", "b")],
+			people: ["steven-knott"], responses: [answer("a", "b", "c"), answer("a", "b", "c")],
 			rpc: async (method) => { if (method === "voice.submit") throw thrown; },
 		});
 		table.commit(1);
@@ -191,7 +199,7 @@ for (const [thrown, reason] of [[{ code: "invalid_params", message: "the source 
 test("a person is tried at most twice in a session, and the re-offered job ends the drain instead of spinning", async (t) => {
 	const table = await openVoice(t, {
 		people: ["steven-knott"],
-		responses: [fauxAssistantMessage("not JSON"), fauxAssistantMessage("still not JSON"), answer("a", "b")],
+		responses: [fauxAssistantMessage("not JSON"), fauxAssistantMessage("still not JSON"), answer("a", "b", "c")],
 		// The kernel offers a failed job again (§40.5): the same person comes back on every later ask.
 		rpc: async (method) => (method === "voice.job" ? packet("steven-knott") : undefined),
 	});
@@ -216,7 +224,7 @@ for (const budget of ["unset", "0", "5"]) {
 	test(`backfill is asked ${budget === "5" ? "once" : "never"} when PI_COC_NPCVOICE_BACKFILL is ${budget}`, async (t) => {
 		// Off unless asked (§40.5, user ruling 2026-09-15): unset is the product default and means never.
 		const table = await openVoice(t, {
-			env: budget === "unset" ? {} : { PI_COC_NPCVOICE_BACKFILL: budget }, people: ["steven-knott"], responses: [answer("a", "b")],
+			env: budget === "unset" ? {} : { PI_COC_NPCVOICE_BACKFILL: budget }, people: ["steven-knott"], responses: [answer("a", "b", "c")],
 		});
 		if (budget !== "5") {
 			await settle(60);
@@ -235,7 +243,7 @@ for (const budget of ["unset", "0", "5"]) {
 }
 
 test("an unresolvable lane model leaves every kernel job untouched", async (t) => {
-	const table = await openVoice(t, { env: { PI_COC_VOICE_MODEL: "voice/missing" }, people: ["steven-knott"], responses: [answer("a", "b")] });
+	const table = await openVoice(t, { env: { PI_COC_VOICE_MODEL: "voice/missing" }, people: ["steven-knott"], responses: [answer("a", "b", "c")] });
 	table.commit(1);
 	await completed(table);
 	assert.equal(table.rows()[0].reason, "model_unavailable");
@@ -260,7 +268,7 @@ test("a person the book says does not speak is filed as silent, with no lines an
 	table.commit(1);
 	await completed(table);
 	assert.deepEqual(table.calls("voice.submit").map(row => row.params), [
-		{ campaign: "camp", job_id: "voice:camp:steven-knott", sample_lines: null, reason: "does_not_speak" },
+		{ campaign: "camp", job_id: "voice:camp:steven-knott", voice: null, reason: "does_not_speak" },
 	]);
 	assert.equal(table.calls("voice.fail").length, 0);
 	assert.equal(table.rows()[0].ok, true);
@@ -270,21 +278,23 @@ test("the voice guard reads the lines against the book's voice and bounces them 
 	let judge;
 	const table = await openVoice(t, {
 		people: ["steven-knott"], rpc: voiced,
-		responses: [answer("没什么好说的。", "滚！！"), context => { judge = context; return verdict(false, "a clipped man does not scream"); }, answer("没什么好说的。", "……你问这个做什么。")],
+		responses: [answer("没什么好说的。", "雨呗。", "滚！！"), context => { judge = context; return verdict(false, "a clipped man does not scream"); }, answer("没什么好说的。", "雨呗。", "……你问这个做什么。")],
 	});
 	table.commit(1);
 	await completed(table);
 	assert.match(judge.systemPrompt, /register only/);
+	assert.match(judge.systemPrompt, /wear the mask/);
 	assert.match(inputText(judge), /\[Voice the book gives them\] clipped, defensive/);
-	assert.match(inputText(judge), /2\. 滚！！/);
-	assert.deepEqual(table.calls("voice.submit").map(row => row.params.sample_lines), [["没什么好说的。", "……你问这个做什么。"]]);
+	assert.match(inputText(judge), /\[Mask\] 自称俺，句尾带「呗」。/);
+	assert.match(inputText(judge), /3\. 滚！！/);
+	assert.deepEqual(table.calls("voice.submit").map(row => row.params.voice.exchanges), [["没什么好说的。", "雨呗。", "……你问这个做什么。"]]);
 	assert.equal(table.rows().find(row => row.npc)?.voice_check, "rewritten");
 });
 
 test("the voice guard lets honoured lines through unchanged", async (t) => {
-	const table = await openVoice(t, { people: ["dooley"], rpc: voiced, responses: [answer("先买份报。", "跟你没关系。"), verdict(true)] });
+	const table = await openVoice(t, { people: ["dooley"], rpc: voiced, responses: [answer("先买份报。", "下雨了。", "跟你没关系。"), verdict(true)] });
 	table.commit(1);
 	await completed(table);
-	assert.deepEqual(table.calls("voice.submit").map(row => row.params.sample_lines), [["先买份报。", "跟你没关系。"]]);
+	assert.deepEqual(table.calls("voice.submit").map(row => row.params.voice.exchanges), [["先买份报。", "下雨了。", "跟你没关系。"]]);
 	assert.equal(table.rows().find(row => row.npc)?.voice_check, "passed");
 });

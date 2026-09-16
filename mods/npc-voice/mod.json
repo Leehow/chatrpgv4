@@ -1,8 +1,8 @@
 {
-  "id": "npc-voice", "version": "1.0.1", "game_api": "pipicoc.game.v1",
+  "id": "npc-voice", "version": "1.1.1", "game_api": "pipicoc.game.v1",
   "state_version": 1, "author": "PipiCOC",
   "name": {"zh-Hans": "NPC 口吻", "en": "NPC Voice"},
-  "description": {"zh-Hans": "每个人用自己那张嘴说话：行当、出身、念过多少书、什么年代什么地方，决定他开口是什么样。书里印了台词的人照书说；书里没写的人，后台车道替他写两句底样给守秘人当口吻参考——不是让他照念。", "en": "Everyone talks their own way: trade, class, schooling, era and place decide how a person sounds aloud. A book that prints someone's speech keeps it; for the people a book left silent a background lane writes two sample lines as the register the Keeper performs from — never a line to read out."},
+  "description": {"zh-Hans": "调查员说人话，NPC 戴语言面具：每个人一张很小的面具——自称与称呼、句末习惯、用词层次、一句口癖——再配三组「陌生人问一句、他答一句」的示例。书里印了台词的人照书说；书里没写的人，后台车道替他写一次。面具是守秘人每句都要戴上的，示例只作参考，从不照念。", "en": "The investigator speaks plainly; every NPC wears a small speech mask — what they call people, how their sentences end, the level of their words, one pet phrase — with three sample exchanges showing it in reply. A book that prints someone's speech keeps it; for the people a book left silent a background lane writes the mask once. The Keeper wears the mask on every line and never reads an exchange out."},
   "default_enabled": true,
   "requires": ["graph.vocabulary.v1", "graph.vocabulary.table.v1", "context.npc.v1"],
   "dependencies": {}, "conflicts": [],
@@ -10,9 +10,11 @@
   "settings_schema": {"coarse_language": {"title": {"zh-Hans": "允许粗话", "en": "Coarse language"}}},
   "contributes": {
     "instructions": "agent.md", "brief": "brief.md",
-    "vocabulary": {"actor_profile_keys": [{
-      "key": "sample_lines", "label": "sounds like", "shape": "lines",
-      "ask": "two short lines in this person's own words when the book prints their speech, one at ease and one under strain"
-    }]}
+    "vocabulary": {"actor_profile_keys": [
+      {"key": "voice_mask", "label": "mask", "shape": "lines",
+       "ask": "one line, only when the book prints this person's speech: what they call themselves and the one they talk to, one sentence-ending habit, the level of their words, one pet phrase"},
+      {"key": "exchanges", "label": "in exchange", "shape": "lines",
+       "ask": "up to three exchanges the book prints, each on one line: what someone says to this person, an arrow, what this person says back"}
+    ]}
   }
 }

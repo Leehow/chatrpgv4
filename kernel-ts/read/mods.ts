@@ -97,7 +97,7 @@ export function validateVocabulary(manifest: Row): void {
     for (const entry of keys) {
         if (!plain(entry) || !["ask,key,label", "ask,key,label,shape"].includes(sorted(Object.keys(entry)).join(",")))
             invalid("A contributed profile key needs exactly a key, a label and an ask, and at most a shape");
-        // Contract §40.5: `shape: "lines"` makes the value a list of at most two bounded strings.
+        // Contract §40.5/§40.7: `shape: "lines"` makes the value a short list of bounded strings, written by a lane and seated in the capsule's `voices`.
         if (Object.hasOwn(entry, "shape") && !["line", "lines"].includes(entry.shape))
             invalid("A contributed profile key's shape is line or lines");
         if (typeof entry.key !== "string" || !/^[a-z][a-z0-9_-]{0,39}$/.test(entry.key))

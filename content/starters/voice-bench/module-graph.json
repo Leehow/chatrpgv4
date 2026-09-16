@@ -1,0 +1,2533 @@
+{
+ "contract_id": "coc.module-graph.v3",
+ "schema_version": 3,
+ "module_id": "module-voice-bench",
+ "source_languages": [
+  "zh-Hans"
+ ],
+ "section_ids": [
+  "section-curated-bench"
+ ],
+ "coverage": {
+  "structure": "accepted",
+  "world": "accepted",
+  "actors": "accepted",
+  "relationships": "accepted",
+  "events": "accepted",
+  "knowledge": "accepted",
+  "causal": "accepted",
+  "mechanics": "accepted",
+  "assets": "accepted",
+  "direction": "accepted"
+ },
+ "coverage_by_section": {
+  "section-curated-bench": {
+   "structure": "accepted",
+   "world": "accepted",
+   "actors": "accepted",
+   "relationships": "accepted",
+   "events": "accepted",
+   "knowledge": "accepted",
+   "causal": "accepted",
+   "mechanics": "accepted",
+   "assets": "accepted",
+   "direction": "accepted"
+  }
+ },
+ "node_refs_by_section": {
+  "section-curated-bench": [
+   "module-voice-bench",
+   "scene-sanyi-teahouse",
+   "scene-haihe-dock",
+   "quest-fushun",
+   "npc-wang-tiezhu",
+   "clue-docker",
+   "npc-zhou-jingzhi",
+   "clue-licentiate",
+   "npc-liu-guizhi",
+   "clue-proprietress",
+   "npc-xiao-douzi",
+   "clue-newsboy",
+   "npc-zhao-xunzhang",
+   "clue-constable",
+   "npc-chen-maiban",
+   "clue-comprador",
+   "npc-tiekou-zhang",
+   "clue-fortune-teller",
+   "npc-mary-stone",
+   "clue-mission-teacher",
+   "npc-ya-cui",
+   "clue-mute-boatman"
+  ]
+ },
+ "nodes": [
+  {
+   "node_id": "module-voice-bench",
+   "node_kind": "module",
+   "name": "三义茶馆的雨夜",
+   "visibility": "keeper-only",
+   "aliases": [],
+   "summary": "1926 年天津海河码头，一个雨夜，一间茶馆，九张嘴，各自知道昨夜沉船的一角。",
+   "evidence_span_ids": [],
+   "properties": {
+    "asset_root_id": null,
+    "source_binding": {},
+    "runtime_projection": {
+     "contract_id": "coc.module-graph-runtime-projection.v1",
+     "documents": [
+      {
+       "filename": "module-meta.json",
+       "root": {
+        "schema_version": 1,
+        "scenario_id": "voice-bench",
+        "source_language": "zh-Hans",
+        "runtime_projection_contract": "coc.module-graph-runtime-projection.v1",
+        "title": "三义茶馆的雨夜",
+        "opening_scene": "雨夜的三义茶馆里坐满了躲雨的人，福顺号昨夜沉在河湾，谁肯开口？",
+        "one_liner": "1926 年天津海河码头，一个雨夜，一间茶馆，九张嘴，各自知道昨夜沉船的一角。",
+        "structure_type": "hub_sandbox",
+        "era": "1920s",
+        "setting_tags": [
+         "urban-civilian",
+         "dockside",
+         "1920s",
+         "chat-bench"
+        ],
+        "content_flags": [
+         "test-module",
+         "chat-bench"
+        ],
+        "win_condition": "弄清福顺号昨夜为什么沉、船上那个没上来的人去了哪里。这是聊天台，不必推进。",
+        "start_clock": {
+         "calendar_mode": "gregorian",
+         "local_datetime": "1926-10-19T20:00:00",
+         "timezone": "Asia/Shanghai",
+         "display": "1926-10-19 20:00"
+        },
+        "summary": "聊天台：九个不同出身的人在一间茶馆里躲雨，每个人知道昨夜沉船的一角。用来测 NPC 口吻，不推剧情。",
+        "player_safe_summary": "1926 年 10 月，天津。海河码头边的三义茶馆里，雨下了一整天。昨夜一条叫福顺号的驳船在河湾翻了，据说船上有人没上来。茶馆里坐着躲雨的人，谁都知道点什么。",
+        "keeper_secret_summary": "福顺号装的是买办夹带的私货，船上起了争执，一个人被推下水，被摆渡的哑巴船工捞起，躲进了茶馆后院。巡捕房奉命压下此事。",
+        "license": "Apache-2.0",
+        "author": "chatrpgv4 contributors",
+        "attribution": "Original test content.",
+        "copyright_notice": []
+       }
+      }
+     ]
+    }
+   },
+   "source_refs": []
+  },
+  {
+   "node_id": "scene-sanyi-teahouse",
+   "node_kind": "scene",
+   "name": "三义茶馆",
+   "visibility": "keeper-only",
+   "aliases": [],
+   "summary": "海河码头边的老茶馆，雨夜里挤满了躲雨的人。",
+   "evidence_span_ids": [],
+   "properties": {
+    "runtime_projection": {
+     "document": "story-graph.json",
+     "collection": "scenes",
+     "record": {
+      "scene_id": "sanyi-teahouse",
+      "is_start": true,
+      "location_tags": [
+       "teahouse",
+       "dockside",
+       "indoor",
+       "public",
+       "crowd",
+       "茶馆"
+      ],
+      "scene_type": "social",
+      "origin": "source",
+      "dramatic_question": "茶馆里的九个人，谁肯把昨夜沉船的那一角说出来？",
+      "entry_conditions": [],
+      "exit_conditions": [],
+      "available_clues": [
+       "clue-docker",
+       "clue-licentiate",
+       "clue-proprietress",
+       "clue-newsboy",
+       "clue-constable",
+       "clue-comprador",
+       "clue-fortune-teller",
+       "clue-mission-teacher",
+       "clue-mute-boatman"
+      ],
+      "npc_ids": [
+       "npc-wang-tiezhu",
+       "npc-zhou-jingzhi",
+       "npc-liu-guizhi",
+       "npc-xiao-douzi",
+       "npc-zhao-xunzhang",
+       "npc-chen-maiban",
+       "npc-tiekou-zhang",
+       "npc-mary-stone",
+       "npc-ya-cui"
+      ],
+      "pressure_moves": [
+       "雨越下越大，没人想出门",
+       "老板娘催茶钱",
+       "巡长时不时扫一眼门口"
+      ],
+      "storylet_tags": [
+       "social",
+       "gossip"
+      ],
+      "affordances": [
+       {
+        "id": "talk-docker",
+        "cue": "跟王铁柱搭话。",
+        "grants_clue_ids": [
+         "clue-docker"
+        ],
+        "route_type": "npc_question",
+        "status": "open"
+       },
+       {
+        "id": "talk-licentiate",
+        "cue": "跟周敬之搭话。",
+        "grants_clue_ids": [
+         "clue-licentiate"
+        ],
+        "route_type": "npc_question",
+        "status": "open"
+       },
+       {
+        "id": "talk-proprietress",
+        "cue": "跟刘桂芝搭话。",
+        "grants_clue_ids": [
+         "clue-proprietress"
+        ],
+        "route_type": "npc_question",
+        "status": "open"
+       },
+       {
+        "id": "talk-newsboy",
+        "cue": "跟小豆子搭话。",
+        "grants_clue_ids": [
+         "clue-newsboy"
+        ],
+        "route_type": "npc_question",
+        "status": "open"
+       },
+       {
+        "id": "talk-constable",
+        "cue": "跟赵巡长搭话。",
+        "grants_clue_ids": [
+         "clue-constable"
+        ],
+        "route_type": "npc_question",
+        "status": "open"
+       },
+       {
+        "id": "talk-comprador",
+        "cue": "跟陈买办搭话。",
+        "grants_clue_ids": [
+         "clue-comprador"
+        ],
+        "route_type": "npc_question",
+        "status": "open"
+       },
+       {
+        "id": "talk-fortune-teller",
+        "cue": "跟铁口张搭话。",
+        "grants_clue_ids": [
+         "clue-fortune-teller"
+        ],
+        "route_type": "npc_question",
+        "status": "open"
+       },
+       {
+        "id": "talk-mission-teacher",
+        "cue": "跟玛丽·斯通搭话。",
+        "grants_clue_ids": [
+         "clue-mission-teacher"
+        ],
+        "route_type": "npc_question",
+        "status": "open"
+       },
+       {
+        "id": "talk-mute-boatman",
+        "cue": "跟哑巴老崔搭话。",
+        "grants_clue_ids": [
+         "clue-mute-boatman"
+        ],
+        "route_type": "npc_question",
+        "status": "open"
+       }
+      ],
+      "tone": [
+       "damp",
+       "crowded",
+       "low-voiced"
+      ],
+      "allowed_improvisation": [
+       "invent the teahouse furniture, the weather, the other customers",
+       "never_invent that anyone here saw the whole sinking"
+      ],
+      "scene_edges": [
+       {
+        "to": "haihe-dock",
+        "kind": "travel",
+        "when": {
+         "kind": "always"
+        }
+       }
+      ]
+     }
+    }
+   },
+   "source_refs": []
+  },
+  {
+   "node_id": "scene-haihe-dock",
+   "node_kind": "scene",
+   "name": "海河码头",
+   "visibility": "keeper-only",
+   "aliases": [],
+   "summary": "雨里的木栈和泊着的驳船，福顺号的桅杆还露在水面上。",
+   "evidence_span_ids": [],
+   "properties": {
+    "runtime_projection": {
+     "document": "story-graph.json",
+     "collection": "scenes",
+     "record": {
+      "scene_id": "haihe-dock",
+      "is_start": false,
+      "location_tags": [
+       "dock",
+       "river",
+       "outdoor",
+       "码头"
+      ],
+      "scene_type": "investigation",
+      "origin": "source",
+      "dramatic_question": "河湾里露出水面的桅杆下面还有什么？",
+      "entry_conditions": [],
+      "exit_conditions": [],
+      "available_clues": [],
+      "npc_ids": [],
+      "pressure_moves": [
+       "雨大风急，木栈湿滑"
+      ],
+      "storylet_tags": [
+       "investigation"
+      ],
+      "affordances": [],
+      "tone": [
+       "wet",
+       "dark"
+      ],
+      "allowed_improvisation": [
+       "invent the boats and the rain"
+      ],
+      "scene_edges": [
+       {
+        "to": "sanyi-teahouse",
+        "kind": "travel",
+        "when": {
+         "kind": "always"
+        }
+       }
+      ]
+     }
+    }
+   },
+   "source_refs": []
+  },
+  {
+   "node_id": "quest-fushun",
+   "node_kind": "quest",
+   "name": "弄清福顺号昨夜为什么沉，船上没上来的人去了哪里。",
+   "visibility": "keeper-only",
+   "aliases": [],
+   "summary": "聊天台的松散目标。",
+   "evidence_span_ids": [],
+   "properties": {
+    "runtime_projection": {
+     "document": "quests.json",
+     "collection": "quests",
+     "record": {
+      "quest_id": "quest-fushun",
+      "title": "福顺号",
+      "player_safe_summary": "弄清福顺号昨夜为什么沉，船上没上来的人去了哪里。",
+      "quest_kinds": [
+       "investigate"
+      ],
+      "importance": "core",
+      "giver": null,
+      "brief": "Keeper-only: 聊天台，目标是松的。九个人各知一角，凑齐就算清楚。",
+      "target_refs": [
+       {
+        "kind": "clue",
+        "ref_id": "clue-docker"
+       },
+       {
+        "kind": "clue",
+        "ref_id": "clue-licentiate"
+       },
+       {
+        "kind": "clue",
+        "ref_id": "clue-proprietress"
+       },
+       {
+        "kind": "clue",
+        "ref_id": "clue-newsboy"
+       },
+       {
+        "kind": "clue",
+        "ref_id": "clue-constable"
+       },
+       {
+        "kind": "clue",
+        "ref_id": "clue-comprador"
+       },
+       {
+        "kind": "clue",
+        "ref_id": "clue-fortune-teller"
+       },
+       {
+        "kind": "clue",
+        "ref_id": "clue-mission-teacher"
+       },
+       {
+        "kind": "clue",
+        "ref_id": "clue-mute-boatman"
+       }
+      ],
+      "destination_scene_id": null,
+      "deadline": null
+     }
+    }
+   },
+   "source_refs": []
+  },
+  {
+   "node_id": "npc-wang-tiezhu",
+   "node_kind": "npc",
+   "name": "王铁柱",
+   "visibility": "keeper-only",
+   "aliases": [],
+   "summary": "码头扛包的苦力，三十五岁，没念过书，嗓门大，性子直，话不多，不高兴了会骂人。",
+   "evidence_span_ids": [],
+   "properties": {
+    "runtime_projection": {
+     "document": "npc-agendas.json",
+     "collection": "npcs",
+     "record": {
+      "npc_id": "npc-wang-tiezhu",
+      "name": "王铁柱",
+      "origin": "source",
+      "agenda": "明天码头还有活干，今晚把这壶茶喝完就回窝棚。",
+      "fear": "把头翻脸，把他从扛包的名单上划掉。",
+      "secret": "昨夜他在福顺号靠岸的木栈上看见两个人扭打，其中一个被推下了水，他没敢喊。",
+      "voice": "码头扛包的苦力，三十五岁，没念过书，嗓门大，性子直，话不多，不高兴了会骂人。",
+      "relationship_to_investigators": "stranger",
+      "known_fact_ids": [
+       "fact-docker"
+      ],
+      "revealable_fact_ids": [
+       "fact-docker"
+      ],
+      "disclosure_order": [
+       "fact-docker"
+      ],
+      "facts": [
+       {
+        "fact_id": "fact-docker",
+        "clue_id": "clue-docker",
+        "min_trust": 0
+       }
+      ],
+      "lie_options": [],
+      "deflect_options": [],
+      "leverage_ids": [],
+      "active_reactions": [],
+      "availability": {
+       "status": "available"
+      },
+      "schedule": [
+       {
+        "schedule_id": "docker-evening",
+        "scene_ids": [
+         "sanyi-teahouse"
+        ],
+        "status": "available"
+       }
+      ],
+      "keeper_note": "聊天台：让他用自己的嘴说话，答玩家刚说的话，把话头留给玩家。"
+     }
+    },
+    "agenda": "明天码头还有活干，今晚把这壶茶喝完就回窝棚。",
+    "fear": "把头翻脸，把他从扛包的名单上划掉。",
+    "secret": "昨夜他在福顺号靠岸的木栈上看见两个人扭打，其中一个被推下了水，他没敢喊。",
+    "voice": "码头扛包的苦力，三十五岁，没念过书，嗓门大，性子直，话不多，不高兴了会骂人。",
+    "relationship_to_investigators": "stranger"
+   },
+   "source_refs": []
+  },
+  {
+   "node_id": "clue-docker",
+   "node_kind": "clue",
+   "name": "昨夜福顺号靠岸的木栈上，有两个人扭打，一个被推下了水。",
+   "visibility": "revealable",
+   "aliases": [],
+   "summary": "昨夜福顺号靠岸的木栈上，有两个人扭打，一个被推下了水。",
+   "evidence_span_ids": [],
+   "properties": {
+    "delivery_kind": "conversation",
+    "handout_asset_id": null
+   },
+   "source_refs": []
+  },
+  {
+   "node_id": "npc-zhou-jingzhi",
+   "node_kind": "npc",
+   "name": "周敬之",
+   "visibility": "keeper-only",
+   "aliases": [],
+   "summary": "前清秀才，五十八岁，如今给人代写状纸。读书人的口气，爱掉书袋，喜欢把话说得体面。",
+   "evidence_span_ids": [],
+   "properties": {
+    "runtime_projection": {
+     "document": "npc-agendas.json",
+     "collection": "npcs",
+     "record": {
+      "npc_id": "npc-zhou-jingzhi",
+      "name": "周敬之",
+      "origin": "source",
+      "agenda": "有人肯听他讲一讲当年的功名，顺便揽一桩写状子的生意。",
+      "fear": "被人当众叫破他现在靠代写状纸糊口。",
+      "secret": "船主上个月请他写过一张福顺号的保单，货物写的是「棉纱」，他知道不是。",
+      "voice": "前清秀才，五十八岁，如今给人代写状纸。读书人的口气，爱掉书袋，喜欢把话说得体面。",
+      "relationship_to_investigators": "stranger",
+      "known_fact_ids": [
+       "fact-licentiate"
+      ],
+      "revealable_fact_ids": [
+       "fact-licentiate"
+      ],
+      "disclosure_order": [
+       "fact-licentiate"
+      ],
+      "facts": [
+       {
+        "fact_id": "fact-licentiate",
+        "clue_id": "clue-licentiate",
+        "min_trust": 0
+       }
+      ],
+      "lie_options": [],
+      "deflect_options": [],
+      "leverage_ids": [],
+      "active_reactions": [],
+      "availability": {
+       "status": "available"
+      },
+      "schedule": [
+       {
+        "schedule_id": "licentiate-evening",
+        "scene_ids": [
+         "sanyi-teahouse"
+        ],
+        "status": "available"
+       }
+      ],
+      "keeper_note": "聊天台：让他用自己的嘴说话，答玩家刚说的话，把话头留给玩家。"
+     }
+    },
+    "agenda": "有人肯听他讲一讲当年的功名，顺便揽一桩写状子的生意。",
+    "fear": "被人当众叫破他现在靠代写状纸糊口。",
+    "secret": "船主上个月请他写过一张福顺号的保单，货物写的是「棉纱」，他知道不是。",
+    "voice": "前清秀才，五十八岁，如今给人代写状纸。读书人的口气，爱掉书袋，喜欢把话说得体面。",
+    "relationship_to_investigators": "stranger"
+   },
+   "source_refs": []
+  },
+  {
+   "node_id": "clue-licentiate",
+   "node_kind": "clue",
+   "name": "福顺号上个月保过险，保单上写的货物是棉纱。",
+   "visibility": "revealable",
+   "aliases": [],
+   "summary": "福顺号上个月保过险，保单上写的货物是棉纱。",
+   "evidence_span_ids": [],
+   "properties": {
+    "delivery_kind": "conversation",
+    "handout_asset_id": null
+   },
+   "source_refs": []
+  },
+  {
+   "node_id": "npc-liu-guizhi",
+   "node_kind": "npc",
+   "name": "刘桂芝",
+   "visibility": "keeper-only",
+   "aliases": [],
+   "summary": "茶馆老板娘，四十四岁，市井出身，嘴甜手快，心里一直在算账。",
+   "evidence_span_ids": [],
+   "properties": {
+    "runtime_projection": {
+     "document": "npc-agendas.json",
+     "collection": "npcs",
+     "record": {
+      "npc_id": "npc-liu-guizhi",
+      "name": "刘桂芝",
+      "origin": "source",
+      "agenda": "雨夜客人多，多卖几壶茶，别让人在她店里闹事。",
+      "fear": "巡捕房找她的茬，说她窝藏什么人。",
+      "secret": "昨夜后半夜有个浑身湿透的男人在她后院柴棚躲了一宿，天不亮就走了，留了一块银元。",
+      "voice": "茶馆老板娘，四十四岁，市井出身，嘴甜手快，心里一直在算账。",
+      "relationship_to_investigators": "stranger",
+      "known_fact_ids": [
+       "fact-proprietress"
+      ],
+      "revealable_fact_ids": [
+       "fact-proprietress"
+      ],
+      "disclosure_order": [
+       "fact-proprietress"
+      ],
+      "facts": [
+       {
+        "fact_id": "fact-proprietress",
+        "clue_id": "clue-proprietress",
+        "min_trust": 0
+       }
+      ],
+      "lie_options": [],
+      "deflect_options": [],
+      "leverage_ids": [],
+      "active_reactions": [],
+      "availability": {
+       "status": "available"
+      },
+      "schedule": [
+       {
+        "schedule_id": "proprietress-evening",
+        "scene_ids": [
+         "sanyi-teahouse"
+        ],
+        "status": "available"
+       }
+      ],
+      "keeper_note": "聊天台：让他用自己的嘴说话，答玩家刚说的话，把话头留给玩家。"
+     }
+    },
+    "agenda": "雨夜客人多，多卖几壶茶，别让人在她店里闹事。",
+    "fear": "巡捕房找她的茬，说她窝藏什么人。",
+    "secret": "昨夜后半夜有个浑身湿透的男人在她后院柴棚躲了一宿，天不亮就走了，留了一块银元。",
+    "voice": "茶馆老板娘，四十四岁，市井出身，嘴甜手快，心里一直在算账。",
+    "relationship_to_investigators": "stranger"
+   },
+   "source_refs": []
+  },
+  {
+   "node_id": "clue-proprietress",
+   "node_kind": "clue",
+   "name": "昨夜后半夜有个浑身湿透的男人在茶馆后院柴棚躲了一宿，天不亮走的。",
+   "visibility": "revealable",
+   "aliases": [],
+   "summary": "昨夜后半夜有个浑身湿透的男人在茶馆后院柴棚躲了一宿，天不亮走的。",
+   "evidence_span_ids": [],
+   "properties": {
+    "delivery_kind": "conversation",
+    "handout_asset_id": null
+   },
+   "source_refs": []
+  },
+  {
+   "node_id": "npc-xiao-douzi",
+   "node_kind": "npc",
+   "name": "小豆子",
+   "visibility": "keeper-only",
+   "aliases": [],
+   "summary": "报童，十二岁，机灵，快嘴，爱学大人说话的腔调。",
+   "evidence_span_ids": [],
+   "properties": {
+    "runtime_projection": {
+     "document": "npc-agendas.json",
+     "collection": "npcs",
+     "record": {
+      "npc_id": "npc-xiao-douzi",
+      "name": "小豆子",
+      "origin": "source",
+      "agenda": "把手里最后几份晚报卖掉，换一个铜子买热包子。",
+      "fear": "报馆的把头说他偷懒，不再给他报纸卖。",
+      "secret": "今早他在河湾边捡到一只沾泥的皮鞋，鞋里塞着一张湿透的纸条，他藏在裤腰里。",
+      "voice": "报童，十二岁，机灵，快嘴，爱学大人说话的腔调。",
+      "relationship_to_investigators": "stranger",
+      "known_fact_ids": [
+       "fact-newsboy"
+      ],
+      "revealable_fact_ids": [
+       "fact-newsboy"
+      ],
+      "disclosure_order": [
+       "fact-newsboy"
+      ],
+      "facts": [
+       {
+        "fact_id": "fact-newsboy",
+        "clue_id": "clue-newsboy",
+        "min_trust": 0
+       }
+      ],
+      "lie_options": [],
+      "deflect_options": [],
+      "leverage_ids": [],
+      "active_reactions": [],
+      "availability": {
+       "status": "available"
+      },
+      "schedule": [
+       {
+        "schedule_id": "newsboy-evening",
+        "scene_ids": [
+         "sanyi-teahouse"
+        ],
+        "status": "available"
+       }
+      ],
+      "keeper_note": "聊天台：让他用自己的嘴说话，答玩家刚说的话，把话头留给玩家。"
+     }
+    },
+    "agenda": "把手里最后几份晚报卖掉，换一个铜子买热包子。",
+    "fear": "报馆的把头说他偷懒，不再给他报纸卖。",
+    "secret": "今早他在河湾边捡到一只沾泥的皮鞋，鞋里塞着一张湿透的纸条，他藏在裤腰里。",
+    "voice": "报童，十二岁，机灵，快嘴，爱学大人说话的腔调。",
+    "relationship_to_investigators": "stranger"
+   },
+   "source_refs": []
+  },
+  {
+   "node_id": "clue-newsboy",
+   "node_kind": "clue",
+   "name": "今早河湾边漂上来一只皮鞋，鞋里塞着一张湿透的纸条。",
+   "visibility": "revealable",
+   "aliases": [],
+   "summary": "今早河湾边漂上来一只皮鞋，鞋里塞着一张湿透的纸条。",
+   "evidence_span_ids": [],
+   "properties": {
+    "delivery_kind": "conversation",
+    "handout_asset_id": null
+   },
+   "source_refs": []
+  },
+  {
+   "node_id": "npc-zhao-xunzhang",
+   "node_kind": "npc",
+   "name": "赵巡长",
+   "visibility": "keeper-only",
+   "aliases": [],
+   "summary": "华界巡警巡长，四十岁，官场混出来的，说话打官腔，不把话说满。",
+   "evidence_span_ids": [],
+   "properties": {
+    "runtime_projection": {
+     "document": "npc-agendas.json",
+     "collection": "npcs",
+     "record": {
+      "npc_id": "npc-zhao-xunzhang",
+      "name": "赵巡长",
+      "origin": "source",
+      "agenda": "今晚别出事，明早向上头交一份没有问题的报告。",
+      "fear": "上头怪他把事情捅大，把他调去管渣土。",
+      "secret": "上头今早传话下来，福顺号的事按「风大翻船」写，不许提船上有人。",
+      "voice": "华界巡警巡长，四十岁，官场混出来的，说话打官腔，不把话说满。",
+      "relationship_to_investigators": "authority",
+      "known_fact_ids": [
+       "fact-constable"
+      ],
+      "revealable_fact_ids": [
+       "fact-constable"
+      ],
+      "disclosure_order": [
+       "fact-constable"
+      ],
+      "facts": [
+       {
+        "fact_id": "fact-constable",
+        "clue_id": "clue-constable",
+        "min_trust": 0
+       }
+      ],
+      "lie_options": [],
+      "deflect_options": [],
+      "leverage_ids": [],
+      "active_reactions": [],
+      "availability": {
+       "status": "available"
+      },
+      "schedule": [
+       {
+        "schedule_id": "constable-evening",
+        "scene_ids": [
+         "sanyi-teahouse"
+        ],
+        "status": "available"
+       }
+      ],
+      "keeper_note": "聊天台：让他用自己的嘴说话，答玩家刚说的话，把话头留给玩家。"
+     }
+    },
+    "agenda": "今晚别出事，明早向上头交一份没有问题的报告。",
+    "fear": "上头怪他把事情捅大，把他调去管渣土。",
+    "secret": "上头今早传话下来，福顺号的事按「风大翻船」写，不许提船上有人。",
+    "voice": "华界巡警巡长，四十岁，官场混出来的，说话打官腔，不把话说满。",
+    "relationship_to_investigators": "authority"
+   },
+   "source_refs": []
+  },
+  {
+   "node_id": "clue-constable",
+   "node_kind": "clue",
+   "name": "巡捕房今早接到上头的话，福顺号的事按风大翻船办。",
+   "visibility": "revealable",
+   "aliases": [],
+   "summary": "巡捕房今早接到上头的话，福顺号的事按风大翻船办。",
+   "evidence_span_ids": [],
+   "properties": {
+    "delivery_kind": "conversation",
+    "handout_asset_id": null
+   },
+   "source_refs": []
+  },
+  {
+   "node_id": "npc-chen-maiban",
+   "node_kind": "npc",
+   "name": "陈买办",
+   "visibility": "keeper-only",
+   "aliases": [],
+   "summary": "洋行买办，三十八岁，在洋人手下做事，自负，喜欢显摆见过世面，偶尔冒一两个英文词。",
+   "evidence_span_ids": [],
+   "properties": {
+    "runtime_projection": {
+     "document": "npc-agendas.json",
+     "collection": "npcs",
+     "record": {
+      "npc_id": "npc-chen-maiban",
+      "name": "陈买办",
+      "origin": "source",
+      "agenda": "打听福顺号的货有没有捞上来，别让人知道货是他的。",
+      "fear": "洋行东家知道他拿行里的名义走私货。",
+      "secret": "福顺号上那批「棉纱」是他用洋行名义夹带的私货，船沉了他一分钱保险也不敢去领。",
+      "voice": "洋行买办，三十八岁，在洋人手下做事，自负，喜欢显摆见过世面，偶尔冒一两个英文词。",
+      "relationship_to_investigators": "stranger",
+      "known_fact_ids": [
+       "fact-comprador"
+      ],
+      "revealable_fact_ids": [
+       "fact-comprador"
+      ],
+      "disclosure_order": [
+       "fact-comprador"
+      ],
+      "facts": [
+       {
+        "fact_id": "fact-comprador",
+        "clue_id": "clue-comprador",
+        "min_trust": 0
+       }
+      ],
+      "lie_options": [],
+      "deflect_options": [],
+      "leverage_ids": [],
+      "active_reactions": [],
+      "availability": {
+       "status": "available"
+      },
+      "schedule": [
+       {
+        "schedule_id": "comprador-evening",
+        "scene_ids": [
+         "sanyi-teahouse"
+        ],
+        "status": "available"
+       }
+      ],
+      "keeper_note": "聊天台：让他用自己的嘴说话，答玩家刚说的话，把话头留给玩家。"
+     }
+    },
+    "agenda": "打听福顺号的货有没有捞上来，别让人知道货是他的。",
+    "fear": "洋行东家知道他拿行里的名义走私货。",
+    "secret": "福顺号上那批「棉纱」是他用洋行名义夹带的私货，船沉了他一分钱保险也不敢去领。",
+    "voice": "洋行买办，三十八岁，在洋人手下做事，自负，喜欢显摆见过世面，偶尔冒一两个英文词。",
+    "relationship_to_investigators": "stranger"
+   },
+   "source_refs": []
+  },
+  {
+   "node_id": "clue-comprador",
+   "node_kind": "clue",
+   "name": "福顺号上的货是走洋行名义夹带的，货主不敢去领保险。",
+   "visibility": "revealable",
+   "aliases": [],
+   "summary": "福顺号上的货是走洋行名义夹带的，货主不敢去领保险。",
+   "evidence_span_ids": [],
+   "properties": {
+    "delivery_kind": "conversation",
+    "handout_asset_id": null
+   },
+   "source_refs": []
+  },
+  {
+   "node_id": "npc-tiekou-zhang",
+   "node_kind": "npc",
+   "name": "铁口张",
+   "visibility": "keeper-only",
+   "aliases": [],
+   "summary": "走江湖的算命先生，六十二岁，靠嘴吃饭，爱把事往卦上引，从不把话说死。",
+   "evidence_span_ids": [],
+   "properties": {
+    "runtime_projection": {
+     "document": "npc-agendas.json",
+     "collection": "npcs",
+     "record": {
+      "npc_id": "npc-tiekou-zhang",
+      "name": "铁口张",
+      "origin": "source",
+      "agenda": "在茶馆里给人算一卦换茶钱，天亮前不必回观里。",
+      "fear": "有人问起他昨夜不在观里的事。",
+      "secret": "他昨夜根本不在白云观，他在河湾的赌棚里输光了，看见有人抬着东西往河边走。",
+      "voice": "走江湖的算命先生，六十二岁，靠嘴吃饭，爱把事往卦上引，从不把话说死。",
+      "relationship_to_investigators": "stranger",
+      "known_fact_ids": [
+       "fact-fortune-teller"
+      ],
+      "revealable_fact_ids": [
+       "fact-fortune-teller"
+      ],
+      "disclosure_order": [
+       "fact-fortune-teller"
+      ],
+      "facts": [
+       {
+        "fact_id": "fact-fortune-teller",
+        "clue_id": "clue-fortune-teller",
+        "min_trust": 0
+       }
+      ],
+      "lie_options": [],
+      "deflect_options": [],
+      "leverage_ids": [],
+      "active_reactions": [],
+      "availability": {
+       "status": "available"
+      },
+      "schedule": [
+       {
+        "schedule_id": "fortune-teller-evening",
+        "scene_ids": [
+         "sanyi-teahouse"
+        ],
+        "status": "available"
+       }
+      ],
+      "keeper_note": "聊天台：让他用自己的嘴说话，答玩家刚说的话，把话头留给玩家。"
+     }
+    },
+    "agenda": "在茶馆里给人算一卦换茶钱，天亮前不必回观里。",
+    "fear": "有人问起他昨夜不在观里的事。",
+    "secret": "他昨夜根本不在白云观，他在河湾的赌棚里输光了，看见有人抬着东西往河边走。",
+    "voice": "走江湖的算命先生，六十二岁，靠嘴吃饭，爱把事往卦上引，从不把话说死。",
+    "relationship_to_investigators": "stranger"
+   },
+   "source_refs": []
+  },
+  {
+   "node_id": "clue-fortune-teller",
+   "node_kind": "clue",
+   "name": "昨夜有人从河湾的赌棚方向抬着东西往河边走。",
+   "visibility": "revealable",
+   "aliases": [],
+   "summary": "昨夜有人从河湾的赌棚方向抬着东西往河边走。",
+   "evidence_span_ids": [],
+   "properties": {
+    "delivery_kind": "conversation",
+    "handout_asset_id": null
+   },
+   "source_refs": []
+  },
+  {
+   "node_id": "npc-mary-stone",
+   "node_kind": "npc",
+   "name": "玛丽·斯通",
+   "visibility": "keeper-only",
+   "aliases": [],
+   "summary": "英国教会的女教师，三十岁，中文说得认真但不地道，礼貌过头。",
+   "evidence_span_ids": [],
+   "properties": {
+    "runtime_projection": {
+     "document": "npc-agendas.json",
+     "collection": "npcs",
+     "record": {
+      "npc_id": "npc-mary-stone",
+      "name": "玛丽·斯通",
+      "origin": "source",
+      "agenda": "找到昨夜没有回教会的那个学生，问清楚他去了哪里。",
+      "fear": "教会知道她私下借钱给一个中国学生。",
+      "secret": "福顺号上没上来的那个人是她夜校的学生阿福，她借给过他一笔钱，他说是要去汉口做生意。",
+      "voice": "英国教会的女教师，三十岁，中文说得认真但不地道，礼貌过头。",
+      "relationship_to_investigators": "stranger",
+      "known_fact_ids": [
+       "fact-mission-teacher"
+      ],
+      "revealable_fact_ids": [
+       "fact-mission-teacher"
+      ],
+      "disclosure_order": [
+       "fact-mission-teacher"
+      ],
+      "facts": [
+       {
+        "fact_id": "fact-mission-teacher",
+        "clue_id": "clue-mission-teacher",
+        "min_trust": 0
+       }
+      ],
+      "lie_options": [],
+      "deflect_options": [],
+      "leverage_ids": [],
+      "active_reactions": [],
+      "availability": {
+       "status": "available"
+      },
+      "schedule": [
+       {
+        "schedule_id": "mission-teacher-evening",
+        "scene_ids": [
+         "sanyi-teahouse"
+        ],
+        "status": "available"
+       }
+      ],
+      "keeper_note": "聊天台：让他用自己的嘴说话，答玩家刚说的话，把话头留给玩家。"
+     }
+    },
+    "agenda": "找到昨夜没有回教会的那个学生，问清楚他去了哪里。",
+    "fear": "教会知道她私下借钱给一个中国学生。",
+    "secret": "福顺号上没上来的那个人是她夜校的学生阿福，她借给过他一笔钱，他说是要去汉口做生意。",
+    "voice": "英国教会的女教师，三十岁，中文说得认真但不地道，礼貌过头。",
+    "relationship_to_investigators": "stranger"
+   },
+   "source_refs": []
+  },
+  {
+   "node_id": "clue-mission-teacher",
+   "node_kind": "clue",
+   "name": "福顺号上没上来的那个人叫阿福，是教会夜校的学生，说过要去汉口做生意。",
+   "visibility": "revealable",
+   "aliases": [],
+   "summary": "福顺号上没上来的那个人叫阿福，是教会夜校的学生，说过要去汉口做生意。",
+   "evidence_span_ids": [],
+   "properties": {
+    "delivery_kind": "conversation",
+    "handout_asset_id": null
+   },
+   "source_refs": []
+  },
+  {
+   "node_id": "npc-ya-cui",
+   "node_kind": "npc",
+   "name": "哑巴老崔",
+   "visibility": "keeper-only",
+   "aliases": [],
+   "summary": "摆渡的船工，五十岁，天生哑巴，不会说话，只会点头摇头和比划，急了就拍桌子。",
+   "evidence_span_ids": [],
+   "properties": {
+    "runtime_projection": {
+     "document": "npc-agendas.json",
+     "collection": "npcs",
+     "record": {
+      "npc_id": "npc-ya-cui",
+      "name": "哑巴老崔",
+      "origin": "source",
+      "agenda": "把船篷补好，等雨停。",
+      "fear": "船被人拿去顶债。",
+      "secret": "昨夜是他把那个落水的人从河里捞上来的，那人塞给他一块银元就走了，往茶馆方向去的。",
+      "voice": "摆渡的船工，五十岁，天生哑巴，不会说话，只会点头摇头和比划，急了就拍桌子。",
+      "relationship_to_investigators": "stranger",
+      "known_fact_ids": [
+       "fact-mute-boatman"
+      ],
+      "revealable_fact_ids": [
+       "fact-mute-boatman"
+      ],
+      "disclosure_order": [
+       "fact-mute-boatman"
+      ],
+      "facts": [
+       {
+        "fact_id": "fact-mute-boatman",
+        "clue_id": "clue-mute-boatman",
+        "min_trust": 0
+       }
+      ],
+      "lie_options": [],
+      "deflect_options": [],
+      "leverage_ids": [],
+      "active_reactions": [],
+      "availability": {
+       "status": "available"
+      },
+      "schedule": [
+       {
+        "schedule_id": "mute-boatman-evening",
+        "scene_ids": [
+         "sanyi-teahouse"
+        ],
+        "status": "available"
+       }
+      ],
+      "keeper_note": "不会说话；点头摇头、比划、拍桌子。永远不要给他台词。"
+     }
+    },
+    "agenda": "把船篷补好，等雨停。",
+    "fear": "船被人拿去顶债。",
+    "secret": "昨夜是他把那个落水的人从河里捞上来的，那人塞给他一块银元就走了，往茶馆方向去的。",
+    "voice": "摆渡的船工，五十岁，天生哑巴，不会说话，只会点头摇头和比划，急了就拍桌子。",
+    "relationship_to_investigators": "stranger"
+   },
+   "source_refs": []
+  },
+  {
+   "node_id": "clue-mute-boatman",
+   "node_kind": "clue",
+   "name": "昨夜落水的人是被船工从河里捞上来的，上岸就往茶馆方向去了。",
+   "visibility": "revealable",
+   "aliases": [],
+   "summary": "昨夜落水的人是被船工从河里捞上来的，上岸就往茶馆方向去了。",
+   "evidence_span_ids": [],
+   "properties": {
+    "delivery_kind": "conversation",
+    "handout_asset_id": null
+   },
+   "source_refs": []
+  }
+ ],
+ "claims": [
+  {
+   "claim_id": "claim-contains-1",
+   "subject_id": "module-voice-bench",
+   "predicate": "contains",
+   "object": {
+    "node_id": "scene-sanyi-teahouse"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "reason": "Curated chat bench."
+  },
+  {
+   "claim_id": "claim-contains-2",
+   "subject_id": "module-voice-bench",
+   "predicate": "contains",
+   "object": {
+    "node_id": "scene-haihe-dock"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "reason": "Curated chat bench."
+  },
+  {
+   "claim_id": "claim-contains-3",
+   "subject_id": "module-voice-bench",
+   "predicate": "contains",
+   "object": {
+    "node_id": "quest-fushun"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "reason": "Curated chat bench."
+  },
+  {
+   "claim_id": "claim-route-to-4",
+   "subject_id": "scene-sanyi-teahouse",
+   "predicate": "route-to",
+   "object": {
+    "node_id": "scene-haihe-dock"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "reason": "Curated chat bench."
+  },
+  {
+   "claim_id": "claim-route-to-5",
+   "subject_id": "scene-haihe-dock",
+   "predicate": "route-to",
+   "object": {
+    "node_id": "scene-sanyi-teahouse"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "reason": "Curated chat bench."
+  },
+  {
+   "claim_id": "claim-contains-6",
+   "subject_id": "module-voice-bench",
+   "predicate": "contains",
+   "object": {
+    "node_id": "npc-wang-tiezhu"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "reason": "Curated chat bench."
+  },
+  {
+   "claim_id": "claim-contains-7",
+   "subject_id": "module-voice-bench",
+   "predicate": "contains",
+   "object": {
+    "node_id": "clue-docker"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "reason": "Curated chat bench."
+  },
+  {
+   "claim_id": "claim-present-in-8",
+   "subject_id": "npc-wang-tiezhu",
+   "predicate": "present-in",
+   "object": {
+    "node_id": "scene-sanyi-teahouse"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "reason": "Curated chat bench."
+  },
+  {
+   "claim_id": "claim-knows-9",
+   "subject_id": "npc-wang-tiezhu",
+   "predicate": "knows",
+   "object": {
+    "node_id": "clue-docker"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "reason": "Curated chat bench."
+  },
+  {
+   "claim_id": "claim-discoverable-at-10",
+   "subject_id": "clue-docker",
+   "predicate": "discoverable-at",
+   "object": {
+    "node_id": "scene-sanyi-teahouse"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "reason": "Curated chat bench."
+  },
+  {
+   "claim_id": "claim-supports-11",
+   "subject_id": "clue-docker",
+   "predicate": "supports",
+   "object": {
+    "node_id": "quest-fushun"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "reason": "Curated chat bench."
+  },
+  {
+   "claim_id": "claim-contains-12",
+   "subject_id": "module-voice-bench",
+   "predicate": "contains",
+   "object": {
+    "node_id": "npc-zhou-jingzhi"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "reason": "Curated chat bench."
+  },
+  {
+   "claim_id": "claim-contains-13",
+   "subject_id": "module-voice-bench",
+   "predicate": "contains",
+   "object": {
+    "node_id": "clue-licentiate"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "reason": "Curated chat bench."
+  },
+  {
+   "claim_id": "claim-present-in-14",
+   "subject_id": "npc-zhou-jingzhi",
+   "predicate": "present-in",
+   "object": {
+    "node_id": "scene-sanyi-teahouse"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "reason": "Curated chat bench."
+  },
+  {
+   "claim_id": "claim-knows-15",
+   "subject_id": "npc-zhou-jingzhi",
+   "predicate": "knows",
+   "object": {
+    "node_id": "clue-licentiate"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "reason": "Curated chat bench."
+  },
+  {
+   "claim_id": "claim-discoverable-at-16",
+   "subject_id": "clue-licentiate",
+   "predicate": "discoverable-at",
+   "object": {
+    "node_id": "scene-sanyi-teahouse"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "reason": "Curated chat bench."
+  },
+  {
+   "claim_id": "claim-supports-17",
+   "subject_id": "clue-licentiate",
+   "predicate": "supports",
+   "object": {
+    "node_id": "quest-fushun"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "reason": "Curated chat bench."
+  },
+  {
+   "claim_id": "claim-contains-18",
+   "subject_id": "module-voice-bench",
+   "predicate": "contains",
+   "object": {
+    "node_id": "npc-liu-guizhi"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "reason": "Curated chat bench."
+  },
+  {
+   "claim_id": "claim-contains-19",
+   "subject_id": "module-voice-bench",
+   "predicate": "contains",
+   "object": {
+    "node_id": "clue-proprietress"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "reason": "Curated chat bench."
+  },
+  {
+   "claim_id": "claim-present-in-20",
+   "subject_id": "npc-liu-guizhi",
+   "predicate": "present-in",
+   "object": {
+    "node_id": "scene-sanyi-teahouse"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "reason": "Curated chat bench."
+  },
+  {
+   "claim_id": "claim-knows-21",
+   "subject_id": "npc-liu-guizhi",
+   "predicate": "knows",
+   "object": {
+    "node_id": "clue-proprietress"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "reason": "Curated chat bench."
+  },
+  {
+   "claim_id": "claim-discoverable-at-22",
+   "subject_id": "clue-proprietress",
+   "predicate": "discoverable-at",
+   "object": {
+    "node_id": "scene-sanyi-teahouse"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "reason": "Curated chat bench."
+  },
+  {
+   "claim_id": "claim-supports-23",
+   "subject_id": "clue-proprietress",
+   "predicate": "supports",
+   "object": {
+    "node_id": "quest-fushun"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "reason": "Curated chat bench."
+  },
+  {
+   "claim_id": "claim-contains-24",
+   "subject_id": "module-voice-bench",
+   "predicate": "contains",
+   "object": {
+    "node_id": "npc-xiao-douzi"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "reason": "Curated chat bench."
+  },
+  {
+   "claim_id": "claim-contains-25",
+   "subject_id": "module-voice-bench",
+   "predicate": "contains",
+   "object": {
+    "node_id": "clue-newsboy"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "reason": "Curated chat bench."
+  },
+  {
+   "claim_id": "claim-present-in-26",
+   "subject_id": "npc-xiao-douzi",
+   "predicate": "present-in",
+   "object": {
+    "node_id": "scene-sanyi-teahouse"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "reason": "Curated chat bench."
+  },
+  {
+   "claim_id": "claim-knows-27",
+   "subject_id": "npc-xiao-douzi",
+   "predicate": "knows",
+   "object": {
+    "node_id": "clue-newsboy"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "reason": "Curated chat bench."
+  },
+  {
+   "claim_id": "claim-discoverable-at-28",
+   "subject_id": "clue-newsboy",
+   "predicate": "discoverable-at",
+   "object": {
+    "node_id": "scene-sanyi-teahouse"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "reason": "Curated chat bench."
+  },
+  {
+   "claim_id": "claim-supports-29",
+   "subject_id": "clue-newsboy",
+   "predicate": "supports",
+   "object": {
+    "node_id": "quest-fushun"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "reason": "Curated chat bench."
+  },
+  {
+   "claim_id": "claim-contains-30",
+   "subject_id": "module-voice-bench",
+   "predicate": "contains",
+   "object": {
+    "node_id": "npc-zhao-xunzhang"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "reason": "Curated chat bench."
+  },
+  {
+   "claim_id": "claim-contains-31",
+   "subject_id": "module-voice-bench",
+   "predicate": "contains",
+   "object": {
+    "node_id": "clue-constable"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "reason": "Curated chat bench."
+  },
+  {
+   "claim_id": "claim-present-in-32",
+   "subject_id": "npc-zhao-xunzhang",
+   "predicate": "present-in",
+   "object": {
+    "node_id": "scene-sanyi-teahouse"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "reason": "Curated chat bench."
+  },
+  {
+   "claim_id": "claim-knows-33",
+   "subject_id": "npc-zhao-xunzhang",
+   "predicate": "knows",
+   "object": {
+    "node_id": "clue-constable"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "reason": "Curated chat bench."
+  },
+  {
+   "claim_id": "claim-discoverable-at-34",
+   "subject_id": "clue-constable",
+   "predicate": "discoverable-at",
+   "object": {
+    "node_id": "scene-sanyi-teahouse"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "reason": "Curated chat bench."
+  },
+  {
+   "claim_id": "claim-supports-35",
+   "subject_id": "clue-constable",
+   "predicate": "supports",
+   "object": {
+    "node_id": "quest-fushun"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "reason": "Curated chat bench."
+  },
+  {
+   "claim_id": "claim-contains-36",
+   "subject_id": "module-voice-bench",
+   "predicate": "contains",
+   "object": {
+    "node_id": "npc-chen-maiban"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "reason": "Curated chat bench."
+  },
+  {
+   "claim_id": "claim-contains-37",
+   "subject_id": "module-voice-bench",
+   "predicate": "contains",
+   "object": {
+    "node_id": "clue-comprador"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "reason": "Curated chat bench."
+  },
+  {
+   "claim_id": "claim-present-in-38",
+   "subject_id": "npc-chen-maiban",
+   "predicate": "present-in",
+   "object": {
+    "node_id": "scene-sanyi-teahouse"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "reason": "Curated chat bench."
+  },
+  {
+   "claim_id": "claim-knows-39",
+   "subject_id": "npc-chen-maiban",
+   "predicate": "knows",
+   "object": {
+    "node_id": "clue-comprador"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "reason": "Curated chat bench."
+  },
+  {
+   "claim_id": "claim-discoverable-at-40",
+   "subject_id": "clue-comprador",
+   "predicate": "discoverable-at",
+   "object": {
+    "node_id": "scene-sanyi-teahouse"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "reason": "Curated chat bench."
+  },
+  {
+   "claim_id": "claim-supports-41",
+   "subject_id": "clue-comprador",
+   "predicate": "supports",
+   "object": {
+    "node_id": "quest-fushun"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "reason": "Curated chat bench."
+  },
+  {
+   "claim_id": "claim-contains-42",
+   "subject_id": "module-voice-bench",
+   "predicate": "contains",
+   "object": {
+    "node_id": "npc-tiekou-zhang"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "reason": "Curated chat bench."
+  },
+  {
+   "claim_id": "claim-contains-43",
+   "subject_id": "module-voice-bench",
+   "predicate": "contains",
+   "object": {
+    "node_id": "clue-fortune-teller"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "reason": "Curated chat bench."
+  },
+  {
+   "claim_id": "claim-present-in-44",
+   "subject_id": "npc-tiekou-zhang",
+   "predicate": "present-in",
+   "object": {
+    "node_id": "scene-sanyi-teahouse"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "reason": "Curated chat bench."
+  },
+  {
+   "claim_id": "claim-knows-45",
+   "subject_id": "npc-tiekou-zhang",
+   "predicate": "knows",
+   "object": {
+    "node_id": "clue-fortune-teller"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "reason": "Curated chat bench."
+  },
+  {
+   "claim_id": "claim-discoverable-at-46",
+   "subject_id": "clue-fortune-teller",
+   "predicate": "discoverable-at",
+   "object": {
+    "node_id": "scene-sanyi-teahouse"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "reason": "Curated chat bench."
+  },
+  {
+   "claim_id": "claim-supports-47",
+   "subject_id": "clue-fortune-teller",
+   "predicate": "supports",
+   "object": {
+    "node_id": "quest-fushun"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "reason": "Curated chat bench."
+  },
+  {
+   "claim_id": "claim-contains-48",
+   "subject_id": "module-voice-bench",
+   "predicate": "contains",
+   "object": {
+    "node_id": "npc-mary-stone"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "reason": "Curated chat bench."
+  },
+  {
+   "claim_id": "claim-contains-49",
+   "subject_id": "module-voice-bench",
+   "predicate": "contains",
+   "object": {
+    "node_id": "clue-mission-teacher"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "reason": "Curated chat bench."
+  },
+  {
+   "claim_id": "claim-present-in-50",
+   "subject_id": "npc-mary-stone",
+   "predicate": "present-in",
+   "object": {
+    "node_id": "scene-sanyi-teahouse"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "reason": "Curated chat bench."
+  },
+  {
+   "claim_id": "claim-knows-51",
+   "subject_id": "npc-mary-stone",
+   "predicate": "knows",
+   "object": {
+    "node_id": "clue-mission-teacher"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "reason": "Curated chat bench."
+  },
+  {
+   "claim_id": "claim-discoverable-at-52",
+   "subject_id": "clue-mission-teacher",
+   "predicate": "discoverable-at",
+   "object": {
+    "node_id": "scene-sanyi-teahouse"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "reason": "Curated chat bench."
+  },
+  {
+   "claim_id": "claim-supports-53",
+   "subject_id": "clue-mission-teacher",
+   "predicate": "supports",
+   "object": {
+    "node_id": "quest-fushun"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "reason": "Curated chat bench."
+  },
+  {
+   "claim_id": "claim-contains-54",
+   "subject_id": "module-voice-bench",
+   "predicate": "contains",
+   "object": {
+    "node_id": "npc-ya-cui"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "reason": "Curated chat bench."
+  },
+  {
+   "claim_id": "claim-contains-55",
+   "subject_id": "module-voice-bench",
+   "predicate": "contains",
+   "object": {
+    "node_id": "clue-mute-boatman"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "reason": "Curated chat bench."
+  },
+  {
+   "claim_id": "claim-present-in-56",
+   "subject_id": "npc-ya-cui",
+   "predicate": "present-in",
+   "object": {
+    "node_id": "scene-sanyi-teahouse"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "reason": "Curated chat bench."
+  },
+  {
+   "claim_id": "claim-knows-57",
+   "subject_id": "npc-ya-cui",
+   "predicate": "knows",
+   "object": {
+    "node_id": "clue-mute-boatman"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "reason": "Curated chat bench."
+  },
+  {
+   "claim_id": "claim-discoverable-at-58",
+   "subject_id": "clue-mute-boatman",
+   "predicate": "discoverable-at",
+   "object": {
+    "node_id": "scene-sanyi-teahouse"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "reason": "Curated chat bench."
+  },
+  {
+   "claim_id": "claim-supports-59",
+   "subject_id": "clue-mute-boatman",
+   "predicate": "supports",
+   "object": {
+    "node_id": "quest-fushun"
+   },
+   "truth_status": "authored-fact",
+   "visibility": "keeper-only",
+   "evidence_span_ids": [],
+   "asserted_by_ids": [],
+   "known_by_ids": [],
+   "validity": null,
+   "confidence": 1,
+   "reason": "Curated chat bench."
+  }
+ ],
+ "relations": [
+  {
+   "relation_id": "relation-contains-1",
+   "relation_kind": "contains",
+   "from_node_id": "module-voice-bench",
+   "to_node_id": "scene-sanyi-teahouse",
+   "claim_id": "claim-contains-1",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-contains-2",
+   "relation_kind": "contains",
+   "from_node_id": "module-voice-bench",
+   "to_node_id": "scene-haihe-dock",
+   "claim_id": "claim-contains-2",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-contains-3",
+   "relation_kind": "contains",
+   "from_node_id": "module-voice-bench",
+   "to_node_id": "quest-fushun",
+   "claim_id": "claim-contains-3",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-route-to-4",
+   "relation_kind": "route-to",
+   "from_node_id": "scene-sanyi-teahouse",
+   "to_node_id": "scene-haihe-dock",
+   "claim_id": "claim-route-to-4",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-route-to-5",
+   "relation_kind": "route-to",
+   "from_node_id": "scene-haihe-dock",
+   "to_node_id": "scene-sanyi-teahouse",
+   "claim_id": "claim-route-to-5",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-contains-6",
+   "relation_kind": "contains",
+   "from_node_id": "module-voice-bench",
+   "to_node_id": "npc-wang-tiezhu",
+   "claim_id": "claim-contains-6",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-contains-7",
+   "relation_kind": "contains",
+   "from_node_id": "module-voice-bench",
+   "to_node_id": "clue-docker",
+   "claim_id": "claim-contains-7",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-present-in-8",
+   "relation_kind": "present-in",
+   "from_node_id": "npc-wang-tiezhu",
+   "to_node_id": "scene-sanyi-teahouse",
+   "claim_id": "claim-present-in-8",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-knows-9",
+   "relation_kind": "knows",
+   "from_node_id": "npc-wang-tiezhu",
+   "to_node_id": "clue-docker",
+   "claim_id": "claim-knows-9",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-discoverable-at-10",
+   "relation_kind": "discoverable-at",
+   "from_node_id": "clue-docker",
+   "to_node_id": "scene-sanyi-teahouse",
+   "claim_id": "claim-discoverable-at-10",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-supports-11",
+   "relation_kind": "supports",
+   "from_node_id": "clue-docker",
+   "to_node_id": "quest-fushun",
+   "claim_id": "claim-supports-11",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-contains-12",
+   "relation_kind": "contains",
+   "from_node_id": "module-voice-bench",
+   "to_node_id": "npc-zhou-jingzhi",
+   "claim_id": "claim-contains-12",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-contains-13",
+   "relation_kind": "contains",
+   "from_node_id": "module-voice-bench",
+   "to_node_id": "clue-licentiate",
+   "claim_id": "claim-contains-13",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-present-in-14",
+   "relation_kind": "present-in",
+   "from_node_id": "npc-zhou-jingzhi",
+   "to_node_id": "scene-sanyi-teahouse",
+   "claim_id": "claim-present-in-14",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-knows-15",
+   "relation_kind": "knows",
+   "from_node_id": "npc-zhou-jingzhi",
+   "to_node_id": "clue-licentiate",
+   "claim_id": "claim-knows-15",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-discoverable-at-16",
+   "relation_kind": "discoverable-at",
+   "from_node_id": "clue-licentiate",
+   "to_node_id": "scene-sanyi-teahouse",
+   "claim_id": "claim-discoverable-at-16",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-supports-17",
+   "relation_kind": "supports",
+   "from_node_id": "clue-licentiate",
+   "to_node_id": "quest-fushun",
+   "claim_id": "claim-supports-17",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-contains-18",
+   "relation_kind": "contains",
+   "from_node_id": "module-voice-bench",
+   "to_node_id": "npc-liu-guizhi",
+   "claim_id": "claim-contains-18",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-contains-19",
+   "relation_kind": "contains",
+   "from_node_id": "module-voice-bench",
+   "to_node_id": "clue-proprietress",
+   "claim_id": "claim-contains-19",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-present-in-20",
+   "relation_kind": "present-in",
+   "from_node_id": "npc-liu-guizhi",
+   "to_node_id": "scene-sanyi-teahouse",
+   "claim_id": "claim-present-in-20",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-knows-21",
+   "relation_kind": "knows",
+   "from_node_id": "npc-liu-guizhi",
+   "to_node_id": "clue-proprietress",
+   "claim_id": "claim-knows-21",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-discoverable-at-22",
+   "relation_kind": "discoverable-at",
+   "from_node_id": "clue-proprietress",
+   "to_node_id": "scene-sanyi-teahouse",
+   "claim_id": "claim-discoverable-at-22",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-supports-23",
+   "relation_kind": "supports",
+   "from_node_id": "clue-proprietress",
+   "to_node_id": "quest-fushun",
+   "claim_id": "claim-supports-23",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-contains-24",
+   "relation_kind": "contains",
+   "from_node_id": "module-voice-bench",
+   "to_node_id": "npc-xiao-douzi",
+   "claim_id": "claim-contains-24",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-contains-25",
+   "relation_kind": "contains",
+   "from_node_id": "module-voice-bench",
+   "to_node_id": "clue-newsboy",
+   "claim_id": "claim-contains-25",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-present-in-26",
+   "relation_kind": "present-in",
+   "from_node_id": "npc-xiao-douzi",
+   "to_node_id": "scene-sanyi-teahouse",
+   "claim_id": "claim-present-in-26",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-knows-27",
+   "relation_kind": "knows",
+   "from_node_id": "npc-xiao-douzi",
+   "to_node_id": "clue-newsboy",
+   "claim_id": "claim-knows-27",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-discoverable-at-28",
+   "relation_kind": "discoverable-at",
+   "from_node_id": "clue-newsboy",
+   "to_node_id": "scene-sanyi-teahouse",
+   "claim_id": "claim-discoverable-at-28",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-supports-29",
+   "relation_kind": "supports",
+   "from_node_id": "clue-newsboy",
+   "to_node_id": "quest-fushun",
+   "claim_id": "claim-supports-29",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-contains-30",
+   "relation_kind": "contains",
+   "from_node_id": "module-voice-bench",
+   "to_node_id": "npc-zhao-xunzhang",
+   "claim_id": "claim-contains-30",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-contains-31",
+   "relation_kind": "contains",
+   "from_node_id": "module-voice-bench",
+   "to_node_id": "clue-constable",
+   "claim_id": "claim-contains-31",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-present-in-32",
+   "relation_kind": "present-in",
+   "from_node_id": "npc-zhao-xunzhang",
+   "to_node_id": "scene-sanyi-teahouse",
+   "claim_id": "claim-present-in-32",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-knows-33",
+   "relation_kind": "knows",
+   "from_node_id": "npc-zhao-xunzhang",
+   "to_node_id": "clue-constable",
+   "claim_id": "claim-knows-33",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-discoverable-at-34",
+   "relation_kind": "discoverable-at",
+   "from_node_id": "clue-constable",
+   "to_node_id": "scene-sanyi-teahouse",
+   "claim_id": "claim-discoverable-at-34",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-supports-35",
+   "relation_kind": "supports",
+   "from_node_id": "clue-constable",
+   "to_node_id": "quest-fushun",
+   "claim_id": "claim-supports-35",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-contains-36",
+   "relation_kind": "contains",
+   "from_node_id": "module-voice-bench",
+   "to_node_id": "npc-chen-maiban",
+   "claim_id": "claim-contains-36",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-contains-37",
+   "relation_kind": "contains",
+   "from_node_id": "module-voice-bench",
+   "to_node_id": "clue-comprador",
+   "claim_id": "claim-contains-37",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-present-in-38",
+   "relation_kind": "present-in",
+   "from_node_id": "npc-chen-maiban",
+   "to_node_id": "scene-sanyi-teahouse",
+   "claim_id": "claim-present-in-38",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-knows-39",
+   "relation_kind": "knows",
+   "from_node_id": "npc-chen-maiban",
+   "to_node_id": "clue-comprador",
+   "claim_id": "claim-knows-39",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-discoverable-at-40",
+   "relation_kind": "discoverable-at",
+   "from_node_id": "clue-comprador",
+   "to_node_id": "scene-sanyi-teahouse",
+   "claim_id": "claim-discoverable-at-40",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-supports-41",
+   "relation_kind": "supports",
+   "from_node_id": "clue-comprador",
+   "to_node_id": "quest-fushun",
+   "claim_id": "claim-supports-41",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-contains-42",
+   "relation_kind": "contains",
+   "from_node_id": "module-voice-bench",
+   "to_node_id": "npc-tiekou-zhang",
+   "claim_id": "claim-contains-42",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-contains-43",
+   "relation_kind": "contains",
+   "from_node_id": "module-voice-bench",
+   "to_node_id": "clue-fortune-teller",
+   "claim_id": "claim-contains-43",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-present-in-44",
+   "relation_kind": "present-in",
+   "from_node_id": "npc-tiekou-zhang",
+   "to_node_id": "scene-sanyi-teahouse",
+   "claim_id": "claim-present-in-44",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-knows-45",
+   "relation_kind": "knows",
+   "from_node_id": "npc-tiekou-zhang",
+   "to_node_id": "clue-fortune-teller",
+   "claim_id": "claim-knows-45",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-discoverable-at-46",
+   "relation_kind": "discoverable-at",
+   "from_node_id": "clue-fortune-teller",
+   "to_node_id": "scene-sanyi-teahouse",
+   "claim_id": "claim-discoverable-at-46",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-supports-47",
+   "relation_kind": "supports",
+   "from_node_id": "clue-fortune-teller",
+   "to_node_id": "quest-fushun",
+   "claim_id": "claim-supports-47",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-contains-48",
+   "relation_kind": "contains",
+   "from_node_id": "module-voice-bench",
+   "to_node_id": "npc-mary-stone",
+   "claim_id": "claim-contains-48",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-contains-49",
+   "relation_kind": "contains",
+   "from_node_id": "module-voice-bench",
+   "to_node_id": "clue-mission-teacher",
+   "claim_id": "claim-contains-49",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-present-in-50",
+   "relation_kind": "present-in",
+   "from_node_id": "npc-mary-stone",
+   "to_node_id": "scene-sanyi-teahouse",
+   "claim_id": "claim-present-in-50",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-knows-51",
+   "relation_kind": "knows",
+   "from_node_id": "npc-mary-stone",
+   "to_node_id": "clue-mission-teacher",
+   "claim_id": "claim-knows-51",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-discoverable-at-52",
+   "relation_kind": "discoverable-at",
+   "from_node_id": "clue-mission-teacher",
+   "to_node_id": "scene-sanyi-teahouse",
+   "claim_id": "claim-discoverable-at-52",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-supports-53",
+   "relation_kind": "supports",
+   "from_node_id": "clue-mission-teacher",
+   "to_node_id": "quest-fushun",
+   "claim_id": "claim-supports-53",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-contains-54",
+   "relation_kind": "contains",
+   "from_node_id": "module-voice-bench",
+   "to_node_id": "npc-ya-cui",
+   "claim_id": "claim-contains-54",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-contains-55",
+   "relation_kind": "contains",
+   "from_node_id": "module-voice-bench",
+   "to_node_id": "clue-mute-boatman",
+   "claim_id": "claim-contains-55",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-present-in-56",
+   "relation_kind": "present-in",
+   "from_node_id": "npc-ya-cui",
+   "to_node_id": "scene-sanyi-teahouse",
+   "claim_id": "claim-present-in-56",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-knows-57",
+   "relation_kind": "knows",
+   "from_node_id": "npc-ya-cui",
+   "to_node_id": "clue-mute-boatman",
+   "claim_id": "claim-knows-57",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-discoverable-at-58",
+   "relation_kind": "discoverable-at",
+   "from_node_id": "clue-mute-boatman",
+   "to_node_id": "scene-sanyi-teahouse",
+   "claim_id": "claim-discoverable-at-58",
+   "properties": {}
+  },
+  {
+   "relation_id": "relation-supports-59",
+   "relation_kind": "supports",
+   "from_node_id": "clue-mute-boatman",
+   "to_node_id": "quest-fushun",
+   "claim_id": "claim-supports-59",
+   "properties": {}
+  }
+ ],
+ "source_refs": []
+}

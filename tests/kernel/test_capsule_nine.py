@@ -8,9 +8,10 @@ from conftest import CAMPAIGN, CONTENT_DIR, RpcClient, campaign_dir, narrate, na
 from test_rules_families import first_failure, resolve, seed_wound, walk_to_confrontation
 
 SECTIONS = ("where", "present", "known", "pressures", "obligations", "director", "situations", "memory", "style",
-            "recent", "warnings")
+            "recent", "warnings", "voices")
 BUDGETS = {"where": 4096, "present": 3072, "known": 3072, "pressures": 1024, "obligations": 1024, "director": 3072,  # 3072 since the recovery (contract §40)
-           "situations": 1024, "memory": 1536, "style": 1536, "recent": 2048, "warnings": 1024}  # style 1536 since the turn floor
+           "situations": 1024, "memory": 1536, "style": 1536, "recent": 2048, "warnings": 1024,  # style 1536 since the turn floor
+           "voices": 3072}  # §40.7: the masks and exchanges of everyone present
 BEAT_TABLE = json.loads((CONTENT_DIR / "craft" / "beat-directives.json").read_text(encoding="utf-8"))
 TEXT_GRAPH = json.loads((CONTENT_DIR / "craft" / "text-graph.json").read_text(encoding="utf-8"))
 ALL_DIRECTIVES = {n["properties"]["directive_id"] for n in TEXT_GRAPH["nodes"] if n["node_kind"] == "craft-directive"}

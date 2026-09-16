@@ -5837,7 +5837,8 @@
         "modules": [
           "mystery-house",
           "the-haunting",
-          "the-haunting-rulebook"
+          "the-haunting-rulebook",
+          "voice-bench"
         ]
       }
     },

@@ -3,7 +3,7 @@ import { CampaignSnapshot, loadModule, type LoadedModule } from "./campaign.js";
 import { DirectorGraph, TextGraph, Ontology } from "./content.js";
 import { RuleObservations } from "./rule-facts.js";
 import { SessionView } from "./session-view.js";
-import { whereSection, clockSection, npcsPresent, cluesHere, presentSection, knownSection, fitBudget, fittedModuleSection, sceneLabel } from "./capsule.js";
+import { whereSection, clockSection, npcsPresent, cluesHere, presentSection, knownSection, fitBudget, fittedModuleSection, sceneLabel, voicesSection } from "./capsule.js";
 import { playedRecords, signals, directorSection } from "./director.js";
 import { EntityIndex, capsuleMemory, noteObligations, rulingsForCapsule, promiseObligations } from "./memory.js";
 import { clockPressures, threatPressures, unansweredContinuations, continuationRows, questObligations, choiceObligation, sessionObligation } from "./pressures.js";
@@ -33,7 +33,9 @@ export const HEAD = "Everything at the start of this turn: the clock, the undisc
     "director.recovery, when present, is the one part of the Director that is not advice: the player is " +
     "blocked and its steps name the operation that unblocks them. Take one — its receipt closes the debt — " +
     "or this turn's first narrate is refused once. It never asks you to choose for the player or to skip a " +
-    "risk the book gates with a check.";
+    "risk the book gates with a check. voices is how each person present talks: their mask (what they call " +
+    "people, how their sentences end, the level of their words, one pet phrase) and exchanges that show it in " +
+    "reply. Wear the mask on every line that person speaks; never read an exchange out.";
 export const HEAD_MODULE = " This turn also carries a module section (the table briefing, this once): what the book is about, its era, " +
     "the factions, places and people (absent ones included, keeper-only), the ending and conclusion names and " +
     "the structure type; do not lookup the book before opening.";
@@ -57,8 +59,27 @@ export const SLICE3_BUDGETS: Readonly<Record<string, number>> = Object.freeze({
     director: 3072,
     situations: 1024,
     // 1536 since the turn floor (docs/specs/turn-floor.md D1): the brief form carries the four floor lines beside the beat's directives.
-    style: 1536
+    style: 1536,
+    // Contract §40.7: the lines-shaped words of everyone present, trimmed exchanges-first before a person is dropped.
+    voices: 3072
 });
+/** present[] under its budget with every name kept: full rows are cut from the end as `fitBudget` cuts
+ *  them, and each person cut comes back as `{name, truncated: true}`; if the stubs themselves do not fit,
+ *  more full rows give way to stubs until they do. Returns whether anything was cut. */
+function fitPresent(rows: Row[], budget: number): boolean {
+    const names = rows.map(entry => string(entry.name));
+    const cut = fitBudget(rows, budget);
+    if (!cut)
+        return false;
+    const kept = new Set(rows.map(entry => string(entry.name)));
+    const stubs: Row[] = names.filter(name => !kept.has(name)).map(name => ({ name, truncated: true }));
+    while (rows.length && utf8Bytes(pythonJsonDumps([...rows, ...stubs])).length > budget) {
+        const dropped = rows.pop()!;
+        stubs.unshift({ name: string(dropped.name), truncated: true });
+    }
+    rows.push(...stubs);
+    return true;
+}
 export function evidenceAnchors(graph: ModuleGraph, world: Row, records: Row[], limit = 4): string[] {
     return [...graph.kind("clue"), ...graph.kind("handout")]
         .flatMap(node => {
@@ -141,7 +162,8 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
     const warningRecord = [...campaign.records].sort((a, b) => number(b.turn) - number(a.turn)).find(record => number(record.turn) < number(turn.turn) && record.closed_by === "narrate");
     const sections: Row = clone({
         where,
-        present: presentSection(graph, world, scene, row(campaign.jsonFiles.get("npc-ledger.json")), memory, across),
+        present: presentSection(graph, world, scene, row(campaign.jsonFiles.get("npc-ledger.json")), memory, across, { voices: true }),
+        voices: voicesSection(graph, world, scene),
         known: knownSection(graph, world, scene, party),
         pressures: [...clocks, ...threatPressures(graph, world, scene, present)],
         obligations,
@@ -168,7 +190,10 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
     if (fitBudget(sections.known.flags, 512, "last"))
         truncated.push("known.flags");
     for (const [name, budget] of Object.entries(BUDGETS)) {
-        const cut = fitBudget(sections[name], budget);
+        // A crowded room never loses a person to present[]'s budget (contract §40.7, the chat bench: nine
+        // people in one teahouse and four of them gone): whoever the cut would drop arrives as their name
+        // alone, and the Keeper knows to look focus=npc for the rest of them.
+        const cut = name === "present" ? fitPresent(sections.present, budget) : fitBudget(sections[name], budget);
         if (cut || !Array.isArray(sections[name]) && truth(row(sections[name]).truncated)) {
             truncated.push(name);
             if (!Array.isArray(sections[name]) && sections[name] && typeof sections[name] === "object")
