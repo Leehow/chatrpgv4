@@ -8401,3 +8401,60 @@ rather than changed here: each needs its own judgement about what "unknown"
 should look like in that surface, and a blind sweep would be its own defect.
 `setGitBinary('unknown')` is **not** in this class — `unknown` is the honest
 third value, and that is the shape the others should grow toward.
+
+## 63. "Not yet known" is not "none" (2026-09-16)
+
+§62 stopped a *failed* read from becoming a value. Measuring the deployed build
+right after that shipped showed the same conflation one step earlier, on the
+path every load takes. Sampling the paired page every 250ms from navigation:
+
+```
+settled at 705ms
+saw the base banner   : no    (§54 holds)
+saw 暂无项目与会话      : yes
+saw thinking `off`     : yes
+saw the raw model id   : yes
+```
+
+Nothing failed in that run. The shell simply stated three things before it had
+asked: that the person has no projects, that their session is thinking `off`,
+and that their model is called `deepseek-v4.1-flash`. On a local Electron host
+those answers land in milliseconds and no one ever saw the gap; the relay makes
+it most of a second, every time.
+
+**A flash of a wrong claim is a defect, not a step toward a right one.** Nobody
+waits it out to see whether the product corrects itself — the user's ruling,
+2026-09-16: a player who sees a glitch closes the app, so continuity is a
+product property, and "it fixes itself if you reload" is a bug report.
+
+### 63.1 Where it came from
+
+Neither site had a way to say *unknown*:
+
+- `Sidebar` rendered 「暂无项目与会话」 from an empty list alone. `App` already
+  had `projectsLoaded` and never passed it.
+- `modelStateFromSession` builds the immediate snapshot from `listSessions`
+  metadata, which carries a model but no thinking level — so it wrote
+  `thinkingLevel: 'off'`, and `ComposerOptions` defaulted to `'off'` again.
+  `ModelState.thinkingLevel` is a required field, so there was nowhere to put
+  "the host has not said".
+
+### 63.2 The contract
+
+**A surface that has not been told may not answer for the host.** The empty
+state waits for `projectsLoaded`; `ThinkingChip` takes `pending`, renders `…`
+with `思考级别（读取中）` and is not operable until a level has actually been
+reported. `App` tracks `thinkingKnownFor` — the session whose level came from
+`getModelState` or from the person's own choice — exactly as §54 tracks
+`formKnownFor` for the project's form. The layout does not move when the answer
+arrives; only the claim does.
+
+The model *name* is the remaining instance and is deliberately left: the raw id
+is an unfriendly label for the right model, not a false statement about the
+session, and `reconcileModelStateWithCatalog` replaces it as soon as the catalog
+lands. It is recorded here so the next person knows it was weighed.
+
+Tests: with `listProjects` pending the sidebar shows no empty state and shows one
+as soon as an empty answer arrives; with `getModelState` pending the chip asserts
+no level and states one once the host reports it. Both fail if either pending
+signal is disconnected.

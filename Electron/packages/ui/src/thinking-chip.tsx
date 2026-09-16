@@ -36,10 +36,15 @@ export function BrainIcon({ size = 20 }: { size?: number }) {
  * inline-flex button holding the brain icon + current level + chevron; opens a
  * keyboard/ARIA-friendly menu of available thinking levels.
  */
-export function ThinkingChip({ level, levels, onChange }: {
+export function ThinkingChip({ level, levels, onChange, pending = false }: {
   level: ThinkingLevel
   levels: ThinkingLevel[]
   onChange: (level: ThinkingLevel) => void
+  /** The host has not said what this session's level is yet (contract §63).
+   *  A level is the person's own setting: showing a guess — `off` was the one
+   *  this chip used to show — tells them their session is configured a way they
+   *  never chose, and it is indistinguishable from the real thing. */
+  pending?: boolean
 }) {
   const [open, setOpen] = useState(false)
   useEffect(() => {
@@ -48,15 +53,15 @@ export function ThinkingChip({ level, levels, onChange }: {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [open])
-  const modelDecides = levels.length === 0
-  const noChoice = levels.length <= 1
-  const displayLevel = modelDecides ? 'auto' : level
+  const modelDecides = !pending && levels.length === 0
+  const noChoice = pending || levels.length <= 1
+  const displayLevel = pending ? '…' : modelDecides ? 'auto' : level
   return (
     <div className="quick-menu-anchor thinking-chip-anchor" data-testid="thinking-chip-anchor">
       <button
         type="button"
         className="thinking-chip"
-        aria-label={modelDecides ? '思考强度由模型决定' : `思考级别（当前：${level}）`}
+        aria-label={pending ? '思考级别（读取中）' : modelDecides ? '思考强度由模型决定' : `思考级别（当前：${level}）`}
         aria-haspopup="menu"
         aria-expanded={open}
         disabled={noChoice}
