@@ -4,6 +4,7 @@ import { compareUnicode, isJsonObject } from '../json.js';
 import { RuleTables } from '../rules/tables.js';
 import { array, row, entries, number, integer, normalize, kebab, string, truth, repr, clone, type Row } from '../read/values.js';
 import { ResolvedDifficulty, resolveDifficulty, validateDifficulty } from './difficulty.js';
+import { specializationIdentity } from '../rules/skills.js';
 
 export const METHODS = Object.freeze(['quick_fire', 'rolled']);
 export const ALLOCATION_POLICIES = Object.freeze(['spread', 'fill']);
@@ -258,9 +259,20 @@ export class Chargen {
         MP: `derived-attributes.magic_points (${mp.source})/${mp.divisor}`, MOV: `${mov.source} ${mov.rule} - age penalty ${penalty}`,
         DB: `damage-bonus-build STR+SIZ=${db.total}`, BUILD: `damage-bonus-build STR+SIZ=${db.total}`, LUCK: 'characteristic-dice.characteristics.Luck'}};
   }
-  catalogName(phrase: string): string | null { const key = normalize(phrase); return Object.keys(this.skillTable).find(name => normalize(name) === key) ?? null; }
+  /** The catalog row an occupation's phrase names. An occupation that names a specialization
+   *  (`Pilot (aircraft)`, `Science (Physics)`) names a real skill even where the catalog prints no
+   *  row of its own for it: the rules table declares the group's specializations, so the phrase
+   *  resolves and the specialization reaches the card, instead of being dropped into
+   *  `choices_pending` and leaving the card's blank group row to stand in for it (§52). */
+  catalogName(phrase: string): string | null {
+    const key = normalize(phrase);
+    return Object.keys(this.skillTable).find(name => normalize(name) === key)
+      ?? specializationIdentity(this.groups, this.skillTable, phrase)?.canonical ?? null;
+  }
   skillBase(name: string, characteristics: Row): number {
-    const base = name.startsWith('Language (Other: ') && name.endsWith(')') ? this.groups['Language (Other)'].base_chance : get(this.skillTable, name).base_chance;
+    const specialization = Object.hasOwn(this.skillTable, name) ? null : specializationIdentity(this.groups, this.skillTable, name);
+    const base = name.startsWith('Language (Other: ') && name.endsWith(')') ? this.groups['Language (Other)'].base_chance
+      : specialization ? specialization.base : get(this.skillTable, name).base_chance;
     if (integer(base) || typeof base === 'boolean') return number(base);
     const text = string(base);
     return text.startsWith('half_') ? Math.floor(number(get(characteristics, text.slice(5))) / 2) : Math.trunc(number(get(characteristics, text)));
