@@ -8325,3 +8325,79 @@ remount, and the loaded table survives it.
 Test: `RemoteBrowserApp.continuity.test.tsx` marks the mounted `.pipiui-shell`
 node, drives connected → reconnecting → connected, and requires the same node
 back. It fails on the pre-§57 shell.
+
+## 62. A failed read is not an answer (2026-09-16)
+
+The third and fourth instances of one bug, found while playing the deployed
+build over the relay. §54 fixed the first: a rejected `listExtensions` was
+reported as `[]`, so the shell concluded the project enabled nothing and painted
+it `base`. The shape is general, and the remaining instances were worse, because
+they did not merely display a wrong value — they **overwrote a correct one the
+shell already held**.
+
+### 62.1 What was observed
+
+After a burst of `transport request timed out`, the composer's model chip read
+`deepseek-v4.1-flash` / thinking `off`. Before the burst it read
+`DeepSeek V4.1 Flash` / `low`; a reload brought that back. Nobody chose `off`.
+
+```ts
+void host.getModelState(...).then(...).catch(() => {
+  const model = { provider: ref.provider, id: ref.modelId, name: ref.modelId }   // the raw id as a display name
+  setModelState({ model, thinkingLevel: 'off', ... })                            // a level nobody chose
+})
+```
+
+The same file did it again for the whole capability set:
+
+```ts
+void host.capabilities().then(...).catch(() => {
+  setCanRevealInFinder(false); setBrowserAvailable(false); setTerminalAvailable(false)
+  setGitAvailable(false); setRetainedWorktreeDispositionAvailable(false); setPlanAvailable(false)
+})
+```
+
+One dropped request and the product claims it has no browser, no terminal, no
+git and no plans — features disappear from the shell with no error anywhere.
+
+`sendPrompt` does not carry a thinking level (the host reads it from the session
+journal), so the fabricated `off` did not change how a turn was answered. It
+still told the person something false about their own session and destroyed the
+state the shell had.
+
+### 62.2 The rule
+
+**A rejected read is never written as a value.** A catch may record an error, and
+it may leave things exactly as they were. It may not substitute something
+plausible — not a default, not an empty list, not `false`, not a raw id in place
+of a name. "We could not ask" and "the answer is nothing" are different facts and
+the shell must not conflate them.
+
+`readWithRetry` (`retry-read.ts`) is the shared form: quiet retries (400ms, 1.2s,
+3s, 6s, the §54 schedule), `undefined` when they are spent, and a `cancelled`
+hook so a stale effect stops. `undefined` means *still unknown* and callers must
+treat it as such. The two sites above now use it; on a spent read the model
+state keeps whatever is known for that session and only falls back to the
+session's own model when nothing at all is known — and then to the catalogued
+model, so the chip never shows a raw id.
+
+### 62.3 The remaining ledger
+
+A sweep of `.catch(… setX(…))` across `packages/ui/src` found 43 handlers. Most
+record an error, which is correct. These still substitute a value and are the
+same class, listed so the next person does not have to find them again:
+
+| Site | Substitutes |
+| --- | --- |
+| `ExtensionsPane.tsx` | `setServers([])` — a failed list becomes "no MCP servers" |
+| `PlanApprovalBar.tsx` | `setPlans([])` — becomes "no plans" |
+| `DocumentPanel.tsx` | `setFallbackMarkdown('')` — becomes an empty document |
+| `SubagentModelModal.tsx` | `setMemoryAvailable(false)` |
+| `session-workspace-ui.tsx` | `setMainBranch(undefined)` |
+| `App.tsx` (history lease) | `setLease(null)` — becomes "nobody holds it" |
+
+None of them is on the Call of Cthulhu play path, which is why they are recorded
+rather than changed here: each needs its own judgement about what "unknown"
+should look like in that surface, and a blind sweep would be its own defect.
+`setGitBinary('unknown')` is **not** in this class — `unknown` is the honest
+third value, and that is the shape the others should grow toward.
