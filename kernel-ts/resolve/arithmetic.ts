@@ -1,4 +1,5 @@
 /** CoC arithmetic over the captured rule tables and the kernel's one RNG. */
+import { RpcError } from '../errors.js';
 import type { PythonRandom } from '../random.js';
 import { RuleTables } from '../rules/tables.js';
 import { array, clone, entries, equal, integer, number, row, string, truth, type Row } from '../read/values.js';
@@ -102,6 +103,43 @@ export class CheckArithmetic {
             valueError(`difficulty '${difficulty}' has no divisor`);
         return Math.floor(target / number(table[difficulty].divisor));
     }
+    /** The lowest target the die can answer, owned by `percentile-check.json`, not by this file. */
+    get minimumTarget(): number {
+        return number(this.data['percentile-check'].minimum_target);
+    }
+    private clampTarget(target: number): number {
+        const rule = this.data['percentile-check'];
+        return Math.max(number(rule.minimum_target), Math.min(number(rule.maximum_target), Math.trunc(target)));
+    }
+    /** The number the roll is actually compared against, on the same clamp `check` rolls against. */
+    effectiveTarget(target: number, difficulty: string): number {
+        return this.difficultyTarget(this.clampTarget(target), difficulty);
+    }
+    /**
+     * A difficulty that leaves an effective target below the die's minimum is not a hard check but
+     * an unrollable request (§45): 1d100 has no face at or below it, so the outcome is settled
+     * before the die leaves the cup and the consequence is authored, not rolled. Refuse it and hand
+     * the keeper the repair; do not roll, do not fail, do not land stakes.
+     */
+    assertRollable(target: number, difficulty: string, label: string, pushed = false): number {
+        const effective = this.effectiveTarget(target, difficulty);
+        const minimum = this.minimumTarget;
+        if (effective >= minimum)
+            return effective;
+        const repeats = pushed ? 'A pushed roll repeats the same target, so pushing cannot make this one rollable. ' : '';
+        throw new RpcError('invalid_params', `${label} at ${difficulty} leaves an effective target of ${effective}; 1d100 has no result at or below ${effective}, so this check cannot be rolled`, {
+            fix: `${repeats}This is service information about your own request, addressed to you as the keeper: it is not fiction, so do not narrate it, do not read it to the player, and do not treat the attempt as having failed. Nothing was rolled and nothing happened. Send resolve again with exactly one change: either name a skill or characteristic this investigator's sheet gives a usable value in, or keep this one and lower the difficulty until the effective target is at least ${minimum} (regular keeps the whole value, hard halves it, extreme takes a fifth). The player's stated action still stands; ask them for nothing.`,
+            details: {
+                reason: 'effective_target_below_minimum',
+                skill: label,
+                base_target: this.clampTarget(target),
+                difficulty,
+                effective_target: effective,
+                minimum_target: minimum,
+                pushed
+            }
+        });
+    }
     successLevel(roll: number, target: number): string {
         const rule = this.data['percentile-check'];
         const levels = this.data['success-levels'];
@@ -155,7 +193,7 @@ export class CheckArithmetic {
             valueError(`unsupported roll modifier cancellation: ${modifiers.cancellation.method}`);
         const netBonus = Math.min(Math.max(0, bonus - penalty), number(modifiers.maximum_dice_per_roll.bonus));
         const netPenalty = Math.min(Math.max(0, penalty - bonus), number(modifiers.maximum_dice_per_roll.penalty));
-        target = Math.max(number(rule.minimum_target), Math.min(number(rule.maximum_target), Math.trunc(target)));
+        target = this.clampTarget(target);
         let roll: number;
         let units: number | null = null;
         const tens: number[] = [];
