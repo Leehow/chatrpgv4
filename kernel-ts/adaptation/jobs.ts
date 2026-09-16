@@ -113,6 +113,36 @@ function canonicalizeAnchorReferences(graph: any, anchors: string[], input: unkn
         return change;
     });
 }
+/**
+ * The world the review is shown -- and, for exactly that reason, the world the pin protects.
+ *
+ * `focus.world` is the world surface of an adaptation task: the creator writes against it and the
+ * reviewer judges against it, and `world.json` is a named fallback for *semantic* facts absent from
+ * it. Until 2026-09-16 the pin digested the whole world row instead, which is the same row plus the
+ * engine's own bookkeeping -- `mods` (per-package locks, lane dossiers stamped with a turn,
+ * natural-npc check records, queued mod work), `objects` (the item registry), and the label/map
+ * projections. None of that is evidence a proposal can be supported or contradicted by, and all of
+ * it moves while the table is doing nothing: on campaign `game-ef7545c5` the npc-voice lane wrote a
+ * dossier -- no receipt, no fiction -- and a reviewed proposal went from `ready` to `stale` in the
+ * same breath. Since a preparation that outruns its ~12-second foreground wait meets the next such
+ * write, background preparation could never finish, and the creator's completed work was thrown
+ * away with it.
+ *
+ * So this list is the pin, not a blocklist of what to ignore: a field nobody put in front of the
+ * review cannot be the thing the review depended on, and a field someone later decides the review
+ * needs is added here once and is pinned by that same act. The two consumers below share this
+ * constant so they cannot drift apart.
+ */
+const REVIEWED_WORLD = ['active_scene', 'visited_scenes', 'scene_trail', 'discovered_clues', 'flags', 'clock', 'npc_presence', 'handouts_shown'] as const;
+/**
+ * `adaptation` is the one load-bearing field the focus row does not carry raw: the review reads it
+ * projected as `prior_changes`, and it decides both the pinned source and the accepted records that
+ * `normalizeChanges` built this candidate on top of. Accepting against a different record set would
+ * layer reviewed changes onto a graph nobody reviewed, so the pin carries the field itself.
+ */
+const PINNED_WORLD = [...REVIEWED_WORLD, 'adaptation'] as const;
+/** Fixed key order, and an absent field pins as absent rather than as a hole the next one fills. */
+const pinnedWorld = (world: Row): Row => Object.fromEntries(PINNED_WORLD.map(key => [key, world[key] ?? null]));
 const compactReceipt = (receipt: Row): Row => Object.fromEntries(
     ['id', 'kind', 'call_id', 'actor', 'subject', 'npc', 'scene', 'clue', 'handout', 'name', 'from', 'to', 'delta', 'before', 'after']
         .filter(key => receipt[key] != null).map(key => [key, receipt[key]]));
@@ -141,9 +171,10 @@ export class AdaptationJobs {
         const current = await loadModule(this.context, snapshot.meta.module_id, snapshot.id);
         // A pending preparation is allowed to cross an honest wait-only narrate and a later status
         // request. Those change HEAD, turn and player text but not the world the proposal will alter.
-        // World/party/line plus source generation still invalidate every material change; final apply
-        // remains subject to the current player's action-admission review.
-        const pin = jsonDigest({world: snapshot.world, party: snapshot.party, line: snapshot.meta.active_worldline ?? 'main'});
+        // The reviewed world, the party, the worldline and the source generation still invalidate
+        // every material change; final apply remains subject to the current player's action-admission
+        // review.
+        const pin = jsonDigest({world: pinnedWorld(snapshot.world), party: snapshot.party, line: snapshot.meta.active_worldline ?? 'main'});
         return {snapshot, current, pin};
     }
     private async job(campaign: string, name: string): Promise<Row> {
@@ -241,8 +272,7 @@ export class AdaptationJobs {
                 note: 'Every change uses the exact kind field. New names are plain; copy kind-qualified existing references from anchors or source.name.'},
             anchors, source: focusedNodes(base.graph, baseRoots),
             effective_scene: effective.graph.entityView(currentScene),
-            world: Object.fromEntries(['active_scene', 'visited_scenes', 'scene_trail', 'discovered_clues', 'flags', 'clock', 'npc_presence', 'handouts_shown']
-                .filter(key => snapshot.world[key] != null).map(key => [key, snapshot.world[key]])),
+            world: Object.fromEntries(REVIEWED_WORLD.filter(key => snapshot.world[key] != null).map(key => [key, snapshot.world[key]])),
             party: snapshot.party.map(actor => ({name: actor.name, occupation: actor.occupation ?? null})),
             current_receipts: array(snapshot.turn.receipts).map(compactReceipt), recent_history: recentHistory,
             recent_history_complete: snapshot.records.length <= recentHistory.length,

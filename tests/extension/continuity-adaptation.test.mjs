@@ -293,6 +293,102 @@ test('an honest wait-only turn does not stale retained adaptation work', async (
     assert.ok(accepted.receipts.some(value => value.startsWith('adaptation:')));
 });
 
+/**
+ * §36.15 freshness. The pin is the world the review was shown plus `world.adaptation`; the engine's
+ * own bookkeeping underneath it is not. This list is written out here rather than imported so that
+ * narrowing the kernel's own list has to fail a test instead of quietly agreeing with itself.
+ */
+const PINNED_WORLD = ['active_scene', 'visited_scenes', 'scene_trail', 'discovered_clues', 'flags', 'clock', 'npc_presence', 'handouts_shown', 'adaptation'];
+const movedKeys = (before, after) => [...new Set([...Object.keys(before), ...Object.keys(after)])]
+    .filter(key => JSON.stringify(before[key] ?? null) !== JSON.stringify(after[key] ?? null)).sort();
+const voice = {mask: 'Ends every answer with a short question.', exchanges: ['Asks what the money is for.', 'Names the street before the man.', 'Repeats the last word back.']};
+
+test('a reviewed proposal survives the Mod bookkeeping that moves under a waiting table', async () => {
+    const t = await table(), p = await prepare(t); await review(t, p);
+    const before = await t.world();
+    // The npc-voice lane runs on its own schedule, writes one dossier into the package namespace,
+    // and settles no fiction: no receipt, no clue, no time. On campaign game-ef7545c5 this exact
+    // write turned a `ready` proposal into a `stale` one within the same turn, so every preparation
+    // that outran its foreground wait met one of these and died.
+    const job = await t.call('voice.job', {});
+    assert.ok(job.job_id, 'npc-voice is active on an ordinary campaign, so its writes are ordinary too');
+    await t.call('voice.submit', {job_id: job.job_id, voice});
+    const after = await t.world();
+    assert.deepEqual(movedKeys(before, after), ['mods'], 'the lane moved bookkeeping and nothing the review was shown');
+    assert.deepEqual(PINNED_WORLD.filter(key => movedKeys(before, after).includes(key)), []);
+    assert.equal((await t.call('adaptation.status', {name: p.name})).status, 'ready');
+    await t.call('table.narrate', {call_id: 't1-c1', text: 'Preparation continues; no fictional event has happened.'});
+    await t.call('table.player_input', {text: 'Use the same proposal if it is ready.'});
+    assert.equal((await t.call('adaptation.status', {name: p.name})).status, 'ready', 'the lane write does not cross the turn boundary either');
+    const accepted = await t.call('table.apply', {call_id: 't2-c1', effects: [{kind: 'adaptation', name: p.name}]});
+    assert.ok(accepted.receipts.some(value => value.startsWith('adaptation:')));
+});
+
+/**
+ * The half that matters. Each row moves exactly the world the review read, through the real effect
+ * that moves it, and nothing else in the pinned set: a pin that dropped that one field would accept
+ * a proposal against a world contradicting its own evidence, and this is where that shows up.
+ */
+for (const [what, effect, expected] of [
+    ['a clue the review saw undiscovered is found', () => ({kind: 'clue', clue: graph.handle(graph.nodes.get(graph.sceneClueIds(graph.startScene())[0]))}), ['discovered_clues']],
+    ['a flag the review read is set', () => ({kind: 'flag', name: 'ritual-stopped', value: true, why: 'An already chosen action set it.'}), ['flags']],
+    ['a person the review placed moves away', () => ({kind: 'npc', name: graph.handle(graph.nodes.get(graph.sceneNpcIds(graph.startScene())[0])), to: 'away', why: 'They left before the proposal landed.'}), ['npc_presence']],
+    ['a handout the review read as unshown is handed over', () => ({kind: 'handout', name: 'handout-the-haunting-handout-1-knott-commission', why: 'The employer produced it.'}), ['handouts_shown']],
+    ['the clock the review read advances', () => ({kind: 'time', minutes: 1, why: 'An already chosen action took time.'}), ['clock']]
+]) test(`a reviewed proposal is still refused when ${what}`, async () => {
+    const t = await table(), p = await prepare(t); await review(t, p);
+    const before = await t.world();
+    await t.call('table.apply', {call_id: 't1-c1', effects: [effect()]});
+    const after = await t.world();
+    assert.deepEqual(PINNED_WORLD.filter(key => movedKeys(before, after).includes(key)), expected,
+        'the case has to isolate the one field, or dropping it from the pin would still pass');
+    await assert.rejects(t.call('table.apply', {call_id: 't1-c2', effects: [{kind: 'adaptation', name: p.name}]}),
+        e => e.details?.reason === 'adaptation_stale');
+    assert.equal(JSON.stringify(await t.world()), JSON.stringify(after), 'a refused acceptance writes nothing');
+});
+
+test('a reviewed proposal is still refused when the party reaches the scene it would have rewritten', async () => {
+    const t = await table(), p = await prepare(t); await review(t, p);
+    const exit = graph.sceneExits(graph.startScene())[0];
+    assert.ok(exit, 'the starter module has somewhere to go');
+    const before = await t.world();
+    await t.call('table.apply', {call_id: 't1-c1', effects: [{kind: 'move', to: exit.to, why: 'The player chose to go there.'}]});
+    const after = await t.world();
+    // `move` writes the three scene fields together; the clock only moves when the edge costs time.
+    assert.deepEqual(PINNED_WORLD.filter(key => movedKeys(before, after).includes(key)).filter(key => key !== 'clock'),
+        ['active_scene', 'visited_scenes', 'scene_trail']);
+    await assert.rejects(t.call('table.apply', {call_id: 't1-c2', effects: [{kind: 'adaptation', name: p.name}]}),
+        e => e.details?.reason === 'adaptation_stale');
+});
+
+test('a reviewed proposal is still refused when another adaptation was accepted under it', async () => {
+    const t = await table();
+    const starting = graph.startScene();
+    const first = await prepare(t, 'First venue', [{kind: 'add_scene', name: 'Harbor guesthouse', description: 'A guesthouse where the same case can be discussed.',
+        based_on: graph.handle(starting), sources: [graph.handle(starting)], reason: 'The investigator chose to visit the harbor.'}]);
+    await review(t, first);
+    const second = await prepare(t, 'Second venue', [{kind: 'add_scene', name: 'Harbor chapel', description: 'A chapel beside the same wharf.',
+        based_on: graph.handle(starting), sources: [graph.handle(starting)], reason: 'The investigator also named the chapel.'}]);
+    await review(t, second);
+    const before = await t.world();
+    await t.call('table.apply', {call_id: 't1-c1', effects: [{kind: 'adaptation', name: first.name}]});
+    const after = await t.world();
+    // `adaptation` is the one pinned field the focus row does not carry raw -- the review reads it as
+    // `prior_changes` -- and it is the graph every normalized change was built on top of.
+    assert.deepEqual(PINNED_WORLD.filter(key => movedKeys(before, after).includes(key)), ['adaptation']);
+    await assert.rejects(t.call('table.apply', {call_id: 't1-c2', effects: [{kind: 'adaptation', name: second.name}]}),
+        e => e.details?.reason === 'adaptation_stale');
+});
+
+test('the world the pin protects is the world the task put in front of the review', async () => {
+    const t = await table(), p = await t.call('adaptation.prepare', {name: 'Focus surface', purpose: 'new_destination',
+        request: 'Carry existing evidence to a guesthouse.', anchors: [graph.startScene().name]});
+    const focus = JSON.parse(await readFile(join(p.task.cwd, 'focus.json'), 'utf8')), world = await t.world();
+    assert.deepEqual(Object.keys(focus.world).sort(), PINNED_WORLD.filter(key => key !== 'adaptation' && world[key] != null).sort(),
+        'every world field the review is shown is a field that stales the job, and no other is shown');
+    assert.ok(Object.keys(focus.world).length >= 6 && !Object.keys(focus.world).includes('mods'));
+});
+
 test('uncertain, incomplete and tampered reviews never authorize an adaptation; cancellation is durable', async () => {
     const t = await table(), p = await prepare(t), before = JSON.stringify(await t.world());
     await assert.rejects(review(t, p, {checked: []}));
