@@ -8,6 +8,7 @@ import { array, clone, row, string, type Row } from '../read/values.js';
 export const ADAPTATION_FIELDS: Readonly<Record<string, readonly string[]>> = Object.freeze({
     scene: ['scene', 'name', 'description'], clue_at: ['clue', 'scene'], route: ['from', 'to'],
     add_scene: ['name', 'description', 'based_on'], add_npc: ['name', 'description', 'agenda'],
+    add_clue: ['name', 'description', 'scene'],
     npc_knows: ['npc', 'clue'], handout: ['name', 'text', 'based_on']
 });
 function text(value: unknown, field: string, maximum = 2000): string {
@@ -36,18 +37,21 @@ export function adaptedGraph(source: ModuleGraph, changes: Row[]): ModuleGraph {
             if (!array(raw.relations).some(r => r.relation_kind === kind && r.from_node_id === from && r.to_node_id === to))
                 raw.relations.push({relation_id: `adapt-${jsonDigest([kind, from, to]).slice(0, 20)}`, relation_kind: kind, from_node_id: from, to_node_id: to, campaign_origin: provenance});
         };
-        if (['add_scene', 'add_npc', 'handout'].includes(change.kind)) {
-            const kind = change.kind === 'add_scene' ? 'scene' : change.kind === 'add_npc' ? 'npc' : 'handout';
+        if (['add_scene', 'add_npc', 'add_clue', 'handout'].includes(change.kind)) {
+            const kind = change.kind === 'add_scene' ? 'scene' : change.kind === 'add_npc' ? 'npc' : change.kind === 'add_clue' ? 'clue' : 'handout';
             const properties: Row = {name: change.name, semantic_name: change.name};
             if (kind === 'scene') Object.assign(properties, {scene_id: change.name, description: change.description, available_clues: [], npc_ids: [], is_start: false});
             if (kind === 'npc') Object.assign(properties, {agenda: change.agenda, facts: []});
             if (kind === 'handout') properties.authored_text = change.text;
             const node: Row = {node_id: change.id, node_kind: kind, name: change.name, aliases: [],
-                summary: change.description ?? `Campaign rendition of ${change.name}`, visibility: kind === 'handout' ? 'revealable' : 'keeper-only',
+                summary: change.description ?? `Campaign rendition of ${change.name}`, visibility: ['handout', 'clue'].includes(kind) ? 'revealable' : 'keeper-only',
                 properties, campaign_origin: provenance};
             if (nodes.has(node.node_id)) throw new RpcError('invalid_params', 'An adaptation duplicates an entity identity');
             nodes.set(node.node_id, node); raw.nodes.push(node);
             semanticNames.set(node.node_id, change.name);
+            // A clue exists to be found somewhere (contract §51.2): the same `discoverable-at` edge
+            // `clue_at` writes, so `sceneClueIds` and `apply clue` need no second rule for a minted one.
+            if (kind === 'clue') edge('discoverable-at', node.node_id, change.scene);
         } else if (change.kind === 'scene') {
             const node = nodes.get(change.scene);
             if (!node) throw new RpcError('needs', 'Adapted source scene is missing');
@@ -112,7 +116,7 @@ export function normalizeChanges(source: ModuleGraph, previous: Row[], world: Ro
         else {
             change.name = name(value.name);
             if (graph.find(change.name)) throw new RpcError('invalid_params', `The name ${JSON.stringify(change.name)} is already in use`);
-            const type = kind === 'add_scene' ? 'scene' : kind === 'add_npc' ? 'npc' : 'handout';
+            const type = kind === 'add_scene' ? 'scene' : kind === 'add_npc' ? 'npc' : kind === 'add_clue' ? 'clue' : 'handout';
             change.id = `${type}-adapt-${jsonDigest([proposal, index, kind, change.name]).slice(0, 24)}`;
             if (kind === 'handout') {
                 change.based_on = reference(source, 'based_on', text(value.based_on, 'based_on', 180), ['handout']);
@@ -120,6 +124,9 @@ export function normalizeChanges(source: ModuleGraph, previous: Row[], world: Ro
             } else {
                 change.description = text(value.description, 'description', 6000);
                 if (kind === 'add_scene') change.based_on = reference(source, 'based_on', text(value.based_on, 'based_on', 180), ['scene']);
+                // A minted clue names where it is found, in the adapted graph, so one proposal can add
+                // the place and what is discoverable there (contract §51.2).
+                else if (kind === 'add_clue') change.scene = reference(graph, 'scene', text(value.scene, 'scene', 180), ['scene']);
                 else change.agenda = text(value.agenda, 'agenda');
             }
             if (change.based_on && !change.sources.includes(change.based_on)) change.sources.push(change.based_on);
