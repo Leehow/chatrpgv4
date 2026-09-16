@@ -12,6 +12,15 @@ const MAX_FILE = 128 * 1024 * 1024;
 const PRESENTATION_DEADLINE_MS = 360_000;
 const CHUNK = 1024 * 1024;
 /**
+ * How long an `uploading` job may go without a chunk before it is reported as interrupted (§44).
+ *
+ * The pusher is a browser, not a child of this host, so there is nothing to ask whether it is
+ * alive; the only evidence is the age of the last acknowledgement. Comfortably past the Host API's
+ * 30 s request timeout, so a chunk still in flight is never called a stall, and past the slowest
+ * chunk a real table has produced (a degraded stream managed a MiB every 6.7 s before it stopped).
+ */
+const UPLOAD_STALL_MS = 90_000;
+/**
  * A host failure the preparation overlay can show (contract §23): the code it looks a word up by,
  * and an English message kept for the log. Prose is never the player's only explanation, because
  * the player does not necessarily read the system language.
@@ -179,6 +188,35 @@ export class CocOnboardingHost {
     const next={...this.load(job.id,job.session),...change};this.save(next);return next;
   }
   private phaseKey(job:Row, phase:string) {return job.id+':'+phase;}
+  /**
+   * Whether an upload has bytes outstanding, whoever stopped it and why.
+   *
+   * A paused upload is one of these: pausing stops the reading phases, and there is no reading yet.
+   * Saying so here is what lets the next chunk land on the prefix already on disk instead of
+   * starting a 44 MB book over -- `lede.job` promises the progress is kept.
+   */
+  private incompleteUpload(job:Row):boolean {
+    return job.source==='pdf' && !job.module_id && ['uploading','paused'].includes(job.state) &&
+      typeof job.size==='number' && typeof job.received==='number' && job.received<job.size;
+  }
+  /**
+   * Whether nobody is pushing bytes into an `uploading` job any more (§44).
+   *
+   * Two real tables froze at 9 MiB and 8 MiB of the same book with the job still reading
+   * `uploading`, and the overlay went on drawing a progress bar over a stream that had stopped --
+   * for fourteen minutes on one of them. The phases have asked "is anyone still working?" since
+   * they were written (`state:'running' && !alive`); the upload never asked, because its worker is
+   * a browser. The last acknowledgement's age is the same question in the only form available.
+   *
+   * This is read on the way out and never written back: the job stays `uploading` on disk so the
+   * very next chunk is still accepted. Reporting "interrupted" and then refusing the resumed bytes
+   * would be the same lie in the other direction.
+   */
+  private stalledUpload(job:Row):boolean {
+    if(job.state!=='uploading')return false;
+    const window=Number(this.options.env.PI_COC_UPLOAD_STALL_MS)||UPLOAD_STALL_MS;
+    return Date.now()-(typeof job.received_at==='number'?job.received_at:0)>window;
+  }
   private snapshot(job: Row): Row {
     let indexed=0, pages=job.pages||0, character='not_started',waitingForOpening=false,playing=false,handoffCommitted=false;
     if(job.module_id)try {
@@ -202,13 +240,19 @@ export class CocOnboardingHost {
     const guidance=phase('guidance'),opening=phase('opening');
     const current=guidance.state==='ready'?opening:guidance;
     const canConverse=guidance.state==='ready';
-    const state=job.state==='conversing'?'conversing':canConverse?'ready':current.state==='needs_choice'?'choice':
+    const written=job.state==='conversing'?'conversing':canConverse?'ready':current.state==='needs_choice'?'choice':
       ['paused','failed'].includes(current.state)?current.state:job.state;
+    // An upload nobody is pushing is reported as stopped, with the refusal the player would get
+    // for resuming it, so the overlay offers continuing instead of a progress bar that never moves.
+    const stalled=written==='uploading'&&this.stalledUpload(job);
+    const state=stalled?'paused':written;
+    const interrupted=stalled?{code:'upload_retry',
+      message:'No upload bytes have arrived for some time; send the file again from where it stopped.'}:undefined;
     return {id:job.id,name:job.name,source:job.source,size:job.size,received:job.received,state,pages,indexed,
       stage:current.stage,reviewed:current.progress?.reviewed,reviewTotal:current.progress?.review_total,
       activeReaders:current.progress?.activeReaders||0,stopping:current.stopping,
       candidates:current.candidates,
-      error:current.error||(job.error?{code:typeof job.error_code==='string'&&job.error_code?job.error_code:'preparation_failed',message:job.error}:undefined),
+      error:interrupted||current.error||(job.error?{code:typeof job.error_code==='string'&&job.error_code?job.error_code:'preparation_failed',message:job.error}:undefined),
       preparation:{guidance,opening},character:{state:character},canConverse,
       canHandoff:character==='confirmed'&&(waitingForOpening||handoffCommitted)&&opening.state==='ready'&&!playing,playing,hidden:!!job.hidden,
       model:job.model,thinking:job.thinking,campaign:job.campaign,play_language:job.play_language};
@@ -309,7 +353,9 @@ export class CocOnboardingHost {
       // An undeclared tag is refused rather than quietly replaced: the player picked a language.
       const language = await this.playLanguage(params.play_language);
       if (params.play_language && params.play_language !== language) throw refuse('invalid_params', 'Invalid play language');
-      const job: Row = {play_language: language, id: randomUUID(), session, name: params.name, size: params.size || 0, received: 0,
+      // `received_at` starts now, so an upload that never gets its first byte goes quiet on the
+      // same clock as one that stops halfway (§44) -- the §43 table froze at exactly zero.
+      const job: Row = {play_language: language, id: randomUUID(), session, name: params.name, size: params.size || 0, received: 0, received_at: Date.now(),
         source: params.action === 'begin' ? 'pdf' : params.source, module_id: params.module_id,
         preparation:{guidance:{state:'queued'},opening:{state:'queued'}}, model: model.id, thinking: model.thinking, state: params.action === 'begin' ? 'uploading' : 'preparing'};
       mkdirSync(this.folder(job.id)); this.save(job);
@@ -334,10 +380,17 @@ export class CocOnboardingHost {
     this.busy.add(job.id);
     try {
       if (params.action === 'chunk') {
-        if (job.state !== 'uploading' || params.offset !== job.received || typeof params.data !== 'string' || params.data.length > Math.ceil(CHUNK / 3) * 4 || !/^[A-Za-z0-9+/]*={0,2}$/.test(params.data)) throw refuse('upload_chunk_invalid', 'Invalid upload chunk or offset');
+        // Any upload with bytes outstanding takes them, left `uploading` or paused: the offset is
+        // still this host's own count, so a lost acknowledgement cannot double-write the file, and
+        // a stream that stopped resumes onto the prefix rather than beginning a book again.
+        if (!this.incompleteUpload(job) || params.offset !== job.received || typeof params.data !== 'string' || params.data.length > Math.ceil(CHUNK / 3) * 4 || !/^[A-Za-z0-9+/]*={0,2}$/.test(params.data)) throw refuse('upload_chunk_invalid', 'Invalid upload chunk or offset');
         const bytes = Buffer.from(params.data, 'base64');
         if (!bytes.length || bytes.length > CHUNK || job.received + bytes.length > job.size) throw refuse('upload_size_mismatch', 'Upload size mismatch');
-        appendFileSync(join(this.folder(job.id), 'source.pdf'), bytes); job.received += bytes.length; this.save(job);
+        appendFileSync(join(this.folder(job.id), 'source.pdf'), bytes); job.received += bytes.length; job.received_at = Date.now();
+        // Reopening restores the phases a pause stopped; leaving them paused would report a paused
+        // job over a stream that is moving, which is the same lie the stall reading exists to end.
+        if (job.state !== 'uploading') {job.state = 'uploading'; job.preparation = {guidance:{state:'queued'},opening:{state:'queued'}};}
+        this.save(job);
       } else if (params.action === 'finish') {
         const path = join(this.folder(job.id), 'source.pdf');
         if (job.state !== 'uploading' || job.received !== job.size || statSync(path).size !== job.size) throw refuse('upload_incomplete', 'Upload is incomplete');
@@ -364,7 +417,10 @@ export class CocOnboardingHost {
         const updated=this.patch(job,{start_scene:params.scene||job.start_scene,model:model.id,thinking:model.thinking});
         this.prepare(updated,true);
       } else if (params.action === 'dismiss') {
-        if ([...this.children.keys()].some(key=>key.startsWith(job.id+':')) || ['uploading','inspecting'].includes(job.state)) throw refuse('preparation_pause_first', 'Pause preparation before choosing another scenario');
+        // Choosing another scenario waits for live work -- but an upload nobody is pushing is not
+        // live work, and refusing there leaves the player shut inside a screen nothing is moving.
+        if ([...this.children.keys()].some(key=>key.startsWith(job.id+':')) ||
+          (['uploading','inspecting'].includes(job.state) && !this.stalledUpload(job))) throw refuse('preparation_pause_first', 'Pause preparation before choosing another scenario');
         job.dismissed = true; this.save(job);
       } else if (params.action === 'converse') {
         if(job.preparation?.guidance?.state!=='ready') throw refuse('guidance_not_ready', 'Wait for the scenario guidance to be ready');

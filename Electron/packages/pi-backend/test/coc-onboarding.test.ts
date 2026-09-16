@@ -268,3 +268,89 @@ it('keeps a failed UI projection rejected until the player explicitly retries',a
  await host.projectUiWords('fr-CA');
  expect(presentation).toHaveBeenCalledTimes(2);
 });
+
+/**
+ * A stopped byte stream is reported as stopped (§44).
+ *
+ * Two real tables froze at 9 MiB and 8 MiB of the same 44 MB book: the acknowledged prefix sat on
+ * disk, no further chunk ever arrived, and the job on file still read `{"state":"uploading"}`, so
+ * the overlay drew a progress bar under a stream nothing was moving -- for fourteen minutes on one
+ * of them. Nothing in the host asked whether anyone was still pushing. The phases have asked that
+ * question since they were written (`state:'running'&&!alive?'paused'`); the upload had no such
+ * reading, because the pusher is a browser and no child of this host.
+ *
+ * The answer is the last acknowledgement's age, and it is a projection, never a write: the job
+ * stays `uploading` on disk so the very next chunk is still accepted. Saying "interrupted" and
+ * then refusing the bytes would be a second lie.
+ */
+async function stalling(window:number){
+  const home=await mkdtemp(join(tmpdir(),'coc-onboarding-'));
+  const repo=resolve(import.meta.dirname,'../../../..');
+  const host=new CocOnboardingHost({repo,home,agentDir:join(home,'agent'),
+    env:{...process.env,PI_COC_UPLOAD_STALL_MS:String(window)}});
+  services.push(host);return {host,home};
+}
+const idle=(ms:number)=>new Promise(resolve=>setTimeout(resolve,ms));
+
+it('reports an upload nobody is pushing as interrupted, and still takes the next chunk',async()=>{
+  const {host,home}=await stalling(40);
+  const job=await host.invoke({action:'begin',name:'masks.pdf',size:9},'one',model);
+  expect(job.state).toBe('uploading');
+  const half=await host.invoke({action:'chunk',id:job.id,offset:0,data:Buffer.from('%PDF').toString('base64')},'one',model);
+  expect(half.state).toBe('uploading');
+  expect(half.received).toBe(4);
+
+  // Nobody pushes. The overlay polls, and must not be told the upload is still moving.
+  await idle(80);
+  const quiet=await host.invoke({action:'status',id:job.id},'one',model);
+  expect(quiet.state).toBe('paused');
+  expect(quiet.received).toBe(4);
+  expect(quiet.error.code).toBe('upload_retry');
+  expect(quiet.error.message).toBeTruthy();
+  // `current` is the poll the overlay actually runs; it must tell the same truth.
+  expect((await host.invoke({action:'current'},'one',model)).current_import.state).toBe('paused');
+  // The report is a reading, not a write: the file on disk still says what it is waiting for.
+  expect(JSON.parse(await readFile(join(home,'.coc/imports',job.id,'job.json'),'utf8')).state).toBe('uploading');
+
+  // ...and the door is open, which is the whole point: the client resumes from the host's count.
+  const resumed=await host.invoke({action:'chunk',id:job.id,offset:4,data:Buffer.from('-test').toString('base64')},'one',model);
+  expect(resumed.state).toBe('uploading');
+  expect(resumed.received).toBe(9);
+  expect(await readFile(join(home,'.coc/imports',job.id,'source.pdf'),'utf8')).toBe('%PDF-test');
+});
+
+it('an upload that began and never got a byte goes quiet too, and can be dismissed',async()=>{
+  const {host}=await stalling(40);
+  const job=await host.invoke({action:'begin',name:'masks.pdf',size:9},'one',model);
+  // Choosing another scenario is refused while an upload is live -- but a dead one is not live,
+  // and refusing there leaves the player with no way out of a screen nothing is moving.
+  await expect(host.invoke({action:'dismiss',id:job.id},'one',model)).rejects.toThrow();
+  await idle(80);
+  expect((await host.invoke({action:'status',id:job.id},'one',model)).state).toBe('paused');
+  await host.invoke({action:'dismiss',id:job.id},'one',model);
+  expect((await host.invoke({action:'current'},'one',model)).current_import).toBeNull();
+});
+
+/**
+ * Choosing the file again continues it. `lede.job` promises the progress is kept; before this, a
+ * paused upload could only be begun again from zero, so re-choosing a 44 MB book meant re-sending
+ * all of it. The acknowledged prefix is the resume point, whoever stopped the stream and why.
+ */
+it('continues a paused upload from the bytes already acknowledged',async()=>{
+  const {host,home}=await stalling(60_000);
+  const job=await host.invoke({action:'begin',name:'masks.pdf',size:9},'one',model);
+  await host.invoke({action:'chunk',id:job.id,offset:0,data:Buffer.from('%PDF').toString('base64')},'one',model);
+  const paused=await host.invoke({action:'pause',id:job.id},'one',model);
+  expect(paused.state).toBe('paused');
+  const resumed=await host.invoke({action:'chunk',id:job.id,offset:4,data:Buffer.from('-test').toString('base64')},'one',model);
+  expect(resumed.state).toBe('uploading');
+  expect(resumed.received).toBe(9);
+  // Reopening restores the phases the pause stopped, or the overlay would read `paused` over a
+  // stream that is moving -- the same lie in the other direction.
+  expect(resumed.preparation.guidance.state).toBe('queued');
+  expect(await readFile(join(home,'.coc/imports',job.id,'source.pdf'),'utf8')).toBe('%PDF-test');
+  // The offset is still the host's own count: a resend of an acknowledged chunk is refused, so a
+  // lost acknowledgement can never double-write the file.
+  await expect(host.invoke({action:'chunk',id:job.id,offset:4,data:Buffer.from('-test').toString('base64')},'one',model))
+    .rejects.toThrow();
+});
