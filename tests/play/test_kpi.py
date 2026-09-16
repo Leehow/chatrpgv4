@@ -208,3 +208,48 @@ def test_admission_section_counts_verdicts_reuse_and_unavailability_apart_from_d
         "review_ms": {"total": 1200, "max": 900, "mean": 600},
     }
     assert kpi.admission([row(1, "apply", call_id="t1-c1")]) == {}
+
+
+def test_lane_section_tells_a_lane_that_never_worked_from_one_that_ran_clean():
+    """A lane that failed every turn and a lane that never failed read the same way
+    everywhere else in this tool, which is how `memory` failed 32 times in one campaign
+    with nobody told. A healthy lane is listed with `failed: 0` for exactly that reason:
+    silence about a lane must not be the same text as a lane that is fine."""
+    rows = [
+        {"turn": 0, "lane": "memory", "ok": False, "reason": "lane_error", "detail": "entity 'x' is ambiguous"},
+        {"turn": 1, "lane": "memory", "ok": False, "reason": "lane_error", "detail": "entity 'x' is ambiguous"},
+        {"turn": 2, "lane": "memory", "ok": False, "reason": "lane_error", "detail": "entity 'x' is ambiguous"},
+        {"turn": 0, "lane": "journal", "ok": True, "ms": 12},
+        {"turn": 1, "lane": "journal", "ok": True, "ms": 14},
+        # A stumble is not an outage: the streak resets, and the worst run is what says so.
+        {"turn": 0, "lane": "voice", "ok": False, "reason": "model_error"},
+        {"turn": 1, "lane": "voice", "ok": True},
+        {"turn": 2, "lane": "voice", "ok": False, "reason": "model_error"},
+        # A row with no verdict of its own is a progress note, not an outcome.
+        {"turn": 3, "lane": "reading", "event": "concurrency", "job_id": "read-6"},
+    ]
+    section = kpi.lanes(rows)
+    assert section == {
+        "journal": {"rows": 2, "failed": 0, "worst_streak": 0},
+        "memory": {"rows": 3, "failed": 3, "worst_streak": 3, "reasons": {"lane_error": 3}},
+        "voice": {"rows": 3, "failed": 2, "worst_streak": 1, "reasons": {"model_error": 2}},
+    }
+    assert "reading" not in section
+    assert kpi.lanes([row(1, "apply", call_id="t1-c1")]) == {}
+
+
+def test_a_lane_failure_reaches_the_printed_report(tmp_path):
+    """The section is worthless if it stops at the dict: the whole defect was that nobody
+    reading a campaign's KPI ever saw these rows."""
+    telemetry = tmp_path / "ws" / "campaigns" / "c1" / "telemetry.jsonl"
+    telemetry.parent.mkdir(parents=True)
+    write_telemetry(telemetry, [
+        row(1, "apply", call_id="t1-c1", ok=True),
+        {"turn": 1, "lane": "memory", "ok": False, "reason": "lane_error"},
+    ])
+    result = subprocess.run(
+        [sys.executable, str(KPI_SCRIPT), "--workspace", str(tmp_path / "ws"), "--campaign", "c1"],
+        capture_output=True, text=True, check=True,
+    )
+    assert "lanes:" in result.stdout
+    assert "memory" in result.stdout
