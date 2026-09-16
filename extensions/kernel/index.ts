@@ -56,6 +56,8 @@ interface OpenResult {
   setup_prologue?: unknown;
   /** Contract §39.2: the module's own map captions, for the host's play-language projection. Absent when the module publishes no player map. */
   authored_map_words?: unknown;
+  /** Contract §28.9: packages on disk this kernel build cannot read, each naming what it asked for. */
+  mods_unreadable?: Array<Record<string, unknown>>;
 }
 
 /**
@@ -207,6 +209,27 @@ interface TableState {
 	providerNoticeSent?: boolean;
 	/** This settled run already scheduled the generic no-delivery notice. */
 	turnNoticeSent?: boolean;
+	/** Consecutive `commit_failed` refusals with the same cause (contract §38.11), counted like the
+	 * review's and the provider's. A successful call resets it; a turn boundary does not -- a Git
+	 * that cannot write is a service condition, not a turn context. */
+	commitOutage?: { cause: string; count: number };
+	commitOutageNotified?: boolean;
+	/** The table cannot write its history at all: the same commit failure has repeated. The run is
+	 * terminated rather than retried, and the player is told as a service notice. Cleared at the
+	 * start of the next run, so new player input still buys one honest attempt. */
+	commitUnavailable?: { cause: string; detail: string; streak: number };
+	/** This run already told the player the history store is down: one service notice per run. */
+	commitNoticeSent?: boolean;
+	/** Contract §34.17: the narrate calls of one assistant message that carries more than one. The
+	 * first would close the turn and the rest would be blocked after close, so a delivery written in
+	 * two halves would reach the player as its first half only. */
+	splitDelivery?: Set<string>;
+	/** The split-delivery refusal is spent once per turn: a Keeper that writes two halves again gets
+	 * its first half delivered, and the player is told the rest was refused. */
+	splitDeliveryRefused?: boolean;
+	/** A narrate was blocked because the turn had already closed: the delivery the player read is the
+	 * Keeper's first half and the continuation never landed (contract §34.17). */
+	deliveryCutShort?: boolean;
 	/** Contract §38: an agent run ended leaving this turn open with nothing delivered, so no one can
 	 * finish it any more. The next player input releases it instead of being refused turn_state. */
 	strandedTurn?: boolean;
@@ -304,6 +327,9 @@ const TURN_CLOSED_STOP = "The turn is closed and the player has the move. Call n
 const RUNAWAY_STOP_AT = 3;
 const RUNAWAY_ABORT_AT = 6;
 /** Refusals of one class (tool, code, the field the kernel named) a turn tolerates before that tool is shut for the turn. */
+/** Contract §38.11: the same commit failure twice is the service, not the text. One retry, then stop --
+ *  the streak that escalates elsewhere in this host (§32.2, §38, §38.7) is also two. */
+const COMMIT_FAILURE_LIMIT = 2;
 const REFUSAL_CLASS_LIMIT = 3;
 /** Refusals of any class a turn tolerates before every write but narrate and ask is shut. */
 const REFUSAL_BUDGET = 8;
@@ -612,6 +638,27 @@ function sourceMaterialRefusal(failure: unknown, read: Record<string, unknown>):
 }
 
 /**
+ * Contract §38.11: what actually failed underneath a `commit_failed`, as a cause to count by and a
+ * detail to quote. The kernel sends the Git verb, its exit code and what Git printed as fields
+ * (`details.git`); a kernel too old to send them still yields a cause, from its own message.
+ */
+function commitCause(error: unknown): { cause: string; detail: string } {
+	const git = isKernelError(error)
+		? (error.details?.git as { step?: unknown; code?: unknown; output?: unknown } | undefined)
+		: undefined;
+	const step = asString(git?.step);
+	const exit = typeof git?.code === "number" ? git.code : undefined;
+	const message = error instanceof Error ? error.message : String(error);
+	const output = asString(git?.output);
+	return {
+		// The cause is what a streak is counted by, so it must not carry anything that varies between
+		// two identical failures -- the turn number and the narrate text both would.
+		cause: step && exit !== undefined ? `git ${step} exited ${exit}` : message.slice(0, 120),
+		detail: (output || message).slice(0, 200),
+	};
+}
+
+/**
  * A refusal that waited on source reading says which job and which target it waited for
  * (contract §22, #65): the queue's `job_id` and the `purpose`/`focus` of the read, whichever
  * verb was refused. Ids and names only -- the read's `question` is the Keeper's prose and stays out.
@@ -691,6 +738,8 @@ export default function (pi: ExtensionAPI) {
 	pi.events.on("coc:ui-words", (data) => { surface.refresh((data as { tag?: unknown } | undefined)?.tag); });
 	let reading: { ensure(moduleId: string, params: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> } | undefined;
 	let readingModule: string | undefined;
+	/** Contract §28.9: the build-skew notice is the operator's, once per session, not once per reopen. */
+	let modSkewNotified = false;
 	pi.events.on("coc:reading-bridge", (value) => {
 		reading = value && typeof (value as any).ensure === "function" ? value as any : undefined;
 	});
@@ -742,9 +791,51 @@ export default function (pi: ExtensionAPI) {
 		return String(receipt);
 	}
 
+	/**
+	 * Contract §28.9: a package this kernel build cannot read, said once, out of fiction, to the
+	 * person who can fix it -- shaped like §32.2's `coc-admission-status` and §38.7's provider notice.
+	 *
+	 * 2026-09-15, live: `mods/npc-voice` was merged into the branch after the running kernel had been
+	 * built, and the older build's manifest reader did not know the profile key's `shape` field. It
+	 * threw out of the catalog read, so every `table.open` and every `table.player_input` failed, and
+	 * the player was told to repair a configuration file that was perfectly correct. Nothing named the
+	 * package, the version, the key, or the one fact that decides the case -- that the kernel is a
+	 * build artifact and `mods/` is not. Both halves are repaired: the package now refuses only
+	 * itself, and this says why, where someone can act on it.
+	 */
+	function noteModSkew(campaign: string, gaps: Array<Record<string, unknown>>): void {
+		if (modSkewNotified || !gaps.length) return;
+		modSkewNotified = true;
+		const packages = gaps.map((gap) => ({
+			package: asString(gap.package) ?? "?",
+			version: asString(gap.version) ?? "?",
+			reason: asString(gap.reason) ?? "unreadable",
+			...(asString(gap.key) ? { key: asString(gap.key) } : {}),
+			...(asString(gap.field) ? { field: asString(gap.field) } : {}),
+			...(Array.isArray(gap.unknown) ? { unknown: gap.unknown } : {}),
+			...(Array.isArray(gap.accepts) ? { accepts: gap.accepts } : {}),
+			...(asString(gap.message) ? { detail: asString(gap.message) } : {}),
+		}));
+		const status = {
+			campaign,
+			status: "skew",
+			packages,
+			fix: `This kernel build cannot read ${packages.length === 1 ? "one installed package" : `${packages.length} installed packages`}`
+				+ `: ${packages.map((row) => `${row.package} ${row.version}`).join(", ")}. They stay disabled and the table plays without them.`
+				+ " The kernel is a build artifact and mods/ is read live from disk, so a package updated after the kernel was built reads exactly like this:"
+				+ " rebuild the kernel (npm run build:runtime) and reopen the table. If a rebuilt kernel still cannot read them, they need a newer kernel than this source.",
+		};
+		try { pi.appendEntry("coc-mods-status", status); }
+		catch { /* the notice must never break an opening */ }
+		pi.events.emit("coc:mods-status", status);
+		void record({ lane: "mods", campaign, ok: false, reason: "kernel_build_skew",
+			packages: packages.map((row) => `${row.package} ${row.version}`) });
+	}
+
 	function applyOpen(open: OpenResult): void {
 		if (!table) return;
 		readingModule = asString(open.campaign?.module_id);
+		if (open.mods_unreadable?.length) noteModSkew(table.campaign, open.mods_unreadable);
 		table.turn = typeof open.turn?.number === "number" ? open.turn.number : table.turn;
 		table.state = open.turn?.state ?? table.state;
 		table.openingPending = open.opening_needed === true;
@@ -1533,6 +1624,43 @@ export default function (pi: ExtensionAPI) {
 		setTimeout(() => void emitProviderNotice(state, failure, terminal, turn), 0);
 	}
 
+	/**
+	 * Contract §38.11: the table cannot write its history, said to the player as a service notice.
+	 * The generic "this turn ended without a delivered result" is true and useless here -- the host
+	 * knows exactly what failed, and a player who is told only that the turn ended will send again.
+	 */
+	async function emitCommitDownNotice(state: TableState, failure: { cause: string; streak: number }, turn: number): Promise<void> {
+		const streak = failure.streak;
+		let line = `This turn could not be saved: the table's history store has refused to write ${streak} times in a row, so nothing can be`
+			+ " recorded and no turn can be delivered until it is repaired. Nothing you did was lost, and the person running this table has"
+			+ " been told what to fix.";
+		try { line = (await surface.words()).line("commit_down_notice", { streak }); }
+		catch { /* an unreadable content root still owes the player the English line */ }
+		pi.sendMessage({ customType: "coc-delivery", content: line, display: true,
+			details: { coc_delivery: true, turn, commit_unavailable: true, streak } });
+		void record({ lane: "delivery", turn, ok: true, reason: "commit_down_notice", streak, cause: failure.cause });
+	}
+
+	/**
+	 * Contract §34.17: the delivery the player just read was the first half of one the Keeper wrote in
+	 * two, and the second half was refused because the first had already closed the turn.
+	 *
+	 * A-MAIN turn 39, 2026-09-16: one assistant message carried two `narrate` calls; the first landed
+	 * and closed the turn ending, verbatim, on a colon, and the second -- which carried the line of
+	 * speech -- was correctly blocked (`blocked_after_close: 1`). Receipts landed, so nothing said the
+	 * turn was empty; nothing said it was truncated either, and the player was left reading a sentence
+	 * that stops. The counter proves the host knew. This is the host saying it.
+	 */
+	async function emitCutShortNotice(state: TableState, turn: number): Promise<void> {
+		let line = "The Keeper wrote this turn in two parts and the second was refused after the turn had already closed, so what you just"
+			+ " read stops early. Everything already settled is kept — send anything and the Keeper picks it up from there.";
+		try { line = (await surface.words()).line("delivery_cut_short_notice"); }
+		catch { /* an unreadable content root still owes the player the English line */ }
+		pi.sendMessage({ customType: "coc-delivery", content: line, display: true,
+			details: { coc_delivery: true, turn, delivery_cut_short: true } });
+		void record({ lane: "delivery", turn, ok: true, reason: "delivery_cut_short_notice" });
+	}
+
 	async function emitTurnUnfinishedNotice(state: TableState, turn: number): Promise<void> {
 		let line = "This turn ended without a delivered result. Anything already settled is kept — send anything to continue.";
 		try { line = (await surface.words()).line("turn_unfinished_notice"); }
@@ -1712,6 +1840,10 @@ export default function (pi: ExtensionAPI) {
 				}
 				else if (['pending', 'reviewing', 'ready', 'accepted'].includes(asString(result.status))) state.rebindingRefused = undefined;
 			}
+			// A call that came back is proof the history store answered: the commit streak ends here
+			// (contract §38.11), not at a turn boundary.
+			state.commitOutage = undefined;
+			state.commitOutageNotified = false;
 			await record({
 				tool: spec.name,
 				call_id: payload.call_id ?? null,
@@ -1753,6 +1885,44 @@ export default function (pi: ExtensionAPI) {
 					state.readingWait = true;
 				}
 			}
+			// Contract §38.11. A commit that fails twice for the same reason is not a move to retry: it
+			// is the table's history store being unavailable, and every further attempt costs a model
+			// call and a continuity review for a turn that cannot land. 2026-09-15, live: an
+			// `xcode-select` pointing at an unlicensed Xcode made /usr/bin/git exit 69, and turn 103
+			// spent eight narrate attempts and six continuity reviews on `commit_failed` before the
+			// turn gave up; the player was told only that the turn "ended without a delivered result".
+			// So: bound the retries, keep the Git text, and escalate once -- §32.2's shape exactly.
+			if (code === "commit_failed") {
+				const { cause, detail: gitDetail } = commitCause(error);
+				const streak = state.commitOutage?.cause === cause ? state.commitOutage.count + 1 : 1;
+				state.commitOutage = { cause, count: streak };
+				if (streak >= COMMIT_FAILURE_LIMIT) {
+					state.commitUnavailable = { cause, detail: gitDetail, streak };
+					if (!state.commitOutageNotified) {
+						state.commitOutageNotified = true;
+						const status = { campaign: state.campaign, turn: state.turn, status: "down", streak, cause, detail: gitDetail,
+							fix: `This table's history store keeps refusing to write (${cause}: ${gitDetail}), so no turn can be committed and`
+								+ " none can be delivered. Repair Git for this workspace -- on macOS an `xcode-select` pointing at an"
+								+ " unlicensed or missing Xcode makes /usr/bin/git exit 69 for every command; `git -v` in the workspace"
+								+ " reproduces it. Point PI_COC_GIT at a working git, or repair the one on PATH, then send again." };
+						try { pi.appendEntry("coc-commit-status", status); }
+						catch { /* the notice must never break a turn */ }
+						pi.events.emit("coc:commit-status", status);
+					}
+					// The Keeper is told the same thing the operator was: this is the service, not the text.
+					error = new KernelError({
+						code,
+						message: error instanceof Error ? error.message : String(error),
+						retryable: false,
+						next: "stop",
+						fix: `This has now failed ${streak} times in a row for the same reason (${cause}), so it is not the text and a`
+							+ " resend cannot fix it: the table cannot write its history at all. Call no further tool and write nothing"
+							+ " more. Whatever already settled with a receipt is kept, the player has been told as a service notice,"
+							+ " and the person running this table has been notified outside the game.",
+						details: { ...(isKernelError(error) && error.details ? error.details : {}), reason: "commit_unavailable", cause, streak },
+					});
+				}
+			}
 			const detail = refusalDetail(error);
 			// `code` alone collapses every refusal of one family into one word. The kernel's own
 			// `reason` is a closed authored field, and without it a failure lane cannot tell a
@@ -1772,7 +1942,7 @@ export default function (pi: ExtensionAPI) {
 			});
 			return {
 				content: [{ type: "text", text: errorText(error) }],
-				...(state.reviewUnavailable ? {terminate: true} : {}),
+				...(state.reviewUnavailable || state.commitUnavailable ? {terminate: true} : {}),
 				details: {
 					coc_error: {
 						code,
@@ -2167,7 +2337,10 @@ export default function (pi: ExtensionAPI) {
 		// footnote only when the turn actually delivered.
 		const longFailure = table.providerFailure;
 		table.providerFailure = undefined;
-		if (!table.reviewNoticeSent) {
+		// A commit outage has already told the player exactly why nothing was delivered (§38.11); the
+		// generic "this turn ended without a delivered result" on top of it would be noise, and worse,
+		// it invites the resend that cannot work.
+		if (!table.reviewNoticeSent && !table.commitNoticeSent) {
 			if (undelivered && table.terminalProviderFailure) {
 				const failure = table.terminalProviderFailure;
 				scheduleProviderNotice(table, { ms: failure.ms ?? 0, streak: failure.streak }, true, table.turn);
@@ -2191,6 +2364,14 @@ export default function (pi: ExtensionAPI) {
 		state.reviewNoticeSent = false;
 		state.providerNoticeSent = false;
 		state.turnNoticeSent = false;
+		// The streak survives the turn boundary (§38.11) but the block does not: new player input buys
+		// one honest attempt, so a Git that has been repaired between turns is found by the next turn
+		// rather than by a restart. A second failure of the same cause stops that run immediately.
+		state.commitUnavailable = undefined;
+		state.commitNoticeSent = false;
+		state.deliveryCutShort = false;
+		state.splitDelivery = undefined;
+		state.splitDeliveryRefused = false;
 		state.providerFailure = undefined;
 		state.terminalProviderFailure = undefined;
 		const text = event.prompt;
@@ -2356,13 +2537,38 @@ export default function (pi: ExtensionAPI) {
 		}
 		state.toolCallsThisTurn += 1;
 		if (name === "narrate" || name === "ask") state.deliveryTriedThisTurn = true;
+		// Contract §34.17: a delivery written in two halves, refused before either half lands. Both
+		// calls of the batch are refused, so nothing of a split delivery reaches the player in pieces.
+		if (state.splitDelivery?.has(event.toolCallId)) {
+			const calls = state.splitDelivery.size;
+			state.splitDeliveryRefused = true;
+			await record({ tool: name, started_at: new Date().toISOString(), ok: false, code: "blocked",
+				reason: "split_delivery", narrate_calls: calls });
+			return { block: true, reason: `One narrate delivers the whole turn and closes it, and this message carries ${calls}:`
+				+ " the first would close the turn and the rest would be refused, so the player would read only the first part."
+				+ " Send the delivery again as a single narrate carrying all of it." };
+		}
+		// Contract §38.11: the history store is down for this run. Terminating the run is the intent,
+		// but a run that has already written its next call must not be allowed to spend another model
+		// call and another continuity review on a turn that cannot land.
+		if (state.commitUnavailable) {
+			const { cause, streak } = state.commitUnavailable;
+			await record({ tool: name, started_at: new Date().toISOString(), ok: false, code: "blocked", reason: "commit_unavailable", cause, streak });
+			return { block: true, terminate: true, reason: `The table cannot write its history (${cause}), and it has failed ${streak} times in a row:`
+				+ " no call can land and no turn can be delivered until it is repaired. Call no further tool and write nothing more."
+				+ " The player has been told as a service notice, and the person running this table has been notified outside the game." };
+		}
 		if (state.closedThisRun) {
 			// §34.16 (2026-09-15): grok-4.6 kept calling look/resolve/apply after the opening closed — 178
 			// blocked calls in seventeen minutes on one table — and the run never settled, so the next player
 			// input timed out waiting for it. Three blocked calls get a firmer answer; the sixth cuts the run.
 			state.blockedAfterClose += 1;
 			const blocked = state.blockedAfterClose;
-			await record({ tool: name, started_at: new Date().toISOString(), ok: false, code: "blocked", reason: TURN_CLOSED_REASON, blocked_after_close: blocked });
+			// Contract §34.17: a *narrate* refused after close is the other half of a delivery that has
+			// already been published. The counter proved the host knew; now the player is told (agent_end).
+			if (name === "narrate") state.deliveryCutShort = true;
+			await record({ tool: name, started_at: new Date().toISOString(), ok: false, code: "blocked", reason: TURN_CLOSED_REASON, blocked_after_close: blocked,
+				...(name === "narrate" ? { delivery_cut_short: true } : {}) });
 			if (blocked >= RUNAWAY_ABORT_AT) {
 				await record({ lane: "runaway", turn: state.turn, blocked, aborted: true });
 				try { ctx?.abort(); } catch { /* an abort that cannot be delivered leaves the driver's timeout as the last resort */ }
@@ -2502,6 +2708,17 @@ export default function (pi: ExtensionAPI) {
 		if (!state || event.message.role !== "assistant") return;
 		const blocks = (event.message.content ?? []) as Array<Record<string, unknown>>;
 		const hasToolCalls = blocks.some((b) => b.type === "toolCall");
+		// Contract §34.17. One message, two `narrate` calls: the first closes the turn and every later
+		// one is blocked after close, so the player reads the Keeper's first half and nothing says the
+		// rest was refused (A-MAIN turn 39, 2026-09-16 -- a delivery that ends on a colon). This hook
+		// runs before the calls execute, so the half-delivery can be stopped before it lands. The
+		// signal is the shape of the message, not anything about the words: no punctuation is read and
+		// no language is detected. Spent once per turn, so a Keeper that writes two halves again is not
+		// left unable to deliver at all -- the second time the first half lands and the player is told.
+		const narrates = blocks.filter((b) => b.type === "toolCall" && b.name === "narrate");
+		state.splitDelivery = narrates.length > 1 && !state.splitDeliveryRefused
+			? new Set(narrates.map((b) => String(b.id)))
+			: undefined;
 		if (hasToolCalls) {
 			// An assistant message with tool calls keeps only the calls: the Keeper's process talk before a
 			// call ("let me check the clues first") is not a line, and player-visible text comes only from
@@ -2707,6 +2924,21 @@ export default function (pi: ExtensionAPI) {
 				detail: "the Keeper ended on the message carrying the call, so the replacement had nowhere to land" });
 		}
 		if (state.verifierOwed) settleVerifier(state);
+		// Contract §34.17: a turn that closed on the first half of a two-part delivery closed normally
+		// by every other measure -- receipts landed, the text was published -- so this notice has to be
+		// sent before the "the turn closed, nothing more is owed" return below.
+		if (state.deliveryCutShort) {
+			const turn = state.turn;
+			state.deliveryCutShort = false;
+			setTimeout(() => void emitCutShortNotice(state, turn), 0);
+		}
+		// Contract §38.11: the history store is down. This is not the generic no-delivery notice and
+		// must not be replaced by it: the host knows the cause and the player is owed it.
+		if (state.commitUnavailable && !state.commitNoticeSent) {
+			state.commitNoticeSent = true;
+			const failure = state.commitUnavailable, turn = state.turn;
+			setTimeout(() => void emitCommitDownNotice(state, failure, turn), 0);
+		}
 		// Provider wording waits for agent_settled, which knows whether retries recovered and schedules
 		// the one selected notice outside that lifecycle event.
 		if (state.closedThisRun || state.renderedText) return;

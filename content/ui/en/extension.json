@@ -1,4 +1,6 @@
 {
+  "commit_down_notice": "This turn could not be saved: the table's history store has refused to write {streak} times in a row, so nothing can be recorded and no turn can be delivered until it is repaired. Nothing you did was lost, and the person running this table has been told what to fix.",
+  "delivery_cut_short_notice": "The Keeper wrote this turn in two parts and the second was refused after the turn had already closed, so what you just read stops early. Everything already settled is kept — send anything and the Keeper picks it up from there.",
   "director_beat": "beat {beat}",
   "director_beat_override": "beat {beat}  override {override}",
   "handout_unnamed": "handout",

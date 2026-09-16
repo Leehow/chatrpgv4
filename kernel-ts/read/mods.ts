@@ -69,44 +69,106 @@ export async function buildVocabulary(context: KernelContext): Promise<Row> {
         }
     return { actor_profile_keys: keys, ...(displaced.length ? { displaced } : {}) };
 }
+/** The field names a contributed profile key may carry in THIS kernel build (contract §28.3, §40.5).
+ *  The kernel is a build artifact and `mods/` is read live from disk, so this list is also the only
+ *  honest statement of what the running build understands: a field outside it is not a malformed
+ *  manifest, it is a package this build is too old to read. */
+const PROFILE_KEY_FIELDS = ["ask", "key", "label", "shape"] as const;
+/** The whole field sets this build accepts, in the sorted form the shapes are compared in. */
+const PROFILE_KEY_SHAPES = ["ask,key,label", "ask,key,label,shape"] as const;
+
+/**
+ * Contract §28.9: a package whose manifest uses a name this kernel build does not know.
+ *
+ * 2026-09-15, live: `mods/npc-voice` landed with `shape` on a profile key while the running kernel
+ * had been built before §40.5; `validateVocabulary` threw `invalid_params` out of `readModCatalog`,
+ * and because `table.open` and `table.player_input` both read the catalog, *every* call at *every*
+ * table failed with "A contributed profile key needs exactly a key, a label and an ask". The player
+ * was told to go and repair a configuration file that was entirely correct, and a live combat lost
+ * its pending choice. A package this build cannot read must refuse only itself -- the same rule an
+ * unknown capability in `requires` has always had -- and the refusal must name which package, which
+ * version, which key, which field, and what this build does accept.
+ */
+export class KernelPredatesPackage extends Error {
+    constructor(readonly gap: Row) {
+        super(string(gap.message));
+        this.name = "KernelPredatesPackage";
+    }
+}
+
+/** `<id> <version>`, for a refusal that has to be actionable without the file in front of you. */
+const packageLabel = (manifest: Row): string => `${string(manifest.id ?? "?")} ${string(manifest.version ?? "?")}`;
+
 /** Contract 28.3: a package may add words to the actor dossier spine -- a fact about a person the
  *  five core keys do not name. Only shape is decided here. Collision with the core spine and with
  *  another package's key is decided where the contract is loaded, because only there is the core
- *  spine known. */
+ *  spine known.
+ *
+ *  Every refusal below names the package, its version and the key it is about (contract §28.9):
+ *  the manifest is on disk and the reader is a compiled artifact, so "which one" is exactly the
+ *  question a rejection has to answer before anybody can act on it. */
 export function validateVocabulary(manifest: Row): void {
+    const where = packageLabel(manifest);
     const contributed = manifest.contributes.vocabulary;
     // Contract 28.7: establishing a word at the table is a write into this package's own namespace,
     // under a word it contributes. Claiming the capability without contributing one asks for the
     // power to write nothing, which is a manifest that does not mean what it says.
     if (contributed == null) {
         if (array(manifest.requires).includes("graph.vocabulary.table.v1"))
-            invalid("A package requiring graph.vocabulary.table.v1 must contribute the vocabulary it establishes");
+            invalid(`${where}: a package requiring graph.vocabulary.table.v1 must contribute the vocabulary it establishes`);
         return;
     }
     if (array(manifest.requires).includes("graph.vocabulary.table.v1")
         && !array(manifest.requires).includes("graph.vocabulary.v1"))
-        invalid("A package requiring graph.vocabulary.table.v1 must also require graph.vocabulary.v1");
-    if (!plain(contributed) || Object.keys(contributed).some(key => key !== "actor_profile_keys"))
-        invalid("Unknown Mod vocabulary contribution in game interface v1");
+        invalid(`${where}: a package requiring graph.vocabulary.table.v1 must also require graph.vocabulary.v1`);
+    if (!plain(contributed))
+        invalid(`${where}: contributes.vocabulary must be an object holding actor_profile_keys`);
+    {
+        const unknown = Object.keys(contributed).filter(key => key !== "actor_profile_keys");
+        if (unknown.length)
+            throw new KernelPredatesPackage({
+                package: string(manifest.id ?? "?"), version: string(manifest.version ?? "?"),
+                field: "contributes.vocabulary", unknown, accepts: ["actor_profile_keys"],
+                message: `${where} contributes vocabulary ${unknown.map(name => repr(name)).join(", ")}, `
+                    + "which this kernel build does not know; it reads only actor_profile_keys",
+            });
+    }
     if (!array(manifest.requires).includes("graph.vocabulary.v1"))
-        invalid("A package contributing vocabulary must require graph.vocabulary.v1");
+        invalid(`${where}: a package contributing vocabulary must require graph.vocabulary.v1`);
     const keys = contributed.actor_profile_keys;
     if (!Array.isArray(keys) || !keys.length || keys.length > 8)
-        invalid("Contributed actor profile keys must be a list of one to eight");
+        invalid(`${where}: contributed actor profile keys must be a list of one to eight`);
     const seen = new Set<string>();
-    for (const entry of keys) {
-        if (!plain(entry) || !["ask,key,label", "ask,key,label,shape"].includes(sorted(Object.keys(entry)).join(",")))
-            invalid("A contributed profile key needs exactly a key, a label and an ask, and at most a shape");
+    for (const [index, entry] of keys.entries()) {
+        // The key's own name if it has a usable one, so a refusal points at a line of the manifest.
+        const named = plain(entry) && typeof entry.key === "string" && entry.key ? repr(entry.key) : `#${index + 1}`;
+        if (!plain(entry))
+            invalid(`${where}: contributed profile key ${named} must be an object with a key, a label and an ask`);
+        const fields = sorted(Object.keys(entry));
+        // A name this build does not know is skew, not a malformed manifest: the package refuses
+        // itself and says so (contract §28.9), instead of failing every table that reads the catalog.
+        const unknown = fields.filter(field => !PROFILE_KEY_FIELDS.includes(field as typeof PROFILE_KEY_FIELDS[number]));
+        if (unknown.length)
+            throw new KernelPredatesPackage({
+                package: string(manifest.id ?? "?"), version: string(manifest.version ?? "?"), key: named,
+                field: `contributes.vocabulary.actor_profile_keys[${index}]`, unknown,
+                accepts: [...PROFILE_KEY_SHAPES],
+                message: `${where} contributes profile key ${named} with ${unknown.map(name => repr(name)).join(", ")}, `
+                    + `which this kernel build does not know; it accepts ${PROFILE_KEY_SHAPES.join(" or ")}`,
+            });
+        if (!PROFILE_KEY_SHAPES.includes(fields.join(",") as typeof PROFILE_KEY_SHAPES[number]))
+            invalid(`${where}: contributed profile key ${named} carries ${fields.join(",") || "nothing"}; `
+                + `this kernel build accepts ${PROFILE_KEY_SHAPES.join(" or ")}`);
         // Contract §40.5/§40.7: `shape: "lines"` makes the value a short list of bounded strings, written by a lane and seated in the capsule's `voices`.
         if (Object.hasOwn(entry, "shape") && !["line", "lines"].includes(entry.shape))
-            invalid("A contributed profile key's shape is line or lines");
+            invalid(`${where}: contributed profile key ${named} has shape ${repr(string(entry.shape))}; this kernel build accepts line or lines`);
         if (typeof entry.key !== "string" || !/^[a-z][a-z0-9_-]{0,39}$/.test(entry.key))
-            invalid("A contributed profile key must be a lowercase semantic slug");
+            invalid(`${where}: contributed profile key ${named} must be a lowercase semantic slug`);
         for (const [field, limit] of [["label", 40], ["ask", 400]] as const)
             if (typeof entry[field] !== "string" || !entry[field].trim() || length(entry[field]) > limit)
-                invalid(`A contributed profile key needs a bounded ${field}`);
+                invalid(`${where}: contributed profile key ${named} needs a bounded ${field}`);
         if (seen.has(entry.key))
-            invalid("A package cannot contribute the same profile key twice");
+            invalid(`${where}: contributed profile key ${named} is contributed twice`);
         seen.add(entry.key);
     }
 }
@@ -156,7 +218,18 @@ export function manifestFrom(files: ReadonlyMap<string, Buffer>): Row {
         invalid("settings_schema must be an object");
     if (Object.keys(manifest.contributes).some(k => !["instructions", "setup_instructions", "setup_slots", "checks", "materializer", "auditor", "audit_on_decisions", "audit_slot", "brief", "document_editor", "vocabulary"].includes(k)))
         invalid("Unknown Mod contribution in game interface v1");
-    validateVocabulary(manifest);
+    // Contract §28.9. A name this build does not know is recorded on the manifest and makes the
+    // package incompatible -- exactly what an unknown capability in `requires` already does five
+    // lines above -- instead of throwing out of the catalog read and taking every table with it.
+    try {
+        validateVocabulary(manifest);
+    }
+    catch (error) {
+        if (!(error instanceof KernelPredatesPackage))
+            throw error;
+        manifest.kernel_gap = error.gap;
+        return manifest;
+    }
     for (const [dep, ver] of entries(manifest.dependencies)) {
         if (!/^[a-z][a-z0-9-]{0,63}$/.test(dep))
             invalid("Dependency ids must be semantic slugs");
@@ -245,7 +318,8 @@ export async function readModCatalog(context: KernelContext): Promise<Map<string
             ...manifest,
             digest: packageDigest(files),
             files,
-            compatible: manifest.game_api === "pipicoc.game.v1" && manifest.requires.every((cap: string) => MOD_CAPABILITIES.has(cap))
+            compatible: manifest.game_api === "pipicoc.game.v1" && manifest.kernel_gap == null
+                && manifest.requires.every((cap: string) => MOD_CAPABILITIES.has(cap))
         },
             key = `${manifest.id}\0${manifest.version}`;
         if (catalog.has(key) && catalog.get(key)!.digest !== value.digest)
@@ -253,6 +327,32 @@ export async function readModCatalog(context: KernelContext): Promise<Map<string
         catalog.set(key, value);
     }
     return catalog;
+}
+/**
+ * Contract §28.9: the packages on disk this kernel build cannot fully read, and why.
+ *
+ * This is the whole of the build-skew comparison, and it needs no version field that does not
+ * already exist. The kernel *is* the statement of what it accepts -- `MOD_CAPABILITIES`,
+ * `pipicoc.game.v1`, `PROFILE_KEY_FIELDS` -- and `mods/` is read live from the same disk, so the
+ * two are compared exactly rather than through a number somebody has to remember to raise. A
+ * package that lands after the kernel was built shows up here, named, with what it asked for.
+ */
+export function kernelGaps(catalog: ReadonlyMap<string, Row>): Row[] {
+    const gaps: Row[] = [];
+    for (const mod of catalog.values()) {
+        const named = { package: string(mod.id), version: string(mod.version) };
+        if (mod.kernel_gap != null) { gaps.push({ ...named, reason: "unknown_manifest_field", ...row(mod.kernel_gap) }); continue; }
+        if (mod.game_api !== "pipicoc.game.v1") {
+            gaps.push({ ...named, reason: "unknown_game_api", unknown: [string(mod.game_api)], accepts: ["pipicoc.game.v1"],
+                message: `${named.package} ${named.version} is written for game interface ${repr(string(mod.game_api))}, which this kernel build does not read` });
+            continue;
+        }
+        const unknown = array(mod.requires).map(cap => string(cap)).filter(cap => !MOD_CAPABILITIES.has(cap));
+        if (unknown.length)
+            gaps.push({ ...named, reason: "unknown_capability", field: "requires", unknown,
+                message: `${named.package} ${named.version} requires ${unknown.map(cap => repr(cap)).join(", ")}, which this kernel build does not provide` });
+    }
+    return gaps;
 }
 export async function activeMods(context: KernelContext, world: Row): Promise<Row[]> {
     const catalog = await readModCatalog(context),

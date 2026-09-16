@@ -4,6 +4,7 @@ import { RpcError } from '../errors.js';
 import { array, clone, entries, equal, number, repr, row, sorted, string, truth, values, type Row } from '../read/values.js';
 import { defenseOptions } from '../read/session-view.js';
 import { rollExpression } from '../resolve/arithmetic.js';
+import { OUT_OF_FIGHT_CONDITIONS } from '../healing/conditions.js';
 import { presentOpponents, type SettleContext, type ExecutionResult } from '../resolve/context.js';
 import { recordEngineRolls } from '../resolve/session-receipts.js';
 import { weaponRows } from '../mods/projection.js';
@@ -18,7 +19,7 @@ import { archetypeIds } from '../apply/archetype.js';
 const SELF_RESOLVING = ['aim', 'reload', 'maneuver', 'flee'];
 export { presentOpponents } from '../resolve/context.js';
 const turnState = (message: string, fix?: string, details?: Row): never => { throw new RpcError('turn_state', message, { ...(fix ? { fix } : {}), ...(details && Object.keys(details).length ? { details } : {}) }); };
-export const eligibleParticipant = (participant: Row): boolean => number(participant.hp_current || 0) > 0 && !['dead', 'dying', 'unconscious', 'fled'].some(value => array(participant.conditions).includes(value));
+export const eligibleParticipant = (participant: Row): boolean => number(participant.hp_current || 0) > 0 && ![...OUT_OF_FIGHT_CONDITIONS].some(value => array(participant.conditions).includes(value));
 const cursorActor = (session: CombatSession): string | null => session.initiativeCursor >= 0 && session.initiativeCursor < session.currentInitiative.length ? string(session.currentInitiative[session.initiativeCursor].actor_id) : null;
 function normalizeCursor(session: CombatSession): void {
     while (session.initiativeCursor < session.currentInitiative.length) {

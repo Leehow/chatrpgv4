@@ -7,6 +7,7 @@ import { rollExpression } from '../resolve/arithmetic.js';
 import { establishDamageWound, healingTimeTrigger, readHealingState, writeHealingState } from './session.js';
 import { mpTimeTrigger } from './mp.js';
 export { gameDayOf, stageDayBoundary } from './day.js';
+export { INCAPACITATING_CONDITIONS, OUT_OF_FIGHT_CONDITIONS, incapacitatedBy } from './conditions.js';
 export const TRANSIENT_COMBAT_CONDITIONS = new Set(['prone', 'grappled', 'surprised', 'outnumbered', 'fled']);
 export async function syncHealing(context: SettleContext, investigator: string, hp: number, conditions: string[]): Promise<void> {
     const sheet = context.sheetById(investigator);
@@ -163,8 +164,20 @@ export async function stageRecovery(context: SettleContext, minutes: number): Pr
             let healed = (await readHealingState(context, id)).conditions;
             if (Array.isArray(healed))
                 healed = healed.filter(value => !TRANSIENT_COMBAT_CONDITIONS.has(value)).map(string);
-            if (Array.isArray(healed) && !equal(healed, sheet.conditions || []))
+            const prior = [...array(sheet.conditions)].map(string);
+            if (Array.isArray(healed) && !equal(healed, prior)) {
                 await mirrorInvestigator(context, id, { conditions: healed });
+                // Rest is the route out of `unconscious` that needs nobody else at the table: CoC 7e
+                // rouses a character when they regain hit points (the First Aid and Medicine
+                // descriptions say so in as many words), and the natural 1 HP a day gets there on its
+                // own -- `HealingSession.heal` drops the condition the moment the hit point lands.
+                // That already worked. What it did not do was leave a receipt, so the one exit an
+                // investigator alone on the floor can take was invisible: the sheet quietly changed,
+                // the mechanics card said nothing, and by the rule that narrated-without-a-receipt is
+                // narrated-without-happening, the table had no record that it had. The mirror is not
+                // the record; this is.
+                context.addEffect('condition', id, prior, healed);
+            }
         }
         const gained = await mpTimeTrigger(context.tables, context, id, number(characteristics.POW || 50), minutes, { currentMp: sheet.current_mp });
         await restore(id, 'mp', number(sheet.current_mp || 0), gained, number(derived.MP || 0));

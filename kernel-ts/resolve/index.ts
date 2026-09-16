@@ -13,8 +13,9 @@ import { RuleTables } from '../rules/tables.js';
 import { SkillResolver } from '../rules/skills.js';
 import { nowIso } from '../write/store.js';
 import { CheckArithmetic } from './arithmetic.js';
+import { incapacitatedBy } from '../healing/conditions.js';
 import { SettleContext, type ResolveWriter } from './context.js';
-import { ResolvePipeline, actionSkills, resolveActor, unsupportedValue, validateExtras } from './pipeline.js';
+import { ResolvePipeline, actionSkills, fullDecisionRef, resolveActor, unsupportedValue, validateExtras } from './pipeline.js';
 import { resolveResult,markersOf,modResolveEvents } from './projection.js';
 import {actor as selectActor} from '../read/handlers.js';
 import type {ModResolveInput,ModResolveResult} from '../mods/resolve.js';
@@ -71,6 +72,66 @@ function bindChoice(turn: Row, action: Row, callId: string): Row | null {
     };
     turn.pending_choice = null;
     return receipt;
+}
+/**
+ * The decisions the rules run *for* a character rather than the character choosing them.
+ *
+ * Same shape as the admission exemptions of §32.1, and for the same reason: a dying investigator's
+ * round-by-round CON roll, a sanity settlement, an end-of-chapter development roll and the weekly
+ * recovery roll are things that happen to somebody, not things they do. Refusing those because the
+ * body cannot act would stop the only clock that can take the condition off again -- the gate would
+ * lock the state it exists to report. Closed refs and family prefixes, never a reading of the prose.
+ */
+const RULES_RUN_THESE = new Set(['decision:coc7:healing:dying-round-clock', 'decision:coc7:healing:dying-hour-clock',
+    'decision:coc7:healing:weekly-major-wound-recovery']);
+const RULES_RUN_FAMILIES = ['decision:coc7:sanity:', 'decision:coc7:development:'];
+/**
+ * An action the current state forbids is refused by naming the state (contract §41).
+ *
+ * The kernel owns this and not the admission review, for three reasons. It is arithmetic, not
+ * semantics: whether an unconscious body can drive a dagger home is the rulebook's answer and the
+ * same every time, and §32.2's reviewer answers a different question -- whether the *player* chose
+ * the action -- which on turns 108 and 109 of `game-83177d61` it answered correctly, because the
+ * player did choose it. It must hold when the review lane is down, and §32.2 makes unavailability
+ * refuse rather than admit only because a Keeper choosing for the player is the worse failure; a
+ * rule the kernel can settle alone should not depend on a model call at all. And §32.3 forbids the
+ * reviewer the Keeper-side context: it is told the player's own text and what the player was told,
+ * and the investigator's condition list is not in that input -- which is the whole defect, since
+ * the player had not been told either.
+ *
+ * What the Keeper got instead, for three turns, was nothing: the tool admitted the attack, the
+ * combat engine found no eligible investigator, opened and closed a bout inside the turn, and left
+ * the Keeper to improvise a halt. The refusal replaces the improvisation with the sentence.
+ */
+function refuseIncapacitated(actor: ReturnType<typeof resolveActor>, action: Row): void {
+    // Only the investigator's own action. An NPC acting inside a session carries a graph handle as
+    // the acting id and the party sheet only stands in for it; the engine already keeps an
+    // incapacitated participant out of the initiative order there.
+    if (actor.npcInSession || string(actor.actor.id) !== actor.actingId)
+        return;
+    // The Keeper writes the short form (`healing:dying-round-clock`); the exemptions are full refs.
+    const decision = action.decision == null ? '' : fullDecisionRef(string(action.decision));
+    if (action.involuntary != null || action.choice != null || RULES_RUN_THESE.has(decision) || RULES_RUN_FAMILIES.some(prefix => decision.startsWith(prefix)))
+        return;
+    const blocked = incapacitatedBy(actor.actor.conditions);
+    if (!blocked.length)
+        return;
+    const who = string(actor.actor.name || actor.actor.id), state = blocked.join(' and ');
+    throw new RpcError('needs', `${who} is ${state} and takes no action of their own`, {
+        // Read literally, because it will be. It says what not to settle, what to put in front of
+        // the player, and the ways out the rules actually have -- not a way for the Keeper to
+        // declare the state over, which is what an unqualified "resolve it" would become.
+        fix: `Settle nothing for ${who} this turn: no check, no attack, no move they make themselves. Narrate the state instead -- what the player's investigator can perceive of being ${state}, and what is happening around them meanwhile -- and say plainly that they cannot act. CoC 7e ends ${state === 'unconscious' ? 'it' : 'unconsciousness'} when a hit point comes back: someone present succeeding at First Aid or Medicine on them, or rest -- apply time -- until natural healing returns one. A character who is dead or dying is past that; First Aid stabilizes a dying one first.`,
+        details: {
+            reason: 'actor_incapacitated',
+            actor: actor.actingId,
+            actor_label: who,
+            conditions: array(actor.actor.conditions).map(string),
+            incapacitated: blocked,
+            hp: actor.actor.current_hp ?? null
+        },
+        next: 'narrate'
+    });
 }
 export function createResolveRuntime(kernel: KernelContext, writer: ResolveWriter, contributions: ResolveContributions = {}): {
     handlers: HandlerGroup;
@@ -189,6 +250,7 @@ export function createResolveRuntime(kernel: KernelContext, writer: ResolveWrite
             await snapshot.preload();snapshot.party=clone(snapshot.party);
             const sessions = new SessionView(snapshot, graph, snapshot.party, transaction.world);
             const actor = resolveActor(snapshot.party, graph, sessions, action);
+            refuseIncapacitated(actor, action);
             const resolver = await SkillResolver.create(tables, actor.actor);
             const target = typeof action.target === 'string' ? snapshot.party.find(sheet => [normalize(sheet.id),normalize(sheet.name)].includes(normalize(action.target))) : undefined;
             let subject = actor.actor;

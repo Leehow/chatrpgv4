@@ -3,6 +3,7 @@ import { pythonJsonDumps, compareUnicode } from "../json.js";
 import { ModuleGraph, recordOf, moduleDeclaration, describeCondition, conditionStatus, dossierLabels } from "./module-graph.js";
 import { entries, values, array, row, number, truth, string, normalize, chars, length, words, clone, type Row } from "./values.js";
 import { clueGate, structureType } from "./director.js";
+import { incapacitatedBy } from "../healing/conditions.js";
 export const jsonSize = (value: any): number => Buffer.byteLength(pythonJsonDumps(value), "utf8");
 /** A campaign label first, then what the module calls the place, and the handle's slug only when
  *  the module named it nothing else (contract §32, the place layer). */
@@ -352,6 +353,13 @@ export function investigatorView(sheet: Row): Row {
     };
 }
 export function investigatorSummary(sheet: Row): Row {
+    // The conditions standing on the sheet, and -- when one of them takes the action away -- the
+    // sentence that says so. Turn 107 of `game-83177d61` settled `unconscious` correctly and this
+    // section showed `hp: 0` and nothing else, so for three turns the Keeper wrote around an
+    // investigator who was out of play without ever being told he was: the player declared holding
+    // on to consciousness and driving a dagger home, and got a halted tableau each time. §31's three
+    // ends: `applyWoundConditions` writes it, this projects it, the Keeper acts on it.
+    const conditions = array(sheet.conditions).map(string), blocked = incapacitatedBy(conditions);
     return {
         id: sheet.id ?? null,
         name: sheet.name ?? null,
@@ -362,6 +370,8 @@ export function investigatorSummary(sheet: Row): Row {
         san: sheet.current_san ?? null,
         mp: sheet.current_mp ?? null,
         luck: sheet.current_luck ?? null,
+        conditions,
+        ...(blocked.length ? { cannot_act: `${string(sheet.name || sheet.id)} is ${blocked.join(' and ')} and takes no action of their own. The kernel refuses one declared for them. Say the state in the fiction -- what the player's character feels, or does not -- and what is being done about it: First Aid or Medicine rouses them, and so does any hit point regained, including the one a day of rest returns.` } : {}),
         skills_of_note: entries(row(sheet.skills)).map(([name, value]) => ({
             name,
             value: Math.trunc(number(value))

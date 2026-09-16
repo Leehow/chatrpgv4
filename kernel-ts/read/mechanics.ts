@@ -80,6 +80,13 @@ export function mechanicsOf(receipt: Row, texts: ReadonlyMap<string, string> = n
             receipt: id,
             gained: array(receipt.gained).map(value => String(value)),
             lost: array(receipt.lost).map(value => String(value)),
+            // The conditions standing after this change, so the card names the state the character
+            // is now in rather than only the moment it changed. A player who joins the card at turn
+            // 109 has to read what is true now, not diff two lists across three turns.
+            standing: array(receipt.after).map(value => String(value)),
+            // Which of those take the action away (§16.2). The rules engine decided it when the
+            // receipt was minted (`INCAPACITATING_CONDITIONS`); nothing here re-reads a name.
+            incapacitated: array(receipt.incapacitated).map(value => String(value)),
             visibility: receipt.visibility || "public"
         };
         investigator(out, receipt, "subject");

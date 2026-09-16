@@ -2,6 +2,7 @@
 import { ModuleGraph, recordOf } from "./module-graph.js";
 import { CampaignSnapshot } from "./campaign.js";
 import { entries, array, row, number, truth, string, integer, type Row } from "./values.js";
+import { OUT_OF_FIGHT_CONDITIONS } from "../healing/conditions.js";
 export const active = (snapshot: Row | null): boolean => snapshot?.status === "active";
 export const boutActive = (snapshot: Row | null): boolean => truth(snapshot?.bout_active);
 export function defenseOptions(pending: Row): string[] {
@@ -51,7 +52,7 @@ export class SessionView {
             return [];
         const participants = new Map(array(snapshot.participants).map(p => [string(p.actor_id), p])),
             me = row(participants.get(actor));
-        const targets = [...participants].filter(([id, p]) => id !== actor && p.side !== me.side && number(p.hp_current) > 0 && !array(p.conditions).some(c => ["dead", "dying", "unconscious", "fled"].includes(c))).map(([id]) => id);
+        const targets = [...participants].filter(([id, p]) => id !== actor && p.side !== me.side && number(p.hp_current) > 0 && !array(p.conditions).some(c => OUT_OF_FIGHT_CONDITIONS.has(c))).map(([id]) => id);
         const weapons = array(me.weapons).map(w => string(typeof w === "object" ? w.weapon_id : w)),
             catalog = row(snapshot.weapon_catalog);
         const actions: Row[] = [{

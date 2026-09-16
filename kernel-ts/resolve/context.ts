@@ -16,6 +16,7 @@ import { caseFold } from '../rules/casefold.js';
 import { nowIso } from '../write/store.js';
 import {weaponRows} from '../mods/projection.js';
 import {prepareMagicFacts,augmentMagicFacts,provisionalMagicSemantic,type PreparedMagicFacts} from '../magic/facts.js';
+import { incapacitatedBy } from '../healing/conditions.js';
 import { CheckArithmetic, SUCCESS_OUTCOMES, valueError } from './arithmetic.js';
 export interface ExecutionResult {
     data: Row;
@@ -300,6 +301,11 @@ export class SettleContext {
         const gained = has.filter(value => !had.includes(value)), lost = had.filter(value => !has.includes(value));
         if (!gained.length && !lost.length)
             return;
+        // Which of the conditions now standing take the action away (CoC 7e: `dead`, `dying`,
+        // `unconscious`). The rules engine draws that line in one place -- `INCAPACITATING_CONDITIONS`
+        // -- and the receipt carries the answer rather than the card working it out, because a
+        // reading surface that decided which states forbid acting would be a second rules table in a
+        // consumer. Empty when the subject can still act, so a reader tests the list, not a name.
         this.receipts.push({
             id: this.mint(`condition:${subject}-t${this.turnNumber}-c${this.ordinal}`),
             kind: 'condition',
@@ -310,6 +316,7 @@ export class SettleContext {
             after: has,
             gained,
             lost,
+            incapacitated: incapacitatedBy(has),
             ...extra,
             at: nowIso(),
             subject_is_investigator: this.sheetById(subject) !== null

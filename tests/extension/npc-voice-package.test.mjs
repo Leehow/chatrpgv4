@@ -93,12 +93,14 @@ test("the lane instruction is authored in English and asks for exactly the shape
 /**
  * `shape: "lines"` (§40.5) and the kernel that accepts it are one change, pinned together here.
  *
- * `validateVocabulary` in `kernel-ts/read/mods.ts` requires a contributed profile key to carry
- * exactly `ask`, `key` and `label`. The refusal is thrown out of `readModCatalog`, so a manifest
- * that declares `shape` before the kernel knows it does not merely disable this package: the whole
- * builtin catalog fails and a kernel process answers nothing at all (measured 2026-09-15 —
- * `material-identity.test.mjs` hangs rather than failing). So this asserts the pair, in both
- * directions, and goes red on whichever half lands alone.
+ * `validateVocabulary` in `kernel-ts/read/mods.ts` decides which field names a contributed profile
+ * key may carry. A manifest that declared `shape` before the kernel knew it used to throw out of
+ * `readModCatalog` and take the whole builtin catalog with it — every `table.open` and every
+ * `table.player_input` refused (measured 2026-09-15; `material-identity.test.mjs` hung rather than
+ * failed). That blast radius is gone: contract §28.9 makes a field name this build does not know
+ * disable its own package and raise one operator notice (`mod-build-skew.test.mjs`). The pair must
+ * still land together — a package this build cannot read is a package that does not run — so this
+ * asserts it in both directions, and goes red on whichever half lands alone.
  */
 test('the package declares §40.5 `shape` exactly when the kernel accepts one (both words, §40.7)', async t => {
   const api = await loader(t);
@@ -108,13 +110,16 @@ test('the package declares §40.5 `shape` exactly when the kernel accepts one (b
   manifest.contributes.vocabulary.actor_profile_keys[0].shape = 'lines';
   const probe = new Map(files);
   probe.set('mod.json', Buffer.from(JSON.stringify(manifest), 'utf8'));
+  let loaded;
   const refusal = await Promise.resolve()
-    .then(() => api.manifestFrom(probe))
+    .then(() => { loaded = api.manifestFrom(probe); })
     .then(() => undefined, value => value);
   if (declared === undefined) {
-    assert.ok(refusal, 'the kernel accepts `shape` now: declare it on voice_mask and exchanges in mod.json (§40.7)');
-    assert.equal(refusal.code, 'invalid_params');
-    assert.match(refusal.message, /exactly a key, a label and an ask/);
+    // A build that does not know `shape` records a `kernel_gap` instead of throwing (§28.9), so the
+    // probe comes back as a manifest that is disabled rather than as a refusal: either way this half
+    // has landed alone and the package must declare what the kernel now reads.
+    assert.ok(refusal || loaded?.kernel_gap,
+      'the kernel accepts `shape` now: declare it on voice_mask and exchanges in mod.json (§40.7)');
     return;
   }
   assert.equal(declared, 'lines');
