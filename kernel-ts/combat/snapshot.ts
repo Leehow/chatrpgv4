@@ -4,6 +4,7 @@ import { array, clone, entries, equal, integer, number, row, sorted, string, tru
 import { valueError } from '../resolve/arithmetic.js';
 import { type CombatSession, RESOLUTION_HINTS, VALID_ARMOR_RULES, VALID_CONDITIONS, VALID_OUTCOMES, VALID_SIDES, validateMechanicsRevisionRef } from './engine.js';
 import { canonicalSkipSourceReceipt, damageBindingsForTurn, damageTransactionReceipt, externalDamageReceipt, reconstructDamageRoll } from './evidence.js';
+import { OUT_OF_FIGHT_CONDITIONS } from '../healing/conditions.js';
 const ROOT_KEYS = ['schema_version', 'combat_id', 'scene_ref', 'started_at_turn', 'status', 'participants', 'rounds', 'damage_chain', 'revision', 'current_round', 'current_initiative', 'initiative_cursor', 'initiative_progress', 'pending_attack', 'ended_at_turn', 'outcome', 'jammed_weapons', 'weapon_catalog', 'turn_counter', 'roll_counter'];
 const PARTICIPANT_KEYS = ['actor_id', 'side', 'dex', 'combat_skill', 'dodge_skill', 'firearms_skill', 'has_ready_firearm', 'build', 'damage_bonus', 'con', 'hp_max', 'hp_current', 'magic_points', 'armor', 'armor_rule', 'weapons', 'conditions', 'active_effects', '_defended_this_round', '_dived_for_cover', '_forfeit_next_attack', '_aiming', '_ammo', '_reload_remaining'];
 const TURN_KEYS = ['turn_id', 'actor_id', 'dex', 'dex_reason', 'declared_intent', 'action', 'target_actor_id', 'roll_id', 'opposed_roll_id', 'opposed_outcome', 'defense_kind', 'outcome', 'effect_applied', 'damage_roll_id', 'resolution_hint'];
@@ -20,7 +21,7 @@ const text = (value: any): boolean => typeof value === 'string' && !!value;
 const whole = (value: any, label: string, minimum = 0): number => { if (!integer(value) || value < minimum)
     valueError(`combat ${label} is invalid`); return number(value); };
 const validConditions = (conditions: any): boolean => Array.isArray(conditions) && conditions.length === new Set(conditions).size && conditions.every(value => VALID_CONDITIONS.has(value));
-const eligible = (hp: any, conditions: any): boolean => hp > 0 && !array(conditions).some(value => ['dead', 'dying', 'unconscious', 'fled'].includes(value));
+const eligible = (hp: any, conditions: any): boolean => hp > 0 && !array(conditions).some(value => OUT_OF_FIGHT_CONDITIONS.has(value));
 function validateExternal(session: CombatSession, evidence: any, turns: Map<string, [
     number,
     Row

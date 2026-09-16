@@ -2,6 +2,7 @@
 import { isJsonObject, jsonDigest } from '../json.js';
 import { array, entries, integer, number, row, string, type Row } from '../read/values.js';
 import { valueError } from '../resolve/arithmetic.js';
+import { OUT_OF_FIGHT_CONDITIONS } from '../healing/conditions.js';
 export function damageBindingsForTurn(turn: Row): Row[] {
     const bindings: Row[] = [];
     const add = (id: any, kind: string, index: string, source: any, target: any) => {
@@ -103,7 +104,7 @@ export function canonicalSkipSourceReceipt(actorId: string, round: Row, damageCh
             const status = damage.status_after, hp = status.hp_current, conditions = status.conditions;
             if (!integer(hp) || !Array.isArray(conditions) || hp !== damage.hp_after)
                 continue;
-            if (number(hp) > 0 && !conditions.some(value => ['dead', 'dying', 'unconscious', 'fled'].includes(string(value))))
+            if (number(hp) > 0 && !conditions.some(value => OUT_OF_FIGHT_CONDITIONS.has(string(value))))
                 continue;
             found = { kind: 'damage_status', round: round.round ?? null, source_turn_id: turn, damage_roll_id: damage.damage_roll_id, hp_current: hp, conditions: [...conditions] };
         }
