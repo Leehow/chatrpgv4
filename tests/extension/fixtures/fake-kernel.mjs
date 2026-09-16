@@ -698,7 +698,7 @@ function handle(method, params) {
 					instruction: "Preparation is the only thing that revives it." } };
 			// FAKE_KERNEL_ADAPTATION_FAILED_ON_SECOND_STATUS=1: the retained creator or its independent
 			// reviewer gave up, and the real kernel keeps the refusal as `error` and reports it as
-			// `reason` (§54). Retained tables t9 (`game-ef8e60aa`) and t4 (`game-1c0faba5`) are this row.
+			// `reason` (§60). Retained tables t9 (`game-ef8e60aa`) and t4 (`game-1c0faba5`) are this row.
 			if (process.env.FAKE_KERNEL_ADAPTATION_FAILED_ON_SECOND_STATUS === "1" && adaptationStatusCalls >= 2)
 				return { ok: true, result: { name: params.name, status: "failed",
 					reason: "the reviewer refused the placement" } };

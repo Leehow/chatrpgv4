@@ -19,7 +19,7 @@ import type { ApplyContext } from '../apply/index.js';
 const fail = (message: string, reason = 'adaptation_invalid'): never => { throw new RpcError('needs', message, {details: {reason}, fix: 'Inspect this proposal by name; retry preparation only after resolving the reported cause'}); };
 const STALE_REASON = 'The world, party, worldline or source moved after this proposal was pinned, so the retained work was abandoned';
 /**
- * §54. The statuses the unnamed `status` scan answers with: work in flight, plus the one decision
+ * §60. The statuses the unnamed `status` scan answers with: work in flight, plus the one decision
  * that still has something to accept. That scan is cold recovery -- a process that restarted asking
  * whether it came back in the middle of a job -- so its question is about *work*. `failed`, `stale`,
  * `cancelled` and `accepted` are not work; they are history. They stay on disk and stay readable by

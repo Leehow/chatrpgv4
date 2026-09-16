@@ -8172,7 +8172,7 @@ an occupation's specialization reaching the card),
 `tests/extension/impossible-check.test.mjs` (§45's guard, now written the way §52
 makes the Keeper write it: `Pilot (Boat)`, the skill the module actually named).
 
-## 54. A proposal that is over retires from the table (2026-09-16, narrows §36.15)
+## 60. A proposal that is over retires from the table (2026-09-16, narrows §36.15)
 
 Three retained playtests of the same day, two branches of one shape, and the same price every
 time: a tool call the player paid for, spent on a proposal that could never finish.
@@ -8192,7 +8192,7 @@ failed on turn 24 and blocked both a `lookup` and a `look` on turn 40, by which 
 upstairs in a different house drawing a bolt. Both of those later rows carry `"first": true`, which
 is the host's own word for *this process held no wait, and the cold scan gave it one*.
 
-### 54.1 The in-memory half was never the leak; the store was
+### 60.1 The in-memory half was never the leak; the store was
 
 Within one process the notice really is said once. The gate spends `adaptationStale` on the first
 tool call of the turn, and the next boundary returns early on `!held && adaptationScanned`. What
@@ -8209,7 +8209,7 @@ Nothing is deleted — the job file keeps its status, its attempt and the review
 to a table that did not ask for it. A `ready` job whose pin has since moved needs no special rule:
 the scan re-checks freshness as it always did, writes `stale`, and retires it in the same breath.
 
-### 54.2 A failure is a result, not a wait
+### 60.2 A failure is a result, not a wait
 
 `ADAPTATION_HELD` loses `failed`. §47 held `ready` and `failed` together because "the table owes them
 an answer before it acts", but they are not the same kind of thing: `ready` has reviewed changes
@@ -8229,7 +8229,7 @@ belief; it has never heard of the job. So only a wait this process was actually 
 sentence. This is the second lock on the same door: even if a store somewhere still offers a corpse,
 it costs the table nothing.
 
-### 54.3 The three ends (§31)
+### 60.3 The three ends (§31)
 
 - **Who writes it.** The kernel, on every status transition, and on the freshness re-check inside
   the scan itself. Unchanged.
@@ -8240,7 +8240,7 @@ it costs the table nothing.
   question the evidence can answer; `status: "failed"` with nothing beside it is all three retained
   tables recorded, and it is why nobody could say why any of them failed.
 
-### 54.4 Retries: nobody, zero, and that was the real silence
+### 60.4 Retries: nobody, zero, and that was the real silence
 
 No layer retries a failed proposal. t9's turn-45 row is not a second attempt — the job file is
 `attempt: 1`, created once at 13:06:56Z; the cold scan simply re-read the same 23-turn-old record.
@@ -8248,7 +8248,7 @@ The only retry path is the Keeper's own `prepare`, and until this section the Ke
 the proposal had failed, how many times, or why. So the number stays zero and the decision stays the
 Keeper's — it now just has the facts to make it with.
 
-### 54.5 What this does not decide
+### 60.5 What this does not decide
 
 A proposal is still pinned to the world it was prepared against and to nothing else. Nothing here
 scopes a proposal to a scene, a city or a day, and nothing expires one by age: a `ready` proposal
@@ -8258,7 +8258,7 @@ which is why every one of t8's Lima proposals was already dead — but that is t
 rule about distance. §36.15's turn ownership, freshness, pin and acceptance semantics are otherwise
 untouched.
 
-### 54.6 Tests
+### 60.6 Tests
 
 `tests/extension/dead-proposal-retires.test.mjs`: the kernel over its own RPC, for both branches
 (`failed` and a pin that moved) — retired from the scan, still readable by name, still on disk; and

@@ -1,5 +1,5 @@
 /**
- * A proposal that is over retires from the table (contract §54).
+ * A proposal that is over retires from the table (contract §60).
  *
  * Three retained playtests of 2026-09-16 show the same shape from two directions, and the cost is
  * always the same: a tool call the player paid for, spent on a job that is dead.
