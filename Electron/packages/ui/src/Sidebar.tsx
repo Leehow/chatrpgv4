@@ -159,6 +159,8 @@ export interface SidebarProps {
   onAddProject?: () => Promise<boolean>
   projectAddUnavailable?: string
   projectError?: string | null
+  /** False until `listProjects` has answered; the empty state waits for it. */
+  projectsLoaded?: boolean
   onDismissProjectError?: () => void
   onSearch: (query: string) => void
   onShowMore: () => void
@@ -629,6 +631,7 @@ export function Sidebar(props: SidebarProps) {
     onAddProject,
     projectAddUnavailable,
     projectError,
+    projectsLoaded,
     onDismissProjectError,
     onSearch,
     onShowMore,
@@ -861,7 +864,10 @@ export function Sidebar(props: SidebarProps) {
           <ArchivedSection sessions={archivedSessions} selectedSessionId={selectedSessionId} onSelect={onSelectSession} onUnarchive={onUnarchiveSession} />
         )}
 
-        {(noResults || nothingAtAll) && (
+        {/* 「暂无项目与会话」 is an answer about this person's work. Before the
+            host has given one it is a guess, and on a remote link it was the
+            first thing every load showed (contract §63). */}
+        {(noResults || (nothingAtAll && projectsLoaded !== false)) && (
           <div className="sb-empty" data-testid="sidebar-empty">
             {noResults ? '无匹配结果' : '暂无项目与会话'}
           </div>
