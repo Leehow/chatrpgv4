@@ -7365,3 +7365,78 @@ refusals and that a real directory still registers),
 `packages/ui/src/remote-browser-session.test.ts` (the path predicate) and
 `packages/ui/src/RemoteBrowserApp.test.tsx` (the dialog keeps the typed text and
 stays open on a refusal).
+
+## 45. A check the die cannot answer is not a hard check (2026-09-16)
+
+Found on two real tables, three receipts, both drowning the same investigator.
+`homes/t5/.coc/campaigns/game-33a2a97a…/turns/0002.json` and
+`homes/t6/.coc/campaigns/game-b4cebfe0…/turns/0005.json` both carry:
+
+```
+skill "Pilot"  base_target 1  difficulty "hard"
+required_target 0  effective_target 0  threshold 0
+roll 75  level "failure"  passed false   push_eligible true
+```
+
+CoC 7e gives an unlisted skill its rulebook base chance, and `Pilot`'s is 1. Hard
+halves it and floors, so the effective target is 0. **1d100 has no face at or below
+0.** The check was settled anyway, the failure was written into the story, and the
+mechanics card printed the arithmetic to the player — `需困难 · ≤0` — before the
+boat capsized, the cargo sank and the motive the investigator had walked in with
+was gone. The die was never the author of that outcome; the floor division was.
+
+### 45.1 The rule
+
+An effective target below `percentile-check.json`'s `minimum_target` is not a
+difficult request but an **unrollable** one, and the kernel refuses it before the
+die rather than settling it:
+
+- The numeric rule is owned by the rule tables, not by code: `CheckArithmetic`
+  exposes `minimumTarget`, `effectiveTarget(target, difficulty)` — the same clamp
+  `check` rolls against — and `assertRollable(target, difficulty, label, pushed)`.
+- `executeCheck` calls `assertRollable` **before** `arithmetic.check`, so an
+  unrollable request mints no roll receipt, records no failure, and lands no
+  stakes. Nothing is rolled, so no RNG is consumed and the turn is unchanged.
+- The refusal is `invalid_params` (`next: change_input`) with
+  `details.reason = "effective_target_below_minimum"` and the numbers that produced
+  it: `skill`, `base_target`, `difficulty`, `effective_target`, `minimum_target`,
+  `pushed`.
+- **This is a pure numeric condition.** It asks nothing about whether a skill suits
+  a situation — that judgement is the keeper's, and a list of skill names in the
+  kernel would be exactly the hardcoded semantics the project forbids.
+
+### 45.2 `push_eligible`
+
+A push re-rolls the same target, and a pushed failure costs more than an ordinary
+one, so offering a push on an unrollable check invites the player into a strictly
+worse certain outcome. Because the refusal happens before settlement there is no
+receipt to carry `push_eligible` at all; and `resolve` with `action.push` routes
+through `executeCheck` with the original target and difficulty, so a push of a
+legacy impossible receipt is refused by the same assertion, with the fix saying
+first that a push repeats the same target and cannot rescue it.
+
+### 45.3 The fix text is keeper-only
+
+Per the standing lesson that an error's `fix` is executed literally and sometimes
+read aloud, the refusal names its own audience and its own status before it asks
+for anything: service information about the keeper's request, not fiction; do not
+narrate it, do not read it to the player, do not treat the attempt as having
+failed. Then exactly one repair, both halves concrete: name a skill or
+characteristic the sheet gives this investigator a usable value in, or keep the
+skill and lower the difficulty until the effective target is at least the minimum.
+It closes by saying the player's stated action still stands and needs no new input
+— the player did nothing wrong and must not be asked to repeat themselves.
+
+### 45.4 What this does not cover
+
+`executeCheck` (and therefore `push`) is wired. The other settlement paths that
+take a keeper-chosen difficulty over a sheet-derived value — combat to-hit,
+chase, sanity, magic, healing, mods and the concealed Psychology contract — share
+the same `CheckArithmetic` and can adopt `assertRollable`, but are not wired here:
+Psychology in particular derives its difficulty from the NPC's opposing skill, so
+"lower the difficulty" is not an actionable repair there and would need its own
+fix text before the assertion is worth adding.
+
+Tests: `tests/extension/impossible-check.test.mjs` — base 1 at hard refused with
+no receipt minted, base 1 at regular still rolling its legal 1%, an ordinary skill
+at hard untouched, the push path refused, and the fix text's audience and repair.
