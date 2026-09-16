@@ -1,6 +1,17 @@
 /** One deterministic policy for request-local history and persisted COC folds. */
 export const HISTORY_BYTES = 32 * 1024;
 export const HISTORY_METADATA_BYTES = 4096;
+/**
+ * The whole-request ceiling. Campaign length must never push a request past it: the bounded
+ * brief and history stand in for everything older, and older material stays reachable through
+ * `table.recall`. Configuration only, never content: `PI_COC_REQUEST_BYTES` overrides the
+ * default, and a known model window clamps it so the local estimate cannot claim the window.
+ */
+export const REQUEST_BYTES = 384 * 1024;
+/** The local estimate the request path already uses; measured to over-report real tokens. */
+export const BYTES_PER_TOKEN = 4;
+/** Retained pre-boundary material is the first thing the ceiling gives up. */
+export const UNCLASSIFIED_BYTES = 16 * 1024;
 export const HISTORY_TYPE = 'coc-history';
 export const BRIEF_TYPE = 'coc-context-brief';
 export const DIAGNOSTIC_TYPE = 'coc-context-status';
@@ -25,6 +36,15 @@ export interface Quote {
     verified: boolean;
 }
 export const sizeOf = (value: unknown): number => Buffer.byteLength(JSON.stringify(value), 'utf8');
+/** Read on each call. A positive integer of bytes; anything else falls back to the default. */
+export function requestBudget(contextWindow?: number | null): number {
+    const raw = process.env.PI_COC_REQUEST_BYTES?.trim();
+    const configured = raw ? Number(raw) : Number.NaN;
+    const base = Number.isSafeInteger(configured) && configured > 0 ? configured : REQUEST_BYTES;
+    if (!Number.isSafeInteger(contextWindow ?? null) || Number(contextWindow) <= 0) return base;
+    // A known window can only lower the budget, never raise it above what was configured.
+    return Math.max(Math.min(base, HISTORY_BYTES), Math.min(base, Math.floor(Number(contextWindow) * BYTES_PER_TOKEN / 2)));
+}
 export function object(value: unknown): Row {
     return value && typeof value === 'object' && !Array.isArray(value) ? value as Row : {};
 }
@@ -160,24 +180,81 @@ function closedNoise(message: Row): boolean {
         || details.scope === 'turn' && details.coc_host === true && typeof details.campaign === 'string' && Number.isSafeInteger(details.turn)
         || details.scope == null && LEGACY_TURN_NOTES.has(details.kind));
 }
+export interface Projection {
+    messages: Row[]; start: number; protectedBytes: number; unknownBytes: number;
+    degraded?: string; droppedTail?: number; droppedUnknown?: number; overCeiling?: boolean;
+}
+/**
+ * The one request projection, and the one place the ceiling is enforced. Every exit fits
+ * `budget`: a boundary this policy cannot read is a reason to fall back to a bounded tail,
+ * never a reason to hand the provider the whole stored branch.
+ */
 export function projectedMessages(input: {
-    messages: Row[]; binding: ContextBinding; history: Row; brief?: Row; answering?: string[];
-}): {messages: Row[]; start: number; protectedBytes: number; unknownBytes: number; degraded?: string} {
-    const {messages, binding} = input;
+    messages: Row[]; binding: ContextBinding; history: Row; brief?: Row; answering?: string[]; budget?: number;
+}): Projection {
+    const {messages, binding} = input, budget = input.budget ?? requestBudget();
+    const fallback = (degraded: string): Projection => {
+        const cut = boundedTail(messages, budget);
+        return {messages: cut.messages, start: -1, protectedBytes: sizeOf(cut.messages), unknownBytes: 0,
+            degraded, ...(cut.dropped ? {droppedTail: cut.dropped} : {}), ...(cut.over ? {overCeiling: true} : {})};
+    };
     let start = currentStart(messages, binding);
-    if (start < 0) return {messages, start, protectedBytes: sizeOf(messages), unknownBytes: 0, degraded: 'current_boundary_unavailable'};
+    if (start < 0) return fallback('current_boundary_unavailable');
     if (input.answering?.length) start = olderAskStart(messages, start, binding);
-    const unknown: Row[] = [];
+    let unknown: Row[] = [];
     for (const message of messages.slice(0, start)) if (!closedNoise(message)) unknown.push(message);
     const tail = messages.slice(start);
     // Full static package/book context is carried once, outside the rolling history allocation.
     const brief = input.brief ? [customMessage(BRIEF_TYPE, input.brief)] : [];
     const history = customMessage(HISTORY_TYPE, input.history);
-    const projected = [...unknown, ...brief, history, ...tail];
-    if (!pairedTools(projected)) return {messages, start, protectedBytes: sizeOf(messages), unknownBytes: unknown.length ? sizeOf(unknown) : 0, degraded: 'tool_pair_unavailable'};
+    if (!pairedTools([...unknown, ...brief, history, ...tail])) return fallback('tool_pair_unavailable');
+    // The player's own words and this turn's capsule are never compressible; only the tool traffic
+    // the turn has since accumulated is, and the kernel stays authoritative for what it drops.
+    const capsule = tail.findIndex(message => message.role === 'custom' && message.customType === 'coc-capsule');
+    const opening = tail.slice(0, capsule < 0 ? 1 : capsule + 1), working = tail.slice(opening.length);
+    // Retained pre-boundary material is unclassified, not authoritative: the ceiling takes it first.
+    let droppedUnknown = 0;
+    const room = (): number => Math.max(0, budget - sizeOf([...unknown, ...brief, history, ...opening]));
+    while (unknown.length && sizeOf(unknown) > Math.min(UNCLASSIFIED_BYTES, budget)) {unknown = unknown.slice(1); droppedUnknown++;}
+    let cut = boundedTail(working, room());
+    while (unknown.length && cut.over) {unknown = unknown.slice(1); droppedUnknown++; cut = boundedTail(working, room());}
+    const projected = [...unknown, ...brief, history, ...opening, ...cut.messages];
+    const over = cut.over || sizeOf(projected) > budget;
     return {messages: projected, start,
-        protectedBytes: sizeOf(tail) + (brief.length ? sizeOf(brief) : 0), unknownBytes: unknown.length ? sizeOf(unknown) : 0,
-        ...(unknown.length ? {degraded: 'unclassified_messages_retained'} : {})};
+        protectedBytes: sizeOf(opening) + sizeOf(cut.messages) + (brief.length ? sizeOf(brief) : 0), unknownBytes: unknown.length ? sizeOf(unknown) : 0,
+        ...(cut.dropped ? {droppedTail: cut.dropped} : {}), ...(droppedUnknown ? {droppedUnknown} : {}),
+        ...(over ? {overCeiling: true} : {}),
+        ...(unknown.length ? {degraded: 'unclassified_messages_retained'}
+            : cut.dropped || droppedUnknown ? {degraded: 'request_ceiling_reached'} : {})};
+}
+/**
+ * Every suffix cut that keeps tool pairing. `safe[c]` means `messages.slice(c)` is pair-safe,
+ * so the ceiling can drop the oldest messages without orphaning a tool result.
+ */
+export function safeCutPoints(messages: Row[]): boolean[] {
+    const safe = new Array<boolean>(messages.length + 1).fill(true), callAt = new Map<string, number>();
+    for (let index = 0; index < messages.length; index++) {
+        const message = messages[index];
+        if (message.role === 'assistant' && Array.isArray(message.content))
+            for (const block of message.content) if (block.type === 'toolCall' && typeof block.id === 'string') callAt.set(block.id, index);
+        if (message.role !== 'toolResult') continue;
+        const call = callAt.get(message.toolCallId);
+        // A result whose call is already absent can never be retained; no cut at or before it is safe.
+        for (let cut = call === undefined ? 0 : call + 1; cut <= index; cut++) safe[cut] = false;
+    }
+    return safe;
+}
+/**
+ * The largest pair-safe suffix that fits `budget`, oldest messages given up first. An empty
+ * suffix is a valid answer of last resort: what it drops is this turn's own intermediate tool
+ * traffic, which the kernel can still serve, and an unbounded request is the worse outcome.
+ */
+export function boundedTail(messages: Row[], budget: number): {messages: Row[]; dropped: number; over: boolean} {
+    const safe = safeCutPoints(messages);
+    for (let cut = 0; cut <= messages.length; cut++)
+        if (safe[cut] && sizeOf(messages.slice(cut)) <= budget) return {messages: messages.slice(cut), dropped: cut, over: false};
+    // Only reachable when the budget cannot hold even an empty list; say so instead of pretending.
+    return {messages: [], dropped: messages.length, over: true};
 }
 /** A cut is safe only if every retained tool result has a retained call. */
 export function pairedTools(messages: Row[]): boolean {
@@ -194,6 +271,22 @@ export function entryMessage(entry: Row): Row | undefined {
     if (entry.type === 'custom_message') return {role: 'custom', customType: entry.customType, content: entry.content, details: entry.details, timestamp: 0};
     return undefined;
 }
+/**
+ * Folded-away messages this policy cannot classify. The fold hook takes one cut point and no
+ * exception list, so their own text rides in the summary; nothing is dropped without a record.
+ */
+export function carriedUnclassified(older: Row[]): Row | undefined {
+    const unknown = older.filter(message => !closedNoise(message));
+    if (!unknown.length) return undefined;
+    const text = (message: Row): string => typeof message.content === 'string' ? message.content
+        : Array.isArray(message.content) ? message.content.filter((block: Row) => typeof block?.text === 'string').map((block: Row) => block.text).join('\n') : '';
+    const result: Row = {count: unknown.length, note: 'Host notices folded with the older turns; recordings, not module truth.',
+        entries: unknown.map(message => ({customType: message.customType ?? message.role, text: text(message)}))};
+    while (sizeOf(result) > UNCLASSIFIED_BYTES && Array.isArray(result.entries) && result.entries.length) {
+        result.entries.shift(); result.truncated = true;
+    }
+    return result;
+}
 /** Safe single-cut storage adapter; the outbound adapter remains authoritative for request size. */
 export function foldPlan(entries: Row[], binding: ContextBinding, history: Row, answering?: string[]): Row | undefined {
     const records = entries.map((entry, index) => ({entry, index, message: entryMessage(entry)})).filter(record => record.message);
@@ -204,15 +297,16 @@ export function foldPlan(entries: Row[], binding: ContextBinding, history: Row, 
         // before_agent_start has not appended its new input yet: keep the latest complete user group.
         for (let index = messages.length - 1; index >= 0; index--) if (messages[index].role === 'user') {start = index; break;}
     }
-    if (start > 0) {
-        const unknown = messages.slice(0, start).findIndex(message => !closedNoise(message));
-        if (unknown >= 0) start = unknown;
-    }
     if (start <= 0 || !pairedTools(messages.slice(start))) return undefined;
     const kept = records[start];
     if (!kept?.entry.id) return undefined;
-    return {summary: JSON.stringify(history), firstKeptEntryId: kept.entry.id,
+    // An entry this policy does not recognise is carried into the summary, not left as a permanent
+    // veto on every future cut: one unclassified message at the head used to pin the whole branch.
+    const carried = carriedUnclassified(messages.slice(0, start));
+    const summary = carried ? {...history, retained_unclassified: carried} : history;
+    return {summary: JSON.stringify(summary), firstKeptEntryId: kept.entry.id,
         details: {coc_fold: {version: POLICY_VERSION, source: {campaign: binding.campaign, worldline: binding.worldline, loop: binding.loop, turn: binding.turn},
-            retained_from: kept.entry.id, history_bytes: sizeOf(history), earlier_than: history.earlier_than}},
+            retained_from: kept.entry.id, history_bytes: sizeOf(summary), earlier_than: history.earlier_than,
+            ...(carried ? {unclassified: carried.count} : {})}},
         folded: kept.index};
 }

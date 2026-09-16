@@ -110,13 +110,20 @@ test('worldline reset expires old deliveries and turn notes even when old turn n
     assert.deepEqual(result.messages.slice(-4), messages.slice(-4));
 });
 
-test('unknown context is retained and blocks a destructive fold instead of being guessed away', () => {
+test('unknown context is retained in the request and carried verbatim into the fold, never a permanent veto', () => {
     const unknown = {role: 'custom', customType: 'external-instruction', content: 'Unknown scope', details: {}}, messages = [unknown, ...group(1), ...group(2)];
     const history = api.historyView(binding(2), []);
     const result = api.projectedMessages({messages, binding: binding(2), history});
     assert.deepEqual(result.messages[0], unknown);
     assert.equal(result.degraded, 'unclassified_messages_retained');
-    assert.equal(api.foldPlan(entries(messages), binding(2), history), undefined);
+    // A message this policy cannot classify used to pin every future cut at index 0 forever, which
+    // is what let one 106-turn session grow to a 2 MB branch (20 consecutive no_safe_cut folds).
+    const plan = api.foldPlan(entries(messages), binding(2), history);
+    assert.ok(plan, 'an unclassified head does not veto the cut');
+    assert.equal(plan.details.coc_fold.unclassified, 1);
+    const carried = JSON.parse(plan.summary).retained_unclassified;
+    assert.deepEqual(carried.entries, [{customType: 'external-instruction', text: 'Unknown scope'}], 'its own text survives the fold');
+    assert.ok(api.sizeOf(carried) <= api.UNCLASSIFIED_BYTES);
 });
 
 test('missing bindings or a cut that would orphan a result leave the original request intact', () => {

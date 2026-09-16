@@ -3,7 +3,8 @@ import {createHash} from 'node:crypto';
 import type {ExtensionAPI, ExtensionContext} from '@earendil-works/pi-coding-agent';
 import {compactAt} from './fold.ts';
 import {bindingOf, customMessage, epochOf, sourceOf, historyView, metadata, quoteView, briefForTurn, projectedMessages, foldPlan,
-    HISTORY_BYTES, POLICY_VERSION, DIAGNOSTIC_TYPE, entryMessage, object, sizeOf, type ContextBinding, type Quote, type Row} from './context-policy.ts';
+    boundedTail, requestBudget, BYTES_PER_TOKEN, HISTORY_BYTES, POLICY_VERSION, DIAGNOSTIC_TYPE, entryMessage, object, sizeOf,
+    type ContextBinding, type Quote, type Row} from './context-policy.ts';
 
 type KernelCall = (method: string, params: Row) => Promise<unknown>;
 type Prepared = {binding: ContextBinding; capsule: Row; history: Row; brief: Row; key: string; answering?: string[]};
@@ -174,7 +175,21 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     });
     pi.on('context', async (event, ctx) => {
         const snapshot = await prepare();
-        if (!snapshot) return {messages: [diagnostic(lastReason), ...event.messages.filter(message => !(message.role === 'custom' && message.customType === DIAGNOSTIC_TYPE))] as typeof event.messages};
+        // The host notice can be prepended on any exit, so the ceiling reserves room for it.
+        const ceiling = requestBudget(ctx.model?.contextWindow), budget = Math.max(0, ceiling - sizeOf([diagnostic('reserve')]));
+        if (!snapshot) {
+            // No capsule means no projection, never an unbounded request: a long campaign's whole
+            // stored branch is exactly what must not reach the provider on a degraded turn.
+            const rest = (event.messages as unknown as Row[]).filter(message => !(message.role === 'custom' && message.customType === DIAGNOSTIC_TYPE));
+            const notice = diagnostic(lastReason);
+            const cut = boundedTail(rest, budget);
+            const outgoing = [notice, ...cut.messages];
+            record({lane: 'context', event: 'request', version: POLICY_VERSION, reason: lastReason,
+                request_bytes: sizeOf(outgoing), local_token_estimate: Math.ceil(sizeOf(outgoing) / BYTES_PER_TOKEN),
+                ceiling_bytes: ceiling, dropped_tail: cut.dropped, context_window: ctx.model?.contextWindow ?? null,
+                ...(cut.over ? {capacity: 'request_ceiling_exceeded'} : {})});
+            return {messages: outgoing as typeof event.messages};
+        }
         const messages = event.messages as unknown as Row[];
         let seen = false;
         const view = structuredClone(snapshot.capsule);
@@ -193,15 +208,19 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
             selected.push({...customMessage('coc-capsule', view), details: {coc_host: true, turn: snapshot.binding.turn, context: snapshot.binding}});
         }
         const result = projectedMessages({messages: selected, binding: snapshot.binding, history: snapshot.history,
-            brief: briefForTurn(snapshot.brief, view), answering: snapshot.answering});
+            brief: briefForTurn(snapshot.brief, view), answering: snapshot.answering, budget});
         const window = ctx.model?.contextWindow, available = typeof window === 'number' ? window - Math.min(16384, Math.floor(window / 4)) : Infinity;
-        const reason = result.degraded ?? (Math.ceil(sizeOf(result.messages) / 4) > available ? 'request_window_estimate' : undefined);
+        const reason = result.degraded ?? (Math.ceil(sizeOf(result.messages) / BYTES_PER_TOKEN) > available ? 'request_window_estimate' : undefined);
         const outgoing = reason ? [diagnostic(reason), ...result.messages.filter(message => !(message.role === 'custom' && message.customType === DIAGNOSTIC_TYPE))] : result.messages;
-        const bytes = sizeOf(outgoing), estimatedTokens = Math.ceil(bytes / 4);
+        const bytes = sizeOf(outgoing), estimatedTokens = Math.ceil(bytes / BYTES_PER_TOKEN);
         record({lane: 'context', event: 'request', version: POLICY_VERSION, turn: snapshot.binding.turn,
             history_bytes: sizeOf(snapshot.history), protected_bytes: result.protectedBytes, unknown_bytes: result.unknownBytes,
-            request_bytes: bytes, local_token_estimate: estimatedTokens, context_window: window ?? null,
-            ...(result.degraded ? {reason: result.degraded} : {}), ...(estimatedTokens > available ? {capacity: 'request_window_estimate'} : {})});
+            request_bytes: bytes, local_token_estimate: estimatedTokens, context_window: window ?? null, ceiling_bytes: ceiling,
+            ...(result.droppedTail ? {dropped_tail: result.droppedTail} : {}),
+            ...(result.droppedUnknown ? {dropped_unknown: result.droppedUnknown} : {}),
+            ...(result.degraded ? {reason: result.degraded} : {}),
+            ...(result.overCeiling ? {capacity: 'request_ceiling_exceeded'}
+                : estimatedTokens > available ? {capacity: 'request_window_estimate'} : {})});
         return {messages: outgoing as typeof event.messages};
     });
 
