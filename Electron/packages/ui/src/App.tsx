@@ -35,6 +35,7 @@ export { parseSubagentNotice } from './subagent-notice'
 import { compactionNotice, compactionPillLabel } from './compaction-notice'
 import { applySlashPrompt, filterSlashCommands, parseSlashInvocation, planPromptFromArgs, selfdevPromptFromArgs, slashCommandByName, slashPaletteQuery, useSlashCommands, type SlashCommandDef } from './slash-commands'
 import { useDeclarativeContributionLoader } from './contribution-loader'
+import { readWithRetry } from './retry-read'
 import { DEFAULT_PANEL_TAB, DOCUMENT_PANEL_TAB, usePanels, type PanelRailContext, type PanelTab } from './ui-registries'
 import { useModelVisibility, type ModelVisibilityController } from './useModelVisibility'
 import { useUpdateCenter } from './useUpdateCenter'
@@ -1011,7 +1012,7 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
     return items
   }, [beginSessionListRequest, cacheSessionPreload, host, isCurrentSessionListRequest, warmInitialSessionPages])
 
-  useEffect(() => { void refreshProjects().catch(error => setProjectError(`加载项目失败：${error instanceof Error ? error.message : String(error)}`)); void host.capabilities().then(capabilities => { setCanRevealInFinder(capabilities.revealInFinder && typeof host.revealProject === 'function'); setBrowserAvailable(Boolean(capabilities.browser && host.browser)); setTerminalAvailable(Boolean(capabilities.terminal && host.terminal)); setGitAvailable(Boolean(capabilities.git && host.gitStatus)); setRetainedWorktreeDispositionAvailable(Boolean(capabilities.retainedWorktreeDisposition)); setPlanAvailable(Boolean(capabilities.plan && host.getPlans)) }).catch(() => { setCanRevealInFinder(false); setBrowserAvailable(false); setTerminalAvailable(false); setGitAvailable(false); setRetainedWorktreeDispositionAvailable(false); setPlanAvailable(false) }); if (!host.probeGitBinary) { setGitBinary('unknown'); return } void host.probeGitBinary().then(installed => setGitBinary(Boolean(installed))).catch(() => setGitBinary('unknown')) }, [host, refreshProjects])
+  useEffect(() => { void refreshProjects().catch(error => setProjectError(`加载项目失败：${error instanceof Error ? error.message : String(error)}`)); void host.capabilities().then(capabilities => { setCanRevealInFinder(capabilities.revealInFinder && typeof host.revealProject === 'function'); setBrowserAvailable(Boolean(capabilities.browser && host.browser)); setTerminalAvailable(Boolean(capabilities.terminal && host.terminal)); setGitAvailable(Boolean(capabilities.git && host.gitStatus)); setRetainedWorktreeDispositionAvailable(Boolean(capabilities.retainedWorktreeDisposition)); setPlanAvailable(Boolean(capabilities.plan && host.getPlans)) }).catch(() => { /* §62: a dropped capabilities read is not "this host has none". Leave every flag as it stands; the retry below settles it. */ void readWithRetry(() => host.capabilities()).then(capabilities => { if (!capabilities) return; setCanRevealInFinder(capabilities.revealInFinder && typeof host.revealProject === 'function'); setBrowserAvailable(Boolean(capabilities.browser && host.browser)); setTerminalAvailable(Boolean(capabilities.terminal && host.terminal)); setGitAvailable(Boolean(capabilities.git && host.gitStatus)); setRetainedWorktreeDispositionAvailable(Boolean(capabilities.retainedWorktreeDisposition)); setPlanAvailable(Boolean(capabilities.plan && host.getPlans)) }) }); if (!host.probeGitBinary) { setGitBinary('unknown'); return } void host.probeGitBinary().then(installed => setGitBinary(Boolean(installed))).catch(() => setGitBinary('unknown')) }, [host, refreshProjects])
   // Session-workspace bind/unbind lands mid-session (boss's first write); the
   // host announces it on the git-capability channel so the header dual-branch
   // pair appears without an app restart. One refresh per notice; reloads merge by id.
@@ -1310,26 +1311,33 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
       setModelState(immediate)
     }
     const writeGen = modelWriteGenRef.current
-    void host.getModelState(selectedSession || undefined)
+    const stale = () => !current || modelWriteGenRef.current !== writeGen
+    void readWithRetry(() => host.getModelState(selectedSession || undefined), { cancelled: stale })
       .then(state => {
-        if (!current || modelWriteGenRef.current !== writeGen) return
+        if (stale()) return
+        if (state === undefined) {
+          // The read failed and kept failing. It still is not an answer (§62):
+          // a thinking level nobody chose used to be written here, so a dropped
+          // request told the person their session was thinking `off` and threw
+          // away the level the shell already had. Keep what is known; fall back
+          // to the session's own model only when nothing is known at all, and
+          // then say nothing about the level beyond the model's own default.
+          if (!selectedSession || modelStatesBySessionRef.current.has(selectedSession)) return
+          const ref = sessionsRef.current.find(session => session.id === selectedSession)?.model
+          if (!ref) return
+          const catalogued = modalVisibility.models.find(item => item.provider === ref.provider && item.id === ref.modelId)
+          const model: Model = catalogued ?? { provider: ref.provider, id: ref.modelId, name: ref.modelId }
+          const levels = thinkingLevelsForModel(model)
+          rememberSessionModel(selectedSession, model)
+          setModelState({ model, thinkingLevel: levels[0] ?? 'off', availableThinkingLevels: levels })
+          return
+        }
         const reconciled = reconcileModelStateWithCatalog(state, modalVisibility.models)
         if (sessionId) {
           modelStatesBySessionRef.current.set(sessionId, reconciled)
           rememberSessionModel(sessionId, reconciled.model)
         }
         setModelState(reconciled)
-      })
-      // Failure fallback: the session's own model (from listSessions) keeps the
-      // chip/row per-session even when the host model query itself failed.
-      .catch(() => {
-        if (!current || !selectedSession || modelWriteGenRef.current !== writeGen) return
-        const ref = sessionsRef.current.find(session => session.id === selectedSession)?.model
-        if (ref) {
-          const model: Model = { provider: ref.provider, id: ref.modelId, name: ref.modelId }
-          rememberSessionModel(selectedSession, model)
-          setModelState({ model, thinkingLevel: 'off', availableThinkingLevels: thinkingLevelsForModel(model) })
-        }
       })
     return () => { current = false }
   }, [host, modalVisibility.models, selectedSession])
