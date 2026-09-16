@@ -1,4 +1,4 @@
-import type { HistoryEntry, HistoryTool, StreamEvent, TranscriptCitation, TranscriptFileSource } from '@pipi/host-api'
+import type { HistoryEntry, HistoryTool, OpeningHelp, StreamEvent, TranscriptCitation, TranscriptFileSource } from '@pipi/host-api'
 import { stripAttachmentPathsForDisplay } from './attachments'
 import { displaySecretPlaceholders } from './secret-display'
 
@@ -52,6 +52,8 @@ export type ChatMessage = {
   serverSideToolUsage?: Record<string, number>
   /** assistant only: the session's opening narration, delivered whole — the renderer reveals it progressively. */
   opening?: boolean
+  /** assistant only: a host-delivered opening's help fold, drawn behind a "?" after the text. */
+  help?: OpeningHelp
 }
 
 function isBackgroundSubagentAck(content: string): boolean {
@@ -314,7 +316,7 @@ export function historyMessages(entries: HistoryEntry[]): ChatMessage[] {
       if (entry.fileSources?.length) previous.fileSources = entry.fileSources
       continue
     }
-    messages.push({ id: entry.id, role: entry.role, content: entry.role === 'user' ? stripAttachmentPathsForDisplay(entry.content) : entry.content, timestamp: entry.timestamp, ...(entry.role === 'assistant' && entry.errorMessage ? { error: entry.errorMessage } : {}), ...(entry.role === 'assistant' && entry.citations?.length ? { citations: entry.citations } : {}), ...(entry.role === 'assistant' && entry.fileSources?.length ? { fileSources: entry.fileSources } : {}), ...(entry.role === 'user' && entry.images?.length ? { images: entry.images } : {}) })
+    messages.push({ id: entry.id, role: entry.role, content: entry.role === 'user' ? stripAttachmentPathsForDisplay(entry.content) : entry.content, timestamp: entry.timestamp, ...(entry.role === 'assistant' && entry.help ? { help: entry.help } : {}), ...(entry.role === 'assistant' && entry.errorMessage ? { error: entry.errorMessage } : {}), ...(entry.role === 'assistant' && entry.citations?.length ? { citations: entry.citations } : {}), ...(entry.role === 'assistant' && entry.fileSources?.length ? { fileSources: entry.fileSources } : {}), ...(entry.role === 'user' && entry.images?.length ? { images: entry.images } : {}) })
   }
   return messages
 }
@@ -604,7 +606,7 @@ export function applyStreamEvent(previous: ChatMessage[], event: Exclude<StreamE
     // §53: the projection already named the speaker, and `historyMessages` reads that same name off
     // the same entry when the file is read back. Deciding it a second time here is how the live
     // reading and the re-reading came to disagree about whose words a delivery was.
-    const message:ChatMessage={id:event.entry.id,role:event.entry.role??'assistant',content:event.entry.content,timestamp:event.entry.timestamp,presentation:event.entry.presentation,...(opening?{opening:true}:{})};
+    const message:ChatMessage={id:event.entry.id,role:event.entry.role??'assistant',content:event.entry.content,timestamp:event.entry.timestamp,presentation:event.entry.presentation,...(opening?{opening:true}:{}),...(event.entry.help?{help:event.entry.help}:{})};
     return at<0?[...previous,message]:previous.map((item,i)=>i===at?message:item);
   }
   if (event.type === 'secret_redact') return applySecretRedact(previous, event.messages)

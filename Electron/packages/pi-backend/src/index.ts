@@ -1095,6 +1095,13 @@ function isVisibleCustomMessage(entry: any): boolean {
  * cut on a full stop, and the table could not tell it had been shortened.
  */
 const HOST_DELIVERED_CUSTOM_TYPES = new Set(["coc-setup-opening", "coc-delivery"]);
+/** A well-formed help fold, or nothing: a title and a few lines of text, whatever else the details carry. */
+function openingHelp(value: any): { title: string; lines: string[] } | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const title = typeof value.title === "string" ? value.title.trim() : "";
+  const lines = Array.isArray(value.lines) ? value.lines.filter((line: unknown) => typeof line === "string" && line.trim()).map((line: string) => line.trim()) : [];
+  return title && lines.length ? { title, lines } : undefined;
+}
 function isHostDeliveredCustomMessage(entry: any): boolean {
   return typeof entry?.customType === "string" && HOST_DELIVERED_CUSTOM_TYPES.has(entry.customType);
 }
@@ -1485,7 +1492,10 @@ function visibleHistoryEntry(entry: any, secrets: RevealedSecret[] = [], languag
     const content = text(entry.content);
     if (!content) return undefined;
     // §53: whoever wrote it owns that side of the transcript on every reading, live or re-read.
-    return { id: entry.id, role: isHostDeliveredCustomMessage(entry) ? "assistant" : "user", content: redactText(content, secrets), timestamp: asTime(entry.timestamp) };
+    // The setup opening may carry a help fold in its details (`data` on the stored entry); it rides
+    // as `help` so the renderer can draw the "?" on the live reading and on every re-read alike.
+    const help = openingHelp(entry?.data?.help ?? entry?.details?.help);
+    return { id: entry.id, role: isHostDeliveredCustomMessage(entry) ? "assistant" : "user", content: redactText(content, secrets), timestamp: asTime(entry.timestamp), ...(help ? { help } : {}) };
   }
   if (entry?.type === "compaction") {
     return {

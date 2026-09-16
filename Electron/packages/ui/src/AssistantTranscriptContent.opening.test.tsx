@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, render } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AssistantTranscriptContent } from './AssistantTranscriptContent'
 
@@ -51,5 +51,38 @@ describe('opening narration reveal', () => {
   it('renders an entry without the opening flag whole, as before', () => {
     const view = render(<AssistantTranscriptContent message={{ content: OPENING } as never} />)
     expect(view.container.textContent ?? '').toContain('who you are.')
+  })
+})
+
+describe('the opening help fold', () => {
+  const HELP = { title: 'What is happening here?', lines: ['You are making your investigator.', 'A name and a trade is enough.', 'Say "make the card now" to skip.'] }
+
+  it('draws a "?" after the revealed opening that opens and closes the fold, and never the fold by itself', () => {
+    vi.useFakeTimers()
+    try {
+      const message = { id: 'opening-help', content: OPENING, opening: true, help: HELP } as unknown as Parameters<typeof AssistantTranscriptContent>[0]['message']
+      const view = render(<AssistantTranscriptContent message={message} />)
+      expect(view.container.querySelector('[data-testid="opening-help"]')).toBeNull()
+      act(() => { vi.advanceTimersByTime(8000) })
+      const toggle = screen.getByRole('button', { name: HELP.title })
+      expect(view.container.textContent ?? '').not.toContain(HELP.lines[0])
+      fireEvent.click(toggle)
+      expect(view.container.textContent ?? '').toContain(HELP.lines[0])
+      expect(view.container.textContent ?? '').toContain(HELP.lines[2])
+      fireEvent.click(toggle)
+      expect(view.container.textContent ?? '').not.toContain(HELP.lines[0])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('a re-read opening (no reveal flag) still carries its "?"', () => {
+    render(<AssistantTranscriptContent message={{ content: OPENING, help: HELP } as never} />)
+    expect(screen.getByRole('button', { name: HELP.title })).toBeTruthy()
+  })
+
+  it('an opening without help draws no button', () => {
+    render(<AssistantTranscriptContent message={{ content: OPENING } as never} />)
+    expect(screen.queryByRole('button', { name: HELP.title })).toBeNull()
   })
 })

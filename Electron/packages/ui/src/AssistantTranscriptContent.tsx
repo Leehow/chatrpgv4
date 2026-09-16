@@ -10,6 +10,8 @@ import { estimateTokens, formatCompactTokens } from './session-stats-format'
 import { DocumentReferenceCards } from './DocumentReferenceCards'
 import { LiveSubagentCard } from './LiveSubagentCard'
 import { useLiveSubagentBindings } from './LiveSubagentBinding'
+import type { OpeningHelp as OpeningHelpFold } from '@pipi/host-api'
+import './opening-help.css'
 import { TruncatedText } from './TruncatedText'
 import { TranscriptMarkdown } from './TranscriptMarkdown'
 import { HostedCodeInterpreterCard } from './HostedCodeInterpreterCard'
@@ -19,7 +21,7 @@ import { activitiesFromMessage, PENDING_THINKING_ID, planAssistantTranscript } f
 
 export type { TranscriptActivity, TranscriptTool } from './transcript-model'
 export { TranscriptMarkdown } from './TranscriptMarkdown'
-export type AssistantTranscriptMessage = Pick<ChatMessage, 'content' | 'thinking' | 'tools' | 'activities' | 'streaming' | 'error' | 'citations' | 'fileSources' | 'opening'>
+export type AssistantTranscriptMessage = Pick<ChatMessage, 'content' | 'thinking' | 'tools' | 'activities' | 'streaming' | 'error' | 'citations' | 'fileSources' | 'opening' | 'help'>
 
 const FILE_SOURCE_FALLBACK = '已上传文件'
 
@@ -130,10 +132,25 @@ function useOpeningReveal(id: string, full: string): { text: string; revealing: 
   return { text: done ? full : full.slice(0, count), revealing: !done }
 }
 
-const OpeningTranscriptContent = memo(function OpeningTranscriptContent({ id, content, documentBasePath, onOpenDocument, illustration }: { id: string; content: string; documentBasePath?: string; onOpenDocument?: (path: string) => void; illustration?: ReactNode }) {
+/** The "?" after the guide's question and the fold it opens (PipiCOC's setup opening): the story
+ *  above stays the story, and what is happening here -- that this is the player's investigator
+ *  being made -- is one click away. The words come with the message, in the play language. */
+const OpeningHelp = memo(function OpeningHelp({ help }: { help: OpeningHelpFold }) {
+  const [open, setOpen] = useState(false)
+  return <div className="opening-help" data-testid="opening-help">
+    <button type="button" className="opening-help-toggle" aria-expanded={open} aria-label={help.title} title={help.title} onClick={() => setOpen(current => !current)}>?</button>
+    {open && <div className="opening-help-fold" role="region" aria-label={help.title}>
+      <h4>{help.title}</h4>
+      {help.lines.map((line, index) => <p key={index}>{line}</p>)}
+    </div>}
+  </div>
+})
+
+const OpeningTranscriptContent = memo(function OpeningTranscriptContent({ id, content, help, documentBasePath, onOpenDocument, illustration }: { id: string; content: string; help?: OpeningHelpFold; documentBasePath?: string; onOpenDocument?: (path: string) => void; illustration?: ReactNode }) {
   const reveal = useOpeningReveal(id, content)
   return <div className="assistant-transcript-content" data-testid="assistant-transcript-content">
     <div data-transcript-segment="text">{illustration}<TranscriptMarkdown content={displaySecretPlaceholders(reveal.text)} streaming={reveal.revealing} />{!reveal.revealing && <DocumentReferenceCards content={displaySecretPlaceholders(content)} basePath={documentBasePath} onOpenDocument={onOpenDocument} />}</div>
+    {help && !reveal.revealing && <OpeningHelp help={help} />}
   </div>
 })
 
@@ -181,7 +198,7 @@ export const AssistantTranscriptContent = memo(function AssistantTranscriptConte
     return stepGroupCount > 1 ? `${base}:${index}` : base
   }
   const openingId = (message as { id?: string }).id
-  if (message.opening && typeof openingId === 'string') return <OpeningTranscriptContent id={openingId} content={message.content} documentBasePath={documentBasePath} onOpenDocument={onOpenDocument} illustration={illustration} />
+  if (message.opening && typeof openingId === 'string') return <OpeningTranscriptContent id={openingId} content={message.content} help={message.help} documentBasePath={documentBasePath} onOpenDocument={onOpenDocument} illustration={illustration} />
   // The illustration float mounts ahead of the first prose segment so the
   // narration wraps around it (§35 mock: top-right of the row).
   const firstTextIndex = segments.findIndex(segment => segment.type === 'text')
@@ -228,6 +245,7 @@ export const AssistantTranscriptContent = memo(function AssistantTranscriptConte
       })}</ActivityCard>
     })}
     {activeTool && <ActiveToolCard key={`active-tool:${activeTool.tool.id}`} tool={activeTool.tool} />}
+    {message.help && !message.streaming && <OpeningHelp help={message.help} />}
     {message.citations && message.citations.length > 0 && <nav className="assistant-citations" data-testid="assistant-citations" aria-label="来源">
       <div className="assistant-citations-label">来源</div>
       <ol className="assistant-citations-list">

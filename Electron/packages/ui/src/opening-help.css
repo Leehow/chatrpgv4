@@ -1,0 +1,10 @@
+/* The "?" behind the setup opening (PipiCOC): a small round button after the guide's question, and a
+   fold under it that says what is happening here. The story text above it is untouched, so the
+   prologue stays the prologue; the guidance is one click away and gone when it is not wanted. */
+.opening-help{margin:6px 0 2px;display:flex;flex-direction:column;align-items:flex-start;gap:8px}
+.opening-help-toggle{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0;border:1px solid var(--border-strong);border-radius:50%;color:var(--muted);background:var(--surface-raised);font-size:14px;font-weight:600;line-height:1}
+.opening-help-toggle:hover,.opening-help-toggle[aria-expanded="true"]{color:var(--text-strong);border-color:var(--accent);background:color-mix(in srgb,var(--accent) 14%,var(--surface-raised))}
+.opening-help-fold{width:100%;max-width:560px;padding:12px 14px;border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:10px;background:var(--surface-raised);color:var(--text);font-size:13px;line-height:1.7}
+.opening-help-fold h4{margin:0 0 6px;font-size:13px;font-weight:650;color:var(--text-strong)}
+.opening-help-fold p{margin:0 0 4px}
+.opening-help-fold p:last-child{margin:0;color:var(--muted)}

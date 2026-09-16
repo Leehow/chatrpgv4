@@ -85,8 +85,12 @@ export type HistoryActivity =
  * the same folded tool/turn structure as the live stream (Swift ChatItem parity).
  * `tool` entries (toolResult) reference the tool call they belong to.
  */
+/** The fold behind the setup opening's "?" (PipiCOC): what is happening here, in the play language. */
+export type OpeningHelp = { title: string; lines: string[] };
 export type HistoryEntry = {
   presentation?: {renderer:string; details:unknown};
+  /** assistant only: a host-delivered opening that carries a help fold the renderer draws behind a "?" button. */
+  help?: OpeningHelp;
   id: string;
   role: "user" | "assistant" | "tool" | "compaction";
   content: string;

@@ -724,11 +724,14 @@ export default function (pi: ExtensionAPI) {
       if(!guidance)throw new Error('The prepared module guidance is unavailable');
       await bridge!.call('setup.prologue',{campaign,scene:guidance.scene,guide:guidance.guide,handoff:guidance.handoff,text:guidance.opening});
       prologueRecorded=true;
-      // The one orientation the player reads before the story: what this is and what to say first. It
-      // replaced the pinned intro card (user request 2026-09-16: the card hid the transcript and read
-      // badly); it is a caption of the extension surface, so it arrives in the play language.
-      const lead=(await speaking()).line('setup_opening_lead');
-      pi.sendMessage({customType:'coc-setup-opening',content:lead+'\n\n'+guidance.opening,display:true,details:{kind:'setup-opening'}});
+      // The prologue is the story and nothing else. What is happening here -- that this is the player's
+      // investigator being made, that a name and a trade is enough -- rides beside it as a help fold
+      // the host draws behind a "?" after the guide's question (user ruling 2026-09-16: immersion and
+      // guidance both; the pinned intro card that used to say this hid the transcript). Captions of the
+      // extension surface, so they arrive in the play language.
+      const words=await speaking();
+      const help={title:words.line('setup_help_title'),lines:[words.line('setup_help_1'),words.line('setup_help_2'),words.line('setup_help_3'),words.line('setup_help_4'),words.line('setup_help_skip')]};
+      pi.sendMessage({customType:'coc-setup-opening',content:guidance.opening,display:true,details:{kind:'setup-opening',help}});
     }
     if (ctx.hasUI && steps && process.env.PI_COC_SETUP_AUTOSTART!=='1') {
 			// The player is told how long the table is and which step is next. The step's own
