@@ -19,6 +19,9 @@
  *     Adaptation preparation for <name> is still running. Use narrate only to tell the player that
  *     preparation is pending ... Inspect the same proposal after new player input.
  *
+ * (That wording is the historical one this incident was taken under. §47 has since removed the
+ * clause that told the Keeper what to say; the freshness rule below is unchanged by it.)
+ *
  * The player then sent two consecutive turns that cannot be read as hesitation — he has the key, the
  * ledger is under the counter, he pushes the door open and lights the lamp — and read the same
  * "still being checked" both times. Nothing re-prepared it. Nothing failed it. The shop was
@@ -169,8 +172,11 @@ test("a job that goes stale after the wait was captured is never reported as run
 	assert.equal(requests.filter((row) => row.method === "table.apply").length, 1,
 		"the stale job holds nothing back: the resent call goes through");
 	assert.equal(requests.filter((row) => row.method === "table.narrate").length, 2);
-	assert.equal(requests.filter((row) => row.method === "adaptation.status" && row.params.name).length, 2,
-		"the status is re-derived once at the turn boundary, not on every tool call");
+	// Two turn-boundary re-reads, plus one per delivered turn that closed while a wait stood: §47's
+	// notice reads the status for itself rather than describing the one the Keeper saw. Still not per
+	// tool call, which is what this guards -- the turn spent five.
+	const named = requests.filter((row) => row.method === "adaptation.status" && row.params.name).length;
+	assert.ok(named >= 2 && named <= 3, `the status is re-derived at turn boundaries and deliveries, not on every tool call: ${named}`);
 });
 
 test("the Keeper that asks a stale proposal for the destination gets the proposal, not a refusal", async (t) => {

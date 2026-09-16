@@ -87,8 +87,16 @@ function pendingStatus(result: Record<string, any>): Record<string, any> {
         // "inspect the same proposal by name" named no call, and the Keeper of campaign game-ef7545c5
         // answered it with `lookup kind=module` instead. The verb is spelled out here for the same
         // reason the gate's wait instruction spells it out: a Keeper executes what it reads.
+        // §47. This string is read by a model that executes what it reads, so it says what the
+        // Keeper *does* and never what the Keeper *says to the player*. The old second sentence read
+        // "Use narrate only to tell the player that preparation is pending and end the turn", and on
+        // campaign game-1c0faba5 turn 3 the Keeper did exactly that: in its own voice, as fiction, to
+        // explain a refusal (`action_not_authorized`) that had nothing to do with preparation, quoting
+        // a status read 20 seconds earlier. Host state reaches the player from the host, out of
+        // fiction, re-read at the moment it is sent.
         result.service_status = 'The retained preparation is still running in the background. No fictional event or player action has happened. Do not poll it again in this turn.'
-            + ' Use narrate only to tell the player that preparation is pending and end the turn.'
+            + ' The host tells the player about this preparation itself, out of fiction and beside the delivery, so close the turn with narrate on what the player actually said'
+            + ' and keep the preparation, the wait and the destination out of the fiction.'
             + ` After new player input, the only call that reports on it is lookup kind=adaptation action=status name=${JSON.stringify(result.name ?? '')}.`;
         result.retry_after_ms = 2000;
     }
