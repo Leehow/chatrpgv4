@@ -59,17 +59,47 @@ it('reads a zh-Hans snapshot in zh-Hans',()=>{
 });
 
 /**
- * A stalled preparation names its code; the host's English sentence goes inside the fold, not into
- * the summary a player reads.
+ * A stalled preparation names its code where the player reads it; the host's English message is a
+ * log line and goes behind `details`.
  */
 it('captions a failed phase by its code and keeps the English message inside the fold',()=>{
   const failed=ready({preparation:{guidance:{state:'ready'},
     opening:{state:'failed',stage:'verify',error:{code:'preparation_failed',message:'reader pool exhausted'}}}});
   const {api}=harness(failed);
   render(<Preparation api={api} sessionId="s1"/>);
-  // A stopped phase opens itself (see below), so the fold is already the place to read.
+  // A stopped phase opens itself (see below), so the body is already the place to read.
+  expect(screen.getByText(say('en','errors','preparation_failed'))).toBeTruthy();
   const fold=screen.getByText('reader pool exhausted').closest('details')!;
-  expect(fold.querySelector('summary')?.textContent).toBe(say('en','errors','preparation_failed'));
+  expect(fold.querySelector('summary')?.textContent).toBe(say('en','errors','details'));
+});
+
+/**
+ * BUG-039. Every standing line in this body says the opening arrives by itself -- "play will
+ * continue when the opening is ready", "create your investigator while it prepares in the
+ * background". A stopped phase is the one state where that is false, and a real table read it
+ * beside a Resume control it therefore had no reason to touch: zero turns taken, and the player's
+ * first sentence kept nowhere. A stopped phase says its own reason instead.
+ */
+it('a stopped phase never promises that the opening is still coming on its own',()=>{
+  for(const state of ['failed','paused']){
+    const {api}=harness(ready({character:{state:'confirmed'},
+      preparation:{guidance:{state:'ready'},opening:{state,stage:'verify',
+        error:{code:'preparation_failed',message:'reader pool exhausted'}}}}));
+    render(<Preparation api={api} sessionId="s1"/>);
+    for(const line of ['body.preparing','body.confirmed','body.ready','body.handoff'])
+      expect(screen.queryByText(say('en','preparation',line))).toBeNull();
+    expect(screen.getByText(say('en','errors','preparation_failed'))).toBeTruthy();
+    expect(screen.getAllByRole('button',{name:say('en','preparation','resume')}).length).toBeGreaterThan(0);
+    cleanup();
+  }
+});
+
+/** The same panel while it is running still tells the player they can go on making a card. */
+it('a running phase does say the opening is preparing in the background',()=>{
+  const {api}=harness(ready({preparation:{guidance:{state:'ready'},opening:{state:'running',stage:'verify'}}}));
+  render(<Preparation api={api} sessionId="s1"/>);
+  fireEvent.click(screen.getByRole('button',{name:new RegExp(say('en','preparation','stage.verify'))}));
+  expect(screen.getByText(say('en','preparation','body.preparing'))).toBeTruthy();
 });
 
 /**

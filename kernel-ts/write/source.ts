@@ -277,8 +277,18 @@ export function openingReport(graph: Row, view: ModuleGraph, template: Row, doss
     const findings = report.findings.filter((f: Row) => f.code !== 'no_ending_declared'), counts: Row = {};
     for (const f of findings)
         counts[f.code] = (counts[f.code] ?? 0) + 1;
+    // Contract section 45: readiness is `missing`, and only `missing`. `missing` names something the
+    // opening points at that is not there -- no module node, no single entrance, an exit or a named
+    // NPC or clue that resolves to nothing -- and no table can open on that. `findings` are the
+    // playability invariants read as a quality opinion about the book's own graph: a clue the book
+    // never connects to a conclusion is the book being a book, not a table that cannot start.
+    // Deriving readiness from both made the answer move as more of the source was read, so a later
+    // background detail reading could revoke an opening that had already been prepared and played
+    // (BUG-039: 22 nodes, `missing` empty, one `clue_supports_nothing`, and the table could not take
+    // a single turn). The opinion still travels, in `findings`/`finding_counts` right here, which is
+    // where `module.status` already reads it.
     return {
-        opening_ready: !missing.length && !findings.length,
+        opening_ready: !missing.length,
         start_scene: start,
         missing,
         findings,

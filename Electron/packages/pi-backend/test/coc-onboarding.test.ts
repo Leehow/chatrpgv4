@@ -268,3 +268,26 @@ it('keeps a failed UI projection rejected until the player explicitly retries',a
  await host.projectUiWords('fr-CA');
  expect(presentation).toHaveBeenCalledTimes(2);
 });
+
+/**
+ * BUG-039. A kernel refusal carries a kernel code (`needs`), and nothing registers a caption for
+ * one: the overlay showed `errors.unknown` -- "this step did not go through" -- over a sentence of
+ * English this host had written for it, while the reason the reading service actually reported was
+ * discarded. A failure the player is shown now names a code the `errors` surface registers, and
+ * the diagnostic behind it is the one that happened.
+ */
+it('settles an unregistered failure code to a registered caption and keeps the real diagnostic',async()=>{
+  const {host}=await service();
+  vi.spyOn(host as any,'run').mockImplementation((action:any)=>action==='converse'?Promise.resolve({}):
+    Promise.reject(Object.assign(new Error('the reading could not prepare this material'),{code:'needs'})));
+  const started=await host.invoke({action:'select',source:'module',module_id:'book-1',name:'Book'},'one',model);
+  await new Promise(resolve=>setTimeout(resolve,0));
+  const failed=await host.invoke({action:'status',id:started.id},'one',model);
+  const reason=failed.preparation.guidance.error;
+  expect(reason.code).toBe('preparation_failed');
+  expect(reason.message).toBe('needs: the reading could not prepare this material');
+  // A code the surface does register is untouched, so this settles nothing it does not have to.
+  expect(await import('node:fs/promises').then(fs=>fs.readFile(
+    resolve(import.meta.dirname,'../../../../content/ui/en/errors.json'),'utf8'))
+    .then(text=>Object.hasOwn(JSON.parse(text),'preparation_failed'))).toBe(true);
+});

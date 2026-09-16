@@ -913,7 +913,7 @@ build.jsonl                构建遥测：每 section 每轮 {section_id, round,
 
 **`module.install`** params `{"module_id"}`：`assembled` 或 `assembled_not_playable` 的图登记摘要，状态 `installed`；`assembled_not_playable` 的安装要 `force: true` 并把报告写进 `module.json`（守秘人开桌时胶囊 `where` 会说材料不全）。
 
-**开桌就绪**（`module.status` 的 `opening_ready`）：module 节点、起始场景、其出口指向的场景、起始场景的 NPC 与线索都在图里，且起始子图上十条不变量成立。构建顺序按 `priority`：front / keeper-truth / opening 场景所在 section 先；`opening_ready` 一到就允许 `setup.complete`，其余 section 继续在后台读（14.6）。
+**开桌就绪**（`module.status` 的 `opening_ready`）：module 节点、起始场景、其出口指向的场景、起始场景的 NPC 与线索都在图里，且起始子图上十条不变量成立。构建顺序按 `priority`：front / keeper-truth / opening 场景所在 section 先；`opening_ready` 一到就允许 `setup.complete`，其余 section 继续在后台读（14.6）。（**§45 起（2026-09-16）：就绪只看 `missing`；起始子图上的 findings 只报，不再否决 `opening_ready`。本节编号与其余条款不变。**）
 
 ### 14.4 建卡进程与七步表
 
@@ -976,7 +976,7 @@ build.jsonl                构建遥测：每 section 每轮 {section_id, round,
 - **三道门。** 每道都跑，findings `{gate, code, path, message, …}`。`shape`：契约键集、`node_id` 必须以 `node_kind-` 起头且全 ASCII kebab、`claim_id` 必须 `claim-` 起头、词表闭合、`unknown_evidence_span`（包里没有的 id）、`evidence_span_out_of_scope`、`node_refs` 必须被 claim/relation 用到。`grounding`：只对书自己印名字的 kind（npc/creature/faction/organization/location/object/artifact/tome/spell/vehicle/handout/investigator-template）查 `name`/`aliases` 至少一个出现在它引用的 span 里（宽度折叠、去空白、大小写折叠后的包含）；每个节点 `summary`/`properties` 与 claim `reason` 里的每个数字串都要在其引用的 span 里（「五十三岁」写成 `53` 会被打回——这就是它要防的）。`coverage`：十个域都有交代、状态合法、未声明的 aspect 只能 `unresolved`；`span_consumption`、`substantive_spans_uncited`、节点/claim/relation 数只进 `measures`。空 shard（不引用任何 span）在 `shape` 门拒绝。`module.review` 每次计一轮（`sections.json.rounds`），写 `findings.json` 与 `shard.filled.json`，`build.jsonl` 记 `{section_id, round, findings_codes, accepted, measures}`；`module.accept` 重跑三门，通过则把**填充后**的 shard 写进 `shards/`。
 - **装配。** 骨架 = 机器造的 module 节点（引用第 0 页第一个 span，第 0 页不在已接受 section 里就引用书序最早已接受 section 的第一个 span）+ 对每个 scene/beat/event/ending 的 `contains` claim 与 relation（证据取该节点自己的 span）。分片按 section 的起始页序合并：同 id 不同 kind → `node_kind_conflict`（先到者留，后者整个丢）；同 id 同 kind 字段冲突 → 证据 span 多者胜、平手先到者胜，记 `merge_notes`；同 id 的 claim/relation 意义不同 → `claim_conflict`/`relation_conflict`（先到者留）；`inferred-candidate` 让位于任何 `authored-*`；未被定义的 `node_refs` → `unresolved_node_refs`；端点不在图里的 relation → `dangling_relations`（关系照写进图，不变量再判）。`source_refs` 由 span 页派生：`{source_id: "pdf:<module_id>", pdf_index, grep_anchor}`。读者写的同 id module 节点并进骨架（证据并集，字段以骨架为准）；它的 `properties.entry_scene_ids` / `ending_scene_ids` / `unpaged` 提升为图级声明。scene 节点补最小 `runtime_projection.record {scene_id, display_name, is_start, is_final}`（`is_entrance`/`is_ending` 或 `is_start`/`is_final` 属性），使 `ModuleGraph.start_scene()` 不改就能读；不写 `available_clues`/`npc_ids`——`ModuleGraph` 从关系读。`assets.json` = 资料包资产 + 图上 `asset`/`handout` 节点按页对齐（同页唯一未认领的资产、或同 kind 唯一者归该节点；节点定 kind/name/visibility，资产给字节）。写图后 `generation + 1`，`module.json` 存 `playability`（含 findings 与度量）、`assemble_report`、`opening`、`opening_ready`。
 - **可玩性怎么判。** 十条不变量按**这个内核**的投影判，不按旧投影：可走的图是 `scene` 节点（`ModuleGraph.scene()`/`apply move` 只解析它；模板的 beat/event/ending 是旧投影的四种），出口是 `route-to` ∪ 模板的四种入口关系 ∪ 记录的 `scene_edges`；入口 = `entry_scene_ids`（图级或 module 节点 properties）或 `properties.is_entrance`/`is_start` 或记录 `is_start`；结局 = `ending` 节点、`ending_scene_ids`、`properties.is_ending`/`is_final`、记录 `is_final`；线索安放 = `discoverable-at` 或记录 `available_clues`；在场 = `present-in` 或记录 `npc_ids`；有页 = 任一 span 报页（`span-p<n>-` 与 `span-page-<n>-` 两种拼法）、`source_refs[].pdf_index`、`properties.pdf_index`、记录 `source_refs`。交代口：`entry_scene_ids: []`、`ending_scene_ids: []` 说「书没写」；`unpaged: true`（图级或 module 节点）说「本模组没有源页」，只免 `node_without_page`。度量按模板全部十六项报（模板列了十六项，契约说十五；`span_consumption` 与 `substantive_spans_uncited` 只在有证据目录时有值）。
-- **开桌就绪。** `opening_ready` = module 节点在、恰好一个入口、起始场景的每条出口都指向图里的场景、记录里点名的 NPC/线索都在图里、且诱导子图（module、起始场景、出口场景、在场 NPC、可得线索、这些线索支持的结论；不含 beat）上十条不变量成立——结局的交代取整图（结局往往在没读的 section 里，带声明不带节点）。`module.status` 每次从当前图现算；`module.json.opening_ready` 是装配/登记时的快照，`setup.complete` 读它。the-haunting 的开场邻域整页齐全，`opening_ready: true`；整图报 2 个 `actor_in_no_scene` 与 32 个 `node_without_page`（beat/concept/secret 无证据）——是 IR 事实，starter 仍按契约 `installed`。
+- **开桌就绪。** `opening_ready` = module 节点在、恰好一个入口、起始场景的每条出口都指向图里的场景、记录里点名的 NPC/线索都在图里、且诱导子图（module、起始场景、出口场景、在场 NPC、可得线索、这些线索支持的结论；不含 beat）上十条不变量成立——结局的交代取整图（结局往往在没读的 section 里，带声明不带节点）。`module.status` 每次从当前图现算；`module.json.opening_ready` 是装配/登记时的快照，`setup.complete` 读它。the-haunting 的开场邻域整页齐全，`opening_ready: true`；整图报 2 个 `actor_in_no_scene` 与 32 个 `node_without_page`（beat/concept/secret 无证据）——是 IR 事实，starter 仍按契约 `installed`。（**§45 起（2026-09-16）：就绪只看 `missing`；起始子图上的 findings 只报，不再否决 `opening_ready`。本节编号与其余条款不变。**）
 - **安装。** `assembled` 直接装；`assembled_not_playable` 无 `force` 报 `invalid_params`（`details.finding_counts/findings`），`force: true` 装并把 `install {forced: true, finding_counts}` 写进 `module.json`；已装的重复调用 `replayed: true`。
 - **深读队列。** `deepen-queue.json` 是列表，行 `{section_id, reason, priority, status: queued|claimed|failed|done, retries, at, claimed_by?, detail?}`。`enqueue` 跳过 `accepted`/`skipped` 的 section；已在队列的取更高优先级；`failed` 的重入队一次（`retries ≤ 1`）；返回本次入队或改动的 id。`claim` 一次只出一个（有 `claimed` 就返回 None），按优先级、入队时间取，并把 section 置 `reading`；`complete(ok=True)` 出队，`ok=False` 留队标 `failed` 并把 section 置 `failed`。`section_for_scene`：从当前图找场景，取其页所在 section；starter 没有 section 时返回 `{section_id: null, status: accepted}`；场景不在图里返回 None。`enqueue_for_scene(store, module_id, handle, reason=move|opening)`：脚下 100/90，`route-to` 邻居 80（`adjacent`）。
 - **资产解析。** `asset(module_id, name)` 按登记的 `id`、`name`、`aliases`、`node_id`、去 `asset-`/`handout-` 前缀的 id、资料包 `bundle_asset_id` 归一化匹配；有字节的 `path` 返回绝对路径；带 `authored_text` 的手卡同时给 `text` 与 `authored_text`。`module.asset` 找不到报 `unknown_entity` 带候选。
@@ -7365,3 +7365,115 @@ refusals and that a real directory still registers),
 `packages/ui/src/remote-browser-session.test.ts` (the path predicate) and
 `packages/ui/src/RemoteBrowserApp.test.tsx` (the dialog keeps the typed text and
 stays open on a refusal).
+
+## 45. Readiness is `missing`; `findings` is an opinion about the book (2026-09-16)
+
+Found on two real tables, not by a suite. An imported 669-page Masks module reached
+`module.json` like this:
+
+```json
+"opening": {"opening_ready": false, "start_scene": "scene-start-lima", "missing": [],
+  "findings": [{"code": "clue_supports_nothing", "subject": "clue-larkin-research-destroyed"}],
+  "finding_counts": {"clue_supports_nothing": 1}, "nodes": 22}
+```
+
+`missing` is empty: nothing the opening points at is absent. One clue of twenty-two
+nodes is not connected to a conclusion — the book being a book — and that alone
+turned the whole opening unready. In the same file
+`prepared_openings["scene-start-lima"].opening_ready` and
+`reading.completed["read-3"].opening_ready` were both `true`: that opening had been
+prepared, and had been played.
+
+### 45.1 What it cost
+
+The gate is reached three ways, and all three refused. `setup.complete` reads
+`setupOpeningReady`, wrote `setup.waiting_for_opening: true` and refused the
+handoff. `module.read.request` with `purpose: "opening"` found the identical reading
+already `completed` and answered `{"state": "blocked", "missing": []}` — **a refusal
+naming nothing** — which `extensions/module/reading-service.ts` turned into
+`needs`/`reading_failed` and the onboarding host recorded as a failed preparation.
+One table took **zero turns**: its `turn.json` stayed at
+`{"turn": 0, "state": "awaiting_player", "player_text": null}` with an empty
+`turns/`, so the player's first sentence was kept nowhere, while the Keeper — which
+had no receipt to take — promised in prose that it would be passed on later. It was
+not.
+
+The order matters more than the arithmetic. The opening was prepared and ready
+first; a later **background detail reading of the same book** brought the clue in,
+and `module.opening` is re-derived from the whole graph on every completed reading.
+Nothing about the table changed. More of the source was read, and that revoked an
+opening already in play.
+
+### 45.2 The rule
+
+`opening_ready` is `!missing.length`. `findings` never vetoes it.
+
+- **`missing` is readiness.** No module node, no single entrance, an exit or a named
+  NPC or clue that resolves to nothing, or a start scene whose material is not
+  prepared. A table cannot open on any of those, and each names the next step.
+- **`findings` is the playability invariants read as a quality opinion** about the
+  book's own graph. It still travels, in `opening.findings` and
+  `opening.finding_counts` in the same record, which is where `module.status`
+  already reads it. Whole-book quality remains `module.json.playability` (§14),
+  untouched: this section is about the opening subgraph only.
+- The two are therefore equivalent by construction: `opening_ready` is false exactly
+  when `missing` names something, so a refusal derived from it always has a next
+  step. This supersedes the readiness clause of §14 (the induced opening subgraph
+  satisfying the ten invariants); §14's numbering is unchanged.
+
+**The authority is `openingReport` in `kernel-ts/write/source.ts`,** and it already
+was — the three recorded copies are all its output, taken at different generations
+against different graphs, which is why they disagreed. `module.json.opening_ready`
+and `module.json.opening` are the live roll-up, and the only copy anything
+downstream reads. `prepared_openings[<scene>]` is a record that that scene was
+prepared. `reading.completed[<job>]` is a job log. Neither of the latter two is
+consulted as readiness, and neither may become a second answer to it.
+
+### 45.3 A failure the player is shown names a registered caption
+
+The same incident, at the other end. The onboarding host handed the overlay
+`{"code": "needs"}` — a kernel RPC code (§1), which nothing registers a caption for
+— so the renderer fell back to `errors.unknown`, and under that heading it printed a
+sentence the host had written itself: *"Source preparation could not finish. Your
+source and investigator are saved; retry this preparation."* The player was playing
+in `zh-Hans`. Writing that sentence also **discarded the diagnostic** the reading
+service had actually reported.
+
+- The player-facing explanation of a failure is its code's caption. The host has no
+  sentence of its own to write for one (§23: the product's own words have one
+  authored source and are projected, never authored per language).
+- A code put in front of a player is one `content/ui/<source>/errors.json`
+  registers. The surface **is** the registry: a code it does not carry is settled to
+  `preparation_failed`, and the unregistered code moves into the message. Adding a
+  caption registers a code and nothing else has to change.
+- The message is the diagnostic, in the system language, behind `details`. Caption
+  first, message after it, never the message instead of the caption.
+
+### 45.4 A stopped preparation does not promise to finish itself
+
+The overlay's standing lines all say the opening arrives on its own — *"play will
+continue when the opening is ready"*, *"create your investigator while the opening
+is prepared in the background"*. A stopped phase is the one state where that is
+false, and it was being shown there, beside a **Resume control that actually works**:
+a third table pressed it and was playing three and a half minutes later, without a
+whole-book re-read. A player who is told to wait has no reason to press it. A
+stopped phase states its own reason instead; the control stays in the head.
+
+### 45.5 The three ends (§31)
+
+Who writes `opening.findings`: `playability` on the induced opening subgraph, on
+every completed reading. Who reads it: `module.status`, in the same record as
+`missing`. Who acts on it: nobody automatically — it is an opinion, and the one
+consumer that used to act on it (readiness) is exactly the defect this section
+closes.
+
+Tests: `tests/extension/opening-readiness.test.mjs` (the product path from
+`module.source.bind` to the player's own words in `turn.json`, including the
+`module.read.request` that used to block with nothing named, and the ambiguous-
+opening book that is still refused because `missing` names it),
+`tests/extension/preparation-failure-words.test.mjs` (every code these hosts refuse
+with has a caption, and the host writes no player-facing sentence),
+`Electron/packages/pi-backend/test/coc-onboarding.test.ts` (an unregistered code is
+settled and its diagnostic survives) and
+`Electron/packages/ui/src/coc-preparation.test.tsx` (a stopped phase promises
+nothing, a running one still does).
