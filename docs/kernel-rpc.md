@@ -8235,8 +8235,11 @@ guessing.
 **56.3 A lane that fails and fails is told to the operator, once, and never to the player.**
 The failures were written: `ok: false`, `reason: "lane_error"`, on 31 rows of the campaign's
 `telemetry.jsonl` and 31 `coc-telemetry` session entries. Both halves are writes. No consumer
-existed — `tests/play/kpi.py` skips every row carrying `lane`, which is all of them — so 31
-failures and zero failures looked exactly alike.
+existed, the evidence tool included: `tests/play/kpi.py` rightly keeps lane rows out of its
+tool-call statistics — a lane round is not a tool call, and counting one would dirty the
+read-before-write ratio — and has no section of its own for them, so a campaign's KPI report is
+structurally unable to show a lane failing. Thirty-one failures and zero failures looked exactly
+alike from every angle anyone looks from.
 
 The advisory lanes (`memory`, `journal`, `voice`) now share one telemetry writer, and it watches
 its own rows. Consecutive rows with `ok: false` are a streak; a row with `ok: true` ends it. From
@@ -8245,6 +8248,14 @@ the third, the lane emits one `coc-lane-status` session entry and one `coc:lane-
 `coc-admission-status`, §38.5's `coc-review-status` and §38.7's provider notice already use, plus
 one `event: "outage"` row in the campaign's own telemetry so the evidence path names it once
 instead of repeating line 31. Once per streak, not once per failure.
+
+**What that family reaches today is a record, not a screen.** As of 2026-09-16 no surface in this
+repository renders any of it: `coc-admission-status`, `coc-review-status`, `coc-provider-status`,
+`coc-mods-status` and this new `coc-lane-status` are written as session entries and bus events, and
+nothing under `Electron/` or `pipicoc/` reads one. The entry lands in the session record and the
+bus event is there for a consumer; neither is yet in front of an operator's eyes. Anyone adding a
+sixth status entry is joining a family in that state, and should know it before treating the emit
+as the end of the seam — §31's three ends apply to a notice exactly as they apply to a field.
 
 Three, not §32.2's two: a lane job spends its own retries before it writes one failed row, and
 nothing is blocked while the streak runs, so two rounds may still read as weather. The third does
