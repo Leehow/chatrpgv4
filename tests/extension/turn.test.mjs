@@ -193,14 +193,18 @@ test("a real preparation wait survives a later player input until status clears 
 	]);
 });
 
+// §54 narrowed what the scan may hand back: live work, never a corpse. A proposal that is *ready*
+// is the case this was always for — reviewed changes are sitting there waiting for `apply`, and a
+// process that restarted has no idea. A terminal one is covered in dead-proposal-retires.test.mjs,
+// where the table is owed nothing and spends nothing.
 test("cold recovery exposes one retained adaptation by semantic name before other work", async t => {
 	const table = await openTable({
-		env: {FAKE_KERNEL_RETAINED_ADAPTATION_STATUS: "failed"},
+		env: {FAKE_KERNEL_RETAINED_ADAPTATION_STATUS: "ready"},
 		responses: [
 			fauxAssistantMessage([fauxToolCall("narrate", {text: "I continue without checking."})], {stopReason: "toolUse"}),
 			fauxAssistantMessage([fauxToolCall("lookup", {kind: "adaptation", action: "status", name: "athens-study"})], {stopReason: "toolUse"}),
-			fauxAssistantMessage([fauxToolCall("narrate", {text: "The retained preparation failed, so nothing changed."})], {stopReason: "toolUse"}),
-			fauxAssistantMessage("The retained preparation failed, so nothing changed."),
+			fauxAssistantMessage([fauxToolCall("narrate", {text: "The retained preparation is reviewed and waiting."})], {stopReason: "toolUse"}),
+			fauxAssistantMessage("The retained preparation is reviewed and waiting."),
 		],
 	});
 	t.after(() => table.dispose());

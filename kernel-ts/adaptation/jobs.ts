@@ -18,6 +18,22 @@ import type { ApplyContext } from '../apply/index.js';
 
 const fail = (message: string, reason = 'adaptation_invalid'): never => { throw new RpcError('needs', message, {details: {reason}, fix: 'Inspect this proposal by name; retry preparation only after resolving the reported cause'}); };
 const STALE_REASON = 'The world, party, worldline or source moved after this proposal was pinned, so the retained work was abandoned';
+/**
+ * §54. The statuses the unnamed `status` scan answers with: work in flight, plus the one decision
+ * that still has something to accept. That scan is cold recovery -- a process that restarted asking
+ * whether it came back in the middle of a job -- so its question is about *work*. `failed`, `stale`,
+ * `cancelled` and `accepted` are not work; they are history. They stay on disk and stay readable by
+ * name, and they stop being offered to a table that never asked for them.
+ *
+ * Until 2026-09-16 `failed` and `stale` were in this list, so a dead job outlived every process for
+ * the rest of the campaign's life. Three retained tables of that day, one shape: on `game-2543d551`
+ * a corner photography shop that staled in Lima was still charging a tool call a turn hours later
+ * and hundreds of kilometres away in Puno; on `game-ef8e60aa` a sanatorium that failed on turn 22
+ * was handed back on turn 45, after a restart; on `game-1c0faba5` a street of neighbours that failed
+ * on turn 24 blocked two calls on turn 40, with the player upstairs in a different house. Not one of
+ * them could ever finish, and nothing anywhere retired them.
+ */
+const RETAINED_LIVE = ['pending', 'reviewing', 'ready'];
 const STALE_INSTRUCTION = 'This proposal is finished: nothing is running, nothing was built, and no scene, person or handout from it exists. '
     + 'Preparation is the only thing that revives it -- call lookup kind=adaptation action=prepare with this same name, purpose, anchors and request '
     + 'to start a fresh attempt pinned to the current turn, or continue without it and tell the player nothing is still being prepared.';
@@ -351,11 +367,11 @@ export class AdaptationJobs {
             try {
                 const pointer = await artifact(join(root, name)), path = join(root, string(pointer.key));
                 const job: Row = {...await artifact(join(path, 'job.json')), path};
-                if (job.campaign !== params.campaign || !['pending', 'reviewing', 'ready', 'failed', 'stale'].includes(string(job.status))) continue;
+                if (job.campaign !== params.campaign || !RETAINED_LIVE.includes(string(job.status))) continue;
                 if (accepted.some(record => record.draft === job.draft_digest && record.review === job.review_digest && job.review_digest)) continue;
-                if (['pending', 'reviewing', 'ready'].includes(string(job.status)) && !await this.fresh(job)) {
-                    job.status = 'stale'; await this.save(job);
-                }
+                // A job that died between processes dies here, in writing, and retires in the same
+                // breath: the scan still records what it learned, it just stops offering it.
+                if (!await this.fresh(job)) { job.status = 'stale'; await this.save(job); continue; }
                 jobs.push(job);
             } catch { /* Explicit named status remains the diagnostic path for malformed retained evidence. */ }
         }

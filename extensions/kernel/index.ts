@@ -162,11 +162,14 @@ interface TableState {
 	 * player: it is a named job with its own control verb (`lookup kind=adaptation action=status`), so the
 	 * Keeper can always find out where it stands. A source reading has no such verb and is not put here. */
 	preparationWait?: { kind: "adaptation"; name?: string; status?: string };
-	/** §36.15: a named proposal the kernel has reported `stale`. It is not a wait — the job is over, it
-	 * holds nothing back, and the table is free the moment the Keeper has been told. Armed by the
-	 * turn-boundary refresh and spent on the first tool call of the turn, which is refused once so the
-	 * call that revives the proposal is read before the turn is spent waiting for it again. */
-	adaptationStale?: { name: string };
+	/** §36.15, §54: a named proposal the kernel has reported over — `stale`, or `failed` with the
+	 * reviewer's own cause. It is not a wait: the job holds nothing back, and the table is free the
+	 * moment the Keeper has been told. Armed by the turn-boundary refresh and spent on the first tool
+	 * call of the turn, which is refused once so the call that revives the proposal is read before the
+	 * turn is spent waiting for it again. Once spent it is never re-armed: the boundary returns early
+	 * with no wait in hand, and §54 retired the job from the kernel's cold-recovery scan, so no later
+	 * process rediscovers it either. */
+	adaptationOver?: { name: string; status: string; cause?: string };
 	/** Contract §22: one unread piece of source material, named. An unread page is a fact about that
 	 * material, not about the campaign, so this never blocks a verb — it only supplies the Keeper's
 	 * wording, the audit's `preparation_wait` basis, and the steer that closes this turn. It dies with
@@ -363,11 +366,22 @@ function providerNoticeAfterMs(): number {
 }
 /**
  * Adaptation statuses the host keeps as a `preparationWait` (§36.15). `pending`/`reviewing` are work in
- * flight; `ready` and `failed` are decisions the table owes an answer to before it acts. Everything else
- * — `stale`, `cancelled`, `accepted`, `none` — is over, and an over job is not a wait: it holds nothing
- * back and must not be described as running.
+ * flight; `ready` is the one decision the table owes an answer to before it acts, because there is
+ * something there to accept. Everything else — `failed`, `stale`, `cancelled`, `accepted`, `none` — is
+ * over, and an over job is not a wait: it holds nothing back and must not be described as running.
+ *
+ * §54 took `failed` out. `ready` and `failed` were held for the same stated reason — the table owes
+ * them an answer — but they are not the same kind of thing: `ready` has reviewed changes waiting for
+ * `apply`, and `failed` has nothing at all. Holding it made the host block *every* verb including
+ * `narrate` until the Keeper looked the corpse up by name. On `game-1c0faba5` that cost turn 40 two
+ * calls, a `lookup` and a `look`, for a street of neighbours that had failed on turn 24 and had
+ * nothing to do with the upstairs room the player was standing in; on `game-ef8e60aa` it cost turn 45
+ * an `apply` for a sanatorium that failed on turn 22. A failure is a result. It is said once, with
+ * its cause, and then the table is free.
  */
-const ADAPTATION_HELD = ["pending", "reviewing", "ready", "failed"];
+const ADAPTATION_HELD = ["pending", "reviewing", "ready"];
+/** Terminal adaptation statuses the table is told about once, by name, and never held for (§54). */
+const ADAPTATION_OVER = ["stale", "failed"];
 /** Receipt kinds that discharge an owed recovery; mirrors `RECOVERY_TAKES` in kernel-ts/read/offer.ts. */
 const RECOVERY_RECEIPT_KINDS = new Set(["clue", "move", "npc", "session", "handout", "map", "item"]);
 /** The one host steer of the turn floor (docs/specs/turn-floor.md D4), sent when a turn is about to close on prose alone. */
@@ -1813,8 +1827,8 @@ export default function (pi: ExtensionAPI) {
 		try {
 			const current = await state.kernel.call<Record<string, unknown>>("adaptation.status",
 				wait.name ? { campaign: state.campaign, name: wait.name } : { campaign: state.campaign });
-			// Strictly narrower than `ADAPTATION_HELD`: `ready` and `failed` are decisions the Keeper
-			// owes an answer to, and neither is, to the player, "still being prepared".
+			// Strictly narrower than `ADAPTATION_HELD`: `ready` is a decision the Keeper owes an answer
+			// to, and it is not, to the player, "still being prepared".
 			return ["pending", "reviewing"].includes(asString(current.status) ?? "");
 		} catch { return false; }
 	}
@@ -1933,42 +1947,70 @@ export default function (pi: ExtensionAPI) {
 			const current = await state.kernel.call<Record<string, unknown>>('adaptation.status',
 				held?.name ? {campaign: state.campaign, name: held.name} : {campaign: state.campaign});
 			const status = asString(current.status) ?? '', name = asString(current.name) ?? held?.name;
-			// Stale is terminal, and terminal is not a wait. Holding the turn for a job that will never
-			// finish is what made the detour unreachable; the Keeper is told once, by name, in the gate.
-			if (name && status === 'stale') {
-				state.preparationWait = undefined;
-				state.adaptationStale = { name };
-			} else if (name && ADAPTATION_HELD.includes(status)) {
+			// §54. `stale` and `failed` are terminal, and terminal is not a wait. Holding the turn for
+			// a job that will never finish is what made the detour unreachable; the Keeper is told
+			// once, by name and with the kernel's own cause, in the gate.
+			const cause = asString(current.reason);
+			// `ADAPTATION_HELD` is asked first on purpose: it is the list that decides whether a status
+			// holds the table, so putting a terminal status back into it has to change behaviour and
+			// fail a test. Asking `ADAPTATION_OVER` first would have made the two lists overlap
+			// silently, and a later edit could have restored §54's defect without anything noticing.
+			if (name && ADAPTATION_HELD.includes(status)) {
 				state.preparationWait = { kind: 'adaptation', name, status };
+			} else if (name && ADAPTATION_OVER.includes(status)) {
+				state.preparationWait = undefined;
+				// Only a wait this process was actually holding is worth a notice. The notice exists to
+				// correct a belief the Keeper holds — "the place I asked for is being built" — and a
+				// Keeper that has just come up holds no such belief: it has never heard of this job.
+				// So the cold scan never announces a corpse, and the second half of §54 costs nothing
+				// even if a store somewhere still offers one.
+				if (held) state.adaptationOver = { name, status, ...(cause ? { cause } : {}) };
 			} else state.preparationWait = undefined;
 			// §47. `held` is the wait as it stood on the way *in*, so this used to record nothing on the
 			// turn a wait was first taken up — the one turn whose behaviour changes most. Six tables
 			// read as "zero failures" partly for that reason: the suspension itself was invisible.
 			// Recording whenever a wait stands on either side of the re-read makes the first one legible.
-			if (held || state.preparationWait || state.adaptationStale) await record({ lane: 'adaptation', turn: state.turn, proposal: name ?? null,
-				status: status || 'none', held: state.preparationWait !== undefined, first: !held && state.preparationWait !== undefined });
+			// §54. The cause was on disk and in this very result all along -- `status: "failed"` with no
+			// `cause` beside it is every adaptation row three retained tables recorded, and it is why
+			// nobody could say why any of those proposals failed.
+			if (held || state.preparationWait || state.adaptationOver) await record({ lane: 'adaptation', turn: state.turn, proposal: name ?? null,
+				status: status || 'none', held: state.preparationWait !== undefined, first: !held && state.preparationWait !== undefined,
+				...(cause ? { cause } : {}) });
 		} catch { /* Named status remains the diagnostic path; recovery discovery never blocks player input. */ }
 	}
 
 	/**
-	 * The one call that revives a stale proposal, named in full (Agents.md: a Keeper executes the `fix`
-	 * text literally, and this repo has already been burned by a vague one). Preparation, not a status
-	 * poll: `status` only reports, and there is nothing left to report.
+	 * The one call that revives a proposal that is over, named in full (Agents.md: a Keeper executes the
+	 * `fix` text literally, and this repo has already been burned by a vague one). Preparation, not a
+	 * status poll: `status` only reports, and there is nothing left to report.
 	 */
-	function staleAdaptationInstruction(name: string): string {
-		return `The adaptation preparation for ${name} is stale, not running: it was pinned to the world it was prepared against, that world has moved, and the retained work was abandoned.`
+	function overAdaptationInstruction(over: NonNullable<TableState["adaptationOver"]>): string {
+		const { name, status, cause } = over;
+		// §54. A failed proposal is the other half of this notice, and it is not stale: the pin never
+		// moved, the work was attempted and refused. The difference matters in the one place a Keeper
+		// acts on -- the call that revives it. `prepare` alone answers a retained non-stale job with
+		// its own dead view (kernel-ts/adaptation/jobs.ts), so a failed proposal needs `retry=true` or
+		// the instruction is a loop, which is exactly the trap Agents.md records for `fix` text.
+		const head = status === "failed"
+			? `The adaptation preparation for ${name} has failed, not stalled and not still running: the retained attempt was made and gave up.`
+				+ (cause ? ` The reason it gave is: ${cause}.` : ``)
+			: `The adaptation preparation for ${name} is stale, not running: it was pinned to the world it was prepared against, that world has moved, and the retained work was abandoned.`;
+		const revive = status === "failed"
+			? `call lookup kind=adaptation action=prepare name=${JSON.stringify(name)} retry=true with the same purpose, anchors and request; retry=true is what starts a fresh attempt instead of handing back this same failure.`
+			: `call lookup kind=adaptation action=prepare name=${JSON.stringify(name)} with the same purpose, anchors and request; that is the only call that revives it and it starts a fresh attempt pinned to this turn.`;
+		return head
 			+ ` Nothing was built — no scene, person or handout from it exists — and nothing will finish it.`
-			+ ` If the player is still going there, call lookup kind=adaptation action=prepare name=${JSON.stringify(name)} with the same purpose, anchors and request; that is the only call that revives it and it starts a fresh attempt pinned to this turn.`
+			+ ` If the player is still going there, ${revive}`
 			+ ` Otherwise settle this turn without that destination and do not tell the player anything is still being prepared.`
 			+ ` This one call was refused so you would read this first; send it again if it is still what you want.`;
 	}
 
 	function preparationWaitInstruction(state: TableState, wait: NonNullable<TableState["preparationWait"]>): string {
 		if (wait.status && !['pending', 'reviewing'].includes(wait.status))
-			// §47. `ADAPTATION_HELD` keeps `ready` and `failed` as waits because the table owes them an
-			// answer before it acts. That is a fact about the Keeper's obligations and not about the
-			// work, and the difference is not cosmetic: on campaign game-ef7545c5 (t7) the single
-			// `lane: "adaptation"` row in 785 lines of telemetry reads
+			// §47. `ADAPTATION_HELD` keeps `ready` as a wait because the table owes it an answer before
+			// it acts — there are reviewed changes there for `apply` to accept. That is a fact about
+			// the Keeper's obligations and not about the work, and the difference is not cosmetic: on
+			// campaign game-ef7545c5 (t7) the single `lane: "adaptation"` row in 785 lines reads
 			// `{"proposal":"<the camera shop>","status":"ready","held":true}` — the place had been built,
 			// reviewed and marked ready — and the player was told the table was "still checking it
 			// against the original book". A finished job described as unfinished is not a rough edge in
@@ -2912,20 +2954,23 @@ export default function (pi: ExtensionAPI) {
 				...(state.preparationWait.status ? { status: state.preparationWait.status } : {}) });
 			return { block: true, terminate: true, reason: preparationWaitInstruction(state, state.preparationWait) };
 		}
-		// §36.15. A stale proposal is over, so it owns nothing: it is said once, by name, with the call
-		// that revives it, and then this table is free — including for the repeat of the very action the
-		// dead job was prepared for. The refusal is not terminated and not repeated: whatever the Keeper
-		// sends next, including this same call again, goes through. Any adaptation verb passes untouched,
-		// because `prepare` is the answer the instruction asks for and must never be refused by the
-		// notice that asked for it.
-		const stale = state.adaptationStale;
-		if (stale) {
+		// §36.15, §54. A proposal that is over — stale, or failed — owns nothing: it is said once, by
+		// name, with the call that revives it, and then this table is free, including for the repeat of
+		// the very action the dead job was prepared for. The refusal is not terminated and not repeated:
+		// whatever the Keeper sends next, including this same call again, goes through. Any adaptation
+		// verb passes untouched, because `prepare` is the answer the instruction asks for and must never
+		// be refused by the notice that asked for it. Said once means once for the campaign, not once a
+		// turn and not once a process: the boundary cannot re-arm what it no longer holds, and §54 took
+		// the dead job out of the kernel's cold-recovery scan so no later process finds it either.
+		const over = state.adaptationOver;
+		if (over) {
 			const adaptationVerb = name === "lookup" && input.kind === "adaptation";
-			state.adaptationStale = undefined;
+			state.adaptationOver = undefined;
 			if (!adaptationVerb) {
 				await record({ tool: name, started_at: new Date().toISOString(), ok: false, code: "blocked",
-					reason: "adaptation_stale", proposal: stale.name });
-				return { block: true, reason: staleAdaptationInstruction(stale.name) };
+					reason: over.status === "failed" ? "adaptation_failed" : "adaptation_stale", proposal: over.name,
+					...(over.cause ? { cause: over.cause } : {}) });
+				return { block: true, reason: overAdaptationInstruction(over) };
 			}
 		}
 		// A source wait refuses exactly one verb, and only the one whose whole purpose is to reach unread

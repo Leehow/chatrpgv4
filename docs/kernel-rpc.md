@@ -8171,3 +8171,98 @@ open group, the collision with a flat row, the refusal and every rule in 52.2, a
 an occupation's specialization reaching the card),
 `tests/extension/impossible-check.test.mjs` (§45's guard, now written the way §52
 makes the Keeper write it: `Pilot (Boat)`, the skill the module actually named).
+
+## 54. A proposal that is over retires from the table (2026-09-16, narrows §36.15)
+
+Three retained playtests of the same day, two branches of one shape, and the same price every
+time: a tool call the player paid for, spent on a proposal that could never finish.
+
+`homes/t8`, campaign `game-2543d551`. Three `new_destination` proposals were prepared in Lima, and
+all three went `stale` when the pinned world moved. The newest, a corner photography shop the player
+had asked an NPC about, was created at 13:14:20Z. Hours later, on a reed island in Puno — hundreds
+of kilometres and three in-game days away — turns 39, 40 and 43 each opened with
+`{"lane":"adaptation","proposal":"<the corner shop>","status":"stale"}` and each lost one call:
+`apply`, then `resolve`, then `lookup`. Three turns, three different verbs, one dead shop.
+
+`homes/t9`, campaign `game-ef8e60aa`, and `homes/t4`, campaign `game-1c0faba5`. Here the dead job is
+`failed`, and `failed` was in `ADAPTATION_HELD`, so it was not merely announced — it was *held*, and
+a held terminal wait blocks every verb including `narrate` until the Keeper looks the corpse up by
+name. t9's sanatorium failed on turn 22 and blocked an `apply` on turn 45; t4's street of neighbours
+failed on turn 24 and blocked both a `lookup` and a `look` on turn 40, by which time the player was
+upstairs in a different house drawing a bolt. Both of those later rows carry `"first": true`, which
+is the host's own word for *this process held no wait, and the cold scan gave it one*.
+
+### 54.1 The in-memory half was never the leak; the store was
+
+Within one process the notice really is said once. The gate spends `adaptationStale` on the first
+tool call of the turn, and the next boundary returns early on `!held && adaptationScanned`. What
+re-armed it was disk. `adaptation.status` with no name answers the host's cold-recovery scan out of
+the retained job files, and it returned `failed` and `stale` jobs among the live ones, newest first,
+with nothing anywhere to retire them. So the notice was said once *per process*, and a campaign has
+as many processes as the player has evenings.
+
+**The unnamed scan answers about work, not about history.** `RETAINED_LIVE` is `pending`,
+`reviewing`, `ready`: work in flight, plus the one decision that still has something for `apply` to
+accept. `failed`, `stale`, `cancelled` and `accepted` leave that surface the moment they are written.
+Nothing is deleted — the job file keeps its status, its attempt and the reviewer's own refusal, and
+`adaptation.status name=<name>` still answers with all of it. A proposal is simply no longer offered
+to a table that did not ask for it. A `ready` job whose pin has since moved needs no special rule:
+the scan re-checks freshness as it always did, writes `stale`, and retires it in the same breath.
+
+### 54.2 A failure is a result, not a wait
+
+`ADAPTATION_HELD` loses `failed`. §47 held `ready` and `failed` together because "the table owes them
+an answer before it acts", but they are not the same kind of thing: `ready` has reviewed changes
+sitting there, and `failed` has nothing at all. There is no answer to owe.
+
+A terminal status the host *was* waiting on is said once, by name, in the gate, and then the table is
+free — including for the repeat of the very action the dead job was prepared for. The notice carries
+the kernel's own `reason`, which until now never left the job file, and it names the one call that
+starts a fresh attempt. For `stale` that is `prepare`; for `failed` it is `prepare` **with
+`retry: true`**, because `prepare` answers a retained non-stale job with its own dead view, so an
+instruction without `retry` would be a loop — the trap Agents.md already records for `fix` text. The
+`retry` parameter's description says so now; it spoke only of source readings before.
+
+**The cold scan announces nothing terminal at all.** The notice exists to correct a belief the Keeper
+holds — *the place I asked for is being built* — and a Keeper that has just come up holds no such
+belief; it has never heard of the job. So only a wait this process was actually holding is worth a
+sentence. This is the second lock on the same door: even if a store somewhere still offers a corpse,
+it costs the table nothing.
+
+### 54.3 The three ends (§31)
+
+- **Who writes it.** The kernel, on every status transition, and on the freshness re-check inside
+  the scan itself. Unchanged.
+- **Who reads it.** The host's turn boundary — by name while it holds a wait, unnamed once per
+  process for cold recovery. The unnamed read now sees live work only.
+- **Who acts on it.** The gate, exactly once per death, and the telemetry that records it. The
+  `lane: "adaptation"` row and the block row both carry `cause` now, so "why did it fail" is a
+  question the evidence can answer; `status: "failed"` with nothing beside it is all three retained
+  tables recorded, and it is why nobody could say why any of them failed.
+
+### 54.4 Retries: nobody, zero, and that was the real silence
+
+No layer retries a failed proposal. t9's turn-45 row is not a second attempt — the job file is
+`attempt: 1`, created once at 13:06:56Z; the cold scan simply re-read the same 23-turn-old record.
+The only retry path is the Keeper's own `prepare`, and until this section the Keeper was never told
+the proposal had failed, how many times, or why. So the number stays zero and the decision stays the
+Keeper's — it now just has the facts to make it with.
+
+### 54.5 What this does not decide
+
+A proposal is still pinned to the world it was prepared against and to nothing else. Nothing here
+scopes a proposal to a scene, a city or a day, and nothing expires one by age: a `ready` proposal
+prepared in Lima is still offered to a player in Puno for as long as the pin holds, and it retires
+only when the pin moves and the scan writes `stale`. In practice the pin moves within a turn or two,
+which is why every one of t8's Lima proposals was already dead — but that is the pin doing it, not a
+rule about distance. §36.15's turn ownership, freshness, pin and acceptance semantics are otherwise
+untouched.
+
+### 54.6 Tests
+
+`tests/extension/dead-proposal-retires.test.mjs`: the kernel over its own RPC, for both branches
+(`failed` and a pin that moved) — retired from the scan, still readable by name, still on disk; and
+the host through the real extension seam — a failure told once with its cause and the `retry=true`
+call, the table free the same turn, no re-arming at the next boundary, and a cold scan that hands
+back live work and never a corpse. `tests/extension/turn.test.mjs`'s cold-recovery test now exercises
+the case it was always for, a `ready` proposal a restarted process knows nothing about.

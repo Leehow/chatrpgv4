@@ -669,9 +669,16 @@ test('unnamed adaptation status returns the latest retained semantic proposal fo
     const prepared = await t.call('adaptation.prepare', params);
     const pending = await t.call('adaptation.status');
     assert.equal(pending.name, params.name); assert.equal(pending.status, 'pending'); assert.equal(pending.retained, true);
+    // §54. And it stops the moment the job is over. The scan is what a restarted process asks to
+    // find out whether it came back in the middle of something; a failure is not something to come
+    // back into, and offering it is what made three retained tables of 2026-09-16 spend a tool call
+    // a restart on a proposal that could never finish. The failure itself is not lost -- it is one
+    // named call away, with its cause.
     await t.call('adaptation.fail', {name: params.name, key: prepared.task.key, attempt: prepared.task.attempt, error: 'Interrupted by restart'});
-    const failed = await t.call('adaptation.status');
+    assert.equal((await t.call('adaptation.status')).status, 'none');
+    const failed = await t.call('adaptation.status', {name: params.name});
     assert.equal(failed.name, params.name); assert.equal(failed.status, 'failed');
+    assert.match(String(failed.reason), /Interrupted by restart/);
 });
 
 test('prepare requires a closed purpose and rejects graph changes outside that purpose', async () => {
