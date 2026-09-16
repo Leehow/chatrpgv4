@@ -8171,3 +8171,25 @@ open group, the collision with a flat row, the refusal and every rule in 52.2, a
 an occupation's specialization reaching the card),
 `tests/extension/impossible-check.test.mjs` (§45's guard, now written the way §52
 makes the Keeper write it: `Pilot (Boat)`, the skill the module actually named).
+
+## 53. A delivery the player already read keeps the keeper's side of the transcript (2026-09-16)
+
+A custom message can come from either side of the table. The host writes the keeper's
+opening and the deliveries it places itself (§34.18's held `renderedText`, the service
+notices of §38); it also injects messages that stand in for the player's own turn. Only
+the channel the entry arrived through can say which — the text cannot, because a delivery
+and a player's line are both prose in the play language, and no rule may read the words to
+decide.
+
+The speaker is therefore decided once, from the channel, and every projection of that entry
+reads the one answer: the live `entry_appended` stream and every later re-read of the file
+must name the same speaker for the same entry, and a renderer must use the name it was given
+rather than deciding again.
+
+This is load-bearing because the transcript treats the two sides differently on purpose — a
+player's own message is previewed at five lines, a delivery folds against the §16.6 card that
+draws it, and only a player's message offers resend. A delivery named as the player's is
+therefore silently shortened: t9 turn 36 (2026-09-16) came back as three of six paragraphs,
+cut on a full stop, and the paragraph it dropped was the answer the table had just won an
+extreme success for. What the player has already been given is not taken back on the second
+look.
