@@ -13,6 +13,8 @@ async function service(){
 }
 afterEach(()=>{for(const host of services.splice(0))host.dispose()});
 const model={id:'test/no-provider',thinking:'low',vision:true};
+/** The host's own English for a worker that stopped before it answered (§48). */
+const PREPARATION_STOPPED='The preparation stopped before it answered. Your source is saved; retry this preparation.';
 it('polls document reading once per revision and language without repeating edits',async()=>{
  const {host}=await service();let complete:(value:any)=>void=()=>{};
  const run=vi.spyOn(host as any,'run').mockImplementation(()=>new Promise(resolve=>{complete=resolve}));
@@ -267,4 +269,184 @@ it('keeps a failed UI projection rejected until the player explicitly retries',a
  presentation.mockResolvedValue({});
  await host.projectUiWords('fr-CA');
  expect(presentation).toHaveBeenCalledTimes(2);
+});
+
+/**
+ * A stopped byte stream is reported as stopped (§44).
+ *
+ * Two real tables froze at 9 MiB and 8 MiB of the same 44 MB book: the acknowledged prefix sat on
+ * disk, no further chunk ever arrived, and the job on file still read `{"state":"uploading"}`, so
+ * the overlay drew a progress bar under a stream nothing was moving -- for fourteen minutes on one
+ * of them. Nothing in the host asked whether anyone was still pushing. The phases have asked that
+ * question since they were written (`state:'running'&&!alive?'paused'`); the upload had no such
+ * reading, because the pusher is a browser and no child of this host.
+ *
+ * The answer is the last acknowledgement's age, and it is a projection, never a write: the job
+ * stays `uploading` on disk so the very next chunk is still accepted. Saying "interrupted" and
+ * then refusing the bytes would be a second lie.
+ */
+const STALL_WINDOW=60_000;
+async function stalling(){
+  const home=await mkdtemp(join(tmpdir(),'coc-onboarding-'));
+  const repo=resolve(import.meta.dirname,'../../../..');
+  const host=new CocOnboardingHost({repo,home,agentDir:join(home,'agent'),
+    env:{...process.env,PI_COC_UPLOAD_STALL_MS:String(STALL_WINDOW)}});
+  services.push(host);return {host,home};
+}
+/**
+ * Age the last acknowledgement past the window, on disk, instead of sleeping.
+ *
+ * A short window and a real sleep made these cases depend on how busy the machine was: the "still
+ * live, so dismiss is refused" assertion failed whenever scheduling ate more than the window
+ * before it ran. What is under test is the reading, not the clock.
+ */
+async function goQuiet(home:string,id:string){
+  const path=join(home,'.coc/imports',id,'job.json');
+  const job=JSON.parse(await readFile(path,'utf8'));
+  job.received_at=Date.now()-STALL_WINDOW-5_000;
+  await writeFile(path,JSON.stringify(job,null,2)+'\n');
+}
+
+it('reports an upload nobody is pushing as interrupted, and still takes the next chunk',async()=>{
+  const {host,home}=await stalling();
+  const job=await host.invoke({action:'begin',name:'masks.pdf',size:9},'one',model);
+  expect(job.state).toBe('uploading');
+  const half=await host.invoke({action:'chunk',id:job.id,offset:0,data:Buffer.from('%PDF').toString('base64')},'one',model);
+  expect(half.state).toBe('uploading');
+  expect(half.received).toBe(4);
+
+  // Nobody pushes. The overlay polls, and must not be told the upload is still moving.
+  await goQuiet(home,job.id);
+  const quiet=await host.invoke({action:'status',id:job.id},'one',model);
+  expect(quiet.state).toBe('paused');
+  expect(quiet.received).toBe(4);
+  expect(quiet.error.code).toBe('upload_retry');
+  expect(quiet.error.message).toBeTruthy();
+  // `current` is the poll the overlay actually runs; it must tell the same truth.
+  expect((await host.invoke({action:'current'},'one',model)).current_import.state).toBe('paused');
+  // The report is a reading, not a write: the file on disk still says what it is waiting for.
+  expect(JSON.parse(await readFile(join(home,'.coc/imports',job.id,'job.json'),'utf8')).state).toBe('uploading');
+
+  // ...and the door is open, which is the whole point: the client resumes from the host's count.
+  const resumed=await host.invoke({action:'chunk',id:job.id,offset:4,data:Buffer.from('-test').toString('base64')},'one',model);
+  expect(resumed.state).toBe('uploading');
+  expect(resumed.received).toBe(9);
+  expect(await readFile(join(home,'.coc/imports',job.id,'source.pdf'),'utf8')).toBe('%PDF-test');
+});
+
+it('an upload that began and never got a byte goes quiet too, and can be dismissed',async()=>{
+  const {host,home}=await stalling();
+  const job=await host.invoke({action:'begin',name:'masks.pdf',size:9},'one',model);
+  // Choosing another scenario is refused while an upload is live -- but a dead one is not live,
+  // and refusing there leaves the player with no way out of a screen nothing is moving.
+  await expect(host.invoke({action:'dismiss',id:job.id},'one',model)).rejects.toThrow();
+  await goQuiet(home,job.id);
+  expect((await host.invoke({action:'status',id:job.id},'one',model)).state).toBe('paused');
+  await host.invoke({action:'dismiss',id:job.id},'one',model);
+  expect((await host.invoke({action:'current'},'one',model)).current_import).toBeNull();
+});
+
+/**
+ * Choosing the file again continues it. `lede.job` promises the progress is kept; before this, a
+ * paused upload could only be begun again from zero, so re-choosing a 44 MB book meant re-sending
+ * all of it. The acknowledged prefix is the resume point, whoever stopped the stream and why.
+ */
+it('continues a paused upload from the bytes already acknowledged',async()=>{
+  const {host,home}=await stalling();
+  const job=await host.invoke({action:'begin',name:'masks.pdf',size:9},'one',model);
+  await host.invoke({action:'chunk',id:job.id,offset:0,data:Buffer.from('%PDF').toString('base64')},'one',model);
+  const paused=await host.invoke({action:'pause',id:job.id},'one',model);
+  expect(paused.state).toBe('paused');
+  const resumed=await host.invoke({action:'chunk',id:job.id,offset:4,data:Buffer.from('-test').toString('base64')},'one',model);
+  expect(resumed.state).toBe('uploading');
+  expect(resumed.received).toBe(9);
+  // Reopening restores the phases the pause stopped, or the overlay would read `paused` over a
+  // stream that is moving -- the same lie in the other direction.
+  expect(resumed.preparation.guidance.state).toBe('queued');
+  expect(await readFile(join(home,'.coc/imports',job.id,'source.pdf'),'utf8')).toBe('%PDF-test');
+  // The offset is still the host's own count: a resend of an acknowledged chunk is refused, so a
+  // lost acknowledgement can never double-write the file.
+  await expect(host.invoke({action:'chunk',id:job.id,offset:4,data:Buffer.from('-test').toString('base64')},'one',model))
+    .rejects.toThrow();
+});
+
+/**
+ * BUG-039. A kernel refusal carries a kernel code (`needs`), and nothing registers a caption for
+ * one: the overlay showed `errors.unknown` -- "this step did not go through" -- over a sentence of
+ * English this host had written for it, while the reason the reading service actually reported was
+ * discarded. A failure the player is shown now names a code the `errors` surface registers, and
+ * the diagnostic behind it is the one that happened.
+ */
+it('settles an unregistered failure code to a registered caption and keeps the real diagnostic',async()=>{
+  const {host}=await service();
+  vi.spyOn(host as any,'run').mockImplementation((action:any)=>action==='converse'?Promise.resolve({}):
+    Promise.reject(Object.assign(new Error('the reading could not prepare this material'),{code:'needs'})));
+  const started=await host.invoke({action:'select',source:'module',module_id:'book-1',name:'Book'},'one',model);
+  await new Promise(resolve=>setTimeout(resolve,0));
+  const failed=await host.invoke({action:'status',id:started.id},'one',model);
+  const reason=failed.preparation.guidance.error;
+  expect(reason.code).toBe('preparation_failed');
+  expect(reason.message).toBe('needs: the reading could not prepare this material');
+  // A code the surface does register is untouched, so this settles nothing it does not have to.
+  expect(await import('node:fs/promises').then(fs=>fs.readFile(
+    resolve(import.meta.dirname,'../../../../content/ui/en/errors.json'),'utf8'))
+    .then(text=>Object.hasOwn(JSON.parse(text),'preparation_failed'))).toBe(true);
+});
+
+/**
+ * A player-bound message is the host's own sentence, and the diagnostic is in the log (§48).
+ *
+ * Four raw English sentences reached players in one day on four unrelated paths, because a caught
+ * exception's text was copied straight into the field §23 shows. On this path the text can be a
+ * vendor's (`Invalid PDF structure.`), a provider SDK's (`Request timed out.`), or the last 2000
+ * bytes of a worker's stderr -- stack, paths and all -- whichever the worker happened to die with.
+ */
+it('tells the player the host\'s own sentence and keeps the diagnostic in the log',async()=>{
+  const {host,home}=await service();
+  const job=await host.invoke({action:'begin',name:'book.pdf',size:9},'one',model);
+  await host.invoke({action:'chunk',id:job.id,offset:0,data:Buffer.from('%PDF-test').toString('base64')},'one',model);
+  // Nine bytes of nonsense: the inspector really fails, so the text under test is a real one.
+  const failed=await host.invoke({action:'finish',id:job.id},'one',model);
+  expect(failed.state).toBe('failed');
+  // The code still travels -- it is an identifier, and §23 projects it.
+  expect(failed.error.code).toBe('interrupted');
+  // The vendor's sentence does not.
+  expect(failed.error.message).not.toContain('Invalid PDF structure');
+  expect(failed.error.message).toBe(PREPARATION_STOPPED);
+  // ...and it is not lost: the worker's own account is in this import's event log, where a
+  // diagnostic belongs. Dropping it at the player must not mean dropping it.
+  const events=await readFile(join(home,'.coc/imports',job.id,'events.jsonl'),'utf8');
+  expect(events).toContain('Invalid PDF structure');
+  // Nothing the host saved for this job repeats it either, because `snapshot` reads what is saved.
+  const saved=JSON.parse(await readFile(join(home,'.coc/imports',job.id,'job.json'),'utf8'));
+  expect(JSON.stringify({error:saved.error,code:saved.error_code})).not.toContain('Invalid PDF structure');
+});
+
+/**
+ * The case with nothing but stderr: a worker that crashed without ever emitting an error event.
+ *
+ * `refuse('interrupted', failure?.message || tail || …)` put the last 2000 bytes of that stderr --
+ * stack, absolute paths, whatever a vendor printed -- into the field the overlay shows. That is the
+ * dirtiest of the four leaks found in one day, and the only one whose content nobody can predict.
+ */
+it('never shows a crashed worker\'s stderr, and keeps it in the event log',async()=>{
+  const home=await mkdtemp(join(tmpdir(),'coc-onboarding-'));
+  const repo=resolve(import.meta.dirname,'../../../..');
+  const {NOISE}=await import('./fixtures/stderr-preparation.mjs');
+  const host=new CocOnboardingHost({repo,home,agentDir:join(home,'agent'),env:{...process.env},
+    preparationEntrypoint:join(import.meta.dirname,'fixtures/stderr-preparation.mjs')});
+  services.push(host);
+  const job=await host.invoke({action:'begin',name:'book.pdf',size:9},'one',model);
+  await host.invoke({action:'chunk',id:job.id,offset:0,data:Buffer.from('%PDF-test').toString('base64')},'one',model);
+  const failed=await host.invoke({action:'finish',id:job.id},'one',model);
+
+  expect(failed.state).toBe('failed');
+  expect(failed.error.message).toBe(PREPARATION_STOPPED);
+  // Nothing of the crash reaches the player: not the stack, not the path, not a fragment.
+  expect(JSON.stringify(failed)).not.toContain('secret');
+  expect(JSON.stringify(failed)).not.toContain('TypeError');
+  // ...and it is kept, because a boundary that drops a diagnostic has lost it, not moved it.
+  const events=await readFile(join(home,'.coc/imports',job.id,'events.jsonl'),'utf8');
+  expect(events).toContain('secret/reader.ts');
+  expect(NOISE.length).toBeGreaterThan(0);
 });

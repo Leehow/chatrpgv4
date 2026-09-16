@@ -9,6 +9,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import test from 'node:test';
 import { assembleRuntime } from '../../scripts/package-runtime.mjs';
 import { createAssemblyWorkspace, DIAGNOSTIC_LIMIT_BYTES, removeAssemblyTreeSync } from '../../scripts/assembly-workspace.mjs';
+import { waitForJson } from './wait.mjs';
 
 const REPO = fileURLToPath(new URL('../../', import.meta.url));
 const SIGNALS = ['SIGINT', 'SIGTERM', 'SIGHUP'];
@@ -22,11 +23,22 @@ const listenerCounts = () => SIGNALS.map(signal => process.listenerCount(signal)
 
 async function until(check, label, timeout = 8_000) {
   const start = Date.now();
-  while (!await check()) {
+  for (;;) {
+    const value = await check();
+    if (value) return value;
     if (Date.now() - start > timeout) throw new Error(`Timed out waiting for ${label}`);
     await delay(15);
   }
 }
+
+/**
+ * A handshake file written by another process is finished when it PARSES, not when it exists.
+ * `writeFileSync` truncates to zero and then writes, so a reader that polls `lstat` and parses
+ * what it finds gets `Unexpected end of JSON input` — about once in seventy reads on this box,
+ * and far more often when `node --test` has nine files and their child fleets on the CPU.
+ * The writers below publish atomically (see `PUBLISH`); this is the other half.
+ */
+const handshake = (path, label, timeout = 8_000) => waitForJson(path, { timeoutMs: timeout, label });
 
 async function tempRepo(t) {
   const repo = await realpath(await mkdtemp(join(tmpdir(), 'pi-coc-assembly-test-')));
@@ -74,18 +86,24 @@ function testProcess(t, command, args, options = {}) {
   return { child, closed };
 }
 
+// Every cross-process handshake file is published by rename, so a reader sees either no file or
+// the whole file — never the zero-length window `writeFileSync` opens between truncate and write.
+// `fs` must already be in scope where this is embedded.
+const PUBLISH = `const publish=(target,value)=>{const staged=target+'.'+process.pid+'.tmp';fs.writeFileSync(staged,JSON.stringify(value));fs.renameSync(staged,target);};`;
+
 // The descendant deliberately keeps writing until it really exits. A marker is
 // outside work so the test can prove no chmod/removal occurs before group shutdown.
 const WRITER = `
 const fs = require('node:fs'), path = require('node:path');
+${PUBLISH}
 const [work, notice, pgid, mode] = process.argv.slice(1);
 const write = () => { fs.mkdirSync(work, {recursive:true}); fs.writeFileSync(path.join(work, 'writer.log'), 'still running'); };
 write(); const timer = setInterval(write, 5);
 process.on('SIGTERM', () => {
-  fs.writeFileSync(path.join(notice, 'stopping.json'), JSON.stringify({pid:process.pid}));
+  publish(path.join(notice, 'stopping.json'), {pid:process.pid});
   if (mode !== 'stubborn') setTimeout(() => { clearInterval(timer); process.exit(0); }, 250);
 });
-fs.writeFileSync(path.join(notice, 'ready.json'), JSON.stringify({pid:process.pid, pgid:Number(pgid) || process.pid, work}));
+publish(path.join(notice, 'ready.json'), {pid:process.pid, pgid:Number(pgid) || process.pid, work});
 if (process.send) process.send('ready');
 `;
 
@@ -101,7 +119,7 @@ child.once('message', () => { console.log('parent completed'); process.exit(0); 
 function reapFixtureGroup(t, notice) {
   t.after(async () => {
     if (!await present(join(notice, 'ready.json'))) return;
-    const { pgid } = await json(join(notice, 'ready.json'));
+    const { pgid } = await handshake(join(notice, 'ready.json'), 'the fixture ready handshake');
     if (groupAlive(pgid)) process.kill(-pgid, 'SIGKILL');
     await until(() => !groupAlive(pgid), 'fixture group exit');
   });
@@ -242,7 +260,7 @@ for (const [inherited, timeout] of [[true, 6_000], [false, 6_000], [true, 1_000]
   reapFixtureGroup(t, repo);
   const running = workspace.run(process.execPath, ['-e', orphanParent(workspace.work, repo, inherited)], { timeout });
   await until(() => present(join(repo, 'stopping.json')), 'descendant shutdown');
-  const { pgid } = await json(join(repo, 'ready.json'));
+  const { pgid } = await handshake(join(repo, 'ready.json'), 'owned child ready');
   assert.equal(groupAlive(pgid), true, 'the descendant outlives its parent');
   assert.equal(await present(workspace.work), true);
   if (timeout === 1_000) await assert.rejects(running, /timeout/);
@@ -289,6 +307,7 @@ import fsp from 'node:fs/promises';
 import {join,basename} from 'node:path';
 import {syncBuiltinESMExports} from 'node:module';
 const repo=${JSON.stringify(repo)}, spawn=cp.spawn, rm=fsp.rm, rmSync=fs.rmSync, writeFile=fsp.writeFile, kill=process.kill;
+${PUBLISH}
 const diagnosticWriteCode=${JSON.stringify(diagnosticWriteCode)};
 const WRITER=${JSON.stringify(WRITER)};
 const workPath=()=>{
@@ -319,7 +338,7 @@ fsp.rm=async(path,options)=>{
   if(basename(path).startsWith('.package-runtime-')){
     const {pgid}=JSON.parse(fs.readFileSync(join(repo,'ready.json'),'utf8'));
     let stopped=false;try{process.kill(-pgid,0);}catch(error){if(error.code!=='ESRCH')throw error;stopped=true;}
-    fs.writeFileSync(join(repo,'cleanup-started.json'),JSON.stringify({stopped,work:path}));
+    publish(join(repo,'cleanup-started.json'),{stopped,work:path});
     await new Promise(resolve=>setTimeout(resolve,500));
   }
   return rm(path,options);
@@ -329,7 +348,7 @@ fs.rmSync=(path,options)=>{
     const entries=fs.readdirSync(join(repo,'.build.noindex')).filter(name=>name.startsWith('assembly-'));
     const evidence=entries.map(name=>join(repo,'.build.noindex',name));
     if(!diagnosticWriteCode&&!evidence.some(path=>fs.existsSync(join(path,'failure.json'))))throw new Error('Outer purge raced diagnostics');
-    fs.writeFileSync(join(repo,'outer-purged.json'),JSON.stringify({evidence}));
+    publish(join(repo,'outer-purged.json'),{evidence});
   }
   return rmSync(path,options);
 };
@@ -349,10 +368,11 @@ console.log(JSON.stringify({before,after:signals.map(name=>process.listenerCount
 import fs from 'node:fs';
 try { await import('./pipicoc/package.mjs'); }
 catch(error) {
-  fs.writeFileSync(${JSON.stringify(join(repo, 'blocked-result.json'))},JSON.stringify({
+  ${PUBLISH}
+  publish(${JSON.stringify(join(repo, 'blocked-result.json'))},{
     cleanupBlocked:error.cleanupBlocked===true,diagnosticCode:error.diagnosticError?.code,
     stopCodes:error.errors?.map(item=>item.code),message:error.message,
-  }));
+  });
   process.exit(1);
 }
 process.exit(2);
@@ -372,10 +392,9 @@ for (const [route, orphan] of [['imported', false], ['cli', false], ['packager',
   test(`${route}${orphan ? ' with exited parent and inherited pipes' : ''}: real ${signal} and repeated signals during cleanup preserve diagnostics without stopping unrelated children`, { timeout: 12_000 }, async t => {
     const { repo, child, closed } = await signalSandbox(t, route, orphan);
     const unrelated = testProcess(t, process.execPath, ['-e', 'setInterval(()=>{},20)']);
-    await until(() => present(join(repo, 'ready.json')), 'owned child ready');
+    await handshake(join(repo, 'ready.json'), 'owned child ready');
     child.kill(signal);
-    await until(() => present(join(repo, 'cleanup-started.json')), 'asynchronous cleanup');
-    const cleanup = await json(join(repo, 'cleanup-started.json'));
+    const cleanup = await handshake(join(repo, 'cleanup-started.json'), 'asynchronous cleanup');
     assert.equal(cleanup.stopped, true, 'owned group was confirmed absent before removal');
     child.kill(signal);
     await delay(50);
@@ -402,8 +421,7 @@ for (const [route, orphan] of [['imported', false], ['cli', false], ['packager',
 
 test('blocked cleanup plus diagnostic ENOSPC preserves the original safety error and the real outer stage', { timeout: 15_000 }, async t => {
   const { repo, child, closed } = await signalSandbox(t, 'packager', false, 'ENOSPC');
-  await until(() => present(join(repo, 'ready.json')), 'owned child ready');
-  const { pgid, work } = await json(join(repo, 'ready.json'));
+  const { pgid, work } = await handshake(join(repo, 'ready.json'), 'owned child ready');
   try {
     child.kill('SIGTERM');
     const result = await closed;

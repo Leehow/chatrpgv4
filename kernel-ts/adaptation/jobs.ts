@@ -17,6 +17,10 @@ import { snapshotSource, pinnedSource } from './source.js';
 import type { ApplyContext } from '../apply/index.js';
 
 const fail = (message: string, reason = 'adaptation_invalid'): never => { throw new RpcError('needs', message, {details: {reason}, fix: 'Inspect this proposal by name; retry preparation only after resolving the reported cause'}); };
+const STALE_REASON = 'The world, party, worldline or source moved after this proposal was pinned, so the retained work was abandoned';
+const STALE_INSTRUCTION = 'This proposal is finished: nothing is running, nothing was built, and no scene, person or handout from it exists. '
+    + 'Preparation is the only thing that revives it -- call lookup kind=adaptation action=prepare with this same name, purpose, anchors and request '
+    + 'to start a fresh attempt pinned to the current turn, or continue without it and tell the player nothing is still being prepared.';
 /**
  * A place the module already registered is never minted a second time.
  *
@@ -43,11 +47,25 @@ const samePlace = (graph: ModuleGraph, place: Row, requested: string): never => 
         details: {reason: 'same_place', requested, scene: graph.handle(place), place: graph.placeName(place)}
     });
 };
-const PURPOSES = ['new_destination', 'persistent_npc', 'source_rebinding', 'handout', 'rebase'] as const;
+const PURPOSES = ['new_destination', 'persistent_npc', 'new_clue', 'source_rebinding', 'handout', 'rebase'] as const;
 type Purpose = typeof PURPOSES[number];
+/**
+ * `new_clue` is the missing producer (contract §51.1).
+ *
+ * `clue_at` and `npc_knows` both bind a clue the book already wrote, and until 2026-09-16 nothing
+ * anywhere could bring one into existence -- while `add_scene` mints a place with `available_clues:
+ * []`. So every locus this pipeline created was one where `apply clue` could only ever answer
+ * `not_here`: on campaign `game-1c0faba5` the party spent eight turns inside an adapted Roxbury
+ * Sanitarium, were told the admission date, who signed the committal and who came to the lobby, and
+ * the clue panel could not have shown a single line of it no matter what the Keeper did.
+ *
+ * A place already standing does not need a second one to hold what was found in it, so this purpose
+ * does not require `add_scene`; `new_destination` keeps the whole set and may arrive with both.
+ */
 const PURPOSE_CHANGES: Record<Purpose, readonly string[]> = {
     new_destination: Object.keys(ADAPTATION_FIELDS),
     persistent_npc: ['add_npc', 'npc_knows'],
+    new_clue: ['add_clue', 'clue_at', 'npc_knows'],
     source_rebinding: ['scene', 'clue_at', 'route', 'npc_knows'],
     handout: ['handout'],
     rebase: []
@@ -64,7 +82,7 @@ function validatePurpose(value: Purpose, changes: Row[]) {
     const allowed = PURPOSE_CHANGES[value], kinds = changes.map(change => string(change.kind));
     const invalid = kinds.find(kind => !allowed.includes(kind));
     if (invalid) throw new RpcError('invalid_params', `Adaptation purpose ${value} does not permit ${invalid}`, {details: {field: 'purpose', purpose: value, allowed: [...allowed]}});
-    const required = value === 'new_destination' ? 'add_scene' : value === 'persistent_npc' ? 'add_npc' : value === 'handout' ? 'handout' : null;
+    const required = value === 'new_destination' ? 'add_scene' : value === 'persistent_npc' ? 'add_npc' : value === 'new_clue' ? 'add_clue' : value === 'handout' ? 'handout' : null;
     if (required && !kinds.includes(required))
         throw new RpcError('invalid_params', `Adaptation purpose ${value} requires ${required}`, {details: {field: 'purpose', purpose: value, required}});
     if (value === 'rebase' && changes.length)
@@ -109,6 +127,54 @@ function canonicalizeAnchorReferences(graph: any, anchors: string[], input: unkn
         return change;
     });
 }
+/**
+ * The world the review is shown -- and, for exactly that reason, the world the pin protects.
+ *
+ * `focus.world` is the world surface of an adaptation task: the creator writes against it and the
+ * reviewer judges against it, and `world.json` is a named fallback for *semantic* facts absent from
+ * it. Until 2026-09-16 the pin digested the whole world row instead, which is the same row plus the
+ * engine's own bookkeeping -- `mods` (per-package locks, lane dossiers stamped with a turn,
+ * natural-npc check records, queued mod work), `objects` (the item registry), and the label/map
+ * projections. None of that is evidence a proposal can be supported or contradicted by, and all of
+ * it moves while the table is doing nothing: on campaign `game-ef7545c5` the npc-voice lane wrote a
+ * dossier -- no receipt, no fiction -- and a reviewed proposal went from `ready` to `stale` in the
+ * same breath. Since a preparation that outruns its ~12-second foreground wait meets the next such
+ * write, background preparation could never finish, and the creator's completed work was thrown
+ * away with it.
+ *
+ * So this list is the pin, not a blocklist of what to ignore: a field nobody put in front of the
+ * review cannot be the thing the review depended on, and a field someone later decides the review
+ * needs is added here once and is pinned by that same act. The two consumers below share this
+ * constant so they cannot drift apart.
+ */
+const REVIEWED_WORLD = ['active_scene', 'visited_scenes', 'scene_trail', 'discovered_clues', 'flags', 'clock', 'npc_presence', 'handouts_shown'] as const;
+/**
+ * `adaptation` is the one load-bearing field the focus row does not carry raw: the review reads it
+ * projected as `prior_changes`, and it decides both the pinned source and the accepted records that
+ * `normalizeChanges` built this candidate on top of. Accepting against a different record set would
+ * layer reviewed changes onto a graph nobody reviewed, so the pin carries the field itself.
+ */
+const PINNED_WORLD = [...REVIEWED_WORLD, 'adaptation'] as const;
+/** Fixed key order, and an absent field pins as absent rather than as a hole the next one fills. */
+const pinnedWorld = (world: Row): Row => Object.fromEntries(PINNED_WORLD.map(key => [key, world[key] ?? null]));
+/**
+ * The party the review is shown, on the same reasoning and for the same reason as the world above.
+ *
+ * Narrowing the world alone left the identical bookkeeping a second door. A materializer registering
+ * an ordinary object writes the item registry -- `world.objects`, now outside the pin -- and the
+ * sheet is that registry's mirror, so the same write lands again in `equipment` and `weapons`. On
+ * campaign `game-ef7545c5` the pinned world did not move once across turns 3, 4, 5 and 6, every one
+ * of them an honest wait-only narrate, while `party.weapons` moved on every one of them -- three
+ * objects registered in the background, none of them anything the player did. Pinning the whole sheet
+ * therefore staled a reviewed proposal on exactly the turns it was waiting through.
+ *
+ * So the party term is the row the task actually hands the review, not the sheet behind it. It still
+ * invalidates on who is at the table and what they are -- a party the review never met cannot be the
+ * party it wrote for -- and it no longer moves when the engine mirrors its own registry onto a sheet.
+ * `party.json` stays available to a child as a named full-file fallback, exactly as `world.json` does;
+ * what the review may go and read is not the same thing as what it was shown and judged against.
+ */
+const reviewedParty = (party: Row[]): Row[] => party.map(actor => ({name: actor.name, occupation: actor.occupation ?? null}));
 const compactReceipt = (receipt: Row): Row => Object.fromEntries(
     ['id', 'kind', 'call_id', 'actor', 'subject', 'npc', 'scene', 'clue', 'handout', 'name', 'from', 'to', 'delta', 'before', 'after']
         .filter(key => receipt[key] != null).map(key => [key, receipt[key]]));
@@ -137,9 +203,10 @@ export class AdaptationJobs {
         const current = await loadModule(this.context, snapshot.meta.module_id, snapshot.id);
         // A pending preparation is allowed to cross an honest wait-only narrate and a later status
         // request. Those change HEAD, turn and player text but not the world the proposal will alter.
-        // World/party/line plus source generation still invalidate every material change; final apply
-        // remains subject to the current player's action-admission review.
-        const pin = jsonDigest({world: snapshot.world, party: snapshot.party, line: snapshot.meta.active_worldline ?? 'main'});
+        // The reviewed world, the reviewed party, the worldline and the source generation still
+        // invalidate every material change; final apply remains subject to the current player's
+        // action-admission review.
+        const pin = jsonDigest({world: pinnedWorld(snapshot.world), party: reviewedParty(snapshot.party), line: snapshot.meta.active_worldline ?? 'main'});
         return {snapshot, current, pin};
     }
     private async job(campaign: string, name: string): Promise<Row> {
@@ -163,7 +230,13 @@ export class AdaptationJobs {
         // Contract §37.6: a refusal the Keeper cannot read is a refusal it repeats. The independent
         // reviewer's own words travel to the surface, not the generic sentence the failure carries.
         const refusal = row(job.refusal);
-        return {name: job.name, purpose: job.purpose, status: job.status, reason: job.error ?? null,
+        return {name: job.name, purpose: job.purpose, status: job.status,
+            reason: job.error ?? (job.status === 'stale' ? STALE_REASON : null),
+            // §36.15: a stale job is finished, and until now it said so in one word and stopped there.
+            // `status` is the diagnostic path the wait instruction points at, so it is where the one
+            // call that can revive the proposal has to be named -- a Keeper executes the fix it reads
+            // literally, and "stale" with no call in it is a dead end (campaign game-ef7545c5).
+            ...(job.status === 'stale' ? {instruction: STALE_INSTRUCTION} : {}),
             ...(job.status === 'failed' && Object.keys(refusal).length ? {refused: refusal,
                 instruction: 'The independent source review contradicted this exact placement. Do not prepare the same placement again: propose a materially different one the original source supports, or continue the chosen action without it and leave the causal thread standing.'} : {}),
             ...(job.status === 'ready' ? {changes: array(job.preview), instruction: 'This reviewed proposal changes no fiction until apply adaptation accepts it; use ordinary effects afterwards.'} : {})};
@@ -198,7 +271,13 @@ export class AdaptationJobs {
         const path = join(this.root(snapshot.id), key);
         if (await this.context.snapshots.pathExists(join(path, 'job.json'))) {
             const old: Row = {...await artifact(join(path, 'job.json')), path};
-            if (!params.retry) return {...this.view(old), task: ['pending', 'reviewing'].includes(old.status) ? this.task(old, old.status === 'reviewing' ? 'review' : 'create') : null};
+            // A stale retained attempt is abandoned work, and `prepare` is what the stale instruction
+            // sends the Keeper back to: answering it with the same dead view and `task: null` would
+            // make that instruction a loop. Every other retained status still answers as itself --
+            // `failed` keeps the reviewer's refusal, `ready` keeps its reviewed changes -- and only
+            // an explicit `retry` restarts those. Falling through starts attempt n+1 at this key.
+            if (!params.retry && old.status !== 'stale')
+                return {...this.view(old), task: ['pending', 'reviewing'].includes(old.status) ? this.task(old, old.status === 'reviewing' ? 'review' : 'create') : null};
         }
         const effective = await loadCampaignModule(this.context, snapshot.meta.module_id, snapshot.world, snapshot.id);
         const base = rebase ? current : effective.adapted ? await pinnedSource(this.context, row(snapshot.world.adaptation).source) : current;
@@ -225,9 +304,8 @@ export class AdaptationJobs {
                 note: 'Every change uses the exact kind field. New names are plain; copy kind-qualified existing references from anchors or source.name.'},
             anchors, source: focusedNodes(base.graph, baseRoots),
             effective_scene: effective.graph.entityView(currentScene),
-            world: Object.fromEntries(['active_scene', 'visited_scenes', 'scene_trail', 'discovered_clues', 'flags', 'clock', 'npc_presence', 'handouts_shown']
-                .filter(key => snapshot.world[key] != null).map(key => [key, snapshot.world[key]])),
-            party: snapshot.party.map(actor => ({name: actor.name, occupation: actor.occupation ?? null})),
+            world: Object.fromEntries(REVIEWED_WORLD.filter(key => snapshot.world[key] != null).map(key => [key, snapshot.world[key]])),
+            party: reviewedParty(snapshot.party),
             current_receipts: array(snapshot.turn.receipts).map(compactReceipt), recent_history: recentHistory,
             recent_history_complete: snapshot.records.length <= recentHistory.length,
             continuity: continuityView(base.graph, focusWorld, snapshot.records, candidates, {anchors, limit: 4, budget: 6000}),

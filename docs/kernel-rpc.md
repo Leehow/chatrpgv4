@@ -164,7 +164,8 @@ The task-3 outbound/fold policy will cache and invalidate this rehydration by co
 that host consumption is not claimed implemented by this contract amendment.
 
 ### table.status（切片 0）
-result：`{"turn": int, "state": "...", "receipts": [...本回合收据摘要], "pending_choice": null | {...}}`。
+result：`{"turn": int, "state": "...", "receipts": [...本回合收据摘要], "mechanics": [...本回合的 §16.2 投影], "labels": {...玩家语言词表}, "pending_choice": null | {...}}`。
+- `mechanics` 与 `labels` 是交付时那张卡的同一份投影与同一份词表（§16.2、§23）；一条没能交付的回合靠它们把已结算的事实送到玩家面前（§50）。
 
 ### table.look（切片 0）
 params：`{"focus"?: "scene"|"npc"|"investigator"|"clues"|"time", "name"?: "<实体名>"}`。
@@ -629,7 +630,7 @@ superseded, not alternative compatibility modes.
 校验车道在 kernel 扩展内：交付完成后（`message_end` 替换之后）用 Pi SDK 起零工具内存会话，模型由 `PI_COC_VERIFIER_MODEL`（`provider/model`）指定，缺省与桌子同模型；输入是正文（`rendered_text`）、`facts.committed`、`facts.keeper_only`（三者都是系统语言英文，正文除外），要求只返回 JSON：
 
 ```
-{"findings": [{"kind": "reveal"|"uncommitted_state"|"player_agency", "quote": "<正文里的原句，≤ 120 字>", "why": "<≤ 200 字>"}]}
+{"findings": [{"kind": "reveal"|"uncommitted_state"|"player_agency", "quote": "<正文里的原句，≤ 120 字>", "why": "<≤ 200 字>", "clue": "<揭示的是哪条未发现线索，只在 reveal 上，见 §51.3>"}]}
 ```
 
 三类分别是：越权揭示了 `keeper_only` 里的事实；声称了 `committed` 里没有的状态变化（走了没 move、拿了没 clue、掉了没 delta）；替玩家做了未授权的自愿行为。扩展把结果交给 `table.warn`，params `{"campaign", "turn", "lane": "verifier", "findings": [...]}`：内核校验 `kind` 枚举，`quote` 必须是该回合 `rendered_text` 的子串（唯一的确定性锚点；不是子串的整条丢弃并记 `dropped`），最多 10 条；写进 `turns/NNNN.json` 的 `warnings`、遥测一行，并在**下一次** `player_input` 的胶囊里带 `warnings: [{"turn", "kind", "quote", "why"}]`（只带最近一个已提交回合的，≤ 1KB）。全部 advisory：不改状态，不拦交付，不重开回合。车道不用关键词、不用正则；能确定性判的（自写骰面、未关的 `needs`）仍在内核。
@@ -913,7 +914,7 @@ build.jsonl                构建遥测：每 section 每轮 {section_id, round,
 
 **`module.install`** params `{"module_id"}`：`assembled` 或 `assembled_not_playable` 的图登记摘要，状态 `installed`；`assembled_not_playable` 的安装要 `force: true` 并把报告写进 `module.json`（守秘人开桌时胶囊 `where` 会说材料不全）。
 
-**开桌就绪**（`module.status` 的 `opening_ready`）：module 节点、起始场景、其出口指向的场景、起始场景的 NPC 与线索都在图里，且起始子图上十条不变量成立。构建顺序按 `priority`：front / keeper-truth / opening 场景所在 section 先；`opening_ready` 一到就允许 `setup.complete`，其余 section 继续在后台读（14.6）。
+**开桌就绪**（`module.status` 的 `opening_ready`）：module 节点、起始场景、其出口指向的场景、起始场景的 NPC 与线索都在图里，且起始子图上十条不变量成立。构建顺序按 `priority`：front / keeper-truth / opening 场景所在 section 先；`opening_ready` 一到就允许 `setup.complete`，其余 section 继续在后台读（14.6）。（**§46 起（2026-09-16）：就绪只看 `missing`；起始子图上的 findings 只报，不再否决 `opening_ready`。本节编号与其余条款不变。**）
 
 ### 14.4 建卡进程与七步表
 
@@ -976,7 +977,7 @@ build.jsonl                构建遥测：每 section 每轮 {section_id, round,
 - **三道门。** 每道都跑，findings `{gate, code, path, message, …}`。`shape`：契约键集、`node_id` 必须以 `node_kind-` 起头且全 ASCII kebab、`claim_id` 必须 `claim-` 起头、词表闭合、`unknown_evidence_span`（包里没有的 id）、`evidence_span_out_of_scope`、`node_refs` 必须被 claim/relation 用到。`grounding`：只对书自己印名字的 kind（npc/creature/faction/organization/location/object/artifact/tome/spell/vehicle/handout/investigator-template）查 `name`/`aliases` 至少一个出现在它引用的 span 里（宽度折叠、去空白、大小写折叠后的包含）；每个节点 `summary`/`properties` 与 claim `reason` 里的每个数字串都要在其引用的 span 里（「五十三岁」写成 `53` 会被打回——这就是它要防的）。`coverage`：十个域都有交代、状态合法、未声明的 aspect 只能 `unresolved`；`span_consumption`、`substantive_spans_uncited`、节点/claim/relation 数只进 `measures`。空 shard（不引用任何 span）在 `shape` 门拒绝。`module.review` 每次计一轮（`sections.json.rounds`），写 `findings.json` 与 `shard.filled.json`，`build.jsonl` 记 `{section_id, round, findings_codes, accepted, measures}`；`module.accept` 重跑三门，通过则把**填充后**的 shard 写进 `shards/`。
 - **装配。** 骨架 = 机器造的 module 节点（引用第 0 页第一个 span，第 0 页不在已接受 section 里就引用书序最早已接受 section 的第一个 span）+ 对每个 scene/beat/event/ending 的 `contains` claim 与 relation（证据取该节点自己的 span）。分片按 section 的起始页序合并：同 id 不同 kind → `node_kind_conflict`（先到者留，后者整个丢）；同 id 同 kind 字段冲突 → 证据 span 多者胜、平手先到者胜，记 `merge_notes`；同 id 的 claim/relation 意义不同 → `claim_conflict`/`relation_conflict`（先到者留）；`inferred-candidate` 让位于任何 `authored-*`；未被定义的 `node_refs` → `unresolved_node_refs`；端点不在图里的 relation → `dangling_relations`（关系照写进图，不变量再判）。`source_refs` 由 span 页派生：`{source_id: "pdf:<module_id>", pdf_index, grep_anchor}`。读者写的同 id module 节点并进骨架（证据并集，字段以骨架为准）；它的 `properties.entry_scene_ids` / `ending_scene_ids` / `unpaged` 提升为图级声明。scene 节点补最小 `runtime_projection.record {scene_id, display_name, is_start, is_final}`（`is_entrance`/`is_ending` 或 `is_start`/`is_final` 属性），使 `ModuleGraph.start_scene()` 不改就能读；不写 `available_clues`/`npc_ids`——`ModuleGraph` 从关系读。`assets.json` = 资料包资产 + 图上 `asset`/`handout` 节点按页对齐（同页唯一未认领的资产、或同 kind 唯一者归该节点；节点定 kind/name/visibility，资产给字节）。写图后 `generation + 1`，`module.json` 存 `playability`（含 findings 与度量）、`assemble_report`、`opening`、`opening_ready`。
 - **可玩性怎么判。** 十条不变量按**这个内核**的投影判，不按旧投影：可走的图是 `scene` 节点（`ModuleGraph.scene()`/`apply move` 只解析它；模板的 beat/event/ending 是旧投影的四种），出口是 `route-to` ∪ 模板的四种入口关系 ∪ 记录的 `scene_edges`；入口 = `entry_scene_ids`（图级或 module 节点 properties）或 `properties.is_entrance`/`is_start` 或记录 `is_start`；结局 = `ending` 节点、`ending_scene_ids`、`properties.is_ending`/`is_final`、记录 `is_final`；线索安放 = `discoverable-at` 或记录 `available_clues`；在场 = `present-in` 或记录 `npc_ids`；有页 = 任一 span 报页（`span-p<n>-` 与 `span-page-<n>-` 两种拼法）、`source_refs[].pdf_index`、`properties.pdf_index`、记录 `source_refs`。交代口：`entry_scene_ids: []`、`ending_scene_ids: []` 说「书没写」；`unpaged: true`（图级或 module 节点）说「本模组没有源页」，只免 `node_without_page`。度量按模板全部十六项报（模板列了十六项，契约说十五；`span_consumption` 与 `substantive_spans_uncited` 只在有证据目录时有值）。
-- **开桌就绪。** `opening_ready` = module 节点在、恰好一个入口、起始场景的每条出口都指向图里的场景、记录里点名的 NPC/线索都在图里、且诱导子图（module、起始场景、出口场景、在场 NPC、可得线索、这些线索支持的结论；不含 beat）上十条不变量成立——结局的交代取整图（结局往往在没读的 section 里，带声明不带节点）。`module.status` 每次从当前图现算；`module.json.opening_ready` 是装配/登记时的快照，`setup.complete` 读它。the-haunting 的开场邻域整页齐全，`opening_ready: true`；整图报 2 个 `actor_in_no_scene` 与 32 个 `node_without_page`（beat/concept/secret 无证据）——是 IR 事实，starter 仍按契约 `installed`。
+- **开桌就绪。** `opening_ready` = module 节点在、恰好一个入口、起始场景的每条出口都指向图里的场景、记录里点名的 NPC/线索都在图里、且诱导子图（module、起始场景、出口场景、在场 NPC、可得线索、这些线索支持的结论；不含 beat）上十条不变量成立——结局的交代取整图（结局往往在没读的 section 里，带声明不带节点）。`module.status` 每次从当前图现算；`module.json.opening_ready` 是装配/登记时的快照，`setup.complete` 读它。the-haunting 的开场邻域整页齐全，`opening_ready: true`；整图报 2 个 `actor_in_no_scene` 与 32 个 `node_without_page`（beat/concept/secret 无证据）——是 IR 事实，starter 仍按契约 `installed`。（**§46 起（2026-09-16）：就绪只看 `missing`；起始子图上的 findings 只报，不再否决 `opening_ready`。本节编号与其余条款不变。**）
 - **安装。** `assembled` 直接装；`assembled_not_playable` 无 `force` 报 `invalid_params`（`details.finding_counts/findings`），`force: true` 装并把 `install {forced: true, finding_counts}` 写进 `module.json`；已装的重复调用 `replayed: true`。
 - **深读队列。** `deepen-queue.json` 是列表，行 `{section_id, reason, priority, status: queued|claimed|failed|done, retries, at, claimed_by?, detail?}`。`enqueue` 跳过 `accepted`/`skipped` 的 section；已在队列的取更高优先级；`failed` 的重入队一次（`retries ≤ 1`）；返回本次入队或改动的 id。`claim` 一次只出一个（有 `claimed` 就返回 None），按优先级、入队时间取，并把 section 置 `reading`；`complete(ok=True)` 出队，`ok=False` 留队标 `failed` 并把 section 置 `failed`。`section_for_scene`：从当前图找场景，取其页所在 section；starter 没有 section 时返回 `{section_id: null, status: accepted}`；场景不在图里返回 None。`enqueue_for_scene(store, module_id, handle, reason=move|opening)`：脚下 100/90，`route-to` 邻居 80（`adjacent`）。
 - **资产解析。** `asset(module_id, name)` 按登记的 `id`、`name`、`aliases`、`node_id`、去 `asset-`/`handout-` 前缀的 id、资料包 `bundle_asset_id` 归一化匹配；有字节的 `path` 返回绝对路径；带 `authored_text` 的手卡同时给 `text` 与 `authored_text`。`module.asset` 找不到报 `unknown_entity` 带候选。
@@ -3132,6 +3133,27 @@ because a valid draft depends on it. The draft then carries `occupation` (the
 chosen entry) and `occupation_stated` (the player's words), both kernels store
 `occupation_stated` on the sheet beside `occupation` and in the investigator row
 the table reads, and the card shows the stated trade with the entry after it.
+
+**A cell the rulebook printed no figure for is empty.** It is not a zero and not
+the absent value itself. `cash-assets`'s lowest row prints `None` in the assets
+column, so the kernel records `{amount: null, currency, formula: "None"}` — a
+complete, honest record that the book prints no figure here — and never
+substitutes a zero, which would invent a figure the book does not print. Every
+card that draws money draws an absent amount the way it draws its other absent
+cells. A real table printed the literal word `null` beside a currency, and
+another printed a unit with no figure at all; both are the same defect.
+
+**A period that stood in is said where the numbers are.** When
+`sheet.finance.substituted_for` is present the figures were built from a column
+the book is not set in (§22.9), and both the character draft and the play-time
+sheet say so beside the money: the period the figures came from
+(`sheet.finance.period`) and the authored setting it stood in for, in the play
+language. The setup agent still states it once in its own words, but that
+sentence is prose in a transcript and scrolls away — a real 1895 campaign never
+said it at all, and its investigator then carried 1920s money unqualified for the
+whole campaign — so the card, which the player can reopen at any time, is where
+the fact is guaranteed. The authored setting travels as the book wrote it; it is
+never read for a year or rewritten into a table key.
 
 **Stated aptitude reaches the characteristics — when a package opens that door.**
 A player who describes this person as notably strong, frail, quick, slow, bright or
@@ -7296,3 +7318,878 @@ Supersedes the `sample_lines` word of §40.5 (`npc-voice` 1.1.0; design and sour
 - **The lane instruction** (`content/setup/npc-voice.md`) asks for the mask first (one or two markers a listener could name, different from every mask in `taken_masks` in the ending habit or the address terms, register never dialect caricature), then three exchanges in it: a first question brushed off, something ordinary, something that touches what they hide; every reply answers the words just said, says the mundane thing, and leaves the stranger something to say next; no aphorisms; no other person's name. The voice guard reads mask and exchanges against the book's `voice` and also asks whether every reply wears the mask; still one bounce, never a gate.
 - **The package instruction** stops asking that every line wants something (the rule that produced aphorisms) and asks for three things: wear the mask on every line (pet phrase at most once a turn); talk like a person — acknowledge before answering, say the mundane thing, drift and return, whole sentences with the joints of speech in, a fragment is one beat, nobody says an aphorism; serve the player — a line reacts to what the player just said or did and leaves them something to say back, no line closes the subject, the investigator speaks unmarked. Brief ≤ 250 bytes, names `coarse_language`.
 - **Acceptance** is the lineup test of `docs/specs/npc-voice-mask.md` §4 on the seeded starter `voice-bench` (`content/starters/voice-bench`, unlisted; generated by `tests/play/fixtures/voice-bench/build.mjs`): names stripped, a judge attributes each spoken line to the roster.
+
+## 43. A project root is a directory: the remote shell's typed path (2026-09-16)
+
+Found in real remote play, not by a suite. A phone paired to the relay showed the
+scenario onboarding with 「已上传 0.0 / 25.5 MB」 frozen under it and the banner
+*「此会话使用 coc-keeper 扩展包；当前项目是 base。」* The session's own record said
+why: `{"type":"session","version":3,"cwd":"测试"}` — its project root was the two
+characters the user had typed, and no such directory exists.
+
+### 43.1 What a bad root does
+
+Observed, on the machine that produced it: every session in that project shows
+`packSnapshotMismatch` — the session's immutable `pipiui_product_profile` says
+`coc-keeper` while the project's form reads `base` — which locks the composer, and
+the pack's own verbs go unanswered, so the onboarding's `begin`/`chunk` calls never
+settle and the upload sits at zero bytes. **No error is raised anywhere along the
+way**: every layer reports a coherent state of its own, and only the snapshot read
+against the form shows the contradiction. Nothing done inside that project clears
+it, because the snapshot is immutable by design (§23).
+
+The internal route from a non-directory root to `base` is **not established here**
+— a probe of `listExtensions` against a seeded bad root did not reproduce it in
+isolation, so the chain through `extensionLoader.scan`, `projectPiAgentDir` and
+`defaultPack` is a hypothesis, not a finding. It is not load-bearing: a root that
+is not a directory is outside what every reader of it already assumes, and that is
+reason enough to refuse it. Anyone chasing the remaining silence should start by
+reproducing the mismatch from a seeded bad root rather than trusting this note.
+
+### 43.2 Where the bad root comes from
+
+Only the remote shell can make one. Electron's add-project goes through a native
+folder picker, which can only return a directory that exists. A browser has no
+such dialog, so `RemoteBrowserApp` asks the user to type a path that exists *on
+the host*, and `addProject` accepted any non-empty string:
+
+```ts
+if (typeof value !== "string" || !value.length)
+  throw new Error("project path 必须是非空 string");
+```
+
+This is the shape §31 keeps naming: an entry with a writer and a reader but no one
+checking that what was written is what the reader needs.
+
+### 43.3 The contract
+
+**`addProject` refuses a root that is not an existing directory.** It is the only
+common choke point — every shell, present or future, reaches a project through it,
+so the check belongs there and not in any one dialog. Three refusals, each with the
+offending path in the message: `项目路径必须是绝对路径`, `项目路径不存在`,
+`项目路径不是文件夹`. A refusal adds nothing to `projectPaths`; `completeAddProject`
+already rolls back its optimistic row and shows the host's message, so no shell
+needs new plumbing to surface it.
+
+The remote dialog additionally refuses a relative path **before** it closes
+(`remoteProjectPathRefusal`), so the typed text survives the mistake instead of the
+user retyping a long server path after reading the failure elsewhere. It is a
+convenience, not the authority: only the host can stat the path, and both POSIX
+(`/srv/app`) and Windows (`C:\app`, `\\host\share`) roots pass, because the browser
+cannot know which platform the host runs.
+
+This does not repair projects already stored with a bad root — their sessions keep
+a snapshot that can never match. Remove such a project and start again in one whose
+root is real.
+
+Tests: `Electron/packages/pi-backend/test/add-project-root.test.ts` (the four
+refusals and that a real directory still registers),
+`packages/ui/src/remote-browser-session.test.ts` (the path predicate) and
+`packages/ui/src/RemoteBrowserApp.test.tsx` (the dialog keeps the typed text and
+stays open on a refusal).
+
+## 44. An upload that stopped says so, and can be continued (2026-09-16)
+
+Found at two real tables, not by a suite. The same 46,556,793-byte book froze at
+`received: 9437184` on one and `received: 8388608` on the other — whole MiB, but
+not the same one, so no fixed boundary: a chunk simply never answered and nothing
+sent another. `.coc/imports/<id>/job.json` read
+`{"received":8388608,"size":46556793,"state":"uploading"}` with `source.pdf`
+exactly that long on disk, and stayed that way for six minutes on one table and
+fourteen on the other while the card drew a progress bar and the page underneath
+promised 「准备进度会保留，离开这个页面后也可以回来继续」. A CDP capture over 45 s
+showed 38 `onboarding {action:"current"}` polls and one ping — the transport was
+alive and the host kept answering `"received":8388608` — and no upload frame at
+all. The server log said nothing. This is distinct from §43, where no byte ever
+moves because the pack's verbs go unanswered; here the bytes moved, then stopped.
+
+**What triggered the stall is not what this section fixes, and is not claimed
+here.** The two stop points differ, so there is no boundary at 8 or 9 MiB, and the
+machine those tables ran on was heavily oversubscribed at the time — a 30 s request
+timeout under that load is ordinary, and the 60 s it took to reach 9 MiB says the
+stream was already degraded before it stopped. The defect is what the product does
+afterwards, which is wrong under any load: it goes on reporting a stream that has
+stopped, offers a retry that moves no bytes, restores the same frozen card on
+reload, and prints a promise that the progress is kept while providing no way to
+keep it. The frame capture is the part that is a logic fact rather than a speed
+one — after the timeout the client sent polls and no chunk at all, with no
+`webSocketClosed` — and that is the fact this section answers.
+
+### 44.1 The push loop was the only pusher, and it was not restartable
+
+The chunk loop lives in the renderer, inside one `upload(file)` call, holding the
+only reference to the chosen `File` — a `File` cannot be stored, so when that call
+returned there was nothing left in the product that could send a byte. A chunk
+that rejected (`transport_timeout` after the Host API's 30 s wait) ended the loop.
+Neither recovery path restarted it: `retryConnection` re-read the catalog, so the
+card's label went from 「这一步没有完成」 back to 「正在上传」 and nothing else, and a
+reload restored the same frozen card from the host. **After a stream stops, the
+renderer is the only party that can restart it, and it must therefore be the party
+that knows how.** The host cannot: its side of an upload is a sink.
+
+- **A chunk that fails is retried, not fatal.** `UPLOAD_ATTEMPTS` consecutive
+  failures end an upload; one does not. Every attempt re-reads `{action:"status"}`
+  first and resumes from the host's own `received`, because a frame that never
+  answered may still have written its bytes (the Host API rule is never to replay
+  a mutation blind) and the host refuses any offset that is not its count. A
+  growing pause between attempts lets a chunk still being written land.
+- **The chosen file is held for the life of the page**, so `retryConnection` and
+  the paused card's `resume` both continue the stream instead of changing a label.
+  Both are tested; a button that only re-labels is the defect.
+- **Choosing the file again continues it.** A same-name, same-length file with
+  bytes outstanding resumes the existing job; it does not `begin` a new one. After
+  a reload this is the only way back, because the `File` is gone, and it is what
+  `onboarding.lede.job` promises. `chunk` therefore accepts an upload that is
+  `paused` as well as one that is `uploading`, restoring the phases the pause
+  stopped; the offset check is unchanged, so a lost acknowledgement still cannot
+  double-write.
+
+### 44.2 `uploading` is a claim about the present, and the host checks it
+
+`snapshot()` has asked "is anyone still working?" of the reading phases since they
+were written (`state:'running' && !alive → 'paused'`). The upload never asked,
+because its worker is a browser and no child of this host. The evidence available
+is the age of the last acknowledgement: `received_at` is stamped by `begin` and by
+every accepted chunk, and an `uploading` job with no chunk for `UPLOAD_STALL_MS`
+(90 s, well past the 30 s request timeout and past the slowest chunk a real table
+produced) is **reported** as `paused` carrying `{code: "upload_retry"}`.
+
+Reported, never written: the job stays `uploading` on disk so the very next chunk
+is still accepted. Saying "interrupted" and then refusing the resumed bytes would
+be the same lie in the other direction. `dismiss` reads the same predicate — an
+upload nobody is pushing is not live work, and refusing there sealed the player
+inside a screen nothing was moving. A renderer that gives up in-page pauses the
+job itself, so the card is honest at once rather than at the end of the window.
+
+### 44.3 A transport code is not a player-facing word
+
+`transport request timed out` reached a `zh-Hans` table verbatim. The projection
+path was never bypassed: §23 looks a caption up by **code**, and `transport_timeout`
+is minted in `@pipi/host-api`, a layer below the product, which registers no
+captions. With no word for it the card fell back to `errors.unknown` — 「这一步没有
+完成」 — over the English sentence in the fold, so the fold was the only content the
+player could read. Registering that one code would fix that one sentence.
+
+The rule instead: **the layer that catches a failure names it in the vocabulary it
+has.** A code these words have is the product's own account and is kept whole; a
+code they do not have came from beneath the product, and the upload reports
+`upload_retry` — a word §23 already carries in every language, and one that names
+something the player can do. The English stays behind the `errors.details` fold,
+the log line it always was. The check is against the answer's own `ui.words.errors`,
+which is data, not a list of codes in the renderer.
+
+Tests: `Electron/packages/pi-backend/test/coc-onboarding.test.ts` (the stall
+reading, the reopened chunk, dismissing a dead upload) and
+`Electron/packages/ui/src/CocOnboarding.test.tsx` (a resumed stream, both retry
+buttons moving bytes, a re-chosen file continuing from the prefix, and the
+transport code never reaching the player).
+
+## 45. A check the die cannot answer is not a hard check (2026-09-16)
+
+Found on two real tables, three receipts, both drowning the same investigator.
+`homes/t5/.coc/campaigns/game-33a2a97a…/turns/0002.json` and
+`homes/t6/.coc/campaigns/game-b4cebfe0…/turns/0005.json` both carry:
+
+```
+skill "Pilot"  base_target 1  difficulty "hard"
+required_target 0  effective_target 0  threshold 0
+roll 75  level "failure"  passed false   push_eligible true
+```
+
+CoC 7e gives an unlisted skill its rulebook base chance, and `Pilot`'s is 1. Hard
+halves it and floors, so the effective target is 0. **1d100 has no face at or below
+0.** The check was settled anyway, the failure was written into the story, and the
+mechanics card printed the arithmetic to the player — `需困难 · ≤0` — before the
+boat capsized, the cargo sank and the motive the investigator had walked in with
+was gone. The die was never the author of that outcome; the floor division was.
+
+### 45.1 The rule
+
+An effective target below `percentile-check.json`'s `minimum_target` is not a
+difficult request but an **unrollable** one, and the kernel refuses it before the
+die rather than settling it:
+
+- The numeric rule is owned by the rule tables, not by code: `CheckArithmetic`
+  exposes `minimumTarget`, `effectiveTarget(target, difficulty)` — the same clamp
+  `check` rolls against — and `assertRollable(target, difficulty, label, pushed)`.
+- `executeCheck` calls `assertRollable` **before** `arithmetic.check`, so an
+  unrollable request mints no roll receipt, records no failure, and lands no
+  stakes. Nothing is rolled, so no RNG is consumed and the turn is unchanged.
+- The refusal is `invalid_params` (`next: change_input`) with
+  `details.reason = "effective_target_below_minimum"` and the numbers that produced
+  it: `skill`, `base_target`, `difficulty`, `effective_target`, `minimum_target`,
+  `pushed`.
+- **This is a pure numeric condition.** It asks nothing about whether a skill suits
+  a situation — that judgement is the keeper's, and a list of skill names in the
+  kernel would be exactly the hardcoded semantics the project forbids.
+
+### 45.2 `push_eligible`
+
+A push re-rolls the same target, and a pushed failure costs more than an ordinary
+one, so offering a push on an unrollable check invites the player into a strictly
+worse certain outcome. Because the refusal happens before settlement there is no
+receipt to carry `push_eligible` at all; and `resolve` with `action.push` routes
+through `executeCheck` with the original target and difficulty, so a push of a
+legacy impossible receipt is refused by the same assertion, with the fix saying
+first that a push repeats the same target and cannot rescue it.
+
+### 45.3 The fix text is keeper-only
+
+Per the standing lesson that an error's `fix` is executed literally and sometimes
+read aloud, the refusal names its own audience and its own status before it asks
+for anything: service information about the keeper's request, not fiction; do not
+narrate it, do not read it to the player, do not treat the attempt as having
+failed. Then exactly one repair, both halves concrete: name a skill or
+characteristic the sheet gives this investigator a usable value in, or keep the
+skill and lower the difficulty until the effective target is at least the minimum.
+It closes by saying the player's stated action still stands and needs no new input
+— the player did nothing wrong and must not be asked to repeat themselves.
+
+### 45.4 What this does not cover
+
+`executeCheck` (and therefore `push`) is wired. The other settlement paths that
+take a keeper-chosen difficulty over a sheet-derived value — combat to-hit,
+chase, sanity, magic, healing, mods and the concealed Psychology contract — share
+the same `CheckArithmetic` and can adopt `assertRollable`, but are not wired here:
+Psychology in particular derives its difficulty from the NPC's opposing skill, so
+"lower the difficulty" is not an actionable repair there and would need its own
+fix text before the assertion is worth adding.
+
+Tests: `tests/extension/impossible-check.test.mjs` — base 1 at hard refused with
+no receipt minted, base 1 at regular still rolling its legal 1%, an ordinary skill
+at hard untouched, the push path refused, and the fix text's audience and repair.
+
+## 46. Readiness is `missing`; `findings` is an opinion about the book (2026-09-16)
+
+Found on two real tables, not by a suite. An imported 669-page Masks module reached
+`module.json` like this:
+
+```json
+"opening": {"opening_ready": false, "start_scene": "scene-start-lima", "missing": [],
+  "findings": [{"code": "clue_supports_nothing", "subject": "clue-larkin-research-destroyed"}],
+  "finding_counts": {"clue_supports_nothing": 1}, "nodes": 22}
+```
+
+`missing` is empty: nothing the opening points at is absent. One clue of twenty-two
+nodes is not connected to a conclusion — the book being a book — and that alone
+turned the whole opening unready. In the same file
+`prepared_openings["scene-start-lima"].opening_ready` and
+`reading.completed["read-3"].opening_ready` were both `true`: that opening had been
+prepared, and had been played.
+
+### 46.1 What it cost
+
+The gate is reached three ways, and all three refused. `setup.complete` reads
+`setupOpeningReady`, wrote `setup.waiting_for_opening: true` and refused the
+handoff. `module.read.request` with `purpose: "opening"` found the identical reading
+already `completed` and answered `{"state": "blocked", "missing": []}` — **a refusal
+naming nothing** — which `extensions/module/reading-service.ts` turned into
+`needs`/`reading_failed` and the onboarding host recorded as a failed preparation.
+One table took **zero turns**: its `turn.json` stayed at
+`{"turn": 0, "state": "awaiting_player", "player_text": null}` with an empty
+`turns/`, so the player's first sentence was kept nowhere, while the Keeper — which
+had no receipt to take — promised in prose that it would be passed on later. It was
+not.
+
+The order matters more than the arithmetic. The opening was prepared and ready
+first; a later **background detail reading of the same book** brought the clue in,
+and `module.opening` is re-derived from the whole graph on every completed reading.
+Nothing about the table changed. More of the source was read, and that revoked an
+opening already in play.
+
+### 46.2 The rule
+
+`opening_ready` is `!missing.length`. `findings` never vetoes it.
+
+- **`missing` is readiness.** No module node, no single entrance, an exit or a named
+  NPC or clue that resolves to nothing, or a start scene whose material is not
+  prepared. A table cannot open on any of those, and each names the next step.
+- **`findings` is the playability invariants read as a quality opinion** about the
+  book's own graph. It still travels, in `opening.findings` and
+  `opening.finding_counts` in the same record, which is where `module.status`
+  already reads it. Whole-book quality remains `module.json.playability` (§14),
+  untouched: this section is about the opening subgraph only.
+- The two are therefore equivalent by construction: `opening_ready` is false exactly
+  when `missing` names something, so a refusal derived from it always has a next
+  step. This supersedes the readiness clause of §14 (the induced opening subgraph
+  satisfying the ten invariants); §14's numbering is unchanged.
+
+**The authority is `openingReport` in `kernel-ts/write/source.ts`,** and it already
+was — the three recorded copies are all its output, taken at different generations
+against different graphs, which is why they disagreed. `module.json.opening_ready`
+and `module.json.opening` are the live roll-up, and the only copy anything
+downstream reads. `prepared_openings[<scene>]` is a record that that scene was
+prepared. `reading.completed[<job>]` is a job log. Neither of the latter two is
+consulted as readiness, and neither may become a second answer to it.
+
+### 46.3 A failure the player is shown names a registered caption
+
+The same incident, at the other end. The onboarding host handed the overlay
+`{"code": "needs"}` — a kernel RPC code (§1), which nothing registers a caption for
+— so the renderer fell back to `errors.unknown`, and under that heading it printed a
+sentence the host had written itself: *"Source preparation could not finish. Your
+source and investigator are saved; retry this preparation."* The player was playing
+in `zh-Hans`. Writing that sentence also **discarded the diagnostic** the reading
+service had actually reported.
+
+- The player-facing explanation of a failure is its code's caption. The host has no
+  sentence of its own to write for one (§23: the product's own words have one
+  authored source and are projected, never authored per language).
+- A code put in front of a player is one `content/ui/<source>/errors.json`
+  registers. The surface **is** the registry: a code it does not carry is settled to
+  `preparation_failed`, and the unregistered code moves into the message. Adding a
+  caption registers a code and nothing else has to change.
+- The message is the diagnostic, in the system language, behind `details`. Caption
+  first, message after it, never the message instead of the caption.
+
+### 46.4 A stopped preparation does not promise to finish itself
+
+The overlay's standing lines all say the opening arrives on its own — *"play will
+continue when the opening is ready"*, *"create your investigator while the opening
+is prepared in the background"*. A stopped phase is the one state where that is
+false, and it was being shown there, beside a **Resume control that actually works**:
+a third table pressed it and was playing three and a half minutes later, without a
+whole-book re-read. A player who is told to wait has no reason to press it. A
+stopped phase states its own reason instead; the control stays in the head.
+
+### 46.5 The three ends (§31)
+
+Who writes `opening.findings`: `playability` on the induced opening subgraph, on
+every completed reading. Who reads it: `module.status`, in the same record as
+`missing`. Who acts on it: nobody automatically — it is an opinion, and the one
+consumer that used to act on it (readiness) is exactly the defect this section
+closes.
+
+Tests: `tests/extension/opening-readiness.test.mjs` (the product path from
+`module.source.bind` to the player's own words in `turn.json`, including the
+`module.read.request` that used to block with nothing named, and the ambiguous-
+opening book that is still refused because `missing` names it),
+`tests/extension/preparation-failure-words.test.mjs` (every code these hosts refuse
+with has a caption, and the host writes no player-facing sentence),
+`Electron/packages/pi-backend/test/coc-onboarding.test.ts` (an unregistered code is
+settled and its diagnostic survives) and
+`Electron/packages/ui/src/coc-preparation.test.tsx` (a stopped phase promises
+nothing, a running one still does).
+
+## 47. Host state is not fiction, and a state said out loud is re-read first (2026-09-16)
+
+Three unrelated live tables on 2026-09-16 delivered the same failure: the host held precise knowledge about its own preparation, handed the Keeper a sentence to deliver, and the player read that sentence in the Keeper's own voice, as fiction, already out of date — and on one table attached to the wrong cause entirely. This section splits the seam at the producer, which is the only place it can be split: a keyword test on delivered prose would be a semantic classifier, and this product forbids one. Two of the five retained turns looked, from telemetry, like the Keeper inventing the reason; the paragraph below shows it was relaying a block nobody could see, and both halves are fixed here.
+
+**Retained evidence.** `game-1c0faba5` turn 3 (`homes/t4/.coc/campaigns/game-1c0faba5-5a90-4eff-ade3-0d62632b4e7a`). Telemetry: `apply` refused at 12:09:35.086 with `action_not_authorized` (the move destination was not registered — `registered_destination` was `previous-tenants`); `lookup` about `roxbury-sanitarium` returned at 12:10:12.911Z carrying `status: "pending"` and a `service_status` whose second sentence read *"Use narrate only to tell the player that preparation is pending and end the turn"*; `narrate` opened at 12:10:18.875 and the turn closed at 12:10:33Z. The Keeper executed the sentence it was handed and explained the *admission* refusal with the *preparation* status, then asked the player to say their action again — which `admissionRefusal`'s own `fix` (§32.2) expressly forbids. `turns/0003.json` has `receipts`, `mechanics`, `speech` and `intents` all empty and `closed_by: "narrate"`; the job's own draft landed at 12:10:29Z, four seconds before the turn closed, and it was accepted on turn 4. `game-b4cebfe0` turns 2 and 3 (`homes/t6`) are the reading half: `lookup kind=source` hit `reading_timeout` after 120 s, `sourceWaitInstruction` told the Keeper to "tell the player plainly that this one thing is still being prepared", and the wait became a line inside the scene while the material arrived seconds later.
+
+**The wording has two carriers, and the second one wrote no telemetry.** `game-1c0faba5` turn 12 and `game-3dd94f0a` (M-MAIN) turn 52 deliver the same sentence with **no `ok:false` row anywhere in the turn**, which reads as a Keeper inventing a reason out of nothing. It is not. Both turns have one shape: `lookup kind=adaptation action=prepare` returns `ok:true` with `pending` after ~20 s (`about: "南区慈善会办公室"` 20027 ms at 12:37:22.850; `about: "利马照相馆"` 18088 ms at 12:39:18.563), the very next `provider-call` carries a single `toolCall` block that leaves **no tool row at all**, a further provider call follows within seconds, and the turn closes on a `narrate` about preparation with `receipts: []`. That swallowed call is this same wait's gate in `beforeTool`, which was the only tool-level block there that returned without `record(...)` while every other one — narrate-count, commit outage, stale adaptation, source wait, refusal budget, turn state — writes `ok: false, code: "blocked"`. The Keeper was relaying `preparationWaitInstruction`; the instruction was simply invisible. The only visible trace was a disagreement between two counters: the UI step bar counted the block (t4 turn 12: "11 steps, 1 failed"; M-MAIN turn 52: "12 steps, 1 failed") and telemetry counted nothing. The gate now records `reason: "preparation_wait"` with the verb, the proposal name and the retained status, so this class is legible from telemetry alone. **A host block that steers the Keeper is a host decision the run must be able to read back; a gate that returns without a row is a defect in its own right, whatever it blocks.**
+
+**A host instruction says what the Keeper does, never what the Keeper says.** Every instruction that carries host state — the adaptation `service_status` (§36.15), `preparationWaitInstruction` in all its branches, `sourceWaitInstruction` and `sourceMaterialRefusal`'s `fix` (§22) — keeps its operational half (what is unsettled, what already settled, which call reports on it, that the turn must close) and drops every clause naming a sentence for the player. They end instead on one shared clause: do not put the preparation into the fiction, do not ask the player to say their action again, the host tells them itself. The reason is the rule Agents.md already records for error `fix` text: a Keeper executes what it reads, so a host instruction that names a line to deliver *is* the delivery.
+
+**The host owns the service notice.** A delivered turn (`narrate` or `ask`) closed while the host held a preparation wait raises one `coc-delivery` message with `details.preparation_wait = {kind, name?}`, out of fiction and beside the delivery — the same channel and shape as §38.11's commit notice, §34.17's cut-short notice and §42.6's standing-condition notice. It is one authored English caption (`adaptation_wait_notice`, `source_wait_notice`) projected for the table's play language by the words lane (§23); it is not written by the Keeper, not translated by hand, and not switched on by any language test. Said once per delivered turn: the wait itself survives later player inputs (§36.15), the sentence about it does not. The player can therefore tell "I said the wrong thing" from "the product is not ready", because the two arrive on different surfaces.
+
+**A notice re-reads the state at the moment it is sent.** No notice may be composed from a status captured earlier in the turn. An adaptation wait asks `adaptation.status` again and speaks only for `pending`/`reviewing` — strictly narrower than the `ADAPTATION_HELD` set the wait itself uses, because `ready` and `failed` are decisions the Keeper owes an answer to and neither is "still being prepared". A source wait asks the reading service whether that material is still in flight; a `reading_timeout` is the host's own patience ending and never the reader finishing, and the map the foreground waits are registered in is the whole answer. When the re-read says the work is over, or cannot be made at all, the notice is withheld and the decision is recorded (`lane: "delivery"`, `reason: "preparation_wait_notice_withheld"`) rather than softened; a landed notice records `reason: "preparation_wait_notice"`.
+
+**`ready` is not "still preparing", and the instruction must say which it is.** `ADAPTATION_HELD` keeps `ready` and `failed` as waits (§36.15) because the table owes them an answer before it acts. That is a fact about the Keeper's obligations, not about the work, and the two were being collapsed. Retained evidence, campaign `game-ef7545c5` (t7): the only `lane: "adaptation"` row in 785 lines of telemetry is `{"turn":9,"proposal":"圣马丁广场照相馆","status":"ready","held":true}` — the place had been built, reviewed and marked ready — and the player had been told the table was "still checking it against the original book and its connection to the Lima section", with the reading queue reporting `claim_empty` at the same moment. The wait was held for six minutes. The terminal branch of the wait instruction now states, in the same breath as the status, that the job **has finished**, that nothing is still being prepared or running, and that the Keeper must never describe it to the player as pending. A finished job described as unfinished is not loose wording; it is false.
+
+**A notice names one real job, and the host checks that it is that job.** The sentence must point at work that exists and is the work the player is waiting on. Two retained turns show what the absence of that rule produced: on `game-b4cebfe0` the player was told a camera shop was "still having its details checked" while the only reading in flight at that instant (13:14:52.247Z, `read-6`) had `focus: "puno"`, hundreds of kilometres away; on another turn the queue was `claim_empty` with no job at all. So the source notice matches the retained wait's own `focus` and `question` against the in-flight readings and speaks only for an exact match — a different reading in flight is not this one, and no reading in flight is not a wait. An unnamed wait matches nothing.
+
+**A suspension that leaves no telemetry row cannot be diagnosed.** Two separate silences hid this class for a day, and both are closed. (1) The gate block above. (2) `refreshAdaptationWait` recorded only when `held` — the wait as it stood on the way *in* — so the turn on which a wait was **first** taken up, the one turn whose behaviour changes most, wrote nothing at all; it now records whenever a wait stands on either side of the re-read and marks that first one. The general rule: **a host decision that changes what the Keeper may do is a decision the run must be able to read back.**
+
+**What this does not change.** §36.15's turn ownership, job freshness, pin and acceptance semantics are untouched, and so is the audit's `preparation_wait` deferral basis (§37.3): it stays lawful for a turn whose prose does carry a wait line — the settled-receipts branch may still say the additional material is pending — and a turn that carries none defers as `chosen_action`, which needs no host-owned field. No new lane, no new verb, no new foreground model call, and no reading of delivered prose.
+
+## 48. A player-bound message is written by the layer that emits it (2026-09-16)
+
+Four raw English sentences reached players in one day, on four unrelated paths:
+a preparation banner, an upload, a turn transport, and the right-hand sheet. That
+is not four forgotten strings. Service failures had never gone through the
+presentation lane at all, because at each boundary a caught exception's own text
+was copied straight into the `message` §23 shows. The worst named an internal tool
+at the player: the sheet drew a read failure, the generic caption, and under the
+fold `kernel table.view did not answer within 15000 ms`.
+
+The caption being generic is the designed behaviour, not the leak: `internal` is a
+kernel code the product's words do not carry, and §23 renders an unregistered code
+as `errors.unknown`, a gap a player can name. The leak is the fold.
+
+### 48.1 The rule
+
+At every boundary where the product turns a **caught exception** into a
+player-bound failure:
+
+- **The code travels.** It is an identifier from a closed set, and the renderer
+  projects it. A code from a layer below is still a code; it is not rewritten.
+- **This layer's own message travels.** One English sentence belonging to the
+  boundary, the same for every exception that arrives there — never the
+  exception's text. English because every host string is (§23); the player reads
+  the projected caption, and this is the log line behind `errors.details`.
+- **The exception's text is a diagnostic and goes to a sink that already exists.**
+  It is never placed in an answer a renderer reads. A boundary that drops a
+  diagnostic without one has lost it, not moved it, so wiring the sink is part of
+  the fix, not optional.
+- **A refusal this layer minted itself passes whole**, because its sentence was
+  written to be said. The distinction is by **construction, not by content**:
+  `refuse()` brands what it builds (`said: true`), and nothing downstream ever
+  inspects a string to guess whether it reads like a diagnostic. Deciding that by
+  keyword or regex is the hardcoded-semantics ban, and it would also be wrong —
+  a vendor's `Invalid PDF structure.` looks exactly like a sentence for a player.
+
+### 48.2 Where it is applied, and which sink each uses
+
+- `extensions/kernel/client.ts` — a call that never answers now reports to
+  `onDiagnostic`, the sink this client already uses for stderr, protocol noise and
+  restart notices. It was the one failure on the client that reached no sink while
+  its text reached a player. The `KernelError` message is unchanged: internal
+  callers and tool results still read it.
+- `pipicoc/sheet.ts` — the `table.view` catch answers `{code, reason:
+  TABLE_READ_STOPPED}`. The code still travels; the kernel's diagnostic does not,
+  and is kept by the line above.
+- `pipicoc/onboarding-worker.ts` — `reportError` emits its own sentence unless the
+  error carries `said`, and puts the underlying text in `detail`. Two of the four
+  sentences came through this line: `Invalid PDF structure.` from a PDF vendor and
+  `Request timed out.` from a provider SDK, neither written for anyone to read.
+- `Electron/packages/pi-backend/src/coc-onboarding.ts` — a worker that dies with
+  no error event leaves only stderr, and `refuse('interrupted', … || tail || …)`
+  put the last 2000 bytes of it — stack, absolute paths, whatever a vendor printed
+  — in front of the player. That stderr is now appended to the import's own
+  `events.jsonl` as a `diagnostic` event, where the rest of the worker's account
+  already goes, and the refusal carries the host's sentence.
+
+`PREPARATION_STOPPED` is spelled in both the worker and the host because either
+may be the one that has to speak and they are separate programs; that duplication
+is the cost of the process boundary, not a second source of truth.
+
+### 48.3 The trade, stated
+
+Some exceptions from below carry text that would have been useful: a kernel
+refusal saying the turn is closed reads like a sentence written for a player. It
+reads exactly as much like one as `Invalid PDF structure.` does, and a stack
+arrives on the same field. Nothing can tell them apart without inspecting the
+string, which is the hardcoded-semantics ban and would be unreliable anyway.
+
+So the trade is explicit and the replacement is named: **a code from below whose
+refusal deserves a player-facing word earns it by being registered in
+`content/ui/en/errors.json`**, where the lane projects it into every language.
+That is a word for every player rather than one language's sentence for all of
+them. Which kernel codes deserve registering is an open question this section does
+not answer; it is now the only way to answer it.
+
+### 48.4 What this section does not cover
+
+`CocOnboarding.tsx`'s failed/paused fold renders
+`failure(job.error).message || said(failure(job.error))`, which prefers the
+message over the caption and so makes the caption unreachable there whatever the
+producers send. That render site is the story-opening work's, fixed in §46;
+§48 is the producer end only. The two ends are independent, and both were needed:
+a correct message from the producer already improves that fold, and fixing the
+fold alone would still have shown a vendor's stack, because the stack was in the
+`message` too.
+
+Tests: `tests/extension/service-error-text.test.mjs` (the sheet boundary, the
+diagnostic sink, and that an authored refusal passes whole) and
+`Electron/packages/pi-backend/test/coc-onboarding.test.ts` (a real failing inspect,
+and a worker that crashes with nothing but stderr).
+
+## 49. An adapted scene has exits, and the offer always has a way out (2026-09-16)
+
+Six tables walked into a place and could not walk out of it.
+
+On campaign `game-1c0faba5` turn 4 accepted `add_scene "Roxbury Sanitarium"` and
+moved into it. For the next **nineteen turns** `where.exits` was empty, the
+Director's offer carried no `route` row, and the module's seven authored routes —
+including the house the landlord is paying the investigator to enter, whose key is
+already in her pocket — were off the table. Another table asked to leave three
+turns running and was left at the door each time, with the clock at zero.
+
+Two independent causes produce the same silence, and the fix is one guarantee at
+each end: the graph mints the way out, and the offer never has nothing to say
+about it.
+
+### 49.1 `add_scene` mints the way back
+
+`add_scene` minted a node and not one relation. Only `kind: "route"` called
+`edge(...)`, and a `route` the Keeper writes is the Keeper's to aim: on that
+campaign they wrote one for each of two venues and wrote it **inbound** both times
+(`commission-briefing -> Roxbury Sanitarium`, `Roxbury Sanitarium -> South End
+Parish Charity Office`) — the direction that gets the party in. So requiring
+`route` for `new_destination` would not have moved that table at all: the route
+was there.
+
+`adaptedGraph` therefore mints `route-to` from the new scene to its `based_on`
+anchor, in the same `edge()` closure every other adaptation edge uses (it
+deduplicates, so a Keeper-written route in the same direction costs nothing).
+`based_on` is required, always resolves against the **original** graph, and is the
+scene this place was rendered from, so the edge is the one the mint itself can be
+sure of, and it leaves every campaign-minted scene exactly one move from the
+book's own topology. It is a **guarantee of the operation, not a demand on the
+model**, and it adds out-edges only to the node being created: no authored scene's
+exits, capsule or offer changes.
+
+The edge is one-way. Getting *in* already degrades gracefully — `apply move`
+accepts `via` and records `improvised: true` — and a reciprocal edge would put a
+campaign venue into an authored scene's exits and its three-row offer forever.
+Getting *out* did not degrade at all, which is the defect.
+
+Effective graphs are rebuilt from `world.adaptation.records` on every load
+(`campaignModule`), so the guarantee reaches campaigns that were created before
+it. It changes no stored record and no `revision` digest.
+
+### 49.2 The offer never has an empty route pool
+
+`routeRows` filtered `where.exits` down to open ones and returned whatever
+survived — including nothing, silently. Two exits are dropped by that filter, and
+on a scene whose only exit is one of them the Keeper is told nothing at all:
+
+- **`unlock_when.met === false`** — the book holds the door closed.
+- **`material !== "ready"`** — the destination's pages have not been read out of
+  the source PDF yet. This one is not even a closed door: `apply move` puts the
+  destination through `requireMaterial`, which raises `material_pending`, and the
+  host reads it in the foreground and retries. The exit was takeable the whole
+  time. Measured: the same authored start scene of the same module read `material:
+  "ready"` in one campaign and `"missing"` in another, and in the second the
+  scenario's **only** entrance was filtered out of every offer for eleven turns —
+  no roll, no clock minute, no world write, and no word to the Keeper or the
+  player about why.
+
+So when, and only when, the open pool is empty, the offer says which ways exist
+and what stands in each one:
+
+- a `material` row names the operation that clears it: `apply move to <scene>`
+  reads the pages and takes it (`blocked: "material"`);
+- a `locked` row carries the condition that opens it (`blocked: "locked"`);
+- then the retrace rows from `where.back`, which `apply move` already accepts
+  (`from: "where.back"`).
+
+An ordinary scene with any open exit is untouched: this runs only when the pool is
+empty, so nothing is ever ranked beside an open route.
+
+`directorRecovery`'s third rung turns a route row into `apply move`, and it skips
+`blocked: "locked"`: a door the book holds closed is information the Keeper needs,
+never the step the recovery owes. A `material` row stays, because that move is the
+call that makes the place ready.
+
+### 49.3 The three ends (§31)
+
+**Writes it:** `adaptedGraph` mints the edge; `whereSection` already wrote
+`where.exits`, each exit's `material` and `unlock_when`, and `where.back`.
+**Reads it:** `routeRows`, which until now read `where.exits` alone and never
+`where.back` — `where.back` had no reader in the offer lane at all.
+**Acts on it:** the Keeper, through `apply move`, with the operation named on the
+row (§31: the cost and the yield on the same line).
+
+### 49.4 What is deliberately not here
+
+- **`available_clues: []` on a minted scene is not widened here.** A new place may
+  honestly hold nothing, and filling it would be fabrication. The half of that
+  which *was* structural — a campaign scene could never hold a clue at all — is
+  §51's `add_clue`, already landed.
+- **A scene with no exit and an empty trail still yields an empty pool.** That is
+  reachable only from a module whose start scene has no exit at all, which is a
+  module-authoring defect, not a play state a table can walk into.
+
+Tests: `tests/extension/adapted-scene-exits.test.mjs` — a campaign scene entered
+with `via` and left again by the minted edge alone, with the anchor absent from
+`scene_trail` so a retrace cannot be the thing under test; the same over two
+minted scenes; and the three offer shapes above.
+
+## 50. A turn that settled is told, and the notice does not spend the next call (2026-09-16, extends §38)
+
+§38.5 established that a run ending undelivered owes the player a service notice. Retained live
+evidence shows the sentence is not enough, and that sending it costs a turn it should not.
+
+**Retained live evidence** (`playtest-evidence/pipicoc-20260914`, campaign `game-b4cebfe0`, turn 8,
+2026-09-16). Four receipts settled: a campaign-scoped `ruling`, an `npc` stance change, a Swim check
+the investigator **passed** (54 against a target of 70) and a `time` advance of two minutes. The
+continuity review then timed out at 40 814 ms. On disk:
+
+```
+closed_how: null        rendered_text: ""      closed_by: "stranded"
+receipts: ruling:t8-c2 / npc:captain-gould-t8-c2 / roll:swim-t8-c3 / time:t8-c4
+world.clock = {"minutes": 6}
+```
+
+The player's whole turn was one sentence — "this turn could not be published … everything already
+settled is kept" — naming none of it, and one empty bubble. The retry opened turn 9 as a clean turn
+with receipts of its own, correctly (§38.2: a stranded record is inert to every delivery consumer), so
+those four receipts were never told to the player on any turn. **Nothing was lost from the state
+surface and the entire delivery surface was gone.**
+
+**A turn that settled receipts is told what settled.** At `agent_settled`, on the same predicate that
+strands the turn (§38.3) and before the one player notice is chosen, the host reads the kernel's own
+`table.status` and projects that turn's `mechanics` (§16.2) onto the delivery channel: a
+`coc-mechanics` session entry and a `coc:mechanics` bus event, carrying `undelivered: true` so a
+consumer that requires a delivery can still tell the two apart. Once per turn, whatever the cause and
+however many runs end on the same open turn.
+
+- **It is the card, not a narration.** Nothing here writes prose, reads a receipt for meaning, or
+  matches on words; the kernel decides what a row is and what visibility it carries (§16.5), so a
+  keeper-only receipt stays keeper-only exactly as it would on a delivered turn. The rejected draft is
+  still never sent (§34.14), and a second full `narrate` — the step that just failed — is never
+  attempted as a fallback.
+- **An empty card is not sent.** A turn that settled nothing projectable gets no entry, because an
+  empty mechanics card is a visibility verdict of its own. The telemetry row is written either way
+  (`lane: "delivery"`, `reason: "settled_without_delivery"`, `rows`), because zero is a fact about
+  that turn and a lane that wrote nothing cannot be told from one that never ran.
+- **`table.status` gains `labels`**, the §23 glossary a delivery already hands its card, so the one
+  card the player gets for a failed turn is not the one card in the campaign drawn in the system
+  language.
+
+**The notice must not restart the run it is reporting on.** The same retained turn spent a second
+provider call on a `narrate` that failed in 0 ms:
+
+```
+12:34:08.831 lane:continuity-review ok:false continuity_review_unavailable ms:40814
+12:34:08.831 tool:narrate          ok:false continuity_review_unavailable ms:41359
+12:34:08.833 lane:delivery         ok:true  reason:review_unavailable_notice
+12:34:15.328 tool:narrate          ok:false continuity_review_unavailable ms:0
+```
+
+The refused `narrate` already returns `terminate: true`, and the tool batch really does end. What
+continues the run is **the notice itself**. `pi.sendMessage` from an `agent_end` handler, with
+`triggerTurn` left unset, is `agent.steer()` while the run is still streaming, and AgentSession's
+`_handlePostAgentRun` continues that run for precisely that reason ("Any messages here were queued by
+agent_end extension handlers and need a continuation"). A continuation is not a new run, so
+`before_agent_start` never clears `reviewUnavailable` (§38.2) and every verb the Keeper reaches for can
+only be refused by the latched guard. The player pays a provider call for one more empty bubble.
+
+**Every host message that can be sent while the run is still streaming therefore passes
+`triggerTurn: false`.** Two are sent inline from `agent_end` — §38.5's paused-review notice and §8's
+host-placed delivery — and those are the measured case. Two more are scheduled from
+`applyToolSuccess` on a turn that *delivered*, §47's preparation-wait notice and §42.6's
+standing-condition notice, so on a live table they land inside that run and cost one provider call
+each, every turn they are said; the flag says the same thing for them, that a host sentence is not a
+prompt. **Those two are not measured and the seam suite cannot measure them:** each does its own async
+work before sending (a kernel read, a content read) while the faux provider finishes a whole run
+without yielding to the macrotask queue, so in the harness the send always lands after the run. A
+real provider call is seconds of socket I/O and the timer fires mid-run. The notices scheduled from
+`agent_settled` were already outside the run and are unchanged; that is what "keeps `pi.sendMessage`
+outside `agent_settled`" was protecting.
+
+**Three ends (§31).** *Writer:* the host, at `agent_settled`, from the run's own no-delivery facts.
+*Reader:* the delivery channel that draws every turn's card (`coc-mechanics` / `coc:mechanics`, and
+`mechanicsEntry` in the Electron projection, which already filters `visibility: "keeper"` and conceals
+hidden figures). *Actor:* the player, who can see that the dice fell and the clock moved before
+deciding what to say next.
+
+**Acceptance.** A turn that settles a public check and then cannot be delivered produces exactly one
+`coc-mechanics` entry for that turn carrying the check, marked `undelivered`, alongside exactly one
+service notice; a turn that settles nothing projectable produces no entry and still one
+`settled_without_delivery` row with `rows: 0`; and a paused-review run ends on the assistant message
+that called the refused verb, with no continuation behind it
+(`tests/extension/settled-turn-is-told.test.mjs`).
+
+## 51. 叙述交付的线索：记得下，以及记不下时账上留痕（2026-09-16）
+
+三张真桌、六次实例：正文把姓名、日期、一条查证路线、甚至一处全新去处交给了玩家，右栏线索始终没有这条。玩家关掉窗口再回来，这些情报只剩在正文滚动条里；守秘人自己的上下文也靠账重建，于是连他一起丢。
+
+逐回合读证据（`homes/{t9,t4,t5}/.coc/campaigns/*/turns/`）之后，判据只有一条，而它不在守秘人手里：
+
+**`apply clue` 只收模组图上、且 `discoverable-at` 当前场景的线索节点。** 场景的 `clues_here` 为空时，任何记账都返回 `not_here`，守秘人再自觉也落不下账。
+
+- t5《不息的渴望》：`book-1` 的图共 10 个节点，`clue` 一个都没有。11 个回合 `clues_here` 全空——侦查 63/75 通过挖到的、连续 6 个回合复现的水下钟声、第 7 回合 NPC 自己引用它当已知事实，**一条都不可能进线索栏**。这不是守秘人失误，是结构性不可能。
+- t4《鬼屋》：开场 `commission-briefing` 有 4 条授权线索，1–3 回合全部落账；第 5 回合起party在 `Roxbury Sanitarium`，那是 `add_scene` 铸出来的地点，`clues_here: []`，此后 8 个回合 0 条。**「离开开场场景就不再登记」是表象，真因是 adaptation 铸的地点永远装不下线索。**
+- t9《鬼屋》：每个场景都有授权线索，7 条落账正常。只有第 6、11 回合是真正的守秘人漏记——而那两次校验车道都发了 `reveal`，第 11 回合那条甚至指名道姓写着 `chapel-ruins-location`。
+- t6 `game-b4cebfe0`（同一本书的另一次解析，18 个回合）：`active_scene` 自始至终是授权场景 `adventure-begins`，`visited_scenes` 只有它、`scene_trail` 为空、`adaptation.records` 为 0——**世界一步没动**，`clues_here` 全程只有 `handout-1-public-facts` 一条，从没被发现。这一局曾被怀疑是「人跑到书外去了，那里本来就没线索」；`world.json` 否掉了这个解释：地点一次都没换过，窄的是这个授权场景的线索集本身（18 个回合、一条）。顺带记下另一个不属于本节的缺陷：**正文跑出了书，而 locus 一次都没动过**。
+
+所以「叙述与记账是两次独立的决定」这个读法，6 次实例里只解释 2 次；另外 4 次连第二次决定的机会都不存在。本节修两头。
+
+### 51.1 `add_clue`：缺的是生产者（§31 第一端）
+
+adaptation 的封闭操作里有 `add_scene`、`add_npc`、`handout` 三个铸新实体的，`clue_at` 与 `npc_knows` 则只能绑定书上已有的线索。**全系统没有任何一个操作能让一条线索存在。** 而 `add_scene` 铸出的场景带着 `available_clues: []` 出生，于是这条管线每造一处地点，就造出一处永远交代不了任何发现的地方。这是典型的「有消费者没有生产者」：`clues_here`、`apply clue`、`facts.keeper_only` 的未发现清单、玩家线索栏、校验车道的 `reveal` 检测，五个消费端都读它，没人写得进去。
+
+`ADAPTATION_FIELDS` 增加第八个操作：
+
+```
+add_clue: {name, description, scene}
+```
+
+- `scene` 在**改编后**的图上解析，所以同一份提案里可以先 `add_scene` 再把线索挂上去；`new_destination` 因此可以带着自己的发现一起到场。
+- 铸出的节点 `node_kind: "clue"`、`visibility: "revealable"`，并写一条 `discoverable-at` 边——与 `clue_at` 同一条边，`sceneClueIds` 和 `apply clue` 不需要第二套规则。
+- 没有 `based_on`：线索的出处由每条改动都必须带的 `sources`（原始图上的锚点）交代，reviewer 仍逐条判 `supported`。管线不因此获得编造许可。
+
+`PURPOSES` 增加第六项 `new_clue`，要求 `add_clue`，只许 `add_clue` / `clue_at` / `npc_knows`。**已经立着的地点不必为了装下在它里面发现的东西再铸一个自己**——t4 的 Roxbury 就是这种情况：场景第 4 回合已经铸好，线索在第 5–7 回合才浮现，而 `new_destination` 必须带 `add_scene`，`coveredPlace` 又会拒绝重复铸造同一处地方。
+
+创作/复核提示词里「五个 purpose」「七个封闭操作」相应改为六与八；提示词字节进 `contract` 摘要，改了就让未接受的旧任务失效。
+
+### 51.2 铸出来的线索走的是原路
+
+`apply clue` 一个字不改。改编后的图是内核自己按 `world.adaptation.records` 重建的（`campaignModule`），铸出的线索在那张图上与书上的线索没有区别：`clues_here` 列它、`facts.keeper_only` 把它算进未发现清单、收据进 `world.discovered_clues`、`table.view` 的 `clues.discovered` 把它送到玩家面板。
+
+### 51.3 `reveal` 说出它说的是哪条线索
+
+校验车道一直知道。t9 第 11 回合它写的是「未挣得的线索 chapel-ruins-location 被杜利当面指出烧掉的礼拜堂位置」——句子里有 handle，而句子不是主语，没有任何一层读得出来。
+
+`findings[].clue` 作为可选字段加进 §12.5 的形状，**只在 `kind: "reveal"` 上有效**：车道看到的 `facts.keeper_only` 里本来就有 `Undiscovered clue: <handle> -- <摘要>` 这样的行，提示词要求它在揭示的正是其中一条时把那个名字原样抄回来。内核在 `table.warn` 里按本战役的**有效图**（含 adaptation）把它归一成 handle 写进 `warnings` 行；解析不出来的名字只丢这个字段，不丢整条发现（车道猜了个词，它看到的别的东西仍然值钱）。遥测行多一个 `clues: <条数>`。
+
+**这不是关键词识别。** 判断哪句正文交付了哪条线索，自始至终是车道这个模型的语义判断；新增的只是让它把判断的主语说清楚。
+
+### 51.4 胶囊的 `unrecorded`：账上的缺口活过这一回合
+
+`warnings` 只带**最近一个**已提交回合的发现（§12.5），所以一条漏记的线索在守秘人眼前存在一个回合就消失了。t9 第 11 回合发出警告，第 12 回合胶囊带着那句话，守秘人当回合补记了 `chapel-ruins-location`——这条通道是通的，但它只有一回合的寿命。
+
+胶囊新增一节 `unrecorded`（≤ 768 字节），每行：
+
+```
+{clue, turn, quote, operation: "apply clue", line: "turn <n> already told the player this; apply clue <handle> puts it on their sheet"}
+```
+
+按 §31「邀请动作的行，代价和产出写在同一行」：要拼装的信息等于没给，所以下一步就写在这一行上。
+
+来源是所有已提交回合里 `kind: "reveal"` 且带 `clue` 的发现，两个条件同时成立才列出：**该线索仍不在 `discovered_clues`**，且**仍在当前场景的 `sceneClueIds` 里**。因此它有两条自清路径，不需要任何一方去撤销：落一次 `apply clue` 它就没了；party 走出这个场景它也没了——这里找不到的东西在这里也记不下，留着就是一句没有调用支撑的催促。
+
+**它不是义务，也不是 offer。** §31 与 §13.7 禁止的是把「守秘人没拿的 offer」反馈成债；这一节记的不是没做的事，而是**已经做了的事没有对应的账**：正文已经交付，玩家已经知道，只有账目不同意。一个回合本来就该有 0 条这样的行，也本来就该有 0 条线索——**没有可追情报的回合，`unrecorded` 是空的，这是正常状态，不是要求补一条**。全程 advisory：不改状态、不拦交付、不重开回合，2026-09-06 关于校验车道保持 advisory 的裁定（§12.5 末段）不变。
+
+### 51.5 仍然没有修的（查清了，没做）
+
+- **新地点除 `adaptation` 外没有第二条落账通道。** `where.exits` / `affordances` / `places` 全是模组图的只读投影；`apply move` 的 `to` 必须先在图上解析得出；`offerLedger` 的 `route:` 行只读授权的 thread 数据。NPC 嘴里说出的「隔几条街还有一处烧掉的礼拜堂」要成为可去之处，只有 `prepare → draft → review → apply` 这一条重路径。它存在、也确实能用（t4 就是这么铸出 Roxbury 的），t9 只是没走。**这里没有「有通道而没被用上」的隐藏缺口，只有一条对一句 NPC 台词而言偏重的通道。** 要不要给它一条轻路径是产品决定，本节不替它做。
+- **玩家面板没有「去处」这一节。** `table.view` 只回 `scene`、`clock`、`present`、`investigators`、`clues.discovered`、`npcs.journal`；`exits` / `affordances` 只进守秘人胶囊。玩家知道有哪些地方可去，全靠正文。
+- **t5 的模组图本身没有线索节点**（`generation-5` 共 10 个节点：2 scene / 3 npc / 2 rule / 1 handout / 1 vehicle / 1 module，`clue` 零个；唯一的 `discoverable-at` 指向那张手卡），那是阅读/构图管线的产出问题（§22），不在本节范围。同一本书在 t6 的另一次解析里也只抽出一条。`add_clue` 让这样一本书在桌上仍然记得下账，但补不出书里本来就没抽出来的东西。
+- **`unrecorded` 只认车道点了名的 `reveal`。** 车道漏判的（t9 第 7 回合馆员给的四条查证路线、t4 第 4–5 回合疗养院的人名与日期，车道一条 `reveal` 都没发）不会出现在这一节里。这是有意的：本节不新增任何「从正文里认线索」的判断，判断只有车道一个来源；车道的召回是车道的问题（§12.5 末段那份按类计量的复核）。
+
+### 51.6 测试
+
+`tests/extension/narrated-clue-accounting.test.mjs`，走真实内核运行时与真实 adaptation 流程（prepare → draft → review → apply），五条：改编地点带着自己的线索到场且 `apply clue` 落账、已有地点用 `new_clue` 单独补一条线索、`new_clue` 的操作集与必需操作、`reveal` 的 handle 归一（解析不出的只丢字段）、缺口跨回合存活并在 `apply clue` 后自清。变异验证：抽掉 `add_clue` 杀前两条；让 `revealedClue` 恒为 null 杀后两条；把 `unrecorded` 写死成 `[]` 杀最后一条；去掉 `sceneClueIds` 那一半条件杀第一条。
+
+## 52. A group skill is a choice before it is a number (2026-09-16)
+
+A module's rule node reads `pilot_boat: 困难难度驾船 pilot (boat)；每条小艇上只有一名调查员可以投，用以保证小艇不翻`.
+The investigator was an 1895 ferryman. His card had no `Pilot (Boat)` row — only the
+printed `Pilot ( ___ )` group row, sitting at the group's base chance of 1. The
+Keeper settled `Pilot` at hard twice. Six crates went into the water, the skiff went
+over, the investigator ended up under the keel, and the opening motive was gone.
+Swim 70, Navigate 70 and CON 65 were never touched.
+
+Two ends were wrong at once, and this section closes both.
+
+### 52.1 A specialization is derived from the group, not registered by hand
+
+`skills.json` registers group skills two different ways. `Fighting` and `Firearms`
+have a flat catalog row per specialization (`Fighting (Brawl)`, `Firearms (Handgun)`),
+which is the only reason `SkillResolver`'s parenthesis rule can reach them at all.
+`Pilot` and `Survival` have none, and `Science` has three of the thirteen its group
+declares. So `specialization_groups.Pilot.specializations` named `Boat` and nothing
+in the product could turn that into a skill: no chargen, no module, no Keeper and no
+player could put `Pilot (Boat)` on a card, because the identity did not exist.
+
+A group's declared specializations **are** the skill identities of that group.
+`specializationIdentity(groups, skills, phrase)` reads `Group (Member)` — and the
+same words without the parenthesis, which normalize identically — against
+`specialization_groups`:
+
+- A group that enumerates its members admits those and no others. `Pilot (Submarine)`
+  is not a skill; the rules table decides that, never a list in the kernel.
+- A group the rulebook leaves open declares `"open": true` and admits the member the
+  investigator named. Terrain is open, so `Survival` is open. An open member set is
+  never enumerated in code or in data.
+- A specialization the catalog already prints keeps its one identity, under either
+  spelling: `Science (Medicine)` resolves to the flat row `Medicine`, whose declared
+  group is Science. A second identity would leave a card's value behind a name
+  nothing resolves to.
+- A group whose own name already carries a parenthesis keeps the rulebook's nested
+  form, which is the spelling the product already uses: `Language (Other: French)`.
+
+Derivation adds no rows to the catalog: `canonicalNames()` is unchanged, and so is
+every alias in `findInText`, except that a specialization row **on a card** now
+registers its member as an alias, so prose about a boat reaches `Pilot (Boat)` when
+the investigator has it.
+
+Chargen resolves an occupation's phrase the same way, so `Pilot (aircraft)` and
+`Science (Physics)` land on the card with occupation points on them instead of
+falling into `choices_pending` and leaving the blank group row to stand in.
+
+### 52.2 The blank row is not an ability
+
+`Pilot` on a 1920s card is not a skill the investigator has. It is the printed
+player-selected group row — a blank — and its 1% is the cost of never filling it in.
+Settling a check against it is the failure above.
+
+`resolveTarget` therefore asks which row a group skill rolls, before the die:
+
+1. The card carries a row for the requested skill → that row.
+2. The request names the group, and the card carries exactly one specialization of
+   it that carries a value → that specialization, named in the receipt.
+3. The request names the group, the card carries no such specialization, and the
+   group's own row carries a value → that row: one specialization taken and never
+   named, which is what the printed sheet means.
+4. The request names a specialization the card lacks, on a card whose group row
+   carries a value and which carries no other specialization of that group → that
+   row. The value is the investigator's; the request was just more specific than
+   the card. **The receipt names the row that rolled, not the request**: the Keeper
+   sends `Survival (Arctic)` and gets back `skill: "Survival"`, `base_target: 60`,
+   `target_source: "sheet"`, so the substitution is on the mechanics card for the
+   Keeper and the player to see and to argue with. Under 7e this is strictly
+   ambiguous -- that 60 may have been desert, not ice -- but the alternative is a
+   silent drop to the group base of 10, which is the failure this section exists
+   to close, and it would be invisible.
+5. Otherwise → `needs`. The refusal carries the group, the specializations it
+   declares, whether it is open, its base chance, the rows of it the card carries,
+   and the card's own highest values as `details.needs.options`.
+
+**"Carries a value" is the arithmetic on the card, not a reading of the name:** a
+group row above its group's base chance had points spent on it; a row still at the
+base had not. That is what keeps a Military Officer's `Survival 60` rolling while
+Thomas Reed's `Pilot 1` does not, with no list and no guess about what a row means.
+
+A specialization the card lacks is **not** refused: it rolls its own rulebook base,
+because an untrained skill is rollable in CoC 7e. What it never does is roll the
+group row's value wearing the specialization's name. `Pilot (Boat)` at hard on a card
+that lacks it is therefore refused by §45, not by this section — one base chance of
+1, halved, with no face for it on the die.
+
+### 52.3 What this section does not decide
+
+`skills.json`'s `standard_sheet.1920s` also carries `player_selected_group_rows` and
+`fixed_specialization_ids`. Neither has a reader anywhere in `kernel-ts/`,
+`extensions/` or `runtime/` — a §31 first-end seam: `player_selected_group_rows` is
+the authored description of exactly the choice this section is about (`{"group":
+"Pilot", "catalog_skill_id": "Pilot", "base_chance": 1}`), and nothing ever asked a
+player to make it. Connecting it (guided creation asks which vehicle, which terrain,
+which science, and the answer becomes the row) or deleting it are different
+decisions and belong to the product owner, not to this fix.
+
+Likewise, the three blank rows stay in `default_skill_ids`. Removing them would
+change every new 1920s card's interest pool and point distribution, and the frozen
+capture `tests/extension/fixtures/oracle/setup-3.json` records those sheets with
+`"Pilot":1,"Science":1,"Survival":10` in them.
+
+### 52.4 Where this rule does not reach: the chase executor
+
+`kernel-ts/chase/bindings.ts` reads a skill target of its own and this section does
+not guard it. That is deliberate and it is a boundary, not an oversight: the skill
+names on that path come from an **authored** chase feature, not from a Keeper's
+request, so there is no request to repair and no card the Keeper was reading off
+when it chose the name. If an authored chase feature ever names a bare group skill,
+it will still read the group row. Naming the gap here is the point -- an open
+boundary is cheaper than a silent one.
+
+### 52.5 The three ends (§31)
+
+*Writer:* `specialization_groups` in `skills.json` — the rules table, which is the
+book and does not move; and chargen, which writes the specialization row onto a card
+when an occupation names one. *Reader:* `SkillResolver.resolveExplicit` /
+`targetValue` / `findInText`, and `Chargen.catalogName` / `skillBase`. *Actor:* the
+Keeper, which either settles against the row the card really carries or repairs the
+request from `details.group`.
+
+Tests: `tests/extension/specialization-on-the-sheet.test.mjs` (the derivation, the
+open group, the collision with a flat row, the refusal and every rule in 52.2, and
+an occupation's specialization reaching the card),
+`tests/extension/impossible-check.test.mjs` (§45's guard, now written the way §52
+makes the Keeper write it: `Pilot (Boat)`, the skill the module actually named).
+
+## 53. A delivery the player already read keeps the keeper's side of the transcript (2026-09-16)
+
+A custom message can come from either side of the table. The host writes the keeper's
+opening and the deliveries it places itself (§34.18's held `renderedText`, the service
+notices of §38); it also injects messages that stand in for the player's own turn. Only
+the channel the entry arrived through can say which — the text cannot, because a delivery
+and a player's line are both prose in the play language, and no rule may read the words to
+decide.
+
+The speaker is therefore decided once, from the channel, and every projection of that entry
+reads the one answer: the live `entry_appended` stream and every later re-read of the file
+must name the same speaker for the same entry, and a renderer must use the name it was given
+rather than deciding again.
+
+This is load-bearing because the transcript treats the two sides differently on purpose — a
+player's own message is previewed at five lines, a delivery folds against the §16.6 card that
+draws it, and only a player's message offers resend. A delivery named as the player's is
+therefore silently shortened: t9 turn 36 (2026-09-16) came back as three of six paragraphs,
+cut on a full stop, and the paragraph it dropped was the answer the table had just won an
+extreme success for. What the player has already been given is not taken back on the second
+look.

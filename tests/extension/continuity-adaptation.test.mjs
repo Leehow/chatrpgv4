@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {after, test} from 'node:test';
-import {mkdtemp, mkdir, readFile, writeFile} from 'node:fs/promises';
+import {cp, mkdtemp, mkdir, readdir, readFile, symlink, writeFile} from 'node:fs/promises';
 import {join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {build} from 'esbuild';
@@ -10,25 +10,64 @@ const evidence = join(root, '.coc/playtests/continuity-contracts');
 await mkdir(evidence, {recursive: true});
 const directory = await mkdtemp(join(evidence, 'suite-'));
 await writeFile(join(directory, 'classification.json'), JSON.stringify({kind: 'contract-fixture', live_play: false, model_calls: 0}));
-await build({stdin: {contents: `export {createKernelContext} from './kernel-ts/context.ts'; export {nativeAdvisoryLocks} from './kernel-ts/native-locks.ts'; export {createKernelRuntime} from './kernel-ts/registry.ts'; export {ModuleGraph} from './kernel-ts/read/module-graph.ts'; export {ModuleStore} from './kernel-ts/modules/store.ts'; export {ensureCampaignModule,moduleContext} from './kernel-ts/modules/campaign-scope.ts'; export {loadModule,loadCampaignModule} from './kernel-ts/read/campaign.ts'; export {report as mergeReport} from './kernel-ts/worldline/confluence-plan.ts'; export {continuityView} from './kernel-ts/read/continuity.ts'; export {storyAssessmentContext,storyReentry} from './kernel-ts/read/story.ts'; export {threadSection} from './kernel-ts/read/thread.ts'; export {normalizeChanges,adaptedGraph} from './kernel-ts/adaptation/graph.ts'; export {auditSourceEvidence} from './kernel-ts/mods/audit-source.ts';`, resolveDir: root, sourcefile: 'test-api.ts'},
+await build({stdin: {contents: `export {createKernelContext} from './kernel-ts/context.ts'; export {nativeAdvisoryLocks} from './kernel-ts/native-locks.ts'; export {createKernelRuntime} from './kernel-ts/registry.ts'; export {ModuleGraph} from './kernel-ts/read/module-graph.ts'; export {ModuleStore} from './kernel-ts/modules/store.ts'; export {ensureCampaignModule,moduleContext} from './kernel-ts/modules/campaign-scope.ts'; export {loadModule,loadCampaignModule} from './kernel-ts/read/campaign.ts'; export {report as mergeReport} from './kernel-ts/worldline/confluence-plan.ts'; export {continuityView} from './kernel-ts/read/continuity.ts'; export {storyAssessmentContext,storyReentry} from './kernel-ts/read/story.ts'; export {threadSection} from './kernel-ts/read/thread.ts'; export {normalizeChanges,adaptedGraph} from './kernel-ts/adaptation/graph.ts'; export {auditSourceEvidence} from './kernel-ts/mods/audit-source.ts'; export {CONTINUITY_AUDIT} from './kernel-ts/mods/audit-result.ts';`, resolveDir: root, sourcefile: 'test-api.ts'},
     outfile: join(directory, 'api.mjs'), bundle: true, packages: 'external', platform: 'node', format: 'esm', logLevel: 'silent'});
 const api = await import(pathToFileURL(join(directory, 'api.mjs')).href);
 const closers = []; after(async () => {for (const close of closers) await close();});
 const raw = JSON.parse(await readFile(join(root, 'content/starters/the-haunting/module-graph.json'), 'utf8'));
 const graph = new api.ModuleGraph('the-haunting', raw, 'test', {});
 
-async function table(input = 'I want to understand how these events connect.') {
+/**
+ * The real materializer, renamed so this suite installs its own copy: the package whose ordinary
+ * work -- defining an object, placing it, giving it a usage -- is what moved under campaign
+ * `game-ef7545c5` while it waited. Built once; only the tests that need it install it.
+ */
+const materializer = await (async () => {
+    const path = join(directory, 'materializer');
+    await cp(join(root, 'mods/enhanced-items'), path, {recursive: true});
+    const manifest = JSON.parse(await readFile(join(path, 'mod.json'), 'utf8'));
+    manifest.id = 'adaptation-items-fixture'; manifest.version = '1.0.0';
+    manifest.requires = [...new Set([...manifest.requires, 'objects.usages.v1', api.CONTINUITY_AUDIT])];
+    manifest.contributes = {materializer: 'creator.md', auditor: 'auditor.md'};
+    await writeFile(join(path, 'mod.json'), JSON.stringify(manifest));
+    return {path, id: manifest.id, version: manifest.version};
+})();
+
+/**
+ * A content root this suite owns, for the one term of the freshness pin that lives on disk rather
+ * than in the campaign: the adaptation instructions. Every entry of the repo's `content/` is reached
+ * through a symlink, so the kernel reads the real tree and this suite cannot write to it; only
+ * `adaptation/` is a real copy, and it is the only thing a test here may edit. The repository's own
+ * `content/adaptation/create.md` and `review.md` are never touched -- other sessions and live tables
+ * are reading that tree.
+ */
+async function ownedContent() {
+    const path = await mkdtemp(join(directory, 'content-'));
+    for (const entry of await readdir(join(root, 'content')))
+        if (entry !== 'adaptation') await symlink(join(root, 'content', entry), join(path, entry));
+    await cp(join(root, 'content/adaptation'), join(path, 'adaptation'), {recursive: true});
+    return path;
+}
+
+async function table(input = 'I want to understand how these events connect.', {mods = false, content = join(root, 'content')} = {}) {
     const home = await mkdtemp(join(directory, 'campaign-'));
-    const context = await api.createKernelContext({workspace: home, content: join(root, 'content'), seed: 'continuity', locks: api.nativeAdvisoryLocks(),
+    const context = await api.createKernelContext({workspace: home, content, seed: 'continuity', locks: api.nativeAdvisoryLocks(),
         env: {...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1'}});
     const runtime = api.createKernelRuntime(context); closers.push(() => runtime.close());
     const call = (method, params = {}) => runtime.handlers[method]({campaign: 'c1', ...params});
     await call('campaign.create', {id: 'c1', module: 'the-haunting', pregen: 'thomas-hayes', play_language: 'en'});
+    if (mods) {
+        await call('mods.install', {path: materializer.path});
+        await call('mods.configure', {id: materializer.id, version: materializer.version, enabled: true});
+    }
     await call('table.open');
     await call('table.narrate', {call_id: 't0-c1', text: 'The investigator hears the commission.'});
     await call('table.player_input', {text: input});
+    const partyDir = join(home, '.coc/campaigns/c1/party');
+    const sheetPath = async () => join(partyDir, (await readdir(partyDir)).find(name => name.endsWith('.json')));
     const world = () => readFile(join(home, '.coc/campaigns/c1/world.json'), 'utf8').then(JSON.parse);
-    return {home, context, runtime, call, world};
+    const sheet = async () => JSON.parse(await readFile(await sheetPath(), 'utf8'));
+    return {home, context, runtime, call, world, sheet, sheetPath};
 }
 async function prepare(t, name = 'New witness route', changes, purpose = 'new_destination') {
     const starting = graph.startScene(), clue = graph.nodes.get(graph.sceneClueIds(starting)[0]);
@@ -291,6 +330,202 @@ test('an honest wait-only turn does not stale retained adaptation work', async (
     assert.equal((await t.call('adaptation.status', {name: p.name})).status, 'ready');
     const accepted = await t.call('table.apply', {call_id: 't2-c1', effects: [{kind: 'adaptation', name: p.name}]});
     assert.ok(accepted.receipts.some(value => value.startsWith('adaptation:')));
+});
+
+/**
+ * §36.15 freshness. The pin is the world the review was shown plus `world.adaptation`; the engine's
+ * own bookkeeping underneath it is not. This list is written out here rather than imported so that
+ * narrowing the kernel's own list has to fail a test instead of quietly agreeing with itself.
+ */
+const PINNED_WORLD = ['active_scene', 'visited_scenes', 'scene_trail', 'discovered_clues', 'flags', 'clock', 'npc_presence', 'handouts_shown', 'adaptation'];
+const movedKeys = (before, after) => [...new Set([...Object.keys(before), ...Object.keys(after)])]
+    .filter(key => JSON.stringify(before[key] ?? null) !== JSON.stringify(after[key] ?? null)).sort();
+const voice = {mask: 'Ends every answer with a short question.', exchanges: ['Asks what the money is for.', 'Names the street before the man.', 'Repeats the last word back.']};
+
+test('a reviewed proposal survives the Mod bookkeeping that moves under a waiting table', async () => {
+    const t = await table(), p = await prepare(t); await review(t, p);
+    const before = await t.world();
+    // The npc-voice lane runs on its own schedule, writes one dossier into the package namespace,
+    // and settles no fiction: no receipt, no clue, no time. On campaign game-ef7545c5 this exact
+    // write turned a `ready` proposal into a `stale` one within the same turn, so every preparation
+    // that outran its foreground wait met one of these and died.
+    const job = await t.call('voice.job', {});
+    assert.ok(job.job_id, 'npc-voice is active on an ordinary campaign, so its writes are ordinary too');
+    await t.call('voice.submit', {job_id: job.job_id, voice});
+    const after = await t.world();
+    assert.deepEqual(movedKeys(before, after), ['mods'], 'the lane moved bookkeeping and nothing the review was shown');
+    assert.deepEqual(PINNED_WORLD.filter(key => movedKeys(before, after).includes(key)), []);
+    assert.equal((await t.call('adaptation.status', {name: p.name})).status, 'ready');
+    await t.call('table.narrate', {call_id: 't1-c1', text: 'Preparation continues; no fictional event has happened.'});
+    await t.call('table.player_input', {text: 'Use the same proposal if it is ready.'});
+    assert.equal((await t.call('adaptation.status', {name: p.name})).status, 'ready', 'the lane write does not cross the turn boundary either');
+    const accepted = await t.call('table.apply', {call_id: 't2-c1', effects: [{kind: 'adaptation', name: p.name}]});
+    assert.ok(accepted.receipts.some(value => value.startsWith('adaptation:')));
+});
+
+/**
+ * The half that matters. Each row moves exactly the world the review read, through the real effect
+ * that moves it, and nothing else in the pinned set: a pin that dropped that one field would accept
+ * a proposal against a world contradicting its own evidence, and this is where that shows up.
+ */
+for (const [what, effect, expected] of [
+    ['a clue the review saw undiscovered is found', () => ({kind: 'clue', clue: graph.handle(graph.nodes.get(graph.sceneClueIds(graph.startScene())[0]))}), ['discovered_clues']],
+    ['a flag the review read is set', () => ({kind: 'flag', name: 'ritual-stopped', value: true, why: 'An already chosen action set it.'}), ['flags']],
+    ['a person the review placed moves away', () => ({kind: 'npc', name: graph.handle(graph.nodes.get(graph.sceneNpcIds(graph.startScene())[0])), to: 'away', why: 'They left before the proposal landed.'}), ['npc_presence']],
+    ['a handout the review read as unshown is handed over', () => ({kind: 'handout', name: 'handout-the-haunting-handout-1-knott-commission', why: 'The employer produced it.'}), ['handouts_shown']],
+    ['the clock the review read advances', () => ({kind: 'time', minutes: 1, why: 'An already chosen action took time.'}), ['clock']]
+]) test(`a reviewed proposal is still refused when ${what}`, async () => {
+    const t = await table(), p = await prepare(t); await review(t, p);
+    const before = await t.world();
+    await t.call('table.apply', {call_id: 't1-c1', effects: [effect()]});
+    const after = await t.world();
+    assert.deepEqual(PINNED_WORLD.filter(key => movedKeys(before, after).includes(key)), expected,
+        'the case has to isolate the one field, or dropping it from the pin would still pass');
+    await assert.rejects(t.call('table.apply', {call_id: 't1-c2', effects: [{kind: 'adaptation', name: p.name}]}),
+        e => e.details?.reason === 'adaptation_stale');
+    assert.equal(JSON.stringify(await t.world()), JSON.stringify(after), 'a refused acceptance writes nothing');
+});
+
+test('a reviewed proposal is still refused when the party reaches the scene it would have rewritten', async () => {
+    const t = await table(), p = await prepare(t); await review(t, p);
+    const exit = graph.sceneExits(graph.startScene())[0];
+    assert.ok(exit, 'the starter module has somewhere to go');
+    const before = await t.world();
+    await t.call('table.apply', {call_id: 't1-c1', effects: [{kind: 'move', to: exit.to, why: 'The player chose to go there.'}]});
+    const after = await t.world();
+    // `move` writes the three scene fields together; the clock only moves when the edge costs time.
+    assert.deepEqual(PINNED_WORLD.filter(key => movedKeys(before, after).includes(key)).filter(key => key !== 'clock'),
+        ['active_scene', 'visited_scenes', 'scene_trail']);
+    await assert.rejects(t.call('table.apply', {call_id: 't1-c2', effects: [{kind: 'adaptation', name: p.name}]}),
+        e => e.details?.reason === 'adaptation_stale');
+});
+
+test('a reviewed proposal is still refused when another adaptation was accepted under it', async () => {
+    const t = await table();
+    const starting = graph.startScene();
+    const first = await prepare(t, 'First venue', [{kind: 'add_scene', name: 'Harbor guesthouse', description: 'A guesthouse where the same case can be discussed.',
+        based_on: graph.handle(starting), sources: [graph.handle(starting)], reason: 'The investigator chose to visit the harbor.'}]);
+    await review(t, first);
+    const second = await prepare(t, 'Second venue', [{kind: 'add_scene', name: 'Harbor chapel', description: 'A chapel beside the same wharf.',
+        based_on: graph.handle(starting), sources: [graph.handle(starting)], reason: 'The investigator also named the chapel.'}]);
+    await review(t, second);
+    const before = await t.world();
+    await t.call('table.apply', {call_id: 't1-c1', effects: [{kind: 'adaptation', name: first.name}]});
+    const after = await t.world();
+    // `adaptation` is the one pinned field the focus row does not carry raw -- the review reads it as
+    // `prior_changes` -- and it is the graph every normalized change was built on top of.
+    assert.deepEqual(PINNED_WORLD.filter(key => movedKeys(before, after).includes(key)), ['adaptation']);
+    await assert.rejects(t.call('table.apply', {call_id: 't1-c2', effects: [{kind: 'adaptation', name: second.name}]}),
+        e => e.details?.reason === 'adaptation_stale');
+});
+
+/**
+ * The second door. Narrowing the world alone was not enough: the item registry is mirrored onto the
+ * sheet, so the same background write that stopped moving `world.objects` still moved `party`. This
+ * is the registration the materializer actually performs -- define, place, give it a usage -- and on
+ * campaign `game-ef7545c5` it happened on turns 4, 5 and 6, each an honest wait-only narrate.
+ */
+async function registerObject(t, {item, placed}) {
+    const definition = {name: item, category: 'item', description: 'A solid wooden chair.', basis: 'Present in this contract fixture.',
+        parameters: {charges: null, effects: []}, player_view: {description: 'A solid wooden chair.', fields: []}};
+    const created = await t.call('mods.job', {role: 'create', input: {name: item, category: 'item', description: definition.description}});
+    assert.equal(created.enabled, true, 'the materializer is active, so its writes are ordinary table bookkeeping');
+    await writeFile(join(created.cwd, 'result.json'), JSON.stringify(definition));
+    const accepted = await t.call('mods.accept', {job: created.job});
+    await t.call('table.apply', {call_id: 't1-c1', effects: [
+        {kind: 'define', name: item, category: 'item', _definition: accepted.definition, _provenance: accepted.provenance},
+        {kind: 'object', name: placed, definition: item, to: (await t.sheet()).name}]});
+    const value = {name: 'swing', description: 'Swing the retained wooden chair.', basis: 'The recorded solid wooden frame.', mode: 'melee',
+        parameters: {skill: 'Fighting (Brawl)', damage: '1D6', base_range_yards: null, uses_per_round: 1, magazine: null, malfunction: null, impale: false, adds_damage_bonus: true},
+        player_view: {description: 'A wooden chair used to strike.', fields: ['skill', 'damage']}};
+    const input = {object: placed, name: value.name, description: value.description};
+    const job = await t.call('mods.job', {role: 'usage', input});
+    if (!job.accepted) await writeFile(join(job.cwd, 'result.json'), JSON.stringify(value));
+    await t.call('table.apply', {call_id: 't1-c2', effects: [{kind: 'usage', ...input, _usage: await t.call('mods.accept', {job: job.job})}]});
+}
+
+const REVIEWED_PARTY = ['name', 'occupation'];
+
+test('a reviewed proposal survives the item registration that moves the sheet under a waiting table', async () => {
+    const t = await table(undefined, {mods: true}), p = await prepare(t); await review(t, p);
+    const beforeWorld = await t.world(), beforeSheet = await t.sheet();
+    await registerObject(t, {item: 'Chair frame', placed: 'Study chair'});
+    const afterWorld = await t.world(), afterSheet = await t.sheet();
+    // The registry and its mirror both moved, and nothing the review was shown did: this is the case
+    // that pins the sheet-side narrowing, so it has to fail if either half of the pin widens again.
+    assert.ok(movedKeys(beforeWorld, afterWorld).includes('objects'), 'the item registry moved');
+    assert.deepEqual(PINNED_WORLD.filter(key => movedKeys(beforeWorld, afterWorld).includes(key)), []);
+    assert.deepEqual(movedKeys(beforeSheet, afterSheet), ['equipment', 'weapons'], 'the sheet mirrored the registry and moved nothing else');
+    assert.deepEqual(REVIEWED_PARTY.filter(key => movedKeys(beforeSheet, afterSheet).includes(key)), []);
+    assert.equal((await t.call('adaptation.status', {name: p.name})).status, 'ready');
+    // Saving the investigator to the library mints `origin` on the same sheet and settles no fiction
+    // either; it is the same class of write and must not end the proposal.
+    await t.call('investigator.save', {investigator: beforeSheet.id});
+    assert.ok((await t.sheet()).origin, 'the save wrote the sheet');
+    await t.call('table.narrate', {call_id: 't1-c3', text: 'Preparation continues; no fictional event has happened.'});
+    await t.call('table.player_input', {text: 'Use the same proposal if it is ready.'});
+    assert.equal((await t.call('adaptation.status', {name: p.name})).status, 'ready', 'neither write crosses the turn boundary either');
+    const accepted = await t.call('table.apply', {call_id: 't2-c1', effects: [{kind: 'adaptation', name: p.name}]});
+    assert.ok(accepted.receipts.some(value => value.startsWith('adaptation:')));
+});
+
+test('a reviewed proposal is still refused when the party the review was shown is no longer that party', async () => {
+    const t = await table(), p = await prepare(t); await review(t, p);
+    const path = await t.sheetPath(), sheet = await t.sheet();
+    // The sheet on disk is where the party lives, and its occupation is half of what the task put in
+    // front of the review. No effect in play rewrites it, so the test moves the stored row itself --
+    // which is exactly the out-of-band change the party term of the pin exists to catch.
+    await writeFile(path, JSON.stringify({...sheet, occupation: 'Harbor pilot'}));
+    const before = JSON.stringify(await t.world());
+    await assert.rejects(t.call('table.apply', {call_id: 't1-c1', effects: [{kind: 'adaptation', name: p.name}]}),
+        e => e.details?.reason === 'adaptation_stale');
+    assert.equal(JSON.stringify(await t.world()), before, 'a refused acceptance writes nothing');
+    await writeFile(path, JSON.stringify({...sheet, name: 'Someone else entirely'}));
+    await assert.rejects(t.call('table.apply', {call_id: 't1-c2', effects: [{kind: 'adaptation', name: p.name}]}),
+        e => e.details?.reason === 'adaptation_stale');
+});
+
+/**
+ * The fourth term of the same freshness conjunction, and the only one that does not live in the
+ * campaign: `contract = digest([create.md, review.md, ADAPTATION_FIELDS])`. A proposal is drafted
+ * under one set of instructions and judged under another, so improving either prompt -- the ordinary
+ * reason anyone edits these files -- must end every proposal already in flight rather than relabel
+ * it as reviewed work. Nothing moves in the campaign here: the world, the party and the source are
+ * all exactly what the review was shown, and the single byte that changed is on disk in a prompt.
+ */
+for (const role of ['create', 'review']) test(`a reviewed proposal is still refused when the ${role} instructions it was drafted under changed`, async () => {
+    const content = await ownedContent();
+    const t = await table(undefined, {content}), p = await prepare(t); await review(t, p);
+    assert.equal((await t.call('adaptation.status', {name: p.name})).status, 'ready');
+    const before = await t.world(), beforeSheet = await t.sheet();
+    const prompt = join(content, 'adaptation', `${role}.md`);
+    await writeFile(prompt, `${await readFile(prompt, 'utf8')}\n\nAlso name the street the new place stands on.\n`);
+    // The case has to isolate the one term, or dropping it from the pin would still pass: no world
+    // field the review read moved, the party it was shown is the same party, and the module source
+    // behind it never republished.
+    assert.deepEqual(movedKeys(before, await t.world()), []);
+    assert.deepEqual(movedKeys(beforeSheet, await t.sheet()), []);
+    await assert.rejects(t.call('table.apply', {call_id: 't1-c1', effects: [{kind: 'adaptation', name: p.name}]}),
+        e => e.details?.reason === 'adaptation_stale');
+    assert.equal(JSON.stringify(await t.world()), JSON.stringify(before), 'a refused acceptance writes nothing');
+    assert.equal((await t.call('adaptation.status', {name: p.name})).status, 'stale',
+        'the proposal is finished, not relabelled as reviewed work drafted under instructions it never read');
+    assert.equal(await readFile(join(root, 'content/adaptation', `${role}.md`), 'utf8').then(text => text.includes('Also name the street')), false,
+        'the repository content tree is reached through symlinks and stays untouched');
+});
+
+test('the world the pin protects is the world the task put in front of the review', async () => {
+    const t = await table(), p = await t.call('adaptation.prepare', {name: 'Focus surface', purpose: 'new_destination',
+        request: 'Carry existing evidence to a guesthouse.', anchors: [graph.startScene().name]});
+    const focus = JSON.parse(await readFile(join(p.task.cwd, 'focus.json'), 'utf8')), world = await t.world();
+    assert.deepEqual(Object.keys(focus.world).sort(), PINNED_WORLD.filter(key => key !== 'adaptation' && world[key] != null).sort(),
+        'every world field the review is shown is a field that stales the job, and no other is shown');
+    assert.ok(Object.keys(focus.world).length >= 6 && !Object.keys(focus.world).includes('mods'));
+    // The same equality on the party half, so the sheet cannot quietly become the pin again.
+    assert.ok(focus.party.length >= 1);
+    for (const actor of focus.party) assert.deepEqual(Object.keys(actor).sort(), [...REVIEWED_PARTY].sort());
+    const sheet = await t.sheet();
+    assert.deepEqual(focus.party.find(actor => actor.name === sheet.name), {name: sheet.name, occupation: sheet.occupation ?? null});
 });
 
 test('uncertain, incomplete and tampered reviews never authorize an adaptation; cancellation is durable', async () => {

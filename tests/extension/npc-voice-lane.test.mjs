@@ -110,6 +110,12 @@ async function openVoice(t, { env = {}, people = [], responses = [], rpc, mode =
 }
 
 const completed = (table, count = 1) => waitFor(() => table.rows().length >= count, { label: `voice telemetry ${count}` });
+/**
+ * 等第 `count` 次 `voice.job`。遥测行不是它的替身：一行是 `record()` 里 `await appendJsonl` 落盘，
+ * 下一次 `voice.job` 要等那次 I/O 的完成回调回到事件循环之后才发出。整套跑起来时，轮询这一侧
+ * 看得见磁盘上的行、而车道那一侧还没被调度回来——断言 `voice.job` 的次数就必须等 `voice.job`。
+ */
+const asked = (table, count) => waitFor(() => table.calls("voice.job").length >= count, { label: `voice.job ${count}` });
 
 test("a committed turn drains the queue, one job per person, on a closed packet that carries no id", async (t) => {
 	let seen;
@@ -120,6 +126,7 @@ test("a committed turn drains the queue, one job per person, on a closed packet 
 	table.commit(1);
 	await completed(table, 2);
 	// Three asks: two people and the kernel's `job_id: null`, which is what ends a drain.
+	await asked(table, 3);
 	assert.deepEqual(table.calls("voice.job").map(row => row.params), Array(3).fill({ campaign: "camp" }));
 	assert.deepEqual(table.calls("voice.submit").map(row => row.params), [
 		{ campaign: "camp", job_id: "voice:camp:steven-knott", voice: { mask: "自称俺，句尾带「呗」。", exchanges: ["你是谁？ → 没什么好说的。", "雨大。 → 大就大呗。", "地窖呢？ → 你问这个干什么？"] } },
@@ -234,6 +241,9 @@ for (const budget of ["unset", "0", "5"]) {
 		}
 		await completed(table);
 		await table.hook("agent_settled");
+		// Wait for the ask that ends the drain, then hold still: the settle is what gives a
+		// spurious third ask its chance, so the count below stays an upper bound too.
+		await asked(table, 2);
 		await settle(60);
 		// One drain: the person, then the kernel's `job_id: null`, and the budget is not spent again.
 		assert.deepEqual(table.calls("voice.job").map(row => row.params), Array(2).fill({ campaign: "camp", backfill: true }));

@@ -162,6 +162,11 @@ interface TableState {
 	 * player: it is a named job with its own control verb (`lookup kind=adaptation action=status`), so the
 	 * Keeper can always find out where it stands. A source reading has no such verb and is not put here. */
 	preparationWait?: { kind: "adaptation"; name?: string; status?: string };
+	/** §36.15: a named proposal the kernel has reported `stale`. It is not a wait — the job is over, it
+	 * holds nothing back, and the table is free the moment the Keeper has been told. Armed by the
+	 * turn-boundary refresh and spent on the first tool call of the turn, which is refused once so the
+	 * call that revives the proposal is read before the turn is spent waiting for it again. */
+	adaptationStale?: { name: string };
 	/** Contract §22: one unread piece of source material, named. An unread page is a fact about that
 	 * material, not about the campaign, so this never blocks a verb — it only supplies the Keeper's
 	 * wording, the audit's `preparation_wait` basis, and the steer that closes this turn. It dies with
@@ -182,6 +187,9 @@ interface TableState {
 	readingRefused: Map<string, unknown>;
 	/** A host note owed to the Keeper at agent_end rather than delivered as prose. */
 	deliveryFix?: { kind: string; text: string };
+	/** §47: the turn whose delivery already carried the host's preparation-wait notice. The wait
+	 * itself survives later inputs (§36.15); the sentence about it is said once per delivered turn. */
+	waitNoticeTurn?: number;
 	/** A review operation stopped; only genuine new player input can start a linked retry. */
 	reviewUnavailable?: string;
 	/** Which kind of pause that was (§38.9): a service outage, or the reviewer reaching a conclusion.
@@ -320,6 +328,9 @@ interface TableState {
 	/** The options of the `ask` that closed the last turn, and, once the next input arrives, the ones this turn answers (contract §32.1). */
 	lastAsk?: string[];
 	answering?: string[];
+	/** §50: the turn whose settled facts have already been projected for an undelivered run. One
+	 *  card per turn, whatever the cause and however many runs end on it. */
+	settledToldTurn?: number;
 }
 
 const CLOSED_STATES: ReadonlySet<TurnState> = new Set<TurnState>(["awaiting_player", "committed", "asked"]);
@@ -350,6 +361,13 @@ function providerNoticeAfterMs(): number {
 	const configured = Number(process.env.PI_COC_PROVIDER_NOTICE_MS);
 	return configured > 0 ? configured : PROVIDER_OUTAGE_NOTICE_MS;
 }
+/**
+ * Adaptation statuses the host keeps as a `preparationWait` (§36.15). `pending`/`reviewing` are work in
+ * flight; `ready` and `failed` are decisions the table owes an answer to before it acts. Everything else
+ * — `stale`, `cancelled`, `accepted`, `none` — is over, and an over job is not a wait: it holds nothing
+ * back and must not be described as running.
+ */
+const ADAPTATION_HELD = ["pending", "reviewing", "ready", "failed"];
 /** Receipt kinds that discharge an owed recovery; mirrors `RECOVERY_TAKES` in kernel-ts/read/offer.ts. */
 const RECOVERY_RECEIPT_KINDS = new Set(["clue", "move", "npc", "session", "handout", "map", "item"]);
 /** The one host steer of the turn floor (docs/specs/turn-floor.md D4), sent when a turn is about to close on prose alone. */
@@ -610,6 +628,23 @@ function refusalDetail(error: unknown): string | undefined {
 }
 
 /**
+ * Contract §47. The one sentence every host-state instruction ends on, and the reason the Keeper
+ * no longer writes the wait into the fiction: the host owns the service notice, and it owns it because
+ * it is the only party that can re-read the state at the moment the player is told.
+ *
+ * Three live tables on 2026-09-16 delivered the same failure in the Keeper's own voice. On
+ * `game-1c0faba5` turn 3 the refusal the player was actually given was `action_not_authorized` — the
+ * move destination was not registered — and the Keeper explained it with the *preparation* status it
+ * had read 20 s earlier, then asked the player to say it again, which the admission `fix` expressly
+ * forbids. On `game-b4cebfe0` turns 2 and 3 a `reading_timeout` became a sentence inside the scene
+ * ("this part of the source is still being prepared, the boat cannot land"), and the reading finished
+ * seconds after. The two paths are separate instructions but one seam: a host instruction that tells
+ * the Keeper what to *say* turns host state into fiction, and stale fiction at that.
+ */
+const HOST_SAYS_THE_WAIT = " Do not put this preparation into the fiction at all, and do not ask the player to say their action again:"
+	+ " the host itself tells them, out of fiction and beside the delivery, with the state re-read at the moment it is sent.";
+
+/**
  * Contract §22. The reading service's own refusal is addressed to the host ("request the same reading
  * with retry: true", "the reader host shut down"): it names no material and offers the Keeper nothing
  * it can act on. Once the host has spent its one automatic repair, the Keeper gets this instead — which
@@ -630,7 +665,7 @@ function sourceMaterialRefusal(failure: unknown, read: Record<string, unknown>):
 		message: failure.message,
 		fix: `Only the source material${named} is unavailable: whatever this turn already settled with a receipt did happen and is narrated as usual, and nothing else at this table is blocked.`
 			+ " What the investigators already carry, whoever is already on stage, the scenes and people the graph already knows, and ordinary narration all settle as usual, with their own receipts."
-			+ " Settle whatever the player's own action can reach without it, tell the player plainly that this one thing is still being prepared, and return control so they can act on something else."
+			+ ` Settle whatever the player's own action can reach without it and return control so they can act on something else.${HOST_SAYS_THE_WAIT}`
 			+ ` Do not send this read again this turn and do not narrate what${named ? ` ${focus}` : " the unread material"} would have said;`
 			+ " on a later player turn, retry the original action or lookup kind=source with the exact focus and question in details.read; do not invent another question",
 		details: { ...failure.details, reason,
@@ -738,7 +773,8 @@ export default function (pi: ExtensionAPI) {
 	// A background projection has written this tag's captions (contract §23): drop the authored
 	// words this extension was standing on, so the next line it notifies with is the player's.
 	pi.events.on("coc:ui-words", (data) => { surface.refresh((data as { tag?: unknown } | undefined)?.tag); });
-	let reading: { ensure(moduleId: string, params: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> } | undefined;
+	let reading: { ensure(moduleId: string, params: Record<string, unknown>, signal?: AbortSignal): Promise<unknown>;
+		reading?(moduleId: string, params: Record<string, unknown>): boolean } | undefined;
 	let readingModule: string | undefined;
 	/** Contract §28.9: the build-skew notice is the operator's, once per session, not once per reopen. */
 	let modSkewNotified = false;
@@ -1191,7 +1227,7 @@ export default function (pi: ExtensionAPI) {
 	 * it. It is never injected into the prose: the TUI shows only what the Keeper wrote.
 	 */
 	function noteMechanics(state: TableState, turn: number, mechanics: Array<Record<string, unknown>>,
-		markedText?: string, labels?: unknown, speech?: unknown[]): void {
+		markedText?: string, labels?: unknown, speech?: unknown[], extra?: Record<string, unknown>): void {
 		// §40.2: a delivery may mark say spans and no mechanics at all, and that turn still owes the
 		// host an entry -- the card colours its speakers from this one.
 		const spoken = Array.isArray(speech) && speech.length > 0 ? speech : undefined;
@@ -1199,7 +1235,7 @@ export default function (pi: ExtensionAPI) {
 		// §16.6: `marked_text` rides here rather than in the assistant message, because that message
 		// is also what a terminal reader sees and raw `{{...}}` is not prose. A frontend that has it
 		// draws each marked row where the Keeper put it; one that does not reads the message as before.
-		const entry = { turn, mechanics, ...(labels ? { labels } : {}), play_language: state.playLanguage, ...(markedText ? { marked_text: markedText } : {}), ...(spoken ? { speech: spoken } : {}) };
+		const entry = { turn, mechanics, ...(labels ? { labels } : {}), play_language: state.playLanguage, ...(markedText ? { marked_text: markedText } : {}), ...(spoken ? { speech: spoken } : {}), ...(extra ?? {}) };
 		try {
 			pi.appendEntry("coc-mechanics", entry);
 		} catch {
@@ -1208,6 +1244,49 @@ export default function (pi: ExtensionAPI) {
 		// The bus event keeps its shape: `marked_text` is a rendering hint for the delivery channel,
 		// not a fact about the turn, and a bus subscriber that wanted it would want the entry.
 		pi.events.emit("coc:mechanics", { campaign: state.campaign, turn, mechanics, ...(labels ? { labels } : {}) });
+	}
+
+	/**
+	 * Contract §50. A run ended with the turn still open and nothing delivered, so §38 will strand
+	 * it — and §38.5's service sentence is the only thing the player gets. That sentence says the
+	 * settled work is kept without saying what it was.
+	 *
+	 * Retained live evidence (`game-b4cebfe0`, turn 8, 2026-09-16): a campaign ruling, an NPC stance,
+	 * a Swim check the investigator *passed* (54 against 70) and a +2 minute clock advance all landed
+	 * with receipts; the continuity review then timed out. The record went to disk as
+	 * `closed_how: null` with `rendered_text` empty, the player read one sentence naming none of it,
+	 * and the retry opened a clean turn 9 — so those four receipts were never told to anyone. The
+	 * state surface was whole and the delivery surface was gone.
+	 *
+	 * What is sent is not a substitute narration and is not the rejected draft (§34.14): it is the
+	 * §16.2 mechanics projection, the same JSON a delivered turn's card is drawn from, read back from
+	 * the kernel's own `table.status` rather than reconstructed here. The kernel decides what a row
+	 * is and what visibility it carries (§16.5), so a keeper-only receipt stays keeper-only exactly as
+	 * it would on a delivered turn, and the host neither writes prose nor reads receipts for meaning.
+	 *
+	 * Three ends (§31). *Writer:* here, once per turn, at the same `agent_settled` that owns §38.3's
+	 * stranding predicate. *Reader:* the delivery channel that already draws every turn's card — the
+	 * `coc-mechanics` entry and `coc:mechanics` bus event, with `undelivered: true` so a consumer that
+	 * requires a delivery can still tell the two apart. *Actor:* the player, who can see that the dice
+	 * fell and the clock moved before deciding what to say next.
+	 */
+	async function tellWhatSettled(state: TableState, turn: number): Promise<void> {
+		let rows: Array<Record<string, unknown>> = [];
+		let labels: unknown;
+		try {
+			const status = await state.kernel.call<Record<string, unknown>>("table.status", { campaign: state.campaign });
+			rows = Array.isArray(status?.mechanics) ? (status.mechanics as Array<Record<string, unknown>>) : [];
+			labels = status?.labels;
+		} catch (error) {
+			void record({ lane: "delivery", turn, ok: false, reason: "settled_without_delivery",
+				detail: error instanceof Error ? error.message : String(error) });
+			return;
+		}
+		// An empty card is a visibility verdict of its own, so a turn that settled nothing projectable
+		// is given none. The row is still written: zero is a fact about that turn, and a lane that
+		// wrote nothing at all could not be told from one that never ran.
+		noteMechanics(state, turn, rows, undefined, labels, undefined, { undelivered: true });
+		void record({ lane: "delivery", turn, ok: true, reason: "settled_without_delivery", rows: rows.length });
 	}
 
 	// ---- Action admission (contract §32) ------------------------------------
@@ -1484,6 +1563,7 @@ export default function (pi: ExtensionAPI) {
 					withHandouts(state, readMechanics(result)), asString(result.marked_text), result.labels,
 					Array.isArray(result.speech) ? result.speech : undefined);
 				noteStanding(state, result, typeof result.turn === "number" ? result.turn : state.turn);
+				notePreparationWait(state, typeof result.turn === "number" ? result.turn : state.turn);
 				break;
 			}
 			case "narrate": {
@@ -1501,6 +1581,7 @@ export default function (pi: ExtensionAPI) {
 					asString(result.marked_text), result.labels, Array.isArray(result.speech) ? result.speech : undefined);
 				noteCommit(state, result, mechanics);
 				noteStanding(state, result, typeof result.turn === "number" ? result.turn : state.turn);
+				notePreparationWait(state, typeof result.turn === "number" ? result.turn : state.turn);
 				break;
 			}
 		}
@@ -1665,6 +1746,98 @@ export default function (pi: ExtensionAPI) {
 		void record({ lane: "delivery", turn, ok: true, reason: "delivery_cut_short_notice" });
 	}
 
+	/**
+	 * Contract §47: the host's own preparation state, said by the host, out of fiction, and only
+	 * while it is still true.
+	 *
+	 * The two waits differ in how freshness is read and in nothing else. An adaptation is a named job
+	 * with a status verb, so the notice asks the kernel; a source reading has no such verb, so it asks
+	 * the reading service whether that material is still in flight. Either answer arriving as "no
+	 * longer waiting" cancels the notice outright rather than softening it — on `game-1c0faba5` turn 3
+	 * the Keeper's own sentence was 20 s stale when the player read it, and on `game-b4cebfe0` the
+	 * reading landed seconds after the wait it was still being described by.
+	 *
+	 * Nothing here reads prose, and nothing here decides a language: the line is one authored English
+	 * caption projected for this table's play language by the words lane, like every other notice.
+	 */
+	async function emitPreparationWaitNotice(state: TableState, wait: { kind: string; name?: string }, turn: number): Promise<void> {
+		const still = await preparationStillWaiting(state, wait);
+		if (!still) {
+			void record({ lane: "delivery", turn, ok: true, reason: "preparation_wait_notice_withheld",
+				kind: wait.kind, ...(wait.name ? { name: wait.name } : {}) });
+			return;
+		}
+		let line = wait.kind === "source"
+			? "Part of the source this table needs is still being read, so the Keeper could not use it this turn. Nothing you did was lost, and nothing else at the table is blocked — send anything to continue."
+			: "This table is still preparing a place the Keeper needed, so it could not take you there this turn. Nothing you did was lost — send anything to continue, and the Keeper picks it up once the preparation lands.";
+		// The key is written at the call site, not held in a variable: the caption registry is found by
+		// a static scan of quoted identifiers inside `.line(...)`, so a key in a variable is a shipped
+		// word nothing asks for (`extension-words`, "caption keys are found by static scan").
+		try {
+			const words = await surface.words();
+			line = wait.kind === "source" ? words.line("source_wait_notice") : words.line("adaptation_wait_notice");
+		}
+		catch { /* an unreadable content root still owes the player the English line */ }
+		// §50: `triggerTurn: false`. This notice is scheduled from `applyToolSuccess`, on a turn that
+		// delivered, so on a live table it is sent while that run is still streaming — and
+		// `sendCustomMessage` turns a send with the flag left off into `agent.steer()`, which reopens
+		// the agent loop and buys the Keeper a provider call to answer the host's own out-of-fiction
+		// sentence with. The flag says what this message is either way: not a prompt.
+		//
+		// **Not measured, and the seam suite cannot measure it.** The notice does its own async work
+		// first (here a kernel read, in `emitStandingNotice` a content read), and the faux provider
+		// finishes a whole run without ever yielding to the macrotask queue, so in the harness the
+		// send always lands after the run and reads as a plain append. A real provider call takes
+		// seconds of socket I/O, so there the timer fires mid-run. The proven case is §38.5's notice,
+		// which is sent inline from `agent_end` (`settled-turn-is-told.test.mjs`).
+		pi.sendMessage({ customType: "coc-delivery", content: line, display: true,
+			details: { coc_delivery: true, turn, preparation_wait: { kind: wait.kind, ...(wait.name ? { name: wait.name } : {}) } } },
+			{ triggerTurn: false });
+		void record({ lane: "delivery", turn, ok: true, reason: "preparation_wait_notice",
+			kind: wait.kind, ...(wait.name ? { name: wait.name } : {}) });
+	}
+
+	/** The re-read §47 exists for: the state as it stands now, not as the Keeper last saw it. */
+	async function preparationStillWaiting(state: TableState, wait: { kind: string; name?: string }): Promise<boolean> {
+		if (wait.kind === "source") {
+			// A bridge too old to answer cannot be made to lie: with no way to re-read, the host does
+			// not claim the reading is still running.
+			if (!reading?.reading || !readingModule) return false;
+			try { return reading.reading(readingModule, { focus: wait.name ?? "", question: state.sourceWait?.question ?? "" }); }
+			catch { return false; }
+		}
+		// The kernel, because the kernel is the authority §36.15 already re-derives the wait from. This
+		// host's own task map would be cheaper and is not the same question: a child that has exited
+		// here says nothing about a job the kernel still holds as `pending`. So the notice costs one
+		// `adaptation.status` per delivered turn that carries a wait, and none otherwise.
+		try {
+			const current = await state.kernel.call<Record<string, unknown>>("adaptation.status",
+				wait.name ? { campaign: state.campaign, name: wait.name } : { campaign: state.campaign });
+			// Strictly narrower than `ADAPTATION_HELD`: `ready` and `failed` are decisions the Keeper
+			// owes an answer to, and neither is, to the player, "still being prepared".
+			return ["pending", "reviewing"].includes(asString(current.status) ?? "");
+		} catch { return false; }
+	}
+
+	/**
+	 * §47. A delivery landed while the host was holding a preparation wait, so the player is owed
+	 * the host's half of it. On the next task, for the same reason the provider and standing notices
+	 * are: `pi.sendMessage` stays outside the tool result, and the player reads the delivery first.
+	 * Once per turn — the wait outlives the turn (§36.15) but the sentence about it does not.
+	 */
+	function notePreparationWait(state: TableState, turn: number): void {
+		const wait = state.preparationWait
+			? { kind: state.preparationWait.kind, ...(state.preparationWait.name ? { name: state.preparationWait.name } : {}) }
+			: state.sourceWait
+				? { kind: "source", ...(state.sourceWait.focus ? { name: state.sourceWait.focus } : {}) }
+				: undefined;
+		if (!wait || state.waitNoticeTurn === turn) return;
+		state.waitNoticeTurn = turn;
+		setTimeout(() => void emitPreparationWaitNotice(state, wait, turn).catch(() => {
+			/* the notice must never break a turn */
+		}), 0);
+	}
+
 	async function emitTurnUnfinishedNotice(state: TableState, turn: number): Promise<void> {
 		let line = "This turn ended without a delivered result. Anything already settled is kept — send anything to continue.";
 		try { line = (await surface.words()).line("turn_unfinished_notice"); }
@@ -1713,8 +1886,13 @@ export default function (pi: ExtensionAPI) {
 			return words.line("standing_condition_notice", { name: asString(row.name) ?? asString(row.investigator) ?? "", state: named.join(" / ") });
 		}).filter(Boolean);
 		if (lines.length === 0) return;
+		// §50: `triggerTurn: false`, for the same reason and with the same caveat as the preparation-wait
+		// notice above — scheduled from `applyToolSuccess`, so on a live table it is sent inside the
+		// delivered turn's run, where a send without the flag is `agent.steer()` and costs one provider
+		// call for every turn the state stands. Not measured: see the note on that send.
 		pi.sendMessage({ customType: "coc-delivery", content: lines.join("\n"), display: true,
-			details: { coc_delivery: true, turn, standing_conditions: standing } });
+			details: { coc_delivery: true, turn, standing_conditions: standing } },
+			{ triggerTurn: false });
 		void record({ lane: "delivery", turn, ok: true, reason: "standing_condition_notice", standing: standing.length });
 	}
 
@@ -1730,13 +1908,85 @@ export default function (pi: ExtensionAPI) {
 		}), 0);
 	}
 
+	/**
+	 * §36.15. Re-derive the adaptation wait from the kernel at the turn boundary, rather than trusting
+	 * the status captured when the proposal was prepared.
+	 *
+	 * A job is pinned to the world it was prepared against, so it can die between turns with nobody
+	 * told: the background creator's next kernel call is refused `adaptation_stale`, `adaptation.fail`
+	 * declines to touch an already-stale job, and nothing else ever looks. On campaign game-ef7545c5
+	 * (2026-09-16) the captured status stayed `pending` for the rest of the session, and the gate went
+	 * on telling the Keeper that the preparation "is still running" on every later turn.
+	 * The player, a pawnbroker walking into his own shop, was refused twice for a job that had been
+	 * over for three minutes, and no call anywhere in the product would have restarted it.
+	 *
+	 * The boundary is where it is re-read because the boundary is where it can change: the pin is
+	 * world/party/worldline plus source generation, and the gate fires on every tool call of every
+	 * turn. So this costs one `adaptation.status` per player input while a wait stands, and nothing at
+	 * all when none does — the once-per-session scan for a job this process never saw is the same call.
+	 */
+	async function refreshAdaptationWait(state: TableState): Promise<void> {
+		const held = state.preparationWait;
+		if (!held && state.adaptationScanned) return;
+		state.adaptationScanned = true;
+		try {
+			const current = await state.kernel.call<Record<string, unknown>>('adaptation.status',
+				held?.name ? {campaign: state.campaign, name: held.name} : {campaign: state.campaign});
+			const status = asString(current.status) ?? '', name = asString(current.name) ?? held?.name;
+			// Stale is terminal, and terminal is not a wait. Holding the turn for a job that will never
+			// finish is what made the detour unreachable; the Keeper is told once, by name, in the gate.
+			if (name && status === 'stale') {
+				state.preparationWait = undefined;
+				state.adaptationStale = { name };
+			} else if (name && ADAPTATION_HELD.includes(status)) {
+				state.preparationWait = { kind: 'adaptation', name, status };
+			} else state.preparationWait = undefined;
+			// §47. `held` is the wait as it stood on the way *in*, so this used to record nothing on the
+			// turn a wait was first taken up — the one turn whose behaviour changes most. Six tables
+			// read as "zero failures" partly for that reason: the suspension itself was invisible.
+			// Recording whenever a wait stands on either side of the re-read makes the first one legible.
+			if (held || state.preparationWait || state.adaptationStale) await record({ lane: 'adaptation', turn: state.turn, proposal: name ?? null,
+				status: status || 'none', held: state.preparationWait !== undefined, first: !held && state.preparationWait !== undefined });
+		} catch { /* Named status remains the diagnostic path; recovery discovery never blocks player input. */ }
+	}
+
+	/**
+	 * The one call that revives a stale proposal, named in full (Agents.md: a Keeper executes the `fix`
+	 * text literally, and this repo has already been burned by a vague one). Preparation, not a status
+	 * poll: `status` only reports, and there is nothing left to report.
+	 */
+	function staleAdaptationInstruction(name: string): string {
+		return `The adaptation preparation for ${name} is stale, not running: it was pinned to the world it was prepared against, that world has moved, and the retained work was abandoned.`
+			+ ` Nothing was built — no scene, person or handout from it exists — and nothing will finish it.`
+			+ ` If the player is still going there, call lookup kind=adaptation action=prepare name=${JSON.stringify(name)} with the same purpose, anchors and request; that is the only call that revives it and it starts a fresh attempt pinned to this turn.`
+			+ ` Otherwise settle this turn without that destination and do not tell the player anything is still being prepared.`
+			+ ` This one call was refused so you would read this first; send it again if it is still what you want.`;
+	}
+
 	function preparationWaitInstruction(state: TableState, wait: NonNullable<TableState["preparationWait"]>): string {
 		if (wait.status && !['pending', 'reviewing'].includes(wait.status))
-			return `Retained adaptation preparation${wait.name ? ` for ${wait.name}` : ''} is ${wait.status}. Use lookup kind=adaptation action=status${wait.name ? ` name=${JSON.stringify(wait.name)}` : ''} before any other tool, then follow that result. Do not invent or restart it under another name.`;
+			// §47. `ADAPTATION_HELD` keeps `ready` and `failed` as waits because the table owes them an
+			// answer before it acts. That is a fact about the Keeper's obligations and not about the
+			// work, and the difference is not cosmetic: on campaign game-ef7545c5 (t7) the single
+			// `lane: "adaptation"` row in 785 lines of telemetry reads
+			// `{"proposal":"<the camera shop>","status":"ready","held":true}` — the place had been built,
+			// reviewed and marked ready — and the player was told the table was "still checking it
+			// against the original book". A finished job described as unfinished is not a rough edge in
+			// the wording, it is false. So this branch says, in the same breath as the status, that the
+			// work is over.
+			return `Retained adaptation preparation${wait.name ? ` for ${wait.name}` : ''} is ${wait.status}, which means it has finished: nothing is still being prepared and nothing is still running.`
+				+ ` Use lookup kind=adaptation action=status${wait.name ? ` name=${JSON.stringify(wait.name)}` : ''} before any other tool, then follow that result. Do not invent or restart it under another name.`
+				+ ` Never tell the player this is still being prepared, still being checked, or still pending — it is not, and the host has already told them whatever they needed to know out of fiction.`;
 		if (state.landed.length > 0) {
-			return `Adaptation preparation${wait.name ? ` for ${wait.name}` : ""} is still running, but this turn already settled: ${state.landed.join("; ")}. Use narrate to deliver exactly those settled consequences and, if relevant, say the additional source-dependent material is still pending. Do not erase, repeat, or extend the settled effects, and do not introduce any fact the pending preparation has not supplied. Then return control without a story menu.`;
+			return `Adaptation preparation${wait.name ? ` for ${wait.name}` : ""} is still running, but this turn already settled: ${state.landed.join("; ")}. Use narrate to deliver exactly those settled consequences. Do not erase, repeat, or extend the settled effects, and do not introduce any fact the pending preparation has not supplied.${HOST_SAYS_THE_WAIT} Then return control without a story menu.`;
 		}
-		return `Adaptation preparation${wait.name ? ` for ${wait.name}` : ""} is still running. Use narrate only to tell the player that preparation is pending, then return control without moving, charging, or introducing the destination. Inspect the same proposal after new player input.`;
+		// "Inspect the same proposal after new player input" named no call, and on campaign
+		// game-ef7545c5 the Keeper answered it by repeating `lookup kind=module` and being blocked
+		// twice. The verb that reports on a proposal is named here in full; the host re-reads the
+		// status at every turn boundary anyway, so this is for a Keeper that wants to look, not a poll
+		// it owes.
+		return `Adaptation preparation${wait.name ? ` for ${wait.name}` : ""} is still running. Use narrate to take up what the player actually said and close the turn on it, without moving, charging, or introducing the destination.${HOST_SAYS_THE_WAIT}`
+			+ ` The only call that reports on it is lookup kind=adaptation action=status${wait.name ? ` name=${JSON.stringify(wait.name)}` : ""}; no module or source lookup can say anything about it.`;
 	}
 
 	/**
@@ -1756,7 +2006,7 @@ export default function (pi: ExtensionAPI) {
 		return `The source material${named} is still being read, so only what that reading would supply is unavailable.${landed}`
 			+ " Nothing else at this table is blocked: what the investigators already carry, whoever is already on stage, the scenes and people the graph already knows, and ordinary narration all settle as usual, with their own receipts."
 			+ " Do not request that same material again this turn, do not narrate what it would have said, and do not imply that the unsettled part happened or that game time passed for it."
-			+ " Settle whatever the player's own action can reach without it, tell the player plainly that this one thing is still being prepared, and return control without a story menu.";
+			+ ` Settle whatever the player's own action can reach without it and return control without a story menu.${HOST_SAYS_THE_WAIT}`;
 	}
 
 	async function runTool(
@@ -2387,6 +2637,21 @@ export default function (pi: ExtensionAPI) {
 				watchdogTurnBinding = { turn: table.turn, promise };
 			}
 		}
+		// Contract §50. Whatever the cause, and before the sentence is chosen, the settled facts of
+		// this turn go out on the delivery channel. §38.5 gave the player a sentence; this gives them
+		// the turn. Once per turn: a second run that ends on the same open turn adds no second card.
+		//
+		// The read starts here rather than on a timer: a player input queued during the run is sent a
+		// few lines below, and its `release: "stranded"` closes the turn the receipts belong to. Issuing
+		// `table.status` first puts it ahead of that release on the wire, so the card is drawn from the
+		// turn that paid for it and never from the one that follows it.
+		if (undelivered && table.settledToldTurn !== table.turn) {
+			const state = table, turn = table.turn;
+			state.settledToldTurn = turn;
+			void tellWhatSettled(state, turn).catch(() => {
+				/* the projection must never break a turn */
+			});
+		}
 		// Choose exactly one player notice. A paused-review notice may already have landed at agent_end;
 		// terminal provider wording outranks the generic fallback; recovered long outages remain a
 		// footnote only when the turn actually delivered.
@@ -2502,15 +2767,7 @@ export default function (pi: ExtensionAPI) {
 			state.answering = state.lastAsk;
 			state.lastAsk = undefined;
 			noteCapsule(state, result.capsule);
-			if (!state.adaptationScanned) {
-				state.adaptationScanned = true;
-				try {
-					const retained = await state.kernel.call<Record<string, unknown>>('adaptation.status', {campaign: state.campaign});
-					const status = asString(retained.status), name = asString(retained.name);
-					if (name && ['pending', 'reviewing', 'ready', 'failed', 'stale'].includes(status))
-						state.preparationWait = {kind: 'adaptation', name, status};
-				} catch { /* Named status remains the diagnostic path; recovery discovery never blocks player input. */ }
-			}
+			await refreshAdaptationWait(state);
 			await record({
 				tool: "table.player_input",
 				started_at: startedAt,
@@ -2640,7 +2897,36 @@ export default function (pi: ExtensionAPI) {
 		// not here on purpose -- one unread page never stopped the rest of the table from settling (§22).
 		const retainedTerminal = state.preparationWait?.status && !['pending', 'reviewing'].includes(state.preparationWait.status);
 		if (state.preparationWait && ((retainedTerminal && !adaptationControl) || (!retainedTerminal && name !== "narrate" && !adaptationControl))) {
+			// §47. This was the one tool-level block in this gate that recorded nothing — every other
+			// one writes `ok: false, code: "blocked"` — and the silence is why the defect it causes was
+			// unreadable for a day. On `game-1c0faba5` turn 12 and `game-3dd94f0a` turn 52 the shape is
+			// identical and, in telemetry alone, invisible: `lookup kind=adaptation action=prepare`
+			// returns ok:true after ~20 s, the very next `toolCall` block leaves no row at all, and the
+			// turn closes on a narrate about preparation. Both tables read as *zero* failures, so the
+			// Keeper looked as if it had invented the reason; it had not, it was relaying this block's
+			// own instruction. The UI step bar counted the block (11 steps, 1 failed) and telemetry did
+			// not, and that disagreement was the only visible trace.
+			await record({ tool: name, started_at: new Date().toISOString(), ok: false, code: "blocked",
+				reason: "preparation_wait", kind: state.preparationWait.kind,
+				...(state.preparationWait.name ? { proposal: state.preparationWait.name } : {}),
+				...(state.preparationWait.status ? { status: state.preparationWait.status } : {}) });
 			return { block: true, terminate: true, reason: preparationWaitInstruction(state, state.preparationWait) };
+		}
+		// §36.15. A stale proposal is over, so it owns nothing: it is said once, by name, with the call
+		// that revives it, and then this table is free — including for the repeat of the very action the
+		// dead job was prepared for. The refusal is not terminated and not repeated: whatever the Keeper
+		// sends next, including this same call again, goes through. Any adaptation verb passes untouched,
+		// because `prepare` is the answer the instruction asks for and must never be refused by the
+		// notice that asked for it.
+		const stale = state.adaptationStale;
+		if (stale) {
+			const adaptationVerb = name === "lookup" && input.kind === "adaptation";
+			state.adaptationStale = undefined;
+			if (!adaptationVerb) {
+				await record({ tool: name, started_at: new Date().toISOString(), ok: false, code: "blocked",
+					reason: "adaptation_stale", proposal: stale.name });
+				return { block: true, reason: staleAdaptationInstruction(stale.name) };
+			}
 		}
 		// A source wait refuses exactly one verb, and only the one whose whole purpose is to reach unread
 		// source. A second source query in the same turn buys another full reading wait and can answer
@@ -3015,7 +3301,13 @@ export default function (pi: ExtensionAPI) {
 		if (undelivered !== undefined) {
 			state.renderedText = undefined;
 			state.deliveryToolCallId = undefined;
-			pi.sendMessage({ customType: "coc-delivery", content: undelivered, display: true, details: { coc_delivery: true, turn: state.turn } });
+			// §50: `triggerTurn: false`. A `sendMessage` from an `agent_end` handler with the flag
+			// left off is `agent.steer()` while the run is still streaming, and AgentSession continues
+			// that very run for it ("Any messages here were queued by agent_end extension handlers and
+			// need a continuation"). The host's own delivery is not a prompt: steering it back hands the
+			// Keeper a provider call to answer its own published words.
+			pi.sendMessage({ customType: "coc-delivery", content: undelivered, display: true, details: { coc_delivery: true, turn: state.turn } },
+				{ triggerTurn: false });
 			void record({ lane: "delivery", turn: state.turn, ok: true, reason: "placed_by_host",
 				detail: "the Keeper ended on the message carrying the call, so the replacement had nowhere to land" });
 		}
@@ -3079,8 +3371,14 @@ export default function (pi: ExtensionAPI) {
 				} catch {
 					/* an unreadable content root still owes the player the English line */
 				}
+				// §50: `triggerTurn: false`, or this notice is the thing that spends the next provider
+				// call. Retained live evidence (`game-b4cebfe0`, turn 8): the Keeper was continued after
+				// the pause, called `narrate` again and was refused by the latched guard in 0 ms, which
+				// bought the player one more empty bubble. The continuation is not a new run, so
+				// `before_agent_start` never clears `reviewUnavailable` and the verb cannot succeed.
 				pi.sendMessage({ customType: "coc-delivery", content: line, display: true,
-					details: { coc_delivery: true, turn: state.turn, review_unavailable: true, streak, service: !verdict } });
+					details: { coc_delivery: true, turn: state.turn, review_unavailable: true, streak, service: !verdict } },
+					{ triggerTurn: false });
 				void record({ lane: "delivery", turn: state.turn, ok: true, reason: "review_unavailable_notice", streak, service: !verdict });
 			}
 			return;

@@ -313,6 +313,10 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
                 state: turn.state,
                 receipts,
                 mechanics: mechanics(receipts, {}, await campaign.handoutTexts(receipts)),
+                // §50: the same glossary a delivery hands its card (§16.2). A turn that could not be
+                // delivered is read back from here, and without the words it would be the one card in
+                // the campaign drawn in the system language.
+                labels: await playerGlossary(context, await playLanguageOf(context, campaign.meta)),
                 pending_choice: turn.pending_choice ?? null
             };
         },

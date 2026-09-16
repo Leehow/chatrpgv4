@@ -601,7 +601,10 @@ export function applyStreamEvent(previous: ChatMessage[], event: Exclude<StreamE
     const entryId = event.entry.id;
     const at=previous.findIndex(item=>item.id===entryId);
     const opening = at >= 0 ? previous[at].opening === true : previous.length === 0 && !event.entry.presentation;
-    const message:ChatMessage={id:event.entry.id,role:'assistant',content:event.entry.content,timestamp:event.entry.timestamp,presentation:event.entry.presentation,...(opening?{opening:true}:{})};
+    // §53: the projection already named the speaker, and `historyMessages` reads that same name off
+    // the same entry when the file is read back. Deciding it a second time here is how the live
+    // reading and the re-reading came to disagree about whose words a delivery was.
+    const message:ChatMessage={id:event.entry.id,role:event.entry.role??'assistant',content:event.entry.content,timestamp:event.entry.timestamp,presentation:event.entry.presentation,...(opening?{opening:true}:{})};
     return at<0?[...previous,message]:previous.map((item,i)=>i===at?message:item);
   }
   if (event.type === 'secret_redact') return applySecretRedact(previous, event.messages)

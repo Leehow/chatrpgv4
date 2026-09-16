@@ -117,11 +117,13 @@ it('restores paused preparation from the server without browser storage',async()
 });
 
 it.each(['restored','failed-chunk'])('can cancel a %s upload and return to scenario selection',async(origin)=>{
-  const job={id:'interrupted',name:'Masks.pdf',state:'uploading',size:8,received:0};
+  const job={id:'interrupted',name:'Masks.pdf',source:'pdf',state:'uploading',size:8,received:0};
   const catalog={presets:[],modules:[],occupations:[],...(origin==='restored'?{current_import:job}:{})};
   const invokeExtension=vi.fn(async(_id,_method,p)=>{
     if(p.action==='catalog')return answer(catalog);
     if(p.action==='begin')return answer(job);
+    // A resume asks the host for its own count before sending anything (§44).
+    if(p.action==='status')return answer(job);
     if(p.action==='chunk')return {ok:false,error:{code:'upload_retry',message:'Upload connection interrupted'}};
     if(p.action==='pause')return answer({...job,state:'paused'});
     if(p.action==='dismiss')return answer({...job,state:'paused',dismissed:true});
@@ -132,15 +134,121 @@ it.each(['restored','failed-chunk'])('can cancel a %s upload and return to scena
   if(origin==='failed-chunk'){
     fireEvent.change(screen.getByLabelText(zh('choosePdf')),{target:{files:[new File(['%PDF-1.7'],'Masks.pdf',{type:'application/pdf'})]}});
     // The code is the caption; the host's English sentence is folded away, not printed at the player.
-    const alert=await screen.findByRole('alert');
+    const alert=await screen.findByRole('alert',undefined,{timeout:10000});
     await waitFor(()=>expect(alert.textContent).toContain(say('zh-Hans','errors','upload_retry')));
     expect(alert.querySelector('details')?.textContent).toContain('Upload connection interrupted');
+    // An upload nothing can move any further stops calling itself one: the card left behind is the
+    // paused one, which offers continuing and choosing another scenario. It used to go on drawing
+    // a progress bar with a cancel button, which is what this test used to click.
+  } else {
+    fireEvent.click(await screen.findByRole('button',{name:zh('cancelUpload')}));
   }
-  fireEvent.click(await screen.findByRole('button',{name:zh('cancelUpload')}));
-  await screen.findByRole('heading',{name:zh('pausedTitle')});
+  await screen.findByRole('heading',{name:zh('pausedTitle')},{timeout:10000});
   expect(invokeExtension).toHaveBeenCalledWith('coc-keeper','onboarding',{action:'pause',id:'interrupted'},{sessionId:'interrupted-session'});
   fireEvent.click(screen.getByRole('button',{name:new RegExp(zh('back').replace(/[.*+?^${}()|[\]\\]/g,'\\$&'))}));
   await screen.findByRole('button',{name:new RegExp(zh('source.starter.title'))});
   expect(screen.getByRole('button',{name:new RegExp(zh('source.pdf.title'))})).toBeTruthy();
   expect(screen.getByRole('button',{name:new RegExp(zh('source.module.title'))})).toBeTruthy();
-});
+},20000);
+
+/**
+ * The byte stream restarts, and the screen never claims it is moving when it is not (§44).
+ *
+ * Two real tables froze at 9 MiB and 8 MiB of the same 44 MB book. The push loop lived inside one
+ * call, holding the only reference to the chosen `File`; a chunk that never answered ended the
+ * loop, and with it the only thing in the product that could send a byte. Nothing else took over:
+ * `retryConnection` re-read the catalog, so the label went back to "uploading" over a stream that
+ * had stopped, and a reload restored the same frozen card. The host had the resume point all
+ * along -- `received` is the length of the file on its disk.
+ */
+const CHUNK_SIZE=1024*1024
+
+/** A host that answers as `CocOnboardingHost` does: chunks land at the count it keeps, an offset
+ *  that is not that count is refused, and `drop` lists the chunk attempts that never answer. */
+function uploadHost(size:number,drop:number[]=[],restored=false){
+  const job:Row={id:'masks',name:'Masks.pdf',source:'pdf',size,received:0,state:'uploading'}
+  const seen:Row[]=[]
+  let attempts=0
+  const invokeExtension=vi.fn(async(_id:string,_method:string,p:Row)=>{
+    seen.push(p)
+    // A session with nothing in flight has no current import; a reloaded one restores its job.
+    if(p.action==='catalog')return answer({presets:[],modules:[],occupations:[],current_import:restored?{...job}:null})
+    if(p.action==='current')return answer({current_import:restored?{...job}:null})
+    if(p.action==='begin'){Object.assign(job,{received:0,state:'uploading'});return answer({...job})}
+    if(p.action==='status')return answer({...job})
+    if(p.action==='chunk'){
+      // The transport's own failure: a frame that never receives a matching response. It carries no
+      // caption of its own, and the player must never be shown it.
+      if(drop.includes(attempts++))throw {code:'transport_timeout',message:'transport request timed out'}
+      if(p.offset!==job.received)throw {code:'upload_chunk_invalid',message:'Invalid upload chunk or offset'}
+      job.received=Math.min(size,job.received+CHUNK_SIZE)
+      return answer({...job})
+    }
+    if(p.action==='finish'){job.state='inspecting';return answer({...job})}
+    if(p.action==='pause'){job.state='paused';return answer({...job})}
+    throw new Error('Unexpected onboarding operation '+p.action)
+  })
+  return {invokeExtension,job,seen,chunks:()=>seen.filter(p=>p.action==='chunk')}
+}
+const book=(bytes:number)=>new File([new Uint8Array(bytes)],'Masks.pdf',{type:'application/pdf'})
+
+it('resumes the byte stream from the host\'s own count when a chunk never answers',async()=>{
+  // The second chunk attempt is dropped. Before this, that was the end of the upload for good.
+  const host=uploadHost(3*CHUNK_SIZE,[1])
+  render(<CocOnboarding host={host as any} sessionId="resume"/>)
+  fireEvent.change(await screen.findByLabelText(zh('choosePdf')),{target:{files:[book(3*CHUNK_SIZE)]}})
+  await waitFor(()=>expect(host.seen.some(p=>p.action==='finish')).toBe(true),{timeout:15000})
+  expect(host.job.received).toBe(3*CHUNK_SIZE)
+  // Exactly one `begin`: the stream continued, it did not start the book again.
+  expect(host.seen.filter(p=>p.action==='begin')).toHaveLength(1)
+  // The resume asked the host where it had got to rather than resending blind; a dropped frame may
+  // have delivered its bytes, and a blind resend would be refused as the wrong offset.
+  expect(host.seen.filter(p=>p.action==='status').length).toBeGreaterThan(0)
+  expect(host.chunks().map(p=>p.offset)).toEqual([0,CHUNK_SIZE,CHUNK_SIZE,2*CHUNK_SIZE])
+  // A transport hiccup the product recovered from is not something to tell the player about.
+  expect(screen.queryByRole('alert')).toBeNull()
+},20000)
+
+// Both buttons the stopped card offers must move bytes: `retryConnection` on the failure, and
+// `resume` on the paused card behind it. Either one only changing a label is the defect itself.
+it.each(['retryConnection','resume'])('names a stopped upload in its own words, stops claiming it is moving, and really pushes again via %s',async(button)=>{
+  const host=uploadHost(2*CHUNK_SIZE,[1,2,3,4,5])
+  render(<CocOnboarding host={host as any} sessionId="stopped"/>)
+  fireEvent.change(await screen.findByLabelText(zh('choosePdf')),{target:{files:[book(2*CHUNK_SIZE)]}})
+  const alert=await screen.findByRole('alert',undefined,{timeout:15000})
+  // The transport's code has no caption to project (§23), so showing it would put `errors.unknown`
+  // over the host's English sentence -- which is exactly what a real table read. The upload names
+  // what happened in a word this product has, and the English stays the log line it is.
+  await waitFor(()=>expect(alert.textContent).toContain(say('zh-Hans','errors','upload_retry')))
+  expect(alert.textContent).not.toContain(say('zh-Hans','errors','unknown'))
+  expect(alert.querySelector('details')?.textContent).toContain('transport request timed out')
+  // And the card stops saying the upload is running: the job is paused, which is both true and
+  // something the player can act on.
+  expect(host.job.state).toBe('paused')
+  await screen.findByRole('heading',{name:zh('pausedTitle')})
+
+  // The buttons that only ever changed a label now move bytes.
+  const before=host.chunks().length
+  fireEvent.click(screen.getByRole('button',{name:zh(button)}))
+  await waitFor(()=>expect(host.seen.some(p=>p.action==='finish')).toBe(true),{timeout:15000})
+  expect(host.chunks().length).toBeGreaterThan(before)
+  expect(host.job.received).toBe(2*CHUNK_SIZE)
+  expect(host.seen.filter(p=>p.action==='begin')).toHaveLength(1)
+},30000)
+
+/**
+ * A reload leaves the host holding the bytes and the browser holding nothing: a `File` is not
+ * storable, so continuing genuinely needs the player to point at the file again. `lede.job`
+ * promises the progress is kept, and choosing it again must continue rather than resend 44 MB.
+ */
+it('continues a restored upload from the acknowledged prefix when the file is chosen again',async()=>{
+  const host=uploadHost(3*CHUNK_SIZE,[],true)
+  host.job.received=2*CHUNK_SIZE
+  host.job.state='paused'
+  render(<CocOnboarding host={host as any} sessionId="reloaded"/>)
+  await screen.findByRole('heading',{name:zh('pausedTitle')})
+  fireEvent.change(await screen.findByLabelText(zh('choosePdf')),{target:{files:[book(3*CHUNK_SIZE)]}})
+  await waitFor(()=>expect(host.seen.some(p=>p.action==='finish')).toBe(true),{timeout:15000})
+  expect(host.seen.filter(p=>p.action==='begin')).toHaveLength(0)
+  expect(host.chunks().map(p=>p.offset)).toEqual([2*CHUNK_SIZE])
+},20000)

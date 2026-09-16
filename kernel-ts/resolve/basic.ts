@@ -7,6 +7,55 @@ import { nowIso } from '../write/store.js';
 import { SettleContext, type SettlementExecutor } from './context.js';
 import { npcCheck } from './bindings.js';
 import { socialDifficulty, psychologyCheckContract, psychologyPolicy } from './social.js';
+/** Which row a group skill rolls, and the refusal when the card has not answered that yet (§52).
+ *
+ * A group skill is a choice before it is a number: `Pilot ( ___ )` is printed on the 1920s sheet
+ * as a blank the investigator fills in, so its 1% is the cost of never filling it, not a piloting
+ * ability. Letting that row answer a check is how a module's named `Pilot (Boat)` became a
+ * threshold of 0 at hard while the same card's Swim 70 and Navigate 70 went untouched.
+ *
+ * Where a specialization the card does carry answers unambiguously, this resolves to it rather
+ * than refusing; where nothing on the card answers, the refusal names what the card does have, so
+ * the Keeper repairs the request instead of hearing a number it cannot use. A specialization the
+ * card lacks keeps its own rulebook base -- an untrained specialization is still rollable, and it
+ * is never the group row's value wearing the specialization's name. */
+function groupSkill(resolver: SkillResolver, canonical: string): string {
+    const declared = resolver.groupRow(canonical);
+    if (!declared) {
+        // A specialization the card does not print, on a card whose group row does carry a value:
+        // that row is the one specialization this investigator took and never named, so it answers
+        // here and the receipt says which row rolled. A group row still sitting at its base
+        // chance carries nothing and answers nothing.
+        const specialization = Object.hasOwn(resolver.sheetSkills, canonical) ? null : resolver.specialization(canonical);
+        const rows = specialization ? resolver.groupRowsOnSheet(specialization.group) : null;
+        return rows && rows.own && !rows.specializations.length ? rows.own[0] : canonical;
+    }
+    const [group] = declared, rows = resolver.groupRowsOnSheet(group);
+    if (rows.specializations.length === 1)
+        return rows.specializations[0][0];
+    if (!rows.specializations.length && rows.own)
+        return rows.own[0];
+    const members = declared[1].specializations, listed = Array.isArray(members) ? members.map(string)
+        : isJsonObject(members) ? Object.keys(members) : [];
+    const carried = rows.specializations.map(([name]) => name);
+    throw new RpcError('needs', `${repr(group)} is a group skill, not a check`, {
+        fix: `Name the specialization this calls for -- details.needs.options lists the ones this investigator's card carries a value in, and details.group.specializations the ones ${repr(group)} declares. A specialization the card does not carry rolls its rulebook base of ${resolver.groupBase(group) ?? 'the group'}, which is a choice to make on purpose, not a value to fall back on. The card's printed ${repr(group)} row is a blank the investigator never filled in; it is not an ability. This is a request to repair, not fiction: do not narrate it and do not read it to the player.`,
+        details: {
+            needs: {
+                field: 'skill',
+                options: carried.length ? carried : resolver.sheetValues()
+            },
+            group: {
+                name: group,
+                specializations: listed,
+                open: declared[1].open === true,
+                base_chance: resolver.groupBase(group),
+                carried_on_sheet: carried,
+                sheet_row: Object.hasOwn(resolver.sheetSkills, group) ? resolver.sheetSkills[group] : null
+            }
+        }
+    });
+}
 async function resolveTarget(context: SettleContext, args: Row): Promise<[
     string,
     number,
@@ -44,7 +93,8 @@ async function resolveTarget(context: SettleContext, args: Row): Promise<[
     if (args.target != null)
         return [label, number(args.target), npc ? 'npc' : Object.hasOwn(row(sheet.skills), label) ? 'sheet' : 'rulebook_base', 'skill_check'];
     const resolver = await SkillResolver.create(context.tables, sheet);
-    const canonical = resolver.resolveExplicit(label) || label;
+    const requested = resolver.resolveExplicit(label) || label;
+    const canonical = npc ? requested : groupSkill(resolver, requested);
     let target: number;
     try {
         target = resolver.targetValue(canonical);
@@ -82,6 +132,10 @@ export const executeCheck: SettlementExecutor = async (context, args, plan) => {
     }
     else
         [label, target, targetSource, kind] = await resolveTarget(context, args);
+    // Before the die, not after it: a request whose effective target the difficulty drives below the
+    // die's minimum has no rollable outcome, so it never becomes a receipt, a failure, or stakes that
+    // land. Refusing here also keeps `push_eligible` off it -- there is no settled check to push (§45).
+    context.arithmetic.assertRollable(target, difficulty, label, pushed);
     const check = context.arithmetic.check(target, difficulty, bonus, penalty, context.rng);
     const data: Row = {
         ...check,

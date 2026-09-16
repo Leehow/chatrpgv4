@@ -10,6 +10,7 @@ import { mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { registerIllustrationPanel } from "../../pipicoc/illustration.ts";
+import { waitFor } from "./wait.mjs";
 
 function piSurface() {
 	const entries = [];
@@ -208,8 +209,10 @@ test("one job per row: a click while it runs starts nothing, a click after it la
 		const panel = registerIllustrationPanel(pi, { generateImage: fakeImage(ops), runner });
 		openTable(pi, { home, contentRoot });
 		assert.deepEqual(await handlers.get("illustration.generate")({ messageId: "m1", text: "First." }), { status: "generating" });
-		// Wait until the first job reaches the runner; it then parks on the gate.
-		for (let i = 0; i < 200 && !runnerCalls.length; i++) await new Promise((resolve) => setImmediate(resolve));
+		// Wait until the first job reaches the runner; it then parks on the gate. The job reads the
+		// card, the portrait and writes scene.json first, so this is real I/O: a wall-clock deadline,
+		// never a count of event-loop turns — under whole-suite load the turns run out first.
+		await waitFor(() => runnerCalls.length === 1, { label: "the first job reaching the runner" });
 		// The second click is already answered and starts nothing.
 		assert.deepEqual(await handlers.get("illustration.generate")({ messageId: "m1", text: "First." }), { status: "generating" });
 		assert.equal(runnerCalls.length, 1);

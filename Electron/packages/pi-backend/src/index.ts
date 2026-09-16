@@ -1080,6 +1080,24 @@ function isSubagentCompletion(value: any): boolean {
 function isVisibleCustomMessage(entry: any): boolean {
   return entry?.type === "custom_message" && (Boolean(entry.display) || isSubagentCompletion(entry));
 }
+/**
+ * The channels the host itself mints to put words in front of the player (contract §53).
+ *
+ * A custom message can come from either side of the table: the host writes the keeper's opening and
+ * the deliveries it places itself, and it also injects messages that stand in for the player's own
+ * turn (a subagent completion report is one). Only the channel can say which, because the text
+ * cannot -- a delivery and a player's line are both prose in the play language.
+ *
+ * This set is the single answer, read by both projections of the same entry: the live
+ * `entry_appended` stream and every later re-read of the file. They used to answer separately and
+ * disagreed, and everything downstream that branches on the speaker then behaved differently on the
+ * second reading -- the player-message collapse rule kept five lines of a six-paragraph delivery,
+ * cut on a full stop, and the table could not tell it had been shortened.
+ */
+const HOST_DELIVERED_CUSTOM_TYPES = new Set(["coc-setup-opening", "coc-delivery"]);
+function isHostDeliveredCustomMessage(entry: any): boolean {
+  return typeof entry?.customType === "string" && HOST_DELIVERED_CUSTOM_TYPES.has(entry.customType);
+}
 function isAlreadyProcessingError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   return message.includes("already processing") && message.includes("streamingBehavior");
@@ -1466,7 +1484,8 @@ function visibleHistoryEntry(entry: any, secrets: RevealedSecret[] = [], languag
   if (isVisibleCustomMessage(entry)) {
     const content = text(entry.content);
     if (!content) return undefined;
-    return { id: entry.id, role: entry.customType === "coc-setup-opening" ? "assistant" : "user", content: redactText(content, secrets), timestamp: asTime(entry.timestamp) };
+    // §53: whoever wrote it owns that side of the transcript on every reading, live or re-read.
+    return { id: entry.id, role: isHostDeliveredCustomMessage(entry) ? "assistant" : "user", content: redactText(content, secrets), timestamp: asTime(entry.timestamp) };
   }
   if (entry?.type === "compaction") {
     return {
@@ -6105,7 +6124,7 @@ export class PiHostBackend implements HostBackend {
       if(e.entry?.customType==='coc-setup-exit')live.cocSetupHandoffPending=true;
       if(e.entry?.customType==='coc-character-draft'&&e.entry?.data?.sheet)this.startDraftPresentation(live.session.id,e.entry.data);
       if(e.entry?.customType==='coc-mechanics')this.startDeliveryPresentation(live.session.id,e.entry);
-      const entry = e.entry?.customType === "coc-setup-opening" || e.entry?.customType === "coc-delivery"
+      const entry = isHostDeliveredCustomMessage(e.entry)
         ? visibleHistoryEntry(e.entry,this.sessionSecrets(live.session.id))
         : mechanicsEntry(e.entry, this.cocSessionBindings.get(live.session.id)?.play_language, undefined, this.cocLiveWords(live.session.id));
       if (entry) {
@@ -7935,6 +7954,26 @@ export class PiHostBackend implements HostBackend {
   private async addProject(value: unknown): Promise<Project> {
     if (typeof value !== "string" || !value.length)
       throw new Error("project path 必须是非空 string");
+    // A project root is a real directory on this host, and this is the only
+    // place that can say so. The Electron shell can only hand over what its
+    // native picker returned, but a browser has no such dialog: the remote
+    // shell asks the user to type a server-side path (RemoteBrowserApp), so
+    // any string at all used to become a project root here.
+    //
+    // Such a project fails silently and permanently downstream (§43): its form
+    // reads `base` while every session started in it keeps the pack snapshot it
+    // was stamped with, and that mismatch both locks the composer and leaves
+    // the pack's own verbs unanswered — an upload that never advances past 0
+    // bytes, with no error raised anywhere. Refusing at the entry is what keeps
+    // the class from recurring; the snapshot is immutable, so nothing clears it
+    // after the fact.
+    if (!isAbsolute(value))
+      throw new Error(`项目路径必须是绝对路径：${value}`);
+    const stats = await fs.stat(value).catch(() => null);
+    if (!stats)
+      throw new Error(`项目路径不存在：${value}`);
+    if (!stats.isDirectory())
+      throw new Error(`项目路径不是文件夹：${value}`);
     const paths = await this.loadProjectPaths();
     if (!paths.includes(value)) await this.saveProjectPaths([value, ...paths]);
     await this.ensureIsolatedProjectHome(value);

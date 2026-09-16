@@ -69,7 +69,37 @@ function routeRows(where: Row, present: Row[], thread: Row | null | undefined): 
         const line = named.get(to) || (guide ? `${string(guide.name)} can point the way to ${to}` : `the way to ${to} is open`);
         return { kind: "route", where: to, ...(guide ? { who: string(guide.name) } : {}), line: clip(line), from: named.has(to) ? "mods.thread" : "where.exits", ranked: (named.has(to) ? 0 : 1) + (guide ? 0 : 2) };
     });
-    return rows.sort((a, b) => a.ranked - b.ranked).map(({ ranked: _ranked, ...rest }) => rest);
+    if (rows.length)
+        return rows.sort((a, b) => a.ranked - b.ranked).map(({ ranked: _ranked, ...rest }) => rest);
+    return noWayOpen(where);
+}
+/**
+ * Contract §49: not one way out of this scene is open, so the offer says which ways exist and what
+ * stands in each one. A route pool that is simply empty is how a table spends nineteen turns at a door.
+ *
+ * Nothing here is ranked beside an open route -- this runs only when there is no open route at all --
+ * so an ordinary scene's offer is untouched.
+ */
+function noWayOpen(where: Row): Row[] {
+    const rows: Row[] = [];
+    for (const exit of array(where.exits)) {
+        const to = string(exit.to), condition = string(row(exit.unlock_when).condition || "");
+        if (row(exit.unlock_when).met === false)
+            rows.push({ kind: "route", where: to, blocked: "locked", from: "where.exits",
+                line: clip(`the way to ${to} is closed${condition ? `: ${condition}` : ""}, and opening it is the way on`) });
+        else
+            // `apply move` reads a destination's pages itself: the material gate raises `material_pending`
+            // and the host reads it in the foreground before the move lands, so an unread way out is still
+            // a way out. Filtering it away left one campaign eleven turns at a start scene whose single
+            // exit -- the only entrance to the whole scenario -- was `material: "missing"`: no roll, no
+            // clock, no word to the Keeper or the player about why.
+            rows.push({ kind: "route", where: to, blocked: "material", from: "where.exits",
+                line: clip(`the way to ${to} is the book's own and its pages are not read yet: apply move to ${to} reads them and takes it`) });
+    }
+    for (const entry of array(where.back))
+        rows.push({ kind: "route", where: string(row(entry).to), from: "where.back",
+            line: clip(`the way back to ${string(row(entry).to)} is open`) });
+    return rows;
 }
 function pressureRows(pacing: Row | null | undefined, pressures: Row[], obligations: Row[]): Row[] {
     const clocks = array(pacing?.threat_clocks).filter(clock => truth(row(clock).next)).map(clock => ({
@@ -176,7 +206,10 @@ export function directorRecovery(beat: string, blocked: number, sources: Recover
     }
     for (const entry of array(sources.offer)) {
         const o = row(entry);
-        if (o.kind === "route")
+        // A door the book holds closed is information the Keeper needs, never the step the recovery owes:
+        // the recovery names operations that are meant to be called, and this one would walk the party
+        // through a gate the module set (contract §49).
+        if (o.kind === "route" && o.blocked !== "locked")
             steps.push({ rung: "information", operation: "apply move", where: string(o.where), line: clip(string(o.line)) });
     }
     // Three steps, like the offer: the section rides inside the Director's budget beside `because` and the

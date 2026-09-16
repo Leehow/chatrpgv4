@@ -383,8 +383,11 @@ test('one paused run is one outage however many verbs are refused after the paus
 
 test('a paused review and terminal provider failure still produce one player notice', async t => {
     const dead = () => fauxAssistantMessage([], {stopReason: 'error', errorMessage: 'Provider 500'});
+    // The two failures reach one run through a batch the pause cannot end: `look` is answered before
+    // the review is paused, so the batch is not unanimously terminating (§50) and the run goes on
+    // to the call that dies. The notice itself no longer continues a paused run.
     const session = await openTable({retainAt: directory, responses: [
-        fauxAssistantMessage([fauxToolCall('narrate', {text: 'Unapproved draft.'})], {stopReason: 'toolUse'}),
+        fauxAssistantMessage([fauxToolCall('look', {focus: 'scene'}), fauxToolCall('narrate', {text: 'Unapproved draft.'})], {stopReason: 'toolUse'}),
         dead(), dead(), dead()]});
     t.after(() => session.dispose());
     session.emit('coc:mods-bridge', {async after() {}, async prepare(method) {
@@ -784,11 +787,13 @@ test('a verdict pause keeps its own wording on a table a streak has already esca
 
 test('the verbs refused after a verdict pause do not relabel the run as a dead lane', async t => {
     const words = await spoken();
+    // The later verbs are in the batch the Keeper already wrote: a pause ends the run (§50), but it
+    // cannot un-write the calls that were issued alongside the draft, and those are exactly the ones
+    // the guard re-throws for.
     const session = await openTable({retainAt: directory, responses: [
-        fauxAssistantMessage([fauxToolCall('narrate', {text: 'Unapproved draft.'})], {stopReason: 'toolUse'}),
         // The guard re-throws for every later verb, and its error carries no kind at all.
-        fauxAssistantMessage([fauxToolCall('look', {focus: 'scene'})], {stopReason: 'toolUse'}),
-        fauxAssistantMessage([fauxToolCall('look', {focus: 'scene'})], {stopReason: 'toolUse'}),
+        fauxAssistantMessage([fauxToolCall('narrate', {text: 'Unapproved draft.'}),
+            fauxToolCall('look', {focus: 'scene'}), fauxToolCall('look', {focus: 'scene'})], {stopReason: 'toolUse'}),
         fauxAssistantMessage('Should never be consumed.')]});
     t.after(() => session.dispose());
     session.emit('coc:mods-bridge', {async after() {}, async prepare(method) {

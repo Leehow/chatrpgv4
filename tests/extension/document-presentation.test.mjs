@@ -5,6 +5,7 @@ import {createHash} from 'node:crypto';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {presentDocument,documentPresentationStatus,validateDocumentReading} from '../../extensions/mods/document-presentation.ts';
+import {waitFor} from './wait.mjs';
 
 test('reading cache preserves source, edits and reset across languages and changed source', async()=>{
   const home=await mkdtemp(join(tmpdir(),'paper-reading-'));
@@ -79,24 +80,20 @@ test('separate owners isolate pending work and poll failures while retaining acc
   const firstOptions={home,owner:{},runner,signal:firstController.signal};
   const secondOptions={home,owner:{},runner,signal:secondController.signal};
   const source={name:'Shared slip',text:'Same source',original:'Same source',version:'one',play_language:'en'};
-  const waitFor=async read=>{
-    for(let round=0;round<200;round++){
-      const result=read();if(result)return result;
-      await new Promise(resolve=>setTimeout(resolve,5));
-    }
-    assert.fail('Owned presentation did not reach its expected state');
-  };
+  // A wall-clock deadline from the suite's one wait vocabulary, not 200 rounds of 5ms: under
+  // whole-suite load a second is not long, and a short budget turns a slow box into a red test.
+  const reach=(read,label)=>waitFor(read,{label:`the owned presentation to ${label}`});
   const first=presentDocument(firstOptions,source).catch(error=>error);
   const second=presentDocument(secondOptions,source).catch(error=>error);
   try {
     assert.deepEqual(documentPresentationStatus({...firstOptions},source),{pending:true});
     assert.deepEqual(documentPresentationStatus({...firstOptions},source),{pending:true});
     assert.deepEqual(documentPresentationStatus({...secondOptions},source),{pending:true});
-    await waitFor(()=>jobs.size===2);
+    await reach(()=>jobs.size===2,'start both jobs');
     assert.equal(calls,2);
     firstController.abort();
     assert.match((await first).message,/could not be prepared/);
-    const failure=await waitFor(()=>{
+    const failure=await reach(()=>{
       try{documentPresentationStatus({...firstOptions},source);}catch(error){return error;}
     });
     assert.match(failure.message,/could not be prepared/);
@@ -104,7 +101,7 @@ test('separate owners isolate pending work and poll failures while retaining acc
     await jobs.get(secondController.signal).complete();
     const result=await second;
     assert.equal(result.text,'Independent completed text');
-    const view=await waitFor(()=>{
+    const view=await reach(()=>{
       const value=documentPresentationStatus({...secondOptions},source);return !value.pending&&value;
     });
     assert.equal(view.display_name,'Second owner reading');

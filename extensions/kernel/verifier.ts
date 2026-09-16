@@ -39,6 +39,17 @@ export interface Finding {
 	kind: string;
 	quote: string;
 	why: string;
+	/**
+	 * Which clue a `reveal` is about, when it is about one (contract §51.3).
+	 *
+	 * The lane already knew: on campaign `game-ef8e60aa` turn 11 its `why` said, in the play language,
+	 * that the unearned clue chapel-ruins-location had been pointed out by Dooley in so many words --
+	 * the handle was there, inside a prose sentence, where nothing downstream could read it.
+	 * The prose the Keeper delivered had given the player a whole new place to go and the clue
+	 * ledger never heard of it. Naming the handle in its own field is what lets the kernel compare
+	 * the finding against `discovered_clues` at all; the judgement stays the lane's.
+	 */
+	clue?: string;
 }
 
 /** The payload put on the bus after a successful `narrate` (contract §12.8). */
@@ -72,13 +83,13 @@ export async function verifierSystemPrompt(playLanguage?: string, contentRoot?: 
 	return [
 		"You are doing an after-the-fact verification pass for a Call of Cthulhu Keeper. The prose you read has already been delivered to the player and cannot be changed; you only report, you never rewrite.",
 		"Look for five kinds of problem, and report none if you find none:",
-		"- reveal: the prose says something from the Keeper-only list that the player has not yet earned at the table. What the already-public list shows the player was told before — their own name and occupation, the setup's prologue, earlier deliveries — is not a reveal when it is said again.",
+		"- reveal: the prose says something from the Keeper-only list that the player has not yet earned at the table. What the already-public list shows the player was told before — their own name and occupation, the setup's prologue, earlier deliveries — is not a reveal when it is said again. When the thing revealed is one of the [Keeper-only facts] lines that begin \"Undiscovered clue:\", also answer clue with that line's name, copied exactly; leave clue out otherwise.",
 		"- uncommitted_state: the prose claims a state change that is not on the committed-facts list — moving somewhere, gaining a clue, a number going up or down, time passing.",
 		"- player_agency: the prose makes a voluntary choice for the player that he did not declare (a choice, something he said, an action he took).",
 		`- play_language_mismatch: the player-facing prose is not written in ${tag}. Judge the prose as a reader of that language would, not by counting characters; proper names, quoted rules terms and dice notation are not a mismatch.`,
 		"- unmarked_speech: a line someone speaks aloud that is not listed under [Spoken lines] below. Reported speech, thought, signage and a document's text are not lines.",
 		"Answer with one JSON object only, no code fence and no explanation:",
-		'{"findings":[{"kind":"reveal"|"uncommitted_state"|"player_agency"|"play_language_mismatch"|"unmarked_speech","quote":"<the sentence from the prose, word for word, <=120 chars>","why":"<=200 chars>"}]}',
+		'{"findings":[{"kind":"reveal"|"uncommitted_state"|"player_agency"|"play_language_mismatch"|"unmarked_speech","quote":"<the sentence from the prose, word for word, <=120 chars>","why":"<=200 chars>","clue":"<the undiscovered clue name, on a reveal about one>"}]}',
 		'With no problems, answer {"findings":[]}.',
 		"The quote must be taken verbatim from the prose: change one character, splice two sentences, or add a mark of punctuation, and the row is dropped.",
 		`Write why in ${tag}.`,
@@ -121,7 +132,10 @@ export function shapeFindings(parsed: unknown): Finding[] | undefined {
 		if (typeof row.kind !== "string" || !FINDING_KINDS.has(row.kind)) continue;
 		if (typeof row.quote !== "string" || row.quote.length === 0) continue;
 		if (typeof row.why !== "string" || row.why.length === 0) continue;
-		findings.push({ kind: row.kind, quote: row.quote, why: row.why });
+		// The handle rides only on a reveal, and only when it is a nonempty string: a clue named on any
+		// other kind is the model answering a question nobody asked (contract §51.3).
+		const clue = row.kind === "reveal" && typeof row.clue === "string" && row.clue.trim() ? row.clue.trim() : undefined;
+		findings.push({ kind: row.kind, quote: row.quote, why: row.why, ...(clue ? { clue } : {}) });
 		if (findings.length >= MAX_FINDINGS) break;
 	}
 	return findings;

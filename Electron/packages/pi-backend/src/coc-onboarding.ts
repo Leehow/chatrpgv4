@@ -12,6 +12,24 @@ const MAX_FILE = 128 * 1024 * 1024;
 const PRESENTATION_DEADLINE_MS = 360_000;
 const CHUNK = 1024 * 1024;
 /**
+ * How long an `uploading` job may go without a chunk before it is reported as interrupted (§44).
+ *
+ * The pusher is a browser, not a child of this host, so there is nothing to ask whether it is
+ * alive; the only evidence is the age of the last acknowledgement. Comfortably past the Host API's
+ * 30 s request timeout, so a chunk still in flight is never called a stall, and past the slowest
+ * chunk a real table has produced (a degraded stream managed a MiB every 6.7 s before it stopped).
+ */
+const UPLOAD_STALL_MS = 90_000;
+/**
+ * What the host says when a preparation worker stopped before it answered (§48).
+ *
+ * The worker says the same sentence for the same situation, because either of them may be the one
+ * that has to speak; it is duplicated across a process boundary rather than shared, which is the
+ * cost of the worker being a separate program. What must never appear here is the text of whatever
+ * threw: a PDF vendor's, a provider SDK's, or the last 2000 bytes of the worker's stderr.
+ */
+const PREPARATION_STOPPED = 'The preparation stopped before it answered. Your source is saved; retry this preparation.';
+/**
  * A host failure the preparation overlay can show (contract §23): the code it looks a word up by,
  * and an English message kept for the log. Prose is never the player's only explanation, because
  * the player does not necessarily read the system language.
@@ -25,6 +43,44 @@ function refusal(error: unknown, fallback: string): Refusal {
   const code = (error as {code?: unknown})?.code;
   return {code: typeof code === 'string' && code ? code : fallback,
     message: error instanceof Error ? error.message : String(error)};
+}
+/**
+ * The caption keys the `errors` surface registers, read from the authored source (contract §46).
+ *
+ * A failure reaches the player as a code the renderer looks a caption up by (§23). A code nothing
+ * registers has no caption, so the renderer falls back to `unknown` -- which names nothing. That is
+ * what two stalled tables were shown for a kernel `needs`: a fold headed "this step did not go
+ * through" over a sentence of English. The registration *is* this key set, not a second table
+ * beside it: adding a caption to `content/ui/<source>/errors.json` registers its code and nothing
+ * else has to change, and a code with no caption is settled to one that has.
+ *
+ * The authored tag comes from the data, so this reads no language and names none.
+ */
+const REGISTERED = new Map<string, Set<string> | null>();
+function registeredCodes(contentRoot: string): Set<string> | null {
+  if (!REGISTERED.has(contentRoot)) {
+    let known: Set<string> | null = null;
+    try {
+      const source = JSON.parse(readFileSync(join(contentRoot, 'languages.json'), 'utf8')).source;
+      const surface = JSON.parse(readFileSync(join(contentRoot, 'ui', String(source), 'errors.json'), 'utf8'));
+      known = new Set(Object.keys(surface).filter(key => typeof surface[key] === 'string'));
+    } catch { /* a build whose surface cannot be read registers nothing it can vouch for */ }
+    REGISTERED.set(contentRoot, known);
+  }
+  return REGISTERED.get(contentRoot) ?? null;
+}
+/**
+ * A refusal the player can be told about: a registered code, and the diagnostic behind it.
+ *
+ * An unregistered code is not thrown away -- it moves into the message, where the log belongs --
+ * and `fallback` carries the player-facing meaning. The message stays whatever the failure
+ * actually said; a host that writes its own sentence here writes it in the system language, and
+ * the overlay would put that sentence in front of a player who chose another (BUG-039).
+ */
+function captioned(contentRoot: string, settled: Refusal, fallback: string): Refusal {
+  const known = registeredCodes(contentRoot);
+  if (!known || known.has(settled.code)) return settled;
+  return {code: fallback, message: settled.code ? `${settled.code}: ${settled.message}` : settled.message};
 }
 /**
  * The product's own captions for one play language.
@@ -179,6 +235,35 @@ export class CocOnboardingHost {
     const next={...this.load(job.id,job.session),...change};this.save(next);return next;
   }
   private phaseKey(job:Row, phase:string) {return job.id+':'+phase;}
+  /**
+   * Whether an upload has bytes outstanding, whoever stopped it and why.
+   *
+   * A paused upload is one of these: pausing stops the reading phases, and there is no reading yet.
+   * Saying so here is what lets the next chunk land on the prefix already on disk instead of
+   * starting a 44 MB book over -- `lede.job` promises the progress is kept.
+   */
+  private incompleteUpload(job:Row):boolean {
+    return job.source==='pdf' && !job.module_id && ['uploading','paused'].includes(job.state) &&
+      typeof job.size==='number' && typeof job.received==='number' && job.received<job.size;
+  }
+  /**
+   * Whether nobody is pushing bytes into an `uploading` job any more (§44).
+   *
+   * Two real tables froze at 9 MiB and 8 MiB of the same book with the job still reading
+   * `uploading`, and the overlay went on drawing a progress bar over a stream that had stopped --
+   * for fourteen minutes on one of them. The phases have asked "is anyone still working?" since
+   * they were written (`state:'running' && !alive`); the upload never asked, because its worker is
+   * a browser. The last acknowledgement's age is the same question in the only form available.
+   *
+   * This is read on the way out and never written back: the job stays `uploading` on disk so the
+   * very next chunk is still accepted. Reporting "interrupted" and then refusing the resumed bytes
+   * would be the same lie in the other direction.
+   */
+  private stalledUpload(job:Row):boolean {
+    if(job.state!=='uploading')return false;
+    const window=Number(this.options.env.PI_COC_UPLOAD_STALL_MS)||UPLOAD_STALL_MS;
+    return Date.now()-(typeof job.received_at==='number'?job.received_at:0)>window;
+  }
   private snapshot(job: Row): Row {
     let indexed=0, pages=job.pages||0, character='not_started',waitingForOpening=false,playing=false,handoffCommitted=false;
     if(job.module_id)try {
@@ -194,21 +279,35 @@ export class CocOnboardingHost {
     const phase=(name:string)=>{
       const saved=job.preparation?.[name]||{state:'queued'};
       const alive=this.children.has(this.phaseKey(job,name));
-      return {stage:saved.stage,progress:saved.progress,candidates:saved.candidates,
-        error:saved.state==='failed'?{code:typeof saved.code==='string'&&saved.code?saved.code:'preparation_failed',
-          message:'Source preparation could not finish. Your source and investigator are saved; retry this preparation.'}:undefined,
+      // The player's explanation is the code's caption; the message is the diagnostic, for the log
+      // behind the fold. This used to replace the diagnostic with a sentence written here, which
+      // discarded what actually failed *and* put English in front of a player who chose another
+      // language (BUG-039). Codes are settled on the way out as well as on the way in, so a job
+      // recorded before this rule still answers with a caption the renderer can find.
+      const failure=saved.state==='failed'
+        ? captioned(this.contentRoot,{code:typeof saved.code==='string'?saved.code:'',
+            message:typeof saved.error==='string'?saved.error:''},'preparation_failed')
+        : undefined;
+      return {stage:saved.stage,progress:saved.progress,candidates:saved.candidates,error:failure,
         state:saved.state==='running'&&!alive?'paused':saved.state,stopping:saved.state==='paused'&&alive};
     };
     const guidance=phase('guidance'),opening=phase('opening');
     const current=guidance.state==='ready'?opening:guidance;
     const canConverse=guidance.state==='ready';
-    const state=job.state==='conversing'?'conversing':canConverse?'ready':current.state==='needs_choice'?'choice':
+    const written=job.state==='conversing'?'conversing':canConverse?'ready':current.state==='needs_choice'?'choice':
       ['paused','failed'].includes(current.state)?current.state:job.state;
+    // An upload nobody is pushing is reported as stopped, with the refusal the player would get
+    // for resuming it, so the overlay offers continuing instead of a progress bar that never moves.
+    const stalled=written==='uploading'&&this.stalledUpload(job);
+    const state=stalled?'paused':written;
+    const interrupted=stalled?{code:'upload_retry',
+      message:'No upload bytes have arrived for some time; send the file again from where it stopped.'}:undefined;
     return {id:job.id,name:job.name,source:job.source,size:job.size,received:job.received,state,pages,indexed,
       stage:current.stage,reviewed:current.progress?.reviewed,reviewTotal:current.progress?.review_total,
       activeReaders:current.progress?.activeReaders||0,stopping:current.stopping,
       candidates:current.candidates,
-      error:current.error||(job.error?{code:typeof job.error_code==='string'&&job.error_code?job.error_code:'preparation_failed',message:job.error}:undefined),
+      error:interrupted||current.error||(job.error?captioned(this.contentRoot,
+        {code:typeof job.error_code==='string'?job.error_code:'',message:String(job.error)},'preparation_failed'):undefined),
       preparation:{guidance,opening},character:{state:character},canConverse,
       canHandoff:character==='confirmed'&&(waitingForOpening||handoffCommitted)&&opening.state==='ready'&&!playing,playing,hidden:!!job.hidden,
       model:job.model,thinking:job.thinking,campaign:job.campaign,play_language:job.play_language};
@@ -242,7 +341,21 @@ export class CocOnboardingHost {
         });
         child.on('error', error => {failure ||= error;});
         child.on('close', code => {
-          if (signal.aborted || code !== 0 || failure || result === undefined) reject(Object.assign(refuse('interrupted', failure?.message || tail || 'Preparation interrupted'), failure || {}));
+          if (signal.aborted || code !== 0 || failure || result === undefined) {
+            // A worker that died without an error event leaves only stderr, and stderr is a
+            // diagnostic -- stack, paths, whatever a vendor printed -- never a sentence written
+            // for a player (§48). It goes to this import's event log, which is where the rest of
+            // the worker's account already goes; what the overlay reads is a sentence of ours.
+            if (job && !failure && tail) try {
+              appendFileSync(join(this.folder(job.id), 'events.jsonl'),
+                JSON.stringify({at: new Date().toISOString(), type: 'diagnostic', data: {stderr: tail}}) + '\n');
+            } catch { /* the refusal still stands without its log line */ }
+            const refused = Object.assign(refuse('interrupted', PREPARATION_STOPPED), failure || {});
+            // Assigning the worker's fields back would carry its message too, so the sentence is
+            // settled last: the worker's own when it wrote one, ours otherwise.
+            refused.message = typeof failure?.message === 'string' && failure.message ? failure.message : PREPARATION_STOPPED;
+            reject(refused);
+          }
           else resolve(result);
         });
       });
@@ -272,7 +385,7 @@ export class CocOnboardingHost {
     }).catch(error=>{
       const latest=this.load(job.id,job.session);
       if(latest.preparation?.[phase]?.attempt!==attempt||latest.preparation[phase].state!=='running')return;
-      const failed=refusal(error,'preparation_failed');
+      const failed=captioned(this.contentRoot,refusal(error,'preparation_failed'),'preparation_failed');
       this.patch(latest,{preparation:{...latest.preparation,[phase]:{state:error.code==='needs_choice'?'needs_choice':'failed',
         attempt,error:failed.message,code:failed.code,candidates:error.candidates}}});
     });
@@ -309,7 +422,9 @@ export class CocOnboardingHost {
       // An undeclared tag is refused rather than quietly replaced: the player picked a language.
       const language = await this.playLanguage(params.play_language);
       if (params.play_language && params.play_language !== language) throw refuse('invalid_params', 'Invalid play language');
-      const job: Row = {play_language: language, id: randomUUID(), session, name: params.name, size: params.size || 0, received: 0,
+      // `received_at` starts now, so an upload that never gets its first byte goes quiet on the
+      // same clock as one that stops halfway (§44) -- the §43 table froze at exactly zero.
+      const job: Row = {play_language: language, id: randomUUID(), session, name: params.name, size: params.size || 0, received: 0, received_at: Date.now(),
         source: params.action === 'begin' ? 'pdf' : params.source, module_id: params.module_id,
         preparation:{guidance:{state:'queued'},opening:{state:'queued'}}, model: model.id, thinking: model.thinking, state: params.action === 'begin' ? 'uploading' : 'preparing'};
       mkdirSync(this.folder(job.id)); this.save(job);
@@ -334,10 +449,17 @@ export class CocOnboardingHost {
     this.busy.add(job.id);
     try {
       if (params.action === 'chunk') {
-        if (job.state !== 'uploading' || params.offset !== job.received || typeof params.data !== 'string' || params.data.length > Math.ceil(CHUNK / 3) * 4 || !/^[A-Za-z0-9+/]*={0,2}$/.test(params.data)) throw refuse('upload_chunk_invalid', 'Invalid upload chunk or offset');
+        // Any upload with bytes outstanding takes them, left `uploading` or paused: the offset is
+        // still this host's own count, so a lost acknowledgement cannot double-write the file, and
+        // a stream that stopped resumes onto the prefix rather than beginning a book again.
+        if (!this.incompleteUpload(job) || params.offset !== job.received || typeof params.data !== 'string' || params.data.length > Math.ceil(CHUNK / 3) * 4 || !/^[A-Za-z0-9+/]*={0,2}$/.test(params.data)) throw refuse('upload_chunk_invalid', 'Invalid upload chunk or offset');
         const bytes = Buffer.from(params.data, 'base64');
         if (!bytes.length || bytes.length > CHUNK || job.received + bytes.length > job.size) throw refuse('upload_size_mismatch', 'Upload size mismatch');
-        appendFileSync(join(this.folder(job.id), 'source.pdf'), bytes); job.received += bytes.length; this.save(job);
+        appendFileSync(join(this.folder(job.id), 'source.pdf'), bytes); job.received += bytes.length; job.received_at = Date.now();
+        // Reopening restores the phases a pause stopped; leaving them paused would report a paused
+        // job over a stream that is moving, which is the same lie the stall reading exists to end.
+        if (job.state !== 'uploading') {job.state = 'uploading'; job.preparation = {guidance:{state:'queued'},opening:{state:'queued'}};}
+        this.save(job);
       } else if (params.action === 'finish') {
         const path = join(this.folder(job.id), 'source.pdf');
         if (job.state !== 'uploading' || job.received !== job.size || statSync(path).size !== job.size) throw refuse('upload_incomplete', 'Upload is incomplete');
@@ -345,7 +467,8 @@ export class CocOnboardingHost {
         try {
           const inspected = await this.run('inspect', {pdf: path, name: job.name}, job);
           const bound=this.patch(job,{module_id:inspected.module_id,pages:inspected.page_count});this.prepare(bound);
-        } catch (error) {const failed=refusal(error,'preparation_failed');job.state = 'failed'; job.error = failed.message; job.error_code = failed.code; this.save(job);}
+        } catch (error) {const failed=captioned(this.contentRoot,refusal(error,'preparation_failed'),'preparation_failed');
+          job.state = 'failed'; job.error = failed.message; job.error_code = failed.code; this.save(job);}
       } else if (params.action === 'pause') {
         const targets=params.target==='all'||job.preparation?.guidance?.state!=='ready'?['guidance','opening']:['opening'];
         const preparation={...job.preparation};
@@ -364,7 +487,10 @@ export class CocOnboardingHost {
         const updated=this.patch(job,{start_scene:params.scene||job.start_scene,model:model.id,thinking:model.thinking});
         this.prepare(updated,true);
       } else if (params.action === 'dismiss') {
-        if ([...this.children.keys()].some(key=>key.startsWith(job.id+':')) || ['uploading','inspecting'].includes(job.state)) throw refuse('preparation_pause_first', 'Pause preparation before choosing another scenario');
+        // Choosing another scenario waits for live work -- but an upload nobody is pushing is not
+        // live work, and refusing there leaves the player shut inside a screen nothing is moving.
+        if ([...this.children.keys()].some(key=>key.startsWith(job.id+':')) ||
+          (['uploading','inspecting'].includes(job.state) && !this.stalledUpload(job))) throw refuse('preparation_pause_first', 'Pause preparation before choosing another scenario');
         job.dismissed = true; this.save(job);
       } else if (params.action === 'converse') {
         if(job.preparation?.guidance?.state!=='ready') throw refuse('guidance_not_ready', 'Wait for the scenario guidance to be ready');

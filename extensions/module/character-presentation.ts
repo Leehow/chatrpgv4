@@ -13,7 +13,7 @@ export const CARD_TEXT = ['Character draft','Character draft — reply to confir
   'Parameter','Value','Skill','Base value','Occupation points','Interest points','Final value','Point allocation','Total points','Spent','Remaining','Skills','Finance','Background','Language','Key connection',
   'Show calculation details','Hide calculation details','Characteristics','Calculation','Rolled value','Dice results','Age adjustment','EDU improvement checks','Keep highest','Base movement','Age movement penalty','Round down','Standard rolled characteristics','Rolled characteristics assigned to the stated aptitudes','Quick-fire array','Equipment','Weapons','Preview unavailable','Retry',
   'Edit numbers','Edit draft numbers','Derived values','Save changes','Cancel','Close','Allowed range','Calculated automatically','Rules in force','Characteristic range','Starting skill cap','Credit Rating range','Unlock limits','Hide limit overrides','Characteristic minimum','Characteristic maximum','Skill cap','Overridden','Enter a whole number.','Not enough occupation points.','Not enough interest points.','Value outside the allowed range.','The draft changed while you were editing. The latest version is shown instead.','The save failed — try again.',
-  'cash','assets','spending','credit_rating','living_standard','damage','range','attacks','ammo','malfunction','skill','Yes','No'];
+  'cash','assets','spending','credit_rating','living_standard','finance_period','substituted_for','damage','range','attacks','ammo','malfunction','skill','Yes','No'];
 type Row=Record<string,any>;
 /** A campaign id, checked before it is ever joined onto a path. */
 const CAMPAIGN_NAME=/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
@@ -39,6 +39,9 @@ export function cardTexts(sheet:Row):string[] {
   for(const item of sheet.equipment||[])add(item);
   for(const weapon of sheet.weapons||[])for(const [key,value] of Object.entries(weapon)){add(key);if(Array.isArray(value))value.forEach(add);else add(value)}
   add(sheet.finance?.living_standard);
+  // The authored setting a substituted finance period stood in for is the book's own prose, so the
+  // card can only print it in the player's language if the projection is asked for it (§23.4).
+  add(sheet.finance?.substituted_for);
   for(const key of ['cash','assets','spending_level'])add(sheet.finance?.[key]?.currency);
   return [...texts].sort();
 }
