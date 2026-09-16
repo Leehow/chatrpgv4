@@ -49,6 +49,15 @@ export default function (pi: ExtensionAPI) {
                 void appendJsonl(join(home, ".coc", "reading-telemetry.jsonl"), line).catch(() => undefined);
                 if (row.campaign) void appendJsonl(join(home, ".coc", "campaigns", row.campaign, "telemetry.jsonl"), line).catch(() => undefined);
             },
+            // The operator's surface for a reader lane that stopped working, shaped after the admission
+            // outage notice of contract §32.2: out of fiction, once per session, with the fix. Its reader
+            // is the person running the table, not the run analysis -- the telemetry row already says the
+            // same thing to kpi.py, and the player is never asked to resend words that were not the problem.
+            status: row => {
+                const line = { at: new Date().toISOString(), ...row };
+                try { pi.appendEntry("coc-reading-status", line); } catch { /* a closed session cannot accept entries */ }
+                pi.events.emit("coc:reading-status", line);
+            },
         });
         pi.events.emit("coc:reading-bridge", reading);
         wake("reader-ready");
