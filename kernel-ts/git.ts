@@ -6,7 +6,14 @@ import { delimiter, dirname, isAbsolute, join, resolve } from "node:path";
 const IDENTITY = ["-c", "user.name=coc-kernel", "-c", "user.email=kernel@coc.invalid",
   "-c", "commit.gpgsign=false", "-c", "core.autocrlf=false"];
 
-export class CommitFailed extends Error { override name = "CommitFailed"; }
+/** Contract §38.11: what the Git verb was, how it exited and what it printed, kept apart from the
+ *  message so a service notice can name the cause instead of quoting a flattened sentence. */
+export interface GitFailure { readonly step: string; readonly code: number; readonly output: string }
+export class CommitFailed extends Error {
+  override name = "CommitFailed";
+  readonly git?: GitFailure;
+  constructor(message: string, git?: GitFailure) { super(message); if (git) this.git = git; }
+}
 export interface GitResult { readonly code: number; readonly stdout: string; readonly stderr: string }
 export interface GitRuntime {
   requireAvailable(): void;

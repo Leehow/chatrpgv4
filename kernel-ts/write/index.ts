@@ -19,7 +19,7 @@ import { authoredMapWords } from '../read/maps.js';
 import { sceneLabel } from '../read/capsule.js';
 import { tableSnapshot, playerGlossary, unsupported, type ReadContributions } from '../read/handlers.js';
 import { playLanguages, playLanguageOf } from '../read/languages.js';
-import { modContext } from '../read/mods.js';
+import { modContext, kernelGaps, readModCatalog } from '../read/mods.js';
 import { array, entries, values, row, clone, number, string, truth, repr, chars, words, equal, type Row } from '../read/values.js';
 import { CampaignWriter, freshTurn, nowIso, required, missingContribution, createTurnTransaction, rememberCall, turnStateError } from './store.js';
 import { checked, commit, CommitFailed } from './history.js';
@@ -568,6 +568,11 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             resumes.delete(campaign.id);
         const scene = module.graph.scene(snapshot.world.active_scene), line = row(row(snapshot.meta.worldlines)[activeName(snapshot.meta)]);
         const mapWords = authoredMapWords(module.graph);
+        // Contract §28.9: the kernel is a build artifact and `mods/` is read live from the same
+        // disk, so opening a table is the one moment where the two can be compared before a verb
+        // fails. A package this build cannot read is disabled, not fatal -- and the host says so
+        // once, out of fiction, to whoever can rebuild the kernel.
+        const modGaps = kernelGaps(await readModCatalog(context));
         return {
             campaign: snapshot.meta,
             turn: {
@@ -590,6 +595,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             },
             pending_turn: pending,
             opening_needed: opening,
+            ...(modGaps.length ? { mods_unreadable: modGaps } : {}),
             mod_context: await modContext(context, module.graph, snapshot.world, snapshot.party, snapshot.records, true, {
                 memory: snapshot.logs.get('memory/candidates.jsonl') ?? [], story: snapshot.logs.get('memory/story.jsonl') ?? [],
                 worldline: activeName(snapshot.meta), loop: number(line.loop)
@@ -914,10 +920,13 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
                     if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
                         throw error;
                 });
+            // Contract §38.11: the Git verb, its exit code and what it printed reach the host as
+            // fields, so a repeated failure can be escalated by cause instead of by sentence.
             throw new RpcError('commit_failed', `git commit failed; the turn stays open: ${error.message}`, {
                 fix: 'retry narrate with the same text',
                 details: {
-                    turn: n
+                    turn: n,
+                    ...(error.git ? { git: { step: error.git.step, code: error.git.code, output: error.git.output } } : {})
                 }
             });
         }
