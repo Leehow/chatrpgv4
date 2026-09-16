@@ -466,6 +466,15 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
   const [projects, setProjects] = useState<Project[]>([])
   const [sessions, setSessions] = useState<Session[]>([])
   const [selectedProject, setSelectedProject] = useState('')
+  /** The project whose form the host has actually answered for; '' means none
+   *  yet. `activeWorkbenchPlan.packId` alone cannot say this: it carries the
+   *  layout being painted, which starts as the base shell placeholder. */
+  const [formKnownFor, setFormKnownFor] = useState('')
+  const extensionListFailure = useCallback(() => {
+    // Retries are exhausted. Say so where the project lives; the shell keeps
+    // the form it last knew rather than claiming the project became `base`.
+    setProjectError('暂时读不到这个项目启用了哪些扩展包，界面先保持原样。稍后会自动重试。')
+  }, [])
   const [defaultProductPanel, setDefaultProductPanel] = useState<PanelTab>(DEFAULT_PANEL_TAB)
   // One extension list drives both the contributions and the shell: the enabled
   // extension that declares `app.ui.layout` is this project's form, and every
@@ -473,6 +482,10 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
   // plan in one emit (store.apply and applyActiveExtensionIds both overwrite),
   // so switching projects never drops the shell to empty in between.
   const applyWorkbenchFromExtensions = useCallback((extensions: readonly ExtensionDescriptor[]) => {
+    // This ran, so the host answered: the project's form is now known, whatever
+    // it turned out to be (§54). Before it ran, the shell was painting the base
+    // layout as a placeholder, not asserting that this project is `base`.
+    setFormKnownFor(selectedProjectRef.current)
     const enabled = extensions.filter(item => item.state === 'enabled')
     const pack = enabled.find(item => item.ui?.layout)
     const enabledIds = enabled.map(item => item.id)
@@ -481,7 +494,7 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
     if (pack) productWorkbench.activateProductPack({ id: pack.id, layout: pack.ui?.layout }, enabledIds)
     else productWorkbench.activateBaseWorkbench(enabledIds)
   }, [productWorkbench])
-  useDeclarativeContributionLoader(host, selectedProject || undefined, applyWorkbenchFromExtensions)
+  useDeclarativeContributionLoader(host, selectedProject || undefined, applyWorkbenchFromExtensions, extensionListFailure)
   useExtensionThemeSync(host, selectedProject || undefined)
   const [timeline, setTimeline] = useState<any>(null)
   const [timelineRefresh, setTimelineRefresh] = useState(0)
@@ -812,7 +825,12 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
   const activeProductPackId = activeWorkbenchPlan.packId
   const productHasPrimarySidebar = activeWorkbenchPlan.containers.some(item => item.location === 'primarySidebar')
   const selectedConversationPackId = sessions.find(item => item.id === selectedSession)?.productProfile?.id ?? activeProductPackId
-  const packSnapshotMismatch = Boolean(selectedSession) && selectedConversationPackId !== activeProductPackId
+  // Never accuse a session of belonging to another form before this project's
+  // form is known. Over a remote link the answer can take tens of seconds, and
+  // the placeholder shell used to read as `base` the whole time: the composer
+  // locked and the person was told to start a new session (§54).
+  const projectFormKnown = formKnownFor === selectedProject
+  const packSnapshotMismatch = projectFormKnown && Boolean(selectedSession) && selectedConversationPackId !== activeProductPackId
   const leaseReadOnly = packSnapshotMismatch || (lease !== null && !canWriteLease)
   const leaseConflictError = sessionQueue.items.find(item =>
     item.status === 'failed' && typeof item.error === 'string' && item.error.includes('session is read-only'),

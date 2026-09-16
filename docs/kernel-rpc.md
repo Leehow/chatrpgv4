@@ -8193,3 +8193,70 @@ therefore silently shortened: t9 turn 36 (2026-09-16) came back as three of six 
 cut on a full stop, and the paragraph it dropped was the answer the table had just won an
 extreme success for. What the player has already been given is not taken back on the second
 look.
+
+## 54. A project whose form is not known yet is not `base` (2026-09-16)
+
+Found in real remote play on the shipped build, not by a suite. Every fresh load
+of the paired web shell spent 10 to 30+ seconds in this state, on a project whose
+root is perfectly ordinary:
+
+- the composer **disabled**,
+- the Mods panel absent,
+- and the banner 「此会话使用 coc-keeper 扩展包；当前项目是 base。请用当前扩展包新建会话继续。」
+
+Then it healed by itself. A person does not wait that out — they conclude the
+product is broken and close it. **The flicker is the defect**, not a cosmetic
+detail on the way to a correct state; a playtest that "recovers by reloading" has
+found a bug, not avoided one.
+
+### 54.1 One field, two questions
+
+`activeWorkbenchPlan.packId` answers *which layout am I painting*. The shell
+starts by painting the base layout deliberately — `createProductWorkbenchRuntime`
+calls `activateBaseWorkbench()` so the first frame is a usable shell, before
+anything has been asked of the host.
+
+`packSnapshotMismatch` asks a different question — *which form is this project
+in* — and read the same field for its answer. On a local Electron host
+`listExtensions` returns in milliseconds and nobody ever saw the difference. Over
+a relay it can take tens of seconds, and for all of them the shell was telling
+the person that their session belongs to another pack. This is the §31 shape
+again: a field with two readers that mean different things by it.
+
+The second half was in the loader:
+
+```ts
+try { list = await host.listExtensions?.(projectId) ?? [] }
+catch { list = [] }          // a timeout becomes "this project enables nothing"
+```
+
+A failed call is not an answer. A host that does not implement the method *is* an
+answer — it has none — but a rejection says only that nobody was asked.
+
+### 54.2 The contract
+
+**The shell never asserts a project's form before the host has answered for that
+project.** `packSnapshotMismatch` is gated on the answer having arrived for the
+currently selected project; until then no session is accused and the composer is
+not locked for this reason. The placeholder layout is unchanged — the first frame
+is still a usable shell.
+
+**A failed extension listing is retried quietly and never reported as an empty
+one.** `useDeclarativeContributionLoader` takes an `onFailure` alongside
+`onExtensions`: a rejection schedules a retry (400ms, 1.2s, 3s, 6s) and reaches
+`onFailure` only when those are spent. The shell holds the form it last knew
+rather than flipping to `base`, and a single dropped request over a flaky link
+costs nothing visible. Only a run of failures is put in front of the person, and
+even then as a notice that the interface is staying as it is.
+
+### 54.3 Still open: the shell goes blank while it believes it is connected
+
+Reproduced three times in the same session (first pairing after an app restart,
+mid character-creation, and on sending a line mid-scene): the whole shell
+collapses to 「暂无项目与会话」. `[data-testid="remote-lifecycle"]` is absent and
+there is no `.remote-browser-banner`, so `RemoteBrowserApp` considers itself
+**connected** — the person gets an empty product with no explanation at all.
+The host process is alive, the relay room answers 200, and the turn that was sent
+during the blank **was delivered and answered** (it is there after a reload). The
+mechanism is not established and is deliberately not guessed at here. It is not
+fixed by this section.
