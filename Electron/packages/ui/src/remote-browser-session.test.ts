@@ -7,6 +7,7 @@ import {
   readControlType,
   readStoredRemotePair,
   remoteCloseCopy,
+  remoteProjectPathRefusal,
   writeStoredRemotePair,
 } from './remote-browser-session'
 
@@ -69,5 +70,26 @@ describe('remote browser session', () => {
     expect(readControlType(JSON.stringify({ v: 2, type: 'replaced' }))).toBe('replaced')
     expect(readControlType({ data: JSON.stringify({ v: 2, type: 'expired' }) })).toBe('expired')
     expect(readControlType(JSON.stringify({ protocolVersion: 2, type: 'response' }))).toBeUndefined()
+  })
+})
+
+describe('remote add-project path', () => {
+  // The remote shell has no folder picker, so a typed project name used to
+  // become a project root: the form then resolved to `base` forever and the
+  // pack's own verbs went unanswered (contract §43). The host still decides —
+  // only it can stat the path — but a relative one is refused in the dialog so
+  // the typed text survives the mistake.
+  it('refuses a name or a relative path and keeps the reason', () => {
+    expect(remoteProjectPathRefusal('测试')).toMatch(/完整路径/)
+    expect(remoteProjectPathRefusal('code/my-project')).toMatch(/完整路径/)
+    expect(remoteProjectPathRefusal('./code/my-project')).toMatch(/完整路径/)
+    expect(remoteProjectPathRefusal('  ')).toMatch(/请填写/)
+  })
+
+  it('accepts POSIX and Windows roots because the browser cannot know the host', () => {
+    expect(remoteProjectPathRefusal('/Users/you/code/my-project')).toBeNull()
+    expect(remoteProjectPathRefusal('  /srv/app  ')).toBeNull()
+    expect(remoteProjectPathRefusal('C:\\Users\\you\\app')).toBeNull()
+    expect(remoteProjectPathRefusal('\\\\host\\share\\app')).toBeNull()
   })
 })

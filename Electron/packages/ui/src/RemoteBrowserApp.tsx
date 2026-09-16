@@ -15,6 +15,7 @@ import {
   readControlType,
   readStoredRemotePair,
   remoteCloseCopy,
+  remoteProjectPathRefusal,
   writeStoredRemotePair,
   type RemoteCloseCopy,
   type RemoteCloseKind,
@@ -103,12 +104,14 @@ function waitForSocket(socket: BrowserSocket): Promise<void> {
 
 export function RemoteBrowserApp(options: RemoteBrowserAppOptions = {}) {
   const [projectPath, setProjectPath] = useState('')
+  const [projectPathRefusal, setProjectPathRefusal] = useState<string | null>(null)
   const [pickingProject, setPickingProject] = useState(false)
   const projectAnswer = useRef<((path: string | null) => void) | null>(null)
   const pickProject = useCallback(() => new Promise<string | null>(resolve => {
     projectAnswer.current?.(null)
     projectAnswer.current = resolve
     setProjectPath('')
+    setProjectPathRefusal(null)
     setPickingProject(true)
   }), [])
   const finishProject = (path: string | null) => {
@@ -415,9 +418,21 @@ export function RemoteBrowserApp(options: RemoteBrowserAppOptions = {}) {
   if (host && displayPhase === 'connected') return <><App host={host} />{pickingProject &&
     <div style={{position:'fixed',inset:0,background:'#0008',zIndex:10000,display:'grid',placeItems:'center'}}>
       <form role="dialog" aria-modal="true" aria-label="添加项目" style={{background:'var(--surface, white)',color:'var(--text, black)',padding:24,borderRadius:12,width:'min(520px, 90vw)'}}
-        onSubmit={event => {event.preventDefault(); if(projectPath.trim())finishProject(projectPath.trim())}}>
+        onSubmit={event => {
+          event.preventDefault()
+          const refusal = remoteProjectPathRefusal(projectPath)
+          setProjectPathRefusal(refusal)
+          if (!refusal) finishProject(projectPath.trim())
+        }}>
         <h2>添加项目</h2><label htmlFor="remote-project-path">服务器上的项目文件夹路径</label>
-        <input id="remote-project-path" autoFocus required value={projectPath} onChange={event=>setProjectPath(event.target.value)} style={{display:'block',width:'100%',margin:'16px 0',padding:8}} />
+        <input id="remote-project-path" autoFocus required value={projectPath}
+          aria-describedby={projectPathRefusal ? 'remote-project-path-refusal' : 'remote-project-path-hint'}
+          aria-invalid={projectPathRefusal ? true : undefined}
+          onChange={event=>{setProjectPath(event.target.value); setProjectPathRefusal(null)}}
+          style={{display:'block',width:'100%',margin:'16px 0 8px',padding:8}} />
+        {projectPathRefusal
+          ? <p id="remote-project-path-refusal" role="alert" data-testid="remote-project-path-refusal" style={{margin:'0 0 16px',fontSize:12,color:'var(--danger, #a03f46)'}}>{projectPathRefusal}</p>
+          : <p id="remote-project-path-hint" style={{margin:'0 0 16px',fontSize:12,color:'var(--muted, #6b5f56)'}}>这台浏览器没有文件夹选择器，路径要填主机上的完整路径，例如 /Users/you/code/my-project。</p>}
         <button type="button" onClick={()=>finishProject(null)}>取消</button><button type="submit" disabled={!projectPath.trim()}>添加</button>
       </form>
     </div>}</>

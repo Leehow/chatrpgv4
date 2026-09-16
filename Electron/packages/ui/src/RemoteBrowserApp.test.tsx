@@ -339,4 +339,47 @@ describe('RemoteBrowserApp', () => {
     await waitFor(() => expect(sockets.length).toBeGreaterThan(before))
     expect(sockets[0].close).toHaveBeenCalled()
   })
+
+  // The remote shell substitutes a text box for the native folder picker the
+  // browser does not have. A typed project name used to reach `addProject` and
+  // become a project root whose form is `base` forever (contract §43), so the
+  // dialog refuses a relative path itself and keeps what was typed.
+  it('refuses a typed project name without closing the add-project dialog', async () => {
+    const sockets: FakeSocket[] = []
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.endsWith(`/pair/${pairID}/claim`)) return new Response(null, { status: 204 })
+      if (url.endsWith(`/pair/${pairID}`)) return new Response('', { status: 200 })
+      throw new Error(url)
+    })
+    render(
+      <RemoteBrowserApp
+        location={{ protocol: 'http:', host: 'relay.test', pathname: `/pair/${pairID}`, hash: `#${secret}` }}
+        historyReplace={vi.fn()}
+        fetch={fetchImpl as unknown as typeof fetch}
+        socket={() => { const socket = new FakeSocket(); sockets.push(socket); return socket as any }}
+        schedule={(fn) => { fn(); return 1 }}
+        cancel={vi.fn()}
+      />,
+    )
+    await waitFor(() => expect(sockets.length).toBe(1))
+    sockets[0].emit('open')
+    await waitFor(() => expect(document.querySelector('.pipiui-shell')).toBeTruthy())
+
+    fireEvent.click(screen.getByLabelText('添加项目'))
+    const input = await screen.findByLabelText('服务器上的项目文件夹路径')
+    const dialog = screen.getByRole('dialog', { name: '添加项目' })
+
+    fireEvent.change(input, { target: { value: '测试' } })
+    fireEvent.submit(dialog)
+    expect(screen.getByTestId('remote-project-path-refusal').textContent).toMatch(/完整路径/)
+    // The dialog stays up with the text intact: retyping a long server path
+    // after every mistake is the reason this used to be waved through.
+    expect((screen.getByLabelText('服务器上的项目文件夹路径') as HTMLInputElement).value).toBe('测试')
+
+    fireEvent.change(input, { target: { value: '/srv/tabletop/my-project' } })
+    expect(screen.queryByTestId('remote-project-path-refusal')).toBeNull()
+    fireEvent.submit(dialog)
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '添加项目' })).toBeNull())
+  })
 })
