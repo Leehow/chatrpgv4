@@ -105,8 +105,8 @@ export function createComponent(React) {
         // the opening is ready", "create your investigator while it prepares in the background". A
         // stopped phase is the one state where that is false, and saying it there is what kept a
         // real table waiting forever beside a Resume control it had no reason to touch (BUG-039).
-        // A stopped phase says its own reason instead: the failure's caption is already on the fold
-        // below, and `attention` puts the control that finishes it in the head.
+        // A stopped phase says its own reason instead -- the caption two lines down -- and
+        // `attention` has already put the control that finishes it in the head.
         attention?null:h('p',{},job.canHandoff?t('body.handoff'):job.character.state==='confirmed'&&!ready?t('body.confirmed'):ready?t('body.ready'):t('body.preparing')),
         // The bar moved into the head, where it is visible folded; drawing it twice when the fold is
         // open says nothing the head has not already said.
