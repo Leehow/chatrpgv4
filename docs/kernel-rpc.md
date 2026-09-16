@@ -8458,3 +8458,81 @@ Tests: with `listProjects` pending the sidebar shows no empty state and shows on
 as soon as an empty answer arrives; with `getModelState` pending the chip asserts
 no level and states one once the host reports it. Both fail if either pending
 signal is disconnected.
+
+## 64. The stream fits the link (2026-09-16)
+
+Measured in real play on the deployed build, with a WebSocket frame tap in the
+paired page. One ordinary turn:
+
+```
+frames in the turn : 3773
+peak frames/second : 129
+socket closes      : 1008 ×7
+```
+
+`1008` is the relay's own rate limiter:
+
+```ts
+if (!frameLimiter.take(peer.roomID ?? clientKey(peer))) {
+  sendControl(peer, { v: 2, type: "error", reason: "limit_exceeded" });
+  closePeer(peer, 1008, "limit exceeded");
+}
+```
+
+with `maxFramesPerWindow: 120` per `frameWindowMs: 1000`. The host emitted one
+frame per stream delta, 129 of them in a second, and the relay **closed the
+browser's socket seven times inside a single turn**.
+
+The browser reconnects in well under a second, which is why play mostly worked
+and why this went unnoticed for so long. What does not survive a close are the
+frames in flight. When the turn's completion event is among them the transcript
+sits at 「运行中」 forever: the host's journal shows the message complete with
+`stopReason: "stop"`, the composer says 「Boss 正在工作」, there is no stop button
+and no error, and only a reload — which re-reads the session and shows the whole
+turn — gets the person moving again. That is the stall reported from a phone and
+the reason §54, §57 and §63 all had something to fix on the way back from it.
+
+### 64.1 What the host changes
+
+`remote-control.ts` now puts every outbound frame through `createFramePacer`.
+It is a queue, not a filter: every frame is sent, in order, and it simply refuses
+to hand the socket more than 90 per second — clearly under the relay's 120 — so a
+burst spreads over the following few hundred milliseconds instead of being
+destroyed. `reset()` drops the backlog when a socket is replaced, because those
+frames belong to a link that no longer exists.
+
+90 is a deliberate margin, not a tuned constant: the relay's window and the
+host's window are not aligned clocks, so pacing exactly at 120 would still trip
+it on boundaries.
+
+### 64.2 What the relay should change, and has not
+
+The limiter is keyed by `peer.roomID`, so the host's frames and the browser's
+frames share one budget, and the peer that gets closed is whichever one sends
+next. **The browser was killed for traffic the host produced.** A per-peer bucket
+would have made this visible as "the host is flooding" instead of as a browser
+that mysteriously drops its connection.
+
+`Relay/src/host-api-relay.ts` also drops host→browser frames silently in two
+places — when `room.browser` is not OPEN, and when `frame.generation` is older
+than `room.browserGeneration` — with no counter and no signal to either end.
+
+That code lives in the `pipiui` repository and runs in production at
+`/opt/pipiui-relay`, and the user authorised changing it (2026-09-16). It is now
+fixed there as well: every connection carries its own `id`, the limiter is keyed
+`room:role:id` so a peer only ever spends its own budget, the close logs which
+side overran, `maxFramesPerWindow` is 600 (a streaming number rather than a chat
+one — abuse stays bounded by `maxQueuedBytes`, `maxRequestBytes` and by
+`maxInflight`, which caps a browser at 32 outstanding requests), and the
+host→browser drop with no open browser is counted and warned instead of silent.
+Regression test in `Relay/test/host-api-relay.test.ts`: a host fills the window
+exactly, the browser then sends one request, and that request must reach the
+host with the browser still connected.
+
+The host-side pacer stays regardless. The relay is one deployment of many and a
+host that only works against a generous limiter is a host that breaks on the
+next one.
+
+Tests: `frame-pacer.test.ts` — a burst does not reach the socket whole, every
+frame still arrives in order once the window moves on, and a replaced socket
+starts with an empty queue.
