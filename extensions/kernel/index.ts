@@ -132,6 +132,8 @@ interface TableState {
 	pendingChoice: PendingChoice | null;
 	/** Whether this agent run has already closed the turn with narrate/ask. */
 	closedThisRun: boolean;
+	/** The host cut this run itself (§34.16): pi never resends a cancellation, so no later leg is coming. */
+	runCut: boolean;
 	steeredThisTurn: boolean;
 	/**
 	 * COC tool calls the Keeper attempted this turn, refused ones included (turn floor, D4). A turn
@@ -2145,6 +2147,7 @@ export default function (pi: ExtensionAPI) {
 				session: null,
 				pendingChoice: null,
 				closedThisRun: false,
+				runCut: false,
 				steeredThisTurn: false,
 				toolCallsThisTurn: 0,
 				deliveryTriedThisTurn: false,
@@ -2517,6 +2520,7 @@ export default function (pi: ExtensionAPI) {
 	pi.on("agent_start", async () => {
 		if (table) {
 			table.closedThisRun = false;
+			table.runCut = false;
 			table.blockedAfterClose = 0;
 		}
 	});
@@ -2571,6 +2575,9 @@ export default function (pi: ExtensionAPI) {
 				...(name === "narrate" ? { delivery_cut_short: true } : {}) });
 			if (blocked >= RUNAWAY_ABORT_AT) {
 				await record({ lane: "runaway", turn: state.turn, blocked, aborted: true });
+				// The cut reaches message_end as `stopReason: "error"` like any dead call, and only the host
+				// knows the difference: a cancellation is never resent, so nothing may be held for a later leg.
+				state.runCut = true;
 				try { ctx?.abort(); } catch { /* an abort that cannot be delivered leaves the driver's timeout as the last resort */ }
 			}
 			return { block: true, reason: blocked >= RUNAWAY_STOP_AT ? TURN_CLOSED_STOP : TURN_CLOSED_REASON };
@@ -2729,12 +2736,43 @@ export default function (pi: ExtensionAPI) {
 			}
 			return;
 		}
+		/** Player-visible text comes only from narrate and ask: a draft the host did not adopt leaves with the message. */
+		const dropText = (reason: string) => {
+			const kept = blocks.filter((block) => block.type !== "text");
+			if (kept.length === blocks.length) return undefined;
+			void record({ lane: "delivery", turn: state.turn, ok: false, reason, dropped: blocks.length - kept.length });
+			return { message: { ...event.message, content: kept } };
+		};
+		// pi declares this value (`StopReason`, @earendil-works/pi-ai) and resends on it -- and only on it,
+		// because auto-retrying a cancellation would defeat the cancellation (runtime/launch.ts). A run the
+		// host cut itself arrives here wearing the same stop reason, so `runCut` is what tells them apart:
+		// nothing is held for a leg that is never coming.
+		const failedLeg = (event.message as { stopReason?: string }).stopReason === "error" && !state.runCut;
+		// Contract §34.18. A leg that ended in error is a remnant, not a delivery surface. Two things
+		// went wrong on one live turn (A-MAIN turn 113, 2026-09-16): the call hung 61 s and came back
+		// `stop_reason: "error"` with `blocks: []`, the host placed the rendered delivery on that dead
+		// message, and pi's resend replaced it -- so the narration the kernel had already rendered went
+		// nowhere. Then the resend answered with a single text block holding the provider's own
+		// end-of-sequence token, which arrived where the story should have been. Holding `renderedText`
+		// for the leg that actually completes fixes both: the delivery lands on the resend (or on the
+		// agent_end backstop when there is none), and the resend's text block is replaced by it rather
+		// than read. The signal is `stopReason`, which pi declares as data (`StopReason` in
+		// @earendil-works/pi-ai); nothing here inspects the words, and no token vocabulary is assumed.
+		if (failedLeg && state.renderedText !== undefined) {
+			void record({ lane: "delivery", turn: state.turn, ok: false, reason: "failed_leg_not_delivered", held: true,
+				dropped: blocks.filter((block) => block.type === "text").length });
+			const kept = blocks.filter((block) => block.type !== "text");
+			return kept.length === blocks.length ? undefined : { message: { ...event.message, content: kept } };
+		}
 		let rendered = state.renderedText;
 		if (rendered === undefined) {
 			if (state.reviewUnavailable) return {message: {...event.message, content: blocks.filter(block => block.type !== 'text')}};
 			// The Keeper wrote his lines but never called narrate: that prose is the narration. The host closes
 			// the turn for him, sending the prose verbatim through the play-language guard.
-			const written = blocks
+			// A leg that died mid-stream contributes nothing of its own: half a sentence is not a delivery
+			// (§34.17, §34.18). The fallback below still stands -- a draft the host itself dropped and
+			// steered about is the Keeper's finished prose from an earlier leg, not this leg's remnant.
+			const written = failedLeg ? "" : blocks
 				.filter((b) => b.type === "text" && typeof b.text === "string")
 				.map((b) => String(b.text))
 				.join("")
@@ -2743,7 +2781,11 @@ export default function (pi: ExtensionAPI) {
 			const prose = written || (state.steeredThisTurn && state.floorDraft) || "";
 			const canClose = state.state === "open" || state.state === "acting"
 				|| (state.state === "awaiting_player" && state.openingPending);
-			if (!prose || !canClose || state.closedThisRun) return;
+			// Nothing here can become a delivery: the turn is already closed, or handed to the player, or
+			// there is no prose at all. Returning bare left whatever the model wrote on screen as if the
+			// Keeper had said it -- the one path by which raw model output reached the player without
+			// passing through narrate or ask. It leaves with the message, like the drafts below it.
+			if (!prose || !canClose || state.closedThisRun) return dropText(failedLeg ? "failed_leg_not_delivered" : "text_not_a_delivery");
 			const sourceWait = state.readingWait || state.sourceWait !== undefined;
 			if (state.preparationWait && !sourceWait) {
 				state.deliveryFix = { kind: `${state.preparationWait.kind}-wait`, text: preparationWaitInstruction(state, state.preparationWait) };
@@ -2837,7 +2879,9 @@ export default function (pi: ExtensionAPI) {
 					`${isKernelError(error) ? error.fix ?? "" : ""} ${isKernelError(error) ? JSON.stringify(error.details ?? {}).slice(0, 8000) : detail ?? ""} Keep settled actions; repair with narrate, without rerolling or inventing a reconciliation.`};
 				return {message: {...event.message, content: blocks.filter(block => block.type !== "text")}};
 			}
-			if (!rendered) return;
+			// The implicit narrate landed but the kernel rendered nothing to publish. The raw draft is not a
+			// substitute: only a rendered delivery strips the machine tokens (§34.14).
+			if (!rendered) return dropText("rendered_nothing");
 		}
 		const next: Array<Record<string, unknown>> = [];
 		let placed = false;

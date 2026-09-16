@@ -19,6 +19,7 @@
  *   FAKE_KERNEL_NO_DIRECTOR "1" 时胶囊不带 `director` 节（切片 0–2 的内核）
  *   FAKE_KERNEL_CHECK_FAILS "1" 时普通检定判失败（用来摆出「障碍没挪动」的回合）
  *   FAKE_KERNEL_STRICT_TURN "1" rejects player_input while the current turn remains open or acting
+ *   FAKE_KERNEL_EMPTY_RENDER "1" makes narrate succeed but return no rendered_text (contract §34.14/§34.18)
  *   FAKE_KERNEL_MATERIAL_PENDING "1" makes the first table.apply request one detail read before replay
  *   FAKE_KERNEL_HANDOUT    JSON 对象，`apply` 带 handout 效果时作为 `attachment` 回（契约 §14.8）
  *   FAKE_KERNEL_CASH       调查员起始现金，缺省 50（`apply` 的 cash 效果按它算前后，契约 §5）
@@ -907,7 +908,7 @@ function handle(method, params) {
 			return {
 				ok: true,
 				result: {
-					rendered_text: params.text,
+					rendered_text: process.env.FAKE_KERNEL_EMPTY_RENDER === "1" ? "" : params.text,
 					mechanics,
 					...speechRows(),
 					turn: closed,
