@@ -9627,3 +9627,56 @@ Test in `tests/extension/gates.test.mjs`: with the opening still unread, four
 answers with the exhausted-class instruction, one `class_limit` row is recorded,
 and `narrate` still closes the opening. It fails if the host's block stops
 scoring itself.
+
+## 68. A session's model is the session's, and one open question (2026-09-16)
+
+Seen in acceptance play on the deployed build. A turn ended with
+`Provider stopped with: MALFORMED_FUNCTION_CALL` — a provider failure, surfaced
+plainly with a dismiss control, which is the right behaviour. What was not right
+is what the composer read afterwards: **`✦ Unknown` / thinking `auto`**, where a
+moment earlier it had read `DeepSeek V4.1 Flash` / `low`. The person's own
+setting had been replaced by a value nobody chose. This is §62's shape on the
+host side.
+
+### 68.1 Where the placeholder lives
+
+`PiHostBackend` seeds its own `modelState`:
+
+```ts
+private modelState: ModelState = {
+  model: { provider: "unknown", id: "unknown", name: "Unknown", reasoning: false },
+  thinkingLevel: "off",
+  availableThinkingLevels: [],
+};
+```
+
+`availableThinkingLevels: []` is why the chip said `auto` — with no levels the
+chip reports that the model decides. Two paths can hand that object back as an
+answer about a *session*:
+
+1. `getModelState`'s live branch ended `?? this.modelState`, while the cold path
+   below it prefers `desiredModelFor(session)` — the session's own model.
+2. `desiredModelFor` itself returns `base` (that same object) when the session
+   has no model recorded.
+
+### 68.2 What changed, and what did not
+
+The live branch now falls back to `desiredModelFor(meta)` like the cold one: a
+live session answers with its own model or with what it asked for, never with the
+host's placeholder. That closes path 1.
+
+**This change is not covered by a test that fails without it**, and that is worth
+saying rather than hiding. Reaching the fallback requires a live session whose
+model state is absent, and in every harness arrangement tried — including a real
+`sendPrompt` against the fake pi — `ensure()` populates `sessionModelStates`
+first, so the `??` is never taken. The change is kept because preferring the
+session's own model over a global "unknown" is correct independently of the bug;
+it is not claimed as the verified fix.
+
+Path 2 remains **open**, and is the likelier one: `this.modelState` is only a
+placeholder until the model catalog loads. If a catalog load fails — plausible
+right after a provider error — every session would answer `Unknown` / `off` /
+no levels, which is exactly what was seen. The mechanism was not reproduced, so
+it is not guessed at further here. Anyone picking this up should start by
+failing `loadModelCatalog` and reading `getModelState` for a session that has a
+model recorded, rather than trusting this paragraph.

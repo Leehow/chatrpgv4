@@ -10928,8 +10928,18 @@ export class PiHostBackend implements HostBackend {
     if (!sessionId) return this.modelState;
     if (this.live.has(sessionId) || this.ensureInFlight.has(sessionId)) {
       await this.ensure(sessionId);
-      const liveState = this.sessionModelStates.get(sessionId) ?? this.sessionModelSnapshots.get(sessionId) ?? this.modelState;
-      const persisted = (await this.findSession(sessionId)).thinkingLevel;
+      const meta = await this.findSession(sessionId);
+      // A live session with nothing recorded yet falls back to what that session
+      // asked for, never to the host's placeholder (§68). `this.modelState` is
+      // seeded `provider: "unknown", name: "Unknown", thinkingLevel: "off"`, so
+      // returning it told the person their session had no model and no thinking
+      // level -- the chip read 「Unknown / auto」 after a provider error, and the
+      // level they chose was gone. The cold path below already prefers the
+      // session's own model; this one did not.
+      const liveState = this.sessionModelStates.get(sessionId)
+        ?? this.sessionModelSnapshots.get(sessionId)
+        ?? this.desiredModelFor(meta);
+      const persisted = meta.thinkingLevel;
       if (
         persisted &&
         liveState.availableThinkingLevels.includes(persisted) &&
