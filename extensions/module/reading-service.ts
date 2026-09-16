@@ -23,11 +23,27 @@ interface Dependencies {
 	model(): { id: string; vision: boolean; thinking?: string };
 	progress(row: Row): void;
 	record(row: Row): void;
+	/** The operator's out-of-fiction surface for a lane that stopped working (contract §22, shaped after §32.2). */
+	status?(row: Row): void;
 }
 interface PendingReading {
 	waiters: number;
 	cancelled: boolean;
 	jobId?: string;
+}
+/**
+ * How long a claimed reading job may report nothing at all before the host stops it. A reader child
+ * that is working says so: every phase change, every reader run and every review unit writes a
+ * telemetry row, and the longest legitimate gap measured on a real book was 141 s (one review unit,
+ * campaign game-3dd94f0a). A job past this window is not slow, it is gone -- on 2026-09-15 two of
+ * them went quiet mid-verify and left the module `blocked` for 6.5 hours with a restart as the only
+ * remedy. The window is deliberately far above the observed gap: a false stop costs a real reader run.
+ */
+const STALL_WINDOW_MS = 600_000;
+const STALL_SWEEP_MS = 30_000;
+function stallWindow(): number {
+	const configured = Number(process.env.PI_COC_READ_STALL_MS);
+	return Number.isFinite(configured) && configured > 0 ? configured : STALL_WINDOW_MS;
 }
 const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
 const sha = (bytes: string | Buffer) => createHash("sha256").update(bytes).digest("hex");
@@ -72,10 +88,24 @@ export class ReadingService implements ReadingBridge {
 	private controllers = new Map<string, AbortController>();
 	private jobs = new Map<string, Row>();
 	private cancelledJobs = new Set<string>();
+	/** Per claimed job, the moment it last reported anything: the lane's own heartbeat, never an inference from elapsed wall clock. */
+	private heartbeats = new Map<string, number>();
+	/** Jobs this host stopped for going quiet, and how long they had been quiet: their finish is `failed`, not `cancelled`. */
+	private stalled = new Map<string, number>();
+	private sweep: ReturnType<typeof setInterval> | undefined;
+	private stallNotified = false;
 	/** Per scoped module, the reason of the most recent wake no claim has answered yet: the claim row names it (contract §22, #65). */
 	private wakes = new Map<string, string>();
 	private readonly deps: Dependencies;
-	constructor(deps: Dependencies) { this.deps = deps; }
+	constructor(deps: Dependencies) {
+		// Every row a claimed job writes is also its heartbeat. Wrapping here rather than at each call
+		// site makes the rule structural: anything that reaches the operator reaches the stall watchdog,
+		// and a new telemetry row can never be added without the lane counting as alive when it lands.
+		const beat = (row: Row) => { if (row && row.job_id) this.beat(JSON.stringify([row.campaign, row.module_id, row.job_id])); };
+		this.deps = { ...deps,
+			record: row => { beat(row); deps.record(row); },
+			progress: row => { beat(row); deps.progress(row); } };
+	}
 	private campaign(params: Row): string | undefined {
 		// null explicitly selects the library, even when this service is bound to a campaign.
 		return params.campaign === null ? undefined : params.campaign ?? this.deps.campaign?.();
@@ -91,10 +121,59 @@ export class ReadingService implements ReadingBridge {
 
 	dispose() {
 		this.stopped = true;
+		this.stopSweep();
 		for (const controller of this.controllers.values()) controller.abort();
 	}
 
 	async close() { this.dispose(); try { await Promise.allSettled([...this.pumps.values()]); } finally { await closeSourceDocuments(); } }
+
+	/** The heartbeat of one claimed job. Called only where the reader reported something real. */
+	private beat(key: string) { if (this.heartbeats.has(key) || this.controllers.has(key)) this.heartbeats.set(key, Date.now()); }
+
+	private startSweep() {
+		if (this.sweep || this.stopped) return;
+		this.sweep = setInterval(() => this.checkStalls(), Math.min(STALL_SWEEP_MS, stallWindow()));
+		this.sweep.unref?.();
+	}
+
+	private stopSweep() {
+		if (!this.sweep) return;
+		clearInterval(this.sweep);
+		this.sweep = undefined;
+	}
+
+	/**
+	 * A reading job that has reported nothing for the whole stall window is stopped and finished as
+	 * `failed`, so the module stops saying "still being read" and the ordinary `retry: true` path
+	 * (contract §22) can pick it up. It is not requeued here: an automatic requeue would re-spend a
+	 * real reader run on a child that just proved it hangs, and the host already owns one bounded
+	 * automatic repair per read identity per player turn.
+	 */
+	checkStalls(now = Date.now()): void {
+		const window = stallWindow();
+		for (const [key, at] of [...this.heartbeats]) {
+			const idle = now - at;
+			if (idle < window) continue;
+			const job = this.jobs.get(key);
+			if (!job || this.stalled.has(key)) continue;
+			this.stalled.set(key, idle);
+			const [campaign, moduleId] = JSON.parse(key) as [string | undefined, string, string];
+			const row = { lane: "reading", event: "stalled", module_id: moduleId, campaign, job_id: job.job_id,
+				purpose: job.purpose, focus: job.focus ?? "", idle_ms: idle, window_ms: window, foreground: job.foreground === true };
+			// No `-progress` frame: §22.5 fixes that channel's `stage` to source|index|read|verify, and a
+			// stall is not a stage. The telemetry row above and the operator notice below carry the signal.
+			this.deps.record(row);
+			// The operator's surface, once per session-level outage: the reader lane is a service, and a
+			// service that keeps dying is not something the player or the Keeper can fix (contract §32.2).
+			if (!this.stallNotified) {
+				this.stallNotified = true;
+				this.deps.status?.({ ...row, status: "down",
+					fix: "The source reader stopped reporting progress and was stopped, so this material stays unprepared. Check the reader model and provider, or set PI_COC_BUILD_MODEL to a healthy provider/model; the table keeps playing on everything already prepared." });
+			}
+			this.controllers.get(key)?.abort();
+		}
+		if (!this.heartbeats.size) this.stopSweep();
+	}
 
 	prefetch(moduleId: string, reason = 'requested'): Promise<void> {
 		if (this.stopped) return Promise.resolve();
@@ -188,6 +267,17 @@ export class ReadingService implements ReadingBridge {
 		}
 	}
 
+	/**
+	 * How a stopped attempt is published. A job this host aborted because it went quiet is `failed`
+	 * with the silence named, not `cancelled`: `cancelled` reads as "somebody asked for this to stop"
+	 * and leaves no reason on disk, and only `failed` offers the retry the Keeper and the operator need.
+	 */
+	private jobOutcome(key: string, aborted: boolean, detail: string): Row {
+		const idle = this.stalled.get(key);
+		if (idle === undefined) return { outcome: aborted ? "cancelled" : "failed", detail };
+		return { outcome: "failed", detail: `the reader reported nothing for ${Math.round(idle / 1000)}s and was stopped` };
+	}
+
 	private cancelJob(mid: string, jobId: string, campaign: string | undefined) {
 		const key = JSON.stringify([campaign, mid, jobId]);
 		this.cancelledJobs.add(key);
@@ -250,6 +340,8 @@ export class ReadingService implements ReadingBridge {
 						const controller = new AbortController();
 						this.controllers.set(key, controller);
 						this.jobs.set(key,job);
+						this.heartbeats.set(key, Date.now());
+						this.startSweep();
 						if (this.stopped || this.cancelledJobs.has(key)) controller.abort();
 						const work = (async () => {
 							try {
@@ -259,10 +351,10 @@ export class ReadingService implements ReadingBridge {
 							catch (failure) {
 								try {
 									await this.call("module.read.finish", { module_id: mid, job_id: job.job_id, lease: job.lease,
-										outcome: controller.signal.aborted ? "cancelled" : "failed", detail: String(failure) }, campaign);
+										...this.jobOutcome(key, controller.signal.aborted, String(failure)) }, campaign);
 								} catch { /* a closed kernel releases its leases; retained attempts remain reclaimable */ }
 							}
-							finally { this.controllers.delete(key); this.jobs.delete(key); this.cancelledJobs.delete(key); }
+							finally { this.controllers.delete(key); this.jobs.delete(key); this.cancelledJobs.delete(key); this.heartbeats.delete(key); this.stalled.delete(key); }
 						})();
 						const tracked = work.finally(() => active.delete(tracked));
 						active.add(tracked);
@@ -282,6 +374,7 @@ export class ReadingService implements ReadingBridge {
 	private async runJob(job: Row, signal: AbortSignal, campaign?: string) {
 		const model = this.deps.model();
 		const cwd = job.work_dir;
+		const key = JSON.stringify([campaign, job.module_id, job.job_id]);
 		// The page cache belongs to the workspace that owns this PDF, which is the shared library
 		// for a library read and the campaign's private module for a campaign-scoped one. Deriving
 		// it from the bound source keeps host and reader confinement in agreement by construction.
@@ -354,7 +447,7 @@ export class ReadingService implements ReadingBridge {
 							} catch { /* the first draft has not been written */ }
 						}
 						const instructions = join(cwd, `instructions-${phase}.md`);
-						this.deps.progress({ module_id: job.module_id, campaign, stage: phase === "read" && job.purpose === "skeleton" ? "skeleton" : phase, focus: job.focus, of: job.source.page_count });
+						this.deps.progress({ module_id: job.module_id, campaign, job_id: job.job_id, stage: phase === "read" && job.purpose === "skeleton" ? "skeleton" : phase, focus: job.focus, of: job.source.page_count });
 						if (phase === "verify") {
 							if (job.purpose === "opening") {
 								try {
@@ -373,7 +466,7 @@ export class ReadingService implements ReadingBridge {
 									prompt: { phase: "verify", guidance: job.purpose === "guidance" } } }, request.signal),
 								// Every verify row names the job and round it belongs to (#65); the reviewer adds unit and attempt.
 								record: row => this.deps.record({ module_id: job.module_id, job_id: job.job_id, purpose: job.purpose, focus: job.focus ?? "", round, ...row, campaign }),
-								progress: row => this.deps.progress({ module_id: job.module_id, ...row, campaign }) });
+								progress: row => this.deps.progress({ module_id: job.module_id, job_id: job.job_id, ...row, campaign }) });
 							await writeFile(join(cwd, "observations.json"), JSON.stringify(observations) + "\n");
 							phaseCompleted = true;
 							continue;
@@ -480,7 +573,7 @@ export class ReadingService implements ReadingBridge {
 		} finally {
 			// Completed jobs replay here; failed attempts release their claim and preserve all artifacts.
 			await this.call("module.read.finish", { module_id: job.module_id, job_id: job.job_id, lease: job.lease,
-				outcome: signal.aborted ? "cancelled" : "failed", detail }, campaign).catch(() => undefined);
+				...this.jobOutcome(key, signal.aborted, detail) }, campaign).catch(() => undefined);
 		}
 	}
 }

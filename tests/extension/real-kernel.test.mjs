@@ -160,3 +160,113 @@ test("a placed marker leaves the delivery and reaches the frontend on the projec
 	assert.equal(markers.roll, "check:spot-hidden");
 	assert.equal(markers.clue, "clue:knott-research-leads");
 });
+
+/**
+ * Contract §22. An unread page is a fact about *that* material, not about the campaign. On
+ * 2026-09-15 (campaign game-3dd94f0a, turns 35 onward) one source read that timed out set a
+ * session-wide `preparationWait` no later turn ever cleared, and from that moment the tool gate
+ * blocked every verb but `narrate`: the player walked to his own hotel room to hold his own
+ * photographic negatives up to the window and was refused, because a museum he was not in had not
+ * been read. This goes through the real kernel because the seam being tested is exactly host gate
+ * -> kernel verb -> receipt; a stub cannot show that the roll and the clue really landed.
+ */
+test("a source read that times out refuses only that material: the rest of the table still settles", async t => {
+	const campaign = "blocked-source-seam";
+	const table = await openTable({ realKernel: true, campaign, responses: [
+		fauxAssistantMessage([fauxToolCall("look", {})], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("narrate", { text: "诺特把钥匙推过桌面，等你开口。" })], { stopReason: "toolUse" }),
+		fauxAssistantMessage("开场之后多写的一句，应被替换"),
+		// The player reaches for the unread book, and then for what is already in front of him.
+		fauxAssistantMessage([fauxToolCall("lookup", { kind: "source", query: "the-ruins", question: "What waits at the ruins?" })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("resolve", { action: {
+			intent: "investigate", goal: "看清诺特没说的事", method: "打量他的神色和手上的文件", skill: "Spot Hidden" } })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "clue", clue: "clue-knott-research-leads", how: "诺特提到可以去查档案" }] })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("narrate", { text: "诺特抬起眼，手指在文件上停了一下。遗址那几页还在核读，他说不出更多。" })], { stopReason: "toolUse" }),
+		fauxAssistantMessage("回合之后多写的一句，应被替换"),
+	] });
+	t.after(() => table.dispose());
+	await waitForIdle(table.session, { timeoutMs: 60_000 });
+	let reads = 0;
+	table.emit("coc:reading-bridge", { async ensure() {
+		reads++;
+		throw Object.assign(new Error("the source is still being read"), {
+			code: "needs", details: { reason: "reading_timeout", job_id: "read-5" },
+			toToolText() { return "needs: the source is still being read"; },
+		});
+	} });
+
+	await table.session.prompt("我先去查那处遗址的原书页；查不到就先看着诺特。");
+	await waitForIdle(table.session, { timeoutMs: 60_000 });
+
+	assert.equal(reads, 1, "the refused read was attempted once");
+	// The refusal names the material and what is still available; it is not a table-wide stop order.
+	const refusal = table.session.messages
+		.filter(message => message.role === "toolResult" && message.toolName === "lookup")
+		.map(message => (message.content ?? []).filter(block => block.type === "text").map(block => block.text).join("")).at(-1);
+	assert.ok(refusal, "the source lookup returned a tool result");
+	assert.match(refusal, /the-ruins/, "the refusal names what is being read");
+	assert.match(refusal, /nothing else at this table is blocked/i, "the refusal says what the table can still do");
+	assert.match(refusal, /do not invent another question/, "the read identity guidance of #65 survives the rewrite");
+
+	// The table settled while that read was outstanding: both verbs reached the kernel and both left receipts.
+	const settled = table.telemetry().filter(row => row.ok === true).map(row => row.tool);
+	assert.ok(settled.includes("resolve"), `a check on someone already on stage is not blocked by an unread page elsewhere: ${settled.join(",")}`);
+	assert.ok(settled.includes("apply"), `an effect that needs nothing unread still lands: ${settled.join(",")}`);
+	assert.equal(table.telemetry().filter(row => row.tool === "resolve" && row.ok === false).length, 0);
+	const record = JSON.parse(readFileSync(join(table.workspace, ".coc", "campaigns", campaign, "turns", "0001.json"), "utf8"));
+	assert.equal(record.closed_by, "narrate");
+	const receipts = JSON.stringify(record);
+	assert.match(receipts, /roll:spot-hidden-t1-c/, "the roll of the unaffected action has its receipt");
+	assert.match(receipts, /knott-research-leads/, "the clue of the unaffected action has its receipt");
+	const mechanics = table.entries("coc-mechanics").at(-1);
+	assert.deepEqual([mechanics.mechanics.some(row => row.kind === "roll"), mechanics.mechanics.some(row => row.kind === "clue")], [true, true]);
+
+	// §16.1: the host's own instruction is Keeper-facing text and never reaches the player.
+	const delivered = assistantTexts(table.session).filter(text => text.length > 0).at(-1);
+	assert.ok(delivered.startsWith("诺特抬起眼"), delivered);
+	assert.ok(!delivered.includes("nothing else at this table"), "the source-wait instruction is not narrated at the player");
+});
+
+test("a source wait dies with its turn instead of owning the rest of the session", async t => {
+	const campaign = "source-wait-lifetime";
+	const table = await openTable({ realKernel: true, campaign, responses: [
+		fauxAssistantMessage([fauxToolCall("look", {})], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("narrate", { text: "诺特把钥匙推过桌面，等你开口。" })], { stopReason: "toolUse" }),
+		fauxAssistantMessage("开场之后多写的一句，应被替换"),
+		// Turn 1: the source read times out and the Keeper closes on what it has.
+		fauxAssistantMessage([fauxToolCall("lookup", { kind: "source", query: "the-ruins", question: "What waits at the ruins?" })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("narrate", { text: "遗址那几页还在核读。诺特还坐在你对面。" })], { stopReason: "toolUse" }),
+		fauxAssistantMessage("多写的一句，应被替换"),
+		// Turn 2: a new player input is a new context. The Keeper may reach for that page again -- the
+		// wait of turn 1 is not a standing order, and the player is never left without a way back to it.
+		fauxAssistantMessage([fauxToolCall("lookup", { kind: "source", query: "the-ruins", question: "What waits at the ruins?" })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("resolve", { action: {
+			intent: "investigate", goal: "看清诺特没说的事", method: "打量他的神色", skill: "Spot Hidden" } })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("narrate", { text: "他的手指在文件边缘停住。" })], { stopReason: "toolUse" }),
+		fauxAssistantMessage("多写的一句，应被替换"),
+	] });
+	t.after(() => table.dispose());
+	await waitForIdle(table.session, { timeoutMs: 60_000 });
+	let reads = 0;
+	table.emit("coc:reading-bridge", { async ensure() {
+		reads++;
+		throw Object.assign(new Error("the source is still being read"), {
+			code: "needs", details: { reason: "reading_timeout" },
+			toToolText() { return "needs: the source is still being read"; },
+		});
+	} });
+
+	await table.session.prompt("我先去查那处遗址的原书页。");
+	await waitForIdle(table.session, { timeoutMs: 60_000 });
+	assert.equal(reads, 1, "one source query, one reading attempt");
+
+	await table.session.prompt("再试一次那几页；不行就继续盯着诺特。");
+	await waitForIdle(table.session, { timeoutMs: 60_000 });
+
+	assert.equal(reads, 2,
+		"the new player turn may reach for the same page again: the wait belonged to the turn that raised it, not to the session");
+	const record = JSON.parse(readFileSync(join(table.workspace, ".coc", "campaigns", campaign, "turns", "0002.json"), "utf8"));
+	assert.equal(record.closed_by, "narrate");
+	assert.match(JSON.stringify(record), /roll:spot-hidden-t2-c/,
+		"and the rest of that turn settles as usual, with its own receipt");
+});

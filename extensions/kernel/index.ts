@@ -154,8 +154,15 @@ interface TableState {
 	recoveryLanded: boolean;
 	/** The recovery refusal is spent once per turn: a second narrate closes the turn whatever it brings. */
 	recoverySteered: boolean;
-	/** A retained background preparation owns the rest of this turn until the Keeper briefly yields to the player. */
-	preparationWait?: { kind: "source" | "adaptation"; name?: string; status?: string };
+	/** A retained *adaptation* preparation owns the rest of this turn until the Keeper briefly yields to the
+	 * player: it is a named job with its own control verb (`lookup kind=adaptation action=status`), so the
+	 * Keeper can always find out where it stands. A source reading has no such verb and is not put here. */
+	preparationWait?: { kind: "adaptation"; name?: string; status?: string };
+	/** Contract §22: one unread piece of source material, named. An unread page is a fact about that
+	 * material, not about the campaign, so this never blocks a verb — it only supplies the Keeper's
+	 * wording, the audit's `preparation_wait` basis, and the steer that closes this turn. It dies with
+	 * the turn that raised it: the next player input is a new context. */
+	sourceWait?: { focus?: string; question?: string };
 	/** Contract §37.6: the independent source review refused the placement this turn's reentry needs.
 	 * Host-owned, from the kernel's own adaptation result — never prose — and cleared when a later
 	 * proposal is pending, ready or accepted, or when the next turn opens. */
@@ -165,6 +172,10 @@ interface TableState {
 	readingWait?: boolean;
 	/** Failed material reads automatically retried once in this player turn, keyed by the kernel's exact read identity. */
 	readingRetries: Set<string>;
+	/** Read identities already refused this player turn, each with the refusal the Keeper was given:
+	 * asking for the same unread material again buys another full reading wait and can answer nothing
+	 * the first attempt could not, so the same answer comes straight back. Cleared with the turn. */
+	readingRefused: Map<string, unknown>;
 	/** A host note owed to the Keeper at agent_end rather than delivered as prose. */
 	deliveryFix?: { kind: string; text: string };
 	/** A review operation stopped; only genuine new player input can start a linked retry. */
@@ -571,6 +582,36 @@ function refusalDetail(error: unknown): string | undefined {
 }
 
 /**
+ * Contract §22. The reading service's own refusal is addressed to the host ("request the same reading
+ * with retry: true", "the reader host shut down"): it names no material and offers the Keeper nothing
+ * it can act on. Once the host has spent its one automatic repair, the Keeper gets this instead — which
+ * material is unavailable, that only that material is unavailable, and what it may still settle. The
+ * kernel's own `reason` and `read` survive so the failure lane and §34.12's refusal budget still see
+ * the same class.
+ */
+function sourceMaterialRefusal(failure: unknown, read: Record<string, unknown>): unknown {
+	if (!isKernelError(failure)) return failure;
+	const reason = asString(failure.details?.reason);
+	if (reason !== "reading_failed" && reason !== "reading_timeout") return failure;
+	const focus = asString(read.focus) ?? "";
+	const named = focus ? ` for ${focus}` : "";
+	// The kernel's own message is accurate and is what the refusal budget classes on; only the fix is
+	// rewritten, and it keeps the read identity (#65) the Keeper is told to reuse verbatim.
+	return new KernelError({
+		code: failure.code,
+		message: failure.message,
+		fix: `Only the source material${named} is unavailable: whatever this turn already settled with a receipt did happen and is narrated as usual, and nothing else at this table is blocked.`
+			+ " What the investigators already carry, whoever is already on stage, the scenes and people the graph already knows, and ordinary narration all settle as usual, with their own receipts."
+			+ " Settle whatever the player's own action can reach without it, tell the player plainly that this one thing is still being prepared, and return control so they can act on something else."
+			+ ` Do not send this read again this turn and do not narrate what${named ? ` ${focus}` : " the unread material"} would have said;`
+			+ " on a later player turn, retry the original action or lookup kind=source with the exact focus and question in details.read; do not invent another question",
+		details: { ...failure.details, reason,
+			read: { ...(read.purpose ? { purpose: read.purpose } : {}), ...(read.material ? { material: read.material } : {}),
+				focus, ...(read.question ? { question: read.question } : {}) } },
+	});
+}
+
+/**
  * A refusal that waited on source reading says which job and which target it waited for
  * (contract §22, #65): the queue's `job_id` and the `purpose`/`focus` of the read, whichever
  * verb was refused. Ids and names only -- the read's `question` is the Keeper's prose and stays out.
@@ -731,7 +772,9 @@ export default function (pi: ExtensionAPI) {
 		table.recoveryLanded = false;
 		table.recoverySteered = false;
 		table.readingWait = false;
+		table.sourceWait = undefined;
 		table.readingRetries.clear();
+		table.readingRefused.clear();
 		table.deliveryFix = undefined;
 		table.attachments = [];
 		table.mapAttachments = [];
@@ -1509,12 +1552,29 @@ export default function (pi: ExtensionAPI) {
 		if (wait.status && !['pending', 'reviewing'].includes(wait.status))
 			return `Retained adaptation preparation${wait.name ? ` for ${wait.name}` : ''} is ${wait.status}. Use lookup kind=adaptation action=status${wait.name ? ` name=${JSON.stringify(wait.name)}` : ''} before any other tool, then follow that result. Do not invent or restart it under another name.`;
 		if (state.landed.length > 0) {
-			return `${wait.kind === "source" ? "Source" : "Adaptation"} preparation${wait.name ? ` for ${wait.name}` : ""} is still running, but this turn already settled: ${state.landed.join("; ")}. Use narrate to deliver exactly those settled consequences and, if relevant, say the additional source-dependent material is still pending. Do not erase, repeat, or extend the settled effects, and do not introduce any fact the pending preparation has not supplied. Then return control without a story menu.`;
-		}
-		if (wait.kind === "source") {
-			return "Source preparation is pending. Use narrate only to tell the player that preparation is still running, then return control without a story menu. Do not start another query, narrate a result, or imply that the refused action or elapsed game time happened.";
+			return `Adaptation preparation${wait.name ? ` for ${wait.name}` : ""} is still running, but this turn already settled: ${state.landed.join("; ")}. Use narrate to deliver exactly those settled consequences and, if relevant, say the additional source-dependent material is still pending. Do not erase, repeat, or extend the settled effects, and do not introduce any fact the pending preparation has not supplied. Then return control without a story menu.`;
 		}
 		return `Adaptation preparation${wait.name ? ` for ${wait.name}` : ""} is still running. Use narrate only to tell the player that preparation is pending, then return control without moving, charging, or introducing the destination. Inspect the same proposal after new player input.`;
+	}
+
+	/**
+	 * Contract §22. An unread page is a fact about *that* material, not about the table, and this
+	 * instruction says so in both directions: the named material is unavailable, and everything else
+	 * still settles. It replaces a session-wide "source preparation is pending, use narrate only"
+	 * that, on campaign game-3dd94f0a (2026-09-15), made the Keeper refuse a player who went to his
+	 * own hotel room to hold his own negatives up to the window -- the reading that was pending was of
+	 * a museum he was not in. Shaped after §32.2's `admissionUnavailable`: name what is unsettled,
+	 * keep what already settled, and never ask the player to resend words that were never the problem.
+	 */
+	function sourceWaitInstruction(state: TableState, wait: NonNullable<TableState["sourceWait"]>): string {
+		const named = wait.focus ? ` for ${wait.focus}` : "";
+		const landed = state.landed.length > 0
+			? ` This turn already settled: ${state.landed.join("; ")} — deliver exactly those consequences and do not erase, repeat or extend them.`
+			: "";
+		return `The source material${named} is still being read, so only what that reading would supply is unavailable.${landed}`
+			+ " Nothing else at this table is blocked: what the investigators already carry, whoever is already on stage, the scenes and people the graph already knows, and ordinary narration all settle as usual, with their own receipts."
+			+ " Do not request that same material again this turn, do not narrate what it would have said, and do not imply that the unsettled part happened or that game time passed for it."
+			+ " Settle whatever the player's own action can reach without it, tell the player plainly that this one thing is still being prepared, and return control without a story menu.";
 	}
 
 	async function runTool(
@@ -1572,8 +1632,9 @@ export default function (pi: ExtensionAPI) {
 					fix: "pass the place or entity as query and describe the unresolved source question" });
 				if (!reading || !readingModule) throw new KernelError({ code: "needs", message: "the source reading service is unavailable",
 					fix: "reopen the table with its module reading extension available", details: { reason: "reading_failed" } });
-				await reading.ensure(readingModule, { purpose: "detail", focus: params.query,
-					question: params.question ?? "", retry: params.retry === true, foreground: true }, signal);
+				const sourceRead = { purpose: "detail", focus: params.query, question: params.question ?? "" };
+				try { await reading.ensure(readingModule, { ...sourceRead, retry: params.retry === true, foreground: true }, signal); }
+				catch (readFailure) { throw sourceMaterialRefusal(readFailure, sourceRead); }
 				payload.kind = "module";
                 payload.canonical_source = true;
 			}
@@ -1585,6 +1646,8 @@ export default function (pi: ExtensionAPI) {
         if (Array.isArray(payload.effects)) payload.effects = payload.effects.map(effect => ({...(effect as Record<string, unknown>)}));
         if (spec.name === 'narrate' && state.preparationWait) payload.preparation_wait = {
           kind: state.preparationWait.kind, ...(state.preparationWait.name ? {name: state.preparationWait.name} : {})};
+        else if (spec.name === 'narrate' && state.sourceWait) payload.preparation_wait = {
+          kind: 'source', ...(state.sourceWait.focus ? {name: state.sourceWait.focus} : {})};
         if (spec.name === 'narrate' && state.rebindingRefused) payload.rebinding_refused = {...state.rebindingRefused};
         await mods.prepare(spec.name, payload, signal);
       }
@@ -1600,14 +1663,24 @@ export default function (pi: ExtensionAPI) {
 			catch (failure) {
 				if (!(isKernelError(failure)) || failure.details?.reason !== "material_pending" || !reading || !readingModule) throw failure;
 				const read = { ...(failure.details.read as Record<string, unknown>), foreground: true };
+				const readKey = JSON.stringify([read.purpose ?? "", read.material ?? "", read.focus ?? "", read.question ?? "", read.guidance_key ?? ""]);
+				// This exact material already refused this turn: refuse again at once rather than rejoining
+				// the same pending job for another full wait. The Keeper was told not to ask again.
+				const priorRefusal = state.readingRefused.get(readKey);
+				if (priorRefusal !== undefined) throw priorRefusal;
+				const refuse = (cause: unknown): never => {
+					const refusal = sourceMaterialRefusal(cause, read);
+					if (isKernelError(refusal)) state.readingRefused.set(readKey, refusal);
+					throw refusal;
+				};
 				try {
 					await reading.ensure(readingModule, read, signal);
 				} catch (readFailure) {
-					if (!isKernelError(readFailure) || readFailure.details?.reason !== "reading_failed" || signal?.aborted) throw readFailure;
-					const retryKey = JSON.stringify([read.purpose ?? "", read.material ?? "", read.focus ?? "", read.question ?? "", read.guidance_key ?? ""]);
-					if (state.readingRetries.has(retryKey)) throw readFailure;
-					state.readingRetries.add(retryKey);
-					await reading.ensure(readingModule, { ...read, retry: true }, signal);
+					if (!isKernelError(readFailure) || readFailure.details?.reason !== "reading_failed" || signal?.aborted) refuse(readFailure);
+					if (state.readingRetries.has(readKey)) refuse(readFailure);
+					state.readingRetries.add(readKey);
+					try { await reading.ensure(readingModule, { ...read, retry: true }, signal); }
+					catch (repairFailure) { refuse(repairFailure); }
 				}
 				result = (await state.kernel.call<Record<string, unknown>>(spec.method, payload, onProgress)) ?? {};
 			}
@@ -1667,9 +1740,18 @@ export default function (pi: ExtensionAPI) {
 			if (spec.name === "recall") error = state.recallPages.diagnostic(error);
 			if (spec.name === "recall" && isKernelError(error) && error.details?.reason === "recall_page_stale") state.recallPages.forget(params);
 			const code = isKernelError(error) ? error.code : "internal";
-			if ((error as { details?: { reason?: string } })?.details?.reason === "reading_timeout") {
-				state.preparationWait = { kind: "source" };
-				state.readingWait = true;
+			// §22: the table now knows which material is unread. It does not know that the campaign is
+			// unplayable, and must not act as if it did -- this used to set a session-wide preparationWait
+			// that no later turn ever cleared, so from the first timed-out read every verb but narrate was
+			// blocked for the rest of the session (campaign game-3dd94f0a, turns 35-36 and everything after).
+			{
+				const reason = (error as { details?: { reason?: string } })?.details?.reason;
+				if (reason === "reading_timeout" || reason === "reading_failed") {
+					const read = (error as { details?: { read?: Record<string, unknown> } })?.details?.read ?? {};
+					const focus = asString(read.focus), question = asString(read.question);
+					state.sourceWait = { ...(focus ? { focus } : {}), ...(question ? { question } : {}) };
+					state.readingWait = true;
+				}
 			}
 			const detail = refusalDetail(error);
 			// `code` alone collapses every refusal of one family into one word. The kernel's own
@@ -1901,6 +1983,7 @@ export default function (pi: ExtensionAPI) {
 				recoveryLanded: false,
 				recoverySteered: false,
 				readingRetries: new Set(),
+				readingRefused: new Map(),
 				roundTrips: 0,
 				mintedCallIds: new Map(),
 				rejected: new Map(),
@@ -2164,7 +2247,11 @@ export default function (pi: ExtensionAPI) {
 			state.recoveryLanded = false;
 			state.recoverySteered = false;
 			state.readingWait = false;
+			// §22: an unread page belongs to the turn that reached for it. A new player input is a new
+			// context, so the wait it left behind dies with it rather than outliving the whole session.
+			state.sourceWait = undefined;
 			state.readingRetries.clear();
+			state.readingRefused.clear();
 			state.deliveryFix = undefined;
 			state.roundTrips = 0;
 			state.attachments = [];
@@ -2283,9 +2370,19 @@ export default function (pi: ExtensionAPI) {
 			return { block: true, reason: blocked >= RUNAWAY_STOP_AT ? TURN_CLOSED_STOP : TURN_CLOSED_REASON };
 		}
 		const adaptationControl = name === 'lookup' && input.kind === 'adaptation' && ['status', 'cancel'].includes(String(input.action));
+		// Only an adaptation wait owns the rest of the turn: it is one named job with its own control verb,
+		// and nothing else can advance while the destination it is building is undecided. A source wait is
+		// not here on purpose -- one unread page never stopped the rest of the table from settling (§22).
 		const retainedTerminal = state.preparationWait?.status && !['pending', 'reviewing'].includes(state.preparationWait.status);
 		if (state.preparationWait && ((retainedTerminal && !adaptationControl) || (!retainedTerminal && name !== "narrate" && !adaptationControl))) {
 			return { block: true, terminate: true, reason: preparationWaitInstruction(state, state.preparationWait) };
+		}
+		// A source wait refuses exactly one verb, and only the one whose whole purpose is to reach unread
+		// source. A second source query in the same turn buys another full reading wait and can answer
+		// nothing the first could not; every other verb, including resolve and apply, is untouched.
+		if (state.sourceWait && name === "lookup" && input.kind === "source") {
+			await record({ tool: name, started_at: new Date().toISOString(), ok: false, code: "blocked", reason: "reading_wait" });
+			return { block: true, reason: sourceWaitInstruction(state, state.sourceWait) };
 		}
 		// The same call with the same parameters, resent unchanged: the kernel's answer will not change.
 		// A Keeper once sent one set of parameters thirteen times and was refused every time; after two
@@ -2430,7 +2527,7 @@ export default function (pi: ExtensionAPI) {
 			const canClose = state.state === "open" || state.state === "acting"
 				|| (state.state === "awaiting_player" && state.openingPending);
 			if (!prose || !canClose || state.closedThisRun) return;
-			const sourceWait = state.readingWait || state.preparationWait?.kind === "source";
+			const sourceWait = state.readingWait || state.sourceWait !== undefined;
 			if (state.preparationWait && !sourceWait) {
 				state.deliveryFix = { kind: `${state.preparationWait.kind}-wait`, text: preparationWaitInstruction(state, state.preparationWait) };
 				return { message: { ...event.message, content: blocks.filter(block => block.type !== "text") } };
@@ -2441,9 +2538,7 @@ export default function (pi: ExtensionAPI) {
 			// stopped steering once the first steer was spent, and the turn stayed open with nothing
 			// delivered -- so every later player input failed turn_state and the campaign could not continue.
 			if (sourceWait && !state.steeredThisTurn) {
-				state.deliveryFix = { kind: "reading-wait", text: state.preparationWait
-					? preparationWaitInstruction(state, state.preparationWait)
-					: "Source preparation is pending. Use narrate to explain the preparation wait briefly and await free input; do not offer story options." };
+				state.deliveryFix = { kind: "reading-wait", text: sourceWaitInstruction(state, state.sourceWait ?? {}) };
 				return { message: { ...event.message, content: blocks.filter(block => block.type !== "text") } };
 			}
 			// The kernel left a pending choice for the player (a defence in combat) and the Keeper only wrote
@@ -2489,7 +2584,9 @@ export default function (pi: ExtensionAPI) {
 			try {
 				const params: Record<string, unknown> = { campaign: state.campaign, call_id: callId, text: prose, implicit: true,
 					...(state.preparationWait ? {preparation_wait: {kind: state.preparationWait.kind,
-						...(state.preparationWait.name ? {name: state.preparationWait.name} : {})}} : {}),
+						...(state.preparationWait.name ? {name: state.preparationWait.name} : {})}}
+						: state.sourceWait ? {preparation_wait: {kind: 'source',
+							...(state.sourceWait.focus ? {name: state.sourceWait.focus} : {})}} : {}),
 					...(state.rebindingRefused ? {rebinding_refused: {...state.rebindingRefused}} : {}) };
 				await mods?.prepare(tool, params, state.lanes.signal);
 				const result = (await state.kernel.call<Record<string, unknown>>(`table.${tool}`, params)) ?? {};
@@ -2663,8 +2760,14 @@ export default function (pi: ExtensionAPI) {
 		if (state.steeredThisTurn) return;
 		if (state.preparationWait) {
 			state.steeredThisTurn = true;
-			const kind = state.preparationWait.kind === "source" ? "reading-wait" : `${state.preparationWait.kind}-wait`;
-			sendHost(preparationWaitInstruction(state, state.preparationWait), kind);
+			sendHost(preparationWaitInstruction(state, state.preparationWait), `${state.preparationWait.kind}-wait`);
+			return;
+		}
+		// A source wait does not own the turn, so it only speaks when the turn is still owed a delivery
+		// and the kernel has left no fix of its own: say which material is unread, and let the Keeper close.
+		if (state.sourceWait && !state.deliveryFix && (state.state === "open" || state.state === "acting")) {
+			state.steeredThisTurn = true;
+			sendHost(sourceWaitInstruction(state, state.sourceWait), "reading-wait");
 			return;
 		}
 		// The kernel refused the implicit delivery: hand its own fix back, once.

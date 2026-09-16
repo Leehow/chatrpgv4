@@ -503,3 +503,99 @@ test("a job resuming its own interrupted attempt keeps the completed read and ve
 	assert.equal(result.readTasks.length, 0);
 	assert.ok(result.finished.some(call => call.outcome === "completed"));
 });
+
+/**
+ * Contract §22. On 2026-09-15 two claimed reading jobs (`read-5`, `read-10`, campaign
+ * game-3dd94f0a) went quiet mid-verify and never spoke again: no error, no completion, no child
+ * process, and 6.5 hours later the module still said `blocked` with a server restart as the only
+ * remedy. The lane is now judged by its own heartbeat -- what the job reported, not elapsed wall
+ * clock -- and a job past the window is stopped and published as `failed`, never left pretending
+ * to be read.
+ */
+async function stalledJobFixture(t, { window = "60" } = {}) {
+	const previous = process.env.PI_COC_READ_STALL_MS;
+	process.env.PI_COC_READ_STALL_MS = window;
+	t.after(() => { if (previous === undefined) delete process.env.PI_COC_READ_STALL_MS; else process.env.PI_COC_READ_STALL_MS = previous; });
+	const rows = [], statuses = [], finishes = [];
+	let queued = true;
+	const service = new ReadingService({ home: "/unused", campaign: () => "game-stall", model: () => ({ id: "fixture/vision", vision: true }),
+		progress() {}, record(row) { rows.push(row); }, status(row) { statuses.push(row); },
+		async call(method, params) {
+			if (method === "module.read.claim") {
+				if (!queued) return { job_id: null };
+				queued = false;
+				return { job_id: "read-5", module_id: "book-1", purpose: "detail", focus: "museo-de-arqueologia",
+					foreground: true, lease: "lease-5", concurrency: 1, at: new Date().toISOString() };
+			}
+			assert.equal(method, "module.read.finish");
+			finishes.push(params);
+			return { state: params.outcome };
+		} });
+	t.after(() => service.dispose());
+	// A reader child that is alive but says nothing: it never resolves on its own and only stops when aborted.
+	service.runJob = (_job, signal) => new Promise((_resolve, reject) => {
+		if (signal.aborted) reject(new Error("aborted"));
+		signal.addEventListener("abort", () => reject(new Error("the reader was stopped")), { once: true });
+	});
+	void service.prefetch("book-1", "turn-committed");
+	const began = Date.now();
+	while (!finishes.length && Date.now() - began < 10_000) await new Promise(resolve => setTimeout(resolve, 20));
+	return { rows, statuses, finishes, service };
+}
+
+test("a reading job that reports nothing is stopped on its own heartbeat and published as failed", async t => {
+	const { rows, statuses, finishes } = await stalledJobFixture(t);
+
+	const stalled = rows.find(row => row.event === "stalled");
+	assert.ok(stalled, `the stall is its own telemetry row, not an inference: ${JSON.stringify(rows)}`);
+	assert.deepEqual([stalled.lane, stalled.module_id, stalled.job_id, stalled.purpose, stalled.focus],
+		["reading", "book-1", "read-5", "detail", "museo-de-arqueologia"]);
+	assert.equal(stalled.campaign, "game-stall");
+	assert.equal(stalled.window_ms, 60);
+	assert.ok(stalled.idle_ms >= 60, `the row carries how long the job was quiet, not just that it was: ${stalled.idle_ms}`);
+
+	// The operator's surface (shaped after §32.2): out of fiction, once, with the fix.
+	assert.equal(statuses.length, 1, "the operator is told once, not once per sweep");
+	assert.equal(statuses[0].status, "down");
+	assert.match(statuses[0].fix, /reader/);
+	assert.equal(statuses[0].job_id, "read-5");
+
+	// `cancelled` would read as "somebody asked for this to stop" and leave no reason on disk; only
+	// `failed` records the silence and offers the retry of §22.
+	assert.equal(finishes.length, 1);
+	assert.equal(finishes[0].outcome, "failed", JSON.stringify(finishes[0]));
+	assert.equal(finishes[0].job_id, "read-5");
+	assert.equal(finishes[0].lease, "lease-5");
+	assert.match(finishes[0].detail, /reported nothing/);
+});
+
+test("a job that keeps reporting is left alone: the heartbeat is what it said, not the clock", async t => {
+	const previous = process.env.PI_COC_READ_STALL_MS;
+	process.env.PI_COC_READ_STALL_MS = "300";
+	t.after(() => { if (previous === undefined) delete process.env.PI_COC_READ_STALL_MS; else process.env.PI_COC_READ_STALL_MS = previous; });
+	const rows = [], finishes = [];
+	let queued = true;
+	const service = new ReadingService({ home: "/unused", model: () => ({ id: "fixture/vision", vision: true }),
+		progress() {}, record(row) { rows.push(row); },
+		async call(method, params) {
+			if (method === "module.read.claim") {
+				if (!queued) return { job_id: null };
+				queued = false;
+				return { job_id: "read-9", module_id: "book-1", purpose: "detail", focus: "Jesse Hughes", lease: "lease-9", concurrency: 1, at: new Date().toISOString() };
+			}
+			finishes.push(params);
+			return { state: params.outcome };
+		} });
+	t.after(() => service.dispose());
+	// Review units on a real book took 24-141 s each and reported at every one: a working job speaks.
+	service.runJob = async (job, signal, campaign) => {
+		for (let unit = 0; unit < 8 && !signal.aborted; unit++) {
+			await new Promise(resolve => setTimeout(resolve, 100));
+			service.deps.record({ lane: "reading", module_id: job.module_id, campaign, job_id: job.job_id, phase: "verify", unit, ok: true });
+		}
+	};
+	await service.prefetch("book-1", "turn-committed");
+	assert.equal(rows.filter(row => row.event === "stalled").length, 0,
+		"a job quiet for less than the window between reports is working, not stalled");
+	assert.equal(finishes.filter(row => row.outcome === "failed").length, 0);
+});
