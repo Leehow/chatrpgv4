@@ -46,6 +46,15 @@ function loadIdentityArt() {
  * campaign at `<coc-home>/campaigns/<id>/portrait.<ext>`: not campaign state, not a receipt, and
  * the kernel never reads it. The closed extension set is a file lookup, not a semantic question.
  */
+/**
+ * What this layer says when a table read stops, whatever stopped it (§48).
+ *
+ * One sentence, the same every time, belonging to the boundary rather than to the exception: the
+ * caught error's own text is a diagnostic and stays in the diagnostic sink. It is English because
+ * every host string is (§23); the caption the player reads is projected from the code.
+ */
+const TABLE_READ_STOPPED = "The table could not be read just now. Nothing was changed; retry the read.";
+
 const PORTRAIT_FILES: ReadonlyArray<readonly [string, string]> = [
 	["png", "image/png"], ["jpg", "image/jpeg"], ["webp", "image/webp"],
 ];
@@ -203,13 +212,20 @@ export function registerSheetPanel(pi: ExtensionAPI, deps: SheetPanelDeps = {}):
 		} catch (error) {
 			// A kernel refusal is an answer, not a crash: a campaign with no party yet, a turn
 			// record that is still being rebuilt, a kernel that just went away.
+			//
+			// The code travels, because it is an identifier and §23 projects it; one the product's
+			// words do not carry draws `errors.unknown`, which is a gap a player can name. The
+			// exception's own text does not travel at all (§48). It was the kernel client's
+			// diagnostic, and a real table read it in the fold with the method name and the
+			// timeout in it. The client reports that to `onDiagnostic` now, so it is kept where a
+			// diagnostic belongs; this layer says what it can say about its own read.
 			const code = (error as { code?: unknown })?.code;
 			return answer({
 				view: null,
 				campaign: campaign ?? null,
 				status: "error",
 				code: typeof code === "string" && code ? code : "kernel_error",
-				reason: error instanceof Error ? error.message : String(error),
+				reason: TABLE_READ_STOPPED,
 			});
 		}
 	}

@@ -118,12 +118,21 @@ test('every sheet answer the pack serves carries the words it is drawn with, and
   assert.equal(ready.campaign, 'carried');
   assert.equal(ready.ui.tag, 'en');
   assert.equal(ready.ui.words.sheet.clues, 'en clues');
-  // A kernel refusal keeps its own code; the panel looks that word up, not this English message.
+  // A kernel refusal keeps its own code; the panel looks that word up, not this English message --
+  // which is what this test said all along, while asserting the message came through anyway.
+  //
+  // Under §48 it does not. The text of a caught exception never becomes a player-bound message,
+  // and no boundary may inspect the string to decide: `The turn is closed` reads like a sentence
+  // for a player, `Invalid PDF structure.` reads exactly the same way, and a stack arrives on the
+  // same field. So the trade is explicit -- a kernel code whose refusal deserves a word gets that
+  // word by being registered in `content/ui/en/errors.json`, where the lane projects it into every
+  // language, and not by leaking one language's sentence to everyone.
   failure = Object.assign(new Error('The turn is closed'), {code: 'turn_closed'});
   const refused = await sheet();
   assert.equal(refused.status, 'error');
   assert.equal(refused.code, 'turn_closed');
-  assert.equal(refused.reason, 'The turn is closed');
+  assert.equal(refused.reason, 'The table could not be read just now. Nothing was changed; retry the read.');
+  assert.notEqual(refused.reason, 'The turn is closed');
   assert.equal(refused.ui.tag, 'en', 'a failed read still says which words the panel should draw');
   failure = new Error('the kernel went away');
   assert.equal((await sheet()).code, 'kernel_error');

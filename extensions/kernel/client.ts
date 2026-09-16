@@ -314,6 +314,11 @@ export class KernelClient {
 		return new Promise<T>((resolve, reject) => {
 			const timer = setTimeout(() => {
 				this.pending.delete(id);
+				// The one failure on this client that never reached the diagnostic sink, while its
+				// own text did reach a player: a table showed the fold `kernel table.view did not
+				// answer within 15000 ms`, method name and deadline both. The text belongs here
+				// (§48); the layer that faces the player names the failure in its own words.
+				this.options.onDiagnostic?.(`kernel ${method} did not answer within ${this.timeoutMs} ms`);
 				reject(
 					new KernelError({
 						code: "internal",

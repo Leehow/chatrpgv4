@@ -7691,3 +7691,95 @@ Three unrelated live tables on 2026-09-16 delivered the same failure: the host h
 **A suspension that leaves no telemetry row cannot be diagnosed.** Two separate silences hid this class for a day, and both are closed. (1) The gate block above. (2) `refreshAdaptationWait` recorded only when `held` — the wait as it stood on the way *in* — so the turn on which a wait was **first** taken up, the one turn whose behaviour changes most, wrote nothing at all; it now records whenever a wait stands on either side of the re-read and marks that first one. The general rule: **a host decision that changes what the Keeper may do is a decision the run must be able to read back.**
 
 **What this does not change.** §36.15's turn ownership, job freshness, pin and acceptance semantics are untouched, and so is the audit's `preparation_wait` deferral basis (§37.3): it stays lawful for a turn whose prose does carry a wait line — the settled-receipts branch may still say the additional material is pending — and a turn that carries none defers as `chosen_action`, which needs no host-owned field. No new lane, no new verb, no new foreground model call, and no reading of delivered prose.
+
+## 48. A player-bound message is written by the layer that emits it (2026-09-16)
+
+Four raw English sentences reached players in one day, on four unrelated paths:
+a preparation banner, an upload, a turn transport, and the right-hand sheet. That
+is not four forgotten strings. Service failures had never gone through the
+presentation lane at all, because at each boundary a caught exception's own text
+was copied straight into the `message` §23 shows. The worst named an internal tool
+at the player: the sheet drew a read failure, the generic caption, and under the
+fold `kernel table.view did not answer within 15000 ms`.
+
+The caption being generic is the designed behaviour, not the leak: `internal` is a
+kernel code the product's words do not carry, and §23 renders an unregistered code
+as `errors.unknown`, a gap a player can name. The leak is the fold.
+
+### 48.1 The rule
+
+At every boundary where the product turns a **caught exception** into a
+player-bound failure:
+
+- **The code travels.** It is an identifier from a closed set, and the renderer
+  projects it. A code from a layer below is still a code; it is not rewritten.
+- **This layer's own message travels.** One English sentence belonging to the
+  boundary, the same for every exception that arrives there — never the
+  exception's text. English because every host string is (§23); the player reads
+  the projected caption, and this is the log line behind `errors.details`.
+- **The exception's text is a diagnostic and goes to a sink that already exists.**
+  It is never placed in an answer a renderer reads. A boundary that drops a
+  diagnostic without one has lost it, not moved it, so wiring the sink is part of
+  the fix, not optional.
+- **A refusal this layer minted itself passes whole**, because its sentence was
+  written to be said. The distinction is by **construction, not by content**:
+  `refuse()` brands what it builds (`said: true`), and nothing downstream ever
+  inspects a string to guess whether it reads like a diagnostic. Deciding that by
+  keyword or regex is the hardcoded-semantics ban, and it would also be wrong —
+  a vendor's `Invalid PDF structure.` looks exactly like a sentence for a player.
+
+### 48.2 Where it is applied, and which sink each uses
+
+- `extensions/kernel/client.ts` — a call that never answers now reports to
+  `onDiagnostic`, the sink this client already uses for stderr, protocol noise and
+  restart notices. It was the one failure on the client that reached no sink while
+  its text reached a player. The `KernelError` message is unchanged: internal
+  callers and tool results still read it.
+- `pipicoc/sheet.ts` — the `table.view` catch answers `{code, reason:
+  TABLE_READ_STOPPED}`. The code still travels; the kernel's diagnostic does not,
+  and is kept by the line above.
+- `pipicoc/onboarding-worker.ts` — `reportError` emits its own sentence unless the
+  error carries `said`, and puts the underlying text in `detail`. Two of the four
+  sentences came through this line: `Invalid PDF structure.` from a PDF vendor and
+  `Request timed out.` from a provider SDK, neither written for anyone to read.
+- `Electron/packages/pi-backend/src/coc-onboarding.ts` — a worker that dies with
+  no error event leaves only stderr, and `refuse('interrupted', … || tail || …)`
+  put the last 2000 bytes of it — stack, absolute paths, whatever a vendor printed
+  — in front of the player. That stderr is now appended to the import's own
+  `events.jsonl` as a `diagnostic` event, where the rest of the worker's account
+  already goes, and the refusal carries the host's sentence.
+
+`PREPARATION_STOPPED` is spelled in both the worker and the host because either
+may be the one that has to speak and they are separate programs; that duplication
+is the cost of the process boundary, not a second source of truth.
+
+### 48.3 The trade, stated
+
+Some exceptions from below carry text that would have been useful: a kernel
+refusal saying the turn is closed reads like a sentence written for a player. It
+reads exactly as much like one as `Invalid PDF structure.` does, and a stack
+arrives on the same field. Nothing can tell them apart without inspecting the
+string, which is the hardcoded-semantics ban and would be unreliable anyway.
+
+So the trade is explicit and the replacement is named: **a code from below whose
+refusal deserves a player-facing word earns it by being registered in
+`content/ui/en/errors.json`**, where the lane projects it into every language.
+That is a word for every player rather than one language's sentence for all of
+them. Which kernel codes deserve registering is an open question this section does
+not answer; it is now the only way to answer it.
+
+### 48.4 What this section does not cover
+
+`CocOnboarding.tsx`'s failed/paused fold renders
+`failure(job.error).message || said(failure(job.error))`, which prefers the
+message over the caption and so makes the caption unreachable there whatever the
+producers send. That render site is the story-opening work's, fixed in §46;
+§48 is the producer end only. The two ends are independent, and both were needed:
+a correct message from the producer already improves that fold, and fixing the
+fold alone would still have shown a vendor's stack, because the stack was in the
+`message` too.
+
+Tests: `tests/extension/service-error-text.test.mjs` (the sheet boundary, the
+diagnostic sink, and that an authored refusal passes whole) and
+`Electron/packages/pi-backend/test/coc-onboarding.test.ts` (a real failing inspect,
+and a worker that crashes with nothing but stderr).

@@ -21,6 +21,15 @@ const CHUNK = 1024 * 1024;
  */
 const UPLOAD_STALL_MS = 90_000;
 /**
+ * What the host says when a preparation worker stopped before it answered (§48).
+ *
+ * The worker says the same sentence for the same situation, because either of them may be the one
+ * that has to speak; it is duplicated across a process boundary rather than shared, which is the
+ * cost of the worker being a separate program. What must never appear here is the text of whatever
+ * threw: a PDF vendor's, a provider SDK's, or the last 2000 bytes of the worker's stderr.
+ */
+const PREPARATION_STOPPED = 'The preparation stopped before it answered. Your source is saved; retry this preparation.';
+/**
  * A host failure the preparation overlay can show (contract §23): the code it looks a word up by,
  * and an English message kept for the log. Prose is never the player's only explanation, because
  * the player does not necessarily read the system language.
@@ -332,7 +341,21 @@ export class CocOnboardingHost {
         });
         child.on('error', error => {failure ||= error;});
         child.on('close', code => {
-          if (signal.aborted || code !== 0 || failure || result === undefined) reject(Object.assign(refuse('interrupted', failure?.message || tail || 'Preparation interrupted'), failure || {}));
+          if (signal.aborted || code !== 0 || failure || result === undefined) {
+            // A worker that died without an error event leaves only stderr, and stderr is a
+            // diagnostic -- stack, paths, whatever a vendor printed -- never a sentence written
+            // for a player (§48). It goes to this import's event log, which is where the rest of
+            // the worker's account already goes; what the overlay reads is a sentence of ours.
+            if (job && !failure && tail) try {
+              appendFileSync(join(this.folder(job.id), 'events.jsonl'),
+                JSON.stringify({at: new Date().toISOString(), type: 'diagnostic', data: {stderr: tail}}) + '\n');
+            } catch { /* the refusal still stands without its log line */ }
+            const refused = Object.assign(refuse('interrupted', PREPARATION_STOPPED), failure || {});
+            // Assigning the worker's fields back would carry its message too, so the sentence is
+            // settled last: the worker's own when it wrote one, ours otherwise.
+            refused.message = typeof failure?.message === 'string' && failure.message ? failure.message : PREPARATION_STOPPED;
+            reject(refused);
+          }
           else resolve(result);
         });
       });

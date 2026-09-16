@@ -11,10 +11,20 @@ import { playLanguageTag, resolveUiWords } from '../runtime/ui-words.ts';
 import { prepareUiWords } from '../extensions/module/ui-presentation.ts';
 import { presentDocument } from '../extensions/mods/document-presentation.ts';
 
-/** A refusal the preparation overlay can show (contract §23): its code, and English for the log. */
+/**
+ * A refusal the preparation overlay can show (contract §23): its code, and English for the log.
+ *
+ * `said` brands it as written to be said. Anything thrown from under this worker -- a PDF vendor,
+ * a provider SDK, the kernel client -- carries no such mark, and §48 keeps its text out of the
+ * field the overlay shows. The mark is set where the sentence is written, so nothing downstream
+ * ever has to look at a string and guess whether it reads like a diagnostic.
+ */
 function refuse(code: string, message: string): Error {
-  return Object.assign(new Error(message), {code});
+  return Object.assign(new Error(message), {code, said: true});
 }
+
+/** What this worker says when something under it threw (§48); its own text goes to the log. */
+const PREPARATION_STOPPED = 'The preparation stopped before it answered. Your source is saved; retry this preparation.';
 
 const [action, raw, configuration] = process.argv.slice(2);
 let input: any;
@@ -208,8 +218,15 @@ async function main() {
   throw refuse('unknown_action', 'Unknown onboarding operation');
 }
 function reportError(error: any) {
-  emit('error', {message: error.message, code: error.code, reason: error.details?.reason, fix: error.fix,
-    candidates: error.details?.candidates?.map((row: any) => ({scene: row.scene, name: row.name, summary:row.summary}))});
+  // The code, the structured fields and this worker's own sentence cross to the host. The text of
+  // an exception that was not written to be said rides as `detail`: the host logs the whole event
+  // and never copies `detail` into what the overlay reads. Two of the four sentences that reached
+  // players in one day came through this line -- `Invalid PDF structure.` from a vendor and
+  // `Request timed out.` from a provider SDK -- neither written for anyone to read.
+  emit('error', {message: error?.said === true ? error.message : PREPARATION_STOPPED,
+    ...(error?.said === true ? {} : {detail: error?.message === undefined ? String(error) : String(error.message)}),
+    code: error?.code, reason: error?.details?.reason, fix: error?.fix,
+    candidates: error?.details?.candidates?.map((row: any) => ({scene: row.scene, name: row.name, summary:row.summary}))});
   process.exitCode = 1;
 }
 async function run() {
