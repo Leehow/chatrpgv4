@@ -184,6 +184,44 @@ describe('useDeclarativeContributionLoader', () => {
     await vi.waitFor(() => expect(host.listExtensions).toHaveBeenCalledWith('campaign-project'))
   })
 
+  it('does not report a failed listing as an empty one, retries, and only then says so', async () => {
+    // A remote link drops requests without dropping the socket. Turning the
+    // rejection into `[]` is how the shell used to conclude the project enables
+    // nothing and paint it as `base` (§54) — nobody had actually been asked.
+    let attempts = 0
+    const host = {
+      listExtensions: vi.fn(async () => {
+        attempts += 1
+        if (attempts <= 2) throw new Error('transport request timed out')
+        return []
+      }),
+    } as unknown as PipiHostAPI
+    const onExtensions = vi.fn()
+    const onFailure = vi.fn()
+    renderHook(() => useDeclarativeContributionLoader(host, 'campaign-project', onExtensions, onFailure))
+
+    // A retry has to happen at all — a loader that swallowed the rejection and
+    // reported `[]` would stop after one attempt — and while it is happening
+    // the shell must not have been handed an answer.
+    await vi.waitFor(() => expect(attempts).toBeGreaterThanOrEqual(2), { timeout: 5_000 })
+    expect(onExtensions).not.toHaveBeenCalled()
+
+    // The retry succeeds, so the failure is never put in front of the person.
+    await vi.waitFor(() => expect(onExtensions).toHaveBeenCalledWith([]), { timeout: 10_000 })
+    expect(onFailure).not.toHaveBeenCalled()
+  }, 15_000)
+
+  it('tells the caller once the retries are spent', async () => {
+    const host = {
+      listExtensions: vi.fn(async () => { throw new Error('transport request timed out') }),
+    } as unknown as PipiHostAPI
+    const onExtensions = vi.fn()
+    const onFailure = vi.fn()
+    renderHook(() => useDeclarativeContributionLoader(host, 'campaign-project', onExtensions, onFailure))
+    await vi.waitFor(() => expect(onFailure).toHaveBeenCalled(), { timeout: 20_000 })
+    expect(onExtensions).not.toHaveBeenCalled()
+  }, 25_000)
+
   it('does not keep a stale project subscription after a controlled load crosses project cleanup', async () => {
     let releaseProjectA!: (source: string) => void
     const projectASource = new Promise<string>(resolve => { releaseProjectA = resolve })
