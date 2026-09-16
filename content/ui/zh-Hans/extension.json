@@ -65,6 +65,7 @@
   "setup_packages_failed": "建卡包上下文不可用：{detail}",
   "setup_progress": "设置 {done}/{total}  下一步 {step}",
   "setup_progress_ready": "设置 {done}/{total}  就绪",
+  "standing_condition_notice": "{name}处于{state}，无法自行行动：在该状态解除前，你为其声明的任何行动都会被拒绝。人物卡上同样标着这一条。",
   "table_campaign_unnamed": "未命名战役",
   "table_investigator": "{name}  HP {hp} / SAN {san}",
   "table_investigator_unnamed": "未命名调查员",

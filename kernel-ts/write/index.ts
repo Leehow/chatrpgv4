@@ -15,6 +15,7 @@ import { RuleObservations } from '../read/rule-facts.js';
 import { buildCapsule } from '../read/assemble.js';
 import { contextBinding } from '../read/context.js';
 import { mechanics } from '../read/mechanics.js';
+import { standingStates } from '../read/standing.js';
 import { authoredMapWords } from '../read/maps.js';
 import { sceneLabel } from '../read/capsule.js';
 import { tableSnapshot, playerGlossary, unsupported, type ReadContributions } from '../read/handlers.js';
@@ -796,6 +797,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             kind
         };
         const rendered = delivery.rendered_text, projected = mechanics(receipts, placed, await snapshot.handoutTexts(receipts)), labels = await playerGlossary(context, language);
+        const standing = standingStates(snapshot.party, receipts);
         const result: Row = {
             pending_choice: pending,
             interaction: {
@@ -804,6 +806,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             },
             ...delivery,
             mechanics: projected,
+            ...(standing.length ? { standing } : {}),
             labels,
             turn: n,
             state: 'asked'
@@ -857,9 +860,11 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         const factLists = facts(module.graph, snapshot.world, snapshot.party, receipts, world, turn.player_text,
             publicContext(snapshot.party, row(row(snapshot.meta.setup).handoff).prologue, earlier)), labels = await playerGlossary(context, language);
         report?.('project');
+        const standing = standingStates(snapshot.party, receipts);
         const result: Row = {
             ...delivery,
             mechanics: projected,
+            ...(standing.length ? { standing } : {}),
             labels,
             turn: n,
             receipt,
