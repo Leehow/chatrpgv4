@@ -26,11 +26,11 @@
  * meeting a retired person ends the drain rather than spinning on them.
  */
 
-import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { appendJsonl, cocHome, cocMode } from "../lanes/host.ts";
+import { cocMode } from "../lanes/host.ts";
 import { resolveLaneModel, runLane } from "../lanes/subsession.ts";
 import { createLaneQueue, type KernelCall, type LaneJob } from "../lanes/queue.ts";
+import { createLaneTelemetry } from "../lanes/telemetry.ts";
 
 /** Fallbacks only: the kernel's job packet carries the real budget, and these stand in when it does not. */
 const DEFAULT_EXCHANGES = 3;
@@ -220,6 +220,12 @@ export default function (pi: ExtensionAPI) {
 	/** One telemetry row per retired person, not one per commit that meets them again. */
 	const noticed = new Set<string>();
 
+	// The shared writer, which also escalates a streak of failures to the operator (contract §56).
+	const telemetry = createLaneTelemetry(pi, {
+		lane: "voice", modelEnv: "PI_COC_NPCVOICE_MODEL", cwd: () => scheduler.ctx?.cwd,
+	});
+	const record = (campaign: string, row: Record<string, unknown>) => telemetry.record(campaign, row);
+
 	const scheduler = createLaneQueue(pi, {
 		backfillEnv: "PI_COC_NPCVOICE_BACKFILL",
 		// Off unless asked (user ruling 2026-09-15): a fifty-person book would spend fifty model calls at
@@ -236,25 +242,6 @@ export default function (pi: ExtensionAPI) {
 		retired.clear();
 		noticed.clear();
 	});
-
-	// ---- Telemetry --------------------------------------------------------
-
-	async function record(campaign: string, row: Record<string, unknown>): Promise<void> {
-		const line = { lane: "voice", ...row };
-		let cwd: string | undefined;
-		try {
-			pi.appendEntry("coc-telemetry", line);
-			// After the session is disposed the ctx getters throw (docs/pi-host-contract.md §5), and the
-			// lane's continuation may well land after that: read it, treat a throw as "no workspace",
-			// and never let the exception out of the lane.
-			cwd = scheduler.ctx?.cwd;
-		} catch {
-			/* telemetry must not break a lane */
-		}
-		if (!cwd) return;
-		const path = join(cocHome(cwd), ".coc", "campaigns", campaign, "telemetry.jsonl");
-		await appendJsonl(path, line);
-	}
 
 	// ---- One person -------------------------------------------------------
 

@@ -19,11 +19,11 @@
  * while a turn is open, and a freshly committed turn always goes ahead of it.
  */
 
-import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { appendJsonl, cocHome, cocMode } from "../lanes/host.ts";
+import { cocMode } from "../lanes/host.ts";
 import { resolveLaneModel, runLane } from "../lanes/subsession.ts";
 import { createLaneQueue, type KernelCall, type LaneJob } from "../lanes/queue.ts";
+import { createLaneTelemetry } from "../lanes/telemetry.ts";
 
 /** The closed fields and closed enums of a candidate assertion (contract §12.3). No extra field is ever sent to the kernel. */
 const CANDIDATE_KINDS: ReadonlySet<string> = new Set([
@@ -248,6 +248,15 @@ export default function (pi: ExtensionAPI) {
 	// The setup process has no turns and so no memory to extract: it registers nothing and subscribes to nothing (contract §14.4).
 	if (cocMode() === "setup") return;
 
+	// ---- Telemetry --------------------------------------------------------
+
+	// The writer also watches its own rows and escalates a streak of failures to the operator
+	// (contract §56): this lane failed every turn of a finished game and nothing anywhere said so.
+	const telemetry = createLaneTelemetry(pi, {
+		lane: "memory", modelEnv: "PI_COC_MEMORY_MODEL", cwd: () => scheduler.ctx?.cwd,
+	});
+	const record = (campaign: string, row: Record<string, unknown>) => telemetry.record(campaign, row);
+
 	const scheduler = createLaneQueue(pi, {
 		backfillEnv: "PI_COC_MEMORY_BACKFILL",
 		runJob,
@@ -255,25 +264,6 @@ export default function (pi: ExtensionAPI) {
 			turn: job.turn, ok: false, reason: "lane_error", detail: errorText(error),
 		}),
 	});
-
-	// ---- Telemetry --------------------------------------------------------
-
-	async function record(campaign: string, row: Record<string, unknown>): Promise<void> {
-		const line = { lane: "memory", ...row };
-		let cwd: string | undefined;
-		try {
-			pi.appendEntry("coc-telemetry", line);
-			// After the session is disposed the ctx getters throw (docs/pi-host-contract.md §5), and the
-			// lane's continuation may well land after that: read it, treat a throw as "no workspace",
-			// and never let the exception out of the lane.
-			cwd = scheduler.ctx?.cwd;
-		} catch {
-			/* telemetry must not break a lane */
-		}
-		if (!cwd) return;
-		const path = join(cocHome(cwd), ".coc", "campaigns", campaign, "telemetry.jsonl");
-		await appendJsonl(path, line);
-	}
 
 	// ---- One extraction ---------------------------------------------------
 
