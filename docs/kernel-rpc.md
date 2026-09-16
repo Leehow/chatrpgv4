@@ -8258,5 +8258,60 @@ there is no `.remote-browser-banner`, so `RemoteBrowserApp` considers itself
 **connected** — the person gets an empty product with no explanation at all.
 The host process is alive, the relay room answers 200, and the turn that was sent
 during the blank **was delivered and answered** (it is there after a reload). The
-mechanism is not established and is deliberately not guessed at here. It is not
-fixed by this section.
+mechanism was not established when this section was written and was deliberately
+not guessed at. It is `RemoteBrowserApp` remounting the whole App on every
+lifecycle transition — see §57, which fixes it.
+
+## 57. A reconnect is not a restart (2026-09-16)
+
+Three times in one real remote session — the first pairing after an app restart,
+mid character-creation, and on sending a line mid-scene — the whole product
+collapsed to 「暂无项目与会话」. `[data-testid="remote-lifecycle"]` was absent and
+there was no `.remote-browser-banner`, so `RemoteBrowserApp` considered itself
+**connected**: an empty product with no explanation at all. The host process was
+alive, the relay room answered 200, and the turn sent during the blank had been
+delivered and answered — it was there after a reload. §54.3 recorded it as open
+because the mechanism was not established. This is the mechanism.
+
+### 57.1 React reconciles by position and type
+
+`RemoteBrowserApp` rendered `<App>` inside a different tree for each phase:
+
+```tsx
+if (host && displayPhase === 'connected') return <><App host={host} />{dialog}</>
+if (host && (reconnecting || disconnected)) return (
+  <div className="remote-browser-shell"><div className="remote-browser-banner"/><App host={host} /></div>)
+```
+
+A Fragment and a `div` at the same slot are different types, so **every phase
+transition unmounted the App and mounted a new one.** All of its state went with
+it: the project list, the selected session, the loaded transcript, the draft in
+the composer, the scroll position. What the person saw was the product reloading
+itself from empty — and, until §54, flashing `base` on the way back, which locked
+the composer and accused their session of belonging to another pack.
+
+The blip that triggers it is ordinary. The relay closes a browser socket with
+1008 when a burst crosses `maxInflight` (32) or `maxFramesPerWindow` (120/s), and
+a mobile link drops sockets on its own; the shell reconnects in under a second.
+Recovery was already correct at the transport layer. The shell threw the product
+away while it happened.
+
+### 57.2 The contract
+
+**One mounted App for the life of the pairing.** While a host exists the shell
+renders one tree — `.remote-browser-shell` wrapping `<App>` — in every phase. The
+lifecycle banner is a conditional *sibling* that appears above it and disappears
+again; `<App>` never changes position, so it is never remounted. Only the
+pre-host states (first connect, and a close that cannot recover) render the
+separate `browser-host-state` page, because there is nothing to preserve yet.
+
+`.remote-browser-shell > .pipiui-shell` takes `flex: 1 1 auto; min-height: 0`, so
+the shell fills what the banner leaves and all of it when there is no banner.
+
+A reconnect still hands `<App>` a new `host` object: its effects re-run and rebind
+to the new socket, which is what recovery means. That is a re-render, not a
+remount, and the loaded table survives it.
+
+Test: `RemoteBrowserApp.continuity.test.tsx` marks the mounted `.pipiui-shell`
+node, drives connected → reconnecting → connected, and requires the same node
+back. It fails on the pre-§57 shell.

@@ -340,6 +340,9 @@ body{overscroll-behavior:none}
 .browser-host-error > button[aria-label="关闭错误"] { position: absolute; top: 10px; right: 12px; border: 0; background: transparent; font-size: 24px; cursor: pointer; }
 .browser-host-hint { color: var(--text-secondary, #5f6368); font-size: 13px; }
 .remote-browser-shell { min-height: 100vh; display: flex; flex-direction: column; }
+/* The shell fills whatever the banner leaves, and all of it when there is no
+   banner -- the wrapper is now present in every phase (§57). */
+.remote-browser-shell > .pipiui-shell { flex: 1 1 auto; min-height: 0; }
 .remote-browser-banner { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; padding: 8px 14px; background: color-mix(in srgb, #c9a227 18%, var(--bg-primary, #fff)); border-bottom: 1px solid var(--border, #d7d9df); font-size: 13px; }
 .remote-browser-banner button { margin-left: auto; }
 
