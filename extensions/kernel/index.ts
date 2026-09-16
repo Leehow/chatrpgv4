@@ -348,6 +348,44 @@ const RUNAWAY_ABORT_AT = 6;
  *  the streak that escalates elsewhere in this host (§32.2, §38, §38.7) is also two. */
 const COMMIT_FAILURE_LIMIT = 2;
 const REFUSAL_CLASS_LIMIT = 3;
+
+/**
+ * Score one refusal against its class (contract §67).
+ *
+ * The budget used to count only refusals that came back from the kernel as a
+ * `coc_error`. The host's own pre-tool gate returns `{ block: true, reason }`
+ * without ever reaching the kernel, so those refusals were free: a Keeper was
+ * told `turn_state: wait for the player to speak` twenty-three times in one
+ * turn, every three seconds, and nothing stopped it -- a fifteen-minute turn
+ * for a one-line question. The rule is three strikes per class, whoever refused.
+ */
+function strikeRefusalClass(
+	state: { refusalClasses: Map<string, { count: number; last: string; round: number }>; exhausted: Map<string, string>; refusalsThisTurn: number; roundTrips: number; callRounds: Map<string, number> },
+	tool: string,
+	cls: string,
+	last: string,
+	round: number,
+): { count: number; tripped: boolean } {
+	const previous = state.refusalClasses.get(cls);
+	// A strike is an attempt, not a call: calls written in one message are answered
+	// after the Keeper wrote them, so a batch takes one strike between them.
+	const batched = previous !== undefined && previous.round === round;
+	const count = (previous?.count ?? 0) + (batched ? 0 : 1);
+	state.refusalClasses.set(cls, { count, last, round });
+	state.refusalsThisTurn += 1;
+	const closing = "Nothing refused has happened. Stop trying it: close the turn with narrate on what landed with a receipt, or hand the player the pending choice with ask.";
+	let tripped = false;
+	if (count >= REFUSAL_CLASS_LIMIT && !state.exhausted.has(tool) && !["narrate", "ask"].includes(tool)) {
+		state.exhausted.set(tool, `${tool} has been refused ${count} times this turn for the same reason (${last}). ${closing}`);
+		tripped = true;
+	}
+	if (state.refusalsThisTurn >= REFUSAL_BUDGET) {
+		for (const name of ["resolve", "apply", "look", "lookup", "recall"])
+			if (!state.exhausted.has(name))
+				state.exhausted.set(name, `${state.refusalsThisTurn} refusals this turn. ${closing}`);
+	}
+	return { count, tripped };
+}
 /** Refusals of any class a turn tolerates before every write but narrate and ask is shut. */
 const REFUSAL_BUDGET = 8;
 /**
@@ -2407,23 +2445,12 @@ export default function (pi: ExtensionAPI) {
 			// after it wrote them, so the second and third of a batch are not it ignoring the first
 			// refusal -- it never saw one. Count the round trip that issued the call, and let a class
 			// take at most one strike per round; the refusal is still recorded and still read back.
-			const previous = state.refusalClasses.get(cls);
 			const round = state.callRounds.get(event.toolCallId) ?? state.roundTrips;
-			const batched = previous !== undefined && previous.round === round;
-			const count = (previous?.count ?? 0) + (batched ? 0 : 1);
-			state.refusalClasses.set(cls, { count, last, round });
-			state.refusalsThisTurn += 1;
-			const closing = "Nothing refused has happened. Stop trying it: close the turn with narrate on what landed with a receipt, or hand the player the pending choice with ask.";
-			if (count >= REFUSAL_CLASS_LIMIT && !state.exhausted.has(tool) && !["narrate", "ask"].includes(tool)) {
-				state.exhausted.set(tool, `${tool} has been refused ${count} times this turn for the same reason (${last}). ${closing}`);
-				await record({ lane: "refusals", turn: state.turn, tool, count, reason: "class_limit", last });
-			}
-			if (state.refusalsThisTurn >= REFUSAL_BUDGET) {
-				for (const name of ["resolve", "apply", "look", "lookup", "recall"])
-					if (!state.exhausted.has(name))
-						state.exhausted.set(name, `${state.refusalsThisTurn} refusals this turn. ${closing}`);
+			const before = state.refusalsThisTurn;
+			const { count, tripped } = strikeRefusalClass(state, tool, cls, last, round);
+			if (tripped) await record({ lane: "refusals", turn: state.turn, tool, count, reason: "class_limit", last });
+			if (before < REFUSAL_BUDGET && state.refusalsThisTurn >= REFUSAL_BUDGET)
 				await record({ lane: "refusals", turn: state.turn, count: state.refusalsThisTurn, reason: "turn_budget", last });
-			}
 		}
 		return { isError: true };
 	});
@@ -3120,7 +3147,12 @@ export default function (pi: ExtensionAPI) {
 						? "the Mod layer has not announced itself yet, so this opening Mod call cannot be judged: retry the same call; the opening's Mod checks become available as soon as it does"
 						: `the turn state is ${state.state}, so nothing may change state: wait for the player to speak, or use only look, lookup and recall`;
 			await record({ tool: name, started_at: new Date().toISOString(), ok: false, code: "turn_state", reason, ...(bridgePending ? { cause: "mods_bridge_pending" } : {}) });
-			return { block: true, reason };
+			// A refusal the host issued is still a refusal (§67). Without this the
+			// Keeper could be told "wait for the player" forever inside its own turn.
+			const round = state.callRounds.get(event.toolCallId) ?? state.roundTrips;
+			const { count, tripped } = strikeRefusalClass(state, name, `${name}\u0000turn_state\u0000${state.state}`, `turn_state: ${reason}`.slice(0, 160), round);
+			if (tripped) await record({ lane: "refusals", turn: state.turn, tool: name, count, reason: "class_limit", last: `turn_state: ${state.state}` });
+			return { block: true, reason: state.exhausted.get(name) ?? reason };
 		}
 		if (name === "ask" && !input.binds && state.pendingChoice?.for === "player" && state.pendingChoice.name) {
 			// Contract §11.9: when the Keeper leaves binds out, fill it with the kernel's latest pending choice for the player.
