@@ -15,11 +15,20 @@
     "url": "https://github.com/desktop/dugite-native/releases/download/v2.53.0-4/dugite-native-v2.53.0-4098283-macOS-arm64.tar.gz",
     "sha256": "f9dc64635a5b62fbd7ad95db73268bbb8912255ac516d65d37bf7af22fcb8ffe",
     "executables": [
-      { "path": "bin/git", "sha256": "8b0c175c430d35d8a790ca907a37ca8742966a15f0da0b75e6747e640e24460a" },
-      { "path": "libexec/git-core/git", "sha256": "8b0c175c430d35d8a790ca907a37ca8742966a15f0da0b75e6747e640e24460a" }
+      {
+        "path": "bin/git",
+        "sha256": "8b0c175c430d35d8a790ca907a37ca8742966a15f0da0b75e6747e640e24460a"
+      },
+      {
+        "path": "libexec/git-core/git",
+        "sha256": "8b0c175c430d35d8a790ca907a37ca8742966a15f0da0b75e6747e640e24460a"
+      }
     ],
     "symlinks": [
-      { "path": "libexec/git-core/git-merge-ours", "target": "git" }
+      {
+        "path": "libexec/git-core/git-merge-ours",
+        "target": "git"
+      }
     ],
     "templates": "share/git-core/templates",
     "sources": [
@@ -96,14 +105,48 @@
     "build/host/runtime/kernel/pipiui-prompt-observer.mjs",
     "build/host/runtime/pi-ext/packages/context-fold/index.mjs"
   ],
-  "buildDirectories": ["kernel", "runtime", "pipicoc", "extensions", "host"],
-  "resourceDirectories": ["prompts", "content", "mods", "extensions/deepseek", "extensions/image-gen", "extensions/grok-build-oauth", "extensions/remote-control"],
-  "resourceFiles": ["extensions/mods/document-presentation.md", "extensions/module/map-presentation.md", "pipicoc/install", "pipiui-extension.json", "bin/pi-coc", "bin/pi-coc-setup", "bin/coc-read-check", "bin/coc-source", "pipicoc/rpc"],
+  "buildDirectories": [
+    "kernel",
+    "runtime",
+    "pipicoc",
+    "extensions",
+    "host"
+  ],
+  "resourceDirectories": [
+    "prompts",
+    "content",
+    "mods",
+    "extensions/deepseek",
+    "extensions/image-gen",
+    "extensions/grok-build-oauth",
+    "extensions/remote-control"
+  ],
+  "resourceFiles": [
+    "extensions/mods/document-presentation.md",
+    "extensions/module/map-presentation.md",
+    "pipicoc/install",
+    "pipiui-extension.json",
+    "bin/pi-coc",
+    "bin/pi-coc-setup",
+    "bin/coc-read-check",
+    "bin/coc-source",
+    "pipicoc/rpc"
+  ],
   "uiFiles": [
-    "panel.js", "mods-panel.js", "timeline.js", "mechanics.js", "choices.js", "preparation.js",
+    "panel.js",
+    "mods-panel.js",
+    "timeline.js",
+    "mechanics.js",
+    "choices.js",
+    "preparation.js",
     "settings-difficulty.js",
     "settings-lane-model.js",
-    "sheet-icon.svg", "mods-icon.svg", "timeline.svg", "pipicoc.png", "product.json"
+    "settings-hints.js",
+    "sheet-icon.svg",
+    "mods-icon.svg",
+    "timeline.svg",
+    "pipicoc.png",
+    "product.json"
   ],
   "hostAssets": [
     "Electron/resources/runtime/auth/pi-auth-helper.mjs",
