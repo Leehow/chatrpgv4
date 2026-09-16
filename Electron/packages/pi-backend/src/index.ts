@@ -873,8 +873,10 @@ type Live = {
    *  `tool_execution_end` can prove which tool produced a result. Consumed on
    *  end and cleared per turn. */
   toolNames: Map<string, string>;
-  /** Startup catch-up dedupe for authoritative presentation entries. */
+  /** Dedupe for authoritative presentation entries, shared by every reading of the transcript. */
   projectedPresentationIds: Set<string>;
+  /** Byte the presentation projection has already read this transcript to; undefined off a table. */
+  presentationReadTo?: number;
   /** Turn epoch of the idle-fold nudge's own short turn. Only a
    *  `context_manage` fold inside this exact epoch is attributable to the
    *  idle scheduler; a fold in any other turn is an unconfirmed-trigger fold. */
@@ -1094,7 +1096,7 @@ function isVisibleCustomMessage(entry: any): boolean {
  * second reading -- the player-message collapse rule kept five lines of a six-paragraph delivery,
  * cut on a full stop, and the table could not tell it had been shortened.
  */
-const HOST_DELIVERED_CUSTOM_TYPES = new Set(["coc-setup-opening", "coc-delivery"]);
+export const HOST_DELIVERED_CUSTOM_TYPES: ReadonlySet<string> = new Set(["coc-setup-opening", "coc-delivery"]);
 /** A well-formed help fold, or nothing: a title and a few lines of text, whatever else the details carry. */
 function openingHelp(value: any): { title: string; lines: string[]; open?: boolean; moment?: string } | undefined {
   if (!value || typeof value !== "object") return undefined;
@@ -5856,6 +5858,7 @@ export class PiHostBackend implements HostBackend {
       toolArgs: new Map(),
       toolNames: new Map(),
       projectedPresentationIds: new Set(),
+      presentationReadTo: cocStartupOffset,
       messageEpoch: 0,
       compaction: new ProactiveCompactionScheduler({
         configuration: this.compactionConfiguration,
@@ -5995,7 +5998,7 @@ export class PiHostBackend implements HostBackend {
           live.stderrTail,
         );
       }
-      const startupPresentationFound = await this.replayCocStartupPresentations(live, cocStartupOffset);
+      const startupPresentationFound = await this.projectHostDeliveries(live, cocStartupOffset);
       this.assertSessionGeneration(id, generation);
       if (this.live.get(id) !== live || !this.liveProcessUsable(live)) {
         await (live.exit ?? Promise.resolve());
@@ -6145,6 +6148,22 @@ export class PiHostBackend implements HostBackend {
           this.stream({type:"presentation",sessionId:live.session.id,entry});
         }
       }
+    }
+    // Contract §55: a notice the host places reaches the screen when it is placed.
+    //
+    // Every word the host puts in front of the player itself travels `pi.sendMessage`, and Pi
+    // delivers that as a `message_end` whose message carries `role: "custom"`. It is not an
+    // `entry_appended` -- only `pi.appendEntry` emits that, for the other kind of entry
+    // (`type: "custom"`), so the branch above cannot see a delivery however it is written. Without
+    // this the eight service notices and the host's own fallback prose existed only in the file,
+    // and the player met them on the next reading of the transcript rather than when they were
+    // said. The acceptance for those notices counts messages at the extension seam, where they
+    // have always been, which is why nothing went red for as long as this was missing.
+    if (e.type === "message_end" && e.message?.role === "custom" && isHostDeliveredCustomMessage(e.message)) {
+      void this.projectHostDeliveries(live, live.presentationReadTo).then(found => {
+        // A delivery that reached the player live is no longer owed by the recovery replay.
+        if (found) this.cocWatchdogPresentationOffsets.delete(live.path);
+      }, () => undefined);
     }
     try {
       const model =
@@ -6949,10 +6968,27 @@ export class PiHostBackend implements HostBackend {
     this.cocWatchdogPresentationOffsets.delete(sessionPath);
     await fs.rm(cocWatchdogRecoveryPath(sessionPath), { force: true }).catch(() => undefined);
   }
-  private async replayCocStartupPresentations(live: Live, offset?: number): Promise<boolean> {
+  /**
+   * Project the host's own deliveries out of the transcript, each one once (contract §55).
+   *
+   * There is one reader for both the moment a delivery is placed and the catch-up a replacement
+   * process runs at startup, because there is one row: the transcript is where the entry id lives.
+   * Pi hands a `pi.sendMessage` to this host as a `message_end` carrying `role: "custom"` and no
+   * id -- the id the session manager minted is discarded before the event is emitted -- so a live
+   * projection that read only the event would have to invent one, and a later re-read of the file
+   * would then publish the same words under a different id. Reading the row instead is what makes
+   * the live projection and every re-read the same entry (§53), and what makes the dedupe below
+   * hold across a watchdog replacement.
+   *
+   * The scan advances `live.presentationReadTo` to the size measured before it started, never past
+   * it: a row appended during the scan is read anyway (the stream runs to EOF) and re-read next
+   * time, where its id is already spent. `offset` undefined means this session is not a table.
+   */
+  private async projectHostDeliveries(live: Live, offset?: number): Promise<boolean> {
     if (offset === undefined) return false;
     let found = false;
     try {
+      const sizeBefore = (await fs.stat(live.path)).size;
       const lines = createInterface({
         input: createReadStream(live.path, { encoding: "utf8", start: offset }),
         crlfDelay: Infinity,
@@ -6963,7 +6999,9 @@ export class PiHostBackend implements HostBackend {
         let raw: any;
         try { raw = JSON.parse(line); } catch { continue; }
         const projected = live.projectedPresentationIds ??= new Set<string>();
-        if (raw?.type !== "custom_message" || raw.customType !== "coc-delivery"
+        // The registry decides, not the words: whichever channel the host is registered to deliver
+        // through is projected, so a channel added to that set arrives on screen the day it is added.
+        if (raw?.type !== "custom_message" || !isHostDeliveredCustomMessage(raw)
           || typeof raw.id !== "string") continue;
         found = true;
         if (projected.has(raw.id)) continue;
@@ -6972,8 +7010,9 @@ export class PiHostBackend implements HostBackend {
         projected.add(raw.id);
         this.stream({ type: "presentation", sessionId: live.session.id, entry });
       }
+      if (sizeBefore > offset) live.presentationReadTo = sizeBefore;
     } catch (error) {
-      console.warn(`[pipi-backend] COC startup presentation catch-up failed session=${this.projectionDebugSessionTag(live.session.id)}: ${error instanceof Error ? error.message : String(error)}`);
+      console.warn(`[pipi-backend] COC presentation projection failed session=${this.projectionDebugSessionTag(live.session.id)}: ${error instanceof Error ? error.message : String(error)}`);
     }
     return found;
   }
@@ -9302,7 +9341,11 @@ export class PiHostBackend implements HostBackend {
             // The process exists before its session_start hooks have delivered the prologue.
             await this.command(sid,{type:'get_state'});
             const opening=(await this.readHistoryCached(selected.path,0,30,sid)).find(entry=>entry.role==='assistant'&&entry.content);
-            if(opening)this.stream({type:'presentation',sessionId:sid,entry:opening});
+            // The opening is a host-delivered custom message like any other (§53), so the live
+            // projection of §55 may already have published this very row. One entry, one arrival:
+            // share the dedupe rather than letting two readings of the same id both reach the UI.
+            const openingProjected=this.live.get(sid)?.projectedPresentationIds;
+            if(opening&&!openingProjected?.has(opening.id)){openingProjected?.add(opening.id);this.stream({type:'presentation',sessionId:sid,entry:opening});}
           } finally {this.cocAnnounceBinding(binding.campaign);}
         }
         return {ok: true, data};

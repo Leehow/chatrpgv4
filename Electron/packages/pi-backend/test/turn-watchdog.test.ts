@@ -248,9 +248,9 @@ describe("turn watchdog (fix 3)", () => {
     const firstPid = first.process.pid;
     first.lastTurnActivityAt = Date.now() - (TURN_WATCHDOG_TIMEOUT_MS + 5_000);
 
-    const replay = (backend as any).replayCocStartupPresentations.bind(backend);
+    const replay = (backend as any).projectHostDeliveries.bind(backend);
     let interrupted = false;
-    (backend as any).replayCocStartupPresentations = async (live: any, offset: number | undefined) => {
+    (backend as any).projectHostDeliveries = async (live: any, offset: number | undefined) => {
       if (!interrupted && live.process.pid !== firstPid) {
         interrupted = true;
         live.process.kill();
@@ -437,7 +437,7 @@ describe("turn watchdog (fix 3)", () => {
     };
     await appendFile(sessionPath, `${JSON.stringify(raw)}\n`);
 
-    await (backend as any).replayCocStartupPresentations(live, offset);
+    await (backend as any).projectHostDeliveries(live, offset);
     expect(presentations.filter(entry => entry.id === raw.id)).toHaveLength(1);
     (backend as any).rpcEvent(live, { type: "entry_appended", entry: raw });
     expect(presentations.filter(entry => entry.id === raw.id)).toHaveLength(1);
