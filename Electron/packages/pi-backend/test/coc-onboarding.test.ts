@@ -13,6 +13,8 @@ async function service(){
 }
 afterEach(()=>{for(const host of services.splice(0))host.dispose()});
 const model={id:'test/no-provider',thinking:'low',vision:true};
+/** The host's own English for a worker that stopped before it answered (§48). */
+const PREPARATION_STOPPED='The preparation stopped before it answered. Your source is saved; retry this preparation.';
 it('polls document reading once per revision and language without repeating edits',async()=>{
  const {host}=await service();let complete:(value:any)=>void=()=>{};
  const run=vi.spyOn(host as any,'run').mockImplementation(()=>new Promise(resolve=>{complete=resolve}));
@@ -283,17 +285,30 @@ it('keeps a failed UI projection rejected until the player explicitly retries',a
  * stays `uploading` on disk so the very next chunk is still accepted. Saying "interrupted" and
  * then refusing the bytes would be a second lie.
  */
-async function stalling(window:number){
+const STALL_WINDOW=60_000;
+async function stalling(){
   const home=await mkdtemp(join(tmpdir(),'coc-onboarding-'));
   const repo=resolve(import.meta.dirname,'../../../..');
   const host=new CocOnboardingHost({repo,home,agentDir:join(home,'agent'),
-    env:{...process.env,PI_COC_UPLOAD_STALL_MS:String(window)}});
+    env:{...process.env,PI_COC_UPLOAD_STALL_MS:String(STALL_WINDOW)}});
   services.push(host);return {host,home};
 }
-const idle=(ms:number)=>new Promise(resolve=>setTimeout(resolve,ms));
+/**
+ * Age the last acknowledgement past the window, on disk, instead of sleeping.
+ *
+ * A short window and a real sleep made these cases depend on how busy the machine was: the "still
+ * live, so dismiss is refused" assertion failed whenever scheduling ate more than the window
+ * before it ran. What is under test is the reading, not the clock.
+ */
+async function goQuiet(home:string,id:string){
+  const path=join(home,'.coc/imports',id,'job.json');
+  const job=JSON.parse(await readFile(path,'utf8'));
+  job.received_at=Date.now()-STALL_WINDOW-5_000;
+  await writeFile(path,JSON.stringify(job,null,2)+'\n');
+}
 
 it('reports an upload nobody is pushing as interrupted, and still takes the next chunk',async()=>{
-  const {host,home}=await stalling(40);
+  const {host,home}=await stalling();
   const job=await host.invoke({action:'begin',name:'masks.pdf',size:9},'one',model);
   expect(job.state).toBe('uploading');
   const half=await host.invoke({action:'chunk',id:job.id,offset:0,data:Buffer.from('%PDF').toString('base64')},'one',model);
@@ -301,7 +316,7 @@ it('reports an upload nobody is pushing as interrupted, and still takes the next
   expect(half.received).toBe(4);
 
   // Nobody pushes. The overlay polls, and must not be told the upload is still moving.
-  await idle(80);
+  await goQuiet(home,job.id);
   const quiet=await host.invoke({action:'status',id:job.id},'one',model);
   expect(quiet.state).toBe('paused');
   expect(quiet.received).toBe(4);
@@ -320,12 +335,12 @@ it('reports an upload nobody is pushing as interrupted, and still takes the next
 });
 
 it('an upload that began and never got a byte goes quiet too, and can be dismissed',async()=>{
-  const {host}=await stalling(40);
+  const {host,home}=await stalling();
   const job=await host.invoke({action:'begin',name:'masks.pdf',size:9},'one',model);
   // Choosing another scenario is refused while an upload is live -- but a dead one is not live,
   // and refusing there leaves the player with no way out of a screen nothing is moving.
   await expect(host.invoke({action:'dismiss',id:job.id},'one',model)).rejects.toThrow();
-  await idle(80);
+  await goQuiet(home,job.id);
   expect((await host.invoke({action:'status',id:job.id},'one',model)).state).toBe('paused');
   await host.invoke({action:'dismiss',id:job.id},'one',model);
   expect((await host.invoke({action:'current'},'one',model)).current_import).toBeNull();
@@ -337,7 +352,7 @@ it('an upload that began and never got a byte goes quiet too, and can be dismiss
  * all of it. The acknowledged prefix is the resume point, whoever stopped the stream and why.
  */
 it('continues a paused upload from the bytes already acknowledged',async()=>{
-  const {host,home}=await stalling(60_000);
+  const {host,home}=await stalling();
   const job=await host.invoke({action:'begin',name:'masks.pdf',size:9},'one',model);
   await host.invoke({action:'chunk',id:job.id,offset:0,data:Buffer.from('%PDF').toString('base64')},'one',model);
   const paused=await host.invoke({action:'pause',id:job.id},'one',model);
@@ -353,4 +368,62 @@ it('continues a paused upload from the bytes already acknowledged',async()=>{
   // lost acknowledgement can never double-write the file.
   await expect(host.invoke({action:'chunk',id:job.id,offset:4,data:Buffer.from('-test').toString('base64')},'one',model))
     .rejects.toThrow();
+});
+
+/**
+ * A player-bound message is the host's own sentence, and the diagnostic is in the log (§48).
+ *
+ * Four raw English sentences reached players in one day on four unrelated paths, because a caught
+ * exception's text was copied straight into the field §23 shows. On this path the text can be a
+ * vendor's (`Invalid PDF structure.`), a provider SDK's (`Request timed out.`), or the last 2000
+ * bytes of a worker's stderr -- stack, paths and all -- whichever the worker happened to die with.
+ */
+it('tells the player the host\'s own sentence and keeps the diagnostic in the log',async()=>{
+  const {host,home}=await service();
+  const job=await host.invoke({action:'begin',name:'book.pdf',size:9},'one',model);
+  await host.invoke({action:'chunk',id:job.id,offset:0,data:Buffer.from('%PDF-test').toString('base64')},'one',model);
+  // Nine bytes of nonsense: the inspector really fails, so the text under test is a real one.
+  const failed=await host.invoke({action:'finish',id:job.id},'one',model);
+  expect(failed.state).toBe('failed');
+  // The code still travels -- it is an identifier, and §23 projects it.
+  expect(failed.error.code).toBe('interrupted');
+  // The vendor's sentence does not.
+  expect(failed.error.message).not.toContain('Invalid PDF structure');
+  expect(failed.error.message).toBe(PREPARATION_STOPPED);
+  // ...and it is not lost: the worker's own account is in this import's event log, where a
+  // diagnostic belongs. Dropping it at the player must not mean dropping it.
+  const events=await readFile(join(home,'.coc/imports',job.id,'events.jsonl'),'utf8');
+  expect(events).toContain('Invalid PDF structure');
+  // Nothing the host saved for this job repeats it either, because `snapshot` reads what is saved.
+  const saved=JSON.parse(await readFile(join(home,'.coc/imports',job.id,'job.json'),'utf8'));
+  expect(JSON.stringify({error:saved.error,code:saved.error_code})).not.toContain('Invalid PDF structure');
+});
+
+/**
+ * The case with nothing but stderr: a worker that crashed without ever emitting an error event.
+ *
+ * `refuse('interrupted', failure?.message || tail || …)` put the last 2000 bytes of that stderr --
+ * stack, absolute paths, whatever a vendor printed -- into the field the overlay shows. That is the
+ * dirtiest of the four leaks found in one day, and the only one whose content nobody can predict.
+ */
+it('never shows a crashed worker\'s stderr, and keeps it in the event log',async()=>{
+  const home=await mkdtemp(join(tmpdir(),'coc-onboarding-'));
+  const repo=resolve(import.meta.dirname,'../../../..');
+  const {NOISE}=await import('./fixtures/stderr-preparation.mjs');
+  const host=new CocOnboardingHost({repo,home,agentDir:join(home,'agent'),env:{...process.env},
+    preparationEntrypoint:join(import.meta.dirname,'fixtures/stderr-preparation.mjs')});
+  services.push(host);
+  const job=await host.invoke({action:'begin',name:'book.pdf',size:9},'one',model);
+  await host.invoke({action:'chunk',id:job.id,offset:0,data:Buffer.from('%PDF-test').toString('base64')},'one',model);
+  const failed=await host.invoke({action:'finish',id:job.id},'one',model);
+
+  expect(failed.state).toBe('failed');
+  expect(failed.error.message).toBe(PREPARATION_STOPPED);
+  // Nothing of the crash reaches the player: not the stack, not the path, not a fragment.
+  expect(JSON.stringify(failed)).not.toContain('secret');
+  expect(JSON.stringify(failed)).not.toContain('TypeError');
+  // ...and it is kept, because a boundary that drops a diagnostic has lost it, not moved it.
+  const events=await readFile(join(home,'.coc/imports',job.id,'events.jsonl'),'utf8');
+  expect(events).toContain('secret/reader.ts');
+  expect(NOISE.length).toBeGreaterThan(0);
 });
