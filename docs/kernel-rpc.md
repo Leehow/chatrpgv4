@@ -9572,3 +9572,58 @@ harm to an NPC mints `delta` and `condition` receipts about him and moves `npc_r
 investigator is untouched; the capsule gains `state.incapacitated` only once he is down; First Aid
 with him as `target` moves his hit points and not the rescuer's; and First Aid with an investigator
 as `target` still moves hers and not the NPC rescuer's.
+## 67. A refusal the host issued is still a refusal (2026-09-16)
+
+Real table, during character creation on the deployed build. The turn had never
+opened — telemetry says `turn: 0`, state `awaiting_player` — and the Keeper kept
+calling `resolve`:
+
+```json
+{"turn":0,"tool":"resolve","ok":false,"code":"turn_state",
+ "reason":"the turn state is awaiting_player, so nothing may change state:
+           wait for the player to speak, or use only look, lookup and recall"}
+```
+
+Twenty-three of those, one every three seconds. Fifteen minutes for a one-line
+question, with frames flowing the whole time — nothing was stalled, nothing was
+dropped, the stop button was there. The Keeper was simply told to wait for the
+player while it was inside its own run, where waiting is not something it can do,
+so it tried again forever.
+
+§34.12's refusal budget was supposed to stop this at three: three strikes per
+class, counted by class rather than by parameters, precisely so a reworded retry
+still counts. It did not fire, and the reason is a seam.
+
+### 67.1 The budget could not see half the refusals
+
+The budget is scored in the tool-result handler, and only for results carrying
+`details.coc_error` — that is, refusals the **kernel** produced. The host's own
+pre-tool gate does not call the kernel at all; it returns `{ block: true, reason }`
+from `pi.on("tool_call")`. Every refusal it issues was therefore free: `turn_state`,
+`adaptation_failed`, `adaptation_stale`, `reading_wait`. A Keeper could be refused
+by the host without limit.
+
+This is the §31 shape once more. The rule ("three strikes per class, the host
+enforces it") had a writer and a reader that did not meet: the host wrote
+refusals down one path and the budget read them from another.
+
+### 67.2 The contract
+
+**Whoever refuses, it counts.** The class scoring is now one function,
+`strikeRefusalClass`, used by both paths: the kernel-error path as before, and
+the host's own `turn_state` block, whose class is `resolve\0turn_state\0<state>`.
+On the third strike the tool is shut for the turn and the block carries the
+closing instruction — *nothing refused has happened; close the turn with narrate,
+or hand the player the choice with ask* — instead of repeating the same refusal a
+twenty-third time. `narrate` and `ask` are never shut, because they are how a turn
+ends.
+
+The batching exemption is unchanged and still right: calls written in one message
+take one strike between them, because the Keeper had not seen any answer when it
+wrote them.
+
+Test in `tests/extension/gates.test.mjs`: with the opening still unread, four
+`resolve` attempts in four separate messages; none reaches the kernel, the third
+answers with the exhausted-class instruction, one `class_limit` row is recorded,
+and `narrate` still closes the opening. It fails if the host's block stops
+scoring itself.
