@@ -5,6 +5,8 @@
     "group": "parent specialization group (e.g. 'Fighting', 'Firearms', 'Art and Craft', 'Science', 'Language (Other)', 'Survival', 'Pilot') or null for standalone skills",
     "modern_only": "true when the rulebook marks the skill with Omega (modern era only)",
     "uncommon": "true when the rulebook marks the skill with T (not on the standard investigator sheet)",
+    "specialization_groups[].specializations": "the specializations the rulebook enumerates for a group skill, written as bare member names (an object when each member has its own base chance); null when the group enumerates none",
+    "specialization_groups[].open": "true when the rulebook leaves the member set open (the investigator names it), so any member is a legal specialization of that group",
     "localized_labels": "display aliases keyed by BCP-47 play_language (currently only 'zh-Hans'); data only - machine keys stay canonical English, and selectors may resolve an alias back to its canonical skill name"
   },
   "guided_creation_policy": {
@@ -58,8 +60,8 @@
     },
     "Pilot": {
       "base_chance": 1,
-      "specializations": ["Pilot Aircraft", "Pilot Boat"],
-      "note": "G: pick one vehicle type; base chance 01%."
+      "specializations": ["Aircraft", "Boat"],
+      "note": "G: pick one vehicle type; base chance 01%. Members are bare names like every other enumerated group, so 'Pilot (Boat)' is derivable from the group itself."
     },
     "Science": {
       "base_chance": 1,
@@ -68,8 +70,9 @@
     },
     "Survival": {
       "base_chance": 10,
-      "specializations": ["any terrain"],
-      "note": "G: pick one terrain type; base chance 10%."
+      "specializations": null,
+      "open": true,
+      "note": "G: pick one terrain type; base chance 10%. The terrain set is open, so the member is whatever the investigator names."
     }
   },
   "standard_sheet": {

@@ -46,7 +46,11 @@ after(() => kernel.git.close());
 const tables = new api.RuleTables(kernel);
 const arithmetic = await api.CheckArithmetic.create(tables);
 
-/** Thomas Reed as the real table had him: no Pilot row, so Pilot falls to the rulebook base of 1. */
+/** Thomas Reed as the real table had him: no Pilot row, so `Pilot (Boat)` -- the specialization the
+ *  module actually named -- falls to the rulebook base of 1. The real table sent the bare group
+ *  skill `Pilot`; §52 now refuses that before this guard is reached, as a request to repair, so
+ *  the check here is written the way §52 makes the Keeper write it. Same skill, same base, same
+ *  arithmetic: 1 halved for hard is 0, and 1d100 has no face at or below 0. */
 const SHEET = {
   id: 'inv-thomas-reed',
   name: 'Thomas Reed',
@@ -83,20 +87,20 @@ test('the rule tables, not this file, say 1 is the lowest target a die can answe
   assert.equal(arithmetic.effectiveTarget(1, 'regular'), 1);
   assert.equal(arithmetic.effectiveTarget(1, 'hard'), 0);
   assert.equal(arithmetic.effectiveTarget(70, 'hard'), 35);
-  assert.equal(arithmetic.assertRollable(1, 'regular', 'Pilot'), 1);
+  assert.equal(arithmetic.assertRollable(1, 'regular', 'Pilot (Boat)'), 1);
 });
 
 test('base 1 at hard is refused before the die, with nothing rolled and nothing landed', async () => {
   const { context, rolls } = table();
   const error = await refusal(() => settle(context, {
-    skill: 'Pilot', difficulty: 'hard', difficulty_basis: 'explicit',
+    skill: 'Pilot (Boat)', difficulty: 'hard', difficulty_basis: 'explicit',
     goal: 'hold the boat steady against the surf',
     stakes: { on_failure: 'the boat capsizes and she is pulled under' },
   }));
   assert.equal(error.name, 'RpcError');
   assert.equal(error.code, 'invalid_params');
   assert.equal(error.details.reason, 'effective_target_below_minimum');
-  assert.equal(error.details.skill, 'Pilot');
+  assert.equal(error.details.skill, 'Pilot (Boat)');
   assert.equal(error.details.base_target, 1);
   assert.equal(error.details.difficulty, 'hard');
   assert.equal(error.details.effective_target, 0);
@@ -106,7 +110,7 @@ test('base 1 at hard is refused before the die, with nothing rolled and nothing 
 
 test('the refusal tells the keeper what to send instead, and that it is not something to say', async () => {
   const { context } = table();
-  const error = await refusal(() => settle(context, { skill: 'Pilot', difficulty: 'hard' }));
+  const error = await refusal(() => settle(context, { skill: 'Pilot (Boat)', difficulty: 'hard' }));
   const fix = String(error.fix);
   assert.match(fix, /keeper/i, 'the fix must name who it is addressed to');
   assert.match(fix, /not fiction/i);
@@ -120,8 +124,8 @@ test('the refusal tells the keeper what to send instead, and that it is not some
 
 test('base 1 at regular is a legal 1% chance and still rolls', async () => {
   const { context, rolls } = table();
-  const result = await settle(context, { skill: 'Pilot', difficulty: 'regular' });
-  assert.equal(result.data.skill, 'Pilot');
+  const result = await settle(context, { skill: 'Pilot (Boat)', difficulty: 'regular' });
+  assert.equal(result.data.skill, 'Pilot (Boat)');
   assert.equal(result.data.base_target, 1);
   assert.equal(result.data.effective_target, 1);
   assert.equal(result.data.required_target, 1);
@@ -141,7 +145,7 @@ test('an ordinary skill at hard is untouched', async () => {
 test('no unrollable check is ever offered as pushable, and a push cannot rescue one', async () => {
   const { context, rolls } = table();
   const error = await refusal(() => api.executePush(context, {
-    canonical_roll_receipt: { skill: 'Pilot', target: 1, difficulty: 'hard', outcome: 'failure', pushed: false, bonus: 0, penalty: 0 },
+    canonical_roll_receipt: { skill: 'Pilot (Boat)', target: 1, difficulty: 'hard', outcome: 'failure', pushed: false, bonus: 0, penalty: 0 },
     original_check_decision_id: 'roll:pilot-t2-c4',
   }, { decision_ref: null }));
   assert.equal(error.code, 'invalid_params');

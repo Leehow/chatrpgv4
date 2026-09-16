@@ -7669,3 +7669,130 @@ with has a caption, and the host writes no player-facing sentence),
 settled and its diagnostic survives) and
 `Electron/packages/ui/src/coc-preparation.test.tsx` (a stopped phase promises
 nothing, a running one still does).
+
+## 52. A group skill is a choice before it is a number (2026-09-16)
+
+A module's rule node reads `pilot_boat: 困难难度驾船 pilot (boat)；每条小艇上只有一名调查员可以投，用以保证小艇不翻`.
+The investigator was an 1895 ferryman. His card had no `Pilot (Boat)` row — only the
+printed `Pilot ( ___ )` group row, sitting at the group's base chance of 1. The
+Keeper settled `Pilot` at hard twice. Six crates went into the water, the skiff went
+over, the investigator ended up under the keel, and the opening motive was gone.
+Swim 70, Navigate 70 and CON 65 were never touched.
+
+Two ends were wrong at once, and this section closes both.
+
+### 52.1 A specialization is derived from the group, not registered by hand
+
+`skills.json` registers group skills two different ways. `Fighting` and `Firearms`
+have a flat catalog row per specialization (`Fighting (Brawl)`, `Firearms (Handgun)`),
+which is the only reason `SkillResolver`'s parenthesis rule can reach them at all.
+`Pilot` and `Survival` have none, and `Science` has three of the thirteen its group
+declares. So `specialization_groups.Pilot.specializations` named `Boat` and nothing
+in the product could turn that into a skill: no chargen, no module, no Keeper and no
+player could put `Pilot (Boat)` on a card, because the identity did not exist.
+
+A group's declared specializations **are** the skill identities of that group.
+`specializationIdentity(groups, skills, phrase)` reads `Group (Member)` — and the
+same words without the parenthesis, which normalize identically — against
+`specialization_groups`:
+
+- A group that enumerates its members admits those and no others. `Pilot (Submarine)`
+  is not a skill; the rules table decides that, never a list in the kernel.
+- A group the rulebook leaves open declares `"open": true` and admits the member the
+  investigator named. Terrain is open, so `Survival` is open. An open member set is
+  never enumerated in code or in data.
+- A specialization the catalog already prints keeps its one identity, under either
+  spelling: `Science (Medicine)` resolves to the flat row `Medicine`, whose declared
+  group is Science. A second identity would leave a card's value behind a name
+  nothing resolves to.
+- A group whose own name already carries a parenthesis keeps the rulebook's nested
+  form, which is the spelling the product already uses: `Language (Other: French)`.
+
+Derivation adds no rows to the catalog: `canonicalNames()` is unchanged, and so is
+every alias in `findInText`, except that a specialization row **on a card** now
+registers its member as an alias, so prose about a boat reaches `Pilot (Boat)` when
+the investigator has it.
+
+Chargen resolves an occupation's phrase the same way, so `Pilot (aircraft)` and
+`Science (Physics)` land on the card with occupation points on them instead of
+falling into `choices_pending` and leaving the blank group row to stand in.
+
+### 52.2 The blank row is not an ability
+
+`Pilot` on a 1920s card is not a skill the investigator has. It is the printed
+player-selected group row — a blank — and its 1% is the cost of never filling it in.
+Settling a check against it is the failure above.
+
+`resolveTarget` therefore asks which row a group skill rolls, before the die:
+
+1. The card carries a row for the requested skill → that row.
+2. The request names the group, and the card carries exactly one specialization of
+   it that carries a value → that specialization, named in the receipt.
+3. The request names the group, the card carries no such specialization, and the
+   group's own row carries a value → that row: one specialization taken and never
+   named, which is what the printed sheet means.
+4. The request names a specialization the card lacks, on a card whose group row
+   carries a value and which carries no other specialization of that group → that
+   row. The value is the investigator's; the request was just more specific than
+   the card. **The receipt names the row that rolled, not the request**: the Keeper
+   sends `Survival (Arctic)` and gets back `skill: "Survival"`, `base_target: 60`,
+   `target_source: "sheet"`, so the substitution is on the mechanics card for the
+   Keeper and the player to see and to argue with. Under 7e this is strictly
+   ambiguous -- that 60 may have been desert, not ice -- but the alternative is a
+   silent drop to the group base of 10, which is the failure this section exists
+   to close, and it would be invisible.
+5. Otherwise → `needs`. The refusal carries the group, the specializations it
+   declares, whether it is open, its base chance, the rows of it the card carries,
+   and the card's own highest values as `details.needs.options`.
+
+**"Carries a value" is the arithmetic on the card, not a reading of the name:** a
+group row above its group's base chance had points spent on it; a row still at the
+base had not. That is what keeps a Military Officer's `Survival 60` rolling while
+Thomas Reed's `Pilot 1` does not, with no list and no guess about what a row means.
+
+A specialization the card lacks is **not** refused: it rolls its own rulebook base,
+because an untrained skill is rollable in CoC 7e. What it never does is roll the
+group row's value wearing the specialization's name. `Pilot (Boat)` at hard on a card
+that lacks it is therefore refused by §45, not by this section — one base chance of
+1, halved, with no face for it on the die.
+
+### 52.3 What this section does not decide
+
+`skills.json`'s `standard_sheet.1920s` also carries `player_selected_group_rows` and
+`fixed_specialization_ids`. Neither has a reader anywhere in `kernel-ts/`,
+`extensions/` or `runtime/` — a §31 first-end seam: `player_selected_group_rows` is
+the authored description of exactly the choice this section is about (`{"group":
+"Pilot", "catalog_skill_id": "Pilot", "base_chance": 1}`), and nothing ever asked a
+player to make it. Connecting it (guided creation asks which vehicle, which terrain,
+which science, and the answer becomes the row) or deleting it are different
+decisions and belong to the product owner, not to this fix.
+
+Likewise, the three blank rows stay in `default_skill_ids`. Removing them would
+change every new 1920s card's interest pool and point distribution, and the frozen
+capture `tests/extension/fixtures/oracle/setup-3.json` records those sheets with
+`"Pilot":1,"Science":1,"Survival":10` in them.
+
+### 52.4 Where this rule does not reach: the chase executor
+
+`kernel-ts/chase/bindings.ts` reads a skill target of its own and this section does
+not guard it. That is deliberate and it is a boundary, not an oversight: the skill
+names on that path come from an **authored** chase feature, not from a Keeper's
+request, so there is no request to repair and no card the Keeper was reading off
+when it chose the name. If an authored chase feature ever names a bare group skill,
+it will still read the group row. Naming the gap here is the point -- an open
+boundary is cheaper than a silent one.
+
+### 52.5 The three ends (§31)
+
+*Writer:* `specialization_groups` in `skills.json` — the rules table, which is the
+book and does not move; and chargen, which writes the specialization row onto a card
+when an occupation names one. *Reader:* `SkillResolver.resolveExplicit` /
+`targetValue` / `findInText`, and `Chargen.catalogName` / `skillBase`. *Actor:* the
+Keeper, which either settles against the row the card really carries or repairs the
+request from `details.group`.
+
+Tests: `tests/extension/specialization-on-the-sheet.test.mjs` (the derivation, the
+open group, the collision with a flat row, the refusal and every rule in 52.2, and
+an occupation's specialization reaching the card),
+`tests/extension/impossible-check.test.mjs` (§45's guard, now written the way §52
+makes the Keeper write it: `Pilot (Boat)`, the skill the module actually named).
