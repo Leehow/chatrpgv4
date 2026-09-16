@@ -12,6 +12,7 @@ import { RuleTables } from '../rules/tables.js';
 import { RuleObservations } from '../read/rule-facts.js';
 import { CheckArithmetic } from '../resolve/arithmetic.js';
 import { SettleContext } from '../resolve/context.js';
+import { npcPatient } from '../healing/patient.js';
 import { markersOf } from '../resolve/projection.js';
 import { createWriteRuntime } from '../write/index.js';
 import { nowIso } from '../write/store.js';
@@ -122,8 +123,15 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                     snapshot.world = staged;
                     snapshot.turn = turn;
                     snapshot.party = await campaign.party() as Row[];
-                    const sheet = selectActor(snapshot.party, subject);
-                    return new SettleContext(kernel, { ...transaction, world: staged }, snapshot, module, tables, await CheckArithmetic.create(tables), await RuleObservations.load(kernel), started.callId, started.ordinal, sheet, sheet, {});
+                    // An effect can be about someone who is not at the table (contract §66). The
+                    // rules engines read a row, never a party membership, so the NPC's own numbers
+                    // become the subject and an investigator stands in as the actor -- exactly the
+                    // arrangement `resolveActor` already makes when an NPC acts inside a session.
+                    // Before this, `selectActor` refused every name but a party member's, which is
+                    // why a settled check about an NPC had nowhere to put its result.
+                    const patient = typeof subject === 'string' && snapshot.party.length ? npcPatient(graph, staged, subject) : null;
+                    const sheet = patient ? snapshot.party[0] : selectActor(snapshot.party, subject);
+                    return new SettleContext(kernel, { ...transaction, world: staged }, snapshot, module, tables, await CheckArithmetic.create(tables), await RuleObservations.load(kernel), started.callId, started.ordinal, sheet, patient ?? sheet, {});
                 }
             };
             let timeEffects = 0, restMinutes = 0;

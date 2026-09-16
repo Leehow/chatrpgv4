@@ -8458,3 +8458,156 @@ Tests: with `listProjects` pending the sidebar shows no empty state and shows on
 as soon as an empty answer arrives; with `getModelState` pending the chip asserts
 no level and states one once the host reports it. Both fail if either pending
 signal is disconnected.
+
+## 66. Harm and treatment reach the rules for whoever they are about (2026-09-16)
+
+Retained live evidence, campaign `game-3d8ab658` (M-DETOUR, `zh-Hans`). Augustus Larkin, the
+scenario's own main-line NPC, lay unconscious from a heroin overdose from turn 55 to the end of the
+session. Two things happened in that stretch, and the second one is the section.
+
+Turns 56 to 58 the investigator — First Aid 70, written into her backstory as two years of
+wartime orderly work — did the whole procedure: recovery position, airway, collar and cuffs open,
+window, philtrum, ear lobes, slaps, jaw lift, counting breaths, rescue breathing prepared. The
+receipts for those three turns are `[time, npc]`, `[definition, time, definition]`,
+`[time, npc, definition]`. Not one roll. Across the whole campaign the die was thrown 22 times:
+seven for Photography, five for Fast Talk, four for Appearance, two for Spot Hidden, two for
+Persuade, one for Language (Own), one for STR. Zero for First Aid, zero for Medicine.
+
+Turn 64 she gave up waiting for the doctor, made a stretcher of the blanket and dragged him down
+the stairs — and **the kernel settled it**: `roll:first-aid-t64-c1`, First Aid 79 against 70,
+`failure`, `decision:coc7:core-check:ordinary-check`, declared failure stakes
+「拖楼梯时头颈磕碰或气道受压，伤情加重」, and the receipt even carries `npc: "augustus-larkin"`. The
+narration paid it: his head struck the nosing, a short sound came out of his throat, his chest
+stopped for half a beat.
+
+The turn's other receipt, in full:
+
+```
+npc:augustus-larkin-t64-c3   {"skill": null, "why": "被被子拖下楼梯一级，仍半昏迷，头在梯级上碰一下"}
+```
+
+A check that happened, was judged against a number, named its subject, declared injury to that
+subject as the cost of failing, and failed — **and nothing about that subject changed**, because
+there was nowhere for a number about him to go. Meanwhile the same turn's investigator carried hit
+points, sanity, a cash ledger and `delta:item-condition` rows for her film tins. In one system, on
+one screen, the film had a condition and the man's head did not.
+
+### 66.1 The rules engine was never investigator-shaped; the lookup was
+
+`applyWoundConditions`, `damageConditions` and `HealingSession` all read the same row —
+`{id, derived.HP, characteristics.CON, current_hp, conditions}` — and none of them asks whose row it
+is. Combat proves it: the identical functions run for an NPC participant every bout, and
+`syncCombatants` has always written the result to `world.npc_resources[<handle>]`.
+
+What was party-shaped was every way of *naming* somebody:
+
+- `apply damage` resolved `subject` through `actor()` (`read/handlers.ts`), which searches the party
+  and refuses everything else with `no investigator <name> at the table`. Outside a fight there was
+  no verb that could put a number on anyone but a party member.
+- `table.resolve` looked for `action.target` in the party and nowhere else.
+- `CampaignSnapshot.preload` fetches one `healing-state/<id>.json` per party sheet.
+- The capsule's `present[]` had no field for the state of a body at all.
+
+So the gap is not that the healing family is unreachable — turn 64 reached the dice through it. It
+is that a person who is not at the table has no account, and everything downstream of an account
+therefore cannot run for them.
+
+### 66.2 The writer: `apply damage` names a person, not a party member
+
+`{kind: "damage", subject, dice, why}` now accepts an NPC in the scene. The subject becomes the
+settlement's patient, the same rules assign the same conditions, and the result is written where an
+NPC's body is kept: `world.npc_resources[<handle>]` gains `current_hp` and `conditions`, and the
+turn gets the receipts it gets for anyone — a `delta` on `hp` with `subject_is_investigator: false`,
+and a `condition` receipt carrying `gained`, `lost`, `standing` and the rules layer's own
+`incapacitated` (§42.2).
+
+A person the book printed no numbers for is refused, not defaulted:
+`needs`, `details.needs.field: "npc.archetype"`. Inventing a CON would settle the CON roll that
+decides whether a major wound puts him under, and §34.10 already gives the Keeper the one verb that
+fills the gap once, for the rest of the campaign. This is the same refusal shape `noSkill` uses for
+a missing skill, and for the same reason: the `fix` names the call that makes it settle.
+
+`apply npc {dead: true}` stays what it was — the ledger's word for a person the story is done with,
+folded into `npc-ledger.json` and `dead_since_turn`. It is not the rules condition and was never
+meant to carry hit points. Nothing here adds a second way to declare a state; harm is settled, as
+it is for the party.
+
+### 66.3 The reader: the capsule says whose body cannot act
+
+`investigatorSummary` has carried `conditions` and `cannot_act` since §42.3. `present[]` carried a
+person's role, wants, fears, hides, voice, known clues, keeper note, ties, stance and history — and
+nothing about their body. For ten turns it introduced the man unconscious on the bed as *"Warm and
+friendly despite a tired appearance"*.
+
+An NPC carrying an incapacitating condition now arrives with `state`, before the dossier because
+what their body is doing decides whether any of the rest of it can happen this turn:
+
+```
+state: {conditions, incapacitated, cannot_act}
+```
+
+`incapacitated` is the rules layer's answer (`incapacitatedBy`), read and not re-derived — same
+discipline as §42.2. `cannot_act` names the person, the state, and the ways out CoC 7e actually
+has, which are the same three §42.5 gives an investigator because they are the same three, and it
+spells the call: *resolve with the rescuer as actor and him as target*. A person who can still act
+has no `state` key, so a reader tests for the key rather than reading a list of names.
+`look focus=npc` carries it too, from the same function.
+
+### 66.4 The actor: the patient is the person named in `target`
+
+Both surfaces already promised this. The tool: *"target names the helped investigator or patient
+when applicable"*. The prompt: *"For treatment, `actor` is the rescuer and `target` is the injured
+investigator."* The kernel honoured it only for a party member — and when the patient was an NPC it
+did not refuse. It silently made the **rescuer** the patient, settled First Aid on a woman at full
+hit points, healed her for +0 and filed her as `patient` in the outcome. A wrong subject is worse
+than a refusal, because nothing in the receipt says it was wrong.
+
+`table.resolve` now resolves a First Aid or Medicine `target` to the NPC's own row when the name is
+not at the table, and the whole existing settlement runs on it: hit points, conditions, the
+once-per-wound-per-day usage ledger, the wound ledger the hour window is measured from, and the
+write-back to `npc_resources`. `prepareFacts` loads that patient's healing save, because `preload`
+fetches one per party sheet and an absent ledger makes `time.minutes_since_injury` unknown — which
+is precisely the fact the First Aid hour gate is written against, so the treatment was refused for
+want of the wound it was treating.
+
+Both prompt and tool text are corrected to say *person* where they said *investigator*, and the
+`damage` effect's `subject` says who may be named and what pinning numbers is for.
+
+### 66.5 What this does not add: there is no continuous-care check in CoC 7e
+
+Six turns of airway management drew no dice, and that is the rulebook, not a gap.
+`skill-descriptions.json` is explicit: First Aid *"must be delivered within one hour, in which case
+it grants 1 hit point. It may be attempted once, with subsequent attempts constituting a Pushed
+roll… A character is limited to one successful treatment of both First Aid and Medicine until
+further damage is taken."* It is a procedure with an outcome, not a watch that is kept. Turn 64 drew
+dice because dragging a body down stairs can make things worse; holding a jaw open cannot. **No
+"sustained care" check is invented here, and none should be.**
+
+What CoC 7e *does* give for a crisis that runs while you work is the CON clock —
+`healing:dying-round-clock` and `healing:dying-hour-clock`, which §42.4 exempts from the
+incapacitation gate precisely so they can keep running. That clock is the rules' own answer to
+"he is going down while you work on him", and it could not run for Larkin either, for the same
+single reason as everything else in this section: he had no hit points, so there was no state for a
+clock to tick.
+
+### 66.6 The three ends (§31)
+
+- **Who writes it.** `apply damage` with an NPC subject, and combat's `syncCombatants`, both into
+  `world.npc_resources[<handle>]`; `HealingSession` through `syncHealing` writes it back when the
+  treatment lands. Before this the first of those did not exist and the third returned silently when
+  the id was not a party sheet.
+- **Who reads it.** `npcProfileOf` lays it over the book's numbers for every settlement, and
+  `present[].state` / `look focus=npc` put it in front of the Keeper. The projection was the end
+  that had never existed at all.
+- **Who acts on it.** The Keeper: the capsule sentence names the call, `table.resolve` settles it on
+  the right body, and the `delta` and `condition` receipts are what say it happened. A Keeper who
+  does nothing is still a Keeper who does nothing — §42.5's open gap BUG-076 is not closed by this
+  section — but the state is now visible, the exit is named where it is read, and the settlement no
+  longer reports a patient it did not treat.
+
+Tests: `tests/extension/rescue-reaches-the-rules.test.mjs`, on the product kernel's own handlers.
+Five cases, each killed by reverting one part of the change: the archetype refusal names its field;
+harm to an NPC mints `delta` and `condition` receipts about him and moves `npc_resources` while the
+investigator is untouched; the capsule gains `state.incapacitated` only once he is down; First Aid
+with him as `target` moves his hit points and not the rescuer's; and First Aid with an investigator
+as `target` still moves hers and not the NPC rescuer's.

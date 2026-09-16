@@ -71,12 +71,24 @@ export async function investigatorCombatParticipant(tables: RuleTables, sheet: R
         con: number(characteristics.CON ?? 50), magic_points: number(sheet.current_mp || derived.MP || 0), armor: 0, armor_rule: null,
         weapons: weapon ? [weapon] : [{ weapon_id: 'unarmed' }], conditions: array(sheet.conditions).map(string), mov: number(derived.MOV ?? 8) };
 }
+/**
+ * An NPC's maximum hit points from whatever numbers the table has for them: the profile's own
+ * derived HP when the book printed one, otherwise CoC 7e's `(CON + SIZ) / 10`, rounded down.
+ *
+ * One definition, because two engines now read it: the combat participant below, and the healing
+ * patient of contract §66. A second copy would be a second rules answer, and they drift the first
+ * time only one of them is corrected.
+ */
+export function profileHitPoints(profile: Row): number {
+    const characteristics = intMap(profile.characteristics);
+    return Math.max(1, number(row(profile.derived).HP ?? Math.floor((characteristics.CON + characteristics.SIZ) / 10)));
+}
 export async function npcCombatParticipant(tables: RuleTables, handle: string, profile: Row, side = 'npc'): Promise<Row> {
     const characteristics = intMap(profile.characteristics), missing = ['STR', 'SIZ', 'DEX', 'CON'].filter(key => !Object.hasOwn(characteristics, key));
     if (missing.length)
         throw new NpcProfileError(`${handle}: profile lacks characteristics ${missing.join(', ')}`);
     const skills = intMap(profile.skills), derived = row(profile.derived), damage = await tables.damageBonusBuild(characteristics.STR, characteristics.SIZ);
-    const hp = number(derived.HP ?? Math.floor((characteristics.CON + characteristics.SIZ) / 10));
+    const hp = profileHitPoints(profile);
     let weapons = array(profile.weapons).map(weapon => isJsonObject(weapon) ? clone(weapon) : { weapon_id: string(weapon) });
     if (!weapons.length)
         weapons = [{ weapon_id: 'unarmed' }];

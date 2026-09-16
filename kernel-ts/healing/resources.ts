@@ -9,10 +9,32 @@ import { mpTimeTrigger } from './mp.js';
 export { gameDayOf, stageDayBoundary } from './day.js';
 export { INCAPACITATING_CONDITIONS, OUT_OF_FIGHT_CONDITIONS, incapacitatedBy } from './conditions.js';
 export const TRANSIENT_COMBAT_CONDITIONS = new Set(['prone', 'grappled', 'surprised', 'outnumbered', 'fled']);
+/**
+ * The visible record of an NPC's body: `world.npc_resources[handle]`, the same store combat's
+ * `syncCombatants` writes and `npcProfileOf` lays over the book's numbers (contract §66).
+ *
+ * The party has a sheet per investigator; an NPC has this. Before §66 the two functions below
+ * simply returned when the id was not at the table, which is how a settled check about a named NPC
+ * -- `game-3d8ab658` turn 64 -- changed nothing about him: the write had nowhere to go and said so
+ * to nobody. A name that is neither a sheet nor an NPC on the graph still returns, unchanged.
+ */
+async function syncNpcResources(context: SettleContext, handle: string, hp: number | null, conditions: string[] | null): Promise<boolean> {
+    if (!context.npcNode(handle))
+        return false;
+    const resource = ((context.world.npc_resources ??= {})[handle] ??= {});
+    if (hp != null)
+        resource.current_hp = Math.trunc(hp);
+    if (conditions != null)
+        resource.conditions = [...conditions];
+    await context.transaction.campaign.writeWorld(context.world);
+    return true;
+}
 export async function syncHealing(context: SettleContext, investigator: string, hp: number, conditions: string[]): Promise<void> {
     const sheet = context.sheetById(investigator);
-    if (!sheet)
+    if (!sheet) {
+        await syncNpcResources(context, investigator, hp, conditions);
         return;
+    }
     sheet.current_hp = hp;
     sheet.conditions = [...conditions];
     await context.writeSheet(sheet);
@@ -36,17 +58,22 @@ export async function mirrorInvestigator(context: SettleContext, investigator: s
     wounds?: string[];
 }): Promise<void> {
     const sheet = context.sheetById(investigator);
-    if (!sheet)
+    if (sheet) {
+        if (options.currentHp != null)
+            sheet.current_hp = Math.trunc(options.currentHp);
+        if (options.currentMp != null)
+            sheet.current_mp = Math.trunc(options.currentMp);
+        if (options.currentSan != null)
+            sheet.current_san = Math.trunc(options.currentSan);
+        if (options.conditions != null)
+            sheet.conditions = [...options.conditions];
+        await context.writeSheet(sheet);
+    }
+    // Not at the table, but on the graph: the same change, written where an NPC's body is kept
+    // (contract §66). The wound ledger below is kept for both, because the hour First Aid has to be
+    // delivered within is measured from it and the clock does not care whose wound it is.
+    else if (!await syncNpcResources(context, investigator, options.currentHp ?? null, options.conditions ?? null))
         return;
-    if (options.currentHp != null)
-        sheet.current_hp = Math.trunc(options.currentHp);
-    if (options.currentMp != null)
-        sheet.current_mp = Math.trunc(options.currentMp);
-    if (options.currentSan != null)
-        sheet.current_san = Math.trunc(options.currentSan);
-    if (options.conditions != null)
-        sheet.conditions = [...options.conditions];
-    await context.writeSheet(sheet);
     if (options.currentHp == null && options.conditions == null && !options.wounds?.length)
         return;
     const state = await readHealingState(context, investigator);

@@ -30,6 +30,35 @@ export interface ResolveWriter {
         preload?: boolean;
     }): Promise<TurnTransaction>;
 }
+/**
+ * What the table knows about an NPC's numbers: the book's printed profile, else one `apply npc
+ * {archetype}` pinned (contract §34.10), with whatever the campaign has since written into
+ * `world.npc_resources` laid over it.
+ *
+ * Standalone rather than a method because two callers need it before a `SettleContext` exists --
+ * `table.resolve` deciding who the patient of a First Aid check is, and `table.apply` deciding whom
+ * a damage effect is about (contract §66). The method stays, so nothing else changes.
+ */
+export function npcProfileOf(graph: LoadedModule['graph'], world: Row, handle: string): Row | null {
+    const node = graph.find(handle, ['npc']);
+    if (!node)
+        return null;
+    // The book's numbers first; then a profile the table pinned from a rulebook archetype (contract §34.10).
+    const authored = row(recordOf(node).mechanics).profile, pinnedProfile = row(world.npc_profiles)[handle];
+    const profile = isJsonObject(authored) ? authored : isJsonObject(pinnedProfile) ? pinnedProfile : null;
+    if (!isJsonObject(profile))
+        return null;
+    const resources = row(row(world.npc_resources)[handle]);
+    const result = clone(profile);
+    result.spells = [...new Set([...array(result.spells), ...Object.keys(row(row(row(world.objects).abilities)[handle]))])];
+    result.weapons = [...array(result.weapons), ...weaponRows(world, handle)];
+    if (Object.hasOwn(resources, 'current_hp'))
+        result.hp_current = resources.current_hp;
+    for (const key of ['current_mp', 'conditions', 'characteristics'])
+        if (Object.hasOwn(resources, key))
+            result[key] = clone(resources[key]);
+    return result;
+}
 export class SettleContext {
     readonly receipts: Row[] = [];
     readonly effects: Row[] = [];
@@ -100,26 +129,7 @@ export class SettleContext {
         return integer(spec.base_chance) && number(spec.base_chance) >= 0 && number(spec.base_chance) <= 100 ? number(spec.base_chance) : null;
     }
     npcNode(handle: string): Row | null { return this.graph.find(handle, ['npc']); }
-    npcProfile(handle: string): Row | null {
-        const node = this.npcNode(handle);
-        if (!node)
-            return null;
-        // The book's numbers first; then a profile the table pinned from a rulebook archetype (contract §34.10).
-        const authored = row(recordOf(node).mechanics).profile, pinnedProfile = row(this.world.npc_profiles)[handle];
-        const profile = isJsonObject(authored) ? authored : isJsonObject(pinnedProfile) ? pinnedProfile : null;
-        if (!isJsonObject(profile))
-            return null;
-        const resources = row(row(this.world.npc_resources)[handle]);
-        const result = clone(profile);
-        result.spells = [...new Set([...array(result.spells), ...Object.keys(row(row(row(this.world.objects).abilities)[handle]))])];
-        result.weapons = [...array(result.weapons),...weaponRows(this.world,handle)];
-        if (Object.hasOwn(resources, 'current_hp'))
-            result.hp_current = resources.current_hp;
-        for (const key of ['current_mp', 'conditions', 'characteristics'])
-            if (Object.hasOwn(resources, key))
-                result[key] = clone(resources[key]);
-        return result;
-    }
+    npcProfile(handle: string): Row | null { return npcProfileOf(this.graph, this.world, handle); }
     npcSkillLabels(ref: string): string[] {
         const parts = ref.split(':');
         const profile = parts.length >= 2 ? this.npcProfile(parts[1]) : null;
@@ -324,6 +334,13 @@ export class SettleContext {
     }
     async prepareFacts(): Promise<void> {
         this.settlementPending = false;
+        // The patient's own wound ledger, when the patient is not at the table (contract §66).
+        // `CampaignSnapshot.preload` fetches one healing save per party sheet and no others, so an
+        // NPC's read as an empty ledger -- and an empty ledger makes `time.minutes_since_injury`
+        // unknown, which is exactly the fact the First Aid hour gate is written against. The
+        // treatment was refused for want of the wound it was treating.
+        if (!this.sheetById(this.subjectId))
+            await this.snapshot.optional(join('save', 'healing-state', `${this.subjectId}.json`));
         this.preparedMagic = await prepareMagicFacts(this);
         this.knownSpells = [...this.preparedMagic.knownSpells];
         this.learningSources = this.preparedMagic.learningSources;
