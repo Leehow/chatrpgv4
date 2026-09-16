@@ -4,6 +4,7 @@ import type { HandlerGroup } from '../handlers.js';
 import { RpcError } from '../errors.js';
 import { isJsonObject } from '../json.js';
 import { CampaignSnapshot, loadCampaignModule } from '../read/campaign.js';
+import type { ModuleGraph } from '../read/module-graph.js';
 import { readCampaign, unsupported } from '../read/handlers.js';
 import { playLanguageOf } from '../read/languages.js';
 import { array, row, number, integer, string, truth, repr, chars, type Row } from '../read/values.js';
@@ -15,7 +16,22 @@ import { history, recallMemory, transcript } from './recall.js';
 import {validateRecallRequest} from './pages.js';
 /** The verifier's finding kinds, `play_language_mismatch` among them: the kernel makes no language refusal of its own (contract section 23). */
 const FINDINGS = ['reveal', 'uncommitted_state', 'player_agency', 'play_language_mismatch', 'unmarked_speech'];
-async function warn(campaign: CampaignWriter, params: Row): Promise<Row> {
+/**
+ * A `reveal` may name the clue it is about (contract §47.3).
+ *
+ * The lane's `why` has always carried the handle in prose; a prose sentence is not a subject. The
+ * name is canonicalized against this campaign's graph -- the effective one, adaptations included --
+ * so what lands on the record is the same handle `apply clue` takes and `discovered_clues` holds. A
+ * name that is not a clue here is dropped from the row rather than failing the finding: the lane
+ * guessed a word, and the rest of what it saw is still worth keeping.
+ */
+function revealedClue(graph: ModuleGraph, finding: Row): string | null {
+    if (finding.kind !== 'reveal' || typeof finding.clue !== 'string' || !finding.clue.trim()) return null;
+    try { return graph.handle(graph.clue(finding.clue.trim())); }
+    catch { return null; }
+}
+async function warn(loaded: { campaign: CampaignWriter; module: { graph: ModuleGraph } }, params: Row): Promise<Row> {
+    const { campaign, module } = loaded;
     const turn = params.turn, lane = params.lane, findings = params.findings;
     if (!integer(turn) || number(turn) < 0)
         throw new RpcError('invalid_params', 'params.turn must be a committed turn number');
@@ -41,13 +57,15 @@ async function warn(campaign: CampaignWriter, params: Row): Promise<Row> {
             dropped.push({ index, kind, reason: 'more than 10 findings' });
             continue;
         }
-        accepted.push({ lane, kind, quote: chars(quote, 120), why: chars(string(finding.why || ''), 200), at: nowIso() });
+        const clue = revealedClue(module.graph, finding as Row);
+        accepted.push({ lane, kind, quote: chars(quote, 120), why: chars(string(finding.why || ''), 200), ...(clue ? { clue } : {}), at: nowIso() });
     }
     const warnings = [...array(record.warnings), ...accepted];
     record.warnings = warnings;
     await campaign.writeTurnRecord(record);
-    await campaign.telemetry({ lane, turn, ok: true, findings: findings.length, accepted: accepted.length, dropped: dropped.length });
-    return { turn, lane, accepted: accepted.length, dropped, warnings: warnings.map(value => ({ kind: value.kind, quote: value.quote, why: value.why })) };
+    const named = accepted.filter(value => typeof value.clue === 'string').length;
+    await campaign.telemetry({ lane, turn, ok: true, findings: findings.length, accepted: accepted.length, dropped: dropped.length, clues: named });
+    return { turn, lane, accepted: accepted.length, dropped, warnings: warnings.map(value => ({ kind: value.kind, quote: value.quote, why: value.why, ...(value.clue ? { clue: value.clue } : {}) })) };
 }
 export function createMemoryHandlers(context: KernelContext, writer: ReturnType<typeof createWriteRuntime>): HandlerGroup {
     async function load(params: Row) {
@@ -81,7 +99,7 @@ export function createMemoryHandlers(context: KernelContext, writer: ReturnType<
         return [job, turn];
     }
     return Object.freeze({
-        'table.warn': async (params) => warn((await load(params)).campaign, params),
+        'table.warn': async (params) => warn(await load(params), params),
         'memory.job': async (params) => {
             const { campaign, snapshot, module } = await load(params);
             if (params.job_id != null) {

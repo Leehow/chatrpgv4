@@ -47,11 +47,25 @@ const samePlace = (graph: ModuleGraph, place: Row, requested: string): never => 
         details: {reason: 'same_place', requested, scene: graph.handle(place), place: graph.placeName(place)}
     });
 };
-const PURPOSES = ['new_destination', 'persistent_npc', 'source_rebinding', 'handout', 'rebase'] as const;
+const PURPOSES = ['new_destination', 'persistent_npc', 'new_clue', 'source_rebinding', 'handout', 'rebase'] as const;
 type Purpose = typeof PURPOSES[number];
+/**
+ * `new_clue` is the missing producer (contract §47.1).
+ *
+ * `clue_at` and `npc_knows` both bind a clue the book already wrote, and until 2026-09-16 nothing
+ * anywhere could bring one into existence -- while `add_scene` mints a place with `available_clues:
+ * []`. So every locus this pipeline created was one where `apply clue` could only ever answer
+ * `not_here`: on campaign `game-1c0faba5` the party spent eight turns inside an adapted Roxbury
+ * Sanitarium, were told the admission date, who signed the committal and who came to the lobby, and
+ * the clue panel could not have shown a single line of it no matter what the Keeper did.
+ *
+ * A place already standing does not need a second one to hold what was found in it, so this purpose
+ * does not require `add_scene`; `new_destination` keeps the whole set and may arrive with both.
+ */
 const PURPOSE_CHANGES: Record<Purpose, readonly string[]> = {
     new_destination: Object.keys(ADAPTATION_FIELDS),
     persistent_npc: ['add_npc', 'npc_knows'],
+    new_clue: ['add_clue', 'clue_at', 'npc_knows'],
     source_rebinding: ['scene', 'clue_at', 'route', 'npc_knows'],
     handout: ['handout'],
     rebase: []
@@ -68,7 +82,7 @@ function validatePurpose(value: Purpose, changes: Row[]) {
     const allowed = PURPOSE_CHANGES[value], kinds = changes.map(change => string(change.kind));
     const invalid = kinds.find(kind => !allowed.includes(kind));
     if (invalid) throw new RpcError('invalid_params', `Adaptation purpose ${value} does not permit ${invalid}`, {details: {field: 'purpose', purpose: value, allowed: [...allowed]}});
-    const required = value === 'new_destination' ? 'add_scene' : value === 'persistent_npc' ? 'add_npc' : value === 'handout' ? 'handout' : null;
+    const required = value === 'new_destination' ? 'add_scene' : value === 'persistent_npc' ? 'add_npc' : value === 'new_clue' ? 'add_clue' : value === 'handout' ? 'handout' : null;
     if (required && !kinds.includes(required))
         throw new RpcError('invalid_params', `Adaptation purpose ${value} requires ${required}`, {details: {field: 'purpose', purpose: value, required}});
     if (value === 'rebase' && changes.length)

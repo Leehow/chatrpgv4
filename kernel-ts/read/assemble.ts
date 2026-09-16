@@ -37,7 +37,10 @@ export const HEAD = "Everything at the start of this turn: the clock, the undisc
     "or this turn's first narrate is refused once. It never asks you to choose for the player or to skip a " +
     "risk the book gates with a check. voices is how each person present talks: their mask (what they call " +
     "people, how their sentences end, the level of their words, one pet phrase) and exchanges that show it in " +
-    "reply. Wear the mask on every line that person speaks; never read an exchange out.";
+    "reply. Wear the mask on every line that person speaks; never read an exchange out. " +
+    "unrecorded is a clue an earlier turn's prose already gave the player while the ledger still calls it " +
+    "undiscovered: its line names the call that closes the gap. It is not a debt to invent anything — the " +
+    "player was told, and only the books disagree. Record it, or leave it and it stays until they walk away.";
 export const HEAD_MODULE = " This turn also carries a module section (the table briefing, this once): what the book is about, its era, " +
     "the factions, places and people (absent ones included, keeper-only), the ending and conclusion names and " +
     "the structure type; do not lookup the book before opening.";
@@ -49,7 +52,10 @@ export const BUDGETS: Readonly<Record<string, number>> = Object.freeze({
 });
 export const SLICE2_BUDGETS: Readonly<Record<string, number>> = Object.freeze({
     memory: 1536,
-    warnings: 1024
+    warnings: 1024,
+    // Contract §47.4. Small on purpose: a row is a handle, a turn, the sentence that gave it away and
+    // the call that closes it, and the list only holds what is still findable in this one scene.
+    unrecorded: 768
 });
 export const SLICE3_BUDGETS: Readonly<Record<string, number>> = Object.freeze({
     pressures: 1024,
@@ -65,6 +71,40 @@ export const SLICE3_BUDGETS: Readonly<Record<string, number>> = Object.freeze({
     // Contract §40.7: the lines-shaped words of everyone present, trimmed exchanges-first before a person is dropped.
     voices: 3072
 });
+/**
+ * Clues the prose already gave away and the ledger never got (contract §47.4).
+ *
+ * `warnings` shows the Keeper one turn's findings and then they are gone, which is the whole of why
+ * the gap outlived the notice: on campaign `game-ef8e60aa` the lane said in turn 11 that Dooley had
+ * pointed at the burned chapel, turn 12's capsule carried the sentence, and after that the only
+ * place that lead existed was the transcript. A row here is not an obligation and not a prompt to
+ * find something new -- the finding was delivered, and this is the books disagreeing with it. It
+ * clears itself two ways and needs no writer to retract it: `apply clue` puts the handle into
+ * `discovered_clues`, and walking out of the scene takes it out of `sceneClueIds`.
+ */
+export function unrecordedClues(graph: ModuleGraph, world: Row, scene: Row, records: Row[], turn: number): Row[] {
+    const discovered = new Set(array(world.discovered_clues).map(value => string(value)));
+    const here = new Set(graph.sceneClueIds(scene).map(id => graph.handle(graph.nodes.get(id)!)));
+    const rows: Row[] = [], seen = new Set<string>();
+    for (const record of [...records].sort((a, b) => number(b.turn) - number(a.turn))) {
+        if (number(record.turn) >= turn)
+            continue;
+        for (const warning of array(record.warnings)) {
+            const clue = string(warning.clue);
+            if (warning.kind !== "reveal" || !clue || seen.has(clue) || discovered.has(clue) || !here.has(clue))
+                continue;
+            seen.add(clue);
+            rows.push({
+                clue,
+                turn: record.turn,
+                quote: warning.quote ?? null,
+                operation: "apply clue",
+                line: `turn ${record.turn} already told the player this; apply clue ${clue} puts it on their sheet`
+            });
+        }
+    }
+    return rows;
+}
 /** present[] under its budget with every name kept: full rows are cut from the end as `fitBudget` cuts
  *  them, and each person cut comes back as `{name, truncated: true}`; if the stubs themselves do not fit,
  *  more full rows give way to stubs until they do. Returns whether anything was cut. */
@@ -185,8 +225,10 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
             turn: warningRecord!.turn,
             kind: warning.kind ?? null,
             quote: warning.quote ?? null,
-            why: warning.why ?? null
-        }))
+            why: warning.why ?? null,
+            ...(warning.clue ? { clue: warning.clue } : {})
+        })),
+        unrecorded: unrecordedClues(graph, world, scene, campaign.records, number(turn.turn))
     });
     const truncated: string[] = [];
     if (fitBudget(sections.known.flags, 512, "last"))
