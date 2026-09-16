@@ -1,14 +1,14 @@
 [
   {"id": "trade", "required": true,
-   "purpose": "what this person does for a living, in the rulebook's column and in the player's own words",
+   "purpose": "what this person does for a living, in the player's own words and in the closest thing the rulebook has a page for",
    "ask": "the occupation concept the player gave; when it has no rulebook entry, the core rule applies: name the closest entries with a clause each and let the player choose or delegate"},
   {"id": "built_for", "required": true,
-   "purpose": "what this person leans on when things go wrong: the body, the hands or the head, so the card's strong characteristic is theirs and not the dice's",
+   "purpose": "what this person relies on when things go wrong -- the body, the hands or the head -- so their real strength is theirs and not the dice's",
    "ask": "what the people who know them would say they are best at, or what they reach for first when a night turns bad"},
   {"id": "known_for", "required": true,
-   "purpose": "the one ability other people count on this person for, so it sits at the front of the skill lists and reaches a usable value",
+   "purpose": "the one thing other people come to this person for, so it is the thing they are actually good at on the card",
    "ask": "what they get asked to do, or the thing they have done often enough that others rely on it"},
   {"id": "not_good_at", "required": false,
-   "purpose": "what this person has never been any good at, so a weak characteristic is theirs too",
+   "purpose": "what this person has never been any good at, so their real weakness is theirs too",
    "ask": "never asked; filled only when the player volunteers it"}
 ]

@@ -62,6 +62,7 @@
   "setup_guidance_failed": "Module guidance is unavailable: {detail}",
   "setup_guidance_review_failed": "Character guidance review failed; retry preparation before continuing.",
   "setup_opened": "Setup: {total} steps in all. Next step: {step}.",
+  "setup_opening_lead": "This is a horror mystery told in conversation. The Keeper tells the story and plays everyone you meet; you play one investigator, and whatever you type is what your investigator does or says. First, say who your investigator is: a name and what they do for a living is enough. The character sheet is built for you from a few questions, and there are no rules to learn first.",
   "setup_packages_failed": "The setup package context is unavailable: {detail}",
   "setup_progress": "setup {done}/{total}  next {step}",
   "setup_progress_ready": "setup {done}/{total}  ready",

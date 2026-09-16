@@ -1,5 +1,4 @@
 import { CocOnboarding } from './CocOnboarding'
-import { CocGameIntro } from './CocGameIntro'
 import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react'
 import { PlanApprovalBar } from './PlanApprovalBar'
 import { makeSubagentStatusCheckPrompt } from './subagent-status-check'
@@ -2889,7 +2888,6 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
               {onboardingActive
                 ? <CocOnboarding host={host} sessionId={selectedSession} />
                 : <>
-                  {productId === 'pipicoc' && <CocGameIntro words={timeline?.ui?.words?.['intro']} conversationStarted={messages.some(message => message.role === 'user')} />}
                   <Transcript
                 stateKey={selectedSession}
                 navigation={timelineNavigation?.sessionId === selectedSession ? timelineNavigation : undefined}

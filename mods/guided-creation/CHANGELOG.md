@@ -1,5 +1,13 @@
 # Guided Creation
 
+## 1.1.1
+
+The exchange is spoken by the host, not by a narrator and not by the guide (user
+report 2026-09-16: the opening read stiffly and it was hard to tell what was going
+on -- the guide's gestures, an unnamed "I" and rulebook words were mixed in one
+reply). Each question is one plain question with one clause on why it matters and
+one example answer, five short lines at most; slot purposes are plain words.
+
 ## 1.1.0
 
 The exchange is a form. `slots.json` declares the slots the card needs (trade,

@@ -62,6 +62,7 @@
   "setup_guidance_failed": "模组引导不可用：{detail}",
   "setup_guidance_review_failed": "人物引导复核未通过；请重跑准备再继续。",
   "setup_opened": "设置：共 {total} 步。下一步：{step}。",
+  "setup_opening_lead": "这是一场用对话进行的恐怖推理。守秘人讲故事、扮演你遇到的每一个人；你扮演一名调查员，你打的每一句话，就是这位调查员在做或在说的事。先说说你的调查员是谁：一个名字，加上平时靠什么吃饭，就够了。人物卡会根据几个问题替你建好，不用先学规则。",
   "setup_packages_failed": "建卡包上下文不可用：{detail}",
   "setup_progress": "设置 {done}/{total}  下一步 {step}",
   "setup_progress_ready": "设置 {done}/{total}  就绪",
