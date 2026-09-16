@@ -369,7 +369,9 @@ test('tracked host close includes cold catalog work and rejects any later launch
   const f = fixture(t, phaseWorker);
   const host = trackedHost(f);
   const task = host.invoke({action: 'catalog'}, 'session-one', model);
-  const rejected = assert.rejects(task, /interrupted|closed|cancelled/i);
+  // §48: the code travels and the renderer looks a word up by it; the boundary's own English
+  // sentence is for the log, so pinning that sentence would pin the leak this contract removed.
+  const rejected = assert.rejects(task, error => ['interrupted', 'closed', 'cancelled'].includes(error.code));
   const attempt = await eventually(() => {
     const path = join(f.home, 'transport-attempts.jsonl');
     return existsSync(path) && JSON.parse(readFileSync(path, 'utf8').trim());
