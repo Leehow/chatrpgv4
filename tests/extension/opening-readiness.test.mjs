@@ -1,5 +1,5 @@
 /**
- * Readiness is `missing`; `findings` is an opinion about the book (contract §45).
+ * Readiness is `missing`; `findings` is an opinion about the book (contract §46).
  *
  * BUG-039, two real tables: a Masks import whose opening neighbourhood held 22 nodes, an empty
  * `missing`, and one `clue_supports_nothing` -- a clue the book never connects to a conclusion.

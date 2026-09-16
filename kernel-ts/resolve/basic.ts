@@ -82,6 +82,10 @@ export const executeCheck: SettlementExecutor = async (context, args, plan) => {
     }
     else
         [label, target, targetSource, kind] = await resolveTarget(context, args);
+    // Before the die, not after it: a request whose effective target the difficulty drives below the
+    // die's minimum has no rollable outcome, so it never becomes a receipt, a failure, or stakes that
+    // land. Refusing here also keeps `push_eligible` off it -- there is no settled check to push (§45).
+    context.arithmetic.assertRollable(target, difficulty, label, pushed);
     const check = context.arithmetic.check(target, difficulty, bonus, penalty, context.rng);
     const data: Row = {
         ...check,

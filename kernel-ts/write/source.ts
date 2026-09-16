@@ -277,7 +277,7 @@ export function openingReport(graph: Row, view: ModuleGraph, template: Row, doss
     const findings = report.findings.filter((f: Row) => f.code !== 'no_ending_declared'), counts: Row = {};
     for (const f of findings)
         counts[f.code] = (counts[f.code] ?? 0) + 1;
-    // Contract section 45: readiness is `missing`, and only `missing`. `missing` names something the
+    // Contract section 46: readiness is `missing`, and only `missing`. `missing` names something the
     // opening points at that is not there -- no module node, no single entrance, an exit or a named
     // NPC or clue that resolves to nothing -- and no table can open on that. `findings` are the
     // playability invariants read as a quality opinion about the book's own graph: a clue the book

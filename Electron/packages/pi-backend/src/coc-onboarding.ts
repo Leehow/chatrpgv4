@@ -36,7 +36,7 @@ function refusal(error: unknown, fallback: string): Refusal {
     message: error instanceof Error ? error.message : String(error)};
 }
 /**
- * The caption keys the `errors` surface registers, read from the authored source (contract §45).
+ * The caption keys the `errors` surface registers, read from the authored source (contract §46).
  *
  * A failure reaches the player as a code the renderer looks a caption up by (§23). A code nothing
  * registers has no caption, so the renderer falls back to `unknown` -- which names nothing. That is

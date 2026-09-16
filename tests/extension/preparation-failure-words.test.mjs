@@ -1,5 +1,5 @@
 /**
- * A preparation failure reaches the player as a registered caption, never as host prose (§45).
+ * A preparation failure reaches the player as a registered caption, never as host prose (§46).
  *
  * BUG-039, twice on real tables: the onboarding host handed the overlay `{code: "needs"}` -- a
  * kernel RPC code nothing registers a caption for -- together with a sentence the host wrote

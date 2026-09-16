@@ -913,7 +913,7 @@ build.jsonl                构建遥测：每 section 每轮 {section_id, round,
 
 **`module.install`** params `{"module_id"}`：`assembled` 或 `assembled_not_playable` 的图登记摘要，状态 `installed`；`assembled_not_playable` 的安装要 `force: true` 并把报告写进 `module.json`（守秘人开桌时胶囊 `where` 会说材料不全）。
 
-**开桌就绪**（`module.status` 的 `opening_ready`）：module 节点、起始场景、其出口指向的场景、起始场景的 NPC 与线索都在图里，且起始子图上十条不变量成立。构建顺序按 `priority`：front / keeper-truth / opening 场景所在 section 先；`opening_ready` 一到就允许 `setup.complete`，其余 section 继续在后台读（14.6）。（**§45 起（2026-09-16）：就绪只看 `missing`；起始子图上的 findings 只报，不再否决 `opening_ready`。本节编号与其余条款不变。**）
+**开桌就绪**（`module.status` 的 `opening_ready`）：module 节点、起始场景、其出口指向的场景、起始场景的 NPC 与线索都在图里，且起始子图上十条不变量成立。构建顺序按 `priority`：front / keeper-truth / opening 场景所在 section 先；`opening_ready` 一到就允许 `setup.complete`，其余 section 继续在后台读（14.6）。（**§46 起（2026-09-16）：就绪只看 `missing`；起始子图上的 findings 只报，不再否决 `opening_ready`。本节编号与其余条款不变。**）
 
 ### 14.4 建卡进程与七步表
 
@@ -976,7 +976,7 @@ build.jsonl                构建遥测：每 section 每轮 {section_id, round,
 - **三道门。** 每道都跑，findings `{gate, code, path, message, …}`。`shape`：契约键集、`node_id` 必须以 `node_kind-` 起头且全 ASCII kebab、`claim_id` 必须 `claim-` 起头、词表闭合、`unknown_evidence_span`（包里没有的 id）、`evidence_span_out_of_scope`、`node_refs` 必须被 claim/relation 用到。`grounding`：只对书自己印名字的 kind（npc/creature/faction/organization/location/object/artifact/tome/spell/vehicle/handout/investigator-template）查 `name`/`aliases` 至少一个出现在它引用的 span 里（宽度折叠、去空白、大小写折叠后的包含）；每个节点 `summary`/`properties` 与 claim `reason` 里的每个数字串都要在其引用的 span 里（「五十三岁」写成 `53` 会被打回——这就是它要防的）。`coverage`：十个域都有交代、状态合法、未声明的 aspect 只能 `unresolved`；`span_consumption`、`substantive_spans_uncited`、节点/claim/relation 数只进 `measures`。空 shard（不引用任何 span）在 `shape` 门拒绝。`module.review` 每次计一轮（`sections.json.rounds`），写 `findings.json` 与 `shard.filled.json`，`build.jsonl` 记 `{section_id, round, findings_codes, accepted, measures}`；`module.accept` 重跑三门，通过则把**填充后**的 shard 写进 `shards/`。
 - **装配。** 骨架 = 机器造的 module 节点（引用第 0 页第一个 span，第 0 页不在已接受 section 里就引用书序最早已接受 section 的第一个 span）+ 对每个 scene/beat/event/ending 的 `contains` claim 与 relation（证据取该节点自己的 span）。分片按 section 的起始页序合并：同 id 不同 kind → `node_kind_conflict`（先到者留，后者整个丢）；同 id 同 kind 字段冲突 → 证据 span 多者胜、平手先到者胜，记 `merge_notes`；同 id 的 claim/relation 意义不同 → `claim_conflict`/`relation_conflict`（先到者留）；`inferred-candidate` 让位于任何 `authored-*`；未被定义的 `node_refs` → `unresolved_node_refs`；端点不在图里的 relation → `dangling_relations`（关系照写进图，不变量再判）。`source_refs` 由 span 页派生：`{source_id: "pdf:<module_id>", pdf_index, grep_anchor}`。读者写的同 id module 节点并进骨架（证据并集，字段以骨架为准）；它的 `properties.entry_scene_ids` / `ending_scene_ids` / `unpaged` 提升为图级声明。scene 节点补最小 `runtime_projection.record {scene_id, display_name, is_start, is_final}`（`is_entrance`/`is_ending` 或 `is_start`/`is_final` 属性），使 `ModuleGraph.start_scene()` 不改就能读；不写 `available_clues`/`npc_ids`——`ModuleGraph` 从关系读。`assets.json` = 资料包资产 + 图上 `asset`/`handout` 节点按页对齐（同页唯一未认领的资产、或同 kind 唯一者归该节点；节点定 kind/name/visibility，资产给字节）。写图后 `generation + 1`，`module.json` 存 `playability`（含 findings 与度量）、`assemble_report`、`opening`、`opening_ready`。
 - **可玩性怎么判。** 十条不变量按**这个内核**的投影判，不按旧投影：可走的图是 `scene` 节点（`ModuleGraph.scene()`/`apply move` 只解析它；模板的 beat/event/ending 是旧投影的四种），出口是 `route-to` ∪ 模板的四种入口关系 ∪ 记录的 `scene_edges`；入口 = `entry_scene_ids`（图级或 module 节点 properties）或 `properties.is_entrance`/`is_start` 或记录 `is_start`；结局 = `ending` 节点、`ending_scene_ids`、`properties.is_ending`/`is_final`、记录 `is_final`；线索安放 = `discoverable-at` 或记录 `available_clues`；在场 = `present-in` 或记录 `npc_ids`；有页 = 任一 span 报页（`span-p<n>-` 与 `span-page-<n>-` 两种拼法）、`source_refs[].pdf_index`、`properties.pdf_index`、记录 `source_refs`。交代口：`entry_scene_ids: []`、`ending_scene_ids: []` 说「书没写」；`unpaged: true`（图级或 module 节点）说「本模组没有源页」，只免 `node_without_page`。度量按模板全部十六项报（模板列了十六项，契约说十五；`span_consumption` 与 `substantive_spans_uncited` 只在有证据目录时有值）。
-- **开桌就绪。** `opening_ready` = module 节点在、恰好一个入口、起始场景的每条出口都指向图里的场景、记录里点名的 NPC/线索都在图里、且诱导子图（module、起始场景、出口场景、在场 NPC、可得线索、这些线索支持的结论；不含 beat）上十条不变量成立——结局的交代取整图（结局往往在没读的 section 里，带声明不带节点）。`module.status` 每次从当前图现算；`module.json.opening_ready` 是装配/登记时的快照，`setup.complete` 读它。the-haunting 的开场邻域整页齐全，`opening_ready: true`；整图报 2 个 `actor_in_no_scene` 与 32 个 `node_without_page`（beat/concept/secret 无证据）——是 IR 事实，starter 仍按契约 `installed`。（**§45 起（2026-09-16）：就绪只看 `missing`；起始子图上的 findings 只报，不再否决 `opening_ready`。本节编号与其余条款不变。**）
+- **开桌就绪。** `opening_ready` = module 节点在、恰好一个入口、起始场景的每条出口都指向图里的场景、记录里点名的 NPC/线索都在图里、且诱导子图（module、起始场景、出口场景、在场 NPC、可得线索、这些线索支持的结论；不含 beat）上十条不变量成立——结局的交代取整图（结局往往在没读的 section 里，带声明不带节点）。`module.status` 每次从当前图现算；`module.json.opening_ready` 是装配/登记时的快照，`setup.complete` 读它。the-haunting 的开场邻域整页齐全，`opening_ready: true`；整图报 2 个 `actor_in_no_scene` 与 32 个 `node_without_page`（beat/concept/secret 无证据）——是 IR 事实，starter 仍按契约 `installed`。（**§46 起（2026-09-16）：就绪只看 `missing`；起始子图上的 findings 只报，不再否决 `opening_ready`。本节编号与其余条款不变。**）
 - **安装。** `assembled` 直接装；`assembled_not_playable` 无 `force` 报 `invalid_params`（`details.finding_counts/findings`），`force: true` 装并把 `install {forced: true, finding_counts}` 写进 `module.json`；已装的重复调用 `replayed: true`。
 - **深读队列。** `deepen-queue.json` 是列表，行 `{section_id, reason, priority, status: queued|claimed|failed|done, retries, at, claimed_by?, detail?}`。`enqueue` 跳过 `accepted`/`skipped` 的 section；已在队列的取更高优先级；`failed` 的重入队一次（`retries ≤ 1`）；返回本次入队或改动的 id。`claim` 一次只出一个（有 `claimed` 就返回 None），按优先级、入队时间取，并把 section 置 `reading`；`complete(ok=True)` 出队，`ok=False` 留队标 `failed` 并把 section 置 `failed`。`section_for_scene`：从当前图找场景，取其页所在 section；starter 没有 section 时返回 `{section_id: null, status: accepted}`；场景不在图里返回 None。`enqueue_for_scene(store, module_id, handle, reason=move|opening)`：脚下 100/90，`route-to` 邻居 80（`adjacent`）。
 - **资产解析。** `asset(module_id, name)` 按登记的 `id`、`name`、`aliases`、`node_id`、去 `asset-`/`handout-` 前缀的 id、资料包 `bundle_asset_id` 归一化匹配；有字节的 `path` 返回绝对路径；带 `authored_text` 的手卡同时给 `text` 与 `authored_text`。`module.asset` 找不到报 `unknown_entity` 带候选。
@@ -7483,7 +7483,82 @@ reading, the reopened chunk, dismissing a dead upload) and
 buttons moving bytes, a re-chosen file continuing from the prefix, and the
 transport code never reaching the player).
 
-## 45. Readiness is `missing`; `findings` is an opinion about the book (2026-09-16)
+## 45. A check the die cannot answer is not a hard check (2026-09-16)
+
+Found on two real tables, three receipts, both drowning the same investigator.
+`homes/t5/.coc/campaigns/game-33a2a97a…/turns/0002.json` and
+`homes/t6/.coc/campaigns/game-b4cebfe0…/turns/0005.json` both carry:
+
+```
+skill "Pilot"  base_target 1  difficulty "hard"
+required_target 0  effective_target 0  threshold 0
+roll 75  level "failure"  passed false   push_eligible true
+```
+
+CoC 7e gives an unlisted skill its rulebook base chance, and `Pilot`'s is 1. Hard
+halves it and floors, so the effective target is 0. **1d100 has no face at or below
+0.** The check was settled anyway, the failure was written into the story, and the
+mechanics card printed the arithmetic to the player — `需困难 · ≤0` — before the
+boat capsized, the cargo sank and the motive the investigator had walked in with
+was gone. The die was never the author of that outcome; the floor division was.
+
+### 45.1 The rule
+
+An effective target below `percentile-check.json`'s `minimum_target` is not a
+difficult request but an **unrollable** one, and the kernel refuses it before the
+die rather than settling it:
+
+- The numeric rule is owned by the rule tables, not by code: `CheckArithmetic`
+  exposes `minimumTarget`, `effectiveTarget(target, difficulty)` — the same clamp
+  `check` rolls against — and `assertRollable(target, difficulty, label, pushed)`.
+- `executeCheck` calls `assertRollable` **before** `arithmetic.check`, so an
+  unrollable request mints no roll receipt, records no failure, and lands no
+  stakes. Nothing is rolled, so no RNG is consumed and the turn is unchanged.
+- The refusal is `invalid_params` (`next: change_input`) with
+  `details.reason = "effective_target_below_minimum"` and the numbers that produced
+  it: `skill`, `base_target`, `difficulty`, `effective_target`, `minimum_target`,
+  `pushed`.
+- **This is a pure numeric condition.** It asks nothing about whether a skill suits
+  a situation — that judgement is the keeper's, and a list of skill names in the
+  kernel would be exactly the hardcoded semantics the project forbids.
+
+### 45.2 `push_eligible`
+
+A push re-rolls the same target, and a pushed failure costs more than an ordinary
+one, so offering a push on an unrollable check invites the player into a strictly
+worse certain outcome. Because the refusal happens before settlement there is no
+receipt to carry `push_eligible` at all; and `resolve` with `action.push` routes
+through `executeCheck` with the original target and difficulty, so a push of a
+legacy impossible receipt is refused by the same assertion, with the fix saying
+first that a push repeats the same target and cannot rescue it.
+
+### 45.3 The fix text is keeper-only
+
+Per the standing lesson that an error's `fix` is executed literally and sometimes
+read aloud, the refusal names its own audience and its own status before it asks
+for anything: service information about the keeper's request, not fiction; do not
+narrate it, do not read it to the player, do not treat the attempt as having
+failed. Then exactly one repair, both halves concrete: name a skill or
+characteristic the sheet gives this investigator a usable value in, or keep the
+skill and lower the difficulty until the effective target is at least the minimum.
+It closes by saying the player's stated action still stands and needs no new input
+— the player did nothing wrong and must not be asked to repeat themselves.
+
+### 45.4 What this does not cover
+
+`executeCheck` (and therefore `push`) is wired. The other settlement paths that
+take a keeper-chosen difficulty over a sheet-derived value — combat to-hit,
+chase, sanity, magic, healing, mods and the concealed Psychology contract — share
+the same `CheckArithmetic` and can adopt `assertRollable`, but are not wired here:
+Psychology in particular derives its difficulty from the NPC's opposing skill, so
+"lower the difficulty" is not an actionable repair there and would need its own
+fix text before the assertion is worth adding.
+
+Tests: `tests/extension/impossible-check.test.mjs` — base 1 at hard refused with
+no receipt minted, base 1 at regular still rolling its legal 1%, an ordinary skill
+at hard untouched, the push path refused, and the fix text's audience and repair.
+
+## 46. Readiness is `missing`; `findings` is an opinion about the book (2026-09-16)
 
 Found on two real tables, not by a suite. An imported 669-page Masks module reached
 `module.json` like this:
@@ -7501,7 +7576,7 @@ turned the whole opening unready. In the same file
 `reading.completed["read-3"].opening_ready` were both `true`: that opening had been
 prepared, and had been played.
 
-### 45.1 What it cost
+### 46.1 What it cost
 
 The gate is reached three ways, and all three refused. `setup.complete` reads
 `setupOpeningReady`, wrote `setup.waiting_for_opening: true` and refused the
@@ -7521,7 +7596,7 @@ and `module.opening` is re-derived from the whole graph on every completed readi
 Nothing about the table changed. More of the source was read, and that revoked an
 opening already in play.
 
-### 45.2 The rule
+### 46.2 The rule
 
 `opening_ready` is `!missing.length`. `findings` never vetoes it.
 
@@ -7546,7 +7621,7 @@ downstream reads. `prepared_openings[<scene>]` is a record that that scene was
 prepared. `reading.completed[<job>]` is a job log. Neither of the latter two is
 consulted as readiness, and neither may become a second answer to it.
 
-### 45.3 A failure the player is shown names a registered caption
+### 46.3 A failure the player is shown names a registered caption
 
 The same incident, at the other end. The onboarding host handed the overlay
 `{"code": "needs"}` — a kernel RPC code (§1), which nothing registers a caption for
@@ -7566,7 +7641,7 @@ service had actually reported.
 - The message is the diagnostic, in the system language, behind `details`. Caption
   first, message after it, never the message instead of the caption.
 
-### 45.4 A stopped preparation does not promise to finish itself
+### 46.4 A stopped preparation does not promise to finish itself
 
 The overlay's standing lines all say the opening arrives on its own — *"play will
 continue when the opening is ready"*, *"create your investigator while the opening
@@ -7576,7 +7651,7 @@ a third table pressed it and was playing three and a half minutes later, without
 whole-book re-read. A player who is told to wait has no reason to press it. A
 stopped phase states its own reason instead; the control stays in the head.
 
-### 45.5 The three ends (§31)
+### 46.5 The three ends (§31)
 
 Who writes `opening.findings`: `playability` on the induced opening subgraph, on
 every completed reading. Who reads it: `module.status`, in the same record as
