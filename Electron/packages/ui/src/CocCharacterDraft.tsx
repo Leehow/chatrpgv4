@@ -105,7 +105,12 @@ export function CocCharacterDraft({data,onRendered,onPresentation,onOverride}:Pr
   const skillTable=<div className="coc-draft-table-scroll"><table className="coc-draft-table coc-draft-skill-detail"><thead><tr>{['Skill','Base value','Occupation points','Interest points','Final value'].map(key=><th key={key}>{t(key)}</th>)}</tr></thead><tbody>{skillRows.map(row=><tr key={row.name}><th scope="row">{t(row.name)}</th><td>{amount(row.base)}</td><td>{amount(row.occupational)}</td><td>{amount(row.personal)}</td><td>{cell(row.final)}</td></tr>)}</tbody></table></div>
   const budgets=[{key:'Occupation points',account:occupation,spent:typeof occupation?.spent==='number'&&typeof credit==='number'?occupation.spent+credit:undefined},{key:'Interest points',account:interest,spent:interest?.spent}]
   const statGrid=(rows:Row,derived=false)=><dl className={`coc-draft-stats${derived?' coc-draft-derived':''}`}>{Object.entries(rows).map(([key,value])=><div className="coc-draft-stat" key={key}><dt>{t(key)}</dt><dd>{cell(key==='DB'&&value==='none'?0:value)}</dd></div>)}</dl>
-  const money=(entry:Row)=>entry?`${entry.amount} ${t(entry.currency)}`:'—'
+  // A money cell whose amount is not there is an empty cell, and this card already knows how to draw
+  // one: `cell()` prints the same mark for the weapon parameters the rules tables leave blank. It did
+  // not, and the rulebook's Penniless row -- which prints no assets, and so reaches the sheet as
+  // `{amount: null, formula: 'None'}` -- put the literal word `null` in front of a currency on two
+  // live tables. The value the kernel records is right; printing it was not.
+  const money=(entry:Row)=>entry&&entry.amount!==null&&entry.amount!==undefined?`${entry.amount} ${t(entry.currency)}`:cell(null)
   return <section aria-label={t('Character draft')} data-draft-revision={data.revision} className="coc-draft" data-view={showDetails?'details':'compact'}>
     <header className="coc-draft-header"><div className="coc-draft-identity"><h2>{sheet.name}</h2><p>{sheet.occupation_stated?<>{sheet.occupation_stated} ({t(sheet.occupation)})</>:t(sheet.occupation)} · {sheet.age}{sheet.sex?<> · {t(sheet.sex)}</>:null} · {t(sheet.era)}</p></div><div className="coc-draft-toolbar"><p className="coc-draft-guidance">{t('Character draft — reply to confirm or describe changes.')}</p><button className="coc-draft-toggle" type="button" aria-expanded={showDetails} onClick={()=>setShowDetails(value=>!value)}>{t(showDetails?'Hide calculation details':'Show calculation details')}</button>{data.limits&&onOverride&&<button className="coc-draft-toggle" type="button" onClick={()=>setEditing(true)}>{t('Edit numbers')}</button>}</div></header>
     <h3>{t('Characteristics')}</h3>{showDetails?<><p className="coc-draft-method">{generated.method==='rolled'?t('Standard rolled characteristics'):generated.method==='rolled_pool_assignment'?t('Rolled characteristics assigned to the stated aptitudes'):generated.method==='quick_fire'?t('Quick-fire array'):'—'} · {age.bracket||'—'}</p>
@@ -114,6 +119,11 @@ export function CocCharacterDraft({data,onRendered,onPresentation,onOverride}:Pr
     <table className="coc-draft-table coc-draft-budgets"><thead><tr>{['Point allocation','Total points','Spent','Remaining'].map(key=><th key={key}>{t(key)}</th>)}</tr></thead><tbody>{budgets.map(({key,account,spent})=><tr key={key}><th scope="row">{t(key)}</th><td>{amount(account?.budget?.total)}</td><td>{amount(spent)}</td><td>{amount(account?.unspent)}</td></tr>)}</tbody></table></>}
     <h3>{t('Skills')}</h3>{showDetails?skillTable:values(sheet.skills)}
     <h3>{t('Finance')}</h3><dl className="coc-draft-finance">{[['cash',money(sheet.finance?.cash)],['assets',money(sheet.finance?.assets)],['spending',money(sheet.finance?.spending_level)],['credit_rating',sheet.credit_rating]].map(([key,value])=><div key={key}><dt>{t(key)}</dt><dd>{value}</dd></div>)}</dl>
+    {/* A book set in a year the rulebook never tabulated builds these figures off the table's own
+        nominated column (§23.4); the kernel records which setting that column stood in for. The
+        player was told only by a sentence the setup agent was asked to say once in prose, and
+        `game-b4cebfe0`'s transcript never says it. The card carries the fact beside the numbers. */}
+    {sheet.finance?.substituted_for&&<p className="coc-draft-note">{t('finance_period')}: {cell(sheet.finance.period)} · {t('substituted_for')}: {cell(sheet.finance.substituted_for)}</p>}
     <h3>{t('Background')}</h3><dl className="coc-draft-background">{Object.entries(sheet.backstory||{}).map(([key,value])=><div key={key}><dt>{t(key)}</dt><dd>{cell(value)}</dd></div>)}</dl>
     <p className="coc-draft-note">{t('Language')}: {t(sheet.own_language)}</p><p className="coc-draft-note">{t('Key connection')}: {cell(sheet.key_connection?.summary)}</p>
     <h3>{t('Equipment')}</h3><ul className="coc-draft-kit">{(sheet.equipment||[]).filter((item:string)=>!presentation.finance_equipment?.includes(item)).map((item:string,i:number)=><li key={i}>{t(item)}</li>)}</ul>
