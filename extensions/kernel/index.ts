@@ -307,6 +307,14 @@ interface TableState {
 	lanes: AbortController;
 	/** The exact current player text (contract §32.3); a turn with none — the opening — puts nothing to review. */
 	playerText?: string;
+	/**
+	 * Contract §68: a resend held because it repeats, byte for byte, the words the running turn is
+	 * already working on. Held, never dropped: if that turn delivers, the resend is spent; if it
+	 * settles with nothing delivered, this is the retry the player meant and it is sent then.
+	 */
+	resend?: { text: string; turn: number };
+	/** The turn whose resend the player has already been told about: one sentence per turn, not per click. */
+	resendNoticeTurn?: number;
 	party: Array<{ name: string; occupation?: string }>;
 	/** The scene underfoot as the player knows it; a `move` to it is a rename and is not reviewed. */
 	scene?: { handle?: string; label?: string };
@@ -1891,6 +1899,40 @@ export default function (pi: ExtensionAPI) {
 		}), 0);
 	}
 
+	/**
+	 * Contract §68. The player pressed the resend button on words the table is still working on. Nothing
+	 * is semantic: it is the same string, in the same session, while the turn carrying it is alive, and
+	 * a machine can say so without reading a word of it. What the product could not do until now was
+	 * *say* so — on the retained table the duplicate ran as a second turn and the player was told
+	 * nothing, anywhere.
+	 *
+	 * So the resend is held rather than run, and the holding is said out loud at once, on the channel
+	 * the other service notices use: the player is looking at the screen they just pressed a button on.
+	 */
+	async function emitResendHeldNotice(state: TableState, turn: number): Promise<void> {
+		let line = "That is the message the table is already working on, word for word, so it was not started a second time. The turn you sent it for is still running.";
+		try { line = (await surface.words()).line("resend_held_notice"); }
+		catch { /* an unreadable content root still owes the player the English line */ }
+		pi.sendMessage({ customType: "coc-delivery", content: line, display: true,
+			details: { coc_delivery: true, turn, resend_held: true } },
+			{ triggerTurn: false });
+		void record({ lane: "delivery", turn, ok: true, reason: "resend_held_notice" });
+	}
+
+	/**
+	 * Contract §68: is this arrival a resend of the turn that is running?
+	 *
+	 * Exact equality, and nothing else. No similarity, no normalisation, no prefix — a resend is the
+	 * same bytes because the button sends the same bytes, and any looser test would be a reading of
+	 * what the player meant. An arrival carrying images is never one: the button sends text alone, so
+	 * images mean the player composed something, however identical the words.
+	 */
+	function isResendOfRunningTurn(state: TableState, event: { text: string; images?: ImageContent[] }): boolean {
+		if (event.images?.length) return false;
+		if (state.state !== "open" && state.state !== "acting") return false;
+		return typeof state.playerText === "string" && state.playerText.length > 0 && event.text === state.playerText;
+	}
+
 	async function emitTurnUnfinishedNotice(state: TableState, turn: number): Promise<void> {
 		let line = "This turn ended without a delivered result. Anything already settled is kept — send anything to continue.";
 		try { line = (await surface.words()).line("turn_unfinished_notice"); }
@@ -2753,6 +2795,21 @@ export default function (pi: ExtensionAPI) {
 	const waitingInputs: Array<{ text: string; images?: ImageContent[] }> = [];
 	pi.on("input", (event, ctx) => {
 		if (setupMode || !table || ctx.isIdle()) return;
+		// Contract §68. A resend is not a second turn. Held under its own name rather than queued, so
+		// that the turn it duplicates decides what it was: a duplicate if that turn delivers, the
+		// player's retry if it does not. Either way the player is told now, not never.
+		if (isResendOfRunningTurn(table, event)) {
+			const state = table, turn = table.turn;
+			state.resend = { text: event.text, turn };
+			void record({ lane: "turn", event: "resend_held", turn, ok: true });
+			if (state.resendNoticeTurn !== turn) {
+				state.resendNoticeTurn = turn;
+				setTimeout(() => void emitResendHeldNotice(state, turn).catch(() => {
+					/* the notice must never break a turn */
+				}), 0);
+			}
+			return { action: "handled" };
+		}
 		waitingInputs.push({ text: event.text, images: event.images });
 		return { action: "handled" };
 	});
@@ -2807,6 +2864,17 @@ export default function (pi: ExtensionAPI) {
 			}
 		}
 		if (!CLOSED_STATES.has(table.state) && !undelivered) return;
+		// Contract §68: the held resend is settled here, by the turn it repeated. A turn that delivered
+		// answered those words already, so running them again would only cost the player a turn of clock
+		// and budget for prose about repeating himself. A turn that delivered nothing did not, and the
+		// resend is exactly the retry the player pressed the button for -- it goes, and §38's stranded
+		// release rides with it.
+		const held = table.resend;
+		if (held) {
+			table.resend = undefined;
+			if (undelivered) waitingInputs.push({ text: held.text });
+			void record({ lane: "turn", event: undelivered ? "resend_released" : "resend_folded", turn: held.turn, ok: true });
+		}
 		const next = waitingInputs.shift();
 		if (next) pi.sendUserMessage([{ type: "text", text: next.text }, ...(next.images ?? [])]);
 	});
@@ -2912,6 +2980,8 @@ export default function (pi: ExtensionAPI) {
 			state.mapAttachments = [];
 			// A new player input is a new context (contract §32.4): no verdict outlives it.
 			state.playerText = text;
+			// §68: a hold belongs to the turn that was running when it arrived and never outlives it.
+			state.resend = undefined;
 			state.admission = new Map();
 			state.admissionRefused = [];
 			state.landed = [];
