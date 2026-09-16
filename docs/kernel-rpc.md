@@ -7785,6 +7785,108 @@ diagnostic sink, and that an authored refusal passes whole) and
 `Electron/packages/pi-backend/test/coc-onboarding.test.ts` (a real failing inspect,
 and a worker that crashes with nothing but stderr).
 
+## 49. An adapted scene has exits, and the offer always has a way out (2026-09-16)
+
+Six tables walked into a place and could not walk out of it.
+
+On campaign `game-1c0faba5` turn 4 accepted `add_scene "Roxbury Sanitarium"` and
+moved into it. For the next **nineteen turns** `where.exits` was empty, the
+Director's offer carried no `route` row, and the module's seven authored routes —
+including the house the landlord is paying the investigator to enter, whose key is
+already in her pocket — were off the table. Another table asked to leave three
+turns running and was left at the door each time, with the clock at zero.
+
+Two independent causes produce the same silence, and the fix is one guarantee at
+each end: the graph mints the way out, and the offer never has nothing to say
+about it.
+
+### 49.1 `add_scene` mints the way back
+
+`add_scene` minted a node and not one relation. Only `kind: "route"` called
+`edge(...)`, and a `route` the Keeper writes is the Keeper's to aim: on that
+campaign they wrote one for each of two venues and wrote it **inbound** both times
+(`commission-briefing -> Roxbury Sanitarium`, `Roxbury Sanitarium -> South End
+Parish Charity Office`) — the direction that gets the party in. So requiring
+`route` for `new_destination` would not have moved that table at all: the route
+was there.
+
+`adaptedGraph` therefore mints `route-to` from the new scene to its `based_on`
+anchor, in the same `edge()` closure every other adaptation edge uses (it
+deduplicates, so a Keeper-written route in the same direction costs nothing).
+`based_on` is required, always resolves against the **original** graph, and is the
+scene this place was rendered from, so the edge is the one the mint itself can be
+sure of, and it leaves every campaign-minted scene exactly one move from the
+book's own topology. It is a **guarantee of the operation, not a demand on the
+model**, and it adds out-edges only to the node being created: no authored scene's
+exits, capsule or offer changes.
+
+The edge is one-way. Getting *in* already degrades gracefully — `apply move`
+accepts `via` and records `improvised: true` — and a reciprocal edge would put a
+campaign venue into an authored scene's exits and its three-row offer forever.
+Getting *out* did not degrade at all, which is the defect.
+
+Effective graphs are rebuilt from `world.adaptation.records` on every load
+(`campaignModule`), so the guarantee reaches campaigns that were created before
+it. It changes no stored record and no `revision` digest.
+
+### 49.2 The offer never has an empty route pool
+
+`routeRows` filtered `where.exits` down to open ones and returned whatever
+survived — including nothing, silently. Two exits are dropped by that filter, and
+on a scene whose only exit is one of them the Keeper is told nothing at all:
+
+- **`unlock_when.met === false`** — the book holds the door closed.
+- **`material !== "ready"`** — the destination's pages have not been read out of
+  the source PDF yet. This one is not even a closed door: `apply move` puts the
+  destination through `requireMaterial`, which raises `material_pending`, and the
+  host reads it in the foreground and retries. The exit was takeable the whole
+  time. Measured: the same authored start scene of the same module read `material:
+  "ready"` in one campaign and `"missing"` in another, and in the second the
+  scenario's **only** entrance was filtered out of every offer for eleven turns —
+  no roll, no clock minute, no world write, and no word to the Keeper or the
+  player about why.
+
+So when, and only when, the open pool is empty, the offer says which ways exist
+and what stands in each one:
+
+- a `material` row names the operation that clears it: `apply move to <scene>`
+  reads the pages and takes it (`blocked: "material"`);
+- a `locked` row carries the condition that opens it (`blocked: "locked"`);
+- then the retrace rows from `where.back`, which `apply move` already accepts
+  (`from: "where.back"`).
+
+An ordinary scene with any open exit is untouched: this runs only when the pool is
+empty, so nothing is ever ranked beside an open route.
+
+`directorRecovery`'s third rung turns a route row into `apply move`, and it skips
+`blocked: "locked"`: a door the book holds closed is information the Keeper needs,
+never the step the recovery owes. A `material` row stays, because that move is the
+call that makes the place ready.
+
+### 49.3 The three ends (§31)
+
+**Writes it:** `adaptedGraph` mints the edge; `whereSection` already wrote
+`where.exits`, each exit's `material` and `unlock_when`, and `where.back`.
+**Reads it:** `routeRows`, which until now read `where.exits` alone and never
+`where.back` — `where.back` had no reader in the offer lane at all.
+**Acts on it:** the Keeper, through `apply move`, with the operation named on the
+row (§31: the cost and the yield on the same line).
+
+### 49.4 What is deliberately not here
+
+- **`available_clues: []` on a minted scene is not widened here.** A new place may
+  honestly hold nothing, and filling it would be fabrication. The half of that
+  which *was* structural — a campaign scene could never hold a clue at all — is
+  §51's `add_clue`, already landed.
+- **A scene with no exit and an empty trail still yields an empty pool.** That is
+  reachable only from a module whose start scene has no exit at all, which is a
+  module-authoring defect, not a play state a table can walk into.
+
+Tests: `tests/extension/adapted-scene-exits.test.mjs` — a campaign scene entered
+with `via` and left again by the minted edge alone, with the anchor absent from
+`scene_trail` so a retrace cannot be the thing under test; the same over two
+minted scenes; and the three offer shapes above.
+
 ## 50. A turn that settled is told, and the notice does not spend the next call (2026-09-16, extends §38)
 
 §38.5 established that a run ending undelivered owes the player a service notice. Retained live
