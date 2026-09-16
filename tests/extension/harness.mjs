@@ -419,16 +419,12 @@ export async function openTable({
 /**
  * 等一个条件成立。车道是 fire-and-forget 的（契约 §12.5、§12.8：不阻塞交付），
  * 所以断言车道结果要等，不能在 prompt 返回的那一刻就看。
+ *
+ * 实现在 `./wait.mjs`——套件只有这一套等待词汇，见那里开头的三条规矩。这里转发，
+ * 是因为 38 个测试文件从 harness 导入它，而 harness 会把整个 Pi 运行时也一并拉起来：
+ * 只要等待的文件不必为此付代价，就该直接从 `./wait.mjs` 导入。
  */
-export async function waitFor(predicate, { timeoutMs = 10_000, label = "条件" } = {}) {
-	const deadline = Date.now() + timeoutMs;
-	while (Date.now() < deadline) {
-		const value = await predicate();
-		if (value) return value;
-		await new Promise((resolve) => setTimeout(resolve, 10));
-	}
-	throw new Error(`等 ${label} 超时（${timeoutMs} 毫秒）`);
-}
+export { waitFor, waitForJson, waitForValue, publishJsonSync } from "./wait.mjs";
 
 /** 等宿主自己发起的那一轮（开桌、恢复、催收）跑完。 */
 export async function waitForIdle(session, { timeoutMs = 15_000 } = {}) {
