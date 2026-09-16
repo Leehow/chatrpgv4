@@ -23,6 +23,8 @@ export const HEAD = "Everything at the start of this turn: the clock, the undisc
     "look focus=scene returns their full descriptions. where.material and each exit's material say how " +
     "far the book has been read: ready, reading, or missing. An exit's unlock_when.met is true, false, or null " +
     "when the kernel cannot tell; a gate never blocks a move. known.flags lists the flags set so far; " +
+    "known.investigator.conditions is what the rules currently hold true of the body, and cannot_act, when " +
+    "present, means the kernel will refuse an action declared for them until it is gone; " +
     "obligations of kind note are your own open continuity notes; rulings are your earlier rulings that " +
     "bind here, reminders, not rules. worldlines is which line the table is on and which circuit of the " +
     "loop, where the anchor is, what a rewind would leave standing and who would remember it; " +

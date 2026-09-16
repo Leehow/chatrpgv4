@@ -79,6 +79,10 @@ const CSS = `
 .coc-mech-row[data-kind="roll"] .coc-mech-ico,.coc-mech-row[data-kind="dice"] .coc-mech-ico,
 .coc-mech-row[data-kind="session"] .coc-mech-ico,.coc-mech-row[data-kind="worldline"] .coc-mech-ico{
   color:var(--accent);background:color-mix(in oklab, var(--accent) 13%, transparent)}
+/* A body's state earns its colour from the rules, not from the kind: a condition that takes the
+   action away is the one row on the slip the player has to see before anything else. */
+.coc-mech-row[data-kind="condition"][data-grade="blocked"] .coc-mech-ico{color:var(--danger);
+  background:color-mix(in oklab, var(--danger) 13%, transparent)}
 /* A loose row that settled something wears its family's tone on the disc — after the kind
    rules above, because the family is the stronger claim (a combat bout's start reads danger). */
 .coc-mech-row[data-family] .coc-mech-ico{color:var(--fam, var(--muted));
@@ -371,6 +375,8 @@ const ICONS = {
             ["line", { x1: 8.5, y1: 17, x2: 13.5, y2: 17 }]],
   map: [["path", {d:"M3 6.5 8.5 3l7 3.5L21 3v14.5L15.5 21l-7-3.5L3 21z"}],
         ["line",{x1:8.5,y1:3,x2:8.5,y2:17.5}],["line",{x1:15.5,y1:6.5,x2:15.5,y2:21}]],
+  condition: [["path", { d: "M12 20.5S3.5 15.2 3.5 9.4A4.6 4.6 0 0 1 12 6.6a4.6 4.6 0 0 1 8.5 2.8c0 5.8-8.5 11.1-8.5 11.1z" }],
+              ["polyline", { points: "5.6 11.6 9.3 11.6 10.8 8.9 12.8 14.3 14.2 11.6 18.4 11.6" }]],
   fallback: [["circle", { cx: 12, cy: 12, r: 8.5 }]],
 };
 
@@ -752,6 +758,36 @@ export function createComponent(React) {
             ` ${t("arrow")} `,
             h(N, null, text(row.after))),
           h(Delta, { value: delta }));
+      }
+      case "condition": {
+        // What the rules now hold true of a body, and -- when it is one of the three that take the
+        // action away -- that it does.
+        //
+        // This case did not exist until 2026-09-16, so a condition fell through to `default` and drew
+        // one word: its own kind. `game-83177d61` turn 107 settled `unconscious` on the investigator
+        // and the card printed the equivalent of "state"; the player spent the next two turns
+        // declaring things an unconscious man cannot do and reading the Keeper write around each one.
+        // A receipt the player cannot read is the empty-card verdict again (§16.5), and the state is
+        // exactly the sort a player has to see to play at all -- CoC prints these on the sheet in
+        // their hand.
+        //
+        // Public by subject, not by name: nothing in a receipt marks a condition secret, and a list
+        // of the ones that were would be a rules table living in this file. The `keeper` tier already
+        // exists for a settlement that means to withhold one (`playerVisible` drops it above), and it
+        // is the settlement's call, not the card's.
+        const who = row.subject_is_investigator === true ? text(row.subject_label || row.subject) : "";
+        const word = name => t(`condition.${name}`, term(name));
+        const named = value => (Array.isArray(value) ? value : []).map(text).filter(Boolean).map(word).join(" · ");
+        const gained = named(row.gained), lost = named(row.lost);
+        const blocked = Array.isArray(row.incapacitated) && row.incapacitated.length > 0;
+        return h(Row, { key, kindKey: "condition", kindLabel, family, grade: blocked ? "blocked" : "" },
+          h("span", { className: "coc-mech-body" },
+            who ? h("span", { className: "coc-mech-who" }, `${who} `) : null,
+            gained ? h("span", { className: "coc-mech-skill" }, gained) : null),
+          lost ? h("span", { className: "coc-mech-delta", "data-down": "0" }, fill(t("cleared"), { name: lost })) : null,
+          // The kernel decided this when it minted the receipt; the card neither reads a name nor
+          // infers anything from one.
+          blocked ? h(Stamp, { tone: "fail" }, t("cannotAct")) : null);
       }
       case "scene":
         return h(Row, { key, kindKey: "scene", kindLabel, family },

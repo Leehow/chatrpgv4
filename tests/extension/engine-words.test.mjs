@@ -121,6 +121,39 @@ test("every outcome a session can settle on, and every resource a mod moves, has
 	assert.deepEqual(missing, [], `content/ui/en/mechanics.json is missing:\n${missing.join("\n")}`);
 });
 
+test("every condition the rules can put on a body has a word, and the ones that stop a character are one list", () => {
+	// A condition row reaches the player as a state name, so the same rule as the dice and the
+	// outcomes applies to it: the engine may add a condition, but not one the chrome has no key for.
+	// Until 2026-09-16 the chrome had no key for any of them and the card drew its own kind instead,
+	// which is how `game-83177d61` turn 107 told a player nothing about being unconscious.
+	const declared = (file, name) => {
+		const text = readFileSync(join(REPO, file), "utf8");
+		const line = text.match(new RegExp(`${name}\\s*=\\s*(?:new Set<[^>]*>\\()?(?:new Set\\()?\\[([^\\]]*)\\]`));
+		assert.ok(line, `${name} is declared in ${file}`);
+		return [...line[1].matchAll(/'([^']+)'/g)].map(([, value]) => value);
+	};
+	const conditions = declared("kernel-ts/combat/engine.ts", "VALID_CONDITIONS");
+	assert.ok(conditions.length >= 8, `the condition set was found (${conditions.length})`);
+	const missing = conditions.filter(value => typeof chrome[`condition.${value}`] !== "string" || !chrome[`condition.${value}`].trim())
+		.map(value => `condition.${value}`);
+	assert.deepEqual(missing, [], `content/ui/en/mechanics.json is missing:\n${missing.join("\n")}`);
+	for (const key of ["kind.condition", "cannotAct", "cleared"])
+		assert.ok(typeof chrome[key] === "string" && chrome[key].trim(), `content/ui/en/mechanics.json has a \`${key}\` caption`);
+	assert.ok(chrome.cleared.includes("{name}"), "the `cleared` caption still carries its hole");
+
+	// Which conditions take the action away is a rules question with one answer in the tree
+	// (`kernel-ts/healing/conditions.ts`). Four consumers used to keep their own copy of the list,
+	// and a copy is how a rule drifts silently, so the copies are what is asserted gone.
+	const incapacitating = declared("kernel-ts/healing/conditions.ts", "INCAPACITATING_CONDITIONS");
+	assert.deepEqual(incapacitating, ["dead", "dying", "unconscious"]);
+	for (const value of incapacitating)
+		assert.ok(conditions.includes(value), `${value} is a condition the engine can actually set`);
+	const copies = KERNEL.filter(path => !path.endsWith("healing/conditions.ts"))
+		.filter(path => /\[\s*'dead',\s*'dying',\s*'unconscious'|"dead",\s*"dying",\s*"unconscious"/.test(readFileSync(path, "utf8")))
+		.map(path => path.slice(REPO.length + 1));
+	assert.deepEqual(copies, [], `these files keep their own copy of the rule:\n${copies.join("\n")}`);
+});
+
 test("every difficulty the rules tabulate has a word, and the chip that carries it keeps both figures", () => {
 	// A non-regular difficulty moves the bar the die is compared against, and until 2026-09-15 the
 	// card drew neither the difficulty nor the threshold: a hard check against a 15 was settled at
