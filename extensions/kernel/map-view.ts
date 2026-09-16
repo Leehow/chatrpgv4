@@ -9,7 +9,16 @@ const MAP_RENDERER_VERSION=1;
 export type MapAttachment = {kind:'map'; receipt?:string; map:string; name:string; label?:string;
     /** Which leg wrote the words on this card (contract §39.2): `play_language` when the Keeper did, `source` while they are still the module's own. */
     words?:string;
-    source_revision?:string; view_id:string; regions:Row[]; levels:string[]; available:boolean; image?:string; media_type?:string; level_images?:Array<{level:string;image:string}>};
+    source_revision?:string; view_id:string; regions:Row[]; levels:string[];
+    /**
+     * Whether this card opens (contract §59), mirroring `kernel-ts/read/mechanics.ts`'s vocabulary
+     * across the subprocess boundary the way §39.2's words do. The host is the only leg that can
+     * answer it for a map, so it is always `ready` or `none` here and never `unresolved`: the
+     * kernel's own projection carries that third value until this attachment replaces it.
+     */
+    document:MapDocumentState; image?:string; media_type?:string; level_images?:Array<{level:string;image:string}>};
+export type MapDocumentState = 'ready' | 'none';
+export const MAP_DOCUMENT_READY:MapDocumentState='ready', MAP_DOCUMENT_NONE:MapDocumentState='none';
 
 function record(value: unknown): Row { return value && typeof value === 'object' && !Array.isArray(value) ? value as Row : {}; }
 function rows(value: unknown): Row[] { return Array.isArray(value) ? value.filter(item => item && typeof item === 'object' && !Array.isArray(item)) : []; }
@@ -33,7 +42,7 @@ export async function renderMapView(viewValue: unknown, options: {modulesRoot:st
     let viewId = createHash('sha256').update(JSON.stringify([MAP_RENDERER_VERSION,map, revision, regions.map(region => region.id)])).digest('hex').slice(0, 20);
     const words=typeof view.words==='string'&&view.words?view.words:undefined;
     const base:MapAttachment = {kind:'map',...(options.receipt?{receipt:options.receipt}:{}),map,name,...(label?{label}:{}),...(words?{words}:{}),source_revision:revision,view_id:viewId,regions,
-        levels:[...new Set(regions.flatMap(region=>region.level?[region.level]:[]))],available:false};
+        levels:[...new Set(regions.flatMap(region=>region.level?[region.level]:[]))],document:MAP_DOCUMENT_NONE};
     if (!regions.length || layers.length !== regions.length) return base;
     let modulesReal:string;try{modulesReal=await realpath(options.modulesRoot);}catch{return base;}
     const sourcePaths:string[]=[];
@@ -75,7 +84,7 @@ export async function renderMapView(viewValue: unknown, options: {modulesRoot:st
     await mkdir(folder,{recursive:true});
     try{await stat(path);}catch{await writeFile(temporary,bytes);await rename(temporary,path);}
     const stored=await readFile(path);
-    const result:MapAttachment={...base,view_id:viewId,available:true,media_type:'image/png',image:`data:image/png;base64,${stored.toString('base64')}`};
+    const result:MapAttachment={...base,view_id:viewId,document:MAP_DOCUMENT_READY,media_type:'image/png',image:`data:image/png;base64,${stored.toString('base64')}`};
     if(options.splitLevels!==false&&result.levels.length>1){
         const levelImages=[];
         for(const level of result.levels){

@@ -23,7 +23,7 @@ test('a map reveal becomes one flattened conversation image and hides its source
 	copyFileSync(join(process.cwd(),'tests/kernel/fixtures/bundle-tiny/assets/map-dock.png'),join(moduleDir,'map.png'));
 	await table.session.prompt('我查看门厅并记下地图');
 	const [entry]=table.entries('coc-mechanics'),map=entry.mechanics.find(row=>row.kind==='map');
-	assert.equal(map.available,true);assert.match(map.image,/^data:image\/png;base64,/);assert.equal(typeof map.view_id,'string');assert.equal(typeof map.receipt,'string');
+	assert.equal(map.document,'ready');assert.match(map.image,/^data:image\/png;base64,/);assert.equal(typeof map.view_id,'string');assert.equal(typeof map.receipt,'string');
 	assert.equal(map.regions[0].id,'entry');assert.equal('path' in map,false);assert.equal('render' in map,false);
 	const results=table.session.messages.filter(message=>message.role==='toolResult').map(message=>message.details);
 	assert.ok(results.every(result=>!result?.map_views),'private render instructions do not return to the Keeper');

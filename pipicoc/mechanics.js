@@ -612,9 +612,12 @@ export function createComponent(React) {
     const variants = knownLevelImages(row);
     const [level, setLevel] = React.useState(variants[0]?.level || "");
     const shown = variants.find(item => item.level === level)?.image || (playerImage(row.image) ? row.image : "");
-    const openable = row.available === true && Boolean(shown) && !broken;
+    // §59: three states arrive here, two are drawn. `ready` with pixels opens and is stamped;
+    // everything else -- a resolved `none`, an `unresolved` card the host never answered for, a
+    // render this client could not load -- draws no stamp at all. The stamp this replaced said
+    // "not delivered" for all of them, which was false in every case: the map was handed over.
+    const openable = row.document === "ready" && Boolean(shown) && !broken;
     const regionLabels = knownRegionLabels(row);
-    const stamp = openable ? t("available") : t("pending");
     return h("details", {
       className: "coc-mech-row coc-map",
       "data-kind": "map",
@@ -627,7 +630,7 @@ export function createComponent(React) {
       h("summary", { className: "coc-map-head" },
         h("span", { className: "coc-mech-ico", "aria-hidden": "true" }, icon("map")),
         h("span", { className: "coc-mech-body" }, name),
-        h(Stamp, { tone: openable ? "pass" : "plain" }, stamp)),
+        openable ? h(Stamp, { tone: "pass" }, t("available")) : null),
       openable
         ? h("div", { className: "coc-map-body" },
             h("label", { className: "coc-map-tools" },
@@ -664,7 +667,9 @@ export function createComponent(React) {
               onError: () => setBroken(true),
             })),
             regionLabels.length ? h("div", { className: "coc-map-regions" }, regionLabels.join(" · ")) : null)
-        : h("div", { className: "coc-map-empty" }, t("pending")));
+        // Nothing to open: the place the player knows is still worth naming, and it is the only
+        // thing here that is true without the pixels.
+        : h("div", { className: "coc-map-empty" }, regionLabels.join(" \u00b7 ")));
   }
 
   function renderRow(row, t, term, index) {
@@ -872,7 +877,11 @@ export function createComponent(React) {
       }
       case "handout": {
         const name = term(text(row.label || row.name));
-        const stamp = h(Stamp, { tone: row.available ? "pass" : "plain" }, row.available ? t("available") : t("pending"));
+        // §59. A handout the module registered with no document reaches the player as a delivery
+        // all the same -- the Keeper was told to say what it holds, and did -- so the card claims
+        // nothing about it rather than stamping the "not delivered" that contradicted the prose
+        // directly above it (campaign `game-1c0faba5`, turn 62: an authored, player-safe handout).
+        const stamp = row.document === "ready" ? h(Stamp, { tone: "pass" }, t("available")) : null;
         // The document the player is handed, which is the module's own prose in the language the
         // book was read in. Its name went through the glossary and its body did not, so the row
         // folded under a play-language title into a column of the source language.

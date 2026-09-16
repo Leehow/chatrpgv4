@@ -17,6 +17,25 @@ import { array, row, number, integer, truth, chars, length, type Row } from "./v
 export const ROLL_VISIBILITY = ['public', 'concealed', 'keeper'] as const;
 /** True when the die itself must not reach the player — both hidden tiers, whatever the card draws. */
 export const dieHidden = (visibility: any): boolean => visibility === 'keeper' || visibility === 'concealed';
+/**
+ * Whether a card hands the player something to open, as three states rather than a boolean (§59).
+ *
+ * - `ready` — bytes exist and travel with the row; the card opens.
+ * - `none` — the producer asked and there is nothing: the module registered the card with no
+ *   document, or the render refused. The delivery still happened; only the page is missing.
+ * - `unresolved` — this producer cannot answer, and a later one owes the answer. A row that reaches
+ *   a player still saying this is a defect, and a *different* defect from `none`.
+ *
+ * A row carrying no `document` at all hands the player nothing to open, so nothing is said about
+ * it. That is the whole judgment: no consumer reads `kind` to decide whether the question applies.
+ *
+ * The boolean this replaced could not tell `none` from `unresolved`, and the kernel's map rows
+ * never wrote it: a live delivery was answered downstream by the host's rendered attachment, but
+ * the row the campaign *records* carries no answer at all, so the history card and the live card
+ * were two different objects and only one of them had been wired (campaign `game-1c0faba5`,
+ * turns 33 and 35). Any path where that attachment does not merge reads as an answered "no".
+ */
+export const DOCUMENT_READY = 'ready', DOCUMENT_NONE = 'none', DOCUMENT_UNRESOLVED = 'unresolved';
 const labeled = (out: Row, key: string, value: any) => {
     if (typeof value === "string" && value.trim())
         out[key] = value;
@@ -192,7 +211,11 @@ export function mechanicsOf(receipt: Row, texts: ReadonlyMap<string, string> = n
             kind,
             receipt: id,
             name: receipt.name || receipt.handout || null,
-            available: truth(attachment.available)
+            // `apply handout` settles this one itself: it either wrote the markdown or looked for
+            // the registered bytes and found none, so a handout is never `unresolved` (§59). An
+            // authored, player-safe card the module registered without a document is `none` -- the
+            // Keeper was handed it and told the player what it says; there is simply no page.
+            document: truth(attachment.available) ? DOCUMENT_READY : DOCUMENT_NONE
         };
         labeled(out, "label", receipt.label);
         labeled(out, "path", attachment.path);
@@ -221,6 +244,14 @@ export function mechanicsOf(receipt: Row, texts: ReadonlyMap<string, string> = n
                 level: row(region).level ?? null,
             })),
             source_revision: receipt.source_revision ?? null,
+            // The kernel does not hold the pixels: only the host composes a map view, and only it
+            // knows whether the authorized regions rendered. So this row leaves here owing an
+            // answer, and the host's prepared attachment overwrites it on the way to the player
+            // (§59). Saying so is what makes the two ends tellable apart: the row the turn record
+            // keeps is this one, and until now it carried nothing, so a map card re-read out of
+            // history was indistinguishable from a map that had been answered "no" -- and so was
+            // a live card on any path where the attachment never merged.
+            document: DOCUMENT_UNRESOLVED,
         };
         labeled(out, "label", receipt.label);
         // Which leg wrote the words above (contract §39.2). The host reads it to know whether this

@@ -1185,14 +1185,14 @@ submit the chosen dispositions without guessing IDs or repeating the failed call
 | `cash` | `subject`, `before`, `after` |
 | `session` | `family`, `transition`, `round`?, `outcome`? |
 | `choice` | `option` |
-| `handout` | `name`, `available`, `label`?, `path`?, `media_type`?, `text`? |
+| `handout` | `name`, `document`（§59 起；此前是布尔 `available`）, `label`?, `path`?, `media_type`?, `text`? |
 | `worldline` | `operation`, `line`, `loop`, `from`?（§15.3；切片 8 加的，此前只在实现里，照契约读的前端不知道有这一类） |
 
 每条还可能带两个分组字段：`call` 是铸出该收据的 `call_id`，同一次 resolve/apply 铸出的收据同属一次结算；`family` 是 resolve 结算它的规则族（这次结算里的 `delta` 也带上），`apply` 的簿记行没有 `family`。前端按 `call` 把一次结算的行收进一组，按 `family` 决定这一组的气质；缺了任一个字段就退成单列的行，不许猜。
 
 扩展把它作为会话条目 `coc-mechanics`（`{turn, mechanics}`）追加到 Pi 会话并发到总线 `coc:mechanics`；Pi RPC 事件流因此带着它（`entry_appended`），驾驭器落进 `events.jsonl`；未来的 Electron/web 前端按它渲染骰子卡与变化条。投影为空时不发条目。TUI 只显示守秘人的正文。
 
-**手卡**：Pi 没有出站附件通道（`docs/pi-host-contract.md` §3.3），所以路径不进正文。内核给 `name`/`available`，扩展把 `apply` 结果里的 `attachment` 合进这一行（`path`、`media_type`），前端按它取图；坐在终端前的人由 table 扩展通知一次（`handout <名>: <路径>`，每张卡一次，不进正文）。文本手卡（§14.8 物化的 markdown）额外带 `text`：正文原样（不含物化时加的那行 H1，上限 8000 字符，超出以 … 截断），让前端能把这一行展开成可读的卡片而不需要文件通道；图片手卡没有 `text`。契约里任何「渲染【明骰】【变化】【第 n 轮】【手卡】行」的旧说法一律以本节为准，包括 §5、§11.6、§11.9、§12.5，以及 §11 的会话渲染、§14.8 的手卡、§14 的实现小节、§15 的世界线收据——那些段落描述的行不再存在，对应的信息以 `mechanics` 的一行投影出去。
+**手卡**：Pi 没有出站附件通道（`docs/pi-host-contract.md` §3.3），所以路径不进正文。内核给 `name`/`document`（§59 起的三态；此前是布尔 `available`），扩展把 `apply` 结果里的 `attachment` 合进这一行（`path`、`media_type`），前端按它取图；坐在终端前的人由 table 扩展通知一次（`handout <名>: <路径>`，每张卡一次，不进正文）。文本手卡（§14.8 物化的 markdown）额外带 `text`：正文原样（不含物化时加的那行 H1，上限 8000 字符，超出以 … 截断），让前端能把这一行展开成可读的卡片而不需要文件通道；图片手卡没有 `text`。契约里任何「渲染【明骰】【变化】【第 n 轮】【手卡】行」的旧说法一律以本节为准，包括 §5、§11.6、§11.9、§12.5，以及 §11 的会话渲染、§14.8 的手卡、§14 的实现小节、§15 的世界线收据——那些段落描述的行不再存在，对应的信息以 `mechanics` 的一行投影出去。
 
 ### Kernel decision: a damage receipt's total is what was applied (2026-09-12)
 
@@ -9055,3 +9055,100 @@ the difference, and does not read `spending_level` as a limit. It does not detec
 prose. A shape check on the receipt — a `delta` that happens to equal `before` — is a symptom,
 not this defect: the same mistake at ninety per cent of the balance is silent, and the fix for
 "the number came from nowhere" is a source, not an alarm on one of its shapes.
+
+## 59. A card says which of three things is true about opening it (2026-09-16, amends §16.2)
+
+One boolean, `mechanics.available`, was answering two questions at once, and a third case had no
+way to be said at all. Campaign `game-1c0faba5` (2026-09-16) has all three on the same table.
+
+**What the boolean meant to its writer.** `apply handout` sets `attachment.available` to mean *there
+are bytes*: it is true when the module authored the card's text (materialized to
+`<campaign>/handouts/<handle>.md`) or when a registered asset file is on disk, and false otherwise.
+That is a fact about a document, and it stays: the receipt keeps `attachment.available`, and the
+Keeper-facing note on the `apply` result (`No card exists for …: the receipt landed, and the player
+has nothing to look at. Say what the document holds in your narration`) is written from it. That
+half of the seam was never broken — the real table's Keeper read that note and did exactly what it
+asks.
+
+**What the boolean meant to its reader.** The card drew it as *delivered / not delivered*. So
+Handout 5 of The Haunting — authored `player-safe` by the module's own author, won on a hard Library
+Use, its clue landed in the same turn, its contents read out in the prose directly above the card —
+arrived stamped "not delivered". The card contradicted the delivery it was sitting under. Nothing
+about the handout's authorization was ever in question; nothing in the pipeline had to change for
+the player to be told the truth.
+
+**The third case.** The kernel's `map` rows never wrote the field at all. A live delivery was
+answered downstream — the host's rendered attachment merges into the delivery's rows and brought the
+boolean with it — but **the row the campaign records is the kernel's**, and it carried no answer. So
+the history card and the live card were two different objects and only one of them had been wired: a
+map re-read out of `turns/*.json` was indistinguishable from a map that had been answered "no". The
+same hole swallows any live path where that attachment does not merge.
+
+Turns 33 and 35 of `game-1c0faba5` are worth stating precisely, because the premise is easy to get
+backwards: those cards drew "not delivered" from a boolean that was *correctly* `false`. That
+campaign's module directory holds no `assets/` bytes at all, so `renderMapView` had no pixels and
+honestly said so. The word was wrong — the map had been delivered — but the answer was right, and
+the absent bytes are their own defect, not this one.
+
+### 59.1 Three states, declared by the producer
+
+Every `mechanics` row that hands the player something openable carries `document`:
+
+| value | means |
+| --- | --- |
+| `ready` | bytes exist and travel with the row (`path`, and `text` for a materialized page). The card opens. |
+| `none` | the producer asked and there is nothing: the module registered the card with no document, or the render refused. **The delivery still happened**; only the page is missing. |
+| `unresolved` | this producer cannot answer, and a later one owes the answer. |
+
+A row that hands over nothing openable carries no `document` at all, and no consumer says anything
+about opening for it. **The judgment never reads `kind`**: a consumer asks whether the row declared
+the field, not which family it belongs to. A closed list of kinds here would be the same defect one
+layer up — the next kind that hands over a document would be silently excluded by omission, exactly
+as `map` was.
+
+`available` is gone from the projection. It is not kept as a mirror: two fields answering one
+question is what produced this, and one of them going stale is unobservable.
+
+### 59.2 Who answers, and when
+
+- **Handouts.** `apply handout` settles it itself: `ready` when `attachment.available`, `none`
+  otherwise. A handout is never `unresolved`.
+- **Maps.** The kernel does not hold pixels — only the host composes a map view, and only it knows
+  whether the authorized regions rendered. The kernel's projection therefore leaves the map row
+  `unresolved`, and the host's prepared attachment (`renderMapView`) overwrites it with `ready` or
+  `none` when it merges into the delivery's rows. **A map card that reaches a player still saying
+  `unresolved` never met that attachment**, and that is now a distinct, findable state rather than
+  something indistinguishable from an empty map. It is also what the turn record keeps, which is the
+  honest thing for it to keep: the recorded row is the kernel's, and it never knew.
+
+The two legs are built separately and cannot import each other, so the three words are declared
+twice — `DOCUMENT_READY` / `DOCUMENT_NONE` / `DOCUMENT_UNRESOLVED` in `kernel-ts/read/mechanics.ts`,
+`MAP_DOCUMENT_READY` / `MAP_DOCUMENT_NONE` in `extensions/kernel/map-view.ts` — the same way §39.2's
+`source` / `play_language` pair is. A test pins the two declarations to each other.
+
+### 59.3 What the player is told
+
+Three internal states, two things a player can be told, and neither of them is a claim about
+delivery. The card stamps `available` when, and only when, the row is `ready` **and** the bytes
+actually drew; every other case draws no stamp. A player does not need to know that a category has
+not answered yet — they need to know whether they can look at the thing — and a card that cannot
+say yes says nothing rather than something false.
+
+The caption `pending` ("not delivered") is withdrawn from `content/ui/<tag>/mechanics.json`. It was
+false in every place it was drawn: the handout, the map with no bytes, and the map whose image this
+client failed to load had all been delivered.
+
+### 59.4 The three ends (§31)
+
+1. **Who writes it.** `stageHandout` (`kernel-ts/apply/entities.ts`) decides the handout's bytes;
+   `mechanicsOf` (`kernel-ts/read/mechanics.ts`) turns that into `ready`/`none` and stamps every map
+   row `unresolved`; `renderMapView` (`extensions/kernel/map-view.ts`) answers the map's.
+2. **Who reads it.** The delivery's `mechanics` rows, merged in `extensions/kernel/index.ts` and
+   drawn by `pipicoc/mechanics.js` (`renderRow` for handouts, `MapRow` for maps).
+3. **Who acts on it.** The player, by opening the card — which is the end that was broken: every card
+   that could not be opened told the player the delivery had not happened, including the one whose
+   contents they had just been read.
+
+Guarded by `tests/extension/authored-handout-reaches-the-player.test.mjs` (both kinds, through
+`table.apply` on the shipped starter, whose graph carries the same two handout nodes the real table
+was handed) and `tests/extension/map-session-viewer.test.mjs` (what the card draws).
