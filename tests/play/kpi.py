@@ -245,6 +245,57 @@ def admission(rows: list[dict[str, Any]]) -> dict[str, Any]:
                           "mean": round(sum(ms) / len(ms)) if ms else 0}}
 
 
+def lanes(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Every lane's own outcome rows: how many, how many failed, and the worst run of
+    consecutive failures.
+
+    This section exists because its absence hid a defect for a whole session. `memory` failed
+    on every turn from 0 to 27 -- 32 identical `lane_error` rows, one root, no player-side or
+    keeper-side sign -- and a KPI read of that campaign looked exactly like a KPI read of a
+    campaign where it never failed once. The rows were on disk the whole time; `is_tool_call`
+    correctly keeps them out of the per-turn read/write counts (a lane round is not a tool
+    call), and nothing else ever looked at them.
+
+    So every lane is listed, including the healthy ones: `failed: 0` stated is the point, and
+    a lane that is simply absent reads differently from a lane that ran clean. `worst_streak`
+    is the longest run of consecutive `ok: false` rows in file order, which is what separates
+    a lane that stumbles from one that has been dead since turn 0. Reasons are counted, not
+    interpreted -- whether a reason is grave is a human reading, as everywhere else here.
+    """
+    order: list[str] = []
+    stats: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        lane = row.get("lane")
+        # Only a lane's own outcome rows: `ok` is what this section counts, and a row without
+        # one is a progress or concurrency note, not a verdict.
+        if not isinstance(lane, str) or "ok" not in row:
+            continue
+        lane = str(lane)
+        if lane not in stats:
+            order.append(lane)
+            stats[lane] = {"rows": 0, "failed": 0, "worst_streak": 0, "_streak": 0, "reasons": {}}
+        entry = stats[lane]
+        entry["rows"] += 1
+        if row.get("ok") is False:
+            entry["failed"] += 1
+            entry["_streak"] += 1
+            entry["worst_streak"] = max(entry["worst_streak"], entry["_streak"])
+            reason = str(row.get("reason") or "unstated")
+            entry["reasons"][reason] = entry["reasons"].get(reason, 0) + 1
+        else:
+            entry["_streak"] = 0
+    if not stats:
+        return {}
+    report: dict[str, Any] = {}
+    for lane in sorted(order):
+        entry = stats[lane]
+        entry.pop("_streak")
+        if not entry["failed"]:
+            entry.pop("reasons")
+        report[lane] = entry
+    return report
+
+
 def summarize(per_turn: dict[int, dict[str, Any]]) -> dict[str, Any]:
     if not per_turn:
         return {"turns": 0}
@@ -335,6 +386,9 @@ def main(argv: list[str] | None = None) -> int:
     reviews = admission(rows)
     if reviews:
         summary["admission"] = reviews
+    health = lanes(rows)
+    if health:
+        summary["lanes"] = health
     print(format_report(per_turn, summary, title=title))
     return 0
 
