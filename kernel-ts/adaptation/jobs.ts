@@ -143,6 +143,24 @@ const REVIEWED_WORLD = ['active_scene', 'visited_scenes', 'scene_trail', 'discov
 const PINNED_WORLD = [...REVIEWED_WORLD, 'adaptation'] as const;
 /** Fixed key order, and an absent field pins as absent rather than as a hole the next one fills. */
 const pinnedWorld = (world: Row): Row => Object.fromEntries(PINNED_WORLD.map(key => [key, world[key] ?? null]));
+/**
+ * The party the review is shown, on the same reasoning and for the same reason as the world above.
+ *
+ * Narrowing the world alone left the identical bookkeeping a second door. A materializer registering
+ * an ordinary object writes the item registry -- `world.objects`, now outside the pin -- and the
+ * sheet is that registry's mirror, so the same write lands again in `equipment` and `weapons`. On
+ * campaign `game-ef7545c5` the pinned world did not move once across turns 3, 4, 5 and 6, every one
+ * of them an honest wait-only narrate, while `party.weapons` moved on every one of them -- three
+ * objects registered in the background, none of them anything the player did. Pinning the whole sheet
+ * therefore staled a reviewed proposal on exactly the turns it was waiting through.
+ *
+ * So the party term is the row the task actually hands the review, not the sheet behind it. It still
+ * invalidates on who is at the table and what they are -- a party the review never met cannot be the
+ * party it wrote for -- and it no longer moves when the engine mirrors its own registry onto a sheet.
+ * `party.json` stays available to a child as a named full-file fallback, exactly as `world.json` does;
+ * what the review may go and read is not the same thing as what it was shown and judged against.
+ */
+const reviewedParty = (party: Row[]): Row[] => party.map(actor => ({name: actor.name, occupation: actor.occupation ?? null}));
 const compactReceipt = (receipt: Row): Row => Object.fromEntries(
     ['id', 'kind', 'call_id', 'actor', 'subject', 'npc', 'scene', 'clue', 'handout', 'name', 'from', 'to', 'delta', 'before', 'after']
         .filter(key => receipt[key] != null).map(key => [key, receipt[key]]));
@@ -171,10 +189,10 @@ export class AdaptationJobs {
         const current = await loadModule(this.context, snapshot.meta.module_id, snapshot.id);
         // A pending preparation is allowed to cross an honest wait-only narrate and a later status
         // request. Those change HEAD, turn and player text but not the world the proposal will alter.
-        // The reviewed world, the party, the worldline and the source generation still invalidate
-        // every material change; final apply remains subject to the current player's action-admission
-        // review.
-        const pin = jsonDigest({world: pinnedWorld(snapshot.world), party: snapshot.party, line: snapshot.meta.active_worldline ?? 'main'});
+        // The reviewed world, the reviewed party, the worldline and the source generation still
+        // invalidate every material change; final apply remains subject to the current player's
+        // action-admission review.
+        const pin = jsonDigest({world: pinnedWorld(snapshot.world), party: reviewedParty(snapshot.party), line: snapshot.meta.active_worldline ?? 'main'});
         return {snapshot, current, pin};
     }
     private async job(campaign: string, name: string): Promise<Row> {
@@ -273,7 +291,7 @@ export class AdaptationJobs {
             anchors, source: focusedNodes(base.graph, baseRoots),
             effective_scene: effective.graph.entityView(currentScene),
             world: Object.fromEntries(REVIEWED_WORLD.filter(key => snapshot.world[key] != null).map(key => [key, snapshot.world[key]])),
-            party: snapshot.party.map(actor => ({name: actor.name, occupation: actor.occupation ?? null})),
+            party: reviewedParty(snapshot.party),
             current_receipts: array(snapshot.turn.receipts).map(compactReceipt), recent_history: recentHistory,
             recent_history_complete: snapshot.records.length <= recentHistory.length,
             continuity: continuityView(base.graph, focusWorld, snapshot.records, candidates, {anchors, limit: 4, budget: 6000}),
