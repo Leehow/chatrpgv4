@@ -168,3 +168,24 @@ export function readControlType(raw: unknown): string | undefined {
   if (record.v !== 2 || typeof record.type !== 'string') return undefined
   return record.type
 }
+
+/**
+ * The remote shell has no native folder picker, so it asks the user to type a
+ * path that exists on the *host*, not in this browser. A name like `测试` used
+ * to be accepted here and again by `addProject`, producing a project whose root
+ * is not a directory — a project whose form reads `base` forever while sessions
+ * started in it keep the pack snapshot they were stamped with (contract §43).
+ *
+ * The host is still the authority — only it can stat the path — but refusing a
+ * relative one here keeps the typed text on screen instead of closing the
+ * dialog and reporting the failure somewhere else. Both POSIX (`/srv/app`) and
+ * Windows (`C:\app`, `\\host\share`) roots pass; the browser cannot know which
+ * platform the host runs, so neither shape is ruled out.
+ */
+export function remoteProjectPathRefusal(raw: string): string | null {
+  const value = raw.trim()
+  if (!value) return '请填写项目文件夹路径。'
+  const absolute = value.startsWith('/') || value.startsWith('\\\\') || /^[A-Za-z]:[\\/]/.test(value)
+  if (!absolute) return '请填写服务器上的完整路径（以 / 开头），不是项目名称。'
+  return null
+}

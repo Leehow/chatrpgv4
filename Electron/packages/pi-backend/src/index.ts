@@ -7935,6 +7935,26 @@ export class PiHostBackend implements HostBackend {
   private async addProject(value: unknown): Promise<Project> {
     if (typeof value !== "string" || !value.length)
       throw new Error("project path 必须是非空 string");
+    // A project root is a real directory on this host, and this is the only
+    // place that can say so. The Electron shell can only hand over what its
+    // native picker returned, but a browser has no such dialog: the remote
+    // shell asks the user to type a server-side path (RemoteBrowserApp), so
+    // any string at all used to become a project root here.
+    //
+    // Such a project fails silently and permanently downstream (§43): its form
+    // reads `base` while every session started in it keeps the pack snapshot it
+    // was stamped with, and that mismatch both locks the composer and leaves
+    // the pack's own verbs unanswered — an upload that never advances past 0
+    // bytes, with no error raised anywhere. Refusing at the entry is what keeps
+    // the class from recurring; the snapshot is immutable, so nothing clears it
+    // after the fact.
+    if (!isAbsolute(value))
+      throw new Error(`项目路径必须是绝对路径：${value}`);
+    const stats = await fs.stat(value).catch(() => null);
+    if (!stats)
+      throw new Error(`项目路径不存在：${value}`);
+    if (!stats.isDirectory())
+      throw new Error(`项目路径不是文件夹：${value}`);
     const paths = await this.loadProjectPaths();
     if (!paths.includes(value)) await this.saveProjectPaths([value, ...paths]);
     await this.ensureIsolatedProjectHome(value);
