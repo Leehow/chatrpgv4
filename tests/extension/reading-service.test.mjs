@@ -169,6 +169,31 @@ test("a foreground wait that ends gives the lease back instead of holding it for
 		"the polling loop kept re-promoting a reading nobody waits on");
 });
 
+test("a wait that ends before the reading has a job id still gives the lease back", async t => {
+	const prior = process.env.PI_COC_READ_WAIT_MS;
+	process.env.PI_COC_READ_WAIT_MS = "5";
+	t.after(() => { if (prior === undefined) delete process.env.PI_COC_READ_WAIT_MS; else process.env.PI_COC_READ_WAIT_MS = prior; });
+	const calls = [];
+	let first = true;
+	const service = new ReadingService({ home: "/unused", model: () => { throw new Error("no local reader should be started"); },
+		progress() {}, record() {}, async call(method, params) {
+			calls.push({ method, params });
+			if (method === "module.read.request") {
+				if (first) { first = false; await new Promise(resolve => setTimeout(resolve, 60)); }
+				return { state: "reading", job_id: "read-6", generation: 1 };
+			}
+			if (method === "module.read.claim") return { job_id: null };
+			if (method === "module.read.unwait") return { job_id: params.job_id, foreground: false };
+			throw new Error(`unexpected ${method}`);
+		} });
+	t.after(() => service.dispose());
+	await assert.rejects(service.ensure("book-1", { purpose: "detail", focus: "Bar Cordano", foreground: true }),
+		e => e.details?.reason === "reading_timeout");
+	assert.equal(calls.some(call => call.method === "module.read.unwait"), false, "the reading had no job id to release yet");
+	await until(() => calls.some(call => call.method === "module.read.unwait"));
+	assert.equal(calls.find(call => call.method === "module.read.unwait").params.job_id, "read-6");
+});
+
 test("a foreground reading still awaited by another caller keeps its lease", async t => {
 	const prior = process.env.PI_COC_READ_WAIT_MS;
 	process.env.PI_COC_READ_WAIT_MS = "400";
