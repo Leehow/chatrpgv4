@@ -160,8 +160,9 @@ export class ReadingService implements ReadingBridge {
 			const [campaign, moduleId] = JSON.parse(key) as [string | undefined, string, string];
 			const row = { lane: "reading", event: "stalled", module_id: moduleId, campaign, job_id: job.job_id,
 				purpose: job.purpose, focus: job.focus ?? "", idle_ms: idle, window_ms: window, foreground: job.foreground === true };
+			// No `-progress` frame: §22.5 fixes that channel's `stage` to source|index|read|verify, and a
+			// stall is not a stage. The telemetry row above and the operator notice below carry the signal.
 			this.deps.record(row);
-			this.deps.progress({ module_id: moduleId, campaign, job_id: job.job_id, stage: "stalled", focus: job.focus ?? "" });
 			// The operator's surface, once per session-level outage: the reader lane is a service, and a
 			// service that keeps dying is not something the player or the Keeper can fix (contract §32.2).
 			if (!this.stallNotified) {
