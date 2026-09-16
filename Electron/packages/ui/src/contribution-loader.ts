@@ -129,28 +129,52 @@ async function resolveContributions(
  * against real Workbench containers. One list serves both; the shell must not
  * issue a second `listExtensions` of its own.
  */
+/** Quiet retries for a link that drops requests without dropping the socket. */
+const RETRY_DELAYS_MS = [400, 1_200, 3_000, 6_000] as const
+
 export function useDeclarativeContributionLoader(
   host: PipiHostAPI | undefined,
   projectId?: string,
   onExtensions?: (extensions: readonly ExtensionDescriptor[]) => void,
+  /** Called instead of `onExtensions` when the host could not be asked at all. */
+  onFailure?: (error: unknown) => void,
 ): void {
   const refreshGeneration = useRef(0)
   const onExtensionsRef = useRef(onExtensions)
   onExtensionsRef.current = onExtensions
+  const onFailureRef = useRef(onFailure)
+  onFailureRef.current = onFailure
   useEffect(() => {
     const generation = ++refreshGeneration.current
     if (!host) return
     let cancelled = false
     const unsubs: Disposer[] = []
+    const timers = new Set<ReturnType<typeof setTimeout>>()
     const subscribed = new Set<string>()
     const isCurrent = () => !cancelled && refreshGeneration.current === generation
 
-    const refresh = async () => {
-      let list: ExtensionDescriptor[] = []
+    const refresh = async (attempt = 0) => {
+      // A failed call is not an answer. Reporting `[]` here is how a timed-out
+      // `listExtensions` used to become "this project enables no extensions",
+      // which the shell then renders as the `base` form (§54) — on a project
+      // whose form nobody actually asked about successfully. A host that does
+      // not implement the method at all *is* an answer: it has none.
+      let list: ExtensionDescriptor[]
       try {
         list = await host.listExtensions?.(projectId) ?? []
-      } catch {
-        list = []
+      } catch (error) {
+        if (!isCurrent()) return
+        // A remote link drops requests without dropping the socket, so the
+        // first failure says nothing about the project. Retry quietly; only a
+        // run of failures is worth putting in front of the person, because the
+        // shell now holds its last known form instead of flipping to `base`.
+        if (attempt < RETRY_DELAYS_MS.length) {
+          const timer = setTimeout(() => { if (isCurrent()) void refresh(attempt + 1) }, RETRY_DELAYS_MS[attempt])
+          timers.add(timer)
+          return
+        }
+        onFailureRef.current?.(error)
+        return
       }
       if (!isCurrent()) return
       const resolved = await Promise.all(list.map(descriptor => resolveContributions(host, descriptor)))
@@ -169,6 +193,7 @@ export function useDeclarativeContributionLoader(
     return () => {
       cancelled = true
       if (refreshGeneration.current === generation) refreshGeneration.current += 1
+      for (const timer of timers) clearTimeout(timer)
       for (const unsubscribe of unsubs) unsubscribe()
       resetDeclarativeContributions()
     }
