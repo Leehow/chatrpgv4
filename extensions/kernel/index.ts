@@ -328,6 +328,9 @@ interface TableState {
 	/** The options of the `ask` that closed the last turn, and, once the next input arrives, the ones this turn answers (contract §32.1). */
 	lastAsk?: string[];
 	answering?: string[];
+	/** §50: the turn whose settled facts have already been projected for an undelivered run. One
+	 *  card per turn, whatever the cause and however many runs end on it. */
+	settledToldTurn?: number;
 }
 
 const CLOSED_STATES: ReadonlySet<TurnState> = new Set<TurnState>(["awaiting_player", "committed", "asked"]);
@@ -1224,7 +1227,7 @@ export default function (pi: ExtensionAPI) {
 	 * it. It is never injected into the prose: the TUI shows only what the Keeper wrote.
 	 */
 	function noteMechanics(state: TableState, turn: number, mechanics: Array<Record<string, unknown>>,
-		markedText?: string, labels?: unknown, speech?: unknown[]): void {
+		markedText?: string, labels?: unknown, speech?: unknown[], extra?: Record<string, unknown>): void {
 		// §40.2: a delivery may mark say spans and no mechanics at all, and that turn still owes the
 		// host an entry -- the card colours its speakers from this one.
 		const spoken = Array.isArray(speech) && speech.length > 0 ? speech : undefined;
@@ -1232,7 +1235,7 @@ export default function (pi: ExtensionAPI) {
 		// §16.6: `marked_text` rides here rather than in the assistant message, because that message
 		// is also what a terminal reader sees and raw `{{...}}` is not prose. A frontend that has it
 		// draws each marked row where the Keeper put it; one that does not reads the message as before.
-		const entry = { turn, mechanics, ...(labels ? { labels } : {}), play_language: state.playLanguage, ...(markedText ? { marked_text: markedText } : {}), ...(spoken ? { speech: spoken } : {}) };
+		const entry = { turn, mechanics, ...(labels ? { labels } : {}), play_language: state.playLanguage, ...(markedText ? { marked_text: markedText } : {}), ...(spoken ? { speech: spoken } : {}), ...(extra ?? {}) };
 		try {
 			pi.appendEntry("coc-mechanics", entry);
 		} catch {
@@ -1241,6 +1244,49 @@ export default function (pi: ExtensionAPI) {
 		// The bus event keeps its shape: `marked_text` is a rendering hint for the delivery channel,
 		// not a fact about the turn, and a bus subscriber that wanted it would want the entry.
 		pi.events.emit("coc:mechanics", { campaign: state.campaign, turn, mechanics, ...(labels ? { labels } : {}) });
+	}
+
+	/**
+	 * Contract §50. A run ended with the turn still open and nothing delivered, so §38 will strand
+	 * it — and §38.5's service sentence is the only thing the player gets. That sentence says the
+	 * settled work is kept without saying what it was.
+	 *
+	 * Retained live evidence (`game-b4cebfe0`, turn 8, 2026-09-16): a campaign ruling, an NPC stance,
+	 * a Swim check the investigator *passed* (54 against 70) and a +2 minute clock advance all landed
+	 * with receipts; the continuity review then timed out. The record went to disk as
+	 * `closed_how: null` with `rendered_text` empty, the player read one sentence naming none of it,
+	 * and the retry opened a clean turn 9 — so those four receipts were never told to anyone. The
+	 * state surface was whole and the delivery surface was gone.
+	 *
+	 * What is sent is not a substitute narration and is not the rejected draft (§34.14): it is the
+	 * §16.2 mechanics projection, the same JSON a delivered turn's card is drawn from, read back from
+	 * the kernel's own `table.status` rather than reconstructed here. The kernel decides what a row
+	 * is and what visibility it carries (§16.5), so a keeper-only receipt stays keeper-only exactly as
+	 * it would on a delivered turn, and the host neither writes prose nor reads receipts for meaning.
+	 *
+	 * Three ends (§31). *Writer:* here, once per turn, at the same `agent_settled` that owns §38.3's
+	 * stranding predicate. *Reader:* the delivery channel that already draws every turn's card — the
+	 * `coc-mechanics` entry and `coc:mechanics` bus event, with `undelivered: true` so a consumer that
+	 * requires a delivery can still tell the two apart. *Actor:* the player, who can see that the dice
+	 * fell and the clock moved before deciding what to say next.
+	 */
+	async function tellWhatSettled(state: TableState, turn: number): Promise<void> {
+		let rows: Array<Record<string, unknown>> = [];
+		let labels: unknown;
+		try {
+			const status = await state.kernel.call<Record<string, unknown>>("table.status", { campaign: state.campaign });
+			rows = Array.isArray(status?.mechanics) ? (status.mechanics as Array<Record<string, unknown>>) : [];
+			labels = status?.labels;
+		} catch (error) {
+			void record({ lane: "delivery", turn, ok: false, reason: "settled_without_delivery",
+				detail: error instanceof Error ? error.message : String(error) });
+			return;
+		}
+		// An empty card is a visibility verdict of its own, so a turn that settled nothing projectable
+		// is given none. The row is still written: zero is a fact about that turn, and a lane that
+		// wrote nothing at all could not be told from one that never ran.
+		noteMechanics(state, turn, rows, undefined, labels, undefined, { undelivered: true });
+		void record({ lane: "delivery", turn, ok: true, reason: "settled_without_delivery", rows: rows.length });
 	}
 
 	// ---- Action admission (contract §32) ------------------------------------
@@ -1727,8 +1773,21 @@ export default function (pi: ExtensionAPI) {
 			: "This table is still preparing a place the Keeper needed, so it could not take you there this turn. Nothing you did was lost — send anything to continue, and the Keeper picks it up once the preparation lands.";
 		try { line = (await surface.words()).line(key); }
 		catch { /* an unreadable content root still owes the player the English line */ }
+		// §50: `triggerTurn: false`. This notice is scheduled from `applyToolSuccess`, on a turn that
+		// delivered, so on a live table it is sent while that run is still streaming — and
+		// `sendCustomMessage` turns a send with the flag left off into `agent.steer()`, which reopens
+		// the agent loop and buys the Keeper a provider call to answer the host's own out-of-fiction
+		// sentence with. The flag says what this message is either way: not a prompt.
+		//
+		// **Not measured, and the seam suite cannot measure it.** The notice does its own async work
+		// first (here a kernel read, in `emitStandingNotice` a content read), and the faux provider
+		// finishes a whole run without ever yielding to the macrotask queue, so in the harness the
+		// send always lands after the run and reads as a plain append. A real provider call takes
+		// seconds of socket I/O, so there the timer fires mid-run. The proven case is §38.5's notice,
+		// which is sent inline from `agent_end` (`settled-turn-is-told.test.mjs`).
 		pi.sendMessage({ customType: "coc-delivery", content: line, display: true,
-			details: { coc_delivery: true, turn, preparation_wait: { kind: wait.kind, ...(wait.name ? { name: wait.name } : {}) } } });
+			details: { coc_delivery: true, turn, preparation_wait: { kind: wait.kind, ...(wait.name ? { name: wait.name } : {}) } } },
+			{ triggerTurn: false });
 		void record({ lane: "delivery", turn, ok: true, reason: "preparation_wait_notice",
 			kind: wait.kind, ...(wait.name ? { name: wait.name } : {}) });
 	}
@@ -1822,8 +1881,13 @@ export default function (pi: ExtensionAPI) {
 			return words.line("standing_condition_notice", { name: asString(row.name) ?? asString(row.investigator) ?? "", state: named.join(" / ") });
 		}).filter(Boolean);
 		if (lines.length === 0) return;
+		// §50: `triggerTurn: false`, for the same reason and with the same caveat as the preparation-wait
+		// notice above — scheduled from `applyToolSuccess`, so on a live table it is sent inside the
+		// delivered turn's run, where a send without the flag is `agent.steer()` and costs one provider
+		// call for every turn the state stands. Not measured: see the note on that send.
 		pi.sendMessage({ customType: "coc-delivery", content: lines.join("\n"), display: true,
-			details: { coc_delivery: true, turn, standing_conditions: standing } });
+			details: { coc_delivery: true, turn, standing_conditions: standing } },
+			{ triggerTurn: false });
 		void record({ lane: "delivery", turn, ok: true, reason: "standing_condition_notice", standing: standing.length });
 	}
 
@@ -2568,6 +2632,21 @@ export default function (pi: ExtensionAPI) {
 				watchdogTurnBinding = { turn: table.turn, promise };
 			}
 		}
+		// Contract §50. Whatever the cause, and before the sentence is chosen, the settled facts of
+		// this turn go out on the delivery channel. §38.5 gave the player a sentence; this gives them
+		// the turn. Once per turn: a second run that ends on the same open turn adds no second card.
+		//
+		// The read starts here rather than on a timer: a player input queued during the run is sent a
+		// few lines below, and its `release: "stranded"` closes the turn the receipts belong to. Issuing
+		// `table.status` first puts it ahead of that release on the wire, so the card is drawn from the
+		// turn that paid for it and never from the one that follows it.
+		if (undelivered && table.settledToldTurn !== table.turn) {
+			const state = table, turn = table.turn;
+			state.settledToldTurn = turn;
+			void tellWhatSettled(state, turn).catch(() => {
+				/* the projection must never break a turn */
+			});
+		}
 		// Choose exactly one player notice. A paused-review notice may already have landed at agent_end;
 		// terminal provider wording outranks the generic fallback; recovered long outages remain a
 		// footnote only when the turn actually delivered.
@@ -3217,7 +3296,13 @@ export default function (pi: ExtensionAPI) {
 		if (undelivered !== undefined) {
 			state.renderedText = undefined;
 			state.deliveryToolCallId = undefined;
-			pi.sendMessage({ customType: "coc-delivery", content: undelivered, display: true, details: { coc_delivery: true, turn: state.turn } });
+			// §50: `triggerTurn: false`. A `sendMessage` from an `agent_end` handler with the flag
+			// left off is `agent.steer()` while the run is still streaming, and AgentSession continues
+			// that very run for it ("Any messages here were queued by agent_end extension handlers and
+			// need a continuation"). The host's own delivery is not a prompt: steering it back hands the
+			// Keeper a provider call to answer its own published words.
+			pi.sendMessage({ customType: "coc-delivery", content: undelivered, display: true, details: { coc_delivery: true, turn: state.turn } },
+				{ triggerTurn: false });
 			void record({ lane: "delivery", turn: state.turn, ok: true, reason: "placed_by_host",
 				detail: "the Keeper ended on the message carrying the call, so the replacement had nowhere to land" });
 		}
@@ -3281,8 +3366,14 @@ export default function (pi: ExtensionAPI) {
 				} catch {
 					/* an unreadable content root still owes the player the English line */
 				}
+				// §50: `triggerTurn: false`, or this notice is the thing that spends the next provider
+				// call. Retained live evidence (`game-b4cebfe0`, turn 8): the Keeper was continued after
+				// the pause, called `narrate` again and was refused by the latched guard in 0 ms, which
+				// bought the player one more empty bubble. The continuation is not a new run, so
+				// `before_agent_start` never clears `reviewUnavailable` and the verb cannot succeed.
 				pi.sendMessage({ customType: "coc-delivery", content: line, display: true,
-					details: { coc_delivery: true, turn: state.turn, review_unavailable: true, streak, service: !verdict } });
+					details: { coc_delivery: true, turn: state.turn, review_unavailable: true, streak, service: !verdict } },
+					{ triggerTurn: false });
 				void record({ lane: "delivery", turn: state.turn, ok: true, reason: "review_unavailable_notice", streak, service: !verdict });
 			}
 			return;

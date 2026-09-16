@@ -164,7 +164,8 @@ The task-3 outbound/fold policy will cache and invalidate this rehydration by co
 that host consumption is not claimed implemented by this contract amendment.
 
 ### table.status（切片 0）
-result：`{"turn": int, "state": "...", "receipts": [...本回合收据摘要], "pending_choice": null | {...}}`。
+result：`{"turn": int, "state": "...", "receipts": [...本回合收据摘要], "mechanics": [...本回合的 §16.2 投影], "labels": {...玩家语言词表}, "pending_choice": null | {...}}`。
+- `mechanics` 与 `labels` 是交付时那张卡的同一份投影与同一份词表（§16.2、§23）；一条没能交付的回合靠它们把已结算的事实送到玩家面前（§50）。
 
 ### table.look（切片 0）
 params：`{"focus"?: "scene"|"npc"|"investigator"|"clues"|"time", "name"?: "<实体名>"}`。
@@ -7783,6 +7784,92 @@ Tests: `tests/extension/service-error-text.test.mjs` (the sheet boundary, the
 diagnostic sink, and that an authored refusal passes whole) and
 `Electron/packages/pi-backend/test/coc-onboarding.test.ts` (a real failing inspect,
 and a worker that crashes with nothing but stderr).
+
+## 50. A turn that settled is told, and the notice does not spend the next call (2026-09-16, extends §38)
+
+§38.5 established that a run ending undelivered owes the player a service notice. Retained live
+evidence shows the sentence is not enough, and that sending it costs a turn it should not.
+
+**Retained live evidence** (`playtest-evidence/pipicoc-20260914`, campaign `game-b4cebfe0`, turn 8,
+2026-09-16). Four receipts settled: a campaign-scoped `ruling`, an `npc` stance change, a Swim check
+the investigator **passed** (54 against a target of 70) and a `time` advance of two minutes. The
+continuity review then timed out at 40 814 ms. On disk:
+
+```
+closed_how: null        rendered_text: ""      closed_by: "stranded"
+receipts: ruling:t8-c2 / npc:captain-gould-t8-c2 / roll:swim-t8-c3 / time:t8-c4
+world.clock = {"minutes": 6}
+```
+
+The player's whole turn was one sentence — "this turn could not be published … everything already
+settled is kept" — naming none of it, and one empty bubble. The retry opened turn 9 as a clean turn
+with receipts of its own, correctly (§38.2: a stranded record is inert to every delivery consumer), so
+those four receipts were never told to the player on any turn. **Nothing was lost from the state
+surface and the entire delivery surface was gone.**
+
+**A turn that settled receipts is told what settled.** At `agent_settled`, on the same predicate that
+strands the turn (§38.3) and before the one player notice is chosen, the host reads the kernel's own
+`table.status` and projects that turn's `mechanics` (§16.2) onto the delivery channel: a
+`coc-mechanics` session entry and a `coc:mechanics` bus event, carrying `undelivered: true` so a
+consumer that requires a delivery can still tell the two apart. Once per turn, whatever the cause and
+however many runs end on the same open turn.
+
+- **It is the card, not a narration.** Nothing here writes prose, reads a receipt for meaning, or
+  matches on words; the kernel decides what a row is and what visibility it carries (§16.5), so a
+  keeper-only receipt stays keeper-only exactly as it would on a delivered turn. The rejected draft is
+  still never sent (§34.14), and a second full `narrate` — the step that just failed — is never
+  attempted as a fallback.
+- **An empty card is not sent.** A turn that settled nothing projectable gets no entry, because an
+  empty mechanics card is a visibility verdict of its own. The telemetry row is written either way
+  (`lane: "delivery"`, `reason: "settled_without_delivery"`, `rows`), because zero is a fact about
+  that turn and a lane that wrote nothing cannot be told from one that never ran.
+- **`table.status` gains `labels`**, the §23 glossary a delivery already hands its card, so the one
+  card the player gets for a failed turn is not the one card in the campaign drawn in the system
+  language.
+
+**The notice must not restart the run it is reporting on.** The same retained turn spent a second
+provider call on a `narrate` that failed in 0 ms:
+
+```
+12:34:08.831 lane:continuity-review ok:false continuity_review_unavailable ms:40814
+12:34:08.831 tool:narrate          ok:false continuity_review_unavailable ms:41359
+12:34:08.833 lane:delivery         ok:true  reason:review_unavailable_notice
+12:34:15.328 tool:narrate          ok:false continuity_review_unavailable ms:0
+```
+
+The refused `narrate` already returns `terminate: true`, and the tool batch really does end. What
+continues the run is **the notice itself**. `pi.sendMessage` from an `agent_end` handler, with
+`triggerTurn` left unset, is `agent.steer()` while the run is still streaming, and AgentSession's
+`_handlePostAgentRun` continues that run for precisely that reason ("Any messages here were queued by
+agent_end extension handlers and need a continuation"). A continuation is not a new run, so
+`before_agent_start` never clears `reviewUnavailable` (§38.2) and every verb the Keeper reaches for can
+only be refused by the latched guard. The player pays a provider call for one more empty bubble.
+
+**Every host message that can be sent while the run is still streaming therefore passes
+`triggerTurn: false`.** Two are sent inline from `agent_end` — §38.5's paused-review notice and §8's
+host-placed delivery — and those are the measured case. Two more are scheduled from
+`applyToolSuccess` on a turn that *delivered*, §47's preparation-wait notice and §42.6's
+standing-condition notice, so on a live table they land inside that run and cost one provider call
+each, every turn they are said; the flag says the same thing for them, that a host sentence is not a
+prompt. **Those two are not measured and the seam suite cannot measure them:** each does its own async
+work before sending (a kernel read, a content read) while the faux provider finishes a whole run
+without yielding to the macrotask queue, so in the harness the send always lands after the run. A
+real provider call is seconds of socket I/O and the timer fires mid-run. The notices scheduled from
+`agent_settled` were already outside the run and are unchanged; that is what "keeps `pi.sendMessage`
+outside `agent_settled`" was protecting.
+
+**Three ends (§31).** *Writer:* the host, at `agent_settled`, from the run's own no-delivery facts.
+*Reader:* the delivery channel that draws every turn's card (`coc-mechanics` / `coc:mechanics`, and
+`mechanicsEntry` in the Electron projection, which already filters `visibility: "keeper"` and conceals
+hidden figures). *Actor:* the player, who can see that the dice fell and the clock moved before
+deciding what to say next.
+
+**Acceptance.** A turn that settles a public check and then cannot be delivered produces exactly one
+`coc-mechanics` entry for that turn carrying the check, marked `undelivered`, alongside exactly one
+service notice; a turn that settles nothing projectable produces no entry and still one
+`settled_without_delivery` row with `rows: 0`; and a paused-review run ends on the assistant message
+that called the refused verb, with no continuation behind it
+(`tests/extension/settled-turn-is-told.test.mjs`).
 
 ## 51. 叙述交付的线索：记得下，以及记不下时账上留痕（2026-09-16）
 
