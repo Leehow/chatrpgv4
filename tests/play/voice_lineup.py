@@ -72,9 +72,12 @@ def roster_of(campaign_dir: Path) -> dict[str, str]:
         if node.get("node_kind") != "npc":
             continue
         record = ((node.get("properties") or {}).get("runtime_projection") or {}).get("record") or {}
-        # The station is the first clause of the book's voice line (who they are), never the rest (how they talk).
-        voice = str(record.get("voice") or node.get("summary") or "")
-        station = voice.split("，")[0].split(",")[0].strip() or str(record.get("relationship_to_investigators") or "")
+        # The station is who they are to the table and what they want -- never how they talk. (The first
+        # cut used the book's `voice` line, which on The Haunting is English adjectives: the judge read
+        # "Quiet" and "Dry" as stations and could not tell the archivist from the records clerk.)
+        parts = [str(record.get("relationship_to_investigators") or "").strip(),
+                 str(record.get("agenda") or "").split("。")[0].split(". ")[0].strip()]
+        station = "; ".join(part for part in parts if part) or str(node.get("summary") or "")
         roster[node["name"]] = station
     return roster
 

@@ -70,8 +70,10 @@ function npcNode(graph: ModuleGraph, value: any): Row | null {
     const node = graph.nodes.get(value) || graph.find(value, ['npc']);
     return node?.node_kind === 'npc' ? node : null;
 }
-/** The next person needing a voice, in §40.5 order: present in the latest committed record, then met, then
- *  (with backfill) everyone else the graph names. */
+/** The next person needing a voice, in §40.5/§40.7 order: on stage right now (so the opening's drain writes
+ *  the start scene's people before the first player turn -- on the real module the employer's first two
+ *  answers came before his mask), then present in the latest committed record, then met, then (with
+ *  backfill) everyone else the graph names. */
 export async function nextPerson(campaign: CampaignWriter, graph: ModuleGraph, world: Row, backfill: boolean): Promise<Row | null> {
     if (!packageState(world))
         return null;
@@ -79,6 +81,10 @@ export async function nextPerson(campaign: CampaignWriter, graph: ModuleGraph, w
     const take = (node: Row | null) => {
         if (node && !seen.has(string(node.node_id))) { seen.add(string(node.node_id)); ordered.push(node); }
     };
+    const here = string(world.active_scene);
+    for (const [handle, at] of entries(row(world.npc_presence)))
+        if (here && at === here)
+            take(npcNode(graph, handle));
     const committed = await committedRecords(campaign), latest = Math.max(-1, ...committed.keys());
     if (latest >= 0)
         for (const name of array(row(row(committed.get(latest)).world).present))

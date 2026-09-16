@@ -31,6 +31,9 @@ def test_the_bench_opens_on_nine_people_and_the_capsule_keeps_every_name(kernel)
 def test_the_lane_is_offered_the_room_one_person_at_a_time_with_the_masks_taken(kernel):
     create(kernel)
     narrate_opening(kernel, "雨夜。三义茶馆里坐满了人。")
+    # §40.7: the people on stage are offered from the opening on, before any player turn -- the first
+    # person met is otherwise unmasked for their first answers (the real-module table, 2026-09-16).
+    assert kernel.ok("voice.job", {"campaign": CAMPAIGN})["npc"]["name"] in CAST
     kernel.table("player_input", text="我找个空位坐下。")
     narrate(kernel, "t1-c1", "屋里很吵。")
     offered, masks = [], []
