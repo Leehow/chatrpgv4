@@ -103,7 +103,7 @@ test('one deterministic reference repair gets precise feedback; semantic rejecti
 });
 
 test('admission reuse distinguishes travel time, display destination and payment counterparty', () => {
-    const effects = [{kind: 'move', to: 'Hotel', label: 'Hotel', travel_minutes: 25}, {kind: 'cash', delta: -2.5, with: 'Clerk'}];
+    const effects = [{kind: 'move', to: 'Hotel', label: 'Hotel', travel_minutes: 25}, {kind: 'cash', delta: -2.5, source: 'quote', with: 'Clerk'}];
     const key = value => admissionRequest('apply', {effects: value}, {scene: {handle: 'office', label: 'Office'}}).key;
     const base = key(effects);
     for (const [index, field, value] of [[0, 'travel_minutes', 80], [0, 'label', 'Another place'], [1, 'with', 'Another person']]) {

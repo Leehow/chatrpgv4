@@ -231,7 +231,7 @@ def test_cash_builds_the_finance_block_from_the_era_table_and_moves_it(kernel):
     tier = next(row for row in table["periods"]["1920s"] if row["credit_rating_min"] <= before["credit_rating"] <= row["credit_rating_max"])
     start = before["credit_rating"] * tier["cash_multiplier"]
 
-    result = kernel.table("apply", call_id="t1-c1", effects=[{"kind": "cash", "delta": 20, "why": "诺特的定金"}])
+    result = kernel.table("apply", call_id="t1-c1", effects=[{"kind": "cash", "delta": 20, "source": "found", "why": "诺特的定金"}])
     assert result["receipts"] == ["cash:t1-c1"]
     after = sheet(kernel)
     assert after["finance"]["cash"] == {"amount": start + 20, "currency": table["currency"], "formula": f"CR x {tier['cash_multiplier']}"}
@@ -240,21 +240,21 @@ def test_cash_builds_the_finance_block_from_the_era_table_and_moves_it(kernel):
     receipt = receipts_of(kernel)["cash:t1-c1"]
     assert receipt == {**receipt, "kind": "cash", "resource": "cash", "subject": INVESTIGATOR, "subject_label": INV_NAME,
                        "before": start, "after": start + 20, "delta": 20, "currency": table["currency"],
-                       "why": "诺特的定金"}
+                       "source": "found", "why": "诺特的定金"}
     assert "label" not in receipt  # §16: the resource key is the language-neutral name
     event = events_of(kernel, "resource-changed")[-1]
     assert event["receipt"] == "cash:t1-c1"
     assert event["data"] == {"resource": "cash", "subject": INVESTIGATOR, "before": start, "after": start + 20, "delta": 20,
                              "why": "诺特的定金"}
 
-    both = kernel.table("apply", call_id="t1-c2", effects=[{"kind": "cash", "delta": -5}, {"kind": "cash", "delta": -5}])
+    both = kernel.table("apply", call_id="t1-c2", effects=[{"kind": "cash", "delta": -5, "source": "found"}, {"kind": "cash", "delta": -5, "source": "found"}])
     assert both["receipts"] == ["cash:t1-c2", "cash:t1-c2-2"]
     assert sheet(kernel)["finance"]["cash"]["amount"] == start + 10
-    broke = kernel.table_err("apply", call_id="t1-c3", effects=[{"kind": "cash", "delta": -(start + 11)}])
+    broke = kernel.table_err("apply", call_id="t1-c3", effects=[{"kind": "cash", "delta": -(start + 11), "source": "found"}])
     assert broke["code"] == "invalid_params" and broke["details"]["before"] == start + 10
     assert sheet(kernel)["finance"]["cash"]["amount"] == start + 10
-    assert kernel.table_err("apply", call_id="t1-c3", effects=[{"kind": "cash", "delta": 0}])["code"] == "invalid_params"
-    assert kernel.table_err("apply", call_id="t1-c3", effects=[{"kind": "cash", "delta": "1.5"}])["code"] == "invalid_params"
+    assert kernel.table_err("apply", call_id="t1-c3", effects=[{"kind": "cash", "delta": 0, "source": "found"}])["code"] == "invalid_params"
+    assert kernel.table_err("apply", call_id="t1-c3", effects=[{"kind": "cash", "delta": "1.5", "source": "found"}])["code"] == "invalid_params"
 
     # The prose names no figure: the before/after of each cash receipt reach the player only
     # through the projection rows below (§16.3, 2026-09-09).
@@ -263,7 +263,7 @@ def test_cash_builds_the_finance_block_from_the_era_table_and_moves_it(kernel):
     assert narrated["rendered_text"] == text
     assert [m for m in narrated["mechanics"] if m["kind"] == "cash"] == [
         {"kind": "cash", "marker": marker, "receipt": receipt_id, "subject": INVESTIGATOR, "subject_label": INV_NAME, "before": b, "after": a,
-         "currency": table["currency"], "call": call_id}
+         "currency": table["currency"], "source": "found", "call": call_id}
         for marker, receipt_id, call_id, b, a in (("cash", "cash:t1-c1", "t1-c1", start, start + 20),
                                                   ("cash-2", "cash:t1-c2", "t1-c2", start + 20, start + 15),
                                                   ("cash-3", "cash:t1-c2-2", "t1-c2", start + 15, start + 10))]
@@ -298,3 +298,90 @@ def test_improvised_object_keeps_name_and_uses_selected_profile(kernel):
     result = resolve(kernel, f"t1-c{n}", intent="combat", target="Walter Corbitt", weapon="sledgehammer",
                      defense="none", goal="strike", method="swing the hammer")
     assert result["receipts"]
+
+
+# ---- §58: the amount has a source ---------------------------------------------------------------
+
+LUNCH = "eq.1920s.meals.meals_out.lunch"
+
+
+def test_a_cash_amount_needs_a_source_and_a_cited_price_is_resolved_from_the_printed_list(kernel):
+    """Contract §58. Two real-table defects came in through the same hole: the Keeper answered
+    `delta` with a number and `why` with a correct sentence the number did not match. BUG-078
+    narrated half a sol and spent half a dollar; BUG-084 took the player's own balance ("six-thirty
+    is what I can afford") for the price of a meal and emptied the purse. The kernel prices nothing
+    and holds no price or exchange table of its own -- it makes the Keeper cite where the amount
+    came from, resolves the citation against the rulebook's printed list, and refuses one it cannot
+    resolve or a unit it was not given a way to hold."""
+    open_turn(kernel, "我自己付这一顿。")
+    kernel.table("apply", call_id="t1-c0", effects=[{"kind": "cash", "delta": 20, "source": "found", "why": "诺特的定金"}])
+    start = sheet(kernel)["finance"]["cash"]["amount"]
+
+    # An amount with no source at all is refused, and the refusal names the ways to give one.
+    bare = kernel.table_err("apply", call_id="t1-c1", effects=[{"kind": "cash", "delta": -6.3, "why": "一顿便饭"}])
+    assert bare["code"] == "invalid_params"
+    assert bare["details"]["supported"] == ["price", "quote", "found"]
+    assert "price_id" in bare["fix"] and "balance, not a price" in bare["fix"]
+    assert sheet(kernel)["finance"]["cash"]["amount"] == start  # nothing was written
+
+    # A price_id the printed list does not carry is refused: an invented citation is not a source.
+    invented = kernel.table_err("apply", call_id="t1-c1", effects=[
+        {"kind": "cash", "delta": -6.3, "source": "price", "price_id": "eq.1920s.meals.meals_out.plain_meal"}])
+    assert invented["code"] == "invalid_params" and invented["details"]["price_id"] == "eq.1920s.meals.meals_out.plain_meal"
+    assert kernel.table_err("apply", call_id="t1-c1", effects=[{"kind": "cash", "delta": -6.3, "source": "price"}])["code"] == "invalid_params"
+    assert sheet(kernel)["finance"]["cash"]["amount"] == start
+
+    # A quoted amount is the Keeper's own invention and stays allowed -- but it has to say who
+    # named it, which is what puts it on that person's account.
+    assert kernel.table_err("apply", call_id="t1-c1", effects=[{"kind": "cash", "delta": -6.3, "source": "quote"}])["code"] == "invalid_params"
+
+    # BUG-078's shape: a unit the balance is not counted in. The kernel owns no exchange rate, so
+    # it refuses rather than silently spending sols out of a dollar balance.
+    foreign = kernel.table_err("apply", call_id="t1-c1", effects=[
+        {"kind": "cash", "delta": -0.5, "source": "quote", "with": "steven-knott", "currency": "sol", "why": "半个索尔"}])
+    assert foreign["code"] == "invalid_params"
+    assert foreign["details"] == {**foreign["details"], "declared": "sol", "held": "USD"}
+    assert "does not convert" in foreign["message"] or "does not convert" in str(foreign)
+    assert sheet(kernel)["finance"]["cash"]["amount"] == start
+
+    # A cited printed price resolves, and the receipt carries what the book actually prints --
+    # the amount, the page, the printed display -- beside what was charged.
+    printed = next(r for r in read_json(RULES / "equipment.json")["records"] if r["price_id"] == LUNCH)
+    ok = kernel.table("apply", call_id="t1-c2", effects=[
+        {"kind": "cash", "delta": -printed["price"]["amount"], "source": "price", "price_id": LUNCH,
+         "currency": "USD", "why": "科达诺酒吧一顿便饭"}])
+    assert ok["receipts"] == ["cash:t1-c2"]
+    receipt = receipts_of(kernel)["cash:t1-c2"]
+    assert receipt["source"] == "price" and receipt["price_id"] == LUNCH
+    assert receipt["price_name"] == printed["name"] and receipt["price_era"] == printed["era"]
+    assert receipt["source_amount"] == printed["price"]["amount"] and receipt["source_currency"] == printed["price"]["currency"]
+    assert receipt["source_display"] == printed["price"]["source_display"]
+    assert receipt["source_provenance"]["print_page"] == printed["provenance"]["print_page"]
+    assert sheet(kernel)["finance"]["cash"]["amount"] == start - printed["price"]["amount"]
+
+
+def test_the_capsule_tells_the_keeper_the_balance_and_what_this_table_has_already_charged(kernel):
+    """Contract §58, §31's three ends on the read side. The M-DETOUR table was played for a
+    balance and the capsule named no money at all, so the only figure in the room was the one the
+    player had just said out loud; and the prices that table had already settled (a hotel night, a
+    set of chemicals, the cheapest glass in the bar) existed only in the receipt stream with
+    nothing reading them back, so the fourth price it set could be thirty-one times its own
+    cheapest drink."""
+    open_turn(kernel, "我数了数兜里的钱。")
+    assert "cash" not in kernel.table("capsule")["known"]["investigator"]  # no finance block yet
+    assert "prices_paid" not in kernel.table("capsule")["known"]
+
+    kernel.table("apply", call_id="t1-c1", effects=[{"kind": "cash", "delta": 20, "source": "found", "why": "诺特的定金"}])
+    known = kernel.table("capsule")["known"]
+    amount = sheet(kernel)["finance"]["cash"]["amount"]
+    assert known["investigator"]["cash"] == {"amount": amount, "currency": "USD"}
+    assert known["investigator"]["living"]["standard"] == sheet(kernel)["finance"]["living_standard"]
+    assert "prices_paid" not in known  # money received is not a price this table has set
+
+    kernel.table("apply", call_id="t1-c2", effects=[
+        {"kind": "cash", "delta": -1, "source": "quote", "with": "steven-knott", "why": "旅馆一晚"}])
+    kernel.table("narrate", call_id="t1-c3", text="她把钱放在柜台上，掌柜点了点头。")
+    kernel.table("player_input", text="我再看一眼账。")
+    paid = kernel.table("capsule")["known"]["prices_paid"]
+    assert [{k: v for k, v in row.items() if k != "turn"} for row in paid] == [
+        {"amount": 1, "currency": "USD", "source": "quote", "with": "Steven Knott", "why": "旅馆一晚"}]

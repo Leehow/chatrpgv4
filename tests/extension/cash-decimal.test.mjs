@@ -54,20 +54,20 @@ test('cash accepts exact decimal deltas, persists/replays them, and refuses inva
   await client.call('table.player_input', {campaign: 'c1', text: 'I pay, then receive change.'});
   const cashReceipts = async () => (await client.call('table.status', {campaign: 'c1'})).receipts.filter(row => row.kind === 'cash');
 
-  const paid = await client.call('table.apply', {campaign: 'c1', call_id: 't1-c1', effects: [{kind: 'cash', delta: -2.50}]});
+  const paid = await client.call('table.apply', {campaign: 'c1', call_id: 't1-c1', effects: [{kind: 'cash', delta: -2.50, source: 'found'}]});
   assert.deepEqual(paid.receipts, ['cash:t1-c1']);
   assert.deepEqual((await cashReceipts()).map(row => [row.before, row.delta, row.after]), [[50, -2.5, 47.5]]);
   const persistedAfterDebit = await readFile(join(home, '.coc/campaigns/c1/party/thomas-hayes.json'), 'utf8');
-  const replay = await client.call('table.apply', {campaign: 'c1', call_id: 't1-c1', effects: [{kind: 'cash', delta: -2.50}]});
+  const replay = await client.call('table.apply', {campaign: 'c1', call_id: 't1-c1', effects: [{kind: 'cash', delta: -2.50, source: 'found'}]});
   assert.equal(replay.replayed, true);
   assert.deepEqual(replay.receipts, ['cash:t1-c1']);
   assert.equal(await readFile(join(home, '.coc/campaigns/c1/party/thomas-hayes.json'), 'utf8'), persistedAfterDebit, 'a replay does not write a second debit');
 
-  const refunded = await client.call('table.apply', {campaign: 'c1', call_id: 't1-c2', effects: [{kind: 'cash', delta: 0.50}]});
+  const refunded = await client.call('table.apply', {campaign: 'c1', call_id: 't1-c2', effects: [{kind: 'cash', delta: 0.50, source: 'found'}]});
   assert.deepEqual(refunded.receipts, ['cash:t1-c2']);
   const refundReceipt = (await cashReceipts()).at(-1);
   assert.deepEqual(Object.fromEntries(['before', 'delta', 'after', 'currency'].map(key => [key, refundReceipt[key]])), {before: 47.5, delta: 0.5, after: 48, currency: 'USD'});
-  const tenths = await client.call('table.apply', {campaign: 'c1', call_id: 't1-c3', effects: [{kind: 'cash', delta: 0.1}, {kind: 'cash', delta: 0.2}]});
+  const tenths = await client.call('table.apply', {campaign: 'c1', call_id: 't1-c3', effects: [{kind: 'cash', delta: 0.1, source: 'found'}, {kind: 'cash', delta: 0.2, source: 'found'}]});
   assert.deepEqual(tenths.receipts, ['cash:t1-c3', 'cash:t1-c3-2']);
   assert.deepEqual((await cashReceipts()).slice(-2).map(row => [row.before, row.delta, row.after]), [[48, 0.1, 48.1], [48.1, 0.2, 48.3]]);
   const persisted = await readFile(join(home, '.coc/campaigns/c1/party/thomas-hayes.json'), 'utf8');
@@ -75,9 +75,9 @@ test('cash accepts exact decimal deltas, persists/replays them, and refuses inva
   assert.doesNotMatch(persisted, /48\.30000000000000/);
 
   const beforeRejected = persisted;
-  await assert.rejects(client.call('table.apply', {campaign: 'c1', call_id: 't1-c4', effects: [{kind: 'cash', delta: 1}, {kind: 'cash', delta: -1000}]}), error => error.code === 'invalid_params');
+  await assert.rejects(client.call('table.apply', {campaign: 'c1', call_id: 't1-c4', effects: [{kind: 'cash', delta: 1, source: 'found'}, {kind: 'cash', delta: -1000, source: 'found'}]}), error => error.code === 'invalid_params');
   assert.equal(await readFile(join(home, '.coc/campaigns/c1/party/thomas-hayes.json'), 'utf8'), beforeRejected, 'an overdraft rejects the whole staged batch');
-  await assert.rejects(client.call('table.apply', {campaign: 'c1', call_id: 't1-c5', effects: [{kind: 'cash', delta: 0}]}), error => error.code === 'invalid_params');
+  await assert.rejects(client.call('table.apply', {campaign: 'c1', call_id: 't1-c5', effects: [{kind: 'cash', delta: 0, source: 'found'}]}), error => error.code === 'invalid_params');
 
   await client.close();
   const unrepresentable = await rawCall(rpc, home, '{"id":"unrepresentable","method":"table.apply","params":{"campaign":"c1","call_id":"t1-c6","effects":[{"kind":"cash","delta":9007199254740993}]}}');

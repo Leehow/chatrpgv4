@@ -206,7 +206,7 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
         where,
         present: presentSection(graph, world, scene, row(campaign.jsonFiles.get("npc-ledger.json")), memory, across, { voices: true }),
         voices: voicesSection(graph, world, scene),
-        known: knownSection(graph, world, scene, party),
+        known: knownSection(graph, world, scene, party, campaign.records),
         pressures: [...clocks, ...threatPressures(graph, world, scene, present)],
         obligations,
         director,

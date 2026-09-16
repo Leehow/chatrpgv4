@@ -1,5 +1,5 @@
 /** Keeper and player read projections preserve the existing authored/state boundary. */
-import { pythonJsonDumps, compareUnicode } from "../json.js";
+import { pythonJsonDumps, compareUnicode, isJsonObject } from "../json.js";
 import { ModuleGraph, recordOf, moduleDeclaration, describeCondition, conditionStatus, dossierLabels } from "./module-graph.js";
 import { entries, values, array, row, number, truth, string, normalize, chars, length, words, clone, type Row } from "./values.js";
 import { clueGate, structureType } from "./director.js";
@@ -359,7 +359,13 @@ export function investigatorSummary(sheet: Row): Row {
     // investigator who was out of play without ever being told he was: the player declared holding
     // on to consciousness and driving a dagger home, and got a halted tableau each time. §31's three
     // ends: `applyWoundConditions` writes it, this projects it, the Keeper acts on it.
+    // The money, for the same reason (contract §58). Turn 31 of the M-DETOUR table was played for a
+    // balance -- nine dollars, and a steamer ticket home at the end of it -- and this section named
+    // no money at all, so the only figure in the room was the one the player had just said out loud.
+    // The Keeper charged it as the price of a meal and the purse went to zero. A balance the Keeper
+    // is never told is a balance it can mistake for a price. `stageCash` writes it, this projects it.
     const conditions = array(sheet.conditions).map(string), blocked = incapacitatedBy(conditions);
+    const finance = row(sheet.finance), purse = row(finance.cash), spending = row(finance.spending_level);
     return {
         id: sheet.id ?? null,
         name: sheet.name ?? null,
@@ -371,6 +377,8 @@ export function investigatorSummary(sheet: Row): Row {
         mp: sheet.current_mp ?? null,
         luck: sheet.current_luck ?? null,
         conditions,
+        ...(purse.amount != null ? { cash: { amount: purse.amount, currency: purse.currency ?? null } } : {}),
+        ...(finance.living_standard != null || spending.amount != null ? { living: { standard: finance.living_standard ?? null, spending_level: spending.amount ?? null, currency: spending.currency ?? purse.currency ?? null } } : {}),
         ...(blocked.length ? { cannot_act: `${string(sheet.name || sheet.id)} is ${blocked.join(' and ')} and takes no action of their own. The kernel refuses one declared for them. Say the state in the fiction -- what the player's character feels, or does not -- and what is being done about it: First Aid or Medicine rouses them, and so does any hit point regained, including the one a day of rest returns.` } : {}),
         skills_of_note: entries(row(sheet.skills)).map(([name, value]) => ({
             name,
@@ -378,7 +386,35 @@ export function investigatorSummary(sheet: Row): Row {
         })).sort((a, b) => b.value - a.value || compareUnicode(a.name, b.name)).slice(0, 8)
     };
 }
-export function knownSection(graph: ModuleGraph, world: Row, scene: Row, party: Row[]): Row {
+/**
+ * What this table has actually charged (contract §58). The prices a campaign settles are facts it
+ * produced itself, and until now they existed only in the receipt stream with nothing reading them
+ * back: the M-DETOUR table had priced a hotel night at 1.0, a full set of darkroom chemicals at 1.0
+ * and the cheapest glass in the Cordano bar at 0.2, and then charged 6.3 for a plain meal in that
+ * same bar on the same day -- thirty-one times its own cheapest drink -- because no turn could see
+ * what the turns before it had done. `npc-ledger.json` keeps the with-an-NPC half of this, but only
+ * for the people standing in the room; a price is a fact about the world, not about who is present.
+ */
+export function pricesPaid(records: Row[], limit = 8): Row[] {
+    const paid: Row[] = [];
+    for (const record of [...records].sort((a, b) => number(b.turn) - number(a.turn)))
+        for (const receipt of array(record.receipts)) {
+            if (!isJsonObject(receipt) || receipt.kind !== "cash" || paid.length >= limit) continue;
+            const delta = number(receipt.delta ?? 0);
+            if (!(delta < 0)) continue;
+            paid.push({
+                turn: record.turn ?? null,
+                amount: -delta,
+                currency: receipt.currency ?? null,
+                ...(receipt.source != null ? { source: receipt.source } : {}),
+                ...(receipt.price_id != null ? { price_id: receipt.price_id } : {}),
+                ...(receipt.with_label != null ? { with: receipt.with_label } : {}),
+                why: receipt.why ?? null
+            });
+        }
+    return paid;
+}
+export function knownSection(graph: ModuleGraph, world: Row, scene: Row, party: Row[], records: Row[] = []): Row {
     const section: Row = {
         discovered_clues: [...array(world.discovered_clues)],
         clues_here: cluesHere(graph, world, scene),
@@ -396,6 +432,9 @@ export function knownSection(graph: ModuleGraph, world: Row, scene: Row, party: 
         if (typeof row(sheet.origin).library_id === "string" && row(sheet.origin).library_id && typeof sheet.era === "string" && sheet.era && typeof book === "string" && book && sheet.era !== book)
             section.investigator.era_note = `This sheet was built for the ${sheet.era} era and the module is set in ${book}; its characteristics, skills and money are unchanged. Reconcile the difference in the fiction, not in the numbers.`;
     }
+    const paid = pricesPaid(records);
+    if (paid.length)
+        section.prices_paid = paid;
     return section;
 }
 function lists(value: any): any[][] {

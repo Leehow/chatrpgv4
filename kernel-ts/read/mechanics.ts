@@ -145,8 +145,12 @@ export function mechanicsOf(receipt: Row, texts: ReadonlyMap<string, string> = n
             before: receipt.before ?? null,
             after: receipt.after ?? null
         };
-        for (const key of ["subject_label", "currency", "with", "with_label"])
+        // Contract §58: what the amount was based on travels with it, so a charge can be read back
+        // against its source instead of being taken on trust.
+        for (const key of ["subject_label", "currency", "with", "with_label", "source", "price_id", "price_name", "source_display"])
             labeled(out, key, receipt[key]);
+        if (receipt.source_amount != null)
+            out.source_amount = receipt.source_amount;
         return out;
     }
     if (kind === "session") {

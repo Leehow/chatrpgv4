@@ -306,7 +306,7 @@ def test_a_thing_bought_from_someone_goes_on_their_account(kernel):
         {"kind": "item", "name": "lucky pen"},  # nobody named: nothing to put on an account
         # Money moves between people too, and the effect had only a subject and a signed
         # delta: "I paid Dooley two dollars" could not be said at all.
-        {"kind": "cash", "delta": -2, "with": "Steven Knott", "why": "买下那份报纸"},
+        {"kind": "cash", "delta": -2, "source": "quote", "with": "Steven Knott", "why": "买下那份报纸"},
     ])
     narrate(kernel, "t1-c2", "诺特把报纸推过桌面，收了两块钱。")
 

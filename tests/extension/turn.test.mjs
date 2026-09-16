@@ -613,7 +613,7 @@ test("物品与现金：item、cash 原样进内核，收据只进机制投影�
 								label: "左轮",
 								why: "看门人把枪推过桌面",
 							},
-							{ kind: "cash", subject: "托马斯·海耶斯", delta: -30, why: "买了一盒子弹" },
+							{ kind: "cash", subject: "托马斯·海耶斯", delta: -30, source: "quote", with: "看门人", why: "买了一盒子弹" },
 						],
 					}),
 				],
@@ -645,8 +645,8 @@ test("物品与现金：item、cash 原样进内核，收据只进机制投影�
 	);
 	assert.deepEqual(
 		apply.params.effects[1],
-		{ kind: "cash", subject: "托马斯·海耶斯", delta: -30, why: "买了一盒子弹" },
-		"cash 的 delta 带正负号原样送，扩展不替内核算钱",
+		{ kind: "cash", subject: "托马斯·海耶斯", delta: -30, source: "quote", with: "看门人", why: "买了一盒子弹" },
+		"cash 的 delta 带正负号原样送，扩展不替内核算钱；§58 的 source 也原样送，扩展不替内核判钱的来源",
 	);
 
 	const receipts = table.session.messages
