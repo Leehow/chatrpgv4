@@ -9680,3 +9680,41 @@ no levels, which is exactly what was seen. The mechanism was not reproduced, so
 it is not guessed at further here. Anyone picking this up should start by
 failing `loadModelCatalog` and reading `getModelState` for a session that has a
 model recorded, rather than trusting this paragraph.
+
+## 70. A turn that never opened also has to end (2026-09-16)
+
+§67 made the host's own refusals count, and in the next real game the Keeper was
+told: its reasoning names the budget — *"the kernel refused my resolve attempts
+(8 refusals)"*, *"the '8 refusals this turn' message appeared"* — and it changed
+plan instead of silently resending a twenty-third time. That part worked.
+
+What it then did was keep calling anyway. Each call was blocked cheaply, so the
+refusals stayed bounded; the **turn** did not. Five minutes of blocked
+`resolve`/`apply` pairs on a table that could not move, with a player waiting.
+
+### 70.1 The cut only knew about closed turns
+
+§34.16 already has the escalation this needs: three blocked calls get a firmer
+answer, the sixth aborts the run. It is gated on `state.closedThisRun` — a turn
+that was closed with narrate and then kept being called. Here the turn had never
+*opened* (`turn: 0`, `awaiting_player`), so nothing incremented and nothing cut.
+Same runaway, the other end of the turn, no coverage.
+
+### 70.2 The contract
+
+**Whichever way a turn is unable to proceed, it ends.** A call blocked because
+the refusal budget is spent now escalates exactly like one blocked after a
+close: `blockedAfterExhausted` counts them, the third carries *call no further
+tool and write nothing more* on top of the budget's own closing instruction, and
+the sixth sets `runCut` and aborts the run. The counter resets with the others
+at turn boundaries, and its telemetry says `after: "refusal_budget"` so a
+runaway before the turn opened can be told from one after it closed.
+
+The budget's message is unchanged and still says how to finish properly — close
+with narrate, or hand the player the choice with ask. The cut is what happens
+when that is ignored, not a replacement for it.
+
+Test in `tests/extension/gates.test.mjs`: fourteen scripted `resolve` attempts
+with the opening unread; the class budget trips, a later block carries the
+harder line, one `runaway` row with `after: "refusal_budget"` is recorded, and
+the run stops before the fourteenth. It fails if the block stops counting.
