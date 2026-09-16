@@ -17,6 +17,7 @@
   "errorDetail": "Try again.",
   "errorTitle": "The sheet could not be read",
   "finance": "Finance",
+  "financeStandsIn": "Figures from the rulebook's {period} table, standing in for {era}.",
   "identityTitle": "Investigator credential",
   "item.adds_damage_bonus": "Adds damage bonus",
   "item.ammo": "Ammunition",

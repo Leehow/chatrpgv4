@@ -3133,6 +3133,27 @@ chosen entry) and `occupation_stated` (the player's words), both kernels store
 `occupation_stated` on the sheet beside `occupation` and in the investigator row
 the table reads, and the card shows the stated trade with the entry after it.
 
+**A cell the rulebook printed no figure for is empty.** It is not a zero and not
+the absent value itself. `cash-assets`'s lowest row prints `None` in the assets
+column, so the kernel records `{amount: null, currency, formula: "None"}` — a
+complete, honest record that the book prints no figure here — and never
+substitutes a zero, which would invent a figure the book does not print. Every
+card that draws money draws an absent amount the way it draws its other absent
+cells. A real table printed the literal word `null` beside a currency, and
+another printed a unit with no figure at all; both are the same defect.
+
+**A period that stood in is said where the numbers are.** When
+`sheet.finance.substituted_for` is present the figures were built from a column
+the book is not set in (§22.9), and both the character draft and the play-time
+sheet say so beside the money: the period the figures came from
+(`sheet.finance.period`) and the authored setting it stood in for, in the play
+language. The setup agent still states it once in its own words, but that
+sentence is prose in a transcript and scrolls away — a real 1895 campaign never
+said it at all, and its investigator then carried 1920s money unqualified for the
+whole campaign — so the card, which the player can reopen at any time, is where
+the fact is guaranteed. The authored setting travels as the book wrote it; it is
+never read for a year or rewritten into a table key.
+
 **Stated aptitude reaches the characteristics — when a package opens that door.**
 A player who describes this person as notably strong, frail, quick, slow, bright or
 dull is describing characteristics, not only skills, and the draft must not
@@ -7365,6 +7386,102 @@ refusals and that a real directory still registers),
 `packages/ui/src/remote-browser-session.test.ts` (the path predicate) and
 `packages/ui/src/RemoteBrowserApp.test.tsx` (the dialog keeps the typed text and
 stays open on a refusal).
+
+## 44. An upload that stopped says so, and can be continued (2026-09-16)
+
+Found at two real tables, not by a suite. The same 46,556,793-byte book froze at
+`received: 9437184` on one and `received: 8388608` on the other — whole MiB, but
+not the same one, so no fixed boundary: a chunk simply never answered and nothing
+sent another. `.coc/imports/<id>/job.json` read
+`{"received":8388608,"size":46556793,"state":"uploading"}` with `source.pdf`
+exactly that long on disk, and stayed that way for six minutes on one table and
+fourteen on the other while the card drew a progress bar and the page underneath
+promised 「准备进度会保留，离开这个页面后也可以回来继续」. A CDP capture over 45 s
+showed 38 `onboarding {action:"current"}` polls and one ping — the transport was
+alive and the host kept answering `"received":8388608` — and no upload frame at
+all. The server log said nothing. This is distinct from §43, where no byte ever
+moves because the pack's verbs go unanswered; here the bytes moved, then stopped.
+
+**What triggered the stall is not what this section fixes, and is not claimed
+here.** The two stop points differ, so there is no boundary at 8 or 9 MiB, and the
+machine those tables ran on was heavily oversubscribed at the time — a 30 s request
+timeout under that load is ordinary, and the 60 s it took to reach 9 MiB says the
+stream was already degraded before it stopped. The defect is what the product does
+afterwards, which is wrong under any load: it goes on reporting a stream that has
+stopped, offers a retry that moves no bytes, restores the same frozen card on
+reload, and prints a promise that the progress is kept while providing no way to
+keep it. The frame capture is the part that is a logic fact rather than a speed
+one — after the timeout the client sent polls and no chunk at all, with no
+`webSocketClosed` — and that is the fact this section answers.
+
+### 44.1 The push loop was the only pusher, and it was not restartable
+
+The chunk loop lives in the renderer, inside one `upload(file)` call, holding the
+only reference to the chosen `File` — a `File` cannot be stored, so when that call
+returned there was nothing left in the product that could send a byte. A chunk
+that rejected (`transport_timeout` after the Host API's 30 s wait) ended the loop.
+Neither recovery path restarted it: `retryConnection` re-read the catalog, so the
+card's label went from 「这一步没有完成」 back to 「正在上传」 and nothing else, and a
+reload restored the same frozen card from the host. **After a stream stops, the
+renderer is the only party that can restart it, and it must therefore be the party
+that knows how.** The host cannot: its side of an upload is a sink.
+
+- **A chunk that fails is retried, not fatal.** `UPLOAD_ATTEMPTS` consecutive
+  failures end an upload; one does not. Every attempt re-reads `{action:"status"}`
+  first and resumes from the host's own `received`, because a frame that never
+  answered may still have written its bytes (the Host API rule is never to replay
+  a mutation blind) and the host refuses any offset that is not its count. A
+  growing pause between attempts lets a chunk still being written land.
+- **The chosen file is held for the life of the page**, so `retryConnection` and
+  the paused card's `resume` both continue the stream instead of changing a label.
+  Both are tested; a button that only re-labels is the defect.
+- **Choosing the file again continues it.** A same-name, same-length file with
+  bytes outstanding resumes the existing job; it does not `begin` a new one. After
+  a reload this is the only way back, because the `File` is gone, and it is what
+  `onboarding.lede.job` promises. `chunk` therefore accepts an upload that is
+  `paused` as well as one that is `uploading`, restoring the phases the pause
+  stopped; the offset check is unchanged, so a lost acknowledgement still cannot
+  double-write.
+
+### 44.2 `uploading` is a claim about the present, and the host checks it
+
+`snapshot()` has asked "is anyone still working?" of the reading phases since they
+were written (`state:'running' && !alive → 'paused'`). The upload never asked,
+because its worker is a browser and no child of this host. The evidence available
+is the age of the last acknowledgement: `received_at` is stamped by `begin` and by
+every accepted chunk, and an `uploading` job with no chunk for `UPLOAD_STALL_MS`
+(90 s, well past the 30 s request timeout and past the slowest chunk a real table
+produced) is **reported** as `paused` carrying `{code: "upload_retry"}`.
+
+Reported, never written: the job stays `uploading` on disk so the very next chunk
+is still accepted. Saying "interrupted" and then refusing the resumed bytes would
+be the same lie in the other direction. `dismiss` reads the same predicate — an
+upload nobody is pushing is not live work, and refusing there sealed the player
+inside a screen nothing was moving. A renderer that gives up in-page pauses the
+job itself, so the card is honest at once rather than at the end of the window.
+
+### 44.3 A transport code is not a player-facing word
+
+`transport request timed out` reached a `zh-Hans` table verbatim. The projection
+path was never bypassed: §23 looks a caption up by **code**, and `transport_timeout`
+is minted in `@pipi/host-api`, a layer below the product, which registers no
+captions. With no word for it the card fell back to `errors.unknown` — 「这一步没有
+完成」 — over the English sentence in the fold, so the fold was the only content the
+player could read. Registering that one code would fix that one sentence.
+
+The rule instead: **the layer that catches a failure names it in the vocabulary it
+has.** A code these words have is the product's own account and is kept whole; a
+code they do not have came from beneath the product, and the upload reports
+`upload_retry` — a word §23 already carries in every language, and one that names
+something the player can do. The English stays behind the `errors.details` fold,
+the log line it always was. The check is against the answer's own `ui.words.errors`,
+which is data, not a list of codes in the renderer.
+
+Tests: `Electron/packages/pi-backend/test/coc-onboarding.test.ts` (the stall
+reading, the reopened chunk, dismissing a dead upload) and
+`Electron/packages/ui/src/CocOnboarding.test.tsx` (a resumed stream, both retry
+buttons moving bytes, a re-chosen file continuing from the prefix, and the
+transport code never reaching the player).
 
 ## 45. Readiness is `missing`; `findings` is an opinion about the book (2026-09-16)
 

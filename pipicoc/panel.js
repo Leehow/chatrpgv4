@@ -433,6 +433,14 @@ const VITAL_ICON = { HP: "heart", SAN: "brain", MP: "sparkles", luck: "clover" }
 /** Which glyph each known characteristic or derived cell carries; an unknown key draws none. */
 const CHAR_ICON = { STR: "dumbbell", CON: "shield", SIZ: "expand", DEX: "zap", APP: "smile", INT: "bulb", POW: "flame", EDU: "book", MOV: "wind", DB: "sword", BUILD: "body" };
 
+/**
+ * What a cell that has no value reads as. Punctuation, not a word: it says the same thing in every
+ * play language and so belongs in code rather than in `content/ui`. The character draft the player
+ * confirms during setup draws its empty cells with the same mark, so a card that goes on being the
+ * same card does not change its mind about how it says "nothing here".
+ */
+const ABSENT = "—";
+
 function isRecord(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
@@ -523,11 +531,22 @@ function itemLine(item, term = value => value) {
   return {title, quantity:numberOr(item.quantity,undefined), details};
 }
 
+/**
+ * A money cell: the figure in its currency, or the card's absent mark when the table printed none.
+ *
+ * The rulebook's Penniless row prints no assets at all, and the kernel records that faithfully as
+ * `{amount: null, currency, formula: "None"}` -- the row's derivation *is* "None", which is an
+ * accounting fact and not a gap. Writing a zero into the rules layer would invent a figure the
+ * rulebook never printed, so the cell is the renderer's business: an amount that is not there reads
+ * the way every other empty cell on this card reads. A bare currency, which is what this returned
+ * before, is a unit with nothing in front of it.
+ */
 function money(value, term = value => value) {
+  if (value === null || value === undefined) return ABSENT;
   if (!isRecord(value)) return text(value);
   const amount = value.amount;
   const currency = term(text(value.currency));
-  if (amount === undefined || amount === null) return currency;
+  if (amount === undefined || amount === null) return ABSENT;
   return currency ? `${text(amount)} ${currency}` : text(amount);
 }
 
@@ -880,7 +899,24 @@ export function createComponent(React) {
     const creditRating = sheet.credit_rating !== undefined ? sheet.credit_rating : finance.credit_rating;
     if (creditRating !== undefined) rows.push({ name: t("creditRating"), value: text(creditRating), numeric: true });
     if (finance.living_standard !== undefined) rows.push({ name: t("livingStandard"), value: term(text(finance.living_standard)) });
-    return rows.length ? h(Section, { title: t("finance"), icon: "landmark", anchor: "finance" }, h(Lines, { kind: "finance", rows })) : null;
+    /**
+     * Where these figures came from, when they came from a period the book is not set in (§23.4).
+     *
+     * A book set in a year the rulebook never tabulated builds its card off the table's own nominated
+     * column, and the kernel records the swap in `finance.substituted_for` beside `finance.period`.
+     * Until now the only place that reached the player was a sentence the setup agent was asked to
+     * say once, in prose, at character creation -- `game-b4cebfe0`'s transcript never says it, and
+     * the numbers then stood on the card unqualified for the whole campaign. The fact belongs where
+     * the numbers are, because that is the one place it cannot fall out of.
+     */
+    const substituted = text(finance.substituted_for);
+    const note = substituted
+      ? h("p", { className: "coc-sheet-note", key: "stands-in" },
+          fill(t("financeStandsIn"), { period: term(text(finance.period)), era: term(substituted) }))
+      : null;
+    return rows.length
+      ? h(Section, { title: t("finance"), icon: "landmark", anchor: "finance" }, h(Lines, { kind: "finance", rows }), note)
+      : null;
   }
 
   /** The investigator's own history: what the sheet's backstory carries, in the play language. */

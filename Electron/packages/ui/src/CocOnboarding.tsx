@@ -25,6 +25,17 @@ type Failure = {code: string; message: string}
 type Props = {host: PipiHostAPI; sessionId: string}
 const MB = 1024 * 1024
 const MAX_UPLOAD_MB = 128
+/**
+ * How many times in a row a chunk may fail before the upload is a stopped job rather than a retry.
+ *
+ * Every retry re-reads the host's own `received` first. A transport frame that never answered may
+ * still have delivered its bytes -- the Host API's rule is never to replay a mutation blind -- and
+ * the host refuses any offset that is not its own count, so asking is both the safe move and the
+ * only one that can continue.
+ */
+const UPLOAD_ATTEMPTS = 4
+/** A pause between attempts, growing, so a chunk still being written has time to land. */
+const UPLOAD_RETRY_MS = 500
 
 /** A caption from the answer's `ui` block, or `fallback` -- the key by default, so a gap is
  *  something a player can name rather than a word from a language they did not choose. */
@@ -62,6 +73,24 @@ function failure(reason: unknown): Failure {
   return {code: '', message: reason === undefined || reason === null ? '' : String(reason)}
 }
 
+/**
+ * What to tell the player when an upload stops.
+ *
+ * A code these words have is the product's own account of what happened, and it is kept whole. A
+ * code they do not have came from under the product -- a transport frame that never answered, a
+ * socket that dropped -- and has no caption to project (§23), so it would reach the player as
+ * `errors.unknown` above the host's English sentence -- which is what two real tables read: the
+ * generic caption over `transport request timed out`, so the fold was the only content there was.
+ * The upload names it in a word these words do have. The English stays behind the fold, the log
+ * line it always was. See §44.3.
+ */
+function uploadFailure(reason: unknown, ui: Ui | null): Failure {
+  const told = failure(reason)
+  return typeof ui?.words?.errors?.[told.code] === 'string' ? told : {...told, code: 'upload_retry'}
+}
+
+const pause = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
+
 function fileChunk(file: Blob): Promise<string> {
   return new Promise((resolve,reject) => {
     const reader = new FileReader()
@@ -85,6 +114,7 @@ export function CocOnboarding({host, sessionId}: Props) {
   const [ui,setUi] = useState<Ui | null>(null)
   const starting=useRef(false), restored=useRef(false)
   const chooser = useRef<HTMLInputElement>(null), cancelled = useRef(false), uploadRunning = useRef(false)
+  const chosen = useRef<File | null>(null)
   const storageKey = 'pipicoc-import:' + sessionId
   const t=(key:string)=>word(ui,'onboarding',key)
   const tf=(key:string,values:Record<string,unknown>)=>fill(t(key),values)
@@ -134,24 +164,76 @@ export function CocOnboarding({host, sessionId}: Props) {
     setError(null);setBusy(true)
     try {remember(await call({...params,id:job?.id,...(params.action==='select'?{play_language:language}:{})}))} catch(e){setError(failure(e))} finally {setBusy(false)}
   }
+  /**
+   * The job this file continues rather than begins again: the same file, with bytes still
+   * outstanding. The host kept every byte it acknowledged, whoever stopped the stream and why, so
+   * beginning again would resend a 44 MB book to reach a place it is already at. This is the whole
+   * of what `lede.job` promises.
+   */
+  function continuable(file:File):Row|null {
+    return job && job.source==='pdf' && job.name===file.name && job.size===file.size &&
+      typeof job.received==='number' && job.received<file.size &&
+      ['uploading','paused'].includes(job.state) ? job : null
+  }
+  /**
+   * Send `file` into `id` until the host has all of it, starting wherever the host says it is.
+   *
+   * A chunk that fails is not the end of the upload -- it was, and that is the defect: the loop
+   * held the only reference to the chosen file, so when it returned nothing in the product could
+   * send another byte, while the card went on drawing a progress bar. Each attempt re-asks the
+   * host for its own count, because a frame that never answered may still have written its bytes.
+   */
+  async function push(file:File, id:string):Promise<Row> {
+    let current=await call({action:'status',id})
+    remember(current)
+    let failures=0
+    while(!cancelled.current && current.received<file.size) {
+      try {
+        current=await call({action:'chunk',id,offset:current.received,
+          data:await fileChunk(file.slice(current.received,current.received+MB))})
+        failures=0
+        remember(current)
+      } catch(reason) {
+        if(cancelled.current || ++failures>=UPLOAD_ATTEMPTS)throw reason
+        await pause(UPLOAD_RETRY_MS*failures)
+        if(cancelled.current)break
+        current=await call({action:'status',id})
+        remember(current)
+      }
+    }
+    return current
+  }
   async function upload(file?:File) {
     if(!file)return
     setSection('pdf');setError(null);cancelled.current=false
     if(!file.name.toLowerCase().endsWith('.pdf') || file.size>MAX_UPLOAD_MB*MB || file.size<5){
       setError({code:'upload_too_large', message:`select a PDF of at most ${MAX_UPLOAD_MB} MB`});return}
+    if(uploadRunning.current)return
+    // Held so a resume has something to send: a `File` cannot be stored, so this is what the page
+    // has until it is reloaded, and after a reload the card asks for the file again.
+    chosen.current=file
     uploadRunning.current=true
     setBusy(true)
+    let started:Row|null=continuable(file)
     try {
-      let current=await call({action:'begin',name:file.name,size:file.size,play_language:language})
-      remember(current)
-      for(let offset=0;offset<file.size;offset+=MB){
-        if(cancelled.current)break
-        current=await call({action:'chunk',id:current.id,offset,data:await fileChunk(file.slice(offset,offset+MB))})
-        remember(current)
-      }
-      if(cancelled.current){remember(await call({action:'pause',id:current.id}));return}
-      remember(await call({action:'finish',id:current.id}))
-    } catch(e){setError(failure(e))} finally {uploadRunning.current=false;setBusy(false)}
+      if(!started){started=await call({action:'begin',name:file.name,size:file.size,play_language:language});remember(started)}
+      await push(file,started.id)
+      if(cancelled.current){remember(await call({action:'pause',id:started.id}));return}
+      remember(await call({action:'finish',id:started.id}))
+    } catch(e){
+      setError(uploadFailure(e,ui))
+      // The stream stopped and this page is the only thing that could have moved it: the job says
+      // so, instead of leaving a card that goes on claiming bytes are arriving. The host takes the
+      // next chunk of a paused upload, so saying it is stopped costs the resume nothing.
+      if(!cancelled.current&&started)try{remember(await call({action:'pause',id:started.id}))}catch{/* the host reports the stall on its own clock */}
+    } finally {uploadRunning.current=false;setBusy(false)}
+  }
+  /** Continue an interrupted upload with the file still in hand; false when there is nothing to send. */
+  function continueUpload():boolean {
+    const file=chosen.current
+    if(!file||uploadRunning.current||!continuable(file))return false
+    void upload(file)
+    return true
   }
   async function back(){setBusy(true);try{if(job)await call({action:'dismiss',id:job.id});setJob(null);setSection('home');setError(null);try{localStorage.removeItem(storageKey)}catch{}}catch(e){setError(failure(e))}finally{setBusy(false)}}
   const preparing=job && ['preparing','inspecting','uploading'].includes(job.state)
@@ -194,11 +276,15 @@ export function CocOnboarding({host, sessionId}: Props) {
       </div>}
       {job.state==='choice' && <div><h2>{t('openingTitle')}</h2><p>{t('openingBody')}</p><div className="coc-source-list">{job.candidates?.map((item:Row)=><button key={item.scene} disabled={busy} onClick={()=>void act({action:'opening',scene:item.scene})}><strong>{item.name}</strong>{item.summary&&<span>{item.summary}</span>}<b>{t('select')}</b></button>)}</div></div>}
       {['failed','paused'].includes(job.state)&&<div><h2>{job.state==='paused'?t('pausedTitle'):t('failedTitle')}</h2><p>{t('keptNote')}</p>{/* The caption leads and the host's message follows it, never replaces it: a message is written
-            in the system language, and a player who chose another reads only the caption (BUG-039). */}
-        {job.error&&<details><summary>{t('showReason')}</summary><p>{said(failure(job.error))}</p>{failure(job.error).message&&<p className="coc-muted">{failure(job.error).message}</p>}</details>}<div className="coc-actions"><button disabled={busy||job.stopping} onClick={()=>void act({action:'resume'})}>{job.stopping?t('pausing'):t('resume')}</button><button className="coc-secondary" onClick={()=>chooser.current?.click()}>{t('choosePdfAgain')}</button></div></div>}
+            in the system language, and a player who chose another reads only the caption (BUG-039, §45.3). */}
+        {job.error&&<details><summary>{t('showReason')}</summary><p>{said(failure(job.error))}</p>{failure(job.error).message&&<p className="coc-muted">{failure(job.error).message}</p>}</details>}<div className="coc-actions"><button disabled={busy||job.stopping} onClick={()=>{if(!continueUpload())void act({action:'resume'})}}>{job.stopping?t('pausing'):t('resume')}</button><button className="coc-secondary" onClick={()=>chooser.current?.click()}>{t('choosePdfAgain')}</button></div></div>}
       {['ready','conversing'].includes(job.state)&&<p role="status">{t('entering')}</p>}
       {!preparing&&!busy&&job.state!=='created'&&<button className="coc-back" onClick={back}>{t('back')}</button>}
     </section>}
-    {error&&<div className="coc-error" role="alert"><strong>{t('errorTitle')}</strong><p>{said(error)}</p>{error.message&&<details><summary>{word(ui,'errors','details')}</summary><p>{error.message}</p></details>}<button onClick={()=>{setError(null);void call({action:'catalog',play_language:language}).then(setCatalog).catch(e=>setError(failure(e)))}}>{t('retryConnection')}</button></div>}
+    {error&&<div className="coc-error" role="alert"><strong>{t('errorTitle')}</strong><p>{said(error)}</p>{error.message&&<details><summary>{word(ui,'errors','details')}</summary><p>{error.message}</p></details>}<button onClick={()=>{setError(null)
+      // An interrupted upload is retried by sending bytes, not by re-reading the catalog. The
+      // button used to do only the latter, so pressing it moved the label from "this step did not
+      // finish" back to "uploading" and nothing else -- twice observed, five minutes of no bytes.
+      if(!continueUpload())void call({action:'catalog',play_language:language}).then(setCatalog).catch(e=>setError(failure(e)))}}>{t('retryConnection')}</button></div>}
   </div></div>
 }

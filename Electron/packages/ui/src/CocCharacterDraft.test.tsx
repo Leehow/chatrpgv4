@@ -193,3 +193,46 @@ it('shows why the preview acknowledgment failed',async()=>{
  render(<CocCharacterDraft data={{revision:2,play_language:'zh-Hans',sheet,presentation:{texts:zh,play_language:'zh-Hans'}}} onRendered={ack}/>);
  expect((await screen.findByRole('alert')).textContent).toContain('campaign_locked');
 })
+
+/**
+ * The rulebook's Penniless row prints no assets. `cash-assets.json` carries that as `assets: null`
+ * and the kernel writes it onto the card as `{amount: null, formula: 'None'}` -- the row's
+ * derivation *is* "None", which is a recorded fact and not a hole. `game-1c0faba5` and
+ * `game-33a2a97a` both drew it as the literal word `null` in front of a currency within minutes of
+ * each other on 2026-09-14, and one of those players wrote the string back into the fiction asking
+ * what it meant. The card already knows how to say "nothing here"; the money cell did not use it.
+ */
+it('draws a money cell the rulebook printed no figure for the way it draws every other empty cell',async()=>{
+ const finance={credit_rating:0,living_standard:'Penniless',cash:{amount:0.5,currency:'USD'},assets:{amount:null,currency:'USD',formula:'None'},spending_level:{amount:0.5,currency:'USD'},period:'1920s',source:'cash-assets.periods.1920s'};
+ const data={revision:2,sheet:{...sheet,credit_rating:0,finance},presentation:{texts:{...zh,Penniless:'身无分文'},play_language:'zh-Hans'}};
+ const {container}=render(<CocCharacterDraft data={data}/>);
+ await screen.findByRole('region',{name:'角色草稿'});
+ expect(container.textContent).not.toMatch(/null/);
+ const cell=(label:string)=>screen.getByText(label).closest('div')?.querySelector('dd')?.textContent;
+ expect(cell('资产')).toBe('—');
+ expect(cell('现金')).toBe('0.5 美元');
+})
+
+/**
+ * A book set in a year the rulebook never tabulated builds its figures off the table's own nominated
+ * column, and the kernel records the swap (§23.4). `game-b4cebfe0` is set in 1895, its money is the
+ * 1920s column, and the player saw only "9 美元": the contract asks the setup agent to say the
+ * substitution once in prose and that transcript never says it. The fact belongs beside the numbers.
+ */
+it('says beside the numbers which period they came from when it stood in for the authored setting',async()=>{
+ const era='1895 (default); investigators then reach the night before the 1287 storm';
+ const finance={credit_rating:9,living_standard:'Poor',cash:{amount:9,currency:'USD',formula:'CR x 1'},assets:{amount:90,currency:'USD',formula:'CR x 10'},spending_level:{amount:2,currency:'USD'},period:'1920s',source:'cash-assets.periods.1920s',substituted_for:era};
+ const texts={...zh,finance_period:'财务年代',substituted_for:'代替',[era]:'1895 年（默认）；随后是 1287 年暴风雨前夜'};
+ const {container}=render(<CocCharacterDraft data={{revision:2,sheet:{...sheet,setting_era:era,finance},presentation:{texts,play_language:'zh-Hans'}}}/>);
+ await screen.findByRole('region',{name:'角色草稿'});
+ const note=container.querySelector('.coc-draft-finance')?.nextElementSibling?.textContent;
+ expect(note).toBe('财务年代: 1920年代 · 代替: 1895 年（默认）；随后是 1287 年暴风雨前夜');
+ expect(container.textContent).not.toMatch(/substituted_for|1287 storm/);
+})
+
+it('carries no substitution note on a card whose period the rulebook does tabulate',async()=>{
+ const finance={credit_rating:30,living_standard:'Average',cash:{amount:60,currency:'USD'},assets:{amount:1500,currency:'USD'},spending_level:{amount:10,currency:'USD'},period:'1920s',source:'cash-assets.periods.1920s'};
+ const {container}=render(<CocCharacterDraft data={{revision:2,sheet:{...sheet,finance},presentation:{texts:{...zh,finance_period:'财务年代',substituted_for:'代替'},play_language:'zh-Hans'}}}/>);
+ await screen.findByRole('region',{name:'角色草稿'});
+ expect(container.textContent).not.toMatch(/财务年代/);
+})
