@@ -188,14 +188,16 @@ test('a card built off a period the book is not set in says so where the numbers
 	assert.equal(finance.substituted_for, era, 'and the card records what it stood in for');
 
 	const drawn = await drawSheet(view);
-	// The caption is the shipped one and both halves are the table's own words for the period and the
-	// authored setting (§16.5's glossary), so this is the sentence the player reads, not a paraphrase.
-	const said = SHEET_WORDS.financeStandsIn
-		.replace('{period}', view.labels['1920s'] ?? '1920s')
-		.replace('{era}', view.labels[era] ?? era);
+	// Two halves, and they are separate on purpose (§23.4): the caption is the shipped one with the
+	// table's own word for the period, and the authored setting follows it verbatim as its own text.
+	// Splicing a source string into the middle of a play-language sentence reads as neither, so the
+	// test pins the two pieces rather than one template.
+	const said = SHEET_WORDS.financeStandsIn.replace('{period}', view.labels['1920s'] ?? '1920s');
+	const block = drawn.slice(drawn.indexOf(SHEET_WORDS.finance), drawn.indexOf(SHEET_WORDS.finance) + 600);
 	assert.ok(drawn.includes(said),
-		`the finance block never tells the player these figures are a stand-in:\n${drawn.slice(drawn.indexOf(SHEET_WORDS.finance), drawn.indexOf(SHEET_WORDS.finance) + 400)}`);
-	assert.ok(said.includes(era), 'and the authored setting is said in the book\'s own words, not re-read for a year');
+		`the finance block never tells the player these figures are a stand-in:\n${block}`);
+	assert.ok(drawn.includes(`${said} ${era}`),
+		`the authored setting is not said in the book's own words beside the caption:\n${block}`);
 });
 
 test('a book the rulebook does tabulate says nothing, so the note is a fact and not decoration', async (t) => {

@@ -912,7 +912,10 @@ export function createComponent(React) {
     const substituted = text(finance.substituted_for);
     const note = substituted
       ? h("p", { className: "coc-sheet-note", key: "stands-in" },
-          fill(t("financeStandsIn"), { period: term(text(finance.period)), era: term(substituted) }))
+          // The authored setting travels as the book wrote it (§23.4), so it is its own text node
+          // after the caption rather than a substitution inside it: a sentence in the play language
+          // with a source string spliced into the middle of it reads as neither.
+          fill(t("financeStandsIn"), { period: term(text(finance.period)) }), " ", substituted)
       : null;
     return rows.length
       ? h(Section, { title: t("finance"), icon: "landmark", anchor: "finance" }, h(Lines, { kind: "finance", rows }), note)
