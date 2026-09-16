@@ -21,6 +21,7 @@ import {
   probeRemotePairLink,
   type ProbeSocket
 } from './remote-link-probe.js'
+import { createFramePacer, RELAY_FRAME_BUDGET, type FramePacer } from './frame-pacer.js'
 
 export {
   PIPI_REMOTE_CONTROL_EVENT_CHANNEL,
@@ -76,6 +77,8 @@ export type RemoteControlServiceOptions = {
   connectBrowser?: (url: string, cookie: string) => ProbeSocket
   fetchImpl?: typeof fetch
   probeTimeoutMs?: number
+  /** Frames per second the link accepts; stays under the relay's own ceiling. */
+  framesPerWindow?: number
   backoffMs?: (attempt: number) => number
   pingIntervalMs?: number
   sleep?: (ms: number, signal: AbortSignal) => Promise<void>
@@ -217,6 +220,7 @@ export function createRemoteControlService(options: RemoteControlServiceOptions)
   let stored: RemoteControlStored | null = null
   let socket: SocketLike | null = null
   let session: HostBackendSession | null = null
+  let pacer: FramePacer | undefined
   let generation = 0
   let hostEpoch = 0
   let reconnectAttempt = 0
@@ -269,15 +273,23 @@ export function createRemoteControlService(options: RemoteControlServiceOptions)
   }
 
   const bindSession = (target: SocketLike) => {
+    // Every frame goes through the pacer: the relay counts frames per room and
+    // closes a socket at 1008 when a streaming turn crosses its window (§64).
+    pacer?.reset()
+    pacer = createFramePacer({
+      send: text => {
+        if (target.readyState !== 1) return
+        try { target.send(text) } catch { /* close race */ }
+      },
+      framesPerWindow: options.framesPerWindow ?? RELAY_FRAME_BUDGET,
+    })
     const bound = createHostBackendSession(remoteBackend, frame => {
       if (target.readyState !== 1) return
-      try {
-        target.send(JSON.stringify({
-          ...frame,
-          ...(hostEpoch ? { hostEpoch } : {}),
-          ...(generation ? { generation } : {})
-        }))
-      } catch { /* close race */ }
+      pacer?.push(JSON.stringify({
+        ...frame,
+        ...(hostEpoch ? { hostEpoch } : {}),
+        ...(generation ? { generation } : {})
+      }))
     })
     session = bound
   }
