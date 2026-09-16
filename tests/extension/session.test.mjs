@@ -249,10 +249,16 @@ test("内核意外退出后重新拉起并重开桌", async (t) => {
 		.map((entry) => entry.method)
 		.filter((method) => !method.startsWith("module."));
 	assert.deepEqual(
-		methods,
+		methods.slice(0, 5),
 		["kernel.hello", "table.open", "table.player_input", "kernel.hello", "table.open"],
 		"第三个请求把内核带走之后，扩展重新拉起并重新 table.open",
 	);
+	// 契约 §41.1：玩家输入被拒之后上下文车道不再闩住，所以这一轮它会照常向新内核补水
+	// （`table.capsule`）——这张假内核每三个请求死一次，于是重启会不止一次。开桌那条线要的是
+	// 「每次 hello 之后紧跟 table.open」，不是一条固定长度的清单。
+	for (const [index, method] of methods.entries())
+		if (method === "kernel.hello")
+			assert.equal(methods[index + 1], "table.open", "每次重新拉起内核都要重新开桌");
 
 	const [failure] = customMessages(table.session, "coc-host").filter(
 		(message) => message.details?.kind === "player-input-failed",

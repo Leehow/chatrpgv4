@@ -42,6 +42,11 @@ export function createModRuntime(context: KernelContext, sources: ModSources = {
     let changed = !Object.hasOwn(world, 'mods') && isJsonObject(staged);
     if (changed) world.mods = clone(staged);
     changed = await runtime.initializeWorld(world) || changed;
+    // Contract 41.2: a package that refused its own bytes no longer refuses the table, so the one place it
+    // would otherwise go unrecorded is a campaign that does not lock it. One row per initialization, on the
+    // read the world init just did -- this never re-reads the packages.
+    for (const entry of runtime.unavailable)
+      await campaign.telemetry({lane: 'mods', event: 'package_unavailable', mod: entry.id, version: entry.version, path: entry.path, reason: entry.reason});
     if (options.pending && !await busy(campaign, world)) changed = await runtime.applyPending(world) || changed;
     if (changed) await campaign.writeWorld(world);
     if (staged != null) { delete meta.mods_pending; await campaign.writeCampaign(meta); }
