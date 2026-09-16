@@ -339,10 +339,14 @@ body{overscroll-behavior:none}
 .browser-host-error { position: relative; width: min(520px, 100%); padding: 24px; border: 1px solid var(--border, #d7d9df); border-radius: 14px; background: var(--panel-bg, #fff); }
 .browser-host-error > button[aria-label="关闭错误"] { position: absolute; top: 10px; right: 12px; border: 0; background: transparent; font-size: 24px; cursor: pointer; }
 .browser-host-hint { color: var(--text-secondary, #5f6368); font-size: 13px; }
-.remote-browser-shell { min-height: 100vh; display: flex; flex-direction: column; }
-/* The shell fills whatever the banner leaves, and all of it when there is no
-   banner -- the wrapper is now present in every phase (§57). */
-.remote-browser-shell > .pipiui-shell { flex: 1 1 auto; min-height: 0; }
+/* The wrapper is present in every phase now (§57), so it has to be exactly the
+   viewport: with only a min-height it grows to whatever the shell's tallest
+   card asks for, and the composer ends up thousands of pixels below the fold,
+   unreachable, because the shell scrolls its own panes internally. `height:auto`
+   overrides `.pipiui-shell`'s own `height:100%`, which cannot resolve against a
+   flex container that has no definite height. */
+.remote-browser-shell { height: 100vh; min-height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+.remote-browser-shell > .pipiui-shell { flex: 1 1 auto; min-height: 0; height: auto; }
 .remote-browser-banner { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; padding: 8px 14px; background: color-mix(in srgb, #c9a227 18%, var(--bg-primary, #fff)); border-bottom: 1px solid var(--border, #d7d9df); font-size: 13px; }
 .remote-browser-banner button { margin-left: auto; }
 
