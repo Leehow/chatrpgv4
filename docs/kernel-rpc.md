@@ -9627,3 +9627,122 @@ Test in `tests/extension/gates.test.mjs`: with the opening still unread, four
 answers with the exhausted-class instruction, one `class_limit` row is recorded,
 and `narrate` still closes the opening. It fails if the host's block stops
 scoring itself.
+
+## 69. A turn that settled and was never told reaches the next capsule (2026-09-16, extends §38 and §50)
+
+§38 gave an undelivered turn an honest ending and §50 gave the player its mechanics card. Both stop at
+the state surface. The Keeper's next run reads neither, and that is where the cost actually falls.
+
+**Retained live evidence** (`playtest-evidence/pipicoc-20260914`, home `t4`, campaign
+`game-1c0faba5`, turns 81–83, 2026-09-16). The player searched a burned chapel wall carefully —
+scraping the paint edge to prove it was applied after the fire, copying the emblem without correcting
+its asymmetry, then circling the standing wall for the same paint elsewhere, for signs anyone had
+camped there, and for anything the priest left. Six receipts settled:
+
+```
+roll:spot-hidden-t81-c3        Spot Hidden 8/50, level "extreme", passed
+clue:chapel-eye-symbol-t81     + handout:the-haunting-handout-9-chapel-symbol-t81
+time:t81-c2                    20 minutes, clock 3152 -> 3172
+definition:document-t81-c2 / -c5   the notebook she drew it into, twice
+```
+
+The continuity review returned `revise`, the bounded Keeper repair did not resolve it, and the turn
+was released `closed_by: "stranded"`, `text: null`, `rendered_text: null`.
+
+**Turn 82 then contradicted the receipts.** Its prose said those observations were *still not written
+down* — "the page beside the drawing is still empty" — and the campaign's own verifier lane caught it
+(`player_agency`, quoting that sentence) without blocking it. The player, reading that the page was
+blank, went back and searched the same wall again on turn 83, and the clock billed a second time for
+one act. **Nothing was lost from the state surface; the fiction came out denying it.** That is worse
+than a missing paragraph: the contradiction propagates, and every downstream consumer still reads the
+receipts as true.
+
+### 69.1 Why the Keeper wrote it that way
+
+The capsule for turn 82 said nothing about turn 81 and, in two places, said the opposite:
+
+- `recent` carried turn 81 with the player's whole sentence and `keeper: ""`. An empty Keeper line is
+  indistinguishable from a turn where nothing happened. The `closed`/`receipts` fields `recent` rows
+  already carry (§34.5) come from `closed_how`, which a stranded record leaves `null`.
+- `known.clues_here` carried `chapel-eye-symbol` with `discovered: true`, because `apply clue` had
+  landed. From the capsule, a discovered clue is a delivered clue; there was no third state.
+
+This is the §31 shape once more, and specifically the mirror of §51.4. There the prose gave a finding
+the books never got (`unrecorded`). Here the books got receipts the prose never gave.
+
+### 69.2 `capsule.untold`
+
+The capsule gains one section, `untold`: one row per earlier turn recorded `closed_by: "stranded"`
+that settled at least one projectable receipt and has not yet been followed by a delivered turn.
+
+```
+untold: [{turn: 81, receipts: [ ...mechanics rows... ], line: "turn 81 settled these and the player
+         was never told; say what they found, and do not write as though it did not happen"}]
+```
+
+- **The rows are the kernel's own projection.** `receipts` is `mechanicsOf` (§16.2) over the record's
+  receipts — the same projection a delivered turn's card uses. Nothing here reads a receipt for
+  meaning, matches on words, or writes prose; a receipt kind that projects to no card contributes no
+  row, exactly as it contributes none to a delivery.
+- **A turn that settled nothing projectable gets no row.** A row with no finding behind it would be a
+  nag, and §31's boundary on the offer ledger applies: the capsule counts, it does not press.
+- **It clears itself, and no writer has to retract it.** A delivered turn (`closed_by: "narrate"`)
+  after the stranded one discharges every row before it, because by then the Keeper has written once
+  with the findings in hand. A run of stranded turns accumulates until that delivery, in play order.
+- **It is not licence to invent.** The receipts are facts the kernel minted and the ledger already
+  counts. The Keeper says what landed, in its own prose, in the play language — no receipt text is
+  handed to the player and the stranded record is never backfilled (§38.2 keeps it inert).
+
+`HEAD` names the section beside `unrecorded`, and `SLICE2_BUDGETS.untold` is 1024 bytes.
+
+### 69.3 The three ends (§31)
+
+- **Writes it:** the kernel, when `table.player_input(release: "stranded")` writes the record with its
+  receipts (§38.2). No new writer and no new state.
+- **Reads it:** `untoldReceipts` in `kernel-ts/read/assemble.ts`, which until now had no reader at all
+  for `closed_by: "stranded"` — the release wrote a record nothing downstream ever opened again.
+- **Acts on it:** the Keeper, in the next turn's prose, and the same delivery retracts the row.
+
+### 69.4 What is deliberately not here
+
+- **The review is not relaxed.** Nothing narrates on the Keeper's behalf, nothing treats a verdict as
+  a pass, and an unavailable review still authorizes nothing (§32).
+- **The stranded record is not rewritten.** There is no path that backfills `text` on a
+  `closed_by: "stranded"` record, and §38.2's inertness is the reason. What the player gets back is
+  the content, on the next turn, not that turn's paragraph.
+- **The player notice is untouched here.** `review_verdict_notice` still ends "send anything and the
+  Keeper writes this turn again", which describes a rewrite that cannot happen; with this section the
+  Keeper can at least carry the findings forward, so the sentence is now merely imprecise rather than
+  empty. Correcting it is a §23 caption change, and a caption change is two-legged: the authored
+  English in `content/ui/en/extension.json` and the shipped `content/ui/zh-Hans/` seed, which wins
+  whole when complete and carries no digest — editing only the English would leave every zh-Hans
+  player reading the old sentence forever. That is its own open item, listed below.
+
+### 69.5 Open, found while reading this turn
+
+- **A clue's `summary` has no player-side surface, and it is in the system language.**
+  `clue:chapel-eye-symbol-t81` carries `"A freshly painted white emblem on the ruined wall forms a
+  staring eye from three Y-shapes…"` — authored English, correct per §23 for a system-language field.
+  The clue *label* is projected and the summary is not rendered anywhere the player can read, so the
+  whole of what an extreme success bought reaches the player as one label and one figure on a card.
+  Whether the summary should travel the presentation leg (§23) is not settled here.
+- **The shipped seed has no digest** (`runtime/ui-words.ts`): a complete `content/ui/<tag>/` seed
+  answers before the home cache, so an edit to an authored caption silently keeps the stale
+  translation. Every caption correction in this repo is therefore gated on running the presentation
+  lane.
+
+### 69.6 Acceptance
+
+1. A turn released `release: "stranded"` after settling a check and a clue appears in the next
+   capsule's `untold`, one row, naming that turn, carrying both receipt ids as `receipt` on its
+   projected rows.
+2. In that same capsule `known.clues_here` still reports the clue `discovered: true` and `recent`
+   still reports `keeper: ""` — the two readings that produced the contradiction — so the row is what
+   distinguishes them.
+3. A delivered turn after it empties `untold`, with no call retracting anything.
+4. Two stranded turns in a row both stay, in play order; a stranded turn that settled nothing adds no
+   row.
+
+Tests: `tests/extension/untold-turn-receipts.test.mjs`, against the real kernel over RPC, gating the
+undelivered turn with `release: "stranded"` rather than by racing a delivery. Each test fails when the
+`untold` wiring is reverted; the discharge test fails on its own when the self-clearing predicate is.
