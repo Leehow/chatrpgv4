@@ -14,6 +14,7 @@ import { SkillResolver } from '../rules/skills.js';
 import { nowIso } from '../write/store.js';
 import { CheckArithmetic } from './arithmetic.js';
 import { incapacitatedBy } from '../healing/conditions.js';
+import { npcPatient } from '../healing/patient.js';
 import { SettleContext, type ResolveWriter } from './context.js';
 import { ResolvePipeline, actionSkills, fullDecisionRef, resolveActor, unsupportedValue, validateExtras } from './pipeline.js';
 import { resolveResult,markersOf,modResolveEvents } from './projection.js';
@@ -254,10 +255,17 @@ export function createResolveRuntime(kernel: KernelContext, writer: ResolveWrite
             const resolver = await SkillResolver.create(tables, actor.actor);
             const target = typeof action.target === 'string' ? snapshot.party.find(sheet => [normalize(sheet.id),normalize(sheet.name)].includes(normalize(action.target))) : undefined;
             let subject = actor.actor;
-            if (target) {
-                try { if (actionSkills(action,resolver).some(skill => skill === 'First Aid' || skill === 'Medicine')) subject = target; }
-                catch (error) { if (!(error instanceof RpcError)) throw error; }
-            }
+            // Who is being treated. Both the tool and the Keeper's prompt say `target` names the
+            // patient, and until §66 the kernel honoured that only when the patient was a party
+            // member: `action.target` was looked for in the party and nowhere else, so First Aid on
+            // an NPC settled on the rescuer instead, mint for mint, and reported them as the
+            // patient. A wrong subject is worse than a refusal, because nothing in the receipt says
+            // it was wrong.
+            let healing = false;
+            try { healing = actionSkills(action, resolver).some(skill => skill === 'First Aid' || skill === 'Medicine'); }
+            catch (error) { if (!(error instanceof RpcError)) throw error; }
+            if (healing && typeof action.target === 'string' && action.target.trim())
+                subject = target ?? npcPatient(graph, transaction.world, action.target) ?? subject;
             const context = new SettleContext(kernel, transaction, snapshot, module, tables, arithmetic, observations, start.callId, start.ordinal, actor.actor, subject, action, actor.actingId);
             const pipeline = new ResolvePipeline(context, resolver, rollModifiers, actor.npcInSession, contributions);
             const settled = await pipeline.run(beforeExecute);

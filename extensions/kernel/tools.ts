@@ -52,9 +52,9 @@ const ClueEffect = Type.Object({
 });
 
 const DamageEffect = Type.Object({
-	kind: StringEnum(["damage"] as const, { description: "damage with no attacker: a fall, fire, a falling object, suffocation" }),
+	kind: StringEnum(["damage"] as const, { description: "damage with no attacker: a fall, fire, a falling object, suffocation, an overdose — and the failed check whose stated cost was that someone got hurt" }),
 	dice: Type.String({ description: "the damage dice from the rulebook, such as 1D6; the kernel rolls them" }),
-	subject: Type.Optional(Type.String({ description: "who is hurt; defaults to the current investigator" })),
+	subject: Type.Optional(Type.String({ description: "who is hurt: an investigator or an NPC who is in the scene; defaults to the current investigator. An NPC whose numbers the book never printed needs an archetype pinned first (npc.archetype); until someone has hit points, nothing that happens to them can be settled, healed or clocked — it is only prose" })),
 	why: Type.Optional(Type.String({ description: "one sentence: how they were hurt" })),
 });
 
@@ -296,7 +296,7 @@ const ResolveAction = Type.Object({
 	),
 	goal: Type.String({ description: "one sentence: what the player wants to achieve" }),
 	method: Type.String({ description: "one sentence: how he does it; usually names a skill" }),
-	target: Type.Optional(Type.String({ description: "against whom or what: an NPC name or an object name" })),
+	target: Type.Optional(Type.String({ description: "against whom or what: an NPC name or an object name. For treatment it is the patient — First Aid or Medicine with an NPC here is settled on that NPC's hit points and conditions, not on the rescuer's" })),
 	stakes: Type.Optional(Type.String({ description: "one sentence: what failure costs" })),
 	modifiers: Type.Optional(
 		Type.Object({

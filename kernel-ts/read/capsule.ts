@@ -240,10 +240,42 @@ function npcHistory(ledger: Row, memories: Map<string, Row>): Row | null {
         result.dead_since_turn = row(ledger.dead).turn ?? null;
     return truth(result) ? result : null;
 }
+/**
+ * The state of someone in the room who is not at the table (contract §66).
+ *
+ * `investigatorSummary` has carried this since §42.3 and the capsule's `present[]` never had it at
+ * all, so an NPC read to the Keeper as his agenda, his fears and his voice whatever had happened to
+ * his body. Retained live evidence, `game-3d8ab658` turns 55-64: Augustus Larkin lay unconscious
+ * from an overdose for ten turns while this section described him as "warm and friendly despite a
+ * tired appearance", because there was no field here for anything else.
+ *
+ * Which states take the action away is the rules layer's one answer (`incapacitatedBy`), read, not
+ * re-derived, and the sentence names the ways out CoC 7e actually has -- the same three §42.5 gives
+ * an investigator, because they are the same three. A person who can still act has no `state` key,
+ * so a reader tests for the key rather than reading a list of names.
+ */
+function npcState(graph: ModuleGraph, world: Row, node: Row): Row | null {
+    const conditions = array(row(row(world.npc_resources)[graph.handle(node)]).conditions).map(string);
+    const blocked = incapacitatedBy(conditions);
+    if (!blocked.length)
+        return null;
+    const who = graph.displayName(node), state = blocked.join(" and ");
+    return {
+        conditions,
+        incapacitated: blocked,
+        cannot_act: blocked.includes("dead")
+            ? `${who} is dead. Nothing he does happens; settle nothing for him.`
+            : `${who} is ${state} and takes no action of their own -- no answer, no help, no lie. Say the state in the fiction, and say what is being done about it. CoC 7e ends ${state === "unconscious" ? "it" : "unconsciousness"} when a hit point comes back: someone present succeeding at First Aid or Medicine on them -- resolve with the rescuer as actor and ${who} as target -- or rest, apply time, until natural healing returns one. First Aid stabilizes a dying one first.`,
+    };
+}
 export function npcEntry(graph: ModuleGraph, world: Row, node: Row, ledger: Row, memories: Map<string, Row>, across: (node: Row) => Row[] = () => [], seat: LinesSeat = "keep"): Row {
+    const state = npcState(graph, world, node);
     const entry: Row = {
         name: graph.displayName(node),
         ...(graph.adaptationOrigin(node.campaign_origin) ? {origin: graph.adaptationOrigin(node.campaign_origin)} : {}),
+        // Before the dossier, not after it: what his body is doing decides whether any of the rest
+        // of it can happen this turn, and present[] is budgeted from the top.
+        ...(state ? {state} : {}),
         ...dossier(graph, world, node, seat)
     },
         discovered = new Set(array(world.discovered_clues));
@@ -306,6 +338,7 @@ export function npcView(graph: ModuleGraph, world: Row, node: Row, ledger: Row =
         scene: row(world.npc_presence)[handle] ?? null,
         summary: node.summary ?? null,
         visibility: node.visibility ?? null,
+        ...(npcState(graph, world, node) ? {state: npcState(graph, world, node)} : {}),
         ...dossier(graph, world, node)
     };
     const knows = graph.npcKnows(node).map(entry => ({
