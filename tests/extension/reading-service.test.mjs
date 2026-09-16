@@ -137,7 +137,7 @@ test("a foreground timeout can rejoin the same pending reading without starting 
 });
 
 /**
- * Contract §57. The wait ending is what releases the lease, and it releases it once: the `fulfil`
+ * Contract §61. The wait ending is what releases the lease, and it releases it once: the `fulfil`
  * poll that follows must stop asserting `foreground`, or the kernel is re-promoted 300 ms later and
  * the demotion is worth nothing. On M-DETOUR (`game-3d8ab658`, 2026-09-16) the abandoned read held
  * the single foreground lease for a further 574 s after its Keeper stopped waiting on it.

@@ -80,7 +80,7 @@ test('real TS leases allow two background focuses while preserving one foregroun
 });
 
 /**
- * Contract §57. Retained evidence, M-DETOUR `game-3d8ab658` (2026-09-16): `read-6` (focus
+ * Contract §61. Retained evidence, M-DETOUR `game-3d8ab658` (2026-09-16): `read-6` (focus
  * `Bar Cordano`, turn 25) held the single foreground lease from 15:17:37 to 15:29:11, while the
  * Keeper's own wait on it had ended at 15:19:37. The party moved to the museum on turn 26; the
  * turn-27 read of where they were standing queued at 15:26:01, was refused by `claim` three times

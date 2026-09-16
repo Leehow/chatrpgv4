@@ -295,12 +295,12 @@ export class Reading {
         });
     }
     /**
-     * Contract section 57. `foreground` is a claim that a turn is blocked on this reading, and it is
+     * Contract §61. `foreground` is a claim that a turn is blocked on this reading, and it is
      * what reserves the single foreground lease in `claim`. Promotion had a writer -- every foreground
      * `request` for a job already queued or running sets it -- and nothing ever unset it, so the lease
      * stayed reserved for a wait that had already ended. The host calls this when the last waiter for
      * a reading leaves without cancelling it: the job keeps running and its material still lands
-     * (section 47), but the foreground lane goes back to whichever turn is actually blocked. Idempotent:
+     * (§47), but the foreground lane goes back to whichever turn is actually blocked. Idempotent:
      * a finished job, an unknown one and an already-background one all answer the same way.
      */
     async unwait(params: Row): Promise<Row> {

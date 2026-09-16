@@ -8194,7 +8194,7 @@ cut on a full stop, and the paragraph it dropped was the answer the table had ju
 extreme success for. What the player has already been given is not taken back on the second
 look.
 
-## 57. The foreground reading lease belongs to the turn that is waiting (2026-09-16, extends §22 and §47)
+## 61. The foreground reading lease belongs to the turn that is waiting (2026-09-16, extends §22 and §47)
 
 `foreground` on a reading job is a claim that a Keeper turn is blocked on that material *right now*,
 and it is what reserves the single foreground lease §22 advertises ("one foreground and up to two
