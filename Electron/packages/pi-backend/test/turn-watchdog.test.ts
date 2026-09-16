@@ -248,9 +248,9 @@ describe("turn watchdog (fix 3)", () => {
     const firstPid = first.process.pid;
     first.lastTurnActivityAt = Date.now() - (TURN_WATCHDOG_TIMEOUT_MS + 5_000);
 
-    const replay = (backend as any).replayCocStartupPresentations.bind(backend);
+    const replay = (backend as any).projectHostDeliveries.bind(backend);
     let interrupted = false;
-    (backend as any).replayCocStartupPresentations = async (live: any, offset: number | undefined) => {
+    (backend as any).projectHostDeliveries = async (live: any, offset: number | undefined) => {
       if (!interrupted && live.process.pid !== firstPid) {
         interrupted = true;
         live.process.kill();
@@ -437,9 +437,22 @@ describe("turn watchdog (fix 3)", () => {
     };
     await appendFile(sessionPath, `${JSON.stringify(raw)}\n`);
 
-    await (backend as any).replayCocStartupPresentations(live, offset);
+    await (backend as any).projectHostDeliveries(live, offset);
     expect(presentations.filter(entry => entry.id === raw.id)).toHaveLength(1);
-    (backend as any).rpcEvent(live, { type: "entry_appended", entry: raw });
+    // ...and the live arrival of that same row does not draw it a second time. This second half
+    // used to be handed an `entry_appended` carrying a `custom_message`, which Pi has never
+    // emitted (§55): it proved nothing, because no path could deliver the event it described.
+    // A delivery arrives as a `message_end` carrying `role: "custom"` and no id, so this is the
+    // arrival the dedupe actually has to survive. Wind the live read back over the row first:
+    // otherwise the scan simply starts past it and the id set is never the thing being tested.
+    live.presentationReadTo = offset;
+    (backend as any).rpcEvent(live, { type: "message_end", message: {
+      role: "custom", customType: raw.customType, content: raw.content,
+      display: true, details: raw.details, timestamp: Date.now(),
+    } });
+    // Wait on the scan actually having run, not on a bare timeout: without this the "still one"
+    // below would pass just as well if the live projection had never been reached at all.
+    await eventually(() => (live.presentationReadTo ?? 0) > offset);
     expect(presentations.filter(entry => entry.id === raw.id)).toHaveLength(1);
 
     off();

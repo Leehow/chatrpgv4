@@ -8838,3 +8838,38 @@ next one.
 Tests: `frame-pacer.test.ts` — a burst does not reach the socket whole, every
 frame still arrives in order once the window moves on, and a replaced socket
 starts with an empty queue.
+
+## 55. A notice the host places reaches the screen when it is placed (2026-09-16, extends §53)
+
+§53 settled *whose* words a host-placed delivery carries. This one settles *when* the player
+gets them: at the moment the host places them, not at the next reading of the transcript.
+
+Every word the host puts in front of the player itself travels one channel, `pi.sendMessage`
+— the eight service notices (§38.5 review pause, §38.7 provider outage, §38.9 turn
+unfinished, §38.11 commit interruption, §34.17 a delivery cut in half, §42.6 standing state,
+§47 preparation wait) and the §8 `placed_by_host` fallback, which carries the turn's own
+prose rather than a notice about it. Pi delivers such a message as a `message_end` whose
+message carries `role: "custom"`. It is not an `entry_appended`: that event belongs to
+`pi.appendEntry`, carries the other kind of entry (`type: "custom"`, not `type:
+"custom_message"`), and nothing the host delivers has ever travelled it.
+
+The host must therefore project a delivery from its own arrival. Until 2026-09-16 it did
+not: the only projection of a delivery hung off `entry_appended`, so the live stream had no
+branch that could ever see one, and the eight notices plus the host's own fallback prose
+existed only in the file until something re-read it. The registry of host-delivered channels
+(§53) is the whole test — whichever channel the host is registered to deliver through is
+projected — so a channel added to that registry arrives on screen the day it is added.
+
+The identity is the transcript's, not the projection's. The emitted message carries no entry
+id; Pi discards the id its session manager minted. The host reads the row Pi appended before
+it emitted, and publishes that id, so the live arrival, the watchdog replacement's startup
+catch-up, and every later re-read are three readings of one entry rather than three entries.
+
+**Where this must be asserted.** Not at the extension seam. The acceptance for these notices
+counts `coc-delivery` custom messages in the session, and they were always there — that layer
+was green for as long as the projection was dead, and it would stay green through the next
+channel breaking the same way. The assertion belongs one layer down, on the projection: a
+delivery that arrives the way Pi delivers it produces a `presentation` event. The fixture
+that hid this is its own lesson: it fabricated an `entry_appended` carrying a
+`custom_message`, a shape Pi has never emitted, so the test was green about a path that could
+not run. A fixture for an arrival shape is pinned to the dependency that produces it.

@@ -8,6 +8,11 @@ function logPrompt(message) {
   if (!promptLogPath) return;
   try { appendFileSync(promptLogPath, message + "\n"); } catch {}
 }
+/** The transcript this child was spawned against, from the `--session <path>` the host passes. */
+const sessionPath = (() => {
+  const at = process.argv.indexOf("--session");
+  return at >= 0 ? process.argv[at + 1] ?? "" : "";
+})();
 let prompted = false;
 /** When set, later emitTurn cycles must not end the long-running background agent. */
 let durableAgent = false;
@@ -154,7 +159,16 @@ readline.createInterface({ input: process.stdin }).on("line", line => {
     logPrompt(command.message);
     if (command.message === "__coc_notice__") {
       send({ type: "agent_start" });
-      send({ type: "entry_appended", entry: { id: "coc-notice", type: "custom_message", customType: "coc-delivery", content: "The turn returned to the player.", display: true, timestamp: Date.now() } });
+      // Pi's own shape for a `pi.sendMessage` the host places (contract §55): the row is appended
+      // to the transcript first, and the message is then announced with `role: "custom"` carrying
+      // no entry id. It is NOT an `entry_appended` -- that event belongs to `pi.appendEntry`, it
+      // carries a `type: "custom"` entry, and no delivery has ever travelled it. This fixture used
+      // to send one anyway, which is how a projection that could not run stayed green.
+      const row = { id: "coc-notice", type: "custom_message", customType: "coc-delivery", content: "The turn returned to the player.", display: true, details: { coc_delivery: true, turn: 5 }, parentId: null, timestamp: new Date().toISOString() };
+      if (sessionPath) { try { appendFileSync(sessionPath, JSON.stringify(row) + "\n"); } catch {} }
+      const notice = { role: "custom", customType: row.customType, content: row.content, display: true, details: row.details, timestamp: Date.now() };
+      send({ type: "message_start", message: notice });
+      send({ type: "message_end", message: notice });
       send({ type: "agent_settled" });
       return;
     }
