@@ -49,7 +49,7 @@ export function adaptedGraph(source: ModuleGraph, changes: Row[]): ModuleGraph {
             if (nodes.has(node.node_id)) throw new RpcError('invalid_params', 'An adaptation duplicates an entity identity');
             nodes.set(node.node_id, node); raw.nodes.push(node);
             semanticNames.set(node.node_id, change.name);
-            // A clue exists to be found somewhere (contract §47.2): the same `discoverable-at` edge
+            // A clue exists to be found somewhere (contract §51.2): the same `discoverable-at` edge
             // `clue_at` writes, so `sceneClueIds` and `apply clue` need no second rule for a minted one.
             if (kind === 'clue') edge('discoverable-at', node.node_id, change.scene);
         } else if (change.kind === 'scene') {
@@ -125,7 +125,7 @@ export function normalizeChanges(source: ModuleGraph, previous: Row[], world: Ro
                 change.description = text(value.description, 'description', 6000);
                 if (kind === 'add_scene') change.based_on = reference(source, 'based_on', text(value.based_on, 'based_on', 180), ['scene']);
                 // A minted clue names where it is found, in the adapted graph, so one proposal can add
-                // the place and what is discoverable there (contract §47.2).
+                // the place and what is discoverable there (contract §51.2).
                 else if (kind === 'add_clue') change.scene = reference(graph, 'scene', text(value.scene, 'scene', 180), ['scene']);
                 else change.agenda = text(value.agenda, 'agenda');
             }

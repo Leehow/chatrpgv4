@@ -17,7 +17,7 @@ import {validateRecallRequest} from './pages.js';
 /** The verifier's finding kinds, `play_language_mismatch` among them: the kernel makes no language refusal of its own (contract section 23). */
 const FINDINGS = ['reveal', 'uncommitted_state', 'player_agency', 'play_language_mismatch', 'unmarked_speech'];
 /**
- * A `reveal` may name the clue it is about (contract §47.3).
+ * A `reveal` may name the clue it is about (contract §51.3).
  *
  * The lane's `why` has always carried the handle in prose; a prose sentence is not a subject. The
  * name is canonicalized against this campaign's graph -- the effective one, adaptations included --

@@ -53,7 +53,7 @@ export const BUDGETS: Readonly<Record<string, number>> = Object.freeze({
 export const SLICE2_BUDGETS: Readonly<Record<string, number>> = Object.freeze({
     memory: 1536,
     warnings: 1024,
-    // Contract §47.4. Small on purpose: a row is a handle, a turn, the sentence that gave it away and
+    // Contract §51.4. Small on purpose: a row is a handle, a turn, the sentence that gave it away and
     // the call that closes it, and the list only holds what is still findable in this one scene.
     unrecorded: 768
 });
@@ -72,7 +72,7 @@ export const SLICE3_BUDGETS: Readonly<Record<string, number>> = Object.freeze({
     voices: 3072
 });
 /**
- * Clues the prose already gave away and the ledger never got (contract §47.4).
+ * Clues the prose already gave away and the ledger never got (contract §51.4).
  *
  * `warnings` shows the Keeper one turn's findings and then they are gone, which is the whole of why
  * the gap outlived the notice: on campaign `game-ef8e60aa` the lane said in turn 11 that Dooley had

@@ -1,5 +1,5 @@
 /**
- * Narrated evidence and the clue ledger (contract §47).
+ * Narrated evidence and the clue ledger (contract §51).
  *
  * Three real tables, six instances: prose delivered a name, a date, a routing instruction or a whole
  * new place to go, and the player's clue panel never heard of it. Two causes, and this suite holds
@@ -73,7 +73,7 @@ async function accept(t, name, changes, purpose) {
     return prepared.task.key;
 }
 
-test('a place the book never wrote can hold a finding: add_clue arrives with the destination and apply clue records it (§47.1, §47.2)', async () => {
+test('a place the book never wrote can hold a finding: add_clue arrives with the destination and apply clue records it (§51.1, §51.2)', async () => {
     const t = await table();
     const prose = 'Knott slides the ring of keys across the desk without being asked.';
     await t.call('table.narrate', {call_id: 't0-c1', text: prose});
@@ -102,7 +102,7 @@ test('a place the book never wrote can hold a finding: add_clue arrives with the
     assert.ok((await t.world()).discovered_clues.includes('Admission register entry'));
 });
 
-test('a place already standing does not need a second one to hold what was found there (§47.1)', async () => {
+test('a place already standing does not need a second one to hold what was found there (§51.1)', async () => {
     const t = await table();
     await t.call('table.narrate', {call_id: 't0-c1', text: 'The investigator hears the commission.'});
     await t.call('table.player_input', {text: 'I ask him what the neighbours said at the time.'});
@@ -115,7 +115,7 @@ test('a place already standing does not need a second one to hold what was found
     assert.ok((await t.world()).discovered_clues.includes('Neighbour complaint book'));
 });
 
-test('new_clue permits nothing but the clue operations, and requires the clue (§47.1)', async () => {
+test('new_clue permits nothing but the clue operations, and requires the clue (§51.1)', async () => {
     const t = await table();
     await t.call('table.narrate', {call_id: 't0-c1', text: 'The investigator hears the commission.'});
     await t.call('table.player_input', {text: 'I press him on the paperwork.'});
@@ -133,7 +133,7 @@ test('new_clue permits nothing but the clue operations, and requires the clue (�
         });
 });
 
-test('a reveal that names its clue lands on the record as a handle, not a sentence (§47.3)', async () => {
+test('a reveal that names its clue lands on the record as a handle, not a sentence (§51.3)', async () => {
     const t = await table();
     const prose = 'Knott slides the ring of keys across the desk without being asked.';
     await t.call('table.narrate', {call_id: 't0-c1', text: prose});
@@ -151,7 +151,7 @@ test('a reveal that names its clue lands on the record as a handle, not a senten
         'the handle rides only when it resolves; an unresolvable name drops the field and keeps the finding');
 });
 
-test('a named reveal the ledger never got outlives its own turn, and clears itself when the books agree (§47.4)', async () => {
+test('a named reveal the ledger never got outlives its own turn, and clears itself when the books agree (§51.4)', async () => {
     const t = await table();
     const prose = 'Knott slides the ring of keys across the desk without being asked.';
     await t.call('table.narrate', {call_id: 't0-c1', text: prose});

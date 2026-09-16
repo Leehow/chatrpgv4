@@ -629,7 +629,7 @@ superseded, not alternative compatibility modes.
 校验车道在 kernel 扩展内：交付完成后（`message_end` 替换之后）用 Pi SDK 起零工具内存会话，模型由 `PI_COC_VERIFIER_MODEL`（`provider/model`）指定，缺省与桌子同模型；输入是正文（`rendered_text`）、`facts.committed`、`facts.keeper_only`（三者都是系统语言英文，正文除外），要求只返回 JSON：
 
 ```
-{"findings": [{"kind": "reveal"|"uncommitted_state"|"player_agency", "quote": "<正文里的原句，≤ 120 字>", "why": "<≤ 200 字>", "clue": "<揭示的是哪条未发现线索，只在 reveal 上，见 §47.3>"}]}
+{"findings": [{"kind": "reveal"|"uncommitted_state"|"player_agency", "quote": "<正文里的原句，≤ 120 字>", "why": "<≤ 200 字>", "clue": "<揭示的是哪条未发现线索，只在 reveal 上，见 §51.3>"}]}
 ```
 
 三类分别是：越权揭示了 `keeper_only` 里的事实；声称了 `committed` 里没有的状态变化（走了没 move、拿了没 clue、掉了没 delta）；替玩家做了未授权的自愿行为。扩展把结果交给 `table.warn`，params `{"campaign", "turn", "lane": "verifier", "findings": [...]}`：内核校验 `kind` 枚举，`quote` 必须是该回合 `rendered_text` 的子串（唯一的确定性锚点；不是子串的整条丢弃并记 `dropped`），最多 10 条；写进 `turns/NNNN.json` 的 `warnings`、遥测一行，并在**下一次** `player_input` 的胶囊里带 `warnings: [{"turn", "kind", "quote", "why"}]`（只带最近一个已提交回合的，≤ 1KB）。全部 advisory：不改状态，不拦交付，不重开回合。车道不用关键词、不用正则；能确定性判的（自写骰面、未关的 `needs`）仍在内核。
@@ -7366,7 +7366,7 @@ refusals and that a real directory still registers),
 `packages/ui/src/RemoteBrowserApp.test.tsx` (the dialog keeps the typed text and
 stays open on a refusal).
 
-## 47. 叙述交付的线索：记得下，以及记不下时账上留痕（2026-09-16）
+## 51. 叙述交付的线索：记得下，以及记不下时账上留痕（2026-09-16）
 
 三张真桌、六次实例：正文把姓名、日期、一条查证路线、甚至一处全新去处交给了玩家，右栏线索始终没有这条。玩家关掉窗口再回来，这些情报只剩在正文滚动条里；守秘人自己的上下文也靠账重建，于是连他一起丢。
 
@@ -7381,7 +7381,7 @@ stays open on a refusal).
 
 所以「叙述与记账是两次独立的决定」这个读法，6 次实例里只解释 2 次；另外 4 次连第二次决定的机会都不存在。本节修两头。
 
-### 47.1 `add_clue`：缺的是生产者（§31 第一端）
+### 51.1 `add_clue`：缺的是生产者（§31 第一端）
 
 adaptation 的封闭操作里有 `add_scene`、`add_npc`、`handout` 三个铸新实体的，`clue_at` 与 `npc_knows` 则只能绑定书上已有的线索。**全系统没有任何一个操作能让一条线索存在。** 而 `add_scene` 铸出的场景带着 `available_clues: []` 出生，于是这条管线每造一处地点，就造出一处永远交代不了任何发现的地方。这是典型的「有消费者没有生产者」：`clues_here`、`apply clue`、`facts.keeper_only` 的未发现清单、玩家线索栏、校验车道的 `reveal` 检测，五个消费端都读它，没人写得进去。
 
@@ -7399,11 +7399,11 @@ add_clue: {name, description, scene}
 
 创作/复核提示词里「五个 purpose」「七个封闭操作」相应改为六与八；提示词字节进 `contract` 摘要，改了就让未接受的旧任务失效。
 
-### 47.2 铸出来的线索走的是原路
+### 51.2 铸出来的线索走的是原路
 
 `apply clue` 一个字不改。改编后的图是内核自己按 `world.adaptation.records` 重建的（`campaignModule`），铸出的线索在那张图上与书上的线索没有区别：`clues_here` 列它、`facts.keeper_only` 把它算进未发现清单、收据进 `world.discovered_clues`、`table.view` 的 `clues.discovered` 把它送到玩家面板。
 
-### 47.3 `reveal` 说出它说的是哪条线索
+### 51.3 `reveal` 说出它说的是哪条线索
 
 校验车道一直知道。t9 第 11 回合它写的是「未挣得的线索 chapel-ruins-location 被杜利当面指出烧掉的礼拜堂位置」——句子里有 handle，而句子不是主语，没有任何一层读得出来。
 
@@ -7411,7 +7411,7 @@ add_clue: {name, description, scene}
 
 **这不是关键词识别。** 判断哪句正文交付了哪条线索，自始至终是车道这个模型的语义判断；新增的只是让它把判断的主语说清楚。
 
-### 47.4 胶囊的 `unrecorded`：账上的缺口活过这一回合
+### 51.4 胶囊的 `unrecorded`：账上的缺口活过这一回合
 
 `warnings` 只带**最近一个**已提交回合的发现（§12.5），所以一条漏记的线索在守秘人眼前存在一个回合就消失了。t9 第 11 回合发出警告，第 12 回合胶囊带着那句话，守秘人当回合补记了 `chapel-ruins-location`——这条通道是通的，但它只有一回合的寿命。
 
@@ -7427,13 +7427,13 @@ add_clue: {name, description, scene}
 
 **它不是义务，也不是 offer。** §31 与 §13.7 禁止的是把「守秘人没拿的 offer」反馈成债；这一节记的不是没做的事，而是**已经做了的事没有对应的账**：正文已经交付，玩家已经知道，只有账目不同意。一个回合本来就该有 0 条这样的行，也本来就该有 0 条线索——**没有可追情报的回合，`unrecorded` 是空的，这是正常状态，不是要求补一条**。全程 advisory：不改状态、不拦交付、不重开回合，2026-09-06 关于校验车道保持 advisory 的裁定（§12.5 末段）不变。
 
-### 47.5 仍然没有修的（查清了，没做）
+### 51.5 仍然没有修的（查清了，没做）
 
 - **新地点除 `adaptation` 外没有第二条落账通道。** `where.exits` / `affordances` / `places` 全是模组图的只读投影；`apply move` 的 `to` 必须先在图上解析得出；`offerLedger` 的 `route:` 行只读授权的 thread 数据。NPC 嘴里说出的「隔几条街还有一处烧掉的礼拜堂」要成为可去之处，只有 `prepare → draft → review → apply` 这一条重路径。它存在、也确实能用（t4 就是这么铸出 Roxbury 的），t9 只是没走。**这里没有「有通道而没被用上」的隐藏缺口，只有一条对一句 NPC 台词而言偏重的通道。** 要不要给它一条轻路径是产品决定，本节不替它做。
 - **玩家面板没有「去处」这一节。** `table.view` 只回 `scene`、`clock`、`present`、`investigators`、`clues.discovered`、`npcs.journal`；`exits` / `affordances` 只进守秘人胶囊。玩家知道有哪些地方可去，全靠正文。
 - **t5 的模组图本身没有线索节点**（`generation-5` 共 10 个节点：2 scene / 3 npc / 2 rule / 1 handout / 1 vehicle / 1 module，`clue` 零个；唯一的 `discoverable-at` 指向那张手卡），那是阅读/构图管线的产出问题（§22），不在本节范围。同一本书在 t6 的另一次解析里也只抽出一条。`add_clue` 让这样一本书在桌上仍然记得下账，但补不出书里本来就没抽出来的东西。
 - **`unrecorded` 只认车道点了名的 `reveal`。** 车道漏判的（t9 第 7 回合馆员给的四条查证路线、t4 第 4–5 回合疗养院的人名与日期，车道一条 `reveal` 都没发）不会出现在这一节里。这是有意的：本节不新增任何「从正文里认线索」的判断，判断只有车道一个来源；车道的召回是车道的问题（§12.5 末段那份按类计量的复核）。
 
-### 47.6 测试
+### 51.6 测试
 
 `tests/extension/narrated-clue-accounting.test.mjs`，走真实内核运行时与真实 adaptation 流程（prepare → draft → review → apply），五条：改编地点带着自己的线索到场且 `apply clue` 落账、已有地点用 `new_clue` 单独补一条线索、`new_clue` 的操作集与必需操作、`reveal` 的 handle 归一（解析不出的只丢字段）、缺口跨回合存活并在 `apply clue` 后自清。变异验证：抽掉 `add_clue` 杀前两条；让 `revealedClue` 恒为 null 杀后两条；把 `unrecorded` 写死成 `[]` 杀最后一条；去掉 `sceneClueIds` 那一半条件杀第一条。

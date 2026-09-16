@@ -50,7 +50,7 @@ const samePlace = (graph: ModuleGraph, place: Row, requested: string): never => 
 const PURPOSES = ['new_destination', 'persistent_npc', 'new_clue', 'source_rebinding', 'handout', 'rebase'] as const;
 type Purpose = typeof PURPOSES[number];
 /**
- * `new_clue` is the missing producer (contract §47.1).
+ * `new_clue` is the missing producer (contract §51.1).
  *
  * `clue_at` and `npc_knows` both bind a clue the book already wrote, and until 2026-09-16 nothing
  * anywhere could bring one into existence -- while `add_scene` mints a place with `available_clues:

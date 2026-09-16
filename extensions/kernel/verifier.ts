@@ -40,7 +40,7 @@ export interface Finding {
 	quote: string;
 	why: string;
 	/**
-	 * Which clue a `reveal` is about, when it is about one (contract §47.3).
+	 * Which clue a `reveal` is about, when it is about one (contract §51.3).
 	 *
 	 * The lane already knew: on campaign `game-ef8e60aa` turn 11 its `why` said, in the play language,
 	 * that the unearned clue chapel-ruins-location had been pointed out by Dooley in so many words --
@@ -133,7 +133,7 @@ export function shapeFindings(parsed: unknown): Finding[] | undefined {
 		if (typeof row.quote !== "string" || row.quote.length === 0) continue;
 		if (typeof row.why !== "string" || row.why.length === 0) continue;
 		// The handle rides only on a reveal, and only when it is a nonempty string: a clue named on any
-		// other kind is the model answering a question nobody asked (contract §47.3).
+		// other kind is the model answering a question nobody asked (contract §51.3).
 		const clue = row.kind === "reveal" && typeof row.clue === "string" && row.clue.trim() ? row.clue.trim() : undefined;
 		findings.push({ kind: row.kind, quote: row.quote, why: row.why, ...(clue ? { clue } : {}) });
 		if (findings.length >= MAX_FINDINGS) break;
