@@ -73,7 +73,6 @@
   "outcome.monsters_win": "monsters win",
   "outcome.stalemate": "stalemate",
   "pass": "pass",
-  "pending": "not delivered",
   "pushed": "pushed",
   "removedFrom": "removed from {name}'s inventory",
   "resource.condition": "condition",

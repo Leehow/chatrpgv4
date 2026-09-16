@@ -16,7 +16,7 @@ import { cocHome, cocMode } from "../lanes/host.ts";
 import { extensionSurface } from "../ui/words.ts";
 import { type KernelClient, KernelError, type KernelProgressFrame, isKernelError } from "./client.ts";
 import { progressPartial } from "./progress.ts";
-import { renderMapView, type MapAttachment } from './map-view.ts';
+import { MAP_DOCUMENT_NONE, renderMapView, type MapAttachment } from './map-view.ts';
 import { AUTHORED_MAP_WORDS, KEEPER_MAP_WORDS, mapCardTexts, type MapWordsOptions, prepareMapWords, projectMapCard, readMapWords } from '../module/map-presentation.ts';
 import { COC_TOOLS, COC_TOOL_NAMES, type CocToolSpec, WRITE_TOOLS } from "./tools.ts";
 import { RecallPages } from "./recall-pages.ts";
@@ -1198,7 +1198,7 @@ export default function (pi: ExtensionAPI) {
 			} catch {
 				const row=value&&typeof value==='object'?value as Record<string,unknown>:{};
 				if(typeof row.map==='string')prepared.push({kind:'map',...(receipt?{receipt}:{}),map:row.map,name:typeof row.name==='string'?row.name:row.map,
-					view_id:'unavailable',regions:Array.isArray(row.regions)?row.regions as Record<string,unknown>[]:[],levels:[],available:false});
+					view_id:'unavailable',regions:Array.isArray(row.regions)?row.regions as Record<string,unknown>[]:[],levels:[],document:MAP_DOCUMENT_NONE});
 			}
 		}
 		delete result.map_views;

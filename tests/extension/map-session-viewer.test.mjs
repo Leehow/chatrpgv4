@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import { createComponent } from "../../pipicoc/mechanics.js";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "../..");
-const WORDS = { available: "available", pending: "not delivered" };
+const WORDS = { available: "available" };
 const PNG = "data:image/png;base64,aaa";
 const PNG_B = "data:image/png;base64,bbb";
 const PNG_C = "data:image/png;base64,ccc";
@@ -90,6 +90,11 @@ function delivery(mechanics, words = WORDS) {
 	return { details: { mechanics, ui: { words: { mechanics: words } } } };
 }
 
+/** Every stamp drawn anywhere in the tree: the claim a card makes about opening (§59). */
+function stamps(tree) {
+	return collect(tree, node => node.props?.className === "coc-mech-stamp");
+}
+
 function mapCards(tree) {
 	return collect(tree, node => node.type === "details" && node.props?.["data-kind"] === "map");
 }
@@ -97,8 +102,8 @@ function mapCards(tree) {
 test("two maps with the same public label keep separate identities in one delivery", () => {
 	const { render } = createReact();
 	const tree = render(delivery([
-		{ kind: "map", map: "house", view_id: "view-house", receipt: "map:house-t1", label: "House", available: true, image: PNG, regions: [] },
-		{ kind: "map", map: "grounds", view_id: "view-grounds", receipt: "map:grounds-t1", label: "House", available: true, image: PNG_B, regions: [] },
+		{ kind: "map", map: "house", view_id: "view-house", receipt: "map:house-t1", label: "House", document: "ready", image: PNG, regions: [] },
+		{ kind: "map", map: "grounds", view_id: "view-grounds", receipt: "map:grounds-t1", label: "House", document: "ready", image: PNG_B, regions: [] },
 	]).details);
 	const cards = mapCards(tree);
 	assert.equal(cards.length, 2);
@@ -119,7 +124,7 @@ test("floor controls list only known levels and never dump the leftover levels a
 	const { render } = createReact();
 	const tree = render(delivery([{
 		kind: "map", map: "house", view_id: "v1", receipt: "map:house-t1", label: "House",
-		available: true, image: PNG, levels: ["Ground", "Secret attic", "Roof"],
+		document: "ready", image: PNG, levels: ["Ground", "Secret attic", "Roof"],
 		regions: [{ id: "entry", label: "Entry", level: "Ground" }],
 		level_images: [
 			{ level: "Ground", image: PNG },
@@ -139,7 +144,7 @@ test("tooltips, alt text and thumbnails carry only the public map and known-leve
 	const { render } = createReact();
 	const tree = render(delivery([{
 		kind: "map", map: "house", view_id: "deadbeefview", receipt: "map:house-t1",
-		label: "House", name: "House", available: true, image: PNG,
+		label: "House", name: "House", document: "ready", image: PNG,
 		source_revision: "rev-private", path: "/keeper/source.png",
 		regions: [{ id: "entry", label: "Entry" }],
 		level_images: [
@@ -173,7 +178,7 @@ test("zoom and pan stay on the card: no model, no kernel, no campaign write", ()
 	const mounted = createReact();
 	let tree = mounted.render(delivery([{
 		kind: "map", map: "house", view_id: "v1", receipt: "map:house-t1", label: "House",
-		available: true, image: PNG, regions: [],
+		document: "ready", image: PNG, regions: [],
 	}]).details);
 	const slider = collect(tree, node => node.type === "input" && node.props?.type === "range")[0];
 	slider.props.onChange({ target: { value: "180" } });
@@ -199,47 +204,79 @@ test("zoom and pan stay on the card: no model, no kernel, no campaign write", ()
 	assert.equal(scroller.dataset.panning, "");
 });
 
-test("a missing or private image is an honest pending state and reopening retries it", () => {
+/**
+ * §59: what a card that will not open says, which is nothing. The three states reaching this row
+ * -- `ready` whose pixels this client could not load, a resolved `none`, and an `unresolved` card
+ * nobody answered for -- all draw no stamp, because every one of them was still delivered.
+ */
+test("a map that will not open claims nothing, and reopening retries it", () => {
 	const { render } = createReact();
 	let tree = render(delivery([{
 		kind: "map", map: "house", view_id: "v1", receipt: "map:house-t1", label: "House",
-		available: true, image: "/tmp/keeper-full.png", regions: [],
+		document: "ready", image: "/tmp/keeper-full.png", regions: [],
 	}]).details);
 	assert.equal(collect(tree, node => node.props?.className === "coc-map-image").length, 0);
-	assert.match(texts(tree), /not delivered/);
+	assert.equal(stamps(tree).length, 0, "a card that did not open does not claim it did");
 	assert.equal(texts(tree).includes("/tmp/keeper-full.png"), false);
 
 	const mounted = createReact();
 	tree = mounted.render(delivery([{
 		kind: "map", map: "house", view_id: "v1", receipt: "map:house-t1", label: "House",
-		available: true, image: PNG, regions: [],
+		document: "ready", image: PNG, regions: [],
 	}]).details);
 	collect(tree, node => node.props?.className === "coc-map-image")[0].props.onError();
 	tree = mounted.tree;
 	assert.equal(collect(tree, node => node.props?.className === "coc-map-image").length, 0);
-	assert.match(texts(tree), /not delivered/);
+	assert.equal(stamps(tree).length, 0);
 	mapCards(tree)[0].props.onToggle({ currentTarget: { open: true } });
+	assert.equal(stamps(mounted.tree).length, 1, "and the retry that works is stamped again");
 	tree = mounted.tree;
 	assert.equal(collect(tree, node => node.props?.className === "coc-map-image").length, 1);
 
-	tree = render(delivery([{ kind: "map", map: "house", label: "House", available: false, image: PNG, regions: [] }]).details);
+	tree = render(delivery([{ kind: "map", map: "house", label: "House", document: "none", image: PNG, regions: [] }]).details);
 	assert.equal(collect(tree, node => node.props?.className === "coc-map-image").length, 0);
 	assert.equal(mapCards(tree).length, 1, "the current-session entry remains even when the image is missing");
-	assert.match(texts(tree), /not delivered/);
+	assert.equal(stamps(tree).length, 0);
+
+	// The third state: a kernel map row the host's rendered attachment never reached -- which is
+	// every row the turn record keeps. It must not read as the resolved `none` above.
+	tree = render(delivery([{ kind: "map", map: "house", label: "House", document: "unresolved", regions: [] }]).details);
+	assert.equal(mapCards(tree).length, 1);
+	assert.equal(stamps(tree).length, 0);
 });
 
 test("a text handout still folds and an image handout stays a line", () => {
 	const { render } = createReact();
 	const tree = render(delivery([
-		{ kind: "handout", label: "Letter", available: true, text: "Meet at dusk." },
-		{ kind: "handout", label: "Photo", available: true },
-		{ kind: "map", map: "house", label: "House", available: false, regions: [] },
+		{ kind: "handout", label: "Letter", document: "ready", text: "Meet at dusk." },
+		{ kind: "handout", label: "Photo", document: "ready" },
+		{ kind: "map", map: "house", label: "House", document: "none", regions: [] },
 	]).details);
 	const folds = collect(tree, node => node.props?.className === "coc-mech-row coc-mech-fold");
 	assert.equal(folds.length, 1);
 	assert.match(texts(folds[0]), /Meet at dusk/);
 	assert.equal(collect(tree, node => node.props?.["data-kind"] === "handout").length, 2);
 	assert.equal(mapCards(tree).length, 1);
+});
+
+/**
+ * §59 at the last hop. The handout the real table was denied (`game-1c0faba5` turn 62) is authored
+ * `player-safe`, was won on a hard Library Use, and had its contents read out in the prose directly
+ * above this card -- which then stamped "not delivered" over it. A card claims the player can open
+ * something only when they can; it never contradicts the delivery it sits under.
+ */
+test("a handout the module registered with no document is not stamped as undelivered", () => {
+	const { render } = createReact();
+	const tree = render(delivery([
+		{ kind: "handout", receipt: "handout:obituary-t62", name: "Handout 5: Corbitt's Obituary and Burial Lawsuit",
+			label: "\u8ba3\u544a\u4e0e\u4e0b\u846c\u8bc9\u8bbc", document: "none" },
+	]).details);
+	const rows = collect(tree, node => node.props?.["data-kind"] === "handout");
+	assert.equal(rows.length, 1, "the delivery still draws its card");
+	const drawn = texts(tree);
+	assert.match(drawn, /\u8ba3\u544a\u4e0e\u4e0b\u846c\u8bc9\u8bbc/, "the player still reads what they were handed");
+	assert.equal(stamps(tree).length, 0, "no stamp: the card has nothing true to say about opening it");
+	assert.equal(drawn.includes("available"), false);
 });
 
 function playerSafe(value) {

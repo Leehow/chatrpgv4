@@ -22,7 +22,7 @@ test('the conversation derivative contains authorized pixels and no unrevealed s
   const result=await renderMapView({map:'house',name:'House',source_revision:'g1',regions:[{id:'entry',label:'Entry'}],render:{layers:[
     {path,source_box:[0,0,.5,1],placement:[0,0,.5,1],redactions:[]},
   ]}},{modulesRoot:join(root,'module'),campaignDir,receipt:'map:house-t1'});
-  assert.equal(result.available,true);
+  assert.equal(result.document,'ready');
   assert.match(result.image,/^data:image\/png;base64,/);
   const image=await loadImage(Buffer.from(result.image.split(',')[1],'base64'));
   const canvas=createCanvas(image.width,image.height),ctx=canvas.getContext('2d');ctx.drawImage(image,0,0);
@@ -38,11 +38,11 @@ test('a reviewed source digest fails closed when same region id bytes change',as
     {path,source_box:[0,0,1,1],placement:[0,0,1,1],source_digest:reviewed,redactions:[]},
   ]}};
   const historical=await renderMapView(view,{modulesRoot:join(root,'module'),campaignDir,receipt:'map:house-t1'});
-  assert.equal(historical.available,true);
+  assert.equal(historical.document,'ready');
   const oldBytes=historical.image;
   await writeFile(path,Buffer.from('changed source bytes'));
   const current=await renderMapView(view,{modulesRoot:join(root,'module'),campaignDir,receipt:'map:house-t2'});
-  assert.equal(current.available,false);
+  assert.equal(current.document,'none');
   assert.equal(current.image,undefined);
   assert.equal(historical.image,oldBytes);
 });
@@ -55,7 +55,7 @@ test('a compatible metadata correction keeps the reviewed digest and delivery av
   ]}});
   const first=await renderMapView(view('Entry'),{modulesRoot:join(root,'module'),campaignDir,receipt:'map:house-t1'});
   const correction=await renderMapView(view('Main entrance'),{modulesRoot:join(root,'module'),campaignDir,receipt:'map:house-t2'});
-  assert.equal(first.available,true);assert.equal(correction.available,true);
+  assert.equal(first.document,'ready');assert.equal(correction.document,'ready');
   assert.equal(correction.source_revision,'g1');assert.equal(correction.image.startsWith('data:image/png;base64,'),true);
 });
 
@@ -64,7 +64,7 @@ test('a source outside the module jail produces no player image',async()=>{
   const result=await renderMapView({map:'house',name:'House',regions:[{id:'entry',label:'Entry'}],render:{layers:[
     {path,source_box:[0,0,1,1],placement:[0,0,1,1],redactions:[]},
   ]}},{modulesRoot:join(root,'somewhere-else'),campaignDir:join(root,'.coc/campaigns/c1')});
-  assert.equal(result.available,false);assert.equal(result.image,undefined);
+  assert.equal(result.document,'none');assert.equal(result.image,undefined);
 });
 
 test('an alternate-source secret layer keeps reviewed redactions and does not use the investigator pixels',async()=>{
@@ -82,7 +82,7 @@ test('an alternate-source secret layer keeps reviewed redactions and does not us
   const result=await renderMapView({map:'house',name:'House',source_revision:'g1',regions:[{id:'secret',label:'Secret'}],render:{layers:[
     {path:keeper,source_asset:'keeper-cellar',source_box:[0,0,1,1],placement:[.08,.73,.48,.98],redactions:[[.2,.2,.8,.6]]},
   ]}},{modulesRoot:modules,campaignDir:join(root,'.coc/campaigns/c1'),receipt:'map:house-t2'});
-  assert.equal(result.available,true);
+  assert.equal(result.document,'ready');
   const image=await loadImage(Buffer.from(result.image.split(',')[1],'base64'));
   const canvas=createCanvas(image.width,image.height),ctx=canvas.getContext('2d');ctx.drawImage(image,0,0);
   const pixels=ctx.getImageData(0,0,image.width,image.height).data;
@@ -105,5 +105,5 @@ test('a symlink inside the module jail cannot expose an outside image',async()=>
   const result=await renderMapView({map:'house',name:'House',regions:[{id:'entry',label:'Entry'}],render:{layers:[
     {path:link,source_box:[0,0,1,1],placement:[0,0,1,1],redactions:[]},
   ]}},{modulesRoot:modules,campaignDir:join(root,'.coc/campaigns/c1')});
-  assert.equal(result.available,false);assert.equal(result.image,undefined);
+  assert.equal(result.document,'none');assert.equal(result.image,undefined);
 });

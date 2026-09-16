@@ -322,11 +322,24 @@ test('mechanics match Python without exposing unlabeled NPC identities',async()=
     {id:'note:one',kind:'note',text:'No mechanics projection'},
   ];
   const placed={'listen':'roll:one','damage':'delta:one'},before=api.pythonJsonDumps(receipts);
+  const live=api.mechanics(receipts,placed,new Map([[path,text]])),frozen=oracle('mechanics',{receipts,placed});
   // The handout's attachment carries this run's own temporary path; the captured outcome carries
   // the run it was captured in. The path is the run, not the projection.
-  const withoutPath=value=>api.pythonJsonDumps(value).replace(/"(?:\/private)?\/(?:var|tmp)\/[^"]*handout\.md"/g,'"<attachment>"');
-  assert.equal(withoutPath(api.mechanics(receipts,placed,new Map([[path,text]]))),
-    withoutPath(oracle('mechanics',{receipts,placed})),'mechanics');
+  //
+  // The second narrowing is a field the capture predates. §59 replaced the handout row's
+  // `available` boolean with the three-state `document`, because a boolean could not tell a card
+  // with no page from a card nobody had answered for. The frozen outcome carries the boolean and
+  // can never carry the successor, so the two names are dropped from the comparison and asserted
+  // against each other just below -- the projection is compared to the capture, the new field to
+  // the old one it derives from.
+  const narrowed=value=>api.pythonJsonDumps(value)
+    .replace(/"(?:\/private)?\/(?:var|tmp)\/[^"]*handout\.md"/g,'"<attachment>"')
+    .replace(/, ?"(?:available|document)": ?(?:true|false|"[a-z]+")/g,'');
+  assert.equal(narrowed(live),narrowed(frozen),'mechanics');
+  const liveHandout=live.find(item=>item.kind==='handout'),frozenHandout=frozen.find(item=>item.kind==='handout');
+  assert.equal(frozenHandout.available,true,'the capture recorded the boolean this replaced');
+  assert.equal(liveHandout.document,'ready','an attached handout projects as `ready` where the capture said `available: true`');
+  assert.equal(liveHandout.available,undefined,'the boolean is gone, not doubled: one field answers this question');
   assert.equal(api.pythonJsonDumps(receipts),before);
 });
 

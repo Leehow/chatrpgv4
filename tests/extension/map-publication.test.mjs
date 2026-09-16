@@ -298,7 +298,7 @@ test("independently revealable regions publish source-backed crops the conversat
 		regions: [{ id: "barn", label: "Barn" }],
 		render: { layers: [{ path: player.path, source_box: [0, 0, 0.5, 1], placement: [0, 0, 0.5, 1], redactions: [] }] },
 	}, { modulesRoot: result.cwd, campaignDir: join(result.home, ".coc", "campaigns", "c1") });
-	assert.equal(barn.available, true);
+	assert.equal(barn.document, 'ready');
 	const pixels = await countColors(barn.image);
 	assert.ok(pixels.red > 0);
 	assert.equal(pixels.blue, 0);
