@@ -402,6 +402,20 @@ export async function activeMods(context: KernelContext, world: Row, known: ModC
                     fix: `repair or remove the package at ${refused.path}, then reopen the table; no player input can change this`,
                     details: { mod: id, version: value.version, path: refused.path, reason: refused.reason },
                 });
+            // Contract §28.9, read from §41.2's end. The other half of the same table's defect: the
+            // package did load, this build merely does not know a name inside it, so it is in the
+            // catalog carrying `kernel_gap` and `compatible: false`. `table.open` hands that to the
+            // host as `mods_unreadable` -- but a campaign that locks the package never reaches the
+            // end of `table.open`, because `mod_context` reads `activeMods` and this throw is what it
+            // gets, so the whole result including `mods_unreadable` is discarded. The reason has to
+            // ride the refusal as well, or for the one campaign that cannot play it reaches nobody.
+            if (mod?.kernel_gap != null) {
+                const gap = row(mod.kernel_gap);
+                throw new RpcError("campaign_not_ready", `The ${id} package this campaign locks is newer than this kernel build: ${string(gap.message)}`, {
+                    fix: `rebuild the kernel from the tree that carries this package, or remove ${id} from this campaign's locks, then reopen the table; no player input can change this`,
+                    details: { mod: id, version: value.version, reason: string(gap.message), kernel_gap: gap },
+                });
+            }
             throw new RpcError("campaign_not_ready", `Missing or incompatible locked Mod ${id} ${value.version}`);
         }
         for (const [dep, version] of entries(mod.dependencies))

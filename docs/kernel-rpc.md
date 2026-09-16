@@ -7421,6 +7421,206 @@ the bytes the catalog read changed while the table was live. That is a developme
 day — a package edited in the tree a table is running from — and it is also what an install or an upgrade
 does to the store.
 
+**The boundary with §28.9: unreadable is not the same as not understood, and only one of them is this
+section's.** The same live incident was answered twice, from two branches, and each answer was right
+about a different half. The dividing question is whether this kernel build can *load* the manifest at
+all.
+
+- **It cannot load** — bytes that do not parse, a field the loader outright refuses, an id that is not a
+  slug. `manifestFrom` raises `RpcError`, the package never enters the catalog, and everything above
+  applies: it lands in `unavailable`, and a campaign that locks it is refused `campaign_not_ready`
+  carrying the loader's own sentence, the directory to repair and `details.path`.
+- **It loads but carries a name this build does not know** — an unknown key under
+  `contributes.vocabulary`, an unknown field on a contributed profile key, an unknown capability in
+  `requires`, an unknown `game_api`. That is build skew, not a broken package, and it is **§28.9's**:
+  `validateVocabulary` raises `KernelPredatesPackage`, the manifest records `kernel_gap`, the package
+  **stays in the catalog** as `compatible: false`, `kernelGaps` names it, and `table.open` hands the list
+  to the host as `mods_unreadable`. `unavailable` stays empty, because nothing about the package is wrong.
+
+§28.9 is the later and better-evidenced of the two and it is the baseline; this section keeps only the
+path §28.9 does not cover. One thing did have to be added to reach a campaign that locks a skewed
+package. `table.open` builds `mods_unreadable` and `mod_context` into one result and `mod_context` reads
+`activeMods`, which refuses first — so the whole result is discarded and `mods_unreadable` reaches
+nobody, for exactly the one campaign that cannot play. `activeMods` therefore refuses a locked package
+carrying a `kernel_gap` with the gap's own words: message `The <id> package this campaign locks is newer
+than this kernel build: <the gap's sentence>`, `fix` saying to rebuild the kernel or drop the lock and
+that no player input can change it, `details` `{mod, version, reason, kernel_gap}`. A locked package that
+merely failed its digest or its capability check still gets its own older answer, `Missing or
+incompatible locked Mod <id> <version>`, and is never reworded into a sibling version's fault
+(`ModCatalog.refusalFor`).
+
+## 42. A state the rules impose reaches the player, refuses the action, and has a way out (2026-09-16)
+
+This section is a record of behaviour that already shipped. Eleven call sites in the kernel, the
+extension, the panel and the suites cite `§42` and `§42.6` and there was no §42 to cite: the family
+landed as three merged branches whose numbers were proposed in reports only, and `6a3bff977` moved them
+off §41 once §41 had a claimant. Nothing here is a new design. Where a rule is written down and the
+product does not keep it, it is marked as an open gap and left open.
+
+Retained live evidence, campaign `game-83177d61` (The Haunting, `zh-Hans`), turns 107–114. Walter
+Corbitt's claws took the investigator's last 6 hit points and the kernel settled it exactly right: zero
+hit points with no major wound is `unconscious`, not `dying`, and the receipt said so. Not one word of it
+reached anybody. The mechanics card had no case for a `condition` row and drew the row's kind and nothing
+else; the capsule's `known.investigator` carried `hp: 0` and no conditions at all, so the Keeper was not
+told either; `table.resolve` admitted every action declared for the body. For two turns the player
+declared things an unconscious man cannot do — holding on to consciousness, driving a dagger up into a
+chest — and got the same halted tableau back each time. Turns 108 through 114 settled no condition at
+all, so no card in that stretch said anything, while `save/healing-state/investigator.json` reads
+`conditions: ["unconscious"]` to this day. What finally reached the player, hours later, was the Keeper
+choosing to write 「人却动不了」 into the fiction.
+
+Three ends of §31's seam, all three broken at once: the state had a writer, no reader that reached a
+player, and nobody who acted on it. The five subsections below are the writer, the two readers, the gate,
+and the one thing the state still does not reliably have.
+
+### 42.1 Which states take the action away is one line, and it lives in the rules layer
+
+`INCAPACITATING_CONDITIONS` (`kernel-ts/healing/conditions.ts`) is `dead`, `dying`, `unconscious`: in CoC
+7e a character in any of them takes no action of their own. `OUT_OF_FIGHT_CONDITIONS` adds `fled` — out
+of this bout, still able to act. Everything else a character can carry (`major_wound`, `stabilized`,
+`prone`, `grappled`, `surprised`, `outnumbered`) costs dice or position and never the action itself.
+
+Deciding which states forbid acting is a rules question, so it is answered once, in the rules layer, and
+every consumer reads the answer rather than keeping a list. Four consumers used to carry a copy — combat
+eligibility, the initiative order, the session view's target list, the damage evidence rows — and a
+renderer or a capsule that answered it would be a second rules table living in a consumer. The module is
+deliberately a leaf: it imports nothing but the value helpers, so the projection, the capsule and the
+resolve gate can each read it without pulling the healing engine in behind them.
+
+The states are assigned beside it, in `applyWoundConditions`: `dead` on damage past maximum hit points,
+`unconscious` at zero hit points or on a failed major-wound CON roll, `dying` when both are true.
+
+### 42.2 A change of state reaches the player as a `condition` row on the delivery card
+
+The `condition` receipt projects into `mechanics` (§16.2) as
+`{kind: "condition", receipt, subject, gained, lost, standing, incapacitated, visibility}`.
+
+- `gained` and `lost` are the change. `standing` is every condition the character carries **after** it,
+  because a player who joins the card at turn 109 has to read what is true now, not diff two lists across
+  three turns.
+- `incapacitated` is which of `standing` take the action away. The rules engine decided that when the
+  receipt was minted (§42.1); the card does not re-read a name to judge it, and the panel marks the ones
+  it is handed and stamps `cannot act` beside them.
+- The condition words are the delivery card's surface (`mechanics`, keys `condition.<name>` and
+  `cannotAct`). That is the one place in this product a condition is named in the play language, and
+  every other surface that needs one asks this surface for it (§42.6).
+
+### 42.3 The Keeper is told what the body can do, in the capsule
+
+`investigatorSummary` carries `conditions`, and when any of them take the action away, `cannot_act`: a
+sentence naming the character and the state, saying the kernel will refuse an action declared for them,
+and saying what to do instead — say the state in the fiction, and say what is being done about it. The
+retained table had `hp: 0` here and nothing else, which is why the Keeper wrote around an investigator
+who was out of play without ever being told he was.
+
+`cannot_act` is a courtesy to the Keeper and never the enforcement: §42.4 holds whether the Keeper read
+it or not, and §42.6 exists precisely because a layer that depends on a diligent Keeper is not a layer.
+
+### 42.4 An action the state forbids is refused by naming the state
+
+`table.resolve` refuses an action declared for an incapacitated investigator:
+`needs`, `<who> is <state> and takes no action of their own`, `next: "narrate"`, with
+`details: {reason: "actor_incapacitated", actor, actor_label, conditions, incapacitated, hp}`. The `fix`
+is read literally, because it will be: it says settle nothing for this character this turn, narrate the
+state instead, and names the ways out §42.5 gives — never a way for the Keeper to declare the state over,
+which is what an unqualified "resolve it" becomes.
+
+The kernel owns this and the §32.2 admission review does not, for three reasons. It is arithmetic rather
+than semantics: whether an unconscious body can drive a dagger home is the rulebook's answer and the same
+every time, while §32.2 answers whether the *player* chose the action — which on turns 108 and 109 it
+would have answered correctly, because the player did choose it. It must hold when the review lane is
+down. And §32.3 denies the reviewer the Keeper-side context, so the investigator's condition list is not
+in its input at all, which is the whole defect, since the player had not been told either.
+
+Three exemptions, the same shape as §32.1's and for the same reason — these are things that happen to
+somebody, not things they do, and refusing them would stop the only clock that can take the condition off
+again, so the gate would lock the state it exists to report:
+
+- an `involuntary` action, and answering a `pending_choice`;
+- the closed set `decision:coc7:healing:dying-round-clock`, `…:dying-hour-clock`,
+  `…:weekly-major-wound-recovery`;
+- the families `decision:coc7:sanity:` and `decision:coc7:development:`.
+
+Closed refs and family prefixes, never a reading of the prose. The gate applies to the investigator's own
+action only: an NPC acting inside a session carries a graph handle as the acting id, and the combat
+engine already keeps an incapacitated participant out of the initiative order there.
+
+### 42.5 The state has a way out, and the way out leaves a receipt
+
+A state that takes the action away and cannot be ended is not a condition, it is the end of the campaign
+for that character. CoC 7e gives three exits out of `unconscious`, and the kernel implements all three.
+Every one of them turns on the same fact — the character regains a hit point — which is why
+`HealingSession.heal` is the single place the condition is dropped: any hit point gained clears
+`unconscious` (and `dying` once hit points are above zero, and `major_wound` at half maximum).
+
+- **First Aid.** `resolve {decision: "healing:first-aid-ordinary"}`. A success grants 1 hit point and
+  rouses an unconscious person; it must be delivered within the hour, may be attempted once with further
+  attempts as a pushed roll, and two people may work together. (`skill-descriptions.json`, First Aid: a
+  successful use "can rouse an unconscious person to consciousness".)
+- **Medicine.** `resolve {decision: "healing:medicine-ordinary"}`. A success recovers 1D3 hit points and
+  likewise rouses; it takes an hour, and is Hard if not delivered the same day.
+- **Rest.** `apply {kind: "time"}` of six hours or more runs the healing time trigger; natural healing
+  returns one hit point and `heal` drops the condition the moment it lands. This is the only exit that
+  needs nobody else at the table.
+
+A dying character is past all three until First Aid stabilizes them: First Aid on a dying character sets
+1 temporary hit point and `stabilized` rather than healing, and Medicine refuses to treat a dying
+character who is not stabilized yet.
+
+Rest is the exit that used to be invisible. It changed the sheet and minted nothing, so by this product's
+own rule — narrated without a receipt is narrated without happening — the table had no record that the
+one exit an investigator alone on the floor can take had been taken. The time trigger now mints a
+`condition` receipt for the change, which is what makes it a §42.2 row on the card.
+
+**Open gap, BUG-076: on a live table the way out is written down and nobody is obliged to drive it.**
+Retained real-table evidence: thirty in-game hours across seven turns with an `unconscious` investigator
+and **zero** `condition` receipts in any of them; two rousing checks in the whole stretch, one of them an
+outside accident and the other prompted by the player naming the rule themselves. The Keeper closed both
+exits in its own words — "I will not have anyone touch the same wound again", and "You speak. **I will
+not move the clock forward for you.**" — and then left the decision to a player who was, on the same
+screen, forbidden to act. The rules above are correct and the kernel keeps them; what is missing is that
+nothing at the table drives one. The `needs` refusal of §42.4 fires only when the Keeper tries to settle
+something, so a Keeper who settles nothing is never prompted at all; the §42.6 notice goes to the player,
+who by definition cannot act on it; and the one exit that needs nobody else is spelled `apply time`, a
+verb only the Keeper has. This section does not close that gap. It records that the gap is in who drives
+the exit, not in whether the exit exists.
+
+### 42.6 The host says a standing state out of fiction, beside the delivery
+
+§42.2 makes a *change* of state visible. The state itself was visible for exactly one turn, because
+`mechanics` is a record of what happened and a state that did not change mints no receipt. That is the
+whole of turns 108–114.
+
+So a delivery that did not change a state still carries it. `standingStates` rides `table.narrate` and
+`table.ask` as `standing`: `[{investigator, name, conditions}]`, one row per party member carrying an
+incapacitating state, `conditions` being only the states that take the action away.
+
+- **Only those states.** A `major_wound` or a `prone` costs dice or position and the character still
+  acts; an every-turn notice about one would be noise on a channel that has to stay believed. Those live
+  on the sheet, and still get their one `condition` row on the turn they land.
+- **Never twice.** A subject whose conditions this turn changed is omitted: the card's own `condition`
+  row already names the state, the standing set and the `cannot act` stamp. That holds for a withheld
+  change too — a `keeper`-tier condition receipt suppresses the line, rather than having the host
+  announce what the settlement meant to keep from the player.
+- **Not a mechanics row, and deliberately never one.** It is not a receipt; it is what the player was
+  told stood on them. `deliveryRecord` keeps `standing` on the turn record for the same reason: a record
+  holding only receipts could not answer afterwards whether a turn said the state or said nothing.
+
+The host says it on the channel the service notices already use — `coc-delivery`, `display: true`,
+`details.standing_conditions`, caption `standing_condition_notice`, composed from the shipped captions in
+the campaign's play language, with one telemetry row `{lane: "delivery", reason:
+"standing_condition_notice"}`. Out of fiction, beside the delivery, because that is where the player is
+already looking when they decide what to say next. It is sent `triggerTurn: false` and scheduled off the
+tool result, so the player reads the delivery before the line about it. The host reads the condition
+names from the delivery card's surface (`words.wordOn("mechanics", …)`) rather than copying them onto its
+own: a second copy is a second place every new condition has to be projected, and the copies drift the
+first time only one of them is.
+
+The character sheet is the other reader, and the reason the notice exists rather than resting on it.
+`table.view` gives each investigator `incapacitated` beside `conditions` — the same rules-layer answer,
+projected once — and the panel marks those and stamps `cannot act`. The player of the retained table
+never opened it.
+
 ## 43. A project root is a directory: the remote shell's typed path (2026-09-16)
 
 Found in real remote play, not by a suite. A phone paired to the relay showed the
