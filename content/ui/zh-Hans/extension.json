@@ -57,7 +57,7 @@
   "receipt_worldline_plain": "世界线",
   "review_down_notice": "本回合未能发布：连贯性审核已连续失败 {streak} 次。已落定的内容均予保留，再次发送会开始新的尝试——若持续失败，请在设置的通道模型中选择更快的模型；下次审核会改用该模型，无需重启本桌。已告知本桌主持人。",
   "review_unavailable_notice": "这一回合没能发布：连续性复核没跑完。已经结算的内容都还在——随便说句话就能再试一次。",
-  "review_verdict_notice": "本回合未能发布：连贯性审核已读过但未通过。已落定的内容均予保留——发送任意内容，守秘人会重写本回合。",
+  "review_verdict_notice": "本回合未能发布：连续性审阅读后未予通过。已结算者均保留且仍计——任意发送，守秘人从此处发生之事接续。",
   "session_defence": "防御：{who}",
   "session_defence_options": "防御：{who}（{options}）",
   "session_defender_npc": "NPC",

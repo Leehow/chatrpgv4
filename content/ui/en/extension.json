@@ -57,7 +57,7 @@
   "receipt_worldline_plain": "worldline",
   "review_down_notice": "This turn could not be published: its continuity review has failed {streak} times in a row. Everything already settled is kept, and sending again does start a fresh attempt — but if it keeps failing, pick a quicker model under Lane model in settings; the next review uses it without restarting this table. The person running this table has been told.",
   "review_unavailable_notice": "This turn could not be published: its continuity review did not finish. Everything already settled is kept — send anything to try again.",
-  "review_verdict_notice": "This turn could not be published: the continuity review read it and did not approve it. Everything already settled is kept — send anything and the Keeper writes this turn again.",
+  "review_verdict_notice": "This turn could not be published: the continuity review read it and did not approve it. Everything already settled is kept and still counts — send anything and the Keeper picks up from what happened here.",
   "session_defence": "defence: {who}",
   "session_defence_options": "defence: {who} ({options})",
   "session_defender_npc": "NPC",

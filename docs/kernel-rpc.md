@@ -9710,13 +9710,33 @@ untold: [{turn: 81, receipts: [ ...mechanics rows... ], line: "turn 81 settled t
 - **The stranded record is not rewritten.** There is no path that backfills `text` on a
   `closed_by: "stranded"` record, and §38.2's inertness is the reason. What the player gets back is
   the content, on the next turn, not that turn's paragraph.
-- **The player notice is untouched here.** `review_verdict_notice` still ends "send anything and the
-  Keeper writes this turn again", which describes a rewrite that cannot happen; with this section the
-  Keeper can at least carry the findings forward, so the sentence is now merely imprecise rather than
-  empty. Correcting it is a §23 caption change, and a caption change is two-legged: the authored
-  English in `content/ui/en/extension.json` and the shipped `content/ui/zh-Hans/` seed, which wins
-  whole when complete and carries no digest — editing only the English would leave every zh-Hans
-  player reading the old sentence forever. That is its own open item, listed below.
+- **The stranded turn's own paragraph is not recovered.** What the player gets back is the content,
+  on the next turn, not that turn's prose. The two are different promises, and the notice now makes
+  the smaller, true one.
+
+### 69.4a The notice stops promising a rewrite, and a caption change is two-legged
+
+`review_verdict_notice` ended "send anything and the Keeper writes this turn again". Nothing rewrites
+a stranded turn and nothing ever will: §38.2's record is inert by design. With `untold` the true
+sentence is available for the first time — what settled is kept *and still counts*, and the Keeper
+picks up from what happened there — so the notice now says that instead.
+
+**A caption correction in this repo is two legs, and shipping one of them is worse than shipping
+neither.** `runtime/ui-words.ts` answers from a *complete* shipped `content/ui/<tag>/` seed **before**
+it looks at the home cache, and a seed carries **no digest**. The home cache is digest-guarded and so
+re-projects when an authored caption changes; the seed is not, and simply keeps answering. Editing
+`content/ui/en/<surface>.json` alone therefore leaves every player on a seeded tag reading the old
+sentence for the life of the build, and `tests/extension/ui-words.test.mjs` stays green throughout,
+because it pins each seed to the authored **key set** and never to a value.
+
+Adding a key is the case the lane already handles: the seed goes incomplete, `resolveUiWords` drops to
+`projected: false` and the lane runs. **Changing a value is the case it cannot see** — the key set is
+unchanged, the seed is still complete, and the lane is never started. So the value leg is run by
+opening the gap deliberately: drop that one key from the seed, run the presentation lane
+(`onboarding-worker presentation` with `ui: true`), and harvest **only** that key back. The lane
+re-asks every authored caption and returns its own wording for all of them; taking more than the one
+changed key would silently reword the whole interface with nothing reviewing it. Hand-writing the
+translation is forbidden outright (§23).
 
 ### 69.5 Open, found while reading this turn
 
@@ -9726,10 +9746,10 @@ untold: [{turn: 81, receipts: [ ...mechanics rows... ], line: "turn 81 settled t
   The clue *label* is projected and the summary is not rendered anywhere the player can read, so the
   whole of what an extreme success bought reaches the player as one label and one figure on a card.
   Whether the summary should travel the presentation leg (§23) is not settled here.
-- **The shipped seed has no digest** (`runtime/ui-words.ts`): a complete `content/ui/<tag>/` seed
-  answers before the home cache, so an edit to an authored caption silently keeps the stale
-  translation. Every caption correction in this repo is therefore gated on running the presentation
-  lane.
+- **Terminology across the `extension` surface's seed is not uniform.** The seed already carried two
+  renderings of "continuity review" before this change and the lane's fresh answer is a third. Only
+  the one changed key was harvested, deliberately, so the drift is recorded rather than hand-edited;
+  settling the vocabulary is a lane run over the whole surface with someone reviewing it.
 
 ### 69.6 Acceptance
 
