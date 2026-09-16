@@ -1767,11 +1767,16 @@ export default function (pi: ExtensionAPI) {
 				kind: wait.kind, ...(wait.name ? { name: wait.name } : {}) });
 			return;
 		}
-		const key = wait.kind === "source" ? "source_wait_notice" : "adaptation_wait_notice";
 		let line = wait.kind === "source"
 			? "Part of the source this table needs is still being read, so the Keeper could not use it this turn. Nothing you did was lost, and nothing else at the table is blocked — send anything to continue."
 			: "This table is still preparing a place the Keeper needed, so it could not take you there this turn. Nothing you did was lost — send anything to continue, and the Keeper picks it up once the preparation lands.";
-		try { line = (await surface.words()).line(key); }
+		// The key is written at the call site, not held in a variable: the caption registry is found by
+		// a static scan of quoted identifiers inside `.line(...)`, so a key in a variable is a shipped
+		// word nothing asks for (`extension-words`, "caption keys are found by static scan").
+		try {
+			const words = await surface.words();
+			line = wait.kind === "source" ? words.line("source_wait_notice") : words.line("adaptation_wait_notice");
+		}
 		catch { /* an unreadable content root still owes the player the English line */ }
 		// §50: `triggerTurn: false`. This notice is scheduled from `applyToolSuccess`, on a turn that
 		// delivered, so on a live table it is sent while that run is still streaming — and
