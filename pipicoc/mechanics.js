@@ -38,6 +38,13 @@
 
 const STYLE_ID = "pipicoc-mechanics-style";
 const CSS = `
+.coc-mech-help{margin:8px 0 2px;display:flex;flex-direction:column;align-items:flex-start;gap:8px}
+.coc-mech-help-toggle{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0;border:1px solid var(--border-strong);border-radius:50%;color:var(--muted);background:var(--surface-raised);font-size:14px;font-weight:600;line-height:1;cursor:pointer}
+.coc-mech-help-toggle:hover,.coc-mech-help-toggle[aria-expanded="true"]{color:var(--text-strong);border-color:var(--accent);background:color-mix(in srgb,var(--accent) 14%,var(--surface-raised))}
+.coc-mech-help-fold{width:100%;max-width:560px;padding:12px 14px;border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:10px;background:var(--surface-raised);color:var(--text);font-size:13px;line-height:1.7}
+.coc-mech-help-fold h4{margin:0 0 6px;font-size:13px;font-weight:650;color:var(--text-strong)}
+.coc-mech-help-fold p{margin:0 0 4px}
+.coc-mech-help-fold p:last-child{margin:0;color:var(--muted)}
 .coc-mech{--coc-serif:ui-serif,"Songti SC","Noto Serif CJK SC","SimSun",Georgia,serif}
 
 /* This is not a card's text, it is the turn's prose: the host folds its own plain copy away and
@@ -993,10 +1000,35 @@ export function createComponent(React) {
         })));
   }
 
+  /**
+   * The "?" and its fold under the Keeper's opening (docs/specs/opening-guidance.md §4). The words and
+   * whether it starts open come with the delivery (`details.help`, decided and recorded by the
+   * extension); this card only draws them and lets the player open or close. A React without hooks
+   * (the tests' element factory) draws it fixed as told.
+   */
+  const useOpenState = typeof React.useState === "function" ? React.useState : (initial) => [initial, () => {}];
+  function HelpFold({ help }) {
+    const [open, setOpen] = useOpenState(help.open === true);
+    return h("div", { className: "coc-mech-help", "data-testid": "opening-help" },
+      h("button", { type: "button", className: "coc-mech-help-toggle", "aria-expanded": open, "aria-label": help.title, title: help.title, onClick: () => setOpen(!open) }, "?"),
+      open
+        ? h("div", { className: "coc-mech-help-fold", role: "region", "aria-label": help.title },
+            h("h4", null, help.title),
+            help.lines.map((line, index) => h("p", { key: index }, line)))
+        : null);
+  }
+  const helpOf = (details) => {
+    const help = isRecord(details.help) ? details.help : null;
+    if (!help || typeof help.title !== "string" || !help.title.trim() || !Array.isArray(help.lines)) return null;
+    const lines = help.lines.filter((line) => typeof line === "string" && line.trim());
+    return lines.length ? { title: help.title.trim(), lines, open: help.open === true } : null;
+  };
+
   /** @param {{content: string, details?: unknown}} props */
   return function DeliveryCard(props) {
     const details = isRecord(props.details) ? props.details : {};
     if (isRecord(details.coc_error)) return null; // the host's own error card is better than ours
+    const help = helpOf(details);
     // Both come with the delivery: the chrome from the session's play language, the content
     // words from the kernel's glossary merged under the campaign's own projected lanes (§16.5,
     // §23). Neither is a table in this file.
@@ -1041,15 +1073,17 @@ export function createComponent(React) {
           ? h("section", { className: "coc-mech-list", "aria-label": t("mechanics") },
               h("h2", { className: "coc-mech-cap" }, t("mechanics")),
               unplaced.map((row, i) => renderRow(row, t, term, `rest:${i}`)))
-          : null);
+          : null,
+        help ? h(HelpFold, { help }) : null);
     }
 
     const rows = all;
     // Nothing of ours to add: let the host draw its default card rather than an empty one.
-    if (!prose && !rows.length) return null;
+    if (!prose && !rows.length && !help) return null;
 
     return h("div", { className: "coc-mech" },
       prose ? h("div", { className: "coc-mech-prose" }, prose) : null,
+      help ? h(HelpFold, { help }) : null,
       rows.length
         ? h("section", { className: "coc-mech-list", "aria-label": t("mechanics") },
             h("h2", { className: "coc-mech-cap" }, t("mechanics")),

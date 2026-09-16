@@ -1096,11 +1096,11 @@ function isVisibleCustomMessage(entry: any): boolean {
  */
 const HOST_DELIVERED_CUSTOM_TYPES = new Set(["coc-setup-opening", "coc-delivery"]);
 /** A well-formed help fold, or nothing: a title and a few lines of text, whatever else the details carry. */
-function openingHelp(value: any): { title: string; lines: string[] } | undefined {
+function openingHelp(value: any): { title: string; lines: string[]; open?: boolean; moment?: string } | undefined {
   if (!value || typeof value !== "object") return undefined;
   const title = typeof value.title === "string" ? value.title.trim() : "";
   const lines = Array.isArray(value.lines) ? value.lines.filter((line: unknown) => typeof line === "string" && line.trim()).map((line: string) => line.trim()) : [];
-  return title && lines.length ? { title, lines } : undefined;
+  return title && lines.length ? { title, lines, ...(value.open === true ? { open: true } : {}), ...(typeof value.moment === "string" ? { moment: value.moment } : {}) } : undefined;
 }
 function isHostDeliveredCustomMessage(entry: any): boolean {
   return typeof entry?.customType === "string" && HOST_DELIVERED_CUSTOM_TYPES.has(entry.customType);

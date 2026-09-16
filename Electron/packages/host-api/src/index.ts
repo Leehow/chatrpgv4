@@ -86,7 +86,7 @@ export type HistoryActivity =
  * `tool` entries (toolResult) reference the tool call they belong to.
  */
 /** The fold behind the setup opening's "?" (PipiCOC): what is happening here, in the play language. */
-export type OpeningHelp = { title: string; lines: string[] };
+export type OpeningHelp = { title: string; lines: string[]; /** Drawn open the first time this desk meets the moment; the extension decided and recorded it. */ open?: boolean; moment?: string };
 export type HistoryEntry = {
   presentation?: {renderer:string; details:unknown};
   /** assistant only: a host-delivered opening that carries a help fold the renderer draws behind a "?" button. */

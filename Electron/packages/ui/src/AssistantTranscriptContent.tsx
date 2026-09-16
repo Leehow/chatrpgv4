@@ -136,7 +136,8 @@ function useOpeningReveal(id: string, full: string): { text: string; revealing: 
  *  above stays the story, and what is happening here -- that this is the player's investigator
  *  being made -- is one click away. The words come with the message, in the play language. */
 const OpeningHelp = memo(function OpeningHelp({ help }: { help: OpeningHelpFold }) {
-  const [open, setOpen] = useState(false)
+  // Open as told: the extension decided (hints on, first time on this desk) and recorded it; this side only draws.
+  const [open, setOpen] = useState(help.open === true)
   return <div className="opening-help" data-testid="opening-help">
     <button type="button" className="opening-help-toggle" aria-expanded={open} aria-label={help.title} title={help.title} onClick={() => setOpen(current => !current)}>?</button>
     {open && <div className="opening-help-fold" role="region" aria-label={help.title}>

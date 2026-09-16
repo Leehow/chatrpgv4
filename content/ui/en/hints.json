@@ -1,0 +1,7 @@
+{
+  "title": "Beginner hints",
+  "lead": "A short explanation opens by itself the first time you meet a moment a new player may not understand: the guide's first question, the Keeper's opening. Turn this off and nothing opens by itself; the small “?” stays.",
+  "enabled": "Open beginner hints the first time",
+  "saved": "Saved",
+  "failed": "Could not save the setting"
+}

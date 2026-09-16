@@ -21,6 +21,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { emitToPanel, registerInvokeHandlers } from "./host-bridge.ts";
 import { uiWordsSurface } from "./ui-words.ts";
+import { cocMode } from "../extensions/lanes/host.ts";
 import type { UiWords } from "../runtime/ui-words.ts";
 import type { HostRuntime } from "../runtime/host.ts";
 import { PACK_ID } from "./sheet.ts";
@@ -40,6 +41,8 @@ export interface TimelineAnswer {
 	campaign: string | null;
 	/** The product's own captions for this session's play language, so no renderer keeps a table. */
 	ui?: UiWords;
+	/** Which process answered: the setup guide's or the Keeper's table. */
+	phase?: "setup" | "play";
 	/** The kernel's own fields ride at the top level, unwrapped. */
 	[key: string]: unknown;
 }
@@ -89,7 +92,8 @@ export function registerTimelinePanel(pi: ExtensionAPI): void {
 	}
 	async function answer(row: TimelineAnswer): Promise<TimelineAnswer> {
 		const ui = await chrome();
-		return ui ? { ...row, ui } : row;
+		// The session's phase rides with the chrome, so the composer can say what to type (§4 of docs/specs/opening-guidance.md).
+		return { ...row, phase: cocMode(), ...(ui ? { ui } : {}) };
 	}
 	function refuse(code: string, message: string): TimelineFailure {
 		return { ok: false, error: { code, message } };

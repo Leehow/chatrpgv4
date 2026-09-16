@@ -31,7 +31,7 @@ Setup mode driven through `tests/play/driver.py` with a wrapper launcher (`bin/p
 
 Not verified as pixels: the App's rendering of the lead paragraph above the prologue (the pinned card is removed at the source; `CocGameIntro.test.tsx` went with it).
 
-## 4. Design: three moments, one line each, once per device (2026-09-16, proposed)
+## 4. Design: three moments, one line each, once per desk (2026-09-16, landed the same day)
 
 What the research says (sources in the session log: Chaosium's *Alone Against the Flames*, Failbetter's Sunless Skies opening, Citizen Sleeper, AI Dungeon's Do/Say/Story, IxDF progressive disclosure, KP practice): teach inside the fiction where the fiction can carry it; where it cannot, a hint that fires **at the moment it is needed**, **once**, and is **ignorable** — never a card up front, never a spray of tooltips, and a veteran must be able to switch the whole thing off. The "?" of §2 is the right affordance; what it lacks is timing and memory.
 
@@ -47,17 +47,17 @@ A fourth moment — the first dice card — is deliberately left for later: the 
 
 ### 4.2 Memory and the switch
 
-- `localStorage` per device, one key per moment (`pipicoc.hints.setup-opening`, `pipicoc.hints.play-opening`): unset means never seen, so the fold opens and writes the key when the player closes it or sends their first line. A new campaign on a seen device shows the "?" only.
-- One product setting, **新手提示 / Beginner hints**, in the pack's settings surface beside difficulty and lane model: off means no fold ever opens by itself; the "?" buttons stay, because a veteran who forgets a detail should still have somewhere to click. Default on.
-- Nothing is stored on the campaign and nothing reaches the model: the hints are the host's, in the play language, from the extension surface's captions (the two moments' lines are `setup_help_*`, already shipped, and `play_help_*`, new).
+- **Not browser storage** (user ruling 2026-09-16). The record of what this desk has seen is the host's file `<home>/.coc/ui-hints.json` (`{seen: {<moment>: <iso>}}`), and the decision is made where the message is written: `extensions/ui/hints.ts`'s `openingHelp(moment, …)` returns the fold with `open` true exactly when hints are on and the moment is unseen, and records the moment at once. So a fold opens once by construction, and the renderers stay stateless: they draw `open` as told and only toggle in memory. A new campaign on a seen desk shows the "?" only.
+- One product setting, **新手提示 / Beginner hints** (`ext.coc-keeper.beginnerHints`, `{enabled}` in the host's extension settings document, read by `hintsEnabled`), in the pack's settings surface beside difficulty and lane model (`pipicoc/settings-hints.js`): off means no fold ever opens by itself; the "?" buttons stay. Default on.
+- Nothing is stored on the campaign and nothing reaches the model: the hints are the host's, in the play language, from the extension surface's captions (`setup_help_*` and `play_help_*`).
 
 ### 4.3 Where each piece goes
 
-- **Prologue fold, first-time open**: `OpeningHelp` in `AssistantTranscriptContent.tsx` takes `defaultOpen`; the decision (key unseen and hints on) is made in the renderer from `localStorage`, the same place the speaker-colour slots and the old intro card kept their per-device state.
-- **Composer placeholder**: `App.tsx` reads `timeline.ui.words.composer` (a new surface `content/ui/en/composer.json`: `placeholder_setup`, `placeholder_play`; the zh-Hans seed shipped) and the session's phase; the host already binds a session to `setup` or `play` (`PI_COC_MODE`) and the timeline's `ui` block carries the phase alongside the words. The generic shell text stays as the fallback for non-PipiCOC products.
-- **Keeper's opening fold**: the kernel extension marks the opening turn's delivery (`details.help` on the narrate result it hands the card, turn 0 only, words from the extension surface); `pipicoc/mechanics.js` draws the same fold under the prose (the pack renderer cannot import, so it carries its own thirty lines; `speaker-colour.test.mjs`'s "copies do not drift" pattern applies).
-- **Setting**: `pipicoc/settings-hints.js` beside `settings-difficulty.js`, a checkbox bound to `localStorage`; the folds read it.
+- **Prologue fold, first-time open**: the onboarding extension asks `openingHelp('setup-opening', …)` and sends `details.help = {moment, title, lines, open}`; the backend projects it (`help` on the history entry, live and re-read); `OpeningHelp` in `AssistantTranscriptContent.tsx` starts open when told.
+- **Composer placeholder**: the timeline answer carries `phase` (`setup` | `play`, from `cocMode()`); `App.tsx` reads `timeline.ui.words.composer` (surface `content/ui/en/composer.json`: `placeholder_setup`, `placeholder_play`; the zh-Hans seed shipped) and hands the composer its placeholder by phase. The shell's generic line stays for everything else.
+- **Keeper's opening fold**: the kernel extension reads `openingPending` before the narrate that closes the opening and attaches `openingHelp('play-opening', …)` to that result (`details.help`); `pipicoc/mechanics.js` draws the fold under the prose on both card paths, with a React without hooks drawing it fixed as told (`tests/extension/opening-help-card.test.mjs`).
+- **Setting**: `pipicoc/settings-hints.js` beside `settings-difficulty.js`, a checkbox that reads and writes the host's extension settings document (`tests/extension/coc-hints-settings.test.mjs`).
 
 ### 4.4 Acceptance
 
-A fresh device (cleared storage), one starter: the prologue arrives with its fold open under the question; the composer says what to answer; the Keeper's opening arrives with its fold open; both folds closed once stay closed on the next campaign; with the setting off nothing opens by itself and both "?" remain. Tests: `AssistantTranscriptContent.opening.test.tsx` (first-time open, seen key, setting off), a `mechanics.js` renderer test for the opening fold, an App test for the placeholder by phase, and the words tests for the two new surfaces.
+A fresh desk (no `ui-hints.json`), one starter: the prologue arrives with its fold open under the question; the composer says what to answer; the Keeper's opening arrives with its fold open; the next campaign on the same desk shows the buttons only; with the setting off nothing opens by itself and both "?" remain. Tests: `tests/extension/beginner-hints.test.mjs` (first time opens and records, second time does not, setting off records nothing), `opening-help-card.test.mjs`, `coc-hints-settings.test.mjs`, `AssistantTranscriptContent.opening.test.tsx` (drawn as told), and the words tests for the two new surfaces. Not verified as pixels: the App's rendering of either fold and of the placeholder.

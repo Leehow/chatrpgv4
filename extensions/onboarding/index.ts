@@ -8,6 +8,7 @@ import { prepareCharacterGuidance, acceptedGuidance, type Guidance } from '../mo
 import { registerInvokeHandlers } from '../../pipicoc/host-bridge.ts';
 import { Type } from "typebox";
 import { cocHome, cocMode } from "../lanes/host.ts";
+import { agentHomeOf, openingHelp } from "../ui/hints.ts";
 import { playLanguageTag } from "../../runtime/ui-words.ts";
 import type { HostRuntime } from "../../runtime/host.ts";
 import { type ExtensionWords, extensionContentRoot, extensionSurface } from "../ui/words.ts";
@@ -730,7 +731,8 @@ export default function (pi: ExtensionAPI) {
       // guidance both; the pinned intro card that used to say this hid the transcript). Captions of the
       // extension surface, so they arrive in the play language.
       const words=await speaking();
-      const help={title:words.line('setup_help_title'),lines:[words.line('setup_help_1'),words.line('setup_help_2'),words.line('setup_help_3'),words.line('setup_help_4'),words.line('setup_help_skip')]};
+      // Open by itself the first time this home meets the moment, then only on the "?" (§4 of the spec).
+      const help=await openingHelp('setup-opening',words.line('setup_help_title'),[words.line('setup_help_1'),words.line('setup_help_2'),words.line('setup_help_3'),words.line('setup_help_4'),words.line('setup_help_skip')],{home:cocHome(ctx.cwd),agentHome:agentHomeOf(ctx.cwd)});
       pi.sendMessage({customType:'coc-setup-opening',content:guidance.opening,display:true,details:{kind:'setup-opening',help}});
     }
     if (ctx.hasUI && steps && process.env.PI_COC_SETUP_AUTOSTART!=='1') {

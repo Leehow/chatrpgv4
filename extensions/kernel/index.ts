@@ -13,6 +13,7 @@ import { createRuntime, type HostRuntime } from "../../runtime/host.ts";
 import { adaptationService } from './adaptation.ts';
 export { kernelCommand } from "../../runtime/host.ts";
 import { cocHome, cocMode } from "../lanes/host.ts";
+import { agentHomeOf, openingHelp } from "../ui/hints.ts";
 import { extensionSurface } from "../ui/words.ts";
 import { type KernelClient, KernelError, type KernelProgressFrame, isKernelError } from "./client.ts";
 import { progressPartial } from "./progress.ts";
@@ -2020,6 +2021,9 @@ export default function (pi: ExtensionAPI) {
 		if (!state) {
 			throw new Error(startupError ?? "the kernel is not up, so this table cannot open");
 		}
+		// Whether this narrate closes the opening turn, read before the success path clears the flag: the
+		// Keeper's opening is the one delivery that carries the beginner's "?" fold (opening-guidance §4).
+		const closesOpening = spec.name === "narrate" && state.openingPending;
 		if(spec.name==='ask' && params.kind!=='mechanics')throw new Error('Use narrate for ordinary story questions and await free input; ask only accepts mechanics');
     const payload: Record<string, unknown> = { campaign: state.campaign, ...params };
 		if (WRITE_TOOLS.has(spec.name)) {
@@ -2124,6 +2128,16 @@ export default function (pi: ExtensionAPI) {
 			}
 			await prepareMapViews(state,result);
 			applyToolSuccess(state, spec.name, toolCallId, result);
+			if (closesOpening && sessionCtx) {
+				// Words in the play language from the extension surface; whether the fold starts open is
+				// decided and recorded by the hints module (once per home, only while the setting is on).
+				try {
+					const words = await surface.words();
+					(result as Record<string, unknown>).help = await openingHelp("play-opening", words.line("play_help_title"),
+						[words.line("play_help_1"), words.line("play_help_2"), words.line("play_help_3")],
+						{ home: cocHome(sessionCtx.cwd), agentHome: agentHomeOf(sessionCtx.cwd) });
+				} catch { /* a hint that cannot be worded is a hint not drawn; the delivery stands */ }
+			}
 			const adaptationPending = spec.name === 'lookup' && params.kind === 'adaptation' && ['pending', 'reviewing'].includes(String(result.status));
 			if (adaptationPending) {
 				state.preparationWait = { kind: "adaptation", name: asString(result.name), status: asString(result.status) };

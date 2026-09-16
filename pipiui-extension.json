@@ -42,6 +42,11 @@
             "type": "object",
             "title": "Lane reasoning effort",
             "description": "The reasoning effort those lanes run at. Absent means they follow the table's own level, which on a high-effort table can cost the review its whole time budget. Read when a session starts."
+          },
+          "ext.coc-keeper.beginnerHints": {
+            "type": "object",
+            "title": "Beginner hints",
+            "description": "Whether a short explanation opens by itself the first time this desk meets a moment a new player may not understand (the guide's first question, the Keeper's opening). Off leaves the \"?\" buttons and opens nothing."
           }
         }
       }
@@ -59,6 +64,12 @@
           "title": "审查模型",
           "description": "叙述审查与物品参数生成所用的后台模型",
           "entry": "pipicoc/settings-lane-model.js"
+        },
+        {
+          "id": "coc-hints",
+          "title": "新手提示",
+          "description": "第一次遇到时自动展开的说明",
+          "entry": "pipicoc/settings-hints.js"
         }
       ],
       "layout": {
@@ -70,7 +81,13 @@
         "auxiliarySidebar": "coc.investigator"
       },
       "panels": [
-        {"slot":"toolPanel", "id":"coc.mods", "title":"Mods", "entry":"pipicoc/mods-panel.js", "icon":"pipicoc/mods-icon.svg"},
+        {
+          "slot": "toolPanel",
+          "id": "coc.mods",
+          "title": "Mods",
+          "entry": "pipicoc/mods-panel.js",
+          "icon": "pipicoc/mods-icon.svg"
+        },
         {
           "slot": "toolPanel",
           "id": "coc.investigator",
