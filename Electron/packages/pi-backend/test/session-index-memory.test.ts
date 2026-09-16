@@ -43,7 +43,12 @@ describe("lazy session metadata index", () => {
     expect(growth).toBeLessThan(200 * 1024 * 1024);
     const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
     expect(await backend.handle("getSessionHistory", [sessions[0].id, 0, 1])).toHaveLength(1);
-    expect(warning).toHaveBeenCalledWith(expect.stringContaining("SessionManager skipped"));
+    // §65: this used to require the "SessionManager skipped … exceeds bounded
+    // history limit" warning. `readHistory` never used SessionManager, so the
+    // line announced a skip that was not happening, and two investigations of
+    // a stranded table spent themselves on it. An over-size session is served
+    // like any other, and says nothing about itself.
+    expect(warning.mock.calls.map(call => String(call[0])).filter(line => line.includes("bounded history limit"))).toEqual([]);
     warning.mockRestore();
     await backend.close();
   });

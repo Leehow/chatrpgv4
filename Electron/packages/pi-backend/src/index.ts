@@ -1691,13 +1691,13 @@ async function readHistory(
   sessionId?: string,
   cocHost?: CocHostPaths,
 ): Promise<HistoryEntry[]> {
+  // §65: no size gate here. This path never used SessionManager, so the cap had
+  // nothing to skip — the warning it printed on every read of a long session
+  // described a decision that was not being made, and two separate
+  // investigations of a stranded table spent themselves on it. The page costs
+  // the same at 8 MB as at 8 KB; the freeze probe's `history_scan_end size=…
+  // ms=…` is the honest reading.
   const stat = await fs.stat(path);
-  const large = stat.size > SESSION_MANAGER_MAX_BYTES;
-  if (large) {
-    console.warn(
-      `[pipi-backend] SessionManager skipped for ${path}: ${stat.size} bytes exceeds bounded history limit`,
-    );
-  }
   if (stat.size <= 0) return [];
   return readHistoryFallback(path, before, limit, vaultDir, sessionId, stat.size - 1, cocHost);
 }
@@ -4386,6 +4386,11 @@ export class PiHostBackend implements HostBackend {
               name: live?.name ?? s.name ?? "Session",
               updatedAt: Math.max(s.updatedAt, live?.updatedAt ?? 0),
               model: this.sessionModelOf(s),
+              // §65: the paged listing carries the session's recorded form
+              // (`toSession`) and this hand-built one did not. The shell reads
+              // whichever answered last, so the same session's form appeared
+              // and disappeared with the call that refreshed the list.
+              ...(s.productProfile ? { productProfile: s.productProfile } : {}),
               ...(workspaces.has(s.header.id) ? { workspace: workspaces.get(s.header.id) } : {}),
             };
           })
@@ -5686,7 +5691,13 @@ export class PiHostBackend implements HostBackend {
     // Identity anchor: always the canonical project root, even when a capability has bound
     // this session to a workspace/worktree. Extension discovery stays rooted here.
     const canonicalRoot = isolated?.realProjectRoot ?? found.header.cwd;
-    const registeredExtensions = await this.registeredExtensionsForSpawn(canonicalRoot);
+    // §65: both halves of this session's product identity are read together,
+    // inside the scan lane, and the read says whether it is an answer at all.
+    const spawnIdentity = await this.withStableExtensionScan(
+      canonicalRoot,
+      () => this.readSpawnProductIdentity(canonicalRoot),
+    );
+    const registeredExtensions = spawnIdentity.registeredExtensions;
     // The kernel (host machinery) and the runtime layout (bundled catalogs, managed
     // npm roots) are the only paths the host resolves itself; every capability mount
     // arrives with `registeredExtensions`, already seed-overridden.
@@ -5700,13 +5711,22 @@ export class PiHostBackend implements HostBackend {
     // pi-goal auto-revival suppression.
     const goalAutoResume = await this.goalAutoResumeForSpawn(id);
     this.assertSessionGeneration(id, generation);
-    const activePack = await this.activePackId(canonicalRoot);
+    const activePack = spawnIdentity.activePack;
     const productSpawn = resolveProductSpawnPlan({ packId: activePack, registeredExtensions });
     const productProfile = {
       id: activePack,
       fingerprint: productSpawnFingerprint(activePack, productSpawn),
     };
-    if (found.productProfile?.id !== productProfile.id
+    // §65: a session's recorded form is written from an answer, never from an
+    // absence. An unanswered read resolves `base` — the same value a project
+    // with no pack resolves to — and stamping that into the JSONL is durable:
+    // every later load then reads the table as belonging to another product,
+    // locks the composer and offers the person nothing but a new session.
+    if (!spawnIdentity.answered) {
+      console.warn(
+        `[pipi-backend] product identity unanswered for ${canonicalRoot}; keeping ${found.productProfile?.id ?? "the unrecorded form"} on ${id}`,
+      );
+    } else if (found.productProfile?.id !== productProfile.id
       || found.productProfile.fingerprint !== productProfile.fingerprint) {
       await fs.appendFile(found.path, `${JSON.stringify({
         type: "pipiui_product_profile",
@@ -8780,6 +8800,35 @@ export class PiHostBackend implements HostBackend {
   }
   private async mergedExtensionOverlay(projectRoot?: string): Promise<Record<string, boolean>> {
     return (await this.resolveProjectEnablement(projectRoot)).enablement.enabled;
+  }
+  /**
+   * §65. Both halves of a spawn's product identity — what to mount, and which
+   * form to record — read the same shared mutable registry, and `activePackId`
+   * returns `base` whether the project enables no pack or the registry is
+   * pointed at some other project. Those two are not the same conclusion, and
+   * only the first may be written down.
+   *
+   * So: take both reads together, then check the registry is still this
+   * project's. A scan that landed mid-read is retried once; if it is still
+   * elsewhere, `answered` is false and the caller keeps what the session
+   * already recorded rather than stamping `base` over it.
+   *
+   * Call only inside `withStableExtensionScan(projectRoot, …)` — the lane keeps
+   * other lane users out, this check catches what the lane cannot.
+   */
+  private async readSpawnProductIdentity(canonicalRoot: string): Promise<{
+    registeredExtensions: SpawnRegisteredExtension[];
+    activePack: string;
+    answered: boolean;
+  }> {
+    const expected = resolve(canonicalRoot);
+    for (let attempt = 0; ; attempt++) {
+      const registeredExtensions = await this.registeredExtensionsForSpawn(canonicalRoot);
+      const activePack = await this.activePackId(canonicalRoot);
+      const answered = this.extensionLoader.loadedProject() === expected;
+      if (answered || attempt >= 1) return { registeredExtensions, activePack, answered };
+      this.extensionLoader.scan(canonicalRoot);
+    }
   }
   /**
    * Which form this project is in: the enabled pack's extension id, or `base`
