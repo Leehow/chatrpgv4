@@ -30,3 +30,34 @@ Setup mode driven through `tests/play/driver.py` with a wrapper launcher (`bin/p
 **PDF (冰冷的收获, `guide-pdf-1`).** Prologue regenerated at setup: 「一九三七年十月，你被叫进安全机关一间指挥室报到……「我是格里戈里·帕维洛维奇·阿加宁，这儿管事的。上面把你派来了。乡下有些事要人下去看……你是谁？平时干什么的？说个大概就行。」」 — one name, "安全机关" in place of the acronym. The guide, the questions and the draft in the same host voice; the Keeper's opening reoriented (「你已经报过名——伊万·索科洛夫，州里的民警。差事还没落到纸上」) before the briefing. The briefing still carried three of the book's names in one breath (the farm, the family, the supervisor); the names cap now applies to the opening with a prologue too, added after this table.
 
 Not verified as pixels: the App's rendering of the lead paragraph above the prologue (the pinned card is removed at the source; `CocGameIntro.test.tsx` went with it).
+
+## 4. Design: three moments, one line each, once per device (2026-09-16, proposed)
+
+What the research says (sources in the session log: Chaosium's *Alone Against the Flames*, Failbetter's Sunless Skies opening, Citizen Sleeper, AI Dungeon's Do/Say/Story, IxDF progressive disclosure, KP practice): teach inside the fiction where the fiction can carry it; where it cannot, a hint that fires **at the moment it is needed**, **once**, and is **ignorable** — never a card up front, never a spray of tooltips, and a veteran must be able to switch the whole thing off. The "?" of §2 is the right affordance; what it lacks is timing and memory.
+
+### 4.1 The three moments
+
+| moment | where it lives | what it says (one fold, ≤ 5 lines) | first time on this device | after that |
+| --- | --- | --- | --- | --- |
+| **the guide's question** (prologue) | the `coc-setup-opening` message's `help` fold (exists) | this is your investigator being made; a name and a trade is enough; two or three more questions, then the sheet; the story goes on from here; "make the card now" skips | fold **open** under the question, with a close | the "?" only |
+| **what to type** (composer) | the composer placeholder, by phase | setup: *answer him — your name and what you do*; play: *say what your investigator does or says* | always (a placeholder costs nobody anything) | same |
+| **the Keeper's opening** (first delivery) | the opening turn's delivery card gets the same `help` fold | you say what your investigator does or says, one thing at a time; when the outcome is uncertain the Keeper rolls and the roll appears as a card beside the words; ask "what is that?" whenever you like — an answer is never a penalty | fold **open** under the opening | the "?" only |
+
+A fourth moment — the first dice card — is deliberately left for later: the card already names the check, and one more auto-open is one too many.
+
+### 4.2 Memory and the switch
+
+- `localStorage` per device, one key per moment (`pipicoc.hints.setup-opening`, `pipicoc.hints.play-opening`): unset means never seen, so the fold opens and writes the key when the player closes it or sends their first line. A new campaign on a seen device shows the "?" only.
+- One product setting, **新手提示 / Beginner hints**, in the pack's settings surface beside difficulty and lane model: off means no fold ever opens by itself; the "?" buttons stay, because a veteran who forgets a detail should still have somewhere to click. Default on.
+- Nothing is stored on the campaign and nothing reaches the model: the hints are the host's, in the play language, from the extension surface's captions (the two moments' lines are `setup_help_*`, already shipped, and `play_help_*`, new).
+
+### 4.3 Where each piece goes
+
+- **Prologue fold, first-time open**: `OpeningHelp` in `AssistantTranscriptContent.tsx` takes `defaultOpen`; the decision (key unseen and hints on) is made in the renderer from `localStorage`, the same place the speaker-colour slots and the old intro card kept their per-device state.
+- **Composer placeholder**: `App.tsx` reads `timeline.ui.words.composer` (a new surface `content/ui/en/composer.json`: `placeholder_setup`, `placeholder_play`; the zh-Hans seed shipped) and the session's phase; the host already binds a session to `setup` or `play` (`PI_COC_MODE`) and the timeline's `ui` block carries the phase alongside the words. The generic shell text stays as the fallback for non-PipiCOC products.
+- **Keeper's opening fold**: the kernel extension marks the opening turn's delivery (`details.help` on the narrate result it hands the card, turn 0 only, words from the extension surface); `pipicoc/mechanics.js` draws the same fold under the prose (the pack renderer cannot import, so it carries its own thirty lines; `speaker-colour.test.mjs`'s "copies do not drift" pattern applies).
+- **Setting**: `pipicoc/settings-hints.js` beside `settings-difficulty.js`, a checkbox bound to `localStorage`; the folds read it.
+
+### 4.4 Acceptance
+
+A fresh device (cleared storage), one starter: the prologue arrives with its fold open under the question; the composer says what to answer; the Keeper's opening arrives with its fold open; both folds closed once stay closed on the next campaign; with the setting off nothing opens by itself and both "?" remain. Tests: `AssistantTranscriptContent.opening.test.tsx` (first-time open, seen key, setting off), a `mechanics.js` renderer test for the opening fold, an App test for the placeholder by phase, and the words tests for the two new surfaces.
