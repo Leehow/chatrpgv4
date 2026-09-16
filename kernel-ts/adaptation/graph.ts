@@ -52,6 +52,16 @@ export function adaptedGraph(source: ModuleGraph, changes: Row[]): ModuleGraph {
             // A clue exists to be found somewhere (contract §51.2): the same `discoverable-at` edge
             // `clue_at` writes, so `sceneClueIds` and `apply clue` need no second rule for a minted one.
             if (kind === 'clue') edge('discoverable-at', node.node_id, change.scene);
+            // A place the campaign minted is a place the party can leave (contract §49). `add_scene`
+            // used to mint a node and not one relation, and a `route` the Keeper writes is the Keeper's
+            // to aim: on campaign game-1c0faba5 they wrote one for each of two venues and wrote it
+            // inbound both times, which is the direction that gets the party in, not the one that gets
+            // them out. `where.exits` was empty for nineteen turns and the module's seven authored
+            // routes were off the table. `based_on` is required, always resolves against the ORIGINAL
+            // graph, and is the scene this place was rendered from, so the way back to it is the one
+            // edge the mint itself can be sure of -- and it leaves every campaign scene one move from
+            // the book's own topology.
+            if (kind === 'scene') edge('route-to', node.node_id, string(change.based_on));
         } else if (change.kind === 'scene') {
             const node = nodes.get(change.scene);
             if (!node) throw new RpcError('needs', 'Adapted source scene is missing');
