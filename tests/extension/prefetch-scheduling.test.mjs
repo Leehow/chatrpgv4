@@ -79,6 +79,37 @@ test('real TS leases allow two background focuses while preserving one foregroun
  await request(clients[2],'E');const e=await claim(clients[2]);assert.equal(e.focus,'E','promotion frees a background slot without duplicating the original job');
 });
 
+/**
+ * Contract §57. Retained evidence, M-DETOUR `game-3d8ab658` (2026-09-16): `read-6` (focus
+ * `Bar Cordano`, turn 25) held the single foreground lease from 15:17:37 to 15:29:11, while the
+ * Keeper's own wait on it had ended at 15:19:37. The party moved to the museum on turn 26; the
+ * turn-27 read of where they were standing queued at 15:26:01, was refused by `claim` three times
+ * (`claim_empty` at 15:28:31 with a job queued), and only started at 15:29:11 with
+ * `queue_wait_ms: 190344` -- long after its own 120 s wait had expired.
+ */
+test('a foreground reading nobody waits on gives its lease back to the read the table is blocked on',async t=>{
+ const home=await mkdtemp(join(tmpdir(),'prefetch-unwait-'));
+ const owner=createRuntime({owner:'preparation',home},{resourceRoot:resolve(import.meta.dirname,'../..'),nodeExecutable:process.execPath});
+ t.after(async()=>{await owner.close();await rm(home,{recursive:true,force:true})});
+ const client=owner.openKernel();
+ const bytes=Buffer.from('%PDF-1.7\nsource identity for the unwait fixture only\n');const pdf=join(home,'fixture.pdf');await writeFile(pdf,bytes);
+ const {module_id}=await client.call('module.source.bind',{source:{path:pdf,page_count:1,file_sha256:createHash('sha256').update(bytes).digest('hex')}});
+ const request=(focus,foreground)=>client.call('module.read.request',{module_id,purpose:'detail',focus,foreground});
+ const claim=()=>client.call('module.read.claim',{module_id});
+ await request('Bar Cordano',true);
+ const left=await claim();assert.equal(left.focus,'Bar Cordano');
+ await request('museo-de-arqueologia',true);
+ assert.equal((await claim()).job_id,null,'the running foreground read holds the only foreground lease');
+ assert.deepEqual(await client.call('module.read.unwait',{module_id,job_id:left.job_id}),{job_id:left.job_id,foreground:false});
+ const here=await claim();
+ assert.equal(here.focus,'museo-de-arqueologia','the read the table is blocked on takes the freed foreground lease');
+ // The demoted reading was not cancelled: it still runs, still owns its lease, and still publishes.
+ assert.deepEqual(await client.call('module.read.finish',{module_id,job_id:left.job_id,lease:left.lease,outcome:'failed',detail:'End the fixture without publishing a graph'}),{state:'failed'});
+ // Idempotent, and no state change for a job that is over or was never in the foreground.
+ assert.deepEqual(await client.call('module.read.unwait',{module_id,job_id:left.job_id}),{job_id:left.job_id,foreground:false});
+ await client.call('module.read.finish',{module_id,job_id:here.job_id,lease:here.lease,outcome:'failed',detail:'End the fixture without publishing a graph'});
+});
+
 test('joining an active prefetch promotes its queued child without creating a second reader',async()=>{
  const held=await Promise.all(Array.from({length:8},()=>acquireReaderSlot(undefined,'background')));
  let first=true,ready=false,runs=0,priority;const entered=[];

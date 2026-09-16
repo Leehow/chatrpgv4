@@ -136,6 +136,63 @@ test("a foreground timeout can rejoin the same pending reading without starting 
 	assert.ok(calls.every(c => ["module.read.request", "module.read.claim"].includes(c.method)));
 });
 
+/**
+ * Contract §57. The wait ending is what releases the lease, and it releases it once: the `fulfil`
+ * poll that follows must stop asserting `foreground`, or the kernel is re-promoted 300 ms later and
+ * the demotion is worth nothing. On M-DETOUR (`game-3d8ab658`, 2026-09-16) the abandoned read held
+ * the single foreground lease for a further 574 s after its Keeper stopped waiting on it.
+ */
+test("a foreground wait that ends gives the lease back instead of holding it for nobody", async t => {
+	const prior = process.env.PI_COC_READ_WAIT_MS;
+	process.env.PI_COC_READ_WAIT_MS = "10";
+	t.after(() => { if (prior === undefined) delete process.env.PI_COC_READ_WAIT_MS; else process.env.PI_COC_READ_WAIT_MS = prior; });
+	const calls = [], rows = [];
+	const service = new ReadingService({ home: "/unused", model: () => { throw new Error("no local reader should be started"); },
+		progress() {}, record(row) { rows.push(row); }, async call(method, params) {
+			calls.push({ method, params });
+			if (method === "module.read.request") return { state: "reading", job_id: "read-6", generation: 1 };
+			if (method === "module.read.claim") return { job_id: null }; // another host owns the persisted job
+			if (method === "module.read.unwait") return { job_id: params.job_id, foreground: false };
+			throw new Error(`unexpected ${method}`);
+		} });
+	t.after(() => service.dispose());
+	await assert.rejects(service.ensure("book-1", { purpose: "detail", focus: "Bar Cordano", foreground: true }),
+		e => e.details?.reason === "reading_timeout");
+	await until(() => calls.some(call => call.method === "module.read.unwait"));
+	const released = calls.find(call => call.method === "module.read.unwait");
+	assert.deepEqual([released.params.module_id, released.params.job_id], ["book-1", "read-6"]);
+	assert.ok(rows.some(row => row.event === "unwaited" && row.job_id === "read-6"), "the demotion left no telemetry row");
+	const requested = () => calls.filter(call => call.method === "module.read.request");
+	const spent = requested().length;
+	await until(() => requested().length > spent);
+	assert.ok(requested().slice(spent).every(call => call.params.foreground !== true),
+		"the polling loop kept re-promoting a reading nobody waits on");
+});
+
+test("a foreground reading still awaited by another caller keeps its lease", async t => {
+	const prior = process.env.PI_COC_READ_WAIT_MS;
+	process.env.PI_COC_READ_WAIT_MS = "400";
+	t.after(() => { if (prior === undefined) delete process.env.PI_COC_READ_WAIT_MS; else process.env.PI_COC_READ_WAIT_MS = prior; });
+	const calls = [];
+	const service = new ReadingService({ home: "/unused", model: () => { throw new Error("no local reader should be started"); },
+		progress() {}, record() {}, async call(method, params) {
+			calls.push({ method, params });
+			if (method === "module.read.request") return { state: "reading", job_id: "read-6", generation: 1 };
+			if (method === "module.read.claim") return { job_id: null };
+			if (method === "module.read.unwait") return { job_id: params.job_id, foreground: false };
+			throw new Error(`unexpected ${method}`);
+		} });
+	t.after(() => service.dispose());
+	const patient = service.ensure("book-1", { purpose: "detail", focus: "Bar Cordano", foreground: true });
+	patient.catch(() => undefined);
+	process.env.PI_COC_READ_WAIT_MS = "10";
+	await assert.rejects(service.ensure("book-1", { purpose: "detail", focus: "Bar Cordano", foreground: true }),
+		e => e.details?.reason === "reading_timeout");
+	assert.equal(calls.some(call => call.method === "module.read.unwait"), false, "one waiter leaving is not the last waiter leaving");
+	await assert.rejects(patient, e => e.details?.reason === "reading_timeout");
+	await until(() => calls.some(call => call.method === "module.read.unwait"));
+});
+
 test("already prepared material returns without source work and a cancelled call is refused", async t => {
 	const calls = [];
 	const service = new ReadingService({ home: "/unused", model: () => { throw new Error("not needed"); },

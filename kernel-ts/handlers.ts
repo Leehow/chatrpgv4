@@ -20,7 +20,7 @@ export const KNOWN_METHODS = Object.freeze([
   "journal.job", "journal.submit", "journal.fail", "voice.job", "voice.submit", "voice.fail",
   "setup.steps", "setup.occupations", "setup.investigator", "setup.complete", "setup.prologue",
   "setup.draft", "setup.previewed", "setup.confirm", "setup.override", "setup.note",
-  "module.source.bind", "module.read.request", "module.read.claim", "module.read.finish",
+  "module.source.bind", "module.read.request", "module.read.claim", "module.read.finish", "module.read.unwait",
   "module.list", "module.status", "module.register", "module.opening.choose", "module.asset",
   "investigator.list", "investigator.get", "investigator.save", "investigator.load",
   "mods.list", "mods.configure", "mods.order", "mods.document.view", "mods.document.apply",

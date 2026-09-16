@@ -38,6 +38,16 @@ interface PendingReading {
 	waiters: number;
 	cancelled: boolean;
 	jobId?: string;
+	/**
+	 * §57. Whether a turn is blocked on this reading *right now*, which is not the same as the
+	 * `foreground` the first `ensure` asked for. Every later `ensure` that joins with `foreground`
+	 * raises it again; the moment the last waiter leaves it drops, and `fulfil` stops re-asserting
+	 * foreground on its next poll. Without this field the polling loop would re-promote the job in
+	 * the kernel milliseconds after the demotion.
+	 */
+	foreground: boolean;
+	/** §57. The last waiter left before this reading had a job id; demote it as soon as it has one. */
+	demotePending?: boolean;
 	/** §47. What this in-flight reading is of, so `reading()` can answer for it by name. */
 	of?: { campaign?: string; mid: string; focus: string; question: string };
 }
@@ -107,11 +117,19 @@ export class ReadingService implements ReadingBridge {
 	/** Per scoped module, the reason of the most recent wake no claim has answered yet: the claim row names it (contract §22, #65). */
 	private wakes = new Map<string, string>();
 	private readonly deps: Dependencies;
+	/**
+	 * The unwrapped recorder, for rows the *host* writes about a job rather than rows the job writes
+	 * about itself. The wrapper below is a heartbeat, and a host decision such as §57's demotion is no
+	 * evidence that the reader child is still alive: recording it through the wrapper would hand a
+	 * silent reader up to ten more minutes before the stall watchdog stopped it.
+	 */
+	private readonly note: (row: Row) => void;
 	constructor(deps: Dependencies) {
 		// Every row a claimed job writes is also its heartbeat. Wrapping here rather than at each call
 		// site makes the rule structural: anything that reaches the operator reaches the stall watchdog,
 		// and a new telemetry row can never be added without the lane counting as alive when it lands.
 		const beat = (row: Row) => { if (row && row.job_id) this.beat(JSON.stringify([row.campaign, row.module_id, row.job_id])); };
+		this.note = row => deps.record(row);
 		this.deps = { ...deps,
 			record: row => { beat(row); deps.record(row); },
 			progress: row => { beat(row); deps.progress(row); } };
@@ -258,16 +276,33 @@ export class ReadingService implements ReadingBridge {
 		const key = JSON.stringify([campaign, mid, params.purpose, params.material ?? "", params.focus ?? "", params.question ?? "", params.guidance_key ?? ""]);
 		let request = this.requests.get(key);
 		if (!request) {
-			const pending: PendingReading = { waiters: 0, cancelled: false,
+			const pending: PendingReading = { waiters: 0, cancelled: false, foreground: params.foreground === true,
 				of: { campaign, mid, focus: String(params.focus ?? ""), question: String(params.question ?? "") } };
 			const task = this.fulfil(mid, params, pending, campaign).finally(() => this.requests.delete(key));
 			task.catch(() => undefined);
 			request = Object.assign(pending, { task });
 			this.requests.set(key, request);
 		}
+		// A later turn that joins this same reading in the foreground puts the wait back (§57); `fulfil`
+		// re-asserts it with the kernel on its next poll, the same way a fresh foreground request would.
+		if (params.foreground === true) request.foreground = true;
 		request.waiters++;
-		let waiting = true;
-		const releaseWaiter = () => { if (waiting) { waiting = false; request.waiters--; } };
+		let waiting = true, aborting = false;
+		const releaseWaiter = () => {
+			if (!waiting) return;
+			waiting = false;
+			request.waiters--;
+			// An abort cancels the reading outright, so it must not also demote it on the way out.
+			if (aborting) return;
+			// §57. The last waiter is gone and nobody cancelled: the reading goes on, the wait does not.
+			// Releasing the foreground lease here rather than on a clock is the whole point -- this fires
+			// on the real event (the turn stopped waiting), never on elapsed time.
+			if (request.waiters === 0 && !request.cancelled && request.foreground) {
+				request.foreground = false;
+				if (request.jobId) this.unwait(mid, request.jobId, campaign);
+				else request.demotePending = true;
+			}
+		};
 		let timer: ReturnType<typeof setTimeout> | undefined;
 		let onAbort: (() => void) | undefined;
 		try {
@@ -281,6 +316,7 @@ export class ReadingService implements ReadingBridge {
 					{ read: { purpose: params.purpose, ...(params.material ? { material: params.material } : {}), focus: params.focus ?? "", question: params.question ?? "" },
 						...(request.jobId ? { job_id: request.jobId } : {}) })), wait);
 				onAbort = () => {
+					aborting = true;
 					releaseWaiter();
 					if (request.waiters === 0) {
 						request.cancelled = true;
@@ -316,15 +352,45 @@ export class ReadingService implements ReadingBridge {
 		void this.pump(mid, campaign);
 	}
 
+	/**
+	 * §57. The last turn waiting on this reading has stopped waiting. The reading is *not* cancelled --
+	 * its material still lands and §47's notice still answers for it -- but it gives up the single
+	 * foreground lease, so the next read the table is actually blocked on can claim at once. The pump
+	 * is woken in the same breath: a freed lease nobody claims is the defect this repairs.
+	 */
+	private unwait(mid: string, jobId: string, campaign: string | undefined) {
+		const key = JSON.stringify([campaign, mid, jobId]);
+		const running = this.jobs.get(key);
+		if (running) running.foreground = false;
+		void this.call("module.read.unwait", { module_id: mid, job_id: jobId }, campaign)
+			.then(() => {
+				// Written by the host about the job, so it is not the job's heartbeat (see `note`).
+				this.note({ lane: "reading", event: "unwaited", module_id: mid, campaign, job_id: jobId });
+				wakeReaderSlots();
+				return this.pump(mid, campaign);
+			})
+			// A lease the kernel would not give back is exactly the state this section exists to make
+			// visible, so the failure is recorded rather than swallowed. It fails no turn: nobody is
+			// waiting on this reading any more, which is why it was being released.
+			.catch(failure => this.note({ lane: "reading", event: "unwait_failed", module_id: mid, campaign, job_id: jobId,
+				detail: failure instanceof Error ? failure.message : String(failure) }));
+	}
+
 	private async fulfil(mid: string, params: Row, request: PendingReading, campaign: string | undefined): Promise<Row> {
 		let retry = params.retry === true;
 		while (!this.stopped && !request.cancelled) {
-			const response = await this.call("module.read.request", { ...params, module_id: mid, retry }, campaign);
-			if (params.foreground && response.job_id) {
+			// `request.foreground`, never `params.foreground`: this loop polls every 300 ms, and the
+			// original params would re-promote a job the last waiter has already let go (§57).
+			const response = await this.call("module.read.request", { ...params, foreground: request.foreground, module_id: mid, retry }, campaign);
+			if (request.foreground && response.job_id) {
 				const running = this.jobs.get(JSON.stringify([campaign, mid,response.job_id]));
 				if (running) { running.foreground = true; wakeReaderSlots(); }
 			}
 			request.jobId = response.job_id;
+			if (request.demotePending && response.job_id) {
+				request.demotePending = false;
+				this.unwait(mid, response.job_id, campaign);
+			}
 			if (request.cancelled) {
 				if (request.jobId) this.cancelJob(mid, request.jobId, campaign);
 				break;
