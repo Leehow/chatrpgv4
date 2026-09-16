@@ -8315,3 +8315,119 @@ remount, and the loaded table survives it.
 Test: `RemoteBrowserApp.continuity.test.tsx` marks the mounted `.pipiui-shell`
 node, drives connected → reconnecting → connected, and requires the same node
 back. It fails on the pre-§57 shell.
+
+## 62. A long session keeps its product, and an unread form is not `base` (2026-09-16)
+
+Two tables were played on the same machine on the same build. One reached turn
+68 over four and a half hours and ended with the composer locked and the player
+told 「此会话使用 coc-keeper 扩展包；当前项目是 base。请用当前扩展包新建会话继续。」
+on top of `发送失败：transport request timed out` — a table whose every receipt
+was on disk, told to throw itself away. The other was 39 turns in and perfectly
+healthy.
+
+### 62.1 What the counter-example killed
+
+The obvious reading was capacity: the host logs
+
+```
+[pipi-backend] SessionManager skipped for …jsonl: 8317622 bytes exceeds bounded history limit
+```
+
+42 times for the stranded table, first crossing at 4 MB. It is not the cause,
+and it is not even a decision:
+
+- **The healthy table was over the same bound**, 10 times, at 4.90 MB. Any
+  mechanism that only explains the first table is wrong.
+- **`readHistory` never used `SessionManager`.** `large` was computed, logged,
+  and then ignored — every call went to `readHistoryFallback` either way. The
+  line described a skip that was not happening. Both this investigation and the
+  one that commissioned it spent themselves on it, so §62 deletes it. The
+  freeze probe's `history_scan_end size=… ms=…` is the honest reading, and it
+  says the page costs the same at 8 MB as at 5 MB (~600 ms in both tables,
+  flat in file size).
+- **The identity read is not size-bounded either.** The session's
+  `pipiui_product_profile` row is written at file creation and sat at lines 2
+  and 10 of a 5,779-line file, never rewritten; `readLatestSessionMetadata`
+  scans newest-first and therefore reads the entire file to reach it. Measured
+  on the two real files: 154 ms over 8.50 MB and 105 ms over 5.43 MB, and
+  **both return `coc-keeper`**. It is O(whole file) per listing, which is worth
+  knowing, but it is not a failure. `SessionManager.open` + `getEntries()` on
+  the same 8.50 MB file is 87 ms — the 4 MB bound guards an 87 ms operation.
+- **The campaign was never damaged.** `turns/0068.json`, `turn-finalized`,
+  `world.json`, the lanes' receipts are all there and `turn.json` reads
+  `{"turn": 69, "state": "awaiting_player"}`. The break was entirely in the
+  session-identity layer, above the game.
+
+So the size story is dead, and §62 does not raise any cap. What is left is the
+shape the two tables share with two earlier incidents (a project that came back
+`base` forever, a shell that spent 10–30 s as `base` on every load): **a form
+that was never answered was written down, or acted on, as `base`.**
+
+### 62.2 `base` is the value that means "nobody asked"
+
+`activePackId` is `enablement.packIds[0] ?? BASE_PACK_ID`, resolved against
+`extensionLoader.installedExtensions()` — a shared mutable registry whose
+contents are whatever the last `scan(root)` pointed it at. A project-origin
+pack is simply absent from it while the scanner is pointed elsewhere. So `base`
+is returned for two unrelated reasons: *this project enables no pack*, and
+*this registry is not this project's*. Every other layer then treats one as the
+other.
+
+**The contract: a product form is written down only from an answer.**
+
+- The spawn path read `registeredExtensionsForSpawn` and `activePackId`
+  **outside** `withStableExtensionScan`, while the two other callers of
+  `activePackId` join the lane with a comment saying exactly why — and the
+  spawn path is the one that *writes*. It now reads both halves in one lane
+  call (`readSpawnProductIdentity`) and then checks `extensionLoader
+  .loadedProject()` is still this project, retrying the read once; when it is
+  not, `answered` is false, the JSONL is left alone, and the session keeps the
+  form it already recorded. A session stamped `base` is durable — every later
+  load reads the table as another product's, locks the composer, and offers the
+  person nothing but a new session.
+- The session list had two producers and they disagreed. `listSessionPage`
+  projects through `toSession`, which carries `productProfile`; `listSessions`
+  built its own object literal and dropped it. The shell reads whichever
+  answered last, so a session's recorded form appeared and disappeared with the
+  call that refreshed the list. `listSessions` now carries it (§31: one field,
+  one projection).
+- §54 gave the shell a third state for the *project* end (`formKnownFor`).
+  §62 gives it the same for the *session* end: `selectedConversationPackId` no
+  longer falls back to `activeProductPackId`, and `packSnapshotMismatch`
+  requires both ends to have answered. Two absences can no longer cancel into
+  an assertion. This one changes no behaviour today — the old fallback failed
+  open — and stands as the guard against re-coercing it.
+
+### 62.3 What the product says when the forms really do differ
+
+Even a correct mismatch was answered with the one instruction that destroys the
+work: 「请用当前扩展包新建会话继续」. The session's transcript, receipts and
+campaign are all intact and the pack can be turned back on for this project, so
+the notice now names that recovery and never offers a new session.
+
+**No product surface may propose abandoning a session as the remedy for a form
+it could not read, or for one it read and disagreed with.** The remedy is to
+restore the form.
+
+### 62.4 Still open
+
+`transport request timed out` is a client-side timer in
+`createHostBackendSession` (30 s, `WS_HOST_REQUEST_TIMEOUT_MS`); it appears in
+neither host log, so the host was alive and simply did not answer that request
+in time. On the build those tables ran, the same stall also produced the banner:
+the pre-§54 loader turned any failed `listExtensions` into `[]`, which is
+`base`. §54 severed the banner from it and §62 severs the durable stamp, but
+**why the host stopped answering for that table and not the other is not
+established.** Nothing measured in the session file explains it — see §62.1 —
+and it was deliberately not guessed at. The tables were running
+`apps/server/dist/index.js` built before §54 and §57 landed, so the shipped
+build must be rebuilt before the next table, and the next occurrence should be
+caught with the full freeze-probe file (`pipiui-debug-h129.jsonl`), not the
+stderr subset.
+
+Tests: `long-session-keeps-its-product.test.ts` grows a real session past 8 MB
+through the product's own `newSession` plus appended message rows — it still
+reports `coc-keeper`, still pages its history, and nothing reports it skipped —
+and drives the registry away mid-spawn to require that `base` is never appended
+over a recorded pack. `App.conversation-form-unknown.test.tsx` requires that an
+unrecorded session form is not accused and that the notice keeps the table.
