@@ -410,7 +410,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 			request: Type.Optional(Type.String({description: "adaptation: the player's actual direction and the source-connected change to prepare; never an instruction to force a player choice"})),
 			rebase: Type.Optional(Type.Boolean({description: "prepare review of the latest source with the existing accepted adaptations, at a safe start of turn"})),
 			question: Type.Optional(Type.String({ description: "for source only: the precise original-page question; ordinary module queries do not start reading" })),
-			retry: Type.Optional(Type.Boolean({ description: "explicitly retry a failed source reading" })),
+			retry: Type.Optional(Type.Boolean({ description: "explicitly retry a failed source reading, or, with adaptation prepare, start a fresh attempt at a proposal that failed instead of receiving that same failure again" })),
 			scope: Type.Optional(
 				StringEnum(["scene", "module"] as const, { description: "the scope when kind is secret; defaults to scene" }),
 			),
