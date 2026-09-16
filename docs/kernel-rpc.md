@@ -3133,6 +3133,27 @@ chosen entry) and `occupation_stated` (the player's words), both kernels store
 `occupation_stated` on the sheet beside `occupation` and in the investigator row
 the table reads, and the card shows the stated trade with the entry after it.
 
+**A cell the rulebook printed no figure for is empty.** It is not a zero and not
+the absent value itself. `cash-assets`'s lowest row prints `None` in the assets
+column, so the kernel records `{amount: null, currency, formula: "None"}` — a
+complete, honest record that the book prints no figure here — and never
+substitutes a zero, which would invent a figure the book does not print. Every
+card that draws money draws an absent amount the way it draws its other absent
+cells. A real table printed the literal word `null` beside a currency, and
+another printed a unit with no figure at all; both are the same defect.
+
+**A period that stood in is said where the numbers are.** When
+`sheet.finance.substituted_for` is present the figures were built from a column
+the book is not set in (§22.9), and both the character draft and the play-time
+sheet say so beside the money: the period the figures came from
+(`sheet.finance.period`) and the authored setting it stood in for, in the play
+language. The setup agent still states it once in its own words, but that
+sentence is prose in a transcript and scrolls away — a real 1895 campaign never
+said it at all, and its investigator then carried 1920s money unqualified for the
+whole campaign — so the card, which the player can reopen at any time, is where
+the fact is guaranteed. The authored setting travels as the book wrote it; it is
+never read for a year or rewritten into a table key.
+
 **Stated aptitude reaches the characteristics — when a package opens that door.**
 A player who describes this person as notably strong, frail, quick, slow, bright or
 dull is describing characteristics, not only skills, and the draft must not
