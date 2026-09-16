@@ -21,6 +21,7 @@ import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { KernelClient } from "../../extensions/kernel/client.ts";
+import { waitFor } from "./wait.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const RESTART_KERNEL = join(HERE, "fixtures", "restart-kernel.mjs");
@@ -64,15 +65,6 @@ const requests = (log) =>
 		? readFileSync(log, "utf8").split("\n").filter((line) => line.trim()).map((line) => JSON.parse(line))
 		: [];
 
-async function waitFor(predicate, { timeoutMs = 5_000 } = {}) {
-	const deadline = Date.now() + timeoutMs;
-	while (Date.now() < deadline) {
-		if (predicate()) return true;
-		await new Promise((resolve) => setTimeout(resolve, 10));
-	}
-	return false;
-}
-
 test("关机拒掉在飞的重开，这个拒绝不许逃出去", async (t) => {
 	const escaped = watchEscapedRejections(t);
 	// 重开发出的调用落在重启后的那个孩子上，它永不回话，于是 close() 撞上的是一个真在飞的请求。
@@ -81,8 +73,8 @@ test("关机拒掉在飞的重开，这个拒绝不许逃出去", async (t) => {
 	});
 
 	await assert.rejects(() => client.call("table.player_input", { text: "我推门进去" }));
-	const reopening = await waitFor(() => requests(log).some((entry) => entry.start === 2));
-	assert.ok(reopening, "重启后的孩子收到了重开的第一个调用");
+	await waitFor(() => requests(log).some((entry) => entry.start === 2),
+		{ label: "重启后的孩子收到重开的第一个调用" });
 
 	await client.close();
 	await settle();
@@ -107,9 +99,9 @@ test("重开自己失败时，失败的原文要到诊断上，而不是逃走�
 	});
 
 	await assert.rejects(() => client.call("table.player_input", { text: "我推门进去" }));
-	const reported = await waitFor(() => diagnostics.some((line) => line.includes(reason)));
+	// 共享的 `waitFor` 超时即抛，所以诊断转储要在这里接住——它是这条断言唯一有用的线索。
+	try { await waitFor(() => diagnostics.some((line) => line.includes(reason)), { label: "重开失败报到 onDiagnostic" }); }
+	catch { assert.fail(`重开失败要报到 onDiagnostic：${JSON.stringify(diagnostics)}`); }
 	await settle();
-
-	assert.ok(reported, `重开失败要报到 onDiagnostic：${JSON.stringify(diagnostics)}`);
 	assert.deepEqual(escaped, [], "报出来之后也不再逃");
 });
