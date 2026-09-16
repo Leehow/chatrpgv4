@@ -1,6 +1,7 @@
 /** Keeper-only assessment context and one bounded causal re-entry projection. */
 import { continuityView, evidenceAcquired, evidenceHandouts } from './continuity.js';
 import { ModuleGraph, recordOf } from './module-graph.js';
+import { referenceName } from './references.js';
 import { array, chars, number, row, string, type Row } from './values.js';
 
 const IMPORTANCE = ['critical', 'core', 'major', 'supporting', 'minor'];
@@ -24,7 +25,7 @@ export function storyAssessmentContext(graph: ModuleGraph, world: Row, records: 
         const missing = supports.filter(value => !evidenceAcquired(graph, world, value.clue, records));
         if (!supports.length || !missing.length) return [];
         const source = recordOf(conclusion);
-        return [{name: graph.handle(conclusion), claim: chars(graph.summary(conclusion), 500),
+        return [{name: graph.handle(conclusion), anchor: referenceName(graph, conclusion), claim: chars(graph.summary(conclusion), 500),
             importance: string(source.importance || 'unknown'),
             acquired: evidence.filter(value => evidenceAcquired(graph, world, value.clue, records)).map(value => graph.handle(value.clue)),
             missing: missing.length, of: supports.length}];
@@ -32,8 +33,13 @@ export function storyAssessmentContext(graph: ModuleGraph, world: Row, records: 
     const core = open.filter(value => ['critical', 'core'].includes(value.importance));
     const best = open.length ? rank(open[0].importance) : IMPORTANCE.length;
     const threads = (core.length ? core : open.filter(value => rank(value.importance) === best)).slice(0, 6);
+    // Kind-qualified, because this caller already holds the node (contract §56). `handle` strips the
+    // node kind off the id, so it is unique only within a kind, and the reader's own convention pairs
+    // `clue-x` with the `conclusion-x` it supports: a bare `x` handed back to `resolve` is ambiguous
+    // and the whole packet dies. `referenceName` is the same shape `adaptation.prepare` mints for its
+    // anchors, and it names the kind rather than listing prefixes.
     const continuity = threads.length ? continuityView(graph, world, records, candidates,
-        {anchors: threads.map(value => value.name), limit: threads.length, budget: 7000, compact: true}) : {connections: [], truncated: false};
+        {anchors: threads.map(value => value.anchor), limit: threads.length, budget: 7000, compact: true}) : {connections: [], truncated: false};
     const connections = array(continuity.connections);
     const previous = latestStoryAssessment(assessments, worldline, loop, before);
     const supplied = threads.map(thread => {

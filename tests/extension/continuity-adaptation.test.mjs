@@ -142,6 +142,37 @@ test('a delivered handout carrier becomes acquired causal evidence without rewri
     assert.equal(reentry.bridge, undefined, 'the first repair uses acquired evidence before opening new graph work');
 });
 
+/**
+ * A handle is only unique within a kind: `ModuleGraph.handle` strips the node kind off the id, so
+ * `clue-x` and `conclusion-x` are both called `x`. The module reader's own naming convention pairs a
+ * clue with the conclusion it supports under one slug, so this is not one book's data -- on campaign
+ * game-3d8ab658 (masks.pdf, 56 nodes) three bare names were shared, and `memory.job` threw
+ * `unknown_entity: entity 'artifacts-two-cultures' is ambiguous` on all 31 turns of a finished game.
+ *
+ * The producer held the node and handed a bare string on: `storyAssessmentContext` walks
+ * `graph.kind('conclusion')` and then asks `continuityView` to find those same nodes again by name.
+ * A name the caller already knows the kind of travels kind-qualified (contract §56), which is the
+ * same `referenceName` shape `adaptation.prepare` has always used for its anchors.
+ */
+test('a conclusion whose bare name a clue also carries is still the thread it came from', () => {
+    const nodes = [['scene', 'room', 'Room', {}], ['clue', 'shared', 'A page of the ledger', {}],
+        ['clue', 'evidence', 'The signature on the receipt', {}],
+        ['conclusion', 'shared', 'The ledger and the receipt are one hand', {importance: 'critical'}]]
+        .map(([node_kind, slug, name, properties]) => ({node_id: `${node_kind}-${slug}`, node_kind, name, summary: name, properties}));
+    const source = new api.ModuleGraph('collision', {nodes, relations: [
+        {relation_kind: 'discoverable-at', from_node_id: 'clue-evidence', to_node_id: 'scene-room'},
+        {relation_kind: 'supports', from_node_id: 'clue-evidence', to_node_id: 'conclusion-shared'}], claims: []}, 'collision', {});
+    const world = {active_scene: 'room', discovered_clues: [], npc_presence: {}};
+    // The collision is real: a bare name two kinds share is ambiguous, and stays so for a Keeper who
+    // guesses one at `lookup kind=continuity`. That refusal is the model's answer, not the lane's.
+    assert.throws(() => api.continuityView(source, world, [], [], {anchors: ['shared']}),
+        error => error.code === 'unknown_entity' && /ambiguous/.test(error.message));
+    assert.equal(api.continuityView(source, world, [], [], {anchors: ['conclusion: shared']}).anchors[0], 'shared');
+    const context = api.storyAssessmentContext(source, world, [], [], [], 'main', 0, 1);
+    assert.deepEqual(context.threads.map(value => value.thread), ['shared']);
+    assert.equal(context.threads[0].importance, 'critical');
+});
+
 test('a small capsule keeps the most recently acquired relationship ahead of an older alphabetical match', () => {
     const nodes = [['scene', 'room', 'Room'], ['clue', 'old', 'Old clue'], ['clue', 'new', 'New clue'],
         ['conclusion', 'a-old', 'Earlier relationship'], ['conclusion', 'z-new', 'Current relationship']]

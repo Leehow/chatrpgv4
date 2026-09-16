@@ -23,11 +23,11 @@
  * `table.view`. In a terminal there is no panel and the emit is a no-op.
  */
 
-import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { appendJsonl, cocHome, cocMode } from "../lanes/host.ts";
+import { cocMode } from "../lanes/host.ts";
 import { resolveLaneModel, runLane } from "../lanes/subsession.ts";
 import { createLaneQueue, type KernelCall, type LaneJob } from "../lanes/queue.ts";
+import { createLaneTelemetry } from "../lanes/telemetry.ts";
 import { emitToPanel } from "../../pipicoc/host-bridge.ts";
 
 /** Fallbacks only: the kernel's job packet carries the real budget, and these stand in when it does not. */
@@ -166,6 +166,14 @@ export default function (pi: ExtensionAPI) {
 	// The setup process has no turns and so no journal to write: it registers nothing and subscribes to nothing.
 	if (cocMode() === "setup") return;
 
+	// ---- Telemetry --------------------------------------------------------
+
+	// The shared writer, which also escalates a streak of failures to the operator (contract §56).
+	const telemetry = createLaneTelemetry(pi, {
+		lane: "journal", modelEnv: "PI_COC_NPCJOURNAL_MODEL", cwd: () => scheduler.ctx?.cwd,
+	});
+	const record = (campaign: string, row: Record<string, unknown>) => telemetry.record(campaign, row);
+
 	const scheduler = createLaneQueue(pi, {
 		backfillEnv: "PI_COC_NPCJOURNAL_BACKFILL",
 		runJob,
@@ -173,25 +181,6 @@ export default function (pi: ExtensionAPI) {
 			turn: job.turn, ok: false, reason: "lane_error", detail: errorText(error),
 		}),
 	});
-
-	// ---- Telemetry --------------------------------------------------------
-
-	async function record(campaign: string, row: Record<string, unknown>): Promise<void> {
-		const line = { lane: "journal", ...row };
-		let cwd: string | undefined;
-		try {
-			pi.appendEntry("coc-telemetry", line);
-			// After the session is disposed the ctx getters throw (docs/pi-host-contract.md §5), and the
-			// lane's continuation may well land after that: read it, treat a throw as "no workspace",
-			// and never let the exception out of the lane.
-			cwd = scheduler.ctx?.cwd;
-		} catch {
-			/* telemetry must not break a lane */
-		}
-		if (!cwd) return;
-		const path = join(cocHome(cwd), ".coc", "campaigns", campaign, "telemetry.jsonl");
-		await appendJsonl(path, line);
-	}
 
 	// ---- One job ----------------------------------------------------------
 

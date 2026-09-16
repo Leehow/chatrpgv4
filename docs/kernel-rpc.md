@@ -8873,3 +8873,80 @@ delivery that arrives the way Pi delivers it produces a `presentation` event. Th
 that hid this is its own lesson: it fabricated an `entry_appended` carrying a
 `custom_message`, a shape Pi has never emitted, so the test was green about a path that could
 not run. A fixture for an arrival shape is pinned to the dependency that produces it.
+
+## 56. One entity, one identifier; and an advisory lane that keeps failing says so (2026-09-16)
+
+Campaign `game-3d8ab658` (masks.pdf, module graph generation 7, 56 nodes) played a whole game —
+a full drift and one recovery — with the memory lane failing on **every one of its 31 turns**:
+
+```json
+{"lane":"memory","turn":0, "ok":false,"reason":"lane_error",
+ "detail":"memory.job unknown_entity: entity 'artifacts-two-cultures' is ambiguous"}
+{"lane":"memory","turn":26,"ok":false,"reason":"lane_error","detail": word for word the same }
+```
+
+Nothing recorded from a single turn. No sign of it on the player's side, on the keeper's side,
+or anywhere an operator looks. It was found by someone counting something else.
+
+**56.1 A handle is unique only within a kind.** `ModuleGraph.handle` strips the node kind off
+the id, so `clue-artifacts-two-cultures` and `conclusion-artifacts-two-cultures` are both called
+`artifacts-two-cultures`, and `resolve` — which matches the handle first — answers `unknown_entity:
+… is ambiguous`. Three of that book's 52 bare names collided, and the collisions are not that
+book's accident: the reader's own naming convention pairs `clue-x` with the `conclusion-x` it
+supports, and `location-x` with the `scene-x` at that place. **Any module written to that
+convention has them.** Nothing in `resolve` is wrong: given the kind, every one of those names is
+exact and unique. The kind was what got thrown away.
+
+**56.2 A caller that already holds the node never hands on a bare name.** `storyAssessmentContext`
+walked `graph.kind('conclusion')`, reduced each node it was holding to `graph.handle(node)`, and
+asked `continuityView` to find those same nodes again by name — one function, node in hand at both
+ends, with a lossy string in the middle. The identifier that travels between layers carries its
+kind: `referenceName` (`"conclusion: artifacts-two-cultures"`), parsed back by `resolveReference`
+against `graph.byKind`, which is the shape `adaptation.prepare` has always minted for its own
+anchors. **Disambiguation is never a list of prefixes in code**: a convention written into a
+constant breaks the next time the convention moves. Either the kind travels with the name, or the
+node does.
+
+A bare name from the *keeper* is a different case and keeps its present behaviour: `table.lookup
+kind=continuity` with an ambiguous anchor still refuses with `unknown_entity` and its candidates,
+because a model's guess is a guess. The refusal was only ever wrong when the host was the one
+guessing.
+
+**56.3 A lane that fails and fails is told to the operator, once, and never to the player.**
+The failures were written: `ok: false`, `reason: "lane_error"`, on 31 rows of the campaign's
+`telemetry.jsonl` and 31 `coc-telemetry` session entries. Both halves are writes. No consumer
+existed, the evidence tool included: `tests/play/kpi.py` rightly keeps lane rows out of its
+tool-call statistics — a lane round is not a tool call, and counting one would dirty the
+read-before-write ratio — and has no section of its own for them, so a campaign's KPI report is
+structurally unable to show a lane failing. Thirty-one failures and zero failures looked exactly
+alike from every angle anyone looks from.
+
+The advisory lanes (`memory`, `journal`, `voice`) now share one telemetry writer, and it watches
+its own rows. Consecutive rows with `ok: false` are a streak; a row with `ok: true` ends it. From
+the third, the lane emits one `coc-lane-status` session entry and one `coc:lane-status` bus event —
+`{lane, campaign, turn?, status: "down", streak, reason, detail?, fix}` — in the shape §32.2's
+`coc-admission-status`, §38.5's `coc-review-status` and §38.7's provider notice already use, plus
+one `event: "outage"` row in the campaign's own telemetry so the evidence path names it once
+instead of repeating line 31. Once per streak, not once per failure.
+
+**What that family reaches today is a record, not a screen.** As of 2026-09-16 no surface in this
+repository renders any of it: `coc-admission-status`, `coc-review-status`, `coc-provider-status`,
+`coc-mods-status` and this new `coc-lane-status` are written as session entries and bus events, and
+nothing under `Electron/` or `pipicoc/` reads one. The entry lands in the session record and the
+bus event is there for a consumer; neither is yet in front of an operator's eyes. Anyone adding a
+sixth status entry is joining a family in that state, and should know it before treating the emit
+as the end of the seam — §31's three ends apply to a notice exactly as they apply to a field.
+
+Three, not §32.2's two: a lane job spends its own retries before it writes one failed row, and
+nothing is blocked while the streak runs, so two rounds may still read as weather. The third does
+not.
+
+**It is not the player's business, and it is not said in fiction.** `admissionUnavailable` speaks
+to the player because admission blocks the turn; an advisory lane blocks nothing, the table plays
+on without it, and a service notice about the keeper's bookkeeping would be noise for a failure the
+player neither caused nor can fix. The boundary is exact: **a keeper-side lane failure is never
+player-visible, and is never silent thirty-one times either.**
+
+Only the lane's own outcome rows count. `runLane` writes several nested `lane: "lane-call"` rows
+per job through the same writer (§12.8.1), and a provider round that succeeds on a job that still
+fails would clear the streak on every turn — which is the silence this section exists to end.
