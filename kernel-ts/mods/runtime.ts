@@ -7,7 +7,8 @@ import type { KernelContext } from '../context.js';
 import { RpcError } from '../errors.js';
 import { writeJsonAtomic } from '../fileio.js';
 import { isJsonObject, orderedObject, PythonFloat } from '../json.js';
-import { MOD_CAPABILITIES, buildVocabulary, packageFiles, packageDigest, manifestFrom, readModCatalog, activeMods, modProviders, effectiveMods } from '../read/mods.js';
+import { MOD_CAPABILITIES, buildVocabulary, packageFiles, packageDigest, manifestFrom, readModCatalog, activeMods, modProviders, effectiveMods,
+  type ModCatalog, type UnavailablePackage } from '../read/mods.js';
 import { array, row, values, entries, string, truth, clone, equal, sorted, type Row } from '../read/values.js';
 import { readZipPackage } from './zip.js';
 
@@ -65,9 +66,16 @@ const decodeText = (bytes: Buffer): string => new TextDecoder('utf-8', {fatal: t
 
 export class ModRuntime {
   readonly root: string;
+  /** Contract 41.2: what the most recent catalog read had to set aside. Diagnostic only -- never a
+   *  decision input -- so that the one live path that has a campaign writer (`initializeCampaign`) can
+   *  record the refusal without reading every package off disk a second time. The kernel executes requests
+   *  one at a time (contract §1), so the read that set this is the read the caller is acting on. */
+  unavailable: UnavailablePackage[] = [];
   constructor(readonly context: KernelContext) { this.root = join(context.stateRoot, 'mods'); }
-  catalog(): Promise<Map<string, Row>> { return readModCatalog(this.context); }
-  active(world: Row): Promise<Row[]> { return activeMods(this.context, world); }
+  async catalog(): Promise<ModCatalog> { const catalog = await readModCatalog(this.context); this.unavailable = catalog.unavailable; return catalog; }
+  /** Reads the catalog through `catalog()` rather than letting `activeMods` read it again: one disk read,
+   *  and `unavailable` stays current on the path a live table actually takes. */
+  async active(world: Row): Promise<Row[]> { return activeMods(this.context, world, await this.catalog()); }
   async providers(world: Row): Promise<Row> { return modProviders(await this.active(world)); }
   async effective(world: Row): Promise<Row[]> { return effectiveMods(await this.active(world)); }
   async editor(world: Row): Promise<Row> {
@@ -228,6 +236,9 @@ export class ModRuntime {
       settings_schema: mod.compatible ? mod.settings_schema ?? {} : {}, changelog: decodeText(mod.files.get('CHANGELOG.md') ?? Buffer.alloc(0)),
     });
     return {game_api: GAME_API, capabilities: sorted(MOD_CAPABILITIES), mods, order: await this.order(world), pending_order: locks.pending_order ?? null,
+      // Contract 41.2: a package that refused its own bytes is listed here rather than dropped, so the
+      // panel and the operator see the gap instead of a package that quietly stopped existing.
+      unavailable: this.unavailable.map(entry => ({...entry})),
       providers: truth(world) && truth(locks) ? modProviders(await this.active(world!)) : {}};
   }
 }

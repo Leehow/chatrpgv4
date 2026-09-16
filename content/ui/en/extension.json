@@ -1,6 +1,7 @@
 {
   "director_beat": "beat {beat}",
   "director_beat_override": "beat {beat}  override {override}",
+  "empty_input_notice": "That message had no text in it, so nothing reached the table. Say what you want to do.",
   "handout_unnamed": "handout",
   "handout_written": "handout {name}: {path}",
   "kernel_table_failed": "The kernel could not open the table: {detail}",
@@ -64,6 +65,7 @@
   "setup_progress": "setup {done}/{total}  next {step}",
   "setup_progress_ready": "setup {done}/{total}  ready",
   "table_campaign_unnamed": "unnamed campaign",
+  "table_input_refused_notice": "The table could not take that input. This is a fault at the table, not your wording — saying it again will fail the same way. Nothing moved: the story is exactly where it was, and the person running this table has been given the reason.",
   "table_investigator": "{name}  HP {hp} / SAN {san}",
   "table_investigator_unnamed": "unnamed investigator",
   "table_open": "{title}  turn {turn}  {scene}",

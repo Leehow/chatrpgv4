@@ -1,6 +1,7 @@
 {
   "director_beat": "节拍 {beat}",
   "director_beat_override": "节拍 {beat}  覆盖 {override}",
+  "empty_input_notice": "这条消息里没有文字，什么也没送到桌上。说一句你想做什么。",
   "handout_unnamed": "讲义",
   "handout_written": "讲义 {name}：{path}",
   "kernel_table_failed": "内核无法开桌：{detail}",
@@ -64,6 +65,7 @@
   "setup_progress": "设置 {done}/{total}  下一步 {step}",
   "setup_progress_ready": "设置 {done}/{total}  就绪",
   "table_campaign_unnamed": "未命名战役",
+  "table_input_refused_notice": "这条输入桌子没能收下。故障在桌子这边，不是你的说法——再说一遍也会同样失败。桌上什么都没动，故事还停在原处；具体原因已经交给运行这张桌子的人。",
   "table_investigator": "{name}  HP {hp} / SAN {san}",
   "table_investigator_unnamed": "未命名调查员",
   "table_open": "{title}  第 {turn} 回合  {scene}",
