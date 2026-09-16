@@ -172,11 +172,12 @@ params：`{"focus"?: "scene"|"npc"|"investigator"|"clues"|"time", "name"?: "<实
 - 缺省等价于 `focus: "scene"`。`focus: "npc"` 且给 `name` 返回该 NPC 的完整守秘人视图：agenda、fear、secret、voice、relationship、keeper_note、social_role、已知事实。`focus: "investigator"` 返回当前调查员表的玩家可见部分加运行时数值。`focus: "clues"` 返回已发现与当前场景可得的线索。`focus: "time"` 返回世界时钟。
 result：见第 6 节的 `where`、`present`、`known`，按 focus 取子集；`npc` 与 `investigator` 返回单实体对象。
 
-### table.lookup（切片 0：module、secret；保留：rule、catalog）
-params：`{"kind": "module"|"secret"|"rule"|"catalog", "query": "<名字或问题>", "scope"?: "scene"|"module"}`。
+### table.lookup（切片 0：module、secret；rule、catalog 已实现，见 §58.5）
+params：`{"kind": "module"|"secret"|"rule"|"catalog", "query": "<名字或问题>", "kinds"?: [...], "scope"?: "scene"|"module"}`。
 - `module`：在模组图节点名、别名、摘要上做归一化子串匹配，返回最多 8 个实体：`{"name", "kind", "summary", "visibility", "relations": [{"kind", "to"}]}`。
 - `secret`：`scope` 缺省 `scene`。返回当前场景的守秘人专属简报：`{"scene": {...dramatic_question, pressure_moves, keeper_notes}, "undiscovered_clues": [{"name", "summary", "delivery_kind"}], "npc_secrets": [{"name", "secret", "agenda"}], "module_secrets": [{"name", "summary"}]}`。`scope: "module"` 给整模组的 `secret` 与 `conclusion` 节点。
-- `rule`、`catalog`：报 `not_implemented`。
+- `rule`：在规则索引上搜索规则节点。
+- `catalog`：搜索规则书自己的印刷记录（装备与物价表、武器、法术、生物、技能……），每行带印刷金额、货币与页面出处；用 `kinds` 收窄（`item` 就是物价表），返回的 `price_id` 直接交给 `apply cash`。**这一行历史上写着「报 `not_implemented`」，而实现从来都在；工具描述照抄了这句，守秘人因此一次都没去取过物价。见 §58.5。**
 
 ### table.recall（切片 0：transcript；切片 2 三路齐全，见 12.4）
 params：`{"what": "transcript"|"memory"|"history", ...}`，三路各自的参数与结果在 12.4。
@@ -223,7 +224,7 @@ params：`{"call_id": "...", "effects": [{"kind": "move", "to": "<场景名>", "
 - `clue`：必须是图上存在的 clue 节点，且 `discoverable-at` 当前场景或在当前场景 record 的 `available_clues` 里；否则 `not_here`。已发现的重复写入返回 `replayed: true`，不报错。写 `discovered_clues`、`clue-discovered` 事件。
 - `time`：推进世界时钟，写 `time-advanced` 事件。**时间过去了，伤就该好。**本批 `time` 效果的分钟数相加（同一批两个四小时就是一夜；`move` 的行程分钟不算——赶路不是休息）：≥360 分钟走治疗引擎的休整入口（`handle_time_trigger`：六小时以上算一天，没有重伤则每天回 1 点生命，规则书 p.121；不到这个数一次都不调，因为同一个函数还会清掉当天的急救次数，十分钟不是新的一天），≥60 分钟走魔法点的每小时回复（规则书的单位是小时，引擎的下限会给任何一次推进至少 1 点）。每个真正变动的资源写一条 `delta` 收据与一条 `resource-changed` 事件，result 另给 `recovered: [{investigator, resource, before, after}]`，好让守秘人在写这一夜之前就知道这一夜的人还站不站得起来（数字本身不进正文，§16.3）。**这条规则一直在规则图上**（`rule:coc7:healing:regular-damage-recovery`），两个引擎的入口也一直写着、测着，只是内核从来没有调用过：真桌上 55 个游戏内小时、三夜睡眠、两次看医生，生命值一整局卡在 5/11。
 - `item`（#19）：`{"kind": "item", "name": "<物品名>", "to"?: "<调查员>", "from"?: "<NPC 名>", "weapon"?: "<规则表武器 id 或 profile 名>", "quantity"?: int, "label"?: "<玩家语言短名>", "why"?}`。叙述里到手的东西由此进调查员表：写 `party/<id>.json` 的 `equipment[]`（名字、数量、来源回合），`weapon` 给了就同时写 `weapons[]`（从 `rules-json/weapons.json` 的武器 profile 取伤害、射程、弹容、技能（`equipment.json` 只是价目表），取不到报 `needs`，`details.needs.options` 列可用 id），之后 `resolve` 的 `weapon` 能解析它、战斗开局按它排弹药。收据 `item:<slug>-t<turn>-c<n>`，渲染 `【变化】物品：<人> 得到 <label 或名>`，事件 `item-transferred`（`{name, to, from?, weapon?, quantity}`）。`quantity` 为负是失去（消耗、交出、被夺），表上没有就报 `invalid_params`。
-- `cash`（#19）：`{"kind": "cash", "subject"?: "<调查员>", "delta": <整数，货币单位随时代>, "with"?: "<NPC 名>", "why"?}`；`with` 是钱的另一头（付给谁、从谁那儿来），落进那个人的账本 `exchanged`（§17.3）与机制投影；不写就只是钱数变了，没有对方。写表上 `finance.cash`（没有 finance 块的时代按 `rules-json/cash-assets.json` 建一个），收据 `cash:t<turn>-c<n>`，渲染 `【变化】现金：<人> <前> → <后>`（没有 `label`，标签固定为 play_language 的「现金」），事件 `resource-changed`（`resource: cash`）。
+- `cash`（#19，§58）：`{"kind": "cash", "subject"?: "<调查员>", "delta": <整数，货币单位随时代>, "source": "price"|"quote"|"found", "price_id"?: "<印刷记录 id，source=price 必填>", "currency"?: "<这笔钱的单位>", "with"?: "<NPC 名>", "why"?}`；**`source` 必填**：钱的数额必须说明来源，`price` 由内核到规则书印刷物价表里解析 `price_id`（解析不到就拒），`quote` 要 `with`（场上谁开的价），`found` 是不涉及价格的进出。`currency` 与余额单位不一致直接拒——内核没有汇率表，不替任何人换算。玩家说的自己兜里有多少是余额不是价格；余额与本局已成交的价在胶囊 `known.investigator.cash` 与 `known.prices_paid` 里。全文见 §58；`with` 是钱的另一头（付给谁、从谁那儿来），落进那个人的账本 `exchanged`（§17.3）与机制投影；不写就只是钱数变了，没有对方。写表上 `finance.cash`（没有 finance 块的时代按 `rules-json/cash-assets.json` 建一个），收据 `cash:t<turn>-c<n>`，渲染 `【变化】现金：<人> <前> → <后>`（没有 `label`，标签固定为 play_language 的「现金」），事件 `resource-changed`（`resource: cash`）。
 - 其余种类报 `not_implemented`。
 result：`{"receipts": ["move:hall-of-records-t3-c2", ...], "world": {"active_scene", "clock"}, "material_ready": true, "recovered"?: [{"investigator", "resource", "before", "after"}]}`。切片 0 `material_ready` 恒为 true；`recovered` 只在这一批的休整真的还了资源时出现。
 
@@ -8193,3 +8194,107 @@ therefore silently shortened: t9 turn 36 (2026-09-16) came back as three of six 
 cut on a full stop, and the paragraph it dropped was the answer the table had just won an
 extreme success for. What the player has already been given is not taken back on the second
 look.
+
+## 58. A cash amount has a source (2026-09-16)
+
+Two real-table defects came in through the same hole, five hours apart, and neither is a
+rounding mistake.
+
+- BUG-078, M-DETOUR t7 turn 25. The keeper narrated half a *sol* to a waiter in a Lima bar
+  and wrote `{"delta": -0.5, "currency": "USD", "why": "…半个索尔…"}`. At 1921 rates that is
+  four to eight times the sum the fiction named. The receipt's own reason field and its own
+  number disagreed, and nothing on the path could say so.
+- BUG-084, M-DETOUR t7 turn 31. The player said "six-thirty is what I can afford for a plain
+  meal" — a statement about what was in her purse. The keeper charged it as the price of the
+  meal: `{"before": 6.3, "after": 0, "delta": -6.3}`. That table's entire deviation had been
+  played for a balance, nine dollars toward a steamer ticket to New York, and the balance went
+  to zero the night before departure. The same session had already priced a hotel night at
+  1.0, a full set of darkroom chemicals at 1.0 and the cheapest glass in that same bar at 0.2.
+  The rulebook prints Lunch at 65¢.
+
+The common shape is not a bad number. It is that **the number had no source**. Three bodies of
+price knowledge existed the whole time and `apply cash` read none of them: the rulebook's
+printed 1920s price lists (396 records in `content/rulesets/coc7/rules-json/equipment.json`,
+each with an amount, a currency and a page), the campaign's own settled transactions, and the
+investigator's balance. The effect took a signed number and a sentence and wrote both down.
+
+### 58.1 The kernel prices nothing
+
+The kernel holds no price table, no exchange rate and no notion of what anything is worth,
+and it never will: what a thing costs in a scene is an open semantic judgement and belongs to
+the keeper and to the authored rulebook data. The kernel's part is narrower and deterministic:
+make the keeper cite where the amount came from, resolve the citation against data the product
+already holds, and refuse a citation it cannot resolve.
+
+### 58.2 `source` on the cash effect
+
+`apply {kind: cash}` requires `source`, one of:
+
+- `price` — the rulebook prints this price. Requires `price_id`, exactly as
+  `lookup kind=catalog kinds=["item"]` returned it. The kernel resolves it against the printed
+  list and refuses an id that list does not carry; an invented `price_id` is not a source. The
+  receipt then carries `source_amount`, `source_currency`, `source_display`, `price_name`,
+  `price_era` and `source_provenance` — what the book prints, beside what was charged. The two
+  are allowed to differ: quantity, haggling, a local market and a keeper's judgement are all
+  legitimate, and the receipt records both rather than adjudicating between them.
+- `quote` — someone in the fiction named this amount. Requires `with`, the person who named it.
+  This is keeper invention and stays fully allowed; it is now *labelled* as invention, and it
+  lands on that person's account.
+- `found` — no price is involved: money found, stolen, earned, given, or a debt settled.
+
+There is deliberately no source meaning "a figure the player said". A number a player says
+about their own purse is a balance, and §58.4 puts the balance in front of the keeper so it
+does not have to guess which one it is hearing.
+
+### 58.3 `currency` is declared, not echoed
+
+`currency` on the receipt used to be copied from the sheet, so `"USD"` was never a claim
+anybody made and nothing could contradict it — the keeper had no way to say *sol* even when it
+had just written *sol* in the narration. The effect now accepts `currency`. When it is given
+and is not the unit the balance is held in, the call is refused: the kernel owns no exchange
+rate, so it will not silently spend one unit out of a balance counted in another. The fix names
+the held unit and asks for what actually left the purse, or for the exchange to be settled in
+the fiction first.
+
+### 58.4 The read side: the balance, and what this table has already charged
+
+`known.investigator` carries `cash` (amount and currency) and `living` (standard and spending
+level). The capsule named no money at all before this, which is why the only figure in the room
+at turn 31 was the one the player had just said out loud.
+
+`known.prices_paid` carries the most recent amounts this campaign has actually charged, with
+their `why`, their `source` and their `price_id` where there is one. These are facts the
+product produced itself and nothing read them back: `npc-ledger.json` keeps the with-an-NPC
+half, but only for the people standing in the room, and a price is a fact about the world, not
+about who is present. Without this, every price a keeper sets is set from nothing, which is how
+the fourth price in one session came out at thirty-one times its own cheapest drink.
+
+### 58.5 The catalog was never `not_implemented`
+
+`lookup kind=catalog` has been live in the TypeScript kernel the whole time
+(`kernel-ts/rules/queries.ts`, wired at `kernel-ts/registry.ts`), and answers the rulebook's
+printed records including the equipment and price lists with their page provenance. The tool
+description the keeper reads said "the kinds rule and catalog answer not_implemented in this
+slice", and this document said the same. Both were stale. A capability the model is told does
+not exist is a capability that does not exist, which is the §31 gap in its third form: the
+field is written, the projection is live, and the keeper was told not to go and get it. The
+tool description now says what the kind answers, and `kinds` is on the tool's schema so the
+price list can be asked for by name.
+
+### 58.6 The three ends (§31)
+
+- **Writes it.** `stageCash` in `kernel-ts/apply/inventory.ts`, from the source the keeper
+  cites; the printed figures come from `equipment.json` through `Catalog`.
+- **Reads it.** `investigatorSummary` and `pricesPaid` in `kernel-ts/read/capsule.ts` for the
+  keeper; `mechanicsOf` in `kernel-ts/read/mechanics.ts` carries the source onto the mechanics
+  card, so a charge can be read back against what it was based on.
+- **Acts on it.** The keeper, which must answer "from what?" before it may answer "how much",
+  and has `lookup kind=catalog` to answer it with.
+
+### 58.7 What this section does not decide
+
+It does not check affordability, does not compare a charge against the printed price and refuse
+the difference, and does not read `spending_level` as a limit. It does not detect a currency in
+prose. A shape check on the receipt — a `delta` that happens to equal `before` — is a symptom,
+not this defect: the same mistake at ninety per cent of the balance is silent, and the fix for
+"the number came from nowhere" is a source, not an alarm on one of its shapes.

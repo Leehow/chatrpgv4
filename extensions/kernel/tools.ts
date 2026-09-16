@@ -118,11 +118,14 @@ const AbilityEffect = Type.Object({
   why: Type.Optional(Type.String()),
 });
 
-/** Cash going up or down (contract §5 `cash`, #19): writes finance.cash on the investigator sheet. */
+/** Cash going up or down (contract §5 `cash`, #19; §58 the amount has a source): writes finance.cash. */
 const CashEffect = Type.Object({
 	kind: StringEnum(["cash"] as const, { description: "the money in hand goes up or down" }),
 	subject: Type.Optional(Type.String({ description: "whose money; defaults to the current investigator" })),
-	delta: Type.Number({ description: "signed finite change, including fractions, in the currency of the era; spent is negative, received is positive" }),
+	delta: Type.Number({ description: "signed finite change, including fractions, in the unit the balance is already counted in; spent is negative, received is positive" }),
+	source: StringEnum(["price", "quote", "found"] as const, { description: "where the amount came from, before you say how much. price: the rulebook prints this price — give its price_id, and run lookup kind=catalog kinds=[\"item\"] for the thing being bought if you do not have one. quote: someone in the fiction named this amount — name them in `with`. found: no price is involved (found, stolen, wages, a gift, a debt settled). A figure the player said about their own purse is a balance, not a price: the capsule tells you the balance, so charge what the thing is worth, not what they have" }),
+	price_id: Type.Optional(Type.String({ description: "required with source price: the price_id of the printed record you are charging, exactly as lookup kind=catalog returned it. An invented one is refused" })),
+	currency: Type.Optional(Type.String({ description: "the unit this amount is counted in, when the fiction named one. It must be the unit the balance is held in — the kernel does not convert between units. If a price was quoted in another currency, settle the exchange in the fiction and record what actually left the purse" })),
 	with: Type.Optional(Type.String({ description: "the person on the other side of it: an NPC name. Name them whenever money is paid to or taken from someone — that is what puts it on their account, and you are told it again the next time they are in the room" })),
 	why: Type.Optional(Type.String({ description: "one sentence: where the money went, or where it came from" })),
 });
@@ -390,7 +393,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 		label: "Lookup",
 		method: "table.lookup",
 		description:
-			"Search the module graph for what the capsule did not answer. The briefing for kind secret with scope scene — the clues in this scene still undiscovered, the secrets and agendas of those present, the Keeper's notes — is already in the capsule; do not look it up again. Use scope module only when you want the whole book's secrets and ending nodes. With kind module it finds entities on the graph by name or alias, at most 8 rows, each with a summary, visibility and relations. Say expected_kind when the role matters; only a missing scene advertises adaptation. A physical object uses define/object/item, while compatible scenery and a first-appearance supporting person may remain narration. Promote a recurring NPC only when persistent identity or sourced knowledge is needed. Adaptation is reserved for persistent graph topology, not ordinary detail. The kinds rule and catalog answer not_implemented in this slice.",
+			"Search the module graph for what the capsule did not answer. The briefing for kind secret with scope scene — the clues in this scene still undiscovered, the secrets and agendas of those present, the Keeper's notes — is already in the capsule; do not look it up again. Use scope module only when you want the whole book's secrets and ending nodes. With kind module it finds entities on the graph by name or alias, at most 8 rows, each with a summary, visibility and relations. Say expected_kind when the role matters; only a missing scene advertises adaptation. A physical object uses define/object/item, while compatible scenery and a first-appearance supporting person may remain narration. Promote a recurring NPC only when persistent identity or sourced knowledge is needed. Adaptation is reserved for persistent graph topology, not ordinary detail. With kind catalog it searches the rulebook's own printed records — including the equipment and price lists, each row carrying its printed amount, currency and page provenance — so a price you are about to charge can come from the book rather than from the air; narrow it with kinds, and pass the returned price_id to apply cash (contract §58). With kind rule it searches the rule index.",
 		promptSnippet: "Look up an entity the capsule did not answer, or the whole book's secrets and endings",
 		parameters: Type.Object({
 			kind: StringEnum(["module", "source", "secret", "rule", "catalog", "continuity", "adaptation"] as const, {
@@ -399,6 +402,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 			query: Type.Optional(Type.String({ description: "module/rule/catalog: a name or search text. continuity: a semantic entity name, never a prose question; omit query when using anchors. source: entity name, with detail in question. Omissible for secret." })),
 			expected_kind: Type.Optional(StringEnum(['scene', 'npc', 'clue', 'object', 'handout'] as const, {description: 'module only: the graph role being sought. Only an explicit scene miss may offer a new-destination adaptation'})),
 			anchors: Type.Optional(Type.Array(Type.String(), {maxItems: 12, description: "continuity/adaptation: source entity, clue or conclusion names to connect"})),
+			kinds: Type.Optional(Type.Array(Type.String(), {maxItems: 8, description: "catalog only: which kinds of printed record to search — item for the equipment and price lists, and weapon, spell, creature, skill, vehicle, rule, artifact, tome, poison, occupation, phobia, mania, hazard. Omitted searches all of them"})),
 			limit: Type.Optional(Type.Integer({minimum: 1, maximum: 12})),
 			action: Type.Optional(StringEnum(["prepare", "status", "cancel"] as const)),
 			name: Type.Optional(Type.String({description: "adaptation: a memorable proposal name, reused for status, cancel or acceptance"})),

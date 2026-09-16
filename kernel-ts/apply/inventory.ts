@@ -7,6 +7,7 @@ import {EntityIndex} from '../read/memory.js';
 import {actor} from '../read/handlers.js';
 import {array,clone,integer,normalize,number,repr,row,similarity,string,truth,type Row} from '../read/values.js';
 import {RuleTables} from '../rules/tables.js';
+import {Catalog} from '../rules/catalog.js';
 import {required,nowIso} from '../write/store.js';
 import {effectId,type StagedEffect} from './bookkeeping.js';
 import {addCash,cashDecimal,cashStorage,cashText} from './cash.js';
@@ -72,6 +73,49 @@ export async function stageItem(context:ApplyContext,effect:Row,staged:Map<strin
     return {receipt,event:{type:'item-transferred',data:{name,to:id,quantity,...(source?{from:source}:{}),...(profile?{weapon:string(profile.weapon_id)}:{})}}};
 }
 const money=(value:any):any=>value instanceof PythonFloat&&Number.isInteger(number(value))?number(value):value;
+/**
+ * Contract §58: where the amount came from. Two real-table defects came in through the same hole --
+ * the Keeper answered `delta` with a number and `why` with a correct sentence that the number did not
+ * match. BUG-078 narrated half a sol and spent half a dollar; BUG-084 read the player's sentence
+ * "six-thirty is what I can afford" as the price of the meal and emptied her purse at the one moment
+ * the campaign's whole motive was a balance. The rulebook prints Lunch at 65 cents. Nothing on the
+ * path from the player's sentence to the receipt held any price at all, so nothing could disagree.
+ *
+ * §31's three ends. Writes it: this function, from the source the Keeper cites. Reads it: the cash
+ * mechanics card and the capsule's `prices_paid`. Acts on it: the Keeper, which now has to answer
+ * "from what?" before it may answer "how much", and has `lookup kind=catalog` to answer it with.
+ *
+ * The kernel does not price anything itself and owns no price or exchange table -- semantic pricing
+ * belongs to the Keeper and to the authored rulebook data. It only resolves the source that was
+ * cited, records what that source says, and refuses a citation it cannot resolve.
+ */
+export const CASH_SOURCES=['price','quote','found'] as const;
+const SOURCE_FIX='cite where the amount came from: source "price" with a price_id from lookup kind=catalog kinds=["item"], source "quote" with the person who named it in `with`, or source "found" when no price is involved (found, stolen, wages, a gift, a debt settled). A number the player said about their own purse is a balance, not a price.';
+async function cashSource(context:ApplyContext,effect:Row,heldCurrency:string,subject:string):Promise<Row>{
+    const source=effect.source;
+    if(typeof source!=='string'||!(CASH_SOURCES as readonly string[]).includes(source))
+        throw new RpcError('invalid_params',`a cash amount needs a source; ${repr(source??null)} is not one of ${CASH_SOURCES.join(', ')}`,{fix:SOURCE_FIX,details:{source:source??null,supported:[...CASH_SOURCES]}});
+    const declared=effect.currency;
+    if(declared!=null&&(typeof declared!=='string'||!declared.trim()))
+        throw new RpcError('invalid_params','currency must be the name of the unit the amount is counted in',{fix:'omit currency to count in the unit the balance is already held in',details:{held:heldCurrency}});
+    if(typeof declared==='string'&&normalize(declared)!==normalize(heldCurrency))
+        throw new RpcError('invalid_params',`${subject} holds this balance in ${heldCurrency}; ${declared.trim()} is a different unit and the kernel does not convert between them`,{fix:`record what actually left or entered the purse in ${heldCurrency}, or settle the exchange in the fiction first and record its result. Do not spend one unit out of a balance counted in another`,details:{declared:declared.trim(),held:heldCurrency}});
+    if(source==='quote'){
+        if(typeof effect.with!=='string'||!effect.with.trim())
+            throw new RpcError('invalid_params','a quoted amount needs the person who named it',{fix:'name them in `with`, or use source "price" when the rulebook prints this price and source "found" when nobody named an amount'});
+        return {source};
+    }
+    if(source==='found')return {source};
+    const priceId=effect.price_id;
+    if(typeof priceId!=='string'||!priceId.trim())
+        throw new RpcError('invalid_params','source "price" needs the price_id of the printed record it charges',{fix:'run lookup kind=catalog kinds=["item"] for the thing being bought and pass the price_id it returns, or use source "quote" when someone in the fiction named the amount instead'});
+    const wanted=priceId.trim(),records=await new Catalog(new RuleTables(context.kernel)).records(['item']);
+    const found=records.find(record=>string(record.entity_id)===wanted);
+    if(!found)
+        throw new RpcError('invalid_params',`the rulebook's price list prints no record with price_id ${repr(wanted)}`,{fix:'run lookup kind=catalog kinds=["item"] and pass a price_id it returned; an invented price_id is not a source',details:{price_id:wanted}});
+    const price=row(row(found.params).price);
+    return {source,price_id:wanted,price_name:found.name??null,price_era:array(found.era)[0]??null,source_amount:price.amount??null,source_currency:price.currency??null,source_display:price.source_display??null,source_provenance:row(found.params).provenance??null};
+}
 export async function stageCash(context:ApplyContext,effect:Row,staged:Map<string,Row>):Promise<StagedEffect>{
     const delta=effect.delta,decimalDelta=cashDecimal(delta);if(!decimalDelta||decimalDelta.coefficient===0n)throw new RpcError('invalid_params',"delta must be a finite non-zero number in the era's currency unit");
     const sheet=await stagedSheet(context,staged,effect.subject),id=string(sheet.id),subject=string(sheet.name||sheet.id),why=typeof effect.why==='string'?effect.why:null;
@@ -89,8 +133,9 @@ export async function stageCash(context:ApplyContext,effect:Row,staged:Map<strin
     if(decimalAfter.coefficient<0n)throw new RpcError('invalid_params',`${subject} has ${string(before)} ${currency}; cannot lose ${cashText({coefficient:-decimalDelta.coefficient,exponent:decimalDelta.exponent})}`,{fix:'a smaller delta, or narrate the debt without a cash receipt',details:{before,delta,currency}});
     const after=cashStorage(decimalAfter);
     if(after===null)throw new RpcError('invalid_params','cash result cannot be represented without rounding',{fix:'use an amount that can be stored exactly, or keep this amount as a whole-number cash receipt',details:{before,delta,currency}});
+    const sourced=await cashSource(context,effect,currency,subject);
     cash.amount=after;sheet.finance=finance;sheet.cash=`${string(after)} ${currency}`;
-    const receipt={id:context.mint(`cash:t${context.turn.turn}-c${context.ordinal}`),kind:'cash',call_id:context.callId,resource:'cash',subject:id,subject_label:subject,before,after,delta,with:other?context.graph.handle(other):null,with_label:other?context.graph.displayName(other):null,currency,why,at:nowIso()};
+    const receipt={id:context.mint(`cash:t${context.turn.turn}-c${context.ordinal}`),kind:'cash',call_id:context.callId,resource:'cash',subject:id,subject_label:subject,before,after,delta,with:other?context.graph.handle(other):null,with_label:other?context.graph.displayName(other):null,currency,...sourced,why,at:nowIso()};
     return {receipt,event:{type:'resource-changed',data:{resource:'cash',subject:id,before,after,delta,why,...(other?{with:context.graph.handle(other)}:{})}}};
 }
 export async function commitInventorySheets(context:ApplyContext,staged:Map<string,Row>):Promise<void>{
