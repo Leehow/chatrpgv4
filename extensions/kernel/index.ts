@@ -1964,6 +1964,59 @@ export default function (pi: ExtensionAPI) {
 			+ ` This one call was refused so you would read this first; send it again if it is still what you want.`;
 	}
 
+	/**
+	 * Contract 41.1: `table.player_input` refused, so no turn opened and nothing at the table moved. The
+	 * only part of that call the player writes is a non-empty `text`, which the host checked before
+	 * calling, so this refusal is never something the player can reword away -- and telling them to say it
+	 * again is an instruction that cannot work. The player gets the one fact they can act on; the reason,
+	 * which is an operator's repair and not a player's, goes to the operator entry beside it.
+	 */
+	async function emitInputRefusedNotice(state: TableState, error: unknown, turn: number): Promise<void> {
+		let line = "The table could not take that input. This is a fault at the table, not your wording — saying it again "
+			+ "will fail the same way. Nothing moved: the story is exactly where it was, and the person running this table "
+			+ "has been given the reason.";
+		// All keys are written out here: the caption inventory is found by scanning these call sites,
+		// and a key held in a variable is a shipped word nothing asks for.
+		try { line = (await surface.words()).line("table_input_refused_notice"); }
+		catch { /* an unreadable content root still owes the player the English line */ }
+		pi.sendMessage({ customType: "coc-delivery", content: line, display: true,
+			details: { coc_delivery: true, turn, input_refused: true, code: isKernelError(error) ? error.code : "internal" } });
+		try {
+			pi.appendEntry("coc-table-status", {
+				kind: "player-input-refused", campaign: state.campaign, turn,
+				code: isKernelError(error) ? error.code : "internal",
+				message: error instanceof Error ? error.message : String(error),
+				...(isKernelError(error) && error.fix ? { fix: error.fix } : {}),
+				...(isKernelError(error) && error.details !== undefined ? { details: error.details } : {}),
+			});
+		}
+		catch { /* the notice must never break a turn */ }
+		void record({ lane: "delivery", turn, ok: true, reason: "input_refused_notice",
+			code: isKernelError(error) ? error.code : "internal" });
+	}
+
+	function scheduleInputRefusedNotice(state: TableState, error: unknown, turn = state.turn): void {
+		if (state.turnNoticeSent) return;
+		// Reserve the run's one player notice: a refused input already told the player the turn produced
+		// nothing, so `agent_settled` must not follow it with the generic unfinished-turn line.
+		state.turnNoticeSent = true;
+		setTimeout(() => void emitInputRefusedNotice(state, error, turn), 0);
+	}
+
+	/**
+	 * Contract 41.1: the empty message is the one refusal the player can actually repair, so the host
+	 * answers it itself rather than spending a kernel call to be told the same thing in the one error code
+	 * a bad manifest also uses.
+	 */
+	async function emitEmptyInputNotice(state: TableState, turn: number): Promise<void> {
+		let line = "That message had no text in it, so nothing reached the table. Say what you want to do.";
+		try { line = (await surface.words()).line("empty_input_notice"); }
+		catch { /* an unreadable content root still owes the player the English line */ }
+		pi.sendMessage({ customType: "coc-delivery", content: line, display: true,
+			details: { coc_delivery: true, turn, empty_input: true } });
+		void record({ lane: "delivery", turn, ok: true, reason: "empty_input_notice" });
+	}
+
 	function preparationWaitInstruction(state: TableState, wait: NonNullable<TableState["preparationWait"]>): string {
 		if (wait.status && !['pending', 'reviewing'].includes(wait.status))
 			// §47. `ADAPTATION_HELD` keeps `ready` and `failed` as waits because the table owes them an
@@ -2715,6 +2768,23 @@ export default function (pi: ExtensionAPI) {
 		// can no longer be finished by anyone. Release it so the player can act again. This is the host's
 		// own run state — not prose, not a verdict — and it neither narrates nor commits anything.
 		const strandedTurn = state.strandedTurn === true && (state.state === "open" || state.state === "acting");
+		// Contract 41.1: `text` is the only part of this call the player writes, and its only rule is that it
+		// is not blank. Checking it here is what makes the refusal path honest: after this line, anything the
+		// kernel refuses is a fault at the table, and no rewording reaches it.
+		if (!text?.trim()) {
+			state.turnNoticeSent = true;
+			setTimeout(() => void emitEmptyInputNotice(state, state.turn), 0);
+			return {
+				message: {
+					customType: "coc-host",
+					content: "That player message carried no text, so no turn was opened and there is nothing to deliver. "
+						+ "The player has been asked to say what they want to do. Do not call narrate or ask: the turn state "
+						+ "is unchanged and a delivery would be refused. End this run without output.",
+					display: false,
+					details: { coc_host: true, kind: "player-input-empty", scope: "turn", campaign: state.campaign, turn: state.turn },
+				},
+			};
+		}
 		try {
 			if (strandedTurn && watchdogTurnBinding?.turn === state.turn) {
 				let binding = await watchdogTurnBinding.promise;
@@ -2829,12 +2899,32 @@ export default function (pi: ExtensionAPI) {
 				ok: false,
 				code: isKernelError(error) ? error.code : "internal",
 			});
+			// The context lane latched `inputPending` when this message arrived and only a capsule clears it.
+			// No turn opened, so no capsule is coming: say so, or every lane request until the next accepted
+			// input runs degraded (retained evidence: campaign game-3dd94f0a, 2026-09-16T00:14).
+			pi.events.emit("coc:input-refused", { campaign: state.campaign, turn: state.turn });
+			// A turn the Keeper may still finish is the one case where a delivery is still owed: the
+			// reading-wait branch above hands it a `deliveryFix` for exactly that, and that delivery is the
+			// player's answer -- a service notice beside it would be a second, contradictory one.
+			const deliverable = state.state === "open" || state.state === "acting";
+			// Contract 41.1: report -- never retry, never repair. The request is deterministic, so the same
+			// bytes refuse the same way, and the kernel must not rewrite a package or a campaign to make a
+			// refusal go away. The player is told at once, by the host, in words they can act on.
+			if (!deliverable) scheduleInputRefusedNotice(state, error);
 			return {
 				message: {
 					customType: "coc-host",
-					content: `The kernel did not accept that player input: ${errorText(error)}`,
+					content: `The kernel did not accept that player input, so no turn opened for it: ${errorText(error)}\n`
+						+ "This is not the player's wording -- the host checked the only field they write -- so do not tell them "
+						+ "to say it again.\n"
+						+ (deliverable
+							? "The previous turn is still open: close that turn with narrate, and say that the new input has not "
+								+ "been taken up yet."
+							: "There is no open turn, so narrate and ask will be refused `turn_state`. The player has already been "
+								+ "told the table refused the input; end this run without output."),
 					display: false,
-					details: { coc_host: true, kind: "player-input-failed", scope: "turn", campaign: state.campaign, turn: state.turn },
+					details: { coc_host: true, kind: "player-input-failed", scope: "turn", campaign: state.campaign, turn: state.turn,
+						code: isKernelError(error) ? error.code : "internal", deliverable },
 				},
 			};
 		}

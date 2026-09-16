@@ -48,6 +48,11 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         answering = Array.isArray(value.answering) ? value.answering.filter((entry: unknown) => typeof entry === 'string') : undefined;
         sourceCalls.clear(); invalidate();
     });
+    // Contract §41.1: the input was refused, so no turn opened and no capsule is coming to clear the latch
+    // this input set. Nothing at the table moved either, so the held capsule and binding are still the last
+    // ones the host published: undo the latch and let the next request prepare against them. Without this,
+    // every request until the next accepted input runs degraded on `player_input_not_accepted`.
+    pi.events.on('coc:input-refused', () => {inputPending = false; invalidate();});
     pi.on('tool_call', async event => {
         const input = object(event.input);
         if (event.toolName === 'lookup' && input.kind === 'source'

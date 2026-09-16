@@ -301,19 +301,47 @@ export function packageDigest(files: ReadonlyMap<string, Buffer>): string {
     }
     return digest.digest("hex");
 }
-export async function readModCatalog(context: KernelContext): Promise<Map<string, Row>> {
-    const roots: string[] = [],
+/** Contract 41.2: a package directory whose own bytes refuse to load. `id` and `version` are the
+ *  directory's, which is what a lock names and where the repair goes; the manifest inside may not
+ *  have parsed far enough to say anything. */
+export type UnavailablePackage = { id: string; version: string | null; path: string; reason: string };
+/** Contract 41.2: the catalog, plus the packages that refused their own bytes. It is a Map, so every
+ *  reader that only wants the packages that loaded is unchanged; the refusals ride alongside instead
+ *  of taking the whole read -- and with it every `table.player_input` -- down with them. */
+export class ModCatalog extends Map<string, Row> {
+    readonly unavailable: UnavailablePackage[] = [];
+    /** The refusal a lock on `id` `version` would have hit: that exact installed version, or the builtin
+     *  copy, which has no version directory to name and is the only one there is. A sibling version that
+     *  refused is some other lock's problem and is never blamed for this one. */
+    refusalFor(id: string, version: string): UnavailablePackage | undefined {
+        return this.unavailable.find(entry => entry.id === id && (entry.version === version || entry.version === null));
+    }
+}
+export async function readModCatalog(context: KernelContext): Promise<ModCatalog> {
+    const roots: Array<{ root: string; id: string; version: string | null }> = [],
         builtin = join(dirname(context.content), "mods"),
         installed = join(context.stateRoot, "mods", "packages");
     for (const id of await context.snapshots.sortedChildNames(builtin, p => context.snapshots.pathExists(join(p, "mod.json"))))
-        roots.push(join(builtin, id));
+        roots.push({ root: join(builtin, id), id, version: null });
     for (const id of await context.snapshots.sortedChildNames(installed, p => context.snapshots.isDirectory(p)))
         for (const version of await context.snapshots.sortedChildNames(join(installed, id), p => context.snapshots.pathExists(join(p, "mod.json"))))
-            roots.push(join(installed, id, version));
-    const catalog = new Map<string, Row>();
-    for (const root of roots.sort((left, right) => compareUnicode(join(left, "mod.json"), join(right, "mod.json")))) {
-        const files = await packageFiles(root),
+            roots.push({ root: join(installed, id, version), id, version });
+    const catalog = new ModCatalog();
+    for (const entry of roots.sort((left, right) => compareUnicode(join(left.root, "mod.json"), join(right.root, "mod.json")))) {
+        let files: Map<string, Buffer>, manifest: Row;
+        try {
+            files = await packageFiles(entry.root);
             manifest = manifestFrom(files);
+        }
+        catch (error) {
+            // Contract 41.2: one package's bytes are that package's own problem. This read is on the path of
+            // every player input, so a manifest that refuses must refuse its own material, not the table --
+            // `activeMods` still fails, by name, for a campaign that actually locks this package.
+            if (!(error instanceof RpcError))
+                throw error;
+            catalog.unavailable.push({ id: entry.id, version: entry.version, path: entry.root, reason: error.message });
+            continue;
+        }
         const value = {
             ...manifest,
             digest: packageDigest(files),
@@ -354,16 +382,42 @@ export function kernelGaps(catalog: ReadonlyMap<string, Row>): Row[] {
     }
     return gaps;
 }
-export async function activeMods(context: KernelContext, world: Row): Promise<Row[]> {
-    const catalog = await readModCatalog(context),
+export async function activeMods(context: KernelContext, world: Row, known: ModCatalog | null = null): Promise<Row[]> {
+    const catalog = known ?? await readModCatalog(context),
         locks = row(row(world.mods).active),
         active: Row[] = [];
     for (const [id, value] of entries(locks)) {
         if (!truth(value.enabled))
             continue;
         const mod = catalog.get(`${id}\0${value.version}`);
-        if (!mod || !mod.compatible || mod.digest !== value.digest)
+        if (!mod || !mod.compatible || mod.digest !== value.digest) {
+            // Contract 41.2: this campaign does lock the package that refused its own bytes, so it is not
+            // playable until that package is repaired -- but the refusal says which package, what is wrong
+            // with it, and that no player utterance is involved. Only a package that is missing from the
+            // catalog can be the one that refused; a package that loaded and then failed the digest or the
+            // capability check has its own, older answer.
+            const refused = mod ? undefined : catalog.refusalFor(id, string(value.version));
+            if (refused)
+                throw new RpcError("campaign_not_ready", `The ${id} package this campaign locks does not load: ${refused.reason}`, {
+                    fix: `repair or remove the package at ${refused.path}, then reopen the table; no player input can change this`,
+                    details: { mod: id, version: value.version, path: refused.path, reason: refused.reason },
+                });
+            // Contract §28.9, read from §41.2's end. The other half of the same table's defect: the
+            // package did load, this build merely does not know a name inside it, so it is in the
+            // catalog carrying `kernel_gap` and `compatible: false`. `table.open` hands that to the
+            // host as `mods_unreadable` -- but a campaign that locks the package never reaches the
+            // end of `table.open`, because `mod_context` reads `activeMods` and this throw is what it
+            // gets, so the whole result including `mods_unreadable` is discarded. The reason has to
+            // ride the refusal as well, or for the one campaign that cannot play it reaches nobody.
+            if (mod?.kernel_gap != null) {
+                const gap = row(mod.kernel_gap);
+                throw new RpcError("campaign_not_ready", `The ${id} package this campaign locks is newer than this kernel build: ${string(gap.message)}`, {
+                    fix: `rebuild the kernel from the tree that carries this package, or remove ${id} from this campaign's locks, then reopen the table; no player input can change this`,
+                    details: { mod: id, version: value.version, reason: string(gap.message), kernel_gap: gap },
+                });
+            }
             throw new RpcError("campaign_not_ready", `Missing or incompatible locked Mod ${id} ${value.version}`);
+        }
         for (const [dep, version] of entries(mod.dependencies))
             if (!truth(locks[dep]?.enabled) || locks[dep].version !== version)
                 invalid(`${id} requires ${dep} ${string(version)}`);
