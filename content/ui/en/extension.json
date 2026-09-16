@@ -1,4 +1,5 @@
 {
+  "adaptation_wait_notice": "This table is still preparing a place the Keeper needed, so it could not take you there this turn. Nothing you did was lost — send anything to continue, and the Keeper picks it up once the preparation lands.",
   "commit_down_notice": "This turn could not be saved: the table's history store has refused to write {streak} times in a row, so nothing can be recorded and no turn can be delivered until it is repaired. Nothing you did was lost, and the person running this table has been told what to fix.",
   "delivery_cut_short_notice": "The Keeper wrote this turn in two parts and the second was refused after the turn had already closed, so what you just read stops early. Everything already settled is kept — send anything and the Keeper picks it up from there.",
   "director_beat": "beat {beat}",
@@ -65,6 +66,7 @@
   "setup_packages_failed": "The setup package context is unavailable: {detail}",
   "setup_progress": "setup {done}/{total}  next {step}",
   "setup_progress_ready": "setup {done}/{total}  ready",
+  "source_wait_notice": "Part of the source this table needs is still being read, so the Keeper could not use it this turn. Nothing you did was lost, and nothing else at the table is blocked — send anything to continue.",
   "standing_condition_notice": "{name} is {state} and takes no action of their own: anything you declare for them will be refused until the state lifts. The character sheet carries it too.",
   "table_campaign_unnamed": "unnamed campaign",
   "table_investigator": "{name}  HP {hp} / SAN {san}",

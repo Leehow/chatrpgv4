@@ -14,6 +14,14 @@ type Call = (method: string, params: Row) => Promise<any>;
 export interface ReadingBridge {
 	prepare(params: Row, signal?: AbortSignal): Promise<Row>;
 	ensure(moduleId: string, params: Row, signal?: AbortSignal): Promise<Row>;
+	/**
+	 * §47. Is the reading the Keeper's foreground wait gave up on *still* running? A
+	 * `reading_timeout` is the host's own patience ending, never the reader's: on campaign
+	 * `game-b4cebfe0` (2026-09-16) the wait ran out at 120 s and the material arrived seconds later,
+	 * while the sentence the player read still said it was being prepared. The service notice asks
+	 * this at the moment it is sent, so a reading that has since landed is not announced as pending.
+	 */
+	reading(moduleId: string, params: Row): boolean;
 }
 interface Dependencies {
 	call: Call;
@@ -30,6 +38,8 @@ interface PendingReading {
 	waiters: number;
 	cancelled: boolean;
 	jobId?: string;
+	/** §47. What this in-flight reading is of, so `reading()` can answer for it by name. */
+	of?: { campaign?: string; mid: string; focus: string; question: string };
 }
 /**
  * How long a claimed reading job may report nothing at all before the host stops it. A reader child
@@ -222,13 +232,34 @@ export class ReadingService implements ReadingBridge {
 		return { ok: true, module_id: mid, opening_ready: true };
 	}
 
+	/**
+	 * §47. Whether a reading of this material is still in flight *right now*. The map is the whole
+	 * answer: `ensure` puts a request in it and the task's `finally` takes it out, so a reading that
+	 * has landed, failed or been cancelled since the Keeper's foreground wait expired is already gone
+	 * from it. Matched by focus and question rather than by the full `ensure` key, because the wait
+	 * the host retained keeps only what the refusal told it (§22's `details.read`), and because a
+	 * second reading of the same material under another purpose is still that material being read.
+	 * An empty focus matches nothing: it would make every reading answer for every wait.
+	 */
+	reading(mid: string, params: Row): boolean {
+		const focus = String(params.focus ?? ""), question = String(params.question ?? "");
+		if (!focus && !question) return false;
+		for (const request of this.requests.values()) {
+			const of = request.of;
+			if (!of || request.cancelled || of.mid !== mid) continue;
+			if (of.focus === focus && of.question === question) return true;
+		}
+		return false;
+	}
+
 	async ensure(mid: string, params: Row, signal?: AbortSignal): Promise<Row> {
 		if (signal?.aborted || this.stopped) throw error("reading_failed", "reading was cancelled", "retry the reading when ready");
 		const campaign = this.campaign(params);
 		const key = JSON.stringify([campaign, mid, params.purpose, params.material ?? "", params.focus ?? "", params.question ?? "", params.guidance_key ?? ""]);
 		let request = this.requests.get(key);
 		if (!request) {
-			const pending: PendingReading = { waiters: 0, cancelled: false };
+			const pending: PendingReading = { waiters: 0, cancelled: false,
+				of: { campaign, mid, focus: String(params.focus ?? ""), question: String(params.question ?? "") } };
 			const task = this.fulfil(mid, params, pending, campaign).finally(() => this.requests.delete(key));
 			task.catch(() => undefined);
 			request = Object.assign(pending, { task });
