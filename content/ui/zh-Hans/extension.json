@@ -1,4 +1,6 @@
 {
+  "commit_down_notice": "本回合未能保存：本桌的历史存档已连续 {streak} 次拒绝写入，在修好之前什么都记不下来，也交付不了任何一回合。你做过的事都没丢，已告知本桌主持人该修什么。",
+  "delivery_cut_short_notice": "守秘人把这一回合分成两段写，第二段在回合关闭之后被拒，所以你刚看到的内容是断的。已经结算的内容都还在——随便说句话，守秘人会从那里接着讲。",
   "director_beat": "节拍 {beat}",
   "director_beat_override": "节拍 {beat}  覆盖 {override}",
   "handout_unnamed": "讲义",

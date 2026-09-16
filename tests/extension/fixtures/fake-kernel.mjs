@@ -9,8 +9,10 @@
  *   FAKE_KERNEL_PENDING    "1" 时 table.open 回 pending_turn
  *   FAKE_KERNEL_RESUME     "1" 时 table.open 回 resume（续行检查点，契约 §12.2）
  *   FAKE_KERNEL_MAP_WORDS  JSON 字符串数组：table.open 回 authored_map_words（契约 §39.2）
+ *   FAKE_KERNEL_MODS_UNREADABLE JSON 数组：table.open 回 mods_unreadable（契约 §28.9 的构建落后）
  *   FAKE_KERNEL_CAMPAIGNS  campaign.list 的 JSON 数组
  *   FAKE_KERNEL_ERRORS     {"<method>": {"code","message","fix"?}} 的 JSON，命中就回错误信封
+ *   FAKE_KERNEL_ERRORS_ONCE "1" 时 FAKE_KERNEL_ERRORS 每个方法只答一次错，之后照常（验「一次失败是波动」）
  *   FAKE_KERNEL_EXIT_AFTER 收到第 N 个请求后直接退出（测重启）
  *   FAKE_KERNEL_NO_FACTS   "1" 时 narrate 不回 facts/extraction（切片 0、1 的内核）
  *   FAKE_KERNEL_DIRECTOR   JSON 对象，合并进胶囊的 `director` 节（用来摆出 override 之类的分支）
@@ -458,7 +460,9 @@ function speechRows() {
 
 function handle(method, params) {
 	if (ERRORS[method]) {
-		return { ok: false, error: ERRORS[method] };
+		const error = ERRORS[method];
+		if (process.env.FAKE_KERNEL_ERRORS_ONCE === "1") delete ERRORS[method];
+		return { ok: false, error };
 	}
 	switch (method) {
 		case "kernel.hello":
@@ -698,6 +702,8 @@ function handle(method, params) {
 					campaign: { id: params.campaign, title: "闹鬼的房子", module_id: "the-haunting", play_language: "zh-Hans" },
 					// 契约 §39.2：模组自己写的地图字，交给宿主的展示车道投影。
 					...(process.env.FAKE_KERNEL_MAP_WORDS ? { authored_map_words: JSON.parse(process.env.FAKE_KERNEL_MAP_WORDS) } : {}),
+					// 契约 §28.9：这套内核读不了的包，开桌时一并交出来，宿主据此给运维一条通知。
+					...(process.env.FAKE_KERNEL_MODS_UNREADABLE ? { mods_unreadable: JSON.parse(process.env.FAKE_KERNEL_MODS_UNREADABLE) } : {}),
 					turn: { number: turn, state },
 					investigators: [
 						{ id: "thomas-hayes", name: "托马斯·海耶斯", occupation: "记者", hp: 12, san: 55, mp: 11, luck: 60 },
