@@ -162,6 +162,11 @@ interface TableState {
 	 * player: it is a named job with its own control verb (`lookup kind=adaptation action=status`), so the
 	 * Keeper can always find out where it stands. A source reading has no such verb and is not put here. */
 	preparationWait?: { kind: "adaptation"; name?: string; status?: string };
+	/** §36.15: a named proposal the kernel has reported `stale`. It is not a wait — the job is over, it
+	 * holds nothing back, and the table is free the moment the Keeper has been told. Armed by the
+	 * turn-boundary refresh and spent on the first tool call of the turn, which is refused once so the
+	 * call that revives the proposal is read before the turn is spent waiting for it again. */
+	adaptationStale?: { name: string };
 	/** Contract §22: one unread piece of source material, named. An unread page is a fact about that
 	 * material, not about the campaign, so this never blocks a verb — it only supplies the Keeper's
 	 * wording, the audit's `preparation_wait` basis, and the steer that closes this turn. It dies with
@@ -350,6 +355,13 @@ function providerNoticeAfterMs(): number {
 	const configured = Number(process.env.PI_COC_PROVIDER_NOTICE_MS);
 	return configured > 0 ? configured : PROVIDER_OUTAGE_NOTICE_MS;
 }
+/**
+ * Adaptation statuses the host keeps as a `preparationWait` (§36.15). `pending`/`reviewing` are work in
+ * flight; `ready` and `failed` are decisions the table owes an answer to before it acts. Everything else
+ * — `stale`, `cancelled`, `accepted`, `none` — is over, and an over job is not a wait: it holds nothing
+ * back and must not be described as running.
+ */
+const ADAPTATION_HELD = ["pending", "reviewing", "ready", "failed"];
 /** Receipt kinds that discharge an owed recovery; mirrors `RECOVERY_TAKES` in kernel-ts/read/offer.ts. */
 const RECOVERY_RECEIPT_KINDS = new Set(["clue", "move", "npc", "session", "handout", "map", "item"]);
 /** The one host steer of the turn floor (docs/specs/turn-floor.md D4), sent when a turn is about to close on prose alone. */
@@ -1730,13 +1742,70 @@ export default function (pi: ExtensionAPI) {
 		}), 0);
 	}
 
+	/**
+	 * §36.15. Re-derive the adaptation wait from the kernel at the turn boundary, rather than trusting
+	 * the status captured when the proposal was prepared.
+	 *
+	 * A job is pinned to the world it was prepared against, so it can die between turns with nobody
+	 * told: the background creator's next kernel call is refused `adaptation_stale`, `adaptation.fail`
+	 * declines to touch an already-stale job, and nothing else ever looks. On campaign game-ef7545c5
+	 * (2026-09-16) the captured status stayed `pending` for the rest of the session, and the gate went
+	 * on telling the Keeper that the preparation "is still running" on every later turn.
+	 * The player, a pawnbroker walking into his own shop, was refused twice for a job that had been
+	 * over for three minutes, and no call anywhere in the product would have restarted it.
+	 *
+	 * The boundary is where it is re-read because the boundary is where it can change: the pin is
+	 * world/party/worldline plus source generation, and the gate fires on every tool call of every
+	 * turn. So this costs one `adaptation.status` per player input while a wait stands, and nothing at
+	 * all when none does — the once-per-session scan for a job this process never saw is the same call.
+	 */
+	async function refreshAdaptationWait(state: TableState): Promise<void> {
+		const held = state.preparationWait;
+		if (!held && state.adaptationScanned) return;
+		state.adaptationScanned = true;
+		try {
+			const current = await state.kernel.call<Record<string, unknown>>('adaptation.status',
+				held?.name ? {campaign: state.campaign, name: held.name} : {campaign: state.campaign});
+			const status = asString(current.status) ?? '', name = asString(current.name) ?? held?.name;
+			// Stale is terminal, and terminal is not a wait. Holding the turn for a job that will never
+			// finish is what made the detour unreachable; the Keeper is told once, by name, in the gate.
+			if (name && status === 'stale') {
+				state.preparationWait = undefined;
+				state.adaptationStale = { name };
+			} else if (name && ADAPTATION_HELD.includes(status)) {
+				state.preparationWait = { kind: 'adaptation', name, status };
+			} else state.preparationWait = undefined;
+			if (held || state.adaptationStale) await record({ lane: 'adaptation', turn: state.turn, proposal: name ?? null,
+				status: status || 'none', held: state.preparationWait !== undefined });
+		} catch { /* Named status remains the diagnostic path; recovery discovery never blocks player input. */ }
+	}
+
+	/**
+	 * The one call that revives a stale proposal, named in full (Agents.md: a Keeper executes the `fix`
+	 * text literally, and this repo has already been burned by a vague one). Preparation, not a status
+	 * poll: `status` only reports, and there is nothing left to report.
+	 */
+	function staleAdaptationInstruction(name: string): string {
+		return `The adaptation preparation for ${name} is stale, not running: it was pinned to the world it was prepared against, that world has moved, and the retained work was abandoned.`
+			+ ` Nothing was built — no scene, person or handout from it exists — and nothing will finish it.`
+			+ ` If the player is still going there, call lookup kind=adaptation action=prepare name=${JSON.stringify(name)} with the same purpose, anchors and request; that is the only call that revives it and it starts a fresh attempt pinned to this turn.`
+			+ ` Otherwise settle this turn without that destination and do not tell the player anything is still being prepared.`
+			+ ` This one call was refused so you would read this first; send it again if it is still what you want.`;
+	}
+
 	function preparationWaitInstruction(state: TableState, wait: NonNullable<TableState["preparationWait"]>): string {
 		if (wait.status && !['pending', 'reviewing'].includes(wait.status))
 			return `Retained adaptation preparation${wait.name ? ` for ${wait.name}` : ''} is ${wait.status}. Use lookup kind=adaptation action=status${wait.name ? ` name=${JSON.stringify(wait.name)}` : ''} before any other tool, then follow that result. Do not invent or restart it under another name.`;
 		if (state.landed.length > 0) {
 			return `Adaptation preparation${wait.name ? ` for ${wait.name}` : ""} is still running, but this turn already settled: ${state.landed.join("; ")}. Use narrate to deliver exactly those settled consequences and, if relevant, say the additional source-dependent material is still pending. Do not erase, repeat, or extend the settled effects, and do not introduce any fact the pending preparation has not supplied. Then return control without a story menu.`;
 		}
-		return `Adaptation preparation${wait.name ? ` for ${wait.name}` : ""} is still running. Use narrate only to tell the player that preparation is pending, then return control without moving, charging, or introducing the destination. Inspect the same proposal after new player input.`;
+		// "Inspect the same proposal after new player input" named no call, and on campaign
+		// game-ef7545c5 the Keeper answered it by repeating `lookup kind=module` and being blocked
+		// twice. The verb that reports on a proposal is named here in full; the host re-reads the
+		// status at every turn boundary anyway, so this is for a Keeper that wants to look, not a poll
+		// it owes.
+		return `Adaptation preparation${wait.name ? ` for ${wait.name}` : ""} is still running. Use narrate only to tell the player that preparation is pending, then return control without moving, charging, or introducing the destination.`
+			+ ` The only call that reports on it is lookup kind=adaptation action=status${wait.name ? ` name=${JSON.stringify(wait.name)}` : ""}; no module or source lookup can say anything about it.`;
 	}
 
 	/**
@@ -2502,15 +2571,7 @@ export default function (pi: ExtensionAPI) {
 			state.answering = state.lastAsk;
 			state.lastAsk = undefined;
 			noteCapsule(state, result.capsule);
-			if (!state.adaptationScanned) {
-				state.adaptationScanned = true;
-				try {
-					const retained = await state.kernel.call<Record<string, unknown>>('adaptation.status', {campaign: state.campaign});
-					const status = asString(retained.status), name = asString(retained.name);
-					if (name && ['pending', 'reviewing', 'ready', 'failed', 'stale'].includes(status))
-						state.preparationWait = {kind: 'adaptation', name, status};
-				} catch { /* Named status remains the diagnostic path; recovery discovery never blocks player input. */ }
-			}
+			await refreshAdaptationWait(state);
 			await record({
 				tool: "table.player_input",
 				started_at: startedAt,
@@ -2641,6 +2702,22 @@ export default function (pi: ExtensionAPI) {
 		const retainedTerminal = state.preparationWait?.status && !['pending', 'reviewing'].includes(state.preparationWait.status);
 		if (state.preparationWait && ((retainedTerminal && !adaptationControl) || (!retainedTerminal && name !== "narrate" && !adaptationControl))) {
 			return { block: true, terminate: true, reason: preparationWaitInstruction(state, state.preparationWait) };
+		}
+		// §36.15. A stale proposal is over, so it owns nothing: it is said once, by name, with the call
+		// that revives it, and then this table is free — including for the repeat of the very action the
+		// dead job was prepared for. The refusal is not terminated and not repeated: whatever the Keeper
+		// sends next, including this same call again, goes through. Any adaptation verb passes untouched,
+		// because `prepare` is the answer the instruction asks for and must never be refused by the
+		// notice that asked for it.
+		const stale = state.adaptationStale;
+		if (stale) {
+			const adaptationVerb = name === "lookup" && input.kind === "adaptation";
+			state.adaptationStale = undefined;
+			if (!adaptationVerb) {
+				await record({ tool: name, started_at: new Date().toISOString(), ok: false, code: "blocked",
+					reason: "adaptation_stale", proposal: stale.name });
+				return { block: true, reason: staleAdaptationInstruction(stale.name) };
+			}
 		}
 		// A source wait refuses exactly one verb, and only the one whose whole purpose is to reach unread
 		// source. A second source query in the same turn buys another full reading wait and can answer

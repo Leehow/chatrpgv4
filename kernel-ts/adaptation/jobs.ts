@@ -17,6 +17,10 @@ import { snapshotSource, pinnedSource } from './source.js';
 import type { ApplyContext } from '../apply/index.js';
 
 const fail = (message: string, reason = 'adaptation_invalid'): never => { throw new RpcError('needs', message, {details: {reason}, fix: 'Inspect this proposal by name; retry preparation only after resolving the reported cause'}); };
+const STALE_REASON = 'The world, party, worldline or source moved after this proposal was pinned, so the retained work was abandoned';
+const STALE_INSTRUCTION = 'This proposal is finished: nothing is running, nothing was built, and no scene, person or handout from it exists. '
+    + 'Preparation is the only thing that revives it -- call lookup kind=adaptation action=prepare with this same name, purpose, anchors and request '
+    + 'to start a fresh attempt pinned to the current turn, or continue without it and tell the player nothing is still being prepared.';
 /**
  * A place the module already registered is never minted a second time.
  *
@@ -163,7 +167,13 @@ export class AdaptationJobs {
         // Contract §37.6: a refusal the Keeper cannot read is a refusal it repeats. The independent
         // reviewer's own words travel to the surface, not the generic sentence the failure carries.
         const refusal = row(job.refusal);
-        return {name: job.name, purpose: job.purpose, status: job.status, reason: job.error ?? null,
+        return {name: job.name, purpose: job.purpose, status: job.status,
+            reason: job.error ?? (job.status === 'stale' ? STALE_REASON : null),
+            // §36.15: a stale job is finished, and until now it said so in one word and stopped there.
+            // `status` is the diagnostic path the wait instruction points at, so it is where the one
+            // call that can revive the proposal has to be named -- a Keeper executes the fix it reads
+            // literally, and "stale" with no call in it is a dead end (campaign game-ef7545c5).
+            ...(job.status === 'stale' ? {instruction: STALE_INSTRUCTION} : {}),
             ...(job.status === 'failed' && Object.keys(refusal).length ? {refused: refusal,
                 instruction: 'The independent source review contradicted this exact placement. Do not prepare the same placement again: propose a materially different one the original source supports, or continue the chosen action without it and leave the causal thread standing.'} : {}),
             ...(job.status === 'ready' ? {changes: array(job.preview), instruction: 'This reviewed proposal changes no fiction until apply adaptation accepts it; use ordinary effects afterwards.'} : {})};
@@ -198,7 +208,13 @@ export class AdaptationJobs {
         const path = join(this.root(snapshot.id), key);
         if (await this.context.snapshots.pathExists(join(path, 'job.json'))) {
             const old: Row = {...await artifact(join(path, 'job.json')), path};
-            if (!params.retry) return {...this.view(old), task: ['pending', 'reviewing'].includes(old.status) ? this.task(old, old.status === 'reviewing' ? 'review' : 'create') : null};
+            // A stale retained attempt is abandoned work, and `prepare` is what the stale instruction
+            // sends the Keeper back to: answering it with the same dead view and `task: null` would
+            // make that instruction a loop. Every other retained status still answers as itself --
+            // `failed` keeps the reviewer's refusal, `ready` keeps its reviewed changes -- and only
+            // an explicit `retry` restarts those. Falling through starts attempt n+1 at this key.
+            if (!params.retry && old.status !== 'stale')
+                return {...this.view(old), task: ['pending', 'reviewing'].includes(old.status) ? this.task(old, old.status === 'reviewing' ? 'review' : 'create') : null};
         }
         const effective = await loadCampaignModule(this.context, snapshot.meta.module_id, snapshot.world, snapshot.id);
         const base = rebase ? current : effective.adapted ? await pinnedSource(this.context, row(snapshot.world.adaptation).source) : current;

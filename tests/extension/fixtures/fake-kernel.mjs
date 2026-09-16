@@ -689,6 +689,13 @@ function handle(method, params) {
 			}
 			adaptationStatusCalls += 1;
 			const ready = process.env.FAKE_KERNEL_ADAPTATION_READY_ON_SECOND_STATUS === "1" && adaptationStatusCalls >= 2;
+			// FAKE_KERNEL_ADAPTATION_STALE_ON_SECOND_STATUS=1: the job the first status reported as
+			// pending was abandoned afterwards — the pin's world moved, the retained creator's next
+			// kernel call was refused, and the real kernel writes `stale` on the next read (§36.15).
+			// The real kernel's own stale view is covered over RPC in stale-adaptation.test.mjs.
+			if (process.env.FAKE_KERNEL_ADAPTATION_STALE_ON_SECOND_STATUS === "1" && adaptationStatusCalls >= 2)
+				return { ok: true, result: { name: params.name, status: "stale", reason: "the pinned world moved",
+					instruction: "Preparation is the only thing that revives it." } };
 			return { ok: true, result: { name: params.name, status: ready ? "ready" : process.env.FAKE_KERNEL_ADAPTATION_PENDING === "1" ? "pending" : "ready" } };
 		}
 		case "adaptation.cancel":

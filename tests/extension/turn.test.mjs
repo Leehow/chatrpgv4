@@ -161,8 +161,11 @@ test("a later status control can release a retained adaptation wait without reop
 	await table.session.prompt("现在查看同一份准备；完成后再继续。");
 	assert.equal(table.kernelRequests().filter(row => row.method === "table.apply").length, 1);
 	const statuses = table.kernelRequests().filter(row => row.method === "adaptation.status");
-	assert.equal(statuses.length, 3);
-	assert.equal(statuses.filter(row => row.params.name === "athens-study").length, 2);
+	// Four: the cold-recovery scan, the one `prepare` makes for itself, the turn-boundary re-read of
+	// the held wait (§36.15 — the host stopped trusting the status it captured when the job was
+	// prepared), and the Keeper's own control call. Three of them name the proposal.
+	assert.equal(statuses.length, 4);
+	assert.equal(statuses.filter(row => row.params.name === "athens-study").length, 3);
 });
 
 test("a real preparation wait survives a later player input until status clears it", async t => {
