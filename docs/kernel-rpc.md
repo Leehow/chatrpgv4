@@ -8305,8 +8305,18 @@ again; `<App>` never changes position, so it is never remounted. Only the
 pre-host states (first connect, and a close that cannot recover) render the
 separate `browser-host-state` page, because there is nothing to preserve yet.
 
-`.remote-browser-shell > .pipiui-shell` takes `flex: 1 1 auto; min-height: 0`, so
-the shell fills what the banner leaves and all of it when there is no banner.
+Because that wrapper now exists in every phase, it must be exactly the viewport:
+`height: 100vh` as well as `min-height`, `overflow: hidden`, with
+`.remote-browser-shell > .pipiui-shell` taking `flex: 1 1 auto; min-height: 0;
+height: auto`. A wrapper with only a `min-height` grows to whatever the shell's
+tallest card asks for — the investigator-sheet draft took it past 3500px — and
+since the shell scrolls its own panes internally rather than the document, the
+composer sits below the fold and cannot be reached at all. `height: auto` is
+required because `.pipiui-shell`'s own `height: 100%` cannot resolve against a
+flex container with no definite height. Caught in live play on the deployed
+build, as a regression introduced by this very section; jsdom has no layout, so
+this half is verified by measuring the composer's box in a real browser, not by
+a unit test.
 
 A reconnect still hands `<App>` a new `host` object: its effects re-run and rebind
 to the new socket, which is what recovery means. That is a re-render, not a
