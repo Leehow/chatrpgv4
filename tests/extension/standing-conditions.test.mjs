@@ -1,5 +1,5 @@
 /**
- * A state that takes the action away stays in front of the player for as long as it stands (§41.6).
+ * A state that takes the action away stays in front of the player for as long as it stands (§42.6).
  *
  * The first half landed on 2026-09-16: a `condition` receipt reaches the player, the card draws the
  * state and a `cannot act` stamp, and `table.resolve` refuses an action the state forbids

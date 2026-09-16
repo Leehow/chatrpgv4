@@ -29,7 +29,7 @@ export function deliveryRecord(turn: Row, text: string | null, receipts: Row[], 
         text: text || '',
         rendered_text: delivery.rendered_text,
         mechanics: delivery.mechanics,
-        // §41.6: what the player was told stood on them this turn, which is not a receipt and so
+        // §42.6: what the player was told stood on them this turn, which is not a receipt and so
         // survives nowhere else. A record that kept only the receipts could not answer afterwards
         // whether a turn said the state or said nothing, which is the whole defect.
         ...(delivery.standing ? { standing: delivery.standing } : {}),

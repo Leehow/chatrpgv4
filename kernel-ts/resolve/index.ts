@@ -86,7 +86,7 @@ const RULES_RUN_THESE = new Set(['decision:coc7:healing:dying-round-clock', 'dec
     'decision:coc7:healing:weekly-major-wound-recovery']);
 const RULES_RUN_FAMILIES = ['decision:coc7:sanity:', 'decision:coc7:development:'];
 /**
- * An action the current state forbids is refused by naming the state (contract §41).
+ * An action the current state forbids is refused by naming the state (contract §42).
  *
  * The kernel owns this and not the admission review, for three reasons. It is arithmetic, not
  * semantics: whether an unconscious body can drive a dagger home is the rulebook's answer and the

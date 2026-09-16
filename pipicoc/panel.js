@@ -749,7 +749,7 @@ export function createComponent(React) {
      * be a second place every new condition has to be projected, and the copies drift.
      *
      * Which ones stop the character is `incapacitated`, decided by the rules engine when the view was
-     * projected (§41.6). Nothing here reads a condition's name to judge it — a list of the blocking
+     * projected (§42.6). Nothing here reads a condition's name to judge it — a list of the blocking
      * ones living in a renderer is exactly the second rules table this repository keeps paying for.
      */
     const conditions = (Array.isArray(sheet.conditions) ? sheet.conditions : []).map(text).filter(Boolean);

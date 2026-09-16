@@ -283,7 +283,7 @@ export async function tableView(context: KernelContext, params: Row): Promise<Ro
         play_language: language,
         turn: turn.turn,
         state: turn.state,
-        // Which of the conditions a sheet carries take the action away (§41.6). `conditions` rode this
+        // Which of the conditions a sheet carries take the action away (§42.6). `conditions` rode this
         // answer all along and the character sheet drew none of them; the panel marks the ones that
         // stop the character, and deciding that in a renderer would put a second rules table in a
         // consumer -- the rules layer answered it once (`INCAPACITATING_CONDITIONS`) and this carries

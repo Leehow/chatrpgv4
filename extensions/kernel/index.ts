@@ -1681,7 +1681,7 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	/**
-	 * Contract §41.6: a state that takes the action away stays in front of the player for as long as
+	 * Contract §42.6: a state that takes the action away stays in front of the player for as long as
 	 * it stands, said by the host and not left to the Keeper's prose.
 	 *
 	 * `game-83177d61` turn 107 settled `unconscious` and the card said so. Turns 108 to 114 settled
@@ -1693,7 +1693,7 @@ export default function (pi: ExtensionAPI) {
 	 *
 	 * So it rides the channel the service notices already use -- out of fiction, beside the delivery,
 	 * where the player is already looking when they decide what to say next. That is the difference
-	 * between this and the character sheet, which carries the same states (§41.6) and which the player
+	 * between this and the character sheet, which carries the same states (§42.6) and which the player
 	 * of the retained table never opened.
 	 *
 	 * Said every turn the state stands, and never on the turn it changed: the kernel withholds
@@ -1718,7 +1718,7 @@ export default function (pi: ExtensionAPI) {
 		void record({ lane: "delivery", turn, ok: true, reason: "standing_condition_notice", standing: standing.length });
 	}
 
-	/** The states standing on the party that a delivery says take the action away (§41.6). */
+	/** The states standing on the party that a delivery says take the action away (§42.6). */
 	function noteStanding(state: TableState, result: Record<string, unknown>, turn: number): void {
 		const standing = (Array.isArray(result.standing) ? result.standing : [])
 			.filter((row): row is Record<string, unknown> => Boolean(row) && typeof row === "object");

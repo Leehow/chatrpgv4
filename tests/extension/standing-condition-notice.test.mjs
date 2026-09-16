@@ -1,5 +1,5 @@
 /**
- * The host says a standing incapacitating state out of fiction, beside the delivery (contract §41.6).
+ * The host says a standing incapacitating state out of fiction, beside the delivery (contract §42.6).
  *
  * The retained incident, `game-83177d61`: turn 107 settled `unconscious` and the mechanics card said
  * so. Turns 108 to 114 settled nothing, so they carried no condition row at all, and the player went

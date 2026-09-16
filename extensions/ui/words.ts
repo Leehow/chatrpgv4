@@ -71,7 +71,7 @@ export interface ExtensionWords {
 	 * A caption from another surface's vocabulary, or the key itself.
 	 *
 	 * A word belongs to one surface and is asked for from wherever it is needed: the condition names
-	 * are the delivery card's (`mechanics`), and the host's out-of-fiction state line (§41.6) has to
+	 * are the delivery card's (`mechanics`), and the host's out-of-fiction state line (§42.6) has to
 	 * say one of them in the play language. Copying those names onto this surface would be a second
 	 * place every new condition has to be translated, and the two copies drift the first time only
 	 * one is projected. The renderers already read across surfaces this way (`pipicoc/panel.js` draws
