@@ -101,11 +101,21 @@ export function createComponent(React) {
       !ready&&h('progress',{className:'coc-preparation-track','aria-label':counted?t('reviewed',{done,total}):title,
         ...(total?{max:total,value:done}:{})}),
       expanded&&h('div',{className:'coc-preparation-body'},h('strong',{title:job.name},job.name),
-        h('p',{},job.canHandoff?t('body.handoff'):job.character.state==='confirmed'&&!ready?t('body.confirmed'):ready?t('body.ready'):t('body.preparing')),
+        // Every standing line here says the opening arrives on its own -- "play will continue when
+        // the opening is ready", "create your investigator while it prepares in the background". A
+        // stopped phase is the one state where that is false, and saying it there is what kept a
+        // real table waiting forever beside a Resume control it had no reason to touch (BUG-039).
+        // A stopped phase says its own reason instead -- the caption two lines down -- and
+        // `attention` has already put the control that finishes it in the head.
+        attention?null:h('p',{},job.canHandoff?t('body.handoff'):job.character.state==='confirmed'&&!ready?t('body.confirmed'):ready?t('body.ready'):t('body.preparing')),
         // The bar moved into the head, where it is visible folded; drawing it twice when the fold is
         // open says nothing the head has not already said.
         total?h('p',{},t('reviewed',{done,total})):null,
-        phaseError&&h('details',{},h('summary',{},said(phaseError)),h('p',{},phaseError.message||word(ui,'errors','details'))),
+        // The same shape as the host error below and as the wizard's: the caption is the player's
+        // explanation and is read without opening anything; the message is the diagnostic, in the
+        // system language, behind `details` where a log line belongs.
+        phaseError&&h('p',{},said(phaseError)),
+        phaseError&&phaseError.message?h('details',{},h('summary',{},word(ui,'errors','details')),h('p',{},phaseError.message)):null,
         !ready&&h('button',{disabled:phase.stopping,onClick:()=>void act(['paused','failed'].includes(phase.state)?'resume':'pause')},phase.stopping?t('pausing'):['paused','failed'].includes(phase.state)?t('resume'):t('pause')),
         error&&h('p',{role:'alert'},said(error),
           error.message?h('details',{},h('summary',{},word(ui,'errors','details')),h('p',{},error.message)):null)));

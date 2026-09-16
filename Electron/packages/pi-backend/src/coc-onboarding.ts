@@ -36,6 +36,44 @@ function refusal(error: unknown, fallback: string): Refusal {
     message: error instanceof Error ? error.message : String(error)};
 }
 /**
+ * The caption keys the `errors` surface registers, read from the authored source (contract §46).
+ *
+ * A failure reaches the player as a code the renderer looks a caption up by (§23). A code nothing
+ * registers has no caption, so the renderer falls back to `unknown` -- which names nothing. That is
+ * what two stalled tables were shown for a kernel `needs`: a fold headed "this step did not go
+ * through" over a sentence of English. The registration *is* this key set, not a second table
+ * beside it: adding a caption to `content/ui/<source>/errors.json` registers its code and nothing
+ * else has to change, and a code with no caption is settled to one that has.
+ *
+ * The authored tag comes from the data, so this reads no language and names none.
+ */
+const REGISTERED = new Map<string, Set<string> | null>();
+function registeredCodes(contentRoot: string): Set<string> | null {
+  if (!REGISTERED.has(contentRoot)) {
+    let known: Set<string> | null = null;
+    try {
+      const source = JSON.parse(readFileSync(join(contentRoot, 'languages.json'), 'utf8')).source;
+      const surface = JSON.parse(readFileSync(join(contentRoot, 'ui', String(source), 'errors.json'), 'utf8'));
+      known = new Set(Object.keys(surface).filter(key => typeof surface[key] === 'string'));
+    } catch { /* a build whose surface cannot be read registers nothing it can vouch for */ }
+    REGISTERED.set(contentRoot, known);
+  }
+  return REGISTERED.get(contentRoot) ?? null;
+}
+/**
+ * A refusal the player can be told about: a registered code, and the diagnostic behind it.
+ *
+ * An unregistered code is not thrown away -- it moves into the message, where the log belongs --
+ * and `fallback` carries the player-facing meaning. The message stays whatever the failure
+ * actually said; a host that writes its own sentence here writes it in the system language, and
+ * the overlay would put that sentence in front of a player who chose another (BUG-039).
+ */
+function captioned(contentRoot: string, settled: Refusal, fallback: string): Refusal {
+  const known = registeredCodes(contentRoot);
+  if (!known || known.has(settled.code)) return settled;
+  return {code: fallback, message: settled.code ? `${settled.code}: ${settled.message}` : settled.message};
+}
+/**
  * The product's own captions for one play language.
  *
  * `projected` says whether they are written in `tag` (contract §23, 2026-09-09): false is the
@@ -232,9 +270,16 @@ export class CocOnboardingHost {
     const phase=(name:string)=>{
       const saved=job.preparation?.[name]||{state:'queued'};
       const alive=this.children.has(this.phaseKey(job,name));
-      return {stage:saved.stage,progress:saved.progress,candidates:saved.candidates,
-        error:saved.state==='failed'?{code:typeof saved.code==='string'&&saved.code?saved.code:'preparation_failed',
-          message:'Source preparation could not finish. Your source and investigator are saved; retry this preparation.'}:undefined,
+      // The player's explanation is the code's caption; the message is the diagnostic, for the log
+      // behind the fold. This used to replace the diagnostic with a sentence written here, which
+      // discarded what actually failed *and* put English in front of a player who chose another
+      // language (BUG-039). Codes are settled on the way out as well as on the way in, so a job
+      // recorded before this rule still answers with a caption the renderer can find.
+      const failure=saved.state==='failed'
+        ? captioned(this.contentRoot,{code:typeof saved.code==='string'?saved.code:'',
+            message:typeof saved.error==='string'?saved.error:''},'preparation_failed')
+        : undefined;
+      return {stage:saved.stage,progress:saved.progress,candidates:saved.candidates,error:failure,
         state:saved.state==='running'&&!alive?'paused':saved.state,stopping:saved.state==='paused'&&alive};
     };
     const guidance=phase('guidance'),opening=phase('opening');
@@ -252,7 +297,8 @@ export class CocOnboardingHost {
       stage:current.stage,reviewed:current.progress?.reviewed,reviewTotal:current.progress?.review_total,
       activeReaders:current.progress?.activeReaders||0,stopping:current.stopping,
       candidates:current.candidates,
-      error:interrupted||current.error||(job.error?{code:typeof job.error_code==='string'&&job.error_code?job.error_code:'preparation_failed',message:job.error}:undefined),
+      error:interrupted||current.error||(job.error?captioned(this.contentRoot,
+        {code:typeof job.error_code==='string'?job.error_code:'',message:String(job.error)},'preparation_failed'):undefined),
       preparation:{guidance,opening},character:{state:character},canConverse,
       canHandoff:character==='confirmed'&&(waitingForOpening||handoffCommitted)&&opening.state==='ready'&&!playing,playing,hidden:!!job.hidden,
       model:job.model,thinking:job.thinking,campaign:job.campaign,play_language:job.play_language};
@@ -316,7 +362,7 @@ export class CocOnboardingHost {
     }).catch(error=>{
       const latest=this.load(job.id,job.session);
       if(latest.preparation?.[phase]?.attempt!==attempt||latest.preparation[phase].state!=='running')return;
-      const failed=refusal(error,'preparation_failed');
+      const failed=captioned(this.contentRoot,refusal(error,'preparation_failed'),'preparation_failed');
       this.patch(latest,{preparation:{...latest.preparation,[phase]:{state:error.code==='needs_choice'?'needs_choice':'failed',
         attempt,error:failed.message,code:failed.code,candidates:error.candidates}}});
     });
@@ -398,7 +444,8 @@ export class CocOnboardingHost {
         try {
           const inspected = await this.run('inspect', {pdf: path, name: job.name}, job);
           const bound=this.patch(job,{module_id:inspected.module_id,pages:inspected.page_count});this.prepare(bound);
-        } catch (error) {const failed=refusal(error,'preparation_failed');job.state = 'failed'; job.error = failed.message; job.error_code = failed.code; this.save(job);}
+        } catch (error) {const failed=captioned(this.contentRoot,refusal(error,'preparation_failed'),'preparation_failed');
+          job.state = 'failed'; job.error = failed.message; job.error_code = failed.code; this.save(job);}
       } else if (params.action === 'pause') {
         const targets=params.target==='all'||job.preparation?.guidance?.state!=='ready'?['guidance','opening']:['opening'];
         const preparation={...job.preparation};
