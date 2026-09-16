@@ -3,8 +3,16 @@ import type { KernelContext } from '../context.js';
 import { CommitFailed, type GitResult } from '../git.js';
 export { CommitFailed } from '../git.js';
 export function checked(result: GitResult, what: string): GitResult {
-    if (result.code !== 0)
-        throw new CommitFailed(`git ${what} failed (${result.code}): ${(result.stderr || result.stdout || '').trim()}`);
+    if (result.code !== 0) {
+        // Contract §38.11. The verb, the exit code and whatever Git printed travel as fields as well
+        // as in the sentence: a repeated failure is a service condition, and the host's operator
+        // notice has to be able to say *what* failed -- `xcode-select` pointing at an unlicensed
+        // Xcode made /usr/bin/git exit 69 on 2026-09-15 and every turn of a live table failed with
+        // it, read by the Keeper as an ordinary retryable move.
+        const output = (result.stderr || result.stdout || '').trim();
+        throw new CommitFailed(`git ${what} failed (${result.code})${output ? `: ${output}` : ''}`,
+            { step: what, code: result.code, output: output.slice(0, 400) });
+    }
     return result;
 }
 export async function commit(context: KernelContext, campaign: string, message: string): Promise<string> {
