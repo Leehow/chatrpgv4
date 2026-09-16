@@ -294,6 +294,28 @@ export class Reading {
             return { ...result, state: 'queued', job_id: job.job_id };
         });
     }
+    /**
+     * Contract §61. `foreground` is a claim that a turn is blocked on this reading, and it is
+     * what reserves the single foreground lease in `claim`. Promotion had a writer -- every foreground
+     * `request` for a job already queued or running sets it -- and nothing ever unset it, so the lease
+     * stayed reserved for a wait that had already ended. The host calls this when the last waiter for
+     * a reading leaves without cancelling it: the job keeps running and its material still lands
+     * (§47), but the foreground lane goes back to whichever turn is actually blocked. Idempotent:
+     * a finished job, an unknown one and an already-background one all answer the same way.
+     */
+    async unwait(params: Row): Promise<Row> {
+        const mid = validateModuleId(params.module_id), jobId = params.job_id;
+        if (typeof jobId !== 'string' || !jobId)
+            throw new RpcError('invalid_params', 'params.job_id is required');
+        return this.mutex(mid, async () => {
+            const queue = await this.store.queue(mid), job = queue.find(entry => entry.job_id === jobId);
+            if (job && ['queued', 'running'].includes(string(job.state)) && truth(job.foreground)) {
+                job.foreground = false;
+                await this.store.writeQueue(mid, queue);
+            }
+            return { job_id: jobId, foreground: false };
+        });
+    }
     async claim(params: Row): Promise<Row> {
         const mid = validateModuleId(params.module_id), directory = this.store.moduleDir(mid);
         return this.mutex(mid, async () => {

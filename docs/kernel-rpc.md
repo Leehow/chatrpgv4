@@ -9247,3 +9247,57 @@ the host through the real extension seam — a failure told once with its cause 
 call, the table free the same turn, no re-arming at the next boundary, and a cold scan that hands
 back live work and never a corpse. `tests/extension/turn.test.mjs`'s cold-recovery test now exercises
 the case it was always for, a `ready` proposal a restarted process knows nothing about.
+
+## 61. The foreground reading lease belongs to the turn that is waiting (2026-09-16, extends §22 and §47)
+
+`foreground` on a reading job is a claim that a Keeper turn is blocked on that material *right now*,
+and it is what reserves the single foreground lease §22 advertises ("one foreground and up to two
+background jobs may hold independent leases for distinct focuses"). That claim had a writer and no
+eraser. Every foreground `module.read.request` for a job already queued or running promotes it;
+nothing ever demoted one. So when the Keeper's own wait ended — and §47 is explicit that
+`reading_timeout` is the host's patience ending and never the reader finishing — the job kept the
+lease for the whole rest of its life, and the read for where the players were actually standing
+queued behind a read the table had walked away from.
+
+**Retained evidence, M-DETOUR `game-3d8ab658-d335-4426-aca6-6dcb76608490` (`homes/t7`, 2026-09-16).**
+`read-6` (`purpose: detail`, `focus: "Bar Cordano"`, foreground) was requested on turn 25 at
+15:17:37Z; the Keeper's wait on it expired at 15:19:37Z with `reading_timeout`. On turn 26 at
+15:23:06Z `move:museo-de-arqueologia-t26-c1` landed and the party was at the museum. On turn 27 at
+15:26:00Z the Keeper asked the book about the museum; `read-7` was queued at 15:26:01Z. `claim`
+refused it three times — the `claim_empty` row at 15:28:31Z was written with a job sitting in the
+queue — because `read-6` still held the only foreground lease. `read-6` finally *failed* at
+15:29:11Z, 694 s after it started and **574 s after anybody was waiting for it**; `read-7` was
+claimed at 15:29:11.344Z with `queue_wait_ms: 190344`, long after its own 120 s wait had expired.
+The player, standing in the museum, was told the museum was still being prepared while the single
+reader lane was spent on a bar.
+
+**`module.read.unwait {module_id, job_id, campaign?} -> {job_id, foreground: false}`.** The host
+calls it when the *last* waiter on a reading leaves without cancelling it. A `queued` or `running`
+job loses its `foreground` flag; a finished job, an unknown one and an already-background one are
+no-ops, so the call is idempotent and never fails a turn. It is routed like `module.read.finish` —
+to whichever workspace's queue holds that job id — and never forks a campaign's private module copy.
+
+**A demotion is not a cancellation and not a timeout.** The reading goes on, its material still
+lands, §47's "is this still in flight" answer is unchanged, and the retry path is untouched. Only
+the lease moves. And the trigger is an event, never a clock: the last waiter leaving. This product
+has already paid for a timeout fallback once — `reading_timeout` firing five seconds before the
+material arrived — and no reading decision may be taken by elapsed time again.
+
+**The host must stop re-asserting what it gave back.** `fulfil` polls `module.read.request` roughly
+three times a second for the whole life of a reading, and the kernel promotes on every foreground
+request. A demotion that is not matched by the poll is undone within 300 ms. So the live wait is
+held on the request itself (`PendingReading.foreground`), raised again by any later `ensure` that
+joins in the foreground, dropped when the waiter count reaches zero, and it — not the original
+`params` — is what every poll sends.
+
+**The demotion is a host decision, so it is on the record** (§47): `{lane: "reading", event:
+"unwaited", module_id, campaign, job_id}`. It is written through the unwrapped recorder, because
+the wrapper doubles as the stall watchdog's heartbeat and a host note about a job is no evidence
+that the job's reader child is alive.
+
+**What this does not change.** Prefetch still queues only the exits of the scene just entered
+(§22), `materialOverride` still prefetches nothing so a pinned adaptation never reads the shared
+library, and concurrency stays at one foreground plus two background leases for distinct focuses.
+Ordering among live foreground reads is still first-come-first-served: that a read for the party's
+current location should outrank an older live foreground read is a separate question this evidence
+does not settle, because only one wait was ever live at a time here.

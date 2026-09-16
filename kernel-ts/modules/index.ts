@@ -21,6 +21,7 @@ function handlersFor(store: ModuleStore, reading: Reading): HandlerGroup {
         'module.read.request': params => reading.request(params),
         'module.read.claim': params => reading.claim(params),
         'module.read.finish': params => reading.finish(params),
+        'module.read.unwait': params => reading.unwait(params),
         'module.opening.choose': params => reading.chooseOpening(params),
         'module.list': async () => {
             const modules = [];
@@ -103,10 +104,12 @@ export function createModuleRuntime(context: KernelContext) {
     };
     const libraryOnly = new Set(['module.register', 'module.list']);
     // A scoped request or opening choice is the campaign's first private write and forks it.
-    // Claims and finishes instead follow the workspace that already owns the job, so a shared
-    // prefetch is never stranded by a fork that happened after it was queued.
+    // Claims, finishes and unwaits instead follow the workspace that already owns the job, so a
+    // shared prefetch is never stranded by a fork that happened after it was queued.
     const forking = new Set(['module.read.request', 'module.opening.choose']);
-    const claimsOrFinishes = new Set(['module.read.claim', 'module.read.finish']);
+    const claimsOrFinishes = new Set(['module.read.claim', 'module.read.finish', 'module.read.unwait']);
+    // Both name one job, so both follow the workspace whose queue holds that job id.
+    const byJobId = new Set(['module.read.finish', 'module.read.unwait']);
     const queuedJobs = async (value: typeof library, id: string, jobId?: any): Promise<boolean> =>
         (await value.store.queue(id)).some(job => jobId === undefined ? job.state === 'queued' : job.job_id === jobId);
     const dispatch = async (method: string, params: Row): Promise<Row> => {
@@ -116,7 +119,7 @@ export function createModuleRuntime(context: KernelContext) {
         if (claimsOrFinishes.has(method)) {
             const value = scopedRuntime(campaign);
             if (await scopedModuleRoot(context, campaign, id) === null) return library.handlers[method](params);
-            if (method === 'module.read.finish')
+            if (byJobId.has(method))
                 return (await queuedJobs(value, id, params.job_id) ? value : library).handlers[method](params);
             if (await queuedJobs(value, id)) return value.handlers[method](params);
             // No private work is queued; the shared queue may still hold work for this campaign.

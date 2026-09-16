@@ -680,6 +680,9 @@ function handle(method, params) {
             return { ok: true, result: { state: "ready", generation } };
 		case "module.read.claim":
             return { ok: true, result: { job_id: null } };
+		// §61: the last waiter left, so the job gives back the foreground lease and keeps running.
+		case "module.read.unwait":
+			return { ok: true, result: { job_id: params.job_id, foreground: false } };
 		case "adaptation.prepare":
 			return { ok: true, result: { name: params.name, status: process.env.FAKE_KERNEL_ADAPTATION_PENDING === "1" ? "pending" : "ready" } };
 		case "adaptation.status": {

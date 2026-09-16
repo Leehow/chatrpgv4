@@ -48,7 +48,7 @@ test("the public vocabulary and error frames match the locked Python reference",
   const currentOnly = new Set(["table.switch", "setup.override", "mods.queued", "mods.review.status", "setup.note", "journal.job", "journal.submit", "journal.fail",
     "voice.job", "voice.submit", "voice.fail",
     "adaptation.prepare", "adaptation.status", "adaptation.draft", "adaptation.review", "adaptation.fail", "adaptation.cancel",
-    "mods.prefetch.accept", "mods.prefetch.targets"]);
+    "mods.prefetch.accept", "mods.prefetch.targets", "module.read.unwait"]);
   assert.deepEqual([...api.KNOWN_METHODS].filter(name => !currentOnly.has(name)).sort(), reference.rpc.methods);
   for (const name of currentOnly) assert.ok(api.KNOWN_METHODS.includes(name), name);
   const ctx = await context("error frames");
