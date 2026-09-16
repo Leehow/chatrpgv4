@@ -363,10 +363,34 @@ export class KernelClient {
 		}
 		const restart = this.options.onRestart;
 		if (!restart) return;
-		this.queue = this.queue.then(
-			() => restart(),
-			() => restart(),
-		);
+		// The reopening runs detached: nothing awaits this queue slot until the next `call()` chains
+		// onto it, and one may never come -- the turn that died is over, and a session can shut down
+		// first. So whatever the reopening does, it ends here, or its failure is an unhandledRejection
+		// in a host that installs no handler for one (a quit during a respawn used to take the process
+		// with it). Ending it is not swallowing it: `close()` still rejects the calls it has in flight,
+		// which is what `rejectAllPending` is for, and a reopening that failed on its own account is
+		// still news on the same diagnostic sink the restart notice above uses.
+		this.queue = this.queue
+			.then(
+				() => restart(),
+				() => restart(),
+			)
+			.then(
+				() => undefined,
+				(error: unknown) => {
+					// Being closed is the one expected way for a detached reopening to lose: the caller
+					// asked for this kernel to go away, so the call it cut off is not a failure to report.
+					if (this.closing || this.dead) return undefined;
+					try {
+						this.options.onDiagnostic?.(
+							`reopening the table after the restart failed: ${error instanceof Error ? error.message : String(error)}`,
+						);
+					} catch {
+						/* the session the sink belonged to is gone; the reopening still ends here */
+					}
+					return undefined;
+				},
+			);
 	}
 
 	private rejectAllPending(error: KernelError): void {
