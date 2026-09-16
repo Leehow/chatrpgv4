@@ -84,7 +84,12 @@ export function adaptationService(runtime: HostRuntime, call: Call, model: () =>
 
 function pendingStatus(result: Record<string, any>): Record<string, any> {
     if (['pending', 'reviewing'].includes(result.status)) {
-        result.service_status = 'The retained preparation is still running in the background. No fictional event or player action has happened. Do not poll it again in this turn. Use narrate only to tell the player that preparation is pending and end the turn; inspect the same proposal by name after new player input.';
+        // "inspect the same proposal by name" named no call, and the Keeper of campaign game-ef7545c5
+        // answered it with `lookup kind=module` instead. The verb is spelled out here for the same
+        // reason the gate's wait instruction spells it out: a Keeper executes what it reads.
+        result.service_status = 'The retained preparation is still running in the background. No fictional event or player action has happened. Do not poll it again in this turn.'
+            + ' Use narrate only to tell the player that preparation is pending and end the turn.'
+            + ` After new player input, the only call that reports on it is lookup kind=adaptation action=status name=${JSON.stringify(result.name ?? '')}.`;
         result.retry_after_ms = 2000;
     }
     return result;
