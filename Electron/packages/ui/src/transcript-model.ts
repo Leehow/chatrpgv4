@@ -308,7 +308,15 @@ export function historyMessages(entries: HistoryEntry[]): ChatMessage[] {
       continue
     }
     const previous = messages[messages.length - 1]
-    if (entry.role === 'assistant' && entry.content && previous?.role === 'assistant' && !previous.content && (previous.activities?.length ?? 0) > 0) {
+    // §81: a turn whose text arrived in a later entry is one message; a notice the host placed is
+    // another speaker's, and merging it in is what printed the host's out-of-fiction sentence as
+    // the Keeper's own words, under the Keeper's tool card -- and, because the merge also takes the
+    // notice's id, deleted the Keeper's card id from the transcript. The live projection publishes
+    // the notice as its own bubble, so a merge here also makes the re-read disagree with the
+    // reading the player just watched (§53). Only the reader can tell the two apart, so this asks
+    // the entry rather than the words.
+    if (entry.role === 'assistant' && entry.content && !entry.placedByHost
+      && previous?.role === 'assistant' && !previous.content && (previous.activities?.length ?? 0) > 0) {
       previous.content = entry.content
       previous.id = entry.id
       previous.timestamp = entry.timestamp

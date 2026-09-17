@@ -91,6 +91,16 @@ export type HistoryEntry = {
   presentation?: {renderer:string; details:unknown};
   /** assistant only: a host-delivered opening that carries a help fold the renderer draws behind a "?" button. */
   help?: OpeningHelp;
+  /**
+   * assistant only: the host placed these words itself (contract §53, §81) -- a service notice or
+   * the §8 fallback, not the Keeper's turn.
+   *
+   * Only the reader of the transcript can answer this: the row names the channel, the rendered
+   * entry does not, and the text cannot -- a notice and a Keeper's line are both prose in the play
+   * language. It rides here so the transcript's own assembly rules can tell one speaker's words
+   * from the other's without reading a word of either.
+   */
+  placedByHost?: true;
   id: string;
   role: "user" | "assistant" | "tool" | "compaction";
   content: string;

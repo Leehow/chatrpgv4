@@ -10999,3 +10999,65 @@ Tests (`App.project-load-retry.test.tsx`): a first `listProjects` that throws
 host that keeps failing raises the banner, after which pressing 重试 clears it
 once the host recovers. They die when the retry is reverted to the bare catch,
 and when the banner loses its control.
+
+## 81. A notice the host placed is not more of the Keeper's message (2026-09-17, completes §53 and §55)
+
+§53 settled whose words a host-placed delivery carries and gave it the Keeper's side of the
+table. §55 settled when the player gets them. Neither settled what the transcript may then do
+with them, and the answer it had been giving was: treat them as more of the Keeper's message.
+
+`historyMessages` folds an assistant entry that carries text into the assistant card above it
+when that card has activities and no text of its own. That rule is right, and stays: it is
+how a Keeper turn whose prose arrived in a later entry reads as one message rather than two.
+But a Keeper turn that ran tools and delivered nothing has exactly that shape, and it is
+precisely the turn that ends with a service notice — `turn_unfinished`, `review_unavailable`,
+`provider_outage`, `delivery_cut_short`, and the §8 `placed_by_host` fallback all announce it.
+So the notice matched the rule and three things happened at once:
+
+- the host's out-of-fiction sentence was printed inside the Keeper's tool card, as the
+  Keeper's own words, on the turn where that sentence is the only thing the player gets;
+- the notice lost the bubble the live projection of §55 had just given it, so the reading the
+  player watched and the reading they got on reload were different transcripts of the same
+  bytes — the disagreement §53 exists to prevent, arriving by a different road;
+- the fold takes the folded entry's id, so the Keeper's own card id disappeared from the
+  transcript entirely.
+
+Measured on H-SIDE `t4` turn 109 (2026-09-17): notice `ad53217a` merged into Keeper card
+`0f29857e`, whose id then appeared nowhere in the page, while the live projection of the same
+id was a standalone bubble with no activities. Turn 112's notice, whose Keeper card did carry
+text, kept its own bubble — so the same channel read two different ways eleven minutes apart
+on one table. That inconsistency is also why the turn-112 notice was reported missing: it
+rendered below the block being inspected rather than inside it.
+
+### 81.1 The rule
+
+**A row the host placed is marked as such on every reading, and the transcript's assembly
+rules never fold it into another speaker's message.**
+
+The mark comes from the same registry that decides the side (`HOST_DELIVERED_CUSTOM_TYPES`),
+read once where the row is rendered, so a channel added to that set arrives marked on the day
+it is added. It rides on the history entry as `placedByHost`, because only the reader of the
+transcript can answer the question: the row names the channel, the rendered entry does not,
+and the text cannot — a notice and a Keeper's line are both prose in the play language.
+Nothing here reads a word of either.
+
+`role` stays `assistant`. The side of the table is §53's decision and is unchanged; this is
+the speaker on that side, which §53 named and then had no way to carry forward.
+
+### 81.2 The three ends (§31)
+
+- **Who writes it.** The host's own reader, from the channel registry, on every projection of
+  a `custom_message` row — the live one of §55 and every re-read alike, since both go through
+  the same function.
+- **Who reads it.** `historyMessages`, at the one fold that could absorb another speaker's
+  words.
+- **Who acts on it.** The player: the notice keeps its own bubble, and the Keeper's card keeps
+  its own id and its own emptiness, so "the turn delivered nothing, and here is why" stays two
+  statements instead of one sentence signed by the wrong person.
+
+### 81.3 What is deliberately not here
+
+No new channel, no resend, and no second delivery path. The notice was reaching the screen;
+what it was not keeping was its own voice. The fold rule is not weakened for anything else —
+a Keeper turn whose text arrived late still reads as one message, and that case is asserted
+beside the repair so a future simplification cannot quietly take it away.
