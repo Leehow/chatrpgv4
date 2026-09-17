@@ -111,13 +111,25 @@ export function CocCharacterDraftEdit({data,t,onOverride,onClose}:Props) {
     return Object.keys(override).length?override:undefined
   }
 
-  /** A `needs` refusal names the pool, the spend and the offending field; mark exactly that input. */
+  /**
+   * A `needs` refusal names the pool, the spend and the offending field; mark exactly that input.
+   *
+   * A pool refusal and a bound refusal are two different sentences and only one of them is about a
+   * range. Both used to end in the offending field's own legal range, which on a pool refusal is
+   * the range the entered value is already inside: raising Spot Hidden to 60 came back as "Not
+   * enough occupation points. (Allowed range: 25 – 75)" — a number refused for being out of a
+   * range that contains it, with no hint of the actual blocker. Both budgets start fully spent, so
+   * this is the first thing a player meets on the first edit they try. A pool refusal now reports
+   * the arithmetic that refused it and the two ways out.
+   */
   const applyNeeds=(error:Row|undefined)=>{
     const details=error?.details&&typeof error.details==='object'?error.details as Row:error||{}
     const pool=typeof details.pool==='string'?details.pool:''
     let message=pool==='occupation'?t('Not enough occupation points.'):pool==='interest'?t('Not enough interest points.'):t('Value outside the allowed range.')
     const range=Array.isArray(details.range)?details.range:[]
-    if(finite(range[0])!==undefined&&finite(range[1])!==undefined)message+=` (${t('Allowed range')}: ${range[0]} – ${range[1]})`
+    const spend=finite(details.spend),total=finite(details.total)
+    if(pool&&spend!==undefined&&total!==undefined)message+=` (${t('Spent')}: ${spend} / ${total}) ${t('Take the points from another skill in the same pool, or raise the budget under Unlock limits.')}`
+    else if(finite(range[0])!==undefined&&finite(range[1])!==undefined)message+=` (${t('Allowed range')}: ${range[0]} – ${range[1]})`
     const field=typeof details.field==='string'?details.field:''
     const target=characteristicKeys.includes(field)?`characteristic:${field}`:skillNames.includes(field)?`skill:${field}`:field==='credit_rating'?'credit_rating':'form'
     setFieldErrors({[target]:message})

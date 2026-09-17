@@ -405,6 +405,20 @@ export default function (pi: ExtensionAPI) {
 
 	// ---- One step ---------------------------------------------------------
 
+	/** Put a new draft revision on the table: remember it, append the card, and acknowledge it so
+	 *  `setup.confirm` can accept it. Both writers of a revision come through here — the drafting
+	 *  step and the numeric adjustment of §92 — because a revision the card never showed is a
+	 *  revision the kernel refuses to confirm. */
+	async function presentDraft(current: NonNullable<typeof bridge>, result: Record<string, unknown>): Promise<void> {
+		draftRevision = result.revision as number;
+		context.draft = result;
+		pi.appendEntry('coc-character-draft', {...result, play_language: await boundLanguage()});
+		if (process.env.PI_COC_SETUP_AUTOSTART !== '1') {
+			pi.sendMessage({customType: 'coc-character-preview', content: JSON.stringify(result.sheet), display: true});
+			await current.call('setup.previewed', {campaign: context.campaign, revision: draftRevision});
+		}
+	}
+
 	/** Run this step's ops in table order; a missing parameter stops it there and hands the results so far to the model to fill in. */
 	async function runOps(step: Step, args: Record<string, unknown>): Promise<Record<string, unknown>> {
 		const current = bridge;
@@ -439,16 +453,7 @@ export default function (pi: ExtensionAPI) {
 						? await (reading ? reading.prepare(filled.params) : Promise.reject(new Error("the reading service is unavailable")))
 						: asRecord(await current.call(op.method, filled.params));
 				if (result.ok === false) return { ...result, step: step.id, results };
-				if(op.method==='setup.draft') {
-          draftRevision=result.revision as number;
-          context.draft=result;
-          const payload={...result,play_language:await boundLanguage()};
-          pi.appendEntry('coc-character-draft',payload);
-          if(process.env.PI_COC_SETUP_AUTOSTART!=='1') {
-            pi.sendMessage({customType:'coc-character-preview',content:JSON.stringify(result.sheet),display:true});
-            await current.call('setup.previewed',{campaign:context.campaign,revision:draftRevision});
-          }
-        }
+				if(op.method==='setup.draft') await presentDraft(current,result);
         results[op.method] = result;
         opCache.set(cacheKey, result);
 				noteResult(result);
@@ -522,6 +527,31 @@ export default function (pi: ExtensionAPI) {
 				return { ok: false, step: id, code: errorCode(error), message: errorText(error), details: (error as { details?: unknown }).details };
 			}
 			return { ok: true, step: id, notes: setupNotes, brief: renderBrief(setupSlots, setupNotes, guidedCap) };
+		}
+		// §92: the numbers on the current card, changed as numbers. This is not a table step either —
+		// it neither advances the order nor is done once — because the player may correct a value at
+		// any point before confirmation and may do it more than once.
+		//
+		// Until this existed the only door to `setup.override` was the card's own edit button, and the
+		// model's only answer to "change this number" was to draft again. A re-draft rebuilds from the
+		// stored seed, so it came back with the auto-allocated numbers: the player's correction undone
+		// by the very call that was meant to honour it, which is what a live table reported. The
+		// carry of §92 keeps a hand-set number alive across a re-draft; this is how the model sets one
+		// in the first place.
+		if (id === 'adjust') {
+			if (!bridge || !context.campaign || draftRevision === undefined) return { ok: false, step: id, rejected: 'There is no card to adjust yet: draft one with create-investigator first.' };
+			if (completed.has('confirm-investigator')) return { ok: false, step: id, rejected: 'The card is confirmed; its numbers are no longer a draft edit.' };
+			const args = mergeArgs(raw);
+			try {
+				const result = asRecord(await bridge.call('setup.override', {campaign: context.campaign, revision: draftRevision, edits: args.edits,
+					...(args.limits_override !== undefined ? {limits_override: args.limits_override} : {})}));
+				await presentDraft(bridge, result);
+				return { ok: true, step: id, sheet: result.sheet, limits: result.limits, completeness: result.completeness };
+			} catch (error) {
+				// A bound or a budget refusal is the answer, not a failure: its details name the pool,
+				// the total, the spend and the offending field, and that is what the player is told.
+				return { ok: false, step: id, code: errorCode(error), message: errorText(error), details: (error as { details?: unknown }).details };
+			}
 		}
 		if (!id) {
 			const next = nextStep(steps, state());
@@ -608,7 +638,8 @@ export default function (pi: ExtensionAPI) {
 			"if you do not know what to write on the first call, give any step (start, say) and the result will tell you the table's first step. " +
 			"Every return carries next (the next step and its parameters) and progress; a call that did not succeed carries rejected or needs, " +
 			"so change what it says to change and do not resend unchanged. " +
-			"While an active setup package declares slots, `step: note` with `slot`, `value` (the player's words) and optional `origin` (player|concept) records one answer of the creation brief; the result carries the brief and the one move it allows.",
+			"While an active setup package declares slots, `step: note` with `slot`, `value` (the player's words) and optional `origin` (player|concept) records one answer of the creation brief; the result carries the brief and the one move it allows. " +
+			"`step: adjust` with `edits` {characteristics?, skills?, credit_rating?} changes the numbers on the current card as numbers, as often as the player asks and never through a re-draft: each value is the final value wanted, a skill must already be on the card, and the point budgets are charged — a refusal names the pool, its total, the attempted spend and the field. Optional `limits_override` {characteristic_min?, characteristic_max?, skill_cap?, occupation_points?, interest_points?} relaxes exactly those bounds when the player asks to play outside them.",
 		promptSnippet: "The one setup tool: walk the kernel's seven-step table, one step at a time.",
 		parameters: Type.Object(
 			{

@@ -161,10 +161,10 @@ card was built, using only the returned sheet.creation trace and actual values:
   were walked down their lists in tiers, so the entries at the front reached a usable
   value and a tail entry may remain at its base. Identify the actual
   auto-allocation policy, chosen Credit Rating and cap as system defaults/options,
-  not mandatory rulebook bonuses. Do not promise numerical overrides that setup
-  does not support: the current profile edits cannot set a skill cap or Credit
-  Rating directly. Invite supported changes to concept, age, occupation or selected
-  skills, without offering an unavailable custom point-allocation interface.
+  not mandatory rulebook bonuses. A number the player wants changed is changed as a
+  number: use the adjust step, never a re-draft. Both budgets start fully spent, so
+  raising one value needs points from another in the same pool, or the raised bound
+  the player asks for; say which when you refuse.
 - Explain HP, MP, SAN, movement (including age adjustment), STR+SIZ damage bonus
   and Build from the recorded derivation; state rounding down where required.
   Write zero damage bonus as 0, never
@@ -178,8 +178,17 @@ language to describe what the allocation actually did. Any player choice, includ
 the name, may be revised if the player requests it; preserving a supplied name
 does not forbid a later explicit name change. Ordinary unallocated details remain suggestions, not
 another interview. For revisions explain only changed calculations.
-Ask once to confirm or change the displayed card. To revise, call the
-same draft step with only the changed profile fields; unchanged rolls are preserved.
+Ask once to confirm or change the displayed card. To revise identity, concept, age,
+occupation or the chosen skills, call the same draft step with only the changed
+profile fields; unchanged rolls are preserved. To revise a number — a
+characteristic, a skill total, Credit Rating — use the adjust step, which edits the
+current card in place. Never answer a request for a different number with a draft:
+a draft rebuilds from the same dice and comes back with the auto-allocated values.
+The player may also change those numbers themselves on the card. Their edits travel
+with the card across later drafts, so read the sheet you were handed rather than the
+one you remember. If a draft result carries a `manual` block whose `dropped` is not
+empty, the player's own edits could not all be carried: say in one sentence which
+numbers went back and why, and offer to set them again with adjust.
 Only after explicit approval use confirm-investigator with consent=approved. Use
 consent=delegated only when the player explicitly orders immediate creation or
 modification-and-creation, never for a mere name/concept. A failed preview acknowledgment
