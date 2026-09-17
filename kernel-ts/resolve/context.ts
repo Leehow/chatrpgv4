@@ -17,6 +17,7 @@ import { nowIso } from '../write/store.js';
 import {weaponRows} from '../mods/projection.js';
 import {prepareMagicFacts,augmentMagicFacts,provisionalMagicSemantic,type PreparedMagicFacts} from '../magic/facts.js';
 import { incapacitatedBy } from '../healing/conditions.js';
+import { personLabel } from '../read/capsule.js';
 import { CheckArithmetic, SUCCESS_OUTCOMES, valueError } from './arithmetic.js';
 export interface ExecutionResult {
     data: Row;
@@ -189,12 +190,18 @@ export class SettleContext {
         this.minted.add(candidate);
         return candidate;
     }
+    /**
+     * What to call the subject of a receipt on a card (§79). Every roll, delta and cash receipt
+     * draws its `actor_label` / `subject_label` here, so this is the person-side junction §76.2
+     * named as missing: `world.person_labels` decides, and the sheet's or the book's name stands
+     * only until this table has given one. The identity -- `actor`, `subject` -- is untouched.
+     */
     subjectLabel(id: string): string {
         const sheet = this.sheetById(id);
         if (sheet)
-            return string(sheet.name || id);
+            return personLabel(this.world, string(sheet.id), string(sheet.name || id));
         const node = this.npcNode(id);
-        return node ? this.graph.displayName(node) : id;
+        return node ? personLabel(this.world, this.graph.handle(node), this.graph.displayName(node)) : id;
     }
     addSessionReceipt(family: string, transition: string, options: Row = {}): string {
         const id=this.mint(`session:${family}-${transition}-t${this.turnNumber}-c${this.ordinal}`);

@@ -4,7 +4,7 @@ import {isAbsolute,join} from 'node:path';
 import {RpcError} from '../errors.js';
 import {isJsonObject} from '../json.js';
 import {recordOf} from '../read/module-graph.js';
-import {npcsPresent} from '../read/capsule.js';
+import {npcsPresent,personLabel} from '../read/capsule.js';
 import {unsupported} from '../read/handlers.js';
 import {array,integer,number,repr,row,sorted,string,truth,type Row} from '../read/values.js';
 import {stanceTable} from '../write/contributions.js';
@@ -72,7 +72,7 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
     if(stance!=null&&(typeof stance!=='string'||!words.includes(stance)))unsupported('npc.stance',stance,words,`npc.stance ${repr(stance)} is not one of the ledger's words`);
     if(profile!=null)(world.npc_profiles??={})[handle]=profile;
     const pinnedProfile=profile?{archetype:profile.archetype,characteristics:profile.characteristics,derived:profile.derived,skills:profile.skills}:null;
-    const receipt={id:effectId(context,'npc',handle),kind:'npc',call_id:context.callId,npc:node.node_id,handle,name:graph.displayName(node),to:moved,stance:stance??null,dead:dead??null,skill:pinned,...(pinnedProfile?{profile:pinnedProfile}:{}),why,at:nowIso()};
+    const receipt={id:effectId(context,'npc',handle),kind:'npc',call_id:context.callId,npc:node.node_id,handle,name:graph.displayName(node),label:personLabel(world,handle,graph.displayName(node)),to:moved,stance:stance??null,dead:dead??null,skill:pinned,...(pinnedProfile?{profile:pinnedProfile}:{}),why,at:nowIso()};
     return {receipt,event:{type:'npc-changed',data:{npc:handle,to:moved,stance:stance??null,dead:dead??null,skill:pinned,...(pinnedProfile?{archetype:profile!.archetype}:{}),why}}};
 }
 export async function stageHandout(context:ApplyContext,effect:Row,asset:(module:string,name:string)=>Promise<Row|null>):Promise<StagedEffect>{

@@ -5,6 +5,7 @@ import {moduleDeclaration} from '../read/module-graph.js';
 import {findNamedObject} from '../read/mods.js';
 import {EntityIndex} from '../read/memory.js';
 import {actor} from '../read/handlers.js';
+import {personLabel} from '../read/capsule.js';
 import {array,clone,integer,normalize,number,repr,row,similarity,string,truth,type Row} from '../read/values.js';
 import {RuleTables} from '../rules/tables.js';
 import {Catalog} from '../rules/catalog.js';
@@ -69,7 +70,7 @@ export async function stageItem(context:ApplyContext,effect:Row,staged:Map<strin
     const profile=effect.weapon!=null?await weaponProfile(context,sheet,effect.weapon,await catalog()):null,key=normalize(name),before=held(sheet,key);
     if(quantity>0)addItem(sheet,name,quantity,number(context.turn.turn),source,label,profile);
     else {if(before<negate(quantity))throw new RpcError('invalid_params',`${subject} holds ${before} × ${repr(name)}; cannot lose ${negate(quantity)}`,{fix:'an item leaves the sheet only if it is on it: apply the gain first, or a smaller loss',details:{name,held:before,quantity}});removeItem(sheet,name,negate(quantity));}
-    const after=held(sheet,key),receipt={id:effectId(context,'item',name),kind:'item',call_id:context.callId,name,label:label||name,subject:id,subject_label:subject,from:source,weapon:profile?string(profile.weapon_id):null,quantity,before,after,why,at:nowIso()};
+    const after=held(sheet,key),receipt={id:effectId(context,'item',name),kind:'item',call_id:context.callId,name,label:label||name,subject:id,subject_label:personLabel(context.world,id,subject),from:source,weapon:profile?string(profile.weapon_id):null,quantity,before,after,why,at:nowIso()};
     return {receipt,event:{type:'item-transferred',data:{name,to:id,quantity,...(source?{from:source}:{}),...(profile?{weapon:string(profile.weapon_id)}:{})}}};
 }
 const money=(value:any):any=>value instanceof PythonFloat&&Number.isInteger(number(value))?number(value):value;
@@ -135,7 +136,7 @@ export async function stageCash(context:ApplyContext,effect:Row,staged:Map<strin
     if(after===null)throw new RpcError('invalid_params','cash result cannot be represented without rounding',{fix:'use an amount that can be stored exactly, or keep this amount as a whole-number cash receipt',details:{before,delta,currency}});
     const sourced=await cashSource(context,effect,currency,subject);
     cash.amount=after;sheet.finance=finance;sheet.cash=`${string(after)} ${currency}`;
-    const receipt={id:context.mint(`cash:t${context.turn.turn}-c${context.ordinal}`),kind:'cash',call_id:context.callId,resource:'cash',subject:id,subject_label:subject,before,after,delta,with:other?context.graph.handle(other):null,with_label:other?context.graph.displayName(other):null,currency,...sourced,why,at:nowIso()};
+    const receipt={id:context.mint(`cash:t${context.turn.turn}-c${context.ordinal}`),kind:'cash',call_id:context.callId,resource:'cash',subject:id,subject_label:personLabel(context.world,id,subject),before,after,delta,with:other?context.graph.handle(other):null,with_label:other?personLabel(context.world,context.graph.handle(other),context.graph.displayName(other)):null,currency,...sourced,why,at:nowIso()};
     return {receipt,event:{type:'resource-changed',data:{resource:'cash',subject:id,before,after,delta,why,...(other?{with:context.graph.handle(other)}:{})}}};
 }
 export async function commitInventorySheets(context:ApplyContext,staged:Map<string,Row>):Promise<void>{

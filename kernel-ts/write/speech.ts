@@ -6,8 +6,8 @@
  * word list deciding what kind of person a label denotes: a name that matches nobody stays a label.
  */
 import { ModuleGraph } from '../read/module-graph.js';
-import { npcsPresent } from '../read/capsule.js';
-import { array, normalize, string, truth, type Row } from '../read/values.js';
+import { npcsPresent, personLabel } from '../read/capsule.js';
+import { array, entries, normalize, row, string, truth, type Row } from '../read/values.js';
 
 /** Who a span resolved to. `npc` is the graph handle (a name the model may hold), never a node id. */
 export type Speaker = { npc: string; name: string } | { investigator: string; name: string } | { label: string };
@@ -78,8 +78,19 @@ export function speechPass(text: string, resolve: SpeakerResolver): { text: stri
     return { text: out.join(''), speech };
 }
 
-/** §40.1 resolution: someone present, by any of their names; an investigator of the party; any NPC of
- *  the graph when exactly one carries the name. Otherwise the name is a label. */
+/**
+ * §40.1 resolution: someone present, by any of their names; an investigator of the party; any NPC of
+ * the graph when exactly one carries the name; and, since §79, the name this table gave them.
+ *
+ * A table's own name for a person is one of that person's names here, exactly as `world.scene_labels`
+ * is a place's name everywhere a place is named. Without it a Keeper writing their own word for
+ * somebody resolved to nobody, so the same person was a fresh anonymous label in every turn that
+ * spelled them differently -- a different colour on the transcript, no `spoke` row on the ledger and
+ * no line in the journal. Otherwise the name is a label.
+ *
+ * The resolved row carries the table's name too: `npc` / `investigator` is the identity and `name`
+ * is what to call them (§76.2), so the journal and the ledger legend read one word for one person.
+ */
 export function speakerResolver(graph: ModuleGraph, world: Row, party: Row[]): SpeakerResolver {
     let present: Row[] | null = null;
     const keysOf = (node: Row) => graph.nameKeys(node).map(normalize).filter(Boolean);
@@ -87,6 +98,12 @@ export function speakerResolver(graph: ModuleGraph, world: Row, party: Row[]): S
         const hits = nodes.filter(node => keysOf(node).includes(key));
         return hits.length === 1 ? hits[0] : null;
     };
+    const npc = (node: Row): Speaker => ({ npc: graph.handle(node), name: personLabel(world, graph.handle(node), graph.displayName(node)) });
+    const sheetSpeaker = (sheet: Row): Speaker => ({ investigator: string(sheet.id), name: personLabel(world, string(sheet.id), string(sheet.name)) });
+    const atThisTable = new Map(entries(row(world.person_labels)).flatMap(([id, record]) => {
+        const key = normalize(string(row(record).name));
+        return key ? [[key, id] as [string, string]] : [];
+    }));
     return (name: string): Speaker => {
         const key = normalize(name);
         if (!key) return { label: name };
@@ -94,11 +111,18 @@ export function speakerResolver(graph: ModuleGraph, world: Row, party: Row[]): S
             try { present = npcsPresent(graph, world, graph.scene(world.active_scene)); } catch { present = []; }
         }
         const here = only(present, key);
-        if (here) return { npc: graph.handle(here), name: graph.displayName(here) };
+        if (here) return npc(here);
         const investigators = party.filter(sheet => [sheet.name, sheet.id].map(normalize).includes(key));
-        if (investigators.length === 1) return { investigator: string(investigators[0].id), name: string(investigators[0].name) };
+        if (investigators.length === 1) return sheetSpeaker(investigators[0]);
         const anyone = only([...graph.nodes.values()].filter(node => node.node_kind === 'npc'), key);
-        if (anyone) return { npc: graph.handle(anyone), name: graph.displayName(anyone) };
+        if (anyone) return npc(anyone);
+        const owner = atThisTable.get(key);
+        if (owner != null) {
+            const node = graph.find(owner, ['npc']);
+            if (node) return npc(node);
+            const sheet = party.find(value => string(value.id) === owner);
+            if (sheet) return sheetSpeaker(sheet);
+        }
         return { label: name };
     };
 }
