@@ -11910,6 +11910,22 @@ directory; an entrance with no way on is refused, with the refusal's wording
 asserted; and a book that ends in its first scene installs with no exit at all.
 The second dies when `missing.push('way_on')` is removed.
 
+**90.4.1 The reader of the snapshot is the snapshot (2026-09-17, found on a live table).**
+`Reading.openingReady(mid, focus)` re-derived `openingReport` on the graph with the
+chosen scene applied, so a book installed before this section — its opening
+published ready at generation 2, no onward relation in its graph — answered
+`module.status: ready` from the roll-up and `setup.complete: opening_preparing`
+from the live derivation, and `module.read.request purpose: "opening"` found the
+identical reading `completed` and answered `blocked` with the roll-up's empty
+`missing` (§46.1's refusal naming nothing, again). The card was confirmed and the
+table could not open. Now `openingReady` answers from the publication snapshot:
+`meta.opening` when the chosen scene is the book's own start, else
+`prepared_openings[<chosen>]` when the book was published ready on that scene; only
+a scene neither has met is derived live. The completed-reading branch of
+`module.read.request` answers `ready` when the snapshot's `missing` is empty. Test:
+`test_fast_guidance.py` "published ready stays ready under a later rule"; it dies
+when the snapshot read is removed.
+
 ## 91. A review that never judged the draft does not refuse it (2026-09-17, amends §36.14 and §38.9, extends §26.1)
 
 The continuity review of §36.14 is a gate before publication, and that is the point: the player never

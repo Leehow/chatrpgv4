@@ -187,3 +187,33 @@ def test_authored_era_prose_uses_the_rulebook_default_without_losing_the_setting
     assert sheet["setting_era"] == "An expedition in March 1921"
     assert sheet["finance"]["source"] == "cash-assets.periods.1920s"
     assert sheet["finance"]["substituted_for"] == "An expedition in March 1921"
+
+
+def test_an_opening_published_ready_stays_ready_under_a_later_rule(kernel, tmp_path):
+    """§90.4: nothing re-judges an installed book. A book whose opening was published before `way_on`
+    existed has no onward relation in its graph and a snapshot that says ready; the opening request
+    and setup.complete read the snapshot, and the table opens on it."""
+    mid, job, _, _, _ = seed(kernel, tmp_path)
+    finish(kernel, job)
+    ready_job, _, _ = opening(kernel, mid)
+    assert finish(kernel, ready_job)["opening_ready"]
+    # The published graph as a reading from before the rule left it: no way on, digest following the bytes.
+    module_dir = kernel.workspace / ".coc/modules" / mid
+    meta = json.loads((module_dir / "module.json").read_text())
+    graph_path = module_dir / meta["graph_file"]
+    graph = json.loads(graph_path.read_text())
+    graph["relations"] = [r for r in graph.get("relations", []) if r.get("relation_kind") != "route-to"]
+    graph["claims"] = [c for c in graph.get("claims", []) if c.get("predicate") != "route-to"]
+    graph_path.write_text(json.dumps(graph), encoding="utf-8")
+    manifest_path = graph_path.parent / "module-graph-manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["graph_content_digest"] = hashlib.sha256(json.dumps(graph, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    manifest["relation_count"], manifest["claim_count"] = len(graph.get("relations", [])), len(graph.get("claims", []))
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    meta["graph_digest"] = hashlib.sha256(graph_path.read_bytes()).hexdigest()
+    (module_dir / "module.json").write_text(json.dumps(meta), encoding="utf-8")
+    assert request(kernel, mid, "opening", focus="Dock")["state"] == "ready"
+    kernel.ok("campaign.create", {"id": "installed", "module": mid, "guidance_key": KEY, "play_language": "en"})
+    kernel.ok("setup.prologue", {"campaign": "installed", "scene": "Dock", "text": "Who are you?"})
+    confirmed_investigator(kernel, "installed")
+    assert kernel.ok("setup.complete", {"campaign": "installed"})["module_id"] == mid
