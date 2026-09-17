@@ -232,22 +232,39 @@ export function openingReport(graph: Row, view: ModuleGraph, template: Row, doss
     const start = starts[0], keep = new Set([start]);
     if (view.moduleNode)
         keep.add(view.moduleNode.node_id);
+    let waysOn = 0;
+    const wayOn = (id: string): void => { if (id !== start && view.nodes.get(id)?.node_kind === 'scene') waysOn++; };
     for (const kind of [...array(template.entrance_relation_kinds), 'route-to'])
         for (const rel of array(graph.relations))
             if (rel.relation_kind === kind && rel.from_node_id === start) {
-                if (view.nodes.has(rel.to_node_id))
+                if (view.nodes.has(rel.to_node_id)) {
                     keep.add(rel.to_node_id);
+                    wayOn(string(rel.to_node_id));
+                }
                 else
                     missing.push(`exit:${rel.to_node_id}`);
             }
     for (const edge of array(recordOf(view.nodes.get(start)).scene_edges))
         if (typeof edge?.to === 'string') {
             const target = view.kind('scene').find(s => view.handle(s) === edge.to);
-            if (target)
+            if (target) {
                 keep.add(target.node_id);
+                wayOn(string(target.node_id));
+            }
             else
                 missing.push(`exit:${edge.to}`);
         }
+    // Contract section NN: `missing` already accounts for an exit that resolves to nothing; until
+    // now nothing accounted for an opening that publishes no exit at all. A start scene with no way
+    // on and no statement that the book ends there is a one-room book: `sceneExits` is empty, so
+    // section 49's route rows have nothing to report -- not a locked way, not an unread way, no way
+    // -- and the table sits in the first scene until someone reads the file. This is accounting, not
+    // an opinion about the destination: the book either names where this scene leads or says it
+    // stops here, and either answer passes. What is behind the exit, and whether its pages have been
+    // read, stay out of readiness (section 46; an unread neighbour is the normal published shape,
+    // redeemed by `apply move`'s own material gate).
+    if (!waysOn && !endings(graph).ids.includes(start))
+        missing.push('way_on');
     for (const kind of ['present-in', 'discoverable-at'])
         for (const rel of array(graph.relations))
             if (rel.relation_kind === kind && rel.to_node_id === start && view.nodes.has(rel.from_node_id))
