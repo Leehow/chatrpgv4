@@ -107,18 +107,19 @@ describe('the card draws a marked delivery', () => {
     expect(container.querySelectorAll('.coc-mech-row')).toHaveLength(0);
   });
 
-  it('folds a handout carrying text into a disclosure and keeps a textless one a plain row', () => {
+  it('folds a ready handout carrying text and keeps a document-none handout a plain delivered row', () => {
     const {container} = render(<Delivery details={{play_language:'zh-Hans', turn:9, mechanics:[
-      {kind:'handout', receipt:'h1', name:'globe', label:'环球报未刊稿', available:true,
+      {kind:'handout', receipt:'h1', name:'globe', label:'环球报未刊稿', document:'ready',
         path:'/tmp/x.md', media_type:'text/markdown', text:'正文第一段。\n\n正文第二段。'},
-      {kind:'handout', receipt:'h2', name:'skull', label:'标题骷髅', available:false},
+      {kind:'handout', receipt:'h2', name:'skull', label:'标题骷髅', document:'none'},
     ]}} />);
     const folds = container.querySelectorAll('details.coc-mech-fold');
     expect(folds).toHaveLength(1);
     expect(folds[0].textContent).toContain('环球报未刊稿');
     expect(folds[0].textContent).toContain('正文第二段。');
     expect(container.querySelectorAll('div.coc-mech-row[data-kind="handout"]')).toHaveLength(1);
-    expect(container.textContent).toContain('尚未交付');
+    expect(container.textContent).toContain('标题骷髅');
+    expect(container.textContent).not.toContain('尚未交付');
   })
 
   it('keeps confirmed investigator names on roll, dice and change cards', () => {
@@ -143,10 +144,10 @@ describe('the card draws a marked delivery', () => {
     expect(container.textContent).not.toContain('LUCK');
   })
 
-  it('unfolds a clue with a summary and keeps a bare one a plain row', () => {
+  it('unfolds a clue with the table account and keeps a bare one a plain row', () => {
     const {container} = render(<Delivery details={{play_language:'zh-Hans', turn:6, mechanics:[
       {kind:'clue', receipt:'clue:tide-t6', clue:'tide-marks', label:'潮痕',
-        summary:'第三级台阶的绿苔水位线比涨潮线高出一掌。'},
+        how:'第三级台阶的绿苔水位线比涨潮线高出一掌。'},
       CLUE,
     ]}} />);
     const folds = container.querySelectorAll('details.coc-mech-fold');
@@ -156,32 +157,32 @@ describe('the card draws a marked delivery', () => {
     expect(container.querySelectorAll('div.coc-mech-row[data-kind="clue"]')).toHaveLength(1);
   })
 
-  it('renders the glossary projection of a clue summary when the delivery carries one', () => {
-    const summary = 'The waterline on the third step sits a hand above high tide.';
+  it('renders the table-authored clue account verbatim instead of sending it through the glossary', () => {
+    const how = '第三级台阶的水线比涨潮线高出一掌。';
     const {container} = render(<Delivery details={{play_language:'zh-Hans', turn:6,
-      labels: { [summary]: '第三级台阶的水线比涨潮线高出一掌。' },
-      mechanics:[{kind:'clue', receipt:'clue:tide-t6', clue:'tide-marks', label:'潮痕', summary}]}} />);
+      labels: { [how]: '不应替换这句桌上记录。' },
+      mechanics:[{kind:'clue', receipt:'clue:tide-t6', clue:'tide-marks', label:'潮痕', how}]}} />);
     const body = container.querySelector('details.coc-mech-fold .coc-mech-fold-body');
-    expect(body?.textContent).toBe('第三级台阶的水线比涨潮线高出一掌。');
+    expect(body?.textContent).toBe(how);
   })
 
   /**
-   * Every content field on this card goes through the campaign's glossary.
+   * Every kernel-authored content field on this card goes through the campaign's glossary.
    *
    * The card printed a clue's name, an item's name, a scene's name, a currency and a die's caption
    * exactly as the receipt carried them, which is English wherever the kernel minted the word --
    * so a Chinese table read "Gold fragment", "USD" and "SAN Loss" beside its own prose. The lanes
-   * project all five into `labels`; nothing here may skip that lookup.
+   * project those fields into `labels`; the Keeper-authored clue account is already in the play
+   * language and must stay verbatim.
    */
   it('reads every content field through the campaign glossary, die captions included', () => {
     const labels = {
       'Gold fragment': '金嵌板', "Knott's Office": '诺特的办公室', 'Crowe House': '克罗宅',
       USD: '美元', 'SAN Loss': '理智损失', 'Pools of blood': '血泊',
-      'The waterline sits a hand above high tide.': '水线比涨潮线高出一掌。',
     }
     const {container} = render(<Delivery details={{play_language:'zh-Hans', turn:11, labels, mechanics:[
       {kind:'clue', receipt:'c1', clue:'blood-pool', label:'Pools of blood',
-        summary:'The waterline sits a hand above high tide.'},
+        how:'水线比涨潮线高出一掌。'},
       {kind:'item', receipt:'i1', name:'gold-fragment', label:'Gold fragment', quantity:1, to:'lin', to_label:'林远'},
       {kind:'scene', receipt:'s1', from:'a', from_label:"Knott's Office", to:'b', to_label:'Crowe House'},
       {kind:'cash', receipt:'m1', subject:'lin', subject_label:'林远', before:60, after:40, currency:'USD'},
@@ -189,6 +190,7 @@ describe('the card draws a marked delivery', () => {
     ]}} />)
     for (const projected of Object.values(labels)) expect(container.textContent).toContain(projected)
     for (const canonical of Object.keys(labels)) expect(container.textContent).not.toContain(canonical)
+    expect(container.textContent).toContain('水线比涨潮线高出一掌。')
   })
 
   /**

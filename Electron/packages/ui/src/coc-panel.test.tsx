@@ -345,10 +345,10 @@ describe('a discovered clue is named, not handled', () => {
     expect(screen.queryByText('knott-commission')).toBeNull();
   });
 
-  it('unfolds a clue with a summary into what it says, and keeps a bare one a plain row', async () => {
+  it('unfolds a clue with the table account, and keeps a bare one a plain row', async () => {
     const withDetail = view({ clues: { discovered: [
       { clue: 'knott-commission', label: '诺特的委托合同',
-        summary: 'Landlord Steven Knott pays $20/day to examine the Corbitt House.' },
+        how: '诺特当面委托调查科比特宅。' },
       { clue: 'bare-clue', label: '空线索' },
     ] } });
     const { container } = render(<Panel api={host({ ok: true, data: { status: 'ready', view: withDetail, campaign: 'c1' } })} />);
@@ -356,21 +356,21 @@ describe('a discovered clue is named, not handled', () => {
     const folds = container.querySelectorAll('details.coc-clue-fold');
     expect(folds).toHaveLength(1);
     expect(folds[0].textContent).toContain('诺特的委托合同');
-    expect(folds[0].textContent).toContain('Corbitt House');
-    expect(folds[0].querySelector('summary')?.textContent).not.toContain('Corbitt House');
+    expect(folds[0].textContent).toContain('诺特当面委托调查科比特宅。');
+    expect(folds[0].querySelector('summary')?.textContent).not.toContain('科比特宅');
     expect(screen.getByText('空线索')).toBeTruthy();
   });
 
-  it('renders the glossary projection of a clue summary when one is provided', async () => {
-    const summary = 'Landlord Howard Crane pays $20/day to examine the Crowe House.';
+  it('renders a table-authored clue account verbatim instead of sending it through the glossary', async () => {
+    const how = '克兰当面出价，请调查克罗宅。';
     const withDetail = view({
-      clues: { discovered: [{ clue: 'crane-commission', label: '克兰的佣金', summary }] },
-      labels: { ...view().labels, [summary]: '房东霍华德·克兰出价每天 20 美元，要求查清克罗宅的事。' },
+      clues: { discovered: [{ clue: 'crane-commission', label: '克兰的佣金', how }] },
+      labels: { ...view().labels, [how]: '不应替换这句桌上记录。' },
     });
     const { container } = render(<Panel api={host({ ok: true, data: { status: 'ready', view: withDetail, campaign: 'c1' } })} />);
     await screen.findByText('克兰的佣金');
     const body = container.querySelector('details.coc-clue-fold .coc-clue-body');
-    expect(body?.textContent).toBe('房东霍华德·克兰出价每天 20 美元，要求查清克罗宅的事。');
+    expect(body?.textContent).toBe(how);
   });
 
   it("projects an NPC's name and the scene stamped on an exchange, and leaves the lane's own prose alone", async () => {
