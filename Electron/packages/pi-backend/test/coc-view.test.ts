@@ -103,7 +103,7 @@ it('cold host sheet reads are tied to the requested session and never start Pi',
     expect(catalog.ok).toBe(true);
     const mods=await backend.handle('invokeExtension',['coc-keeper','mods.list',{campaign:'must-not-be-guessed'}, {sessionId:first.id}]) as any;
     expect(mods.ok).toBe(true);
-    expect(mods.data.mods.map((row:any)=>row.id)).toEqual(['enhanced-items','guided-creation','keeper-pacing','narration-audit','narration-craft','natural-npc','story-thread']);
+    expect(mods.data.mods.map((row:any)=>row.id)).toEqual(['enhanced-items','guided-creation','keeper-pacing','narration-audit','narration-craft','natural-npc','npc-voice','story-thread']);
     expect(mods.data.campaign).toBeUndefined();
     const defaults=await backend.handle('invokeExtension',['coc-keeper','mods.defaults',{id:'natural-npc',enabled:false}, {sessionId:first.id}]) as any;
     expect(defaults).toMatchObject({ok:true,data:{'natural-npc':false}});
@@ -356,7 +356,8 @@ it('lane words come from the built presenter, and each saved projection says wha
   const words=await laneWords(repo,'possessions',view);
   expect(words).toEqual(['cm','condition','intact','length','mahogany','material']);
   const clueWords=await laneWords(repo,'clues',view);
-  expect(clueWords).toEqual([summary,'血泊']);
+  // §79: the source summary is Keeper-only. The player-facing lane projects only the earned label.
+  expect(clueWords).toEqual(['血泊']);
   // The journal's own prose is written in the play language; its names and stamped scenes are the graph's.
   const journalWords=await laneWords(repo,'journal',{...view,npcs:{journal:[
     {name:'Steven Knott',description:'一位律师。',exchanges:[{turn:1,scene:"Knott's Office",summary:'他收回租约。'}]}]}});

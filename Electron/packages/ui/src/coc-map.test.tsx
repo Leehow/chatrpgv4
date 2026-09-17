@@ -9,9 +9,9 @@ afterEach(cleanup)
 
 it('opens an authorized map image and zooms locally',()=>{
   const {container}=render(<Delivery details={{mechanics:[{kind:'map',receipt:'map:house-t1',map:'house',name:'House',label:'宅邸地图',
-    available:true,image:'data:image/png;base64,abc',regions:[{id:'entry',label:'门厅',level:'一层'},{id:'cellar',label:'地窖',level:'地下室'}],levels:['一层','地下室'],
+    document:'ready',image:'data:image/png;base64,abc',regions:[{id:'entry',label:'门厅',level:'一层'},{id:'cellar',label:'地窖',level:'地下室'}],levels:['一层','地下室'],
     level_images:[{level:'一层',image:'data:image/png;base64,first'},{level:'地下室',image:'data:image/png;base64,cellar'}]}],
-    ui:{words:{mechanics:{available:'可查看',pending:'尚未就绪'}}}}}/>)
+    ui:{words:{mechanics:{available:'可查看'}}}}}/>)
   fireEvent.click(screen.getByText('宅邸地图'))
   const image=screen.getByRole('img',{name:'宅邸地图'}) as HTMLImageElement
   expect(image.src).toContain('data:image/png;base64,first')
@@ -24,8 +24,10 @@ it('opens an authorized map image and zooms locally',()=>{
 })
 
 it('never mounts an image for an unavailable map',()=>{
-  render(<Delivery details={{mechanics:[{kind:'map',map:'house',name:'House',available:false,regions:[]}],
-    ui:{words:{mechanics:{pending:'尚未就绪'}}}}}/>)
+  render(<Delivery details={{mechanics:[{kind:'map',map:'house',name:'House',document:'none',regions:[]}],
+    ui:{words:{mechanics:{available:'可查看'}}}}}/>)
   expect(screen.queryByRole('img')).toBeNull()
-  expect(screen.getAllByText('尚未就绪').length).toBeGreaterThan(0)
+  // §59: a delivered map with no document says nothing false about delivery or pending work.
+  expect(screen.queryByText('可查看')).toBeNull()
+  expect(screen.getByRole('group',{name:'House'})).toBeTruthy()
 })
