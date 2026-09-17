@@ -376,6 +376,15 @@ function strikeRefusalClass(
 	cls: string,
 	last: string,
 	round: number,
+	/**
+	 * Whether the turn this refusal belongs to has already closed (§77).
+	 *
+	 * `narrate` and `ask` are exempt from the budget because they are the two doors out of a
+	 * turn, and shutting the doors would strand it. A *closed* turn has no doors: narrate ends
+	 * nothing there, it is refused like any other write, and exempting it only guarantees the
+	 * Keeper can hammer the one tool nothing counts.
+	 */
+	closed = false,
 ): { count: number; tripped: boolean } {
 	const previous = state.refusalClasses.get(cls);
 	// A strike is an attempt, not a call: calls written in one message are answered
@@ -386,11 +395,15 @@ function strikeRefusalClass(
 	state.refusalsThisTurn += 1;
 	const closing = "Nothing refused has happened. Stop trying it: close the turn with narrate on what landed with a receipt, or hand the player the pending choice with ask.";
 	let tripped = false;
-	if (count >= REFUSAL_CLASS_LIMIT && !state.exhausted.has(tool) && !["narrate", "ask"].includes(tool)) {
+	const isDoor = !closed && ["narrate", "ask"].includes(tool);
+	if (count >= REFUSAL_CLASS_LIMIT && !state.exhausted.has(tool) && !isDoor) {
 		state.exhausted.set(tool, `${tool} has been refused ${count} times this turn for the same reason (${last}). ${closing}`);
 		tripped = true;
 	}
 	if (state.refusalsThisTurn >= REFUSAL_BUDGET) {
+		// The global sweep never touches narrate and ask. A strike can come from a turn whose
+		// opening is still pending -- `resolve` refused while the opening waits to be delivered --
+		// and shutting narrate there would take away the door the sweep's own advice points at.
 		for (const name of ["resolve", "apply", "look", "lookup", "recall"])
 			if (!state.exhausted.has(name))
 				state.exhausted.set(name, `${state.refusalsThisTurn} refusals this turn. ${closing}`);
@@ -3288,7 +3301,9 @@ export default function (pi: ExtensionAPI) {
 			// A refusal the host issued is still a refusal (§67). Without this the
 			// Keeper could be told "wait for the player" forever inside its own turn.
 			const round = state.callRounds.get(event.toolCallId) ?? state.roundTrips;
-			const { count, tripped } = strikeRefusalClass(state, name, `${name}\u0000turn_state\u0000${state.state}`, `turn_state: ${reason}`.slice(0, 160), round);
+			// Every strike from this block is a closed-turn refusal by construction, so narrate
+			// and ask lose the door exemption here: there is no door left to protect (§77).
+			const { count, tripped } = strikeRefusalClass(state, name, `${name}\u0000turn_state\u0000${state.state}`, `turn_state: ${reason}`.slice(0, 160), round, true);
 			if (tripped) await record({ lane: "refusals", turn: state.turn, tool: name, count, reason: "class_limit", last: `turn_state: ${state.state}` });
 			return { block: true, reason: state.exhausted.get(name) ?? reason };
 		}
