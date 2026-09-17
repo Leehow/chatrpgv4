@@ -215,6 +215,13 @@ export async function openTable({
 	uiMode = "print",
 	settings = {},
 	retainAt,
+	/**
+	 * Extra extension factories, loaded beside the probe. An extension that must be on the bus
+	 * *before* `session_start` (the Mod bridge is the one that matters: the table is opened inside
+	 * `session_start`, and cold recovery reads `reviewStatus` there) can only arrive this way --
+	 * `session.emit` from a test runs long after the table is open.
+	 */
+	extraExtensions = [],
 } = {}) {
 	const workspace = mkdtempSync(join(retainAt ?? tmpdir(), "pi-coc-ext-"));
 	const requestLog = join(workspace, "kernel-requests.jsonl");
@@ -316,6 +323,7 @@ export async function openTable({
 					}
 				},
 			},
+			...extraExtensions,
 		],
 	});
 	await resourceLoader.reload();

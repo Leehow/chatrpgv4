@@ -11903,3 +11903,137 @@ Test (`tests/extension/opening-way-on.test.mjs`): the t6 shape installs and its
 directory; an entrance with no way on is refused, with the refusal's wording
 asserted; and a book that ends in its first scene installs with no exit at all.
 The second dies when `missing.push('way_on')` is removed.
+
+## 91. A review that never judged the draft does not refuse it (2026-09-17, amends §36.14 and §38.9, extends §26.1)
+
+The continuity review of §36.14 is a gate before publication, and that is the point: the player never
+reads a delivery whose consequences the package found incomplete. What was never decided is what that
+gate does when nobody read the draft at all — and until this section the answer was that it refused
+anyway, with the same force as a refusal a reviewer's own reading stood behind.
+
+§26.1 already settled this shape for the other audit, in the same file, two months earlier: *"an audit
+that times out now lets the delivery through and records that the turn was not audited … because the
+alternative to an unaudited delivery is not an audited one — it is a lost turn."* The continuity review
+was never given that rule, because it fails through `AuditBudget` rather than through
+`mod_agent_failed`, and `prepare`'s exception for a deadline does not match its reason.
+
+### 91.1 The retained evidence, and the two facts inside one word
+
+M-MAIN `game-3dd94f0a-4b26-41bc-96fa-f89a60abb143` (2026-09-17, 112 turns) ended nine turns
+`closed_by: "stranded"`, `text: null`; seven on `continuity_review_unavailable`. Read from the
+campaign's own telemetry they are not one condition:
+
+| turn | `submitted` | cause | cost |
+| --- | --- | --- | --- |
+| 25, 33 | `false`, `timed_out` | the child was killed at the 40 s `per_review_ms` cap | 1, 2 receipts |
+| 60 | `true` | `The shared review allowance is exhausted` | 3 receipts |
+| 92, 107 | `true` (twice) | `The bounded Keeper repair did not resolve the review` | 1, 5 receipts |
+| 9, 15 | — (pre-§38.8 build, no lane row) | 40.3 s and 40.5 s `narrate`, the timeout shape | 1 receipt each |
+
+Turn 107 is the most expensive turn on the table — three `definition:document` receipts, an NPC move
+and an eight-minute clock advance on disk, `rendered_text: null` — and it is a **verdict**: two
+reviews ran, both submitted, both said `revise`, and `max_rewrites` ended the input exactly as §37.9
+designed. Nothing in this section touches it. A Keeper whose draft is read and refused twice is the
+guard working.
+
+The other five are a different fact wearing the same word. Across the nine tables of that evidence set
+**601 reviews reached a verdict (552 `pass`, 49 `revise`) and 13 never did** — 5 children that ended
+without a checked submission, 3 artifacts that never validated, 2 exhausted allowances, 2 timeouts,
+1 terminated runtime. Each of those 13 could destroy a whole turn on the strength of a reading nobody
+performed.
+
+### 91.2 `reviewed` is a third fact, and it is the one the delivery decision reads
+
+`reviewUnavailable(cause, service, reviewed)` now carries both bits, and they answer different
+questions:
+
+- **`service`** (§38.9, unchanged): *is this an outage?* It decides the §38.5 streak and the operator
+  escalation. A review that ran and refused a bounded repair is not a table being down.
+- **`reviewed`** (this section): *did a reviewer reach a trusted verdict about this candidate?* It
+  decides whether the delivery may be held back, and nothing else.
+
+They are not the same cut, which is why a second field and not a reuse. An exhausted shared allowance
+and a review that outspent its own reservation are both `service: false` — correctly, neither is a
+lane being down — and both are `reviewed: false`, because neither is a reading of this draft. Only
+`AuditBudget.verdict()` sets `reviewed: true`: the reviewer reported `unavailable` (§36.14's
+"Unavailable is not approval" — its own answer about the candidate, still refusing), the same rejected
+draft came back without new evidence, or the one bounded repair `max_rewrites` permits was refused.
+
+`blocked_reviewed` is persisted beside `blocked_service` in `review-budget.json`, so a retained block
+replays as the kind it was; an absent field reads as `false`, so a store written before this section
+never strands a recovered turn on its own.
+
+### 91.3 What happens instead
+
+`ModBridge.prepare` returns `{unreviewed: {cause, service}}` instead of throwing, and the delivery
+proceeds through `table.narrate` unchanged — it renders, strips its machine tokens (§34.14), commits
+and reaches the player like any other turn. The refused-draft path of §34.14 and §38 is not involved,
+because nothing refused it.
+
+The host records it (`lane: "continuity-review"`, `reason: "delivered_unreviewed"`, with the cause and
+its own streak) and escalates at streak 2 to the operator entry of §38.5 and §56
+(`coc-review-status`, `status: "unreviewed"`, with the Lane-model fix, which §37.10 makes reach the
+next review without a restart). That streak is deliberately **not** `reviewOutage`: §38.10 zeroes that
+one on a landed `narrate`, and every unreviewed delivery is a landed `narrate`, so counting these
+there would erase itself on the turn it was meant to count. It is cleared by a review that answers.
+
+**The player is told nothing.** Their turn arrived. A table that plays is not a notice, and §41's rule
+holds here too: nothing about this was the player's sentence.
+
+Cold recovery (§36.14's `mods.review.status`) reads the same cut: `reviewed` rides the status, and only
+a retained verdict strands the recovered turn.
+
+### 91.4 Will an unreviewed delivery let through what the gate exists to catch?
+
+Asked with a denominator. The 63 retained `revise` artifacts of that evidence set say what the gate
+actually refuses: **41 carry `findings`, 14 carry `missing`** — nearly all of them one sentence, *the
+writing or consumption the draft narrates has not reached the existing object instance* — 5 are
+`locus_review` promotions of a place with no registered scene, and **only 5 carry a continuity
+`conflict` at all** (a lantern back in a hand it was put down from, a draft calling it dark at a 15:53
+clock, a party kept in a lobby the player had chosen to leave). So:
+
+1. On exactly the turns this section changes, **nothing was checked either way**. Refusing did not
+   substitute a check for an unchecked delivery; it substituted silence for the prose while the
+   receipts stayed on disk. That is the drift §38's own comment says the review exists to prevent —
+   *the engine moved and the fiction did not* — produced in its maximal form, with certainty, by the
+   guard.
+2. The class the gate does refuse is the class §12.5's post-delivery verifier already reports as
+   `uncommitted_state` — advisory, measured 22 true against 0 false on that lane — on every delivered
+   turn, into `turns/NNNN.json`'s `warnings` and the next capsule. An unreviewed delivery is still
+   read. It is not held.
+3. The shared allowance still bounds what may be started, `max_rewrites` still bounds repairs, and
+   every verdict still has exactly the power it had.
+
+What this does **not** do is tighten anything. Two live escapes are on record from the same night
+(M-MAIN turn 114, an NPC contradicting a verbatim line of turn 97's own record; turn 70, an NPC
+calling a cellar unseen while he had stood at its door on turns 65–66), both `pass`. They are not
+repaired here, and turn 114 probably should not be: that NPC had just fumbled a Persuade, and an NPC
+who lies is play, not a defect (`kp-fabrication-is-play`). A gate made stricter to catch them would
+refuse the lying as well.
+
+### 91.5 The notice row said the wrong thing for every verdict pause
+
+Separate and small. §38.10 gave the player three lines and the operator entry its `service` flag, and
+left the telemetry row behind: `record({lane: "delivery", … reason: "review_unavailable_notice"})` was
+hardcoded whichever of the three went out. Turns 92 and 107 both sent `review_verdict_notice` ("the
+continuity review read it and did not approve it") and both were recorded as
+`review_unavailable_notice` ("its continuity review did not finish") — which is how a turn the guard
+did its job on reads afterwards as a lane outage. The row now names the key that was sent. **The
+player-facing wording is unchanged and was never wrong**: the English source and its `zh-Hans` seed
+both say, for a verdict pause, that the review read the turn and did not approve it.
+
+### 91.6 The three ends (§31)
+
+*Who writes it:* `AuditBudget` (`extensions/mods/audit-budget.ts`), on every block it latches.
+*Who projects it:* `ModBridge.prepare`'s return (`extensions/mods/index.ts`) and
+`mods.review.status`'s `reviewed` (`kernel-ts/mods/jobs.ts`). *Who acts on it:*
+`noteUnreviewedDelivery` and the cold-recovery branch in `extensions/kernel/index.ts` — the delivery
+goes out, the row is written, and the operator hears about a lane that stops answering.
+
+Tests (`tests/extension/unavailable-is-not-a-verdict.test.mjs`): a child killed at its cap hands the
+delivery back and binds no report; an exhausted allowance judges nothing; a bounded repair refused
+twice still refuses, before and after a restart; the product path publishes the turn with no service
+notice, no undelivered card and no strand; a second unreviewed delivery reaches the operator once and
+the player never; a review that answers clears the streak; and cold recovery strands on a retained
+verdict and not on a retained outage. The first and the fifth die when `prepare` re-raises
+`continuity_review_unavailable`; the third dies when `verdict()` stops setting `reviewed: true`.

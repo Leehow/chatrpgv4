@@ -7,7 +7,8 @@ import {AUDIT_LIMITS} from '../../kernel-ts/mods/audit-result.ts';
 import {KernelError} from '../kernel/client.ts';
 
 /**
- * Whether this pause is a *service* condition or a *verdict* one (contract §38.9).
+ * Whether this pause is a *service* condition or a *verdict* one (contract §38.9), and whether any
+ * reviewer ever reached a verdict about this draft (contract §91).
  *
  * Both end the player's input, and both are reported with the same `reason`, because the Keeper's
  * lawful response to either is identical: keep what settled and wait for the player. They are not the
@@ -21,11 +22,18 @@ import {KernelError} from '../kernel/client.ts';
  * did not resolve the review` (`submitted: true`, 17.4 s) and turn 43 on `The private reviewer ended
  * without a checked submission` (`submitted: false`, killed at 40 014 ms). One design decision and one
  * dead stream were summed into `streak: 2`, and the table was declared down.
+ *
+ * `reviewed` is the third fact, and it is the one the *delivery* decision reads (§91). `service`
+ * answers "is this an outage", which is the streak's question; `reviewed` answers "did a reviewer
+ * reach a trusted verdict about this candidate", which is the only question that can justify holding
+ * the Keeper's prose back. They are not the same cut: an exhausted shared allowance and a review that
+ * outspent its own reservation are both `service: false` — neither is a lane being down — yet neither
+ * is a reading of this draft either, so neither may refuse it. Only `verdict()` sets `reviewed: true`.
  */
-export const reviewUnavailable = (cause: string, service = true) => new KernelError({code: 'needs',
+export const reviewUnavailable = (cause: string, service = true, reviewed = false) => new KernelError({code: 'needs',
     message: 'Continuity review is paused; no draft was approved',
     fix: 'Preserve settled actions and await explicit player input before another review attempt. Do not rewrite or repeat the audit automatically.',
-    details: {reason: 'continuity_review_unavailable', cause, service}});
+    details: {reason: 'continuity_review_unavailable', cause, service, reviewed}});
 function atomic(path: string, value: unknown) {
     const temp = `${path}.${randomUUID()}.tmp`, fd = openSync(temp, 'wx', 0o600);
     try { writeFileSync(fd, JSON.stringify(value)); fsyncSync(fd); } finally { closeSync(fd); }
@@ -53,17 +61,18 @@ export class AuditBudget {
             if (this.state.version !== 1 || !Array.isArray(this.state.previous) ||
                 !['requests', 'ms', 'rewrites', 'artifact_repairs'].every(k => Number.isFinite(this.state[k]) && this.state[k] >= 0))
                 throw reviewUnavailable('Retained review accounting is invalid');
-            if (this.state.active) { this.state.blocked = 'An interrupted review retains its reserved allowance'; this.state.blocked_service = true; this.save(); }
+            if (this.state.active) { this.state.blocked = 'An interrupted review retains its reserved allowance'; this.state.blocked_service = true; this.state.blocked_reviewed = false; this.save(); }
             if (this.state.blocked && inputToken && inputToken !== this.state.input_token) {
                 const {previous, ...last} = this.state;
                 this.state = {...this.fresh(inputToken), previous: [...previous, last]}; this.save();
             }
             // The kind travels with the retained block: a later review of the same input must not
-            // re-read a verdict end as a fresh outage.
-            if (this.state.blocked) throw reviewUnavailable(this.state.blocked, this.state.blocked_service !== false);
+            // re-read a verdict end as a fresh outage, and must not lend a bookkeeping bound the
+            // authority of a verdict it never had (§91).
+            if (this.state.blocked) throw reviewUnavailable(this.state.blocked, this.state.blocked_service !== false, this.state.blocked_reviewed === true);
         } catch (error) { this.close(); throw error; }
     }
-    private fresh(inputToken?: string) { return {version: 1, input_token: inputToken ?? null, requests: 0, ms: 0, rewrites: 0, artifact_repairs: 0, reviewed_jobs: {}, previous: [], blocked: null, blocked_service: null}; }
+    private fresh(inputToken?: string) { return {version: 1, input_token: inputToken ?? null, requests: 0, ms: 0, rewrites: 0, artifact_repairs: 0, reviewed_jobs: {}, previous: [], blocked: null, blocked_service: null, blocked_reviewed: null}; }
     private save() { atomic(this.file, this.state); }
     /**
      * §73: the allowance measures **active review time** (§35.14), so nothing but a reviewer may spend it.
@@ -83,7 +92,9 @@ export class AuditBudget {
         // One review reserves one review's worth, never the whole remaining allowance: otherwise the first
         // review eats the budget and the repair `max_rewrites` permits is unaffordable (§37.9).
         const ms = Math.min(this.limits.per_review_ms, this.limits.time_ms - this.state.ms);
-        if (requests <= 0 || ms <= 0) this.fail('The shared review allowance is exhausted', false);
+        // §91: an exhausted allowance is a bound on what this table may still spend, not a reading of
+        // this draft, so it is `reviewed: false` and never refuses a delivery on its own.
+        if (requests <= 0 || ms <= 0) this.fail('The shared review allowance is exhausted', false, false);
         this.state.active = {requests, ms, started_at: Date.now()} satisfies Reservation;
         // Charge ahead: a crashed host cannot silently refund a partly consumed session.
         this.state.requests += requests; this.state.ms += ms; this.save();
@@ -99,7 +110,7 @@ export class AuditBudget {
         delete this.state.active;
         // A session that spent more model calls than it reserved broke the bound it was handed, so its
         // report is not trusted and the throw stands.
-        if (requests > active.requests) { this.save(); this.fail('The private review exceeded its reserved model-call allowance', false); }
+        if (requests > active.requests) { this.save(); this.fail('The private review exceeded its reserved model-call allowance', false, false); }
         // §73: an allowance bounds what may be *started*, not what has already been produced. Closing the
         // books on a review that ran inside its reservation may find the shared allowance spent; that is a
         // fact about the *next* review of this input, so it latches here and is raised by the constructor.
@@ -107,24 +118,26 @@ export class AuditBudget {
         // and skipped `verdict()` entirely — which is why turn 86's retained accounting carries an
         // exhausted block beside an empty `reviewed_jobs` and a job directory holding an accepted report.
         if (this.state.requests > this.limits.max_requests || this.state.ms > this.limits.time_ms || this.state.artifact_repairs > this.limits.max_artifact_repairs) {
-            this.state.blocked = 'The shared review allowance is exhausted'; this.state.blocked_service = false;
+            this.state.blocked = 'The shared review allowance is exhausted'; this.state.blocked_service = false; this.state.blocked_reviewed = false;
         }
         this.save();
     }
     verdict(job: string, verdict: string) {
         // Every branch here is the reviewer having reached a conclusion, or the allowance those
         // conclusions consumed: the lane answered. None of them is an outage.
-        if (verdict === 'unavailable') this.fail('The reviewer could not establish a reliable continuity verdict', false);
+        // §91: these three are the only ends a reviewer's own reading stands behind, so they are the
+        // only ones that may hold the delivery back.
+        if (verdict === 'unavailable') this.fail('The reviewer could not establish a reliable continuity verdict', false, true);
         if (verdict === 'revise') {
-            if (this.state.reviewed_jobs[job] === 'revise') this.fail('The same rejected draft was submitted without new evidence', false);
-            if (this.state.rewrites >= this.limits.max_rewrites) this.fail('The bounded Keeper repair did not resolve the review', false);
+            if (this.state.reviewed_jobs[job] === 'revise') this.fail('The same rejected draft was submitted without new evidence', false, true);
+            if (this.state.rewrites >= this.limits.max_rewrites) this.fail('The bounded Keeper repair did not resolve the review', false, true);
             this.state.rewrites++;
         }
         this.state.reviewed_jobs[job] = verdict; this.save();
     }
-    fail(cause: string, service = true): never {
-        this.state.blocked = cause; this.state.blocked_service = service; this.save();
-        throw reviewUnavailable(cause, service);
+    fail(cause: string, service = true, reviewed = false): never {
+        this.state.blocked = cause; this.state.blocked_service = service; this.state.blocked_reviewed = reviewed; this.save();
+        throw reviewUnavailable(cause, service, reviewed);
     }
     close() {
         if (this.fd === undefined) return;

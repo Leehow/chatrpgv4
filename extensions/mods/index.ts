@@ -37,10 +37,19 @@ function modPoolSize(): number {
   const configured = Number(process.env.PI_COC_MOD_CONCURRENCY);
   return Number.isFinite(configured) && configured >= 1 ? Math.floor(configured) : MOD_POOL_DEFAULT;
 }
+/**
+ * What `prepare` reports back when it let a delivery through that no reviewer ever judged (§91).
+ * Absent means the gate answered: either it approved this draft, or there was no review to run.
+ */
+export type Unreviewed = {cause: string; service: boolean};
 export interface ModBridge {
-  /** `service` is §38.9's kind, replayed from the retained accounting; absent reads as a service pause. */
-  reviewStatus?(campaign: string): Promise<{paused?: boolean; reason?: string; service?: boolean}>;
-  prepare(method: string, payload: Record<string, any>, signal?: AbortSignal): Promise<void>;
+  /**
+   * `service` is §38.9's kind, replayed from the retained accounting; absent reads as a service pause.
+   * `reviewed` is §91's: whether a reviewer's own verdict stands behind the retained block. Absent
+   * reads as unreviewed, so a store written before §91 never strands a recovered turn on its own.
+   */
+  reviewStatus?(campaign: string): Promise<{paused?: boolean; reason?: string; service?: boolean; reviewed?: boolean}>;
+  prepare(method: string, payload: Record<string, any>, signal?: AbortSignal): Promise<{unreviewed?: Unreviewed} | void>;
   /** After the verb landed, so deferred registration can complete in a turn the Keeper never writes in. */
   after(method: string, payload: Record<string, any>, signal?: AbortSignal): Promise<void>;
 }
@@ -602,6 +611,23 @@ export default function modsExtension(pi: ExtensionAPI): void {
           result = await task(payload.campaign, "audit", {text:payload.text}, signal);
         }
         catch (error) {
+          // Contract §91. The continuity review is the same gate, and the same rule reaches it here:
+          // a pause no reviewer's verdict stands behind (`details.reviewed !== true` -- a child killed
+          // at its cap, a runtime that never started, an allowance already spent, an artifact that
+          // never validated) says nothing about this draft, so it must not be able to destroy the
+          // turn. Retained live evidence (M-MAIN `game-3dd94f0a`, 2026-09-17): turns 25 and 33 both
+          // died on a 40 s reviewer timeout, and turn 60 on an exhausted allowance after a submitted
+          // review; across nine tables the same shape cost 13 turns while 601 reviews reached a real
+          // verdict. Nothing is checked less: on exactly these turns nothing was checked either way.
+          // A pause a verdict *does* stand behind (`revise` twice, the same draft resubmitted, a
+          // reviewer reporting it could not decide) still refuses, exactly as before.
+          if (isKernelError(error) && (error.details as any)?.reason === "continuity_review_unavailable"
+              && (error.details as any)?.reviewed !== true) {
+            const cause = String((error.details as any)?.cause ?? error.message);
+            const service = (error.details as any)?.service !== false;
+            note({campaign: payload.campaign, ok: true, unreviewed: true, delivered: true, cause, service});
+            return {unreviewed: {cause, service}};
+          }
           // Contract 26.1: a gate that cannot reach a verdict says nothing about the delivery, and
           // refusing sent the Keeper to rewrite words it had no finding against -- three deadlines
           // on one turn, and the player saw none of it. A deadline lets the delivery through and is
@@ -612,7 +638,10 @@ export default function modsExtension(pi: ExtensionAPI): void {
             {campaign:payload.campaign, ms:Number((error.details as any)?.ms) || null});
           return;
         }
-        if (result?.continuity_review?.verdict === 'unavailable') throw reviewUnavailable(result.continuity_review.summary);
+        // The reviewer read the candidate and reported that it could not reach a reliable verdict.
+        // That is its own answer about this draft (§36.14, "Unavailable is not approval"), so it is
+        // `reviewed: true` and keeps refusing; §91 changes nothing here.
+        if (result?.continuity_review?.verdict === 'unavailable') throw reviewUnavailable(result.continuity_review.summary, false, true);
         if (result?.missing?.length || result?.findings?.length || result?.continuity_review?.verdict === 'revise' || (result?.source_review && result.source_review.verdict !== "supported")) throw new KernelError({code:"needs", message:"A Mod found a material conflict or unsettled consequence in the unpublished draft",
           fix: result?.continuity_review
             ? 'Repair only the contradicted claims or accurately narrate already-settled consequences. Do not make an unchosen action happen to justify the draft. Do not reroll settled actions.'

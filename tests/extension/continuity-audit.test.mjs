@@ -294,12 +294,17 @@ test('new jobs expose focused context with full fallback, bind accepted reports,
     await assert.rejects(call('mods.accept', {job: job.job}), e => e.details?.reason === 'mod_audit_stale');
 });
 
+/** §91: it is never an accepted report either -- it is a delivery nobody judged, and it says so. */
 for (const revoked of [false, true]) test(`a ${revoked ? 'revoked' : 'missing'} submission never becomes an accepted report`, async () => {
-    const cwd = await mkdtemp(join(directory, 'host-')); let bridge;
+    const cwd = await mkdtemp(join(directory, 'host-')); let bridge, accepts = 0;
     const pi = {events: new EventEmitter(), on() {}};
     pi.events.on('coc:mods-bridge', value => bridge = value); modsExtension(pi);
-    pi.events.emit('coc:kernel-bridge', {call: async method => method === 'mods.job' ? {enabled: true, continuity_review: true,
-        cwd, job: 'draft', review_scope: join(cwd, 'budget'), limits: AUDIT_LIMITS, focus: {}, system_prompt: join(cwd, 'prompt.md')} : {},
+    pi.events.emit('coc:kernel-bridge', {call: async method => {
+        if (method === 'mods.job') return {enabled: true, continuity_review: true,
+            cwd, job: 'draft', review_scope: join(cwd, 'budget'), limits: AUDIT_LIMITS, focus: {}, system_prompt: join(cwd, 'prompt.md')};
+        if (method === 'mods.accept') accepts++;
+        return {};
+    },
         runtime: {async runTask(task) {
             if (revoked) {
                 const control = JSON.parse(await readFile(join(cwd, task.request.audit.control), 'utf8'));
@@ -308,7 +313,9 @@ for (const revoked of [false, true]) test(`a ${revoked ? 'revoked' : 'missing'} 
             }
             return {ok: true, ms: 1};
         }}});
-    await assert.rejects(bridge.prepare('narrate', {campaign: 'c1', text: 'A draft.'}), e => e.details?.reason === 'continuity_review_unavailable');
+    const outcome = await bridge.prepare('narrate', {campaign: 'c1', text: 'A draft.'});
+    assert.equal(accepts, 0, 'nothing was bound as a report');
+    assert.equal(typeof outcome?.unreviewed, 'object', 'and the draft was never judged, so it was never refused');
 });
 
 for (const implicit of [false, true]) test(`unavailable ${implicit ? 'implicit' : 'explicit'} delivery stops instead of steering another audit`, async t => {
@@ -630,8 +637,13 @@ test('a review whose evidence moved under it is retryable, not a blocked turn', 
     assert.equal(typeof lane[1].ms, 'number');
 });
 
-/** §38.8: every other accept failure still blocks, and it still leaves its own row. */
-test('a reviewer that never submitted still blocks the turn and says so once', async () => {
+/**
+ * §38.8: the row is still written, and it still says which condition fired. §91 changed what the
+ * condition may do: a reviewer that never submitted judged nothing, so it hands the delivery back
+ * instead of destroying the turn. The behaviour it replaced is pinned in
+ * `tests/extension/unavailable-is-not-a-verdict.test.mjs` with the live evidence that settled it.
+ */
+test('a reviewer that never submitted still leaves its own row, and does not block the turn', async () => {
     const cwd = await mkdtemp(join(directory, 'unsubmitted-')), scope = join(cwd, 'budget');
     const rows = [];
     let bridge;
@@ -642,11 +654,12 @@ test('a reviewer that never submitted still blocks the turn and says so once', a
         call: async method => method === 'mods.job' ? {enabled: true, continuity_review: true, cwd, job: 'draft',
             review_scope: scope, limits: AUDIT_LIMITS, focus: {}, system_prompt: join(cwd, 'prompt.md')} : {},
         runtime: {async runTask() { return {ok: false, ms: AUDIT_LIMITS.per_review_ms, code: 143, timedOut: true, command: ['pi', '--model', 'lane/slow-1']}; }}});
-    await assert.rejects(bridge.prepare('narrate', {campaign: 'c1', text: 'A draft.'}),
-        error => error.details?.reason === 'continuity_review_unavailable');
-    assert.ok(JSON.parse(await readFile(join(scope, 'review-budget.json'), 'utf8')).blocked);
+    const outcome = await bridge.prepare('narrate', {campaign: 'c1', text: 'A draft.'});
+    assert.equal(outcome?.unreviewed?.cause, 'The private reviewer ended without a checked submission');
+    assert.ok(JSON.parse(await readFile(join(scope, 'review-budget.json'), 'utf8')).blocked,
+        'the retained block still stands: this input buys no second review of the same draft');
     const lane = rows.filter(row => row.lane === 'continuity-review');
-    assert.equal(lane.length, 1, JSON.stringify(rows));
+    assert.equal(lane.length, 2, JSON.stringify(rows));
     assert.deepEqual([lane[0].ok, lane[0].reason, lane[0].timed_out, lane[0].submitted, lane[0].model],
         [false, 'continuity_review_unavailable', true, false, 'lane/slow-1']);
 });
