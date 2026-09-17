@@ -25,7 +25,12 @@ export function ActivityCard({
   children: ReactNode
 }) {
   const [userExpanded, setUserExpanded] = useState<boolean | null>(null)
-  const open = userExpanded ?? (defaultExpanded || (running && kind === 'thinking'))
+  // A running card's kind does not open its own body. Reasoning used to be the one step kind the
+  // card opened by itself, so on a table the Keeper's private working reached the player ahead of
+  // the narration it was still writing (§93). Whether a body starts open is the caller's call,
+  // and nothing about the run is hidden by keeping it shut: the label, meta, spinner and the
+  // caller's own summary are all in the header, and one click opens the body.
+  const open = userExpanded ?? defaultExpanded
   const failed = error && !running
   const caution = warning && !running && !failed
   const indicator = running ? <span className="activity-spinner" /> : failed ? '×' : caution ? '!' : kind === 'thinking' ? '◌' : '✓'
