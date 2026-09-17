@@ -113,6 +113,69 @@ test("a finish transport failure does not consume the semantic repair continuati
 	assert.equal(result.finishCalls.at(-1).detail.split("\n", 1)[0], "internal: kernel request timed out");
 });
 
+/**
+ * A 669-page book stopped twice on one minor NPC's `age: 32` with `missing: []` and every other
+ * unit supported, and the player's only offered recovery inherited the same draft and failed
+ * again. The reviewer says it found no source; the kernel says *correct the draft and submit
+ * again*; neither says the word remove, and the repair round re-cited the same invented number.
+ */
+test("an unsupported number is told how to be repaired, and unsupported prose is not", async t => {
+	const home = await mkdtemp(join(tmpdir(), "coc-unsourced-number-"));
+	t.after(() => rm(home, { recursive: true, force: true }));
+	const cwd = join(home, "work", "attempt-1"), cache = join(home, ".coc", "modules", "book", "cache", "pages");
+	await mkdir(cwd, { recursive: true });
+	await mkdir(cache, { recursive: true });
+	const draft = { nodes: [{ node_id: "npc-larkin", node_kind: "npc", name: "Larkin", summary: "An archaeologist.",
+		source_refs: [{ page: 4 }], visibility: "keeper-only", properties: { age: 32, voice: "Warm and self-deprecating." } }],
+		claims: [], dependencies: [], critical: [], ready_nodes: ["npc-larkin"], coverage: {} };
+	const runtime = {
+		contentRoot: join(ROOT, "content"),
+		async runTask({ request }) {
+			const call = `call-${request.prompt.phase}-${Math.random()}`;
+			const image = join(cache, "page-4.png");
+			if (request.prompt.phase === "read") {
+				await writeFile(join(request.cwd, "draft.json"), JSON.stringify(draft) + "\n");
+				await writeFile(join(request.cwd, "guidance.json"), JSON.stringify({ occupations: [{ name: "Antiquarian" }] }) + "\n");
+				await appendFile(join(cache, "requests.jsonl"), JSON.stringify({ file_sha256: "source-sha", path: image, page: 4, box: [0, 0, 1, 1] }) + "\n");
+			} else {
+				// Answer exactly the pointers this unit was assigned: the age it could not find,
+				// the voice note it could not read, and everything else supported.
+				const assigned = JSON.parse(await readFile(join(request.cwd, "task.json"), "utf8")).required_review ?? [];
+				await writeFile(join(request.cwd, "review.json"), JSON.stringify({ missing: [], checked: assigned.map(path => ({
+					paths: [path], source_refs: [{ page: 4 }],
+					...(path.endsWith("/properties/age") ? { verdict: "unsupported", reason: "Age 32 is not stated on the cited page." }
+						: path === "/nodes/0" ? { verdict: "unclear", reason: "the page image is too dark to confirm this dossier." }
+						: { verdict: "supported", reason: "fixture source support" }),
+				})) }) + "\n");
+			}
+			request.onEvent?.({ type: "tool_execution_end", toolCallId: call, isError: false,
+				result: { content: [{ type: "image" }], details: { kind: "source_pages", observations: [{ path: image, page: 4 }] } } });
+			await writeFile(request.eventLog + ".images.jsonl", JSON.stringify({ included: [call] }) + "\n");
+			return { ok: true, code: 0, timedOut: false, ms: 2, stderr: "", command: [] };
+		},
+		async check() { return { ok: true }; },
+		async sourceInfo() { return { labels: {}, bookmarks: [] }; },
+	};
+	const service = new ReadingService({ home, runtime, model: () => ({ id: "fixture/vision", vision: true, thinking: "off" }),
+		progress() {}, record() {}, async call(method, params) {
+			if (params.outcome === "completed") throw new KernelError({ code: "invalid_params",
+				message: "visual review did not support ['/nodes/0/properties/age']: Age 32 is not stated on the cited page." });
+			return { state: params.outcome };
+		} });
+	t.after(() => service.close());
+	await service.runJob({ job_id: "read-1", module_id: "book", purpose: "guidance", focus: "", foreground: true, lease: "lease-1",
+		play_language: "zh-Hans", occupations: [{ name: "Antiquarian" }], guidance_key: "a".repeat(64),
+		work_dir: cwd, source: { path: join(home, ".coc", "modules", "book", "source.pdf"), page_count: 8, file_sha256: "source-sha" },
+		index: {}, known_nodes: [], known_claims: [], vocabulary: {}, coverage_domains: [] }, new AbortController().signal, null);
+	const findings = JSON.parse(await readFile(join(cwd, "findings.json"), "utf8"));
+	assert.deepEqual(findings.unsupported.map(row => row.paths[0]).sort(), ["/nodes/0", "/nodes/0/properties/age"],
+		"every non-supported unit stays in the findings, numeric or not");
+	assert.deepEqual(findings.repairs?.map(line => line.split(":", 1)[0]), ["/nodes/0/properties/age"],
+		"only the numeric field gets the delete-or-cite line; deleting unsupported prose would trade a stall for a silent omission");
+	assert.match(findings.repairs[0], /delete the field/);
+	assert.match(findings.repairs[0], /cite it/);
+});
+
 test("a foreground timeout can rejoin the same pending reading without starting another reader", async t => {
 	const prior = process.env.PI_COC_READ_WAIT_MS;
 	process.env.PI_COC_READ_WAIT_MS = "10";

@@ -10169,6 +10169,78 @@ about it rather than guessing.
   nothing delivered leaves `turns/0001.json` written and `turn.json` `awaiting_player` with no further
   player input; and a release the kernel refuses leaves the mark for §38's road.
 
+## 74. An unsourced number is removed, not re-cited (2026-09-17)
+
+Acceptance play, PDF module. `Masks of Nyarlathotep`, 669 pages, DeepSeek V4.1
+Flash / low. Character-creation background preparation ran for 25 minutes and
+stopped with 「暂时无法完成准备」. The player's only offered recovery, 继续准备,
+inherited the same draft and failed the same way.
+
+```
+review.json   7 units checked, missing: []
+              6 supported
+              1 unsupported  /nodes/2/properties/age
+                             "Age 32 is not stated on the cited pages 64-66
+                              (or 53); no source support found.
+                              Minor NPC statistic, deferred for character creation."
+draft.json    npc-augustus-larkin  age: 32      (still there after the repair round)
+```
+
+Nothing was missing. The whole book was prepared except for one number the
+reader invented for a minor NPC, and that number made the book unplayable
+forever.
+
+### 74.1 Three ends, none of which says the word
+
+`checkDraft` puts **every numeric properties field** on `required_review`
+(`numericPaths`, `kernel-ts/modules/visual.ts`), and `checkReview` rejects the
+whole submission on any verdict other than `supported`. That rule is right: a
+number the book does not print is a fabrication, and relaxing it would turn a
+visible stall into a silent invention.
+
+But the remedy was never stated to the one participant who could perform it.
+
+| end | what it said |
+| --- | --- |
+| reviewer | `verdict: "unsupported"` — *no source support found* |
+| kernel | `fix: correct the draft using the original pages and submit again` |
+| reader (round 2, with `findings.json` naming the exact pointer) | re-cited pages 64–66 and resubmitted `age: 32` |
+
+The kernel's `fix` is the ambiguous kind this contract has been bitten by before:
+*correct using the original pages* reads as *cite better*, and citing cannot help
+a value that is not on any page. The one repair that works — delete the field —
+appears nowhere in the reviewer's vocabulary, the kernel's fix, or the reader's
+instructions. So the repair round re-ran, failed identically, and the retry the
+player is offered inherits the same draft and fails a third time.
+
+### 74.2 The contract
+
+**A numeric field the review could not support is told its two repairs, and only
+a numeric field is.** When a publication is rejected and the review left units
+unsupported, `findings.json` gains a `repairs` array. For each unsupported
+pointer that resolves to a number in the draft, it carries one line: view a page
+that prints this exact value and cite it, or delete the field — and that
+re-citing pages which do not print it fails the same way.
+
+**Prose gets no such line, deliberately.** A summary or a voice note the review
+could not confirm is usually repairable by reading the right page. Telling the
+reader to delete it would trade a visible stall for a silent omission, which is
+the failure this rule exists to prevent.
+
+**The rule is also stated where the reader reads it.** `visual-reader.md`'s repair
+paragraph now says that a number has these two repairs and no third, that
+deleting an unsourced number is correct rather than a loss because the field
+stops being reviewed once it is gone, and that a value printed on the page is to
+be found, never deleted.
+
+Changing `visual-reader.md` changes `reviewVersion`, so cached reviews written
+under the old instruction are not reused. That is intended.
+
+Tests (`tests/extension/reading-service.test.mjs`): a guidance job whose review
+marks one numeric pointer unsupported and one node unit unclear writes both into
+`findings.unsupported`, and writes exactly one `repairs` line, for the number.
+It dies when the numeric gate is removed (the node unit gets a delete-or-cite
+line it must not get) and when `repairs` is not written at all.
 ## 75. A preparation that landed is told, not withheld (2026-09-17, amends §47)
 
 §47 gave the host a service notice for the turn a preparation owns, and a re-read so that it is only
