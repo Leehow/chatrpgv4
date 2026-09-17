@@ -218,7 +218,7 @@ test('identity words are the setup model\'s sex, never the player\'s prose, and 
 test('clue words are the names the table filed, never the book\'s sentence, a handle or an unfound clue',async()=>{
  const {prepareCluePresentation,clueTexts}=await import('../../extensions/module/character-presentation.ts');
  const home=await mkdtemp(join(tmpdir(),'clue-presentation-'));
- // §79: the module's own sentence about a clue is Keeper material and no longer reaches a player
+ // §80: the module's own sentence about a clue is Keeper material and no longer reaches a player
  // row, so it is not a word this lane has to project. `how` does reach the row, and is still not
  // asked: the Keeper wrote it at this table in the play language, like the journal's own prose.
  const summary='Corbitt can form pools of blood on floor, ceiling, or walls to frighten intruders away from his secret.';

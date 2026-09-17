@@ -1,5 +1,5 @@
 /**
- * Contract §79: a clue's summary is the Keeper's, and the player is told what this table earned.
+ * Contract §80: a clue's summary is the Keeper's, and the player is told what this table earned.
  *
  * `clue.summary` is the module graph's own sentence about a clue. The reader writes it from the
  * book, and the book writes for the Keeper: it carries staging, intentions and agendas the player

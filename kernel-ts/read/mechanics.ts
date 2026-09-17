@@ -132,7 +132,7 @@ export function mechanicsOf(receipt: Row, texts: ReadonlyMap<string, string> = n
             clue: receipt.clue ?? null
         };
         labeled(out, "label", receipt.label);
-        // §79: the card opens into the account the Keeper filed for this table, not the source's
+        // §80: the card opens into the account the Keeper filed for this table, not the source's
         // own sentence. `receipt.summary` is the module graph's text (or, for an echo, the kernel's
         // own) and it is written for the Keeper: it carries staging, intentions and agendas the
         // player has not earned. It stays on the receipt, which is the Keeper's record, and it does

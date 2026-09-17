@@ -266,7 +266,7 @@ export async function tableView(context: KernelContext, params: Row): Promise<Ro
         { graph } = module,
         snapshot = tableSnapshot(campaign, graph),
         { world, turn } = campaign;
-    // §79: what the player is told about a clue is what this table earned, never the book's own
+    // §80: what the player is told about a clue is what this table earned, never the book's own
     // sentence about it. The graph's `summary` is Keeper material -- it carries the staging, the
     // intentions and the agendas the source wrote for the Keeper -- and it stops here. The row
     // carries `how`, the account the Keeper filed when `apply clue` landed, kept per clue in

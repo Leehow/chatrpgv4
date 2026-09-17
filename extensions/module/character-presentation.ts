@@ -162,7 +162,7 @@ export function prepareLanguagePresentation(options:TextOptions&{campaign:string
  *
  * The row's `how` is not asked. Like the journal lane's own prose, the Keeper wrote it at this
  * table in the play language, so it has no leg to travel. The module's `summary` is not here
- * because it is not on the row any more: it is Keeper material and §79 stops it at the projection
+ * because it is not on the row any more: it is Keeper material and §80 stops it at the projection
  * boundary. The handle never enters, and a clue the scene offers but nobody has found stays the
  * Keeper's business.
  */

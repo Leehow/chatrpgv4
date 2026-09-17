@@ -814,7 +814,7 @@ export function createComponent(React) {
           return h(Row, { key, kindKey: "clue", kindLabel, family },
             h("span", { className: "coc-mech-body" }, name));
         }
-        // What opens is the account the Keeper filed of how this table got the clue (§79), written
+        // What opens is the account the Keeper filed of how this table got the clue (§80), written
         // at the table in the play language -- so it is drawn as it was written, not asked of the
         // glossary. The module's own sentence about the clue is Keeper material and never rides here.
         return h(FoldRow, { key, kindKey: "clue", kindLabel, body: account },

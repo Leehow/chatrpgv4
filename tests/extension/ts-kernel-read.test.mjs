@@ -328,7 +328,7 @@ test('mechanics match Python without exposing unlabeled NPC identities',async()=
   //
   // The second and third narrowings are fields the capture predates. §59 replaced the handout row's
   // `available` boolean with the three-state `document`, because a boolean could not tell a card
-  // with no page from a card nobody had answered for. §79 dropped the clue row's `summary`: it is
+  // with no page from a card nobody had answered for. §80 dropped the clue row's `summary`: it is
   // the module's own sentence, written for the Keeper and carrying staging and agendas the player
   // has not earned, and the row now opens into the Keeper's account of how this table got the clue
   // instead. The capture's inputs are frozen along with its outcome, so no `how` can be added to

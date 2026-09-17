@@ -2348,7 +2348,7 @@ kept in `world.clue_labels` exactly as a scene's name is kept in
 discovered before that field existed. The handle stays as `clue`, so a consumer
 can still key on identity. Undiscovered clues remain absent.
 
-**Superseded by §79 (2026-09-17):** this decision also gave the row the module
+**Superseded by §80 (2026-09-17):** this decision also gave the row the module
 node's `summary`, and had the panel unfold the clue into exactly that text. The
 module's sentence is written for the Keeper and carries staging and agendas the
 player has not earned, so it no longer reaches the row. What the row carries
@@ -2366,7 +2366,7 @@ labels always used: a name is not a claim two lines can disagree about.
 ### Host decision: a clue's words reach the player in the play language (2026-09-09)
 
 A zh-Hans table unfolded 血泊 into "Corbitt can form pools of blood on floor,
-ceiling, or walls to frighten intruders away from his secret." (§79 later removed
+ceiling, or walls to frighten intruders away from his secret." (§80 later removed
 that unfolding entirely: the summary is Keeper material, and the example below
 now applies only to the row's `label`.) The row's `summary` was the module's own
 text, written by the reader in the language the book was read in, and the row's
@@ -2377,7 +2377,7 @@ translation in the panel. They travel the same leg as standing names and possess
 words: the tool-enabled presenter that projects the card.
 
 `clueTexts(view)` collects, from `table.view.clues.discovered` (and any `here` row
-marked `discovered`), each row's `label`. (Until §79 it also collected `summary`;
+marked `discovered`), each row's `label`. (Until §80 it also collected `summary`;
 that field no longer reaches a player row, and the `how` that replaced it was
 written at the table in the play language, so it has no leg to travel.) The
 handle never enters,
@@ -10489,7 +10489,7 @@ refused leaves the turn closed, and twelve `narrate` calls are refused; the thir
 exhausts the class, the `refusals` lane names `narrate`, and the run is cut
 before the twelfth. It dies when the exemption is made unconditional again.
 
-## 79. A clue's summary is the Keeper's; the player is told what they earned (2026-09-17, amends §22's 2026-09-07 and 2026-09-09 clue decisions)
+## 80. A clue's summary is the Keeper's; the player is told what they earned (2026-09-17, amends §22's 2026-09-07 and 2026-09-09 clue decisions)
 
 Acceptance play, campaign `game-7dca41f9`, A-MAIN. Turn 69 discovered
 `hunters-seek-sarah`. The module graph's node for it reads:
@@ -10516,7 +10516,7 @@ and the verifier lane filed it:
 One piece of data, two consumers, opposite verdicts about secrecy. The product
 convicted itself.
 
-### 79.1 The field never had an audience
+### 80.1 The field never had an audience
 
 `clue.summary` comes off the module graph. The reader is told to write there
 *the discoverable proposition that matters to the prepared investigation*
@@ -10537,7 +10537,7 @@ test the ground floor windows ... The front door has a single lock plus four
 additional bolts added within the last year or two."* The second sentence is
 about a door nobody has touched.
 
-### 79.2 The player's own field existed and nothing read it
+### 80.2 The player's own field existed and nothing read it
 
 `apply clue` has always taken `how` — *"one sentence: how they got it"* —
 written by the Keeper, at this table, in the play language, on the turn it
@@ -10555,7 +10555,7 @@ player may read is a semantic judgement about open text. Truncating, summarising
 or rewriting it — by rule or by model — would put that judgement in the pipeline,
 where it is forbidden.
 
-### 79.3 The contract
+### 80.3 The contract
 
 **The module graph's `summary` is Keeper material and stops at the player
 projection boundary.** Nothing the player reads carries it.
@@ -10593,14 +10593,14 @@ lines can disagree about.
 module's own text. The book still speaks to the Keeper in full; it just no longer
 speaks past them.
 
-### 79.4 The three ends (§31)
+### 80.4 The three ends (§31)
 
 - **Who writes it.** The Keeper, in `apply clue`'s `how`, on the turn it happened.
 - **Who reads it.** `table.view.clues.discovered[].how` and the §16.2 `clue` row.
 - **Who acts on it.** The panel's clue fold and the delivery card's clue fold —
   the two surfaces that were unfolding the book.
 
-### 79.5 Tests
+### 80.5 Tests
 
 `tests/extension/clue-summary-is-keeper-only.test.mjs`, on the product kernel with
 the shipped renderers and the shipped captions: the book's sentence reaches

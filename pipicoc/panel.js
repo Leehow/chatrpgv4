@@ -551,7 +551,7 @@ function money(value, term = value => value) {
 }
 
 /** A found clue as the player's own record of it: the name the table filed it under, and the
- *  account the Keeper filed of how this table came by it (§79). The module graph's `summary` is
+ *  account the Keeper filed of how this table came by it (§80). The module graph's `summary` is
  *  the Keeper's material and no longer reaches this panel. */
 function clueLine(clue) {
   if (!isRecord(clue)) return { name: text(clue), how: "" };
