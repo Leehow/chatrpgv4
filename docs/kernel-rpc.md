@@ -7573,7 +7573,10 @@ Every one of them turns on the same fact — the character regains a hit point �
   likewise rouses; it takes an hour, and is Hard if not delivered the same day.
 - **Rest.** `apply {kind: "time"}` of six hours or more runs the healing time trigger; natural healing
   returns one hit point and `heal` drops the condition the moment it lands. This is the only exit that
-  needs nobody else at the table.
+  needs nobody else at the table — **and only while no major wound is ticked.** `weeklyRecovery` returns
+  `hp_gained: 0` for a character carrying `major_wound`, and `healingTimeTrigger` does not even call it,
+  so rest returns nothing whatever and the weekly recovery roll is the next thing the rules run by
+  themselves. This bullet said otherwise until §NN, and three pieces of prose were copied from it.
 
 A dying character is past all three until First Aid stabilizes them: First Aid on a dying character sets
 1 temporary hit point and `stabilized` rather than healing, and Medicine refuses to treat a dying
@@ -7584,18 +7587,19 @@ own rule — narrated without a receipt is narrated without happening — the ta
 one exit an investigator alone on the floor can take had been taken. The time trigger now mints a
 `condition` receipt for the change, which is what makes it a §42.2 row on the card.
 
-**Open gap, BUG-076: on a live table the way out is written down and nobody is obliged to drive it.**
+**BUG-076, closed by §NN: on a live table the way out was written down and nobody was obliged to drive it.**
 Retained real-table evidence: thirty in-game hours across seven turns with an `unconscious` investigator
 and **zero** `condition` receipts in any of them; two rousing checks in the whole stretch, one of them an
 outside accident and the other prompted by the player naming the rule themselves. The Keeper closed both
 exits in its own words — "I will not have anyone touch the same wound again", and "You speak. **I will
 not move the clock forward for you.**" — and then left the decision to a player who was, on the same
-screen, forbidden to act. The rules above are correct and the kernel keeps them; what is missing is that
-nothing at the table drives one. The `needs` refusal of §42.4 fires only when the Keeper tries to settle
+screen, forbidden to act. The rules above are correct and the kernel keeps them; what was missing is that
+nothing at the table drove one. The `needs` refusal of §42.4 fires only when the Keeper tries to settle
 something, so a Keeper who settles nothing is never prompted at all; the §42.6 notice goes to the player,
 who by definition cannot act on it; and the one exit that needs nobody else is spelled `apply time`, a
-verb only the Keeper has. This section does not close that gap. It records that the gap is in who drives
-the exit, not in whether the exit exists.
+verb only the Keeper has. This section does not close that gap; §NN does, by putting the body into
+`pressures[]` as a clock carrying the minutes and the call that reaches its exit, and by correcting the
+rest bullet above. The gap was in who drives the exit, not in whether the exit exists.
 
 ### 42.6 The host says a standing state out of fiction, beside the delivery
 
@@ -9571,7 +9575,7 @@ clock to tick.
   that had never existed at all.
 - **Who acts on it.** The Keeper: the capsule sentence names the call, `table.resolve` settles it on
   the right body, and the `delta` and `condition` receipts are what say it happened. A Keeper who
-  does nothing is still a Keeper who does nothing — §42.5's open gap BUG-076 is not closed by this
+  does nothing is still a Keeper who does nothing — §42.5's BUG-076 is closed by §NN, not by this
   section — but the state is now visible, the exit is named where it is read, and the settlement no
   longer reports a patient it did not treat.
 
@@ -11122,3 +11126,140 @@ Tests (`App.product-identity.test.tsx`): a first `getProduct` that throws is
 retried and the PipiCOC brand mark reaches the shell; a host that answers `base`
 is asked once and the base wordmark stands. The first dies when the bare catch
 is restored.
+
+## NN. A state that takes the action away is a clock the Keeper drives (2026-09-17, closes BUG-076 of §42.5)
+
+§42 built the writer, the two readers and the gate for an incapacitating state, and closed with the
+one thing it could not give: **nothing at the table is obliged to drive the way out.** This section is
+that obligation. It adds no rule, invents no duration, and changes nothing about which states take the
+action away — it makes the body a row in `pressures[]` with the minutes and the call on it.
+
+Retained live evidence, campaign `t9` (The Haunting, `H-MAIN-2`), turns 46–54. A failed Climb dropped
+the investigator into the cellar: 6 damage of 8 hit points, a fumbled major-wound CON roll, and
+`major_wound`, `prone`, `unconscious` at HP 2/8. Every mechanical part of that was right and every part
+of it was shown — the damage card, the HP, the state card, the `condition` receipt with
+`before:[] → after:[…]`, and §42.6's out-of-fiction line above the input box on every turn after, which
+is why the player correctly declared no action for a man who could not take one. Then the campaign
+stopped. The clock ran 1966 → 3776 — **1810 minutes, thirty hours and ten** — across seven turns with
+**zero** `condition` receipts. Two rousing checks in the whole stretch, both accidents: an NPC who
+followed a thread the player had laid forty turns earlier, and the player naming the rule at the table
+himself. The Keeper closed both doors in his own words — "I will not have anyone touch the same wound
+again" and "**I will not move the clock forward for you**" — and handed the burden of proof to a player
+who was, on the same screen, forbidden to act. Turn 54's receipts are `['npc']`: no time, no condition,
+no roll. The coverage grid marked the whole cell *blocked by the product*.
+
+### NN.1 Why the Keeper was never told
+
+Not one layer was lying; three of them were silent, and one of them was wrong.
+
+- **No decision reads the state.** `actor.conditions.unconscious` is a registered condition path
+  (`kernel-ts/capabilities.ts`) and `factsFromState` sets it on every turn — and **no node in
+  `content/rulesets/coc7/rule-graph.json` reads it**. It is a fact with a writer and no reader, the
+  §31 seam with its second end missing. `situations` only emits a row for a decision whose hard gates
+  pass on a *positive* fact, so a body that nothing gates on produces no situation, and `clockPressures`
+  builds only from situations. The section that says what is pressing had nothing to say about him.
+- **The neighbouring decisions time out or cannot fire.** `healing:first-aid-ordinary` is gated
+  `time.minutes_since_injury <= 60` and stops firing an hour after the wound — correctly, because the
+  book takes First Aid away after the hour. `healing:medicine-ordinary`'s only hard gate is a negation
+  (`not dying`), and `positiveGateHits` skips negated expressions, so it **never becomes a situation at
+  all** — the one exit still open was the one never named. `healing:weekly-major-wound-recovery` waits
+  on `actor.recovery.major_wound_week_due`, a week.
+- **The sentence the Keeper did read was false for this body.** §42.5's third exit — "rest: `apply time`
+  of six hours or more; natural healing returns one hit point" — does not hold when a major wound is
+  ticked. `HealingSession.weeklyRecovery` returns `hp_gained: 0` for a character with `major_wound`, and
+  `healingTimeTrigger` does not even call it (`if (!session.hasMajorWound)`). That is the rulebook, and
+  it was correct in the engine and wrong in three pieces of prose: `investigatorSummary.cannot_act`,
+  `npcState.cannot_act`, and the `fix` of §42.4's refusal. The `fix` is read literally, as §42.4 says.
+  t9's Keeper read it, applied time, got nothing back, and stopped moving the clock.
+
+**There is no authored duration for unconsciousness, and none is invented here.** The rules data in
+`content/rulesets/coc7/` says twice that First Aid and Medicine "can rouse an unconscious person to
+consciousness" (`rules-json/skill-descriptions.json`) and that 0 HP is unconscious
+(`rule:coc7:healing:zero-hit-points`); nowhere does it say how long anyone stays under. The only
+authored unconsciousness *durations* in the ruleset are per-poison (`rules-json/poisons.json`: Chloroform
+"1 hour", Rohypnol "4–8 hours"), and those are stranded twice over — the catalog projection whitelists
+`potency, damage_expr, delivery, onset` and drops the `symptoms` and `note` the durations live in, and no
+engine applies a timed condition to anybody. A second witness to the same hole, recorded and left open:
+closing it needs a condition that can carry an expiry, which this section does not add.
+
+### NN.2 The clock row
+
+`incapacitationClocks` (`kernel-ts/read/incapacitation.ts`) puts one row at the **front** of
+`capsule.pressures[]` for each party member carrying `unconscious` without `dying` or `dead`. It is the
+only pressure in the capsule whose source is a condition rather than a decision, and it is first because
+`fitBudget(…, "last")` trims the section from the end: a Keeper who loses a threat clock still has a
+table, and a Keeper who loses this one has the thirty hours back.
+
+```
+{kind: "clock", name: "unconscious, standing", who,
+ state: "<minutes> min; HP <n>/<max>[; major wound ticked]",
+ due:   what the rules run next by themselves, with the minutes to it,
+ next:  the exact call that reaches it and what comes back,
+ cue:   the exits that need somebody present, as decision refs}
+```
+
+Every number in it is the rules' own, read from the same ledgers the facts are read from:
+
+- **`due`/`next`, no major wound.** Natural healing returns one hit point after a day's rest;
+  `apply time {minutes: 360}` is what `healingTimeTrigger` needs to count a day, and the hit point is
+  what rouses him.
+- **`due`/`next`, major wound ticked.** No hit point returns at all. The next thing the rules run by
+  themselves is the weekly recovery roll, and the minutes to it are computed exactly as
+  `actor.recovery.major_wound_week_due` computes them — a week from the most recent active wound, or
+  from the last attempt recorded against that same wound in `major_wound_recovery_ledger`. `next` is
+  `apply time {minutes: <that many>}`, then `resolve healing:weekly-major-wound-recovery`.
+- **`cue`.** `healing:medicine-ordinary` always, `healing:first-aid-ordinary` only while the hour the
+  book gives it is still open, with the minutes left of it. Decision refs, because a skill name is
+  something the Keeper still has to turn into a call.
+
+`next` exists because a clock line the Keeper has to assemble is a clock line the Keeper does not use:
+the `apply threat` rows only began to be taken once each one carried what it cost and what it produced
+on the same line (Agents.md, "the seam has three ends"). `dying` and `dead` are deliberately absent —
+dying already has `healing:dying-hour-clock` and `healing:dying-round-clock`, which do fire as
+situations and do reach `clockPressures`, and death is not a clock. The row reaches §34.3's
+`director.offer` through `pressureRows` like any other pressure, so `offerLedger` counts whether the
+Keeper took it; it is **not** fed back as an obligation, per §13.7 and Agents.md — the offer ledger
+counts and never nags.
+
+### NN.3 What is left to play while a body is down
+
+This is the product half of the defect, and the row is the answer to it. t9's player did everything
+right: told he could not act, he declared nothing, and the only move left to him was to type "I wait".
+Thirty hours of that is not a game, and the Keeper would not skip because nothing had told him a skip
+would do anything — the one exit that needs nobody else at the table is spelled `apply time`, a verb
+only the Keeper has.
+
+So the table is handed a time skip with a destination. `next` names the minutes and what comes back at
+the end of them, so advancing the clock stops being a favour asked of the Keeper by a player who cannot
+act, and becomes an operation with a stated product. The §42.4 refusal now says the same thing at the
+moment the Keeper trips over the state: *driving it is yours, not the player's, who cannot act.* Nothing
+here lets the Keeper declare the state over — an unqualified "resolve it" is exactly what §42.4 refuses
+to become.
+
+### NN.4 The three sentences, corrected
+
+`investigatorSummary.cannot_act` and `npcState.cannot_act` (`kernel-ts/read/capsule.ts`) and the `fix`
+of `refuseIncapacitated` (`kernel-ts/resolve/index.ts`) each named rest unconditionally. They now name it
+only when no major wound is ticked, and otherwise say that rest returns nothing and point at the row that
+carries the call. §42.5's own third bullet is corrected in place for the same reason: it is the sentence
+those three were copied from.
+
+### NN.5 Tests
+
+`tests/extension/unconscious-has-an-exit.test.mjs`, on the product kernel with a real campaign, driven
+into t9's exact state (one blow over half of maximum, above zero, on the seed whose major-wound CON roll
+fails — the condition list is asserted, so a changed roll stream fails loudly here rather than passing
+quietly).
+
+- The row is in `pressures[]`, carries `HP 2/12` and the major wound, names the weekly recovery roll
+  with its minutes, carries `apply time {minutes: N}` and the settlement at the end of it, and names
+  `healing:medicine-ordinary` as the sooner exit. Thirty in-game hours later — t9's 1810 minutes — the
+  state is unchanged and the row is still there with fewer minutes on it. *Dies when the row is dropped
+  from `pressures`.*
+- `cannot_act` no longer promises "the one a day of rest returns", and the refusal's `fix` no longer
+  names `apply time — until natural healing returns one`, does name `pressures[]`, and still invites
+  neither a retry nor a declaration that the state is over. *Dies when either sentence is restored.*
+- Following the row reaches the exit: driving `apply time` for the minutes the row names runs the weekly
+  recovery roll, mints a `condition` receipt, lifts the state because a hit point came back, and the
+  action the state forbade settles afterwards. *Dies when the row is dropped, because there is nothing
+  left to follow.*

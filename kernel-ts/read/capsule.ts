@@ -312,7 +312,9 @@ function npcState(graph: ModuleGraph, world: Row, node: Row): Row | null {
         incapacitated: blocked,
         cannot_act: blocked.includes("dead")
             ? `${who} is dead. Nothing he does happens; settle nothing for him.`
-            : `${who} is ${state} and takes no action of their own -- no answer, no help, no lie. Say the state in the fiction, and say what is being done about it. CoC 7e ends ${state === "unconscious" ? "it" : "unconsciousness"} when a hit point comes back: someone present succeeding at First Aid or Medicine on them -- resolve with the rescuer as actor and ${who} as target -- or rest, apply time, until natural healing returns one. First Aid stabilizes a dying one first.`,
+            // Same correction as `investigatorSummary`'s (contract §NN): rest is an exit only while
+            // no major wound is ticked, and an NPC carries that condition in the same list.
+            : `${who} is ${state} and takes no action of their own -- no answer, no help, no lie. Say the state in the fiction, and say what is being done about it. CoC 7e ends ${state === "unconscious" ? "it" : "unconsciousness"} when a hit point comes back: someone present succeeding at First Aid or Medicine on them -- resolve with the rescuer as actor and ${who} as target${conditions.includes("major_wound") ? ". Rest returns no hit point while the major wound is ticked; the weekly recovery roll is the next one the rules run themselves" : " -- or rest, apply time, until natural healing returns one"}. First Aid stabilizes a dying one first.`,
     };
 }
 export function npcEntry(graph: ModuleGraph, world: Row, node: Row, ledger: Row, memories: Map<string, Row>, across: (node: Row) => Row[] = () => [], seat: LinesSeat = "keep"): Row {
@@ -465,7 +467,12 @@ export function investigatorSummary(sheet: Row): Row {
         conditions,
         ...(purse.amount != null ? { cash: { amount: purse.amount, currency: purse.currency ?? null } } : {}),
         ...(finance.living_standard != null || spending.amount != null ? { living: { standard: finance.living_standard ?? null, spending_level: spending.amount ?? null, currency: spending.currency ?? purse.currency ?? null } } : {}),
-        ...(blocked.length ? { cannot_act: `${string(sheet.name || sheet.id)} is ${blocked.join(' and ')} and takes no action of their own. The kernel refuses one declared for them. Say the state in the fiction -- what the player's character feels, or does not -- and what is being done about it: First Aid or Medicine rouses them, and so does any hit point regained, including the one a day of rest returns.` } : {}),
+        // The last clause used to promise "the one a day of rest returns" to everybody, and for the
+        // one character who most needs an exit it is false: `weeklyRecovery` heals nothing while a
+        // major wound is ticked and `healingTimeTrigger` does not even call it, so `apply time`
+        // returns no hit point and rouses nobody until the weekly roll comes due. t9's Keeper read
+        // this sentence, applied six hours, got nothing, and stopped moving the clock (contract §NN).
+        ...(blocked.length ? { cannot_act: `${string(sheet.name || sheet.id)} is ${blocked.join(' and ')} and takes no action of their own. The kernel refuses one declared for them. Say the state in the fiction -- what the player's character feels, or does not -- and what is being done about it: First Aid or Medicine rouses them, and so does any hit point regained${conditions.includes('major_wound') ? ' -- but not rest, which returns none while the major wound is ticked; pressures[] names the minutes to the weekly recovery roll and the call that reaches it' : ', including the one a day of rest returns'}.` } : {}),
         skills_of_note: entries(row(sheet.skills)).map(([name, value]) => ({
             name,
             value: Math.trunc(number(value))
