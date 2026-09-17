@@ -77,7 +77,7 @@ plus 2-5 other categories and scenario_bound), key_connection {backstory_field,
 summary}, equipment (ordinary item names), weapons (names; one the rules tables print
 becomes a weapon profile, any other is kept as equipment and the result says so; a
 weapon the player named that plays by a printed profile is written {name, profile},
-e.g. {name: "武士刀", profile: "Sword, medium"}, so the card shows their blade with its
+e.g. {name: "katana", profile: "Sword, medium"}, so the card shows their blade with its
 numbers and never a printed sword beside a bare one).
 A skill the dossier names that the rulebook does not print -- drone piloting, a
 martial art by name -- goes in `custom_skills` as {name, base} with a modest base the
