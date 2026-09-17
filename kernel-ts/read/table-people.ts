@@ -40,8 +40,11 @@
  * person's name on a card in the play language, whether the graph got them from the book or from
  * here. The book needs that road as badly as the table does -- the-haunting authors an NPC whose
  * printed name is `the Hall of Records clerk`, an English description, and on H-SIDE t4 (a zh-Hans
- * table) that string reached the player 47 times. `world.person_labels` was `null` for all 121
- * turns: §79's writer exists and nothing ever sent the Keeper to it.
+ * table) it is what every surface naming him carried through 47 resolved spans. Not the prose: the
+ * say token strips the name out, so what the player read was 套袖那人. It is the card's own word for
+ * him -- §40's delivery card titles each span with the name through `term()` -- and the sheet
+ * panel's. `world.person_labels` was `null` for all 121 turns: §79's writer exists and nothing ever
+ * sent the Keeper to it.
  */
 import { jsonDigest } from '../json.js';
 import type { LoadedModule } from './campaign.js';
