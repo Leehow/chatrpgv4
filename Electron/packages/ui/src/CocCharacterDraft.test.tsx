@@ -236,3 +236,95 @@ it('carries no substitution note on a card whose period the rulebook does tabula
  await screen.findByRole('region',{name:'角色草稿'});
  expect(container.textContent).not.toMatch(/财务年代/);
 })
+
+/**
+ * §97: the card is a document with two kinds of number on it. A pinned cell is one somebody set
+ * on purpose -- the player on the sheet, or the model from what the player said -- and it is the
+ * one thing a later spread or reroll may not move. A revision that predates pins draws exactly
+ * as it did before, so an old card in a live transcript is not suddenly a card with no numbers
+ * anybody chose.
+ */
+const cardWords={...zh,'Pinned':'钉住','Points left':'剩余点数','Auto-spread':'自动铺平','Non-standard card':'非标准卡','Confirm and open the table':'确认，开桌','Reroll':'重掷','Reroll the dice? Pinned numbers stay.':'重掷骰子？钉住的数不动。','Yes, reroll':'是的，重掷','Cancel':'取消','Click "Confirm and open the table", or say below what to change.':'点「确认，开桌」，或在下面说要改什么。','Credit Rating is above the new occupation range.':'信用评级高于新职业的范围。'}
+const budget={occupation:{total:110,spent:80,unspent:30},interest:{total:31,spent:31,unspent:0},legal:true,notes:[] as string[]}
+const carded=(extra:Record<string,any>={})=>({revision:5,sheet,presentation:{texts:cardWords,play_language:'zh-Hans'},...extra})
+
+it('marks the numbers somebody set on purpose and leaves the spread ones as they were',()=>{
+ const pins={characteristics:{STR:{value:20,by:'player'}},skills:{'Language (Other: Latin)':{value:53,by:'model'}}}
+ const {container}=render(<CocCharacterDraft data={carded({pins})}/>)
+ expect(screen.getAllByLabelText('钉住')).toHaveLength(2)
+ expect(container.querySelector('.coc-draft-stat.coc-draft-pinned dt')?.textContent).toContain('力量')
+ expect(container.querySelector('tr.coc-draft-pinned th')?.textContent).toContain('其他语言（拉丁语）')
+})
+
+it('draws no pin at all on a revision that carries none',()=>{
+ const {container}=render(<CocCharacterDraft data={carded()}/>)
+ expect(screen.queryByLabelText('钉住')).toBeNull()
+ expect(container.querySelector('.coc-draft-pinned')).toBeNull()
+})
+
+it('reports both budgets, and offers the spread only while a pool still holds points',()=>{
+ const spread=vi.fn(async()=>({}))
+ const {container,rerender}=render(<CocCharacterDraft data={carded({budget})} onSpread={spread}/>)
+ const counts=Array.from(container.querySelectorAll('.coc-draft-budget-count')).map(node=>node.textContent)
+ expect(counts).toEqual(['80 / 110','31 / 31'])
+ expect(screen.getByText('剩余点数: 30')).toBeTruthy()
+ fireEvent.click(screen.getByRole('button',{name:'自动铺平'}))
+ expect(spread).toHaveBeenCalledOnce()
+ rerender(<CocCharacterDraft data={carded({revision:6,budget:{...budget,occupation:{total:110,spent:110,unspent:0}}})} onSpread={spread}/>)
+ expect(screen.queryByRole('button',{name:'自动铺平'})).toBeNull()
+ expect(screen.queryByText(/剩余点数/)).toBeNull()
+})
+
+it('says on the card when the limits were relaxed, and says nothing when they were not',()=>{
+ const notes=['Credit Rating is above the new occupation range.']
+ render(<CocCharacterDraft data={carded({budget:{...budget,legal:false,notes}})}/>)
+ expect(screen.getByText('非标准卡')).toBeTruthy()
+ expect(screen.getByText('信用评级高于新职业的范围。')).toBeTruthy()
+ cleanup()
+ render(<CocCharacterDraft data={carded({budget})}/>)
+ expect(screen.queryByText('非标准卡')).toBeNull()
+})
+
+it('confirms from the card itself, and says so when the host refuses',async()=>{
+ const confirm=vi.fn(async()=>({confirmed:true}))
+ render(<CocCharacterDraft data={carded()} onConfirm={confirm}/>)
+ expect(screen.getByText('点「确认，开桌」，或在下面说要改什么。')).toBeTruthy()
+ fireEvent.click(screen.getByRole('button',{name:'确认，开桌'}))
+ expect(confirm).toHaveBeenCalledOnce()
+ cleanup()
+ const refused=vi.fn(async()=>({ok:false,error:{code:'needs',message:'The draft has no occupation'}}))
+ render(<CocCharacterDraft data={carded()} onConfirm={refused}/>)
+ fireEvent.click(screen.getByRole('button',{name:'确认，开桌'}))
+ expect((await screen.findByRole('alert')).textContent).toContain('The draft has no occupation')
+})
+
+it('asks before it rerolls, and says what a reroll will not touch',async()=>{
+ const reroll=vi.fn(async()=>({}))
+ render(<CocCharacterDraft data={carded()} onReroll={reroll}/>)
+ fireEvent.click(screen.getByRole('button',{name:'重掷'}))
+ expect(reroll).not.toHaveBeenCalled()
+ expect(screen.getByText('重掷骰子？钉住的数不动。')).toBeTruthy()
+ fireEvent.click(screen.getByRole('button',{name:'取消'}))
+ expect(reroll).not.toHaveBeenCalled()
+ expect(screen.queryByText('重掷骰子？钉住的数不动。')).toBeNull()
+ fireEvent.click(screen.getByRole('button',{name:'重掷'}))
+ fireEvent.click(screen.getByRole('button',{name:'是的，重掷'}))
+ expect(reroll).toHaveBeenCalledOnce()
+ await waitFor(()=>expect(screen.getByRole('button',{name:'重掷'}).hasAttribute('disabled')).toBe(false))
+})
+
+it('holds every card action while one is in flight',async()=>{
+ let release=()=>{}
+ const confirm=vi.fn(()=>new Promise<Record<string,any>>(resolve=>{release=()=>resolve({})}))
+ render(<CocCharacterDraft data={carded({budget})} onConfirm={confirm} onSpread={async()=>({})} onReroll={async()=>({})}/>)
+ fireEvent.click(screen.getByRole('button',{name:'确认，开桌'}))
+ expect(screen.getByRole('button',{name:'自动铺平'}).hasAttribute('disabled')).toBe(true)
+ expect(screen.getByRole('button',{name:'重掷'}).hasAttribute('disabled')).toBe(true)
+ release()
+ await waitFor(()=>expect(screen.getByRole('button',{name:'自动铺平'}).hasAttribute('disabled')).toBe(false))
+})
+
+it('offers no card action a host has not wired',()=>{
+ render(<CocCharacterDraft data={carded({budget})}/>)
+ for(const name of ['确认，开桌','自动铺平','重掷'])expect(screen.queryByRole('button',{name})).toBeNull()
+})

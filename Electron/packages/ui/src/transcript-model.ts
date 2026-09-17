@@ -245,23 +245,28 @@ export function foldMarkedDeliveries(messages: readonly ChatMessage[]): ChatMess
 }
 
 /**
- * Keep only the current draft card; fold every superseded one (contract §23.4).
+ * The one draft row that is the card; every other one is a line (§97).
  *
- * A re-draft appends a fresh `coc-character-draft` row, and every draft row draws the campaign's
- * current draft rather than the revision its own snapshot recorded -- so a revision bump left two
- * identical cards in the transcript. The last row is the card; the earlier rows draw the same
- * sheet and are folded away, the way foldMarkedDeliveries folds a delivery its card already
- * draws. Host-side override bumps append no row, so position -- never revision number -- decides
- * which row is current.
+ * A campaign has one card, updated in place. A re-draft still appends a fresh
+ * `coc-character-draft` row, and a host-side action bumps the revision on a row already there
+ * without appending anything -- so the highest revision, not the last position, names the live
+ * card. Rows whose revision is not a number sort below every real one and can still win only by
+ * being the newest of their kind, which keeps a legacy payload visible instead of hiding the
+ * whole card. Ties go to the later row, because that is the one the host just wrote.
+ *
+ * The superseded rows are not dropped here: the transcript draws them as a single line, so the
+ * player can see the draft moved rather than watching earlier rows vanish.
  */
-export function foldSupersededDrafts(messages: readonly ChatMessage[]): ChatMessage[] {
-  let last = -1
-  messages.forEach((message, index) => {
-    if (message.presentation?.renderer === 'coc-character-draft') last = index
-  })
-  if (last < 0) return messages as ChatMessage[]
-  return messages.filter((message, index) =>
-    index === last || message.presentation?.renderer !== 'coc-character-draft')
+export function liveDraftMessageId(messages: readonly ChatMessage[]): string | undefined {
+  let live: ChatMessage | undefined
+  let highest = Number.NEGATIVE_INFINITY
+  for (const message of messages) {
+    if (message.presentation?.renderer !== 'coc-character-draft') continue
+    const raw = Number((message.presentation.details as { revision?: unknown } | undefined)?.revision)
+    const revision = Number.isFinite(raw) ? raw : Number.NEGATIVE_INFINITY
+    if (!live || revision >= highest) { live = message; highest = revision }
+  }
+  return live?.id
 }
 
 export function historyMessages(entries: HistoryEntry[]): ChatMessage[] {

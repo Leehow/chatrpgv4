@@ -1,9 +1,15 @@
-import {useEffect, useState, type ReactNode} from 'react'
+import {useEffect, useRef, useState, type ReactNode} from 'react'
 import {CocCharacterDraftEdit} from './CocCharacterDraftEdit'
 import './coc-character-draft.css'
 
 type Row = Record<string, any>
-type Props={data:Row;onRendered?:()=>Promise<void>;onPresentation?:()=>Promise<Row>;onOverride?:(request:Row)=>Promise<Row>}
+/**
+ * The card's own actions (§97). `onOverride` still carries the numeric edit dialog; the three
+ * added here are whole-card verbs the host answers without the model: confirm the draft and open
+ * the table, spread the points nobody spent, reroll the dice the pins do not hold.
+ */
+type Props={data:Row;onRendered?:()=>Promise<void>;onPresentation?:()=>Promise<Row>;onOverride?:(request:Row)=>Promise<Row>
+  onConfirm?:()=>Promise<Row>;onSpread?:()=>Promise<Row>;onReroll?:()=>Promise<Row>}
 
 /**
  * Dice notation, the one kind of value that is read rather than translated.
@@ -30,11 +36,38 @@ function failureText(value:unknown):string {
   const line=(text.split('\n').find(part=>part.trim())??text).trim()
   return line.length>240?line.slice(0,237)+'…':line
 }
-export function CocCharacterDraft({data,onRendered,onPresentation,onOverride}:Props) {
+/**
+ * A number somebody set on purpose, against a number the allocator spread (§97).
+ *
+ * `pins` is keyed the way the sheet is -- characteristics by abbreviation, skills by name, plus
+ * the single credit rating entry -- and an older revision carries none of it. Absence is drawn as
+ * "nothing is pinned here", never as an empty card.
+ */
+function pinnedCells(data:Row):{characteristic:(key:string)=>boolean;skill:(name:string)=>boolean} {
+  const pins=data.pins&&typeof data.pins==='object'&&!Array.isArray(data.pins)?data.pins as Row:undefined
+  const holds=(rows:unknown,key:string)=>!!rows&&typeof rows==='object'&&!!(rows as Row)[key]
+  return {
+    characteristic:(key:string)=>holds(pins?.characteristics,key),
+    skill:(name:string)=>name==='Credit Rating'?!!pins?.credit_rating:holds(pins?.skills,name),
+  }
+}
+/** One pool of the budget report, or nothing when the revision predates it. */
+function pool(budget:Row|undefined,key:string):{total?:number;spent?:number;unspent:number}|undefined {
+  const entry=budget?.[key]
+  if(!entry||typeof entry!=='object')return undefined
+  const figure=(value:unknown)=>typeof value==='number'&&Number.isFinite(value)?value:undefined
+  return {total:figure(entry.total),spent:figure(entry.spent),unspent:figure(entry.unspent)??0}
+}
+export function CocCharacterDraft({data,onRendered,onPresentation,onOverride,onConfirm,onSpread,onReroll}:Props) {
   const [presentation,setPresentation]=useState<Row|null>(data.presentation||null)
   const [showDetails,setShowDetails]=useState(false)
   const [editing,setEditing]=useState(false)
-  useEffect(()=>{setShowDetails(false);setEditing(false)},[data.revision])
+  const [busy,setBusy]=useState<string|null>(null)
+  const [actionError,setActionError]=useState<string|null>(null)
+  const [rerollAsked,setRerollAsked]=useState(false)
+  const alive=useRef(true)
+  useEffect(()=>()=>{alive.current=false},[])
+  useEffect(()=>{setShowDetails(false);setEditing(false);setRerollAsked(false);setActionError(null)},[data.revision])
   const [error,setError]=useState<string|null>(null),[retry,setRetry]=useState(0)
   useEffect(()=>{
     let active=true
@@ -57,7 +90,26 @@ export function CocCharacterDraft({data,onRendered,onPresentation,onOverride}:Pr
   // yet" -- and a blank is the one thing a player cannot report.
   const t=(value:string)=>presentation.texts[value]||value
   const cell=(value:unknown):string=>value===null||value===undefined?'—':typeof value==='number'?String(value):typeof value==='boolean'?t(value?'Yes':'No'):Array.isArray(value)?value.map(cell).join(' / '):isDiceNotation(value)?String(value):t(String(value))
-  const values=(rows:Row)=><div className="coc-draft-table-scroll"><table className="coc-draft-table"><thead><tr><th>{t('Parameter')}</th><th>{t('Value')}</th></tr></thead><tbody>{Object.entries(rows).map(([key,value])=><tr key={key}><th scope="row">{t(key)}</th><td>{cell(key==='DB'&&value==='none'?0:value)}</td></tr>)}</tbody></table></div>
+  const pinned=pinnedCells(data)
+  // The pin is a mark on the number, not a number of its own: it says who set this cell, so the
+  // player can tell a figure they chose from one the allocator spread and will move again.
+  const pinMark=(held:boolean)=>held?<span className="coc-draft-pin" role="img" aria-label={t('Pinned')}>📌</span>:null
+  const values=(rows:Row,held?:(key:string)=>boolean)=><div className="coc-draft-table-scroll"><table className="coc-draft-table"><thead><tr><th>{t('Parameter')}</th><th>{t('Value')}</th></tr></thead><tbody>{Object.entries(rows).map(([key,value])=><tr key={key} className={held?.(key)?'coc-draft-pinned':undefined}><th scope="row">{t(key)}{pinMark(!!held?.(key))}</th><td>{cell(key==='DB'&&value==='none'?0:value)}</td></tr>)}</tbody></table></div>
+  /**
+   * One card action in flight at a time, and its refusal drawn where the card already draws one.
+   *
+   * A `needs` refusal comes back as a resolved `{ok:false,error}` (the host's own shape), a
+   * transport failure as a rejection; both end as the one line beside the buttons, and neither
+   * leaves a button stuck disabled.
+   */
+  const run=(name:string,action:()=>Promise<Row>)=>{
+    setBusy(name)
+    setActionError(null)
+    void action()
+      .then(result=>{const refusal=result&&(result as Row).ok===false?(result as Row).error:undefined;if(alive.current&&refusal)setActionError(failureText(refusal.message||refusal.code||name))})
+      .catch(e=>{if(alive.current)setActionError(failureText(e))})
+      .finally(()=>{if(alive.current)setBusy(null)})
+  }
   const creation=sheet.creation||{},generated=creation.characteristics||{},age=creation.age||{}
   const generation=(key:string)=>{
     if(key==='LUCK') {
@@ -102,9 +154,33 @@ export function CocCharacterDraft({data,onRendered,onPresentation,onOverride}:Pr
     const personal=allocationsAvailable?(interest.allocations[name]||0):undefined
     return {name,base:allocationsAvailable?Number(final)-occupational-personal:undefined,occupational,personal,final}
   })
-  const skillTable=<div className="coc-draft-table-scroll"><table className="coc-draft-table coc-draft-skill-detail"><thead><tr>{['Skill','Base value','Occupation points','Interest points','Final value'].map(key=><th key={key}>{t(key)}</th>)}</tr></thead><tbody>{skillRows.map(row=><tr key={row.name}><th scope="row">{t(row.name)}</th><td>{amount(row.base)}</td><td>{amount(row.occupational)}</td><td>{amount(row.personal)}</td><td>{cell(row.final)}</td></tr>)}</tbody></table></div>
+  const skillTable=<div className="coc-draft-table-scroll"><table className="coc-draft-table coc-draft-skill-detail"><thead><tr>{['Skill','Base value','Occupation points','Interest points','Final value'].map(key=><th key={key}>{t(key)}</th>)}</tr></thead><tbody>{skillRows.map(row=><tr key={row.name} className={pinned.skill(row.name)?'coc-draft-pinned':undefined}><th scope="row">{t(row.name)}{pinMark(pinned.skill(row.name))}</th><td>{amount(row.base)}</td><td>{amount(row.occupational)}</td><td>{amount(row.personal)}</td><td>{cell(row.final)}</td></tr>)}</tbody></table></div>
   const budgets=[{key:'Occupation points',account:occupation,spent:typeof occupation?.spent==='number'&&typeof credit==='number'?occupation.spent+credit:undefined},{key:'Interest points',account:interest,spent:interest?.spent}]
-  const statGrid=(rows:Row,derived=false)=><dl className={`coc-draft-stats${derived?' coc-draft-derived':''}`}>{Object.entries(rows).map(([key,value])=><div className="coc-draft-stat" key={key}><dt>{t(key)}</dt><dd>{cell(key==='DB'&&value==='none'?0:value)}</dd></div>)}</dl>
+  const statGrid=(rows:Row,derived=false)=><dl className={`coc-draft-stats${derived?' coc-draft-derived':''}`}>{Object.entries(rows).map(([key,value])=>{
+    const held=!derived&&pinned.characteristic(key)
+    return <div className={`coc-draft-stat${held?' coc-draft-pinned':''}`} key={key}><dt>{t(key)}{pinMark(held)}</dt><dd>{cell(key==='DB'&&value==='none'?0:value)}</dd></div>
+  })}</dl>
+  /**
+   * The budget is a report, not a gate (§97): two bars saying what each pool holds and what it has
+   * spent, the points nobody spent, and -- when a limit was relaxed -- the one badge that says so.
+   * The notes are the kernel's own sentences about the spread, drawn under the bars.
+   */
+  const budget=data.budget&&typeof data.budget==='object'&&!Array.isArray(data.budget)?data.budget as Row:undefined
+  const pools=[{key:'Occupation points',figures:pool(budget,'occupation')},{key:'Interest points',figures:pool(budget,'interest')}].filter(entry=>entry.figures)
+  const unspent=pools.reduce((total,entry)=>total+(entry.figures!.unspent||0),0)
+  const notes=Array.isArray(budget?.notes)?budget!.notes.filter((note:unknown)=>typeof note==='string'&&note.trim()):[]
+  const budgetBars=pools.length>0&&<div className="coc-draft-budget">
+    {pools.map(({key,figures})=>{
+      const total=figures!.total,spent=figures!.spent
+      const filled=typeof total==='number'&&total>0&&typeof spent==='number'?Math.max(0,Math.min(100,Math.round(spent/total*100))):0
+      return <div className="coc-draft-budget-pool" key={key}>
+        <div className="coc-draft-budget-head"><span>{t(key)}</span><span className="coc-draft-budget-count">{amount(spent)} / {amount(total)}</span></div>
+        <div className="coc-draft-budget-track"><div className="coc-draft-budget-fill" style={{width:`${filled}%`}}/></div>
+        {figures!.unspent>0&&<p className="coc-draft-budget-left">{t('Points left')}: {figures!.unspent}</p>}
+      </div>
+    })}
+    {notes.length>0&&<ul className="coc-draft-budget-notes">{notes.map((note:string,i:number)=><li key={i}>{t(note)}</li>)}</ul>}
+  </div>
   // A money cell whose amount is not there is an empty cell, and this card already knows how to draw
   // one: `cell()` prints the same mark for the weapon parameters the rules tables leave blank. It did
   // not, and the rulebook's Penniless row -- which prints no assets, and so reaches the sheet as
@@ -112,12 +188,23 @@ export function CocCharacterDraft({data,onRendered,onPresentation,onOverride}:Pr
   // live tables. The value the kernel records is right; printing it was not.
   const money=(entry:Row)=>entry&&entry.amount!==null&&entry.amount!==undefined?`${entry.amount} ${t(entry.currency)}`:cell(null)
   return <section aria-label={t('Character draft')} data-draft-revision={data.revision} className="coc-draft" data-view={showDetails?'details':'compact'}>
-    <header className="coc-draft-header"><div className="coc-draft-identity"><h2>{sheet.name}</h2><p>{sheet.occupation_stated?<>{sheet.occupation_stated} ({t(sheet.occupation)})</>:t(sheet.occupation)} · {sheet.age}{sheet.sex?<> · {t(sheet.sex)}</>:null} · {t(sheet.era)}</p></div><div className="coc-draft-toolbar"><p className="coc-draft-guidance">{t('Character draft — reply to confirm or describe changes.')}</p><button className="coc-draft-toggle" type="button" aria-expanded={showDetails} onClick={()=>setShowDetails(value=>!value)}>{t(showDetails?'Hide calculation details':'Show calculation details')}</button>{data.limits&&onOverride&&<button className="coc-draft-toggle" type="button" onClick={()=>setEditing(true)}>{t('Edit numbers')}</button>}</div></header>
+    <header className="coc-draft-header"><div className="coc-draft-identity"><h2>{sheet.name}</h2><p>{sheet.occupation_stated?<>{sheet.occupation_stated} ({t(sheet.occupation)})</>:t(sheet.occupation)} · {sheet.age}{sheet.sex?<> · {t(sheet.sex)}</>:null} · {t(sheet.era)}</p>
+      {budget?.legal===false&&<p className="coc-draft-nonstandard">{t('Non-standard card')}</p>}</div>
+      <div className="coc-draft-toolbar"><p className="coc-draft-guidance">{t('Click "Confirm and open the table", or say below what to change.')}</p>
+        {onConfirm&&<button className="coc-draft-primary" type="button" disabled={busy!==null} onClick={()=>run('confirm',onConfirm)}>{t('Confirm and open the table')}</button>}
+        {onSpread&&unspent>0&&<button className="coc-draft-toggle" type="button" disabled={busy!==null} onClick={()=>run('spread',onSpread)}>{t('Auto-spread')}</button>}
+        {/* A reroll is the one action that can move a number the player never asked about, so it
+            asks first and says what it will not touch. */}
+        {onReroll&&(rerollAsked
+          ?<span className="coc-draft-ask"><span className="coc-draft-ask-question">{t('Reroll the dice? Pinned numbers stay.')}</span><button className="coc-draft-toggle" type="button" disabled={busy!==null} onClick={()=>{setRerollAsked(false);run('reroll',onReroll)}}>{t('Yes, reroll')}</button><button className="coc-draft-toggle" type="button" onClick={()=>setRerollAsked(false)}>{t('Cancel')}</button></span>
+          :<button className="coc-draft-toggle" type="button" disabled={busy!==null} onClick={()=>setRerollAsked(true)}>{t('Reroll')}</button>)}
+        <button className="coc-draft-toggle" type="button" aria-expanded={showDetails} onClick={()=>setShowDetails(value=>!value)}>{t(showDetails?'Hide calculation details':'Show calculation details')}</button>{data.limits&&onOverride&&<button className="coc-draft-toggle" type="button" disabled={busy!==null} onClick={()=>setEditing(true)}>{t('Edit numbers')}</button>}</div>
+      {actionError&&<p className="coc-draft-note coc-draft-error" role="alert">{actionError}</p>}</header>
     <h3>{t('Characteristics')}</h3>{showDetails?<><p className="coc-draft-method">{generated.method==='rolled'?t('Standard rolled characteristics'):generated.method==='rolled_pool_assignment'?t('Rolled characteristics assigned to the stated aptitudes'):generated.method==='quick_fire'?t('Quick-fire array'):'—'} · {age.bracket||'—'}</p>
     {calculationTable(sheet.characteristics,generation)}{calculationTable(sheet.derived,derivedCalculation)}</>:<>{statGrid(sheet.characteristics)}{statGrid(sheet.derived,true)}</>}
-    {showDetails&&<><h3>{t('Point allocation')}</h3>
-    <table className="coc-draft-table coc-draft-budgets"><thead><tr>{['Point allocation','Total points','Spent','Remaining'].map(key=><th key={key}>{t(key)}</th>)}</tr></thead><tbody>{budgets.map(({key,account,spent})=><tr key={key}><th scope="row">{t(key)}</th><td>{amount(account?.budget?.total)}</td><td>{amount(spent)}</td><td>{amount(account?.unspent)}</td></tr>)}</tbody></table></>}
-    <h3>{t('Skills')}</h3>{showDetails?skillTable:values(sheet.skills)}
+    {(pools.length>0||showDetails)&&<><h3>{t('Point allocation')}</h3>{budgetBars}
+    {showDetails&&<table className="coc-draft-table coc-draft-budgets"><thead><tr>{['Point allocation','Total points','Spent','Remaining'].map(key=><th key={key}>{t(key)}</th>)}</tr></thead><tbody>{budgets.map(({key,account,spent})=><tr key={key}><th scope="row">{t(key)}</th><td>{amount(account?.budget?.total)}</td><td>{amount(spent)}</td><td>{amount(account?.unspent)}</td></tr>)}</tbody></table>}</>}
+    <h3>{t('Skills')}</h3>{showDetails?skillTable:values(sheet.skills,pinned.skill)}
     <h3>{t('Finance')}</h3><dl className="coc-draft-finance">{[['cash',money(sheet.finance?.cash)],['assets',money(sheet.finance?.assets)],['spending',money(sheet.finance?.spending_level)],['credit_rating',sheet.credit_rating]].map(([key,value])=><div key={key}><dt>{t(key)}</dt><dd>{value}</dd></div>)}</dl>
     {/* A book set in a year the rulebook never tabulated builds these figures off the table's own
         nominated column (§23.4); the kernel records which setting that column stood in for. The
