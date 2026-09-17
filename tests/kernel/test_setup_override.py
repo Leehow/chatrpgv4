@@ -312,3 +312,105 @@ def test_unknown_limits_override_keys_are_invalid_params(kernel):
                                           "edits": characteristics_edit(draft["sheet"], "CON", 5),
                                           "limits_override": {"sanity_cap": 99}})
     assert error["code"] == "invalid_params"
+
+
+def swap(sheet, pool="occupation", points=10):
+    """Move `points` from a skill that has them to the cheapest skill in the same pool.
+
+    Both pools start fully spent, so a legal manual edit is always a swap: a bare raise is refused
+    by the budget and a bare drop below a recomputed base is refused by the floor. Picking the donor
+    and the target off the recorded ledger keeps the edit legal whatever the dice did.
+    """
+    allocations = sheet["creation"]["skills"][pool]["allocations"]
+    donor = next(name for name, spent in sorted(allocations.items()) if spent >= points)
+    target = min((name for name in allocations if name != donor), key=lambda name: sheet["skills"][name])
+    return {"skills": {donor: sheet["skills"][donor] - points, target: sheet["skills"][target] + points}}
+
+
+def test_a_manual_edit_survives_a_re_draft_that_changes_the_age(kernel):
+    """§92: the hand-set numbers travel with the card instead of being rebuilt away."""
+    draft = begin(kernel)
+    edits = swap(draft["sheet"])
+    overridden = kernel.ok("setup.override", {"campaign": CAMPAIGN, "revision": draft["revision"], "edits": edits})
+    redrafted = kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": {"age": 34}})
+    assert redrafted["revision"] == overridden["revision"] + 1
+    for name, value in edits["skills"].items():
+        assert redrafted["sheet"]["skills"][name] == value, f"{name} came back rebuilt, not carried"
+    assert redrafted["manual"] == {"carried": edits, "dropped": []}
+    assert redrafted["sheet"]["creation"]["manual"]["edits"] == edits, "the record chains, so the next draft carries too"
+    stored = read_json(campaign_dir(kernel.workspace) / "setup" / "drafts" / f"{redrafted['revision']}.json")
+    assert stored["manual"] == redrafted["manual"] and stored["sheet"]["skills"] == redrafted["sheet"]["skills"]
+
+
+def test_a_manual_edit_survives_a_re_draft_that_changes_the_concept(kernel):
+    draft = begin(kernel)
+    edits = swap(draft["sheet"], "interest")
+    kernel.ok("setup.override", {"campaign": CAMPAIGN, "revision": draft["revision"], "edits": edits})
+    redrafted = kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": {"concept": "A reporter who has stopped sleeping."}})
+    for name, value in edits["skills"].items():
+        assert redrafted["sheet"]["skills"][name] == value
+    assert redrafted["manual"]["dropped"] == []
+
+
+def test_an_edit_whose_skill_the_rebuilt_card_no_longer_lists_is_dropped_alone(kernel):
+    """A language specialty is on the card only because the player picked it; the rest still carries."""
+    picked = {**profile(), "interest_skills": ["Accounting", "Law", "Language (Other: Latin)"]}
+    kernel.ok("campaign.create", {"id": CAMPAIGN, "module": "the-haunting", "play_language": "en"})
+    draft = kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": picked})
+    sheet = draft["sheet"]
+    assert "Language (Other: Latin)" in sheet["skills"]
+    allocations = sheet["creation"]["skills"]["interest"]["allocations"]
+    donor = next(name for name, spent in sorted(allocations.items()) if name != "Language (Other: Latin)" and spent >= 10)
+    edits = {"skills": {donor: sheet["skills"][donor] - 10, "Language (Other: Latin)": sheet["skills"]["Language (Other: Latin)"] + 10}}
+    kernel.ok("setup.override", {"campaign": CAMPAIGN, "revision": draft["revision"], "edits": edits})
+    redrafted = kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": {"interest_skills": ["Accounting", "Law", "First Aid"]}})
+    assert "Language (Other: Latin)" not in redrafted["sheet"]["skills"]
+    assert redrafted["manual"]["carried"] == {"skills": {donor: edits["skills"][donor]}}
+    assert redrafted["sheet"]["skills"][donor] == edits["skills"][donor], "the surviving half of the hand is applied"
+    assert [row["field"] for row in redrafted["manual"]["dropped"]] == ["Language (Other: Latin)"]
+    assert "no longer lists" in redrafted["manual"]["dropped"][0]["reason"]
+
+
+def test_a_carry_that_no_longer_fits_carries_nothing_and_reports_the_refusal(kernel):
+    """A partly applied hand is a card nobody typed, so the set fails together and says why."""
+    draft = begin(kernel)
+    edits = swap(draft["sheet"])
+    kernel.ok("setup.override", {"campaign": CAMPAIGN, "revision": draft["revision"], "edits": edits})
+    redrafted = kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": {
+        "occupation": "Antiquarian",
+        "occupation_skills": ["Appraise", "Art and Craft (Photography)", "History", "Library Use",
+                              "Language (Other: Latin)", "Spot Hidden", "Persuade", "Charm"]}})
+    manual = redrafted["manual"]
+    assert manual["carried"] == {}, "nothing was applied"
+    assert manual["refused"]["details"]["pool"] in {"occupation", "interest"}
+    assert manual["refused"]["message"] == manual["dropped"][0]["reason"], "the player reads the refusal that refused it"
+    assert sorted(row["field"] for row in manual["dropped"]) == sorted(edits["skills"])
+    for name in edits["skills"]:
+        assert redrafted["sheet"]["skills"][name] != edits["skills"][name] or edits["skills"][name] == draft["sheet"]["skills"][name]
+
+
+def test_a_draft_that_never_had_a_manual_edit_carries_no_manual_block(kernel):
+    draft = begin(kernel)
+    assert "manual" not in draft
+    redrafted = kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": {"age": 41}})
+    assert "manual" not in redrafted, "a block that is always there is a block nobody reads"
+    assert "manual" not in redrafted["sheet"]["creation"]
+
+
+def test_an_approved_confirmation_commits_the_carried_numbers(kernel):
+    """§92 end to end on the path the player walks: edit the card, say one more thing, confirm.
+
+    `delegated` skips the preview requirement, so the existing commit test never travelled this
+    road — and this road is the report: the numbers were edited, the next turn re-drafted, and the
+    confirmation wrote the rebuilt card.
+    """
+    draft = begin(kernel)
+    edits = swap(draft["sheet"])
+    kernel.ok("setup.override", {"campaign": CAMPAIGN, "revision": draft["revision"], "edits": edits})
+    redrafted = kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": {"age": 34}, "input_key": "turn-2"})
+    kernel.ok("setup.previewed", {"campaign": CAMPAIGN, "revision": redrafted["revision"]})
+    committed = kernel.ok("setup.confirm", {"campaign": CAMPAIGN, "consent": "approved", "input_key": "turn-3"})
+    assert committed["committed"] and committed["revision"] == redrafted["revision"]
+    card = read_json(campaign_dir(kernel.workspace) / "party" / "investigator.json")
+    for name, value in edits["skills"].items():
+        assert card["skills"][name] == value, f"{name} reached the committed card"

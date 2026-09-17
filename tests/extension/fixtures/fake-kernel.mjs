@@ -522,6 +522,19 @@ function handle(method, params) {
 			};
         case "setup.draft":
             return {ok:true,result:{revision:1,sheet:{name:params.profile.name,occupation:params.profile.occupation,creation:{seed:"private-seed",method:"rolled",characteristics:{multiplier:5,rolls:{STR:{dice:"3d6",faces:[1,1,2],total:4}}},age:{edu_improvement_checks:[{roll:30,edu:50}]},skills:{occupation:{budget:{formula:"EDU*4",total:200},allocations:{Law:25}},interest:{budget:{formula:"INT*2",total:130},allocations:{Law:10}}}}},profile:params.profile,completeness:{valid:true,issues:[]}}};
+        case "setup.override": {
+            // §92: the numeric edit the model reaches through `adjust`. The fake charges nothing —
+            // the budget arithmetic is the kernel's and is tested there — but it does refuse an
+            // edit naming a skill the card does not list, because that refusal has to survive the
+            // extension's projection with its details intact.
+            const wanted = params.edits?.skills ?? {};
+            const listed = {Law: 45};
+            const unknown = Object.keys(wanted).find(name => !Object.hasOwn(listed, name));
+            if (unknown) return {ok:false,error:{code:"needs",message:"A manual edit cannot add a skill to the sheet",details:{field:unknown,skills:Object.keys(listed)}}};
+            return {ok:true,result:{revision:(params.revision ?? 1)+1,sheet:{name:"托马斯·海耶斯",occupation:"journalist",skills:{...listed,...wanted},
+                creation:{seed:"private-seed",method:"rolled",manual:{base_revision:params.revision,edits:params.edits,limits_override:params.limits_override ?? null}}},
+                profile:{},completeness:{valid:true,issues:[]},limits:{skill_cap:75,overridden:[]}}};
+        }
         case "setup.previewed":
             return {ok:true,result:{previewed:true}};
         case "setup.confirm":

@@ -77,6 +77,30 @@ it('marks the offending input when the kernel refuses with needs details',async(
   expect(within(dialog).getByRole('textbox',{name:'Accounting'}).getAttribute('aria-invalid')).toBe('true')
 })
 
+it('§92 reports a pool refusal as arithmetic and a way out, never as the field\'s own range',async()=>{
+  // Both pools start fully spent, so raising one value is the first thing every player meets. The
+  // refusal used to end in the offending field's legal range -- a range the entered value is
+  // already inside -- which reads as a number refused for being where it is allowed to be.
+  const override=vi.fn(async()=>({ok:false,error:{code:'needs',message:'The occupation point budget is exceeded',details:{pool:'occupation',total:184,spend:194,field:'Accounting',range:[25,75]}}}))
+  render(card(override))
+  const dialog=await openEditor()
+  fireEvent.change(within(dialog).getByRole('textbox',{name:'Accounting'}),{target:{value:'60'}})
+  const refusal=await within(dialog).findByText(/Not enough occupation points/)
+  expect(refusal.textContent).toContain('194 / 184')
+  expect(refusal.textContent).toMatch(/another skill in the same pool/)
+  expect(refusal.textContent).not.toMatch(/25 . 75/)
+})
+
+it('§92 a bound refusal still names the range, which is what it is about',async()=>{
+  const override=vi.fn(async()=>({ok:false,error:{code:'needs',message:'A skill stays between its recomputed base and the starting cap',details:{field:'Accounting',range:[25,75],attempted:90}}}))
+  render(card(override))
+  const dialog=await openEditor()
+  fireEvent.change(within(dialog).getByRole('textbox',{name:'Accounting'}),{target:{value:'90'}})
+  const refusal=await within(dialog).findByText(/Value outside the allowed range/)
+  expect(refusal.textContent).toContain('25 – 75')
+  expect(refusal.textContent).not.toMatch(/same pool/)
+})
+
 it('saves the accumulated edits with the unlocked bounds and shows the returned revision',async()=>{
   const savedSheet={...sheet,characteristics:{...characteristics,STR:55}}
   const saved={revision:4,sheet:savedSheet,limits:{...limits,occupation_points:300,overridden:['occupation_points']}}

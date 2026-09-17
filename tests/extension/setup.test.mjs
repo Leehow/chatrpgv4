@@ -330,3 +330,74 @@ test("creation brief: the host computes the move from the package's slots and th
 	assert.ok(prompts[3].includes("Creation brief") && prompts[3].includes("Move: ask trade"), "the second run's prompt carries the host-computed brief and its one move");
 	assert.ok(!prompts[2].includes("Creation brief"), "the first run's prompt, composed before the campaign existed, carries no brief");
 });
+
+/**
+ * §92: the model's own door to the card's numbers.
+ *
+ * Until this existed the setup table routed `create-investigator` to `setup.draft` and named
+ * `setup.override` nowhere, so the only answer to "change this number" was to draft again — the one
+ * call that rebuilds from the stored seed and puts the auto-allocated numbers back. A live table
+ * reported exactly that: the edit saved, the next turn reverted it, and asking in words did nothing.
+ */
+test('§92 adjust edits the current card in place, and puts the new revision on the table', async (t) => {
+	const first = firstStep();
+	const table = await openSetup([
+		setupCall({ step: first.id, kind: 'starter', module: 'the-haunting' }),
+		setupCall({ step: 'create-campaign', id: 'setup-adjust', title: '闹鬼的房子', play_language: 'zh-Hans' }),
+		setupCall({ step: 'adjust', edits: { skills: { Law: 60 } } }),
+		setupCall({ step: 'create-investigator', profile: { name: '托马斯·海耶斯', occupation: 'journalist', concept: '记者' } }),
+		setupCall({ step: 'adjust', edits: { skills: { Law: 60 } } }),
+		setupCall({ step: 'adjust', edits: { skills: { Archaeology: 60 } } }),
+		fauxAssistantMessage('改好了。'),
+	]);
+	t.after(() => table.dispose());
+
+	await table.session.prompt('我想玩闹鬼的房子，法律给我调到 60');
+	await waitForIdle(table.session);
+
+	const [, , tooEarly, drafted, adjusted, unlisted] = setupResults(table.session);
+	assert.equal(tooEarly.ok, false, 'there is no card to adjust before one is drafted');
+	assert.match(tooEarly.rejected, /draft one with create-investigator/);
+	assert.equal(drafted.ok, true);
+
+	assert.equal(adjusted.ok, true, 'a number on the drafted card is changed as a number');
+	const override = table.kernelRequests().filter((entry) => entry.method === 'setup.override');
+	assert.equal(override.length, 2, 'both adjust calls reached the kernel; adjust is not done-once');
+	assert.deepEqual(override[0].params.edits, { skills: { Law: 60 } });
+	assert.equal(override[0].params.revision, 1, 'the edit applies to the revision the draft step put on the table');
+	assert.equal(adjusted.sheet.skills.Law, 60);
+
+	// A revision the card never showed is a revision `setup.confirm` refuses, so the new one is
+	// appended and acknowledged exactly as a drafted revision is.
+	const cards = table.entries('coc-character-draft');
+	assert.deepEqual(cards.map((card) => card.revision), [1, 2], 'the adjusted revision reaches the transcript as a card');
+	const acknowledged = table.kernelRequests().filter((entry) => entry.method === 'setup.previewed');
+	assert.deepEqual(acknowledged.map((entry) => entry.params.revision), [1, 2], 'and is acknowledged, so confirmation can accept it');
+
+	// A bound refusal is the answer, not a transport failure: its details name the offending field.
+	assert.equal(unlisted.ok, false);
+	assert.equal(unlisted.code, 'needs');
+	assert.equal(unlisted.details.field, 'Archaeology', "the kernel's details survive the projection");
+});
+
+test('§92 a confirmed card is no longer a draft edit', async (t) => {
+	const first = firstStep();
+	const table = await openSetup([
+		setupCall({ step: first.id, kind: 'starter', module: 'the-haunting' }),
+		setupCall({ step: 'create-campaign', id: 'setup-adjust-late', title: '闹鬼的房子', play_language: 'zh-Hans' }),
+		setupCall({ step: 'create-investigator', profile: { name: '托马斯·海耶斯', occupation: 'journalist', concept: '记者' } }),
+		setupCall({ step: 'confirm-investigator', consent: 'approved' }),
+		setupCall({ step: 'adjust', edits: { skills: { Law: 60 } } }),
+		fauxAssistantMessage('已经定卡了。'),
+	]);
+	t.after(() => table.dispose());
+
+	await table.session.prompt('就这张卡吧');
+	await waitForIdle(table.session);
+
+	const tooLate = setupResults(table.session).at(-1);
+	assert.equal(tooLate.ok, false, 'the numbers of a committed card are not a draft edit');
+	assert.match(tooLate.rejected, /confirmed/);
+	assert.equal(table.kernelRequests().filter((entry) => entry.method === 'setup.override').length, 0,
+		'and the kernel is never asked, so the refusal cannot depend on its window');
+});

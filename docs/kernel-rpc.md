@@ -3543,6 +3543,12 @@ manual numbers — the player asked the fiction for a different person. Preview 
 confirmation are unchanged: the re-rendered card acknowledges the new revision,
 and `setup.confirm` commits exactly that sheet.
 
+Both halves of that last rule are amended by §92: a later `setup.draft` with a
+changed profile no longer supersedes the manual numbers silently. The edits are
+re-applied to the freshly rolled card and the result says what could not be
+carried, and `setup.override` is no longer host-only — the setup model reaches it
+through its own `adjust` step.
+
 **Frontend rendering.** A `coc-character-draft` transcript entry renders the bound
 campaign's current draft, read from the draft store at history time, not a
 snapshot of the revision that appended it: the entry marks where the card sits in
@@ -12037,3 +12043,75 @@ notice, no undelivered card and no strand; a second unreviewed delivery reaches 
 the player never; a review that answers clears the streak; and cold recovery strands on a retained
 verdict and not on a retained outage. The first and the fifth die when `prepare` re-raises
 `continuity_review_unavailable`; the third dies when `verdict()` stops setting `reviewed: true`.
+
+## 92. The player's own hand on the card travels with the card (2026-09-17, amends §23.4)
+
+A live table reported it in one sentence: *"点完了编辑好后，回答确认，直接又改回来了。而且
+修改也修改不了."* The card's edit control saved, the numbers changed, the next turn
+put the old ones back, and asking for the change in words did nothing either.
+
+Both halves were the same hole. A manual numeric edit lived in exactly one place —
+the sheet `setup.override` wrote — and the `creation.manual` record beside it had
+no reader anywhere in the tree. Every later `setup.draft` rebuilt from the stored
+seed, so the rolled characteristics came back identical and the hand-set numbers
+came back auto-allocated: byte for byte the card the player had just corrected.
+§23.4 blessed that as "the player asked the fiction for a different person", but
+the call that triggers it is an ordinary revision — one more sentence about who she
+is — and the result carried no field saying an edit had just been undone, so the
+model could not tell the player and could not put the numbers back.
+
+It could not put them back because it had no way to set them in the first place.
+`content/setup/steps.json` routes `create-investigator` to `setup.draft` and
+`confirm-investigator` to `setup.confirm` and names `setup.override` nowhere: the
+override was reachable only from the card's button. `prompts/setup.md` went
+further and told the model numeric overrides were unavailable. So the model's only
+answer to "change this number" was to draft again — the one call that reverts it.
+
+**The carry.** `setup.draft` reads `creation.manual.edits` off the previous draft
+and re-applies them to the freshly rolled card through the same rebuild the edit
+control uses, so a carry is legal by construction or it is refused by the same
+bound. An edit naming a skill the rebuilt card no longer lists — a language
+specialty the player stopped picking — is moot and is dropped on its own.
+Everything else carries as a set: a partly applied hand is a card nobody typed.
+The draft result and the draft file carry `manual {carried, dropped[{field,
+reason}], refused?}`, and §23.4's explanation duty now includes it — a non-empty
+`dropped` is one sentence to the player naming which numbers went back and why.
+A stored `limits_override` already persisted across drafts and still does, so a
+relaxed bound cannot be what refuses the hand it authorised.
+
+**The model's door.** `setup` gains `adjust`, beside `note` and like it not a
+table step: it neither advances the order nor is done once, because a number may
+be corrected at any point before confirmation and more than once. It takes
+`edits {characteristics?, skills?, credit_rating?}` and optional
+`limits_override`, calls `setup.override` on the current revision, appends the new
+card and acknowledges it — a revision the card never showed is a revision
+`setup.confirm` refuses. A bound or budget refusal comes back as the answer with
+its pool, total, spend and field intact. The prompt's denial is replaced by the
+rule that holds: a number the player wants changed is changed as a number, never
+through a re-draft.
+
+**The first refusal a player meets.** Auto-allocation spends both pools to
+`unspent: 0`, so the first edit anyone tries — raise one value — is always
+refused. The modal ended every refusal with the offending field's own legal range,
+which on a pool refusal is a range the entered value is already inside: raising
+Spot Hidden to 60 read as `Not enough occupation points. (Allowed range: 25 –
+75)`. A pool refusal now reports the arithmetic that refused it (`Spent: 194 /
+184`) and the two ways out — points from another skill in the same pool, or the
+raised budget under the unlock. A bound refusal keeps the range, which is what it
+is about.
+
+Ten cases: a carry survives a re-draft that changes age; it survives one that
+changes the concept; a dropped specialty is dropped alone and named while the rest
+carries; a set that no longer fits carries nothing and reports the pool refusal
+verbatim; `manual` is absent when no edit was ever made; a draft with an identical
+profile still reuses the overridden draft unchanged; the whole road the report
+walked — edit, one more sentence, `setup.confirm` with `consent: approved` —
+commits the carried numbers, which `delegated` never tested because it skips the
+preview requirement; `adjust` puts a new revision on the table and acknowledges
+it; `adjust` refuses before any draft exists and once the card is confirmed,
+without asking the kernel; and the modal's pool refusal reports `spend / total`
+and the way out, never a range, while a bound refusal still names its range. The
+first dies when `carryManual` stops reading `creation.manual`; the fourth dies
+when a refused carry applies partially; the seventh dies when the carry is dropped
+anywhere between the re-draft and the commit; the eighth dies when `adjust` skips
+`presentDraft`.

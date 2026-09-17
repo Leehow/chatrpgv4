@@ -53,7 +53,10 @@ export class SetupDrafts {
     const issues = completeness(draft.sheet);
     return {revision: draft.revision, sheet: draft.sheet, profile: draft.profile,
       labels: await playerGlossary(this.setup.context, await playLanguageOf(this.setup.context, draft)), completeness: {valid: !issues.length, issues},
-      limits: draft.limits ?? await this.limits(draft)};
+      limits: draft.limits ?? await this.limits(draft),
+      // §92: a carry that dropped something is the one part of this result the player has to hear
+      // about, so it rides out with the card rather than staying in the draft file.
+      ...(isJsonObject(draft.manual) ? {manual: clone(draft.manual)} : {})};
   }
   /** The rules the edit control renders, computed from Chargen and the draft's stored relaxations;
    *  formulas are evaluated on the given (or the draft's own) characteristics (contract §23.4). */
@@ -166,13 +169,55 @@ export class SetupDrafts {
       if (issues.length) throw new RpcError('needs', 'The card is incomplete', {details: {issues}});
       const revision = number(previous?.revision) + 1;
       const inherited = isJsonObject(previous?.limits_override) ? previous.limits_override : null;
-      const draft: Row = {revision, play_language: await playLanguageOf(this.setup.context, meta), seed, profile, sheet, input_key: params.input_key ?? null, receipt, digest: jsonDigest(sheet),
-        limits: await this.limits({limits_override: inherited}, sheet)};
+      const [carried, manual] = await this.carryManual(previous, sheet, isJsonObject(inherited) ? inherited : {}, revision);
+      const draft: Row = {revision, play_language: await playLanguageOf(this.setup.context, meta), seed, profile, sheet: carried, input_key: params.input_key ?? null, receipt, digest: jsonDigest(carried),
+        limits: await this.limits({limits_override: inherited}, carried)};
       if (inherited) draft.limits_override = inherited;
+      if (manual) draft.manual = manual;
       await campaign.write(join('setup', 'drafts', `${revision}.json`), draft);
       meta.setup = {...row(meta.setup), draft_revision: revision, previewed_revision: null}; await campaign.writeCampaign(meta);
       return this.result(draft);
     });
+  }
+  /** Contract §92: the player's own hand on the card travels with the card.
+   *
+   *  A manual numeric edit used to live in exactly one place — the sheet the override wrote — and
+   *  the `creation.manual` record beside it had no reader at all. Every later `setup.draft` rebuilt
+   *  from the same stored seed, so the rolled characteristics came back identical and the hand-set
+   *  numbers came back auto-allocated: byte for byte the card the player had just corrected. The
+   *  result carried no sign of it either, so the model that made the call could not tell the player
+   *  what it had undone, and the only way to reach the numbers again was the card's own button.
+   *  A live table found it exactly as it reads: the edit saved, the next turn put the old numbers
+   *  back, and asking for the change in words did nothing either.
+   *
+   *  So the record is read. The edits are re-applied to the freshly rolled card through the same
+   *  `rebuild` the edit control uses, which means the carry is legal by construction or it is
+   *  refused by the same bound. An edit whose skill the new card no longer lists is moot and is
+   *  dropped on its own; anything else fails as a set, because a partly applied hand is a card
+   *  nobody typed. Either way the returned `manual` block says what was carried and what was not,
+   *  and the model owes the player that sentence. */
+  async carryManual(previous: Row | null, sheet: Row, relax: Row, revision: number): Promise<[Row, Row | null]> {
+    const priorEdits = row(row(row(previous?.sheet).creation).manual).edits;
+    if (!isJsonObject(priorEdits) || !Object.keys(priorEdits).length) return [sheet, null];
+    const listed = row(sheet.skills), dropped: Row[] = [], wanted: Row = {};
+    for (const [key, value] of entries(priorEdits)) {
+      if (key !== 'skills') { wanted[key] = clone(value); continue; }
+      const kept: Row = {};
+      for (const [name, target] of entries(row(value))) {
+        if (Object.hasOwn(listed, name)) kept[name] = target;
+        else dropped.push({field: name, reason: 'the rebuilt card no longer lists this skill'});
+      }
+      if (Object.keys(kept).length) wanted.skills = kept;
+    }
+    if (!Object.keys(wanted).length) return [sheet, {carried: {}, dropped}];
+    try { return [await this.rebuild(sheet, wanted, relax, revision), {carried: clone(wanted), dropped}]; }
+    catch (error) {
+      if (!(error instanceof RpcError) || error.code !== 'needs') throw error;
+      const refused = [...entries(row(wanted.characteristics)), ...entries(row(wanted.skills))].map(([field]) => field);
+      if (Object.hasOwn(wanted, 'credit_rating')) refused.push('credit_rating');
+      return [sheet, {carried: {}, dropped: [...dropped, ...refused.map(field => ({field, reason: error.message}))],
+        refused: {message: error.message, details: error.details ?? null}}];
+    }
   }
   async previewed(params: Row): Promise<Row> {
     return this.locked(params, async campaign => {
@@ -225,99 +270,7 @@ export class SetupDrafts {
       if (carried != null && (!isJsonObject(carried) || Object.keys(carried).some(key => !LIMITS_FIELDS.includes(key)) || Object.values(carried).some(value => !integer(value))))
         throw new RpcError('invalid_params', 'limits_override relaxes only the declared numeric bounds', {details: {fields: [...LIMITS_FIELDS].sort()}});
       const relax: Row = isJsonObject(carried) ? carried : {};
-      const bound = (key: string, fallback: number): number => Object.hasOwn(relax, key) ? Math.trunc(number(relax[key])) : fallback;
-      const baseSheet = row(base.sheet), stored = row(baseSheet.characteristics), characteristics: Row = {...stored};
-      const diff = this.setup.chargen.difficultyPolicy(row(baseSheet.creation).difficulty ?? null);
-      const cap = bound('skill_cap', diff ? diff.effectiveCap(this.setup.chargen.cap) : this.setup.chargen.cap);
-      const legalCharacteristics = [...this.setup.chargen.characteristics, 'LUCK'];
-      const characteristicEdits = edits.characteristics ?? {};
-      if (!isJsonObject(characteristicEdits) || Object.keys(characteristicEdits).some(key => !legalCharacteristics.includes(key)))
-        throw new RpcError('invalid_params', 'edits.characteristics covers only the nine abbreviations', {details: {fields: [...legalCharacteristics].sort()}});
-      for (const [abbr, value] of entries(characteristicEdits)) {
-        if (!integer(value)) throw new RpcError('invalid_params', `edits.characteristics.${abbr} must be an integer`);
-        const [poolMin, poolMax] = this.setup.chargen.characteristicBounds(diff, abbr);
-        const lo = bound('characteristic_min', poolMin), hi = bound('characteristic_max', poolMax);
-        if (number(value) < lo || number(value) > hi)
-          throw new RpcError('needs', 'A characteristic stays within its creation bounds', {details: {field: abbr, range: [lo, hi], attempted: number(value)}});
-        characteristics[abbr] = Math.trunc(number(value));
-      }
-      const listed = row(baseSheet.skills), names = Object.keys(listed);
-      const bases: Row = {}, rebuilt: Row = {};
-      for (const name of names) {
-        if (name === 'Credit Rating') { rebuilt[name] = number(listed[name]); continue; }
-        bases[name] = this.setup.chargen.skillBase(name, characteristics);
-        rebuilt[name] = bases[name] + number(listed[name]) - this.setup.chargen.skillBase(name, stored);
-      }
-      const skillEdits = edits.skills ?? {};
-      if (!isJsonObject(skillEdits)) throw new RpcError('invalid_params', 'edits.skills must be an object over skills already on the sheet');
-      for (const [name, value] of entries(skillEdits)) {
-        if (name === 'Cthulhu Mythos') throw new RpcError('needs', 'Cthulhu Mythos is never a creation skill', {details: {field: name}});
-        if (name === 'Credit Rating') throw new RpcError('invalid_params', 'Credit Rating is not a skill edit; use edits.credit_rating', {details: {field: 'credit_rating'}});
-        if (!Object.hasOwn(listed, name)) throw new RpcError('needs', 'A manual edit cannot add a skill to the sheet', {details: {field: name, skills: names}});
-        if (!integer(value)) throw new RpcError('invalid_params', `edits.skills must hold integers (${repr(name)})`);
-        if (number(value) < bases[name] || number(value) > cap)
-          throw new RpcError('needs', 'A skill stays between its recomputed base and the starting cap', {details: {field: name, range: [bases[name], Math.max(cap, bases[name])], attempted: number(value)}});
-        rebuilt[name] = Math.trunc(number(value));
-      }
-      const [, spec] = this.setup.chargen.occupation(baseSheet.occupation);
-      const creditRange = (truth(spec.credit_rating_range) ? array(spec.credit_rating_range) : [0, 0]).map(number);
-      let credit = number(rebuilt['Credit Rating']);
-      if (Object.hasOwn(edits, 'credit_rating')) {
-        const value = edits.credit_rating;
-        if (!integer(value)) throw new RpcError('invalid_params', 'edits.credit_rating must be an integer');
-        if (number(value) < creditRange[0] || number(value) > creditRange[1])
-          throw new RpcError('needs', 'Credit Rating stays within the occupation range', {details: {field: 'credit_rating', range: creditRange, attempted: number(value)}});
-        credit = Math.trunc(number(value)); rebuilt['Credit Rating'] = credit;
-      }
-      let occupational = array(row(row(row(baseSheet.creation).skills).occupation).resolved).map(string).filter(name => name !== 'Credit Rating' && Object.hasOwn(rebuilt, name));
-      if (!occupational.length) {
-        for (const phrase of array(spec.occupational_skills)) {
-          const found = this.setup.chargen.catalogName(string(phrase));
-          if (found && Object.hasOwn(rebuilt, found) && !occupational.includes(found)) occupational.push(found);
-        }
-      }
-      const occupation = evaluateFormula(parseFormula(spec.skill_point_formula || ''), characteristics);
-      const interest = evaluateFormula(parseFormula(string(this.setup.chargen.policy.formulas.personal_interest_points)), characteristics);
-      const above = (name: string): number => number(rebuilt[name]) - number(bases[name]);
-      const occupationalSpend = occupational.reduce((total, name) => total + above(name), 0) + credit;
-      const others = names.filter(name => name !== 'Credit Rating' && !occupational.includes(name));
-      const interestSpend = others.reduce((total, name) => total + above(name), 0);
-      const refusePool = (pool: string, total: number, spend: number, fields: string[], creditInPool: boolean): never => {
-        const editedSkill = Object.keys(skillEdits).find(name => fields.includes(name));
-        let field: string, range: number[];
-        if (editedSkill) { field = editedSkill; range = [bases[editedSkill], cap]; }
-        else if (creditInPool && Object.hasOwn(edits, 'credit_rating')) { field = 'credit_rating'; range = creditRange; }
-        else if (fields.length) { field = fields.reduce((carry, name) => above(name) >= above(carry) ? name : carry, fields[0]); range = [bases[field], Math.max(cap, bases[field])]; }
-        else { field = creditInPool ? 'credit_rating' : `${pool}_points`; range = creditInPool ? creditRange : [0, total]; }
-        throw new RpcError('needs', `The ${pool} point budget is exceeded`, {details: {pool, total, spend, field, range}});
-      };
-      const occupationTotal = diff ? diff.adjustBudget('occupation', occupation.total) : occupation.total;
-      const interestTotal = diff ? diff.adjustBudget('interest', interest.total) : interest.total;
-      if (occupationalSpend > bound('occupation_points', occupationTotal)) refusePool('occupation', bound('occupation_points', occupationTotal), occupationalSpend, occupational, true);
-      if (interestSpend > bound('interest_points', interestTotal)) refusePool('interest', bound('interest_points', interestTotal), interestSpend, others, false);
-      // The ledger is rewritten to the manual allocation it now holds (contract §23.4): the saved
-      // card's budget table shows these numbers, never the rolled ledger this override replaced.
-      const effectiveOccupation = bound('occupation_points', occupationTotal), effectiveInterest = bound('interest_points', interestTotal);
-      const occupationalPoints = Math.max(0, effectiveOccupation - credit), occupationalPointsSpent = occupationalSpend - credit;
-      const ledger = row(row(baseSheet.creation).skills), occupationLedger = row(ledger.occupation), interestLedger = row(ledger.interest);
-      const skillsLedger = {...ledger,
-        occupation: {...occupationLedger, budget: {...occupation, total: effectiveOccupation}, points: occupationalPoints, spent: occupationalPointsSpent, unspent: occupationalPoints - occupationalPointsSpent,
-          credit_rating: {...row(occupationLedger.credit_rating), value: credit},
-          allocations: Object.fromEntries(occupational.filter(name => above(name) > 0).map(name => [name, above(name)]))},
-        interest: {...interestLedger, budget: {...interest, total: effectiveInterest}, spent: interestSpend, unspent: effectiveInterest - interestSpend,
-          allocations: Object.fromEntries(others.filter(name => above(name) > 0).map(name => [name, above(name)]))}};
-      // A credit_rating edit recomputes wealth through the era's cash-assets table, so the card's
-      // finance line agrees with its rating (contract §23.4); the table failing reads as no finance.
-      let finance = truth(baseSheet.finance) ? baseSheet.finance : null, cash = truth(baseSheet.cash) ? baseSheet.cash : null;
-      if (Object.hasOwn(edits, 'credit_rating')) {
-        try { finance = await this.setup.tables.cashAndAssets(credit, string(baseSheet.era)); cash = finance ? `${string(row(finance.cash).amount)} ${string(row(finance.cash).currency)}` : null; }
-        catch (error) { if (!(error instanceof Error) || error.name !== 'ValueError') throw error; finance = null; cash = null; }
-      }
-      const derived = await this.setup.chargen.derive(characteristics, number(row(row(baseSheet.creation).age).mov_penalty));
-      const sheet: Row = {...baseSheet, characteristics, derived: derived.values,
-        skills: Object.fromEntries(entries(rebuilt).sort(([a], [b]) => compareUnicode(a, b))), credit_rating: credit, cash, finance,
-        current_hp: derived.values.HP, current_mp: derived.values.MP, current_san: derived.values.SAN, current_luck: characteristics.LUCK,
-        creation: {...row(baseSheet.creation), skills: skillsLedger, manual: {base_revision: base.revision, edits: clone(edits), limits_override: Object.keys(relax).length ? clone(relax) : null}}};
+      const sheet = await this.rebuild(row(base.sheet), edits, relax, number(base.revision));
       const limits = await this.limits({limits_override: relax}, sheet);
       const revision = number(base.revision) + 1;
       if (truth(params.dry_run)) return this.result({revision, play_language: base.play_language, profile: base.profile, sheet, limits});
@@ -328,6 +281,109 @@ export class SetupDrafts {
       meta.setup = {...row(meta.setup), draft_revision: revision, previewed_revision: null}; await campaign.writeCampaign(meta);
       return this.result(draft);
     });
+  }
+  /** The rebuild itself, shared by the edit control and by the re-draft that carries its edits
+   *  forward (contract §23.4, §92): edited characteristics, bases recomputed through
+   *  Chargen.skillBase with every skill's recorded investment held, budgets charged against formulas
+   *  evaluated on the new characteristics, derived values recomputed with the stored age MOV penalty.
+   *  Every bound and budget violation leaves here as the closed-set `needs` the card marks inputs
+   *  from, whichever caller asked — a carry that cannot fit is refused with the same sentence the
+   *  player would have read had they typed it. */
+  async rebuild(baseSheet: Row, edits: Row, relax: Row, baseRevision: number): Promise<Row> {
+    const bound = (key: string, fallback: number): number => Object.hasOwn(relax, key) ? Math.trunc(number(relax[key])) : fallback;
+    const stored = row(baseSheet.characteristics), characteristics: Row = {...stored};
+    const diff = this.setup.chargen.difficultyPolicy(row(baseSheet.creation).difficulty ?? null);
+    const cap = bound('skill_cap', diff ? diff.effectiveCap(this.setup.chargen.cap) : this.setup.chargen.cap);
+    const legalCharacteristics = [...this.setup.chargen.characteristics, 'LUCK'];
+    const characteristicEdits = edits.characteristics ?? {};
+    if (!isJsonObject(characteristicEdits) || Object.keys(characteristicEdits).some(key => !legalCharacteristics.includes(key)))
+      throw new RpcError('invalid_params', 'edits.characteristics covers only the nine abbreviations', {details: {fields: [...legalCharacteristics].sort()}});
+    for (const [abbr, value] of entries(characteristicEdits)) {
+      if (!integer(value)) throw new RpcError('invalid_params', `edits.characteristics.${abbr} must be an integer`);
+      const [poolMin, poolMax] = this.setup.chargen.characteristicBounds(diff, abbr);
+      const lo = bound('characteristic_min', poolMin), hi = bound('characteristic_max', poolMax);
+      if (number(value) < lo || number(value) > hi)
+        throw new RpcError('needs', 'A characteristic stays within its creation bounds', {details: {field: abbr, range: [lo, hi], attempted: number(value)}});
+      characteristics[abbr] = Math.trunc(number(value));
+    }
+    const listed = row(baseSheet.skills), names = Object.keys(listed);
+    const bases: Row = {}, rebuilt: Row = {};
+    for (const name of names) {
+      if (name === 'Credit Rating') { rebuilt[name] = number(listed[name]); continue; }
+      bases[name] = this.setup.chargen.skillBase(name, characteristics);
+      rebuilt[name] = bases[name] + number(listed[name]) - this.setup.chargen.skillBase(name, stored);
+    }
+    const skillEdits = edits.skills ?? {};
+    if (!isJsonObject(skillEdits)) throw new RpcError('invalid_params', 'edits.skills must be an object over skills already on the sheet');
+    for (const [name, value] of entries(skillEdits)) {
+      if (name === 'Cthulhu Mythos') throw new RpcError('needs', 'Cthulhu Mythos is never a creation skill', {details: {field: name}});
+      if (name === 'Credit Rating') throw new RpcError('invalid_params', 'Credit Rating is not a skill edit; use edits.credit_rating', {details: {field: 'credit_rating'}});
+      if (!Object.hasOwn(listed, name)) throw new RpcError('needs', 'A manual edit cannot add a skill to the sheet', {details: {field: name, skills: names}});
+      if (!integer(value)) throw new RpcError('invalid_params', `edits.skills must hold integers (${repr(name)})`);
+      if (number(value) < bases[name] || number(value) > cap)
+        throw new RpcError('needs', 'A skill stays between its recomputed base and the starting cap', {details: {field: name, range: [bases[name], Math.max(cap, bases[name])], attempted: number(value)}});
+      rebuilt[name] = Math.trunc(number(value));
+    }
+    const [, spec] = this.setup.chargen.occupation(baseSheet.occupation);
+    const creditRange = (truth(spec.credit_rating_range) ? array(spec.credit_rating_range) : [0, 0]).map(number);
+    let credit = number(rebuilt['Credit Rating']);
+    if (Object.hasOwn(edits, 'credit_rating')) {
+      const value = edits.credit_rating;
+      if (!integer(value)) throw new RpcError('invalid_params', 'edits.credit_rating must be an integer');
+      if (number(value) < creditRange[0] || number(value) > creditRange[1])
+        throw new RpcError('needs', 'Credit Rating stays within the occupation range', {details: {field: 'credit_rating', range: creditRange, attempted: number(value)}});
+      credit = Math.trunc(number(value)); rebuilt['Credit Rating'] = credit;
+    }
+    let occupational = array(row(row(row(baseSheet.creation).skills).occupation).resolved).map(string).filter(name => name !== 'Credit Rating' && Object.hasOwn(rebuilt, name));
+    if (!occupational.length) {
+      for (const phrase of array(spec.occupational_skills)) {
+        const found = this.setup.chargen.catalogName(string(phrase));
+        if (found && Object.hasOwn(rebuilt, found) && !occupational.includes(found)) occupational.push(found);
+      }
+    }
+    const occupation = evaluateFormula(parseFormula(spec.skill_point_formula || ''), characteristics);
+    const interest = evaluateFormula(parseFormula(string(this.setup.chargen.policy.formulas.personal_interest_points)), characteristics);
+    const above = (name: string): number => number(rebuilt[name]) - number(bases[name]);
+    const occupationalSpend = occupational.reduce((total, name) => total + above(name), 0) + credit;
+    const others = names.filter(name => name !== 'Credit Rating' && !occupational.includes(name));
+    const interestSpend = others.reduce((total, name) => total + above(name), 0);
+    const refusePool = (pool: string, total: number, spend: number, fields: string[], creditInPool: boolean): never => {
+      const editedSkill = Object.keys(skillEdits).find(name => fields.includes(name));
+      let field: string, range: number[];
+      if (editedSkill) { field = editedSkill; range = [bases[editedSkill], cap]; }
+      else if (creditInPool && Object.hasOwn(edits, 'credit_rating')) { field = 'credit_rating'; range = creditRange; }
+      else if (fields.length) { field = fields.reduce((carry, name) => above(name) >= above(carry) ? name : carry, fields[0]); range = [bases[field], Math.max(cap, bases[field])]; }
+      else { field = creditInPool ? 'credit_rating' : `${pool}_points`; range = creditInPool ? creditRange : [0, total]; }
+      throw new RpcError('needs', `The ${pool} point budget is exceeded`, {details: {pool, total, spend, field, range}});
+    };
+    const occupationTotal = diff ? diff.adjustBudget('occupation', occupation.total) : occupation.total;
+    const interestTotal = diff ? diff.adjustBudget('interest', interest.total) : interest.total;
+    if (occupationalSpend > bound('occupation_points', occupationTotal)) refusePool('occupation', bound('occupation_points', occupationTotal), occupationalSpend, occupational, true);
+    if (interestSpend > bound('interest_points', interestTotal)) refusePool('interest', bound('interest_points', interestTotal), interestSpend, others, false);
+    // The ledger is rewritten to the manual allocation it now holds (contract §23.4): the saved
+    // card's budget table shows these numbers, never the rolled ledger this override replaced.
+    const effectiveOccupation = bound('occupation_points', occupationTotal), effectiveInterest = bound('interest_points', interestTotal);
+    const occupationalPoints = Math.max(0, effectiveOccupation - credit), occupationalPointsSpent = occupationalSpend - credit;
+    const ledger = row(row(baseSheet.creation).skills), occupationLedger = row(ledger.occupation), interestLedger = row(ledger.interest);
+    const skillsLedger = {...ledger,
+      occupation: {...occupationLedger, budget: {...occupation, total: effectiveOccupation}, points: occupationalPoints, spent: occupationalPointsSpent, unspent: occupationalPoints - occupationalPointsSpent,
+        credit_rating: {...row(occupationLedger.credit_rating), value: credit},
+        allocations: Object.fromEntries(occupational.filter(name => above(name) > 0).map(name => [name, above(name)]))},
+      interest: {...interestLedger, budget: {...interest, total: effectiveInterest}, spent: interestSpend, unspent: effectiveInterest - interestSpend,
+        allocations: Object.fromEntries(others.filter(name => above(name) > 0).map(name => [name, above(name)]))}};
+    // A credit_rating edit recomputes wealth through the era's cash-assets table, so the card's
+    // finance line agrees with its rating (contract §23.4); the table failing reads as no finance.
+    let finance = truth(baseSheet.finance) ? baseSheet.finance : null, cash = truth(baseSheet.cash) ? baseSheet.cash : null;
+    if (Object.hasOwn(edits, 'credit_rating')) {
+      try { finance = await this.setup.tables.cashAndAssets(credit, string(baseSheet.era)); cash = finance ? `${string(row(finance.cash).amount)} ${string(row(finance.cash).currency)}` : null; }
+      catch (error) { if (!(error instanceof Error) || error.name !== 'ValueError') throw error; finance = null; cash = null; }
+    }
+    const derived = await this.setup.chargen.derive(characteristics, number(row(row(baseSheet.creation).age).mov_penalty));
+    const sheet: Row = {...baseSheet, characteristics, derived: derived.values,
+      skills: Object.fromEntries(entries(rebuilt).sort(([a], [b]) => compareUnicode(a, b))), credit_rating: credit, cash, finance,
+      current_hp: derived.values.HP, current_mp: derived.values.MP, current_san: derived.values.SAN, current_luck: characteristics.LUCK,
+      creation: {...row(baseSheet.creation), skills: skillsLedger, manual: {base_revision: baseRevision, edits: clone(edits), limits_override: Object.keys(relax).length ? clone(relax) : null}}};
+    return sheet;
   }
   /** The campaign's mod lock as setup sees it: world.mods once the world exists, else the pending lock (§26). */
   async modLock(campaign: CampaignWriter, meta: Row): Promise<Row> {
