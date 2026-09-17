@@ -11122,3 +11122,59 @@ Tests (`App.product-identity.test.tsx`): a first `getProduct` that throws is
 retried and the PipiCOC brand mark reaches the shell; a host that answers `base`
 is asked once and the base wordmark stands. The first dies when the bare catch
 is restored.
+
+## 85. The placeholder is not a model's name (2026-09-17, completes §62, §63 and §68)
+
+Remote browser, sampling the composer every 250 ms across one session:
+
+```
+models:   "加载模型…" ×39    "✦Unknown" ×50    "DeepSeek V4.1 Flash" ×4458
+thinking: "…"        ×39                       "low"                ×4458
+```
+
+Twelve and a half seconds naming a model nobody chose, with a ✦ drawn for the
+placeholder's `provider: "unknown"`. The thinking level beside it — the same
+field of the same `getModelState` answer — correctly said 「…」 for that whole
+window.
+
+§63 recorded this as the remaining instance and left it. This closes it.
+
+### 85.1 The placeholder is the host saying it does not know
+
+```ts
+private modelState: ModelState = {
+  model: { provider: "unknown", id: "unknown", name: "Unknown", reasoning: false },
+  thinkingLevel: "off",
+  availableThinkingLevels: [],
+};
+```
+
+That object is what the backend carries for a session it has not established.
+`Unknown` is not a name and `unknown` is not a provider; both are a sentinel.
+§68 stopped the live branch from handing it out, and it can still reach the
+shell from a cached or provisional read — so the shell, which is where it is
+drawn, is where it has to be recognised.
+
+**`isUnreadModel(model)` is true for exactly that pair**, and the chip draws
+`加载模型…` with no provider mark, the same thing it already draws when the state
+is null.
+
+### 85.2 What this deliberately does not do
+
+**A pending read does not blank a name the shell already knows.** The first
+version of this fix also hid the name while `thinkingPending` was set, and
+§62's own test caught it: when a read keeps failing, the catalogued model the
+shell already had must stay on the chip, not be replaced by a loading ellipsis.
+That is the same law from the other side — a dropped read is not an answer, so
+it must not erase one either. The thinking level has no such prior knowledge,
+which is why `pending` blanks that chip and not this one.
+
+**The provisional's `thinkingLevel: 'off'`** (`modelStateFromSession`) is still
+written as a literal, and is still covered only by that `pending` flag. It is
+the original 「off」 complaint's last hiding place. Left as it is here because the
+flag does cover it, and recorded so the next reader knows the value underneath
+is invented.
+
+Test (`App.model-not-yet-known.test.tsx`): a host that answers with the
+placeholder leaves 加载模型… on the chip and no provider mark. It dies when
+`isUnreadModel` is made to return false.
