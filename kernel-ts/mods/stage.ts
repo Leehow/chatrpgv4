@@ -13,6 +13,7 @@ import { validateDefinition } from './definition.js';
 import { initializeDocument, ownershipChanged, writeDocument } from './documents.js';
 import { defineObject, moveObject, objectInstance, objectRegistry } from './objects.js';
 import { objectTransferReceipt, ownerLabel } from './object-transfer.js';
+import { clearOffer, openOffer, recordOffer, receiptsOf, validateDisposition, validateHandover } from './object-offer.js';
 import { clearRegistration, queueAdoption, queueRegistration, queuedDefinition } from './queue.js';
 import type { ModJobs } from './jobs.js';
 import {registerUsage, validateUsage, validateUsageRequest} from './usages.js';
@@ -141,6 +142,29 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
         if (typeof name !== 'string' || !name.trim()) throw new RpcError('invalid_params', 'Object needs a name');
         const owner = await objectOwner(campaign, graph, world, effect.to), source = truth(effect.from) ? await objectOwner(campaign, graph, world, effect.from) : null;
         const prior = objectInstance(world, name); let adopted: any = null;
+        // Contract §NN. Where it stands, and what it stands on. `validateDisposition` settles which of the
+        // three offer positions this call is (and refuses a plain move that would walk past an offer still
+        // standing between these two); `validateHandover` settles the ground a person-to-person move stands
+        // on, and a ground of "check" resolves against the rolls this turn has already committed -- a roll
+        // minted by the call in flight is not among them, so the write cannot precede its own decision.
+        const names = {from: source ? ownerLabel(world, source) : '', to: ownerLabel(world, owner)};
+        const disposition = validateDisposition(effect, prior, source, owner, names);
+        const ground = validateHandover(effect, source, owner, receiptsOf(context.turn), disposition, names);
+        if (disposition === 'made') {
+            const item = prior ?? moveObject(world, name, effect.definition ?? null, source!, {source: null, turn, quantity: field(effect, 'quantity', 1)});
+            recordOffer(item, source!, owner, ownerLabel(world, source!), ownerLabel(world, owner), turn, callId);
+            return {receipt: {id: mint(`item:${callId}`), kind: 'item', name, label: name, subject: source!.id, subject_label: ownerLabel(world, source!),
+                    quantity: item.quantity, instance: item.id, from: null, weapon: null, call_id: callId, why: effect.why ?? null, state: clone(item.state),
+                    offer: 'made', offered_to: owner.id, offered_to_label: ownerLabel(world, owner)},
+                event: {type: 'item-transferred', data: {name, to: source!.name, from: null, offer: 'made'}}};
+        }
+        if (disposition === 'declined') {
+            clearOffer(prior!, turn);
+            return {receipt: {id: mint(`item:${callId}`), kind: 'item', name, label: name, subject: source!.id, subject_label: ownerLabel(world, source!),
+                    quantity: prior!.quantity, instance: prior!.id, from: null, weapon: null, call_id: callId, why: effect.why ?? null, state: clone(prior!.state),
+                    offer: 'declined', offered_to: owner.id, offered_to_label: ownerLabel(world, owner)},
+                event: {type: 'item-transferred', data: {name, to: source!.name, from: null, offer: 'declined'}}};
+        }
         // Its definition is still queued, so the adoption is queued with it and the two are replayed
         // together. The sheet row stays exactly where it is, which is the shape the world already had.
         if (Object.hasOwn(effect, 'adopt') && !prior) {
@@ -185,6 +209,9 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
             } else seed = await jobs.documentSeed(graph, world, value);
         }
         const item = moveObject(world, name, effect.definition ?? null, owner, {source, turn, quantity, condition: effect.condition ?? null, documentSeed: prior ? null : seed});
+        // The thing moved, so nothing is being held out any more -- including an offer made to a third
+        // party, which this move has just answered by other means.
+        if (openOffer(item)) clearOffer(item, turn);
         const definition = objectRegistry(world).definitions[item.definition];
         if (prior && Object.hasOwn(effect, 'document')) {
             if (writing) writeDocument(item, effect.document.text);
@@ -209,7 +236,8 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
                 why: effect.why ?? null, call_id: callId};
             return {receipt, event: {type: 'resource-changed', data: {resource: receipt.resource, subject: receipt.subject, item: receipt.item, before: receipt.before, after: receipt.after}}};
         }
-        return objectTransferReceipt({world, id: mint(`item:${callId}`), callId, name, owner, source, quantity, item, definition, why: effect.why ?? null});
+        return objectTransferReceipt({world, id: mint(`item:${callId}`), callId, name, owner, source, quantity, item, definition, why: effect.why ?? null,
+            ...(ground ? {ground} : {}), ...(disposition ? {offer: disposition} : {})});
     }
     if (kind === 'ability') {
         const owner = await objectOwner(campaign, graph, world, effect.to);

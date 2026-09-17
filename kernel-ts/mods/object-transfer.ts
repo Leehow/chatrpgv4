@@ -1,7 +1,7 @@
 /** Shared receipt/event shape for accepted physical object transfers. */
 import type {DomainEvent} from '../transactions.js';
 import {personLabel, placeLabel} from '../read/capsule.js';
-import {clone, row, string, type Row} from '../read/values.js';
+import {clone, row, string, truth, type Row} from '../read/values.js';
 
 /**
  * What to call an object's owner on a card (§76).
@@ -21,9 +21,17 @@ export const ownerLabel = (world: Row, owner: Row): string =>
         ? placeLabel(world, string(row(owner).id), string(row(owner).name))
         : personLabel(world, string(row(owner).id), string(row(owner).name));
 
-export function objectTransferReceipt(input: {world: Row; id: string; callId: string; name: string; owner: Row; source: Row | null; quantity: any; item: Row; definition: Row; why?: any}): {receipt: Row; event: DomainEvent} {
+export function objectTransferReceipt(input: {world: Row; id: string; callId: string; name: string; owner: Row; source: Row | null; quantity: any; item: Row; definition: Row; why?: any; ground?: Row | null; offer?: string | null}): {receipt: Row; event: DomainEvent} {
+    // Contract §NN: the ground a person-to-person move stood on rides with it, and so does the roll it
+    // named. A move whose legitimacy was decided by the dice is otherwise unreadable after the fact --
+    // turn 125 of `game-1c0faba5` had the transfer and the failed roll in the same turn record with
+    // nothing joining them, and every reading of that turn had to guess which one the table meant.
+    const ground = row(input.ground ?? {});
     const receipt: Row = {id: input.id, kind: 'item', name: input.name, label: input.name, subject: input.owner.id, subject_label: ownerLabel(input.world, input.owner),
         quantity: input.quantity, instance: input.item.id, from: input.source ? ownerLabel(input.world, input.source) : null,
-        weapon: row(input.definition).category === 'weapon' ? input.item.id : null, call_id: input.callId, why: input.why ?? null, state: clone(input.item.state)};
-    return {receipt, event: {type: 'item-transferred', data: {name: input.name, to: input.owner.name, from: input.source?.name ?? null}}};
+        weapon: row(input.definition).category === 'weapon' ? input.item.id : null, call_id: input.callId, why: input.why ?? null, state: clone(input.item.state),
+        ...(truth(ground.handover) ? {handover: string(ground.handover)} : {}), ...(truth(ground.check) ? {check: string(ground.check)} : {}),
+        ...(truth(input.offer) ? {offer: string(input.offer)} : {})};
+    return {receipt, event: {type: 'item-transferred', data: {name: input.name, to: input.owner.name, from: input.source?.name ?? null,
+        ...(truth(ground.handover) ? {handover: string(ground.handover)} : {})}}};
 }

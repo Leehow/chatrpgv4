@@ -11122,3 +11122,139 @@ Tests (`App.product-identity.test.tsx`): a first `getProduct` that throws is
 retried and the PipiCOC brand mark reaches the shell; a host that answers `base`
 is asked once and the base wordmark stands. The first dies when the bare catch
 is restored.
+
+## NN. An offer is not a delivery (2026-09-17, extends §19's object model and §31)
+
+> **Section number is a placeholder.** The integrator assigns the real number at
+> merge; `NN` in this section and in the code comments that cite it move with it.
+
+Turn 125 of `game-1c0faba5-5a90-4eff-ade3-0d62632b4e7a` says three different
+things about one sheet of paper.
+
+The receipt `roll:persuade-t125-c4` is a hard Persuade, threshold 25, roll 34,
+`level: "failure"`, `passed: false`, and its goal begins *让诺特收下关闭摘抄* —
+make Knott take the abstract. The prose has him refuse it in as many words: two
+fingers push it back to the middle of the table, *you can take the paper, but
+don't take it as my saying yes*. And `world.json` has
+`objects.instances["object-item-18"].owner` set to Steven Knott at that turn, by
+receipt `item:t125-c2`, whose own `why` recites the condition it then ignores.
+
+The order is the whole of it. `t125-c2` — the transfer — is call two. The check
+that was to decide whether he would take it is call four. The Keeper wrote the
+answer and then rolled the question.
+
+**The root is not "a failed check did not roll back."** Turn 126 carries the
+paper back: `item:t126-c1`, `from: "Steven Knott"`, no check, nobody's leave,
+accepted. Neither move needed anyone to agree, in either direction, and the one
+roll that was about agreeing had no connection to either write.
+
+The object model had exactly one word for where a thing is — who owns it. The
+Keeper's own prose was *给您，不要钱*: an **offer**. The only sentence the
+product could speak was *it is yours now*. So "he didn't take it" could only be
+said by moving it back next turn, and the dice that decided whether he took it
+were, mechanically, about nothing.
+
+### NN.1 Where it stands: `offer`
+
+`apply object` takes `offer`, one of `"made" | "accepted" | "declined"`. It is
+the position the model was missing, and it is the only place in `apply object`
+where naming a `from` and a `to` does not necessarily move anything.
+
+| `offer` | ownership | what it records |
+| --- | --- | --- |
+| `"made"` | **unchanged** | the holder named in `from` is holding it out to the person named in `to`. The instance carries `offer: {from, to, from_label, to_label, turn, call_id}`. |
+| `"declined"` | **unchanged** | the open offer is closed and the object stays exactly where it was. |
+| `"accepted"` | moves to `to` | the open offer is closed and the object moves. Needs its `handover` (below). |
+
+Both ends must be people (an investigator or an NPC) and they must differ: a
+place and a container hold nothing out. `"made"` may create the instance in the
+same call, owned by the holder. An offer changes nothing about the thing itself,
+so it carries no `adopt`, `document` or `condition`.
+
+`"accepted"` and `"declined"` refuse unless the instance carries an open offer
+with those same two people in that same direction. Closing one that was never
+made is a claim about a moment the table does not have on record.
+
+**A plain move of an object whose open offer stands between those same two
+people is refused.** Its `fix` names the two calls that close it. That is what
+keeps the state honest: once the Keeper has said the paper is held out, the next
+thing that happens to it between those two people is *taken* or *not taken*, and
+either way the table has it in writing.
+
+**Where the paper is when it is refused** — the question the old model could not
+answer — is now answerable without the Keeper inventing anything: still with the
+holder, with a closed offer on the record. It is on that investigator's sheet
+(§19's projection is unchanged: an offer does not move an item off a sheet) and
+in the capsule until it is closed.
+
+### NN.2 What it stands on: `handover`, and the one ground that names a number
+
+`apply object` takes `handover`, **required** on any move where `from` and `to`
+are two different people and ownership actually changes — a plain transfer, or
+`offer: "accepted"`. It is a closed set of three:
+
+- `"given"` — both sides were willing and nobody asked the dice.
+- `"taken"` — one side's leave was neither sought nor needed: theft, force, a
+  body, something set down and picked up, a fight.
+- `"check"` — a roll settled **earlier in this same turn** decided it. It
+  carries `check: "<call_id>"`.
+
+Nothing here reads what anyone said. `handover` is a ground the Keeper states,
+the way §58 made it state where a cash amount came from; the kernel's whole job
+is to resolve the one ground that points at a number, and to make the pointing
+possible only in one direction.
+
+**`check` resolves against this turn's already-committed receipts.** A roll
+minted by the call now in flight is not among them and nothing this call does
+can put it there. So *write the outcome, then roll for it* has no expressible
+form: at call two there is no call four to cite. This is the mechanism — not an
+instruction, not a review, not a lint. A citation that names a call which has not
+settled is refused, and the refusal lists the calls that have.
+
+**A cited roll that did not pass refuses the move.** The dice decided it and the
+dice said no, so the `fix` says so and names the call that records the truth
+instead: `offer: "declined"`, which leaves the object with its holder and closes
+the offer. §34.7 governs that text — a Keeper executes a `fix` literally, so it
+names the effect to apply and never a sentence to deliver.
+
+**Scope, and why it is this and not "every transfer cites a check."** Across the
+nine tables of `playtest-evidence/pipicoc-20260914` there are 78 `kind: "item"`
+receipts. 39 have no source at all (an award, something that appears), 11 are a
+person putting something down in a place, 2 are picking something up, and **26
+are person to person**. Of those 26, only six had a roll settled before the write
+and sixteen had no roll anywhere in the turn — Knott handing over the house keys,
+a clerk handing over an abstract. Requiring a check on all of them would refuse
+about two thirds of an ordinary path and teach the Keeper to roll dice for
+nothing. Requiring it on the other 52 would be noise: nobody's agreement is in
+question when you pick a thing off a table. So the requirement is a **ground**,
+required exactly on the person-to-person 26, of which one of three values is a
+check; and `handover` is refused where there is no second person, because a field
+that is sometimes meaningless is a field that is sometimes filled in at random.
+
+The combat path is untouched by design: `landThrownUsage`
+(`kernel-ts/combat/execution.ts`) moves a thrown object from its holder **to the
+scene**, after its roll settles, and has no second person in it.
+
+### NN.3 The three ends (§31)
+
+| end | what |
+| --- | --- |
+| producer | `apply object` through `stageModEffect` — `kernel-ts/mods/object-offer.ts` validates, `kernel-ts/mods/objects.ts` stores. |
+| projection | `publicItems` and `objectLook` carry `offered_to` / `offered_since_turn` on the instance; the item card carries `offer`, `offered_to`, `offered_to_label`, `handover` and `check`; `offerObligations` puts every open offer in the capsule's `obligations`. |
+| adoption | the Keeper closes it. The obligation row carries the call that closes it on the row itself, and a plain move between those two is refused until it is closed, so the path cannot be walked past in silence. |
+
+This is not §31.2's **offer ledger**, which counts capabilities the Keeper was
+shown and never reached for and deliberately never feeds back into a capsule.
+This is world state about a physical object that somebody is standing there
+holding out, and a capsule that does not carry it is a capsule that loses it.
+
+### NN.4 Receipts
+
+An `offer: "made"` or `"declined"` mints a `kind: "item"` receipt whose
+`subject` is the **holder** — ownership did not move — with `offer`,
+`offered_to` and `offered_to_label`. A move mints the ordinary transfer receipt
+plus `handover`, and `check` when the ground named one. Turn 125's transfer and
+its failed roll sat in one turn record with nothing joining them; a receipt that
+records which roll carried it can be read back instead of guessed at.
+
+Tests: `tests/extension/an-offer-is-not-a-delivery.test.mjs`.

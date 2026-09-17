@@ -208,7 +208,7 @@ export function admissionRequest(tool: string, payload: Record<string, unknown>,
 		};
 		const signature = (effect: Record<string, unknown>): Record<string, unknown> => {
 			const kind = text(effect.kind) ?? "?";
-			const keys = ["to", "label", "travel_minutes", "clue", "minutes", "delta", "name", "regions", "region_labels", "level_labels", "subject", "from", "with", "quantity", "dice", "scope", "object", "description", "category", "adopt", "condition", "weapon", "definition"];
+			const keys = ["to", "label", "travel_minutes", "clue", "minutes", "delta", "name", "regions", "region_labels", "level_labels", "subject", "from", "with", "quantity", "dice", "scope", "object", "description", "category", "adopt", "condition", "weapon", "definition", "offer", "handover", "check"];
 			return { kind, ...Object.fromEntries(keys.map((k) => [k, effect[k]]).filter(([, v]) => v !== undefined && v !== null && v !== "")) };
 		};
 		const signatures = effects.map(signature).map(canonical);
