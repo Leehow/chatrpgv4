@@ -331,3 +331,50 @@ test("预算耗尽后还在调用：第三次说得更硬，第六次切断这�
 	// The run stops rather than grinding on: not every scripted response is consumed.
 	assert.ok(texts.length < 14, `切断后不该把 14 条都跑完，实际 ${texts.length}`);
 });
+
+/**
+ * A closed turn has no doors (contract §77).
+ *
+ * Real table, 2026-09-17, campaign `game-01250e5e`, opening turn. `narrate` closed the turn, and the
+ * Keeper went on calling it in the runs that followed:
+ *
+ *   narrate ×17  "the turn state is awaiting_player, so nothing may change state"
+ *   resolve ×6   refusal_budget       (the §70 cut, which is what finally ended the run)
+ *   48 steps, 24 failures, aborted — and the `refusals` lane was empty the whole time
+ *
+ * `narrate` and `ask` are exempt from the refusal budget because they are the two doors out of a
+ * turn. A closed turn has no doors: narrate ends nothing there and is refused like any other write,
+ * so the exemption only guaranteed the Keeper could hammer the one tool nothing counted. Every other
+ * runaway counter in this area — `closedThisRun`, `blockedAfterClose`, `blockedAfterExhausted` — is
+ * reset at `agent_start`, so a new run on a still-closed turn starts them all at zero. The refusal
+ * classes are per *turn*, which is why the budget is the lever that holds.
+ */
+test("回合已经关掉之后，narrate 也要计入拒绝预算", async (t) => {
+	const attempt = (text) => fauxAssistantMessage([fauxToolCall("narrate", { text })], { stopReason: "toolUse" });
+	const table = await openTable({
+		env: {
+			FAKE_KERNEL_ERRORS: JSON.stringify({
+				"table.player_input": { code: "turn_state", message: "the turn is not open" },
+			}),
+		},
+		responses: Array.from({ length: 12 }, (_, i) => attempt(`第 ${i + 1} 次想收回合。`))
+			.concat([fauxAssistantMessage("收尾")]),
+	});
+	t.after(() => table.dispose());
+
+	await table.session.prompt("我推开门。").catch(() => undefined);
+	await waitForIdle(table.session);
+
+	const texts = toolResults(table.session, "narrate").map(resultText);
+	assert.ok(texts.length >= 3, `narrate 至少被拒三次，实际 ${texts.length}`);
+	assert.match(texts[0], /awaiting_player/, "头几次是普通的 turn_state 拒绝");
+	assert.ok(texts.some((text) => /refused 3 times this turn for the same reason/.test(text)),
+		`回合关掉之后 narrate 不再豁免，第三次要耗尽同类：${JSON.stringify(texts)}`);
+	const rows = table.telemetry().filter((row) => row.lane === "refusals" && row.reason === "class_limit");
+	assert.ok(rows.some((row) => row.tool === "narrate"), `refusals 车道要记下 narrate 这一类：${JSON.stringify(table.telemetry().filter((r) => r.lane === "refusals"))}`);
+	// The turn budget leaves its own row on this road too. It used to be written only where a
+	// refusal came back from the kernel, so a turn spent entirely on host-issued blocks left the
+	// `refusals` lane empty while the run burned 48 steps.
+	// And the run ends rather than grinding on: not every scripted response is consumed.
+	assert.ok(texts.length < 12, `切断后不该把 12 条都跑完，实际 ${texts.length}`);
+});

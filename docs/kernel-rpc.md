@@ -10394,3 +10394,87 @@ read back out of `world.scene_labels` rather than written into the assertion; an
 object taken back off a place is taken from the table's name while a person keeps
 their own; and the label never reaches the stored owner row, checked by renaming
 the place between placement and pickup.
+
+## 77. A closed turn has no doors (2026-09-17, amends §34.12 and §67)
+
+Acceptance play, campaign `game-01250e5e`, opening turn, DeepSeek V4.1 Flash / low.
+`narrate` delivered the opening and closed the turn. The Keeper then spent
+**48 steps** trying to act on a turn that was over, and the player read a
+sentence that stops mid-delivery.
+
+```
+narrate  ×17   turn_state: "the turn state is awaiting_player, so nothing may change state"
+narrate  ×3    "the turn is closed, waiting for the player"
+resolve  ×6    refusal_budget
+lane "refusals": (empty)
+24 失败 · 24 成功 · This operation was aborted
+```
+
+### 77.1 The exemption outlived its reason
+
+`narrate` and `ask` are exempt from the refusal budget
+(`strikeRefusalClass`, `REFUSAL_BUDGET`'s own comment: *every write but narrate
+and ask*). The reason is sound — they are the two doors out of a turn, and the
+budget's own closing advice points at them: *close the turn with narrate on what
+landed, or hand the player the pending choice with ask.*
+
+But the exemption was unconditional, and this turn was **already closed**. There,
+narrate ends nothing: it is refused by the same gate as any other write. So the
+one tool the Keeper kept reaching for was the one tool nothing counted.
+
+Worse, the strikes were not free. `strikeRefusalClass` increments
+`refusalsThisTurn` for every strike, exempt or not, so narrate's seventeen
+strikes spent the turn budget — which shut `resolve`, `apply`, `look`, `lookup`
+and `recall`, and left narrate open. The budget shut everything except the tool
+that was causing it.
+
+### 77.2 Why no other counter caught it
+
+Every runaway counter in this area is reset at `agent_start`:
+
+```ts
+pi.on("agent_start", async () => {
+  table.closedThisRun = false;
+  table.blockedAfterClose = 0;  table.blockedAfterExhausted = 0;
+});
+```
+
+§34.16's cut counts blocks after a turn closed **in this run**. §70's cut counts
+blocks after the budget was spent, also per run. The turn stayed closed across
+runs; the counters started again at zero in each. Three of the seventeen narrate
+calls landed in the run that did the closing and were counted there; the other
+fourteen were free.
+
+The refusal classes are the only counter here kept per **turn**. That is why the
+budget is the lever that holds across runs, and why the fix belongs in it.
+
+### 77.3 The contract
+
+**The narrate/ask exemption is an exemption for doors, so it ends when the turn
+does.** `strikeRefusalClass` takes a `closed` flag. The host's closed-state gate
+passes it: every strike from that block is a refusal on a turn that is not open,
+by construction, so narrate and ask are struck there like any other write. The
+kernel-error road does not pass it — a kernel refusal can reach narrate while the
+turn is still open, and the door must stay open there.
+
+**The global sweep never touches narrate or ask, whatever `closed` says.** A
+strike can arrive from a turn whose opening is still pending — `resolve` refused
+while the opening waits to be delivered — and shutting narrate there would take
+away the door the sweep's own advice points at.
+
+Once narrate is struck, the existing escalation does the rest: the third strike
+exhausts it (§34.12), further calls are blocked (§70), and the sixth cuts the
+run. The 48-step run becomes roughly nine.
+
+**Not added, deliberately.** A `turn_budget` row for the host's own road was
+written and then removed. The `refusals` lane was empty in the live run because
+nothing ever tripped a class — narrate was exempt and `resolve` was shut by the
+global sweep, which records nothing. With this fix a class trips first, and the
+lane gets its `class_limit` row; the global sweep is no longer reachable on this
+road, so a row for it would have had no producer. State with no reader and code
+with no path are the same defect (§72).
+
+Test (`tests/extension/gates.test.mjs`): a run whose `table.player_input` is
+refused leaves the turn closed, and twelve `narrate` calls are refused; the third
+exhausts the class, the `refusals` lane names `narrate`, and the run is cut
+before the twelfth. It dies when the exemption is made unconditional again.
