@@ -12,7 +12,7 @@ import { required } from '../write/store.js';
 import { validateDefinition } from './definition.js';
 import { initializeDocument, ownershipChanged, writeDocument } from './documents.js';
 import { defineObject, moveObject, objectInstance, objectRegistry } from './objects.js';
-import { objectTransferReceipt } from './object-transfer.js';
+import { objectTransferReceipt, ownerLabel } from './object-transfer.js';
 import { clearRegistration, queueAdoption, queueRegistration, queuedDefinition } from './queue.js';
 import type { ModJobs } from './jobs.js';
 import {registerUsage, validateUsage, validateUsageRequest} from './usages.js';
@@ -204,12 +204,12 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
         if (prior && Object.hasOwn(effect, 'document')) return {receipt: {id: mint(`definition:document-${callId}`), kind: 'definition', name, document_changed: true, visibility: 'keeper', call_id: callId},
             event: {type: 'resource-changed', data: {resource: 'document', subject: owner.id, item: name}}};
         if (prior && equal(source, owner) && effect.condition != null) {
-            const receipt = {id: mint(`delta:item-condition-${callId}`), kind: 'delta', resource: 'condition', subject: owner.id, subject_label: owner.name,
+            const receipt = {id: mint(`delta:item-condition-${callId}`), kind: 'delta', resource: 'condition', subject: owner.id, subject_label: ownerLabel(world, owner),
                 subject_is_investigator: owner.kind === 'investigator', item: item.name, instance: item.id, before: beforeCondition, after: item.state.condition,
                 why: effect.why ?? null, call_id: callId};
             return {receipt, event: {type: 'resource-changed', data: {resource: receipt.resource, subject: receipt.subject, item: receipt.item, before: receipt.before, after: receipt.after}}};
         }
-        return objectTransferReceipt({id: mint(`item:${callId}`), callId, name, owner, source, quantity, item, definition, why: effect.why ?? null});
+        return objectTransferReceipt({world, id: mint(`item:${callId}`), callId, name, owner, source, quantity, item, definition, why: effect.why ?? null});
     }
     if (kind === 'ability') {
         const owner = await objectOwner(campaign, graph, world, effect.to);

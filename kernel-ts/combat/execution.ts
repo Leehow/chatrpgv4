@@ -219,7 +219,7 @@ function landThrownUsage(context: SettleContext, session: CombatSession, turn: R
     const source = clone(row(item.owner));
     const moved = moveObject(context.world,string(item.name),null,owner,{source,turn:context.turnNumber,quantity:item.quantity});
     const definition = row(row(row(context.world.objects).definitions)[moved.definition]);
-    const {receipt} = objectTransferReceipt({id:context.mint(`item:${context.callId}`), callId:context.callId, name:string(moved.name), owner, source, quantity:moved.quantity, item:moved, definition, why:'Thrown during combat resolution'});
+    const {receipt} = objectTransferReceipt({world:context.world, id:context.mint(`item:${context.callId}`), callId:context.callId, name:string(moved.name), owner, source, quantity:moved.quantity, item:moved, definition, why:'Thrown during combat resolution'});
     context.receipts.push(receipt);
     context.effects.push({kind:'object', object:moved.name, instance:moved.id, from:source.name ?? null, to:owner.name, reason:'thrown_landed'});
 }

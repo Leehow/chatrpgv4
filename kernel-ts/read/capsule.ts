@@ -5,9 +5,20 @@ import { entries, values, array, row, number, truth, string, normalize, chars, l
 import { clueGate, structureType } from "./director.js";
 import { incapacitatedBy } from "../healing/conditions.js";
 export const jsonSize = (value: any): number => Buffer.byteLength(pythonJsonDumps(value), "utf8");
+/**
+ * The one name this table uses for a place, by its handle: the campaign label the Keeper gave it,
+ * and the authored name only until one exists (contract §32, the place layer; §76).
+ *
+ * Every producer of a player-visible place name goes through here, because `world.scene_labels` is
+ * the only record of what the table calls a place and a producer that skips it answers with the
+ * book's word instead. One call minted two cards for one handle -- an item left at
+ * `Benefit Street office building` and a move away from it -- and they disagreed, because the move
+ * asked this and the object transfer asked the module graph (campaign `game-1c0faba5`, turn 99).
+ */
+export const placeLabel = (world: Row, handle: string, authored: string): string => string(row(world.scene_labels)[handle] || authored);
 /** A campaign label first, then what the module calls the place, and the handle's slug only when
  *  the module named it nothing else (contract §32, the place layer). */
-export const sceneLabel = (graph: ModuleGraph, world: Row, scene: Row): string => string(row(world.scene_labels)[graph.handle(scene)] || graph.placeName(scene));
+export const sceneLabel = (graph: ModuleGraph, world: Row, scene: Row): string => placeLabel(world, graph.handle(scene), string(graph.placeName(scene)));
 export function clueLabel(graph: ModuleGraph, world: Row, handle: string): string {
     const label = row(world.clue_labels)[handle];
     if (typeof label === "string" && label.trim())

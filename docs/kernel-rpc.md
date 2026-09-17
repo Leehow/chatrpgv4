@@ -10234,3 +10234,91 @@ want of this notice.
 player on the `coc-delivery` channel with `landed: true` and its own projected caption, on a turn
 whose `apply` the wait refused; a caption that does not say "still"; and a `failed` preparation still
 withheld, so "landed" cannot be reached by always speaking.
+
+## 76. One call, one name for one place (2026-09-17, amends §32)
+
+H-SIDE t4, campaign `game-1c0faba5`, turn 99. Two cards from **one** `call_id`
+(`t99-c2`), which the player reads one above the other:
+
+```json
+{"kind":"item",  "to":  "Benefit Street office building", "to_label":  "Benefit Street office building"}
+{"kind":"scene", "from":"Benefit Street office building", "from_label":"本尼菲特街左侧办公楼"}
+```
+
+Same handle. Two names. The item card handed the player the book's English for a
+place the move card, minted microseconds later in the same settlement, called by
+the name this table had given it.
+
+This is the reason to fix it now rather than later. The other members of this
+family — «杰克逊·伊莱亚斯» through T19–T27 against «杰克逊·埃利亚斯» at T42 and on the
+sheet, «库皮蒂娜» in prose against «库皮蒂纳» on the panel — can each be read as two
+eras of the product drifting apart. **This one happened inside one call**, so
+drift explains nothing: two producers of a single turn read two different records
+for a single entity.
+
+### 76.1 The record that decides
+
+`world.scene_labels[<handle>]` is what this table calls a place. §22's `move`
+writes it the moment the Keeper names a scene, and `sceneLabel` is how every
+Keeper-facing and player-facing surface reads it back: the capsule's `where`,
+the exits, the trail, the checkpoint, the journal and quest packets, and
+`move`'s own `from_label`/`to_label`.
+
+The object transfer never asked it. `objectOwner` (`kernel-ts/mods/stage.ts`)
+resolved a scene owner as `{kind, id: graph.handle(scene), name:
+graph.displayName(scene)}`, and `objectTransferReceipt` stamped that `name`
+straight onto the receipt as `subject_label` — which §16.2 projects as the item
+card's `to_label`. The book's word, on a card, beside a card carrying the
+table's. `kernel-ts/combat/execution.ts` built the same owner row inline for a
+thrown object, so there were three copies of the graph lookup and none of the
+world lookup.
+
+**The junction existed; one producer did not use it.** So the fix is not a new
+field, a new store or a translation step: `placeLabel(world, handle, authored)`
+in `kernel-ts/read/capsule.ts` is now the single read of `world.scene_labels`,
+`sceneLabel` is written in terms of it, and `ownerLabel(world, owner)` resolves
+an owner's card name through it.
+
+### 76.2 An identity is not a label, and must not become one
+
+An owner row is an identifier. `moveObject` stores it on the instance
+(`prior.owner = clone(owner)`) and a later transfer's `from` is checked against
+the stored row by deep equality, and `graph.scene()` resolves the module's
+authored names and aliases — never a campaign label. So the obvious fix, making
+`objectOwner` answer with the table's name, is wrong twice over: every instance
+already standing in that place stops matching its own owner, and renaming a place
+strands everything left there.
+
+The split is the one `move` has always drawn, now drawn in the same place for
+objects:
+
+- **`from` / `to` / `subject` / `owner.id` / `owner.name`** — the graph's handle
+  and authored name. Stable, stored, resolvable, never renamed underneath.
+- **`from_label` / `to_label` / `subject_label`** — the table's name, resolved at
+  the moment the receipt is minted, from `world.scene_labels`.
+
+A person is not affected: an investigator carries their sheet name and an NPC the
+graph's, and there is no per-table record to prefer, so `ownerLabel` answers
+`owner.name` for them and nothing renames anybody.
+
+Deliberately unchanged: `objectLook`, `objectContext` and the `container` line in
+`publicItems` still report `owner.name`. Those are the names the Keeper passes
+back as `from`/`to`, and an identifier that cannot be resolved is worse than an
+identifier in the wrong language.
+
+### 76.3 What is still missing, named here so it is not mistaken for fixed
+
+A place has one per-table record and a clue has one (`world.clue_labels`, §22).
+**A person has none.** Nothing anywhere records "what this table calls Jackson
+Elias in the play language", so every turn the Keeper re-invents it and the
+engine layer answers `Jackson Elias` forever. That is the same shape as this
+defect one level up, and this section does not close it — it only removes the
+case where the record existed and a producer walked past it.
+
+**Guards.** `tests/extension/one-call-one-name.test.mjs` — one `apply` call that
+leaves an object in the current scene and moves away must produce an item card
+and a scene card that name the same handle with the same word, and that word is
+read back out of `world.scene_labels` rather than written into the assertion; an
+object taken back off a place is taken from the table's name while a person keeps
+their own; and the label never reaches the stored owner row, checked by renaming
+the place between placement and pickup.
