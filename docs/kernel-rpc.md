@@ -12752,3 +12752,28 @@ being called; the sticky case dies when `flowSkills` stops reading the inherited
 budget case dies when `completeness` regains its `unspent` lines; the catalog case dies when
 `resolveSkill` stops reading `localized_labels`; the extension case dies when the extension
 re-books the step or asks for `setup.previewed`.
+
+### §98 addendum — the live App test with the user watching (2026-09-17)
+
+Four things the first App run of §98 showed, all landed the same day:
+
+- **A modern card lists the whole sheet.** The skills table prints a standard sheet for the
+  1920s only, so a card built on the modern finance period listed fifteen skills. `flowSkills`
+  now takes the era's sheet, else the one sheet the table prints, plus every skill the catalog
+  marks `modern_only` when the era has no sheet of its own.
+- **A host pin follows its characteristic; a player pin is the number typed.** Dodge is half DEX
+  and Language (Own) is EDU in the rulebook. A pin the model set on the player's word
+  (`by: "model"`) records `points` above the base it had, and the value is recomputed from the
+  current base on every flow (capped unless relaxed); a pin the player typed (`by: "player"`)
+  is the value. The card marks the two apart.
+- **The characteristic points are reported.** `budget.characteristics {total, spent, unspent,
+  source}` carries the rulebook's point-buy total (`point_buy_460`) as the reference the card
+  draws beside the two skill pools. It is a report, never a gate.
+- **The card's edit control edits the lists and the age.** `setup.override` accepts
+  `profile {occupation_skills?, interest_skills?, age?}` beside `edits` and `limits_override`:
+  the lists are the player's own choice of which skills are occupational (eight at most; the
+  points re-flow around the pins), and a changed age reruns the age table on the same dice while
+  a pinned characteristic stays as typed. Any other profile key is `invalid_params`.
+
+Cases: `tests/kernel/test_setup_card.py` (modern sheet, model pin follows DEX, point-buy report,
+list move through the edit control, age through the edit control).

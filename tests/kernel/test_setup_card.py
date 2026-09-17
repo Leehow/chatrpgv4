@@ -444,3 +444,14 @@ def test_the_edit_control_can_move_a_skill_between_the_lists_and_the_points_refl
     assert moved["sheet"]["characteristics"] == first["sheet"]["characteristics"]
     refused = kernel.err("setup.override", {"campaign": CAMPAIGN, "revision": moved["revision"], "edits": {}, "profile": {"name": "x"}})
     assert refused["code"] == "invalid_params"
+
+
+def test_the_edit_control_can_change_the_age_and_the_age_table_reruns_on_the_same_dice(kernel):
+    """Age moves EDU, APP, MOV and Luck (2026-09-17, user): the card's edit control takes it too."""
+    first = draft(kernel, criminal())
+    kernel.ok("setup.override", {"campaign": CAMPAIGN, "revision": first["revision"], "edits": {"characteristics": {"APP": 85}}})
+    older = kernel.ok("setup.override", {"campaign": CAMPAIGN, "revision": first["revision"] + 1, "edits": {}, "profile": {"age": 62}})
+    assert older["sheet"]["age"] == 62 and older["sheet"]["creation"]["age"]["bracket"] != first["sheet"]["creation"]["age"]["bracket"]
+    assert older["sheet"]["characteristics"]["APP"] == 85, "a pinned characteristic is not aged"
+    assert older["sheet"]["creation"]["characteristics"]["rolls"] == first["sheet"]["creation"]["characteristics"]["rolls"], "same dice"
+    assert older["sheet"]["derived"]["MOV"] < first["sheet"]["derived"]["MOV"]

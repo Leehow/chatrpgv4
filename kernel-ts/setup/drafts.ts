@@ -366,8 +366,10 @@ export class SetupDrafts {
       // that is a words patch (`profile.occupation_skills` / `profile.interest_skills`) and the
       // points re-flow around the pins exactly as a spoken revision would.
       const profile = Object.hasOwn(params, 'profile') ? params.profile : undefined;
-      if (profile !== undefined && (!isJsonObject(profile) || Object.keys(profile).some(key => !['occupation_skills', 'interest_skills'].includes(key))))
-        throw new RpcError('invalid_params', 'the edit control changes only the skill lists of the profile', {details: {fields: ['interest_skills', 'occupation_skills']}});
+      // …and the age, because the age table moves EDU, APP, MOV and the Luck rolls: a changed age
+      // re-runs that table on the same dice; a pinned characteristic stays what the player set.
+      if (profile !== undefined && (!isJsonObject(profile) || Object.keys(profile).some(key => !['occupation_skills', 'interest_skills', 'age'].includes(key))))
+        throw new RpcError('invalid_params', 'the edit control changes only the skill lists and the age of the profile', {details: {fields: ['age', 'interest_skills', 'occupation_skills']}});
       const limits = Object.hasOwn(params, 'limits_override') ? params.limits_override : undefined;
       return this.reviseLocked(campaign, meta, previous, {campaign: params.campaign, numbers: edits, ...(profile !== undefined ? {profile} : {}), ...(limits !== undefined ? {limits} : {}), by: 'player'}, {dryRun: params.dry_run === true});
     });
