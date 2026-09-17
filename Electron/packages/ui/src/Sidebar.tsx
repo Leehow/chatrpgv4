@@ -162,6 +162,8 @@ export interface SidebarProps {
   /** False until `listProjects` has answered; the empty state waits for it. */
   projectsLoaded?: boolean
   onDismissProjectError?: () => void
+  /** §82: retries can be spent while the host is fine. Dismissing the banner is not a way back. */
+  onRetryProjects?: () => void
   onSearch: (query: string) => void
   onShowMore: () => void
   /** Host-backed 10-row pages. When present, loaded rows are already the visible prefix. */
@@ -633,6 +635,7 @@ export function Sidebar(props: SidebarProps) {
     projectError,
     projectsLoaded,
     onDismissProjectError,
+    onRetryProjects,
     onSearch,
     onShowMore,
     sessionHasMoreByProject,
@@ -789,7 +792,7 @@ export function Sidebar(props: SidebarProps) {
         />
       </div>
 
-      {projectError && <div className="sb-project-error" role="alert" data-testid="sidebar-project-error"><span>{projectError}</span><button type="button" aria-label="关闭项目错误" onClick={onDismissProjectError}>×</button></div>}
+      {projectError && <div className="sb-project-error" role="alert" data-testid="sidebar-project-error"><span>{projectError}</span>{onRetryProjects && <button type="button" aria-label="重新加载项目" onClick={onRetryProjects}>重试</button>}<button type="button" aria-label="关闭项目错误" onClick={onDismissProjectError}>×</button></div>}
 
       <div className="sb-scroll" role="tree" aria-label="项目与会话">
         {(query ? visiblePinned.length > 0 : true) && (

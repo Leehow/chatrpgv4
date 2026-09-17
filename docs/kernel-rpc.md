@@ -10951,3 +10951,51 @@ answer is published. A second test holds `/coverage` — assigned but not a draf
 key — accepted, while an invented `/nodes/9` beside it is refused. They die when
 the resolve check is dropped, when the assigned exemption is dropped, and when
 the failure stops being carried into the retry.
+
+## 82. A dropped project list is not an empty one (2026-09-17, extends §62 and §63)
+
+Remote browser, `remote.deepwood.cn`, seconds after the desktop app restarted.
+The page paired, the socket was up, and the first `listProjects` answered:
+
+```
+加载项目失败：transport request timed out
+```
+
+It stayed. Ninety seconds of polling, every ten seconds: the same banner over an
+empty sidebar, no projects, no sessions, nothing to press but ×. A reload then
+listed both projects immediately — **the host had been answering the whole time.**
+
+That is a player who closes the app.
+
+### 82.1 The neighbour was fixed and this one was not
+
+§62 taught this shell that a failed read is not an answer, and the capabilities
+read got its retries. The project read sits on the *same line* of the *same
+effect*, and kept its bare catch:
+
+```ts
+void refreshProjects().catch(error => setProjectError(`加载项目失败：…`))
+```
+
+§63 then made the sidebar stop *claiming* 「暂无项目与会话」 before the host has
+answered, which is why this failure shows an error rather than a lie. But an
+honest error nobody can act on strands the person just the same.
+
+### 82.2 The contract
+
+**The first project list is read with retries.** `readWithRetry`
+(`READ_RETRY_DELAYS_MS` = 400ms, 1.2s, 3s, 6s) wraps it, and the banner is set
+only from `onFailure` — after the retries are spent. A transient drop over the
+relay now costs nothing the person can see.
+
+**A spent retry still leaves a way back, and it is not a reload.** The banner
+carries a 重试 control that re-runs the same retried read. Dismissing an error is
+not recovery: × removes the sentence and leaves the empty shell. The person must
+never have to reload a page to get a working table, and a product that recovers
+only by reloading is the defect this whole line of work is about.
+
+Tests (`App.project-load-retry.test.tsx`): a first `listProjects` that throws
+`transport request timed out` is retried and no banner is ever rendered; and a
+host that keeps failing raises the banner, after which pressing 重试 clears it
+once the host recovers. They die when the retry is reverted to the bare catch,
+and when the banner loses its control.
