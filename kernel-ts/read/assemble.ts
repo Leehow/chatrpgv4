@@ -39,8 +39,10 @@ export const HEAD = "Everything at the start of this turn: the clock, the undisc
     "risk the book gates with a check. voices is how each person present talks: their mask (what they call " +
     "people, how their sentences end, the level of their words, one pet phrase) and exchanges that show it in " +
     "reply. Wear the mask on every line that person speaks; never read an exchange out. " +
-    "unrecorded is a clue an earlier turn's prose already gave the player while the ledger still calls it " +
-    "undiscovered: its line names the call that closes the gap. It is not a debt to invent anything — the " +
+    "unrecorded is what an earlier turn's prose already gave the player while the ledger still disagrees, " +
+    "of two kinds: a clue still called undiscovered, and a person you gave lines to here whom the books " +
+    "put in another scene or off the board. Each row names the call that closes the gap, and says only " +
+    "that the two records disagree, never which of them is right. It is not a debt to invent anything — the " +
     "player was told, and only the books disagree. Record it, or leave it and it stays until they walk away. " +
     "untold is the other half: a turn that settled receipts and then ended with nothing said to the player " +
     "(the run stopped before it could deliver). Its rows are already on the books and the ledger already " +
@@ -60,7 +62,8 @@ export const SLICE2_BUDGETS: Readonly<Record<string, number>> = Object.freeze({
     warnings: 1024,
     // Contract §51.4. Small on purpose: a row is a handle, a turn, the sentence that gave it away and
     // the call that closes it, and the list only holds what is still findable in this one scene.
-    unrecorded: 768
+    // 1024 since people joined it: a person's row carries no quote, and the window is one occupancy.
+    unrecorded: 1024
 ,
     // Contract §69. One stranded turn is a handful of rows; a run of them is rare and still bounded by
     // the next delivery, so the section is sized to carry the receipts rather than a count of them.
@@ -112,6 +115,68 @@ export function unrecordedClues(graph: ModuleGraph, world: Row, scene: Row, reco
             });
         }
     }
+    return rows;
+}
+/**
+ * People the prose put in this room while the ledger puts them somewhere else (contract §51.4,
+ * second kind).
+ *
+ * The same shape as the clues above and for the same reason, so this is that section taking on a
+ * second kind rather than a new one: the finding reached the player, the books disagree, and the row
+ * names the call that closes it.
+ *
+ * **The condition is disagreement, not absence.** Every authored person is seeded into
+ * `npc_presence` when the campaign is created (see `write/index.ts`), so "the ledger has them
+ * nowhere" is almost never true and counting `npc` receipts against spoken spans measures nothing:
+ * speaking from the scene the book already put you in owes no receipt at all. On H-SIDE t4
+ * (`homes/t4`, campaign game-1c0faba5, 121 turns) the eight authored people spoke 162 resolved
+ * spans, and replaying presence forward from the seed through every `npc` receipt puts 113 of them
+ * in the right room. The gap is the other 49: 30 spans spoken by someone the ledger had standing in
+ * a different scene -- Steven Knott answers at the Hall of Records, the Globe morgue and the Board
+ * of Health while the books keep him in his own office -- and 19 by someone a previous
+ * `apply npc to: away` had taken off the board and who was never brought back. The party walks, the
+ * Keeper brings a person along in prose, and nothing follows them.
+ *
+ * **Only a speaker the kernel itself resolved.** `speech.who` is the kernel's own resolution,
+ * written when the turn was delivered, so reading it back is not parsing prose: §17 keeps the
+ * runtime ledger written by receipts and explicit `apply` alone, and nothing here infers that anyone
+ * was present -- a row says the two records disagree, never which one is right. A span that stayed a
+ * `{label}` is deliberately passed over: deciding whether 听筒那头, "the voice on the other end of
+ * the line", is a person at all is a judgement the kernel cannot make, and a row for it would be
+ * this section asking the Keeper to mint people out of scenery.
+ *
+ * It clears itself two ways and needs no writer to retract it, exactly as the clue rows do: one
+ * `apply npc` makes the two records agree, and the window is this scene's occupancy, so walking out
+ * ends it.
+ */
+export function unrecordedPeople(graph: ModuleGraph, world: Row, scene: Row, records: Row[], turn: number): Row[] {
+    const presence = row(world.npc_presence), here = graph.handle(scene), rows: Row[] = [], seen = new Set<string>();
+    const past = [...records].filter(record => number(record.turn) < turn).sort((a, b) => number(a.turn) - number(b.turn));
+    let occupancy = 0;
+    past.forEach((record, index) => {
+        if (array(record.receipts).some(receipt => string(row(receipt).kind) === "move"))
+            occupancy = index;
+    });
+    for (const record of past.slice(occupancy).reverse())
+        for (const span of array(record.speech)) {
+            const handle = string(row(row(span).who).npc);
+            if (!handle || seen.has(handle) || presence[handle] === here)
+                continue;
+            const node = graph.find(handle, ["npc"]);
+            if (!node)
+                continue;
+            seen.add(handle);
+            // `string` answers "None" for a missing key, and the two halves of this gap must read
+            // differently: taken off the board is not standing in a room called None.
+            const at = Object.hasOwn(presence, handle) ? string(presence[handle]) : "";
+            rows.push({
+                npc: handle,
+                turn: record.turn,
+                at: at || null,
+                operation: "apply npc",
+                line: `turn ${record.turn} gave ${graph.displayName(node)} lines here and the books ${at ? `have them at ${at}` : "have them off the board"}; apply npc ${handle} to: here makes the two agree`
+            });
+        }
     return rows;
 }
 /**
@@ -272,7 +337,10 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
             why: warning.why ?? null,
             ...(warning.clue ? { clue: warning.clue } : {})
         })),
-        unrecorded: unrecordedClues(graph, world, scene, campaign.records, number(turn.turn)),
+        // Clues first: a row that is still findable in this room outranks a person the player heard
+        // in it, and the section is trimmed from the end.
+        unrecorded: [...unrecordedClues(graph, world, scene, campaign.records, number(turn.turn)),
+            ...unrecordedPeople(graph, world, scene, campaign.records, number(turn.turn))],
         untold: untoldReceipts(campaign.records, number(turn.turn))
     });
     const truncated: string[] = [];

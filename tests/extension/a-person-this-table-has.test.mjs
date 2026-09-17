@@ -109,6 +109,93 @@ test('an appellation is an identity, and the word the player sees is the one thi
 		'and the receipt files that word, not the description the Keeper used as an identity');
 });
 
+/**
+ * §51.4's second kind, and the condition is disagreement rather than absence. Every authored person
+ * is seeded into `npc_presence` at campaign creation, so "the ledger has them nowhere" is almost
+ * never true and counting `npc` receipts against spoken spans measures nothing — speaking from the
+ * scene the book already put you in owes no receipt at all.
+ *
+ * Replaying H-SIDE t4 forward from that seed through every `npc` receipt: of 162 resolved spans by
+ * the eight authored people, 113 were spoken from the right room. The gap is the other 49 — 30
+ * spoken by someone the books had standing in a different scene (Steven Knott answers at the Hall of
+ * Records, the Globe morgue and the Board of Health while the ledger keeps him in his office), and
+ * 19 by someone a previous `to: away` had taken off the board and who was never brought back.
+ *
+ * Nothing here infers presence from prose: `speech.who` is the kernel's own resolution, written when
+ * the turn was delivered, and the row says only that the two records disagree.
+ */
+test('a person the prose gave lines to here, whom the books put elsewhere, is a gap that outlives its turn', async t => {
+	const game = await table(t);
+	const seeded = (await game.world()).npc_presence;
+	assert.ok(seeded['steven-knott'], 'the book seeds its people, which is why absence is the wrong test');
+
+	// The larger half of the t4 gap, 30 of the 49 spans: the books have him standing somewhere else.
+	// Not `away` — that is the other, smaller half, and a condition that only tested for absence
+	// would pass this file while missing every Steven Knott span the real table produced.
+	await game.apply([{kind: 'npc', name: 'Steven Knott', to: 'newspaper-morgue', why: 'he goes across town'}]);
+	const elsewhere = (await game.world()).npc_presence['steven-knott'];
+	assert.ok(elsewhere && elsewhere !== (await game.world()).active_scene, 'he is on the board, in another room');
+
+	await game.call('table.narrate', {call_id: game.next(), text: '{{say:Steven Knott}}The keys are yours.{{/say}}'});
+	await game.call('table.player_input', {text: 'I take them.'});
+
+	const capsule = await game.call('table.capsule', {});
+	const row = (capsule.unrecorded ?? []).find(entry => entry.npc === 'steven-knott');
+	assert.ok(row, `the books and the prose disagree, and the capsule says so: ${JSON.stringify(capsule.unrecorded)}`);
+	assert.equal(row.operation, 'apply npc', 'and the row names the call that closes it');
+	assert.equal(row.at, elsewhere, 'the row says where the books have him, and never which record is right');
+
+	// Making the two agree is what retracts it; no writer has to.
+	await game.apply([{kind: 'npc', name: 'Steven Knott', to: 'here', why: 'he was here all along'}]);
+	const after = await game.call('table.capsule', {});
+	assert.ok(!(after.unrecorded ?? []).some(entry => entry.npc === 'steven-knott'));
+});
+
+test('a person a previous turn took off the board, speaking anyway, is the same gap', async t => {
+	const game = await table(t);
+	// The other 19 t4 spans. `to: away` deletes the entry rather than moving it, so the two halves
+	// reach the condition by different routes and both have to be covered.
+	await game.apply([{kind: 'npc', name: 'Steven Knott', to: 'away', why: 'he steps out'}]);
+	assert.equal((await game.world()).npc_presence['steven-knott'], undefined);
+	await game.call('table.narrate', {call_id: game.next(), text: '{{say:Steven Knott}}One more thing.{{/say}}'});
+	await game.call('table.player_input', {text: 'I turn around.'});
+	const row = ((await game.call('table.capsule', {})).unrecorded ?? []).find(entry => entry.npc === 'steven-knott');
+	assert.ok(row, 'someone taken off the board who speaks anyway is a gap');
+	assert.equal(row.at, null, 'and the row says the books have them off the board rather than naming a room');
+});
+
+test('a person the books already place in this room owes nothing', async t => {
+	const game = await table(t);
+	// Knott is seeded into the opening scene. He speaks from it; that is not a gap, and a section
+	// that reported it would be counting every ordinary line of dialogue in the campaign.
+	await game.call('table.narrate', {call_id: game.next(), text: '{{say:Steven Knott}}Sit down.{{/say}}'});
+	await game.call('table.player_input', {text: 'I sit.'});
+	const capsule = await game.call('table.capsule', {});
+	assert.deepEqual((capsule.unrecorded ?? []).filter(row => row.npc), []);
+});
+
+test('a span that stayed a label is passed over, because who counts as a person is not the kernel to decide', async t => {
+	const game = await table(t);
+	await game.call('table.narrate', {call_id: game.next(), text: '{{say:the voice on the line}}He is not here.{{/say}}'});
+	await game.call('table.player_input', {text: 'I hang up.'});
+	const capsule = await game.call('table.capsule', {});
+	assert.deepEqual((capsule.unrecorded ?? []).filter(row => row.npc), [],
+		'an unresolved speaker is not a person the Keeper is being told to mint');
+});
+
+test('a miss offers the people this table already has, so the Keeper can reuse a handle', async t => {
+	const game = await table(t);
+	await game.apply([{kind: 'npc', name: '门房', to: 'here', why: 'he is at the stair'}]);
+	// The Keeper reaches for the same man under a second appellation. Nothing decides they are one
+	// person -- that is the judgement this project forbids -- but the roster is offered.
+	let refused = null;
+	try { await game.call('table.look', {focus: 'npc', name: '管楼的'}); }
+	catch (thrown) { refused = thrown; }
+	assert.equal(refused?.code, 'unknown_entity');
+	assert.ok((refused.details?.candidates ?? []).some(candidate => candidate.name === '门房'),
+		`the roster of this table's own people is offered: ${JSON.stringify(refused.details?.candidates)}`);
+});
+
 test("an authored person's record is not where a table person ends up", async t => {
 	const game = await table(t);
 	await game.apply([{kind: 'npc', name: DOORMAN, to: 'here', why: 'he is at the stair'}]);

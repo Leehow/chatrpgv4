@@ -395,6 +395,16 @@ export class ModuleGraph {
             if (!ranked.includes(id))
                 ranked.push(id);
         }
+        // Last, and only after everything the query itself ranked: the people this table established
+        // (see `read/table-people.ts`). A Keeper who has called one man 管楼的, 门房, superintendent
+        // and the janitor makes four of him, because deciding those are one person is the open
+        // semantic judgement this project forbids and no code here will make it. What a roster does
+        // instead is give the Keeper the chance to pick a handle it already used -- a list, not a
+        // match. Nothing compares the query to these names; they are appended, so a genuine near-name
+        // is never displaced by one.
+        for (const id of this.tableNames.keys())
+            if (!ranked.includes(id) && (!kinds?.length || kinds.includes("npc")))
+                ranked.push(id);
         return ranked.slice(0, limit).map(id => this.describe(this.nodes.get(id)!));
     }
     describe(node: Row): Row {
