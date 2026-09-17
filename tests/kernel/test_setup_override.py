@@ -1,7 +1,7 @@
 """Manual numeric override from the card: rebuild, budgets, limits and audit (contract §23.4)."""
 import json
 
-from conftest import CAMPAIGN, campaign_dir, read_json
+from conftest import CAMPAIGN, RpcClient, campaign_dir, read_json
 from test_setup_drafts import profile, begin
 
 
@@ -248,11 +248,27 @@ def test_override_is_refused_once_the_campaign_left_setting_up(kernel):
     assert error["code"] == "invalid_params"
 
 
-def test_the_allocation_ledger_is_rewritten_to_the_manual_numbers(kernel):
+def test_the_allocation_ledger_is_rewritten_to_the_manual_numbers(tmp_path):
+    """The die is pinned here because this case is about the ledger, not about variance.
+
+    EDU is (2D6+6)x5, so it lands on 90 about one run in thirty-six, and on that roll the only way
+    left to move it was down — which shrinks an EDU*4 budget by forty points and made the five-point
+    raise below illegal. The case then failed on arithmetic it was not testing. `COC_KERNEL_SEED=7`
+    rolls EDU 65, so the edit has somewhere to go on every run.
+    """
+    kernel = RpcClient(tmp_path / "ws", env={"COC_KERNEL_SEED": "7"})
+    try:
+        _ledger_case(kernel)
+    finally:
+        kernel.close()
+
+
+def _ledger_case(kernel):
     draft = begin(kernel)
     sheet = draft["sheet"]
     edu = sheet["characteristics"]["EDU"]
-    new_edu = 90 if edu <= 85 else edu - 10
+    assert edu <= 85, "the pinned seed must leave room to raise EDU"
+    new_edu = 90
     held_library = sheet["skills"]["Library Use"] - 20
     result = kernel.ok("setup.override", {"campaign": CAMPAIGN, "revision": draft["revision"],
                                           "edits": {"characteristics": {"EDU": new_edu},
