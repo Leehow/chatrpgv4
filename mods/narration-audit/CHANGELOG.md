@@ -1,3 +1,8 @@
+# 1.2.21
+
+- Adopts the §101 runtime-file allowlist, so only `mod.json` and `auditor.md` enter campaign homes; the engineering changelog remains source evidence and is never projected by `mods.list`.
+- Removes retained campaign ids, run names, turn ranges and acceptance status from the runtime auditor prompt. The normative checked review rules and abstract examples remain unchanged.
+
 # 1.2.20
 
 - Add the checked `outcome_review` required only when `context.outcome_commitments` carries one or more current `passed:false` roll receipts. Its closed shape is `{verdict:pass|revise,basis:failed_rolls_respected|unsupported_positive_result,claims:[exact candidate excerpts]}`. A failed roll may carry consequences or uncertainty but cannot earn the positive action, perception, clue or fact it was meant to decide. `unsupported_positive_result` must revise, quote the candidate exactly and carry an actionable finding; a specific revision overrides an aggregate pass. Turns with no failed roll keep the previous artifact shape.

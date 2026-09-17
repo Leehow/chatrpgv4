@@ -20,7 +20,7 @@ async function loader(t) {
   const home = await mkdtemp(join(tmpdir(), 'npc-voice-manifest-'));
   t.after(() => rm(home, {recursive: true, force: true}));
   await build({
-    stdin: {contents: "export {manifestFrom, packageFiles} from './kernel-ts/read/mods.ts';", resolveDir: ROOT, loader: 'ts'},
+    stdin: {contents: "export {manifestFrom, packageFiles, runtimePackageFiles} from './kernel-ts/read/mods.ts';", resolveDir: ROOT, loader: 'ts'},
     outfile: join(home, 'mods.mjs'), bundle: true, packages: 'external', platform: 'node', format: 'esm',
     target: 'node22', logLevel: 'silent',
   });
@@ -29,18 +29,18 @@ async function loader(t) {
 
 const read = async name => JSON.parse(await readFile(join(PACKAGE, name), 'utf8'));
 
-/** The package ships what it says it ships: both instruction forms and its own changelog. */
-const files_of = files => ['mod.json', 'agent.md', 'brief.md', 'CHANGELOG.md'].every(name => files.has(name));
+/** §101: the runtime package ships both instruction forms and no engineering changelog. */
+const files_of = files => ['mod.json', 'agent.md', 'brief.md'].every(name => files.has(name)) && !files.has('CHANGELOG.md');
 
 test('the shipped npc-voice manifest is what §40.5 describes', async t => {
   const api = await loader(t);
   const loaded = api.manifestFrom(await api.packageFiles(PACKAGE));
 
   assert.equal(loaded.id, 'npc-voice');
-  assert.equal(loaded.version, '1.1.1');
+  assert.equal(loaded.version, '1.1.2');
   assert.equal(loaded.game_api, 'pipicoc.game.v1');
   assert.equal(loaded.default_enabled, true);
-  assert.deepEqual(loaded.requires, ['graph.vocabulary.v1', 'graph.vocabulary.table.v1', 'context.npc.v1']);
+  assert.deepEqual(loaded.requires, ['graph.vocabulary.v1', 'graph.vocabulary.table.v1', 'context.npc.v1', 'mods.package-files.v1']);
   assert.deepEqual(loaded.settings, {coarse_language: true});
   assert.equal(loaded.contributes.instructions, 'agent.md');
   assert.equal(loaded.contributes.brief, 'brief.md');
@@ -66,7 +66,8 @@ test('the shipped npc-voice manifest is what §40.5 describes', async t => {
   // A boolean setting is what the sidebar renders as a checkbox, so the schema names no enum.
   assert.equal('enum' in shipped.settings_schema.coarse_language, false);
 
-  assert.ok(files_of(await api.packageFiles(PACKAGE)));
+  const source = await api.packageFiles(PACKAGE);
+  assert.ok(files_of(api.runtimePackageFiles(source, loaded)));
 });
 
 test('the per-turn brief stays inside its 250-byte share of the §30.7 ceiling', async t => {

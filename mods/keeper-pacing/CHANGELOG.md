@@ -1,5 +1,8 @@
 # Keeper Pacing
 
+## 1.2.3
+- Adopts the §101 runtime-file allowlist; the engineering changelog is no longer frozen into campaign homes.
+
 ## 1.2.2
 - Reminders fit the combined budget after NPC-journal/provider integration; full guidance stays unchanged.
 

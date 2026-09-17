@@ -1,5 +1,9 @@
 # Story Thread
 
+## 1.2.10
+
+- Adopts the §101 runtime-file allowlist; the engineering changelog and its retained table evidence remain in the source tree rather than being copied into campaign homes.
+
 ## 1.2.9
 
 - **Deliberate design change (2026-09-15, contract §37.3): the projected reentry is steering, not a gate.** The Mod text now says so in the Keeper's own instruction. When the investigator's chosen action reaches the thread, take it; when they are confused about it, clarify what they already hold; when their chosen action is its own legitimate line, play that line, claim no evidence, and leave the reentry standing for a later turn. That is a lawful, delivered turn, reviewed as the new `chosen_action` basis with verdict `defer` (`narration-audit` 1.2.19). The Keeper must never open `source_rebinding`, invent a carrier, or claim evidence arrived merely to get a turn past the review, and must never withhold or distort the consequences of settled receipts because the bridge went unmet.

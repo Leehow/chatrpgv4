@@ -93,6 +93,70 @@ def test_future_contributions_do_not_break_the_current_catalog(kernel,tmp_path):
     assert kernel.ok("mods.context",{"campaign":CAMPAIGN})["active"]
 
 
+def test_mod_list_never_projects_engineering_changelogs(kernel):
+    """§101: the player-facing Mod surface is metadata, not a package-file reader."""
+    view = kernel.ok("mods.list")
+    assert view["mods"]
+    assert all("changelog" not in row for row in view["mods"])
+
+
+def test_scoped_package_freezes_only_declared_runtime_files(kernel, tmp_path):
+    """§101: source engineering notes do not enter a new package or its digest."""
+    root = package(tmp_path)
+    manifest = read_json(root / "mod.json")
+    manifest["requires"] = list(dict.fromkeys([*manifest["requires"], "mods.package-files.v1"]))
+    manifest["package_files"] = ["agent.md", "brief.md", "auditor.md"]
+    (root / "mod.json").write_text(json.dumps(manifest))
+
+    installed = kernel.ok("mods.install", {"path": str(root)})
+    frozen = kernel.workspace / ".coc" / "mods" / "packages" / "natural-npc" / NEXT
+    assert sorted(path.name for path in frozen.iterdir()) == ["agent.md", "auditor.md", "brief.md", "mod.json"]
+    assert not (frozen / "CHANGELOG.md").exists()
+
+    # The source notebook is outside the package identity: changing it cannot replace or fork the
+    # immutable installed version.
+    (root / "CHANGELOG.md").write_text("Engineering note from another acceptance run.\n")
+    reused = kernel.ok("mods.install", {"path": str(root)})
+    assert reused == {"id": "natural-npc", "version": NEXT, "reused": True}
+    assert len(installed["digest"]) == 64
+
+
+def test_legacy_all_files_package_keeps_its_historical_digest_and_lock(kernel, tmp_path):
+    """§101 compatibility: absence of the capability still means the immutable legacy format."""
+    open_turn(kernel)
+    narrate(kernel, "t1-c1", "We stop here.")
+    root = package(tmp_path)
+    manifest = read_json(root / "mod.json")
+    manifest["requires"] = [name for name in manifest["requires"] if name != "mods.package-files.v1"]
+    manifest.pop("package_files")
+    (root / "mod.json").write_text(json.dumps(manifest))
+
+    installed = kernel.ok("mods.install", {"path": str(root)})
+    frozen = kernel.workspace / ".coc" / "mods" / "packages" / "natural-npc" / NEXT
+    assert (frozen / "CHANGELOG.md").exists()
+    kernel.ok("mods.configure", {"campaign": CAMPAIGN, "id": "natural-npc", "version": NEXT})
+    active = next(row for row in kernel.ok("mods.list", {"campaign": CAMPAIGN})["mods"]
+                  if row["id"] == "natural-npc" and row["version"] == NEXT)["active"]
+    assert active["digest"] == installed["digest"]
+    assert kernel.ok("mods.context", {"campaign": CAMPAIGN})["active"]
+
+
+def test_scoped_package_refuses_an_incomplete_or_engineering_allowlist(kernel, tmp_path):
+    root = package(tmp_path)
+    manifest = read_json(root / "mod.json")
+    manifest["package_files"] = ["agent.md", "brief.md", "CHANGELOG.md"]
+    (root / "mod.json").write_text(json.dumps(manifest))
+    error = kernel.err("mods.install", {"path": str(root)})
+    assert error["code"] == "invalid_params"
+    assert "CHANGELOG.md" in error["message"]
+
+    manifest["package_files"] = ["agent.md", "brief.md"]  # referenced auditor.md is missing
+    (root / "mod.json").write_text(json.dumps(manifest))
+    error = kernel.err("mods.install", {"path": str(root)})
+    assert error["code"] == "invalid_params"
+    assert "contributes.auditor" in error["message"]
+
+
 def test_declared_setting_is_editable_and_invalid_option_is_atomic(kernel, tmp_path):
     open_turn(kernel)
     narrate(kernel,"t1-c1","我们停下来。")

@@ -34,8 +34,10 @@ async function packageDigest(directory) {
     }
   };
   await walk(directory);
+  const manifest = await readJson(join(directory, 'mod.json'));
+  const runtime = new Set(['mod.json', ...(manifest.package_files ?? paths.map(path => relative(directory, path).split('\\').join('/')))]);
   const digest = createHash('sha256');
-  for (const path of paths.sort()) {
+  for (const path of paths.sort().filter(path => runtime.has(relative(directory, path).split('\\').join('/')))) {
     digest.update(Buffer.from(relative(directory, path).split('\\').join('/')));
     digest.update(Buffer.from([0]));
     digest.update(createHash('sha256').update(await readFile(path)).digest());

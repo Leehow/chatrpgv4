@@ -7,7 +7,7 @@ import type { KernelContext } from '../context.js';
 import { RpcError } from '../errors.js';
 import { writeJsonAtomic } from '../fileio.js';
 import { isJsonObject, orderedObject, PythonFloat } from '../json.js';
-import { MOD_CAPABILITIES, buildVocabulary, packageFiles, packageDigest, manifestFrom, readModCatalog, activeMods, modProviders, effectiveMods,
+import { MOD_CAPABILITIES, buildVocabulary, packageFiles, packageDigest, manifestFrom, runtimePackageFiles, readModCatalog, activeMods, modProviders, effectiveMods,
   type ModCatalog, type UnavailablePackage } from '../read/mods.js';
 import { array, row, values, entries, string, truth, clone, equal, sorted, type Row } from '../read/values.js';
 import { readZipPackage } from './zip.js';
@@ -62,8 +62,6 @@ export function topologicalOrder(preferred: string[], active: Row[]): string[] {
   }
   return done;
 }
-const decodeText = (bytes: Buffer): string => new TextDecoder('utf-8', {fatal: true, ignoreBOM: true}).decode(bytes);
-
 export class ModRuntime {
   readonly root: string;
   /** Contract 41.2: what the most recent catalog read had to set aside. Diagnostic only -- never a
@@ -116,8 +114,8 @@ export class ModRuntime {
   async install(source: string): Promise<Row> {
     const expanded = source === '~' ? homedir() : source.startsWith('~/') ? join(homedir(), source.slice(2)) : source;
     const path = await realpath(resolve(expanded)).catch(() => resolve(expanded));
-    const files = await this.context.snapshots.isDirectory(path) ? await packageFiles(path) : await readZipPackage(path);
-    const manifest = manifestFrom(files), digest = packageDigest(files), previous = (await this.catalog()).get(`${manifest.id}\0${manifest.version}`);
+    const sourceFiles = await this.context.snapshots.isDirectory(path) ? await packageFiles(path) : await readZipPackage(path);
+    const manifest = manifestFrom(sourceFiles), files = runtimePackageFiles(sourceFiles, manifest), digest = packageDigest(files), previous = (await this.catalog()).get(`${manifest.id}\0${manifest.version}`);
     if (previous) {
       if (previous.digest !== digest) return invalid('An installed Mod version cannot be replaced with different bytes');
       await this.freeze(previous); return {id: manifest.id, version: manifest.version, reused: true};
@@ -233,7 +231,7 @@ export class ModRuntime {
       ...Object.fromEntries(['id', 'version', 'name', 'description', 'author', 'compatible', 'requires', 'dependencies', 'conflicts'].map(key => [key, mod[key]])),
       settings: mod.compatible ? mod.settings : {}, default_enabled: present(defaults, mod.id, mod.default_enabled),
       active: row(locks.active)[mod.id] ?? null, pending: row(locks.pending)[mod.id] ?? null,
-      settings_schema: mod.compatible ? mod.settings_schema ?? {} : {}, changelog: decodeText(mod.files.get('CHANGELOG.md') ?? Buffer.alloc(0)),
+      settings_schema: mod.compatible ? mod.settings_schema ?? {} : {},
     });
     return {game_api: GAME_API, capabilities: sorted(MOD_CAPABILITIES), mods, order: await this.order(world), pending_order: locks.pending_order ?? null,
       // Contract 41.2: a package that refused its own bytes is listed here rather than dropped, so the

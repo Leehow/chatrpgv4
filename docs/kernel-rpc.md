@@ -3769,10 +3769,13 @@ and unchanged. Player descriptions are generated in the campaign language.
 Packages contain `mod.json`, instructions, schemas and optional data/migrations.
 The manifest declares `id`, `version`, `game_api`, `state_version`, `name`,
 `description`, `author`, `default_enabled`, `requires`, `dependencies`, `conflicts`,
-`contributes`, and `settings`. Built-ins live in repository `mods/`; installed
+`contributes`, and `settings`; §101 scoped packages also declare `package_files`.
+Built-ins live in repository `mods/`; installed
 immutable versions in `<home>/.coc/mods/packages/<id>/<version>/`. A package digest
-covers all files. Local directory/ZIP installation rejects escaping paths,
-symlinks, executable payloads, oversized archives and replacement of existing
+covers all files in the immutable legacy format, or, under §101's
+`mods.package-files.v1`, covers `mod.json` plus the explicit runtime allowlist.
+Local directory/ZIP installation rejects escaping paths, symlinks, executable
+payloads, oversized archives and replacement of existing
 versions with different bytes. Installation does not activate or upgrade a save.
 
 Host-only methods: `mods.list {campaign?}`, `mods.install {path}`,
@@ -12848,3 +12851,51 @@ unearned fact, and the same roll receipt is not rerolled.
 Tests: `tests/extension/continuity-audit.test.mjs` pins context projection, mandatory shape,
 candidate-excerpt anchoring, pass/revise consistency, actionable findings and aggregate
 normalization. The narration-audit package version carrying the instruction is `1.2.20`.
+
+## 101. A Mod package contains runtime material, not the engineering notebook (2026-09-17, closes BUG-H64)
+
+The nine-grid evidence homes contained 490 frozen `CHANGELOG.md` copies. Those files named other
+campaign ids and turn ranges. The same source/ship boundary also let retained QA narratives live in
+`narration-audit/auditor.md`, which is not inert documentation: `mods.job` concatenates it into the
+private reviewer's system prompt. Finally, `mods.list` decoded every package's changelog and the Web
+panel rendered it below settings. Three different consumers therefore received one directory walk:
+the immutable lock, the model prompt and the player-facing panel. Hiding one panel row would leave
+the package and model leaks intact.
+
+The root is the legacy package rule in §26: every `.json` and `.md` below the source directory was a
+runtime file, part of the digest and copied into every campaign home. That default remains only for
+already frozen packages because their save locks pin its digest. Removing a file from those old
+digests would make retained campaigns unopenable, and mutating their frozen copies would destroy
+evidence.
+
+New packages opt into capability `mods.package-files.v1`. Such a manifest carries
+`package_files`, a duplicate-free list of normalized relative `.json`/`.md` paths. `mod.json` is
+implicit and must not be listed. Every file named by a known `contributes` file reference must be
+listed. `CHANGELOG.md` is engineering evidence and may not be listed. The kernel may read the source
+directory to validate the manifest, but digesting, installation and freezing use exactly
+`mod.json + package_files`; unlisted source files never enter `<home>/.coc/mods/packages`. A manifest
+that declares the field without the capability, or the capability without the field, refuses its
+own package. An older kernel sees the unknown capability and marks the package incompatible instead
+of reverting to the legacy all-files default.
+
+Legacy packages without the capability keep their historical all-files digest and remain readable
+without migration. A scoped version is therefore a new semantic version, never different bytes
+under an existing version. Changing an unlisted engineering file does not change the scoped package
+digest or replace its installed bytes.
+
+`mods.list` returns only player-safe manifest/projection fields. It never returns raw Markdown or a
+`changelog` field, for legacy or scoped packages. Release history remains developer material in the
+source tree. Runtime prompt files contain normative instructions and abstract examples only; real
+campaign ids, run names, turn ranges and acceptance status remain in the source changelog/evidence
+tree and are not copied into or shown to another campaign.
+
+The shipped built-ins all move to scoped package versions together so a new campaign cannot freeze a
+legacy all-files package merely because that Mod did not otherwise change. Existing campaign locks
+remain on their old versions until an explicit safe-boundary upgrade. H64 true-table acceptance is
+an explicit upgrade of the affected retained campaign, followed by a check that its active package
+directory and reviewer prompt carry no foreign table evidence and that the Mods panel exposes no
+changelog.
+
+Tests: `tests/kernel/test_mod_packages.py` pins legacy digest compatibility, scoped freezing and the
+player-safe list shape. `tests/extension/mod-package-boundary.test.mjs` checks every shipped manifest's
+runtime allowlist and the actual referenced prompt material.

@@ -1,6 +1,6 @@
 {
   "id": "story-thread",
-  "version": "1.2.9",
+  "version": "1.2.10",
   "game_api": "pipicoc.game.v1",
   "state_version": 1,
   "author": "PipiCOC",
@@ -14,7 +14,12 @@
   },
   "default_enabled": true,
   "requires": [
-    "context.thread.v1"
+    "context.thread.v1",
+    "mods.package-files.v1"
+  ],
+  "package_files": [
+    "agent.md",
+    "brief.md"
   ],
   "dependencies": {},
   "conflicts": [],

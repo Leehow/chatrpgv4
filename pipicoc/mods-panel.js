@@ -156,7 +156,7 @@ export function createComponent(React) {
                 : h("input", {...attributes,type:typeof fallback === "number" ? "number" : "text",defaultValue:current,
                     min:schema.minimum,max:schema.maximum,onBlur:e=>{const value=typeof fallback === "number" ? Number(e.target.value) : e.target.value; if(value!==current)change(value);}}));
             }),
-            h("p", {style:{whiteSpace:"pre-wrap"}}, row.changelog || description)));
+            h("p", {style:{whiteSpace:"pre-wrap"}}, description)));
       }),
       answer && h("button", {type:"button", style:{marginTop:16}, onClick:()=>setImporting(v=>!v)}, t("install")),
       importing && h("form", {style:{display:"flex", flexDirection:"column", gap:8, marginTop:12},

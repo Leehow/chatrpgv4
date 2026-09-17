@@ -1,5 +1,8 @@
 # Narration Craft
 
+## 1.2.2
+- Adopts the §101 runtime-file allowlist; the engineering changelog is no longer frozen into campaign homes.
+
 ## 1.2.1
 - The brief names the say token (contract §40): every line anyone speaks aloud sits inside `{{say:Name}}…{{/say}}`, so the frontend can draw it in its speaker's colour. Nothing else changes; the per-turn brief ceiling of §30.7 is 5000 bytes since §40.6.
 

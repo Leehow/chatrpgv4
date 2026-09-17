@@ -1,5 +1,10 @@
 # Natural NPC
 
+## 1.4.1
+
+Adopts the §101 runtime-file allowlist. Only the manifest and referenced Keeper/auditor instructions
+enter campaign homes; engineering history remains in the source tree.
+
 ## 1.4.0
 
 1.3.0 told the Keeper to stage the person first, which on the opening turn is advice it

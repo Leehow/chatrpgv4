@@ -1,8 +1,9 @@
 {
-  "id": "guided-creation", "version": "1.2.0", "game_api": "pipicoc.game.v1",
+  "id": "guided-creation", "version": "1.2.1", "game_api": "pipicoc.game.v1",
   "state_version": 1, "name": {"en": "Guided Creation", "zh-Hans": "引导建卡"}, "author": "PipiCOC",
   "description": {"en": "A short, player-paced exchange before the card is drafted; what the player says about the person decides who stands where on the card.", "zh-Hans": "出卡前先聊几句，节奏由你定；你对这个人的描述决定属性的高低。"},
-  "default_enabled": true, "requires": ["setup.guidance.v1", "setup.aptitude.v1"],
+  "default_enabled": true, "requires": ["setup.guidance.v1", "setup.aptitude.v1", "mods.package-files.v1"],
+  "package_files": ["guide.md", "slots.json"],
   "dependencies": {}, "conflicts": [],
   "settings": {"max_guided_turns": 3},
   "settings_schema": {"max_guided_turns": {"minimum": 1, "maximum": 6}},

@@ -1,5 +1,8 @@
 # NPC Voice
 
+## 1.1.2
+- Adopts the §101 runtime-file allowlist; the engineering changelog is no longer frozen into campaign homes.
+
 ## 1.1.1
 - A mask is not a stamp (chat bench table 2, 2026-09-16: the docker said 「老子喝完就走，伙计」 three times and growled from across the room every turn; the constable stacked all three of his habits in every line). The address term or the ending habit, not both in every sentence; no line said twice at a table; a bystander speaks only with something new. Distinguishability was already 41/41 on the lineup; this is for the other half of the ask, sounding like a person.
 

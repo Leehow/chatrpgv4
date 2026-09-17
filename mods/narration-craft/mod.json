@@ -1,6 +1,6 @@
 {
   "id": "narration-craft",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "game_api": "pipicoc.game.v1",
   "state_version": 1,
   "author": "PipiCOC",
@@ -13,7 +13,13 @@
     "zh-Hans": "把回合地板做成手艺——接住玩家的话、世界的回答、在场者开口、把回合交回去——按当场交流与在场者档案挑材料、NPC 用自己的声音说话、危机场景按顺序写、安静或友善的场景也算完整，另有可选的篇幅密度指引。"
   },
   "default_enabled": true,
-  "requires": [],
+  "requires": [
+    "mods.package-files.v1"
+  ],
+  "package_files": [
+    "agent.md",
+    "brief.md"
+  ],
   "dependencies": {},
   "conflicts": [],
   "settings": {

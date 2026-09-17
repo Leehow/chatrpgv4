@@ -1,3 +1,8 @@
+# 1.2.2
+
+Adopts the §101 runtime-file allowlist. The package bytes contain only the manifest and referenced
+runtime instructions; engineering history stays in the source tree.
+
 # 1.2.1
 
 Shortens the later-turn reminder so Mod instructions stay under the runtime budget.

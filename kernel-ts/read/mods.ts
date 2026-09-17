@@ -14,7 +14,7 @@ import { claimedEquipment, queuedDefinition, queuedRegistrations } from "../mods
 import {CONTINUITY_AUDIT} from '../mods/audit-result.js';
 import {USAGE_CAPABILITY, usageViews} from '../mods/usages.js';
 import {publicOffer} from '../mods/object-offer.js';
-export const MOD_CAPABILITIES = new Set(["audit.source.v1", "checks.percentile.v1", "context.npc.v1", "definitions.v1", "objects.v1", "objects.state.v2", "objects.adopt.v1", "objects.documents.v1", "mods.order.v1", "ui.documents.v1", "ui.documents.language.v1", "agents.tools.v1", "weapons.v1", "weapons.profile.v2", "spells.v1", "item-effects.v1", "setup.guidance.v1", "setup.aptitude.v1", "graph.vocabulary.v1", "graph.vocabulary.table.v1", "context.thread.v1", "context.pacing.v1"]);
+export const MOD_CAPABILITIES = new Set(["audit.source.v1", "checks.percentile.v1", "context.npc.v1", "definitions.v1", "objects.v1", "objects.state.v2", "objects.adopt.v1", "objects.documents.v1", "mods.order.v1", "mods.package-files.v1", "ui.documents.v1", "ui.documents.language.v1", "agents.tools.v1", "weapons.v1", "weapons.profile.v2", "spells.v1", "item-effects.v1", "setup.guidance.v1", "setup.aptitude.v1", "graph.vocabulary.v1", "graph.vocabulary.table.v1", "context.thread.v1", "context.pacing.v1"]);
 MOD_CAPABILITIES.add(CONTINUITY_AUDIT);
 MOD_CAPABILITIES.add(USAGE_CAPABILITY);
 const invalid = (message: string): never => {
@@ -202,6 +202,23 @@ export function manifestFrom(files: ReadonlyMap<string, Buffer>): Row {
             invalid(`${field} must be an object`);
     if (typeof manifest.default_enabled !== "boolean")
         invalid("default_enabled must be boolean");
+    const scoped = manifest.requires.includes("mods.package-files.v1"), declared = manifest.package_files;
+    if (scoped !== Array.isArray(declared))
+        invalid("mods.package-files.v1 and package_files must be declared together");
+    if (scoped) {
+        if (!declared.length || new Set(declared).size !== declared.length)
+            invalid("package_files must be a non-empty list of distinct runtime files");
+        for (const name of declared) {
+            if (typeof name !== "string" || !name || name.startsWith("/") || name.includes("\\")
+                || name.split("/").some(part => !part || part === "." || part === "..")
+                || ![".json", ".md"].includes(extname(name)) || !files.has(name))
+                invalid("package_files must name normalized package JSON or Markdown files");
+            if (name === "mod.json")
+                invalid("mod.json is implicit and must not appear in package_files");
+            if (name.split("/").at(-1)!.toLowerCase() === "changelog.md")
+                invalid("CHANGELOG.md is engineering evidence and cannot be a runtime package file");
+        }
+    }
     if (manifest.game_api !== "pipicoc.game.v1" || manifest.requires.some((cap: string) => !MOD_CAPABILITIES.has(cap)))
         return manifest;
     const ui = manifest.ui ?? {};
@@ -240,6 +257,13 @@ export function manifestFrom(files: ReadonlyMap<string, Buffer>): Row {
         const path = manifest.contributes[field];
         if (path != null && (typeof path !== "string" || !files.has(path) || !path.endsWith(".md")))
             invalid(`contributes.${field} must name a package Markdown file`);
+    }
+    if (scoped) {
+        for (const field of ["instructions", "brief", "setup_instructions", "setup_slots", "materializer", "auditor"]) {
+            const name = manifest.contributes[field];
+            if (typeof name === "string" && !declared.includes(name))
+                invalid(`package_files must include contributes.${field}`);
+        }
     }
     if (manifest.contributes.brief != null && manifest.contributes.instructions == null)
         invalid("contributes.brief is the per-turn form of contributes.instructions and needs it");
@@ -302,6 +326,14 @@ export function packageDigest(files: ReadonlyMap<string, Buffer>): string {
     }
     return digest.digest("hex");
 }
+/** §101: source trees may retain engineering material; a scoped package owns only its manifest and
+ * explicit runtime allowlist. Absence is the immutable legacy all-files format. */
+export function runtimePackageFiles(files: ReadonlyMap<string, Buffer>, manifest: Row): Map<string, Buffer> {
+    if (!array(manifest.requires).includes("mods.package-files.v1"))
+        return new Map(files);
+    return new Map(["mod.json", ...array(manifest.package_files).map(name => string(name))]
+        .map(name => [name, files.get(name)!]));
+}
 /** Contract 41.2: a package directory whose own bytes refuse to load. `id` and `version` are the
  *  directory's, which is what a lock names and where the repair goes; the manifest inside may not
  *  have parsed far enough to say anything. */
@@ -331,8 +363,9 @@ export async function readModCatalog(context: KernelContext): Promise<ModCatalog
     for (const entry of roots.sort((left, right) => compareUnicode(join(left.root, "mod.json"), join(right.root, "mod.json")))) {
         let files: Map<string, Buffer>, manifest: Row;
         try {
-            files = await packageFiles(entry.root);
-            manifest = manifestFrom(files);
+            const source = await packageFiles(entry.root);
+            manifest = manifestFrom(source);
+            files = runtimePackageFiles(source, manifest);
         }
         catch (error) {
             // Contract 41.2: one package's bytes are that package's own problem. This read is on the path of

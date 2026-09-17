@@ -1,6 +1,6 @@
 {
   "id": "enhanced-items",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "game_api": "pipicoc.game.v1",
   "state_version": 1,
   "author": "PipiCOC",
@@ -21,10 +21,17 @@
     "objects.adopt.v1",
     "objects.documents.v1",
     "mods.order.v1",
+    "mods.package-files.v1",
     "ui.documents.v1",
     "ui.documents.language.v1",
     "agents.tools.v1",
     "weapons.profile.v2"
+  ],
+  "package_files": [
+    "agent.md",
+    "brief.md",
+    "creator.md",
+    "auditor.md"
   ],
   "dependencies": {},
   "conflicts": [],

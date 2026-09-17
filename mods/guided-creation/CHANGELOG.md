@@ -1,5 +1,10 @@
 # Guided Creation
 
+## 1.2.1
+
+Adopts the §101 runtime-file allowlist. The package bytes contain only the manifest and referenced
+runtime guidance/data; engineering history stays in the source tree.
+
 ## 1.2.0
 
 The words place the array (contract §98). A stated aptitude no longer permutes
