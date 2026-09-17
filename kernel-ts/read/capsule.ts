@@ -454,7 +454,12 @@ export function investigatorSummary(sheet: Row): Row {
     // is never told is a balance it can mistake for a price. `stageCash` writes it, this projects it.
     const conditions = array(sheet.conditions).map(string), blocked = incapacitatedBy(conditions);
     const finance = row(sheet.finance), purse = row(finance.cash), spending = row(finance.spending_level);
+    // A card built outside the rulebook's bounds says so here (contract §97): the player asked for
+    // the strength, and the Keeper is told once, as a fact about this table, not as a fault.
+    const budget = row(row(sheet.creation).budget);
+    const nonStandard = budget.legal === false ? { non_standard_card: array(budget.notes).map((note: any) => typeof note === 'string' ? note : string(row(note).text)).filter(Boolean) } : {};
     return {
+        ...nonStandard,
         id: sheet.id ?? null,
         name: sheet.name ?? null,
         occupation: sheet.occupation ?? null,

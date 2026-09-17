@@ -208,7 +208,7 @@ export class SetupDrafts {
     const equipment = [...array(profile.equipment).map(string)];
     for (const weapon of weapons) if (!equipment.includes(weapon.name)) equipment.push(weapon.name);
     const creation: Row = {...generated.trace, skills: flow.ledger, allocation: chargen.allocationPolicy(null), interest_allocation: {...chargen.allocationPolicy(null, 'interest_allocation'), applied: 'spread'},
-      finance: financeTrace, equipment: {source: null, note: 'equipment.json records carry no occupation field; no default kit is invented'}, pins: clone(pins)};
+      finance: financeTrace, equipment: {source: null, note: 'equipment.json records carry no occupation field; no default kit is invented'}, pins: clone(pins), budget: clone(flow.budget)};
     const sheet: Row = {schema_version: 1, id: 'investigator', name: profile.name, occupation: profile.occupation, era: options.era, ...(options.authoredEra ? {setting_era: options.authoredEra} : {}),
       age: Object.hasOwn(profile, 'age') && profile.age != null ? profile.age : 27, sex: profile.sex ?? null,
       characteristics: Object.fromEntries(CHARACTERISTICS.map(key => [key, Math.trunc(number(generated.characteristics[key]))])), derived: generated.derived,

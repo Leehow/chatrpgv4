@@ -109,7 +109,6 @@ async function table(t, { contentRoot = join(root, 'content'), profile = PROFILE
 	const call = (method, params = {}) => runtime.handlers[method]({ campaign: 'c1', ...params });
 	await call('campaign.create', { id: 'c1', module: 'the-haunting', play_language: 'zh-Hans' });
 	const drafted = await call('setup.draft', { profile });
-	await call('setup.previewed', { revision: drafted.revision });
 	await call('setup.confirm', { revision: drafted.revision, consent: 'delegated' });
 	await call('setup.complete');
 	await call('table.open');

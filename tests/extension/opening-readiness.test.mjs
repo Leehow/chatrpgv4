@@ -227,7 +227,6 @@ test("the table opens on that book and the player's own words reach the turn rec
 		key_connection: { backstory_field: "significant_people", summary: "The editor friend" },
 		equipment: ["Press card", "Notebook", "Camera", "Flashlight"] };
 	const draft = await kernel.ok("setup.draft", { campaign, profile });
-	await kernel.ok("setup.previewed", { campaign, revision: draft.revision });
 	await kernel.ok("setup.confirm", { campaign, revision: draft.revision, consent: "approved" });
 
 	// The gate that stranded two real tables. It reads the same readiness the status above reports.
