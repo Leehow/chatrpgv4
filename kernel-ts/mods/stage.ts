@@ -14,6 +14,7 @@ import { initializeDocument, ownershipChanged, writeDocument } from './documents
 import { defineObject, moveObject, objectInstance, objectRegistry } from './objects.js';
 import { objectTransferReceipt, ownerLabel } from './object-transfer.js';
 import { clearOffer, openOffer, recordOffer, receiptsOf, validateDisposition, validateHandover } from './object-offer.js';
+import { divideObject, validateDivision } from './object-division.js';
 import { clearRegistration, queueAdoption, queueRegistration, queuedDefinition } from './queue.js';
 import type { ModJobs } from './jobs.js';
 import {registerUsage, validateUsage, validateUsageRequest} from './usages.js';
@@ -150,6 +151,10 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
         const names = {from: source ? ownerLabel(world, source) : '', to: ownerLabel(world, owner)};
         const disposition = validateDisposition(effect, prior, source, owner, names);
         const ground = validateHandover(effect, source, owner, receiptsOf(context.turn), disposition, names);
+        // Contract §97. How much of it. Recognised by arithmetic -- an existing stack and a quantity
+        // short of what it holds -- so that turn 109's call is answered instead of refused for a
+        // change of input there was none of.
+        const division = validateDivision(world, effect, prior, source, owner, disposition, names);
         if (disposition === 'made') {
             const item = prior ?? moveObject(world, name, effect.definition ?? null, source!, {source: null, turn, quantity: field(effect, 'quantity', 1)});
             recordOffer(item, source!, owner, ownerLabel(world, source!), ownerLabel(world, owner), turn, callId);
@@ -208,7 +213,9 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
                 if (Object.keys(value).length !== 2 || !Object.hasOwn(value, 'text') || !prior || !string(effect.why || '').trim()) throw new RpcError('invalid_params', 'Writing an existing document needs text and a causal why');
             } else seed = await jobs.documentSeed(graph, world, value);
         }
-        const item = moveObject(world, name, effect.definition ?? null, owner, {source, turn, quantity, condition: effect.condition ?? null, documentSeed: prior ? null : seed});
+        const item = division
+            ? divideObject(world, prior!, division, owner, turn)
+            : moveObject(world, name, effect.definition ?? null, owner, {source, turn, quantity, condition: effect.condition ?? null, documentSeed: prior ? null : seed});
         // The thing moved, so nothing is being held out any more -- including an offer made to a third
         // party, which this move has just answered by other means.
         if (openOffer(item)) clearOffer(item, turn);
@@ -236,8 +243,9 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
                 why: effect.why ?? null, call_id: callId};
             return {receipt, event: {type: 'resource-changed', data: {resource: receipt.resource, subject: receipt.subject, item: receipt.item, before: receipt.before, after: receipt.after}}};
         }
-        return objectTransferReceipt({world, id: mint(`item:${callId}`), callId, name, owner, source, quantity, item, definition, why: effect.why ?? null,
-            ...(ground ? {ground} : {}), ...(disposition ? {offer: disposition} : {})});
+        return objectTransferReceipt({world, id: mint(`item:${callId}`), callId, name: item.name, owner, source, quantity, item, definition, why: effect.why ?? null,
+            ...(ground ? {ground} : {}), ...(disposition ? {offer: disposition} : {}),
+            ...(division ? {divided: {from: string(prior!.name), remaining: prior!.quantity}} : {})});
     }
     if (kind === 'ability') {
         const owner = await objectOwner(campaign, graph, world, effect.to);

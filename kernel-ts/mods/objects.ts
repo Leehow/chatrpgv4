@@ -27,6 +27,21 @@ export function defineObject(world: Row, draft: Row, provenance: Row): Row {
     const id = `definition-${asciiSlug(value.name) || 'object'}-${Object.keys(definitions).length + 1}`;
     const definition = {...value, id, version: 1, digest, provenance: clone(provenance)}; definitions[id] = definition; return definition;
 }
+/**
+ * A container may not end up inside itself, nor inside anything it holds.
+ *
+ * Walking the chain from the prospective owner upwards is the whole check: the walk ends at a
+ * person or a place, and anything it meets twice -- or the instance being placed -- is a cycle.
+ * `divideObject` needs the same guard as `moveObject`, so it lives here rather than inside either.
+ */
+export function assertOwnershipChain(world: Row, owner: Row, instance: Row | null): void {
+    const data = objectRegistry(world), seen = new Set<string>();
+    let parent = owner;
+    while (parent.kind === 'object') {
+        if (seen.has(parent.id) || instance && parent.id === instance.id) throw new RpcError('invalid_params', 'An object cannot contain itself or form an ownership cycle');
+        seen.add(parent.id); parent = data.instances[parent.id].owner;
+    }
+}
 export function moveObject(world: Row, name: string, definitionName: string | null, owner: Row, options: {
     source: Row | null; turn: number; quantity?: any; condition?: any; documentSeed?: Row | null;
 }): Row {
@@ -34,11 +49,7 @@ export function moveObject(world: Row, name: string, definitionName: string | nu
     if (!integer(quantity) || quantity < 1 || quantity > 10000) throw new RpcError('invalid_params', 'Object quantity must be 1..10000');
     const data = objectRegistry(world), prior = objectInstance(world, name);
     if (condition !== null && !['intact', 'damaged', 'jammed', 'broken'].includes(condition)) throw new RpcError('invalid_params', 'Unknown physical object condition');
-    const seen = new Set<string>(); let parent = owner;
-    while (parent.kind === 'object') {
-        if (seen.has(parent.id) || prior && parent.id === prior.id) throw new RpcError('invalid_params', 'An object cannot contain itself or form an ownership cycle');
-        seen.add(parent.id); parent = data.instances[parent.id].owner;
-    }
+    assertOwnershipChain(world, owner, prior);
     if (prior) {
         if (source === null || !equal(prior.owner, source)) throw new RpcError('invalid_params', "Transfer must name this instance's current owner in from");
         if (definitionName !== null && data.definitions[prior.definition].name !== definitionName) throw new RpcError('invalid_params', 'Transfer cannot replace the instance definition');
