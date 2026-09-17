@@ -169,7 +169,8 @@ export class SetupDrafts {
       const cap = number(limits.skill_cap), floor = bases ? this.setup.chargen.skillBase(name, bases) : 0;
       if (number(value) > cap) throw new RpcError('needs', `${name} ${value} is above the starting cap ${cap}; pass limits.skill_cap to admit it`, {details: {field: name, range: [floor, cap], attempted: number(value), unlock: {skill_cap: number(value)}}});
       if (number(value) < floor) throw new RpcError('needs', `${name} ${value} is below its base chance ${floor}`, {details: {field: name, range: [floor, cap], attempted: number(value)}});
-      next.skills[name] = {value: Math.trunc(number(value)), by: origin};
+      // A model pin remembers its points above the base it had, so the value follows the characteristic later.
+      next.skills[name] = origin === 'model' && bases ? {value: Math.trunc(number(value)), by: origin, points: Math.trunc(number(value)) - floor} : {value: Math.trunc(number(value)), by: origin};
     }
     if (Object.hasOwn(numbers, 'credit_rating')) {
       const value = numbers.credit_rating;
@@ -359,10 +360,16 @@ export class SetupDrafts {
       const meta = await campaign.readCampaign(); this.settingUp(meta);
       const previous = await this.load(campaign, meta);
       if (!previous || !equal(params.revision, previous.revision)) throw new RpcError('idempotency_conflict', 'The override does not apply to the current draft', {codeDetail: 'stale_draft'});
-      const edits = params.edits;
+      const edits = params.edits ?? {};
       if (!isJsonObject(edits) || Object.keys(edits).some(key => !NUMBER_FIELDS.includes(key))) throw new RpcError('invalid_params', 'edits contains unknown fields', {details: {fields: [...NUMBER_FIELDS].sort()}});
+      // The card's edit control may also move skills between the occupation and interest lists:
+      // that is a words patch (`profile.occupation_skills` / `profile.interest_skills`) and the
+      // points re-flow around the pins exactly as a spoken revision would.
+      const profile = Object.hasOwn(params, 'profile') ? params.profile : undefined;
+      if (profile !== undefined && (!isJsonObject(profile) || Object.keys(profile).some(key => !['occupation_skills', 'interest_skills'].includes(key))))
+        throw new RpcError('invalid_params', 'the edit control changes only the skill lists of the profile', {details: {fields: ['interest_skills', 'occupation_skills']}});
       const limits = Object.hasOwn(params, 'limits_override') ? params.limits_override : undefined;
-      return this.reviseLocked(campaign, meta, previous, {campaign: params.campaign, numbers: edits, ...(limits !== undefined ? {limits} : {}), by: 'player'}, {dryRun: params.dry_run === true});
+      return this.reviseLocked(campaign, meta, previous, {campaign: params.campaign, numbers: edits, ...(profile !== undefined ? {profile} : {}), ...(limits !== undefined ? {limits} : {}), by: 'player'}, {dryRun: params.dry_run === true});
     });
   }
   /** The only call that rolls again (§98); the pins stay unless `keep_pins: false`. */

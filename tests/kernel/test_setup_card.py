@@ -214,7 +214,8 @@ def test_soft_allocations_are_sticky_and_only_the_biggest_holder_gives_way(kerne
 def test_a_pin_by_the_model_is_recorded_as_the_models(kernel):
     draft(kernel, criminal())
     card = kernel.ok("setup.revise", {"campaign": CAMPAIGN, "numbers": {"skills": {"Dodge": 60}}, "by": "model"})
-    assert card["pins"]["skills"]["Dodge"] == {"value": 60, "by": "model"}
+    assert card["pins"]["skills"]["Dodge"]["by"] == "model" and card["pins"]["skills"]["Dodge"]["value"] == 60
+    assert "points" in card["pins"]["skills"]["Dodge"], "a model pin remembers its points above the base"
 
 
 def test_a_pin_above_the_cap_asks_for_the_unlock_and_takes_it(kernel):
@@ -391,3 +392,55 @@ def test_a_reroll_spends_the_new_budget(kernel):
         rerolled = kernel.ok("setup.reroll", {"campaign": CAMPAIGN})
         assert rerolled["budget"]["occupation"]["unspent"] == 0 or rerolled["budget"]["occupation"]["unspent"] < 0 or all(
             rerolled["sheet"]["skills"][name] >= 75 for name in rerolled["sheet"]["creation"]["skills"]["occupation"]["resolved"]), rerolled["budget"]
+
+
+# ---- the live App test with the user watching (2026-09-17) -------------------------------------
+
+def modern(semantic):
+    semantic = dict(semantic); semantic["era"] = "modern"; return semantic
+
+
+def test_a_modern_card_lists_the_whole_standard_sheet_and_the_modern_only_skills(kernel):
+    """The App's 1975 card listed fifteen skills: the table prints a standard sheet for the 1920s only."""
+    card = draft(kernel, modern(criminal()))
+    assert card["sheet"]["era"] == "modern"
+    skills = card["sheet"]["skills"]
+    assert len(skills) > 40, len(skills)
+    assert "Computer Use" in skills and "Electronics" in skills and "Library Use" in skills
+
+
+def test_a_model_pin_follows_its_characteristic_and_a_player_pin_does_not(kernel):
+    """Dodge is half DEX in the rulebook. The host pinned Dodge on the player's word; when the
+    player then raises DEX on the card, Dodge rises with it. A value the player typed stays."""
+    first = draft(kernel, criminal())
+    by_model = kernel.ok("setup.revise", {"campaign": CAMPAIGN, "numbers": {"skills": {"Dodge": 60}}, "by": "model"})
+    dex = by_model["sheet"]["characteristics"]["DEX"]
+    assert by_model["pins"]["skills"]["Dodge"]["points"] == 60 - dex // 2
+    raised = kernel.ok("setup.revise", {"campaign": CAMPAIGN, "numbers": {"characteristics": {"DEX": 90}}})
+    assert raised["sheet"]["skills"]["Dodge"] == min(45 + (60 - dex // 2), 75)
+    typed = kernel.ok("setup.revise", {"campaign": CAMPAIGN, "numbers": {"skills": {"Dodge": 70}}})
+    lowered = kernel.ok("setup.revise", {"campaign": CAMPAIGN, "numbers": {"characteristics": {"DEX": 50}}})
+    assert lowered["sheet"]["skills"]["Dodge"] == 70, "a number the player typed is the number"
+
+
+def test_the_budget_reports_the_characteristic_points_against_the_point_buy_reference(kernel):
+    card = draft(kernel, criminal())
+    chars = card["sheet"]["characteristics"]
+    total = sum(chars[a] for a in ("STR", "CON", "SIZ", "DEX", "APP", "INT", "POW", "EDU"))
+    assert card["budget"]["characteristics"] == {"total": 460, "spent": total, "unspent": 460 - total, "source": "characteristic-dice.generation_methods.point_buy_460"}
+
+
+def test_the_edit_control_can_move_a_skill_between_the_lists_and_the_points_reflow(kernel):
+    """The player asked to choose occupation and interest skills by hand on the card (2026-09-17)."""
+    first = draft(kernel, criminal())
+    moved = kernel.ok("setup.override", {"campaign": CAMPAIGN, "revision": first["revision"], "edits": {},
+                                         "profile": {"occupation_skills": ["Dodge", "Fighting (Brawl)", "Firearms (Handgun)", "Stealth", "Disguise", "Psychology", "Spot Hidden", "Sleight of Hand"],
+                                                     "interest_skills": ["Drive Auto", "Throw", "Climb"]}})
+    ledger = moved["sheet"]["creation"]["skills"]
+    assert "Dodge" in ledger["occupation"]["resolved"] and "Drive Auto" in ledger["interest"]["pool"]
+    assert "Dodge" in ledger["occupation"]["allocations"], "an occupation skill takes occupation points"
+    assert "Dodge" not in ledger["interest"]["allocations"]
+    assert moved["budget"]["occupation"]["unspent"] >= 0
+    assert moved["sheet"]["characteristics"] == first["sheet"]["characteristics"]
+    refused = kernel.err("setup.override", {"campaign": CAMPAIGN, "revision": moved["revision"], "edits": {}, "profile": {"name": "x"}})
+    assert refused["code"] == "invalid_params"

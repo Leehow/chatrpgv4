@@ -13,7 +13,7 @@ import type { ResolvedDifficulty } from './difficulty.js';
 
 export const PIN_ORIGINS = Object.freeze(['player', 'model']);
 export const LIMIT_FIELDS = Object.freeze(['characteristic_min', 'characteristic_max', 'skill_cap', 'occupation_points', 'interest_points']);
-export interface Pin { value: number; by: string }
+export interface Pin { value: number; by: string; points?: number }
 export interface Pins { characteristics: Record<string, Pin>; skills: Record<string, Pin>; credit_rating?: Pin }
 export interface Soft { occupation: Record<string, number>; interest: Record<string, number> }
 export const emptyPins = (): Pins => ({characteristics: {}, skills: {}});
@@ -50,8 +50,13 @@ export function flowSkills(chargen: Chargen, input: FlowInput): Flow {
   const bound = (key: string, fallback: number): number => Object.hasOwn(relax, key) ? Math.trunc(number(relax[key])) : fallback;
   const cap = bound('skill_cap', diff ? diff.effectiveCap(chargen.cap) : chargen.cap);
   const [occupationName, spec] = chargen.occupation(input.occupation);
-  const standard = row(row(chargen.skillsDoc.standard_sheet)[input.era]);
-  const sheetIds: string[] = Object.keys(standard).length ? array(standard.default_skill_ids).map(string) : [];
+  // The era's standard sheet, or the one sheet the table prints when the era has none (a 1975 card
+  // is built on the modern finance period, which prints no sheet of its own) plus every skill the
+  // catalog marks modern-only, so a modern card lists Computer Use and Electronics beside the rest.
+  const sheets = row(chargen.skillsDoc.standard_sheet), standard = row(sheets[input.era]);
+  const fallback = Object.keys(standard).length ? standard : row(Object.values(sheets)[0]);
+  const sheetIds: string[] = Object.keys(fallback).length ? array(fallback.default_skill_ids).map(string) : [];
+  if (!Object.keys(standard).length) for (const [name, spec] of entries(chargen.skillTable)) if (row(spec).modern_only === true && !sheetIds.includes(name)) sheetIds.push(name);
   const occupational = input.occupationSkills.filter(name => name !== 'Credit Rating');
   const listed: string[] = [];
   for (const name of [...sheetIds, ...occupational, ...input.interestSkills, ...Object.keys(pins.skills)]) if (name !== 'Credit Rating' && !listed.includes(name)) listed.push(name);
@@ -71,7 +76,15 @@ export function flowSkills(chargen: Chargen, input: FlowInput): Flow {
   const interestTotal = bound('interest_points', diff ? diff.adjustBudget('interest', interestFormula.total) : interestFormula.total);
   const policy = chargen.allocationPolicy(null), interestPolicy = chargen.allocationPolicy(null, 'interest_allocation');
   const isOccupational = new Set(occupational);
-  const pinned = (name: string): number => Math.max(0, number(pins.skills[name].value) - number(base[name]));
+  // A pin the player typed is the value they typed. A pin the model set on the player's word is the
+  // points above the base it had then, so a skill whose base follows a characteristic (Dodge is half
+  // DEX, Language (Own) is EDU) moves with that characteristic, the way the rulebook links them.
+  const pinValue = (name: string): number => {
+    const pin = pins.skills[name];
+    if (pin.by === 'model' && typeof (pin as Row).points === 'number') return Math.min(number(base[name]) + number((pin as Row).points), Math.max(cap, number(base[name])));
+    return number(pin.value);
+  };
+  const pinned = (name: string): number => Math.max(0, pinValue(name) - number(base[name]));
   /** The list is the player's priority statement: when the members it already had come in a new
    *  order, the machine's share of that pool is re-spread from the front; an addition at the end
    *  only takes what is left. */
@@ -110,7 +123,7 @@ export function flowSkills(chargen: Chargen, input: FlowInput): Flow {
   const [occupationSoft, occupationSpent, occupationUnspent] = pool(occupational, occupational, input.previous?.soft.occupation ?? {}, input.previous?.occupationSkills ?? [], occupationTotal - credit, policy.tiers);
   const [interestSoft, interestSpent, interestUnspent] = pool(others, input.interestSkills.filter(name => !isOccupational.has(name)), input.previous?.soft.interest ?? {}, input.previous?.interestSkills ?? [], interestTotal, interestPolicy.tiers);
   const skills: Row = {};
-  for (const name of listed) skills[name] = Object.hasOwn(pins.skills, name) ? number(pins.skills[name].value) : number(base[name]) + (occupationSoft[name] ?? interestSoft[name] ?? 0);
+  for (const name of listed) skills[name] = Object.hasOwn(pins.skills, name) ? pinValue(name) : number(base[name]) + (occupationSoft[name] ?? interestSoft[name] ?? 0);
   skills['Credit Rating'] = credit;
   const above = (name: string): number => number(skills[name]) - number(base[name]);
   const ledger: Row = {
@@ -133,7 +146,11 @@ export function flowSkills(chargen: Chargen, input: FlowInput): Flow {
   const overCap = listed.filter(name => number(skills[name]) > cap);
   if (overCap.length) notes.push({code: 'above_cap', cap, skills: overCap, text: `above the starting cap ${cap}: ${overCap.join(', ')}`});
   const legal = occupationUnspent >= 0 && interestUnspent >= 0 && !overCap.length && !LIMIT_FIELDS.some(key => Object.hasOwn(relax, key)) && !notes.some(note => note.code === 'credit_out_of_range');
+  const pointBuy = Math.trunc(number(row(row(chargen.dice.generation_methods).point_buy_460).total_budget, 460));
+  const characteristicSpent = sum(chargen.characteristics.map(abbr => number(characteristics[abbr])));
   const budget = {occupation: {total: occupationTotal, spent: credit + occupationSpent, unspent: occupationUnspent},
-    interest: {total: interestTotal, spent: interestSpent, unspent: interestUnspent}, legal, notes};
+    interest: {total: interestTotal, spent: interestSpent, unspent: interestUnspent},
+    characteristics: {total: pointBuy, spent: characteristicSpent, unspent: pointBuy - characteristicSpent, source: 'characteristic-dice.generation_methods.point_buy_460'},
+    legal, notes};
   return {skills: Object.fromEntries(entries(skills).sort(([a], [b]) => compareUnicode(a, b))), credit, soft: {occupation: occupationSoft, interest: interestSoft}, ledger, budget, cap};
 }
