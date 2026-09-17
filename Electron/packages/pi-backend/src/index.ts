@@ -893,6 +893,10 @@ type Live = {
    * case may turn an interrupted UI back into a completed one.
    */
   hostAbortedTurn?: boolean;
+  /** When the host last abandoned a call on this turn (contract §94). */
+  hostAbortedTurnAt?: number;
+  /** When the current turn's most recent assistant message began (contract §94). */
+  assistantMessageStartedAt?: number;
   /** A PipiCOC watchdog abort has a durable cold-process recovery handoff. */
   watchdogRecoveryArmed?: boolean;
   /** Identity-safe kill retries for one watchdog epoch. */
@@ -959,6 +963,30 @@ export function classifyCompactionTrigger(args: {
   // Unknown/missing reason on a real lifecycle event: leave unclassified so the
   // renderer's explicit "自动压缩" fallback applies.
   return undefined;
+}
+/**
+ * Contract §94: does the host's abandonment of this turn still cover the silence being measured?
+ *
+ * `hostAbortedTurn` is cleared only at `agent_start`, and a *continuation* (`agent.continue()`, which
+ * is what a queued or steered message produces) emits no `agent_start`. So a call that goes in flight
+ * after an abort inherits the aborted turn's flag, and the watchdog's own guard then reads that flag
+ * as "this turn has been dealt with" and declines to cut it -- for as long as the process lives.
+ *
+ * M-MAIN `game-3dd94f0a` turn 117, 2026-09-17: the first call was cut at 124 s
+ * (`turn watchdog aborting silent run ... idleMs=124147`), a second went out 54 ms later, answered 200
+ * and then streamed nothing, and no deadline was ever spent on it; the turn stood `acting` for 23
+ * minutes. The abandonment belongs to the call it cut, not to the turn: once a new assistant message
+ * has begun, that silence is a new one and is owed its own deadline.
+ */
+export function abandonmentStillCoversTheSilence(live: {
+  hostAbortedTurn?: boolean;
+  hostAbortedTurnAt?: number;
+  assistantMessageStartedAt?: number;
+}): boolean {
+  if (live.hostAbortedTurn !== true) return false;
+  // An abort with no recorded time is the conservative case: treat it as covering, exactly as before.
+  if (live.hostAbortedTurnAt === undefined) return true;
+  return !(live.assistantMessageStartedAt !== undefined && live.assistantMessageStartedAt > live.hostAbortedTurnAt);
 }
 /** Main-turn watchdog: turnActive with no event for this long is wedged. */
 export const TURN_WATCHDOG_TIMEOUT_MS = 120_000;
@@ -3418,6 +3446,9 @@ export class PiHostBackend implements HostBackend {
       && (!live || live.turnEpoch !== options.expectedEpoch || live.terminalEpoch === options.expectedEpoch)) return;
     if (live) {
       live.hostAbortedTurn = true;
+      // §94: which call was abandoned, not merely that one was. The watchdog compares this against the
+      // start of the newest assistant message to tell "still the silence I cut" from "a new one".
+      live.hostAbortedTurnAt = Date.now();
       if (options.drain === "watchdog") {
         if (!live.watchdogRecoveryArmed) live.watchdogEscalationRetries = 0;
         live.watchdogRecoveryArmed = true;
@@ -6252,9 +6283,15 @@ export class PiHostBackend implements HostBackend {
       && e.type === "message_start" && e.message?.role === "assistant") {
       this.rpcEvent(live, {type: "agent_start"});
     }
+    // §94: the only event that says a provider call has gone in flight. A continuation emits no
+    // `agent_start`, so this, and not the turn boundary, is what tells the watchdog that the silence
+    // it is about to measure began after the last abandonment and is owed its own deadline.
+    if (e.type === "message_start" && e.message?.role === "assistant") live.assistantMessageStartedAt = Date.now();
     if (e.type === "agent_start") {
       live.cocSetupHandoffPending=false;
       live.hostAbortedTurn = false;
+      live.hostAbortedTurnAt = undefined;
+      live.assistantMessageStartedAt = undefined;
       live.watchdogRecoveryArmed = false;
       live.watchdogEscalationRetries = 0;
       live.compaction.cancel();
@@ -7143,7 +7180,9 @@ export class PiHostBackend implements HostBackend {
         || !this.queue.isBusy(live.session.id) || current.toolNames.size > 0) continue;
       const stillOpen = epoch !== undefined && current.terminalEpoch !== epoch;
       if (tailState !== "terminal") {
-        if (!stillOpen || tailState === "tool" || current.hostAbortedTurn || !privateCoc) {
+        // §94: `abandonmentStillCoversTheSilence`, not `hostAbortedTurn`. The flag alone latched the
+        // watchdog off for the rest of the turn, so the call bought after an abort had no deadline.
+        if (!stillOpen || tailState === "tool" || abandonmentStillCoversTheSilence(current) || !privateCoc) {
           console.warn(`[pipi-backend] turn watchdog no tail terminal session=${this.projectionDebugSessionTag(live.session.id)} epoch=${epoch} tail=${tailState}`);
           continue;
         }

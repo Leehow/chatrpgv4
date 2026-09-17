@@ -3,7 +3,7 @@ import { access, mkdtemp, mkdir, rm, stat, writeFile, appendFile } from "node:fs
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { createPiHostBackend, TURN_WATCHDOG_TIMEOUT_MS } from "../src/index.js";
+import { abandonmentStillCoversTheSilence, createPiHostBackend, TURN_WATCHDOG_TIMEOUT_MS } from "../src/index.js";
 
 let root = "";
 afterEach(async () => { if (root) await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 25 }); root = ""; });
@@ -457,6 +457,91 @@ describe("turn watchdog (fix 3)", () => {
 
     off();
     await backend.close();
+  });
+
+  it("gives the call bought after an abandonment its own deadline", async () => {
+    // Contract §94. M-MAIN `game-3dd94f0a` turn 117, 2026-09-17: the watchdog cut a silent call at
+    // 124 s, a second call went out 54 ms later, answered 200 and then streamed nothing, and no
+    // deadline was ever spent on it -- the turn stood `acting` for 23 minutes. The reason is here:
+    // `hostAbortedTurn` is cleared only at `agent_start`, and the continuation that carried the
+    // second call emitted none, so the guard below read the first abandonment as covering the
+    // second silence for the rest of the process's life.
+    const { backend } = await fixture({
+      // The escalation ladder must not replace Pi while this test is still driving the same live.
+      stopEscalationDelays: { termDescendantsMs: 60_000, killDescendantsMs: 60_000, killPiMs: 60_000 },
+    });
+    const statuses: string[] = [];
+    const off = backend.subscribe(e => { if (e.channel === "stream" && e.event.type === "status") statuses.push(e.event.status); });
+
+    // `__hold_stuck__` answers the abort without `agent_settled`, which is turn 117's shape: the run
+    // did not settle, it continued. It also makes `stopped` mean one thing only — a host abort.
+    await backend.handle("sendPrompt", ["s1", "__hold_stuck__"]);
+    await eventually(() => statuses.includes("started"));
+    // The fake acknowledges the prompt before its final same-chunk activity events have all reached
+    // the backend; backdating any earlier is simply overwritten by them.
+    await new Promise(resolve => setTimeout(resolve, 50));
+    const live = (backend as any).live.get("s1");
+    live.lastTurnActivityAt = Date.now() - (TURN_WATCHDOG_TIMEOUT_MS + 5_000);
+
+    await (backend as any).checkTurnWatchdogs();
+    await eventually(() => statuses.filter(status => status === "stopped").length === 1);
+    expect(live.hostAbortedTurn).toBe(true);
+    expect(live.hostAbortedTurnAt).toEqual(expect.any(Number));
+    // The turn is still the host's to watch: a watchdog abort deliberately leaves the queue gate
+    // held and the epoch open until the extension settles or the process is replaced.
+    expect((backend as any).queue.isBusy("s1")).toBe(true);
+    expect(live.terminalEpoch).not.toBe(live.turnEpoch);
+
+    // The continuation: a new assistant message on the same run, with no `agent_start` behind it —
+    // exactly what `agent.continue()` produces for a steered or queued message.
+    (backend as any).rpcEvent(live, { type: "message_start", message: { role: "assistant", content: [], timestamp: Date.now() } });
+    expect(live.assistantMessageStartedAt).toBeGreaterThan(live.hostAbortedTurnAt);
+    live.lastTurnActivityAt = Date.now() - (TURN_WATCHDOG_TIMEOUT_MS + 5_000);
+
+    await (backend as any).checkTurnWatchdogs();
+    await eventually(() => statuses.filter(status => status === "stopped").length === 2);
+
+    off();
+    await backend.close();
+  });
+
+  it("does not spend a second deadline on the silence it already cut", async () => {
+    // The other direction, and the reason the guard cannot simply be deleted: with no new assistant
+    // message the second sweep is measuring the same silence, and cutting it again would abort a
+    // turn the host is already replacing.
+    const { backend } = await fixture({
+      stopEscalationDelays: { termDescendantsMs: 60_000, killDescendantsMs: 60_000, killPiMs: 60_000 },
+    });
+    const statuses: string[] = [];
+    const off = backend.subscribe(e => { if (e.channel === "stream" && e.event.type === "status") statuses.push(e.event.status); });
+
+    await backend.handle("sendPrompt", ["s1", "__hold_stuck__"]);
+    await eventually(() => statuses.includes("started"));
+    // The fake acknowledges the prompt before its final same-chunk activity events have all reached
+    // the backend; backdating any earlier is simply overwritten by them.
+    await new Promise(resolve => setTimeout(resolve, 50));
+    const live = (backend as any).live.get("s1");
+    live.lastTurnActivityAt = Date.now() - (TURN_WATCHDOG_TIMEOUT_MS + 5_000);
+    await (backend as any).checkTurnWatchdogs();
+    await eventually(() => statuses.filter(status => status === "stopped").length === 1);
+
+    live.lastTurnActivityAt = Date.now() - (TURN_WATCHDOG_TIMEOUT_MS + 5_000);
+    await (backend as any).checkTurnWatchdogs();
+    await new Promise(resolve => setTimeout(resolve, 50));
+    expect(statuses.filter(status => status === "stopped")).toHaveLength(1);
+
+    off();
+    await backend.close();
+  });
+
+  it("abandonmentStillCoversTheSilence reads one call, not the turn", () => {
+    expect(abandonmentStillCoversTheSilence({})).toBe(false);
+    expect(abandonmentStillCoversTheSilence({ hostAbortedTurn: true })).toBe(true);
+    expect(abandonmentStillCoversTheSilence({ hostAbortedTurn: true, hostAbortedTurnAt: 100 })).toBe(true);
+    expect(abandonmentStillCoversTheSilence({ hostAbortedTurn: true, hostAbortedTurnAt: 100, assistantMessageStartedAt: 90 })).toBe(true);
+    expect(abandonmentStillCoversTheSilence({ hostAbortedTurn: true, hostAbortedTurnAt: 100, assistantMessageStartedAt: 100 })).toBe(true);
+    expect(abandonmentStillCoversTheSilence({ hostAbortedTurn: true, hostAbortedTurnAt: 100, assistantMessageStartedAt: 101 })).toBe(false);
+    expect(abandonmentStillCoversTheSilence({ hostAbortedTurn: false, hostAbortedTurnAt: 100, assistantMessageStartedAt: 101 })).toBe(false);
   });
 
   it("isSessionTailTerminal distinguishes stop vs tool_use", async () => {
