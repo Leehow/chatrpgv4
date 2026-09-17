@@ -12791,6 +12791,9 @@ model follows it:
   final value, which is converted into the skill's own column. Occupation points on a skill
   outside the list are `needs` with `details.column`, and they fall away when the skill leaves the
   list. The ledger reports `bases`, both `allocations` columns (pinned or soft) and `custom`.
+  A pin a draft stored before this addendum as `{value, by}` alone is read into the skill's own
+  column when the draft is next revised (the value minus the base), never sunk to its base and
+  never written back without columns.
 - **Custom skills.** `profile.custom_skills: [{name, base}]` lists skills the player invented; a
   name the catalog knows is that skill and joins the interest list instead; a language is its
   catalog form `Language (Other: X)`. A custom skill is listed on the sheet at its base, takes

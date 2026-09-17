@@ -20,6 +20,24 @@ export interface SkillPin { by: string; occupation: number; interest: number; va
 export interface Pins { characteristics: Record<string, Pin>; skills: Record<string, SkillPin>; credit_rating?: Pin }
 export interface Soft { occupation: Record<string, number>; interest: Record<string, number> }
 export const emptyPins = (): Pins => ({characteristics: {}, skills: {}});
+/**
+ * A skill pin as the worksheet reads it: two columns of points and the total they make.
+ *
+ * A card drawn before the worksheet had columns stored a pin as `{value, by}` alone (§98 addendum 2).
+ * Read back today, that pin has no points in either column, so the flow would sink the skill to its
+ * base and an edit would carry `undefined` into the file. Its points go into the skill's own column,
+ * the way a final number spoken to the model does; a pin that already has a column is kept as it is.
+ */
+export function pinColumns(pin: Row, floor: number, own: 'occupation' | 'interest'): SkillPin {
+  const by = string(pin.by || 'player');
+  if (Number.isInteger(pin.occupation) || Number.isInteger(pin.interest)) {
+    const columns: SkillPin = {by, occupation: Math.max(0, Math.trunc(number(pin.occupation ?? 0))), interest: Math.max(0, Math.trunc(number(pin.interest ?? 0)))};
+    return Number.isInteger(pin.value) ? {...columns, value: Math.trunc(number(pin.value))} : columns;
+  }
+  const columns: SkillPin = {by, occupation: 0, interest: 0};
+  columns[own] = Math.max(0, Math.trunc(number(pin.value ?? floor)) - floor);
+  return {...columns, value: floor + columns[own]};
+}
 const sum = (values: Iterable<number>): number => [...values].reduce((total, value) => total + value, 0);
 
 export interface FlowInput {

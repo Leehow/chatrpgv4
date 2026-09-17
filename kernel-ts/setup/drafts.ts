@@ -21,7 +21,7 @@ import type { Setup } from './index.js';
 import { ChargenError, resolveRulebookEra } from './chargen.js';
 import type { ResolvedDifficulty } from './difficulty.js';
 import { BACKSTORY, completeness, nonempty } from './sheet.js';
-import { flowSkills, limitsOf, emptyPins, LIMIT_FIELDS, PIN_ORIGINS, type Pins, type Soft, type SkillPin } from './card.js';
+import { flowSkills, limitsOf, emptyPins, pinColumns, LIMIT_FIELDS, PIN_ORIGINS, type Pins, type Soft, type SkillPin } from './card.js';
 const NOTE_VALUE_LIMIT = 400;
 const FIELDS = ['name', 'occupation', 'age', 'sex', 'concept', 'occupation_skills', 'interest_skills', 'custom_skills', 'own_language', 'backstory', 'key_connection', 'equipment', 'weapons', 'era', 'aptitude', 'occupation_stated'];
 /** The points a pin may carry: the two columns of the worksheet. */
@@ -351,9 +351,12 @@ export class SetupDrafts {
     const {era, authoredEra} = await this.eraFor(profile, {...meta, id: campaign.id});
     const relax = this.relaxFrom(params.limits, isJsonObject(previous.limits_override) ? previous.limits_override : {});
     const bounds = {...limitsOf(this.setup.chargen, row(previous.sheet), relax), ...this.boundsFor(profile.occupation, meta.difficulty ?? null, relax)};
+    const sheetOf = this.sheetOf(profile), bases = row(row(previous.sheet).characteristics);
     const priorPins: Pins = isJsonObject(previous.pins) ? clone(previous.pins) as unknown as Pins : emptyPins();
-    const pins = this.pinsFrom(params.numbers, params.by, priorPins, bounds, row(row(previous.sheet).characteristics), bounds.credit_rating_range,
-      this.setup.chargen.difficultyPolicy(row(row(previous.sheet).creation).difficulty ?? meta.difficulty ?? null), relax, this.sheetOf(profile));
+    // A pin stored before the worksheet had columns is read into them here, so the file it is written back to has them.
+    for (const [name, pin] of entries(priorPins.skills)) priorPins.skills[name] = pinColumns(row(pin), sheetOf.custom.has(name) ? number(sheetOf.custom.get(name)) : this.setup.chargen.skillBase(name, bases), sheetOf.occupational.has(name) ? 'occupation' : 'interest');
+    const pins = this.pinsFrom(params.numbers, params.by, priorPins, bounds, bases, bounds.credit_rating_range,
+      this.setup.chargen.difficultyPolicy(row(row(previous.sheet).creation).difficulty ?? meta.difficulty ?? null), relax, sheetOf);
     // A pin's occupation points fall away when the skill leaves the occupation list (the worksheet has no such column there).
     for (const [name, pin] of entries(pins.skills)) if (number(row(pin).occupation) > 0 && !profile.occupation_skills.includes(name)) pins.skills[name] = {...row(pin) as unknown as SkillPin, occupation: 0};
     // A skill pinned by name joins the interest list when the card did not list it, so it has a pool.
