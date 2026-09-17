@@ -527,7 +527,7 @@ export class CocOnboardingHost {
    * this method therefore cannot retry at all: it joins the job it already failed and re-awaits
    * the same rejection. Retrying inside keeps the job unsettled while attempts remain, so the
    * poll goes on answering `{pending:true}` and the mailbox only ever holds a final failure
-   * (§71).
+   * (§72).
    */
   private runPresentation(data:Row):Promise<Row> {
     const limit=Number(this.options.env.PI_COC_PRESENTATION_DEADLINE_MS)||PRESENTATION_DEADLINE_MS;

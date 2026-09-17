@@ -9719,7 +9719,7 @@ with the opening unread; the class budget trips, a later block carries the
 harder line, one `runaway` row with `after: "refusal_budget"` is recorded, and
 the run stops before the fourteenth. It fails if the block stops counting.
 
-## 71. The card has to reach the table (2026-09-17)
+## 72. The card has to reach the table (2026-09-17)
 
 Acceptance play, PDF module. Character creation talked fine, the Keeper wrote
 the whole sheet out as prose — and then stopped, saying it could not press
@@ -9743,7 +9743,7 @@ PDF module          coc-character-draft ×2 → setup.confirm ×8 → nothing
 Both payloads were 11.9 KB with `completeness: {valid: true, issues: []}`. The
 content was never the problem. The projection was.
 
-### 71.1 A swallowed failure with a comment that assumed its own rescue
+### 72.1 A swallowed failure with a comment that assumed its own rescue
 
 ```ts
 void (async () => {
@@ -9759,7 +9759,7 @@ can only ask for itself once it has rendered, and it cannot render until this
 lands.** So the table waited, the Keeper re-drafted, `setup.confirm` was refused
 eight times, and nobody anywhere was told why.
 
-### 71.2 The retry has to be inside the job, not beside the caller
+### 72.2 The retry has to be inside the job, not beside the caller
 
 The first fix for this was a retry loop around the call, and it retried nothing.
 
@@ -9779,7 +9779,7 @@ runs every 1500ms. A retry outside the job cannot stop that poll from reading a
 failure the retry is about to make untrue — the player would see the error, and
 the retry would land its result into a job nobody is watching any more.
 
-### 71.3 The contract
+### 72.3 The contract
 
 **A projection a player is waiting on retries inside its own job, under one
 deadline for the whole job.** `runPresentation` attempts it, and on failure waits
@@ -9797,7 +9797,7 @@ worst case the player sees is what it always was.
 begins before the card mounts. It awaits and warns with the revision and reason;
 it decides nothing, because the player's copy of the same failure arrives through
 `presentationStatus`, as the error the card draws its retry under. That closes
-what 71.2's first draft left open: a persistent failure now reaches the table as
+what 72.2's first draft left open: a persistent failure now reaches the table as
 a control, not as a Keeper repeating that it cannot confirm.
 
 Tests (`coc-onboarding.test.ts`): a job whose first two attempts fail still lands,

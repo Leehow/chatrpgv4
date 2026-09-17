@@ -48,7 +48,7 @@ it('joins one background presentation across status polls',async()=>{
 it('retries a failed presentation inside the job, and the poll only ever sees a final failure',async()=>{
  // The retry has to live in the job. A failed job is retained so the card's poll can read the
  // failure once, so a caller that retries by calling `presentation()` again joins that same
- // failed job and re-awaits its rejection — it sleeps and runs nothing (§71).
+ // failed job and re-awaits its rejection — it sleeps and runs nothing (§72).
  const {host}=await service();const attempts:any[]=[];
  const run=vi.spyOn(host as any,'run').mockImplementation(()=>{
    attempts.push(1);return attempts.length<3?Promise.reject(new Error('the worker died on spawn')):Promise.resolve({play_language:'en',texts:{Name:'Name'}});

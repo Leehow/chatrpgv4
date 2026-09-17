@@ -6073,7 +6073,7 @@ export class PiHostBackend implements HostBackend {
       // never renders, so it never asks, and the table waits forever — the Keeper
       // saying "I cannot press confirm until the card is displayed" while the player
       // has nothing to press. This used to be a fire-and-forget whose catch swallowed
-      // the failure and whose comment assumed the card would ask for itself (§71).
+      // the failure and whose comment assumed the card would ask for itself (§72).
       //
       // This start is only a pre-warm: it exists so the model begins before the card
       // mounts, not so it can decide anything. Retrying belongs to the job itself
