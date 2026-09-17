@@ -9718,3 +9718,94 @@ Test in `tests/extension/gates.test.mjs`: fourteen scripted `resolve` attempts
 with the opening unread; the class budget trips, a later block carries the
 harder line, one `runaway` row with `after: "refusal_budget"` is recorded, and
 the run stops before the fourteenth. It fails if the block stops counting.
+
+## 71. The card has to reach the table (2026-09-17)
+
+Acceptance play, PDF module. Character creation talked fine, the Keeper wrote
+the whole sheet out as prose — and then stopped, saying it could not press
+confirm until the card was displayed. There was no card on screen and no control
+to press. The right panel still read 「还没有调查员」. The game could not continue.
+
+The Keeper was telling the truth. `setup.confirm` refuses while
+`previewed_revision` does not match the draft (`kernel-ts/setup/drafts.ts:194`,
+`code: "needs"`, *Wait until the current complete card is displayed before
+confirmation*), and that field is set only by `setup.previewed` — which is
+called when the **rendered card acknowledges itself**.
+
+Two sessions on the same build, same machine:
+
+```
+built-in scenario   coc-character-draft ×1 → setup.confirm ×2 → setup.complete ×2 → handoff
+PDF module          coc-character-draft ×2 → setup.confirm ×8 → nothing
+                    setup.previewed: 0 in both (the ack is an extension call, not a kernel one)
+```
+
+Both payloads were 11.9 KB with `completeness: {valid: true, issues: []}`. The
+content was never the problem. The projection was.
+
+### 71.1 A swallowed failure with a comment that assumed its own rescue
+
+```ts
+void (async () => {
+  …
+  await host.presentation({campaign, revision, …});
+})().catch(() => undefined /* the card still asks for itself if this never lands */);
+```
+
+`host.presentation` generates through a model. The PDF session was the one where
+the provider had already returned `MALFORMED_FUNCTION_CALL` once. When this
+threw, the catch discarded it, and the comment's rescue does not exist: **a card
+can only ask for itself once it has rendered, and it cannot render until this
+lands.** So the table waited, the Keeper re-drafted, `setup.confirm` was refused
+eight times, and nobody anywhere was told why.
+
+### 71.2 The retry has to be inside the job, not beside the caller
+
+The first fix for this was a retry loop around the call, and it retried nothing.
+
+`presentation()` and `presentationStatus()` are the same job
+(`coc-onboarding.ts`, `presentationJob`), keyed by campaign, revision, language
+and lane flags, so that the host's eager start and the card's poll do not run the
+model twice. A job that **fails** is kept in that map on purpose:
+`presentationStatus` is a one-shot mailbox — it hands the error to the card once,
+deletes the key, and the card draws that error with a ↻ the player can press.
+
+So a caller that retried by calling `presentation()` again got the job it had
+already failed, re-awaited the same settled rejection, and reported four attempts
+having run the model once. Measured: three calls, one `run`.
+
+There is a second reason it belongs inside. The mailbox is read by a poll that
+runs every 1500ms. A retry outside the job cannot stop that poll from reading a
+failure the retry is about to make untrue — the player would see the error, and
+the retry would land its result into a job nobody is watching any more.
+
+### 71.3 The contract
+
+**A projection a player is waiting on retries inside its own job, under one
+deadline for the whole job.** `runPresentation` attempts it, and on failure waits
+800ms, 2.4s, 6s before each further attempt; the job stays unsettled while
+attempts remain, so `presentationStatus` goes on answering `{pending: true}` and
+the card goes on drawing its spinner. Only a *final* failure reaches the mailbox.
+
+**One deadline covers the retries.** `PRESENTATION_DEADLINE_MS` is 6 minutes.
+An attempt that burned the whole deadline has already made the player wait, and
+giving the next attempt a fresh six minutes would only make the wait longer, so
+a retry is skipped once the remaining budget cannot hold its own backoff. The
+worst case the player sees is what it always was.
+
+**The pre-warm only reports.** `startDraftPresentation` exists so the model
+begins before the card mounts. It awaits and warns with the revision and reason;
+it decides nothing, because the player's copy of the same failure arrives through
+`presentationStatus`, as the error the card draws its retry under. That closes
+what 71.2's first draft left open: a persistent failure now reaches the table as
+a control, not as a Keeper repeating that it cannot confirm.
+
+Tests (`coc-onboarding.test.ts`): a job whose first two attempts fail still lands,
+`run` is called three times, and the poll answers `{pending: true}` throughout — it
+fails when the retry is collapsed to one attempt. A job that fails every attempt
+calls `run` four times, hands the failure to the poll exactly once, and leaves the
+next poll starting a fresh job, which is what the card's ↻ rides on.
+
+**Not covered by a test, deliberately:** `startDraftPresentation`'s three-line
+pre-warm. Its failure path is a `console.warn`; the behaviour that matters to the
+player is the mailbox, and that is tested above.

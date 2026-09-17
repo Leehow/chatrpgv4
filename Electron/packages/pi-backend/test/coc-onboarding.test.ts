@@ -45,6 +45,35 @@ it('joins one background presentation across status polls',async()=>{
  complete({play_language:'en',texts:{Name:'Name'}});await host.presentation(data);
  expect(host.presentationStatus(data)).toEqual({play_language:'en',texts:{Name:'Name'}});expect(run).toHaveBeenCalledTimes(1);
 });
+it('retries a failed presentation inside the job, and the poll only ever sees a final failure',async()=>{
+ // The retry has to live in the job. A failed job is retained so the card's poll can read the
+ // failure once, so a caller that retries by calling `presentation()` again joins that same
+ // failed job and re-awaits its rejection — it sleeps and runs nothing (§71).
+ const {host}=await service();const attempts:any[]=[];
+ const run=vi.spyOn(host as any,'run').mockImplementation(()=>{
+   attempts.push(1);return attempts.length<3?Promise.reject(new Error('the worker died on spawn')):Promise.resolve({play_language:'en',texts:{Name:'Name'}});
+ });
+ const data={campaign:'flaky',revision:1,play_language:'en'};
+ const landed=host.presentation(data);
+ // While attempts remain the job is unsettled, so the card keeps drawing its spinner rather
+ // than a retry button the player would have to press for a hiccup they never caused.
+ expect(host.presentationStatus(data)).toEqual({pending:true});
+ expect(await landed).toEqual({play_language:'en',texts:{Name:'Name'}});
+ expect(run).toHaveBeenCalledTimes(3);
+ expect(host.presentationStatus(data)).toEqual({play_language:'en',texts:{Name:'Name'}});
+});
+it('a projection that fails every attempt reaches the card once, as a failure it can offer a retry for',async()=>{
+ const {host}=await service();
+ const run=vi.spyOn(host as any,'run').mockImplementation(()=>Promise.reject(new Error('the provider refused')));
+ const data={campaign:'broken',revision:1,play_language:'en'};
+ await expect(host.presentation(data)).rejects.toThrow(/the provider refused/);
+ // Four attempts: the first plus one per backoff step.
+ expect(run).toHaveBeenCalledTimes(4);
+ // The mailbox holds the failure for the poll, and hands it over exactly once; the next poll
+ // starts a fresh job, which is what the card's own retry control rides on.
+ expect(()=>host.presentationStatus(data)).toThrow(/the provider refused/);
+ expect(host.presentationStatus(data)).toEqual({pending:true});
+});
 it('patches only the owning phase and retains conversation binding across delayed completion',async()=>{
   // Controlled promises exercise coordinator races only; this is not gameplay.
   const {host,home}=await service();

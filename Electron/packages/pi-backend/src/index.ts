@@ -6067,14 +6067,34 @@ export class PiHostBackend implements HostBackend {
       const host = this.cocOnboardingRegistry.get({...this.cocRuntime, repo, home: binding.home,
         agentDir: this.sharedProfileDir, env: this.env});
       const state = await this.getModelState(sessionId);
-      await host.presentation({campaign: binding.campaign, revision, play_language: binding.play_language,
-        ...(isRecord(data.labels) ? {labels: data.labels} : {}),
-        model: `${state.model.provider}/${state.model.id}`, thinking: state.thinkingLevel});
+      // The card is the only way the draft can be confirmed: the kernel refuses
+      // `setup.confirm` until `previewed_revision` matches, and that is set when the
+      // rendered card acknowledges itself. If this projection never lands the card
+      // never renders, so it never asks, and the table waits forever — the Keeper
+      // saying "I cannot press confirm until the card is displayed" while the player
+      // has nothing to press. This used to be a fire-and-forget whose catch swallowed
+      // the failure and whose comment assumed the card would ask for itself (§71).
+      //
+      // This start is only a pre-warm: it exists so the model begins before the card
+      // mounts, not so it can decide anything. Retrying belongs to the job itself
+      // (`runPresentation`), because a failed job is retained for the card's own poll
+      // to read once — a retry out here would re-await the failure it already has.
+      // So this await only reports: the player's copy of the same failure arrives
+      // through `presentationStatus`, as the error the card draws its retry under.
+      try {
+        await host.presentation({
+          campaign: binding.campaign, revision, play_language: binding.play_language,
+          ...(isRecord(data.labels) ? {labels: data.labels} : {}),
+          model: `${state.model.provider}/${state.model.id}`, thinking: state.thinkingLevel});
+      } catch (error) {
+        console.warn(`[pipicoc] draft card revision ${revision} never reached the table: ${error instanceof Error ? error.message : String(error)}`);
+        return;
+      }
       // History pages are cached against the transcript's own size and mtime, and a projection
       // landing beside it changes neither. Without this the next read would serve the card back
       // without the text that had just been written for it.
       this.historyCache.delete(path);
-    })().catch(() => undefined /* the card still asks for itself if this never lands */);
+    })().catch(() => undefined /* reported inside; the card's own poll carries it to the player */);
   }
   /**
    * The campaign's own words one delivery needs, and the redraw that follows them.
