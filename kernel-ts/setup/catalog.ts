@@ -3,7 +3,7 @@
  *  table prints, or by a specialization the table declares — and a name that resolves to nothing
  *  comes back with a few candidates instead of the whole table. */
 import { compareUnicode } from '../json.js';
-import { array, row, entries, normalize, string, truth, type Row } from '../read/values.js';
+import { array, row, entries, normalize, string, truth, type Row , normalizeText} from '../read/values.js';
 import { specializationIdentity } from '../rules/skills.js';
 import type { RuleTables } from '../rules/tables.js';
 import type { Chargen } from './chargen.js';
@@ -174,7 +174,11 @@ export class SetupCatalog {
     const profiles = new Map<string, [Row, string]>();
     for (const [id, value] of entries(this.weapons)) {
       const entry = row(value), printable = truth(entry.display_name) ? string(entry.display_name) : id;
-      for (const name of [id, printable]) profiles.set(normalize(name), [entry, printable]);
+      // The id, the printed name, and the printed name's head before its parenthesis ("Sword, medium" for
+      // "Sword, medium (rapier, heavy epee)"), all matched without punctuation: a model shortens the
+      // printed name and a comma is not a different weapon.
+      const head = printable.replace(/\s*\(.*$/u, '');
+      for (const name of [id, printable, head]) if (!profiles.has(normalizeText(name))) profiles.set(normalizeText(name), [entry, printable]);
     }
     return profiles;
   }

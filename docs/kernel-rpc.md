@@ -12813,6 +12813,11 @@ model follows it:
   credit rating the player pinned is kept out and listed under `kept_player_pins`; the player's pin
   moves only on the player's own word. On resume, `setup.steps` counts a draft on the table as the
   new-investigator lane taken, so `create-investigator` stays completed across a restart.
+- **Named weapons.** A `profile.weapons` entry is a printed name, or `{name, profile}`: the player's
+  own name for a weapon that plays by a printed profile. The sheet row keeps the player's name
+  (`name`, `display_name`) with the profile's numbers and `profile`; the equipment list carries the
+  player's name only. An unknown `profile` is `needs` with `candidates`. Found live: a katana
+  became a printed "Sword, medium" beside a bare "武士刀", two weapons for one blade.
 - **Custom skills.** `profile.custom_skills: [{name, base}]` lists skills the player invented; a
   name the catalog knows is that skill and joins the interest list instead; a language is its
   catalog form `Language (Other: X)`. A custom skill is listed on the sheet at its base, takes

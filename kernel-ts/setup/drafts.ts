@@ -13,7 +13,7 @@ import { withExclusiveLock } from '../locks.js';
 import { playerGlossary } from '../read/handlers.js';
 import { playLanguageOf } from '../read/languages.js';
 import { loadModule } from '../read/campaign.js';
-import { row, array, clone, entries, string, number, integer, normalize, truth, equal, repr, type Row } from '../read/values.js';
+import { row, array, clone, entries, string, number, integer, normalize, normalizeText, truth, equal, repr, type Row } from '../read/values.js';
 import { moduleEra } from '../library/index.js';
 import { setupModContext, SETUP_SLOT_STOP } from '../read/mods.js';
 import type { CampaignWriter } from '../write/store.js';
@@ -120,11 +120,20 @@ export class SetupDrafts {
     // A ninth occupation pick is not lost: it leads the interest list, and the result says so.
     resolved.interest_skills = [...overflow, ...interests].filter((name, index, all) => !occupationSkills.includes(name) && all.indexOf(name) === index);
     // Weapons: printed profiles stay weapons; anything else is equipment under the player's name for it.
-    const profiles = catalog.weaponProfiles(), weapons: string[] = [], equipment = [...array(profile.equipment).map(string)];
+    // A weapon the player named that plays by a printed profile is {name, profile} (§98 addendum 2): it
+    // keeps the player's name on the card, with the profile's numbers, and is one weapon, not a printed
+    // one beside a bare item.
+    const profiles = catalog.weaponProfiles(), weapons: Array<string | {name: string; profile: string}> = [], equipment = [...array(profile.equipment).map(string)];
     if (Object.hasOwn(profile, 'weapons') && profile.weapons != null) {
-      if (!Array.isArray(profile.weapons) || !profile.weapons.every(nonempty)) throw new RpcError('needs', 'weapons is a list of weapon names, or omitted', {details: {field: 'weapons'}});
-      for (const written of profile.weapons as string[]) {
-        if (profiles.has(normalize(written))) weapons.push(written);
+      const named = (item: unknown): item is {name: string; profile: string} => isJsonObject(item) && nonempty(item.name) && nonempty(item.profile);
+      if (!Array.isArray(profile.weapons) || !profile.weapons.every(item => nonempty(item) || named(item))) throw new RpcError('needs', 'weapons is a list of weapon names, or {name, profile} pairs naming a printed profile, or omitted', {details: {field: 'weapons'}});
+      for (const written of profile.weapons as Array<string | {name: string; profile: string}>) {
+        if (typeof written !== 'string') {
+          const found = profiles.get(normalizeText(written.profile));
+          if (!found) throw new RpcError('needs', `no printed weapon profile named ${repr(written.profile)}`, {details: {field: 'weapons', given: written.profile, candidates: [...new Set([...profiles.values()].map(([, printable]) => printable))].sort()}});
+          weapons.push({name: written.name.trim(), profile: found[1]});
+        }
+        else if (profiles.has(normalizeText(written))) weapons.push(written);
         else { resolution.moved_to_equipment.push(written); if (!equipment.includes(written)) equipment.push(written); }
       }
     }
@@ -241,7 +250,10 @@ export class SetupDrafts {
     try { finance = await this.setup.tables.cashAndAssets(flow.credit, options.era); finance.source = financeSource; if (options.authoredEra) Object.assign(finance, substitution); financeTrace = {available: true, source: financeSource, ...substitution}; }
     catch (error) { if (!(error instanceof Error) || error.name !== 'ValueError') throw error; finance = null; financeTrace = {available: false, reason: error.message, source: 'cash-assets.periods', ...substitution}; }
     const drafted = this.setup.catalog.weaponProfiles();
-    const weapons = array(profile.weapons).map(written => { const [entry, printable] = drafted.get(normalize(string(written)))!; return {name: printable, ...entry}; });
+    const weapons = array(profile.weapons).map(written => {
+      if (isJsonObject(written)) { const [entry] = drafted.get(normalizeText(string(written.profile)))!; return {name: string(written.name), ...entry, display_name: string(written.name), profile: string(written.profile)}; }
+      const [entry, printable] = drafted.get(normalizeText(string(written)))!; return {name: printable, ...entry};
+    });
     const equipment = [...array(profile.equipment).map(string)];
     for (const weapon of weapons) if (!equipment.includes(weapon.name)) equipment.push(weapon.name);
     const creation: Row = {...generated.trace, skills: flow.ledger, allocation: chargen.allocationPolicy(null), interest_allocation: {...chargen.allocationPolicy(null, 'interest_allocation'), applied: 'spread'},
