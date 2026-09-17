@@ -41,6 +41,16 @@ export function vitestArguments(testScript) {
 	return (match[1].match(/'[^']*'|"[^"]*"|\S+/g) ?? []).map((argument) => argument.replace(/^['"]|['"]$/g, ""));
 }
 
+/** Keep the suite on the exact Node ABI that launched the checker. Executing Vitest's shebang would
+ * ask PATH to choose Node again; on this host that made the build use Node 24 and cold-kernel tests
+ * use Node 22, which cannot load the same fs-ext binary. */
+export function vitestLaunch(args) {
+	return {
+		command: process.execPath,
+		args: [join(electronRoot, "node_modules", "vitest", "vitest.mjs"), ...args],
+	};
+}
+
 /**
  * One stable id per failure, in the shape vitest itself prints. A file that never loaded reports no
  * assertions at all, so it is recorded as the whole suite failing rather than silently as zero rows.
@@ -100,9 +110,9 @@ function runSuite(files = [], serial = false) {
 	const outputFile = join(directory, "report.json");
 	try {
 		try {
-			execFileSync(join(electronRoot, "node_modules/.bin/vitest"),
-				[...vitestArguments(testScript), ...files, ...(serial ? ["--no-file-parallelism"] : []),
-					`--retry=${RETRIES}`, "--reporter=json", `--outputFile=${outputFile}`],
+			const launch = vitestLaunch([...vitestArguments(testScript), ...files, ...(serial ? ["--no-file-parallelism"] : []),
+				`--retry=${RETRIES}`, "--reporter=json", `--outputFile=${outputFile}`]);
+			execFileSync(launch.command, launch.args,
 				{ cwd: electronRoot, stdio: ["ignore", "inherit", "inherit"] });
 		} catch {
 			// A red suite is the normal case here: the report on disk is the answer, not the exit code.

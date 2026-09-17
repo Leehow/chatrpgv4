@@ -13,7 +13,7 @@ import { readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 // @ts-expect-error -- plain ESM tooling, no type declarations
-import { BASELINE_PATH, compare, confirmed, failureId, failuresOf, fileOf, vitestArguments } from './suite-baseline.mjs'
+import { BASELINE_PATH, compare, confirmed, failureId, failuresOf, fileOf, vitestArguments, vitestLaunch } from './suite-baseline.mjs'
 
 const electronRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -30,6 +30,13 @@ describe('vitest arguments come from the test script', () => {
   it('parses the real Electron test script, so the baseline covers what npm test runs', () => {
     const script = JSON.parse(readFileSync(join(electronRoot, 'package.json'), 'utf8')).scripts.test
     expect(vitestArguments(script)).toContain('**/dist/**')
+  })
+
+  it('runs Vitest with this checker\'s Node instead of resolving another ABI through the shebang', () => {
+    const launch = vitestLaunch(['--retry=2'])
+    expect(launch.command).toBe(process.execPath)
+    expect(launch.args[0].replaceAll('\\', '/')).toMatch(/\/node_modules\/vitest\/vitest\.mjs$/)
+    expect(launch.args.slice(1)).toEqual(['--retry=2'])
   })
 })
 
