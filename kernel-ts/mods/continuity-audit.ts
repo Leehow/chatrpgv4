@@ -36,7 +36,7 @@ export function continuityAuditContext(graph: ModuleGraph, world: Row, turn: Row
             promotion_test: 'A distinct place needs a scene and move only when it becomes the ongoing locus for subsequent player action or durable location-bound state. Spatial wording, scale and motion do not decide this.'},
         ...(causalReentry ? {causal_reentry: causalReentry} : {}),
         present: Object.entries(row(world.npc_presence)).filter(([, at]) => at === world.active_scene).map(([name]) => ({name: index.canonicalName(`npc:${graph.find(name)?.node_id ?? name}`)})),
-        receipts: array(turn.receipts).map(receipt => pick(receipt, ['kind', 'actor_label', 'skill', 'passed', 'from_label', 'to_label', 'minutes', 'clue', 'handout', 'label', 'summary', 'how', 'from', 'to', 'owner', 'delta', 'before', 'after', 'name', 'text', 'condition', 'visibility', 'object', 'usage'])),
+        receipts: array(turn.receipts).map(receipt => pick(receipt, ['kind', 'actor_label', 'skill', 'passed', 'from_label', 'to_label', 'minutes', 'clue', 'handout', 'label', 'summary', 'how', 'from', 'to', 'owner', 'delta', 'before', 'after', 'name', 'text', 'condition', 'visibility', 'object', 'usage', 'offer', 'offered_to_label', 'handover'])),
         actors: party.map(person => ({name: person.name, equipment: person.equipment ?? [], cash: person.cash ?? null,
             weapons: array(person.weapons).map(weapon => pick(weapon, ['name', 'display_name', 'skill', 'damage', 'ammo', 'magazine', 'usage', 'usage_mode']))})),
         objects: {queued_registrations: objects.queued_registrations,

@@ -9,6 +9,7 @@ import { EntityIndex, capsuleMemory, noteObligations, rulingsForCapsule, promise
 import { clockPressures, threatPressures, unansweredContinuations, continuationRows, questObligations, choiceObligation, sessionObligation } from "./pressures.js";
 import { evidenceAcquired, evidenceDeliveryRecords } from "./continuity.js";
 import { worldlineSection, crossLineReader, loopObligation, worldlineSignals } from "./worldline.js";
+import { offerObligations } from "../mods/object-offer.js";
 import { modContext } from "./mods.js";
 import { mechanicsOf } from "./mechanics.js";
 import { directorOffer, directorRecovery } from "./offer.js";
@@ -289,7 +290,7 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
     const presentNames = [...present.map(n => graph.displayName(n)), ...present.map(n => graph.handle(n))],
         here = [graph.handle(scene), sceneLabel(graph, world, scene)],
         memoryAnchors = [...presentNames, ...party.map(sheet => string(sheet.name)), graph.handle(scene), ...evidenceAnchors(graph, world, campaign.records)];
-    const obligations = [...choiceObligation(turn.pending_choice), ...sessionObligation(session), ...continuationRows(continuations), ...questObligations(graph, world), ...promiseObligations(memory), ...noteObligations(campaign.logs.get("notes.jsonl") ?? [], presentNames, here), ...loopObligation(worldlines)];
+    const obligations = [...choiceObligation(turn.pending_choice), ...sessionObligation(session), ...continuationRows(continuations), ...questObligations(graph, world), ...promiseObligations(memory), ...noteObligations(campaign.logs.get("notes.jsonl") ?? [], presentNames, here), ...loopObligation(worldlines), ...offerObligations(world)];
     const sig = signals({
         graph,
         world,

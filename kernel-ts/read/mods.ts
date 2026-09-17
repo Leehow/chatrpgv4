@@ -13,6 +13,7 @@ import { entries, values, array, row, truth, string, number, integer, numeric, n
 import { claimedEquipment, queuedDefinition, queuedRegistrations } from "../mods/queue.js";
 import {CONTINUITY_AUDIT} from '../mods/audit-result.js';
 import {USAGE_CAPABILITY, usageViews} from '../mods/usages.js';
+import {publicOffer} from '../mods/object-offer.js';
 export const MOD_CAPABILITIES = new Set(["audit.source.v1", "checks.percentile.v1", "context.npc.v1", "definitions.v1", "objects.v1", "objects.state.v2", "objects.adopt.v1", "objects.documents.v1", "mods.order.v1", "ui.documents.v1", "ui.documents.language.v1", "agents.tools.v1", "weapons.v1", "weapons.profile.v2", "spells.v1", "item-effects.v1", "setup.guidance.v1", "setup.aptitude.v1", "graph.vocabulary.v1", "graph.vocabulary.table.v1", "context.thread.v1", "context.pacing.v1"]);
 MOD_CAPABILITIES.add(CONTINUITY_AUDIT);
 MOD_CAPABILITIES.add(USAGE_CAPABILITY);
@@ -706,6 +707,7 @@ export function publicItems(world: Row, ownerId: string, includeContainedDocumen
             name: item.name,
             quantity: item.quantity,
             category: definition.category,
+            ...publicOffer(item),
             description: publicView.description,
             state,
             traits: array(definition.traits).filter(t => array(publicView.traits).includes(t.name)),
@@ -799,6 +801,7 @@ export function objectLook(world: Row, name?: any): Row {
             owner: item.owner.name,
             quantity: item.quantity,
             state: item.state,
+            ...publicOffer(item),
             document: truth(item.document) ? {
                 text: item.document.text,
                 presentation: item.document.presentation,

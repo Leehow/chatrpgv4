@@ -157,7 +157,10 @@ export function mechanicsOf(receipt: Row, texts: ReadonlyMap<string, string> = n
         };
         labeled(out, "label", receipt.label);
         labeled(out, "to_label", receipt.subject_label);
-        for (const key of ["from", "weapon"])
+        // Contract §88. A card that showed only "who has it now" could not tell a delivery from an offer
+        // nobody took, and could not say what a move stood on. These are the receipt's own words: the
+        // disposition, who it is held out to, the ground, and the roll that ground named.
+        for (const key of ["from", "weapon", "offer", "offered_to", "offered_to_label", "handover", "check"])
             labeled(out, key, receipt[key]);
         return out;
     }

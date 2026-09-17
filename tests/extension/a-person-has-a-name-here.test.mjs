@@ -34,7 +34,7 @@ test('§79: a name this table gave a person is the name a later card carries', a
 	await game.apply([{kind: 'npc', name: 'Steven Knott', to: 'here', why: 'he is waiting'}]);
 	await game.apply([{kind: 'person', who: 'Steven Knott', name: 'The letting agent', why: 'this is what the table has been calling him'}]);
 	const call_id = game.next();
-	await game.call('table.apply', {call_id, effects: [{kind: 'object', name: 'Study chair', from: game.sheet.name, to: 'Steven Knott'}]});
+	await game.call('table.apply', {call_id, effects: [{kind: 'object', name: 'Study chair', from: game.sheet.name, to: 'Steven Knott', handover: 'given'}]});
 	const {mechanics} = await game.call('table.status', {});
 	const [item] = carded(mechanics, call_id, 'item');
 	assert.ok(item, 'handing an object to a person settles into an item card');
@@ -47,13 +47,13 @@ test('§79: the label a card draws never becomes the identity a person is stored
 	const game = await table(t);
 	await game.apply([{kind: 'npc', name: 'Steven Knott', to: 'here', why: 'he is waiting'}]);
 	await game.apply([{kind: 'person', who: 'Steven Knott', name: 'The letting agent'}]);
-	await game.apply([{kind: 'object', name: 'Study chair', from: game.sheet.name, to: 'Steven Knott'}]);
+	await game.apply([{kind: 'object', name: 'Study chair', from: game.sheet.name, to: 'Steven Knott', handover: 'given'}]);
 	const stored = Object.values((await game.world()).objects.instances).find(row => row.name === 'Study chair');
 	assert.equal(stored.owner.id, 'steven-knott', 'the stored owner is the identity');
 	assert.notEqual(stored.owner.name, (await record(game, 'steven-knott')).name, 'a renameable label has no business in a stored identity');
 	// Renaming the person must not strand what they are holding: `from` still resolves to them.
 	await game.apply([{kind: 'person', who: 'The letting agent', name: 'The man with the keys'}]);
-	await game.apply([{kind: 'object', name: 'Study chair', from: 'Steven Knott', to: game.sheet.name}]);
+	await game.apply([{kind: 'object', name: 'Study chair', from: 'Steven Knott', to: game.sheet.name, handover: 'given'}]);
 	const carried = Object.values((await game.world()).objects.instances).find(row => row.name === 'Study chair');
 	assert.equal(carried.owner.id, game.sheet.id, 'the transfer landed after the rename');
 	assert.equal((await record(game, 'steven-knott')).name, 'The man with the keys', 'and the table has one record for this person, updated in place');

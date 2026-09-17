@@ -139,7 +139,7 @@ test('pending thrown attacks revalidate owner and usage freshness before defense
   assert.equal(combat.rounds[0].turns.length, 0);
   const transferEvents = (await events(game)).filter(event => event.type === 'item-transferred' && event.data.name === 'Study chair').length;
 
-  await game.apply([{kind: 'object', name: 'Study chair', from: game.sheet.name, to: 'Steven Knott'}]);
+  await game.apply([{kind: 'object', name: 'Study chair', from: game.sheet.name, to: 'Steven Knott', handover: 'given'}]);
   await assert.rejects(game.call('table.resolve', {call_id: game.next(), action: {actor: 'Steven Knott', intent: 'combat', defense: 'none'}}), /stale|carry|holder|physical state/i);
   world = await game.world();
   assert.equal(chair().owner.id, 'steven-knott');
@@ -148,7 +148,7 @@ test('pending thrown attacks revalidate owner and usage freshness before defense
   assert.equal(combat.pending_attack.usage, 'throw');
   assert.equal(combat.rounds[0].turns.length, 0, 'failed stale defense did not record dice or a combat turn');
 
-  await game.apply([{kind: 'object', name: 'Study chair', from: 'Steven Knott', to: game.sheet.name}]);
+  await game.apply([{kind: 'object', name: 'Study chair', from: 'Steven Knott', to: game.sheet.name, handover: 'given'}]);
   const settled = await game.call('table.resolve', {call_id: game.next(), action: {actor: 'Steven Knott', intent: 'combat', defense: 'none'}});
   assert.equal(settled.outcome.object_usage.usage, 'throw');
   world = await game.world();
@@ -168,7 +168,7 @@ test('PC and NPC use the same transferred instance in an active fight without re
   const before = await readJson(join(game.directory, 'save/combat.json'));
   assert.equal(before.status, 'active');
 
-  await game.apply([{kind: 'object', name: 'Study chair', from: game.sheet.name, to: 'Steven Knott'}]);
+  await game.apply([{kind: 'object', name: 'Study chair', from: game.sheet.name, to: 'Steven Knott', handover: 'given'}]);
   const world = await game.world();
   const chair = Object.values(world.objects.instances).find(item => item.name === 'Study chair');
   assert.equal(chair.owner.kind, 'npc');
