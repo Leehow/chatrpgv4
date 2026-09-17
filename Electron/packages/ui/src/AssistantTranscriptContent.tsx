@@ -18,6 +18,7 @@ import { HostedCodeInterpreterCard } from './HostedCodeInterpreterCard'
 import type { ChatMessage, TranscriptActivity, TranscriptTool } from './transcript-model'
 import { displaySecretPlaceholders } from './secret-display'
 import { activitiesFromMessage, PENDING_THINKING_ID, planAssistantTranscript } from './transcript-model'
+import { useAssistantKeepsSecrets } from './assistant-secrets'
 
 export type { TranscriptActivity, TranscriptTool } from './transcript-model'
 export { TranscriptMarkdown } from './TranscriptMarkdown'
@@ -162,6 +163,7 @@ export const AssistantTranscriptContent = memo(function AssistantTranscriptConte
     setErrorSeen(message.error)
     setErrorDismissed(false)
   }
+  const assistantKeepsSecrets = useAssistantKeepsSecrets()
   const activities = activitiesFromMessage(message)
   const stepActivities = activities.filter((activity): activity is Extract<TranscriptActivity, { type: 'thinking' | 'tool' }> => activity.type !== 'text')
   // Lost tool_result/settled: if the model generated text after the last
@@ -224,7 +226,12 @@ export const AssistantTranscriptContent = memo(function AssistantTranscriptConte
             ? pendingThinking || activityIndex === segment.activities.length - 1
             : !activity.tool.finished
         ))
-        if (activity.type === 'thinking') return <ActivityCard key={`thinking:${activity.id}`} kind="thinking" label="Thinking" summary="Thinking" meta={`${formatCompactTokens(estimateTokens(activity.charCount ?? activity.content.length))} tokens`} running={live} defaultExpanded={live}><p>{displaySecretPlaceholders(activity.content) || (live ? '模型正在思考…' : '')}</p></ActivityCard>
+        // Where the assistant keeps secrets from its viewer the reasoning card is available, never
+        // pushed (§NN): the card, its label, its live token count and its spinner all still stream,
+        // and the body opens on a click like a tool's input and output. Nothing is suppressed --
+        // the process display is the product's (contract §22, 2026-09-15) -- but a body that opens
+        // itself reaches the player ahead of the narration the Keeper is still writing.
+        if (activity.type === 'thinking') return <ActivityCard key={`thinking:${activity.id}`} kind="thinking" label="Thinking" summary="Thinking" meta={`${formatCompactTokens(estimateTokens(activity.charCount ?? activity.content.length))} tokens`} running={live} defaultExpanded={live && !assistantKeepsSecrets}><p>{displaySecretPlaceholders(activity.content) || (live ? '模型正在思考…' : '')}</p></ActivityCard>
         const projection = liveByTool.get(activity.tool.id)
         const payload = toToolRenderPayload(activity.tool.result)
         if (!payload.fallback) {

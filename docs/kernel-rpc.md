@@ -12037,3 +12037,82 @@ notice, no undelivered card and no strand; a second unreviewed delivery reaches 
 the player never; a review that answers clears the streak; and cold recovery strands on a retained
 verdict and not on a retained outage. The first and the fifth die when `prepare` re-raises
 `continuity_review_unavailable`; the third dies when `verdict()` stops setting `reviewed: true`.
+
+## NN. The Keeper's working is available to the player, not read to them (2026-09-17, amends the §22 process-observability correction of 2026-09-15)
+
+H-DETOUR t10 leaked the Keeper's reasoning to the player five times in one session, on five
+different kinds of call — an NPC authorisation, an item refusal, a movement check, NPC staging and a
+typo disambiguation. The worst of them, turn 17, **said the outcome of an NPC's decision before the
+narration did**: "Ruth is in the scene but not downstairs yet. Arty grants access." Another arrived
+in English in the middle of a `zh-Hans` table.
+
+**This is not a leak, and it is not a setting.** The evidence rules both out.
+
+- *Not a setting.* All nine playtest homes ran at exactly one thinking level, `low`, and about 44%
+  of their assistant messages carry reasoning (t10: 171 of 389; a-main: 690 of 1456). Nothing was
+  switched on for that one table. Nor could it be switched off: `grok-4.6` maps `off` to `null` in
+  `extensions/grok-build-oauth/agent/models.js`, so `resolveThinkingLevel` cannot select it, and the
+  Keeper model has no silent mode to put it in.
+- *Not a leak.* The 2026-09-15 user decision recorded under §22 says the opposite of hiding it: a
+  `coc-keeper` product profile or `coc-session` binding **must not suppress** assistant text,
+  thinking, tool calls/results, hosted activities, citations or source-detail events, and the fix
+  must not add a privacy or debug switch. `tests/.../coc-keeper-process.test.tsx` pins it. Reasoning
+  reaching the screen is the product working as decided.
+
+**What was wrong is that the product opened it.** `ActivityCard` gave `kind="thinking"` a forced
+`open` while `running`, and `AssistantTranscriptContent` passed `defaultExpanded={live}` with it, so
+the reasoning body was the one step body the transcript unfolded by itself. Every tool card — whose
+payloads are just as much the Keeper's side — is `defaultExpanded={false}` and waits to be clicked.
+And the unfolding happened *during the stream*, which is the only window it could: while the
+reasoning is still arriving it is the last activity in its group, so it is `live`; the next tool call
+pushes it out of last place and it folds again. So the leak is not a stray field, it is the shape of
+the window — the player read the Keeper's conclusion while waiting for a narration that had not been
+written yet.
+
+That distinction is the rule. **Suppressing the run and pushing it are different things, and only
+suppression was ruled out.** Nothing here is hidden: the step group still opens itself while the turn
+runs, the Thinking card still streams its label, its live token count and its spinner beside every
+tool card, and the waiting row still says the model is thinking with its own elapsed seconds and stop
+button. The body is one click away, exactly as a tool's input and output are. A player who wants to
+watch the machine can; a player who wants to read the story is no longer handed the answer first.
+
+**The separation is structural, never by content.** No code reads what reasoning says, classifies it,
+matches it or withholds any part of it. What is asked is a property of the transcript: *does the
+assistant in it hold information its viewer is not entitled to?* The base shell is a console — the
+viewer runs the assistant, the working is theirs, and it opens itself so tokens are seen arriving
+rather than waited out (`App.stream.test.tsx`, `SubagentPanel.test.tsx`; unchanged). PipiCOC is not:
+its assistant is the Keeper, and the product invariant is that the module's truth is read-only and
+secret by default. `AssistantKeepsSecrets` carries that one boolean to the card.
+
+**It answers from two reads because one of them drops.** §84 records that a single dropped
+`host.getProduct()` leaves the whole shell in the base product for the life of the page, with nothing
+on screen to say so. A gate hanging on `productId` alone would fail open on exactly the thing that
+must not fail open, so `assistantKeepsSecretsFor` also accepts the session's own recorded product
+profile (`productProfile.id === "coc-keeper"`), which comes from the Pi child, not from that read.
+Either source is enough; no answer at all means a console, which is what the base product is.
+
+**Not done, and deliberately.** The card's label is the English word `Thinking` and it names the
+mechanism, not the side of the screen it belongs to — a player has no way to learn from it that
+reading it spoils their own game. Renaming it is a play-language change: the word would have to come
+from the English source under `content/ui/en/` and be projected by the presentation lane like every
+other word the player sees, never hand-written. That is a separate slice and is not taken here. The
+Subagents pane also draws reasoning through the same component and is left on the console default;
+it is an inspection surface, not the table.
+
+### NN.1 The three ends (§31)
+
+*Who writes it:* `assistantKeepsSecretsFor(productId, session)` in
+`Electron/packages/ui/src/assistant-secrets.tsx`, from the §84 product read and the session's own
+product profile. *Who projects it:* the `AssistantKeepsSecrets` provider wrapped around both
+transcript mounts in `App.tsx`. *Who acts on it:* the reasoning card's `defaultExpanded` in
+`AssistantTranscriptContent.tsx`; `ActivityCard` no longer opens anything on its own kind.
+
+Tests (`tests/.../keeper-thinking-is-available-not-pushed.test.tsx`, on the real `Transcript`):
+mid-stream the reasoning body is shut; the group is still open and the card still shows its label,
+its token meta and its spinner; a click opens the body mid-stream; the settled turn keeps the same
+closed-but-reachable card beside its tool; and a console transcript still opens the body by itself.
+The first dies when `defaultExpanded={live && !assistantKeepsSecrets}` goes back to `live` or when
+`ActivityCard` regains its `running && kind === "thinking"` branch; the last dies if the gate is made
+unconditional; the availability ones die if the card is dropped instead of folded. The wiring has its
+own three: PipiCOC by product id, PipiCOC by session profile with the product read dropped, and the
+base console either way — the middle one dies the moment the profile fallback is removed.
