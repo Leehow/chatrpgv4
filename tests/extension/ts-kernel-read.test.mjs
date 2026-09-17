@@ -334,11 +334,21 @@ test('mechanics match Python without exposing unlabeled NPC identities',async()=
   // instead. The capture's inputs are frozen along with its outcome, so no `how` can be added to
   // them here; the real path is covered by `clue-summary-is-keeper-only.test.mjs`. The name is
   // dropped from the comparison and asserted just below, against what the capture recorded.
+  //
+  // The fourth is the same shape: §95 added `bonus` and `penalty` to the roll row, because a bonus
+  // or penalty die changes which d100 was kept and the card that draws the roll could not say one
+  // was there. The capture predates them, so they are narrowed out of the comparison and asserted
+  // just below; the real path is covered by `tests/kernel/test_declared_dice.py`.
   const narrowed=value=>api.pythonJsonDumps(value)
     .replace(/"(?:\/private)?\/(?:var|tmp)\/[^"]*handout\.md"/g,'"<attachment>"')
     .replace(/, ?"(?:available|document)": ?(?:true|false|"[a-z]+")/g,'')
+    .replace(/, ?"(?:bonus|penalty)": ?\d+/g,'')
     .replace(/, ?"summary": ?"A dated letter\."/g,'');
   assert.equal(narrowed(live),narrowed(frozen),'mechanics');
+  const liveRoll=live.find(item=>item.kind==='roll'),frozenRoll=frozen.find(item=>item.kind==='roll');
+  assert.equal(frozenRoll.bonus,undefined,'the capture predates the two counts');
+  assert.equal(liveRoll.bonus,0,'a roll with neither die says so rather than leaving the card to guess');
+  assert.equal(liveRoll.penalty,0);
   const liveHandout=live.find(item=>item.kind==='handout'),frozenHandout=frozen.find(item=>item.kind==='handout');
   assert.equal(frozenHandout.available,true,'the capture recorded the boolean this replaced');
   assert.equal(liveHandout.document,'ready','an attached handout projects as `ready` where the capture said `available: true`');

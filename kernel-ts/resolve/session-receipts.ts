@@ -8,11 +8,18 @@ export function recordPercentile(context: SettleContext,record: Row,kind: string
     const difficulty=string(record.required_level||record.difficulty||'regular');
     const threshold=record.required_target??context.arithmetic.difficultyTarget(target,difficulty);
     const outcome=string(record.outcome||record.achieved_level||'failure');
+    // The session engines roll the extra tens die themselves and keep the faces on their own record;
+    // the receipt used to copy only the two counts, so a fight's evidence could not show that a
+    // bonus die had in fact been rolled -- `tens_values` read empty and `unmodified_roll` null on
+    // every receipt a session ever minted (§95). Carry them when the engine rolled them.
+    const tens=array(record.tens_values).map(value=>Math.trunc(number(value)));
+    const dice=tens.length?{tens_values:tens,units:record.units==null?null:Math.trunc(number(record.units)),
+        unmodified_roll:record.unmodified_roll==null?null:Math.trunc(number(record.unmodified_roll))}:{};
     return context.addRoll({actor:string(record.actor_id),skill:string(record.skill||'check'),target,difficulty,
         threshold:Math.trunc(number(threshold)),roll:Math.trunc(number(record.roll)),level:outcome,
         passed:record.passed==null?SUCCESS_OUTCOMES.has(outcome):truth(record.passed),
         bonus:Math.trunc(number(record.bonus)),penalty:Math.trunc(number(record.penalty)),visibility:'public',kind,
-        engine_roll_id:record.roll_id??null,...extra});
+        ...dice,engine_roll_id:record.roll_id??null,...extra});
 }
 export function recordDice(context: SettleContext,record: Row,label?: string|null,extra: Row={}): string {
     const dice=row(record.dice),expression=dice.expression||record.die_expression||record.die||null;

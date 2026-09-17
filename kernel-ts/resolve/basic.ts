@@ -217,7 +217,9 @@ export const executeOpposed: SettlementExecutor = async (context, args) => {
     const [label, target, targetSource] = await resolveTarget(context, args);
     const opponent = number(args.opponent_value);
     const opponentLabel = string(args.opponent_label || 'opponent');
-    const result = context.arithmetic.opposed(target, opponent, context.rng);
+    const bonus = number(args.bonus);
+    const penalty = number(args.penalty);
+    const result = context.arithmetic.opposed(target, opponent, context.rng, bonus, penalty);
     const mine = result.investigator_roll;
     const theirs = result.opponent_roll;
     const winner = result.winner;
@@ -234,8 +236,8 @@ export const executeOpposed: SettlementExecutor = async (context, args) => {
         roll: mine.roll,
         level: mine.level,
         passed: mine.passed,
-        bonus: 0,
-        penalty: 0,
+        bonus: number(mine.bonus),
+        penalty: number(mine.penalty),
         visibility: 'public',
         kind: 'opposed_check',
         opposed_side: 'investigator',

@@ -96,6 +96,7 @@ def test_a_zh_hans_turn_is_delivered_verbatim_with_every_receipt_projected(kerne
                             "actor_label": "托马斯·海斯", "actor_is_investigator": True,
                             "roll": roll["roll"], "target": roll["target"], "threshold": roll["threshold"],
                             "difficulty": "regular", "level": roll["level"], "passed": roll["passed"], "pushed": False,
+                            "bonus": 0, "penalty": 0,
                             "visibility": "public", "call": "t1-c1", "family": "core-check"}
     assert mechanics[1] == {"kind": "clue", "marker": "clue:knott-keys", "receipt": "clue:knott-keys-t1", "clue": "knott-keys", "label": "钥匙",
                             "summary": "Knott hands over the house keys, the address, and $20 cash in advance.",

@@ -237,6 +237,15 @@ export function executorArgs(context: SettleContext, plan: Row, selected: Row): 
     if (capability === 'check') {
         output.investigator = string(payload.investigator_id || context.actorId);
         copy(['skill', 'characteristic', 'target', 'combined_targets', 'combined_mode', 'difficulty', 'goal', 'stakes', 'difficulty_basis', 'bonus', 'penalty', 'npc_id', 'social_adjudication_ref', 'pushed', 'method_changed', 'failure_consequence', 'original_check_decision_id']);
+        // A combined check declares no `bonus`/`penalty` payload slot, so the keeper's declared dice
+        // were filtered out of the plan and the roll came out plain (§95). The pushed roll keeps the
+        // original check's dice, which `locked` already wrote into the payload -- only fill in when
+        // the plan carries neither, so an inherited zero is never overwritten by a fresh declaration.
+        if (payload.bonus == null && payload.penalty == null) {
+            const [bonus, penalty] = context.declaredModifiers;
+            output.bonus = bonus;
+            output.penalty = penalty;
+        }
     }
     else if (capability === 'opposed') {
         const ref = string(payload.actor_check_ref || '');
@@ -268,10 +277,16 @@ export function executorArgs(context: SettleContext, plan: Row, selected: Row): 
                     }
                 }
             });
+        // The advantage the keeper declared is the investigator's, not the opponent's: it is the
+        // investigator's attempt that the several helpers, the prepared approach or the ground
+        // favour. The opponent rolls plain unless the rules give them something of their own (§95).
+        const [opposedBonus, opposedPenalty] = context.declaredModifiers;
         Object.assign(output, {
             contest_kind: 'noncombat',
             opponent_value: payload.opponent_value,
             opponent_label: string(payload.opponent_check_ref || 'opponent'),
+            bonus: opposedBonus,
+            penalty: opposedPenalty,
             reason: 'RuleGraph opposed check'
         });
     }

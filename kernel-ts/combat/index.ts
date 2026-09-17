@@ -191,6 +191,15 @@ export function createCombatResolveContribution(): FixedFamilyBinding {
                     result[key] = payload[key];
             if (action === 'attack' && context.action.defense === 'none')
                 result.unopposed = true;
+            // The dice the keeper declared for this call. They are a fact about the action, not a
+            // slot the combat decisions declare, so they are read here beside `action.defense`
+            // rather than through the compiled payload -- which is where they used to be dropped
+            // without a word, leaving every fight in the product rolling plain (§95).
+            const [bonus, penalty] = context.declaredModifiers;
+            if (bonus)
+                result.bonus_dice = bonus;
+            if (penalty)
+                result.penalty_dice = penalty;
             if (action === 'end' && !truth(result.outcome))
                 throw new RpcError('needs', 'combat:end needs the outcome the fight reached', {
                     fix: 'set action.outcome to one of details.needs.options', details: { needs: { field: 'outcome', options: ['investigators_win', 'monsters_win', 'fled', 'stalemate'] } },

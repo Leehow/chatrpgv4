@@ -12299,3 +12299,144 @@ message and consumes no second scripted response — the next response's arrival
 provider call, which is what makes the assertion mean anything — the abandoned turn is told and
 released in this process and the table is playable on the next sentence, and the same empty message
 with `stop` instead of `aborted` is still steered. They die when the `agent_end` guard is removed.
+## 95. An advantage the keeper never says out loud never reaches the dice (2026-09-17, completes §11.2's `action.modifiers`, extends §16.2 and §31)
+
+`action.modifiers.bonus_dice` has been on `table.resolve` since slice 0. Across the nine tables of the
+2026-09-14 evidence set it was sent **zero times**, and exactly one bonus die was rolled at all: the
+engine gave it to an NPC because the investigator was `prone`. A player who grappled, disarmed, talked
+and finally brought two companions to push alongside him fought twelve rounds in which nothing he did
+changed a die.
+
+The sample, stated so the claim can be checked and bounded: 651 turn records from nine campaigns in
+nine homes, **280 distinct non-dice roll receipts** — core-check 126, combat 78, mod 31, social 31,
+push-luck 4, psychology 4, healing 3, sanity 2, characteristic 1 — and ~75 MB of keeper transcript in
+which `bonus_dice` and `penalty_dice` appear zero times while `modifiers` appears 17 times across
+five of the nine tables, every one of them `{"difficulty": "hard"}`. One receipt carries a non-zero bonus and eleven a non-zero penalty, all
+twelve in the combat family and all twelve engine-derived. **The sample contains no chase receipts and
+no weekly-recovery receipt**, and those are the two engine paths that can raise a bonus die outside
+combat (`cautious_bonus_actions`, a safe environment; complete rest with care). So the finding is not
+"no route can add a bonus die" — it is that **no route the keeper can reach could**, and of the
+engine-derived routes only combat's appeared here, where it fired once in 78.
+
+That is two failures wearing one number, and each would have hidden the other.
+
+### 95.1 The keeper was never told the field is how you say "this is easier"
+
+`difficulty` goes `regular | hard | extreme`. There is no "easy". **`bonus_dice` is the only channel on
+the whole tool surface for saying an attempt is favoured**, and until this section the only thing the
+model was ever told about it was the seven words `"number of bonus dice, 0 to 2"` — a shape, not a
+rule, and nothing about when to give one. The `resolve` description, some 250 words teaching
+`needs_choice`, pushes, Luck, defences and skills, did not mention modifiers at all; this document
+named `bonus_dice` once in 12,000 lines, inside the params block. The sibling key in the same object
+was used (17 `{"difficulty": "hard"}` across five tables), which is the proof the keeper does open that
+object and writes what it understands there.
+
+This is §58.5 again — *"a capability the model is told does not exist is a capability that does not
+exist"* — in its quieter form: not told it is unavailable, simply not told. The tool description now
+says what bonus dice are for, that `difficulty` only ever makes an attempt harder, that on an attack
+the dice are the attacker's and on a defence the defender's, and that an advantage not declared there
+does not reach the dice. The examples in it are examples — *"usual shapes of it, examples rather than a
+list to match against; you judge the situation"*. Which situations deserve a die is a semantic
+judgement and belongs to the keeper; the kernel must never carry a table of them.
+
+### 95.2 And where it was sent, most decisions dropped it without a word
+
+`modifiers()` validates the declaration at the entry of `table.resolve` and hands it to the pipeline,
+which consumed it **only** for the ordinary check and the Luck roll. Combat, the opposed check and the
+combined check each accepted a valid declaration, threw it away, and returned a successful result:
+
+- **combat** — the family's `slots()` never looked at `action.modifiers`, its `args()` copied a fixed
+  key list without them, and `execution.ts` built the engine's turn options without them, so
+  `resolveAttack` began at `let bonus = 0, penalty = 0`. Every fight in the product rolled plain.
+- **the opposed check** — `CheckArithmetic.opposed` called `check(..., 0, 0)` for both sides, hard-coded.
+- **the combined check** — its semantic slots declare no `bonus`/`penalty`, so the plan filtered them out.
+
+This is §31's first form (a writer with no reader) and the projection-whitelist failure together. The
+rule that replaces it is not "wire these three": **a declared modifier either reaches the dice or the
+call is refused by name.** `MODIFIER_CARRIERS` in `kernel-ts/resolve/pipeline.ts` lists the decisions
+that carry it; a non-zero declaration on anything else is `invalid_params`, naming the decision and
+echoing what was declared. A family that learns to carry it is added to that set — nothing is ever
+dropped in silence again.
+
+Where the declaration is read from matters. The dice are a fact about the **action**, not a slot the
+decisions declare, so combat's `args()` reads `context.declaredModifiers` beside `action.defense`
+rather than through the compiled payload, and the combined check's executor takes them the same way.
+The pushed roll is the one exception and it is deliberate: it inherits the dice of the check it pushes,
+which `locked` already writes into its payload, so a fresh declaration on a push is refused with that
+reason rather than silently overriding what it inherited.
+
+### 95.3 Whose dice they are
+
+**They belong to the person whose action the call resolves.**
+
+- `combat:attack` and `combat:maneuver` — the attacker's. An attack is declared on one call and rolled
+  on the next, when the defence answers it, so the declaration rides on `pending_attack` across that
+  gap (`bonus_dice`/`penalty_dice`, optional, range-checked in the snapshot validator).
+- `combat:defend` — the defender's. The attack being rolled in that same call was declared, and
+  modified, a call earlier.
+- an attack with `defense: "none"` — the attacker's, because a target who does not resist rolls
+  nothing; read as the defender's it would vanish.
+- the opposed check — the investigator's. What the keeper declared is a fact about the investigator's
+  attempt, not about both sides; the opponent rolls plain unless the rules give them something of
+  their own.
+
+The declared dice are **added to** what the engine derives from the state — aiming, prone, point blank,
+outnumbering, the maneuver's build difference — before the one-for-one cancellation in
+`CheckArithmetic.check`. The keeper does not restate what the rules already know.
+
+### 95.4 Three things that only looked like the defect
+
+**`opposed()` is not dead code.** `kernel-ts/resolve/arithmetic.ts` hard-coding `0, 0` there looks like
+the root and is not the fight's path — combat goes through `combat/execution.ts` and
+`resolution_hint: 'opposed_melee'`. But it is live (`executeOpposed`, capability `opposed`,
+`decision:coc7:core-check:opposed-check`) and it was a real instance of the same defect, so it is fixed
+here too.
+
+**`outnumbered` is two different things sharing a name**, which is what makes it hard to read:
+
+1. the engine's live one — `hasDefendedThisRound(target)` on the turn, which becomes a real `+1` bonus
+   die on a melee attack and on a maneuver. It is correctly wired (`markDefended` fires on every
+   defence path) and correctly never fired on A-MAIN, because that fight was one against one. It needs
+   a second attacker on the same target in the same round, which is exactly what the outnumbering rule
+   says.
+2. a dead condition — `'outnumbered'` sits in `VALID_CONDITIONS`, in `TRANSIENT_COMBAT_CONDITIONS` and
+   in the play-language word list, and **nothing in the kernel ever writes it onto a participant**. A
+   reader with no writer, §31's second form. It is left in place and named here rather than deleted:
+   removing it is a separate decision about whether the condition should be written.
+
+In the retained turn records `outnumbered` appears only as the rule-graph node id
+`rule:coc7:combat:outnumbered` inside a result's `rule_refs` — a reference to the rule, never a die.
+
+**A Mod check's receipt has no `bonus` key at all**, and the difference is real but points the other
+way. All 31 `family: "mod"` receipts in the evidence set lack `bonus` and `penalty`; all 249 others
+carry them as explicit zeros. The cause is that `resolveBeforeMain` (`kernel-ts/mods/resolve.ts`) builds
+its receipt as a literal rather than through `SettleContext.addRoll`, which always writes both fields — so the absent keys are
+a serialization difference, not a second constructor that could take a bonus. Its call is
+`arithmetic.check(value, recipe.difficulty, 0, 0, rng)`: the zeros are written into the call site and
+there is no parameter for them anywhere on that route. It is a third hard-zero, not a hidden way in.
+Note the same asymmetry as the tool's: a Mod recipe can name a harder `difficulty` and has no way to
+say the check is easier. Left as it is here, and named so the next reader does not have to find it
+twice.
+
+### 95.5 A die nobody can see is not evidence
+
+Two projections hid the dice even when they were rolled, which is why the evidence set reads as though
+the arithmetic were broken rather than the plumbing:
+
+- **the receipt.** The session engines roll the extra tens die and keep its faces on their own record;
+  `recordPercentile` copied only the two counts, so `tens_values` read empty and `unmodified_roll` null
+  on every receipt a combat, chase or sanity session ever minted. It now carries `tens_values`, `units`
+  and `unmodified_roll` when the engine rolled them. The consequence for tests is the point: an
+  assertion can require that a *second tens die was actually rolled*, not merely that a number was
+  echoed back.
+- **the mechanics card (§16.2).** `mechanicsOf` dropped `bonus` and `penalty` from a roll row, so the
+  one bonus die that did fire across nine tables was invisible to everyone but the kernel. The card
+  now carries both.
+
+### 95.6 What this section does not do
+
+It does not decide which situations earn a die — that stays with the keeper (§"语义问题不许硬编码").
+It does not extend the declaration to the sanity, chase, magic, healing, social or psychology families:
+those refuse it today, by name, and each is a separate decision about what advantage means inside a
+subsystem that already derives its own modifiers. It does not touch the ruleset's payload slots, and
+it does not change what the engine derives on its own.

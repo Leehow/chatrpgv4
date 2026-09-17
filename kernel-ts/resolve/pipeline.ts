@@ -20,6 +20,22 @@ import {knownSpells,readMagicState} from '../magic/state.js';
 import {magicLearningSources} from '../magic/facts.js';
 import {presentOpponents} from '../chase/bindings.js';
 import { shapeSettlement, tagNpcReceipts } from './projection.js';
+/**
+ * The decisions whose roll carries `action.modifiers.bonus_dice` / `penalty_dice` (§95).
+ *
+ * The keeper's declaration used to be validated at the entry and then quietly dropped by every
+ * decision outside the ordinary check, so a fight, a contest or a combined check rolled plain while
+ * the tool reported success -- nine tables and 280 roll receipts produced not one keeper-declared
+ * die, and all 17 `modifiers` the keepers did send carried nothing but `difficulty`. A
+ * declared modifier now either reaches the dice or the call is refused by name; a family that
+ * learns to carry it is added here, and nothing is ever dropped in silence again.
+ */
+const MODIFIER_CARRIERS = new Set([ORDINARY, COMBINED, OPPOSED, LUCK_ROLL,
+    'decision:coc7:combat:attack', 'decision:coc7:combat:defend', 'decision:coc7:combat:maneuver']);
+/** What to do instead, per decision that cannot carry the declaration. Never a bare "remove it". */
+const MODIFIER_INSTEAD: Readonly<Record<string, string>> = Object.freeze({
+    [PUSH]: 'a pushed roll keeps the dice of the check it pushes; resolve the push without action.modifiers',
+});
 const COMBAT_DEFEND = 'decision:coc7:combat:defend';
 const SANITY_CHECK = 'decision:coc7:sanity:check';
 const BOUT = ['decision:coc7:sanity:bout-tick', 'decision:coc7:sanity:bout-end'];
@@ -144,6 +160,7 @@ export class ResolvePipeline {
         this.method = typeof action.method === 'string' ? action.method : '';
         this.stakesText = typeof action.stakes === 'string' ? action.stakes : '';
         this.sessions = context.sessions();
+        context.declaredModifiers = modifiers;
     }
     get action(): Row { return this.context.action; }
     skillMatches(): string[] {
@@ -372,6 +389,9 @@ export class ResolvePipeline {
                         }
                     }
                 });
+            // No `bonus`/`penalty` here: a combined check declares neither as a semantic slot, and
+            // the plan refuses an input it does not declare. The keeper's dice reach the executor
+            // from the checked declaration instead (`executorArgs`, §95).
             return [{
                     combined_target_refs: canonical.map(skill => `${Object.hasOwn(CHARACTERISTICS, skill) ? 'characteristic' : 'skill'}:${kebab(skill)}`),
                     combined_mode: string(action.mode || 'any'),
@@ -660,6 +680,18 @@ export class ResolvePipeline {
         const family = familyBinding(this.families, ref, runtime.capabilityOf(ref));
         if (!BASIC_DECISIONS.has(ref) && !family)
             unsupportedDecision(runtime, ref);
+        const [declaredBonus, declaredPenalty] = this.modifiers;
+        if ((declaredBonus || declaredPenalty) && !MODIFIER_CARRIERS.has(ref))
+            throw new RpcError('invalid_params', `${semanticName(ref)} does not roll with bonus or penalty dice`, {
+                fix: MODIFIER_INSTEAD[ref] ?? `resolve this action without action.modifiers.bonus_dice and action.modifiers.penalty_dice; ${semanticName(ref)} settles on its own terms. Everything else in the action stays as it is`,
+                details: {
+                    decision: semanticName(ref),
+                    declared: {
+                        bonus_dice: declaredBonus,
+                        penalty_dice: declaredPenalty
+                    }
+                }
+            });
         const bound = family ? await family.slots(ref, context, {npc, investigator: context.sheetById(this.action.target)}) : null;
         const [semantic, extras] = bound ? [bound.semantic, bound.extras] : await this.slots(ref, npc);
         const selected: Row = {
