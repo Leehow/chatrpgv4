@@ -155,12 +155,16 @@ export function prepareLanguagePresentation(options:TextOptions&{campaign:string
   return prepareGrowingPresentation(options,'languages',languageTexts);
 }
 /**
- * The words a discovered clue puts on the sheet: the name the table filed it under and what the
- * book says it is. The name is the Keeper's own play-language word when `apply clue` gave one and
- * otherwise the graph's display name; the summary is always the module's, in the language the book
- * was read in. The row does not say which, so both are asked, exactly as a scene's name is, and a
- * word already in the play language comes back as itself. The handle never enters, and a clue the
- * scene offers but nobody has found stays the Keeper's business.
+ * The words a discovered clue puts on the sheet that are not written at the table: the name it is
+ * filed under. The name is the Keeper's own play-language word when `apply clue` gave one and
+ * otherwise the graph's display name; the row does not say which, so it is asked exactly as a
+ * scene's name is, and a word already in the play language comes back as itself.
+ *
+ * The row's `how` is not asked. Like the journal lane's own prose, the Keeper wrote it at this
+ * table in the play language, so it has no leg to travel. The module's `summary` is not here
+ * because it is not on the row any more: it is Keeper material and §79 stops it at the projection
+ * boundary. The handle never enters, and a clue the scene offers but nobody has found stays the
+ * Keeper's business.
  */
 export function clueTexts(view:Row):string[] {
   const texts=new Set<string>();
@@ -168,7 +172,7 @@ export function clueTexts(view:Row):string[] {
   const clues=view?.clues&&typeof view.clues==='object'&&!Array.isArray(view.clues)?view.clues:{};
   const found=[...(Array.isArray(clues.here)?clues.here:[]).filter((row:unknown)=>(row as Row)?.discovered===true),
     ...(Array.isArray(clues.discovered)?clues.discovered:[])];
-  for(const row of found){if(row&&typeof row==='object'){add((row as Row).label);add((row as Row).summary);}}
+  for(const row of found){if(row&&typeof row==='object')add((row as Row).label);}
   return [...texts].sort();
 }
 export function prepareCluePresentation(options:TextOptions&{campaign:string;view:Row}):Promise<Row> {

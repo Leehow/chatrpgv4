@@ -808,17 +808,16 @@ export function createComponent(React) {
           num(row.minutes) ? h("span", { className: "coc-mech-faces" }, fill(t("minutes"), { n: row.minutes })) : null);
       case "clue": {
         const name = term(text(row.label || row.clue));
-        const rawSummary = text(row.summary);
-        if (!rawSummary || rawSummary === name) {
-          // Nothing more to open into than the name itself: the row stays a line.
+        const account = text(row.how);
+        if (!account || account === name) {
+          // Nothing the player earned to open into beyond the name itself: the row stays a line.
           return h(Row, { key, kindKey: "clue", kindLabel, family },
             h("span", { className: "coc-mech-body" }, name));
         }
-        // The summary is the module's own sentence, kept by the graph in the language the book
-        // was read in. Its play-language projection rides in with the delivery's labels -- the
-        // campaign's `clues` lane, merged under the kernel glossary by the host -- and this falls
-        // back to the original for a clue whose lane run has not landed yet.
-        return h(FoldRow, { key, kindKey: "clue", kindLabel, body: term(rawSummary) },
+        // What opens is the account the Keeper filed of how this table got the clue (§79), written
+        // at the table in the play language -- so it is drawn as it was written, not asked of the
+        // glossary. The module's own sentence about the clue is Keeper material and never rides here.
+        return h(FoldRow, { key, kindKey: "clue", kindLabel, body: account },
           h("span", { className: "coc-mech-body" }, name));
       }
       case "item": {

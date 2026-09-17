@@ -38,6 +38,10 @@ export async function stageClue(context:ApplyContext,effect:Row):Promise<StagedE
     // Without a keeper label the receipt files the graph's display name: a handle is a machine word and never reaches the player.
     const receipt={id:`clue:${handle}-t${turn}`,kind:'clue',call_id:context.callId,clue:handle,label:label||graph.displayName(node),summary:node.summary||node.name,scene:graph.handle(scene),how,from:source,at:nowIso()};
     if(label)(world.clue_labels??={})[handle]=label;
+    // §79: the account of how this table came by the clue, kept beside its name because that is
+    // what the player's own record of it says. The graph's summary is the Keeper's and stays on
+    // the graph; a clue discovered without a `how` has a name and nothing more, which is honest.
+    if(how)(world.clue_how??={})[handle]=how;
     if(array(world.discovered_clues??=[]).includes(handle))return {receipt,event:null};world.discovered_clues.push(handle);
     return {receipt,event:{type:'clue-discovered',data:{clue:handle,scene:receipt.scene,how}}};
 }
