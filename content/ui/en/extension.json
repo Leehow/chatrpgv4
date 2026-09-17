@@ -1,5 +1,6 @@
 {
   "adaptation_wait_notice": "This table is still preparing a place the Keeper needed, so it could not take you there this turn. Nothing you did was lost — send anything to continue, and the Keeper picks it up once the preparation lands.",
+  "adaptation_ready_notice": "The place the Keeper needed is ready now, so the next turn can take you there. Nothing you did was lost — say anything to go on.",
   "commit_down_notice": "This turn could not be saved: the table's history store has refused to write {streak} times in a row, so nothing can be recorded and no turn can be delivered until it is repaired. Nothing you did was lost, and the person running this table has been told what to fix.",
   "delivery_cut_short_notice": "The Keeper wrote this turn in two parts and the second was refused after the turn had already closed, so what you just read stops early. Everything already settled is kept — send anything and the Keeper picks it up from there.",
   "director_beat": "beat {beat}",

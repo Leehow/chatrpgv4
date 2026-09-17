@@ -10168,3 +10168,69 @@ about it rather than guessing.
 - `tests/extension/stranded-turn-closes-itself.test.mjs` — on the real kernel, a run that settles with
   nothing delivered leaves `turns/0001.json` written and `turn.json` `awaiting_player` with no further
   player input; and a release the kernel refuses leaves the mark for §38's road.
+
+## 75. A preparation that landed is told, not withheld (2026-09-17, amends §47)
+
+§47 gave the host a service notice for the turn a preparation owns, and a re-read so that it is only
+said while it is still true. The re-read asks one question — *is this still running?* — and the notice
+is withheld on **no**. But **no** has two meanings, and only one of them is silence: the work can be
+**gone** (`accepted`, `cancelled`, `failed`, `stale`, `none`, or a kernel that will not answer), or it
+can have **landed** — built, reviewed, `ready`, and waiting only for the table's `apply`. Collapsing
+them means the player is told nothing in exactly the case where the product has the most to say.
+
+**Retained evidence, `homes/t4` (`game-1c0faba5`), 94 turns.** Four turns — 66, 73, 93, 95 — each
+declared a new destination, each prepared an adaptation, each had the next verb refused with
+`reason: "preparation_wait"`, and each closed with `receipts: []`. All four §47 decisions read
+`preparation_wait_notice_withheld`. Turn 93 is the clock: `apply` blocked 02:15:11.188 at `pending`,
+`narrate` 02:15:36.296, the re-read 02:15:40.018 — the job had reached `ready` in those four seconds,
+so the notice was dropped; the next player input did not arrive until 02:16:16.023, thirty-six
+seconds after the host knew the answer. The player had said he would be at the elders' side door at
+nine. The prose he got stops at the lamp going out, with no receipt, no notice, and no morning; turn
+94 is him saying the same thing over again. Turn 66 is the same shape with a worse ending: the player
+waited a turn for the juvenile court, opened turn 67 with "then I won't wait", and the proposal
+—`萨福克少年法庭`, the only `stale` job in that home's store — was never accepted. Zero-receipt
+delivered turns on that table: 11 of 94.
+
+**The change.** The §47 re-read answers three ways instead of two, and the third one speaks.
+
+- `waiting` — `pending` or `reviewing`, or a source reading the bridge still reports in flight. The
+  §47 notice, unchanged: `adaptation_wait_notice` / `source_wait_notice`, telemetry
+  `reason: "preparation_wait_notice"`.
+- `landed` — an adaptation whose status is `ready`. One authored caption of its own,
+  `adaptation_ready_notice`, on the same `coc-delivery` channel, with
+  `details.preparation_wait.landed = true` and telemetry `reason: "preparation_ready_notice"`. It says
+  the place is ready and that the next turn can reach it. §47's rule is kept and narrowed to the
+  sentence: a finished job is still never described to the player as running.
+- `null` — gone. Withheld exactly as before, with the `preparation_wait_notice_withheld` row.
+
+A source reading has no `landed`: it has no status verb and nothing to accept, so it keeps two states.
+
+**Why the turn itself cannot be saved, and therefore must be legible.** The empty turn is not a
+policy. `prepare` pins the job to `digest({world, party, line})` plus the source digest and
+generation, and `fresh()` compares that pin on every later read; any receipt that moves the world —
+`time`, `move`, `npc` — stales the job the same turn that created it. The gate that blocks every verb
+but `narrate` and the adaptation controls is protecting the work it just started, and acceptance is
+therefore always the *first* effect of the following turn (turn 94: `apply adaptation` as `t94-c1`,
+`apply time/move/npc` as `t94-c2`). §36.15's bounded 12-second foreground wait is the other half; the
+four jobs on this table took roughly fifty to seventy seconds. Widening that bound is a latency
+ruling §36.15 already made deliberately and is not reopened here. What is owed, while the extra turn
+stands, is that the player be told it is an extra turn and not a rejection.
+
+**What this does not change.** `ADAPTATION_HELD` keeps `ready`: a reviewed scene is not entered
+without an answer, and §47's reason for holding it is untouched. Nothing is auto-accepted, no verb is
+added, no new lane or foreground model call, no second kernel read — the notice's own re-read is the
+only one, and it already existed. The wait instruction, the gate, the audit's `preparation_wait`
+deferral basis (§37.3) and §60's retirement of terminal jobs are all as they were.
+
+**What was checked and found not to be the defect.** The `ready` refusal is not a compliance failure.
+On all four instances the Keeper reached `lookup kind=adaptation action=status` on its very next
+provider call after the block, and the status result's own `instruction` field names the accepting
+call; turns 74, 94 and 96 then accepted within the same turn. Turn 67 did read the status and
+declined deliberately — its recorded reasoning is that the player had by then gone elsewhere — which
+is a correct decision about a destination the player had already abandoned, one turn earlier, for
+want of this notice.
+
+**Guards.** `tests/extension/host-state-not-fiction.test.mjs` — a landed preparation reaches the
+player on the `coc-delivery` channel with `landed: true` and its own projected caption, on a turn
+whose `apply` the wait refused; a caption that does not say "still"; and a `failed` preparation still
+withheld, so "landed" cannot be reached by always speaking.

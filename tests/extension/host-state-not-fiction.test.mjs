@@ -55,11 +55,19 @@ import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { adaptationService } from "../../extensions/kernel/adaptation.ts";
 import { KernelError } from "../../extensions/kernel/client.ts";
 import { ReadingService } from "../../extensions/module/reading-service.ts";
+import { extensionWords } from "../../extensions/ui/words.ts";
 import { assistantTexts, customMessages, openTable, toolResultTexts, waitFor } from "./harness.mjs";
 
 /** The notices this contract owns, as the player's surface actually carries them. */
 const waitNotices = (table) =>
 	customMessages(table.session, "coc-delivery").filter((message) => message.details?.preparation_wait);
+
+/**
+ * Every answer the §47 re-read is allowed to reach, as the telemetry names them. A test waits for the
+ * *decision*, not for one of its outcomes: waiting for a single reason would hang, not fail, on the
+ * day the host starts answering differently, and a hang says nothing about what changed.
+ */
+const NOTICE_DECISIONS = new Set(["preparation_wait_notice", "preparation_ready_notice", "preparation_wait_notice_withheld"]);
 
 /** A host reading bridge under the test's control: `ensure` always times out, `reading` is scripted. */
 function readingBridge(stillReading) {
@@ -191,10 +199,13 @@ test("a finished preparation is never described as still running", async (t) => 
 	assert.match(said, /Never tell the player this is still being prepared/);
 	assert.doesNotMatch(said, /Retained adaptation preparation for roxbury-sanitarium is ready\. Use lookup/,
 		"the bare status line is what let a finished job be narrated as unfinished");
-	// And the host says nothing about it either: a finished job is not a pending one.
-	assert.deepEqual(waitNotices(table).filter((row) => row.details.preparation_wait.name === "roxbury-sanitarium"
-		&& (table.telemetry().at(-1) ?? {}) && true).map((row) => row.details.preparation_wait.kind), [],
+	// And the host does not say it either: a finished job is not a pending one. §75 keeps that and
+	// narrows it to the sentence — the player still hears that the place landed, on the row below.
+	assert.deepEqual(table.telemetry().filter((row) => row.reason === "preparation_wait_notice"), [],
 		"a job that has finished produces no 'still preparing' notice");
+	assert.ok(waitNotices(table).length >= 1, "and the player is not left with silence either");
+	assert.ok(waitNotices(table).every((notice) => notice.details.preparation_wait.landed === true),
+		"every notice the player did get says the place landed, not that it is running");
 });
 
 // ---- Layer 2: the host says it itself, out of fiction ----------------------------------------
@@ -264,13 +275,16 @@ test("a preparation that landed before the player was told is not announced as s
 	});
 	t.after(() => table.dispose());
 	await table.session.prompt("我进门找值班的人。");
-	await waitFor(() => table.telemetry().some((row) => String(row.reason ?? "").startsWith("preparation_wait_notice")),
+	await waitFor(() => table.telemetry().some((row) => NOTICE_DECISIONS.has(String(row.reason ?? ""))),
 		{ label: "the host's decision about the notice" });
 
-	const withheld = table.telemetry().filter((row) => row.reason === "preparation_wait_notice_withheld");
-	assert.equal(withheld.length, 1, `the re-read must be recorded: ${JSON.stringify(table.telemetry().filter(r => r.lane === "delivery"))}`);
-	assert.equal(withheld[0].kind, "adaptation");
-	assert.deepEqual(waitNotices(table), [], "a job that has landed is not described to the player as pending");
+	assert.deepEqual(table.telemetry().filter((row) => row.reason === "preparation_wait_notice"), [],
+		"a job that has landed is not described to the player as pending");
+	// §75: and it is not silence either. The re-read is still the decision; it now has three answers.
+	const landed = table.telemetry().filter((row) => row.reason === "preparation_ready_notice");
+	assert.equal(landed.length, 1, `the re-read must be recorded: ${JSON.stringify(table.telemetry().filter(r => r.lane === "delivery"))}`);
+	assert.equal(landed[0].kind, "adaptation");
+	assert.equal(landed[0].name, "roxbury-sanitarium");
 	// The Keeper's own status call stays pending: this is the host re-reading, not the Keeper polling.
 	const statuses = table.kernelRequests().filter((row) => row.method === "adaptation.status");
 	assert.ok(statuses.length >= 2, `the notice read the status again for itself: ${statuses.length}`);
@@ -292,11 +306,89 @@ test("a source reading that finished before the player was told is not announced
 	// The five seconds of `game-b4cebfe0`: the reader lands while the turn is closing.
 	landed = true;
 	await table.session.prompt("我把橹插下去，往滩头去。");
-	await waitFor(() => table.telemetry().some((row) => String(row.reason ?? "").startsWith("preparation_wait_notice")),
+	await waitFor(() => table.telemetry().some((row) => NOTICE_DECISIONS.has(String(row.reason ?? ""))),
 		{ label: "the host's decision about the notice" });
 
 	assert.deepEqual(waitNotices(table), [], "a reading that has landed is not described to the player as pending");
 	assert.equal(table.telemetry().filter((row) => row.reason === "preparation_wait_notice_withheld").length, 1);
+});
+
+// ---- Layer 4 (§75): "not still running" is two answers, and only one of them is silence --------
+
+/**
+ * The cost this layer exists for, from `homes/t4` (`game-1c0faba5`). Four turns — 66, 73, 93, 95 —
+ * each declared a new destination, each prepared an adaptation, each had the very next verb refused
+ * with `reason: "preparation_wait"`, and each closed with `receipts: []`. On all four the §47 notice
+ * was the only thing that could have told the player why, and on all four its telemetry row reads
+ * `preparation_wait_notice_withheld`: the job reached `ready` in the seconds between the delivery
+ * and the re-read (turn 93: `narrate` 02:15:36.296, withheld 02:15:40.018), and "no longer pending"
+ * was being read as "nothing to say". Turn 93's player had said he would be at the elders' side door
+ * at nine; the prose he got stops at the lamp going out, with no receipt and no notice, and turn 94
+ * is him saying the same thing over again.
+ *
+ * `ready` is the answer arriving, not the work disappearing, so it is the case with the *most* to
+ * say — and it is the only case where what the player needs next is one more sentence from them.
+ */
+test("a preparation that landed is told to the player, not withheld as if there were nothing to say", async (t) => {
+	const delivered = "你在门口把外套抻平，把名片捏在手里，找值班的人。";
+	const words = await extensionWords(undefined), source = await extensionWords("en");
+	const table = await openTable({
+		env: { FAKE_KERNEL_ADAPTATION_PENDING: "1", PI_COC_ADAPTATION_WAIT_MS: "0",
+			FAKE_KERNEL_ADAPTATION_READY_ON_SECOND_STATUS: "1" },
+		responses: [
+			fauxAssistantMessage([PREPARE], { stopReason: "toolUse" }),
+			// Turn 93's own shape: the move the player asked for, refused by the wait the same turn made.
+			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "move", to: "roxbury-sanitarium" }] })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("narrate", { text: delivered })], { stopReason: "toolUse" }),
+			fauxAssistantMessage(delivered),
+		],
+	});
+	t.after(() => table.dispose());
+	await table.session.prompt("我进门找值班的人。");
+	await waitFor(() => table.telemetry().some((row) => NOTICE_DECISIONS.has(String(row.reason ?? ""))),
+		{ label: "the host's decision about the notice" });
+
+	// The turn the player paid for: a refused verb, and a delivery that carries no receipt of it.
+	assert.ok(table.telemetry().some((row) => row.reason === "preparation_wait" && row.code === "blocked" && row.tool === "apply"),
+		"the turn under test is one where the preparation took the player's move");
+	const notice = waitNotices(table).at(-1);
+	assert.ok(notice, `the player is owed a line on a turn that cost them one: ${JSON.stringify(table.telemetry().filter((row) => row.lane === "delivery"))}`);
+	assert.equal(notice.customType, "coc-delivery", "it rides the channel the other service notices use");
+	assert.equal(notice.details.preparation_wait.kind, "adaptation");
+	assert.equal(notice.details.preparation_wait.name, "roxbury-sanitarium");
+	assert.equal(notice.details.preparation_wait.landed, true, "and it says which of the two answers the re-read reached");
+	assert.equal(notice.content, words.line("adaptation_ready_notice"), "the projected caption, like every other notice");
+	assert.notEqual(notice.content, words.line("adaptation_wait_notice"),
+		"the landed line is its own caption: reusing the waiting one would say the job is still running");
+	// The rule §47 set and this section keeps, checked in the authored source the projection is made
+	// from rather than in whatever the table happened to render.
+	assert.doesNotMatch(source.word("adaptation_ready_notice"), /still/i,
+		"a finished job is never described to the player as running");
+	assert.deepEqual(table.telemetry().filter((row) => row.reason === "preparation_wait_notice_withheld"), [],
+		"withholding is for a preparation that is gone, and this one is waiting for the table");
+});
+
+test("a preparation that is gone is still withheld: the player hears about work, not about history", async (t) => {
+	const delivered = "你在门口把外套抻平，把名片捏在手里，找值班的人。";
+	const table = await openTable({
+		// §60's case: the retained creator or its reviewer gave up. Nothing was built and nothing is
+		// waiting for an answer, so there is no place to tell the player about.
+		env: { FAKE_KERNEL_ADAPTATION_PENDING: "1", PI_COC_ADAPTATION_WAIT_MS: "0",
+			FAKE_KERNEL_ADAPTATION_FAILED_ON_SECOND_STATUS: "1" },
+		responses: [
+			fauxAssistantMessage([PREPARE], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("narrate", { text: delivered })], { stopReason: "toolUse" }),
+			fauxAssistantMessage(delivered),
+		],
+	});
+	t.after(() => table.dispose());
+	await table.session.prompt("我进门找值班的人。");
+	await waitFor(() => table.telemetry().some((row) => NOTICE_DECISIONS.has(String(row.reason ?? ""))),
+		{ label: "the host's decision about the notice" });
+
+	assert.equal(table.telemetry().filter((row) => row.reason === "preparation_wait_notice_withheld").length, 1);
+	assert.deepEqual(waitNotices(table), [],
+		"a dead proposal is not a place that is ready, and the player is not told one landed");
 });
 
 test("`reading` answers for the material the wait retained, and only while it is in flight", async () => {
