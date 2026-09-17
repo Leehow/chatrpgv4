@@ -92,7 +92,7 @@ export type HistoryEntry = {
   /** assistant only: a host-delivered opening that carries a help fold the renderer draws behind a "?" button. */
   help?: OpeningHelp;
   /**
-   * assistant only: the host placed these words itself (contract §53, §81) -- a service notice or
+   * assistant only: the host placed these words itself (contract §53, §83) -- a service notice or
    * the §8 fallback, not the Keeper's turn.
    *
    * Only the reader of the transcript can answer this: the row names the channel, the rendered

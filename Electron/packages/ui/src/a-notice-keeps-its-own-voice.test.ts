@@ -3,7 +3,7 @@ import { applyStreamEvent, historyMessages } from './transcript-model'
 import type { HistoryEntry } from '@pipi/host-api'
 
 /**
- * Contract §81: a notice the host placed is not more of the Keeper's message.
+ * Contract §83: a notice the host placed is not more of the Keeper's message.
  *
  * §55 made a host-placed notice arrive live, as its own bubble. This is the other reading of the
  * same row, and until now the two disagreed: `historyMessages` folds an assistant entry that
@@ -37,7 +37,7 @@ const keeperCard: HistoryEntry = {
 
 const NOTICE = 'This turn ended without a delivery. Everything already settled is kept.'
 
-/** The row the host placed, as the backend's reader renders it (§53, §81). */
+/** The row the host placed, as the backend's reader renders it (§53, §83). */
 const notice: HistoryEntry = {
   id: 'notice-1', role: 'assistant', content: NOTICE, timestamp: AT + 1, placedByHost: true,
 }

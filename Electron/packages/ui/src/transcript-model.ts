@@ -308,7 +308,7 @@ export function historyMessages(entries: HistoryEntry[]): ChatMessage[] {
       continue
     }
     const previous = messages[messages.length - 1]
-    // §81: a turn whose text arrived in a later entry is one message; a notice the host placed is
+    // §83: a turn whose text arrived in a later entry is one message; a notice the host placed is
     // another speaker's, and merging it in is what printed the host's out-of-fiction sentence as
     // the Keeper's own words, under the Keeper's tool card -- and, because the merge also takes the
     // notice's id, deleted the Keeper's card id from the transcript. The live projection publishes

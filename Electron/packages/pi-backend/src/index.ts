@@ -1497,7 +1497,7 @@ function visibleHistoryEntry(entry: any, secrets: RevealedSecret[] = [], languag
     // The setup opening may carry a help fold in its details (`data` on the stored entry); it rides
     // as `help` so the renderer can draw the "?" on the live reading and on every re-read alike.
     const help = openingHelp(entry?.data?.help ?? entry?.details?.help);
-    // §81: the same registry that decides the side also carries the speaker forward. `assistant` is
+    // §83: the same registry that decides the side also carries the speaker forward. `assistant` is
     // the side of the table, shared with the Keeper's own turns; `placedByHost` is the speaker, and
     // without it the transcript's assembly rules treat a service notice as more of the Keeper's
     // message and fold it into the Keeper's card.

@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createPiHostBackend, HOST_DELIVERED_CUSTOM_TYPES } from "../src/index.js";
 
 /**
- * Contract §81, the writing end: the transcript carries who placed a row, not only which side.
+ * Contract §83, the writing end: the transcript carries who placed a row, not only which side.
  *
  * §53 gave a host-placed notice the Keeper's side of the table, and §55 made it arrive live. Both
  * are right, and together they left the re-read unable to tell the host's own sentence from the
@@ -95,7 +95,7 @@ describe("the transcript says who placed a row, not only which side it is on", (
         expect(entry, customType).toBeTruthy();
         // §53: the Keeper's side of the table...
         expect(entry.role, customType).toBe("assistant");
-        // ...and §81: the host's own voice on it.
+        // ...and §83: the host's own voice on it.
         expect(entry.placedByHost, customType).toBe(true);
       }
     } finally {

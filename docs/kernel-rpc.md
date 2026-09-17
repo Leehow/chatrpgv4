@@ -11000,7 +11000,7 @@ host that keeps failing raises the banner, after which pressing 重试 clears it
 once the host recovers. They die when the retry is reverted to the bare catch,
 and when the banner loses its control.
 
-## 81. A notice the host placed is not more of the Keeper's message (2026-09-17, completes §53 and §55)
+## 83. A notice the host placed is not more of the Keeper's message (2026-09-17, completes §53 and §55)
 
 §53 settled whose words a host-placed delivery carries and gave it the Keeper's side of the
 table. §55 settled when the player gets them. Neither settled what the transcript may then do
@@ -11029,7 +11029,7 @@ text, kept its own bubble — so the same channel read two different ways eleven
 on one table. That inconsistency is also why the turn-112 notice was reported missing: it
 rendered below the block being inspected rather than inside it.
 
-### 81.1 The rule
+### 83.1 The rule
 
 **A row the host placed is marked as such on every reading, and the transcript's assembly
 rules never fold it into another speaker's message.**
@@ -11044,7 +11044,7 @@ Nothing here reads a word of either.
 `role` stays `assistant`. The side of the table is §53's decision and is unchanged; this is
 the speaker on that side, which §53 named and then had no way to carry forward.
 
-### 81.2 The three ends (§31)
+### 83.2 The three ends (§31)
 
 - **Who writes it.** The host's own reader, from the channel registry, on every projection of
   a `custom_message` row — the live one of §55 and every re-read alike, since both go through
@@ -11055,7 +11055,7 @@ the speaker on that side, which §53 named and then had no way to carry forward.
   its own id and its own emptiness, so "the turn delivered nothing, and here is why" stays two
   statements instead of one sentence signed by the wrong person.
 
-### 81.3 What is deliberately not here
+### 83.3 What is deliberately not here
 
 No new channel, no resend, and no second delivery path. The notice was reaching the screen;
 what it was not keeping was its own voice. The fold rule is not weakened for anything else —
