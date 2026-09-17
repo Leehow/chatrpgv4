@@ -171,7 +171,7 @@ def test_ambiguous_guidance_publishes_choices_without_authorizing_character_crea
     assert len(retry["opening"]["choice"]["candidates"]) == 2
 
 
-def test_authored_era_prose_requires_model_selection_of_a_supported_rulebook_period(kernel, tmp_path):
+def test_authored_era_prose_uses_the_rulebook_default_without_losing_the_setting(kernel, tmp_path):
     from test_setup_drafts import profile
     mid, job, draft, _, review = seed(kernel, tmp_path)
     work = Path(job["work_dir"])
@@ -182,8 +182,8 @@ def test_authored_era_prose_requires_model_selection_of_a_supported_rulebook_per
     finish(kernel, job)
     kernel.ok("campaign.create",{"id":"era-choice","module":mid,"guidance_key":KEY,"play_language":"en"})
     request = {"campaign":"era-choice","profile":profile()}
-    error = kernel.err("setup.draft",request)
-    assert error["details"]["source_era"] == "An expedition in March 1921"
-    assert "1920s" in error["details"]["options"]
-    result = kernel.ok("setup.draft",{**request,"profile":{**profile(),"era":"1920s"}})
-    assert result["sheet"]["finance"]
+    sheet = kernel.ok("setup.draft",request)["sheet"]
+    assert sheet["era"] == "1920s"
+    assert sheet["setting_era"] == "An expedition in March 1921"
+    assert sheet["finance"]["source"] == "cash-assets.periods.1920s"
+    assert sheet["finance"]["substituted_for"] == "An expedition in March 1921"

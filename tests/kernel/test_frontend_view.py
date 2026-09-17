@@ -68,14 +68,16 @@ def test_an_english_table_gets_only_the_rows_the_data_declares_for_english(kerne
 
 def test_a_discovered_clue_is_listed_by_the_name_the_table_gave_it(kernel):
     """`discovered_clues` is handles because that is what the world files. The player reads
-    this list, so the projection carries the keeper's own name for the clue (§23) plus the
-    module's summary when it says more than that name -- what the panel unfolds into."""
+    this list, so the projection carries the Keeper's own name and account for the clue, never
+    the module's Keeper-only summary (§80)."""
     open_turn(kernel)
     kernel.table('apply', call_id='t1-c1',
-                 effects=[{'kind': 'clue', 'clue': 'knott-commission', 'label': '诺特的委托合同'}])
+                 effects=[{'kind': 'clue', 'clue': 'knott-commission', 'label': '诺特的委托合同',
+                           'how': '诺特当面委托调查房屋。'}])
     row = kernel.ok('table.view', {'campaign': CAMPAIGN})['clues']['discovered'][0]
     assert row['clue'] == 'knott-commission' and row['label'] == '诺特的委托合同'
-    assert row['summary'].startswith('Landlord Steven Knott pays $20/day')
+    assert row['how'] == '诺特当面委托调查房屋。'
+    assert 'summary' not in row
 
 
 def test_an_unnamed_clue_falls_back_to_the_graph_rather_than_to_its_handle(kernel):

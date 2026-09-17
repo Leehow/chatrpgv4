@@ -67,7 +67,9 @@ def test_a_vocabulary_contribution_is_checked_for_shape(kernel, tmp_path):
     assert "slug" in rejected("bad-slug", vocabulary={**DIALECT, "key": "Language"})
     assert "label" in rejected("no-label", vocabulary={**DIALECT, "label": "   "})
     assert "ask" in rejected("long-ask", vocabulary={**DIALECT, "ask": "x" * 401})
-    assert "key, a label and an ask" in rejected("extra-field", vocabulary={**DIALECT, "extra": 1})
+    kernel.ok("mods.install", {"path": str(package(tmp_path, name="extra-field", vocabulary={**DIALECT, "extra": 1}))})
+    future = next(row for row in kernel.ok("mods.list")["mods"] if row["id"] == "extra-field")
+    assert future["compatible"] is False
     assert "one to eight" in rejected("empty-list", vocabulary=None,
                                       contributes={"vocabulary": {"actor_profile_keys": []}})
 

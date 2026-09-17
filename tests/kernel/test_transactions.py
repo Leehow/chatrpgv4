@@ -180,8 +180,10 @@ def test_commit_failure_keeps_the_turn_open(kernel):
     result = narrate(kernel, "t1-c2", "第一段。\n\n第二段。")
     assert result["commit"]
     assert [m["skill"] for m in result["mechanics"] if m["kind"] == "roll"] == ["Listen"]
-    assert kernel.table("status") == {"turn": 2, "state": "awaiting_player", "receipts": [], "mechanics": [],
-                                      "pending_choice": None}
+    status = kernel.table("status")
+    assert {key: status[key] for key in ("turn", "state", "receipts", "mechanics", "pending_choice")} == {
+        "turn": 2, "state": "awaiting_player", "receipts": [], "mechanics": [], "pending_choice": None}
+    assert status["labels"]
 
 
 def test_ask_keeps_story_mechanics_and_interaction_separate(kernel):
