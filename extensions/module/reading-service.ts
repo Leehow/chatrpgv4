@@ -99,6 +99,47 @@ const error = (reason: string, message: string, fix: string, extra: Row = {}) =>
 function openingFinishSemanticRejection(failure: unknown, job: Row): boolean {
 	return job.purpose === "opening" && isKernelError(failure) && failure.code === "invalid_params";
 }
+/** Resolve a JSON pointer against a draft, or `undefined` when it does not land. */
+function atPointer(draft: Row, pointer: unknown): unknown {
+	if (typeof pointer !== "string" || !pointer.startsWith("/")) return undefined;
+	let value: any = draft;
+	for (const raw of pointer.slice(1).split("/")) {
+		const key = raw.replaceAll("~1", "/").replaceAll("~0", "~");
+		if (value === null || typeof value !== "object") return undefined;
+		value = Array.isArray(value) ? value[Number(key)] : value[key];
+	}
+	return value;
+}
+/**
+ * The one repair an unsupported number has, said in words the repair round can act on.
+ *
+ * Every numeric properties field is reviewed automatically, so a number the book does not
+ * print cannot be cited into support — it has to go. Nothing told the reader that. The
+ * reviewer reports only that it found no source; the kernel answers *correct the draft using
+ * the original pages and submit again*; and the repair round, handed both, re-cited the same
+ * invented value and failed identically (§74).
+ *
+ * Measured on `Masks of Nyarlathotep` (669 pages, 2026-09-17): one minor NPC's `age: 32`,
+ * `missing: []`, every other unit supported. Two rounds failed, and the player's only offered
+ * recovery — 继续准备 — inherited the same draft and failed a third time. A book prepared but
+ * for one fabricated number is unplayable forever.
+ *
+ * Only numbers get this line. A prose field the review could not support may well be
+ * repairable by reading the right page, and telling the reader to delete it would trade a
+ * stall for a silent omission.
+ */
+function unsupportedNumberRepairs(draft: Row, unsupported: Row[]): string[] {
+	const repairs: string[] = [];
+	for (const row of unsupported) {
+		const paths = Array.isArray(row?.paths) ? row.paths : [row?.path];
+		for (const path of paths) {
+			if (typeof atPointer(draft, path) !== "number") continue;
+			repairs.push(`${path}: the review found no page stating this number. Either view a page that prints this exact value and cite it, or delete the field. Re-citing pages that do not print it fails the same way. Deleting an unsourced number is a correct repair, not a loss: the field stops being reviewed once it is gone.`);
+		}
+	}
+	return repairs;
+}
+
 
 export class ReadingService implements ReadingBridge {
 	private stopped = false;
@@ -662,9 +703,16 @@ export class ReadingService implements ReadingBridge {
 					}
 					let review: Row | undefined;
 					try { review = JSON.parse(await readFile(join(cwd, "review.json"), "utf8")); } catch { /* no review yet */ }
+					const unsupported: Row[] = review ? (review.checked ?? []).filter((row: Row) => row.verdict !== "supported") : [];
+					let repairs: string[] = [];
+					if (unsupported.length) {
+						try { repairs = unsupportedNumberRepairs(JSON.parse(await readFile(join(cwd, "draft.json"), "utf8")), unsupported); }
+						catch { /* an unreadable draft still leaves the reviewer's own rows */ }
+					}
 					await writeFile(join(cwd, "findings.json"), JSON.stringify({ error: detail,
 						...(isKernelError(failure) ? { details: failure.details } : {}),
-						...(review ? { missing: review.missing, unsupported: review.checked?.filter((row: Row) => row.verdict !== "supported") } : {}) }) + "\n");
+						...(review ? { missing: review.missing, unsupported } : {}),
+						...(repairs.length ? { repairs } : {}) }) + "\n");
 				}
 			}
 		} finally {
