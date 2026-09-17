@@ -266,14 +266,19 @@ export async function tableView(context: KernelContext, params: Row): Promise<Ro
         { graph } = module,
         snapshot = tableSnapshot(campaign, graph),
         { world, turn } = campaign;
+    // §80: what the player is told about a clue is what this table earned, never the book's own
+    // sentence about it. The graph's `summary` is Keeper material -- it carries the staging, the
+    // intentions and the agendas the source wrote for the Keeper -- and it stops here. The row
+    // carries `how`, the account the Keeper filed when `apply clue` landed, kept per clue in
+    // `world.clue_how` exactly as the name is kept in `world.clue_labels`.
     const discovered = array(world.discovered_clues).map(handle => {
         const label = clueLabel(graph, world, handle),
-            node = graph.find(handle, ["clue"]),
-            summary = typeof node?.summary === "string" ? node.summary.trim() : null;
+            filed = row(world.clue_how)[handle],
+            how = typeof filed === "string" ? filed.trim() : "";
         return {
             clue: handle,
             label,
-            ...(summary && summary !== label ? { summary } : {})
+            ...(how && how !== label ? { how } : {})
         };
     });
     return {

@@ -2346,10 +2346,14 @@ The label is the name the Keeper gave the clue when `apply clue` discovered it,
 kept in `world.clue_labels` exactly as a scene's name is kept in
 `world.scene_labels`, and it falls back to the graph's display name for a clue
 discovered before that field existed. The handle stays as `clue`, so a consumer
-can still key on identity. A row also carries `summary` when the clue's module
-node authors one -- the player panel unfolds the clue into exactly that text,
-so what a clue says is one tap away instead of nowhere. Undiscovered clues
-remain absent.
+can still key on identity. Undiscovered clues remain absent.
+
+**Superseded by §80 (2026-09-17):** this decision also gave the row the module
+node's `summary`, and had the panel unfold the clue into exactly that text. The
+module's sentence is written for the Keeper and carries staging and agendas the
+player has not earned, so it no longer reaches the row. What the row carries
+instead is `how`, the account the Keeper filed when the clue was discovered,
+kept in `world.clue_how` beside the name.
 
 A `roll` or `dice` receipt carries `actor_label` for an investigator as it
 already did for an NPC: the sheet's own name. The §16.2 projection copies it, so
@@ -2362,16 +2366,21 @@ labels always used: a name is not a claim two lines can disagree about.
 ### Host decision: a clue's words reach the player in the play language (2026-09-09)
 
 A zh-Hans table unfolded 血泊 into "Corbitt can form pools of blood on floor,
-ceiling, or walls to frighten intruders away from his secret." The row's `summary`
-is the module's own text, written by the reader in the language the book was read
-in, and the row's `label` falls back to the graph's display name for a clue the
+ceiling, or walls to frighten intruders away from his secret." (§80 later removed
+that unfolding entirely: the summary is Keeper material, and the example below
+now applies only to the row's `label`.) The row's `summary` was the module's own
+text, written by the reader in the language the book was read in, and the row's
+`label` falls back to the graph's display name for a clue the
 Keeper never renamed. Neither is the kernel's to rewrite (§16: the kernel writes
 English and the module graph is the author's fact), and neither gets a hand-written
 translation in the panel. They travel the same leg as standing names and possession
 words: the tool-enabled presenter that projects the card.
 
 `clueTexts(view)` collects, from `table.view.clues.discovered` (and any `here` row
-marked `discovered`), each row's `label` and `summary`. The handle never enters,
+marked `discovered`), each row's `label`. (Until §80 it also collected `summary`;
+that field no longer reaches a player row, and the `how` that replaced it was
+written at the table in the play language, so it has no leg to travel.) The
+handle never enters,
 and an unfound clue the scene offers is not on the sheet and is not asked. A label
 the Keeper wrote in the play language is asked once and comes back as itself, as a
 renamed scene's name does; the row does not say which word is whose, and guessing
@@ -10741,3 +10750,125 @@ transfers; a form of address established at one turn is still in the capsule twe
 later, and is on the investigator rather than on the pair, so it is there for an NPC who arrives
 afterwards and was never corrected; an investigator's `name` is refused; and the say token resolves
 the table's name to the person rather than to a label.
+
+## 80. A clue's summary is the Keeper's; the player is told what they earned (2026-09-17, amends §22's 2026-09-07 and 2026-09-09 clue decisions)
+
+Acceptance play, campaign `game-7dca41f9`, A-MAIN. Turn 69 discovered
+`hunters-seek-sarah`. The module graph's node for it reads:
+
+```
+一开始他们说自己在寻找今天早些时候失踪的朋友，并询问路上有没有见过莎拉。
+不会主动求援，但玩家提供帮助他们也不会拒绝；否则几分钟后友善告别继续搜寻。
+他们怀疑莎拉被教堂牧师逮住，打算回城救她。
+```
+
+The first sentence is what the investigator heard. The rest is the Keeper's
+script: what these people will do if offered help, how long they stay, and the
+plan they have not spoken. All three sentences unfolded to the player — on the
+delivery card and in the right-hand clue panel, one tap each.
+
+Twenty-six turns later, on turn 95, the Keeper wrote 「牧师逮人」 into the prose
+and the verifier lane filed it:
+
+```json
+{"lane":"verifier","kind":"reveal",
+ "why":"克莱尔未赚取的秘密议程（怀疑牧师逮住莎拉并因此来教堂）被直接说给玩家。"}
+```
+
+One piece of data, two consumers, opposite verdicts about secrecy. The product
+convicted itself.
+
+### 80.1 The field never had an audience
+
+`clue.summary` comes off the module graph. The reader is told to write there
+*the discoverable proposition that matters to the prepared investigation*
+(`content/setup/visual-reader.md`), and what comes out is the book's own
+paragraph about the clue, because the book is written for the Keeper. The node's
+`visibility` does not sort this out: both clues discovered in that campaign are
+marked `player-safe`, and both summaries are staging. **`visibility` classifies
+the node for the handout and map paths (§22, §57); it has never said anything
+about which of a node's *fields* a player may read.**
+
+The Keeper's own instructions already drew the line the projection did not
+(`prompts/keeper.md`): *a clue is what the investigator learned; your own summary
+of the source is neither, so do not present one as another.*
+
+The same field, on the same shipped starter, is Keeper prose in English too:
+`the-haunting-rulebook`'s `clue-windows-nailed-shut` reads *"If investigators
+test the ground floor windows ... The front door has a single lock plus four
+additional bolts added within the last year or two."* The second sentence is
+about a door nobody has touched.
+
+### 80.2 The player's own field existed and nothing read it
+
+`apply clue` has always taken `how` — *"one sentence: how they got it"* —
+written by the Keeper, at this table, in the play language, on the turn it
+happened. It landed on the receipt and on the `clue-discovered` event and was
+read by **nothing**: not `mechanics()`, not `table.view`, not either renderer,
+not one test. §31's first shape, written and never read.
+
+So the panel was not reaching past a player-side field. It was reaching for the
+only text it could get, because the field that was the player's had no
+projection. That is why this is not fixed by hiding `summary`: a clue list of
+bare titles is what hiding it alone would leave.
+
+**Redaction is not on the table either.** Deciding which sentence of a summary a
+player may read is a semantic judgement about open text. Truncating, summarising
+or rewriting it — by rule or by model — would put that judgement in the pipeline,
+where it is forbidden.
+
+### 80.3 The contract
+
+**The module graph's `summary` is Keeper material and stops at the player
+projection boundary.** Nothing the player reads carries it.
+
+**`world.clue_how` keeps, per clue handle, the `how` the Keeper filed when
+`apply clue` landed** — exactly as `world.clue_labels` keeps the name (§22) and
+`world.scene_labels` keeps a scene's. A clue discovered with no `how` has a name
+and nothing more, which is honest; it is not filled from the book.
+
+**`table.view.clues.discovered` rows are `{clue, label, how?}`.** `summary` is
+gone from them. `how` is omitted when it is absent or equal to the label.
+
+**The §16.2 `clue` mechanics row is `{kind, receipt, clue, label?, how?}`.** The
+live card and the history card are one projection, so both change together. The
+receipt itself still records `summary`: the receipt is the Keeper's record and
+the audit trail, and the boundary is the projection, not the ledger.
+
+**An echo's reveal loses nothing it had.** `apply clue` on an `echo:` id already
+refused without a Keeper `label`, on the stated grounds that the echo's summary
+is *"the kernel's own sentence, never a player-facing word"*. That rule now holds
+for the module's sentences too, by the same route.
+
+**Both surfaces open into the account.** `pipicoc/panel.js` and
+`pipicoc/mechanics.js` fold a clue open on `how`, and draw a plain line without
+one. The account does not travel the presentation lane — the Keeper wrote it in
+the play language at the table, like the NPC journal's own prose (§17.10) — so
+`clueTexts` asks only for the label.
+
+**A confluence unions `clue_how`** with the scene and clue names (§15.6): how a
+line came by a clue is a record of what happened on that line, not a claim two
+lines can disagree about.
+
+**The Keeper loses nothing.** `look focus=clues`, the capsule's `clues_here`,
+`lookup {kind: secret}` and the Director's reveal rows all still carry the
+module's own text. The book still speaks to the Keeper in full; it just no longer
+speaks past them.
+
+### 80.4 The three ends (§31)
+
+- **Who writes it.** The Keeper, in `apply clue`'s `how`, on the turn it happened.
+- **Who reads it.** `table.view.clues.discovered[].how` and the §16.2 `clue` row.
+- **Who acts on it.** The panel's clue fold and the delivery card's clue fold —
+  the two surfaces that were unfolding the book.
+
+### 80.5 Tests
+
+`tests/extension/clue-summary-is-keeper-only.test.mjs`, on the product kernel with
+the shipped renderers and the shipped captions: the book's sentence reaches
+neither card nor panel while the account does; the Keeper still reads the whole
+of it through `look`; a clue filed without a `how` is a bare line on both
+surfaces and the book does not fill the silence; the account is still on the
+panel turns later, because it is world state; and a confluence of two lines that
+each earned a different clue keeps both accounts. Each of the six edits, reverted
+on its own, turns one of them red.

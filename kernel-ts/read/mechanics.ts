@@ -132,8 +132,13 @@ export function mechanicsOf(receipt: Row, texts: ReadonlyMap<string, string> = n
             clue: receipt.clue ?? null
         };
         labeled(out, "label", receipt.label);
-        if (typeof receipt.summary === "string" && receipt.summary.trim() && receipt.summary.trim() !== out.label)
-            out.summary = receipt.summary.trim();
+        // §80: the card opens into the account the Keeper filed for this table, not the source's
+        // own sentence. `receipt.summary` is the module graph's text (or, for an echo, the kernel's
+        // own) and it is written for the Keeper: it carries staging, intentions and agendas the
+        // player has not earned. It stays on the receipt, which is the Keeper's record, and it does
+        // not cross into the §16.2 projection a player reads.
+        labeled(out, "how", receipt.how);
+        if (out.how === out.label) delete out.how;
         return out;
     }
     if (kind === "time")

@@ -215,26 +215,32 @@ test('identity words are the setup model\'s sex, never the player\'s prose, and 
  assert.deepEqual(identityTexts({investigators:[]}),[]);assert.deepEqual(identityTexts({}),[]);
 });
 
-test('clue words are localized once, grow with what is found, and never include a handle or an unfound clue',async()=>{
+test('clue words are the names the table filed, never the book\'s sentence, a handle or an unfound clue',async()=>{
  const {prepareCluePresentation,clueTexts}=await import('../../extensions/module/character-presentation.ts');
  const home=await mkdtemp(join(tmpdir(),'clue-presentation-'));
+ // §80: the module's own sentence about a clue is Keeper material and no longer reaches a player
+ // row, so it is not a word this lane has to project. `how` does reach the row, and is still not
+ // asked: the Keeper wrote it at this table in the play language, like the journal's own prose.
  const summary='Corbitt can form pools of blood on floor, ceiling, or walls to frighten intruders away from his secret.';
+ const how='她蹲下去看地板上那摊东西。';
  const view={play_language:'zh-Hans',turn:2,investigators:[sheet],clues:{
-  discovered:[{clue:'blood-pool-manifest',label:'血泊',summary},{clue:'knott-commission',label:"Knott's commission"}],
-  here:[{name:'hidden-villain',summary:'The villain is Corbitt.',discovered:false},{name:'blood-pool-manifest',summary,discovered:true}]}};
+  discovered:[{clue:'blood-pool-manifest',label:'血泊',how},{clue:'knott-commission',label:"Knott's commission"}],
+  here:[{name:'hidden-villain',summary:'The villain is Corbitt.',discovered:false},{name:'blood-pool-manifest',label:'血泊',discovered:true}]}};
  const original=JSON.stringify(view);let calls=0;
  const runner=async r=>{calls++;const input=JSON.parse(await readFile(join(r.cwd,'texts.json'),'utf8'));
-  for(const hidden of ['blood-pool-manifest','knott-commission','hidden-villain','The villain is Corbitt.','2'])assert.ok(!input.texts.includes(hidden),hidden);
+  for(const hidden of ['blood-pool-manifest','knott-commission','hidden-villain','The villain is Corbitt.',summary,how,'2'])assert.ok(!input.texts.includes(hidden),hidden);
   await writeFile(join(r.cwd,'presentation.json'),JSON.stringify({finance_equipment:[],texts:Object.fromEntries(input.texts.map(t=>[t,t==='血泊'?t:`${input.play_language}:${t}`]))}));return {ok:true}};
  const options={home,campaign:'c1',play_language:'zh-Hans',view,runner};
- assert.deepEqual(clueTexts(view),[summary,"Knott's commission",'血泊']);
+ assert.deepEqual(clueTexts(view),["Knott's commission",'血泊']);
  const first=await prepareCluePresentation(options);
- assert.equal(first.texts[summary],`zh-Hans:${summary}`);assert.equal(first.texts["Knott's commission"],"zh-Hans:Knott's commission");assert.equal(first.texts['血泊'],'血泊');assert.equal(calls,1);
+ assert.equal(first.texts["Knott's commission"],"zh-Hans:Knott's commission");assert.equal(first.texts['血泊'],'血泊');assert.equal(calls,1);
+ assert.equal(first.texts[summary],undefined,'the book\'s sentence was never a word this lane had');
  assert.deepEqual(JSON.parse(await readFile(join(home,'.coc/campaigns/c1/setup/presentations/clues-zh-Hans.json'),'utf8')),first);
  assert.deepEqual(await prepareCluePresentation({...options,view:{...view,turn:3}}),first);assert.equal(calls,1);
- const found={clue:'knott-keys',label:'宅子钥匙',summary:'Knott hands over the keys to the Corbitt house.'};
+ const found={clue:'knott-keys',label:'宅子钥匙',how:'诺特把钥匙放在桌上。'};
  const next=await prepareCluePresentation({...options,view:{...view,clues:{discovered:[...view.clues.discovered,found]}}});
- assert.equal(calls,2);assert.equal(next.texts[summary],first.texts[summary]);assert.equal(next.texts[found.summary],`zh-Hans:${found.summary}`);
+ assert.equal(calls,2);assert.equal(next.texts["Knott's commission"],first.texts["Knott's commission"]);assert.equal(next.texts[found.label],`zh-Hans:${found.label}`);
+ assert.equal(next.texts[found.how],undefined,'and the account it was found by is not asked either');
  assert.equal(JSON.stringify(view),original);
  await assert.rejects(prepareCluePresentation({...options,view:{...view,play_language:'en'}}),/language/);
  assert.deepEqual(clueTexts({clues:{discovered:[]}}),[]);assert.deepEqual(clueTexts({}),[]);

@@ -113,7 +113,9 @@ function mergeWorld(graph: ModuleGraph, states: readonly ConfluenceState[], scen
     world.map_labels=orderedObject(entries(mapLabels));
     world.active_scene = scene;
     world.scene_trail = [];
-    for (const key of ['scene_labels', 'clue_labels']) {
+    // `clue_how` (§80) merges by the same union as the names: how a line came by a clue is a
+    // record of what happened on that line, not a claim two lines can disagree about.
+    for (const key of ['scene_labels', 'clue_labels', 'clue_how']) {
         const labels = new Map<string, any>();
         for (const state of states)
             for (const [name, value] of entries(state.world[key]))

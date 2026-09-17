@@ -208,8 +208,8 @@ const CSS = `
 .coc-clue-name{color:var(--text-strong);font-weight:600}
 .coc-clue-sum{margin-top:3px;color:var(--muted);font-size:12px}
 
-/* A clue that says more than its name opens into what it says; one without a summary stays a
-   plain line, because there is nothing to open into. */
+/* A clue whose discovery the Keeper accounted for opens into that account; one filed under a bare
+   name stays a plain line, because there is nothing the player earned to open into. */
 .coc-clue-fold{display:block;padding:0}
 .coc-clue-fold>summary{display:flex;align-items:baseline;gap:6px;padding:6px 0;cursor:pointer;
   list-style:none;border-radius:4px}
@@ -550,9 +550,12 @@ function money(value, term = value => value) {
   return currency ? `${text(amount)} ${currency}` : text(amount);
 }
 
+/** A found clue as the player's own record of it: the name the table filed it under, and the
+ *  account the Keeper filed of how this table came by it (§80). The module graph's `summary` is
+ *  the Keeper's material and no longer reaches this panel. */
 function clueLine(clue) {
-  if (!isRecord(clue)) return { name: text(clue), summary: "" };
-  return { name: text(clue.label || clue.name || clue.clue || clue.id), summary: text(clue.summary) };
+  if (!isRecord(clue)) return { name: text(clue), how: "" };
+  return { name: text(clue.label || clue.name || clue.clue || clue.id), how: text(clue.how) };
 }
 
 const PAPER_STYLE = `
@@ -992,19 +995,20 @@ export function createComponent(React) {
     const rows = [];
     for (const clue of [...foundHere, ...discovered]) {
       const line = clueLine(clue);
-      const key = line.name || line.summary;
+      const key = line.name || line.how;
       if (!key || seen.has(key)) continue;
       seen.add(key);
       rows.push(line);
     }
     return h(Section, { title: t("clues"), icon: "search", anchor: "clues" }, rows.map((row, index) =>
-      row.summary
-        // The name stays on the line; what the clue says is one tap away. Both go through the
-        // glossary: the Keeper's own label comes back as itself, a graph name or the book's
-        // summary comes back in the play language once the clue lane has projected it.
+      row.how
+        // The name stays on the line; how this table came by the clue is one tap away. The name
+        // goes through the glossary -- the Keeper's own label comes back as itself, a graph name
+        // comes back in the play language once the clue lane has projected it. The account does
+        // not: the Keeper wrote it in the play language at the table, like the journal's own prose.
         ? h("details", { className: "coc-clue coc-clue-fold", key: `${row.name}:${index}` },
             h("summary", null, h("span", { className: "coc-clue-name" }, term(row.name))),
-            h("div", { className: "coc-clue-body" }, term(row.summary)))
+            h("div", { className: "coc-clue-body" }, row.how))
         : h("div", { className: "coc-clue", key: `${row.name}:${index}` },
             h("span", { className: "coc-clue-name" }, term(row.name)))));
   }

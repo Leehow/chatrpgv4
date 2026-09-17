@@ -326,20 +326,27 @@ test('mechanics match Python without exposing unlabeled NPC identities',async()=
   // The handout's attachment carries this run's own temporary path; the captured outcome carries
   // the run it was captured in. The path is the run, not the projection.
   //
-  // The second narrowing is a field the capture predates. §59 replaced the handout row's
+  // The second and third narrowings are fields the capture predates. §59 replaced the handout row's
   // `available` boolean with the three-state `document`, because a boolean could not tell a card
-  // with no page from a card nobody had answered for. The frozen outcome carries the boolean and
-  // can never carry the successor, so the two names are dropped from the comparison and asserted
-  // against each other just below -- the projection is compared to the capture, the new field to
-  // the old one it derives from.
+  // with no page from a card nobody had answered for. §80 dropped the clue row's `summary`: it is
+  // the module's own sentence, written for the Keeper and carrying staging and agendas the player
+  // has not earned, and the row now opens into the Keeper's account of how this table got the clue
+  // instead. The capture's inputs are frozen along with its outcome, so no `how` can be added to
+  // them here; the real path is covered by `clue-summary-is-keeper-only.test.mjs`. The name is
+  // dropped from the comparison and asserted just below, against what the capture recorded.
   const narrowed=value=>api.pythonJsonDumps(value)
     .replace(/"(?:\/private)?\/(?:var|tmp)\/[^"]*handout\.md"/g,'"<attachment>"')
-    .replace(/, ?"(?:available|document)": ?(?:true|false|"[a-z]+")/g,'');
+    .replace(/, ?"(?:available|document)": ?(?:true|false|"[a-z]+")/g,'')
+    .replace(/, ?"summary": ?"A dated letter\."/g,'');
   assert.equal(narrowed(live),narrowed(frozen),'mechanics');
   const liveHandout=live.find(item=>item.kind==='handout'),frozenHandout=frozen.find(item=>item.kind==='handout');
   assert.equal(frozenHandout.available,true,'the capture recorded the boolean this replaced');
   assert.equal(liveHandout.document,'ready','an attached handout projects as `ready` where the capture said `available: true`');
   assert.equal(liveHandout.available,undefined,'the boolean is gone, not doubled: one field answers this question');
+  const liveClue=live.find(item=>item.kind==='clue'),frozenClue=frozen.find(item=>item.kind==='clue');
+  assert.equal(frozenClue.summary,'A dated letter.','the capture recorded the module sentence this replaced');
+  assert.equal(liveClue.summary,undefined,'and the projection no longer copies it across');
+  assert.equal(liveClue.how,undefined,'nothing was filed for this clue, so the row offers nothing to open');
   assert.equal(api.pythonJsonDumps(receipts),before);
 });
 
