@@ -1,5 +1,5 @@
 import {useEffect,useRef,useState,type ReactNode} from 'react'
-import {groupSkills,OCCUPATION_SKILL_LIMIT,type SkillGroupKey} from './coc-skill-groups'
+import {groupSkills,type SkillGroupKey} from './coc-skill-groups'
 import './coc-character-draft-edit.css'
 
 type Row=Record<string,any>
@@ -98,39 +98,29 @@ export function CocCharacterDraftEdit({data,t,onOverride,onClose,onCatalog}:Prop
   const [added,setAdded]=useState<{name:string;base:number}[]>([])
   const [draftSkill,setDraftSkill]=useState<{name:string;base:string;interest:string}>({name:'',base:'',interest:''})
   /**
-   * Which pool each skill is taken from, as the player may now decide it (§98).
+   * Which pool bought each skill -- the trade's own list, not a choice (§98).
    *
-   * The seed is the ledger's own two lists, so a dialog that is only opened and closed changes
-   * nothing. A skill's group is the player's answer to "did my occupation pay for this", and the
-   * kernel re-flows both pools around the pins when the lists move -- which is why the order rows
-   * sit in is sent as well: it is the order the points are spent in.
+   * The occupation list is the eight the kernel fills from the trade, and it is the kernel's to
+   * fill: a per-row picker asked the player to answer a question the trade had already answered,
+   * and cost the skill name the width of its row to ask it. Changing the trade is how this list
+   * changes, so the dialog reads it and draws an occupation box only where there is occupation
+   * money to spend.
+   *
+   * A revision whose ledger names no lists still recorded what each pool bought, and reading the
+   * allocations back is the nearest true answer -- without it such a card would open with its
+   * eight occupation boxes hidden and their points reported as given back.
    */
-  const seededGroups=():Record<string,SkillGroupKey>=>{
-    const seeded:Record<string,SkillGroupKey>={}
-    for(const group of groupSkills(skillNames,sheet)??[])for(const name of group.names)seeded[name]=group.key
-    // A revision whose ledger names no lists still recorded what each pool bought, and every row
-    // needs a group to draw its boxes from. Reading the allocations back is the nearest true
-    // answer -- and it means opening the dialog on such a card changes nothing, where seeding
-    // everything to "other" would have zeroed eight occupation boxes on sight.
-    for(const name of skillNames)if(!seeded[name])
-      seeded[name]=allocation(sheet,'occupation',name)>0?'occupation':allocation(sheet,'interest',name)>0?'interest':'other'
-    return seeded
-  }
-  const [groups,setGroups]=useState<Record<string,SkillGroupKey>>(seededGroups)
-  const [groupError,setGroupError]=useState<string|null>(null)
-  const inGroup=(key:SkillGroupKey)=>skillNames.filter(name=>groups[name]===key)
-  const chooseGroup=(name:string,key:SkillGroupKey)=>{
-    // Eight is the rulebook's occupation list, and the kernel refuses a ninth; refusing it here
-    // keeps the player from typing a whole card into a shape that cannot be saved.
-    if(key==='occupation'&&groups[name]!=='occupation'&&inGroup('occupation').length>=OCCUPATION_SKILL_LIMIT){setGroupError(name);return}
-    setGroupError(null)
-    setGroups(current=>({...current,[name]:key}))
-  }
+  const ledgerGroups=groupSkills(skillNames,sheet)
+  const named=(key:SkillGroupKey)=>ledgerGroups?.find(group=>group.key===key)?.names
+  const occupationNames=new Set<string>(named('occupation')??skillNames.filter(name=>allocation(sheet,'occupation',name)>0))
+  const interestNames=new Set<string>(named('interest')??skillNames.filter(name=>!occupationNames.has(name)&&allocation(sheet,'interest',name)>0))
+  const groupOf=(name:string):SkillGroupKey=>occupationNames.has(name)?'occupation':interestNames.has(name)?'interest':'other'
+  const inGroup=(key:SkillGroupKey)=>skillNames.filter(name=>groupOf(name)===key)
   /** Every skill with a row: the sheet's, plus the ones added in this dialog and not yet saved. */
   const addedNames=added.map(entry=>entry.name)
   const editedNames=[...skillNames,...addedNames]
   const points=(value:string|undefined):number|undefined=>(value??'').trim()===''?0:parseWhole(value??'')
-  const occupationOf=(name:string):number=>groups[name]==='occupation'?(points(occupationPoints[name])??0):0
+  const occupationOf=(name:string):number=>occupationNames.has(name)?(points(occupationPoints[name])??0):0
   const interestOf=(name:string):number=>points(interestPoints[name])??0
   const [unlocked,setUnlocked]=useState(false)
   const [limitsDraft,setLimitsDraft]=useState<Record<string,string>>(()=>{
@@ -169,7 +159,7 @@ export function CocCharacterDraftEdit({data,t,onOverride,onClose,onCatalog}:Prop
     /**
      * A skill edit is what each pool bought, not the sum. The kernel still accepts a bare number
      * as a final value; the card no longer sends one, because the sum cannot say which pool the
-     * player meant. A skill that left the occupation group reports its occupation box as zero, so
+     * player meant. A skill the trade no longer pays for reports its occupation box as zero, so
      * the points it was holding are visibly given back rather than silently re-flowed.
      */
     const changedSkills:Row={}
@@ -178,7 +168,7 @@ export function CocCharacterDraftEdit({data,t,onOverride,onClose,onCatalog}:Prop
       const now=occupationOf(name),interest=interestOf(name)
       if(now===wasOccupation&&interest===wasInterest)continue
       const entry:Row={interest}
-      if(groups[name]==='occupation'||wasOccupation!==0)entry.occupation=now
+      if(occupationNames.has(name)||wasOccupation!==0)entry.occupation=now
       changedSkills[name]=entry
     }
     if(Object.keys(changedSkills).length)edits.skills=changedSkills
@@ -186,17 +176,9 @@ export function CocCharacterDraftEdit({data,t,onOverride,onClose,onCatalog}:Prop
     if(credit!==undefined&&credit!==sheet.credit_rating)edits.credit_rating=credit
     return edits
   }
-  /**
-   * The two lists, sent only when one of them moved. An unchanged pair is not a patch: it would
-   * make every save a re-flow of points the player never asked to move.
-   */
+  /** The profile facts the dialog can change: the trade, the age, and the skills written by hand. */
   const collectProfile=():Row|undefined=>{
     const patch:Row={}
-    const seeded=seededGroups()
-    if(!skillNames.every(name=>seeded[name]===groups[name])) {
-      patch.occupation_skills=inGroup('occupation')
-      patch.interest_skills=inGroup('interest')
-    }
     const years=parseWhole(age)
     if(years!==undefined&&years!==sheet.age)patch.age=years
     if(occupationId&&occupationId!==String(data.profile?.occupation??sheet.occupation??''))patch.occupation=occupationId
@@ -271,7 +253,7 @@ export function CocCharacterDraftEdit({data,t,onOverride,onClose,onCatalog}:Prop
         .catch(()=>{if(alive.current&&sequence.current===id)setPreviewFailed(true)})
     },400)
     return()=>clearTimeout(timer)
-  },[characteristics,occupationPoints,interestPoints,creditRating,limitsDraft,groups,age,occupationId,added])
+  },[characteristics,occupationPoints,interestPoints,creditRating,limitsDraft,age,occupationId,added])
 
   const save=async()=>{
     const invalid:Record<string,string>={}
@@ -368,30 +350,20 @@ export function CocCharacterDraftEdit({data,t,onOverride,onClose,onCatalog}:Prop
     return <label className="coc-draft-edit-box"><span>{caption}</span>
       <input inputMode="numeric" aria-label={`${t(name)} ${caption}`} aria-invalid={!!fieldErrors[`skill:${name}`]} value={value} onChange={event=>onChange(event.target.value)}/></label>
   }
-  const skillField=(name:string)=>{
-    const occupational=groups[name]==='occupation'
-    return <div className="coc-draft-edit-skill" data-skill={name} key={`skill:${name}`}>
-      <div className="coc-draft-edit-skill-head">
-        <span className="coc-draft-edit-skill-name">{t(name)}{customNames.has(name)&&<span className="coc-draft-edit-tag">{t('Custom')}</span>}</span>
-        {/* The select carries the skill's own name, so it is the same row the numbers belong to;
-            role tells it apart from the boxes beside it. */}
-        <select className="coc-draft-edit-group" aria-label={t(name)} value={groups[name]||'other'}
-          onChange={event=>chooseGroup(name,event.target.value as SkillGroupKey)}>
-          <option value="occupation">{t('Occupation')}</option>
-          <option value="interest">{t('Interest')}</option>
-          <option value="other">{t('Other')}</option>
-        </select>
-      </div>
+  const skillField=(name:string)=>
+    // The name owns the full width of its row. Sharing the line with a control squeezed it into a
+    // column one letter wide, which is unreadable in any language and worst in the ones that do
+    // not break on spaces.
+    <div className="coc-draft-edit-skill" data-skill={name} key={`skill:${name}`}>
+      <p className="coc-draft-edit-skill-name">{t(name)}{customNames.has(name)&&<span className="coc-draft-edit-tag">{t('Custom')}</span>}</p>
       <p className="coc-draft-edit-caption">{t('Base')} {baseOf(name)}</p>
       <div className="coc-draft-edit-boxes">
-        {occupational&&pointsBox(name,'occupation',occupationPoints[name]||'',next=>setOccupationPoints(current=>({...current,[name]:next})))}
+        {occupationNames.has(name)&&pointsBox(name,'occupation',occupationPoints[name]||'',next=>setOccupationPoints(current=>({...current,[name]:next})))}
         {pointsBox(name,'interest',interestPoints[name]||'',next=>setInterestPoints(current=>({...current,[name]:next})))}
       </div>
       <p className="coc-draft-edit-final">{t('Final')} {finalOf(name)}</p>
-      {groupError===name&&<p className="coc-draft-edit-error" role="alert">{t('Eight occupation skills at most.')}</p>}
       {fieldErrors[`skill:${name}`]&&<p className="coc-draft-edit-error" role="alert">{fieldErrors[`skill:${name}`]}</p>}
     </div>
-  }
   const occupations:Row[]=Array.isArray(catalog?.occupations)?catalog!.occupations.filter((entry:unknown)=>!!entry&&typeof (entry as Row).id==='string'):[]
   const addSkill=()=>{
     const name=draftSkill.name.trim()
@@ -447,7 +419,7 @@ export function CocCharacterDraftEdit({data,t,onOverride,onClose,onCatalog}:Prop
           <h4>{t('Custom skills')}</h4>
           <p className="coc-draft-edit-caption">{t('A language you speak is written as Language (Other: name).')}</p>
           <div className="coc-draft-edit-grid">{added.map(entry=><div className="coc-draft-edit-skill" data-skill={entry.name} key={`added:${entry.name}`}>
-            <div className="coc-draft-edit-skill-head"><span className="coc-draft-edit-skill-name">{entry.name}<span className="coc-draft-edit-tag">{t('Custom')}</span></span>
+            <div className="coc-draft-edit-skill-head"><p className="coc-draft-edit-skill-name">{entry.name}<span className="coc-draft-edit-tag">{t('Custom')}</span></p>
               <button type="button" onClick={()=>removeSkill(entry.name)}>{t('Remove')}</button></div>
             <p className="coc-draft-edit-caption">{t('Base')} {entry.base}</p>
             <div className="coc-draft-edit-boxes">{pointsBox(entry.name,'interest',interestPoints[entry.name]||'',next=>setInterestPoints(current=>({...current,[entry.name]:next})))}</div>

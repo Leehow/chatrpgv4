@@ -201,7 +201,7 @@ const pooledCard=(override:ReturnType<typeof vi.fn>,extra:Record<string,any>={})
 const section=(dialog:HTMLElement,key:string)=>dialog.querySelector(`[data-skill-group="${key}"]`) as HTMLElement
 const rowsOf=(dialog:HTMLElement,key:string)=>Array.from(section(dialog,key).querySelectorAll('[data-skill]')).map(node=>node.getAttribute('data-skill'))
 
-it('seeds each skill into the pool the ledger took it from, and lists every skill on the sheet',async()=>{
+it('draws every skill on the sheet under the pool the trade took it from',async()=>{
   const override=vi.fn(async()=>({}))
   render(pooledCard(override))
   const dialog=await openEditor()
@@ -212,41 +212,14 @@ it('seeds each skill into the pool the ledger took it from, and lists every skil
   // Credit Rating keeps its own field below and is never a skill row; Spot Hidden has no points
   // at all and is still listed, because a skill you cannot see is a skill you cannot move.
   expect(rowsOf(dialog,'other')).toEqual(['Spot Hidden'])
-  expect(within(dialog).getByRole('combobox',{name:'Dodge'})).toHaveProperty('value','interest')
-  expect(within(dialog).getByRole('combobox',{name:'Accounting'})).toHaveProperty('value','occupation')
+  // The occupation list is the trade's, as the kernel filled it: those rows have occupation money
+  // to spend and a box to spend it in, and no other row does.
+  expect(within(dialog).getByRole('textbox',{name:'Accounting Occupation points'})).toBeTruthy()
+  expect(within(dialog).queryByRole('textbox',{name:'Dodge Occupation points'})).toBeNull()
+  expect(within(dialog).queryByRole('textbox',{name:'Spot Hidden Occupation points'})).toBeNull()
+  // Nothing on this dialog asks the player which pool a skill belongs to; the trade answered that.
+  expect(within(dialog).queryAllByRole('combobox')).toHaveLength(0)
   expect(override).not.toHaveBeenCalled()
-})
-
-it('moves a row into the section it was given, and saves the two lists in the order they are drawn',async()=>{
-  const override=vi.fn(async()=>({revision:4,sheet:pooledSheet,limits}))
-  render(pooledCard(override))
-  const dialog=await openEditor()
-  fireEvent.change(within(dialog).getByRole('combobox',{name:'Spot Hidden'}),{target:{value:'interest'}})
-  expect(rowsOf(dialog,'interest')).toEqual(['Dodge','Spot Hidden'])
-  expect(rowsOf(dialog,'other')).toEqual([])
-  // The lists ride the live preview as well, so the finals recompute while the dialog is open.
-  await waitFor(()=>expect(override).toHaveBeenCalledWith({revision:3,edits:{},profile:{occupation_skills:occupationList,interest_skills:['Dodge','Spot Hidden']},dry_run:true}),{timeout:2000})
-  fireEvent.click(within(dialog).getByRole('button',{name:'Save changes'}))
-  await waitFor(()=>expect(override).toHaveBeenCalledWith({revision:3,edits:{},profile:{occupation_skills:occupationList,interest_skills:['Dodge','Spot Hidden']}}))
-})
-
-it('refuses a ninth occupation skill beside the row, and leaves it where it was',async()=>{
-  const override=vi.fn(async()=>({}))
-  render(pooledCard(override))
-  const dialog=await openEditor()
-  const selector=within(dialog).getByRole('combobox',{name:'Spot Hidden'})
-  fireEvent.change(selector,{target:{value:'occupation'}})
-  expect(await within(dialog).findByText('Eight occupation skills at most.')).toBeTruthy()
-  expect(selector).toHaveProperty('value','other')
-  expect(rowsOf(dialog,'occupation')).toEqual(occupationList)
-  // A refused pick is not a change: nothing is sent and Save stays where it was.
-  await new Promise(resolve=>setTimeout(resolve,600))
-  expect(override).not.toHaveBeenCalled()
-  expect(within(dialog).getByRole('button',{name:'Save changes'})).toHaveProperty('disabled',true)
-  // Room made by moving one out is room a ninth may take.
-  fireEvent.change(within(dialog).getByRole('combobox',{name:'Climb'}),{target:{value:'other'}})
-  fireEvent.change(selector,{target:{value:'occupation'}})
-  expect(rowsOf(dialog,'occupation')).toEqual(['Accounting','Anthropology','Appraise','Archaeology','Art','Charm','Library Use','Spot Hidden'])
 })
 
 it('sends no profile when only a number changed',async()=>{
@@ -317,21 +290,13 @@ const worksheetSheet={...sheet,skills:{...poolSkills,'Language (Other: Latin)':1
 const worksheet=(override:ReturnType<typeof vi.fn>,extra:Record<string,any>={})=>
   <CocCharacterDraft data={{revision:3,play_language:'en',sheet:worksheetSheet,limits,presentation:{texts:{}},...extra}} onOverride={override as any} {...(extra.onCatalog?{onCatalog:extra.onCatalog}:{})}/>
 
-it('sends what each pool bought, not the sum, and reports a skill that left the occupation as zero',async()=>{
+it('sends what each pool bought, not the sum',async()=>{
   const override=vi.fn(async()=>({revision:4,sheet:worksheetSheet,limits}))
   render(worksheet(override))
   const dialog=await openEditor()
   fireEvent.change(within(dialog).getByRole('textbox',{name:'Accounting Occupation points'}),{target:{value:'60'}})
   fireEvent.change(within(dialog).getByRole('textbox',{name:'Dodge Interest points'}),{target:{value:'40'}})
   await waitFor(()=>expect(override).toHaveBeenCalledWith({revision:3,edits:{skills:{Accounting:{interest:0,occupation:60},Dodge:{interest:40}}},dry_run:true}),{timeout:2000})
-  // Taking a skill out of the occupation hides its box, and the points it was holding are given
-  // back where the kernel can see it rather than being re-flowed silently.
-  fireEvent.change(within(dialog).getByRole('combobox',{name:'Library Use'}),{target:{value:'other'}})
-  expect(within(dialog).queryByRole('textbox',{name:'Library Use Occupation points'})).toBeNull()
-  await waitFor(()=>{
-    const last=(override.mock.calls.at(-1) as any[])[0]
-    expect(last.edits.skills['Library Use']).toEqual({interest:0,occupation:0})
-  },{timeout:2000})
 })
 
 it('draws the printed base, the boxes and the sum, and takes the final from the kernel once it answers',async()=>{

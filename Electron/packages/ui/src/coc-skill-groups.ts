@@ -4,9 +4,6 @@ type Row = Record<string, any>
 export type SkillGroupKey = 'occupation' | 'interest' | 'other'
 export type SkillGroup = { key: SkillGroupKey; names: string[] }
 
-/** The rulebook's occupation list is eight entries; the kernel refuses a ninth. */
-export const OCCUPATION_SKILL_LIMIT = 8
-
 const list = (value: unknown): string[] =>
   Array.isArray(value) ? value.filter((name): name is string => typeof name === 'string' && !!name) : []
 
