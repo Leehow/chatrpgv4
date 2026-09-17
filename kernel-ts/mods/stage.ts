@@ -206,7 +206,7 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
         if (prior && effect.condition != null && effect.condition !== beforeCondition && !string(effect.why || '').trim()) throw new RpcError('invalid_params', 'A physical state change needs its causal reason in why');
         const quantity = field(effect, 'quantity', prior ? prior.quantity : 1);
         let seed: Row | null = null, writing = false;
-        if (Object.hasOwn(effect, 'document')) {
+        if (!division && Object.hasOwn(effect, 'document')) {
             if (prior && !equal(source, owner)) throw new RpcError('invalid_params', 'Document initialization or writing uses the same current from/to owner');
             const value = effect.document; writing = isJsonObject(value) && value.action === 'write';
             if (writing) {
@@ -220,7 +220,7 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
         // party, which this move has just answered by other means.
         if (openOffer(item)) clearOffer(item, turn);
         const definition = objectRegistry(world).definitions[item.definition];
-        if (prior && Object.hasOwn(effect, 'document')) {
+        if (!division && prior && Object.hasOwn(effect, 'document')) {
             if (writing) writeDocument(item, effect.document.text);
             else { initializeDocument(item, seed); ownershipChanged(world); }
         }
@@ -235,7 +235,7 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
                 instance: item.id, adopted: effect.adopt, subject: owner.id, visibility: 'keeper', call_id: callId},
                 event: {type: 'resource-changed', data: {resource: 'equipment_representation', subject: owner.id, item: name}}};
         }
-        if (prior && Object.hasOwn(effect, 'document')) return {receipt: {id: mint(`definition:document-${callId}`), kind: 'definition', name, document_changed: true, visibility: 'keeper', call_id: callId},
+        if (!division && prior && Object.hasOwn(effect, 'document')) return {receipt: {id: mint(`definition:document-${callId}`), kind: 'definition', name, document_changed: true, visibility: 'keeper', call_id: callId},
             event: {type: 'resource-changed', data: {resource: 'document', subject: owner.id, item: name}}};
         if (prior && equal(source, owner) && effect.condition != null) {
             const receipt = {id: mint(`delta:item-condition-${callId}`), kind: 'delta', resource: 'condition', subject: owner.id, subject_label: ownerLabel(world, owner),

@@ -12752,3 +12752,52 @@ being called; the sticky case dies when `flowSkills` stops reading the inherited
 budget case dies when `completeness` regains its `unspent` lines; the catalog case dies when
 `resolveSkill` stops reading `localized_labels`; the extension case dies when the extension
 re-books the step or asks for `setup.previewed`.
+
+## 99. A divided document says what each half contains (2026-09-17, amends §97.3)
+
+§97 was built from M-MAIN turn 109 but its fixture omitted the one property the live object had:
+`四张翻拍` carried readable text. The implementation therefore refused the exact repaired call it
+was written for. On the first live retest after §97, the Keeper corrected its first call into the
+contract's documented shape — existing `name`, new `part`, `quantity: 2`, `handover: "given"` —
+and the kernel answered that a written object was indivisible. The Keeper fell back to `note`,
+narrated two photographs in the hotel safe, and the investigator panel still showed all four in
+hand. A memo again stood in for world state.
+
+The old refusal protected a real boundary: one document body cannot be copied onto two carriers
+without claiming that both halves contain everything. It also cannot stay only on one half without
+silently deleting the other half's readable content. The answer is not to remove that guard; it is
+to make the partition explicit in the same transaction as the quantity split.
+
+For an existing instance whose `document` is present, a partial `apply object` division requires:
+
+```json
+{"document":{"action":"divide",
+ "part_text":"the complete current text carried by the separated portion",
+ "remainder_text":"the complete current text carried by the portion that stays"}}
+```
+
+Both strings are player-visible text in the campaign's `play_language`, bounded by the existing
+64,000-character document limit. The existing presentation (`paper`, `notebook` or `book`) is
+preserved. The separated instance receives `part_text`; the original instance receives
+`remainder_text`. Each becomes its own acquisition baseline, with `player_edited: false` and a new
+revision, so Reset cannot restore pages that physically left that carrier. A document with a
+player edit is refused: the Keeper is not allowed to rewrite a player's private edit while splitting
+a stack. The player may reset that edit through the existing document surface, or move the carrier
+whole; keeping and partitioning a private edit needs its own player-owned surface and is not guessed
+here.
+
+`document.action: "divide"` is accepted only with §97's arithmetic division. A document-bearing
+stack without it is refused with a literal fix naming both fields. A non-document stack carrying it,
+or a division carrying the older initialize/write document shapes, is refused. The operation stays
+atomic with quantity, ownership, `part`, `handover`, time and any sibling effects: either both
+documents and both quantities land, or none do.
+
+The three ends remain §97's. `apply object` writes both instance documents; the existing document
+reader and inventory projection read each carrier independently; the Keeper acts on the two names
+and their ordinary transfer receipt. No new projection, document editor or receipt kind is added.
+
+Tests: `tests/extension/a-thing-put-down-is-somewhere.test.mjs` reproduces the real shape with a
+four-entry document, proves an underspecified split is refused without mutation, then partitions it
+into two exact two-entry documents while the inventory count, ownership, receipt and document read
+all agree. The live acceptance is the retained M-MAIN continuation from turn 132; it does not pass
+until the panel shows two remaining and a separately named two-print carrier at the custodian.

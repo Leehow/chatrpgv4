@@ -7,7 +7,7 @@ import { appendJsonl } from '../fileio.js';
 import { actor as selectActor } from '../read/handlers.js';
 import { playLanguageOf } from '../read/languages.js';
 import { findNamedObject, rootObjectOwner } from '../read/mods.js';
-import { length, row, truth, values, type Row } from '../read/values.js';
+import { clone, length, number, row, truth, values, type Row } from '../read/values.js';
 import { nowIso, type CampaignWriter } from '../write/store.js';
 import type { createWriteRuntime } from '../write/index.js';
 import { validateDocumentSeed } from './definition.js';
@@ -41,6 +41,18 @@ export function writeDocument(item: Row, text: any): boolean {
     if (text === document.text) return false;
     document.text = text; document.player_edited = false; document.revision++; document.edited_at = nowIso();
     return true;
+}
+
+/** Contract §99: a physical split rebases each carrier onto the complete text it now contains. */
+export function divideDocument(prior: Row, part: Row, split: {part: string; remainder: string}): void {
+    const source = row(prior.document), revision = Math.trunc(number(source.revision)) + 1;
+    const rebase = (text: string): Row => {
+        const document: Row = {...clone(source), text, original: text, player_edited: false, revision};
+        delete document.edited_at;
+        return document;
+    };
+    prior.document = rebase(split.remainder);
+    part.document = rebase(split.part);
 }
 export function createDocumentHandlers(writer: ReturnType<typeof createWriteRuntime>, runtime: ModRuntime): HandlerGroup {
     async function owned(params: Row): Promise<{campaign: CampaignWriter; world: Row; actor: Row; item: Row}> {

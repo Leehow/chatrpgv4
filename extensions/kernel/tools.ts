@@ -104,7 +104,10 @@ const ObjectEffect = Type.Object({
     Type.Object({handout:Type.String({description:"Name of an already revealed textual handout; the kernel copies its exact authored text"}),
       presentation:StringEnum(["paper","notebook","book"] as const)}),
     Type.Object({action:StringEnum(["write"] as const),text:Type.String({maxLength:64000,description:"The carrier's current text after this writing, in the campaign's play_language"})}),
-  ],{description:"Initialize a writable carrier once, or write its current text with a causal why; same from/to for existing objects, acquisition original is retained"})),
+    Type.Object({action:StringEnum(["divide"] as const),
+      part_text:Type.String({maxLength:64000,description:"Complete current text carried by the separated part after a document-bearing stack is divided, in the campaign's play_language"}),
+      remainder_text:Type.String({maxLength:64000,description:"Complete current text carried by the original remainder after a document-bearing stack is divided, in the campaign's play_language"})}),
+  ],{description:"Initialize a writable carrier once, write its current text with a causal why, or atomically divide the text of a document-bearing stack together with part and a short quantity; ordinary writes use the same from/to owner, acquisition originals are retained unless physical division establishes two new baselines"})),
   definition: Type.Optional(Type.String({description:"Accepted definition name when first placing the instance"})),
   to: Type.String({description:"New owner: investigator, NPC, scene or existing container instance; here means the current scene"}),
   condition: Type.Optional(StringEnum(["intact","damaged","jammed","broken"] as const, {description:"Initial condition, or an explicit existing-object state change with the same from/to owner and a causal why; ownership transfers preserve state"})),
@@ -120,7 +123,7 @@ const ObjectEffect = Type.Object({
   // short quantity exactly as before, and a schema without the kernel sends a key the kernel ignores
   // and gets that same refusal. Neither direction closes a door, because every call this touches is
   // refused today.
-  part: Type.Optional(Type.String({description:"Name for the portion that separates when only some of a stack moves, in the campaign's play_language: with quantity short of what the instance holds, that many become their own thing under this name and go to to, while the rest keep the old name and stay where they are. Use it for two of four photographs left in a drawer, a handful of cartridges given away, one of a bundle set down. Leave it out to move the whole stack"})),
+  part: Type.Optional(Type.String({description:"Name for the portion that separates when only some of a stack moves, in the campaign's play_language: with quantity short of what the instance holds, that many become their own thing under this name and go to to, while the rest keep the old name and stay where they are. Use it for two of four photographs left in a drawer, a handful of cartridges given away, one of a bundle set down. When the stack has readable text, also send document action divide with the complete part_text and remainder_text; leave part out to move the whole stack"})),
   quantity: Type.Optional(Type.Integer({minimum:1})),
   why: Type.Optional(Type.String()),
 });

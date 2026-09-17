@@ -27,6 +27,10 @@ import {table} from './object-usages-fixture.mjs';
 const instance = async (game, name) =>
 	Object.values((await game.world()).objects.instances).find(row => row.name === name);
 
+const ALL_REPRINTS = 'North doorway\nSouth stair\nCarved lintel\nDusted plinth';
+const DRAWER_REPRINTS = 'North doorway\nSouth stair';
+const CARRIED_REPRINTS = 'Carved lintel\nDusted plinth';
+
 const refusal = async promise => {
 	try {
 		await promise;
@@ -66,7 +70,8 @@ async function room(t) {
 	await game.apply([await define(game, 'Desk drawer', 'A shallow drawer in the study desk, with a lock.'),
 		{kind: 'object', name: 'Study desk drawer', definition: 'Desk drawer', to: 'here'}]);
 	await game.apply([await define(game, 'Reprint', 'A photographic reprint on thin paper.'),
-		{kind: 'object', name: 'Four reprints', definition: 'Reprint', to: game.sheet.name, quantity: 4}]);
+		{kind: 'object', name: 'Four reprints', definition: 'Reprint', to: game.sheet.name, quantity: 4,
+		 document: {text: ALL_REPRINTS, presentation: 'paper'}}]);
 	return game;
 }
 
@@ -76,7 +81,9 @@ test('§97: two of the four are left in a locked drawer, the table walks out, an
 
 	await game.apply([
 		{kind: 'object', name: 'Four reprints', from: game.sheet.name, to: 'Study desk drawer',
-		 quantity: 2, part: 'Two reprints in the drawer', why: 'left with him for the police to see'},
+		 quantity: 2, part: 'Two reprints in the drawer',
+		 document: {action: 'divide', part_text: DRAWER_REPRINTS, remainder_text: CARRIED_REPRINTS},
+		 why: 'left with him for the police to see'},
 		{kind: 'flag', name: 'study desk drawer locked', why: 'he turned the key and kept it'}]);
 
 	const stayed = await instance(game, 'Four reprints'), left = await instance(game, 'Two reprints in the drawer');
@@ -87,6 +94,16 @@ test('§97: two of the four are left in a locked drawer, the table walks out, an
 	assert.equal(left.definition, stayed.definition, 'they are the same kind of thing they were');
 	assert.equal(stayed.quantity, 2, 'the two that were kept are still the same instance, and there are two of them');
 	assert.equal(stayed.owner.id, game.sheet.id);
+	assert.equal(left.document.text, DRAWER_REPRINTS, 'the separated carrier says only what moved');
+	assert.equal(left.document.original, DRAWER_REPRINTS, 'reset cannot restore pages that stayed behind');
+	assert.equal(stayed.document.text, CARRIED_REPRINTS, 'the original carrier says only what stayed');
+	assert.equal(stayed.document.original, CARRIED_REPRINTS, 'its acquisition baseline follows the physical split');
+	const readable = await game.call('mods.document.view', {actor: game.sheet.name, name: 'Four reprints'});
+	assert.equal(readable.text, CARRIED_REPRINTS, 'the existing document reader sees the remainder');
+	assert.equal(readable.original, CARRIED_REPRINTS);
+	const reset = await game.call('mods.document.apply', {actor: game.sheet.name, name: 'Four reprints',
+		version: readable.version, action: 'reset'});
+	assert.equal(reset.text, CARRIED_REPRINTS, 'reset cannot regrow the two prints that physically left');
 
 	// §31's third end: the receipt says both halves, so a reader is not left to go and count the rest.
 	const receipt = (await receiptsOf(game)).filter(row => row.kind === 'item').at(-1);
@@ -110,7 +127,9 @@ test('§97: two of the four are left in a locked drawer, the table walks out, an
 test('§97: a separated portion composes with the ordinary person-to-person handover ground', async t => {
 	const game = await room(t);
 	await game.apply([{kind: 'object', name: 'Four reprints', from: game.sheet.name, to: 'Steven Knott',
-		quantity: 1, part: 'One reprint for Knott', handover: 'given', why: 'the investigator gives Knott one copy'}]);
+		quantity: 1, part: 'One reprint for Knott', handover: 'given',
+		document: {action: 'divide', part_text: 'North doorway', remainder_text: 'South stair\nCarved lintel\nDusted plinth'},
+		why: 'the investigator gives Knott one copy'}]);
 
 	const stayed = await instance(game, 'Four reprints');
 	const given = await instance(game, 'One reprint for Knott');
@@ -163,13 +182,29 @@ test('§97: a whole-stack move is unchanged, and what it moves is all of it', as
 	assert.deepEqual(await carried(game), {'Study chair': 1}, 'and the sheet stops counting it entirely');
 });
 
-test('§97: dividing something that carries its own written text is refused, because it is one thing and not a count of things', async t => {
+test('§99: a written stack is refused unless the call accounts for the text on both resulting carriers', async t => {
 	const game = await room(t);
-	await game.apply([{kind: 'object', name: 'Loose pages', definition: 'Reprint', to: game.sheet.name, quantity: 2,
-		document: {text: 'Two sheets, written on.', presentation: 'paper'}}]);
-	const error = await refusal(game.apply([{kind: 'object', name: 'Loose pages', from: game.sheet.name,
-		to: 'Study desk drawer', quantity: 1, part: 'One written sheet'}]));
-	assert.ok(error, 'a written page does not come apart into two written pages');
+	const error = await refusal(game.apply([{kind: 'object', name: 'Four reprints', from: game.sheet.name,
+		to: 'Study desk drawer', quantity: 2, part: 'Two reprints in the drawer'}]));
+	assert.ok(error, 'the kernel cannot guess which readable content belongs on either half');
 	assert.equal(error.code, 'invalid_params');
-	assert.equal(error.details.field, 'object.part');
+	assert.equal(error.details.field, 'object.document');
+	assert.equal((await instance(game, 'Four reprints')).quantity, 4, 'the refused batch changes neither count nor text');
+	assert.equal((await instance(game, 'Four reprints')).document.text, ALL_REPRINTS);
+});
+
+test('§99: a Keeper cannot repartition a player edit', async t => {
+	const game = await room(t);
+	const current = await game.call('mods.document.view', {actor: game.sheet.name, name: 'Four reprints'});
+	await game.call('mods.document.apply', {actor: game.sheet.name, name: 'Four reprints', version: current.version,
+		action: 'save', text: `${ALL_REPRINTS}\nPlayer annotation`});
+	const error = await refusal(game.apply([{kind: 'object', name: 'Four reprints', from: game.sheet.name,
+		to: 'Study desk drawer', quantity: 2, part: 'Two reprints in the drawer',
+		document: {action: 'divide', part_text: DRAWER_REPRINTS, remainder_text: CARRIED_REPRINTS}}]));
+	assert.ok(error);
+	assert.equal(error.code, 'invalid_params');
+	assert.equal(error.details.field, 'object.document');
+	assert.equal(error.details.player_edited, true);
+	assert.equal((await instance(game, 'Four reprints')).quantity, 4);
+	assert.equal((await instance(game, 'Four reprints')).document.text, `${ALL_REPRINTS}\nPlayer annotation`);
 });

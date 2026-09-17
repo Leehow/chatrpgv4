@@ -45,13 +45,14 @@
  * call that works today start requiring something new -- every call it touches is refused today.
  */
 import {RpcError} from '../errors.js';
-import {clone, equal, integer, normalize, number, repr, row, string, truth, values, type Row} from '../read/values.js';
+import {isJsonObject} from '../json.js';
+import {clone, equal, integer, length, normalize, number, repr, row, string, truth, values, type Row} from '../read/values.js';
 import {asciiSlug} from '../write/text.js';
-import {ownershipChanged} from './documents.js';
+import {divideDocument, ownershipChanged} from './documents.js';
 import {assertOwnershipChain, objectRegistry} from './objects.js';
 import {openOffer, type Names} from './object-offer.js';
 
-export type Division = {part: string; quantity: number};
+export type Division = {part: string; quantity: number; documents?: {part: string; remainder: string}};
 
 const label = (owner: Row): string => string(row(owner).name || row(owner).id);
 const said = (names: Names | null, side: 'from' | 'to', owner: Row): string => names ? names[side] : label(owner);
@@ -105,13 +106,29 @@ export function validateDivision(world: Row, effect: Row, prior: Row | null, sou
         throw new RpcError('invalid_params', 'holding something out is not dividing it',
             {fix: `divide it first with from and to both set to ${said(names, 'from', source ?? prior.owner)}, then hold the separated portion out by its own name`,
              details: {field: 'object.part', offer: disposition}});
-    for (const key of ['adopt', 'document', 'condition'])
+    for (const key of ['adopt', 'condition'])
         if (Object.hasOwn(effect, key) && effect[key] != null)
             throw new RpcError('invalid_params', `dividing a stack changes nothing about the things in it, so it carries no ${key}`,
                 {fix: `divide it first, then apply the ${key} to the separated portion by its own name`, details: {field: `object.${key}`}});
-    if (truth(prior.document))
-        throw new RpcError('invalid_params', `${string(prior.name)} carries its own written text, so it is one thing and not a count of things`,
-            {fix: 'move it whole: drop part and quantity', details: {field: 'object.part', name: string(prior.name)}});
+    const document = effect.document;
+    let documents: {part: string; remainder: string} | undefined;
+    if (truth(prior.document)) {
+        if (truth(row(prior.document).player_edited))
+            throw new RpcError('invalid_params', `${string(prior.name)} has a player edit that the Keeper cannot repartition`,
+                {fix: 'reset that edit through the document surface before dividing, or move the carrier whole; the Keeper cannot partition a player edit',
+                 details: {field: 'object.document', name: string(prior.name), player_edited: true}});
+        const keys = isJsonObject(document) ? Object.keys(document).sort().join(',') : '';
+        if (!isJsonObject(document) || keys !== 'action,part_text,remainder_text' || document.action !== 'divide'
+            || typeof document.part_text !== 'string' || typeof document.remainder_text !== 'string'
+            || length(document.part_text) > 64000 || length(document.remainder_text) > 64000)
+            throw new RpcError('invalid_params', `${string(prior.name)} carries readable text, so the division must say what each resulting carrier contains`,
+                {fix: 'set document to {action:"divide", part_text:"the complete text on the separated part", remainder_text:"the complete text on what stays"}, in the campaign play_language',
+                 details: {field: 'object.document', name: string(prior.name), required: ['action', 'part_text', 'remainder_text']}});
+        documents = {part: document.part_text, remainder: document.remainder_text};
+    } else if (document != null) {
+        throw new RpcError('invalid_params', `${string(prior.name)} has no readable document to divide`,
+            {fix: 'drop document; part and quantity already divide this stack', details: {field: 'object.document', name: string(prior.name)}});
+    }
     for (const key of ['ammo', 'charges'])
         if (row(prior.state)[key] != null)
             throw new RpcError('invalid_params', `${string(prior.name)} carries its own ${key}, and there is no answer for how much of it goes with a part of the stack`,
@@ -123,7 +140,7 @@ export function validateDivision(world: Row, effect: Row, prior: Row | null, sou
     if (source === null || !equal(prior.owner, source))
         throw new RpcError('invalid_params', `dividing ${string(prior.name)} names whoever is holding it`,
             {fix: `set from to ${label(row(prior.owner))}`, details: {field: 'object.from', holder: label(row(prior.owner))}});
-    return {part: wanted, quantity: number(stated)};
+    return {part: wanted, quantity: number(stated), ...(documents ? {documents} : {})};
 }
 
 /**
@@ -140,6 +157,7 @@ export function divideObject(world: Row, prior: Row, division: Division, owner: 
     const id = `object-${asciiSlug(division.part) || 'item'}-${Object.keys(data.instances).length + 1}`;
     const part: Row = {id, name: division.part, definition: prior.definition, owner: clone(owner),
         quantity: division.quantity, state: clone(prior.state), created_turn: turn, changed_turn: turn};
+    if (division.documents) divideDocument(prior, part, division.documents);
     data.instances[id] = part;
     prior.quantity = number(prior.quantity) - division.quantity;
     prior.changed_turn = turn;
