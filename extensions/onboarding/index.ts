@@ -427,7 +427,7 @@ export default function (pi: ExtensionAPI) {
 				characteristics: sheet.characteristics, derived: sheet.derived, skills: sheet.skills, credit_rating: sheet.credit_rating, cash: sheet.cash ?? null,
 				weapons: Array.isArray(sheet.weapons) ? (sheet.weapons as Array<Record<string, unknown>>).map(weapon => weapon.name) : [], equipment: sheet.equipment ?? []},
 			pins: result.pins, budget: result.budget, completeness: result.completeness};
-		for (const key of ['applied', 'unresolved', 'filled_in', 'moved_to_equipment', 'notes']) if (result[key] !== undefined) out[key] = result[key];
+		for (const key of ['applied', 'unresolved', 'filled_in', 'moved_to_equipment', 'kept_player_pins', 'notes']) if (result[key] !== undefined) out[key] = result[key];
 		return out;
 	}
 

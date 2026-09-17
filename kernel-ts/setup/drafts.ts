@@ -154,7 +154,7 @@ export class SetupDrafts {
   // ---- the numbers: pins ---------------------------------------------------------------------------
   /** `numbers` become pins (§98). Bounds are checked against the limits in force: a value past a
    *  bound is refused with the unlock that would admit it, never silently lowered. */
-  pinsFrom(numbers: unknown, by: unknown, pins: Pins, limits: Row, bases: Row | null, creditRange: number[], diff: ResolvedDifficulty | null = null, relax: Row = {}, sheetOf: {occupational: Set<string>; custom: Map<string, number>} = {occupational: new Set(), custom: new Map()}): Pins {
+  pinsFrom(numbers: unknown, by: unknown, pins: Pins, limits: Row, bases: Row | null, creditRange: number[], diff: ResolvedDifficulty | null = null, relax: Row = {}, sheetOf: {occupational: Set<string>; custom: Map<string, number>} = {occupational: new Set(), custom: new Map()}, kept: string[] = []): Pins {
     if (numbers == null) return pins;
     if (!isJsonObject(numbers) || Object.keys(numbers).some(key => !NUMBER_FIELDS.includes(key))) throw new RpcError('invalid_params', 'numbers holds characteristics, skills and credit_rating only', {details: {fields: [...NUMBER_FIELDS]}});
     const origin = by == null ? 'player' : by;
@@ -163,6 +163,8 @@ export class SetupDrafts {
     const characteristics = numbers.characteristics ?? {};
     if (!isJsonObject(characteristics) || Object.keys(characteristics).some(key => !CHARACTERISTICS.includes(key))) throw new RpcError('invalid_params', 'numbers.characteristics covers only the nine abbreviations', {details: {fields: [...CHARACTERISTICS]}});
     for (const [abbr, value] of entries(characteristics)) {
+      // A number the player pinned is theirs (§98): the model's later number for it is kept out and reported, never applied over it.
+      if (origin === 'model' && next.characteristics[abbr]?.by === 'player') { kept.push(abbr); continue; }
       if (value === null) { delete next.characteristics[abbr]; continue; }
       if (!integer(value)) throw new RpcError('invalid_params', `numbers.characteristics.${abbr} must be an integer`);
       // A replaced dice pool binds its own range per characteristic (§33.3); LUCK keeps the creation bounds.
@@ -180,6 +182,7 @@ export class SetupDrafts {
       const name = this.setup.catalog.resolveSkill(given) ?? (sheetOf.custom.has(given.trim()) ? given.trim() : null);
       if (name === null) throw new RpcError('needs', `no skill named ${repr(given)}`, {details: {field: given, candidates: this.setup.catalog.skillCandidates(given)}});
       if (name === 'Cthulhu Mythos') throw new RpcError('needs', 'Cthulhu Mythos is never a creation skill', {details: {field: name}});
+      if (origin === 'model' && next.skills[name]?.by === 'player') { kept.push(name); continue; }
       if (value === null) { delete next.skills[name]; continue; }
       const cap = number(limits.skill_cap);
       const floor = sheetOf.custom.has(name) ? number(sheetOf.custom.get(name)) : bases ? this.setup.chargen.skillBase(name, bases) : 0;
@@ -203,7 +206,8 @@ export class SetupDrafts {
       if (total > cap) throw new RpcError('needs', `${name} ${total} is above the starting cap ${cap}; pass limits.skill_cap to admit it`, {details: {field: name, range: [floor, cap], attempted: total, unlock: {skill_cap: total}}});
       next.skills[name] = {...pin, value: total};
     }
-    if (Object.hasOwn(numbers, 'credit_rating')) {
+    if (Object.hasOwn(numbers, 'credit_rating') && origin === 'model' && next.credit_rating?.by === 'player') kept.push('credit_rating');
+    if (Object.hasOwn(numbers, 'credit_rating') && !(origin === 'model' && next.credit_rating?.by === 'player')) {
       const value = numbers.credit_rating;
       if (value === null) delete next.credit_rating;
       else {
@@ -355,8 +359,10 @@ export class SetupDrafts {
     const priorPins: Pins = isJsonObject(previous.pins) ? clone(previous.pins) as unknown as Pins : emptyPins();
     // A pin stored before the worksheet had columns is read into them here, so the file it is written back to has them.
     for (const [name, pin] of entries(priorPins.skills)) priorPins.skills[name] = pinColumns(row(pin), sheetOf.custom.has(name) ? number(sheetOf.custom.get(name)) : this.setup.chargen.skillBase(name, bases), sheetOf.occupational.has(name) ? 'occupation' : 'interest');
+    const kept: string[] = [];
     const pins = this.pinsFrom(params.numbers, params.by, priorPins, bounds, bases, bounds.credit_rating_range,
-      this.setup.chargen.difficultyPolicy(row(row(previous.sheet).creation).difficulty ?? meta.difficulty ?? null), relax, sheetOf);
+      this.setup.chargen.difficultyPolicy(row(row(previous.sheet).creation).difficulty ?? meta.difficulty ?? null), relax, sheetOf, kept);
+    if (kept.length) (resolution as unknown as Row).kept_player_pins = kept;
     // A pin's occupation points fall away when the skill leaves the occupation list (the worksheet has no such column there).
     for (const [name, pin] of entries(pins.skills)) if (number(row(pin).occupation) > 0 && !profile.occupation_skills.includes(name)) pins.skills[name] = {...row(pin) as unknown as SkillPin, occupation: 0};
     // A skill pinned by name joins the interest list when the card did not list it, so it has a pool.

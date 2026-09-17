@@ -12793,7 +12793,10 @@ model follows it:
   list. The ledger reports `bases`, both `allocations` columns (pinned or soft) and `custom`.
   A pin a draft stored before this addendum as `{value, by}` alone is read into the skill's own
   column when the draft is next revised (the value minus the base), never sunk to its base and
-  never written back without columns.
+  never written back without columns. A number sent with `by: model` for a characteristic, skill or
+  credit rating the player pinned is kept out and listed under `kept_player_pins`; the player's pin
+  moves only on the player's own word. On resume, `setup.steps` counts a draft on the table as the
+  new-investigator lane taken, so `create-investigator` stays completed across a restart.
 - **Custom skills.** `profile.custom_skills: [{name, base}]` lists skills the player invented; a
   name the catalog knows is that skill and joins the interest list instead; a language is its
   catalog form `Language (Other: X)`. A custom skill is listed on the sheet at its base, takes

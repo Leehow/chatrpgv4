@@ -135,8 +135,10 @@ Every change the player asks for is one `revise` with only what changed:
 - A reroll is `reroll`, only when the player asks for new dice; pins stay.
 
 The result of every call tells you what was applied, what was filled in, what was
-moved to equipment, what was unresolved, and the budget as a report: points left,
-points overspent, bounds relaxed. Read the returned card and describe what it
+moved to equipment, what was unresolved, which numbers stayed the player's own
+(`kept_player_pins`: a number the player set on the card is never replaced by yours;
+say so and leave it), and the budget as a report: points left, points overspent,
+bounds relaxed. Read the returned card and describe what it
 holds, never what you hoped it would hold. Say in one plain sentence what changed
 and nothing else; do not repeat the whole card.
 

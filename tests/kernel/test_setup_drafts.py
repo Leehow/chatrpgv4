@@ -358,3 +358,28 @@ def test_a_period_the_agent_invents_is_still_refused_with_the_closed_set(tmp_pat
         assert picked["sheet"]["finance"]["source"] == "cash-assets.periods.modern"
     finally:
         client.close()
+
+
+def test_a_resumed_setup_counts_the_draft_as_the_investigator_step(kernel):
+    """A draft on the table is the new-investigator lane, taken: the resumed step list must say so, or a
+    restart mid-setup leaves the card unconfirmable (the step's prerequisite reads as never done)."""
+    begin(kernel)
+    completed = kernel.ok("setup.steps", {"campaign": CAMPAIGN})["completed"]
+    assert "create-investigator" in completed
+    assert "confirm-investigator" not in completed
+
+
+def test_a_model_number_never_overwrites_a_player_pin(kernel):
+    draft = begin(kernel)
+    sheet = draft["sheet"]
+    dex = sheet["characteristics"]["DEX"] + (5 if sheet["characteristics"]["DEX"] <= 85 else -5)
+    mine = kernel.ok("setup.override", {"campaign": CAMPAIGN, "revision": draft["revision"], "edits": {"characteristics": {"DEX": dex}, "skills": {"Dodge": {"interest": 10}}}})
+    assert mine["pins"]["characteristics"]["DEX"]["by"] == "player" and mine["pins"]["skills"]["Dodge"]["by"] == "player"
+    theirs = kernel.ok("setup.revise", {"campaign": CAMPAIGN, "revision": mine["revision"], "by": "model",
+                                       "numbers": {"characteristics": {"DEX": 15}, "skills": {"Dodge": 70}}})
+    assert theirs["sheet"]["characteristics"]["DEX"] == dex
+    assert theirs["sheet"]["skills"]["Dodge"] == mine["sheet"]["skills"]["Dodge"]
+    assert theirs["pins"]["characteristics"]["DEX"] == mine["pins"]["characteristics"]["DEX"]
+    assert theirs["pins"]["skills"]["Dodge"] == mine["pins"]["skills"]["Dodge"]
+    assert sorted(theirs["kept_player_pins"]) == ["DEX", "Dodge"]
+    assert theirs["revision"] == mine["revision"], "nothing changed, so the card did not move"
