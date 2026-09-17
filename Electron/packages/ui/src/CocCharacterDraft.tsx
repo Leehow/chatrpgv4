@@ -168,7 +168,31 @@ export function CocCharacterDraft({data,onRendered,onPresentation,onOverride,onC
   const budget=data.budget&&typeof data.budget==='object'&&!Array.isArray(data.budget)?data.budget as Row:undefined
   const pools=[{key:'Occupation points',figures:pool(budget,'occupation')},{key:'Interest points',figures:pool(budget,'interest')}].filter(entry=>entry.figures)
   const unspent=pools.reduce((total,entry)=>total+(entry.figures!.unspent||0),0)
-  const notes=Array.isArray(budget?.notes)?budget!.notes.filter((note:unknown)=>typeof note==='string'&&note.trim()):[]
+  const notes=Array.isArray(budget?.notes)?budget!.notes.filter((note:unknown)=>typeof note==='object'?!!(note as Row)?.code:typeof note==='string'&&note.trim()):[]
+  /**
+   * A budget note is a fact with a code, and the card says it in the player's own words.
+   *
+   * The kernel sends `text` beside the code for the model to read; drawing it would put the
+   * system language in front of the player, so only the code is read here and the sentence is
+   * built from captions. The codes are a closed contract enum -- not a guess at what a sentence
+   * means -- and a code this build does not know still draws the code rather than nothing, which
+   * is a gap a player can report. An older revision's plain string is drawn as it always was.
+   */
+  const poolWord=(name:unknown)=>name==='occupation'?t('occupation points'):name==='interest'?t('interest points'):t(String(name))
+  const limitWord=(name:unknown)=>name==='skill_cap'?t('Starting skill cap')
+    :name==='characteristic_max'?t('Characteristic maximum')
+    :name==='characteristic_min'?t('Characteristic minimum')
+    :name==='occupation_points'?t('Occupation points')
+    :name==='interest_points'?t('Interest points')
+    :String(name)
+  const noteLine=(note:Row|string):string=>{
+    if(typeof note==='string')return t(note)
+    if(note.code==='points_left')return `${t('Points left')}: ${poolWord(note.pool)} ${note.amount}`
+    if(note.code==='overspent')return `${t('Overspent by')} ${note.amount} ${poolWord(note.pool)}`
+    if(note.code==='relaxed')return `${limitWord(note.limit)}: ${t('Relaxed to')} ${note.value}`
+    if(note.code==='above_cap')return `${t('Above the starting cap')} ${note.cap}: ${(Array.isArray(note.skills)?note.skills:[]).map((name:unknown)=>t(String(name))).join(' / ')}`
+    return t(String(note.code))
+  }
   const budgetBars=pools.length>0&&<div className="coc-draft-budget">
     {pools.map(({key,figures})=>{
       const total=figures!.total,spent=figures!.spent
@@ -179,7 +203,7 @@ export function CocCharacterDraft({data,onRendered,onPresentation,onOverride,onC
         {figures!.unspent>0&&<p className="coc-draft-budget-left">{t('Points left')}: {figures!.unspent}</p>}
       </div>
     })}
-    {notes.length>0&&<ul className="coc-draft-budget-notes">{notes.map((note:string,i:number)=><li key={i}>{t(note)}</li>)}</ul>}
+    {notes.length>0&&<ul className="coc-draft-budget-notes">{notes.map((note:Row|string,i:number)=><li key={i}>{noteLine(note)}</li>)}</ul>}
   </div>
   // A money cell whose amount is not there is an empty cell, and this card already knows how to draw
   // one: `cell()` prints the same mark for the weapon parameters the rules tables leave blank. It did

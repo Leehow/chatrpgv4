@@ -244,7 +244,7 @@ it('carries no substitution note on a card whose period the rulebook does tabula
  * as it did before, so an old card in a live transcript is not suddenly a card with no numbers
  * anybody chose.
  */
-const cardWords={...zh,'Pinned':'钉住','Points left':'剩余点数','Auto-spread':'自动铺平','Non-standard card':'非标准卡','Confirm and open the table':'确认，开桌','Reroll':'重掷','Reroll the dice? Pinned numbers stay.':'重掷骰子？钉住的数不动。','Yes, reroll':'是的，重掷','Cancel':'取消','Click "Confirm and open the table", or say below what to change.':'点「确认，开桌」，或在下面说要改什么。','Credit Rating is above the new occupation range.':'信用评级高于新职业的范围。'}
+const cardWords={...zh,'Pinned':'钉住','Points left':'剩余点数','Auto-spread':'自动铺平','Non-standard card':'非标准卡','Confirm and open the table':'确认，开桌','Reroll':'重掷','Reroll the dice? Pinned numbers stay.':'重掷骰子？钉住的数不动。','Yes, reroll':'是的，重掷','Cancel':'取消','Click "Confirm and open the table", or say below what to change.':'点「确认，开桌」，或在下面说要改什么。','Credit Rating is above the new occupation range.':'信用评级高于新职业的范围。','Overspent by':'超支','Relaxed to':'放宽到','Above the starting cap':'超过起始上限','occupation points':'职业点','interest points':'兴趣点','Starting skill cap':'起始技能上限','Characteristic maximum':'属性上限','Dodge':'闪避','Spot Hidden':'侦查'}
 const budget={occupation:{total:110,spent:80,unspent:30},interest:{total:31,spent:31,unspent:0},legal:true,notes:[] as string[]}
 const carded=(extra:Record<string,any>={})=>({revision:5,sheet,presentation:{texts:cardWords,play_language:'zh-Hans'},...extra})
 
@@ -327,4 +327,37 @@ it('holds every card action while one is in flight',async()=>{
 it('offers no card action a host has not wired',()=>{
  render(<CocCharacterDraft data={carded({budget})}/>)
  for(const name of ['确认，开桌','自动铺平','重掷'])expect(screen.queryByRole('button',{name})).toBeNull()
+})
+
+/**
+ * A budget note is a fact with a code. The `text` beside it is the model's copy, in the system
+ * language; drawing it would put English in front of a player who never asked for it, so the card
+ * reads the code and says the sentence in the campaign's own words.
+ */
+it('says every budget note by its code, in the player\'s words, never in the model\'s English',()=>{
+ const notes=[
+  {code:'points_left',pool:'interest',amount:96,text:'96 interest points are unspent.'},
+  {code:'overspent',pool:'occupation',amount:20,text:'Occupation points are overspent by 20.'},
+  {code:'relaxed',limit:'skill_cap',value:90,text:'The starting skill cap was relaxed to 90.'},
+  {code:'above_cap',cap:75,skills:['Dodge','Spot Hidden'],text:'Dodge and Spot Hidden are above the starting cap of 75.'},
+ ]
+ const {container}=render(<CocCharacterDraft data={carded({budget:{...budget,legal:false,notes}})}/>)
+ const lines=Array.from(container.querySelectorAll('.coc-draft-budget-notes li')).map(node=>node.textContent)
+ expect(lines).toEqual(['剩余点数: 兴趣点 96','超支 20 职业点','起始技能上限: 放宽到 90','超过起始上限 75: 闪避 / 侦查'])
+ expect(container.textContent).not.toMatch(/unspent|overspent|relaxed|starting cap|Dodge|Spot Hidden/i)
+})
+
+it('names every limit a note can relax with the caption the edit dialog uses',()=>{
+ const notes=[{code:'relaxed',limit:'characteristic_max',value:95,text:'x'},{code:'relaxed',limit:'occupation_points',value:400,text:'x'},{code:'relaxed',limit:'sanity_floor',value:5,text:'x'}]
+ const {container}=render(<CocCharacterDraft data={carded({budget:{...budget,notes}})}/>)
+ expect(Array.from(container.querySelectorAll('.coc-draft-budget-notes li')).map(node=>node.textContent))
+  .toEqual(['属性上限: 放宽到 95','职业加点: 放宽到 400','sanity_floor: 放宽到 5'])
+})
+
+it('draws a note this build has no sentence for, and an older revision\'s plain string as it always was',()=>{
+ const notes=[{code:'future_rule',detail:7,text:'A rule this build does not know.'},'Credit Rating is above the new occupation range.',{amount:3}]
+ const {container}=render(<CocCharacterDraft data={carded({budget:{...budget,notes}})}/>)
+ expect(Array.from(container.querySelectorAll('.coc-draft-budget-notes li')).map(node=>node.textContent))
+  .toEqual(['future_rule','信用评级高于新职业的范围。'])
+ expect(container.textContent).not.toMatch(/A rule this build does not know/)
 })
