@@ -60,10 +60,12 @@ test("narrate 之后，同一批次余下的调用被拒", async (t) => {
 				[
 					fauxToolCall("narrate", { text: "门在你身后合上。" }),
 					fauxToolCall("look", { focus: "scene" }),
-					fauxToolCall("apply", { effects: [{ kind: "time", minutes: 5 }] }),
 				],
 				{ stopReason: "toolUse" },
 			),
+			// 契约 §78：效果动词跟在交付后面的那一批，现在整批在执行前就被拒，所以这里换成
+			// 下一条消息里的 apply —— 回合已关、门已经关上，这正是 §34.16 本来要钉的那一段。
+			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "time", minutes: 5 }] })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("这条应该被 rendered_text 换掉"),
 		],
 	});

@@ -28,6 +28,7 @@
   "provider_down_notice": "与模型的连接已经连续断了 {streak} 次，最后一次约 {seconds} 秒没有任何返回。这段等待是服务中断，不是守秘人在思考；运行这张桌子的人已经收到通知。",
   "provider_failed_notice": "这一回合没能完成：与模型的连接没有返回任何结果。你做过的事一样都没丢——随便说句话就能继续。",
   "provider_outage_notice": "这一回合里与模型的连接断了：其中约 {seconds} 秒什么也没有返回，请求只能重发一次。那段等待是服务中断，不是守秘人在思考；你做过的事一样都没丢。",
+  "refused_effect_notice": "守秘人本回合试图记录的某事被拒绝，而本回合文本写于得知之前——因此刚才读到的相关内容视为未定。其余已落实者未丢失；说点什么，守秘人即可纠正。",
   "receipt_cash": "现金 {before}->{after}",
   "receipt_cash_plain": "现金",
   "receipt_change": "{resource} {before}->{after}",
