@@ -12440,3 +12440,65 @@ It does not extend the declaration to the sanity, chase, magic, healing, social 
 those refuse it today, by name, and each is a separate decision about what advantage means inside a
 subsystem that already derives its own modifiers. It does not touch the ruleset's payload slots, and
 it does not change what the engine derives on its own.
+
+## 96. A pin outranks the allocator, and a refused draft un-does nothing (2026-09-17, amends §92 and §14.4)
+
+§92 carried the player's numbers across a re-draft, and a live table lost them
+anyway. `game-32bc9a85`, the campaign that reported §92, on the build that fixed
+it: the player unlocked the bounds and hand-set eleven skills and six
+characteristics (rev 9), the Keeper adjusted eight more through the new `adjust`
+step (rev 10), and the next draft came back `{"carried": {}, "dropped": 8}` with
+DEX 90 at 50 again. The carry reported itself honestly and still handed back a
+card nobody had asked for.
+
+**Two numbers, two ranks.** The rebuilt card arrives with both pools spent to the
+last point. §92 applied the pins *on top of* that allocation, so the pool
+overflowed — the re-draft had added two interest skills, the same 300 points now
+spread over six instead of four, the pinned values pushed the spend to 344, and
+the whole hand was refused by the budget. The arithmetic was right; the
+precedence was wrong. An allocation is what the machine chose when nobody said
+otherwise. A pin is what somebody said.
+
+So the machine's share gives way. Before the pins are applied, the unpinned
+skills in each affected pool are walked back down from their own allocations —
+the biggest holder first, the same reading `refusePool` already reports, with a
+stable name order so two identical drafts cannot come out differently — until the
+pins fit. Nothing is invented: every point removed is a point the allocator had
+placed, and a pin is never lowered to fit. What remains refused is what no
+allocation can buy — Credit Rating's range belongs to the trade, so a rating
+pinned as a Journalist (9-30) is not one a Drifter (0-5) can hold — and that is
+reported with its own reason, because only the player can resolve it. A skill the
+rebuilt card no longer lists stays moot and keeps saying so, rather than
+borrowing the refusal.
+
+**The circle underneath it.** The same turn showed why the player met this at
+all. `create-investigator` is un-booked before every attempt so §14.4's gate will
+pass it a second time — re-drafting is legal until the card is confirmed. That
+un-booking is a bet that the attempt succeeds, and a refused draft lost the bet:
+the step stayed un-booked, so `confirm-investigator` came back *"the table gives
+it the prerequisites create-investigator, of which create-investigator are not
+done"* — with a finished card sitting on the table. The only way out was another
+successful draft, which is the one call that rebuilds the numbers the player had
+just edited. The turn where the player typed 确认 spent ten provider calls
+walking that circle, appended three cards, and closed by telling them the card
+was *"the same one you just approved"*. It was the third rebuild of it.
+
+The bet is settled either way now: only a successful attempt leaves the step
+un-booked for `settle` to re-book, and every refusal — the gate's, the brief's,
+the kernel's — puts it back the way it was found.
+
+**What this does not fix.** The player's own reading of that turn was that the
+table hung. It did not: it closed normally at 09:33:19, and the remote page still
+showed the step running at 09:45 with the composer queueing messages behind it.
+The host had been idle for twelve minutes. That is §82's family, not this
+section's, and it is open.
+
+Seven cases: pins that hold the whole pool survive a re-draft that adds two
+skills the allocator funds first, and the two new skills end with no allocation
+while no pinned value moves; a changed trade carries too, where §92 dropped
+everything; a Credit Rating the new trade cannot hold is refused with its range
+and its own reason while a moot skill beside it keeps "no longer lists"; `manual`
+stays absent when no edit was ever made; a refused draft leaves the card
+confirmable and never reaches the kernel with a prerequisite complaint; and the
+existing override, budget and ledger cases are unchanged. The first two die when
+`makeRoom` stops being called; the fifth dies when the re-book is dropped.

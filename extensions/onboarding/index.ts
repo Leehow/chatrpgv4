@@ -562,9 +562,23 @@ export default function (pi: ExtensionAPI) {
 				allowed: allowedSteps(steps, state()).map((row) => row.id),
 			};
 		}
-		if(id==='create-investigator' && !completed.has('confirm-investigator')) {completed.delete('create-investigator');opCache.clear();}
+		// §96: re-drafting is allowed until the card is confirmed, so the step is un-booked to let the
+		// gate pass it a second time. Un-booking it is a bet that this attempt will succeed, and a
+		// draft that is refused loses that bet: the step stays un-booked, and `confirm-investigator`
+		// is then refused for a prerequisite that *was* done — "create-investigator ... are not done",
+		// with a card sitting on the table. The only way back is another successful draft, which is
+		// the one call that rebuilds the numbers the player just edited. A live table walked exactly
+		// that circle: one refused draft, then confirmation locked out, then four more drafts.
+		//
+		// So the bet is settled either way. Only a successful attempt leaves it un-booked for
+		// `settle` to re-book; every refusal puts it back the way it was found.
+		const rebook = id === 'create-investigator' && !completed.has('confirm-investigator') && completed.delete('create-investigator')
+			? () => { completed.add('create-investigator'); }
+			: () => {};
+		if(id==='create-investigator' && !completed.has('confirm-investigator')) opCache.clear();
     const verdict = gate(steps, state(), id);
 		if (!verdict.ok) {
+			rebook();
 			return { ok: false, step: id, rejected: verdict.reason, allowed: allowedSteps(steps, state()).map((row) => row.id) };
 		}
 		const step = verdict.step;
@@ -572,7 +586,7 @@ export default function (pi: ExtensionAPI) {
 		// The first draft waits for the brief (contract §26): while the move is a question, the card is refused the way the kernel refuses an incomplete profile.
 		if (id === 'create-investigator' && setupSlots.length && draftRevision === undefined) {
 			const move = computeMove(setupSlots, setupNotes, guidedCap);
-			if (move.move === 'ask') return { ok: false, step: id, code: 'brief_incomplete', missing: move.missing, brief: renderBrief(setupSlots, setupNotes, guidedCap) };
+			if (move.move === 'ask') { rebook(); return { ok: false, step: id, code: 'brief_incomplete', missing: move.missing, brief: renderBrief(setupSlots, setupNotes, guidedCap) }; }
 		}
 		const outcome =
 			step.kind === "ask"
@@ -581,6 +595,7 @@ export default function (pi: ExtensionAPI) {
 
 		if (outcome.ok !== true) {
 			// A step that did not succeed is not booked: the same step can be tried again with the parameters the hint names.
+			rebook();
 			return { ...outcome, step: id, progress: progressLine(steps, state()) };
 		}
 		settle(step, outcome);
