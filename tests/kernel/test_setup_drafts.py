@@ -393,7 +393,7 @@ def test_a_named_weapon_plays_by_its_printed_profile_under_the_players_name(kern
     katana = next(w for w in weapons if w["name"] == "武士刀")
     assert katana["profile"].startswith("Sword, medium") and katana["display_name"] == "武士刀"
     printed = next(w for w in weapons if w["name"] == ".38 Automatic")
-    assert katana["damage"] and katana["skill"] and printed["damage"]
+    assert katana["damage_die"] == "1D6+1" and katana["skill"] == "Fighting (Sword)" and printed["damage_die"]
     assert any(w["name"].startswith("Knife, small") for w in weapons), "a printed name shortened to its head still resolves"
     assert "武士刀" in draft["sheet"]["equipment"] and "Sword, medium" not in draft["sheet"]["equipment"]
     assert draft["moved_to_equipment"] == []
