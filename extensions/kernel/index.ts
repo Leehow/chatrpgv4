@@ -223,6 +223,9 @@ interface TableState {
 	 * notifies the operator out of fiction, once per streak. A landed narrate resets it; a turn
 	 * boundary does not -- an outage is a service condition, not a turn context. */
 	reviewOutage: number;
+	/** §NN: consecutive deliveries no reviewer judged. Zeroed by the next review that answers. */
+	unreviewedStreak: number;
+	unreviewedNotified?: boolean;
 	reviewOutageNotified?: boolean;
 	/** This run already told the player the turn could not be published: one service notice per run. */
 	reviewNoticeSent?: boolean;
@@ -1730,6 +1733,44 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	// ---- Tools ------------------------------------------------------------
+	/**
+	 * Contract §NN. The continuity review did not answer about this draft, so it did not refuse it:
+	 * the Mod bridge let the delivery through and reports it here.
+	 *
+	 * Nothing about the turn changes -- it renders, commits and reaches the player like any other --
+	 * so this is a record and an escalation, never a pause. `pauseReview` is the opposite branch and
+	 * stays exactly as it is: a verdict the reviewer's own reading stands behind still ends the input.
+	 *
+	 * The streak is its own counter and not §38.5's. A landed `narrate` zeroes `reviewOutage`
+	 * (§38.10), and every unreviewed delivery is a landed `narrate` -- counting these there would
+	 * erase itself on the very turn it was meant to count. What zeroes this one is a review that
+	 * answered: the next `narrate` or `ask` whose `prepare` returns without an unreviewed report.
+	 */
+	function noteUnreviewedDelivery(state: TableState, unreviewed: {cause: string; service: boolean}): void {
+		const streak = (state.unreviewedStreak += 1);
+		void record({ lane: "continuity-review", turn: state.turn, ok: true, reason: "delivered_unreviewed",
+			cause: unreviewed.cause, service: unreviewed.service, streak });
+		if (streak < 2 || state.unreviewedNotified) return;
+		state.unreviewedNotified = true;
+		// The operator surface of §38.5 and §56, with the one lever that is real: the lane model is
+		// read when the lane runs (§37.10), so a change reaches the next review without a restart.
+		// The player is told nothing: their turn arrived, and a table that plays is not a notice.
+		const status = { campaign: state.campaign, turn: state.turn, status: "unreviewed", streak,
+			cause: unreviewed.cause, service: unreviewed.service,
+			fix: `The continuity review has not judged the last ${streak} deliveries (${unreviewed.cause}), so those turns`
+				+ " were published without it. Play is unaffected. To get the review back, choose a quicker model under"
+				+ " Lane model in settings: the lane reads that choice each time it runs, so a change reaches this table"
+				+ " on its next review. PI_COC_MOD_MODEL still overrides the setting for the life of a session." };
+		pi.appendEntry("coc-review-status", status);
+		pi.events.emit("coc:review-status", status);
+	}
+
+	/** §NN: a review that answered clears the unreviewed streak; only `narrate`/`ask` carry one. */
+	function noteReviewAnswered(state: TableState): void {
+		state.unreviewedStreak = 0;
+		state.unreviewedNotified = false;
+	}
+
 	function pauseReview(state: TableState, error: unknown): void {
 		const cause = isKernelError(error) ? String(error.details?.cause ?? error.message) : String(error);
 		// Contract §38.9: the streak counts *service* outages, never the guard doing its job. A review
@@ -2391,7 +2432,12 @@ export default function (pi: ExtensionAPI) {
         else if (spec.name === 'narrate' && state.sourceWait) payload.preparation_wait = {
           kind: 'source', ...(state.sourceWait.focus ? {name: state.sourceWait.focus} : {})};
         if (spec.name === 'narrate' && state.rebindingRefused) payload.rebinding_refused = {...state.rebindingRefused};
-        await mods.prepare(spec.name, payload, signal);
+        const prepared = await mods.prepare(spec.name, payload, signal);
+        // §NN. Only a delivery carries a continuity review, so only a delivery can report one missing.
+        if (spec.name === 'narrate' || spec.name === 'ask') {
+          if (prepared?.unreviewed) noteUnreviewedDelivery(state, prepared.unreviewed);
+          else noteReviewAnswered(state);
+        }
       }
 			try {
                 if (spec.name === 'lookup' && params.kind === 'adaptation') {
@@ -2798,6 +2844,7 @@ export default function (pi: ExtensionAPI) {
 				admissionRefused: [],
 				admissionOutage: 0,
 				reviewOutage: 0,
+				unreviewedStreak: 0,
 				providerOutage: 0,
 				landed: [],
 				adaptationScanned: false,
@@ -2868,7 +2915,10 @@ export default function (pi: ExtensionAPI) {
 					watchdogTurnBinding = undefined;
 				}
 				const review = await mods?.reviewStatus?.(campaign);
-				if (review?.paused) {
+				// §NN: a retained block no verdict stands behind cannot decide this turn either. The
+				// recovery run goes ahead; its own delivery meets the same review and, if that review
+				// is still down, is published unreviewed rather than stranding a turn twice over.
+				if (review?.paused && review.reviewed === true) {
 					// §38.9: the retained accounting already records which kind blocked it, so a recovered
 					// turn replays that kind instead of re-reading a verdict end as a fresh outage.
 					pauseReview(table, new KernelError({code: 'needs', message: 'The retained review is paused',
@@ -3719,7 +3769,10 @@ export default function (pi: ExtensionAPI) {
 						: state.sourceWait ? {preparation_wait: {kind: 'source',
 							...(state.sourceWait.focus ? {name: state.sourceWait.focus} : {})}} : {}),
 					...(state.rebindingRefused ? {rebinding_refused: {...state.rebindingRefused}} : {}) };
-				await mods?.prepare(tool, params, state.lanes.signal);
+				const prepared = await mods?.prepare(tool, params, state.lanes.signal);
+				// §NN: the host's own closing delivery is reviewed on the same terms as an explicit one.
+				if (prepared?.unreviewed) noteUnreviewedDelivery(state, prepared.unreviewed);
+				else noteReviewAnswered(state);
 				const result = (await state.kernel.call<Record<string, unknown>>(`table.${tool}`, params)) ?? {};
 				// `applyToolSuccess`'s own `narrate` case already projected the mechanics and noted the
 				// commit. Projecting again here wrote the `coc-mechanics` entry twice for every turn the
@@ -3903,16 +3956,29 @@ export default function (pi: ExtensionAPI) {
 				// change for the next review without restarting the table (§37.10) -- so that, and not a
 				// dead end, is what the streak line says.
 				const verdict = state.reviewPauseService === false;
+				// The key that is actually sent. This row used to name `review_unavailable_notice`
+				// whichever of the three lines went out, so the one row that reports which notice the
+				// player read said "the review did not finish" for a pause the reviewer had read and
+				// refused. Retained live evidence (M-MAIN `game-3dd94f0a`, turns 92 and 107,
+				// 2026-09-17): both ended on `The bounded Keeper repair did not resolve the review`
+				// after two submitted reviews, both sent `review_verdict_notice`, and both were
+				// recorded as `review_unavailable_notice` -- which is how a turn the guard did its job
+				// on was read afterwards as a lane outage. §38.10 repaired the player's line and the
+				// operator entry and left this one behind.
+				const notice = verdict ? "review_verdict_notice" : streak >= 2 ? "review_down_notice" : "review_unavailable_notice";
 				let line = verdict
 					? "This turn could not be published: the continuity review read it and did not approve it. Everything already settled is kept — send anything and the Keeper writes this turn again."
 					: streak >= 2
 					? `This turn could not be published: its continuity review has failed ${streak} times in a row. Everything already settled is kept, and sending again does start a fresh attempt — but if it keeps failing, pick a quicker model under Lane model in settings; the next review uses it without restarting this table. The person running this table has been told.`
 					: "This turn could not be published: its continuity review did not finish. Everything already settled is kept — send anything to try again.";
 				try {
-					// All three keys are written out here: the caption inventory is checked by scanning
-					// these call sites, and a key held in a variable is a shipped word nothing asks for.
-					line = (await surface.words()).line(
-						verdict ? "review_verdict_notice" : streak >= 2 ? "review_down_notice" : "review_unavailable_notice", { streak });
+					const words = await surface.words();
+					// `notice` above decides; the three keys are written out again here because the
+					// caption inventory is found by scanning `.line(` call sites, and a key reachable
+					// only through a variable is a shipped word nothing asks for.
+					line = notice === "review_verdict_notice" ? words.line("review_verdict_notice", { streak })
+						: notice === "review_down_notice" ? words.line("review_down_notice", { streak })
+						: words.line("review_unavailable_notice", { streak });
 				} catch {
 					/* an unreadable content root still owes the player the English line */
 				}
@@ -3924,7 +3990,7 @@ export default function (pi: ExtensionAPI) {
 				pi.sendMessage({ customType: "coc-delivery", content: line, display: true,
 					details: { coc_delivery: true, turn: state.turn, review_unavailable: true, streak, service: !verdict } },
 					{ triggerTurn: false });
-				void record({ lane: "delivery", turn: state.turn, ok: true, reason: "review_unavailable_notice", streak, service: !verdict });
+				void record({ lane: "delivery", turn: state.turn, ok: true, reason: notice, streak, service: !verdict });
 			}
 			return;
 		}

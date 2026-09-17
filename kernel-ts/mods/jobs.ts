@@ -52,7 +52,11 @@ export class ModJobs {
             // bound that fired recorded. An invalid file and an interrupted reservation are service
             // conditions in their own right; only a recorded verdict end answers `service: false`.
             const service = invalid || !budget.blocked ? true : budget.blocked_service !== false;
-            return {enabled: true, paused: !!reason, reason, service, turn: turn.turn};
+            // §NN: and whether a reviewer's own verdict stands behind it. An invalid file, an
+            // interrupted reservation and a store written before §NN all answer `false`, so a
+            // recovered turn is never stranded by a block nothing read this draft to reach.
+            const reviewed = !invalid && !!budget.blocked && budget.blocked_reviewed === true;
+            return {enabled: true, paused: !!reason, reason, service, reviewed, turn: turn.turn};
         } catch { return {enabled: true, paused: true, reason: 'Retained review accounting is unreadable', turn: turn.turn}; }
     }
     async knownHandouts(graph: ModuleGraph, world: Row): Promise<Row[]> {
