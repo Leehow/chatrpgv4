@@ -319,8 +319,15 @@ const ResolveAction = Type.Object({
 	stakes: Type.Optional(Type.String({ description: "one sentence: what failure costs" })),
 	modifiers: Type.Optional(
 		Type.Object({
-			bonus_dice: Type.Optional(Type.Integer({ description: "number of bonus dice, 0 to 2" })),
-			penalty_dice: Type.Optional(Type.Integer({ description: "number of penalty dice, 0 to 2" })),
+			bonus_dice: Type.Optional(
+				Type.Integer({
+					description:
+						"0 to 2 bonus dice: how you say this attempt is favoured. Give one when the fiction genuinely helps the person doing it, two when the advantage is overwhelming — several of them at it together, a companion steadying the thing, a prepared tool, surprise, an opponent already busy fending someone else off are usual shapes of it, examples rather than a list to match against; you judge the situation. difficulty only makes an attempt harder, so this is the only way to say it is easier, and an advantage you do not put here never reaches the dice",
+				}),
+			),
+			penalty_dice: Type.Optional(
+				Type.Integer({ description: "0 to 2 penalty dice: the situation works against the attempt (bad light, poor footing, a hurried try) without raising the difficulty" }),
+			),
 			difficulty: Type.Optional(StringEnum(["regular", "hard", "extreme"] as const)),
 		}),
 	),
@@ -543,7 +550,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 		label: "Resolve",
 		method: "table.resolve",
 		description:
-			"Hand one action to the rules. You only describe the action; the kernel picks the rule: say who, what he wants to achieve, how he does it, against whom, what is at stake, and it chooses the decision, takes the target value and rolls, returning receipts, the success level, and possibly a session (combat, chase, sanity bout) and available continuations. You do not roll, do not compute, do not change numbers; do not use it for ordinary uncontested actions. An attack is intent combat plus target and weapon (bare hands is unarmed). When the kernel reports needs_choice it has already listed the candidates and when each applies: pick one, write it into action.decision, and call again. When it would have reported needs_choice but exactly one candidate matches the beat suggested by this turn's capsule, the kernel settles it for you and writes decision_source director into the result — that call already counted, so do not make a second one for it. If the pending defence in the result is the player's, use ask to hand dodge-or-fight-back back to him and settle it next turn with defense; if it is an NPC's, decide it yourself with actor and defense. To push a failed check, set push true and write into stakes what failing the push costs; to spend luck, give luck. When it cannot recognise a skill the kernel reports needs with candidates: add skill and call again. With intent idle, meta, stuck or ambiguous it does not roll and only returns a judgement.",
+			"Hand one action to the rules. You only describe the action; the kernel picks the rule: say who, what he wants to achieve, how he does it, against whom, what is at stake, and it chooses the decision, takes the target value and rolls, returning receipts, the success level, and possibly a session (combat, chase, sanity bout) and available continuations. You do not roll, do not compute, do not change numbers; do not use it for ordinary uncontested actions. An attack is intent combat plus target and weapon (bare hands is unarmed). When the kernel reports needs_choice it has already listed the candidates and when each applies: pick one, write it into action.decision, and call again. When it would have reported needs_choice but exactly one candidate matches the beat suggested by this turn's capsule, the kernel settles it for you and writes decision_source director into the result — that call already counted, so do not make a second one for it. If the pending defence in the result is the player's, use ask to hand dodge-or-fight-back back to him and settle it next turn with defense; if it is an NPC's, decide it yourself with actor and defense. To push a failed check, set push true and write into stakes what failing the push costs; to spend luck, give luck. When the fiction gives the person an edge — several of them at it together, a prepared approach, an opponent already occupied — say so with modifiers.bonus_dice; nothing else on the action carries an advantage to the dice, and difficulty only ever makes the attempt harder. On an attack the dice go to the attacker, on a defence to the defender. When it cannot recognise a skill the kernel reports needs with candidates: add skill and call again. With intent idle, meta, stuck or ambiguous it does not roll and only returns a judgement.",
 		promptSnippet: "Roll one action against the rules; returns receipts, success level and session state",
 		parameters: Type.Object({
 			action: ResolveAction,

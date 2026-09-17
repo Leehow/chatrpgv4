@@ -332,7 +332,12 @@ export function restoreCombatSnapshot(session: CombatSession, input: Row, option
         valueError('concluded combat state is incoherent');
     if (session.pendingAttack !== null) {
         const pending = session.pendingAttack, legacy = ['attack_command_id', 'actor_id', 'target_actor_id', 'declared_intent', 'resolution_hint', 'weapon_id', 'allowed_defenses'];
-        const extras = ['rulebook_exception', 'on_success', 'victory_outcome', 'defeat_outcome'], usage = ['usage_id', 'object_id', 'usage'], original = Object.keys(pending);
+        const extras = ['rulebook_exception', 'on_success', 'victory_outcome', 'defeat_outcome'], usage = ['usage_id', 'object_id', 'usage'];
+        // The attacker's declared dice ride on the pending attack because the attack is declared one
+        // call before it is rolled (§NN). They are optional and carry their own range check, so they
+        // are held out of the key-set comparison rather than multiplying its accepted combinations.
+        const declared = ['bonus_dice', 'penalty_dice'], original = Object.keys(pending).filter(key => !declared.includes(key));
+        const declaredValid = declared.every(field => !Object.hasOwn(pending, field) || [0, 1, 2].some(value => equal(value, pending[field])));
         for (const key of extras)
             if (!Object.hasOwn(pending, key))
                 pending[key] = null;
@@ -340,7 +345,7 @@ export function restoreCombatSnapshot(session: CombatSession, input: Row, option
         const outcomesValid = ['victory_outcome', 'defeat_outcome'].every(field => pending[field] === null || typeof pending[field] === 'string' && VALID_OUTCOMES.has(pending[field]));
         const defenses = pending.resolution_hint === 'firearm_attack' ? ['dive_for_cover', 'none'] : pending.resolution_hint === 'opposed_melee' ? ['dodge', 'fight_back'] : null;
         if (!equal(sorted(original), sorted(legacy)) && !equal(sorted(original), sorted([...legacy, ...extras])) && !equal(sorted(original), sorted([...legacy, ...extras, ...usage])) || !text(pending.attack_command_id) || !Object.hasOwn(session.participants, pending.actor_id) || !Object.hasOwn(session.participants, pending.target_actor_id) ||
-            pending.actor_id === pending.target_actor_id || typeof pending.declared_intent !== 'string' || !pending.declared_intent.trim() || !equal(pending.allowed_defenses, defenses) || pending.rulebook_exception !== null && typeof pending.rulebook_exception !== 'string' || !successValid || !outcomesValid)
+            pending.actor_id === pending.target_actor_id || typeof pending.declared_intent !== 'string' || !pending.declared_intent.trim() || !equal(pending.allowed_defenses, defenses) || pending.rulebook_exception !== null && typeof pending.rulebook_exception !== 'string' || !successValid || !outcomesValid || !declaredValid)
             valueError('combat pending attack contract is invalid');
         if (session.status !== 'active' || session.initiativeCursor >= session.currentInitiative.length || session.currentInitiative[session.initiativeCursor].actor_id !== pending.actor_id)
             valueError('combat pending attack is not at the initiative cursor');

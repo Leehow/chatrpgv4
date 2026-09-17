@@ -72,6 +72,11 @@ export function mechanicsOf(receipt: Row, texts: ReadonlyMap<string, string> = n
                 level: receipt.level ?? null,
                 passed: truth(receipt.passed),
                 pushed: truth(receipt.pushed),
+                // A bonus or penalty die changes which d100 was kept, so the card that shows the
+                // roll has to say one was there; without these two the single bonus die that did
+                // fire across nine tables was invisible to everyone but the kernel (§NN, §16.2).
+                bonus: Math.trunc(number(receipt.bonus ?? 0)),
+                penalty: Math.trunc(number(receipt.penalty ?? 0)),
                 visibility: receipt.visibility || "public"
             };
         investigator(out, receipt, "actor");

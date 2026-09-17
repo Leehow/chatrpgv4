@@ -229,8 +229,12 @@ export class CheckArithmetic {
             rule_refs: refs,
         };
     }
-    opposed(target: number, opponent: number, rng: PythonRandom): Row {
-        const mine = this.check(target, 'regular', 0, 0, rng);
+    /**
+     * `bonus`/`penalty` are the investigator's side of the contest (§NN). The opponent's roll stays
+     * plain: what the keeper declared is a fact about the investigator's attempt, not about both.
+     */
+    opposed(target: number, opponent: number, rng: PythonRandom, bonus = 0, penalty = 0): Row {
+        const mine = this.check(target, 'regular', bonus, penalty, rng);
         const theirs = this.check(opponent, 'regular', 0, 0, rng);
         const myLevel = ranks[mine.outcome] || 0;
         const theirLevel = ranks[theirs.outcome] || 0;

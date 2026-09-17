@@ -151,7 +151,17 @@ export async function startCombat(context: SettleContext, args: Row): Promise<[
     context.addSessionReceipt('combat', 'start', { summary: context.graph.displayName(node) });
     return [session, { combat_id: combatId, affordance_id: affordance, operation, preparations, initiative: session.currentInitiative.map(value => ({ ...value })) }];
 }
-function pendingAttack(session: CombatSession, context: SettleContext, actor: string, target: string, weaponId: string | null, operation: Row, intent: string): Row {
+/**
+ * The dice the keeper declared on this call, shaped for `CombatTurnOptions` (§NN). Nothing is
+ * returned when nothing was declared, so a plain call keeps the options object it always had.
+ */
+function declaredDice(args: Row, side: 'attacker' | 'defender'): Row {
+    const bonus = Math.max(0, Math.trunc(number(args.bonus_dice ?? 0))), penalty = Math.max(0, Math.trunc(number(args.penalty_dice ?? 0)));
+    if (!bonus && !penalty)
+        return {};
+    return side === 'attacker' ? { attackerBonus: bonus, attackerPenalty: penalty } : { defenderBonus: bonus, defenderPenalty: penalty };
+}
+function pendingAttack(session: CombatSession, context: SettleContext, actor: string, target: string, weaponId: string | null, operation: Row, intent: string, declared: Row = {}): Row {
     let weapon: Row;
     try {
         weapon = session.weapon(actor, weaponId);
@@ -166,7 +176,10 @@ function pendingAttack(session: CombatSession, context: SettleContext, actor: st
         resolution_hint: firearm ? 'firearm_attack' : 'opposed_melee', weapon_id: string(weapon.weapon_id || weaponId || 'unarmed'),
         ...(weapon.usage_id ? {usage_id:weapon.usage_id,object_id:weapon.object_id,usage:weapon.usage} : {}),
         rulebook_exception: null, on_success: null, victory_outcome: null, defeat_outcome: null,
-        allowed_defenses: firearm ? ['dive_for_cover', 'none'] : ['dodge', 'fight_back'] };
+        allowed_defenses: firearm ? ['dive_for_cover', 'none'] : ['dodge', 'fight_back'],
+        // The attack is declared now and rolled on the defence call, so the keeper's dice wait here.
+        ...(number(declared.bonus_dice) ? { bonus_dice: Math.trunc(number(declared.bonus_dice)) } : {}),
+        ...(number(declared.penalty_dice) ? { penalty_dice: Math.trunc(number(declared.penalty_dice)) } : {}) };
     if (session.participants[actor].side === 'investigator') {
         if (typeof operation.rulebook_exception === 'string' && operation.investigator_weapon_id === pending.weapon_id) {
             pending.rulebook_exception = operation.rulebook_exception;
@@ -271,11 +284,14 @@ export async function executeCombatResolve(context: SettleContext, input: Row): 
         const target = string(args.target_npc_id || '');
         if (!Object.hasOwn(session.participants, target))
             throw new RpcError('unknown_entity', `${target} is not in this combat`);
-        pending = pendingAttack(session, context, actor, target, args.weapon_id ?? null, operation, intentText(args, `${actor} attacks ${target}`));
+        pending = pendingAttack(session, context, actor, target, args.weapon_id ?? null, operation, intentText(args, `${actor} attacks ${target}`), args);
         session.pendingAttack = pending;
         actor = target;
         kind = 'defend';
-        args = { ...args, defense_kind: 'none' };
+        // A target who does not resist rolls nothing, so the dice declared on this one call are the
+        // attacker's: they are already on the pending attack, and must not be read again as the
+        // defender's or they would be counted twice (§NN).
+        args = { ...args, defense_kind: 'none', bonus_dice: 0, penalty_dice: 0 };
     }
     if (kind === 'defend') {
         if (!pending)
@@ -290,7 +306,10 @@ export async function executeCombatResolve(context: SettleContext, input: Row): 
         await bindUsageSkill(context, session, string(pending.actor_id), pending.weapon_id ?? null);
         try {
             turn = session.declareAndResolveTurn(string(pending.actor_id), string(pending.declared_intent), { targetActorId: defender, defenseKind: engine,
-                weaponId: pending.weapon_id ?? null, rulebookException: pending.rulebook_exception ?? null, resolutionHint: string(pending.resolution_hint), resolutionCommandId: context.callId });
+                weaponId: pending.weapon_id ?? null, rulebookException: pending.rulebook_exception ?? null, resolutionHint: string(pending.resolution_hint), resolutionCommandId: context.callId,
+                // This call resolves the defender's action, so the dice the keeper declared on it
+                // are the defender's; the attack was declared -- and modified -- a call ago (§NN).
+                ...declaredDice(pending, 'attacker'), ...declaredDice(args, 'defender') });
         }
         catch (error) {
             if (!(error instanceof UnknownWeaponError))
@@ -333,14 +352,15 @@ export async function executeCombatResolve(context: SettleContext, input: Row): 
                 const first = session.participants[actor].weapons[0];
                 weapon = isJsonObject(first) ? first.weapon_id : string(first);
             }
-            session.pendingAttack = pendingAttack(session, context, actor, target, weapon, operation, intentText(args, `${actor} attacks ${target}`));
+            session.pendingAttack = pendingAttack(session, context, actor, target, weapon, operation, intentText(args, `${actor} attacks ${target}`), args);
             hints.push(`an attack is pending: ${target} must answer with a defense`);
         }
         else if (SELF_RESOLVING.includes(kind)) {
             const target = string(args.target_npc_id || '') || null;
             try {
                 turn = session.declareAndResolveTurn(actor, intentText(args, `${actor} ${kind}`), { targetActorId: target, defenseKind: kind === 'maneuver' ? 'dodge' : null,
-                    weaponId: args.weapon_id ?? null, resolutionHint: kind, goal: kind === 'maneuver' ? args.goal ?? null : null, resolutionCommandId: context.callId });
+                    weaponId: args.weapon_id ?? null, resolutionHint: kind, goal: kind === 'maneuver' ? args.goal ?? null : null, resolutionCommandId: context.callId,
+                    ...declaredDice(args, 'attacker') });
             }
             catch (error) {
                 if (!(error instanceof UnknownWeaponError) && (error as Error).name !== 'ValueError')

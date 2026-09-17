@@ -58,6 +58,16 @@ export interface CombatTurnOptions extends Row {
     skill?: string | null;
     targetValue?: number | null;
     difficulty?: string;
+    /**
+     * The dice the keeper declared on this call, added to whatever the engine derives from the
+     * state (aim, prone, point blank, outnumbering, build) before the one-for-one cancellation
+     * in `CheckArithmetic.check` (§NN). They belong to the person whose action the call resolves:
+     * an attack or a maneuver is the attacker's, answering a pending attack is the defender's.
+     */
+    attackerBonus?: number;
+    attackerPenalty?: number;
+    defenderBonus?: number;
+    defenderPenalty?: number;
     shots?: number | null;
     fireMode?: string | null;
     roundsFired?: number | null;
@@ -587,7 +597,7 @@ export class CombatSession {
         else if (hint === 'surprise_attack')
             this.resolveSurpriseAttack(turn, actorId, target, weaponId);
         else if (hint === 'maneuver')
-            this.resolveManeuver(turn, actorId, target, defense, goal || 'ongoing_disadvantage', options.targetWeaponId ?? null, outnumbered, defenderGoal);
+            this.resolveManeuver(turn, actorId, target, defense, goal || 'ongoing_disadvantage', options.targetWeaponId ?? null, outnumbered, defenderGoal, options);
         else if (hint === 'flee')
             this.resolveFlee(turn, actorId);
         else if (hint === 'skill_check')
@@ -681,6 +691,7 @@ export class CombatSession {
         const firearm = skill.startsWith('Firearms'), thrown = skill.startsWith('Throw'), melee = !firearm && !thrown;
         let defense = rawDefense;
         const pointBlank = options.pointBlank ?? false, cover = options.cover ?? false, fast = options.fastMoving ?? false, outnumbered = options.outnumberedPenalty ?? false;
+        const defenderBonus = Math.max(0, Math.trunc(number(options.defenderBonus ?? 0))), defenderPenalty = Math.max(0, Math.trunc(number(options.defenderPenalty ?? 0)));
         const exception = options.rulebookException ?? null;
         if (options.fireMode === 'suppressive' && firearm) {
             this.resolveSuppression(turn, actor, weapon, id, options);
@@ -706,8 +717,9 @@ export class CombatSession {
         }
         if (options.loadAndFire && firearm)
             this.setAmmo(actor, id, Math.max(this.getAmmo(actor, id) || 0, 0) + 1);
-        let bonus = 0, penalty = 0;
-        const mods: Row = { range_band: options.rangeBand ?? null, point_blank: pointBlank, cover, outnumbered_penalty: outnumbered }, target = targetId ? this.participants[targetId] : null;
+        let bonus = Math.max(0, Math.trunc(number(options.attackerBonus ?? 0))), penalty = Math.max(0, Math.trunc(number(options.attackerPenalty ?? 0)));
+        const mods: Row = { range_band: options.rangeBand ?? null, point_blank: pointBlank, cover, outnumbered_penalty: outnumbered,
+            keeper_bonus: bonus, keeper_penalty: penalty }, target = targetId ? this.participants[targetId] : null;
         if (firearm || thrown) {
             if (pointBlank && firearm)
                 bonus++;
@@ -751,7 +763,7 @@ export class CombatSession {
         }
         if (defense === 'dive_for_cover') {
             turn.defense_kind = 'dive_for_cover';
-            const [, defended] = this.percentile(targetId!, 'Dodge', target.dodge_skill || target.combat_skill, `dive for cover vs ${actor}`);
+            const [, defended] = this.percentile(targetId!, 'Dodge', target.dodge_skill || target.combat_skill, `dive for cover vs ${actor}`, 'regular', defenderBonus, defenderPenalty);
             turn.opposed_roll_id = defended.roll_id;
             if (truth(defended.passed)) {
                 turn.opposed_outcome = 'dived_for_cover';
@@ -776,15 +788,15 @@ export class CombatSession {
         if (defense === 'maneuver') {
             const goal = options.defenderGoal || 'ongoing_disadvantage';
             turn.defender_goal = goal;
-            [defenseOutcome, defended] = this.percentile(targetId!, 'Fighting', target.combat_skill, `maneuver counter (${goal}) vs ${actor}`);
+            [defenseOutcome, defended] = this.percentile(targetId!, 'Fighting', target.combat_skill, `maneuver counter (${goal}) vs ${actor}`, 'regular', defenderBonus, defenderPenalty);
             opposedKind = 'fight_back';
         }
         else if (defense === 'fight_back') {
-            [defenseOutcome, defended] = this.percentile(targetId!, 'Fighting', target.combat_skill, `fight back vs ${actor}`);
+            [defenseOutcome, defended] = this.percentile(targetId!, 'Fighting', target.combat_skill, `fight back vs ${actor}`, 'regular', defenderBonus, defenderPenalty);
             opposedKind = 'fight_back';
         }
         else {
-            [defenseOutcome, defended] = this.percentile(targetId!, 'Dodge', target.dodge_skill || target.combat_skill, `dodge vs ${actor}`);
+            [defenseOutcome, defended] = this.percentile(targetId!, 'Dodge', target.dodge_skill || target.combat_skill, `dodge vs ${actor}`, 'regular', defenderBonus, defenderPenalty);
             opposedKind = 'dodge';
         }
         turn.opposed_roll_id = defended.roll_id;
@@ -1049,15 +1061,19 @@ export class CombatSession {
         else
             turn.outcome = 'dominate_resisted';
     }
-    private resolveManeuver(turn: Row, actor: string, targetId: string | null, defense: string | null, goal = 'ongoing_disadvantage', targetWeaponId: string | null = null, outnumbered = false, defenderGoal: string | null = null): void {
+    private resolveManeuver(turn: Row, actor: string, targetId: string | null, defense: string | null, goal = 'ongoing_disadvantage', targetWeaponId: string | null = null, outnumbered = false, defenderGoal: string | null = null, options: CombatTurnOptions = {}): void {
+        const declaredBonus = Math.max(0, Math.trunc(number(options.attackerBonus ?? 0))), declaredPenalty = Math.max(0, Math.trunc(number(options.attackerPenalty ?? 0)));
+        const defenderBonus = Math.max(0, Math.trunc(number(options.defenderBonus ?? 0))), defenderPenalty = Math.max(0, Math.trunc(number(options.defenderPenalty ?? 0)));
         const attacker = this.participants[actor], target = targetId ? this.participants[targetId] : null, difference = (target?.build ?? 0) - (attacker.build ?? 0);
         if (difference >= 3 && goal !== 'escape') {
             Object.assign(turn, { outcome: 'maneuver_impossible_build', opposed_outcome: 'impossible', defense_kind: 'none', maneuver_build_difference: difference });
             return;
         }
-        const penalty = Math.min(2, Math.max(0, difference));
-        Object.assign(turn, { maneuver_build_difference: difference, maneuver_penalty_dice: penalty });
-        const [attack, rolled] = this.percentile(actor, 'Fighting', attacker.combat_skill, `${goal} maneuver vs ${string(targetId)}`, 'regular', outnumbered ? 1 : 0, penalty);
+        // `maneuver_penalty_dice` stays the build difference alone -- it is what the rule derived,
+        // and a reader comparing builds must not find the keeper's declaration folded into it (§NN).
+        const buildPenalty = Math.min(2, Math.max(0, difference));
+        Object.assign(turn, { maneuver_build_difference: difference, maneuver_penalty_dice: buildPenalty, keeper_bonus: declaredBonus, keeper_penalty: declaredPenalty });
+        const [attack, rolled] = this.percentile(actor, 'Fighting', attacker.combat_skill, `${goal} maneuver vs ${string(targetId)}`, 'regular', (outnumbered ? 1 : 0) + declaredBonus, buildPenalty + declaredPenalty);
         turn.roll_id = rolled.roll_id;
         const kind = defense === null || defense === 'none' ? 'none' : defense;
         if (kind === 'none') {
@@ -1077,15 +1093,15 @@ export class CombatSession {
             if (kind === 'maneuver') {
                 const goal = defenderGoal || 'ongoing_disadvantage';
                 turn.defender_goal = goal;
-                [defenseOutcome, defended] = this.percentile(targetId, 'Fighting', target.combat_skill, `maneuver counter (${goal}) vs ${actor}`);
+                [defenseOutcome, defended] = this.percentile(targetId, 'Fighting', target.combat_skill, `maneuver counter (${goal}) vs ${actor}`, 'regular', defenderBonus, defenderPenalty);
                 opposedKind = 'fight_back';
             }
             else if (kind === 'fight_back') {
-                [defenseOutcome, defended] = this.percentile(targetId, 'Fighting', target.combat_skill, `resist ${goal} maneuver`);
+                [defenseOutcome, defended] = this.percentile(targetId, 'Fighting', target.combat_skill, `resist ${goal} maneuver`, 'regular', defenderBonus, defenderPenalty);
                 opposedKind = 'fight_back';
             }
             else {
-                [defenseOutcome, defended] = this.percentile(targetId, 'Dodge', target.dodge_skill || target.combat_skill, `dodge ${goal} maneuver`);
+                [defenseOutcome, defended] = this.percentile(targetId, 'Dodge', target.dodge_skill || target.combat_skill, `dodge ${goal} maneuver`, 'regular', defenderBonus, defenderPenalty);
                 opposedKind = 'dodge';
             }
             turn.opposed_roll_id = defended.roll_id;

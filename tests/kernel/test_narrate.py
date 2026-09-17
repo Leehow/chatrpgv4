@@ -48,7 +48,8 @@ def test_every_receipt_is_projected_and_the_turn_closes(kernel):
                                       "actor_label": "托马斯·海斯", "actor_is_investigator": True,
                                       "skill": "Spot Hidden", "roll": roll["roll"], "target": 55, "threshold": 55,
                                       "difficulty": "regular", "level": roll["level"], "passed": roll["passed"],
-                                      "pushed": False, "visibility": "public", "call": "t1-c1", "family": "core-check"}
+                                      "pushed": False, "bonus": 0, "penalty": 0,
+                                      "visibility": "public", "call": "t1-c1", "family": "core-check"}
     assert result["mechanics"][2] == {"kind": "time", "marker": "time", "receipt": "time:t1-c2", "minutes": 10, "call": "t1-c2"}
     assert result["mechanics"][3]["minutes"] == 20
     assert result["turn"] == 1 and result["receipt"] == "turn:1" and result["commit"]

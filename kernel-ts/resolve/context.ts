@@ -68,6 +68,16 @@ export class SettleContext {
     readonly subjectId: string;
     readonly turnNumber: number;
     readonly moduleSpells: Row[];
+    /**
+     * The keeper's declared `action.modifiers`, validated once at the entry (§NN): `[bonus, penalty,
+     * difficulty]`. It lives here so every family reads the same checked triple instead of re-parsing
+     * the raw action, and so a family that cannot carry it can be told apart from one that forgot to.
+     */
+    declaredModifiers: [
+        number,
+        number,
+        string
+    ] = [0, 0, 'regular'];
     private knownSpells: string[] = [];
     private learningSources: Row = {};
     private settlementPending = false;
