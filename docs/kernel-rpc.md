@@ -10952,7 +10952,7 @@ key — accepted, while an invented `/nodes/9` beside it is refused. They die wh
 the resolve check is dropped, when the assigned exemption is dropped, and when
 the failure stops being carried into the retry.
 
-## NN. A person this table has and the book does not (2026-09-17, amends §17.3, §51.4 and §56.1)
+## 87. A person this table has and the book does not (2026-09-17, amends §17.3, §51.4 and §56.1)
 
 ```
 apply npc "门房"          ->  unknown_entity: no npc named '门房' in the module graph
@@ -10978,7 +10978,7 @@ assessors'-window clerk, the Keeper reached for the book's own `records-clerk` a
 Records clerk at the assessors' window. That was accepted. A refusal with no lawful road moves the
 write onto an authored person's record.
 
-### NN.1 The record is world state
+### 87.1 The record is world state
 
 `world.table_people[] = {name, turn, why, established_at}`.
 
@@ -10998,7 +10998,7 @@ On a worldline merge `table_people` is a union and never a choice between lines:
 whoever it met, and dropping one deletes a person who has already spoken. First establishment wins
 on a name two lines both used.
 
-### NN.2 The boundary is mechanical
+### 87.2 The boundary is mechanical
 
 **A person is persistent when the Keeper called for persistence** (`lookup kind=adaptation
 purpose=persistent_npc`), **and a person the table simply used is this.** Nothing reads a name, a
@@ -11012,7 +11012,7 @@ Pinning numbers in the same call that invents the person is how a stat block get
 Near-name correction stays forbidden. `graph.npc` has already tried the handle, the aliases and the
 anchored whole-word run (§2); a miss is a miss.
 
-### NN.3 What the Keeper hands in is an appellation, not a name
+### 87.3 What the Keeper hands in is an appellation, not a name
 
 t4's were `管楼的`, `the janitor`, `评税处窗口职员`. A write entrance that demanded a personal name
 would be asking the Keeper to invent one, which is a fabrication the table never made. **Any
@@ -11026,7 +11026,7 @@ English description, and it is what every surface naming him carried through 47 
 `zh-Hans` table — while `world.person_labels` stayed `null` for all 121 turns. §79's writer exists
 and nothing sends the Keeper to it.
 
-### NN.4 Duplicates are the known edge, and a roster is the mitigation
+### 87.4 Duplicates are the known edge, and a roster is the mitigation
 
 One man was called `管楼的`, `门房`, `superintendent` and `the janitor` on t4. Under this rule that
 is four of him. **Deciding they are one person is an open semantic judgement and no code here makes
@@ -11037,7 +11037,7 @@ appended **after** everything the query itself ranked so a genuine near-name is 
 is a list to pick from, not a match: nothing compares the query to those names. Duplicates will
 still occur. §79 is how a table settles on one word for someone.
 
-### NN.5 §51.4 takes on a second kind: the books and the prose disagree about where a person is
+### 87.5 §51.4 takes on a second kind: the books and the prose disagree about where a person is
 
 A person the prose gave lines to in this room while `npc_presence` puts them in another scene or off
 the board. Same shape as §51.4's clue rows, same self-clearing, same "names the call and nothing
@@ -11065,7 +11065,7 @@ Two boundaries:
   the other end of the line", is a person at all is not the kernel's judgement to make, and a row for
   it would be this section asking the Keeper to mint people out of scenery.
 
-### NN.6 Deployment order
+### 87.6 Deployment order
 
 **Nothing here requires a field the extension schema does not already provide, so either side may
 ship first.** `NpcEffect.name` is a free `Type.String`; the write entrance is a *relaxation* of a
@@ -11078,8 +11078,19 @@ extension schema supplies, the two must go out together, and if only one half ca
 schema first.** A kernel demanding a field no schema offers is a door closed on every call that needs
 it; a schema carrying a field no kernel reads yet is an ordinary ignored value.
 
-The mirrored case applies to prompt text rather than fields, and it is the one to watch here.
-`tools.ts` still describes `apply npc.name` as "the NPC's name" and the adaptation `purpose` line
-still says first-appearance supporting NPCs have no adaptation purpose. **Kernel first, then that
-text.** Kernel ahead of the text is a road that is open and unadvertised; text ahead of the kernel
-tells the Keeper to make a call that is still refused, and a `fix` is executed literally (§34.7).
+The mirrored case applies to prompt text rather than fields, and it is the one that bound this
+change. `tools.ts` described `apply npc.name` as "the NPC's name" and told the Keeper in the
+adaptation `purpose` line that a first-appearance supporting NPC has no adaptation purpose. Both
+sentences became false the moment the kernel gained the write entrance, and **a false sentence in a
+tool description is worse than a missing one, because the Keeper believes a restriction that no
+longer exists and never walks the road that was opened.** That is a fix nobody uses. §42.5 and
+§34.16 are the same shape on the same day: a sentence false in one state was copied into a `fix`,
+executed literally, and cost a table 360 minutes for nothing.
+
+So the text ships with the kernel, **in one branch**, and the order the rule asks for is satisfied by
+the deploy rather than by the split: the rebuild makes the kernel live and the service restart makes
+the description live, seconds later. Kernel ahead of the text for those seconds is a road open and
+unadvertised, which is harmless. Text ahead of the kernel would point the Keeper at a call that is
+still refused, and a `fix` is executed literally (§34.7). **Splitting these two across branches is
+what would break it**, in either direction: the text alone is a lie, and the kernel alone is a road
+the Keeper has been told not to take.

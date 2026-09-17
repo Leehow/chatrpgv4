@@ -141,9 +141,9 @@ export function unrecordedClues(graph: ModuleGraph, world: Row, scene: Row, reco
  * written when the turn was delivered, so reading it back is not parsing prose: §17 keeps the
  * runtime ledger written by receipts and explicit `apply` alone, and nothing here infers that anyone
  * was present -- a row says the two records disagree, never which one is right. A span that stayed a
- * `{label}` is deliberately passed over: deciding whether 听筒那头, "the voice on the other end of
- * the line", is a person at all is a judgement the kernel cannot make, and a row for it would be
- * this section asking the Keeper to mint people out of scenery.
+ * `{label}` is deliberately passed over: deciding whether "the voice on the other end of the line"
+ * is a person at all is a judgement the kernel cannot make, and a row for it would be this section
+ * asking the Keeper to mint people out of scenery.
  *
  * It clears itself two ways and needs no writer to retract it, exactly as the clue rows do: one
  * `apply npc` makes the two records agree, and the window is this scene's occupancy, so walking out

@@ -196,6 +196,27 @@ test('a miss offers the people this table already has, so the Keeper can reuse a
 		`the roster of this table's own people is offered: ${JSON.stringify(refused.details?.candidates)}`);
 });
 
+/**
+ * Silence is what mints, not failure to resolve. The first version read through `graph.find`, which
+ * answers null for an ambiguous name exactly as it does for an absent one, so a name two nodes both
+ * held minted a third person called that, and a name one word off an authored one made a duplicate
+ * ghost where #64's guard requires `unknown_entity`. `ts-kernel-name-fold` and
+ * `ts-kernel-name-phrase` caught both; this is §87's own statement of the rule.
+ *
+ * `candidates` is consulted to decide whether to *refuse*, never to pick. When the graph has
+ * anything to say, its own refusal and its own candidates go back untouched and the Keeper chooses.
+ */
+test('a name the book has something to say about is refused, not quietly turned into a second person', async t => {
+	const game = await table(t);
+	let refused = null;
+	try { await game.apply([{kind: 'npc', name: 'Steven Knot', to: 'here', why: 'one letter short of the landlord'}]); }
+	catch (thrown) { refused = thrown; }
+	assert.equal(refused?.code, 'unknown_entity', 'a near miss on an authored name is still a refusal');
+	assert.ok((refused.details?.candidates ?? []).some(candidate => candidate.name === 'steven-knott'),
+		`and it hands back who the book does have: ${JSON.stringify(refused.details?.candidates)}`);
+	assert.deepEqual((await game.world()).table_people ?? [], [], 'nothing was established');
+});
+
 test("an authored person's record is not where a table person ends up", async t => {
 	const game = await table(t);
 	await game.apply([{kind: 'npc', name: DOORMAN, to: 'here', why: 'he is at the stair'}]);

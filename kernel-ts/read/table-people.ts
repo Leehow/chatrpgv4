@@ -10,8 +10,8 @@
  * `world.npc_presence` never held one, the ledger never held one, and the capsule's `present` and
  * `voices` were `[]` for the whole of turns 96-99 while a superintendent unlocked a cellar, answered
  * three questions, took a card and left in prose. Turn 98 closed with zero receipts and four
- * `{label: 门房}` spans: the only two world writes that turn wanted were his presence and his
- * stance, and both were refused.
+ * label-only spans naming the doorman: the only two world writes that turn wanted were his
+ * presence and his stance, and both were refused.
  *
  * Refusing the request did not prevent a fabrication. On turn 106, refused on an assessors'-window
  * clerk, the Keeper reached for the book's own `records-clerk` and staged the Hall of Records clerk
@@ -41,9 +41,9 @@
  * here. The book needs that road as badly as the table does -- the-haunting authors an NPC whose
  * printed name is `the Hall of Records clerk`, an English description, and on H-SIDE t4 (a zh-Hans
  * table) it is what every surface naming him carried through 47 resolved spans. Not the prose: the
- * say token strips the name out, so what the player read was 套袖那人. It is the card's own word for
- * him -- §40's delivery card titles each span with the name through `term()` -- and the sheet
- * panel's. `world.person_labels` was `null` for all 121 turns: §79's writer exists and nothing ever
+ * say token strips the name out, so the prose called him by his sleeve-guards. It is the card's own
+ * word for him -- §40's delivery card titles each span with the name through `term()` -- and the
+ * sheet panel's. `world.person_labels` was `null` for all 121 turns: §79's writer exists and nothing ever
  * sent the Keeper to it.
  */
 import { jsonDigest } from '../json.js';
