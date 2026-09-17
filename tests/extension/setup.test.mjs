@@ -208,13 +208,13 @@ test("七步表走完：starter 那条路到 complete，交出开桌命令", asy
 	assert.deepEqual(needOccupation.needs, ["profile"], "缺的是表里点名的那个参数");
 
 	assert.equal(made.ok, true);
-    const basis=made['setup.draft'].sheet.creation;
-    assert.equal(basis.method,'rolled');
-    assert.deepEqual(basis.characteristics.rolls.STR.faces,[1,1,2]);
-    assert.deepEqual(basis.age.edu_improvement_checks,[{roll:30,edu:50}]);
-    assert.equal(basis.skills.occupation.budget.total,200);
-    assert.equal(basis.skills.interest.allocations.Law,10);
-    assert.equal(basis.seed,undefined);
+	// §98: the model is handed the card's numbers and words, never the creation trace or the seed.
+	const summary = made['setup.draft'];
+	assert.equal(summary.card.name, '托马斯·海耶斯');
+	assert.equal(summary.card.skills.Law, 45);
+	assert.ok(summary.budget && summary.pins, 'budget and pins ride with the summary');
+	assert.equal(summary.sheet, undefined);
+	assert.equal(JSON.stringify(summary).includes('private-seed'), false, 'the seed never reaches the model');
 	const built = table.kernelRequests().find((entry) => entry.method === "setup.draft");
 	assert.equal(built.params.profile.name, "托马斯·海耶斯", "名字原样送进内核");
 	assert.equal(built.params.profile.occupation, "journalist", "职业 id 是模型挑的");
@@ -339,15 +339,17 @@ test("creation brief: the host computes the move from the package's slots and th
  * call that rebuilds from the stored seed and puts the auto-allocated numbers back. A live table
  * reported exactly that: the edit saved, the next turn reverted it, and asking in words did nothing.
  */
-test('§92 adjust edits the current card in place, and puts the new revision on the table', async (t) => {
+test('§98 revise changes the card in place: words move no number, numbers pin, and each revision reaches the transcript', async (t) => {
 	const first = firstStep();
 	const table = await openSetup([
 		setupCall({ step: first.id, kind: 'starter', module: 'the-haunting' }),
-		setupCall({ step: 'create-campaign', id: 'setup-adjust', title: '闹鬼的房子', play_language: 'zh-Hans' }),
-		setupCall({ step: 'adjust', edits: { skills: { Law: 60 } } }),
+		setupCall({ step: 'create-campaign', id: 'setup-revise', title: '闹鬼的房子', play_language: 'zh-Hans' }),
+		setupCall({ step: 'revise', numbers: { skills: { Law: 60 } } }),
 		setupCall({ step: 'create-investigator', profile: { name: '托马斯·海耶斯', occupation: 'journalist', concept: '记者' } }),
-		setupCall({ step: 'adjust', edits: { skills: { Law: 60 } } }),
-		setupCall({ step: 'adjust', edits: { skills: { Archaeology: 60 } } }),
+		setupCall({ step: 'revise', numbers: { skills: { Law: 60 } } }),
+		setupCall({ step: 'revise', profile: { equipment: ['相机'] } }),
+		setupCall({ step: 'revise', numbers: { skills: { Unlisted: 60 } } }),
+		setupCall({ step: 'create-investigator', profile: { age: 40 } }),
 		fauxAssistantMessage('改好了。'),
 	]);
 	t.after(() => table.dispose());
@@ -355,39 +357,50 @@ test('§92 adjust edits the current card in place, and puts the new revision on 
 	await table.session.prompt('我想玩闹鬼的房子，法律给我调到 60');
 	await waitForIdle(table.session);
 
-	const [, , tooEarly, drafted, adjusted, unlisted] = setupResults(table.session);
-	assert.equal(tooEarly.ok, false, 'there is no card to adjust before one is drafted');
+	const [, , tooEarly, drafted, pinned, worded, unlisted, again] = setupResults(table.session);
+	assert.equal(tooEarly.ok, false, 'there is no card to revise before one is drafted');
 	assert.match(tooEarly.rejected, /draft one with create-investigator/);
 	assert.equal(drafted.ok, true);
+	const drawn = drafted['setup.draft'];
+	assert.ok(drawn.card && drawn.card.skills && drawn.budget && drawn.pins, 'the model is handed the summary: card, pins, budget');
+	assert.equal(drawn.sheet, undefined, 'and not the whole sheet with its creation trace');
 
-	assert.equal(adjusted.ok, true, 'a number on the drafted card is changed as a number');
-	const override = table.kernelRequests().filter((entry) => entry.method === 'setup.override');
-	assert.equal(override.length, 2, 'both adjust calls reached the kernel; adjust is not done-once');
-	assert.deepEqual(override[0].params.edits, { skills: { Law: 60 } });
-	assert.equal(override[0].params.revision, 1, 'the edit applies to the revision the draft step put on the table');
-	assert.equal(adjusted.sheet.skills.Law, 60);
+	assert.equal(pinned.ok, true, 'a number on the drafted card is changed as a number');
+	const revises = table.kernelRequests().filter((entry) => entry.method === 'setup.revise');
+	assert.deepEqual(revises[0].params.numbers, { skills: { Law: 60 } });
+	assert.equal(revises[0].params.revision, 1, 'the revision applies to the card the draft step put on the table');
+	assert.equal(revises[0].params.by, 'model', 'a number the model relays is pinned as the model\'s');
+	assert.equal(pinned.card.skills.Law, 60);
+	assert.deepEqual(pinned.pins.skills.Law, { value: 60, by: 'model' });
 
-	// A revision the card never showed is a revision `setup.confirm` refuses, so the new one is
-	// appended and acknowledged exactly as a drafted revision is.
-	const cards = table.entries('coc-character-draft');
-	assert.deepEqual(cards.map((card) => card.revision), [1, 2], 'the adjusted revision reaches the transcript as a card');
-	const acknowledged = table.kernelRequests().filter((entry) => entry.method === 'setup.previewed');
-	assert.deepEqual(acknowledged.map((entry) => entry.params.revision), [1, 2], 'and is acknowledged, so confirmation can accept it');
+	assert.equal(worded.ok, true);
+	assert.deepEqual(revises[1].params.profile, { equipment: ['相机'] }, 'words travel as a profile patch');
+	assert.equal(worded.card.skills.Law, 60, 'and the pinned number is still there');
 
-	// A bound refusal is the answer, not a transport failure: its details name the offending field.
+	// A refusal is the answer, not a transport failure: its details name the field and candidates.
 	assert.equal(unlisted.ok, false);
 	assert.equal(unlisted.code, 'needs');
-	assert.equal(unlisted.details.field, 'Archaeology', "the kernel's details survive the projection");
+	assert.equal(unlisted.details.field, 'Unlisted', "the kernel's details survive the projection");
+
+	// A second create-investigator with a card on the table is a revision, never a redraw.
+	assert.equal(again.ok, true);
+	assert.equal(again.step, 'revise');
+	assert.deepEqual(revises.at(-1).params.profile, { age: 40 });
+	assert.equal(table.kernelRequests().filter((entry) => entry.method === 'setup.draft').length, 1, 'the kernel drew the card once');
+
+	const cards = table.entries('coc-character-draft');
+	assert.deepEqual(cards.map((card) => card.revision), [1, 2, 3, 4], 'every revision reaches the transcript as a card');
+	assert.equal(table.kernelRequests().filter((entry) => entry.method === 'setup.previewed').length, 0, 'and nothing asks the kernel to acknowledge a display');
 });
 
-test('§92 a confirmed card is no longer a draft edit', async (t) => {
+test('§98 a confirmed card is no longer a draft edit', async (t) => {
 	const first = firstStep();
 	const table = await openSetup([
 		setupCall({ step: first.id, kind: 'starter', module: 'the-haunting' }),
-		setupCall({ step: 'create-campaign', id: 'setup-adjust-late', title: '闹鬼的房子', play_language: 'zh-Hans' }),
+		setupCall({ step: 'create-campaign', id: 'setup-revise-late', title: '闹鬼的房子', play_language: 'zh-Hans' }),
 		setupCall({ step: 'create-investigator', profile: { name: '托马斯·海耶斯', occupation: 'journalist', concept: '记者' } }),
 		setupCall({ step: 'confirm-investigator', consent: 'approved' }),
-		setupCall({ step: 'adjust', edits: { skills: { Law: 60 } } }),
+		setupCall({ step: 'revise', numbers: { skills: { Law: 60 } } }),
 		fauxAssistantMessage('已经定卡了。'),
 	]);
 	t.after(() => table.dispose());
@@ -398,27 +411,20 @@ test('§92 a confirmed card is no longer a draft edit', async (t) => {
 	const tooLate = setupResults(table.session).at(-1);
 	assert.equal(tooLate.ok, false, 'the numbers of a committed card are not a draft edit');
 	assert.match(tooLate.rejected, /confirmed/);
-	assert.equal(table.kernelRequests().filter((entry) => entry.method === 'setup.override').length, 0,
+	assert.equal(table.kernelRequests().filter((entry) => entry.method === 'setup.revise').length, 0,
 		'and the kernel is never asked, so the refusal cannot depend on its window');
 });
 
 /**
- * §96: a refused draft must not lock the player out of confirmation.
- *
- * `create-investigator` is un-booked before every attempt so the gate will pass it twice, which is
- * a bet that the attempt succeeds. A refused draft lost that bet and left the step un-booked, so
- * `confirm-investigator` came back "the table gives it the prerequisites create-investigator, of
- * which create-investigator are not done" — with a card already on the table. A live table walked
- * that circle: one refused draft, confirmation locked out, then four more drafts, each of which
- * rebuilt the numbers the player had just edited by hand.
+ * §98: a refused draft must not lock the player out of confirmation, and nothing un-books a step.
  */
-test('§96 a refused draft leaves the card confirmable', async (t) => {
+test('§98 a refused revision leaves the card confirmable', async (t) => {
 	const first = firstStep();
 	const table = await openSetup([
 		setupCall({ step: first.id, kind: 'starter', module: 'the-haunting' }),
 		setupCall({ step: 'create-campaign', id: 'setup-refused-draft', title: '闹鬼的房子', play_language: 'zh-Hans' }),
 		setupCall({ step: 'create-investigator', profile: { name: '托马斯·海耶斯', occupation: 'journalist', concept: '记者' } }),
-		setupCall({ step: 'create-investigator', profile: { name: 'REFUSE', occupation: 'journalist', concept: '记者' } }),
+		setupCall({ step: 'revise', numbers: { skills: { Unlisted: 60 } } }),
 		setupCall({ step: 'confirm-investigator', consent: 'approved' }),
 		fauxAssistantMessage('定了。'),
 	]);
@@ -429,7 +435,7 @@ test('§96 a refused draft leaves the card confirmable', async (t) => {
 
 	const [, , drafted, refused, confirmed] = setupResults(table.session);
 	assert.equal(drafted.ok, true, 'the first draft lands');
-	assert.equal(refused.ok, false, 'the second is refused by the kernel');
+	assert.equal(refused.ok, false, 'the revision is refused by the kernel');
 	assert.equal(refused.code, 'needs');
 
 	assert.equal(confirmed.ok, true, 'and confirmation is still reachable: the refusal un-did nothing');
@@ -437,4 +443,25 @@ test('§96 a refused draft leaves the card confirmable', async (t) => {
 		'the gate let it through to the kernel rather than refusing on a prerequisite');
 	assert.ok(!JSON.stringify(confirmed).includes('are not done'),
 		'no prerequisite refusal for a step that was done');
+});
+
+test('§98 the catalog is given to the setup prompt once a campaign exists', async (t) => {
+	const first = firstStep();
+	const table = await openSetup([
+		setupCall({ step: first.id, kind: 'starter', module: 'the-haunting' }),
+		setupCall({ step: 'create-campaign', id: 'setup-catalog', title: '闹鬼的房子', play_language: 'zh-Hans' }),
+		fauxAssistantMessage('好。'),
+		fauxAssistantMessage('继续。'),
+	]);
+	t.after(() => table.dispose());
+
+	await table.session.prompt('我想玩闹鬼的房子');
+	await waitForIdle(table.session);
+	await table.session.prompt('接着来');
+	await waitForIdle(table.session);
+
+	const prompts = table.systemPrompts ? table.systemPrompts() : null;
+	const catalogCalls = table.kernelRequests().filter((entry) => entry.method === 'setup.catalog');
+	assert.equal(catalogCalls.length, 1, 'the catalog is fetched once per session');
+	if (prompts) assert.ok(prompts.at(-1).includes('Journalist / 记者') && prompts.at(-1).includes('Law / 法律'), 'the trade and skill labels reach the prompt');
 });

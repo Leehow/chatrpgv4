@@ -62,7 +62,7 @@ test('cold calls capture the selected runtime and close their disposable kernel 
   assert.throws(()=>process.kill(result.pid,0),{code:'ESRCH'});
 });
 
-test('cold sheet and preview calls preserve positional arguments and use independent campaign-bound owners',async t=>{
+test('a cold sheet read owns its kernel and a preview acknowledgement owns none',async t=>{
   const f=fixture(t),binding={campaign:'selected-campaign',home:f.home,play_language:'en'};
   const [sheet,preview]=await Promise.all([
     readColdSheet(f.repo,binding,undefined,f.env,f.options),
@@ -70,11 +70,10 @@ test('cold sheet and preview calls preserve positional arguments and use indepen
   ]);
   assert.equal(sheet.method,'table.view');
   assert.deepEqual(sheet.params,{campaign:binding.campaign});
-  assert.equal(preview.method,'setup.previewed');
-  assert.deepEqual(preview.params,{campaign:binding.campaign,revision:3});
+  // §98: a preview acknowledgement is the host's own fact and spawns no kernel at all.
+  assert.deepEqual(preview,{previewed:true,revision:3,campaign:binding.campaign});
   assert.equal(sheet.campaign,binding.campaign);
-  assert.equal(preview.campaign,binding.campaign);
-  assert.notEqual(sheet.pid,preview.pid);
+  assert.deepEqual(f.pids(),[sheet.pid],'only the sheet read owned a kernel');
   for(const pid of f.pids())assert.throws(()=>process.kill(pid,0),{code:'ESRCH'});
 });
 

@@ -74,12 +74,11 @@ Put the abilities the player named first in occupation_skills and first in
 interest_skills; both lists are spent from the front. Keep the interest list short
 enough that its tail still means something.
 
-Say nothing about the numbers any of this will produce. The kernel keeps this
-player's own rolled dice and gives the characteristics named strong the best of
-those rolls and the ones named weak the worst, within each characteristic's own
-dice, so a strong investigator gets the highest roll they actually made, which may
-still be an ordinary number. Read the returned card and describe what it holds,
-never what you hoped it would hold. Report an inference as your own reading of the
-person, never as something the player said; if an ability the player called
-defining still sits at its base value, reorder the lists or choose different legal
-skills and draft again in the same turn.
+Say nothing about the numbers any of this will produce. The kernel places the
+rulebook's Quick Fire array by what was said: the characteristics named strong take
+the top of the array in the order they were named, the ones named weak the bottom,
+and everything else the middle in table order. Read the returned card and describe
+what it holds, never what you hoped it would hold. Report an inference as your own
+reading of the person, never as something the player said. If an ability the player
+called defining still sits at its base value after the draft, change it as a number
+with `step: "revise"` and `numbers` in the same turn; never draft again.

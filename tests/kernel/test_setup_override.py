@@ -48,13 +48,13 @@ def test_override_one_characteristic_recomputes_derived_and_resets_currents(kern
     assert updated["current_mp"] == updated["derived"]["MP"]
     assert updated["current_san"] == updated["derived"]["SAN"]
     assert updated["current_luck"] == updated["characteristics"]["LUCK"]
-    manual = updated["creation"]["manual"]
-    assert manual["base_revision"] == draft["revision"] and manual["edits"] == edits and manual["limits_override"] is None
+    assert updated["creation"]["pins"]["characteristics"]["CON"] == {"value": edits["characteristics"]["CON"], "by": "player"}
+    assert result["pins"]["characteristics"]["CON"]["value"] == edits["characteristics"]["CON"]
     assert updated["creation"]["method"] == sheet["creation"]["method"]
     assert updated["creation"]["characteristics"] == sheet["creation"]["characteristics"], "the dice evidence stays"
     campaign = read_json(campaign_dir(kernel.workspace) / "campaign.json")
     assert campaign["setup"]["draft_revision"] == result["revision"]
-    assert campaign["setup"]["previewed_revision"] is None
+    assert campaign["setup"].get("previewed_revision") is None
 
 
 def test_a_dex_change_recomputes_the_dodge_base_and_holds_its_points(kernel):
@@ -85,33 +85,38 @@ def test_skill_edits_within_the_budget_are_applied(kernel):
         assert result["sheet"]["skills"][name] == value
 
 
-def test_exceeding_a_pool_names_the_pool_the_total_the_spend_and_the_field(kernel):
+def test_exceeding_a_pool_is_reported_on_the_card_not_refused(kernel):
+    """§98: the budget is a report. A pin the pool cannot hold stays, the machine's share gives way
+    first, and what is still over is written on the card as an overspend."""
     draft = begin(kernel)
     sheet = draft["sheet"]
     allocations = sheet["creation"]["skills"]["occupation"]["allocations"]
     raised = next(name for name, points in allocations.items() if sheet["skills"][name] + 5 <= 75)
-    base = sheet["skills"][raised] - allocations[raised]
-    error = kernel.err("setup.override", {"campaign": CAMPAIGN, "revision": draft["revision"],
+    result = kernel.ok("setup.override", {"campaign": CAMPAIGN, "revision": draft["revision"],
                                           "edits": {"skills": {raised: sheet["skills"][raised] + 5}}})
-    assert error["code"] == "needs"
-    details = error["details"]
-    assert details["pool"] == "occupation"
-    assert details["total"] == draft["limits"]["occupation_points"]
-    assert details["spend"] == details["total"] + 5
-    assert details["field"] == raised and details["range"] == [base, 75]
+    assert result["sheet"]["skills"][raised] == sheet["skills"][raised] + 5
+    assert result["pins"]["skills"][raised]["value"] == sheet["skills"][raised] + 5
+    occupation = result["budget"]["occupation"]
+    assert occupation["total"] == draft["limits"]["occupation_points"]
+    assert occupation["unspent"] >= 0, "the allocator gave way before anything was overspent"
+    others = [name for name in allocations if name != raised]
+    assert sum(result["sheet"]["skills"][name] for name in others) == sum(sheet["skills"][name] for name in others) - 5
     campaign = read_json(campaign_dir(kernel.workspace) / "campaign.json")
-    assert campaign["setup"]["draft_revision"] == draft["revision"], "a refused override writes nothing"
+    assert campaign["setup"]["draft_revision"] == result["revision"]
 
 
-def test_exceeding_the_interest_pool_is_named_separately(kernel):
+def test_overspending_past_every_soft_point_is_a_non_standard_card(kernel):
     draft = begin(kernel)
     sheet = draft["sheet"]
     interest = sheet["creation"]["skills"]["interest"]["allocations"]
-    raised = next(name for name in interest if sheet["skills"][name] + 5 <= 75)
-    error = kernel.err("setup.override", {"campaign": CAMPAIGN, "revision": draft["revision"],
-                                          "edits": {"skills": {raised: sheet["skills"][raised] + 5}}})
-    assert error["details"]["pool"] == "interest"
-    assert error["details"]["total"] == draft["limits"]["interest_points"]
+    pins = {name: 75 for name in interest}
+    result = kernel.ok("setup.override", {"campaign": CAMPAIGN, "revision": draft["revision"], "edits": {"skills": pins}})
+    for name in interest:
+        assert result["sheet"]["skills"][name] == 75
+    assert result["budget"]["interest"]["unspent"] < 0 or result["budget"]["interest"]["unspent"] == 0
+    assert result["completeness"]["valid"], "an overspent card is confirmable; it is only not standard"
+    if result["budget"]["interest"]["unspent"] < 0:
+        assert result["budget"]["legal"] is False and any(note["code"] == "overspent" and note["pool"] == "interest" for note in result["budget"]["notes"])
 
 
 def test_a_stale_revision_conflicts(kernel):
@@ -182,7 +187,6 @@ def test_a_limits_override_unlocks_and_persists_into_later_overrides(kernel):
                                             "limits_override": {"characteristic_max": 99}})
     assert unlocked["sheet"]["characteristics"]["STR"] == 95
     assert unlocked["limits"]["characteristic_max"] == 99 and unlocked["limits"]["overridden"] == ["characteristic_max"]
-    assert unlocked["sheet"]["creation"]["manual"]["limits_override"] == {"characteristic_max": 99}
     stored = read_json(campaign_dir(kernel.workspace) / "setup" / "drafts" / f"{unlocked['revision']}.json")
     assert stored["limits_override"] == {"characteristic_max": 99}
     later = kernel.ok("setup.override", {"campaign": CAMPAIGN, "revision": unlocked["revision"],
@@ -305,21 +309,21 @@ def test_a_credit_rating_edit_recomputes_wealth_and_charges_the_occupation_pool(
         "the wealth line follows the rating instead of lagging the rolled value"
 
 
-def test_unlocking_a_pool_budget_lets_a_skill_exceed_the_formula(kernel):
+def test_unlocking_a_pool_budget_raises_the_total_the_ledger_shows(kernel):
     draft = begin(kernel)
     sheet = draft["sheet"]
     occupation = sheet["creation"]["skills"]["occupation"]
     target = min((name for name in occupation["resolved"] if name != "Credit Rating"),
                  key=lambda name: sheet["skills"][name])
     edit = {"skills": {target: sheet["skills"][target] + 5}}
-    refused = kernel.err("setup.override", {"campaign": CAMPAIGN, "revision": draft["revision"], "edits": edit})
-    assert refused["code"] == "needs" and refused["details"]["pool"] == "occupation"
     unlocked = kernel.ok("setup.override", {"campaign": CAMPAIGN, "revision": draft["revision"], "edits": edit,
                                             "limits_override": {"occupation_points": occupation["budget"]["total"] + 10}})
     assert unlocked["limits"]["overridden"] == ["occupation_points"]
     assert unlocked["limits"]["occupation_points"] == occupation["budget"]["total"] + 10
     ledger = unlocked["sheet"]["creation"]["skills"]["occupation"]
     assert ledger["budget"]["total"] == occupation["budget"]["total"] + 10, "the ledger shows the budget in force"
+    assert unlocked["budget"]["occupation"]["total"] == occupation["budget"]["total"] + 10
+    assert unlocked["budget"]["legal"] is False, "a relaxed bound is a non-standard card"
 
 
 def test_unknown_limits_override_keys_are_invalid_params(kernel):
@@ -343,149 +347,16 @@ def swap(sheet, pool="occupation", points=10):
     return {"skills": {donor: sheet["skills"][donor] - points, target: sheet["skills"][target] + points}}
 
 
-def test_a_manual_edit_survives_a_re_draft_that_changes_the_age(kernel):
-    """§92: the hand-set numbers travel with the card instead of being rebuilt away."""
+def test_a_pin_survives_a_re_draft_that_changes_the_age(kernel):
+    """§98 replaces §92's carry: a pin is a first-class number on the card, and a revision of the
+    words never rebuilds it."""
     draft = begin(kernel)
-    edits = swap(draft["sheet"])
-    overridden = kernel.ok("setup.override", {"campaign": CAMPAIGN, "revision": draft["revision"], "edits": edits})
-    redrafted = kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": {"age": 34}})
-    assert redrafted["revision"] == overridden["revision"] + 1
-    for name, value in edits["skills"].items():
-        assert redrafted["sheet"]["skills"][name] == value, f"{name} came back rebuilt, not carried"
-    assert redrafted["manual"] == {"carried": edits, "dropped": []}
-    assert redrafted["sheet"]["creation"]["manual"]["edits"] == edits, "the record chains, so the next draft carries too"
-    stored = read_json(campaign_dir(kernel.workspace) / "setup" / "drafts" / f"{redrafted['revision']}.json")
-    assert stored["manual"] == redrafted["manual"] and stored["sheet"]["skills"] == redrafted["sheet"]["skills"]
-
-
-def test_a_manual_edit_survives_a_re_draft_that_changes_the_concept(kernel):
-    draft = begin(kernel)
-    edits = swap(draft["sheet"], "interest")
-    kernel.ok("setup.override", {"campaign": CAMPAIGN, "revision": draft["revision"], "edits": edits})
-    redrafted = kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": {"concept": "A reporter who has stopped sleeping."}})
-    for name, value in edits["skills"].items():
-        assert redrafted["sheet"]["skills"][name] == value
-    assert redrafted["manual"]["dropped"] == []
-
-
-def test_an_edit_whose_skill_the_rebuilt_card_no_longer_lists_is_dropped_alone(kernel):
-    """A language specialty is on the card only because the player picked it; the rest still carries."""
-    picked = {**profile(), "interest_skills": ["Accounting", "Law", "Language (Other: Latin)"]}
-    kernel.ok("campaign.create", {"id": CAMPAIGN, "module": "the-haunting", "play_language": "en"})
-    draft = kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": picked})
-    sheet = draft["sheet"]
-    assert "Language (Other: Latin)" in sheet["skills"]
-    allocations = sheet["creation"]["skills"]["interest"]["allocations"]
-    donor = next(name for name, spent in sorted(allocations.items()) if name != "Language (Other: Latin)" and spent >= 10)
-    edits = {"skills": {donor: sheet["skills"][donor] - 10, "Language (Other: Latin)": sheet["skills"]["Language (Other: Latin)"] + 10}}
-    kernel.ok("setup.override", {"campaign": CAMPAIGN, "revision": draft["revision"], "edits": edits})
-    redrafted = kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": {"interest_skills": ["Accounting", "Law", "First Aid"]}})
-    assert "Language (Other: Latin)" not in redrafted["sheet"]["skills"]
-    assert redrafted["manual"]["carried"] == {"skills": {donor: edits["skills"][donor]}}
-    assert redrafted["sheet"]["skills"][donor] == edits["skills"][donor], "the surviving half of the hand is applied"
-    assert [row["field"] for row in redrafted["manual"]["dropped"]] == ["Language (Other: Latin)"]
-    assert "no longer lists" in redrafted["manual"]["dropped"][0]["reason"]
-
-
-def test_the_allocator_gives_way_so_the_pins_survive_a_new_skill_list(kernel):
-    """§96, the shape that lost a live card: a re-draft that adds two interest skills.
-
-    The fresh card arrives with the pool spent to the last point, spread over six skills instead of
-    four. Under §92 the pins landed on top of that and the pool overflowed (344 against 300), so the
-    whole hand was dropped and a DEX 90 card came back at DEX 50. The allocator's own points are
-    what gives way now.
-    """
-    picked = {**profile(), "interest_skills": ["Accounting", "Law", "First Aid", "Drive Auto"]}
-    kernel.ok("campaign.create", {"id": CAMPAIGN, "module": "the-haunting", "play_language": "en"})
-    draft = kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": picked})
-    interest = draft["sheet"]["creation"]["skills"]["interest"]
-    assert interest["unspent"] == 0, "the premise: the pool arrives spent to the last point"
-    # The pins are the values the player is looking at, which together hold the whole pool. No
-    # relaxation: a raised budget would leave slack and the overflow this is about would not happen.
-    pins = {name: draft["sheet"]["skills"][name] for name in interest["allocations"]}
-    kernel.ok("setup.override", {"campaign": CAMPAIGN, "revision": draft["revision"], "edits": {"skills": pins}})
-    # The two new skills go to the front of the list, where the tiered allocator funds them first —
-    # which is what leaves the pinned skills' points already spent elsewhere.
-    redrafted = kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": {
-        "interest_skills": ["Climb", "Swim", *picked["interest_skills"]]}})
-    for name, value in pins.items():
-        assert redrafted["sheet"]["skills"][name] == value, f"{name} was lowered to fit; a pin is never lowered"
-    assert redrafted["manual"]["dropped"] == [], "nothing had to be given up"
-    assert sorted(redrafted["manual"]["carried"]["skills"]) == sorted(pins)
-    after = redrafted["sheet"]["creation"]["skills"]["interest"]
-    assert after["spent"] <= after["budget"]["total"], "the pool the pins landed in is still legal"
-    # What gave way is the allocator's own share of the two skills it had just started funding.
-    for name in ("Climb", "Swim"):
-        assert name not in after["allocations"], f"{name} kept points the pins needed"
-
-
-def test_a_changed_occupation_still_carries_because_the_allocator_gives_way(kernel):
-    """The §92 version of this case reported a pool refusal and dropped the whole hand."""
-    draft = begin(kernel)
-    edits = swap(draft["sheet"])
-    kernel.ok("setup.override", {"campaign": CAMPAIGN, "revision": draft["revision"], "edits": edits})
-    redrafted = kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": {
-        "occupation": "Antiquarian",
-        "occupation_skills": ["Appraise", "Art and Craft (Photography)", "History", "Library Use",
-                              "Language (Other: Latin)", "Spot Hidden", "Persuade", "Charm"]}})
-    manual = redrafted["manual"]
-    assert manual["dropped"] == [], "the trade changed and the hand still travelled"
-    for name, value in edits["skills"].items():
-        assert redrafted["sheet"]["skills"][name] == value
-
-
-def test_a_pin_the_new_occupation_cannot_afford_is_refused_with_its_reason(kernel):
-    """What making room cannot buy: Credit Rating's range belongs to the trade, not to a budget.
-
-    Journalist allows 9-30 and a Drifter 0-5, so a rating the player pinned as a reporter is not a
-    rating a drifter can hold. No allocation can be freed to make that true, so this one is refused
-    and named rather than quietly rounded down.
-    """
-    draft = begin(kernel)
-    sheet = draft["sheet"]
-    # Both pools start fully spent, so the raise is paid for out of the same pool.
-    cost = 30 - sheet["credit_rating"]
-    allocations = sheet["creation"]["skills"]["occupation"]["allocations"]
-    donor = next(name for name, points in sorted(allocations.items()) if points >= cost)
-    kernel.ok("setup.override", {"campaign": CAMPAIGN, "revision": draft["revision"],
-                                 "edits": {"credit_rating": 30, "skills": {donor: sheet["skills"][donor] - cost}}})
-    redrafted = kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": {
-        "occupation": "Drifter",
-        "occupation_skills": ["Climb", "Jump", "Listen", "Navigate", "Stealth", "Charm", "Spot Hidden", "Survival"]}})
-    manual = redrafted["manual"]
-    assert manual["carried"] == {}, "nothing was applied"
-    fields = [row["field"] for row in manual["dropped"]]
-    assert "credit_rating" in fields, "the pin that could not travel is named"
-    reasons = {row["field"]: row["reason"] for row in manual["dropped"]}
-    assert reasons["credit_rating"] == manual["refused"]["message"], "the pin carries the reason that refused it"
-    assert all("no longer lists" in reason for field, reason in reasons.items() if field != "credit_rating"), \
-        "a skill the new trade's card never lists is moot, and says so rather than borrowing the refusal"
-    assert manual["refused"]["details"]["range"] == [0, 5]
-    assert redrafted["sheet"]["credit_rating"] <= 5, "the card the player gets is a legal one"
-
-
-def test_a_draft_that_never_had_a_manual_edit_carries_no_manual_block(kernel):
-    draft = begin(kernel)
-    assert "manual" not in draft
-    redrafted = kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": {"age": 41}})
-    assert "manual" not in redrafted, "a block that is always there is a block nobody reads"
-    assert "manual" not in redrafted["sheet"]["creation"]
-
-
-def test_an_approved_confirmation_commits_the_carried_numbers(kernel):
-    """§92 end to end on the path the player walks: edit the card, say one more thing, confirm.
-
-    `delegated` skips the preview requirement, so the existing commit test never travelled this
-    road — and this road is the report: the numbers were edited, the next turn re-drafted, and the
-    confirmation wrote the rebuilt card.
-    """
-    draft = begin(kernel)
-    edits = swap(draft["sheet"])
-    kernel.ok("setup.override", {"campaign": CAMPAIGN, "revision": draft["revision"], "edits": edits})
-    redrafted = kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": {"age": 34}, "input_key": "turn-2"})
-    kernel.ok("setup.previewed", {"campaign": CAMPAIGN, "revision": redrafted["revision"]})
-    committed = kernel.ok("setup.confirm", {"campaign": CAMPAIGN, "consent": "approved", "input_key": "turn-3"})
-    assert committed["committed"] and committed["revision"] == redrafted["revision"]
-    card = read_json(campaign_dir(kernel.workspace) / "party" / "investigator.json")
-    for name, value in edits["skills"].items():
-        assert card["skills"][name] == value, f"{name} reached the committed card"
+    edits = characteristics_edit(draft["sheet"], "CON", 10)
+    pinned = kernel.ok("setup.override", {"campaign": CAMPAIGN, "revision": draft["revision"], "edits": edits})
+    aged = kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": {"age": 45}})
+    assert aged["revision"] == pinned["revision"] + 1
+    assert aged["sheet"]["characteristics"]["CON"] == edits["characteristics"]["CON"]
+    assert aged["pins"]["characteristics"]["CON"] == {"value": edits["characteristics"]["CON"], "by": "player"}
+    assert "manual" not in aged["sheet"]["creation"] and "manual" not in aged
+    committed = kernel.ok("setup.confirm", {"campaign": CAMPAIGN, "consent": "approved"})
+    assert committed["sheet"]["characteristics"]["CON"] == edits["characteristics"]["CON"]

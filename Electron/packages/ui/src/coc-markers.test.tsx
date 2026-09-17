@@ -13,7 +13,7 @@ import { render, screen, cleanup } from '@testing-library/react'
 import { afterEach, describe, it, expect } from 'vitest'
 // @ts-expect-error -- plain ESM pack asset, no type declarations
 import { createComponent } from '../../../../pipicoc/mechanics.js'
-import { foldMarkedDeliveries, foldSupersededDrafts, withoutMechanicsMarkers, type ChatMessage } from './transcript-model'
+import { foldMarkedDeliveries, liveDraftMessageId, withoutMechanicsMarkers, type ChatMessage } from './transcript-model'
 import { say, ui } from './fixtures/coc-ui-words'
 
 const Card = createComponent(React)
@@ -491,31 +491,39 @@ describe('the plain copy of a drawn delivery is folded away', () => {
 })
 
 /**
- * Every draft row draws the campaign's current draft (contract §23.4), so after a re-draft the
- * transcript held two identical cards. Only the last row is the card; the superseded rows fold
- * away. Position decides, never the revision number: a host-side override bumps the revision
- * without appending a row, and its card must stay.
+ * Every draft row draws the campaign's current draft (contract §23.4, §98), so after a re-draft
+ * the transcript held two identical cards. One card per campaign: the row with the highest
+ * revision is the card, and the rest become a line each -- so the id this names is the only row
+ * that renders a full card. A host-side action bumps the revision on a row already there without
+ * appending one, which is why the revision decides and not the position.
  */
-describe('a superseded draft card is folded away', () => {
-  const draft = (id: string, revision: number): ChatMessage => ({
-    id, role: 'assistant', content: '', timestamp: revision,
-    presentation: { renderer: 'coc-character-draft', details: { revision, sheet: { name: '艾琳' } } },
+describe('one draft row is the live card', () => {
+  const draft = (id: string, revision: unknown): ChatMessage => ({
+    id, role: 'assistant', content: '', timestamp: 1,
+    presentation: { renderer: 'coc-character-draft', details: { revision, sheet: { name: 'Eileen' } } },
   } as ChatMessage)
   const said = (content: string): ChatMessage => ({ id: `said-${content}`, role: 'assistant', content, timestamp: 9 } as ChatMessage)
 
-  it('keeps only the last draft card', () => {
-    const folded = foldSupersededDrafts([draft('r1', 1), said('改了一处。'), draft('r2', 2)])
-    expect(folded.map(message => message.id)).toEqual(['said-改了一处。', 'r2'])
+  it('names the highest revision, not the last row', () => {
+    expect(liveDraftMessageId([draft('r1', 1), said('a'), draft('r2', 2)])).toBe('r2')
+    expect(liveDraftMessageId([draft('r3', 3), said('a'), draft('r2', 2)])).toBe('r3')
   })
 
-  it('keeps the single card a host-side override moved past', () => {
-    const folded = foldSupersededDrafts([draft('r2', 2), said('数值已更新。')])
-    expect(folded.map(message => message.id)).toEqual(['r2', 'said-数值已更新。'])
+  it('names the single card a host-side action moved past', () => {
+    expect(liveDraftMessageId([draft('r2', 2), said('a')])).toBe('r2')
   })
 
-  it('changes nothing when no draft card is present', () => {
-    const messages = [said('一段叙事。')]
-    expect(foldSupersededDrafts(messages)).toEqual(messages)
+  it('gives a tie to the row the host wrote last', () => {
+    expect(liveDraftMessageId([draft('first', 2), draft('second', 2)])).toBe('second')
+  })
+
+  it('still names a row whose payload carries no revision', () => {
+    expect(liveDraftMessageId([draft('legacy', undefined)])).toBe('legacy')
+    expect(liveDraftMessageId([draft('legacy', undefined), draft('r1', 1)])).toBe('r1')
+  })
+
+  it('names nothing when no draft card is present', () => {
+    expect(liveDraftMessageId([said('a')])).toBeUndefined()
   })
 })
 

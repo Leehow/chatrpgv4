@@ -464,3 +464,40 @@ it('loads older history for a timeline anchor, jumps once, and releases later sc
   await flushPin()
   expect(instance.scrollToIndex.mock.calls.some(([call])=>call.index===0)).toBe(false)
 })
+
+/**
+ * §98: one card per campaign, updated in place. A draft row the revision has moved past stays in
+ * the transcript as a single line naming which draft it was -- the player watched thirteen
+ * identical cards stack up, and folding them away entirely hid that the card had moved at all.
+ * The line is drawn in the words that row already carries, never in a word this file keeps.
+ */
+describe('one draft card per campaign', () => {
+  const texts = { 'Character draft': '角色草稿', 'Earlier draft': '较早的草稿', Lawyer: '律师', '1920s': '1920年代' }
+  const draft = (id: string, revision: number): ChatMessage => ({
+    id, role: 'assistant', content: '', timestamp: revision,
+    presentation: { renderer: 'coc-character-draft', details: {
+      revision, sheet: { name: 'Eileen', occupation: 'Lawyer', age: 28, era: '1920s', characteristics: { STR: 20 }, derived: {}, skills: {} },
+      presentation: { texts, play_language: 'zh-Hans' } } },
+  } as ChatMessage)
+
+  it('draws the highest revision as the card and every older row as one line', () => {
+    const view = render(<Transcript messages={[draft('r1', 1), { id: 'said', role: 'assistant', content: '改了一处。' } as ChatMessage, draft('r2', 2)]} {...handlers} />)
+    expect(view.container.querySelectorAll('.coc-draft')).toHaveLength(1)
+    expect(view.container.querySelector('.coc-draft')?.getAttribute('data-draft-revision')).toBe('2')
+    const folded = Array.from(view.container.querySelectorAll('.coc-draft-superseded')).map(node => node.textContent)
+    expect(folded).toEqual(['较早的草稿 · 1'])
+    expect(view.container.textContent).toContain('改了一处。')
+  })
+
+  it('draws the card on the highest revision even when it is not the last row', () => {
+    const view = render(<Transcript messages={[draft('r3', 3), draft('r2', 2)]} {...handlers} />)
+    expect(view.container.querySelector('.coc-draft')?.getAttribute('data-draft-revision')).toBe('3')
+    expect(Array.from(view.container.querySelectorAll('.coc-draft-superseded')).map(node => node.textContent)).toEqual(['较早的草稿 · 2'])
+  })
+
+  it('keeps the single card a host-side action moved past', () => {
+    const view = render(<Transcript messages={[draft('r2', 2)]} {...handlers} />)
+    expect(view.container.querySelectorAll('.coc-draft')).toHaveLength(1)
+    expect(view.container.querySelector('.coc-draft-superseded')).toBeNull()
+  })
+})

@@ -520,27 +520,35 @@ function handle(method, params) {
 					],
 				},
 			};
-        case "setup.draft":
-            // §93: a draft the kernel refuses. The extension un-books `create-investigator` before
-            // trying, so whether it re-books on a refusal is only observable through a real one.
+        case "setup.draft": {
+            // §98: the card is drawn once; a draft with a card already on the table is a revision.
+            // The fake keeps one card per campaign for the length of the process.
             if (params.profile?.name === "REFUSE")
                 return {ok:false,error:{code:"needs",message:"The card is incomplete",details:{issues:["sex is required"]}}};
-            return {ok:true,result:{revision:1,sheet:{name:params.profile.name,occupation:params.profile.occupation,creation:{seed:"private-seed",method:"rolled",characteristics:{multiplier:5,rolls:{STR:{dice:"3d6",faces:[1,1,2],total:4}}},age:{edu_improvement_checks:[{roll:30,edu:50}]},skills:{occupation:{budget:{formula:"EDU*4",total:200},allocations:{Law:25}},interest:{budget:{formula:"INT*2",total:130},allocations:{Law:10}}}}},profile:params.profile,completeness:{valid:true,issues:[]}}};
-        case "setup.override": {
-            // §92: the numeric edit the model reaches through `adjust`. The fake charges nothing —
-            // the budget arithmetic is the kernel's and is tested there — but it does refuse an
-            // edit naming a skill the card does not list, because that refusal has to survive the
-            // extension's projection with its details intact.
-            const wanted = params.edits?.skills ?? {};
-            const listed = {Law: 45};
-            const unknown = Object.keys(wanted).find(name => !Object.hasOwn(listed, name));
-            if (unknown) return {ok:false,error:{code:"needs",message:"A manual edit cannot add a skill to the sheet",details:{field:unknown,skills:Object.keys(listed)}}};
-            return {ok:true,result:{revision:(params.revision ?? 1)+1,sheet:{name:"托马斯·海耶斯",occupation:"journalist",skills:{...listed,...wanted},
-                creation:{seed:"private-seed",method:"rolled",manual:{base_revision:params.revision,edits:params.edits,limits_override:params.limits_override ?? null}}},
-                profile:{},completeness:{valid:true,issues:[]},limits:{skill_cap:75,overridden:[]}}};
+            const cards = (globalThis.__fakeCards ??= new Map());
+            const previous = cards.get(params.campaign);
+            if (previous) return fakeRevise(cards, params);
+            const card = fakeCard(1, params.profile ?? {}, {characteristics: {}, skills: {}}, {occupation: 180, interest: 90});
+            cards.set(params.campaign, card);
+            return {ok:true,result:{...card, applied: Object.keys(params.profile ?? {}).sort(), unresolved: [], filled_in: [], moved_to_equipment: []}};
         }
-        case "setup.previewed":
-            return {ok:true,result:{previewed:true}};
+        case "setup.revise":
+            return fakeRevise(globalThis.__fakeCards ??= new Map(), params);
+        case "setup.reroll": {
+            const cards = (globalThis.__fakeCards ??= new Map()), previous = cards.get(params.campaign);
+            if (!previous) return {ok:false,error:{code:"needs",message:"There is no card to reroll yet"}};
+            const card = {...previous, revision: previous.revision + 1, seed: "new-seed"};
+            cards.set(params.campaign, card);
+            return {ok:true,result:{...card, applied:["reroll"]}};
+        }
+        case "setup.catalog":
+            return {ok:true,result:{occupations:[{id:"Journalist",label:"记者",skills:["History","Library Use"],credit_rating_range:[9,30],formula:"EDU*4"}],
+                skills:[{name:"Law",label:"法律"},{name:"Archaeology",label:"考古学"}],weapons:[".45 Automatic"],language_specialty:"Language (Other: English)"}};
+        case "setup.override": {
+            // The card's edit control (§23.4) is a numbers-only revision under the old name.
+            const cards = (globalThis.__fakeCards ??= new Map());
+            return fakeRevise(cards, {...params, numbers: params.edits, limits: params.limits_override, by: "player"});
+        }
         case "setup.confirm":
             return {ok:true,result:{committed:true,investigator_id:"inv-1"}};
 		case "setup.investigator": {
@@ -1037,3 +1045,33 @@ process.stdin.on("data", (chunk) => {
 	}
 });
 process.stdin.on("end", () => process.exit(0));
+
+/** §98 fake card: the sheet shape the extension summarizes, with pins, budget and limits. */
+function fakeCard(revision, profile, pins, budget) {
+    const skills = {Law: 45, Archaeology: 30};
+    for (const [name, pin] of Object.entries(pins.skills)) skills[name] = pin.value;
+    return {revision, seed: "private-seed", profile: {...profile}, pins,
+        sheet: {name: profile.name ?? "托马斯·海耶斯", occupation: profile.occupation ?? "journalist", occupation_stated: null, age: profile.age ?? 27, sex: profile.sex ?? "男",
+            characteristics: {STR: 50, CON: 50, SIZ: 60, DEX: 60, APP: 50, INT: 70, POW: 50, EDU: 80, LUCK: 55}, derived: {HP: 11, MP: 10, SAN: 50, MOV: 8, DB: 0, BUILD: 0},
+            skills, credit_rating: 9, cash: "45 USD", weapons: [], equipment: profile.equipment ?? [],
+            creation: {seed: "private-seed", method: "rolled", characteristics: {multiplier: 5, rolls: {STR: {dice: "3d6", faces: [1, 1, 2], total: 4}}}, age: {edu_improvement_checks: []}, luck: {}, skills: {occupation: {unspent: 0}, interest: {unspent: 0}}}},
+        budget: {occupation: {total: budget.occupation, spent: budget.occupation, unspent: 0}, interest: {total: budget.interest, spent: budget.interest, unspent: 0}, legal: true, notes: []},
+        generation: {method: "rolled", seed: "private-seed"}, completeness: {valid: true, issues: []}, limits: {skill_cap: 75, characteristic_min: 15, characteristic_max: 90, occupation_points: budget.occupation, interest_points: budget.interest, overridden: []}, labels: {}};
+}
+/** A revision: words merge, numbers pin, a skill the card does not list is refused with candidates. */
+function fakeRevise(cards, params) {
+    const previous = cards.get(params.campaign);
+    if (!previous) return {ok:false,error:{code:"needs",message:"There is no card to revise yet: draft one first",details:{next:"setup.draft"}}};
+    if (params.revision !== undefined && params.revision !== null && params.revision !== previous.revision)
+        return {ok:false,error:{code:"idempotency_conflict",message:"The revision does not apply to the current draft",code_detail:"stale_draft"}};
+    const listed = Object.keys(previous.sheet.skills), wanted = params.numbers?.skills ?? {};
+    const unknown = Object.keys(wanted).find(name => !listed.includes(name) && name !== "Archaeology");
+    if (unknown) return {ok:false,error:{code:"needs",message:`no skill named ${JSON.stringify(unknown)}`,details:{field:unknown,candidates:listed}}};
+    const pins = {characteristics: {...previous.pins.characteristics}, skills: {...previous.pins.skills}};
+    for (const [name, value] of Object.entries(wanted)) pins.skills[name] = {value, by: params.by ?? "player"};
+    const card = fakeCard(previous.revision + 1, {...previous.profile, ...(params.profile ?? {})}, pins, {occupation: previous.budget.occupation.total, interest: previous.budget.interest.total});
+    if (params.limits) card.limits = {...card.limits, ...params.limits, overridden: Object.keys(params.limits)};
+    cards.set(params.campaign, card);
+    const applied = [...Object.keys(params.profile ?? {}), ...(params.numbers ? ["numbers"] : []), ...(params.limits ? ["limits"] : [])].sort();
+    return {ok:true,result:{...card, applied, unresolved: [], filled_in: [], moved_to_equipment: []}};
+}

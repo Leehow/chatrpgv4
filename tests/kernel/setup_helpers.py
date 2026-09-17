@@ -6,6 +6,5 @@ def confirmed_investigator(client, campaign="c1", name="Ada"):
     semantic = profile()
     semantic["name"] = name
     draft = client.ok("setup.draft", {"campaign": campaign, "profile": semantic})
-    client.ok("setup.previewed", {"campaign": campaign, "revision": draft["revision"]})
     result = client.ok("setup.confirm", {"campaign": campaign, "revision": draft["revision"], "consent": "approved"})
     return {**result, "investigator": {"id": result["sheet"]["id"], "name": name}}

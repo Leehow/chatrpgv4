@@ -2280,6 +2280,53 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
       throw error
     }
   }
+  /**
+   * §98: a card action the host answers on the cold kernel, with no model turn behind it.
+   *
+   * The answer is the fresh draft, in the same shape an override returns, and it replaces the
+   * revision the player acted on in place — one card per campaign, so the row is rewritten rather
+   * than a second one appended. A `needs` refusal is the kernel's validation and belongs on the
+   * card; anything else is a transport failure and is thrown.
+   */
+  const draftCardAction = async (entry: NonNullable<ChatMessage['presentation']>, method: string) => {
+    const revision = (entry.details as any)?.revision
+    const ack = await host.invokeExtension!("coc-keeper", method, {revision}, {sessionId: selectedSession})
+    if (!ack.ok) {
+      if ((ack.error as any)?.code === 'needs') return {ok: false, error: ack.error} as Record<string, any>
+      throw new Error(ack.error?.message || `${method} failed`)
+    }
+    const result = ack.data as Record<string, any>
+    const fresh = result?.superseded ? result.draft : result
+    // The old revision's projected words must not survive the swap, or the card would never poll
+    // the new presentation (the same rule the numeric override follows).
+    if (fresh?.sheet)
+      mutateLocalTranscript(current => current.map(message => {
+        const presentation = message.presentation
+        if (presentation?.renderer !== 'coc-character-draft') return message
+        const details = presentation.details as any
+        if (details?.revision !== revision) return message
+        const merged = {...details, ...fresh}
+        delete merged.presentation
+        return {...message, presentation: {...presentation, details: merged}}
+      }))
+    return result
+  }
+  /**
+   * The confirm button is the whole of confirmation (§98): the host writes the party sheet and
+   * completes setup without a model turn, and only then does one sentence go into the session so
+   * the setup agent closes the prologue and the launcher moves the table to play. A failure of
+   * that last sentence cannot un-confirm the card, so it is reported, not retried.
+   */
+  const confirmDraftCard = async (entry: NonNullable<ChatMessage['presentation']>) => {
+    const revision = (entry.details as any)?.revision
+    const ack = await host.invokeExtension!("coc-keeper", "draft-confirm", {revision}, {sessionId: selectedSession})
+    if (!ack.ok) {
+      if ((ack.error as any)?.code === 'needs') return {ok: false, error: ack.error} as Record<string, any>
+      throw new Error(ack.error?.message || "draft-confirm failed")
+    }
+    await send('Confirmed from the card. Open the table.')
+    return ack.data as Record<string, any>
+  }
   const requestUpdate = (prompt: string) => {
     closeModelManager()
     void send(prompt).catch(error => setProjectError(`发送失败：${error instanceof Error ? error.message : String(error)}`))
@@ -2996,6 +3043,9 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
                     }));
                   return result;
                 }}
+                onDraftConfirm={confirmDraftCard}
+                onDraftSpread={entry=>draftCardAction(entry,'draft-spread')}
+                onDraftReroll={entry=>draftCardAction(entry,'draft-reroll')}
                 messages={messages}
                 onLoadOlder={loadOlderHistory}
                 documentBasePath={selectedProjectPath}

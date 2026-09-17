@@ -1,5 +1,14 @@
 # Guided Creation
 
+## 1.2.0
+
+The words place the array (contract §98). A stated aptitude no longer permutes
+this player's own dice -- that gave a described assassin APP 35 -- it orders the
+rulebook's Quick Fire array: strong takes the top, weak the bottom, the rest the
+middle in table order. A defining ability that still reads low is changed as a
+number with `revise`, never by drafting again. The package no longer has to be on
+for the words to reach the characteristics; it still shapes the exchange.
+
 ## 1.1.1
 
 The exchange is spoken by the host, not by a narrator and not by the guide (user

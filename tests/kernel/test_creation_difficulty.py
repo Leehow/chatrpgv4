@@ -334,19 +334,15 @@ def test_a_corrupt_snapshot_fails_loudly_on_the_next_build(kernel):
     assert error["code"] == "invalid_params" and error["details"]["field"] == "difficulty.preset"
 
 
-def test_rolled_pool_assignment_permutes_the_rulebook_results(seeded_kernel):
+def test_a_described_person_under_a_preset_takes_the_array_and_the_plain_card_keeps_its_dice(seeded_kernel):
+    """§98: the words place the Quick Fire array whatever the difficulty preset; a preset scales
+    budgets and caps, never a characteristic, so the array is the same rulebook array."""
     plain = begin_draft(seeded_kernel, preset("normal"))
     stated = seeded_kernel.ok("setup.draft", {"campaign": CAMPAIGN,
                                        "profile": {"aptitude": {"strong": ["STR"], "weak": ["INT"], "origin": "player"}}})
     generation = stated["sheet"]["creation"]["characteristics"]
-    assert generation["method"] == "rolled_pool_assignment"
-    initial = plain["sheet"]["creation"]["characteristics"]
-    # rolls are recorded where each result landed, so values and rolls line up per characteristic
-    assert sorted(r["total"] for r in generation["rolls"].values()) == sorted(r["total"] for r in initial["rolls"].values())
-    assert sorted(tuple(r["faces"]) for r in generation["rolls"].values()) == sorted(tuple(r["faces"]) for r in initial["rolls"].values())
-    for entry in generation["assignment"]:
-        assert generation["values"][entry["characteristic"]] == generation["rolls"][entry["characteristic"]]["total"] * 5
-    for pool in (POOL_3D6, POOL_2D6_6):
-        assert sorted(initial["values"][a] for a in pool) == sorted(generation["values"][a] for a in pool)
-    assert generation["values"]["STR"] == max(initial["values"][a] for a in POOL_3D6)
-    assert generation["values"]["INT"] == min(initial["values"][a] for a in POOL_2D6_6)
+    assert generation["method"] == "quick_fire"
+    assert generation["values"]["STR"] == 80 and generation["values"]["INT"] == 40
+    assert sorted(generation["values"].values()) == sorted(generation["array"])
+    cleared = seeded_kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": {"aptitude": None}})
+    assert cleared["sheet"]["creation"]["characteristics"] == plain["sheet"]["creation"]["characteristics"]

@@ -102,6 +102,8 @@ export default function (pi: ExtensionAPI) {
   let setupSlots: SetupSlot[] = [];
   let setupNotes: SetupNotes | undefined;
   let guidedCap = 3;
+  /** The rulebook catalog the setup prompt is given once per session (§98). */
+  let catalogText = '';
   const guidanceAbort = new AbortController();
   let invokeDisposers:Array<()=>void>=[];
   let completing=false;
@@ -405,18 +407,28 @@ export default function (pi: ExtensionAPI) {
 
 	// ---- One step ---------------------------------------------------------
 
-	/** Put a new draft revision on the table: remember it, append the card, and acknowledge it so
-	 *  `setup.confirm` can accept it. Both writers of a revision come through here — the drafting
-	 *  step and the numeric adjustment of §92 — because a revision the card never showed is a
-	 *  revision the kernel refuses to confirm. */
-	async function presentDraft(current: NonNullable<typeof bridge>, result: Record<string, unknown>): Promise<void> {
+	/** Put a new card revision on the table: remember it and append the card (contract §98). Every
+	 *  writer of a revision comes through here — the first draft, a revision, a reroll — and the
+	 *  card entry is the host's guarantee that the revision was shown; the kernel no longer asks. */
+	async function presentDraft(_current: NonNullable<typeof bridge>, result: Record<string, unknown>): Promise<void> {
 		draftRevision = result.revision as number;
 		context.draft = result;
 		pi.appendEntry('coc-character-draft', {...result, play_language: await boundLanguage()});
 		if (process.env.PI_COC_SETUP_AUTOSTART !== '1') {
 			pi.sendMessage({customType: 'coc-character-preview', content: JSON.stringify(result.sheet), display: true});
-			await current.call('setup.previewed', {campaign: context.campaign, revision: draftRevision});
 		}
+	}
+	/** What the model is told about a card (§98): the numbers and the words it needs to describe it,
+	 *  never the creation trace, the finance table or the backstory it wrote itself. */
+	function summarize(result: Record<string, unknown>): Record<string, unknown> {
+		const sheet = asRecord(result.sheet);
+		const out: Record<string, unknown> = {revision: result.revision,
+			card: {name: sheet.name, occupation: sheet.occupation, occupation_stated: sheet.occupation_stated ?? null, age: sheet.age, sex: sheet.sex,
+				characteristics: sheet.characteristics, derived: sheet.derived, skills: sheet.skills, credit_rating: sheet.credit_rating, cash: sheet.cash ?? null,
+				weapons: Array.isArray(sheet.weapons) ? (sheet.weapons as Array<Record<string, unknown>>).map(weapon => weapon.name) : [], equipment: sheet.equipment ?? []},
+			pins: result.pins, budget: result.budget, completeness: result.completeness};
+		for (const key of ['applied', 'unresolved', 'filled_in', 'moved_to_equipment', 'notes']) if (result[key] !== undefined) out[key] = result[key];
+		return out;
 	}
 
 	/** Run this step's ops in table order; a missing parameter stops it there and hands the results so far to the model to fill in. */
@@ -524,34 +536,43 @@ export default function (pi: ExtensionAPI) {
 			try {
 				setupNotes = asRecord(await bridge.call('setup.note', { campaign: context.campaign, slot: args.slot, value: args.value, ...(args.origin !== undefined ? { origin: args.origin } : {}) })).notes as SetupNotes;
 			} catch (error) {
-				return { ok: false, step: id, code: errorCode(error), message: errorText(error), details: (error as { details?: unknown }).details };
+				// The refusal names what was sent, so a slot the model misspelt is visible to it and in the record.
+				const details = (error as { details?: unknown }).details;
+				return { ok: false, step: id, code: errorCode(error), message: errorText(error), details: details && typeof details === 'object' ? {...(details as Record<string, unknown>), given: {slot: args.slot, origin: args.origin}} : details };
 			}
 			return { ok: true, step: id, notes: setupNotes, brief: renderBrief(setupSlots, setupNotes, guidedCap) };
 		}
-		// §92: the numbers on the current card, changed as numbers. This is not a table step either —
-		// it neither advances the order nor is done once — because the player may correct a value at
-		// any point before confirmation and may do it more than once.
-		//
-		// Until this existed the only door to `setup.override` was the card's own edit button, and the
-		// model's only answer to "change this number" was to draft again. A re-draft rebuilds from the
-		// stored seed, so it came back with the auto-allocated numbers: the player's correction undone
-		// by the very call that was meant to honour it, which is what a live table reported. The
-		// carry of §92 keeps a hand-set number alive across a re-draft; this is how the model sets one
-		// in the first place.
-		if (id === 'adjust') {
-			if (!bridge || !context.campaign || draftRevision === undefined) return { ok: false, step: id, rejected: 'There is no card to adjust yet: draft one with create-investigator first.' };
-			if (completed.has('confirm-investigator')) return { ok: false, step: id, rejected: 'The card is confirmed; its numbers are no longer a draft edit.' };
+		// §98: the card is revised in place. `revise` merges words (`profile`), pins numbers
+		// (`numbers`) and relaxes bounds (`limits`); `reroll` is the one call that rolls again;
+		// `adjust` stays as the §92 spelling of a numbers-only revision. None is a table step: they
+		// neither advance the order nor are done once, because the player may change the card as
+		// often as they like before confirmation, and nothing here ever redraws it.
+		if (id === 'revise' || id === 'adjust' || id === 'reroll') {
+			if (!bridge || !context.campaign || draftRevision === undefined) return { ok: false, step: id, rejected: 'There is no card yet: draft one with create-investigator first.' };
+			if (completed.has('confirm-investigator')) return { ok: false, step: id, rejected: 'The card is confirmed; it is no longer a draft.' };
 			const args = mergeArgs(raw);
 			try {
-				const result = asRecord(await bridge.call('setup.override', {campaign: context.campaign, revision: draftRevision, edits: args.edits,
-					...(args.limits_override !== undefined ? {limits_override: args.limits_override} : {})}));
-				await presentDraft(bridge, result);
-				return { ok: true, step: id, sheet: result.sheet, limits: result.limits, completeness: result.completeness };
+				const result = id === 'reroll'
+					? asRecord(await bridge.call('setup.reroll', {campaign: context.campaign, revision: draftRevision, keep_pins: args.keep_pins !== false, input_key: inputKey}))
+					: asRecord(await bridge.call('setup.revise', {campaign: context.campaign, revision: draftRevision, input_key: inputKey, by: 'model',
+						...(args.profile !== undefined ? {profile: args.profile} : {}),
+						...(id === 'adjust' ? (args.edits !== undefined ? {numbers: args.edits} : {}) : (args.numbers !== undefined ? {numbers: args.numbers} : {})),
+						...(args.limits !== undefined ? {limits: args.limits} : args.limits_override !== undefined ? {limits: args.limits_override} : {}),
+						...(args.auto_spread === true ? {auto_spread: true} : {})}));
+				if (result.revision !== draftRevision) await presentDraft(bridge, result);
+				return { ok: true, step: id, ...summarize(result) };
 			} catch (error) {
-				// A bound or a budget refusal is the answer, not a failure: its details name the pool,
-				// the total, the spend and the offending field, and that is what the player is told.
-				return { ok: false, step: id, code: errorCode(error), message: errorText(error), details: (error as { details?: unknown }).details };
+				// A bound refusal is the answer, not a failure: its details name the field, the range and
+				// the unlock that would admit the number, and that is what the player is told.
+				const fix = (error as { fix?: unknown }).fix;
+				return { ok: false, step: id, code: errorCode(error), message: errorText(error), ...(typeof fix === 'string' && fix ? {fix} : {}), details: (error as { details?: unknown }).details };
 			}
+		}
+		// A second `create-investigator` with a card on the table is a revision of that card (§98):
+		// the model's next sentence about the person, never a redraw of the numbers.
+		if (id === 'create-investigator' && draftRevision !== undefined && !completed.has('confirm-investigator')) {
+			const args = mergeArgs(raw);
+			return execute({step: 'revise', ...(args.profile !== undefined ? {profile: args.profile} : {}), ...(args.numbers !== undefined ? {numbers: args.numbers} : {}), ...(args.limits !== undefined ? {limits: args.limits} : {})});
 		}
 		if (!id) {
 			const next = nextStep(steps, state());
@@ -562,23 +583,8 @@ export default function (pi: ExtensionAPI) {
 				allowed: allowedSteps(steps, state()).map((row) => row.id),
 			};
 		}
-		// §96: re-drafting is allowed until the card is confirmed, so the step is un-booked to let the
-		// gate pass it a second time. Un-booking it is a bet that this attempt will succeed, and a
-		// draft that is refused loses that bet: the step stays un-booked, and `confirm-investigator`
-		// is then refused for a prerequisite that *was* done — "create-investigator ... are not done",
-		// with a card sitting on the table. The only way back is another successful draft, which is
-		// the one call that rebuilds the numbers the player just edited. A live table walked exactly
-		// that circle: one refused draft, then confirmation locked out, then four more drafts.
-		//
-		// So the bet is settled either way. Only a successful attempt leaves it un-booked for
-		// `settle` to re-book; every refusal puts it back the way it was found.
-		const rebook = id === 'create-investigator' && !completed.has('confirm-investigator') && completed.delete('create-investigator')
-			? () => { completed.add('create-investigator'); }
-			: () => {};
-		if(id==='create-investigator' && !completed.has('confirm-investigator')) opCache.clear();
     const verdict = gate(steps, state(), id);
 		if (!verdict.ok) {
-			rebook();
 			return { ok: false, step: id, rejected: verdict.reason, allowed: allowedSteps(steps, state()).map((row) => row.id) };
 		}
 		const step = verdict.step;
@@ -586,7 +592,7 @@ export default function (pi: ExtensionAPI) {
 		// The first draft waits for the brief (contract §26): while the move is a question, the card is refused the way the kernel refuses an incomplete profile.
 		if (id === 'create-investigator' && setupSlots.length && draftRevision === undefined) {
 			const move = computeMove(setupSlots, setupNotes, guidedCap);
-			if (move.move === 'ask') { rebook(); return { ok: false, step: id, code: 'brief_incomplete', missing: move.missing, brief: renderBrief(setupSlots, setupNotes, guidedCap) }; }
+			if (move.move === 'ask') return { ok: false, step: id, code: 'brief_incomplete', missing: move.missing, brief: renderBrief(setupSlots, setupNotes, guidedCap) };
 		}
 		const outcome =
 			step.kind === "ask"
@@ -595,7 +601,6 @@ export default function (pi: ExtensionAPI) {
 
 		if (outcome.ok !== true) {
 			// A step that did not succeed is not booked: the same step can be tried again with the parameters the hint names.
-			rebook();
 			return { ...outcome, step: id, progress: progressLine(steps, state()) };
 		}
 		settle(step, outcome);
@@ -608,7 +613,7 @@ export default function (pi: ExtensionAPI) {
 		const next = nextStep(steps, state());
 		if (!next) await finish();
 		return {
-			...Object.fromEntries(Object.entries(outcome).map(([key,value])=>[key,key==='setup.draft'||key==='setup.confirm'?{...asRecord(value),revision:undefined,labels:undefined,sheet:{...asRecord(asRecord(value).sheet),id:undefined,creation:{...asRecord(asRecord(asRecord(value).sheet).creation),seed:undefined,equipment:undefined}}}:value])),
+			...Object.fromEntries(Object.entries(outcome).map(([key,value])=>[key,key==='setup.draft'?summarize(asRecord(value)):key==='setup.confirm'?{committed:asRecord(value).committed,revision:asRecord(value).revision}:value])),
 			step: id,
 			completed: [...completed],
 			progress: progressLine(steps, state()),
@@ -654,14 +659,36 @@ export default function (pi: ExtensionAPI) {
 			"Every return carries next (the next step and its parameters) and progress; a call that did not succeed carries rejected or needs, " +
 			"so change what it says to change and do not resend unchanged. " +
 			"While an active setup package declares slots, `step: note` with `slot`, `value` (the player's words) and optional `origin` (player|concept) records one answer of the creation brief; the result carries the brief and the one move it allows. " +
-			"`step: adjust` with `edits` {characteristics?, skills?, credit_rating?} changes the numbers on the current card as numbers, as often as the player asks and never through a re-draft: each value is the final value wanted, a skill must already be on the card, and the point budgets are charged — a refusal names the pool, its total, the attempted spend and the field. Optional `limits_override` {characteristic_min?, characteristic_max?, skill_cap?, occupation_points?, interest_points?} relaxes exactly those bounds when the player asks to play outside them.",
+			"`step: revise` changes the card on the table in place, as often as the player asks: `profile` with only the changed fields (words: equipment, backstory, weapons, skill lists, age, name) moves no number; `numbers` {characteristics?, skills?, credit_rating?} pins the numbers the player wants (each value is the final value; a pinned number stays until the player changes it); `limits` {characteristic_min?, characteristic_max?, skill_cap?, occupation_points?, interest_points?} relaxes exactly those bounds when the player asks to play outside them; `auto_spread: true` spends whatever points are left. A refusal names the field and, for a number past a bound, the `unlock` that would admit it. " +
+			"`step: reroll` is the only call that rolls the dice again (pins stay). Nothing here redraws the card: create-investigator is called once, and with a card on the table it is the same as revise.",
 		promptSnippet: "The one setup tool: walk the kernel's seven-step table, one step at a time.",
+		// Every parameter a step can take is declared here by name (§98): a live table on grok-4.6
+		// sent `slot: true, value: null` three to five times per turn while only `step` and `params`
+		// were declared -- the provider filled undeclared keys with booleans and nulls -- and each
+		// of those was a refused call before the one that nested the same fields under `params`.
 		parameters: Type.Object(
 			{
 				step: Type.String({ description: "which step to do this time; step names come from the kernel's setup table, and the previous result's next holds it" }),
 				params: Type.Optional(
 					Type.Object({}, { additionalProperties: true, description: "the parameters this step wants; they may also be spread at the top level" }),
 				),
+				slot: Type.Optional(Type.String({ description: "note: the creation-brief slot this answer fills, or stop" })),
+				value: Type.Optional(Type.String({ description: "note: the player's words for that slot" })),
+				origin: Type.Optional(Type.String({ description: "note: player or concept" })),
+				profile: Type.Optional(Type.Object({}, { additionalProperties: true, description: "create-investigator / revise: the semantic profile, or only the changed fields" })),
+				numbers: Type.Optional(Type.Object({}, { additionalProperties: true, description: "revise: {characteristics?, skills?, credit_rating?} pinned as final values" })),
+				limits: Type.Optional(Type.Object({}, { additionalProperties: true, description: "revise: relaxed bounds {characteristic_min?, characteristic_max?, skill_cap?, occupation_points?, interest_points?}" })),
+				edits: Type.Optional(Type.Object({}, { additionalProperties: true, description: "adjust (older spelling of revise numbers)" })),
+				auto_spread: Type.Optional(Type.Boolean({ description: "revise: spend whatever points are left" })),
+				keep_pins: Type.Optional(Type.Boolean({ description: "reroll: keep the pinned numbers (default true)" })),
+				consent: Type.Optional(Type.String({ description: "confirm-investigator: approved or delegated" })),
+				pending_action: Type.Optional(Type.String({ description: "confirm-investigator: a verbatim adventure request made before setup finished" })),
+				kind: Type.Optional(Type.String({ description: "choose-source: starter, module or pdf" })),
+				module: Type.Optional(Type.String({ description: "choose-source: the starter or module id" })),
+				pdf: Type.Optional(Type.String({ description: "choose-source: the original PDF path" })),
+				id: Type.Optional(Type.String({ description: "create-campaign: the campaign id" })),
+				title: Type.Optional(Type.String({ description: "create-campaign: the campaign title" })),
+				play_language: Type.Optional(Type.String({ description: "create-campaign: the play language tag" })),
 			},
 			{ additionalProperties: true },
 		),
@@ -719,14 +746,28 @@ export default function (pi: ExtensionAPI) {
         return {systemPrompt:event.systemPrompt+'\nThe setup package context is unavailable. Do not draft or continue setup until it is restored.'};
       }
     }
-    if(!guidance)return setupPackages?{systemPrompt:event.systemPrompt+setupPackages}:undefined;
+    // The catalog (§98): every trade, skill and printed weapon with the play language's label, once,
+    // so the model writes names the kernel accepts instead of guessing at them refusal by refusal.
+    if(!catalogText && bridge && context.campaign && completed.has('create-campaign')) {
+      try {
+        const catalog=asRecord(await bridge.call('setup.catalog',{campaign:context.campaign}));
+        const occupations=(Array.isArray(catalog.occupations)?catalog.occupations:[]) as Array<Record<string,unknown>>;
+        const skills=(Array.isArray(catalog.skills)?catalog.skills:[]) as Array<Record<string,unknown>>;
+        const weapons=(Array.isArray(catalog.weapons)?catalog.weapons:[]) as string[];
+        catalogText='\n\nThe rulebook catalog. Write these names (or the label after the slash) in occupation, occupation_skills, interest_skills, numbers.skills and weapons; the kernel resolves either. A trade with no entry here is drafted under the closest entry with the player\'s own words in occupation_stated.'+
+          '\nOccupations (credit rating range; skill points; printed skill list):\n'+occupations.map(o=>`- ${String(o.id)}${o.label&&o.label!==o.id?' / '+String(o.label):''} (${(o.credit_rating_range as number[]).join('-')}; ${String(o.formula)}): ${(o.skills as string[]).join('; ')}`).join('\n')+
+          '\nSkills: '+skills.map(s=>s.label&&s.label!==s.name?`${String(s.name)} / ${String(s.label)}`:String(s.name)).join(', ')+'; a language is written '+String(catalog.language_specialty??'Language (Other: English)')+'.'+
+          '\nWeapons the tables print (anything else is equipment): '+weapons.join(', ');
+      } catch { /* a catalog that cannot be read is not a reason to stop setup; the kernel still resolves names */ }
+    }
+    if(!guidance)return setupPackages||catalogText?{systemPrompt:event.systemPrompt+setupPackages+catalogText}:undefined;
     return {systemPrompt:event.systemPrompt+'\n\nPrepared module prologue ('+(prologueRecorded?'already delivered; continue from the player answer without repeating it':'use on the first setup reply only')+'):\n'+guidance.opening+
       '\n\nModule-specific setup advice:\n'+guidance.advice+
       '\nThe rulebook tabulates these finance periods: '+JSON.stringify(context.rulebook_eras||[])+'. The authored setting can be descriptive prose or a year the rulebook never tabulated; never copy it as a table key. Pass profile.era only to name the listed period that reads closest to that setting. Omit it and the table\'s own period stands in. Either way the draft comes back with the period used and the setting it stood in for on sheet.finance, and setup is never blocked on this: say it once to the player in their own words (which setting, which period stood in for it) and carry on.'+
-      '\nAs soon as a name and an occupation concept are known, use setup create-investigator with a complete structured profile in that reply, unless an active setup package below asks for an exchange first. Propose rather than ask whatever you can: the way into the opening, personal ties and the key connection, age, ordinary gear. Do not merely describe a character: the computed draft must appear before approval. Use confirm-investigator only after approval or explicit write-now delegation.'+
-      '\nBoth the occupational and the personal-interest skill lists are priority ordered for the tier allocation, which walks each list from the front until its budget runs out. Put scenario prerequisites and the player\'s essential abilities first in both, and keep the interest list short enough that its tail still receives points. Inspect the computed draft against those requirements before asking for confirmation. If an essential ability remains at its base value, revise the same profile order or legal interest choices; preserve the existing seed and required occupation skills. Do not claim an ability the actual card lacks.'+
-      setupPackages+
-      (process.env.PI_COC_SETUP_AUTOSTART==='1'?'\nThis is the frontend. The card defaults to final values and has a calculation-details toggle for all dice, adjustments and allocation evidence. Keep the accompanying prose brief: identity, edition/method and one confirmation invitation. Do not automatically repeat calculations or budgets; point to the details control or explain them if the player explicitly asks. After complete, close the prologue without a launch command; the host hands off to play.':'')};
+      '\nAs soon as a name and an occupation concept are known, use setup create-investigator once with a complete structured profile in that reply, unless an active setup package below asks for an exchange first. Propose rather than ask whatever you can: the way into the opening, personal ties and the key connection, age, ordinary gear. Do not merely describe a character: the computed card must appear before approval. After that every change the player asks for is one `revise` call with only what changed: words in profile, numbers in numbers. Never call create-investigator again to change something. Use confirm-investigator only after approval or explicit write-now delegation.'+
+      '\nBoth skill lists are priority ordered: the points walk each list from the front, so put the abilities the player called defining first. Read the returned card and describe what it holds, never what you hoped it would hold; a number the player wants different is one `revise` with numbers.'+
+      setupPackages+catalogText+
+      (process.env.PI_COC_SETUP_AUTOSTART==='1'?'\nThis is the frontend. The card on screen shows the final values, a calculation-details toggle, the point budgets, and a "Confirm and open the table" button the player can press instead of answering; they may also confirm in words. Keep the accompanying prose brief: identity, edition/method and one invitation to confirm or change. Do not automatically repeat calculations or budgets. After complete, close the prologue without a launch command; the host hands off to play.':'')};
   });
 
 	// The kernel extension emits the bridge in session_start; this subscribes at load time, so both load orders are caught.

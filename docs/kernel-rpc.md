@@ -12660,3 +12660,95 @@ hardcoded, so this is left open and named rather than patched by widening a tool
 description on an unproven root.
 
 Tests: `tests/extension/a-thing-put-down-is-somewhere.test.mjs`.
+
+
+## 98. The card is a patched document: words change words, numbers change numbers, one gate (2026-09-17, amends §23.4, §26, §92 and §96)
+
+Five setup tables on 2026-09-16/17 (`docs/specs/character-creation-redesign.md`, appendix A) showed
+the same shape every time: a trivial trade took seven to ten drafts and 105–198 seconds because
+the profile had to arrive fully legal in one piece — a catalog id for the trade, exactly eight
+distinct catalog skills including the trade's own, an interest list that spent its budget to zero,
+printed weapon names — and every miss handed back a 5 KB catalog to guess from again; a hand-set
+DEX 90 came back at DEX 50 on the next draft, twice per table, because every draft rebuilt the
+numbers from the seed and the player's hand was an overlay to be re-applied (§92) and made room for
+(§96); and the word 确认 typed after a manual edit cost 100 seconds and never landed, because a
+relaxed budget left unspent read as "incomplete", the refusal's only exit was another draft, and the
+new draft had not been "previewed". §92, §93 and §96 patched three consequences of one design:
+semantics, catalog mapping and numbers bound into one `setup.draft`.
+
+**One card, drawn once.** A campaign has one card, one file per revision
+(`setup/drafts/<n>.json`). The card holds `profile` (the words, every field patchable), `sheet`
+(the numbers live in it: `characteristics`, `skills`, `credit_rating`; `party/investigator.json`
+is still written from it), `pins` (`{characteristics: {ABBR: {value, by}}, skills: {name: {value,
+by}}, credit_rating?}`, `by ∈ {player, model}`), `soft` (the machine's share per pool),
+`limits_override`, `budget` and `generation`. `setup.draft` generates the characteristics the
+first time only; with a card on the table it is `setup.revise`. Nothing rolls again except
+`setup.reroll`.
+
+**The words choose the method; a pin overlays it.** No aptitude: the dice in table order
+(`rolled`). An `aptitude {strong, weak, origin}` — accepted from any caller now, a package no
+longer opens that door (amends §23.4 and §26's `setup.aptitude.v1` gate; the package still shapes
+the exchange) — places the rulebook's Quick Fire array (`quick_fire`): strong takes the top of the
+array in the order named, weak the bottom, the rest the middle in table order. A number the
+player wrote (`numbers.characteristics`) is a pin over whichever method the words chose, kept out of
+the age table's reductions, and recorded in `creation.characteristics.pinned`. Luck and derived
+values follow from that one generation; a later characteristic pin recomputes the derived values
+only.
+
+**Pins outrank the allocator; the allocator is sticky.** `flowSkills` (`kernel-ts/setup/card.ts`)
+lists the era's standard sheet, the occupation list, the interest list and every pinned skill;
+every pin is its value; the machine's share of each pool is inherited from the previous revision
+where the member is still listed and unpinned, walked down from the biggest holder when the pins no
+longer fit (§96's rule, now the only rule), and spent on never-allocated members only — on every
+soft member with `auto_spread: true`, and on the whole pool again when the list's existing members
+come in a new order, because the order is the player's priority statement. §92's `creation.manual`,
+`carryManual` and the `manual {carried, dropped}` block are gone: a pin is first-class data.
+
+**The budget is a report, not a gate.** `budget {occupation {total, spent, unspent}, interest
+{…}, legal, notes[]}` rides with every result and every file. Unspent stays unspent; a pin the
+pool cannot hold is kept and the overspend is reported; a relaxed bound is `legal: false`. Notes
+are structured (`points_left`, `overspent`, `relaxed`, `above_cap`) with an English `text` for the
+model. `completeness` checks structure only — name, trade, integer characteristics, finance,
+backstory with `scenario_bound`, key connection, native language, equipment — and its two `unspent`
+lines are removed (amends §23.4).
+
+**The catalog is the kernel's.** Every skill, trade and weapon name is resolved by catalog name,
+by any localized label the tables print (all 79 skills and 28 occupations carry one) or by
+specialization identity. A skill that resolves to nothing is dropped and returned under
+`unresolved [{given, candidates ≤ 3}]`; fewer than eight occupation skills are filled from the
+trade's printed list (a printed choice is answered from the model's picks, then from the printed
+options; an open entry from the interest list, then the standard sheet) and reported as
+`filled_in`; a weapon the tables do not print is kept as equipment and reported as
+`moved_to_equipment`; an unknown profile field is `invalid_params` naming the key. A trade with no
+entry is the one `needs`: `details.candidates` (≤ 3, ranked by the overlap between the model's
+skill list and each entry's printed list — a set intersection, never a reading of prose) or
+`details.options` when nothing overlaps. No refusal carries the catalog. `setup.catalog {campaign}`
+returns it once — occupations with printed lists, credit ranges and formulas, skills with the play
+language's label, printed weapon names — and the setup prompt is given it once per session.
+
+**RPC.** `setup.draft {campaign, profile, numbers?, limits?}`; `setup.revise {campaign, revision?,
+profile?, numbers?, limits?, auto_spread?, by?}` — `profile` merges, `numbers` pins (a value past
+a bound is `needs` with `details.unlock`, below a skill's base `needs` with its range, Credit Rating
+outside the trade's range `needs` with the range), `limits` relaxes, and the result carries
+`applied[]`; `setup.override {revision, edits, limits_override?, dry_run?}` is kept as the card's
+edit control and is a numbers-only revision by the player; `setup.reroll {campaign, revision?,
+keep_pins?}`; `setup.confirm {campaign, revision?, consent}` has one gate — the revision is the
+current one — plus the existing same-message rule (`confirmation_required`) and structural
+completeness; `setup.previewed` and `previewed_revision` are removed. `setup.complete` replays on
+a campaign already `ready_for_table`.
+
+**Host.** The card has a "Confirm and open the table" button: the host calls `setup.confirm` and
+`setup.complete` cold, then sends one message into the session so the setup model closes the
+prologue and the launcher moves to play; `draft-spread` and `draft-reroll` are the same shape as
+`draft-override`. One card per campaign renders in place; older revisions fold to one line. Pins
+are marked, both budgets are drawn, a non-standard card says so. The setup tool's `revise` and
+`reroll` steps are not table steps; a second `create-investigator` is routed to `revise`; the
+step is never un-booked; the model is handed a summary (card numbers and words, pins, budget,
+applied, unresolved, filled_in, moved_to_equipment), never the sheet's creation trace or seed.
+
+Cases: `tests/kernel/test_setup_card.py` (29), the rewritten draft and override suites, and
+`tests/extension/setup.test.mjs` §98 cases. The array case dies when `quickFireByAptitude` stops
+being called; the sticky case dies when `flowSkills` stops reading the inherited share; the
+budget case dies when `completeness` regains its `unspent` lines; the catalog case dies when
+`resolveSkill` stops reading `localized_labels`; the extension case dies when the extension
+re-books the step or asks for `setup.previewed`.

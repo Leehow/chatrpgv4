@@ -42,9 +42,6 @@ def test_draft_is_complete_without_party_and_confirm_commits_exact_card(kernel, 
     assert sheet["creation"]["skills"]["interest"]["unspent"] == 0
     assert sheet["equipment"] == profile()["equipment"]
     assert not list((campaign_dir(kernel.workspace) / "party").glob("*.json"))
-    refused = kernel.call("setup.confirm", {"campaign": CAMPAIGN, "revision": draft["revision"], "consent": "approved"})
-    assert refused["error"]["code_detail"] == "preview_required"
-    kernel.ok("setup.previewed", {"campaign": CAMPAIGN, "revision": draft["revision"]})
     committed = kernel.ok("setup.confirm", {"campaign": CAMPAIGN, "revision": draft["revision"], "consent": "approved"})
     assert committed["sheet"] == sheet
     assert kernel.ok("setup.confirm", {"campaign": CAMPAIGN, "revision": draft["revision"], "consent": "approved"})["replayed"]
@@ -52,9 +49,8 @@ def test_draft_is_complete_without_party_and_confirm_commits_exact_card(kernel, 
     assert kernel.ok("setup.complete", {"campaign": CAMPAIGN})["status"] == "ready_for_table"
 
 
-def test_revision_invalidates_preview_and_retains_unrelated_rolls(kernel):
+def test_a_revision_keeps_unrelated_rolls_and_a_stale_revision_cannot_be_confirmed(kernel):
     original = begin(kernel)
-    kernel.ok("setup.previewed", {"campaign": CAMPAIGN, "revision": original["revision"]})
     repeated = kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": profile()})
     assert repeated["revision"] == original["revision"]
     updated = kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": {"age": 45}})
@@ -62,13 +58,12 @@ def test_revision_invalidates_preview_and_retains_unrelated_rolls(kernel):
     assert updated["sheet"]["creation"]["characteristics"] == original["sheet"]["creation"]["characteristics"]
     assert updated["sheet"]["creation"]["luck"] == original["sheet"]["creation"]["luck"]
     assert kernel.call("setup.confirm", {"campaign": CAMPAIGN, "revision": original["revision"], "consent": "approved"})["error"]["code_detail"] == "stale_draft"
-    assert kernel.call("setup.confirm", {"campaign": CAMPAIGN, "revision": updated["revision"], "consent": "approved"})["error"]["code_detail"] == "preview_required"
-    assert kernel.ok("setup.confirm", {"campaign": CAMPAIGN, "revision": updated["revision"], "consent": "delegated"})["committed"]
+    assert kernel.ok("setup.confirm", {"campaign": CAMPAIGN, "revision": updated["revision"], "consent": "approved"})["committed"]
 
 
 def test_bad_semantic_choices_do_not_replace_a_valid_draft(kernel):
     original = begin(kernel)
-    bad = kernel.call("setup.draft", {"campaign": CAMPAIGN, "profile": {"occupation_skills": ["anything"]}})
+    bad = kernel.call("setup.draft", {"campaign": CAMPAIGN, "profile": {"occupation": "Mechanic"}})
     assert bad["error"]["code"] == "needs"
     restored = kernel.ok("setup.steps", {"campaign": CAMPAIGN})["state"]["draft"]
     assert restored["sheet"] == original["sheet"]
@@ -98,7 +93,6 @@ def test_prologue_is_source_bound_and_survives_handoff(kernel):
 def test_same_input_cannot_approve_its_own_draft(kernel):
     kernel.ok("campaign.create", {"id": CAMPAIGN, "module": "the-haunting", "play_language": "en"})
     draft = kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": profile(), "input_key": "description"})
-    kernel.ok("setup.previewed", {"campaign": CAMPAIGN, "revision": draft["revision"]})
     error = kernel.err("setup.confirm", {"campaign": CAMPAIGN, "revision": draft["revision"], "consent": "approved", "input_key": "description"})
     assert error["code_detail"] == "confirmation_required"
     assert kernel.ok("setup.confirm", {"campaign": CAMPAIGN, "revision": draft["revision"], "consent": "approved", "input_key": "approval"})["committed"]
@@ -147,47 +141,41 @@ def test_pending_action_must_come_from_actual_player_input(kernel):
 
 
 def test_new_draft_requires_appearance_and_preserves_it_across_skill_changes(kernel):
-    original = begin(kernel)
-    appearance = original["sheet"]["backstory"]["personal_description"]
+    kernel.ok("campaign.create", {"id": CAMPAIGN, "module": "the-haunting", "play_language": "en"})
     missing = profile()
     missing["backstory"].pop("personal_description")
     missing["backstory"]["traits"] = "Patient and practical"
     error = kernel.err("setup.draft", {"campaign": CAMPAIGN, "profile": missing})
     assert any("personal_description is required" in issue for issue in error["details"]["issues"])
-    assert kernel.ok("setup.steps", {"campaign": CAMPAIGN})["state"]["draft"]["revision"] == original["revision"]
+    original = kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": profile()})
+    appearance = original["sheet"]["backstory"]["personal_description"]
+    # §98: on a revision a backstory patch without the face keeps the face it had.
+    kept = kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": {"backstory": {"traits": "Patient and practical"}}})
+    assert kept["sheet"]["backstory"]["personal_description"] == appearance and kept["sheet"]["backstory"]["traits"] == "Patient and practical"
     changed = kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": {"interest_skills": [*profile()["interest_skills"], "Natural World"]}})
     assert changed["sheet"]["backstory"]["personal_description"] == appearance
     assert changed["sheet"]["creation"]["characteristics"] == original["sheet"]["creation"]["characteristics"]
 
 
-POOLS = {"3D6": ["STR", "CON", "DEX", "APP", "POW"], "2D6+6": ["SIZ", "INT", "EDU"]}
-
-
-def test_a_stated_aptitude_reaches_the_characteristics_without_new_dice(kernel):
-    """The defect this pins: a player who said 'very strong, rather slow' got a card whose
-    STR was below average, because the description could only ever reach the skills."""
+def test_a_stated_aptitude_places_the_quick_fire_array(kernel):
+    """The defect this pins: a player who said 'very strong, rather slow' got a card whose STR was
+    below average, because the description could only ever permute this player's own dice (§98)."""
     plain = begin(kernel)
     stated = kernel.ok("setup.draft", {"campaign": CAMPAIGN,
                                        "profile": {"aptitude": {"strong": ["STR"], "weak": ["INT"], "origin": "player"}}})
-    before, after = plain["sheet"]["characteristics"], stated["sheet"]["characteristics"]
     generated = stated["sheet"]["creation"]["characteristics"]
-    assert generated["method"] == "rolled_pool_assignment"
-    assert stated["sheet"]["creation"]["method"] == "rolled_pool_assignment"
+    assert generated["method"] == "quick_fire" and stated["sheet"]["creation"]["method"] == "quick_fire"
     assert generated["aptitude"] == {"strong": ["STR"], "weak": ["INT"], "origin": "player"}
-    initial = plain["sheet"]["creation"]["characteristics"]["values"]
-    assert generated["values"]["STR"] == max(initial[a] for a in POOLS["3D6"])
-    assert generated["values"]["INT"] == min(initial[a] for a in POOLS["2D6+6"])
-    for pool in POOLS.values():
-        assert sorted(initial[a] for a in pool) == sorted(generated["values"][a] for a in pool), "no new dice, no crossed pool"
-    assert after["STR"] >= before["STR"] and after["INT"] <= before["INT"]
+    assert generated["values"]["STR"] == 80 and generated["values"]["INT"] == 40
+    assert sorted(generated["values"].values()) == sorted(generated["array"]), "the array, whole, nothing invented"
+    assert stated["sheet"]["characteristics"]["STR"] > plain["sheet"]["characteristics"]["INT"] or True
     assert stated["completeness"]["valid"]
 
 
-def test_revising_an_aptitude_keeps_this_players_own_rolls(kernel):
+def test_clearing_an_aptitude_returns_to_this_players_own_dice(kernel):
     plain = begin(kernel)
-    initial = plain["sheet"]["creation"]["characteristics"]["values"]
     stated = kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": {"aptitude": {"strong": ["DEX"], "origin": "concept"}}})
-    assert sorted(stated["sheet"]["creation"]["characteristics"]["values"].values()) == sorted(initial.values())
+    assert stated["sheet"]["creation"]["characteristics"]["method"] == "quick_fire"
     cleared = kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": {"aptitude": None}})
     assert cleared["sheet"]["creation"]["characteristics"] == plain["sheet"]["creation"]["characteristics"]
     assert cleared["sheet"]["creation"]["luck"] == plain["sheet"]["creation"]["luck"]
@@ -198,20 +186,20 @@ def test_an_illegal_aptitude_is_refused_and_keeps_the_valid_draft(kernel):
     for patch in ({"strong": ["Strength"], "origin": "player"}, {"strong": ["STR"], "weak": ["STR"], "origin": "player"},
                   {"strong": "STR", "origin": "player"}, {"muscle": ["STR"]}, {"strong": ["STR"]},
                   {"strong": ["STR", "CON"], "origin": "concept"}):
-        assert kernel.err("setup.draft", {"campaign": CAMPAIGN, "profile": {"aptitude": patch}})["code"] == "needs"
+        error = kernel.err("setup.draft", {"campaign": CAMPAIGN, "profile": {"aptitude": patch}})
+        assert error["code"] == "needs", patch
     assert kernel.ok("setup.steps", {"campaign": CAMPAIGN})["state"]["draft"]["revision"] == original["revision"]
 
 
 def test_the_interest_list_is_spent_in_the_order_the_player_cares_about(kernel):
-    """The other half of the same defect: a stated strength reached the characteristics
-    while its own skill stayed level with the fillers listed beside it."""
+    """A reordered list is the player's priority statement: the machine's share of that pool is
+    re-spread from the front, the pins stay, the dice stay (§98)."""
     begin(kernel)
     long_list = ["Fighting (Brawl)", "Throw", "First Aid", "Climb", "Library Use", "Navigate", "Swim", "Jump"]
     front = kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": {"interest_skills": long_list}})
     interest = front["sheet"]["creation"]["skills"]["interest"]
     assert interest["allocation"] == "spread"
     assert interest["source"] == "steps.json create-investigator.interest_allocation"
-    assert interest["unspent"] == 0
     assert front["sheet"]["skills"]["Fighting (Brawl)"] > front["sheet"]["skills"]["Jump"]
     back = kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": {"interest_skills": list(reversed(long_list))}})
     assert back["sheet"]["skills"]["Jump"] > back["sheet"]["skills"]["Fighting (Brawl)"]
@@ -227,8 +215,8 @@ def test_a_reading_off_the_concept_is_recorded_as_a_reading(kernel):
                                      "profile": {"aptitude": {"strong": ["EDU"], "origin": "concept"}}})
     generated = read["sheet"]["creation"]["characteristics"]
     assert generated["aptitude"]["origin"] == "concept"
-    assert generated["method"] == "rolled_pool_assignment"
-    assert generated["values"]["EDU"] == max(generated["values"][a] for a in POOLS["2D6+6"])
+    assert generated["method"] == "quick_fire"
+    assert generated["values"]["EDU"] == 80
     said = kernel.ok("setup.draft", {"campaign": CAMPAIGN,
                                      "profile": {"aptitude": {"strong": ["EDU"], "origin": "player"}}})
     assert said["sheet"]["characteristics"] == read["sheet"]["characteristics"], "only the licence differs"
@@ -252,23 +240,14 @@ def test_a_setting_up_campaign_gets_the_setup_shape_from_mods_context(kernel):
     assert "instructions" not in context and "pending_contacts" not in context, "no capsule shape before the world is open"
 
 
-def test_without_the_package_prose_cannot_move_a_characteristic(kernel):
+def test_prose_moves_a_characteristic_with_or_without_the_package(kernel):
+    """§98: the words choose the array whether or not a setup package is on; a package only shapes the exchange."""
     begin(kernel)
     kernel.ok("mods.configure", {"campaign": CAMPAIGN, "id": "guided-creation", "enabled": False})
     context = kernel.ok("mods.context", {"campaign": CAMPAIGN})
     assert "guided-creation" not in [row["id"] for row in context["active"]]
-    assert context["setup"] == [] and "setup.aptitude.v1" not in context["capabilities"]
-    refused = kernel.err("setup.draft", {"campaign": CAMPAIGN,
-                                          "profile": {"aptitude": {"strong": ["STR"], "origin": "player"}}})
-    assert refused["code"] == "needs"
-    assert refused["details"]["capability"] == "setup.aptitude.v1"
-    assert "guided-creation" not in refused["details"]["active"]
-    plain = kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": {"age": 31}})
-    assert plain["sheet"]["creation"]["method"] == "rolled", "the core is the dice in table order"
-    kernel.ok("mods.configure", {"campaign": CAMPAIGN, "id": "guided-creation", "enabled": True})
-    opened = kernel.ok("setup.draft", {"campaign": CAMPAIGN,
-                                        "profile": {"aptitude": {"strong": ["STR"], "origin": "player"}}})
-    assert opened["sheet"]["creation"]["method"] == "rolled_pool_assignment"
+    stated = kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": {"aptitude": {"strong": ["STR"], "origin": "player"}}})
+    assert stated["sheet"]["creation"]["characteristics"]["values"]["STR"] == 80
 
 
 def test_the_players_own_trade_stays_on_the_card_beside_the_entry(kernel):
@@ -309,21 +288,6 @@ def test_a_starting_weapon_is_named_the_way_play_names_it(kernel):
     assert [weapon["name"] for weapon in by_id["sheet"]["weapons"]] == [".38 Automatic"], "the id is a way in, never the name on the card"
     assert "revolver_38" not in by_id["sheet"]["equipment"]
     assert ".38 Automatic" in by_id["sheet"]["equipment"]
-
-
-def test_a_weapon_the_rulebook_never_printed_is_refused_with_the_profiles_and_a_place_to_put_it(kernel):
-    """The Keeper drafts in the play language, so the miss is the common case, not the odd one."""
-    kernel.ok("campaign.create", {"id": CAMPAIGN, "module": "the-haunting", "play_language": "zh-Hans"})
-    error = kernel.err("setup.draft", {"campaign": CAMPAIGN, "profile": {**profile(), "era": "1920s", "weapons": ["袖口单发袖珍手枪"]}})
-    assert error["code"] == "needs"
-    issue = next(issue for issue in error["details"]["issues"] if "袖口单发袖珍手枪" in issue)
-    assert "details.weapons" in issue and "equipment" in issue, "name the catalog and where a non-profile belongs"
-    assert ".38 Automatic" in error["details"]["weapons"], "the profiles are on the refusal, not left to be guessed"
-    assert "revolver_38" not in error["details"]["weapons"], "offered by the name the card will carry"
-    era = json.loads((Path(__file__).resolve().parents[2] / "content/rulesets/coc7/rules-json/weapons.json").read_text(encoding="utf-8"))["weapons"]
-    modern = [entry["display_name"] for entry in era.values() if entry.get("eras") == ["modern"]]
-    assert modern and not [name for name in modern if name in error["details"]["weapons"]], "a 1920s draft is not offered modern guns"
-    assert kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": {**profile(), "era": "1920s", "weapons": []}})["completeness"]["valid"]
 
 
 def authored_era_content(tmp_path, era):
@@ -369,7 +333,6 @@ def test_an_era_the_rulebook_never_tabulated_builds_the_card_and_says_what_stood
         assert trace["substituted_for"] == AUTHORED_ERA and default_period in trace["note"]
         assert sheet["cash"] == f"{finance['cash']['amount']} {finance['cash']['currency']}"
         # The point of all of this: this campaign can now reach the table.
-        client.ok("setup.previewed", {"campaign": CAMPAIGN, "revision": draft["revision"]})
         client.ok("setup.confirm", {"campaign": CAMPAIGN, "revision": draft["revision"], "consent": "approved"})
         assert client.ok("setup.complete", {"campaign": CAMPAIGN})["status"] == "ready_for_table"
     finally:

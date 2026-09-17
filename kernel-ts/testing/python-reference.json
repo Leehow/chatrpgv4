@@ -496,7 +496,7 @@
     {
       "seed": {
         "type": "string",
-        "value": "caf\u00e9"
+        "value": "café"
       },
       "random": [
         0.3161450824789953,
@@ -660,7 +660,7 @@
     {
       "seed": {
         "type": "string",
-        "value": "cafe\u0301"
+        "value": "café"
       },
       "random": [
         0.40166862345546395,
@@ -824,7 +824,7 @@
     {
       "seed": {
         "type": "string",
-        "value": "\u8c03\u67e5\u5458\ud83c\udfb2"
+        "value": "调查员🎲"
       },
       "random": [
         0.1515069464817087,
@@ -3624,7 +3624,7 @@
       "material": "5b9a6b41e67be7a3:1"
     },
     {
-      "name": "\u96e8\u591c",
+      "name": "雨夜",
       "seed": "a5ca3101e9c2edf4",
       "turn": "9007199254740993",
       "material": "a5ca3101e9c2edf4:9007199254740993"
@@ -3633,17 +3633,17 @@
   "json": [
     {
       "source": "{\"z\":1,\"a\":[true,null,\"caf\\u00e9\",{\"nested\":\"\\u8c03\\u67e5\"}]}",
-      "canonical": "{\"a\":[true,null,\"caf\u00e9\",{\"nested\":\"\u8c03\u67e5\"}],\"z\":1}",
+      "canonical": "{\"a\":[true,null,\"café\",{\"nested\":\"调查\"}],\"z\":1}",
       "sha256": "72b75475dc179d3906e2f8f3af862de082d6596c2069aa03ac67933134f84dac",
-      "stored": "{\n  \"z\": 1,\n  \"a\": [\n    true,\n    null,\n    \"caf\u00e9\",\n    {\n      \"nested\": \"\u8c03\u67e5\"\n    }\n  ]\n}\n",
-      "line": "{\"z\": 1, \"a\": [true, null, \"caf\u00e9\", {\"nested\": \"\u8c03\u67e5\"}]}\n"
+      "stored": "{\n  \"z\": 1,\n  \"a\": [\n    true,\n    null,\n    \"café\",\n    {\n      \"nested\": \"调查\"\n    }\n  ]\n}\n",
+      "line": "{\"z\": 1, \"a\": [true, null, \"café\", {\"nested\": \"调查\"}]}\n"
     },
     {
       "source": "{\"\\ud800\\udc00\":1,\"\\ue000\":2,\"a\":3,\"\\udbff\\udfff\":4}",
-      "canonical": "{\"a\":3,\"\ue000\":2,\"\ud800\udc00\":1,\"\udbff\udfff\":4}",
+      "canonical": "{\"a\":3,\"\":2,\"𐀀\":1,\"􏿿\":4}",
       "sha256": "bb9cbf1fb9305766b8145f2f53419630883b1c9e09b51830bbb499594c0ea2da",
-      "stored": "{\n  \"\ud800\udc00\": 1,\n  \"\ue000\": 2,\n  \"a\": 3,\n  \"\udbff\udfff\": 4\n}\n",
-      "line": "{\"\ud800\udc00\": 1, \"\ue000\": 2, \"a\": 3, \"\udbff\udfff\": 4}\n"
+      "stored": "{\n  \"𐀀\": 1,\n  \"\": 2,\n  \"a\": 3,\n  \"􏿿\": 4\n}\n",
+      "line": "{\"𐀀\": 1, \"\": 2, \"a\": 3, \"􏿿\": 4}\n"
     },
     {
       "source": "{\"10\":\"ten\",\"2\":\"two\",\"1\":\"one\",\"__proto__\":{\"safe\":true}}",
@@ -3682,10 +3682,10 @@
     },
     {
       "source": "\"\\u0000\\b\\f\\n\\r\\t\\u001f/\\\\\\\"\\u0085\\u2028\\u2029\"",
-      "canonical": "\"\\u0000\\b\\f\\n\\r\\t\\u001f/\\\\\\\"\u0085\u2028\u2029\"",
+      "canonical": "\"\\u0000\\b\\f\\n\\r\\t\\u001f/\\\\\\\"  \"",
       "sha256": "b61d9cadd62e979c57bf18424d885773dcb6964fdc247f0f8bffa1386a0bcf4d",
-      "stored": "\"\\u0000\\b\\f\\n\\r\\t\\u001f/\\\\\\\"\u0085\u2028\u2029\"\n",
-      "line": "\"\\u0000\\b\\f\\n\\r\\t\\u001f/\\\\\\\"\u0085\u2028\u2029\"\n"
+      "stored": "\"\\u0000\\b\\f\\n\\r\\t\\u001f/\\\\\\\"  \"\n",
+      "line": "\"\\u0000\\b\\f\\n\\r\\t\\u001f/\\\\\\\"  \"\n"
     },
     {
       "source": "[]",
@@ -5804,13 +5804,15 @@
       "module.register",
       "module.source.bind",
       "module.status",
+      "setup.catalog",
       "setup.complete",
       "setup.confirm",
       "setup.draft",
       "setup.investigator",
       "setup.occupations",
-      "setup.previewed",
       "setup.prologue",
+      "setup.reroll",
+      "setup.revise",
       "setup.steps",
       "table.apply",
       "table.ask",
@@ -5853,10 +5855,10 @@
       "empty-values/turn.json": "{\"turn\":null}",
       "float-turn/campaign.json": "{\"id\":\"float-turn\",\"title\":\"Typed number\"}",
       "float-turn/turn.json": "{\"turn\":6.0}",
-      "\ue000/campaign.json": "{}",
-      "\ud800\udc00/campaign.json": "{}"
+      "/campaign.json": "{}",
+      "𐀀/campaign.json": "{}"
     },
-    "campaign_list_line": "{\"campaigns\": [{\"id\": \"alpha\", \"title\": \"First\", \"module_id\": null, \"status\": \"setting_up\", \"turn\": 0}, {\"id\": null, \"title\": null, \"module_id\": null, \"status\": null, \"turn\": null}, {\"id\": \"float-turn\", \"title\": \"Typed number\", \"module_id\": null, \"status\": null, \"turn\": 6.0}, {\"id\": \"zeta\", \"title\": \"Last\", \"module_id\": \"the-haunting\", \"status\": \"active\", \"turn\": 3}, {\"id\": \"\ue000\", \"title\": null, \"module_id\": null, \"status\": null, \"turn\": 0}, {\"id\": \"\ud800\udc00\", \"title\": null, \"module_id\": null, \"status\": null, \"turn\": 0}]}",
+    "campaign_list_line": "{\"campaigns\": [{\"id\": \"alpha\", \"title\": \"First\", \"module_id\": null, \"status\": \"setting_up\", \"turn\": 0}, {\"id\": null, \"title\": null, \"module_id\": null, \"status\": null, \"turn\": null}, {\"id\": \"float-turn\", \"title\": \"Typed number\", \"module_id\": null, \"status\": null, \"turn\": 6.0}, {\"id\": \"zeta\", \"title\": \"Last\", \"module_id\": \"the-haunting\", \"status\": \"active\", \"turn\": 3}, {\"id\": \"\", \"title\": null, \"module_id\": null, \"status\": null, \"turn\": 0}, {\"id\": \"𐀀\", \"title\": null, \"module_id\": null, \"status\": null, \"turn\": 0}]}",
     "invalid": [
       {
         "line": "{",
@@ -6002,7 +6004,7 @@
         }
       },
       {
-        "line": "\ufeff{}",
+        "line": "﻿{}",
         "response": {
           "id": null,
           "ok": false,
@@ -6128,13 +6130,15 @@
                 "module.register",
                 "module.source.bind",
                 "module.status",
+                "setup.catalog",
                 "setup.complete",
                 "setup.confirm",
                 "setup.draft",
                 "setup.investigator",
                 "setup.occupations",
-                "setup.previewed",
                 "setup.prologue",
+                "setup.reroll",
+                "setup.revise",
                 "setup.steps",
                 "table.apply",
                 "table.ask",
@@ -6195,13 +6199,15 @@
                 "module.register",
                 "module.source.bind",
                 "module.status",
+                "setup.catalog",
                 "setup.complete",
                 "setup.confirm",
                 "setup.draft",
                 "setup.investigator",
                 "setup.occupations",
-                "setup.previewed",
                 "setup.prologue",
+                "setup.reroll",
+                "setup.revise",
                 "setup.steps",
                 "table.apply",
                 "table.ask",

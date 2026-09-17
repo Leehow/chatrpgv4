@@ -9601,6 +9601,69 @@ export class PiHostBackend implements HostBackend {
         return this.cocDenied(this.cocCode(error),error instanceof Error?error.message:String(error),(error as any)?.details);
       }
     }
+    /**
+     * The card's two whole-draft verbs (§98), the same shape `draft-override` travels.
+     *
+     * Spread hands the points nobody spent to the kernel's own allocator; reroll throws the dice
+     * again and keeps every pinned number. Both answer with the fresh draft, so the cached history
+     * page is stale the moment the kernel answers and the new revision's words start projecting
+     * before the re-rendered card asks for them. Neither of them involves the model.
+     */
+    if(id==='coc-keeper' && (method==='draft-spread'||method==='draft-reroll')) {
+      const sid=isRecord(optsValue)&&typeof optsValue.sessionId==='string'?optsValue.sessionId:'';
+      if(!sid)return this.cocDenied('no_session','Select the draft session');
+      const revision=isRecord(params)?params.revision:undefined;
+      if(!Number.isSafeInteger(revision)||Number(revision)<1)return this.cocDenied('invalid_params','Invalid draft revision');
+      const selected=await this.locate(sid), binding=await readCocBinding(selected.path);
+      if(!binding||!this.managedNodeModulesRoot)return this.cocDenied('campaign_unbound','No campaign is bound');
+      const repo=resolve(this.managedNodeModulesRoot,'..');
+      // The campaign and its home come from the session's own binding; a client-supplied campaign
+      // is never trusted, exactly as on an override.
+      const spread=method==='draft-spread';
+      const request:Record<string,unknown>=spread
+        ?{campaign:binding.campaign,revision:Number(revision),auto_spread:true}
+        :{campaign:binding.campaign,revision:Number(revision),keep_pins:true};
+      try {
+        const data=await callColdKernel(repo,binding.home,spread?'setup.revise':'setup.reroll',request,this.env,this.cocRuntime);
+        this.historyCache.delete(selected.path);
+        this.startDraftPresentation(sid,data);
+        return {ok:true,data};
+      } catch(error) {
+        // Stale is not an error for the card: it learns the draft moved and receives the current
+        // one, so the player acts on what is real. A `needs` refusal is validation and its details
+        // ride the denial.
+        if((error as any)?.code==='idempotency_conflict') {
+          const draft=await currentDraft(binding);
+          return {ok:true,data:{superseded:true,...(draft?{draft}:{})}};
+        }
+        return this.cocDenied(this.cocCode(error),error instanceof Error?error.message:String(error),(error as any)?.details);
+      }
+    }
+    /**
+     * Confirmation is the button, not a model turn (§98).
+     *
+     * The host confirms the revision the card names and completes setup on the cold kernel. The
+     * model is told afterwards, by the app, with one ordinary session message — so a model that
+     * never answers cannot un-confirm a card that is already written, and confirming can no longer
+     * fail by being re-drafted.
+     */
+    if(id==='coc-keeper' && method==='draft-confirm') {
+      const sid=isRecord(optsValue)&&typeof optsValue.sessionId==='string'?optsValue.sessionId:'';
+      if(!sid)return this.cocDenied('no_session','Select the draft session');
+      const revision=isRecord(params)?params.revision:undefined;
+      if(!Number.isSafeInteger(revision)||Number(revision)<1)return this.cocDenied('invalid_params','Invalid draft revision');
+      const selected=await this.locate(sid), binding=await readCocBinding(selected.path);
+      if(!binding||!this.managedNodeModulesRoot)return this.cocDenied('campaign_unbound','No campaign is bound');
+      const repo=resolve(this.managedNodeModulesRoot,'..');
+      try {
+        await callColdKernel(repo,binding.home,'setup.confirm',{campaign:binding.campaign,revision:Number(revision),consent:'approved'},this.env,this.cocRuntime);
+        const completed=await callColdKernel(repo,binding.home,'setup.complete',{campaign:binding.campaign},this.env,this.cocRuntime);
+        this.historyCache.delete(selected.path);
+        return {ok:true,data:{confirmed:true,revision:Number(revision),status:isRecord(completed)?completed.status:undefined}};
+      } catch(error) {
+        return this.cocDenied(this.cocCode(error),error instanceof Error?error.message:String(error),(error as any)?.details);
+      }
+    }
     if (id === "coc-keeper" && ["sheet","choose"].includes(method) && !(isRecord(optsValue) && typeof optsValue.sessionId === "string" && optsValue.sessionId.trim())) {
       return {ok:true,data:{status:"unbound",view:null,campaign:null,...await this.cocAnswerWords(undefined)}};
     }
