@@ -197,3 +197,59 @@ test('an unavailable advisory cache does not repeat or reject a successful sourc
  assert.equal(runs,1);assert.deepEqual(pages,[1]);assert.equal(await readFile(cacheRoot,'utf8'),'retained');
  assert.ok(records.some(row=>row.event==='review_cache_unavailable'));
 });
+
+/**
+ * A reviewer's slip is not the book's (contract §81).
+ *
+ * `Masks of Nyarlathotep`, 669 pages, 2026-09-17. A guidance reading finished, nothing was
+ * unsupported and nothing was missing, and the publication gate refused it anyway:
+ *
+ *   invalid_params: review path does not exist in the draft
+ *   details: { reason: "reading_failed", path: "/nodes/0/claims/0" }
+ *
+ * Claims are top-level; they are never under a node. The reviewer had answered for a pointer it
+ * invented, this host's transport gate passed it because it only asked whether the *assigned*
+ * paths had been answered, and the kernel's refusal was then charged to the reading — 25 minutes
+ * of work, a whole book, lost to one reviewer typing the wrong pointer.
+ *
+ * The unit already had a second attempt; it had nothing to trigger it, and nothing to tell it.
+ */
+test('a reviewer-invented pointer retries its own unit, and the retry is told why',async t=>{
+ const cwd=await mkdtemp(join(tmpdir(),'coc-review-bogus-pointer-'));t.after(()=>rm(cwd,{recursive:true,force:true}));
+ const briefs=[],failureSeen=[];let attempts=0;
+ const draft={nodes:[{node_id:'npc-larkin',source_refs:[{page:4}],properties:{}}],claims:[],ready_nodes:[]};
+ const options={cwd,task:{purpose:'detail',focus:'Larkin',question:''},draft,
+  instructions:'unused',round:1,model:{id:'fixture/vision'},source:{pdf:'unused',cache:'unused'},
+  signal:new AbortController().signal,record(){},progress(){},
+  async run(request){
+   attempts++;
+   briefs.push(request.brief);
+   failureSeen.push(await readFile(join(request.cwd,'failure.json'),'utf8').catch(()=>null));
+   request.onEvent({type:'tool_execution_end',toolCallId:'pages',isError:false,result:{details:{kind:'source_pages',observations:[{page:4}]}}});
+   await writeFile(request.eventLog+'.images.jsonl',JSON.stringify({included:['pages']})+'\n');
+   // The first attempt answers the assigned pointer and also invents one; the second does not.
+   const checked=[{paths:['/nodes/0'],verdict:'supported',source_refs:[{page:4}],reason:'assigned'}];
+   if(attempts===1)checked.push({paths:['/nodes/0/claims/0'],verdict:'unsupported',source_refs:[{page:4}],reason:'invented'});
+   await writeFile(join(request.cwd,'review.json'),JSON.stringify({checked,missing:[]}));
+   return {ok:true,ms:1,stderr:''};
+  }};
+ assert.deepEqual(await reviewCandidate(options),[4]);
+ assert.equal(attempts,2,'the invented pointer costs its own unit a retry, not the book');
+ assert.equal(failureSeen[0],null,'the first attempt has nothing to read');
+ assert.match(failureSeen[1],/does not exist in the draft/,'the retry starts with the reason in its own directory');
+ assert.match(failureSeen[1],/nodes\/0\/claims\/0/,'and the reason names the pointer');
+ assert.doesNotMatch(briefs[0],/failure\.json/);
+ assert.match(briefs[1],/failure\.json holds the reason/,'the retry is pointed at it');
+ const review=JSON.parse(await readFile(join(cwd,'review.json'),'utf8'));
+ assert.deepEqual(review.checked.map(row=>row.paths),[['/nodes/0']],'only the clean answer is published');
+});
+
+test('an assigned pointer is never the reviewer’s mistake, even when it is not a draft key',()=>{
+ // `/coverage` is synthesised by this host and is not a key in the draft at all.
+ const draft={nodes:[{node_id:'scene-room',source_refs:[{page:1}],properties:{}}],claims:[],ready_nodes:['scene-room']};
+ const review={checked:[{paths:['/coverage'],verdict:'supported',source_refs:[{page:1}],reason:'scope'}],missing:[]};
+ assert.doesNotThrow(()=>checkReviewEvidence(review,['/coverage'],new Set([1]),[],draft));
+ const invented={checked:[{paths:['/coverage'],verdict:'supported',source_refs:[{page:1}],reason:'scope'},
+  {paths:['/nodes/9'],verdict:'supported',source_refs:[{page:1}],reason:'invented'}],missing:[]};
+ assert.throws(()=>checkReviewEvidence(invented,['/coverage'],new Set([1]),[],draft),/does not exist in the draft/);
+});

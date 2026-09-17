@@ -10872,3 +10872,82 @@ surfaces and the book does not fill the silence; the account is still on the
 panel turns later, because it is world state; and a confluence of two lines that
 each earned a different clue keeps both accounts. Each of the six edits, reverted
 on its own, turns one of them red.
+
+## 81. A reviewer's slip is not the book's (2026-09-17, amends §22)
+
+Acceptance play, PDF module. `Masks of Nyarlathotep`, 669 pages, DeepSeek V4.1
+Flash / low. The character-creation background reading ran 25 minutes and was
+refused at publication:
+
+```
+invalid_params: review path does not exist in the draft
+details: { reason: "reading_failed", path: "/nodes/0/claims/0" }
+unsupported: []   missing: []
+```
+
+Claims are top-level; they are never under a node. Nothing in the draft was
+unsupported and nothing was missing — a reviewer had simply answered for a
+pointer it made up. The book became unpreparable, and the only recovery the
+player is offered (继续准备) inherits the same work and fails again.
+
+### 81.1 The gate asked half the question
+
+`checkReviewEvidence` is this host's transport gate, and its own comment says
+what it is for: *transport completeness; semantic rejection is preserved for the
+publication gate.* It checked that every **assigned** path had been answered, and
+that every cited page had been supplied. It never checked that the answers
+pointed at anything.
+
+So an invented pointer passed here, was merged into the unit-spanning
+`review.json`, and met `checkReview` → `pointer(draft, path)` in the kernel,
+which is the publication gate. There the refusal is `reading_failed`: charged to
+the reading, fatal to the whole book.
+
+A pointer that lands on nothing is not a semantic rejection. It is a transport
+defect, and it belongs in the transport gate — where the unit already has a
+second attempt.
+
+### 81.2 The retry was blind
+
+The unit loop has always been `for (attempt = 1; attempt <= 2; attempt++)`, and
+its catch wrote the reason:
+
+```ts
+await writeFile(join(cwd, "failure.json"), JSON.stringify({error: String(failure)}) + "\n");
+```
+
+`cwd` there is **attempt 1's** directory. Attempt 2 starts in a fresh `mkdtemp`.
+Nothing ever opened that file — the repo has no reader for it. The retry was a
+second roll of the same dice, and the brief did not mention the first.
+
+### 81.3 The contract
+
+**A path the reviewer added itself must resolve in the draft, and the check lives
+in the transport gate.** `checkReviewEvidence` takes the draft and mirrors the
+kernel's `pointer` law exactly — `~0`/`~1` unescaping and negative array indices
+included, because a path this accepts and the publication gate rejects would be
+worse than not checking at all.
+
+**An assigned path is never the reviewer's mistake.** `/coverage` is synthesised
+by `reviewUnits` and is not a key in the draft at all; the assigned set is this
+host's own contract, so only the paths a reviewer adds on its own are held to
+the draft.
+
+**A retry is told what it is retrying.** The failure is carried into the next
+attempt's own directory, and the brief names it. A retry that cannot see the
+first attempt's refusal is a second sample, not a repair.
+
+**What this does not do.** The publication gate is still all-or-nothing: one
+unsupported unit still refuses the whole submission, and a book whose reviewer
+disagrees about content still fails. This section only stops a reviewer's *own*
+transport mistakes from being charged to the book. The remaining question — what
+partial credit should look like for a 669-page reading — is open, and is not
+decided here.
+
+Tests (`tests/extension/reader-review.test.mjs`): a unit whose first attempt
+answers for an invented pointer retries once, the retry's directory holds the
+reason naming that pointer, its brief points at the file, and only the clean
+answer is published. A second test holds `/coverage` — assigned but not a draft
+key — accepted, while an invented `/nodes/9` beside it is refused. They die when
+the resolve check is dropped, when the assigned exemption is dropped, and when
+the failure stops being carried into the retry.

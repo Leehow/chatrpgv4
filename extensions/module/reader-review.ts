@@ -46,14 +46,57 @@ export function reviewUnits(draft: Row): string[][] {
 	return batches.map(batch => batch.paths);
 }
 
-/** Transport completeness; semantic rejection is preserved for the publication gate. */
-export function checkReviewEvidence(review: Row, paths: string[], pages: Set<number>, requiredPages: number[] = []) {
+/**
+ * Does this JSON pointer land on something in the draft? The kernel's `pointer` law, mirrored.
+ *
+ * Kept deliberately identical, including `~0`/`~1` unescaping and negative array indices: a path
+ * this accepts and the publication gate rejects would be worse than not checking at all.
+ */
+function resolves(draft: Row, path: unknown): boolean {
+	if (typeof path !== "string" || !path.startsWith("/")) return false;
+	let value: any = draft;
+	for (const token of path.slice(1).split("/")) {
+		const key = token.replaceAll("~1", "/").replaceAll("~0", "~");
+		if (Array.isArray(value)) {
+			if (!/^\s*[+-]?\d+\s*$/.test(key)) return false;
+			const index = Number(key), offset = index < 0 ? value.length + index : index;
+			if (!Number.isSafeInteger(offset) || offset < 0 || offset >= value.length) return false;
+			value = value[offset];
+		} else {
+			if (value === null || typeof value !== "object" || !Object.hasOwn(value, key)) return false;
+			value = value[key];
+		}
+	}
+	return true;
+}
+
+/**
+ * Transport completeness; semantic rejection is preserved for the publication gate.
+ *
+ * A pointer that lands on nothing is not a semantic rejection. `Masks of Nyarlathotep`, 669 pages,
+ * 2026-09-17: a reviewer answered for `/nodes/0/claims/0` — claims are top-level, never under a
+ * node — and this gate let it through because it only asked whether every *assigned* path had been
+ * answered, never whether the answers pointed at anything. The publication gate then refused the
+ * submission with `review path does not exist in the draft`, and that refusal is charged to the
+ * reading: one reviewer's slip killed a whole book, after 25 minutes of work, with nothing
+ * unsupported and nothing missing (§81).
+ *
+ * The unit already has a second attempt. Checking here is what lets it be used.
+ */
+export function checkReviewEvidence(review: Row, paths: string[], pages: Set<number>, requiredPages: number[] = [], draft?: Row) {
 	if (!Array.isArray(review?.checked) || !Array.isArray(review?.missing)) throw new Error("invalid source review");
-	const checked = new Set<string>();
+	const checked = new Set<string>(), assigned = new Set(paths);
 	for (const row of review.checked) {
 		if (!Array.isArray(row?.source_refs) || !row.source_refs.length || row.source_refs.some((ref: Row) => !pages.has(ref.page)))
 			throw new Error("review cites a page not supplied to this reviewer");
-		for (const path of row.paths ?? [row.path]) checked.add(path);
+		for (const path of row.paths ?? [row.path]) {
+			// Only the paths the reviewer added itself. The assigned ones are this host's own
+			// contract -- `/coverage` is synthesised here and is not a draft key at all -- so
+			// answering them is never the reviewer's mistake.
+			if (draft !== undefined && !assigned.has(path) && !resolves(draft, path))
+				throw new Error(`review answered for a path that does not exist in the draft: ${JSON.stringify(path)}`);
+			checked.add(path);
+		}
 	}
 	if (paths.some(path => !checked.has(path))) throw new Error("review omitted assigned fields");
 	if (requiredPages.some(page => !pages.has(page))) throw new Error('scope review did not view every assigned source page');
@@ -71,7 +114,7 @@ function approved(review: Row, guidance: boolean): boolean {
 	return review.missing.length === 0 && review.checked.every((item: Row) => item.verdict === 'supported')
 		&& (!guidance || (review.guidance?.approved === true && review.guidance?.issues?.length === 0));
 }
-async function cachedReview(file: string, key: string, paths: string[], guidance: boolean, requiredPages: number[]): Promise<{review: Row; pages:number[]; evidence:string} | undefined> {
+async function cachedReview(file: string, key: string, paths: string[], guidance: boolean, requiredPages: number[], draft: Row): Promise<{review: Row; pages:number[]; evidence:string} | undefined> {
 	try {
 		const entry = JSON.parse(await readFile(file,'utf8'));
 		if (entry.key !== key || entry.protocol !== reviewProtocol || typeof entry.evidence_path !== 'string') return;
@@ -79,7 +122,7 @@ async function cachedReview(file: string, key: string, paths: string[], guidance
 		if (digest(bytes) !== entry.review_sha256 || digest(images) !== entry.images_sha256 || digest(proof) !== entry.evidence_sha256) return;
 		const review = JSON.parse(bytes.toString()), pages = JSON.parse(proof.toString()).pages;
 		if (!Array.isArray(pages) || pages.some((page: any) => !Number.isInteger(page) || page < 1)) return;
-		checkReviewEvidence(review, paths, new Set(pages), requiredPages);
+		checkReviewEvidence(review, paths, new Set(pages), requiredPages, draft);
 		if (approved(review, guidance)) return {review, pages, evidence:entry.review_path};
 	} catch { /* A missing or modified original proof is a cache miss. */ }
 }
@@ -119,17 +162,22 @@ export async function reviewCandidate(options: {
 			const requiredPages = paths.includes('/coverage') ? scopePages : [];
 			const key = identity ? digest(identity + canonical(paths)) : undefined;
 			const cacheFile = key ? join(options.cacheRoot!,key+'.json') : undefined;
-			const cached = cacheFile ? await cachedReview(cacheFile,key!,paths,!!guidanceBytes,requiredPages) : undefined;
+			const cached = cacheFile ? await cachedReview(cacheFile,key!,paths,!!guidanceBytes,requiredPages,options.draft) : undefined;
 			if (cached) {
 				results[index] = cached.review; for (const page of cached.pages) observed.add(page); completed++;
 				options.record({lane:'reading',phase:'verify',unit:index+1,ms:0,ok:true,reused:true,evidence:cached.evidence,pages:[...cached.pages].sort((a,b)=>a-b)});
 				options.progress({stage:'verify',reviewed:completed,review_total:units.length,activeReaders:active});
 				continue;
 			}
+			// What the first attempt got wrong, carried into the second. `failure.json` used to be
+			// written into attempt 1's own directory and attempt 2 started in a fresh `mkdtemp`, so
+			// nothing ever read it: the retry was a second roll of the same dice (§81).
+			let previousFailure: string | undefined;
 			for (let attempt = 1; attempt <= 2 && !options.signal.aborted; attempt++) {
 			const unitRoot = join(options.cwd, `verify-${options.round}`, `unit-${index + 1}`);
 			await mkdir(unitRoot, {recursive:true});
 			const cwd = await mkdtemp(join(unitRoot, `attempt-${attempt}-`));
+			if (previousFailure) await writeFile(join(cwd, "failure.json"), JSON.stringify({error: previousFailure}) + "\n");
 			await writeFile(join(cwd, "draft.json"), JSON.stringify(options.draft) + "\n");
 			if (guidanceBytes) await writeFile(join(cwd, "guidance.json"), guidanceBytes);
 			// Observed navigation/context pages belong to coverage, not every fact unit.
@@ -148,7 +196,7 @@ export async function reviewCandidate(options: {
 					...(guidanceBytes?{imageHistory:4}:{}),
 					submission:!!guidanceBytes || options.task.purpose === "opening",
 					systemPrompt: options.instructions, source: options.source, signal: options.signal, eventLog,
-					brief: (guidanceBytes ? readerInput({task:unitTask, draft:options.draft, guidance:JSON.parse(guidanceBytes)}) : readerInput({task:unitTask,draft:options.draft})) + " Independently review only task.required_review against original images using pdf. Keep the full graph as context. Produce checked paths, verdict, source_refs and reason, plus missing (only necessary current material). Never edit the draft. " + (requiredPages.length ? "For /coverage, view every review_scope_pages page as evidence, not as a whole-range extraction assignment. State the requested use from task.purpose/focus/question in your reason. An empty detail question requests the focused entity's current use and necessary dependencies, not its whole chapter. Compare that use to the candidate for omitted discoverable facts and investigation connections, including when no clue or conclusion was proposed. Every missing item must identify its source and explain which requested use or immediate dependency would fail without it; appearing on a viewed page or map is insufficient. " : "") + mapBrief + (guidanceBytes ? "Also review guidance.json under the Independent review instructions and include guidance:{approved,issues} in the same review. Never modify guidance.json. Pass this small review object directly to submit_reading as your sole final tool call; a separate write followed by submit would waste another model request. " : options.task.purpose === "opening" ? "Pass the review to submit_reading as your sole final tool call; no separate final prose is needed. " : "Write review.json. ") + "Finish this unit and stop.",
+					brief: (guidanceBytes ? readerInput({task:unitTask, draft:options.draft, guidance:JSON.parse(guidanceBytes)}) : readerInput({task:unitTask,draft:options.draft})) + " Independently review only task.required_review against original images using pdf. Keep the full graph as context. Produce checked paths, verdict, source_refs and reason, plus missing (only necessary current material). Never edit the draft. " + (requiredPages.length ? "For /coverage, view every review_scope_pages page as evidence, not as a whole-range extraction assignment. State the requested use from task.purpose/focus/question in your reason. An empty detail question requests the focused entity's current use and necessary dependencies, not its whole chapter. Compare that use to the candidate for omitted discoverable facts and investigation connections, including when no clue or conclusion was proposed. Every missing item must identify its source and explain which requested use or immediate dependency would fail without it; appearing on a viewed page or map is insufficient. " : "") + mapBrief + (guidanceBytes ? "Also review guidance.json under the Independent review instructions and include guidance:{approved,issues} in the same review. Never modify guidance.json. Pass this small review object directly to submit_reading as your sole final tool call; a separate write followed by submit would waste another model request. " : options.task.purpose === "opening" ? "Pass the review to submit_reading as your sole final tool call; no separate final prose is needed. " : "Write review.json. ") + (previousFailure ? "Your previous attempt at this same unit was rejected; failure.json holds the reason. Read it and answer for the assigned pointers exactly as task.required_review spells them. " : "") + "Finish this unit and stop.",
 					onEvent(event) {
 						if (event.type === "tool_execution_end" && !event.isError && event.result?.details?.kind === "source_pages")
 							imageCalls.set(event.toolCallId, event.result.details.observations);
@@ -162,7 +210,7 @@ export async function reviewCandidate(options: {
 					throw new Error("reviewer modified its candidate copy");
 				const review = JSON.parse(await readFile(join(cwd, "review.json"), "utf8"));
 				if (guidanceBytes && await readFile(join(cwd, "guidance.json"), "utf8") !== guidanceBytes) throw new Error("reviewer modified guidance");
-				checkReviewEvidence(review, paths, pages, requiredPages);
+				checkReviewEvidence(review, paths, pages, requiredPages, options.draft);
 				results[index] = review;
 				if (cacheFile && approved(review,!!guidanceBytes)) {
 					try { await retainReview(cacheFile,key!,join(cwd,'review.json'),eventLog+'.images.jsonl',pages); }
@@ -174,7 +222,8 @@ export async function reviewCandidate(options: {
 				break;
 			} catch (failure) {
 				if (attempt === 1 && !options.signal.aborted) {
-					await writeFile(join(cwd, "failure.json"), JSON.stringify({error: String(failure)}) + "\n");
+					previousFailure = String(failure);
+					await writeFile(join(cwd, "failure.json"), JSON.stringify({error: previousFailure}) + "\n");
 					continue;
 				}
 				failures.push(`Review unit ${index + 1}: ${String(failure)}`);
