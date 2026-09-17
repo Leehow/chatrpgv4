@@ -1,7 +1,7 @@
 /** Keeper and player read projections preserve the existing authored/state boundary. */
 import { pythonJsonDumps, compareUnicode, isJsonObject } from "../json.js";
 import { ModuleGraph, recordOf, moduleDeclaration, describeCondition, conditionStatus, dossierLabels } from "./module-graph.js";
-import { entries, values, array, row, number, truth, string, normalize, chars, length, words, clone, type Row } from "./values.js";
+import { entries, values, array, row, number, truth, string, normalize, chars, length, words, clone, repr, type Row } from "./values.js";
 import { clueGate, structureType } from "./director.js";
 import { incapacitatedBy } from "../healing/conditions.js";
 export const jsonSize = (value: any): number => Buffer.byteLength(pythonJsonDumps(value), "utf8");
@@ -19,6 +19,42 @@ export const placeLabel = (world: Row, handle: string, authored: string): string
 /** A campaign label first, then what the module calls the place, and the handle's slug only when
  *  the module named it nothing else (contract §32, the place layer). */
 export const sceneLabel = (graph: ModuleGraph, world: Row, scene: Row): string => placeLabel(world, graph.handle(scene), string(graph.placeName(scene)));
+/**
+ * What this table calls a person, by the id a receipt names them with (contract §79).
+ *
+ * A place has `world.scene_labels` and a clue has `world.clue_labels`; a person had nothing, so
+ * every turn re-invented the name and every engine-side surface answered the book's English
+ * forever. `world.person_labels[<id>]` is the one record: `{name?, address?}` under an NPC's graph
+ * handle or an investigator's sheet id -- the same id `subject`, `actor` and `owner.id` carry, so
+ * the label is read where the receipt is minted and never stored into an identity (§76.2).
+ *
+ * `name` is what this table calls them; `address` is what they are called to their face, which the
+ * player establishes in play and every speaker at the table then owes. Both are recorded, never
+ * inferred: nothing here reads a name to decide anything about the person who carries it.
+ */
+export const personRecord = (world: Row, id: string): Row => row(row(world.person_labels)[id]);
+/** The table's name for a person, and the sheet's or the book's only until one exists (§79). */
+export const personLabel = (world: Row, id: string, authored: string): string => string(personRecord(world, id).name || authored);
+/**
+ * The `called` block a Keeper-facing surface carries for a person (§79), or `null` when this table
+ * has established nothing and there is nothing to say.
+ *
+ * `use` is here for the same reason §66's `cannot_act` is: the field alone was read and walked past.
+ * A form of address the player corrected came back two turns later at one table and twenty-five at
+ * another, which is what a ranked, budgeted memory hit does and what a field on the person does not.
+ */
+export function calledBlock(world: Row, id: string, authored: string): Row | null {
+    const record = personRecord(world, id), name = string(record.name || ""), address = string(record.address || "");
+    if (!name && !address)
+        return null;
+    return {
+        ...(name ? { name } : {}),
+        ...(address ? {
+            address,
+            use: `${repr(address)} is how this table addresses ${name || authored}, established in play and not withdrawn since. Use it in every line spoken to them; an earlier form of address does not come back.`,
+        } : {}),
+    };
+}
 export function clueLabel(graph: ModuleGraph, world: Row, handle: string): string {
     const label = row(world.clue_labels)[handle];
     if (typeof label === "string" && label.trim())
@@ -283,6 +319,11 @@ export function npcEntry(graph: ModuleGraph, world: Row, node: Row, ledger: Row,
     const state = npcState(graph, world, node);
     const entry: Row = {
         name: graph.displayName(node),
+        // What this table calls them (§79), before the dossier for the same reason `state` is: the
+        // Keeper writes a name into every line about this person, and the record that decides it has
+        // to be in front of them on the turn they write it, not ranked into a memory section that
+        // ages out. `name` above stays the identity the Keeper hands back to `apply`.
+        ...(calledBlock(world, graph.handle(node), graph.displayName(node)) ? {called: calledBlock(world, graph.handle(node), graph.displayName(node))} : {}),
         ...(graph.adaptationOrigin(node.campaign_origin) ? {origin: graph.adaptationOrigin(node.campaign_origin)} : {}),
         // Before the dossier, not after it: what his body is doing decides whether any of the rest
         // of it can happen this turn, and present[] is budgeted from the top.
@@ -344,6 +385,7 @@ export function npcView(graph: ModuleGraph, world: Row, node: Row, ledger: Row =
         kind: "npc",
         ...(graph.adaptationOrigin(node.campaign_origin) ? {origin: graph.adaptationOrigin(node.campaign_origin)} : {}),
         name: graph.displayName(node),
+        ...(calledBlock(world, handle, graph.displayName(node)) ? {called: calledBlock(world, handle, graph.displayName(node))} : {}),
         id: handle,
         node_id: node.node_id,
         scene: row(world.npc_presence)[handle] ?? null,
@@ -473,6 +515,13 @@ export function knownSection(graph: ModuleGraph, world: Row, scene: Row, party: 
         const sheet = party[0],
             book = moduleDeclaration(graph.moduleNode).era;
         section.investigator = investigatorSummary(sheet);
+        // The form of address the player established for their own investigator (§79). This is the
+        // half the memory lane could never hold: a new NPC who has never been corrected reads it
+        // here on the turn they first open their mouth, and a correction twenty-five turns old is
+        // still exactly as present as the turn it was made.
+        const called = calledBlock(world, string(sheet.id), string(sheet.name || sheet.id));
+        if (called)
+            section.investigator.called = called;
         if (typeof row(sheet.origin).library_id === "string" && row(sheet.origin).library_id && typeof sheet.era === "string" && sheet.era && typeof book === "string" && book && sheet.era !== book)
             section.investigator.era_note = `This sheet was built for the ${sheet.era} era and the module is set in ${book}; its characteristics, skills and money are unchanged. Reconcile the difference in the fiction, not in the numbers.`;
     }

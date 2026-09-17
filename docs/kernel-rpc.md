@@ -10479,3 +10479,143 @@ Test (`tests/extension/gates.test.mjs`): a run whose `table.player_input` is
 refused leaves the turn closed, and twelve `narrate` calls are refused; the third
 exhausts the class, the `refusals` lane names `narrate`, and the run is cut
 before the twelfth. It dies when the exemption is made unconditional again.
+
+## 79. A person has a name here (2026-09-17, amends §22, §40.1 and §76.3)
+
+```
+a place  ->  world.scene_labels   (apply move with a label)
+a clue   ->  world.clue_labels    (apply clue with a label)
+a person ->  nothing
+```
+
+§76.3 named this and did not close it. Three separate readings of one table converged on it the
+same day.
+
+**A proper name re-invented every turn.** M-MAIN prose wrote 杰克逊·伊莱亚斯 through turns 19 to 27
+and 杰克逊·埃利亚斯 at turn 42 and on the sheet panel; the engine layer answered `Jackson Elias`
+throughout. The innkeeper is the second case, 库皮蒂娜 in prose against 库皮蒂纳 on the panel.
+
+**A form of address corrected in play, and lost.** H-SIDE, fifteen cases. Turn 31 an NPC addresses
+the investigator as 伙计; turn 32 the player says she is not; the NPC accepts on the spot and turn 33
+uses the new word. Turn 57 it is 伙计 again. Another NPC relapsed after **two** turns. Two and
+twenty-five both failing is the finding: a context window explains one of them and neither explains
+both. The fifteenth case is the sharpest — an NPC who had **never been corrected** used the wrong
+form unprompted, the first time they spoke. Every new person starts from wrong.
+
+The corrections were not missing. They were extracted by the memory lane as `player_preference` and
+`keeper_correction` candidates, ranked by overlap with the entities present, projected into the
+capsule's `memory` section and dropped from it by `fitBudget` like any other list. A ranked,
+budgeted hit is the right shape for *something somebody once said*. It is the wrong shape for *what
+this person is called*, which is true on every turn whether or not it is this turn's most relevant
+memory, and which a stranger walking into the room owes on their first line.
+
+**A display name pressed into service as an identity.** One `npc-ledger.json` key reads
+`npc-adapt-d19fa9e160782113507c492c` with `handle: "Mrs. Graves"`, where a real slug is `dooley`,
+`records-clerk`, `steven-knott`. §76.2's split was never drawn on this side, because there was
+nothing on this side to draw it against.
+
+### 79.1 The record
+
+`world.person_labels[<id>] = {name?, address?}`.
+
+`<id>` is the identity a receipt already carries: an NPC's graph handle, an investigator's sheet
+id — the same string `subject`, `actor`, `owner.id` and `npc_resources` are keyed by. §76.2's rule
+holds unchanged: the identity is the graph's or the sheet's and is never renamed underneath anything
+stored; the label is resolved at the moment a receipt is minted.
+
+**`name` and `address` are two fields of one record, not one field and not two records.**
+
+They are one record because they are the same kind of fact about the same entity — what this table
+can display for one person — read by the same surfaces, keyed by the same id, merged by the same
+rule on a confluence, and because a second store is what §76 was about.
+
+They are two fields because they sit in different grammatical positions and coexist: a name is the
+subject of a sentence and the word on a card («杰克逊·伊莱亚斯 打开了门»), an address is the vocative
+inside a spoken line («明早见，护士»). Substituting one for the other is a different sentence, usually
+a wrong one. They also arrive by different routes — a name is what the Keeper settled on writing, an
+address is what the player said and an NPC accepted — so collapsing them would let a rendering
+decision overwrite something the table established out loud, or the reverse.
+
+`address` is a fact about the person **addressed**, not about the pair. That is what the fifteenth
+case decides: the player did not tell one NPC what to call her, she said what she is called, and a
+person who walks in twenty turns later owes it without ever having been corrected. Per-speaker
+address is not modelled and is not missing; a table that wants one NPC to keep getting it wrong has
+the NPC get it wrong in the fiction, which is play, not state.
+
+An investigator has no `name` here: it is on their sheet, chosen by the player, already in the play
+language. `apply person` refuses one — one fact, one place it lives.
+
+**Recorded, never inferred.** Nothing reads a name, an address or a language to decide anything
+about the person carrying it. There is no table of forms of address, no honorific list, no
+gendering, no model asked whether a form of address is apt. The only thing the kernel knows is that
+somebody said it at this table and it was applied.
+
+### 79.2 The writer
+
+`apply {kind: "person", who, name?, address?, why?}`.
+
+- `who` resolves to an investigator of the party (by sheet name or id), an NPC of the graph (by any
+  of their names), or — since this record exists — a person by the name **this table** gave them,
+  exactly as `world.scene_labels` is an alias for a place wherever a place is named. Nobody at this
+  table is `unknown_entity`, whose `fix` points at `lookup kind adaptation` for someone the book
+  never had.
+- `name` and `address` are each one line, trimmed, 1–60 characters, carrying no `{{` — §40.1's name
+  text rule, for its reason: this word is written into say tokens and spoken lines.
+- Neither given is `invalid_params`; `name` for an investigator is `invalid_params`.
+- The write merges into the existing record, so establishing an address does not erase a name.
+- Receipt `{kind: "person", who, is_investigator, name, label, address, why}`, `visibility:
+  "keeper"`; `name` is the identity and `label` the table's word, §76.2's split. Event
+  `person-named`. **No mechanics row**: the player said it, so a card telling them it was recorded
+  is noise, and §16.2 already projects nothing for a kind it does not know.
+
+### 79.3 The readers
+
+One junction, `personLabel(world, id, authored)` in `kernel-ts/read/capsule.ts`, beside `placeLabel`.
+It answers the table's `name` and the sheet's or the book's only until one exists. Through it:
+
+- `SettleContext.subjectLabel` — every `roll`, `delta` and `cash` receipt's `actor_label` and
+  `subject_label`, so every mechanics card the player reads names people the way the prose does.
+  This is the person-side junction §76.2 recorded as absent.
+- `ownerLabel` — the person branch, which §76.2 left answering `owner.name` for exactly this reason.
+- `apply item` / `apply cash` — `subject_label`, and `with_label`, which was handing the player the
+  book's English for whoever they had just paid.
+- `apply npc` — the receipt gains `label` beside its `name`; the identity is untouched.
+- `speakerResolver` (§40.1) — **the table's name is now one of that person's names.** Without it a
+  Keeper writing their own word for somebody resolved to nobody, so one person was a fresh anonymous
+  label on every turn that spelled them differently: a different transcript colour, no `spoke` row
+  on the ledger, no line in the journal. The resolved row's `name` is the table's word too, so the
+  journal packet and the panel legend read one word for one person.
+
+And the Keeper-facing end, which is the one the relapses are about:
+
+- the capsule's `present[].called`, before the dossier for the reason §66 puts `state` there — the
+  Keeper writes a name into every line about this person, and the record that decides it has to be
+  in front of them on the turn they write it;
+- `known.investigator.called`, which is where a correction twenty-five turns old is as present as
+  the turn it was made, and where a stranger's first line finds it;
+- `look focus=npc`'s `called`.
+
+`called` carries a `use` sentence whenever an address is set, for §66's reason: the bare field was
+available in the memory section and was read past. Pronoun-free, English, naming the word and saying
+it was established in play and has not been withdrawn.
+
+On a confluence the record joins the union field by field (§15): two lines that each established one
+half keep both.
+
+### 79.4 What this does not do
+
+It does not model per-speaker address, a register, an honorific system, or anything else about a
+person beyond what they are called. §66 gave a person a body (`world.npc_resources`); this gives
+them a name. They are deliberately two records with two shapes, because a form of address is not a
+hit point and nothing reads them together.
+
+It does not translate. A name in the play language is written by the Keeper in the play language, as
+every player-visible word is (§23); this only gives the word somewhere to stay.
+
+**Guards.** `tests/extension/a-person-has-a-name-here.test.mjs` — a name given once reaches a card
+minted many turns later, read back out of `world.person_labels` rather than written into the
+assertion; the name never reaches the stored identity, checked by renaming a person between two
+transfers; a form of address established at one turn is still in the capsule twenty-five turns
+later, and is on the investigator rather than on the pair, so it is there for an NPC who arrives
+afterwards and was never corrected; an investigator's `name` is refused; and the say token resolves
+the table's name to the person rather than to a label.

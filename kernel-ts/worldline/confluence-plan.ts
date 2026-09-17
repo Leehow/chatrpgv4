@@ -120,6 +120,14 @@ function mergeWorld(graph: ModuleGraph, states: readonly ConfluenceState[], scen
                 labels.set(name, value);
         world[key] = orderedObject(labels);
     }
+    // A person's record (§79) joins the union the same way, one field at a time: two lines that each
+    // established one half -- the name on one, the form of address on the other -- keep both, because
+    // taking whichever line was read last would drop a thing the table had said out loud.
+    const people = new Map<string, Row>();
+    for (const state of states)
+        for (const [id, value] of entries(state.world.person_labels))
+            people.set(id, {...row(people.get(id)), ...row(value)});
+    world.person_labels = orderedObject(people);
     world.clock = {
         minutes: Math.max(...states.map(state => Math.trunc(number(row(state.world.clock).minutes || 0))))
     };

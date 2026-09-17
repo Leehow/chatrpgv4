@@ -202,6 +202,19 @@ const NpcEffect = Type.Object({
 });
 
 /**
+ * What this table calls a person (contract §79). A place has `world.scene_labels` and a clue has
+ * `world.clue_labels`; this is the same record for a person, and the only one, so the cards, the
+ * capsule and the prose stop each answering with a different word for one human being.
+ */
+const PersonEffect = Type.Object({
+	kind: StringEnum(["person"] as const, { description: "record what this table calls someone: the name it uses for them, or what they are called to their face" }),
+	who: Type.String({ description: "the person this is about: an investigator at the table or an NPC, by the name you already use for them" }),
+	name: Type.Optional(Type.String({ description: "what this table calls this NPC in the player's language \u2014 the transliteration or rendering you have been writing. Say it once, the first turn you write it, and every card, capsule and later turn uses that same word instead of re-inventing it; refused for an investigator, whose name is the player's own and already on the sheet" })),
+	address: Type.Optional(Type.String({ description: "what this person is called to their face, when the table has established one \u2014 the player corrected a form of address and you accepted it in the fiction, or someone earned a title in play. Record what was said and accepted, not your reading of what suits them. Everyone at the table then owes it, including someone who walks in later and has never been corrected" })),
+	why: Type.Optional(Type.String({ description: "one sentence: where this word came from \u2014 who said it, and on what turn it was accepted" })),
+});
+
+/**
  * The world's line of history changing (contract §15.3, #23). None of the three happens
  * during the batch: the kernel performs it after this turn's narrate commits, so the
  * narration of the change is delivered first and the player's next line lands on the new
@@ -539,7 +552,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 		promptSnippet: "Land this turn's world changes: move, clue, time, handout, map, item, cash",
 		parameters: Type.Object({
 			effects: Type.Array(
-				Type.Union([EndingEffect, AdaptationEffect, MoveEffect, ClueEffect, TimeEffect, DamageEffect, ItemEffect, DefineEffect, UsageEffect, ObjectEffect, AbilityEffect, CashEffect, FlagEffect, NoteEffect, RulingEffect, NpcEffect, ThreatEffect, ForkEffect, SwitchEffect, MergeEffect, HandoutEffect, MapEffect]),
+				Type.Union([EndingEffect, AdaptationEffect, MoveEffect, ClueEffect, TimeEffect, DamageEffect, ItemEffect, DefineEffect, UsageEffect, ObjectEffect, AbilityEffect, CashEffect, FlagEffect, NoteEffect, RulingEffect, NpcEffect, PersonEffect, ThreatEffect, ForkEffect, SwitchEffect, MergeEffect, HandoutEffect, MapEffect]),
 				{ minItems: 1, description: "the changes to land this turn, in the order they happened" },
 			),
 		}),

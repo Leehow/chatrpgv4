@@ -1,6 +1,6 @@
 /** Shared receipt/event shape for accepted physical object transfers. */
 import type {DomainEvent} from '../transactions.js';
-import {placeLabel} from '../read/capsule.js';
+import {personLabel, placeLabel} from '../read/capsule.js';
 import {clone, row, string, type Row} from '../read/values.js';
 
 /**
@@ -13,11 +13,13 @@ import {clone, row, string, type Row} from '../read/values.js';
  * So the label is resolved here, where the receipt is minted, exactly as `apply move` resolves
  * `from_label`/`to_label` -- the two producers now read the same record for the same handle.
  *
- * A person carries their own name (an investigator sheet, an NPC on the graph) and there is no
- * per-table record to prefer, so for them this is `owner.name` and nothing more.
+ * A person has one too since §79 -- `world.person_labels`, under the same `owner.id` -- and it is
+ * read the same way here: the sheet's or the book's name until this table has given one.
  */
 export const ownerLabel = (world: Row, owner: Row): string =>
-    row(owner).kind === 'scene' ? placeLabel(world, string(row(owner).id), string(row(owner).name)) : string(row(owner).name);
+    row(owner).kind === 'scene'
+        ? placeLabel(world, string(row(owner).id), string(row(owner).name))
+        : personLabel(world, string(row(owner).id), string(row(owner).name));
 
 export function objectTransferReceipt(input: {world: Row; id: string; callId: string; name: string; owner: Row; source: Row | null; quantity: any; item: Row; definition: Row; why?: any}): {receipt: Row; event: DomainEvent} {
     const receipt: Row = {id: input.id, kind: 'item', name: input.name, label: input.name, subject: input.owner.id, subject_label: ownerLabel(input.world, input.owner),
