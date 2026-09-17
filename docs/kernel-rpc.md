@@ -12502,6 +12502,165 @@ stays absent when no edit was ever made; a refused draft leaves the card
 confirmable and never reaches the kernel with a prerequisite complaint; and the
 existing override, budget and ledger cases are unchanged. The first two die when
 `makeRoom` stops being called; the fifth dies when the re-book is dropped.
+## 97. A thing put down is somewhere, and so is the half of it that stayed (2026-09-17, extends §19's object model and §31; does not amend §88)
+
+> **Section number is a placeholder.** The integrator assigns the real number at
+> merge; `NN` in this section and in the code comments that cite it move with it.
+
+Turn 109 of `game-3dd94f0a-4b26-41bc-96fa-f89a60abb143`. The investigator puts
+two of his four reprints into the professor's desk drawer; the professor turns
+the key and keeps it; the other two and the negatives stay in his pocket. The
+Keeper wrote the call for it and got it right in every particular:
+
+```json
+{"kind":"object","name":"四张翻拍","to":"here","from":"沈砚舟","quantity":2,
+ "why":"沈砚舟自己把两张翻拍放进教授办公室抽屉，剩下两张和底片留在身上"}
+```
+
+The kernel answered `invalid_params: Transfer preserves the complete instance
+quantity`, `retryable: false`, `next: change_input`, and no `fix`. There was no
+input to change to. The Keeper fell back to `apply note`, which §18.2 defines as
+the Keeper's own memo and deliberately not a world write — its text says so in as
+many words, *实例仍属沈砚舟的四张翻拍* — and four turns later, at turn 113, the
+panel read `场景 利马警察局` and `四张翻拍 ×4` on the same screen, while two of
+those four were locked in a drawer in another building behind somebody else's
+key.
+
+### 97.1 The root was never the container
+
+The defect was filed as the other half of §88: person-to-person was solved, and
+putting a thing into a container or leaving it in a room had no landing. **That
+is not what the artifact says.** A place and a container have been owners since
+§19 — `objectOwner` (`kernel-ts/mods/stage.ts`) mints `kind: "scene"` for a scene
+name and for `here`, and `kind: "object"` for any existing instance — the tool
+schema's `object.to` has said "investigator, NPC, scene or existing container
+instance" all along, and **this same table used the path twice without trouble**:
+`item:t79-c3` left a requisition slip at the university archive
+(`object-item-11`, owner `kind: "scene"`), `item:t97-c1` left a note with the
+desk officer. §88.2 counted eleven such receipts across the nine tables of
+`playtest-evidence/pipicoc-20260914`. The Keeper knew the path, used the path,
+and wrote `to: "here"` at turn 109.
+
+What no table has ever been able to say is **how much of it**. An instance's
+`quantity` was fixed at creation and immutable for the rest of its life:
+`moveObject` refuses a transfer that does not carry the complete instance
+(`kernel-ts/mods/objects.ts`), `stageItem` refuses to touch a managed instance at
+all (`kernel-ts/apply/inventory.ts`), and nothing anywhere reduces a count. Four
+photographs, ten cartridges and a box of matches were each one atom that could
+only ever move whole or not at all.
+
+So the question this section answers is the amount, and the container work it was
+filed as needs nothing done to it.
+
+### 97.2 Should the two sides share §88's words? No, and they already do not
+
+§88's `handover` and `offer` are about **consent**: a person parted with a thing
+and another person took it, and the dice sometimes decide whether they would. A
+drawer consents to nothing, and §88 already says so and enforces it —
+`validateHandover` refuses a ground where there is no second person, and
+`validateDisposition` refuses an offer that has not two people in it. That is
+correct as it stands and this section does not widen it by a word.
+
+The missing word on the non-person side is not a second kind of consent. It is an
+amount, and an amount is orthogonal to consent rather than parallel with it: it
+applies equally to a drawer, a room, an NPC and the investigator himself. So the
+two compose instead of duplicating. Divide first, and the portion that separated
+is an ordinary instance that can then be handed over with its ground, held out,
+declined, or left on a table like anything else.
+
+### 97.3 `part`: the name the separated portion carries
+
+`apply object` takes `part`. A division is recognised by arithmetic and never by
+a keyword: an existing instance, a `quantity` the Keeper stated, and that
+quantity short of what the instance holds.
+
+| | |
+| --- | --- |
+| moves | `quantity` of them become their own instance, owned by `to` |
+| stays | the rest keep the old instance — its id, its name, its documents, every receipt already written about it — and only the count goes down |
+| `part` | what the portion that moved is called from now on, in the campaign's `play_language` |
+
+`part` is required rather than derived. A name is the only identity a model is
+given (§2), and `findNamedObject` refuses two instances that answer to one name,
+so a silent reuse of the stack's name would leave both of them unreachable and a
+kernel-invented one would be the kernel writing player-facing words, which §23
+forbids. A name something else already answers to is refused for the same reason,
+and so is `part` equal to the name being divided.
+
+`from` must name the holder, exactly as a whole transfer must. A division where
+`from` and `to` are the same owner is a division in place and changes nothing but
+the counts, which is how a Keeper separates a portion before holding it out.
+
+**Refused, each because there is no honest answer rather than to keep the field
+small:** a `quantity` that is not a whole number from 1 to one less than the
+count; `part` on something that carries its own written text (§28's document is
+one text, not a count of texts); `part` on an instance holding `ammo` or
+`charges`, because nothing says how much of a use state goes with a portion;
+`part` with `adopt`, `document` or `condition`, which are each about one specific
+carrier; `part` on an instance with an open offer, because what is being held out
+is the whole of it; and `part` together with `offer`, whose `fix` says to divide
+first and hold the separated portion out by its own name.
+
+§88's offer path is left exactly as it was. It has always ignored `quantity` on
+an instance that already exists — an offer holds out the whole of what somebody
+is holding — and a short quantity there stays that section's business. Reading it
+here would turn a call that works today into a refusal, which is the one
+direction §88.5 says never to move in. That it can be said at all is an adjacent
+gap, recorded here and not closed here.
+
+### 97.4 Receipts, and deployment
+
+A division mints the ordinary transfer receipt for the portion that moved — its
+`name`, its `quantity`, its new `subject` — plus `divided_from` and `remaining`.
+Both halves ride on one receipt because a reader given only the part has to go
+and count the rest, and `facts.committed` says both in one sentence
+(`kernel-ts/write/text.ts`). No new projection is added anywhere: the separated
+portion is an ordinary instance, so `publicItems`, `projectSheet` and
+`objectLook` carry it and the remainder's reduced count with the code they
+already have. That is what makes the decisive read come out right — the sheet
+stops counting what was left behind the moment it is left behind, and the panel
+in the police station shows two.
+
+**§88.5 applies and is obeyed.** `part` is a field of
+`extensions/kernel/tools.ts`, read once when the server starts, while the kernel
+that reads it is rebuilt live. Ship the schema first. The order is safe in both
+directions here, which is deliberate rather than lucky: a kernel without the
+schema refuses a short quantity exactly as it does today, and a schema without
+the kernel sends a key the kernel ignores and gets that same refusal. **No call
+that works today is made to start requiring something new** — every call this
+section touches is one the kernel refuses today — so there is no closed door to
+open in either order.
+
+### 97.5 What this section does not fix
+
+**The count written into the name.** The instance at turn 109 was called
+`四张翻拍` — *four reprints* — so after the division the two that stayed are an
+instance named "four reprints" holding two. The engine is right and the word is
+wrong. A rename is not added here: the name is the identity every receipt, sheet
+row and capsule has already recorded, and changing it is its own section with its
+own risks. What this section does is make the next such stack nameable
+correctly, because `part` asks the Keeper for a name at the moment the count
+changes.
+
+**BUG-H60, a thing a skill produced.** Filed with this as the other direction of
+the same failure; the artifacts say it is not. Turns 119, 120, 124 and 126 of the
+same campaign photograph a stairwell, a storeroom door, a doorway and a dusted
+plinth, and four frames produce zero `item` receipts. **No call was refused and
+no call was made** — the telemetry has no failed `apply` on any of those turns.
+Two cheap doors were open: `apply item` writes a legacy equipment row from a name
+and an owner alone, and `apply object` could have placed an instance from the
+`翻拍照片` definition already accepted at turn 58. The Keeper used neither, and in
+126 turns used `apply item` zero times and `apply object` twelve. So the root is
+not a missing path; it is that nothing told the Keeper it owed one, the
+pre-delivery Mod audit being the designated reader and a model lane that stayed
+silent on all four turns (on turn 112 the same lane did fire, with three
+`uncommitted_state` warnings about the drawer). Deciding "the fiction just
+produced a thing" is exactly the open semantic judgement that may not be
+hardcoded, so this is left open and named rather than patched by widening a tool
+description on an unproven root.
+
+Tests: `tests/extension/a-thing-put-down-is-somewhere.test.mjs`.
+
 
 ## 98. The card is a patched document: words change words, numbers change numbers, one gate (2026-09-17, amends §23.4, §26, §92 and §96)
 

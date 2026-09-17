@@ -407,8 +407,10 @@ def test_post_commit_failures_are_telemetry_not_errors(kernel):
     (memory_dir(kernel.workspace) / "episodes.jsonl").mkdir()
     result = narrate(kernel, "t1-c1", "第一回合。")
     assert result["commit"] and result["extraction"] == {"job_id": "extract:c1:t1"}
-    assert kernel.table("status") == {"turn": 2, "state": "awaiting_player", "receipts": [], "mechanics": [],
-                                      "pending_choice": None}
+    status = kernel.table("status")
+    assert {key: status[key] for key in ("turn", "state", "receipts", "mechanics", "pending_choice")} == {
+        "turn": 2, "state": "awaiting_player", "receipts": [], "mechanics": [], "pending_choice": None}
+    assert status["labels"]
     assert read_json(campaign_dir(kernel.workspace) / "save" / "continuation" / "latest.json")["turn"] == 1
     telemetry = read_jsonl(campaign_dir(kernel.workspace) / "telemetry.jsonl")
     # the director lane (§13.7) writes its own row at every close; only the kernel lane reports steps

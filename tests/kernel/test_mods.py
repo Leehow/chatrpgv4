@@ -323,7 +323,8 @@ def test_initial_inventory_is_audited_without_being_mentioned_and_adopted_once(k
     kernel.table("open")
     assert not any(r["name"] == "flashlight" for r in kernel.ok("mods.context", {"campaign":CAMPAIGN})["unregistered_equipment"])
     kernel.table("player_input", text="我把手电交给诺特。")
-    kernel.table("apply", call_id="t1-c1", effects=[{"kind":"object", "name":"flashlight", "from":"Thomas Hayes", "to":"Steven Knott"}])
+    kernel.table("apply", call_id="t1-c1", effects=[{"kind":"object", "name":"flashlight", "from":"Thomas Hayes", "to":"Steven Knott",
+        "handover":"given"}])
     final = read_json(folder / "party" / "thomas-hayes.json")
     assert not any((r if isinstance(r,str) else r.get("name")) == "flashlight" for r in final["equipment"])
 
@@ -436,7 +437,8 @@ def test_generated_instance_transfer_preserves_identity_and_state(kernel):
     assert len(before) == 1
     item = next(iter(before.values()))
     assert item["owner"]["kind"] == "npc"
-    kernel.table("apply", call_id="t1-c2", effects=[{"kind":"object", "name":"Knott's launcher", "from":"Steven Knott", "to":"Thomas Hayes"}])
+    kernel.table("apply", call_id="t1-c2", effects=[{"kind":"object", "name":"Knott's launcher", "from":"Steven Knott", "to":"Thomas Hayes",
+        "handover":"given"}])
     after = read_json(world_path)["objects"]["instances"]
     assert set(after) == set(before)
     assert after[item["id"]]["state"] == item["state"]
@@ -492,7 +494,8 @@ def test_npc_fires_generated_weapon_then_player_takes_remaining_ammo(seeded_kern
     world_path = campaign_dir(kernel.workspace) / "world.json"
     item = next(iter(read_json(world_path)["objects"]["instances"].values()))
     assert item["state"]["ammo"] == 2
-    kernel.table("apply", call_id=f"t1-c{n+3}", effects=[{"kind":"object", "name":"Corbitt's launcher", "from":"Walter Corbitt", "to":"Thomas Hayes"}])
+    kernel.table("apply", call_id=f"t1-c{n+3}", effects=[{"kind":"object", "name":"Corbitt's launcher", "from":"Walter Corbitt", "to":"Thomas Hayes",
+        "handover":"taken"}])
     kernel.table("resolve", call_id=f"t1-c{n+4}", action={"intent":"combat", "target":"Walter Corbitt", "weapon":"Corbitt's launcher", "defense":"none"})
     item = next(iter(read_json(world_path)["objects"]["instances"].values()))
     assert item["state"]["ammo"] == 1
@@ -614,7 +617,8 @@ def test_worldline_merge_requires_an_explicit_choice_for_different_object_owners
     fork(kernel,2,"side")
     n = turn_json(kernel)["turn"]
     kernel.table("player_input",text="我接过发射器。")
-    kernel.table("apply",call_id=f"t{n}-c1",effects=[{"kind":"object","name":"The launcher","from":"Steven Knott","to":"Thomas Hayes"}])
+    kernel.table("apply",call_id=f"t{n}-c1",effects=[{"kind":"object","name":"The launcher","from":"Steven Knott","to":"Thomas Hayes",
+        "handover":"given"}])
     narrate(kernel,f"t{n}-c2","我收起了发射器。")
     switch(kernel,turn_json(kernel)["turn"],"main")
     n = turn_json(kernel)["turn"]
@@ -702,7 +706,8 @@ def test_a_first_placement_may_name_its_giver_and_the_receipt_keeps_him(kernel):
     # Refusing the giver here guarded nothing -- there is no owner below to contradict -- and made the
     # Keeper drop him, so a handover was recorded as though the thing had appeared out of nobody's hands.
     result = kernel.table("apply", call_id="t1-c1",
-                          effects=[prepared(kernel, weapon("Handover launcher")), {**placement, "from":"Steven Knott"}])
+                          effects=[prepared(kernel, weapon("Handover launcher")),
+                                   {**placement, "from":"Steven Knott", "handover":"given"}])
     look = kernel.table("look", focus="object", name="Given launcher")
     assert look["definition"]["name"] == "Handover launcher"
     assert look["instance"]["owner"] == read_json(campaign_dir(kernel.workspace) / "party" / "thomas-hayes.json")["name"]

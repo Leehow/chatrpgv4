@@ -126,7 +126,12 @@ export function committedFacts(receipts: Row[], snapshot: Row, label: (id: any) 
             committed.push(`${string(r.resource ?? null)}: ${string(r.item || r.subject_label || r.subject || null)} ${string(r.before ?? null)} -> ${string(r.after ?? null)}`);
         else if (r.kind === 'item') {
             const quantity = Math.trunc(number(r.quantity || 1));
-            committed.push(`Item: ${string(r.subject_label || r.subject || null)} ${quantity < 0 ? 'loses' : 'gains'} ${string(r.label || r.name || null)}${Math.abs(quantity) > 1 ? ` x${Math.abs(quantity)}` : ''}`);
+            // Contract §97: a division is told in one sentence, because the half that stayed behind is
+            // the half the Keeper otherwise has to remember it still has.
+            const divided = truth(r.divided_from)
+                ? ` (divided from ${string(r.divided_from)}; ${Math.trunc(number(r.remaining))} still with ${string(r.from || null)})`
+                : '';
+            committed.push(`Item: ${string(r.subject_label || r.subject || null)} ${quantity < 0 ? 'loses' : 'gains'} ${string(r.label || r.name || null)}${Math.abs(quantity) > 1 ? ` x${Math.abs(quantity)}` : ''}${divided}`);
         }
         else if (r.kind === 'condition') {
             const who = string(r.subject_label || r.subject || null), parts: string[] = [];

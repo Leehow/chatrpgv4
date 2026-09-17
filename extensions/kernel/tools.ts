@@ -115,6 +115,12 @@ const ObjectEffect = Type.Object({
   offer: Type.Optional(StringEnum(["made","accepted","declined"] as const, {description:"Holding a thing out is not giving it: made records that from is offering it to to and moves nothing, declined closes that and leaves it exactly where it was, accepted closes it and moves it. Use made whenever a check is about to decide whether they take it, then close it with the result"})),
   handover: Type.Optional(StringEnum(["given","taken","check"] as const, {description:"Required when this moves a thing between two different people: given when both sides were willing and no dice were asked, taken when one side's leave was neither sought nor needed, check when a roll already settled in this turn decided it"})),
   check: Type.Optional(Type.String({description:"With handover check, the call_id of a resolve already settled in this turn. It must have passed; a roll that has not settled yet cannot be named, so settle the check first or hold the thing out with offer made"})),
+  // Contract §97.4: this field is the schema half of the division, and it ships first. The kernel is
+  // rebuilt live while this schema is read once at server start, so a kernel without it refuses a
+  // short quantity exactly as before, and a schema without the kernel sends a key the kernel ignores
+  // and gets that same refusal. Neither direction closes a door, because every call this touches is
+  // refused today.
+  part: Type.Optional(Type.String({description:"Name for the portion that separates when only some of a stack moves, in the campaign's play_language: with quantity short of what the instance holds, that many become their own thing under this name and go to to, while the rest keep the old name and stay where they are. Use it for two of four photographs left in a drawer, a handful of cartridges given away, one of a bundle set down. Leave it out to move the whole stack"})),
   quantity: Type.Optional(Type.Integer({minimum:1})),
   why: Type.Optional(Type.String()),
 });

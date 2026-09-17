@@ -576,12 +576,17 @@ def test_unrelated_detail_cannot_unlock_an_unprepared_skeleton_opening(kernel, t
     request(kernel, mid, 'skeleton', foreground=True)
     job = claim(kernel, mid)
     refs = [{'page': 1}]
-    draft = {'nodes': [{'node_id': 'scene-dock', 'node_kind': 'scene', 'name': 'Dock',
-        'properties': {'is_entrance': True}, 'source_refs': refs}],
-        'claims': [], 'node_refs': [], 'coverage': {}, 'dependencies': [],
+    draft = {'nodes': [
+        {'node_id': 'scene-dock', 'node_kind': 'scene', 'name': 'Dock',
+         'properties': {'is_entrance': True}, 'source_refs': refs},
+        {'node_id': 'scene-tower', 'node_kind': 'scene', 'name': 'Tower',
+         'properties': {'is_final': True}, 'source_refs': refs}],
+        'claims': [{'subject_id': 'scene-dock', 'predicate': 'route-to',
+            'object': {'node_id': 'scene-tower'}, 'truth_status': 'authored-fact', 'source_refs': refs}],
+        'node_refs': [], 'coverage': {}, 'dependencies': [],
         'critical': ['/nodes/0'], 'ready_nodes': []}
     write(Path(job['work_dir']) / 'draft.json', draft)
-    write(Path(job['work_dir']) / 'review.json', {'checked': [{'path': '/nodes/0',
+    write(Path(job['work_dir']) / 'review.json', {'checked': [{'paths': ['/nodes/0', '/claims/0'],
         'verdict': 'supported', 'source_refs': refs}], 'missing': []})
     observed(job, read_pages=[1], review_pages=[1])
     assert not finish(kernel, job)['opening_ready']
@@ -592,7 +597,7 @@ def test_unrelated_detail_cannot_unlock_an_unprepared_skeleton_opening(kernel, t
         'properties': {'biography': 'A historian from the town.'}, 'source_refs': refs}],
         'ready_nodes': ['npc-lena']}
     write(Path(job['work_dir']) / 'draft.json', delta)
-    write(Path(job['work_dir']) / 'review.json', {'checked': [{'paths': ['/nodes/0', '/coverage'],
+    write(Path(job['work_dir']) / 'review.json', {'checked': [{'paths': ['/nodes/0', '/claims/0', '/coverage'],
         'verdict': 'supported', 'source_refs': refs}], 'missing': []})
     observed(job, read_pages=[1], review_pages=[1])
     assert not finish(kernel, job)['opening_ready']
@@ -604,7 +609,7 @@ def test_unrelated_detail_cannot_unlock_an_unprepared_skeleton_opening(kernel, t
     draft['ready_nodes'] = ['scene-dock']
     draft['nodes'][0]['summary'] = 'The harbor keeper welcomes the investigators at the dock.'
     write(Path(job['work_dir']) / 'draft.json', draft)
-    write(Path(job['work_dir']) / 'review.json', {'checked': [{'paths': ['/nodes/0', '/coverage'],
+    write(Path(job['work_dir']) / 'review.json', {'checked': [{'paths': ['/nodes/0', '/claims/0', '/coverage'],
         'verdict': 'supported', 'source_refs': refs}], 'missing': []})
     observed(job, read_pages=[1], review_pages=[1])
     assert finish(kernel, job)['opening_ready']

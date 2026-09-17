@@ -39,10 +39,10 @@ def test_checkpoint_is_written_after_the_commit(kernel):
     checkpoint = read_json(checkpoint_path(kernel.workspace))
     assert checkpoint == {
         **checkpoint, "schema": 1, "campaign": "c1", "turn": 1, "commit": result["commit"],
-        "scene": {"name": "hall-of-records", "display_name": "hall-of-records"}, "clock": {"minutes": 20},
+        "scene": {"name": "hall-of-records", "display_name": "Hall of Records"}, "clock": {"minutes": 20},
         "session": None, "pending_choice": None,
         "receipts_digest": canonical_sha(record["receipts"]),
-        "one_line": "Turn 1: hall-of-records, clock 20 min, no session; last turn: 你到了档案馆。 灰尘很厚。",
+        "one_line": "Turn 1: Hall of Records, clock 20 min, no session; last turn: 你到了档案馆。 灰尘很厚。",
     }
     assert checkpoint["at"]
     assert [set(i) for i in checkpoint["investigators"]] == [{"id", "name", "hp", "san", "mp", "luck"}]

@@ -30,8 +30,7 @@ def test_labels_ride_on_the_projection_and_the_text_is_verbatim(kernel):
     assert result["rendered_text"] == "你出了门。"
     assert result["mechanics"] == [
         {"kind": "clue", "marker": "clue:knott-research-leads", "receipt": "clue:knott-research-leads-t1", "clue": "knott-research-leads", "label": "诺特给的查证方向",
-         "summary": "Knott points them toward the Boston Globe, the Central Library / Hall of Records, "
-                    "and other paper trails before they rush the house.", "call": "t1-c1"},
+         "call": "t1-c1"},
         {"kind": "scene", "marker": "scene:hall-of-records", "receipt": "move:hall-of-records-t1-c1", "from": "commission-briefing", "to": "hall-of-records",
          "minutes": 0, "from_label": "Knott's Office", "to_label": "市政厅档案室", "call": "t1-c1"},
     ]
@@ -56,7 +55,9 @@ def test_every_receipt_is_projected_and_the_turn_closes(kernel):
     assert git_log(kernel.workspace)[0].startswith("turn 1: 第一段：你掷出")
 
     status = kernel.table("status")
-    assert status == {"turn": 2, "state": "awaiting_player", "receipts": [], "mechanics": [], "pending_choice": None}
+    assert {key: status[key] for key in ("turn", "state", "receipts", "mechanics", "pending_choice")} == {
+        "turn": 2, "state": "awaiting_player", "receipts": [], "mechanics": [], "pending_choice": None}
+    assert status["labels"]
     record = read_json(campaign_dir(kernel.workspace) / "turns" / "0001.json")
     assert record["player_text"] == "我仔细观察诺特。"
     assert [r["id"] for r in record["receipts"]] == ["roll:spot-hidden-t1-c1", "clue:knott-research-leads-t1",

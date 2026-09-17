@@ -21,7 +21,7 @@ export const ownerLabel = (world: Row, owner: Row): string =>
         ? placeLabel(world, string(row(owner).id), string(row(owner).name))
         : personLabel(world, string(row(owner).id), string(row(owner).name));
 
-export function objectTransferReceipt(input: {world: Row; id: string; callId: string; name: string; owner: Row; source: Row | null; quantity: any; item: Row; definition: Row; why?: any; ground?: Row | null; offer?: string | null}): {receipt: Row; event: DomainEvent} {
+export function objectTransferReceipt(input: {world: Row; id: string; callId: string; name: string; owner: Row; source: Row | null; quantity: any; item: Row; definition: Row; why?: any; ground?: Row | null; offer?: string | null; divided?: {from: string; remaining: any} | null}): {receipt: Row; event: DomainEvent} {
     // Contract §88: the ground a person-to-person move stood on rides with it, and so does the roll it
     // named. A move whose legitimacy was decided by the dice is otherwise unreadable after the fact --
     // turn 125 of `game-1c0faba5` had the transfer and the failed roll in the same turn record with
@@ -31,7 +31,11 @@ export function objectTransferReceipt(input: {world: Row; id: string; callId: st
         quantity: input.quantity, instance: input.item.id, from: input.source ? ownerLabel(input.world, input.source) : null,
         weapon: row(input.definition).category === 'weapon' ? input.item.id : null, call_id: input.callId, why: input.why ?? null, state: clone(input.item.state),
         ...(truth(ground.handover) ? {handover: string(ground.handover)} : {}), ...(truth(ground.check) ? {check: string(ground.check)} : {}),
-        ...(truth(input.offer) ? {offer: string(input.offer)} : {})};
+        ...(truth(input.offer) ? {offer: string(input.offer)} : {}),
+        // Contract §97: a division is one move of a part and one reduction of what stayed. Both halves
+        // ride on the one receipt, because a reader given only the part has to go and count the rest.
+        ...(input.divided ? {divided_from: input.divided.from, remaining: input.divided.remaining} : {})};
     return {receipt, event: {type: 'item-transferred', data: {name: input.name, to: input.owner.name, from: input.source?.name ?? null,
-        ...(truth(ground.handover) ? {handover: string(ground.handover)} : {})}}};
+        ...(truth(ground.handover) ? {handover: string(ground.handover)} : {}),
+        ...(input.divided ? {divided_from: input.divided.from} : {})}}};
 }

@@ -79,12 +79,14 @@ def test_explicit_player_wording_is_preserved_even_when_equal_to_raw_source(kern
 def test_transfer_captures_actual_received_text_and_blocks_prior_owner(kernel):
     owned_paper(kernel)
     old=edit(kernel,view(kernel),text="Player addition")
-    kernel.table("apply",call_id="t1-c2",effects=[{"kind":"object","name":"Notebook","from":"Thomas Hayes","to":"Steven Knott"}])
+    kernel.table("apply",call_id="t1-c2",effects=[{"kind":"object","name":"Notebook","from":"Thomas Hayes","to":"Steven Knott",
+        "handover":"given"}])
     assert kernel.err("mods.document.view",{"campaign":CAMPAIGN,"actor":"Thomas Hayes","name":"Notebook"})["code"]=="not_owned"
     assert kernel.err("mods.document.apply",{"campaign":CAMPAIGN,"actor":"Thomas Hayes","name":"Notebook","action":"reset","version":old["version"]})["code"]=="not_owned"
     kernel.table("apply",call_id="t1-c3",effects=[{"kind":"object","name":"Notebook","from":"Steven Knott","to":"Steven Knott",
         "document":{"action":"write","text":"Knott's addition"},"why":"Knott writes in the paper he is holding"}])
-    kernel.table("apply",call_id="t1-c4",effects=[{"kind":"object","name":"Notebook","from":"Steven Knott","to":"Thomas Hayes"}])
+    kernel.table("apply",call_id="t1-c4",effects=[{"kind":"object","name":"Notebook","from":"Steven Knott","to":"Thomas Hayes",
+        "handover":"given"}])
     received=view(kernel)
     assert received["original"]==received["text"]=="Knott's addition"
     assert received["player_edited"] is False
@@ -121,7 +123,8 @@ def test_document_limits_and_container_custody(kernel):
     stored=read_json(campaign_dir(kernel.workspace)/"party/thomas-hayes.json")
     assert not any(row.get("name")=="Notebook" for row in stored["equipment"] if isinstance(row,dict))
     assert kernel.err("mods.document.apply",{"campaign":CAMPAIGN,"actor":"Thomas Hayes","name":"Notebook","version":snapshot["version"],"action":"save","text":"x"*64001})["code"]=="invalid_params"
-    kernel.table("apply",call_id="t1-c3",effects=[{"kind":"object","name":"Bag","from":"Thomas Hayes","to":"Steven Knott"}])
+    kernel.table("apply",call_id="t1-c3",effects=[{"kind":"object","name":"Bag","from":"Thomas Hayes","to":"Steven Knott",
+        "handover":"given"}])
     assert kernel.err("mods.document.view",{"campaign":CAMPAIGN,"actor":"Thomas Hayes","name":"Notebook"})["code"]=="not_owned"
 
 

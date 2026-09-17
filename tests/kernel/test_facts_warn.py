@@ -42,8 +42,8 @@ def test_narrate_facts_are_sentences_from_receipts_and_world(kernel):
         "Time advances 15 min",
         f"{INV} rolls damage 1D3: {dice['total']}",
         f"hp: {INV} 12 -> {delta['after']}",
-        "Scene: Knott's Office -> hall-of-records (20 min)",
-        "Location: hall-of-records",
+        "Scene: Knott's Office -> Hall of Records (20 min)",
+        "Location: Hall of Records",
         "Present: the Hall of Records clerk",
     ]
     keeper_only = result["facts"]["keeper_only"]
