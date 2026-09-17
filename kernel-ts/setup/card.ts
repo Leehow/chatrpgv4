@@ -57,7 +57,14 @@ export function flowSkills(chargen: Chargen, input: FlowInput): Flow {
   for (const name of [...sheetIds, ...occupational, ...input.interestSkills, ...Object.keys(pins.skills)]) if (name !== 'Credit Rating' && !listed.includes(name)) listed.push(name);
   const base: Row = Object.fromEntries(listed.map(name => [name, chargen.skillBase(name, characteristics)]));
   const creditRange = (truth(spec.credit_rating_range) ? array(spec.credit_rating_range) : [0, 0]).map(number);
-  const credit = pins.credit_rating ? pins.credit_rating.value : input.previous ? input.previous.credit : creditRange[0];
+  const notes: Row[] = [];
+  let credit = pins.credit_rating ? pins.credit_rating.value : input.previous ? input.previous.credit : creditRange[0];
+  // Credit Rating belongs to the trade: an inherited rating outside the new trade's range is moved
+  // to the nearest bound and said; a pinned one is kept and said, and the card is non-standard.
+  if (credit < creditRange[0] || credit > creditRange[1]) {
+    if (pins.credit_rating) notes.push({code: 'credit_out_of_range', value: credit, range: creditRange, text: `Credit Rating ${credit} is outside the ${occupationName} range ${creditRange[0]}-${creditRange[1]}`});
+    else { const moved = Math.min(Math.max(credit, creditRange[0]), creditRange[1]); notes.push({code: 'credit_moved', from: credit, to: moved, range: creditRange, text: `Credit Rating moved from ${credit} to ${moved}, the ${occupationName} range being ${creditRange[0]}-${creditRange[1]}`}); credit = moved; }
+  }
   const occupationFormula = evaluateFormula(parseFormula(spec.skill_point_formula || ''), characteristics);
   const interestFormula = evaluateFormula(parseFormula(string(chargen.policy.formulas.personal_interest_points)), characteristics);
   const occupationTotal = bound('occupation_points', diff ? diff.adjustBudget('occupation', occupationFormula.total) : occupationFormula.total);
@@ -100,7 +107,7 @@ export function flowSkills(chargen: Chargen, input: FlowInput): Flow {
     return [soft, spent, total - spent];
   };
   const others = listed.filter(name => !isOccupational.has(name));
-  const [occupationSoft, occupationSpent, occupationUnspent] = pool(occupational, occupational, input.previous?.soft.occupation ?? {}, input.previous?.occupationSkills ?? [], Math.max(0, occupationTotal - credit), policy.tiers);
+  const [occupationSoft, occupationSpent, occupationUnspent] = pool(occupational, occupational, input.previous?.soft.occupation ?? {}, input.previous?.occupationSkills ?? [], occupationTotal - credit, policy.tiers);
   const [interestSoft, interestSpent, interestUnspent] = pool(others, input.interestSkills.filter(name => !isOccupational.has(name)), input.previous?.soft.interest ?? {}, input.previous?.interestSkills ?? [], interestTotal, interestPolicy.tiers);
   const skills: Row = {};
   for (const name of listed) skills[name] = Object.hasOwn(pins.skills, name) ? number(pins.skills[name].value) : number(base[name]) + (occupationSoft[name] ?? interestSoft[name] ?? 0);
@@ -118,7 +125,6 @@ export function flowSkills(chargen: Chargen, input: FlowInput): Flow {
   };
   // The notes are structured, so the card draws them in the play language from fixed words and the
   // numbers, and `text` is the English the model reads (contract §23: no hand-written player text).
-  const notes: Row[] = [];
   if (occupationUnspent < 0) notes.push({code: 'overspent', pool: 'occupation', amount: -occupationUnspent, text: `occupation points overspent by ${-occupationUnspent}`});
   else if (occupationUnspent > 0) notes.push({code: 'points_left', pool: 'occupation', amount: occupationUnspent, text: `occupation points left: ${occupationUnspent}`});
   if (interestUnspent < 0) notes.push({code: 'overspent', pool: 'interest', amount: -interestUnspent, text: `interest points overspent by ${-interestUnspent}`});
@@ -126,7 +132,7 @@ export function flowSkills(chargen: Chargen, input: FlowInput): Flow {
   for (const key of LIMIT_FIELDS) if (Object.hasOwn(relax, key)) notes.push({code: 'relaxed', limit: key, value: Math.trunc(number(relax[key])), text: `${key} relaxed to ${Math.trunc(number(relax[key]))}`});
   const overCap = listed.filter(name => number(skills[name]) > cap);
   if (overCap.length) notes.push({code: 'above_cap', cap, skills: overCap, text: `above the starting cap ${cap}: ${overCap.join(', ')}`});
-  const legal = occupationUnspent >= 0 && interestUnspent >= 0 && !overCap.length && !LIMIT_FIELDS.some(key => Object.hasOwn(relax, key));
+  const legal = occupationUnspent >= 0 && interestUnspent >= 0 && !overCap.length && !LIMIT_FIELDS.some(key => Object.hasOwn(relax, key)) && !notes.some(note => note.code === 'credit_out_of_range');
   const budget = {occupation: {total: occupationTotal, spent: credit + occupationSpent, unspent: occupationUnspent},
     interest: {total: interestTotal, spent: interestSpent, unspent: interestUnspent}, legal, notes};
   return {skills: Object.fromEntries(entries(skills).sort(([a], [b]) => compareUnicode(a, b))), credit, soft: {occupation: occupationSoft, interest: interestSoft}, ledger, budget, cap};

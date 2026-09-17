@@ -27,7 +27,7 @@ const FIELDS = ['name', 'occupation', 'age', 'sex', 'concept', 'occupation_skill
 const NUMBER_FIELDS = ['characteristics', 'skills', 'credit_rating'];
 const CHARACTERISTICS = ['STR', 'CON', 'SIZ', 'DEX', 'APP', 'INT', 'POW', 'EDU', 'LUCK'];
 /** What the name-resolution of one profile left behind, to ride out with the card. */
-interface Resolution { unresolved: Array<{given: string; candidates: string[]}>; moved_to_equipment: string[]; filled_in: string[] }
+interface Resolution { unresolved: Array<{given: string; candidates: string[]}>; moved_to_equipment: string[]; filled_in: string[]; moved_to_interest: string[] }
 export class SetupDrafts {
   constructor(readonly setup: Setup) {}
   async locked<T>(params: Row, action: (campaign: CampaignWriter) => Promise<T>): Promise<T> {
@@ -55,7 +55,7 @@ export class SetupDrafts {
    *  the equipment. Throws `needs` only for what the model must actually decide. */
   async resolveProfile(profile: Row, language: string, meta: Row): Promise<[Row, Resolution]> {
     const catalog = this.setup.catalog, issues: string[] = [], resolved: Row = {...profile};
-    const resolution: Resolution = {unresolved: [], moved_to_equipment: [], filled_in: []};
+    const resolution: Resolution = {unresolved: [], moved_to_equipment: [], filled_in: [], moved_to_interest: []};
     for (const field of ['name', 'occupation', 'concept', 'own_language']) if (!nonempty(profile[field])) issues.push(`${field} is required`);
     if (!nonempty(profile.sex)) issues.push('sex is required; draft the words the player used or your best reading, in the play language — the player corrects it on the card');
     const raw = profile.backstory, story = row(raw);
@@ -99,9 +99,10 @@ export class SetupDrafts {
         details: {field: 'occupation', given: profile.occupation, candidates: candidates.map(c => ({...c})) as unknown as Row[], ...(candidates.length ? {} : {options: catalog.occupationOptions(language) as unknown as Row[]})}});
     }
     resolved.occupation = occupation;
-    const [occupationSkills, filled] = catalog.fillOccupationSkills(occupation, occupationPicks, interests, this.standardSheet(await this.eraOf(profile, meta)));
-    resolved.occupation_skills = occupationSkills; resolution.filled_in = filled;
-    resolved.interest_skills = interests.filter(name => !occupationSkills.includes(name));
+    const [occupationSkills, filled, overflow] = catalog.fillOccupationSkills(occupation, occupationPicks, interests, this.standardSheet(await this.eraOf(profile, meta)));
+    resolved.occupation_skills = occupationSkills; resolution.filled_in = filled; resolution.moved_to_interest = overflow;
+    // A ninth occupation pick is not lost: it leads the interest list, and the result says so.
+    resolved.interest_skills = [...overflow, ...interests].filter((name, index, all) => !occupationSkills.includes(name) && all.indexOf(name) === index);
     // Weapons: printed profiles stay weapons; anything else is equipment under the player's name for it.
     const profiles = catalog.weaponProfiles(), weapons: string[] = [], equipment = [...array(profile.equipment).map(string)];
     if (Object.hasOwn(profile, 'weapons') && profile.weapons != null) {
@@ -260,6 +261,10 @@ export class SetupDrafts {
       const bounds = this.boundsFor(profile.occupation, meta.difficulty ?? null, relax);
       const pins = this.pinsFrom(params.numbers, params.by, emptyPins(), bounds, null, bounds.credit_rating_range, this.setup.chargen.difficultyPolicy(meta.difficulty ?? null), relax);
       const generated = await this.generate(seed, profile, pins, meta.difficulty ?? null);
+      for (const [name, pin] of entries(pins.skills)) {
+        const floor = this.setup.chargen.skillBase(name, generated.characteristics);
+        if (number(row(pin).value) < floor) throw new RpcError('needs', `${name} ${row(pin).value} is below its base chance ${floor}`, {details: {field: name, range: [floor, number(bounds.skill_cap)], attempted: number(row(pin).value)}});
+      }
       const built = await this.assemble({profile, era, authoredEra, seed, generated, pins, previous: null, relax, difficulty: meta.difficulty ?? null, spreadAll: false, language});
       const draft: Row = {revision: 1, play_language: language, seed, profile, sheet: built.sheet, pins, soft: built.soft, budget: built.budget,
         generation: {method: generated.method, seed}, input_key: params.input_key ?? null, receipt: built.receipt};
@@ -323,15 +328,16 @@ export class SetupDrafts {
     let generated = regenerate ? await this.generate(seed, profile, pins, meta.difficulty ?? null) : this.carried(previous);
     if (!regenerate && pinsChanged) {
       // A changed pin moves that characteristic only; the dice, the age table and Luck stand.
-      const characteristics = {...generated.characteristics};
-      for (const [abbr, pin] of entries(pins.characteristics)) characteristics[abbr] = Math.trunc(number(row(pin).value));
+      const characteristics = {...generated.characteristics}, record = clone(row(row(generated.trace).characteristics));
+      for (const [abbr, pin] of entries(pins.characteristics)) { characteristics[abbr] = Math.trunc(number(row(pin).value)); if (isJsonObject(record.values)) record.values[abbr] = characteristics[abbr]; }
+      record.pinned = Object.keys(pins.characteristics);
       const derived = await this.setup.chargen.derive(characteristics, number(row(row(row(previous.sheet).creation).age).mov_penalty));
-      generated = {...generated, characteristics, derived: derived.values, trace: {...generated.trace, derived: derived.trace}};
+      generated = {...generated, characteristics, derived: derived.values, trace: {...generated.trace, characteristics: record, derived: derived.trace}};
     }
     const soft = isJsonObject(previous.soft) ? previous.soft as unknown as Soft : {occupation: {}, interest: {}};
     const built = await this.assemble({profile, era, authoredEra, seed, generated, pins, previous: {soft, credit: number(row(previous.sheet).credit_rating),
       occupationSkills: array(row(previous.profile).occupation_skills).map(string), interestSkills: array(row(previous.profile).interest_skills).map(string)},
-      relax, difficulty: meta.difficulty ?? null, spreadAll: params.auto_spread === true, language});
+      relax, difficulty: meta.difficulty ?? null, spreadAll: params.auto_spread === true || options.reroll === true, language});
     const applied = [...Object.keys(patch), ...(params.numbers != null ? ['numbers'] : []), ...(params.limits != null ? ['limits'] : []), ...(params.auto_spread === true ? ['auto_spread'] : []), ...(options.reroll ? ['reroll'] : [])].sort();
     if (!options.reroll && !options.dryRun && equal(built.sheet, previous.sheet) && equal(profile, previous.profile) && equal(pins, priorPins) && equal(relax, previous.limits_override ?? {})) return this.result(previous, {applied: [], ...resolution});
     const draft: Row = {revision: number(previous.revision) + 1, play_language: language, seed, profile, sheet: built.sheet, pins, soft: built.soft, budget: built.budget,

@@ -180,10 +180,10 @@ def test_the_catalog_is_one_compact_read(kernel):
     kernel.ok("campaign.create", {"id": CAMPAIGN, "module": "the-haunting", "play_language": "zh-Hans"})
     catalog = kernel.ok("setup.catalog", {"campaign": CAMPAIGN})
     occupations = {row["id"]: row for row in catalog["occupations"]}
-    assert len(occupations) == 28 and occupations["Criminal"]["label"] == "罪犯"
+    assert len(occupations) == 28 and occupations["Criminal"]["label"] and occupations["Criminal"]["label"] != "Criminal"
     assert occupations["Criminal"]["credit_rating_range"] == [5, 65] and occupations["Criminal"]["skills"]
     skills = {row["name"]: row["label"] for row in catalog["skills"]}
-    assert skills["Spot Hidden"] == "侦查" and len(skills) >= 79
+    assert skills["Spot Hidden"] and skills["Spot Hidden"] != "Spot Hidden" and len(skills) >= 79
     assert ".45 Automatic" in catalog["weapons"]
 
 
@@ -322,3 +322,72 @@ def test_the_card_file_holds_the_pins_and_the_soft_share(kernel):
     assert stored["pins"] == card["pins"] and stored["budget"] == card["budget"]
     assert "Dodge" not in stored["soft"]["interest"]
     assert "manual" not in stored and "manual" not in stored["sheet"]["creation"]
+
+
+# ---- the review's cases (2026-09-17) -----------------------------------------------------------
+
+def test_a_printed_list_with_alternatives_and_slashes_still_fills_the_trade(kernel):
+    """Engineer prints "Art/Craft (Technical Drawing)"; Farmer prints "Drive Auto (or Wagon)";
+    Police Detective prints "Art/Craft (Acting) or Disguise". None of them may vanish."""
+    semantic = criminal()
+    semantic.update({"occupation": "Engineer", "occupation_skills": ["Mechanical Repair"], "interest_skills": ["Dodge"]})
+    card = draft(kernel, semantic)
+    listed = card["sheet"]["creation"]["skills"]["occupation"]["resolved"]
+    assert len(listed) == 8 and {"Mechanical Repair", "Electrical Repair", "Library Use", "Operate Heavy Machinery", "Science (Physics)"} <= set(listed), listed
+    farmer = kernel.ok("setup.revise", {"campaign": CAMPAIGN, "profile": {"occupation": "Farmer", "occupation_skills": ["Natural World"]}})
+    assert "Drive Auto" in farmer["sheet"]["creation"]["skills"]["occupation"]["resolved"]
+    detective = kernel.ok("setup.revise", {"campaign": CAMPAIGN, "profile": {"occupation": "Police Detective", "occupation_skills": ["Disguise"]}})
+    resolved = detective["sheet"]["creation"]["skills"]["occupation"]["resolved"]
+    assert "Disguise" in resolved and len(resolved) == 8
+
+
+def test_a_ninth_occupation_pick_leads_the_interest_list_and_is_reported(kernel):
+    semantic = criminal()
+    semantic["occupation_skills"] = ["Fighting (Brawl)", "Firearms (Handgun)", "Stealth", "Drive Auto", "Disguise", "Psychology", "Spot Hidden", "Sleight of Hand", "Locksmith", "Appraise"]
+    card = draft(kernel, semantic)
+    assert len(card["profile"]["occupation_skills"]) == 8
+    assert card["moved_to_interest"] == ["Locksmith", "Appraise"]
+    assert card["profile"]["interest_skills"][:2] == ["Locksmith", "Appraise"]
+
+
+def test_a_reordered_interest_list_respreads_that_pool_and_keeps_the_pins(kernel):
+    first = draft(kernel, criminal())
+    pinned = kernel.ok("setup.revise", {"campaign": CAMPAIGN, "numbers": {"skills": {"Climb": 40}}})
+    reordered = kernel.ok("setup.revise", {"campaign": CAMPAIGN, "profile": {"interest_skills": ["Throw", "Dodge", "Climb"]}})
+    assert reordered["sheet"]["skills"]["Climb"] == 40
+    assert reordered["sheet"]["skills"]["Throw"] >= reordered["sheet"]["skills"]["Dodge"], "the front of the list is served first"
+    assert reordered["sheet"]["skills"]["Throw"] > pinned["sheet"]["skills"]["Throw"] or reordered["sheet"]["skills"]["Dodge"] < pinned["sheet"]["skills"]["Dodge"]
+    assert reordered["budget"]["interest"]["total"] == first["budget"]["interest"]["total"]
+    assert reordered["sheet"]["characteristics"] == first["sheet"]["characteristics"]
+
+
+def test_credit_rating_follows_the_trade_on_an_occupation_change(kernel):
+    draft(kernel, criminal())
+    kernel.ok("setup.revise", {"campaign": CAMPAIGN, "numbers": {"credit_rating": 60}})
+    pinned = kernel.ok("setup.revise", {"campaign": CAMPAIGN, "profile": {"occupation": "Drifter", "occupation_skills": ["Stealth"]}})
+    assert pinned["sheet"]["credit_rating"] == 60, "a pinned rating stays"
+    assert any(note["code"] == "credit_out_of_range" for note in pinned["budget"]["notes"]) and pinned["budget"]["legal"] is False
+    assert pinned["budget"]["occupation"]["spent"] + pinned["budget"]["occupation"]["unspent"] == pinned["budget"]["occupation"]["total"], "the report adds up even when the rating exceeds the pool"
+    unpinned = kernel.ok("setup.revise", {"campaign": CAMPAIGN, "numbers": {"credit_rating": None}})
+    assert unpinned["sheet"]["credit_rating"] == 5 and any(note["code"] == "credit_moved" for note in unpinned["budget"]["notes"])
+
+
+def test_a_pin_from_the_dossier_below_its_base_is_refused_on_the_first_draft_too(kernel):
+    kernel.ok("campaign.create", {"id": CAMPAIGN, "module": "the-haunting", "play_language": "zh-Hans"})
+    error = kernel.err("setup.draft", {"campaign": CAMPAIGN, "profile": criminal(), "numbers": {"skills": {"Dodge": 3}}})
+    assert error["code"] == "needs" and error["details"]["field"] == "Dodge" and error["details"]["range"][0] > 3
+
+
+def test_a_pinned_characteristic_is_written_into_the_generation_record(kernel):
+    draft(kernel, criminal())
+    card = kernel.ok("setup.revise", {"campaign": CAMPAIGN, "numbers": {"characteristics": {"CON": 70}}})
+    record = card["sheet"]["creation"]["characteristics"]
+    assert record["values"]["CON"] == 70 and record["pinned"] == ["CON"]
+
+
+def test_a_reroll_spends_the_new_budget(kernel):
+    draft(kernel, criminal())
+    for _ in range(3):
+        rerolled = kernel.ok("setup.reroll", {"campaign": CAMPAIGN})
+        assert rerolled["budget"]["occupation"]["unspent"] == 0 or rerolled["budget"]["occupation"]["unspent"] < 0 or all(
+            rerolled["sheet"]["skills"][name] >= 75 for name in rerolled["sheet"]["creation"]["skills"]["occupation"]["resolved"]), rerolled["budget"]

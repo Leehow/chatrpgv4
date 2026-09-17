@@ -51,7 +51,8 @@ def test_override_one_characteristic_recomputes_derived_and_resets_currents(kern
     assert updated["creation"]["pins"]["characteristics"]["CON"] == {"value": edits["characteristics"]["CON"], "by": "player"}
     assert result["pins"]["characteristics"]["CON"]["value"] == edits["characteristics"]["CON"]
     assert updated["creation"]["method"] == sheet["creation"]["method"]
-    assert updated["creation"]["characteristics"] == sheet["creation"]["characteristics"], "the dice evidence stays"
+    assert updated["creation"]["characteristics"]["rolls"] == sheet["creation"]["characteristics"]["rolls"], "the dice evidence stays"
+    assert updated["creation"]["characteristics"]["pinned"] == ["CON"] and updated["creation"]["characteristics"]["values"]["CON"] == edits["characteristics"]["CON"]
     campaign = read_json(campaign_dir(kernel.workspace) / "campaign.json")
     assert campaign["setup"]["draft_revision"] == result["revision"]
     assert campaign["setup"].get("previewed_revision") is None
