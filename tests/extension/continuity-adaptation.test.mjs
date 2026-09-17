@@ -173,6 +173,43 @@ test('a conclusion whose bare name a clue also carries is still the thread it ca
     assert.equal(context.threads[0].importance, 'critical');
 });
 
+/**
+ * §56.1 keeps a Keeper's bare ambiguous name a refusal "with its candidates". The candidates were
+ * the half that stopped arriving: `resolveReference` read `candidate.id`, and `ModuleGraph.describe`
+ * answers `{name, kind, display_name}` with no `id` at all, so every candidate was dropped and a
+ * constant fallback -- the first eight scene/npc/clue nodes of the book -- was printed in its place.
+ *
+ * Measured on H-SIDE t4 (`homes/t4`, campaign game-1c0faba5, 121 turns): eight anchor refusals,
+ * eight different queries, one identical list of eight scene names in every one of them. Two of
+ * those queries were ambiguities whose right answer -- `scene: previous-tenants` and
+ * `scene: neighborhood-gossip` -- was not in the list the Keeper was shown, so the refusal named no
+ * way out of itself. The Keeper recovered by guessing the qualified form on three later turns and
+ * by abandoning the anchor on two others.
+ *
+ * The assertion is on both halves of the refusal, because either alone passes while the other is
+ * broken: the ambiguous pair must be exactly what comes back, and a node that is merely nearby must
+ * not.
+ */
+test('an ambiguous anchor names the kinds that collided, not the first nodes of the book', () => {
+    const nodes = [['scene', 'room', 'Room'], ['clue', 'shared', 'A page of the ledger'],
+        ['clue', 'evidence', 'The signature on the receipt'], ['npc', 'clerk', 'The clerk'],
+        ['conclusion', 'shared', 'The ledger and the receipt are one hand']]
+        .map(([node_kind, slug, name]) => ({node_id: `${node_kind}-${slug}`, node_kind, name, summary: name, properties: {}}));
+    const source = new api.ModuleGraph('collision', {nodes, relations: [], claims: []}, 'collision', {});
+    const world = {active_scene: 'room', discovered_clues: [], npc_presence: {}};
+    let error = null;
+    try { api.continuityView(source, world, [], [], {anchors: ['shared']}); }
+    catch (thrown) { error = thrown; }
+    assert.equal(error?.code, 'unknown_entity');
+    const candidates = (error.details?.candidates ?? []).map(value => value.name);
+    assert.deepEqual(candidates, ['clue: shared', 'conclusion: shared'],
+        'the refusal offers the two nodes that actually collided');
+    assert.ok(error.fix.includes('clue: shared'), 'and points at one of them by its qualified name');
+    // The fallback list would have opened with these; a caller reading it cannot tell a real
+    // candidate from a node that merely sorts first.
+    assert.ok(!candidates.includes('scene: room') && !candidates.includes('npc: clerk'));
+});
+
 test('a small capsule keeps the most recently acquired relationship ahead of an older alphabetical match', () => {
     const nodes = [['scene', 'room', 'Room'], ['clue', 'old', 'Old clue'], ['clue', 'new', 'New clue'],
         ['conclusion', 'a-old', 'Earlier relationship'], ['conclusion', 'z-new', 'Current relationship']]
