@@ -1,5 +1,5 @@
 /**
- * Contract §75. One call, one name for one place.
+ * Contract §76. One call, one name for one place.
  *
  * Turn 99 of campaign `game-1c0faba5` settled a single call into two cards the player reads side by
  * side: an item card saying the card was left at `Benefit Street office building` and, under it, a
@@ -26,7 +26,7 @@ async function named(game, label) {
     return here;
 }
 
-test('§75: one call that leaves an object behind and moves away gives the place one name', async t => {
+test('§76: one call that leaves an object behind and moves away gives the place one name', async t => {
     const game = await table(t), here = await named(game, 'The letting agent back room');
     const call_id = game.next();
     await game.call('table.apply', {call_id, effects: [
@@ -41,7 +41,7 @@ test('§75: one call that leaves an object behind and moves away gives the place
     assert.equal(item.to_label, await tableName(game, item.to), "the name is the table's, not the book's");
 });
 
-test("§75: an object taken back off a place is taken from the place's name at this table", async t => {
+test("§76: an object taken back off a place is taken from the place's name at this table", async t => {
     const game = await table(t), here = await named(game, 'The letting agent back room');
     await game.apply([{kind: 'object', name: 'Calling card', definition: 'Chair frame', to: 'here'}]);
     const call_id = game.next();
@@ -52,7 +52,7 @@ test("§75: an object taken back off a place is taken from the place's name at t
     assert.equal(item.to_label, game.sheet.name, 'a person carries their own name; nothing renames them');
 });
 
-test('§75: the label a card draws never becomes the identity an instance is stored under', async t => {
+test('§76: the label a card draws never becomes the identity an instance is stored under', async t => {
     const game = await table(t), here = await named(game, 'The letting agent back room');
     await game.apply([{kind: 'object', name: 'Calling card', definition: 'Chair frame', to: 'here'}]);
     const stored = Object.values((await game.world()).objects.instances).find(row => row.name === 'Calling card');

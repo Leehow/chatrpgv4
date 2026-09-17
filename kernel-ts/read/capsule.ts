@@ -7,7 +7,7 @@ import { incapacitatedBy } from "../healing/conditions.js";
 export const jsonSize = (value: any): number => Buffer.byteLength(pythonJsonDumps(value), "utf8");
 /**
  * The one name this table uses for a place, by its handle: the campaign label the Keeper gave it,
- * and the authored name only until one exists (contract §32, the place layer; §75).
+ * and the authored name only until one exists (contract §32, the place layer; §76).
  *
  * Every producer of a player-visible place name goes through here, because `world.scene_labels` is
  * the only record of what the table calls a place and a producer that skips it answers with the

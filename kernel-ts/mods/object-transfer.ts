@@ -4,7 +4,7 @@ import {placeLabel} from '../read/capsule.js';
 import {clone, row, string, type Row} from '../read/values.js';
 
 /**
- * What to call an object's owner on a card (§75).
+ * What to call an object's owner on a card (§76).
  *
  * An owner row is an identity: `objectOwner` mints it from the graph and `moveObject` stores it and
  * compares a later `from` against it, so its `name` stays the authored one and is never renamed
