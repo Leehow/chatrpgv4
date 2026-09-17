@@ -1,5 +1,6 @@
 import {useEffect, useRef, useState, type ReactNode} from 'react'
 import {CocCharacterDraftEdit} from './CocCharacterDraftEdit'
+import {groupSkills} from './coc-skill-groups'
 import './coc-character-draft.css'
 
 type Row = Record<string, any>
@@ -43,12 +44,18 @@ function failureText(value:unknown):string {
  * the single credit rating entry -- and an older revision carries none of it. Absence is drawn as
  * "nothing is pinned here", never as an empty card.
  */
-function pinnedCells(data:Row):{characteristic:(key:string)=>boolean;skill:(name:string)=>boolean} {
+function pinnedCells(data:Row):{characteristic:(key:string)=>string|undefined;skill:(name:string)=>string|undefined} {
   const pins=data.pins&&typeof data.pins==='object'&&!Array.isArray(data.pins)?data.pins as Row:undefined
-  const holds=(rows:unknown,key:string)=>!!rows&&typeof rows==='object'&&!!(rows as Row)[key]
+  // Who set it, or nothing at all: `undefined` is "no pin here", and a pin whose payload never
+  // said who set it is still a pin -- it draws the neutral mark rather than disappearing.
+  const holds=(rows:unknown,key:string):string|undefined=>{
+    const entry=rows&&typeof rows==='object'?(rows as Row)[key]:undefined
+    if(!entry)return undefined
+    return typeof entry==='object'&&typeof (entry as Row).by==='string'?(entry as Row).by:''
+  }
   return {
     characteristic:(key:string)=>holds(pins?.characteristics,key),
-    skill:(name:string)=>name==='Credit Rating'?!!pins?.credit_rating:holds(pins?.skills,name),
+    skill:(name:string)=>name==='Credit Rating'?holds(pins,'credit_rating'):holds(pins?.skills,name),
   }
 }
 /** One pool of the budget report, or nothing when the revision predates it. */
@@ -93,8 +100,10 @@ export function CocCharacterDraft({data,onRendered,onPresentation,onOverride,onC
   const pinned=pinnedCells(data)
   // The pin is a mark on the number, not a number of its own: it says who set this cell, so the
   // player can tell a figure they chose from one the allocator spread and will move again.
-  const pinMark=(held:boolean)=>held?<span className="coc-draft-pin" role="img" aria-label={t('Pinned')}>📌</span>:null
-  const values=(rows:Row,held?:(key:string)=>boolean)=><div className="coc-draft-table-scroll"><table className="coc-draft-table"><thead><tr><th>{t('Parameter')}</th><th>{t('Value')}</th></tr></thead><tbody>{Object.entries(rows).map(([key,value])=><tr key={key} className={held?.(key)?'coc-draft-pinned':undefined}><th scope="row">{t(key)}{pinMark(!!held?.(key))}</th><td>{cell(key==='DB'&&value==='none'?0:value)}</td></tr>)}</tbody></table></div>
+  // A number the player typed and a number the host inferred from what they said are both pins --
+  // both survive a spread and a reroll -- but only one of them is theirs, so the marker says which.
+  const pinMark=(by:string|undefined)=>by===undefined?null:<span className="coc-draft-pin" role="img" aria-label={by==='player'?t('Pinned by you'):by==='model'?t('Pinned by the host'):t('Pinned')}>📌</span>
+  const values=(rows:Row,held?:(key:string)=>string|undefined)=><div className="coc-draft-table-scroll"><table className="coc-draft-table"><thead><tr><th>{t('Parameter')}</th><th>{t('Value')}</th></tr></thead><tbody>{Object.entries(rows).map(([key,value])=><tr key={key} className={held?.(key)!==undefined?'coc-draft-pinned':undefined}><th scope="row">{t(key)}{pinMark(held?.(key))}</th><td>{cell(key==='DB'&&value==='none'?0:value)}</td></tr>)}</tbody></table></div>
   /**
    * One card action in flight at a time, and its refusal drawn where the card already draws one.
    *
@@ -154,11 +163,12 @@ export function CocCharacterDraft({data,onRendered,onPresentation,onOverride,onC
     const personal=allocationsAvailable?(interest.allocations[name]||0):undefined
     return {name,base:allocationsAvailable?Number(final)-occupational-personal:undefined,occupational,personal,final}
   })
-  const skillTable=<div className="coc-draft-table-scroll"><table className="coc-draft-table coc-draft-skill-detail"><thead><tr>{['Skill','Base value','Occupation points','Interest points','Final value'].map(key=><th key={key}>{t(key)}</th>)}</tr></thead><tbody>{skillRows.map(row=><tr key={row.name} className={pinned.skill(row.name)?'coc-draft-pinned':undefined}><th scope="row">{t(row.name)}{pinMark(pinned.skill(row.name))}</th><td>{amount(row.base)}</td><td>{amount(row.occupational)}</td><td>{amount(row.personal)}</td><td>{cell(row.final)}</td></tr>)}</tbody></table></div>
+  const skillRowsByName=new Map(skillRows.map(row=>[row.name,row]))
+  const skillTable=(names:readonly string[])=><div className="coc-draft-table-scroll"><table className="coc-draft-table coc-draft-skill-detail"><thead><tr>{['Skill','Base value','Occupation points','Interest points','Final value'].map(key=><th key={key}>{t(key)}</th>)}</tr></thead><tbody>{names.map(name=>skillRowsByName.get(name)).filter((row):row is NonNullable<typeof row>=>!!row).map(row=><tr key={row.name} className={pinned.skill(row.name)!==undefined?'coc-draft-pinned':undefined}><th scope="row">{t(row.name)}{pinMark(pinned.skill(row.name))}</th><td>{amount(row.base)}</td><td>{amount(row.occupational)}</td><td>{amount(row.personal)}</td><td>{cell(row.final)}</td></tr>)}</tbody></table></div>
   const budgets=[{key:'Occupation points',account:occupation,spent:typeof occupation?.spent==='number'&&typeof credit==='number'?occupation.spent+credit:undefined},{key:'Interest points',account:interest,spent:interest?.spent}]
   const statGrid=(rows:Row,derived=false)=><dl className={`coc-draft-stats${derived?' coc-draft-derived':''}`}>{Object.entries(rows).map(([key,value])=>{
-    const held=!derived&&pinned.characteristic(key)
-    return <div className={`coc-draft-stat${held?' coc-draft-pinned':''}`} key={key}><dt>{t(key)}{pinMark(held)}</dt><dd>{cell(key==='DB'&&value==='none'?0:value)}</dd></div>
+    const held=derived?undefined:pinned.characteristic(key)
+    return <div className={`coc-draft-stat${held===undefined?'':' coc-draft-pinned'}`} key={key}><dt>{t(key)}{pinMark(held)}</dt><dd>{cell(key==='DB'&&value==='none'?0:value)}</dd></div>
   })}</dl>
   /**
    * The budget is a report, not a gate (§98): two bars saying what each pool holds and what it has
@@ -193,6 +203,29 @@ export function CocCharacterDraft({data,onRendered,onPresentation,onOverride,onC
     if(note.code==='above_cap')return `${t('Above the starting cap')} ${note.cap}: ${(Array.isArray(note.skills)?note.skills:[]).map((name:unknown)=>t(String(name))).join(' / ')}`
     return t(String(note.code))
   }
+  /**
+   * The point-buy allowance the rulebook prints for characteristics, reported the way the two
+   * pools are (§98). It is a reference, not a gate: a card that spent more than it says still
+   * opens the table, and says by how much.
+   */
+  const characteristicPoints=pool(budget,'characteristics')
+  const characteristicLine=characteristicPoints&&<p className="coc-draft-characteristic-budget">
+    <span>{t('Characteristic points')}</span> <span className="coc-draft-budget-count">{amount(characteristicPoints.spent)} / {amount(characteristicPoints.total)}</span>
+    {characteristicPoints.unspent>0?<> · {t('Points left')} {characteristicPoints.unspent}</>:characteristicPoints.unspent<0?<> · {t('Overspent by')} {-characteristicPoints.unspent}</>:null}
+  </p>
+  /**
+   * Skills are drawn under the pool each was taken from (§98). The player asked which of these
+   * numbers their occupation paid for; the ledger has always known, and the card drew one
+   * undifferentiated list of forty. A revision whose ledger carries no lists draws that one list
+   * exactly as before, because three headings over it would claim something it does not record.
+   */
+  const skillGroups=groupSkills(Object.keys(sheet.skills||{}),sheet)
+  const groupHeading=(key:string)=>t(key==='occupation'?'Occupation skills':key==='interest'?'Interest skills':'Other skills')
+  const subset=(names:readonly string[]):Row=>Object.fromEntries(names.map(name=>[name,sheet.skills[name]]))
+  const skillSections=skillGroups
+    ?skillGroups.filter(group=>group.names.length>0).map(group=><div className="coc-draft-skill-group" key={group.key} data-skill-group={group.key}>
+      <h4>{groupHeading(group.key)}</h4>{showDetails?skillTable(group.names):values(subset(group.names),pinned.skill)}</div>)
+    :(showDetails?skillTable(Object.keys(sheet.skills||{})):values(sheet.skills,pinned.skill))
   const budgetBars=pools.length>0&&<div className="coc-draft-budget">
     {pools.map(({key,figures})=>{
       const total=figures!.total,spent=figures!.spent
@@ -226,9 +259,10 @@ export function CocCharacterDraft({data,onRendered,onPresentation,onOverride,onC
       {actionError&&<p className="coc-draft-note coc-draft-error" role="alert">{actionError}</p>}</header>
     <h3>{t('Characteristics')}</h3>{showDetails?<><p className="coc-draft-method">{generated.method==='rolled'?t('Standard rolled characteristics'):generated.method==='rolled_pool_assignment'?t('Rolled characteristics assigned to the stated aptitudes'):generated.method==='quick_fire'?t('Quick-fire array'):'—'} · {age.bracket||'—'}</p>
     {calculationTable(sheet.characteristics,generation)}{calculationTable(sheet.derived,derivedCalculation)}</>:<>{statGrid(sheet.characteristics)}{statGrid(sheet.derived,true)}</>}
+    {characteristicLine}
     {(pools.length>0||showDetails)&&<><h3>{t('Point allocation')}</h3>{budgetBars}
     {showDetails&&<table className="coc-draft-table coc-draft-budgets"><thead><tr>{['Point allocation','Total points','Spent','Remaining'].map(key=><th key={key}>{t(key)}</th>)}</tr></thead><tbody>{budgets.map(({key,account,spent})=><tr key={key}><th scope="row">{t(key)}</th><td>{amount(account?.budget?.total)}</td><td>{amount(spent)}</td><td>{amount(account?.unspent)}</td></tr>)}</tbody></table>}</>}
-    <h3>{t('Skills')}</h3>{showDetails?skillTable:values(sheet.skills,pinned.skill)}
+    <h3>{t('Skills')}</h3>{skillSections}
     <h3>{t('Finance')}</h3><dl className="coc-draft-finance">{[['cash',money(sheet.finance?.cash)],['assets',money(sheet.finance?.assets)],['spending',money(sheet.finance?.spending_level)],['credit_rating',sheet.credit_rating]].map(([key,value])=><div key={key}><dt>{t(key)}</dt><dd>{value}</dd></div>)}</dl>
     {/* A book set in a year the rulebook never tabulated builds these figures off the table's own
         nominated column (§23.4); the kernel records which setting that column stood in for. The

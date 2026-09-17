@@ -41,3 +41,8 @@
 @media (max-width: 600px) {
   .coc-draft-edit-grid, .coc-draft-edit-derived, .coc-draft-edit-limits { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+.coc-draft-edit-skill-group + .coc-draft-edit-skill-group { margin-top: 14px; }
+.coc-draft-edit-skill-group h4 { margin: 0 0 6px; color: var(--muted); font-size: 11px; font-weight: 650; letter-spacing: .03em; }
+.coc-draft-edit-group { margin-top: 4px; width: 100%; padding: 4px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); font: inherit; font-size: 11px; }
+.coc-draft-edit-characteristic-budget { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; margin-top: 10px; color: var(--muted); font-size: 12px; }

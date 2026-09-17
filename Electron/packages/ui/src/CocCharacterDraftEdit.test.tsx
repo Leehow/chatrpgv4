@@ -175,3 +175,123 @@ it('prefills the unlocked bounds from the persisted overrides without counting t
   // The persisted relaxation is the state in force, not a pending change: Save stays disabled.
   expect(within(dialog).getByRole('button',{name:'Save changes'})).toHaveProperty('disabled',true)
 })
+
+/**
+ * §98: the pools are the player's to decide. The occupation list is eight entries the rulebook
+ * pays for; everything else is either bought with interest points or is the base rating nobody
+ * bought. Moving a skill between them re-flows the points around the pins, so the lists ride back
+ * as a profile patch -- and only when one of them actually moved, because an unchanged pair would
+ * make every save a re-flow the player never asked for.
+ */
+const poolSkills={Accounting:50,Anthropology:25,Appraise:30,Archaeology:21,Art:25,Charm:35,Climb:40,'Credit Rating':30,Dodge:48,'Library Use':60,'Spot Hidden':45}
+const occupationList=['Accounting','Anthropology','Appraise','Archaeology','Art','Charm','Climb','Library Use']
+const pooledCreation={skills:{
+  occupation:{resolved:occupationList,budget:{total:248},spent:80,unspent:138,credit_rating:{value:30},allocations:{Accounting:45,'Library Use':35}},
+  interest:{pool:['Dodge'],budget:{total:110},spent:31,unspent:79,allocations:{Dodge:26}}}}
+const pooledSheet={...sheet,skills:poolSkills,creation:pooledCreation}
+const pooledCard=(override:ReturnType<typeof vi.fn>,extra:Record<string,any>={})=>
+  <CocCharacterDraft data={{revision:3,play_language:'en',sheet:pooledSheet,limits,presentation:{texts:{}},...extra}} onOverride={override as any}/>
+const section=(dialog:HTMLElement,key:string)=>dialog.querySelector(`[data-skill-group="${key}"]`) as HTMLElement
+const rowsOf=(dialog:HTMLElement,key:string)=>Array.from(section(dialog,key).querySelectorAll('.coc-draft-edit-field label span')).map(node=>node.textContent)
+
+it('seeds each skill into the pool the ledger took it from, and lists every skill on the sheet',async()=>{
+  const override=vi.fn(async()=>({}))
+  render(pooledCard(override))
+  const dialog=await openEditor()
+  expect(Array.from(dialog.querySelectorAll('[data-skill-group]')).map(node=>node.getAttribute('data-skill-group'))).toEqual(['occupation','interest','other'])
+  expect(Array.from(dialog.querySelectorAll('[data-skill-group] h4')).map(node=>node.textContent)).toEqual(['Occupation skills','Interest skills','Other skills'])
+  expect(rowsOf(dialog,'occupation')).toEqual(occupationList)
+  expect(rowsOf(dialog,'interest')).toEqual(['Dodge'])
+  // Credit Rating keeps its own field below and is never a skill row; Spot Hidden has no points
+  // at all and is still listed, because a skill you cannot see is a skill you cannot move.
+  expect(rowsOf(dialog,'other')).toEqual(['Spot Hidden'])
+  expect(within(dialog).getByRole('combobox',{name:'Dodge'})).toHaveProperty('value','interest')
+  expect(within(dialog).getByRole('combobox',{name:'Accounting'})).toHaveProperty('value','occupation')
+  expect(override).not.toHaveBeenCalled()
+})
+
+it('moves a row into the section it was given, and saves the two lists in the order they are drawn',async()=>{
+  const override=vi.fn(async()=>({revision:4,sheet:pooledSheet,limits}))
+  render(pooledCard(override))
+  const dialog=await openEditor()
+  fireEvent.change(within(dialog).getByRole('combobox',{name:'Spot Hidden'}),{target:{value:'interest'}})
+  expect(rowsOf(dialog,'interest')).toEqual(['Dodge','Spot Hidden'])
+  expect(rowsOf(dialog,'other')).toEqual([])
+  // The lists ride the live preview as well, so the finals recompute while the dialog is open.
+  await waitFor(()=>expect(override).toHaveBeenCalledWith({revision:3,edits:{},profile:{occupation_skills:occupationList,interest_skills:['Dodge','Spot Hidden']},dry_run:true}),{timeout:2000})
+  fireEvent.click(within(dialog).getByRole('button',{name:'Save changes'}))
+  await waitFor(()=>expect(override).toHaveBeenCalledWith({revision:3,edits:{},profile:{occupation_skills:occupationList,interest_skills:['Dodge','Spot Hidden']}}))
+})
+
+it('refuses a ninth occupation skill beside the row, and leaves it where it was',async()=>{
+  const override=vi.fn(async()=>({}))
+  render(pooledCard(override))
+  const dialog=await openEditor()
+  const selector=within(dialog).getByRole('combobox',{name:'Spot Hidden'})
+  fireEvent.change(selector,{target:{value:'occupation'}})
+  expect(await within(dialog).findByText('Eight occupation skills at most.')).toBeTruthy()
+  expect(selector).toHaveProperty('value','other')
+  expect(rowsOf(dialog,'occupation')).toEqual(occupationList)
+  // A refused pick is not a change: nothing is sent and Save stays where it was.
+  await new Promise(resolve=>setTimeout(resolve,600))
+  expect(override).not.toHaveBeenCalled()
+  expect(within(dialog).getByRole('button',{name:'Save changes'})).toHaveProperty('disabled',true)
+  // Room made by moving one out is room a ninth may take.
+  fireEvent.change(within(dialog).getByRole('combobox',{name:'Climb'}),{target:{value:'other'}})
+  fireEvent.change(selector,{target:{value:'occupation'}})
+  expect(rowsOf(dialog,'occupation')).toEqual(['Accounting','Anthropology','Appraise','Archaeology','Art','Charm','Library Use','Spot Hidden'])
+})
+
+it('sends no profile when only a number changed',async()=>{
+  const override=vi.fn(async()=>({revision:4,sheet:pooledSheet,limits}))
+  render(pooledCard(override))
+  const dialog=await openEditor()
+  fireEvent.change(within(dialog).getByRole('textbox',{name:'Accounting'}),{target:{value:'55'}})
+  fireEvent.click(within(dialog).getByRole('button',{name:'Save changes'}))
+  await waitFor(()=>expect(override.mock.calls.some(call=>(call as any[])[0].dry_run===undefined)).toBe(true))
+  for(const call of override.mock.calls)expect((call as any[])[0].profile).toBeUndefined()
+})
+
+/**
+ * Age is a characteristic edit in everything but name: the kernel reruns the age table on the same
+ * dice, so EDU, APP, movement and Luck move with it and the pinned numbers stay as typed. It rides
+ * the same profile patch, and the preview shows what it did.
+ */
+it('sends a changed age as part of the profile patch, and previews what it did',async()=>{
+  const aged={revision:3,sheet:{...pooledSheet,age:52,characteristics:{...characteristics,EDU:70,APP:50},derived:{...derived,MOV:7}},limits}
+  const override=vi.fn(async()=>aged)
+  render(pooledCard(override))
+  const dialog=await openEditor()
+  const field=within(dialog).getByRole('textbox',{name:'Age'})
+  expect(field).toHaveProperty('value','28')
+  expect(within(dialog).getByText('Age changes EDU, APP, movement and Luck.')).toBeTruthy()
+  fireEvent.change(field,{target:{value:'52'}})
+  await waitFor(()=>expect(override).toHaveBeenCalledWith({revision:3,edits:{},profile:{age:52},dry_run:true}),{timeout:2000})
+  await waitFor(()=>expect(within(dialog).getByText('7')).toBeTruthy())
+  fireEvent.click(within(dialog).getByRole('button',{name:'Save changes'}))
+  await waitFor(()=>expect(override).toHaveBeenCalledWith({revision:3,edits:{},profile:{age:52}}))
+})
+
+/**
+ * The point-buy allowance the rulebook prints. The dialog recomputes it from the eight fields on
+ * screen -- Luck is rolled, never bought -- so the player watches the allowance move under the
+ * cursor instead of after a round trip.
+ */
+it('recomputes the characteristic allowance from the fields being typed',async()=>{
+  const override=vi.fn(async()=>({}))
+  render(pooledCard(override,{budget:{characteristics:{total:460,spent:412,unspent:48}}}))
+  const dialog=await openEditor()
+  const line=()=>dialog.querySelector('.coc-draft-edit-characteristic-budget')?.textContent?.replace(/\s+/g,' ').trim()
+  expect(line()).toBe('Characteristic points 412 / 460 · Points left 48')
+  fireEvent.change(within(dialog).getByRole('textbox',{name:'STR'}),{target:{value:'90'}})
+  expect(line()).toBe('Characteristic points 462 / 460 · Overspent by 2')
+  fireEvent.change(within(dialog).getByRole('textbox',{name:'LUCK'}),{target:{value:'99'}})
+  expect(line()).toBe('Characteristic points 462 / 460 · Overspent by 2')
+})
+
+it('says nothing about a characteristic allowance the card does not carry',async()=>{
+  const override=vi.fn(async()=>({}))
+  render(pooledCard(override))
+  const dialog=await openEditor()
+  expect(dialog.querySelector('.coc-draft-edit-characteristic-budget')).toBeNull()
+})

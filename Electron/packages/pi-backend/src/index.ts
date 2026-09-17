@@ -9571,6 +9571,22 @@ export class PiHostBackend implements HostBackend {
       if(limitsOverride!==undefined&&!isRecord(limitsOverride))return this.cocDenied('invalid_params','Invalid limits override');
       const dryRun=isRecord(params)?params.dry_run:undefined;
       if(dryRun!==undefined&&typeof dryRun!=='boolean')return this.cocDenied('invalid_params','Invalid dry_run flag');
+      /**
+       * The card may now move a skill between the two pools and change the age (§98), which are
+       * profile facts rather than numeric edits. Exactly three keys travel this way, so a request
+       * cannot use the profile patch as an open door into the rest of the draft: the lists are
+       * arrays of names, the age is a whole number, and anything else is refused by name.
+       */
+      const profile=isRecord(params)?params.profile:undefined;
+      if(profile!==undefined) {
+        if(!isRecord(profile))return this.cocDenied('invalid_params','Invalid profile patch');
+        const names=(value:unknown)=>Array.isArray(value)&&value.every(entry=>typeof entry==='string');
+        const unknown=Object.keys(profile).filter(key=>!['occupation_skills','interest_skills','age'].includes(key));
+        if(unknown.length)return this.cocDenied('invalid_params',`Unknown profile field: ${unknown.join(', ')}`);
+        for(const key of ['occupation_skills','interest_skills'])
+          if(profile[key]!==undefined&&!names(profile[key]))return this.cocDenied('invalid_params',`Invalid ${key}`);
+        if(profile.age!==undefined&&!Number.isSafeInteger(profile.age))return this.cocDenied('invalid_params','Invalid age');
+      }
       const selected=await this.locate(sid), binding=await readCocBinding(selected.path);
       if(!binding||!this.managedNodeModulesRoot)return this.cocDenied('campaign_unbound','No campaign is bound');
       const repo=resolve(this.managedNodeModulesRoot,'..');
@@ -9578,6 +9594,7 @@ export class PiHostBackend implements HostBackend {
       // or sheet is never trusted (contract §23.4). The kernel validates the edits themselves.
       const request:Record<string,unknown>={campaign:binding.campaign,revision:Number(revision),edits};
       if(isRecord(limitsOverride))request.limits_override=limitsOverride;
+      if(isRecord(profile))request.profile=profile;
       if(dryRun===true)request.dry_run=true;
       try {
         const data=await callColdKernel(repo,binding.home,'setup.override',request,this.env,this.cocRuntime);

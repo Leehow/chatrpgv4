@@ -132,3 +132,44 @@ it('draft-override validates its own envelope before any kernel call',async()=>{
     expect(mocks.callColdKernel).not.toHaveBeenCalled();
   } finally {await backend.close();}
 },20000);
+
+/**
+ * §98: the card may move a skill between the two pools and change the age, which are profile facts
+ * rather than numeric edits. Exactly three keys travel this way, so the patch cannot be used as an
+ * open door into the rest of the draft.
+ */
+it('draft-override carries a profile patch of exactly the three fields the card can change',async()=>{
+  mocks.callColdKernel.mockReset();
+  const {backend,session}=await boundBackend();
+  try {
+    mocks.callColdKernel.mockResolvedValue({revision:2,sheet:{name:'Eileen'},labels:{}});
+    const profile={occupation_skills:['Accounting','Library Use'],interest_skills:['Dodge'],age:52};
+    await backend.handle('invokeExtension',['coc-keeper','draft-override',{revision:1,edits:{},profile},{sessionId:session.id}]);
+    expect(mocks.callColdKernel.mock.calls[0][3]).toEqual({campaign:'c1',revision:1,edits:{},profile});
+    // One list alone is a patch too; the kernel keeps whatever the card did not send.
+    await backend.handle('invokeExtension',['coc-keeper','draft-override',{revision:1,edits:{},profile:{age:19}},{sessionId:session.id}]);
+    expect(mocks.callColdKernel.mock.calls[1][3]).toEqual({campaign:'c1',revision:1,edits:{},profile:{age:19}});
+  } finally {await backend.close();}
+},20000);
+
+it('draft-override refuses a profile that is not the three fields, before any kernel call',async()=>{
+  mocks.callColdKernel.mockReset();
+  const {backend,session}=await boundBackend();
+  try {
+    const refuse=async(profile:unknown)=>{
+      const answer=await backend.handle('invokeExtension',['coc-keeper','draft-override',{revision:1,edits:{},profile},{sessionId:session.id}]) as any;
+      expect(answer.ok).toBe(false);
+      expect(answer.error.code).toBe('invalid_params');
+      return answer.error.message as string;
+    };
+    // A field nobody asked for is named, not silently dropped: a patch that half-applies is worse
+    // than one that is refused.
+    expect(await refuse({name:'Someone else'})).toContain('name');
+    expect(await refuse({occupation_skills:'Accounting'})).toContain('occupation_skills');
+    expect(await refuse({interest_skills:[7]})).toContain('interest_skills');
+    expect(await refuse({age:'52'})).toContain('age');
+    expect(await refuse({age:28.5})).toContain('age');
+    expect(await refuse('occupation_skills=Accounting')).toContain('profile');
+    expect(mocks.callColdKernel).not.toHaveBeenCalled();
+  } finally {await backend.close();}
+},20000);

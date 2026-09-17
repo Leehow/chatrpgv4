@@ -1,4 +1,5 @@
-import {useEffect,useRef,useState} from 'react'
+import {useEffect,useRef,useState,type ReactNode} from 'react'
+import {groupSkills,OCCUPATION_SKILL_LIMIT,type SkillGroupKey} from './coc-skill-groups'
 import './coc-character-draft-edit.css'
 
 type Row=Record<string,any>
@@ -68,6 +69,33 @@ export function CocCharacterDraftEdit({data,t,onOverride,onClose}:Props) {
   const [characteristics,setCharacteristics]=useState<Record<string,string>>(()=>Object.fromEntries(characteristicKeys.map(key=>[key,String(sheet.characteristics[key])])))
   const [skills,setSkills]=useState<Record<string,string>>(()=>Object.fromEntries(skillNames.map(name=>[name,String(sheet.skills[name])])))
   const [creditRating,setCreditRating]=useState<string>(sheet.credit_rating===undefined?'':String(sheet.credit_rating))
+  // Age is a characteristic edit in everything but name: the kernel reruns the age table on the
+  // same dice, so EDU, APP, movement and Luck all move with it, and the pins stay as typed.
+  const [age,setAge]=useState<string>(sheet.age===undefined?'':String(sheet.age))
+  /**
+   * Which pool each skill is taken from, as the player may now decide it (§98).
+   *
+   * The seed is the ledger's own two lists, so a dialog that is only opened and closed changes
+   * nothing. A skill's group is the player's answer to "did my occupation pay for this", and the
+   * kernel re-flows both pools around the pins when the lists move -- which is why the order rows
+   * sit in is sent as well: it is the order the points are spent in.
+   */
+  const seededGroups=():Record<string,SkillGroupKey>=>{
+    const seeded:Record<string,SkillGroupKey>={}
+    for(const group of groupSkills(skillNames,sheet)??[])for(const name of group.names)seeded[name]=group.key
+    for(const name of skillNames)if(!seeded[name])seeded[name]='other'
+    return seeded
+  }
+  const [groups,setGroups]=useState<Record<string,SkillGroupKey>>(seededGroups)
+  const [groupError,setGroupError]=useState<string|null>(null)
+  const inGroup=(key:SkillGroupKey)=>skillNames.filter(name=>groups[name]===key)
+  const chooseGroup=(name:string,key:SkillGroupKey)=>{
+    // Eight is the rulebook's occupation list, and the kernel refuses a ninth; refusing it here
+    // keeps the player from typing a whole card into a shape that cannot be saved.
+    if(key==='occupation'&&groups[name]!=='occupation'&&inGroup('occupation').length>=OCCUPATION_SKILL_LIMIT){setGroupError(name);return}
+    setGroupError(null)
+    setGroups(current=>({...current,[name]:key}))
+  }
   const [unlocked,setUnlocked]=useState(false)
   const [limitsDraft,setLimitsDraft]=useState<Record<string,string>>(()=>{
     const limits=readLimits(data.limits)
@@ -105,6 +133,21 @@ export function CocCharacterDraftEdit({data,t,onOverride,onClose}:Props) {
     if(credit!==undefined&&credit!==sheet.credit_rating)edits.credit_rating=credit
     return edits
   }
+  /**
+   * The two lists, sent only when one of them moved. An unchanged pair is not a patch: it would
+   * make every save a re-flow of points the player never asked to move.
+   */
+  const collectProfile=():Row|undefined=>{
+    const patch:Row={}
+    const seeded=seededGroups()
+    if(!skillNames.every(name=>seeded[name]===groups[name])) {
+      patch.occupation_skills=inGroup('occupation')
+      patch.interest_skills=inGroup('interest')
+    }
+    const years=parseWhole(age)
+    if(years!==undefined&&years!==sheet.age)patch.age=years
+    return Object.keys(patch).length?patch:undefined
+  }
   const collectLimitsOverride=():Row|undefined=>{
     const override:Row={}
     for(const field of LIMIT_FIELDS){const value=parseWhole(limitsDraft[field]||'');if(value!==undefined)override[field]=value}
@@ -140,10 +183,11 @@ export function CocCharacterDraftEdit({data,t,onOverride,onClose}:Props) {
   useEffect(()=>{
     const edits=collectEdits()
     const limitsOverride=collectLimitsOverride()
-    if(!Object.keys(edits).length&&!limitsOverride){sequence.current+=1;setPreview(null);setFieldErrors({});setPreviewFailed(false);return}
+    const profile=collectProfile()
+    if(!Object.keys(edits).length&&!limitsOverride&&!profile){sequence.current+=1;setPreview(null);setFieldErrors({});setPreviewFailed(false);return}
     const id=++sequence.current
     const timer=setTimeout(()=>{
-      void onOverride({revision:data.revision,edits,...(limitsOverride?{limits_override:limitsOverride}:{}),dry_run:true})
+      void onOverride({revision:data.revision,edits,...(limitsOverride?{limits_override:limitsOverride}:{}),...(profile?{profile}:{}),dry_run:true})
         .then(result=>{
           if(!alive.current||sequence.current!==id)return
           if(result?.superseded){setSuperseded(true);return}
@@ -155,20 +199,21 @@ export function CocCharacterDraftEdit({data,t,onOverride,onClose}:Props) {
         .catch(()=>{if(alive.current&&sequence.current===id)setPreviewFailed(true)})
     },400)
     return()=>clearTimeout(timer)
-  },[characteristics,skills,creditRating,limitsDraft])
+  },[characteristics,skills,creditRating,limitsDraft,groups,age])
 
   const save=async()=>{
     const invalid:Record<string,string>={}
     for(const key of characteristicKeys)if(parseWhole(characteristics[key]||'')===undefined)invalid[`characteristic:${key}`]=t('Enter a whole number.')
     for(const name of skillNames)if(parseWhole(skills[name]||'')===undefined)invalid[`skill:${name}`]=t('Enter a whole number.')
     if(parseWhole(creditRating)===undefined)invalid.credit_rating=t('Enter a whole number.')
+    if(parseWhole(age)===undefined)invalid.age=t('Enter a whole number.')
     if(Object.keys(invalid).length){setFieldErrors(invalid);return}
     sequence.current+=1
     setSaving(true)
     setSaveFailed(false)
     try {
-      const limitsOverride=collectLimitsOverride()
-      const result=await onOverride({revision:data.revision,edits:collectEdits(),...(limitsOverride?{limits_override:limitsOverride}:{})})
+      const limitsOverride=collectLimitsOverride(),profile=collectProfile()
+      const result=await onOverride({revision:data.revision,edits:collectEdits(),...(limitsOverride?{limits_override:limitsOverride}:{}),...(profile?{profile}:{})})
       if(!alive.current)return
       if(result?.superseded){setSuperseded(true);return}
       if(result?.ok===false){applyNeeds(result.error);return}
@@ -194,7 +239,7 @@ export function CocCharacterDraftEdit({data,t,onOverride,onClose}:Props) {
       interest_points:persistedLimits.interestTotal}[field]
   }
   const limitsChanged=LIMIT_FIELDS.some(field=>(parseWhole(limitsDraft[field]||'')??persistedValue(field))!==persistedValue(field))
-  const saveDisabled=saving||(!Object.keys(collectEdits()).length&&!limitsChanged)
+  const saveDisabled=saving||(!Object.keys(collectEdits()).length&&!limitsChanged&&!collectProfile())
   const ledger=viewSheet.creation?.skills||{}
   const occupation=ledger.occupation,interest=ledger.interest
   const ledgerCredit=finite(occupation?.credit_rating?.value)
@@ -210,13 +255,41 @@ export function CocCharacterDraftEdit({data,t,onOverride,onClose}:Props) {
   }
   const amount=(value:unknown)=>typeof value==='number'?String(value):'—'
   const rangeCaption=(min:number|undefined,max:number|undefined)=>`${t('Allowed range')}: ${amount(min)} – ${amount(max)}`
-  const field=(id:string,label:string,value:string,onChange:(next:string)=>void,caption:string)=>(
+  const field=(id:string,label:string,value:string,onChange:(next:string)=>void,caption:string,extra?:ReactNode)=>(
     <div className="coc-draft-edit-field" key={id}>
       <label><span>{label}</span><input inputMode="numeric" value={value} aria-invalid={!!fieldErrors[id]} onChange={event=>onChange(event.target.value)}/></label>
       <p className="coc-draft-edit-caption">{caption}</p>
+      {extra}
       {fieldErrors[id]&&<p className="coc-draft-edit-error" role="alert">{fieldErrors[id]}</p>}
     </div>
   )
+  /**
+   * The point-buy allowance for characteristics, recomputed from what the player is typing.
+   *
+   * The dialog computes no number it then saves -- this one is a reading of the eight fields on
+   * screen against the total the kernel put on the card, so the allowance moves under the cursor
+   * instead of a round trip later. Luck is rolled, never bought, so it is not in the sum. The
+   * dry-run answer carries the same figures, and they replace these the moment it lands.
+   */
+  const characteristicTotal=finite((view.budget as Row|undefined)?.characteristics?.total)??finite((data.budget as Row|undefined)?.characteristics?.total)
+  const characteristicSpend=characteristicKeys.filter(key=>key!=='LUCK')
+    .reduce((sum,key)=>sum+(parseWhole(characteristics[key]||'')??finite(sheet.characteristics?.[key])??0),0)
+  const characteristicLeft=characteristicTotal===undefined?undefined:characteristicTotal-characteristicSpend
+  const groupOrder:SkillGroupKey[]=['occupation','interest','other']
+  const groupHeading=(key:SkillGroupKey)=>t(key==='occupation'?'Occupation skills':key==='interest'?'Interest skills':'Other skills')
+  const skillField=(name:string)=>{
+    const base=skillBase(name)
+    const caption=base!==undefined&&limits?rangeCaption(base,limits.skillCap):limits?`${t('Starting skill cap')}: ${limits.skillCap}`:''
+    // The select carries the skill's own name, so it is the same row the number belongs to; role
+    // tells it apart from the input beside it.
+    const selector=<><select className="coc-draft-edit-group" aria-label={t(name)} value={groups[name]||'other'}
+      onChange={event=>chooseGroup(name,event.target.value as SkillGroupKey)}>
+      <option value="occupation">{t('Occupation')}</option>
+      <option value="interest">{t('Interest')}</option>
+      <option value="other">{t('Other')}</option>
+    </select>{groupError===name&&<p className="coc-draft-edit-error" role="alert">{t('Eight occupation skills at most.')}</p>}</>
+    return field(`skill:${name}`,t(name),skills[name]||'',next=>setSkills(current=>({...current,[name]:next})),caption,selector)
+  }
   const limitLabels:Record<LimitField,string>={characteristic_min:t('Characteristic minimum'),characteristic_max:t('Characteristic maximum'),skill_cap:t('Skill cap'),occupation_points:t('Occupation points'),interest_points:t('Interest points')}
   return <div className="coc-draft-edit-backdrop" onMouseDown={event=>{if(event.target===event.currentTarget)onClose()}}>
     <section className="coc-draft-edit" role="dialog" aria-modal="true" aria-label={t('Edit draft numbers')}>
@@ -228,16 +301,20 @@ export function CocCharacterDraftEdit({data,t,onOverride,onClose}:Props) {
         {fieldErrors.form&&<p className="coc-draft-edit-error" role="alert">{fieldErrors.form}</p>}
         {previewFailed&&<p className="coc-draft-edit-error" role="alert">{t('Preview unavailable')}</p>}
         <h3>{t('Characteristics')}</h3>
+        {field('age',t('Age'),age,setAge,t('Age changes EDU, APP, movement and Luck.'))}
         <div className="coc-draft-edit-grid">{characteristicKeys.map(key=>field(`characteristic:${key}`,t(key),characteristics[key]||'',next=>setCharacteristics(current=>({...current,[key]:next})),limits?rangeCaption(limits.characteristicMin,limits.characteristicMax):''))}</div>
+        {characteristicTotal!==undefined&&<p className="coc-draft-edit-characteristic-budget">
+          <span>{t('Characteristic points')}</span> <span>{characteristicSpend} / {characteristicTotal}</span>
+          {characteristicLeft!==undefined&&characteristicLeft>0?<> · {t('Points left')} {characteristicLeft}</>:characteristicLeft!==undefined&&characteristicLeft<0?<> · {t('Overspent by')} {-characteristicLeft}</>:null}
+        </p>}
         <h3>{t('Derived values')}</h3>
         <dl className="coc-draft-edit-derived">{Object.entries(viewSheet.derived||{}).map(([key,value])=><div key={key}><dt>{t(key)}</dt><dd>{key==='DB'&&value==='none'?0:String(value)}</dd><p className="coc-draft-edit-caption">{t('Calculated automatically')}</p></div>)}</dl>
         <h3>{t('Skills')}</h3>
         <table className="coc-draft-edit-budgets"><thead><tr><th>{t('Point allocation')}</th><th>{t('Total points')}</th><th>{t('Spent')}</th><th>{t('Remaining')}</th></tr></thead><tbody>{budgets.map(budget=><tr key={budget.key}><th scope="row">{t(budget.key)}</th><td>{amount(budget.total)}</td><td>{amount(budget.spent)}</td><td>{amount(budget.remaining)}</td></tr>)}</tbody></table>
-        <div className="coc-draft-edit-grid">{skillNames.map(name=>{
-          const base=skillBase(name)
-          const caption=base!==undefined&&limits?rangeCaption(base,limits.skillCap):limits?`${t('Starting skill cap')}: ${limits.skillCap}`:''
-          return field(`skill:${name}`,t(name),skills[name]||'',next=>setSkills(current=>({...current,[name]:next})),caption)
-        })}</div>
+        {groupOrder.map(key=><div className="coc-draft-edit-skill-group" key={key} data-skill-group={key}>
+          <h4>{groupHeading(key)}</h4>
+          <div className="coc-draft-edit-grid">{inGroup(key).map(name=>skillField(name))}</div>
+        </div>)}
         {field('credit_rating',t('Credit Rating'),creditRating,setCreditRating,limits?rangeCaption(limits.creditMin,limits.creditMax):'')}
         <h3>{t('Rules in force')}</h3>
         {limits&&<dl className="coc-draft-edit-limits">
