@@ -311,7 +311,7 @@ interface TableState {
 	/** The exact current player text (contract §32.3); a turn with none — the opening — puts nothing to review. */
 	playerText?: string;
 	/**
-	 * Contract §68: a resend held because it repeats, byte for byte, the words the running turn is
+	 * Contract §71: a resend held because it repeats, byte for byte, the words the running turn is
 	 * already working on. Held, never dropped: if that turn delivers, the resend is spent; if it
 	 * settles with nothing delivered, this is the retry the player meant and it is sent then.
 	 */
@@ -1903,7 +1903,7 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	/**
-	 * Contract §68. The player pressed the resend button on words the table is still working on. Nothing
+	 * Contract §71. The player pressed the resend button on words the table is still working on. Nothing
 	 * is semantic: it is the same string, in the same session, while the turn carrying it is alive, and
 	 * a machine can say so without reading a word of it. What the product could not do until now was
 	 * *say* so — on the retained table the duplicate ran as a second turn and the player was told
@@ -1923,7 +1923,7 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	/**
-	 * Contract §68: is this arrival a resend of the turn that is running?
+	 * Contract §71: is this arrival a resend of the turn that is running?
 	 *
 	 * Exact equality, and nothing else. No similarity, no normalisation, no prefix — a resend is the
 	 * same bytes because the button sends the same bytes, and any looser test would be a reading of
@@ -2799,7 +2799,7 @@ export default function (pi: ExtensionAPI) {
 	const waitingInputs: Array<{ text: string; images?: ImageContent[] }> = [];
 	pi.on("input", (event, ctx) => {
 		if (setupMode || !table || ctx.isIdle()) return;
-		// Contract §68. A resend is not a second turn. Held under its own name rather than queued, so
+		// Contract §71. A resend is not a second turn. Held under its own name rather than queued, so
 		// that the turn it duplicates decides what it was: a duplicate if that turn delivers, the
 		// player's retry if it does not. Either way the player is told now, not never.
 		if (isResendOfRunningTurn(table, event)) {
@@ -2868,7 +2868,7 @@ export default function (pi: ExtensionAPI) {
 			}
 		}
 		if (!CLOSED_STATES.has(table.state) && !undelivered) return;
-		// Contract §68: the held resend is settled here, by the turn it repeated. A turn that delivered
+		// Contract §71: the held resend is settled here, by the turn it repeated. A turn that delivered
 		// answered those words already, so running them again would only cost the player a turn of clock
 		// and budget for prose about repeating himself. A turn that delivered nothing did not, and the
 		// resend is exactly the retry the player pressed the button for -- it goes, and §38's stranded
@@ -2984,7 +2984,7 @@ export default function (pi: ExtensionAPI) {
 			state.mapAttachments = [];
 			// A new player input is a new context (contract §32.4): no verdict outlives it.
 			state.playerText = text;
-			// §68: a hold belongs to the turn that was running when it arrived and never outlives it.
+			// §71: a hold belongs to the turn that was running when it arrived and never outlives it.
 			state.resend = undefined;
 			state.admission = new Map();
 			state.admissionRefused = [];

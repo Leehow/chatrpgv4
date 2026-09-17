@@ -9572,6 +9572,7 @@ harm to an NPC mints `delta` and `condition` receipts about him and moves `npc_r
 investigator is untouched; the capsule gains `state.incapacitated` only once he is down; First Aid
 with him as `target` moves his hit points and not the rescuer's; and First Aid with an investigator
 as `target` still moves hers and not the NPC rescuer's.
+
 ## 67. A refusal the host issued is still a refusal (2026-09-16)
 
 Real table, during character creation on the deployed build. The turn had never
@@ -9680,162 +9681,6 @@ no levels, which is exactly what was seen. The mechanism was not reproduced, so
 it is not guessed at further here. Anyone picking this up should start by
 failing `loadModelCatalog` and reading `getModelState` for a session that has a
 model recorded, rather than trusting this paragraph.
-
-## 70. A turn that never opened also has to end (2026-09-16)
-
-§67 made the host's own refusals count, and in the next real game the Keeper was
-told: its reasoning names the budget — *"the kernel refused my resolve attempts
-(8 refusals)"*, *"the '8 refusals this turn' message appeared"* — and it changed
-plan instead of silently resending a twenty-third time. That part worked.
-
-What it then did was keep calling anyway. Each call was blocked cheaply, so the
-refusals stayed bounded; the **turn** did not. Five minutes of blocked
-`resolve`/`apply` pairs on a table that could not move, with a player waiting.
-
-### 70.1 The cut only knew about closed turns
-
-§34.16 already has the escalation this needs: three blocked calls get a firmer
-answer, the sixth aborts the run. It is gated on `state.closedThisRun` — a turn
-that was closed with narrate and then kept being called. Here the turn had never
-*opened* (`turn: 0`, `awaiting_player`), so nothing incremented and nothing cut.
-Same runaway, the other end of the turn, no coverage.
-
-### 70.2 The contract
-
-**Whichever way a turn is unable to proceed, it ends.** A call blocked because
-the refusal budget is spent now escalates exactly like one blocked after a
-close: `blockedAfterExhausted` counts them, the third carries *call no further
-tool and write nothing more* on top of the budget's own closing instruction, and
-the sixth sets `runCut` and aborts the run. The counter resets with the others
-at turn boundaries, and its telemetry says `after: "refusal_budget"` so a
-runaway before the turn opened can be told from one after it closed.
-
-The budget's message is unchanged and still says how to finish properly — close
-with narrate, or hand the player the choice with ask. The cut is what happens
-when that is ignored, not a replacement for it.
-
-Test in `tests/extension/gates.test.mjs`: fourteen scripted `resolve` attempts
-with the opening unread; the class budget trips, a later block carries the
-harder line, one `runaway` row with `after: "refusal_budget"` is recorded, and
-the run stops before the fourteenth. It fails if the block stops counting.
-
-## 68. A resend is not a second turn (2026-09-16)
-
-Real table, `playtest-evidence/pipicoc-20260914`, home `t4`, campaign
-`game-1c0faba5`. The player reloaded the page while the Keeper was generating,
-concluded from the blank screen that the turn had died with it, and pressed the
-resend button on his own message bubble. The turn had not died:
-
-```
-turn 75   510 chars   4 receipts   correct
-turn 76   193 chars   1 receipt    apply t76-c1 action_not_authorized
-```
-
-`turns/0075.json` and `turns/0076.json` carry the same `player_text`, byte for
-byte. Turn 75 closed at 18:44:31; turn 76's `table.player_input` was issued at
-18:44:39 and opened at 18:44:51 — the resend had been held in `waitingInputs`
-while turn 75 ran, and replayed at `agent_settled` as an ordinary next turn.
-
-Nowhere did the product say the word duplicate. Not on screen, not in
-`turn.json`, not in telemetry. Three things followed from that silence:
-
-1. The player got a thin turn with no explanation and read it as himself
-   stuttering.
-2. A turn of clock and of budget was spent on it.
-3. The verifier reported the resulting prose as `player_agency` — *"她把同样的话
-   再说一遍"* — because it judges whether the prose chose for the player, and
-   nothing it can see says the player sent those words twice.
-
-The engine's half was right throughout. `action_not_authorized` on `t76-c1` is
-the rules engine correctly declining to file the same complaint a second time.
-The defect is that the fact was invisible to the player and to the lane.
-
-### 68.1 The host owns it, because only the host can see it
-
-The question "is this the same message as the one being worked on" is answered
-where the message arrives while the run is in flight: `pi.on("input")` in the
-kernel extension, which already fires only when the session is not idle. At that
-moment the host holds the turn's own `playerText` and its state, so the test is
-three mechanical facts and no reading of meaning:
-
-- the arriving `text` is **exactly equal** to `state.playerText`,
-- the turn carrying those words is still `open` or `acting`,
-- the arrival carries no images (the button sends text alone).
-
-**Exact equality, and nothing looser, ever.** No similarity, no normalisation,
-no prefix. A resend is the same bytes because the button sends the same bytes;
-anything wider would be a heuristic standing in for a judgement about what the
-player meant, which is the one thing §「语义问题不许硬编码」forbids.
-
-The frontend is not the place for it. `resendDisabled` in `Electron/packages/ui/
-src/App.tsx` is `!canWriteLease || streaming || sessionQueue.busy`, and
-`streaming` is renderer state that a reload sets back to `false` — which is
-exactly how the retained table got here. Even a renderer that recovered it
-perfectly would still be racing the run's end, and a second client (remote web
-is its own deploy) would not be in the race at all. A frontend gate is a
-courtesy; the host is the authority.
-
-### 68.2 Held, never dropped, and never silent
-
-The player pressed that button for a reason: he believed the turn was dead. So
-the resend is neither run nor discarded. It is **held under its own name**, and
-the turn it duplicated decides what it was:
-
-- **the turn delivers** → the resend is spent (`resend_folded`). Those words
-  were answered; running them again buys prose about repeating oneself.
-- **the turn settles with nothing delivered** → §38 strands it, and the held
-  resend is exactly the retry the player meant. It is sent, carrying §38's
-  `release: "stranded"` (`resend_released`).
-
-Either way the player is told **at once**, not at the end: a `coc-delivery`
-notice with `details.resend_held`, from the `resend_held_notice` caption, on the
-channel the other service notices use — because he is looking at the screen he
-just pressed a button on. Once per turn, not once per click.
-
-### 68.3 The three ends (§31)
-
-- **Who writes it.** `pi.on("input")` in `extensions/kernel/index.ts`, on the
-  arrival, from `state.playerText` and `state.state`.
-- **Who reads it.** The player, in the notice, while the turn is still running;
-  and `agent_settled`, which decides between folding and releasing.
-- **Who acts on it.** Telemetry rows `lane: "turn"`, `event: resend_held` then
-  `resend_folded` | `resend_released`, on the turn that paid for it.
-
-### 68.4 What this does not do: the verifier still cannot see a resend
-
-`buildVerifierInput` (`extensions/kernel/verifier.ts`) hands the lane the
-delivered prose and three fact lists. **It does not include the player's declared
-text at all.** So a `player_agency` judgement — "the prose makes a voluntary
-choice the player did not declare" — is made without the declaration in front of
-it, and marking a turn as a resend would reach a reader that does not exist.
-Consequence 3 above is repaired here only because the second turn no longer
-happens. The lane's blind spot is real and is not this section's; it is the same
-collision `docs/specs/turn-floor.md` records between the verifier's
-`player_agency` and the floor's uptake requirement.
-
-### 68.5 Still open: a client that drops mid-generation says nothing
-
-Same table, same cause. When the client goes away during generation the turn
-stays `state: "open"` with the input already stored, the host keeps running, and
-the player side shows nothing at all — no "still working", no recovery line. The
-only way back in is the resend button, and that button lives in
-`.message-action-bar`, which is `opacity: 0; pointer-events: none` until the row
-is hovered or focused (`Electron/packages/ui/src/message-actions.css`). A player
-who does not hover has no visible way to do anything, and a player who does hover
-presses the one control he can find. **This is very likely the same root**: the
-resend was a rational response to a screen that had stopped telling him anything.
-Not repaired here — recorded so the decision is made rather than inherited.
-
-### 68.6 Tests
-
-`tests/extension/resend-is-not-a-second-turn.test.mjs`, three cases driving the
-real path (a prompt, then a second message while the Keeper streams, with the
-delivery gated so the window is not a race): the identical resend opens no second
-turn and is announced to the player; a resend held by a turn that then delivers
-nothing is sent as that turn's `release: "stranded"` retry; and a message one
-character different is an ordinary queued turn with nothing held. Each case dies
-to a different mutation — disabling the fold, loosening equality to a prefix,
-always folding, and holding silently.
 
 ## 69. A turn that settled and was never told reaches the next capsule (2026-09-16, extends §38 and §50)
 
@@ -9975,3 +9820,159 @@ translation is forbidden outright (§23).
 Tests: `tests/extension/untold-turn-receipts.test.mjs`, against the real kernel over RPC, gating the
 undelivered turn with `release: "stranded"` rather than by racing a delivery. Each test fails when the
 `untold` wiring is reverted; the discharge test fails on its own when the self-clearing predicate is.
+
+## 70. A turn that never opened also has to end (2026-09-16)
+
+§67 made the host's own refusals count, and in the next real game the Keeper was
+told: its reasoning names the budget — *"the kernel refused my resolve attempts
+(8 refusals)"*, *"the '8 refusals this turn' message appeared"* — and it changed
+plan instead of silently resending a twenty-third time. That part worked.
+
+What it then did was keep calling anyway. Each call was blocked cheaply, so the
+refusals stayed bounded; the **turn** did not. Five minutes of blocked
+`resolve`/`apply` pairs on a table that could not move, with a player waiting.
+
+### 70.1 The cut only knew about closed turns
+
+§34.16 already has the escalation this needs: three blocked calls get a firmer
+answer, the sixth aborts the run. It is gated on `state.closedThisRun` — a turn
+that was closed with narrate and then kept being called. Here the turn had never
+*opened* (`turn: 0`, `awaiting_player`), so nothing incremented and nothing cut.
+Same runaway, the other end of the turn, no coverage.
+
+### 70.2 The contract
+
+**Whichever way a turn is unable to proceed, it ends.** A call blocked because
+the refusal budget is spent now escalates exactly like one blocked after a
+close: `blockedAfterExhausted` counts them, the third carries *call no further
+tool and write nothing more* on top of the budget's own closing instruction, and
+the sixth sets `runCut` and aborts the run. The counter resets with the others
+at turn boundaries, and its telemetry says `after: "refusal_budget"` so a
+runaway before the turn opened can be told from one after it closed.
+
+The budget's message is unchanged and still says how to finish properly — close
+with narrate, or hand the player the choice with ask. The cut is what happens
+when that is ignored, not a replacement for it.
+
+Test in `tests/extension/gates.test.mjs`: fourteen scripted `resolve` attempts
+with the opening unread; the class budget trips, a later block carries the
+harder line, one `runaway` row with `after: "refusal_budget"` is recorded, and
+the run stops before the fourteenth. It fails if the block stops counting.
+
+## 71. A resend is not a second turn (2026-09-16)
+
+Real table, `playtest-evidence/pipicoc-20260914`, home `t4`, campaign
+`game-1c0faba5`. The player reloaded the page while the Keeper was generating,
+concluded from the blank screen that the turn had died with it, and pressed the
+resend button on his own message bubble. The turn had not died:
+
+```
+turn 75   510 chars   4 receipts   correct
+turn 76   193 chars   1 receipt    apply t76-c1 action_not_authorized
+```
+
+`turns/0075.json` and `turns/0076.json` carry the same `player_text`, byte for
+byte. Turn 75 closed at 18:44:31; turn 76's `table.player_input` was issued at
+18:44:39 and opened at 18:44:51 — the resend had been held in `waitingInputs`
+while turn 75 ran, and replayed at `agent_settled` as an ordinary next turn.
+
+Nowhere did the product say the word duplicate. Not on screen, not in
+`turn.json`, not in telemetry. Three things followed from that silence:
+
+1. The player got a thin turn with no explanation and read it as himself
+   stuttering.
+2. A turn of clock and of budget was spent on it.
+3. The verifier reported the resulting prose as `player_agency` — *"她把同样的话
+   再说一遍"* — because it judges whether the prose chose for the player, and
+   nothing it can see says the player sent those words twice.
+
+The engine's half was right throughout. `action_not_authorized` on `t76-c1` is
+the rules engine correctly declining to file the same complaint a second time.
+The defect is that the fact was invisible to the player and to the lane.
+
+### 71.1 The host owns it, because only the host can see it
+
+The question "is this the same message as the one being worked on" is answered
+where the message arrives while the run is in flight: `pi.on("input")` in the
+kernel extension, which already fires only when the session is not idle. At that
+moment the host holds the turn's own `playerText` and its state, so the test is
+three mechanical facts and no reading of meaning:
+
+- the arriving `text` is **exactly equal** to `state.playerText`,
+- the turn carrying those words is still `open` or `acting`,
+- the arrival carries no images (the button sends text alone).
+
+**Exact equality, and nothing looser, ever.** No similarity, no normalisation,
+no prefix. A resend is the same bytes because the button sends the same bytes;
+anything wider would be a heuristic standing in for a judgement about what the
+player meant, which is the one thing §「语义问题不许硬编码」forbids.
+
+The frontend is not the place for it. `resendDisabled` in `Electron/packages/ui/
+src/App.tsx` is `!canWriteLease || streaming || sessionQueue.busy`, and
+`streaming` is renderer state that a reload sets back to `false` — which is
+exactly how the retained table got here. Even a renderer that recovered it
+perfectly would still be racing the run's end, and a second client (remote web
+is its own deploy) would not be in the race at all. A frontend gate is a
+courtesy; the host is the authority.
+
+### 71.2 Held, never dropped, and never silent
+
+The player pressed that button for a reason: he believed the turn was dead. So
+the resend is neither run nor discarded. It is **held under its own name**, and
+the turn it duplicated decides what it was:
+
+- **the turn delivers** → the resend is spent (`resend_folded`). Those words
+  were answered; running them again buys prose about repeating oneself.
+- **the turn settles with nothing delivered** → §38 strands it, and the held
+  resend is exactly the retry the player meant. It is sent, carrying §38's
+  `release: "stranded"` (`resend_released`).
+
+Either way the player is told **at once**, not at the end: a `coc-delivery`
+notice with `details.resend_held`, from the `resend_held_notice` caption, on the
+channel the other service notices use — because he is looking at the screen he
+just pressed a button on. Once per turn, not once per click.
+
+### 71.3 The three ends (§31)
+
+- **Who writes it.** `pi.on("input")` in `extensions/kernel/index.ts`, on the
+  arrival, from `state.playerText` and `state.state`.
+- **Who reads it.** The player, in the notice, while the turn is still running;
+  and `agent_settled`, which decides between folding and releasing.
+- **Who acts on it.** Telemetry rows `lane: "turn"`, `event: resend_held` then
+  `resend_folded` | `resend_released`, on the turn that paid for it.
+
+### 71.4 What this does not do: the verifier still cannot see a resend
+
+`buildVerifierInput` (`extensions/kernel/verifier.ts`) hands the lane the
+delivered prose and three fact lists. **It does not include the player's declared
+text at all.** So a `player_agency` judgement — "the prose makes a voluntary
+choice the player did not declare" — is made without the declaration in front of
+it, and marking a turn as a resend would reach a reader that does not exist.
+Consequence 3 above is repaired here only because the second turn no longer
+happens. The lane's blind spot is real and is not this section's; it is the same
+collision `docs/specs/turn-floor.md` records between the verifier's
+`player_agency` and the floor's uptake requirement.
+
+### 71.5 Still open: a client that drops mid-generation says nothing
+
+Same table, same cause. When the client goes away during generation the turn
+stays `state: "open"` with the input already stored, the host keeps running, and
+the player side shows nothing at all — no "still working", no recovery line. The
+only way back in is the resend button, and that button lives in
+`.message-action-bar`, which is `opacity: 0; pointer-events: none` until the row
+is hovered or focused (`Electron/packages/ui/src/message-actions.css`). A player
+who does not hover has no visible way to do anything, and a player who does hover
+presses the one control he can find. **This is very likely the same root**: the
+resend was a rational response to a screen that had stopped telling him anything.
+Not repaired here — recorded so the decision is made rather than inherited.
+
+### 71.6 Tests
+
+`tests/extension/resend-is-not-a-second-turn.test.mjs`, three cases driving the
+real path (a prompt, then a second message while the Keeper streams, with the
+delivery gated so the window is not a race): the identical resend opens no second
+turn and is announced to the player; a resend held by a turn that then delivers
+nothing is sent as that turn's `release: "stranded"` retry; and a message one
+character different is an ordinary queued turn with nothing held. Each case dies
+to a different mutation — disabling the fold, loosening equality to a prefix,
+always folding, and holding silently.

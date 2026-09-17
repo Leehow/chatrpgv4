@@ -1,5 +1,5 @@
 /**
- * Contract §68. A resend is not a second turn.
+ * Contract §71. A resend is not a second turn.
  *
  * Retained live evidence (`playtest-evidence/pipicoc-20260914`, home `t4`, campaign
  * `game-1c0faba5`, 2026-09-16). The player reloaded the page mid-generation, believed the turn had
@@ -139,7 +139,7 @@ test("a resend held by a turn that then delivers nothing is sent as that turn's 
 });
 
 /**
- * Exact equality is the whole test (§68). One character apart is a different sentence the player
+ * Exact equality is the whole test (§71). One character apart is a different sentence the player
  * chose to write, and the product has no business reading how close two sentences are.
  */
 test("a message that is not byte-identical is an ordinary queued turn, not a resend", async (t) => {
