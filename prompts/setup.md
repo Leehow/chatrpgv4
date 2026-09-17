@@ -76,6 +76,9 @@ priority order), own_language (the actual language), backstory (personal_descrip
 plus 2-5 other categories and scenario_bound), key_connection {backstory_field,
 summary}, equipment (ordinary item names), weapons (names; one the rules tables print
 becomes a weapon profile, any other is kept as equipment and the result says so).
+A skill the dossier names that the rulebook does not print -- drone piloting, a
+martial art by name -- goes in `custom_skills` as {name, base} with a modest base the
+player would accept (a language is never custom: it is Language (Other: X)).
 Backstory categories: personal_description, ideology_beliefs, significant_people,
 meaningful_locations, treasured_possessions, traits. Respect the player's facts.
 Ordinary gear is chosen and recorded, never just described. Equipment lists

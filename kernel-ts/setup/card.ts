@@ -14,7 +14,10 @@ import type { ResolvedDifficulty } from './difficulty.js';
 export const PIN_ORIGINS = Object.freeze(['player', 'model']);
 export const LIMIT_FIELDS = Object.freeze(['characteristic_min', 'characteristic_max', 'skill_cap', 'occupation_points', 'interest_points']);
 export interface Pin { value: number; by: string; points?: number }
-export interface Pins { characteristics: Record<string, Pin>; skills: Record<string, Pin>; credit_rating?: Pin }
+/** A skill pin is points, in the rulebook's two columns: occupation points and interest points
+ *  above the base. The value follows the base (Dodge is half DEX), the way the worksheet does. */
+export interface SkillPin { by: string; occupation: number; interest: number; value?: number }
+export interface Pins { characteristics: Record<string, Pin>; skills: Record<string, SkillPin>; credit_rating?: Pin }
 export interface Soft { occupation: Record<string, number>; interest: Record<string, number> }
 export const emptyPins = (): Pins => ({characteristics: {}, skills: {}});
 const sum = (values: Iterable<number>): number => [...values].reduce((total, value) => total + value, 0);
@@ -22,6 +25,8 @@ const sum = (values: Iterable<number>): number => [...values].reduce((total, val
 export interface FlowInput {
   characteristics: Row; occupation: string; era: string;
   occupationSkills: string[]; interestSkills: string[];
+  /** Skills the player invented, with the base chance they gave them (§98 addendum). */
+  customSkills: Array<{name: string; base: number}>;
   pins: Pins; previous: {soft: Soft; credit: number; occupationSkills: string[]; interestSkills: string[]} | null;
   relax: Row; difficulty: ResolvedDifficulty | null; spreadAll: boolean;
 }
@@ -59,8 +64,9 @@ export function flowSkills(chargen: Chargen, input: FlowInput): Flow {
   if (!Object.keys(standard).length) for (const [name, spec] of entries(chargen.skillTable)) if (row(spec).modern_only === true && !sheetIds.includes(name)) sheetIds.push(name);
   const occupational = input.occupationSkills.filter(name => name !== 'Credit Rating');
   const listed: string[] = [];
-  for (const name of [...sheetIds, ...occupational, ...input.interestSkills, ...Object.keys(pins.skills)]) if (name !== 'Credit Rating' && !listed.includes(name)) listed.push(name);
-  const base: Row = Object.fromEntries(listed.map(name => [name, chargen.skillBase(name, characteristics)]));
+  const custom = new Map(input.customSkills.map(skill => [skill.name, skill.base]));
+  for (const name of [...sheetIds, ...occupational, ...input.interestSkills, ...custom.keys(), ...Object.keys(pins.skills)]) if (name !== 'Credit Rating' && !listed.includes(name)) listed.push(name);
+  const base: Row = Object.fromEntries(listed.map(name => [name, custom.has(name) ? custom.get(name) : chargen.skillBase(name, characteristics)]));
   const creditRange = (truth(spec.credit_rating_range) ? array(spec.credit_rating_range) : [0, 0]).map(number);
   const notes: Row[] = [];
   let credit = pins.credit_rating ? pins.credit_rating.value : input.previous ? input.previous.credit : creditRange[0];
@@ -76,15 +82,11 @@ export function flowSkills(chargen: Chargen, input: FlowInput): Flow {
   const interestTotal = bound('interest_points', diff ? diff.adjustBudget('interest', interestFormula.total) : interestFormula.total);
   const policy = chargen.allocationPolicy(null), interestPolicy = chargen.allocationPolicy(null, 'interest_allocation');
   const isOccupational = new Set(occupational);
-  // A pin the player typed is the value they typed. A pin the model set on the player's word is the
-  // points above the base it had then, so a skill whose base follows a characteristic (Dodge is half
-  // DEX, Language (Own) is EDU) moves with that characteristic, the way the rulebook links them.
-  const pinValue = (name: string): number => {
-    const pin = pins.skills[name];
-    if (pin.by === 'model' && typeof (pin as Row).points === 'number') return Math.min(number(base[name]) + number((pin as Row).points), Math.max(cap, number(base[name])));
-    return number(pin.value);
-  };
-  const pinned = (name: string): number => Math.max(0, pinValue(name) - number(base[name]));
+  // A pin is points in the two columns; the value is base plus both, so a skill whose base follows
+  // a characteristic (Dodge is half DEX, Language (Own) is EDU) moves with it, the way the
+  // worksheet does. Occupation points sit only on occupation skills; interest points on any skill.
+  const pinPoints = (name: string, column: 'occupation' | 'interest'): number => Object.hasOwn(pins.skills, name) ? Math.max(0, number(pins.skills[name][column] ?? 0)) : 0;
+  const pinValue = (name: string): number => Math.min(number(base[name]) + pinPoints(name, 'occupation') + pinPoints(name, 'interest'), Math.max(cap, number(base[name])));
   /** The list is the player's priority statement: when the members it already had come in a new
    *  order, the machine's share of that pool is re-spread from the front; an addition at the end
    *  only takes what is left. */
@@ -92,9 +94,9 @@ export function flowSkills(chargen: Chargen, input: FlowInput): Flow {
     const kept = before.filter(name => order.includes(name));
     return kept.some((name, index) => order.filter(entry => kept.includes(entry))[index] !== name);
   };
-  const pool = (members: string[], order: string[], inherited: Record<string, number>, before: string[], total: number, tiers: number[]): [Record<string, number>, number, number] => {
+  const pool = (column: 'occupation' | 'interest', members: string[], order: string[], inherited: Record<string, number>, before: string[], total: number, tiers: number[]): [Record<string, number>, number, number] => {
     const previous = input.previous !== null && reordered(order, before) ? {} : inherited;
-    const pinnedSpend = sum(members.filter(name => Object.hasOwn(pins.skills, name)).map(pinned));
+    const pinnedSpend = sum((column === 'occupation' ? members : listed).map(name => pinPoints(name, column)));
     const soft: Record<string, number> = {};
     for (const [name, points] of entries(previous)) if (members.includes(name) && !Object.hasOwn(pins.skills, name) && number(points) > 0) soft[name] = Math.min(number(points), Math.max(0, cap - number(base[name])));
     let budget = total - pinnedSpend, held = sum(Object.values(soft));
@@ -120,11 +122,14 @@ export function flowSkills(chargen: Chargen, input: FlowInput): Flow {
     return [soft, spent, total - spent];
   };
   const others = listed.filter(name => !isOccupational.has(name));
-  const [occupationSoft, occupationSpent, occupationUnspent] = pool(occupational, occupational, input.previous?.soft.occupation ?? {}, input.previous?.occupationSkills ?? [], occupationTotal - credit, policy.tiers);
-  const [interestSoft, interestSpent, interestUnspent] = pool(others, input.interestSkills.filter(name => !isOccupational.has(name)), input.previous?.soft.interest ?? {}, input.previous?.interestSkills ?? [], interestTotal, interestPolicy.tiers);
+  const [occupationSoft, occupationSpent, occupationUnspent] = pool('occupation', occupational, occupational, input.previous?.soft.occupation ?? {}, input.previous?.occupationSkills ?? [], occupationTotal - credit, policy.tiers);
+  const [interestSoft, interestSpent, interestUnspent] = pool('interest', others, input.interestSkills.filter(name => !isOccupational.has(name)), input.previous?.soft.interest ?? {}, input.previous?.interestSkills ?? [], interestTotal, interestPolicy.tiers);
   const skills: Row = {};
   for (const name of listed) skills[name] = Object.hasOwn(pins.skills, name) ? pinValue(name) : number(base[name]) + (occupationSoft[name] ?? interestSoft[name] ?? 0);
   skills['Credit Rating'] = credit;
+  // The two columns per skill, pinned or soft, so the card can draw the worksheet.
+  const occupationPoints = (name: string): number => Object.hasOwn(pins.skills, name) ? pinPoints(name, 'occupation') : occupationSoft[name] ?? 0;
+  const interestPoints = (name: string): number => Object.hasOwn(pins.skills, name) ? pinPoints(name, 'interest') : interestSoft[name] ?? 0;
   const above = (name: string): number => number(skills[name]) - number(base[name]);
   const ledger: Row = {
     standard_sheet: sheetIds.length ? `skills.standard_sheet.${input.era}` : null,
@@ -132,10 +137,13 @@ export function flowSkills(chargen: Chargen, input: FlowInput): Flow {
     occupation: {id: occupationName, resolved: occupational, choices_pending: [], budget: {...occupationFormula, total: occupationTotal},
       credit_rating: {value: credit, range: creditRange, source: pins.credit_rating ? 'pinned' : 'occupations.credit_rating_range[0]'},
       points: Math.max(0, occupationTotal - credit), spent: occupationSpent, unspent: occupationUnspent,
-      allocations: Object.fromEntries(occupational.filter(name => above(name) > 0).map(name => [name, above(name)])), allocation: policy.policy, reserved: []},
+      allocations: Object.fromEntries(occupational.filter(name => occupationPoints(name) > 0).map(name => [name, occupationPoints(name)])), allocation: policy.policy, reserved: []},
     interest: {budget: {...interestFormula, total: interestTotal}, pool: input.interestSkills, spent: interestSpent, unspent: interestUnspent,
-      allocations: Object.fromEntries(others.filter(name => above(name) > 0).map(name => [name, above(name)])), allocation: interestPolicy.policy, tiers: interestPolicy.tiers, source: interestPolicy.source},
+      allocations: Object.fromEntries(listed.filter(name => interestPoints(name) > 0).map(name => [name, interestPoints(name)])), allocation: interestPolicy.policy, tiers: interestPolicy.tiers, source: interestPolicy.source},
+    bases: Object.fromEntries(listed.map(name => [name, number(base[name])])),
+    custom: input.customSkills.map(skill => skill.name),
   };
+  void above;
   // The notes are structured, so the card draws them in the play language from fixed words and the
   // numbers, and `text` is the English the model reads (contract §23: no hand-written player text).
   if (occupationUnspent < 0) notes.push({code: 'overspent', pool: 'occupation', amount: -occupationUnspent, text: `occupation points overspent by ${-occupationUnspent}`});

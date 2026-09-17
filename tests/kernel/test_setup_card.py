@@ -192,10 +192,11 @@ def test_the_catalog_is_one_compact_read(kernel):
 def test_a_pinned_skill_survives_a_list_change_and_the_new_skills_take_only_what_is_left(kernel):
     first = draft(kernel, criminal())
     pinned = kernel.ok("setup.revise", {"campaign": CAMPAIGN, "numbers": {"skills": {"Dodge": 70}}})
-    assert pinned["sheet"]["skills"]["Dodge"] == 70 and pinned["pins"]["skills"]["Dodge"] == {"value": 70, "by": "player"}
+    assert pinned["sheet"]["skills"]["Dodge"] == 70 and pinned["pins"]["skills"]["Dodge"]["by"] == "player"
+    assert pinned["pins"]["skills"]["Dodge"]["interest"] == 70 - first["sheet"]["characteristics"]["DEX"] // 2, "a pin is points in the interest column"
     widened = kernel.ok("setup.revise", {"campaign": CAMPAIGN, "profile": {"interest_skills": ["Dodge", "Throw", "Climb", "First Aid", "Natural World"]}})
     assert widened["sheet"]["skills"]["Dodge"] == 70
-    assert widened["pins"]["skills"]["Dodge"] == {"value": 70, "by": "player"}
+    assert widened["pins"]["skills"]["Dodge"]["interest"] == pinned["pins"]["skills"]["Dodge"]["interest"]
     assert widened["budget"]["interest"]["unspent"] >= 0
     for name in ("Throw", "Climb"):
         assert widened["sheet"]["skills"][name] <= pinned["sheet"]["skills"][name], "an older allocation only ever gives way, never grows on its own"
@@ -215,7 +216,7 @@ def test_a_pin_by_the_model_is_recorded_as_the_models(kernel):
     draft(kernel, criminal())
     card = kernel.ok("setup.revise", {"campaign": CAMPAIGN, "numbers": {"skills": {"Dodge": 60}}, "by": "model"})
     assert card["pins"]["skills"]["Dodge"]["by"] == "model" and card["pins"]["skills"]["Dodge"]["value"] == 60
-    assert "points" in card["pins"]["skills"]["Dodge"], "a model pin remembers its points above the base"
+    assert card["pins"]["skills"]["Dodge"]["interest"] == 60 - card["sheet"]["characteristics"]["DEX"] // 2, "a pin is points above the base"
 
 
 def test_a_pin_above_the_cap_asks_for_the_unlock_and_takes_it(kernel):
@@ -357,7 +358,7 @@ def test_a_reordered_interest_list_respreads_that_pool_and_keeps_the_pins(kernel
     reordered = kernel.ok("setup.revise", {"campaign": CAMPAIGN, "profile": {"interest_skills": ["Throw", "Dodge", "Climb"]}})
     assert reordered["sheet"]["skills"]["Climb"] == 40
     assert reordered["sheet"]["skills"]["Throw"] >= reordered["sheet"]["skills"]["Dodge"], "the front of the list is served first"
-    assert reordered["sheet"]["skills"]["Throw"] > pinned["sheet"]["skills"]["Throw"] or reordered["sheet"]["skills"]["Dodge"] < pinned["sheet"]["skills"]["Dodge"]
+    assert reordered["budget"]["interest"]["total"] == pinned["budget"]["interest"]["total"] and reordered["budget"]["interest"]["unspent"] >= 0
     assert reordered["budget"]["interest"]["total"] == first["budget"]["interest"]["total"]
     assert reordered["sheet"]["characteristics"] == first["sheet"]["characteristics"]
 
@@ -409,18 +410,55 @@ def test_a_modern_card_lists_the_whole_standard_sheet_and_the_modern_only_skills
     assert "Computer Use" in skills and "Electronics" in skills and "Library Use" in skills
 
 
-def test_a_model_pin_follows_its_characteristic_and_a_player_pin_does_not(kernel):
-    """Dodge is half DEX in the rulebook. The host pinned Dodge on the player's word; when the
-    player then raises DEX on the card, Dodge rises with it. A value the player typed stays."""
+def test_a_skill_pin_is_points_so_dodge_follows_dex(kernel):
+    """Dodge is half DEX in the rulebook. A pin is points above the base, whoever set it, so when
+    the player raises DEX on the card, Dodge rises with it (the worksheet, not a frozen number)."""
     first = draft(kernel, criminal())
     by_model = kernel.ok("setup.revise", {"campaign": CAMPAIGN, "numbers": {"skills": {"Dodge": 60}}, "by": "model"})
     dex = by_model["sheet"]["characteristics"]["DEX"]
-    assert by_model["pins"]["skills"]["Dodge"]["points"] == 60 - dex // 2
+    points = by_model["pins"]["skills"]["Dodge"]["interest"]
+    assert points == 60 - dex // 2
     raised = kernel.ok("setup.revise", {"campaign": CAMPAIGN, "numbers": {"characteristics": {"DEX": 90}}})
-    assert raised["sheet"]["skills"]["Dodge"] == min(45 + (60 - dex // 2), 75)
-    typed = kernel.ok("setup.revise", {"campaign": CAMPAIGN, "numbers": {"skills": {"Dodge": 70}}})
-    lowered = kernel.ok("setup.revise", {"campaign": CAMPAIGN, "numbers": {"characteristics": {"DEX": 50}}})
-    assert lowered["sheet"]["skills"]["Dodge"] == 70, "a number the player typed is the number"
+    assert raised["sheet"]["skills"]["Dodge"] == min(45 + points, 75)
+    typed = kernel.ok("setup.override", {"campaign": CAMPAIGN, "revision": raised["revision"], "edits": {"skills": {"Dodge": {"interest": 10}}}})
+    assert typed["sheet"]["skills"]["Dodge"] == 55 and typed["pins"]["skills"]["Dodge"]["by"] == "player"
+    lowered = kernel.ok("setup.override", {"campaign": CAMPAIGN, "revision": typed["revision"], "edits": {"characteristics": {"DEX": 50}}})
+    assert lowered["sheet"]["skills"]["Dodge"] == 35, "the ten interest points ride on the new base"
+
+
+def test_the_worksheet_columns_are_the_pin_and_the_card_reports_both(kernel):
+    first = draft(kernel, criminal())
+    card = kernel.ok("setup.override", {"campaign": CAMPAIGN, "revision": first["revision"], "edits": {"skills": {"Stealth": {"occupation": 30, "interest": 10}, "Throw": {"interest": 20}}}})
+    ledger = card["sheet"]["creation"]["skills"]
+    assert ledger["occupation"]["allocations"]["Stealth"] == 30 and ledger["interest"]["allocations"]["Stealth"] == 10
+    assert card["sheet"]["skills"]["Stealth"] == ledger["bases"]["Stealth"] + 40
+    assert ledger["interest"]["allocations"]["Throw"] == 20 and "Throw" not in ledger["occupation"]["allocations"]
+    refused = kernel.err("setup.override", {"campaign": CAMPAIGN, "revision": card["revision"], "edits": {"skills": {"Throw": {"occupation": 5}}}})
+    assert refused["code"] == "needs" and refused["details"]["column"] == "occupation"
+
+
+def test_a_custom_skill_lives_on_the_card_with_its_own_base_and_takes_points(kernel):
+    """The player may invent a skill (or a language) on the card; the Keeper can then check it,
+    because the play-time resolver reads every skill the sheet carries."""
+    semantic = criminal()
+    semantic["custom_skills"] = [{"name": "无人机操控", "base": 10}, {"name": "Language (Other: Cantonese)", "base": 1}, {"name": "Spot Hidden", "base": 5}]
+    card = draft(kernel, semantic)
+    assert card["sheet"]["skills"]["无人机操控"] == 10 and "无人机操控" in card["sheet"]["creation"]["skills"]["custom"]
+    assert card["profile"]["custom_skills"] == [{"name": "无人机操控", "base": 10}], "a catalog name is not custom, and a language is its catalog form"
+    assert "Spot Hidden" in card["profile"]["occupation_skills"] and "Language (Other: Cantonese)" in card["sheet"]["skills"]
+    pinned = kernel.ok("setup.override", {"campaign": CAMPAIGN, "revision": card["revision"], "edits": {"skills": {"无人机操控": {"interest": 40}}}})
+    assert pinned["sheet"]["skills"]["无人机操控"] == 50
+    kernel.ok("setup.confirm", {"campaign": CAMPAIGN, "consent": "approved"})
+    assert read_json(campaign_dir(kernel.workspace) / "party" / "investigator.json")["skills"]["无人机操控"] == 50
+
+
+def test_the_edit_control_can_change_the_occupation(kernel):
+    first = draft(kernel, criminal())
+    changed = kernel.ok("setup.override", {"campaign": CAMPAIGN, "revision": first["revision"], "edits": {}, "profile": {"occupation": "Soldier"}})
+    assert changed["sheet"]["occupation"] == "Soldier"
+    resolved = changed["sheet"]["creation"]["skills"]["occupation"]["resolved"]
+    assert len(resolved) == 8 and "Dodge" in resolved and "Fighting (Brawl)" in resolved
+    assert changed["sheet"]["characteristics"] == first["sheet"]["characteristics"]
 
 
 def test_the_budget_reports_the_characteristic_points_against_the_point_buy_reference(kernel):

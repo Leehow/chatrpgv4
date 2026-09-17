@@ -12777,3 +12777,26 @@ Four things the first App run of §98 showed, all landed the same day:
 
 Cases: `tests/kernel/test_setup_card.py` (modern sheet, model pin follows DEX, point-buy report,
 list move through the edit control, age through the edit control).
+
+### §98 addendum 2 — the card's edit control is the worksheet (2026-09-17, user)
+
+The user asked for the edit control to read like the rulebook worksheet, and the kernel's pin
+model follows it:
+
+- **A skill pin is two columns of points.** `pins.skills[name] = {by, occupation, interest,
+  value}`: occupation points (only on a skill of the occupation list) and interest points (on any
+  skill), the value being base plus both, capped unless relaxed. Every pin follows its base —
+  Dodge is half DEX, Language (Own) is EDU — whoever set it; the earlier "player pin is the
+  typed value" rule is withdrawn. `numbers.skills[name]` takes either the object form or a plain
+  final value, which is converted into the skill's own column. Occupation points on a skill
+  outside the list are `needs` with `details.column`, and they fall away when the skill leaves the
+  list. The ledger reports `bases`, both `allocations` columns (pinned or soft) and `custom`.
+- **Custom skills.** `profile.custom_skills: [{name, base}]` lists skills the player invented; a
+  name the catalog knows is that skill and joins the interest list instead; a language is its
+  catalog form `Language (Other: X)`. A custom skill is listed on the sheet at its base, takes
+  interest points like any other, and is checkable at the table because `SkillResolver` reads
+  every skill the sheet carries.
+- **The edit control may change the trade.** `setup.override`'s `profile` also takes `occupation`
+  and `custom_skills`; a changed trade without a new `occupation_skills` list rebuilds the list from
+  the trade's printed entries around nothing (the old list's skills keep their interest points).
+- `setup.catalog` reaches the host as `draft-catalog`, so the edit control can offer every trade.

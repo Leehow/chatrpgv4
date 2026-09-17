@@ -160,6 +160,8 @@ export class SetupCatalog {
     if (alt) { add(alt[1]); add(alt[2]); return names; }
     const inner = /\(([^)]*)\)/.exec(phrase)?.[1] ?? (phrase.includes(':') ? phrase.slice(phrase.indexOf(':') + 1) : '');
     for (const part of inner.split(/,|\bor\b/)) { const text = part.trim(); if (text) add(text); }
+    // A bare group name ("Fighting", "Firearms") is a choice among its own specializations.
+    if (!names.length && !inner) add(phrase);
     return names;
   }
   private choiceCount(phrase: string): number {
