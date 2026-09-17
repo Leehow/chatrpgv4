@@ -11178,3 +11178,164 @@ is invented.
 Test (`App.model-not-yet-known.test.tsx`): a host that answers with the
 placeholder leaves 加载模型… on the chip and no provider mark. It dies when
 `isUnreadModel` is made to return false.
+
+## NN. One closed turn, one door (2026-09-17, unifies §34.16, §67, §70, §77 and §78)
+
+Retained live evidence, H-DETOUR `t10`, campaign `game-320c5537`, turn 0
+(`playtest-evidence/pipicoc-20260914`). The opening `narrate` closed the turn at
+04:59:55. Seventeen refusals, 32 steps and about four minutes later the run was
+cut and the player's screen ended on a bare `This operation was aborted`.
+
+```
+04:59:55  narrate                                     turn-closed
+05:00:27  apply    blocked  "the turn is closed, waiting for the player"  blocked_after_close: 1  effect_untold
+05:00:44  resolve  blocked  the same                                      blocked_after_close: 2  effect_untold
+05:00:53  lane: delivery, reason: refused_effect_notice        <- agent_end, and a run continues for it
+05:00:58  resolve  turn_state  "the turn state is awaiting_player, so nothing may change state:
+                                wait for the player to speak, or use only look, lookup and recall"
+   ...    narrate ×3, apply ×3, resolve ×2   the same sentence, no flags, no counter of its own
+05:01:14  look     ok:true                                     <- the same verb the first road blocks
+   ...    apply ×5, narrate ×1   refusal_budget
+05:03:17  lane: runaway, blocked: 6, aborted: true
+```
+
+**One condition was answered on two roads, and which road a call took was decided
+by nothing about the turn.**
+
+### NN.1 The two roads and the seam between them
+
+The first road was `state.closedThisRun` — a fact about the **run**: it is set
+when `narrate` or `ask` lands and cleared at every `agent_start`. It blocked every
+verb including reads, counted `blockedAfterClose`, escalated at three and cut at
+six (§34.16), and it is the only place §34.17's `deliveryCutShort` and §78's
+`refusedEffectUntold` were ever raised.
+
+The second road was `CLOSED_STATES.has(state.state)` — a fact about the **turn**.
+It refused only writes, said a different sentence, recorded `code: "turn_state"`
+rather than `blocked`, scored the per-turn refusal classes (§67, §77) and fell
+through to the budget's own cut (§70). It set no flag, so §78 could not speak for
+anything refused there.
+
+**What moves a call from the first road to the second is a new run under the same
+turn**, and this host starts one routinely: pi turns any message queued from
+`agent_end` into a continuation and `runAgentLoopContinue` emits `agent_start`
+again, which put `closedThisRun` and `blockedAfterClose` back to zero on a turn
+that was every bit as closed. On `t10` the message that did it was **§78's own
+notice**, five seconds before the first refusal of the second road.
+
+Three consequences, all of them in the retained evidence:
+
+- **§78 never spoke for the second road.** Five refused effect verbs on `t10`
+  turn 0 raised nothing. On `a-main` turns 32, 54 and 104 and on `t6`
+  `game-efa75177` turn 0 the *only* closed-turn effect refusal of the turn is on
+  that road, so the player was told nothing at all.
+- **The cut could not arrive.** Every counter that ends a runaway was per run;
+  the turn was not. §77 said this in as many words and fixed it for the refusal
+  classes only.
+- **The two sentences contradict each other.** The second names `look`, `lookup`
+  and `recall` as available; the first blocks them. `t10` turn 0 has the same
+  `look` blocked on one road and answered `ok: true` on the other, one turn apart.
+
+### NN.2 The condition
+
+**A turn has no door when nothing the Keeper calls can close it.** That is
+`turnHasNoDoor(state)`: a closed turn state (`awaiting_player`, `asked`,
+`committed`) with one exception — `awaiting_player` while the opening is still
+owed, where `narrate` and `ask` *are* the opening's delivery and reads are worth
+making. `closedThisRun` is not consulted: a run that closed the turn leaves the
+turn in a closed state anyway, and the run was never the thing being asked about.
+
+That single gate is the only answer to that condition, and it carries everything
+the two roads carried between them:
+
+- **One sentence.** `TURN_CLOSED_REASON`, and `TURN_CLOSED_STOP` from the third
+  block. Neither is changed. The opening's sentence, which names the three read
+  verbs, stays exactly as it is **on the opening's own road**, where it is true;
+  it is no longer said to a turn that has been delivered, where the verbs it
+  offers are refused by the same gate that offers them.
+- **One counter, and it belongs to the turn.** `blockedAfterClose` is no longer
+  reset at `agent_start`; the turn boundary clears it, like the refusal classes.
+  This amends §34.16's "the count resets at `agent_start` and with the next turn".
+  §70's cut is untouched and still the backstop for a turn that never opened.
+- **One class strike.** §67's rule, with §77's `closed` flag: every strike from
+  this gate is a refusal on a turn with no door, so `narrate` and `ask` are struck
+  here like any other write. The class key is the one both roads already used, so
+  strikes from before this change and after it are the same class.
+- **Both flags.** §34.17's `deliveryCutShort` and §78's `refusedEffectUntold`
+  are raised here, whichever run the call arrived in. **This is the half of §78
+  that was missing**: BUG-H30's own shape (`t4` turn 103, the `apply` behind the
+  narrate in one message) was already told, because that refusal is in the run
+  that closed the turn; every refusal one run later was not.
+
+**The exhausted-class instruction is deliberately not read on this road.** It
+says *close the turn with narrate, or hand the player the choice with ask* —
+on a turn with no door that is an instruction to make the call being refused, and
+it is what kept a Keeper calling `narrate` seventeen times in §77's own evidence.
+A closed turn is told to stop, and nothing else.
+
+### NN.3 A refusal is owed a notice only by a turn that delivered something
+
+The two turns with no door are not the same to the player. A delivered turn left
+them holding prose the host now has to cast doubt on; a turn that never opened
+(`table.player_input` refused, §77's own scenario) left them nothing, and a
+"what you just read stops early" there would be a notice about a delivery that
+does not exist.
+
+`state.deliveredTurn` records the turn a `narrate` or `ask` actually delivered.
+Unlike `closedThisRun` it survives a continuation run, because it is a fact about
+the turn. §34.17's and §78's notices are owed only when it matches the current
+turn, and each is sent **once per turn** (`cutShortToldTurn`,
+`refusedEffectToldTurn`) rather than once per run, so a later run on the same
+closed turn does not say the same sentence to the player twice.
+
+### NN.4 The notice is not a prompt
+
+`emitRefusedEffectNotice` and `emitCutShortNotice` are sent from `agent_end` and
+were the two notices in this host still missing `triggerTurn: false`. §50 settled
+this for every other one: the host's own delivery is not something the Keeper is
+asked to answer. With the flag, the player still reads it and no run is bought
+for it.
+
+This is not separately tested, and the reason is recorded in
+`one-closed-turn-one-door.test.mjs`: pi only turns a queued message into a
+continuation while the session is still streaming, and the faux session has
+stopped by the time `agent_end`'s `setTimeout(0)` runs, so the assertion would
+pass with the flag removed. An assertion that cannot fail is not a guard (§72).
+What is guarded is what matters if a continuation run starts for any other
+reason — the gate above.
+
+### NN.5 What this deliberately does not do
+
+- **Nothing is admitted.** Every call the two roads refused is still refused, and
+  §77's and §34.16's judgement that a closed turn has no doors is unchanged.
+- **§70's backstop stays.** The turn that never opened keeps its own counter and
+  its own cut. The cost fell because the closed-turn road now counts across runs
+  and answers before the budget road, not because a cut was removed: `t10` turn 0
+  replayed as six blocked calls in place of seventeen.
+- **The bare `This operation was aborted` is not addressed here.** It is pi's own
+  abort error (`pi-ai/utils/abort`) surfacing as the run's failure, not a host
+  notice; the host knows it cut the run (`runCut`) but has nothing on that surface
+  to replace the library's line with. Left open.
+- **§32's `action_not_authorized` is still not announced** (§78.4), and the 27 of
+  them on `t4` with `warnings: 0` are that boundary working, not this defect.
+  Separately and not fixed here: 29 of those 30 admission refusals appear in
+  telemetry only and never in the turn record's `calls`, so a refused call is not
+  in the history the turn is replayed from.
+- **The ~120 s silent-run watchdog is noted, not attributed.** `t4`'s `server.log`
+  carries `turn watchdog aborting silent run session=session#1 epoch=4
+  idleMs=121849`, a fourth idle threshold beside the 30 s job waits, the 40 s
+  review subprocess and the reading lane's 120 s -- the same number as the
+  reading lane's, which suggests that constant reaches further than that lane.
+  The line predates the last restart and the turn it belongs to left no telemetry
+  row, so nothing here matches it to a cause. It shares a surface with this
+  section's cut -- a run that ends without a delivery -- and that is the whole of
+  the connection claimed.
+
+Tests (`tests/extension/one-closed-turn-one-door.test.mjs`): a delivered turn, a
+continuation run on it, and the Keeper's `apply`/`narrate`/`resolve` repair —
+every refusal on the one road with the one sentence and one rising counter, no
+`turn_state` row and no `refusal_budget` row, the cut at six, and the player told
+once that a refused effect is behind the prose. It dies when the gate is keyed on
+the run again, when the counter is reset at `agent_start` again, or when the
+notice is owed by a turn that never delivered. `gates.test.mjs`'s §77 case now
+reads the closed-turn answer instead of the opening's.

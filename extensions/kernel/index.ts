@@ -133,6 +133,14 @@ interface TableState {
 	pendingChoice: PendingChoice | null;
 	/** Whether this agent run has already closed the turn with narrate/ask. */
 	closedThisRun: boolean;
+	/**
+	 * The turn a `narrate` or `ask` actually delivered (§NN). Unlike `closedThisRun` this is a fact
+	 * about the *turn*, so it survives the `agent_start` of a continuation run. It is what separates
+	 * "the player has read this turn" from "this turn never opened": both are closed and both refuse
+	 * every write, but only the first can have left the player holding something the host now has to
+	 * correct, so only the first owes §34.17's and §78's notices.
+	 */
+	deliveredTurn?: number;
 	/** The host cut this run itself (§34.16): pi never resends a cancellation, so no later leg is coming. */
 	runCut: boolean;
 	steeredThisTurn: boolean;
@@ -143,7 +151,13 @@ interface TableState {
 	toolCallsThisTurn: number;
 	/** The Keeper tried a delivery (narrate or ask) this turn, refused or not: a repair flow owns the turn from there, and the speech steer stays out (§40). */
 	deliveryTriedThisTurn: boolean;
-	/** Tool calls blocked because the turn had already closed, in this run (§34.16). */
+	/**
+	 * Tool calls blocked because this turn has no door left (§34.16, widened by §NN).
+	 *
+	 * Counted per *turn*, not per run. It used to reset at `agent_start`, and a continuation run --
+	 * which pi starts for any message queued from `agent_end` -- put it back to zero on a turn that
+	 * was still just as closed, so the cut never arrived. It resets with the next player input.
+	 */
 	blockedAfterClose: number;
 	/** Blocked calls after the refusal budget was spent (§70): the same runaway
 	 *  escalation as §34.16, for a turn that never opened rather than one that closed. */
@@ -266,6 +280,10 @@ interface TableState {
 	 * the same message as a delivery that then landed. Nothing can be repaired, so the player is
 	 * told at `agent_end`. */
 	refusedEffectUntold?: boolean;
+	/** §78's notice is one per turn and §34.17's is too: the turn each was already sent for, so a
+	 *  later run on the same closed turn does not say the same thing to the player twice. */
+	refusedEffectToldTurn?: number;
+	cutShortToldTurn?: number;
 	/** Contract §38: an agent run ended leaving this turn open with nothing delivered, so no one can
 	 * finish it any more. The next player input releases it instead of being refused turn_state. */
 	strandedTurn?: boolean;
@@ -368,6 +386,21 @@ interface TableState {
 }
 
 const CLOSED_STATES: ReadonlySet<TurnState> = new Set<TurnState>(["awaiting_player", "committed", "asked"]);
+/**
+ * §NN: the one condition. A turn has **no door** when nothing the Keeper can call will close it --
+ * it was delivered, it was handed back with `ask`, or it never opened at all. The single exception
+ * is the opening: `awaiting_player` with the opening still owed is a turn whose delivery is still
+ * ahead of it, where `narrate` and `ask` are doors, reads are worth making, and §67/§70's refusals
+ * apply instead.
+ *
+ * This replaced `state.closedThisRun`, which is a fact about the *run*: the same closed turn
+ * answered one way inside the run that closed it and another way in every run after, with a
+ * different sentence, a different code, a different counter and none of §78's flags.
+ */
+function turnHasNoDoor(state: { state: TurnState; openingPending: boolean }): boolean {
+	if (!CLOSED_STATES.has(state.state)) return false;
+	return !(state.state === "awaiting_player" && state.openingPending);
+}
 const TURN_CLOSED_REASON = "the turn is closed, waiting for the player";
 /** §34.16: a run that keeps calling tools after its turn closed is told to stop at the third blocked call and cut at the sixth. */
 const TURN_CLOSED_STOP = "The turn is closed and the player has the move. Call no tool and write nothing more; the next player input opens a new turn.";
@@ -1659,6 +1692,8 @@ export default function (pi: ExtensionAPI) {
 				// The pending choice has been handed back to the player, so the turn no longer owes an ask.
 				state.pendingChoice = null;
 				state.closedThisRun = true;
+				// §NN: the turn, not the run. A later run finds this and knows the player has read something.
+				state.deliveredTurn = typeof result.turn === "number" ? result.turn : state.turn;
 				state.renderedText = typeof result.rendered_text === "string" ? result.rendered_text : undefined;
 				state.deliveryToolCallId = toolCallId;
 				noteDelivered(state, result);
@@ -1675,6 +1710,8 @@ export default function (pi: ExtensionAPI) {
 				state.state = "awaiting_player";
 				state.openingPending = false;
 				state.closedThisRun = true;
+				// §NN: the turn, not the run. A later run finds this and knows the player has read something.
+				state.deliveredTurn = typeof result.turn === "number" ? result.turn : state.turn;
 				state.renderedText = asString(result.rendered_text);
 				state.deliveryToolCallId = toolCallId;
 				noteDelivered(state, result);
@@ -1846,8 +1883,13 @@ export default function (pi: ExtensionAPI) {
 			+ " read stops early. Everything already settled is kept — send anything and the Keeper picks it up from there.";
 		try { line = (await surface.words()).line("delivery_cut_short_notice"); }
 		catch { /* an unreadable content root still owes the player the English line */ }
+		// §50, §NN: `triggerTurn: false`. This notice is sent from `agent_end`; without the flag pi
+		// queues it as a steer and continues the run for it, and that continuation lands on a turn that
+		// is still closed with nothing it may do. On `t10` turn 0 the notice below did exactly that and
+		// bought 15 more refusals and a runaway cut. The host's own notice is not a prompt.
 		pi.sendMessage({ customType: "coc-delivery", content: line, display: true,
-			details: { coc_delivery: true, turn, delivery_cut_short: true } });
+			details: { coc_delivery: true, turn, delivery_cut_short: true } },
+			{ triggerTurn: false });
 		void record({ lane: "delivery", turn, ok: true, reason: "delivery_cut_short_notice" });
 	}
 
@@ -1870,8 +1912,12 @@ export default function (pi: ExtensionAPI) {
 			+ " take what you just read about it as uncertain. Nothing else settled was lost; say anything and the Keeper can put it right.";
 		try { line = (await surface.words()).line("refused_effect_notice"); }
 		catch { /* an unreadable content root still owes the player the English line */ }
+		// §50, §NN: `triggerTurn: false` -- see `emitCutShortNotice`. This is the notice that was
+		// measured doing it: `t10` turn 0, 2026-09-17, the notice at 05:00:53 and the Keeper's next
+		// blocked call at 05:00:58, on a turn that had been closed since 04:59:55.
 		pi.sendMessage({ customType: "coc-delivery", content: line, display: true,
-			details: { coc_delivery: true, turn, refused_effect: true } });
+			details: { coc_delivery: true, turn, refused_effect: true } },
+			{ triggerTurn: false });
 		void record({ lane: "delivery", turn, ok: true, reason: "refused_effect_notice" });
 	}
 
@@ -3213,7 +3259,12 @@ export default function (pi: ExtensionAPI) {
 		if (table) {
 			table.closedThisRun = false;
 			table.runCut = false;
-			table.blockedAfterClose = 0;			table.blockedAfterExhausted = 0;		table.blockedAfterExhausted = 0;
+			// §NN: `blockedAfterClose` is NOT reset here any more. pi starts a continuation run for any
+			// message queued from `agent_end` (`runAgentLoopContinue` re-emits `agent_start`), and this
+			// line put the closed-turn cut back to zero on a turn that was every bit as closed -- which
+			// is how one table spent 17 refusals and 32 steps on a turn nobody could act on. The turn's
+			// own boundary (`table.player_input`, and `applyOpen`) is what clears it.
+			table.blockedAfterExhausted = 0;
 		}
 	});
 
@@ -3279,23 +3330,43 @@ export default function (pi: ExtensionAPI) {
 				+ " no call can land and no turn can be delivered until it is repaired. Call no further tool and write nothing more."
 				+ " The player has been told as a service notice, and the person running this table has been notified outside the game." };
 		}
-		if (state.closedThisRun) {
+		// §NN: the one gate for the one condition. This turn has no door -- delivered, handed back with
+		// `ask`, or never opened -- so nothing any run calls can change its state, and every refusal of
+		// it is this refusal: one sentence, one code, one counter, one set of flags. It used to be
+		// `state.closedThisRun`, a property of the run, and a continuation run (pi starts one for any
+		// message queued from `agent_end`) put the same closed turn on the other road below.
+		if (turnHasNoDoor(state)) {
 			// §34.16 (2026-09-15): grok-4.6 kept calling look/resolve/apply after the opening closed — 178
 			// blocked calls in seventeen minutes on one table — and the run never settled, so the next player
 			// input timed out waiting for it. Three blocked calls get a firmer answer; the sixth cuts the run.
 			state.blockedAfterClose += 1;
 			const blocked = state.blockedAfterClose;
+			// §34.17 and §78 speak about what the player has already read, so they are owed only by a turn
+			// that actually delivered something. A turn that never opened is just as closed and refuses
+			// just as hard, and there is no published prose behind it to cast doubt on.
+			const delivered = state.deliveredTurn === state.turn;
 			// Contract §34.17: a *narrate* refused after close is the other half of a delivery that has
 			// already been published. The counter proved the host knew; now the player is told (agent_end).
-			if (name === "narrate") state.deliveryCutShort = true;
+			const cutShort = name === "narrate" && delivered && state.cutShortToldTurn !== state.turn;
+			if (cutShort) state.deliveryCutShort = true;
 			// Contract §78: an effect verb refused after close is the turn's own account arriving behind
 			// a door the delivery already shut. `t4` turn 103: nine turns of work went into one `apply`
 			// that was to write a location onto a filed complaint, it came after the narrate in the same
 			// message, and the object's `changed_turn` stayed eleven turns stale with nobody told. No
 			// repair is left here -- the prose is published -- so the player is (agent_end).
-			if (EFFECT_TOOLS.has(name)) state.refusedEffectUntold = true;
-			await record({ tool: name, started_at: new Date().toISOString(), ok: false, code: "blocked", reason: TURN_CLOSED_REASON, blocked_after_close: blocked,
-				...(name === "narrate" ? { delivery_cut_short: true } : {}), ...(EFFECT_TOOLS.has(name) ? { effect_untold: true } : {}) });
+			const untold = EFFECT_TOOLS.has(name) && delivered && state.refusedEffectToldTurn !== state.turn;
+			if (untold) state.refusedEffectUntold = true;
+			await record({ tool: name, started_at: new Date().toISOString(), ok: false, code: "blocked", reason: TURN_CLOSED_REASON,
+				turn_state: state.state, blocked_after_close: blocked,
+				...(cutShort ? { delivery_cut_short: true } : {}), ...(untold ? { effect_untold: true } : {}) });
+			// §67 and §77: whoever refused, it counts, and the class budget is the only counter here kept
+			// per turn -- which is what holds when the run restarts underneath a turn that did not. Every
+			// strike from this gate is a refusal on a turn with no door, so narrate and ask are struck
+			// here like any other write.
+			const round = state.callRounds.get(event.toolCallId) ?? state.roundTrips;
+			const { count, tripped } = strikeRefusalClass(state, name, `${name}\u0000turn_state\u0000${state.state}`,
+				`turn_state: ${TURN_CLOSED_REASON}`.slice(0, 160), round, true);
+			if (tripped) await record({ lane: "refusals", turn: state.turn, tool: name, count, reason: "class_limit", last: `turn_state: ${state.state}` });
 			if (blocked >= RUNAWAY_ABORT_AT) {
 				await record({ lane: "runaway", turn: state.turn, blocked, aborted: true });
 				// The cut reaches message_end as `stopReason: "error"` like any dead call, and only the host
@@ -3303,6 +3374,10 @@ export default function (pi: ExtensionAPI) {
 				state.runCut = true;
 				try { ctx?.abort(); } catch { /* an abort that cannot be delivered leaves the driver's timeout as the last resort */ }
 			}
+			// The exhausted-class instruction is deliberately not read here. It says *close the turn with
+			// narrate, or hand the player the choice with ask*, and on a turn with no door that is an
+			// instruction to do the one thing this gate refuses -- the advice that kept a Keeper calling
+			// narrate seventeen times (§77).
 			return { block: true, reason: blocked >= RUNAWAY_STOP_AT ? TURN_CLOSED_STOP : TURN_CLOSED_REASON };
 		}
 		const adaptationControl = name === 'lookup' && input.kind === 'adaptation' && ['status', 'cancel'].includes(String(input.action));
@@ -3391,20 +3466,22 @@ export default function (pi: ExtensionAPI) {
 			(name === "resolve" && typeof (input.action as any)?.decision === "string") ||
 			(name === "apply" && Array.isArray(input.effects) && input.effects.length > 0 && input.effects.every((e:any) => ["define","object","ability"].includes(e?.kind))));
 		const openingMod = openingModShape && (mods ? true : await modsBridgeWait(modsBridgeWaitMs()));
+		// §NN: what is left here is the *opening*, and only the opening. Every state with no door was
+		// answered by the one gate above, so reaching this line means `awaiting_player` with the opening
+		// still owed: a write that is not the opening's own is refused, the reads named below really are
+		// available, and narrate and ask really are the doors (§67, §70). The sentence must stay true of
+		// that turn -- it is the only place it ever was.
 		if (!openingNarrate && !openingMod && CLOSED_STATES.has(state.state)) {
 			const bridgePending = openingModShape && !mods;
-			const reason =
-				state.state === "asked"
-					? "the turn was already handed to the player with ask; wait for the answer"
-					: bridgePending
-						? "the Mod layer has not announced itself yet, so this opening Mod call cannot be judged: retry the same call; the opening's Mod checks become available as soon as it does"
-						: `the turn state is ${state.state}, so nothing may change state: wait for the player to speak, or use only look, lookup and recall`;
+			const reason = bridgePending
+				? "the Mod layer has not announced itself yet, so this opening Mod call cannot be judged: retry the same call; the opening's Mod checks become available as soon as it does"
+				: `the turn state is ${state.state}, so nothing may change state: wait for the player to speak, or use only look, lookup and recall`;
 			await record({ tool: name, started_at: new Date().toISOString(), ok: false, code: "turn_state", reason, ...(bridgePending ? { cause: "mods_bridge_pending" } : {}) });
 			// A refusal the host issued is still a refusal (§67). Without this the
 			// Keeper could be told "wait for the player" forever inside its own turn.
 			const round = state.callRounds.get(event.toolCallId) ?? state.roundTrips;
-			// Every strike from this block is a closed-turn refusal by construction, so narrate
-			// and ask lose the door exemption here: there is no door left to protect (§77).
+			// The opening's doors are the `openingNarrate` exemption above, so a narrate or ask that
+			// reaches this line is not one of them and is struck like any other write (§77).
 			const { count, tripped } = strikeRefusalClass(state, name, `${name}\u0000turn_state\u0000${state.state}`, `turn_state: ${reason}`.slice(0, 160), round, true);
 			if (tripped) await record({ lane: "refusals", turn: state.turn, tool: name, count, reason: "class_limit", last: `turn_state: ${state.state}` });
 			return { block: true, reason: state.exhausted.get(name) ?? reason };
@@ -3775,6 +3852,7 @@ export default function (pi: ExtensionAPI) {
 		if (state.deliveryCutShort) {
 			const turn = state.turn;
 			state.deliveryCutShort = false;
+			state.cutShortToldTurn = turn;
 			setTimeout(() => void emitCutShortNotice(state, turn), 0);
 		}
 		// Contract §78: same place, same reason -- a turn that closed normally by every other measure,
@@ -3782,6 +3860,9 @@ export default function (pi: ExtensionAPI) {
 		if (state.refusedEffectUntold) {
 			const turn = state.turn;
 			state.refusedEffectUntold = false;
+			// §NN: once per turn, not once per run. The gate reads this before it raises the flag again,
+			// so a second run on the same closed turn does not say the same sentence to the player twice.
+			state.refusedEffectToldTurn = turn;
 			setTimeout(() => void emitRefusedEffectNotice(state, turn), 0);
 		}
 		// Contract §38.11: the history store is down. This is not the generic no-delivery notice and
