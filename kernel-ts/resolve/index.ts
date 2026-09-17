@@ -122,7 +122,14 @@ function refuseIncapacitated(actor: ReturnType<typeof resolveActor>, action: Row
         // Read literally, because it will be. It says what not to settle, what to put in front of
         // the player, and the ways out the rules actually have -- not a way for the Keeper to
         // declare the state over, which is what an unqualified "resolve it" would become.
-        fix: `Settle nothing for ${who} this turn: no check, no attack, no move they make themselves. Narrate the state instead -- what the player's investigator can perceive of being ${state}, and what is happening around them meanwhile -- and say plainly that they cannot act. CoC 7e ends ${state === 'unconscious' ? 'it' : 'unconsciousness'} when a hit point comes back: someone present succeeding at First Aid or Medicine on them, or rest -- apply time -- until natural healing returns one. A character who is dead or dying is past that; First Aid stabilizes a dying one first.`,
+        // Two corrections, both from §89's thirty hours. The rest clause said "apply time until
+        // natural healing returns one" to every actor, and for a character with a major wound
+        // ticked it returns nothing at all -- t9's Keeper applied six hours on that sentence, got
+        // no hit point, and concluded the clock was not worth moving. And the exits are now
+        // pointed at the capsule row that carries the exact call, rather than left as three names
+        // the Keeper has to turn into a call himself. Nothing here lets the Keeper declare the
+        // state over, which is what an unqualified "resolve it" would become.
+        fix: `Settle nothing for ${who} this turn: no check, no attack, no move they make themselves. Narrate the state instead -- what the player's investigator can perceive of being ${state}, and what is happening around them meanwhile -- and say plainly that they cannot act. CoC 7e ends ${state === 'unconscious' ? 'it' : 'unconsciousness'} when a hit point comes back: someone present succeeding at First Aid or Medicine on them${array(actor.actor.conditions).map(string).includes('major_wound') ? '. Rest returns no hit point while the major wound is ticked -- the weekly recovery roll is the next one the rules run themselves' : ', or rest -- apply time -- until natural healing returns one'}.${blocked.includes('dead') ? '' : ` The capsule's pressures[] carries that clock for ${who} with the minutes and the call that reaches it; driving it is yours, not the player's, who cannot act.`} A character who is dead or dying is past that; First Aid stabilizes a dying one first.`,
         details: {
             reason: 'actor_incapacitated',
             actor: actor.actingId,

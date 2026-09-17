@@ -7,6 +7,7 @@ import { whereSection, clockSection, npcsPresent, cluesHere, presentSection, kno
 import { playedRecords, signals, directorSection } from "./director.js";
 import { EntityIndex, capsuleMemory, noteObligations, rulingsForCapsule, promiseObligations } from "./memory.js";
 import { clockPressures, threatPressures, unansweredContinuations, continuationRows, questObligations, choiceObligation, sessionObligation } from "./pressures.js";
+import { incapacitationClocks } from "./incapacitation.js";
 import { evidenceAcquired, evidenceDeliveryRecords } from "./continuity.js";
 import { worldlineSection, crossLineReader, loopObligation, worldlineSignals } from "./worldline.js";
 import { offerObligations } from "../mods/object-offer.js";
@@ -317,7 +318,10 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
         present: presentSection(graph, world, scene, row(campaign.jsonFiles.get("npc-ledger.json")), memory, across, { voices: true }),
         voices: voicesSection(graph, world, scene),
         known: knownSection(graph, world, scene, party, campaign.records),
-        pressures: [...clocks, ...threatPressures(graph, world, scene, present)],
+        // The body that cannot act goes first: `fitBudget(..., "last")` trims this section from the
+        // end, and a Keeper who loses the threat clock still has a table, while a Keeper who loses
+        // this one has the thirty hours of §89 back.
+        pressures: [...incapacitationClocks(party, id => campaign.healing(id), number(row(world.clock).minutes)), ...clocks, ...threatPressures(graph, world, scene, present)],
         obligations,
         director,
         situations,
