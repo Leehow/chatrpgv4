@@ -369,9 +369,14 @@ test("回合已经关掉之后，narrate 也要计入拒绝预算", async (t) =>
 
 	const texts = toolResults(table.session, "narrate").map(resultText);
 	assert.ok(texts.length >= 3, `narrate 至少被拒三次，实际 ${texts.length}`);
-	assert.match(texts[0], /awaiting_player/, "头几次是普通的 turn_state 拒绝");
-	assert.ok(texts.some((text) => /refused 3 times this turn for the same reason/.test(text)),
-		`回合关掉之后 narrate 不再豁免，第三次要耗尽同类：${JSON.stringify(texts)}`);
+	// §86: this turn has no door, and since the gates were unified that is the sentence it gets --
+	// one condition, one answer. It used to get the opening's sentence ("the turn state is
+	// awaiting_player ... use only look, lookup and recall") purely because the run had not been the
+	// one to close it, and the exhausted-class instruction that followed told it to close the turn
+	// with narrate, which is the call being refused.
+	assert.match(texts[0], /the turn is closed, waiting for the player/, "头几次是普通的关门拒绝");
+	assert.ok(texts.some((text) => /Call no tool and write nothing more/.test(text)),
+		`回合关掉之后 narrate 不再豁免，第三次要说得更硬：${JSON.stringify(texts)}`);
 	const rows = table.telemetry().filter((row) => row.lane === "refusals" && row.reason === "class_limit");
 	assert.ok(rows.some((row) => row.tool === "narrate"), `refusals 车道要记下 narrate 这一类：${JSON.stringify(table.telemetry().filter((r) => r.lane === "refusals"))}`);
 	// The turn budget leaves its own row on this road too. It used to be written only where a
