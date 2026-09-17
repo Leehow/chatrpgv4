@@ -11061,3 +11061,64 @@ No new channel, no resend, and no second delivery path. The notice was reaching 
 what it was not keeping was its own voice. The fold rule is not weakened for anything else —
 a Keeper turn whose text arrived late still reads as one message, and that case is asserted
 beside the repair so a future simplification cannot quietly take it away.
+
+## 84. The product is not base until the host says so (2026-09-17, completes §62)
+
+Remote browser, seconds after the desktop app restarted. A new session opened
+into **the base app**: no character-creation onboarding, the composer offering
+「给 PipiUI 发送消息…」 instead of its own prompt, the PipiUI wordmark where the
+PipiCOC mark belongs. Fifty-six seconds of polling; it never came back. A reload
+brought the whole product back at once.
+
+The CoC panel in the right rail was there the whole time — that surface is
+resolved separately, through `listExtensions`. So the pack had loaded and the
+product had not.
+
+### 84.1 One read, swallowed, never asked again
+
+```ts
+useEffect(() => {
+  if (!host.getProduct) return
+  let current = true
+  void host.getProduct().then(product => { … }).catch(() => undefined)
+  return () => { current = false }
+}, [host])
+```
+
+`productId === 'pipicoc'` gates the onboarding (`onboardingActive`), the
+illustration surface (`illustrationGate`) and, through them, the composer's own
+form. When this read dropped, the catch discarded it and `productId` stayed `''`
+— which every one of those gates reads as *not PipiCOC*.
+
+Two things then made it permanent:
+
+- **The initial values are the base product.** `useState('PipiUI')` and
+  `useState('')` were written as a fallback for an older host with no
+  `getProduct` at all, and the comment above them says so. For a host that has
+  one and simply did not answer, that fallback is a confident lie — §62's exact
+  shape, on the read that decides what the whole application is.
+- **Nothing asks again.** The effect depends on `[host]`, and the relay's
+  reconnect does not replace the host object. One dropped request at mount is
+  the rest of the page's life.
+
+### 84.2 The contract
+
+**The product identity is read with retries.** `readWithRetry`, cancelled with
+the effect, exactly as §62 established for capabilities and §82 for projects.
+A transient drop now costs a few hundred milliseconds instead of the product.
+
+**A base answer is still a real answer.** When the host says `base`, the shell
+stays base and asks once. This is not a retry until a preferred answer arrives;
+it is a retry until there *is* an answer.
+
+**Still open, deliberately.** If the retries are spent the shell runs as base
+with nothing said. The honest close is for the identity to be re-read when the
+relay reconnects, since that is the moment the host becomes reachable again —
+but the reconnect is not visible to this component today, and inventing a
+channel for it is a larger change than this section. Recorded here so the gap
+has a name.
+
+Tests (`App.product-identity.test.tsx`): a first `getProduct` that throws is
+retried and the PipiCOC brand mark reaches the shell; a host that answers `base`
+is asked once and the base wordmark stands. The first dies when the bare catch
+is restored.
