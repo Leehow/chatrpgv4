@@ -730,6 +730,16 @@ test('a verdict pause and a service pause are different sentences, and neither c
     assert.match(source.word('review_unavailable_notice'), /did not finish/i);
     // And neither sentence may render as its own key: that is a caption gap, not a notice.
     assert.ok(notices.every(n => !/^review_\w+_notice$/.test(n.content.trim())));
+
+    // The other lie, and the one that outlived the first (§69.4a). This notice used to end "send
+    // anything and the Keeper writes this turn again". Nothing rewrites a stranded turn: §38.2's
+    // record is inert by construction and no path backfills its `text`, so the sentence named an
+    // action the product cannot perform. What it may promise is what §69 made true -- the findings
+    // are kept and the Keeper goes on from them. The structural fact this is anchored to is asserted
+    // beside it, so the day a rewrite path does exist the guard is retired with it rather than
+    // quietly outliving its reason.
+    assert.doesNotMatch(source.word('review_verdict_notice'), /writes? this turn again/i);
+    assert.doesNotMatch(source.word('review_verdict_notice'), /rewrit/i);
 });
 
 test('a service streak never tells the player another attempt is pointless, and names the lever that is real', async t => {

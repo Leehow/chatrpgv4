@@ -10,6 +10,7 @@ import { clockPressures, threatPressures, unansweredContinuations, continuationR
 import { evidenceAcquired, evidenceDeliveryRecords } from "./continuity.js";
 import { worldlineSection, crossLineReader, loopObligation, worldlineSignals } from "./worldline.js";
 import { modContext } from "./mods.js";
+import { mechanicsOf } from "./mechanics.js";
 import { directorOffer, directorRecovery } from "./offer.js";
 import { pythonJsonDumps, utf8Bytes } from "../json.js";
 import { playLanguageOf } from "./languages.js";
@@ -40,7 +41,11 @@ export const HEAD = "Everything at the start of this turn: the clock, the undisc
     "reply. Wear the mask on every line that person speaks; never read an exchange out. " +
     "unrecorded is a clue an earlier turn's prose already gave the player while the ledger still calls it " +
     "undiscovered: its line names the call that closes the gap. It is not a debt to invent anything — the " +
-    "player was told, and only the books disagree. Record it, or leave it and it stays until they walk away.";
+    "player was told, and only the books disagree. Record it, or leave it and it stays until they walk away. " +
+    "untold is the other half: a turn that settled receipts and then ended with nothing said to the player " +
+    "(the run stopped before it could deliver). Its rows are already on the books and the ledger already " +
+    "counts them, so do not write this turn as if none of it happened; say what landed, in your own prose, " +
+    "and it clears itself as soon as a turn is delivered.";
 export const HEAD_MODULE = " This turn also carries a module section (the table briefing, this once): what the book is about, its era, " +
     "the factions, places and people (absent ones included, keeper-only), the ending and conclusion names and " +
     "the structure type; do not lookup the book before opening.";
@@ -56,6 +61,10 @@ export const SLICE2_BUDGETS: Readonly<Record<string, number>> = Object.freeze({
     // Contract §51.4. Small on purpose: a row is a handle, a turn, the sentence that gave it away and
     // the call that closes it, and the list only holds what is still findable in this one scene.
     unrecorded: 768
+,
+    // Contract §69. One stranded turn is a handful of rows; a run of them is rare and still bounded by
+    // the next delivery, so the section is sized to carry the receipts rather than a count of them.
+    untold: 1024
 });
 export const SLICE3_BUDGETS: Readonly<Record<string, number>> = Object.freeze({
     pressures: 1024,
@@ -104,6 +113,41 @@ export function unrecordedClues(graph: ModuleGraph, world: Row, scene: Row, reco
         }
     }
     return rows;
+}
+/**
+ * What settled on a turn that ended with nothing said (contract §69). The mirror of `unrecorded`
+ * above: there the prose gave a finding the books never got, here the books got receipts the prose
+ * never gave.
+ *
+ * §38 keeps a stranded turn honest and §50 hands the player its mechanics card; both stop at the
+ * state surface, and the Keeper's next run reads neither. `recent` carries the stranded turn with an
+ * empty `keeper` line, which is indistinguishable from a turn where nothing happened, and the ledger
+ * has already moved the clue into `discovered_clues`, so `known.clues_here` shows it `discovered:
+ * true` -- delivered, as far as the capsule ever says. On campaign `game-1c0faba5` turn 81 an extreme
+ * Spot Hidden success landed a clue, a handout and twenty minutes; turn 82's prose then said those
+ * observations were still not written down, the player went back and searched the same wall again,
+ * and the clock charged a second time for one act. The loss is not only the paragraph: the fiction
+ * came out contradicting receipts that every downstream consumer still reads as true.
+ *
+ * A row is no licence to invent. The receipts are facts the kernel minted, projected by the same
+ * `mechanicsOf` a delivered turn's card uses, so nothing here reads a receipt for meaning. It needs
+ * no writer to retract it either: a delivered turn after it discharges every row, because by then
+ * the Keeper has written once with the findings in hand.
+ */
+export function untoldReceipts(records: Row[], turn: number): Row[] {
+    const before = records.filter(record => number(record.turn) < turn);
+    const delivered = before.reduce((last, record) => record.closed_by === "narrate" ? Math.max(last, number(record.turn)) : last, -1);
+    return before
+        .filter(record => record.closed_by === "stranded" && number(record.turn) > delivered)
+        .sort((a, b) => number(a.turn) - number(b.turn))
+        .flatMap(record => {
+            const rows = array(record.receipts).map(receipt => mechanicsOf(row(receipt))).filter((entry): entry is Row => entry !== null);
+            return rows.length ? [{
+                turn: record.turn,
+                receipts: rows,
+                line: `turn ${record.turn} settled these and the player was never told; say what they found, and do not write as though it did not happen`
+            }] : [];
+        });
 }
 /** present[] under its budget with every name kept: full rows are cut from the end as `fitBudget` cuts
  *  them, and each person cut comes back as `{name, truncated: true}`; if the stubs themselves do not fit,
@@ -228,7 +272,8 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
             why: warning.why ?? null,
             ...(warning.clue ? { clue: warning.clue } : {})
         })),
-        unrecorded: unrecordedClues(graph, world, scene, campaign.records, number(turn.turn))
+        unrecorded: unrecordedClues(graph, world, scene, campaign.records, number(turn.turn)),
+        untold: untoldReceipts(campaign.records, number(turn.turn))
     });
     const truncated: string[] = [];
     if (fitBudget(sections.known.flags, 512, "last"))
