@@ -200,6 +200,45 @@ export class Chargen {
     }
     return held;
   }
+  /** The Quick Fire array placed by what the player said about the person (contract §97): the
+   *  characteristics named strong take the top of the array in the order they were named, the ones
+   *  named weak take the bottom, and everything else takes the middle in table order. A rulebook
+   *  method, so a described person is a legal card; the words only decide who stands where. */
+  quickFireByAptitude(aptitude: Row | null): Row {
+    const values: Row = {}, values8 = this.dice.generation_methods.quick_fire_array.array.map((value: any) => Math.trunc(number(value)));
+    const strong = aptitude ? array(aptitude.strong).map(string) : [], weak = aptitude ? array(aptitude.weak).map(string) : [];
+    const rest = this.characteristics.filter(abbr => !strong.includes(abbr) && !weak.includes(abbr));
+    const order = [...strong, ...rest, ...[...weak].reverse()];
+    if (order.length !== values8.length) valueError('the quick-fire array and the characteristics differ in length');
+    order.forEach((abbr, index) => { values[abbr] = values8[index]; });
+    return {method: 'quick_fire', values, assignment_order: order, array: values8, ...(aptitude ? {aptitude} : {}),
+      source: 'characteristic-dice.generation_methods.quick_fire_array'};
+  }
+  /** The characteristics of a card, generated once (contract §97): the dice when nothing was said,
+   *  the Quick Fire array when the person was described, point-buy when numbers were written. Age,
+   *  Luck and the derived values follow from that one generation; a pinned characteristic is not
+   *  moved by the age table, because a pin is the final number somebody wanted. */
+  async generate(options: {seed: string; age: any; aptitude: any; pins: Row; difficulty?: any; method?: string | null}): Promise<{characteristics: Row; derived: Row; trace: Row; method: string}> {
+    const aptitude = this.aptitude(options.aptitude), diff = this.difficultyPolicy(options.difficulty ?? null);
+    const pinned = Object.keys(options.pins).filter(abbr => this.characteristics.includes(abbr));
+    // The words choose the method — the array when the person was described, the dice otherwise —
+    // and a pin overlays whichever it was: a rolled card that takes one pin keeps its dice for the
+    // other seven, and a card whose player later says "she is strong" moves to the array.
+    const method = options.method ?? (aptitude ? 'quick_fire' : 'rolled');
+    if (!['rolled', 'quick_fire'].includes(method)) valueError(`unknown generation method ${method}`);
+    const generated = method === 'quick_fire' ? this.quickFireByAptitude(aptitude) : this.rolled(new PythonRandom(options.seed + ':characteristics'), null, diff);
+    for (const abbr of pinned) generated.values[abbr] = Math.trunc(number(options.pins[abbr]));
+    if (pinned.length) generated.pinned = [...pinned];
+    const trace: Row = {seed: options.seed, method: string(generated.method), characteristics: generated};
+    const aged = this.applyAge(generated.values, options.age, new PythonRandom(options.seed + ':age')), characteristics = {...aged.values};
+    for (const abbr of pinned) characteristics[abbr] = Math.trunc(number(options.pins[abbr]));
+    trace.age = {...aged.trace, ...(pinned.length ? {pinned_unadjusted: pinned} : {})};
+    const luck = this.luck(new PythonRandom(options.seed + ':luck'), aged.trace.luck_rolls_keep_highest, diff);
+    trace.luck = luck; characteristics.LUCK = Object.hasOwn(options.pins, 'LUCK') ? Math.trunc(number(options.pins.LUCK)) : luck.value;
+    const derived = await this.derive(characteristics, aged.trace.mov_penalty); trace.derived = derived.trace;
+    if (diff) trace.difficulty = diff.record;
+    return {characteristics, derived: derived.values, trace, method: string(generated.method)};
+  }
   luck(rng: PythonRandom, keepHighest: number, diff: ResolvedDifficulty | null = null): Row {
     if (diff?.luckFixed != null)
       return {value: diff.luckFixed, dice: null, attempts: [], keep_highest: keepHighest, multiplier: this.multiplier,

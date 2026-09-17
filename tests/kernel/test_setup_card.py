@@ -1,0 +1,307 @@
+"""The card is a patched document: words change words, numbers change numbers (contract §97).
+
+Every case here is the RPC seam: `setup.draft` / `setup.revise` / `setup.reroll` / `setup.confirm`
+against the emitted kernel, and the card file on disk. Nothing reads an internal function.
+"""
+import copy
+
+from conftest import CAMPAIGN, RpcClient, campaign_dir, read_json
+from test_setup_drafts import profile, begin
+
+TABLE_ORDER = ["STR", "CON", "SIZ", "DEX", "APP", "INT", "POW", "EDU"]
+
+
+def criminal():
+    semantic = profile()
+    semantic.update({"name": "龙薇", "occupation": "Criminal", "age": 26, "sex": "女", "own_language": "中文",
+                     "occupation_skills": ["Fighting (Brawl)", "Firearms (Handgun)", "Stealth", "Drive Auto", "Disguise", "Psychology", "Spot Hidden", "Sleight of Hand"],
+                     "interest_skills": ["Dodge", "Throw", "Climb"]})
+    return semantic
+
+
+def draft(kernel, semantic, **extra):
+    kernel.ok("campaign.create", {"id": CAMPAIGN, "module": "the-haunting", "play_language": "zh-Hans"})
+    return kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": semantic, **extra})
+
+
+def current(kernel):
+    return kernel.ok("setup.steps", {"campaign": CAMPAIGN})["state"]["draft"]
+
+
+# ---- how the numbers come to be ---------------------------------------------------------------
+
+def test_a_described_person_takes_the_quick_fire_array_in_priority_order(kernel):
+    """龙薇: a beautiful, agile assassin got APP 35 / DEX 50 because 'strong' could only permute her own dice."""
+    semantic = criminal()
+    semantic["aptitude"] = {"strong": ["DEX", "APP", "STR", "CON"], "weak": [], "origin": "player"}
+    card = draft(kernel, semantic)
+    generated = card["sheet"]["creation"]["characteristics"]
+    assert generated["method"] == "quick_fire"
+    values = generated["values"]
+    assert values["DEX"] == 80 and values["APP"] == 70 and values["STR"] == 60 and values["CON"] == 60
+    assert [values[a] for a in ("SIZ", "INT", "POW", "EDU")] == [50, 50, 50, 40], "the rest take the middle of the array in table order"
+    assert card["sheet"]["characteristics"]["DEX"] == 80 and card["sheet"]["characteristics"]["APP"] >= 70
+    assert card["generation"]["method"] == "quick_fire"
+
+
+def test_a_weak_characteristic_takes_the_bottom_of_the_array(kernel):
+    semantic = criminal()
+    semantic["aptitude"] = {"strong": ["INT"], "weak": ["STR"], "origin": "player"}
+    values = draft(kernel, semantic)["sheet"]["creation"]["characteristics"]["values"]
+    assert values["INT"] == 80 and values["STR"] == 40
+
+
+def test_without_a_word_about_the_person_the_dice_decide(kernel):
+    card = draft(kernel, criminal())
+    assert card["sheet"]["creation"]["characteristics"]["method"] == "rolled"
+    assert card["generation"]["method"] == "rolled"
+    assert card["pins"] == {"characteristics": {}, "skills": {}}
+
+
+def test_a_number_written_in_the_dossier_is_a_pin(kernel):
+    card = draft(kernel, criminal(), numbers={"characteristics": {"DEX": 90, "APP": 85}})
+    assert card["sheet"]["characteristics"]["DEX"] == 90 and card["sheet"]["characteristics"]["APP"] == 85
+    assert card["pins"]["characteristics"]["DEX"] == {"value": 90, "by": "player"}
+    assert card["generation"]["method"] == "rolled", "a number is a pin over the dice, not a method of its own"
+    assert card["sheet"]["creation"]["characteristics"]["pinned"] == ["DEX", "APP"]
+    assert card["sheet"]["derived"]["HP"] == (card["sheet"]["characteristics"]["CON"] + card["sheet"]["characteristics"]["SIZ"]) // 10
+
+
+def test_a_pin_above_the_creation_bound_asks_for_the_unlock(kernel):
+    kernel.ok("campaign.create", {"id": CAMPAIGN, "module": "the-haunting", "play_language": "zh-Hans"})
+    error = kernel.err("setup.draft", {"campaign": CAMPAIGN, "profile": criminal(), "numbers": {"characteristics": {"STR": 95}}})
+    assert error["code"] == "needs"
+    assert error["details"]["field"] == "STR" and error["details"]["unlock"] == {"characteristic_max": 95}
+    card = kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": criminal(), "numbers": {"characteristics": {"STR": 95}}, "limits": {"characteristic_max": 95}})
+    assert card["sheet"]["characteristics"]["STR"] == 95
+    assert card["budget"]["legal"] is False and "characteristic_max" in card["limits"]["overridden"]
+
+
+# ---- words change words -------------------------------------------------------------------------
+
+def test_a_profile_revision_moves_no_number(kernel):
+    first = draft(kernel, criminal())
+    second = kernel.ok("setup.revise", {"campaign": CAMPAIGN, "profile": {"equipment": ["吉他箱", "武士刀", "六把飞刀"], "backstory": {**profile()["backstory"], "personal_description": "皮肤白皙，黑发到肩"}}})
+    assert second["revision"] == first["revision"] + 1
+    assert second["sheet"]["characteristics"] == first["sheet"]["characteristics"]
+    assert second["sheet"]["skills"] == first["sheet"]["skills"]
+    assert second["sheet"]["credit_rating"] == first["sheet"]["credit_rating"]
+    assert second["sheet"]["equipment"] == ["吉他箱", "武士刀", "六把飞刀"]
+    assert second["sheet"]["backstory"]["personal_description"] == "皮肤白皙，黑发到肩"
+    assert second["applied"] == ["backstory", "equipment"]
+
+
+def test_draft_with_a_card_on_the_table_is_a_revision(kernel):
+    first = draft(kernel, criminal())
+    again = kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": {"age": 30}})
+    assert again["revision"] == first["revision"] + 1
+    assert again["sheet"]["creation"]["characteristics"] == first["sheet"]["creation"]["characteristics"]
+
+
+def test_an_unprinted_weapon_goes_to_the_equipment_instead_of_a_refusal(kernel):
+    semantic = criminal()
+    semantic["weapons"] = ["武士刀", ".45 Automatic"]
+    card = draft(kernel, semantic)
+    assert [weapon["name"] for weapon in card["sheet"]["weapons"]] == [".45 Automatic"]
+    assert "武士刀" in card["sheet"]["equipment"]
+    assert card["moved_to_equipment"] == ["武士刀"]
+
+
+def test_unknown_profile_fields_are_named_not_the_whole_schema(kernel):
+    kernel.ok("campaign.create", {"id": CAMPAIGN, "module": "the-haunting", "play_language": "zh-Hans"})
+    error = kernel.err("setup.draft", {"campaign": CAMPAIGN, "profile": {**criminal(), "step": "x", "skills": {}}})
+    assert error["code"] == "invalid_params"
+    assert error["details"]["unknown"] == ["skills", "step"]
+
+
+# ---- the catalog is the kernel's job ------------------------------------------------------------
+
+def test_fewer_than_eight_occupation_skills_are_filled_from_the_trade(kernel):
+    semantic = criminal()
+    semantic["occupation_skills"] = ["Psychology", "Stealth"]
+    card = draft(kernel, semantic)
+    listed = card["sheet"]["creation"]["skills"]["occupation"]["resolved"]
+    assert len(listed) == 8 and len(set(listed)) == 8
+    assert {"Psychology", "Stealth", "Spot Hidden"} <= set(listed)
+    assert set(card["filled_in"]) == set(listed) - {"Psychology", "Stealth"}
+    assert card["profile"]["occupation_skills"] == listed
+
+
+def test_names_resolve_through_the_localized_labels(kernel):
+    semantic = criminal()
+    semantic.update({"occupation": "罪犯", "occupation_skills": ["心理学", "侦查", "潜行", "斗殴", "手枪", "乔装", "汽车驾驶", "妙手"],
+                     "interest_skills": ["闪避", "投掷"]})
+    card = draft(kernel, semantic)
+    assert card["sheet"]["occupation"] == "Criminal"
+    assert "Spot Hidden" in card["profile"]["occupation_skills"] and "Dodge" in card["profile"]["interest_skills"]
+    assert card["sheet"]["skills"]["Dodge"] > card["sheet"]["characteristics"]["DEX"] // 2, "the interest list was spent on it"
+
+
+def test_an_unknown_trade_offers_the_closest_entries_by_their_skills(kernel):
+    semantic = criminal()
+    semantic.update({"occupation": "Mechanic", "occupation_skills": ["Mechanical Repair", "Electrical Repair", "Drive Auto", "Operate Heavy Machinery"]})
+    kernel.ok("campaign.create", {"id": CAMPAIGN, "module": "the-haunting", "play_language": "zh-Hans"})
+    error = kernel.err("setup.draft", {"campaign": CAMPAIGN, "profile": semantic})
+    assert error["code"] == "needs" and error["details"]["field"] == "occupation"
+    candidates = [row["id"] for row in error["details"]["candidates"]]
+    assert 1 <= len(candidates) <= 3 and "Engineer" in candidates
+    assert all({"id", "label", "skills"} <= set(row) for row in error["details"]["candidates"])
+    assert "skills" not in error["details"], "no catalog dump rides on a refusal"
+
+
+def test_an_unresolved_skill_is_dropped_with_candidates_and_the_card_is_still_drawn(kernel):
+    semantic = criminal()
+    semantic["interest_skills"] = ["anything at all", "Dodge", "Spot Hiden"]
+    card = draft(kernel, semantic)
+    given = {row["given"]: row["candidates"] for row in card["unresolved"]}
+    assert set(given) == {"anything at all", "Spot Hiden"}
+    assert "Spot Hidden" in given["Spot Hiden"]
+    assert card["profile"]["interest_skills"] == ["Dodge"]
+
+
+def test_the_catalog_is_one_compact_read(kernel):
+    kernel.ok("campaign.create", {"id": CAMPAIGN, "module": "the-haunting", "play_language": "zh-Hans"})
+    catalog = kernel.ok("setup.catalog", {"campaign": CAMPAIGN})
+    occupations = {row["id"]: row for row in catalog["occupations"]}
+    assert len(occupations) == 28 and occupations["Criminal"]["label"] == "罪犯"
+    assert occupations["Criminal"]["credit_rating_range"] == [5, 65] and occupations["Criminal"]["skills"]
+    skills = {row["name"]: row["label"] for row in catalog["skills"]}
+    assert skills["Spot Hidden"] == "侦查" and len(skills) >= 79
+    assert ".45 Automatic" in catalog["weapons"]
+
+
+# ---- numbers change numbers, and stay changed ---------------------------------------------------
+
+def test_a_pinned_skill_survives_a_list_change_and_the_new_skills_take_only_what_is_left(kernel):
+    first = draft(kernel, criminal())
+    pinned = kernel.ok("setup.revise", {"campaign": CAMPAIGN, "numbers": {"skills": {"Dodge": 70}}})
+    assert pinned["sheet"]["skills"]["Dodge"] == 70 and pinned["pins"]["skills"]["Dodge"] == {"value": 70, "by": "player"}
+    widened = kernel.ok("setup.revise", {"campaign": CAMPAIGN, "profile": {"interest_skills": ["Dodge", "Throw", "Climb", "First Aid", "Natural World"]}})
+    assert widened["sheet"]["skills"]["Dodge"] == 70
+    assert widened["pins"]["skills"]["Dodge"] == {"value": 70, "by": "player"}
+    assert widened["budget"]["interest"]["unspent"] >= 0
+    for name in ("Throw", "Climb"):
+        assert widened["sheet"]["skills"][name] <= pinned["sheet"]["skills"][name], "an older allocation only ever gives way, never grows on its own"
+
+
+def test_soft_allocations_are_sticky_and_only_the_biggest_holder_gives_way(kernel):
+    first = draft(kernel, criminal())
+    skills = first["sheet"]["skills"]
+    softest = min(("Fighting (Brawl)", "Firearms (Handgun)", "Stealth", "Drive Auto"), key=lambda name: skills[name])
+    raised = kernel.ok("setup.revise", {"campaign": CAMPAIGN, "numbers": {"skills": {softest: skills[softest] + 10}}})
+    changed = {name for name in skills if raised["sheet"]["skills"][name] != skills[name]}
+    assert softest in changed and len(changed) <= 3, f"one pin moved {sorted(changed)}"
+    assert raised["budget"]["occupation"]["unspent"] == first["budget"]["occupation"]["unspent"]
+
+
+def test_a_pin_by_the_model_is_recorded_as_the_models(kernel):
+    draft(kernel, criminal())
+    card = kernel.ok("setup.revise", {"campaign": CAMPAIGN, "numbers": {"skills": {"Dodge": 60}}, "by": "model"})
+    assert card["pins"]["skills"]["Dodge"] == {"value": 60, "by": "model"}
+
+
+def test_a_pin_above_the_cap_asks_for_the_unlock_and_takes_it(kernel):
+    draft(kernel, criminal())
+    error = kernel.err("setup.revise", {"campaign": CAMPAIGN, "numbers": {"skills": {"Dodge": 85}}})
+    assert error["code"] == "needs" and error["details"]["field"] == "Dodge" and error["details"]["unlock"] == {"skill_cap": 85}
+    assert current(kernel)["sheet"]["skills"]["Dodge"] != 85
+    card = kernel.ok("setup.revise", {"campaign": CAMPAIGN, "numbers": {"skills": {"Dodge": 85}}, "limits": {"skill_cap": 90}})
+    assert card["sheet"]["skills"]["Dodge"] == 85 and card["limits"]["skill_cap"] == 90
+    assert card["budget"]["legal"] is False and any(note["code"] == "relaxed" and note["limit"] == "skill_cap" for note in card["budget"]["notes"])
+
+
+def test_a_pin_the_budget_cannot_hold_is_kept_and_the_overspend_is_reported(kernel):
+    draft(kernel, criminal(), limits={"skill_cap": 90})
+    card = kernel.ok("setup.revise", {"campaign": CAMPAIGN, "numbers": {"skills": {"Fighting (Brawl)": 90, "Firearms (Handgun)": 90, "Stealth": 90, "Drive Auto": 90, "Disguise": 90, "Psychology": 90, "Spot Hidden": 90, "Sleight of Hand": 90}}})
+    for name in ("Fighting (Brawl)", "Sleight of Hand"):
+        assert card["sheet"]["skills"][name] == 90
+    assert card["budget"]["occupation"]["unspent"] < 0 and card["budget"]["legal"] is False
+    assert card["completeness"]["valid"], "an overspent card is a non-standard card, not an incomplete one"
+
+
+def test_a_relaxed_budget_left_unspent_is_a_note_not_a_gate(kernel):
+    draft(kernel, criminal())
+    relaxed = kernel.ok("setup.revise", {"campaign": CAMPAIGN, "limits": {"interest_points": 300}})
+    assert relaxed["budget"]["interest"]["total"] == 300 and relaxed["budget"]["interest"]["unspent"] > 0
+    assert relaxed["completeness"]["valid"]
+    committed = kernel.ok("setup.confirm", {"campaign": CAMPAIGN, "consent": "approved"})
+    assert committed["committed"] and committed["sheet"]["creation"]["skills"]["interest"]["unspent"] > 0
+
+
+def test_auto_spread_spends_what_is_left_and_moves_no_pin(kernel):
+    draft(kernel, criminal())
+    kernel.ok("setup.revise", {"campaign": CAMPAIGN, "numbers": {"skills": {"Dodge": 60}}})
+    relaxed = kernel.ok("setup.revise", {"campaign": CAMPAIGN, "limits": {"interest_points": 300, "occupation_points": 600}})
+    spread = kernel.ok("setup.revise", {"campaign": CAMPAIGN, "auto_spread": True})
+    assert spread["budget"]["interest"]["unspent"] < relaxed["budget"]["interest"]["unspent"]
+    assert spread["budget"]["occupation"]["unspent"] < relaxed["budget"]["occupation"]["unspent"]
+    assert spread["sheet"]["skills"]["Dodge"] == 60
+
+
+def test_the_override_alias_still_edits_numbers_for_the_card(kernel):
+    first = draft(kernel, criminal())
+    con = first["sheet"]["characteristics"]["CON"]
+    target = con + 10 if con + 10 <= 90 else con - 10
+    card = kernel.ok("setup.override", {"campaign": CAMPAIGN, "revision": first["revision"], "edits": {"characteristics": {"CON": target}}})
+    assert card["revision"] == first["revision"] + 1 and card["sheet"]["characteristics"]["CON"] == target
+    assert card["pins"]["characteristics"]["CON"] == {"value": target, "by": "player"}
+    assert card["sheet"]["derived"]["HP"] == (target + card["sheet"]["characteristics"]["SIZ"]) // 10
+
+
+def test_credit_rating_is_pinned_inside_the_trade_range(kernel):
+    first = draft(kernel, criminal())
+    assert kernel.err("setup.revise", {"campaign": CAMPAIGN, "numbers": {"credit_rating": 70}})["details"]["range"] == [5, 65]
+    card = kernel.ok("setup.revise", {"campaign": CAMPAIGN, "numbers": {"credit_rating": 60}})
+    assert card["sheet"]["credit_rating"] == 60 and card["sheet"]["skills"]["Credit Rating"] == 60
+    assert card["pins"]["credit_rating"] == {"value": 60, "by": "player"}
+    assert card["sheet"]["finance"] != first["sheet"]["finance"], "wealth follows the rating"
+
+
+def test_a_refused_revision_leaves_the_card_as_it_was(kernel):
+    first = draft(kernel, criminal())
+    assert kernel.err("setup.revise", {"campaign": CAMPAIGN, "numbers": {"skills": {"Dodge": "high"}}})["code"] == "invalid_params"
+    assert kernel.err("setup.revise", {"campaign": CAMPAIGN, "profile": {"occupation": "Mechanic"}})["code"] == "needs"
+    assert current(kernel)["revision"] == first["revision"]
+
+
+def test_a_revision_needs_a_card(kernel):
+    kernel.ok("campaign.create", {"id": CAMPAIGN, "module": "the-haunting", "play_language": "zh-Hans"})
+    assert kernel.err("setup.revise", {"campaign": CAMPAIGN, "numbers": {"skills": {"Dodge": 60}}})["code"] == "needs"
+
+
+# ---- the dice are rolled once ----------------------------------------------------------------------
+
+def test_reroll_is_the_only_call_that_rolls_again_and_it_keeps_the_pins(kernel):
+    first = draft(kernel, criminal())
+    kernel.ok("setup.revise", {"campaign": CAMPAIGN, "numbers": {"characteristics": {"DEX": 90}}})
+    for _ in range(3):
+        kernel.ok("setup.revise", {"campaign": CAMPAIGN, "profile": {"age": 30}})
+        assert current(kernel)["sheet"]["creation"]["characteristics"]["rolls"] == first["sheet"]["creation"]["characteristics"]["rolls"]
+    rerolled = kernel.ok("setup.reroll", {"campaign": CAMPAIGN})
+    assert rerolled["sheet"]["characteristics"]["DEX"] == 90
+    assert rerolled["sheet"]["creation"]["characteristics"]["rolls"] != first["sheet"]["creation"]["characteristics"]["rolls"]
+    assert rerolled["seed"] != first["seed"]
+
+
+# ---- one gate -----------------------------------------------------------------------------------------
+
+def test_confirm_checks_only_that_this_is_the_current_card(kernel):
+    first = draft(kernel, criminal())
+    assert kernel.err("setup.confirm", {"campaign": CAMPAIGN, "revision": first["revision"] + 5, "consent": "approved"})["code_detail"] == "stale_draft"
+    committed = kernel.ok("setup.confirm", {"campaign": CAMPAIGN, "revision": first["revision"], "consent": "approved"})
+    assert committed["committed"] and committed["sheet"] == first["sheet"]
+    assert read_json(campaign_dir(kernel.workspace) / "party" / "investigator.json") == first["sheet"]
+
+
+def test_previewed_is_gone(kernel):
+    draft(kernel, criminal())
+    assert kernel.err("setup.previewed", {"campaign": CAMPAIGN, "revision": 1})["code"] == "unknown_method"
+
+
+def test_the_card_file_holds_the_pins_and_the_soft_share(kernel):
+    draft(kernel, criminal())
+    card = kernel.ok("setup.revise", {"campaign": CAMPAIGN, "numbers": {"skills": {"Dodge": 65}}})
+    stored = read_json(campaign_dir(kernel.workspace) / "setup" / "drafts" / f"{card['revision']}.json")
+    assert stored["pins"] == card["pins"] and stored["budget"] == card["budget"]
+    assert "Dodge" not in stored["soft"]["interest"]
+    assert "manual" not in stored and "manual" not in stored["sheet"]["creation"]

@@ -1,6 +1,6 @@
 # 建卡重设计：一张卡、两种改动、一道闸
 
-Status: ready-for-agent（2026-09-17，用户拍板 §17 三项：形容词直接定属性顺序、预算不再是闸、确认按钮绕过模型）
+Status: implemented on branch claude/character-creation-redesign-20260917（2026-09-17；契约 §97；用户拍板 §17 三项：形容词直接定属性顺序、预算不再是闸、确认按钮绕过模型）
 Parent: 无远端工单；契约落地为 `docs/kernel-rpc.md` §97，修订 §23.4、§26（setup 部分）、§92、§96。
 Evidence: 2026-09-16/17 血色公路五局建卡记录，见附录 A。
 

@@ -16,15 +16,17 @@ import { moduleAvailable, moduleEra } from '../library/index.js';
 import { Chargen, ChargenError, ALLOCATION_POLICIES, defaultInvestigatorId, resolveRulebookEra } from './chargen.js';
 import { SetupSteps } from './steps.js';
 import { SetupDrafts } from './drafts.js';
+import { SetupCatalog } from './catalog.js';
 import { investigatorRow, completeness } from './sheet.js';
 
 export class Setup {
   readonly drafts: SetupDrafts;
   private constructor(readonly context: KernelContext, readonly writer: ReturnType<typeof createWriteRuntime>, readonly tables: RuleTables,
-    readonly steps: SetupSteps, readonly chargen: Chargen) { this.drafts = new SetupDrafts(this); }
+    readonly steps: SetupSteps, readonly chargen: Chargen, readonly catalog: SetupCatalog) { this.drafts = new SetupDrafts(this); }
   static async create(context: KernelContext, writer: ReturnType<typeof createWriteRuntime>): Promise<Setup> {
     const tables = new RuleTables(context), steps = await SetupSteps.create(context);
-    return new Setup(context, writer, tables, steps, await Chargen.create(tables, steps.step('create-investigator')));
+    const chargen = await Chargen.create(tables, steps.step('create-investigator'));
+    return new Setup(context, writer, tables, steps, chargen, await SetupCatalog.create(chargen, tables));
   }
   async moduleMeta(id: string, campaign?: string): Promise<Row | null> {
     const root = campaign ? await scopedModuleRoot(this.context, campaign, id) ?? join(this.context.stateRoot, 'modules') : join(this.context.stateRoot, 'modules');
@@ -142,7 +144,9 @@ export function createSetupHandlers(context: KernelContext, writer: ReturnType<t
     'setup.investigator': async params => (await setup()).investigator(params),
     'setup.complete': async params => (await setup()).complete(params),
     'setup.draft': async params => (await setup()).drafts.draft(params),
-    'setup.previewed': async params => (await setup()).drafts.previewed(params),
+    'setup.revise': async params => (await setup()).drafts.revise(params),
+    'setup.reroll': async params => (await setup()).drafts.reroll(params),
+    'setup.catalog': async params => (await setup()).drafts.catalog(params),
     'setup.confirm': async params => (await setup()).drafts.confirm(params),
     'setup.override': async params => (await setup()).drafts.override(params),
     'setup.prologue': async params => (await setup()).drafts.prologue(params),
