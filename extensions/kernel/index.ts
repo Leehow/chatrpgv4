@@ -2881,7 +2881,42 @@ export default function (pi: ExtensionAPI) {
 		}
 		const next = waitingInputs.shift();
 		if (next) pi.sendUserMessage([{ type: "text", text: next.text }, ...(next.images ?? [])]);
+		// Contract §73. Nothing is waiting to speak, so nothing else is going to close this turn. §38 left
+		// the close welded to the next `table.player_input`, which made the declaration a promise held in
+		// this process's memory: the turn stayed `acting` on disk, a restart found it `acting`, and only
+		// the player's next utterance redeemed it. Complete it here instead. The mark stays set until the
+		// kernel confirms, so a kernel that cannot answer right now -- the exact condition that strands
+		// most turns -- still gets the §38 release on the next input.
+		else if (undelivered) void releaseStrandedTurn(table);
 	});
+
+	/**
+	 * Close a turn this run left stranded, without a player utterance attached to it.
+	 *
+	 * Failure is not escalated anywhere: the §38 path is still armed behind it, and a second notice for a
+	 * turn the player has already been told about would be noise. The telemetry row is the trace.
+	 */
+	async function releaseStrandedTurn(state: TableState): Promise<void> {
+		const turn = state.turn;
+		if (state.strandedTurn !== true || !(state.state === "open" || state.state === "acting")) return;
+		try {
+			// The same completion barrier §38.3 puts in front of the input-carried release: the marker must
+			// name this kernel turn durably before the turn is closed, or a failed replacement could strand
+			// its successor instead.
+			if (watchdogTurnBinding?.turn === turn && (await watchdogTurnBinding.promise) !== "bound") return;
+			const result = await state.kernel.call<{ turn?: number }>("table.release", { campaign: state.campaign, release: "stranded" });
+			state.turn = typeof result.turn === "number" ? result.turn : turn + 1;
+			state.state = "awaiting_player";
+			state.strandedTurn = undefined;
+			await clearWatchdogRecovery();
+			watchdogTurnBinding = undefined;
+			void record({ lane: "turn", event: "released", turn, ok: true });
+		} catch (error) {
+			void record({ lane: "turn", event: "released", turn, ok: false,
+				code: isKernelError(error) ? error.code : "internal",
+				detail: error instanceof Error ? error.message : String(error) });
+		}
+	}
 
 	// ---- Turns ------------------------------------------------------------
 

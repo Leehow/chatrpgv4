@@ -744,6 +744,24 @@ function handle(method, params) {
 				},
 			};
 		}
+		// Contract §73: the host closes a stranded turn itself, with no player utterance attached.
+		// FAKE_KERNEL_RELEASE_REFUSES "1" refuses it, so a test can hold the §38 fallback open.
+		case "table.release": {
+			if (process.env.FAKE_KERNEL_RELEASE_REFUSES === "1") {
+				return { ok: false, error: { code: "internal", message: "the fixture kernel refuses to release" } };
+			}
+			if (params.release !== "stranded") {
+				return { ok: false, error: { code: "invalid_params", message: 'release must be "stranded"' } };
+			}
+			if (state !== "open" && state !== "acting") {
+				return { ok: false, error: { code: "invalid_params", message: `a turn that is '${state}' is not stranded` } };
+			}
+			const released = turn;
+			turn += 1;
+			state = "awaiting_player";
+			turnMechanics = [];
+			return { ok: true, result: { turn, state, released } };
+		}
 		case "table.player_input": {
 			const strandedRelease = params.release === "stranded" && (state === "open" || state === "acting");
 			if (process.env.FAKE_KERNEL_STRICT_TURN === "1" && state !== "awaiting_player" && state !== "asked" && !strandedRelease) {

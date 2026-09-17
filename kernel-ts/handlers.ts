@@ -14,7 +14,7 @@ export type HandlerGroup = Readonly<Record<string, KernelHandler>>;
 /** The current Python public method vocabulary, including unmigrated methods. */
 export const KNOWN_METHODS = Object.freeze([
   "kernel.hello", "campaign.list", "campaign.create",
-  "table.open", "table.status", "table.capsule", "table.player_input", "table.look",
+  "table.open", "table.status", "table.capsule", "table.player_input", "table.release", "table.look",
   "table.view", "table.graph", "table.lookup", "table.recall", "table.resolve", "table.apply", "table.ask",
   "table.narrate", "table.warn", "table.branch", "table.switch", "memory.job", "memory.submit", "memory.fail",
   "journal.job", "journal.submit", "journal.fail", "voice.job", "voice.submit", "voice.fail",

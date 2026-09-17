@@ -615,6 +615,69 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             }
         };
     }
+    /**
+     * Contract §38.2's stranded close, on its own. One writer, used by `table.release` and by the
+     * `release: "stranded"` form of `table.player_input`, so the record a released turn leaves behind
+     * cannot depend on which of the two closed it.
+     */
+    async function strandTurn(campaign: CampaignWriter, snapshot: CampaignSnapshot, module: LoadedModule): Promise<number> {
+        const turn = snapshot.turn, next = number(turn.turn);
+        await campaign.writeTurnRecord({
+            turn: next,
+            player_text: turn.player_text ?? null,
+            receipts: array(turn.receipts),
+            text: null,
+            rendered_text: null,
+            calls: turn.calls || {},
+            commit: null,
+            closed_by: 'stranded',
+            opened_at: turn.opened_at ?? null,
+            closed_at: nowIso(),
+            pending_choice: null,
+            capsule: turn.capsule ?? null,
+            world: tableSnapshot(snapshot, module.graph),
+            worldline: turn.worldline ?? null
+        });
+        await campaign.appendEvent(next, {
+            type: 'turn-stranded',
+            data: {
+                receipts: array(turn.receipts).map(receipt => string(row(receipt).id))
+            }
+        });
+        await campaign.telemetry({ lane: 'turn', event: 'stranded', turn: next, receipts: array(turn.receipts).length });
+        return next + 1;
+    }
+    /**
+     * Contract §73. The host declared this turn stranded; that declaration is completed here and now,
+     * with no player utterance attached to it.
+     *
+     * §38 put the close inside `table.player_input`, so a turn the host had already given up on stayed
+     * `acting` on disk until the player said something else. Retained live evidence (H-SIDE t4
+     * `game-1c0faba5`, turn 86, 2026-09-17): the host wrote its §50 card at 00:21, and `turns/0086.json`
+     * was written at 00:56 — the moment the player typed again, 43 minutes and one fruitless server
+     * restart later. The four receipts were intact both times; only the trigger was missing.
+     *
+     * Nothing here narrates, commits or judges: it writes the same record §38.2 describes and leaves the
+     * table `awaiting_player` on the next turn, which is exactly where a delivered turn leaves it.
+     */
+    async function release(params: Row): Promise<Row> {
+        const { campaign, snapshot, module } = await load(params);
+        const turn = snapshot.turn;
+        if (params.release !== 'stranded')
+            throw new RpcError('invalid_params', 'release must be "stranded"', {
+                fix: 'pass release: "stranded" to close a turn the Keeper left undelivered',
+                details: { release: params.release ?? null }
+            });
+        if (!['open', 'acting'].includes(string(turn.state)))
+            throw new RpcError('invalid_params', `a turn that is ${repr(turn.state)} is not stranded`, {
+                fix: 'release only a turn the Keeper opened and left undelivered',
+                details: { turn: number(turn.turn), state: turn.state ?? null }
+            });
+        const next = await strandTurn(campaign, snapshot, module);
+        seedTurn(context, snapshot.meta, next);
+        await campaign.writeTurn(freshTurn(next));
+        return { turn: next, state: 'awaiting_player', released: number(turn.turn) };
+    }
     async function playerInput(params: Row): Promise<Row> {
         const { campaign, snapshot, module } = await load(params);
         preflightCampaign(snapshot.meta, snapshot.world, snapshot.turn, snapshot.party);
@@ -637,32 +700,9 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         if (!stranded && !['awaiting_player', 'asked'].includes(turn.state))
             throw turnStateError(turn, 'table.player_input', 'finish the current turn with narrate or ask first');
         let next = number(turn.turn), pending = null;
-        if (stranded) {
-            await campaign.writeTurnRecord({
-                turn: next,
-                player_text: turn.player_text ?? null,
-                receipts: array(turn.receipts),
-                text: null,
-                rendered_text: null,
-                calls: turn.calls || {},
-                commit: null,
-                closed_by: 'stranded',
-                opened_at: turn.opened_at ?? null,
-                closed_at: nowIso(),
-                pending_choice: null,
-                capsule: turn.capsule ?? null,
-                world: tableSnapshot(snapshot, module.graph),
-                worldline: turn.worldline ?? null
-            });
-            await campaign.appendEvent(next, {
-                type: 'turn-stranded',
-                data: {
-                    receipts: array(turn.receipts).map(receipt => string(row(receipt).id))
-                }
-            });
-            await campaign.telemetry({ lane: 'turn', event: 'stranded', turn: next, receipts: array(turn.receipts).length });
-            next++;
-        }
+        // §73 closes a stranded turn the moment the host declares it, so this path is the fallback for the
+        // case that made it necessary: a kernel that could not be reached then. It writes the same record.
+        if (stranded) next = await strandTurn(campaign, snapshot, module);
         else if (turn.state === 'asked') {
             next++;
             pending = turn.pending_choice ?? null;
@@ -976,6 +1016,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             'campaign.create': create,
             'table.open': open,
             'table.player_input': playerInput,
+            'table.release': release,
             'table.ask': ask,
             'table.narrate': narrate
         }),

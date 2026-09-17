@@ -65,9 +65,21 @@ export class AuditBudget {
     }
     private fresh(inputToken?: string) { return {version: 1, input_token: inputToken ?? null, requests: 0, ms: 0, rewrites: 0, artifact_repairs: 0, reviewed_jobs: {}, previous: [], blocked: null, blocked_service: null}; }
     private save() { atomic(this.file, this.state); }
-    start(preparationMs = 0): {max_requests: number; max_artifact_repairs: number; timeoutMs: number} {
+    /**
+     * §73: the allowance measures **active review time** (§35.14), so nothing but a reviewer may spend it.
+     *
+     * This used to charge the host's own preparation — `Date.now()` since the `mods.job` call was issued —
+     * to the shared `time_ms` before reserving anything. Preparation is not a review: it is the kernel
+     * assembling evidence, and when the kernel stalls it is a failure, not a verdict. Retained live evidence
+     * (H-SIDE t4 `game-1c0faba5`, turn 86, 2026-09-17): five `narrate` attempts died with
+     * `kernel mods.job did not answer within 30000 ms`; the sixth was finally answered after ~55 s of
+     * waiting, and that wait went in here. The reviewer then ran for 22.4 s inside its own reservation,
+     * submitted, and `mods.accept` bound its report — and the retained accounting read
+     * `ms: 81539` against `time_ms: 80000` with `reviewed_jobs: {}`. A review that passed was booked as an
+     * exhausted allowance because of seconds no reviewer spent.
+     */
+    start(): {max_requests: number; max_artifact_repairs: number; timeoutMs: number} {
         const requests = Math.min(this.limits.per_review, this.limits.max_requests - this.state.requests);
-        this.state.ms += Math.max(0, preparationMs);
         // One review reserves one review's worth, never the whole remaining allowance: otherwise the first
         // review eats the budget and the repair `max_rewrites` permits is unaffordable (§37.9).
         const ms = Math.min(this.limits.per_review_ms, this.limits.time_ms - this.state.ms);
@@ -84,10 +96,20 @@ export class AuditBudget {
         this.state.requests += Math.max(0, requests) - active.requests;
         this.state.ms += used - active.ms;
         this.state.artifact_repairs += Math.max(0, artifactRepairs);
-        delete this.state.active; this.save();
-        if (requests > active.requests) this.fail('The private review exceeded its reserved model-call allowance', false);
-        if (this.state.requests > this.limits.max_requests || this.state.ms > this.limits.time_ms || this.state.artifact_repairs > this.limits.max_artifact_repairs)
-            this.fail('The shared review allowance is exhausted', false);
+        delete this.state.active;
+        // A session that spent more model calls than it reserved broke the bound it was handed, so its
+        // report is not trusted and the throw stands.
+        if (requests > active.requests) { this.save(); this.fail('The private review exceeded its reserved model-call allowance', false); }
+        // §73: an allowance bounds what may be *started*, not what has already been produced. Closing the
+        // books on a review that ran inside its reservation may find the shared allowance spent; that is a
+        // fact about the *next* review of this input, so it latches here and is raised by the constructor.
+        // Throwing it from `finish()` discarded a report `mods.accept` had already bound one line earlier,
+        // and skipped `verdict()` entirely — which is why turn 86's retained accounting carries an
+        // exhausted block beside an empty `reviewed_jobs` and a job directory holding an accepted report.
+        if (this.state.requests > this.limits.max_requests || this.state.ms > this.limits.time_ms || this.state.artifact_repairs > this.limits.max_artifact_repairs) {
+            this.state.blocked = 'The shared review allowance is exhausted'; this.state.blocked_service = false;
+        }
+        this.save();
     }
     verdict(job: string, verdict: string) {
         // Every branch here is the reviewer having reached a conclusion, or the allowance those
