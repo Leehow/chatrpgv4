@@ -10,6 +10,8 @@ type Row = Record<string, any>;
 const MAX_FILE = 128 * 1024 * 1024;
 /** Two bounded model rounds plus worker startup; past this a card is a failure, not a wait. */
 const PRESENTATION_DEADLINE_MS = 360_000;
+/** Backoff between presentation attempts; its length is the retry budget. */
+const PRESENTATION_RETRY_DELAYS_MS = [800, 2_400, 6_000] as const;
 const CHUNK = 1024 * 1024;
 /**
  * How long an `uploading` job may go without a chunk before it is reported as interrupted (§44).
@@ -516,16 +518,41 @@ export class CocOnboardingHost {
    * or stalled before it, left the job pending for the life of the process and the card showing
    * its loading ellipsis with no retry to offer. A deadline turns that into a failure the player
    * can act on, and cancels the worker instead of leaving it behind.
+   *
+   * The deadline covers the retries too, and the retries live here rather than beside a caller.
+   * A projection generates through a model, so a child that dies on spawn or a provider that
+   * answers 500 is an ordinary event the player should never have to see — but a failed job is
+   * kept on purpose, because `presentationStatus` is a one-shot mailbox and the card's poll is
+   * the only thing that turns a failure into a control the player can press. A retry outside
+   * this method therefore cannot retry at all: it joins the job it already failed and re-awaits
+   * the same rejection. Retrying inside keeps the job unsettled while attempts remain, so the
+   * poll goes on answering `{pending:true}` and the mailbox only ever holds a final failure
+   * (§72).
    */
   private runPresentation(data:Row):Promise<Row> {
     const limit=Number(this.options.env.PI_COC_PRESENTATION_DEADLINE_MS)||PRESENTATION_DEADLINE_MS;
+    return this.attemptPresentation(data,Date.now()+limit,0);
+  }
+  private async attemptPresentation(data:Row,deadline:number,attempt:number):Promise<Row> {
+    try {return await this.boundedPresentation(data,deadline);}
+    catch(error) {
+      const delay=PRESENTATION_RETRY_DELAYS_MS[attempt];
+      // One deadline for the whole job keeps the player's worst case what it always was: an
+      // attempt that burned the entire deadline has already made them wait, and giving it a
+      // fresh one would only make the wait longer.
+      if(delay===undefined||Date.now()+delay>=deadline)throw error;
+      await new Promise<void>(resolve=>{const timer=setTimeout(resolve,delay);timer?.unref?.();});
+      return this.attemptPresentation(data,deadline,attempt+1);
+    }
+  }
+  private boundedPresentation(data:Row,deadline:number):Promise<Row> {
     const controller=new AbortController();
     let timer:ReturnType<typeof setTimeout>|undefined;
     const bounded=new Promise<never>((_resolve,reject)=>{
       timer=setTimeout(()=>{
         controller.abort();
         reject(refuse('presentation_timeout', 'The card presentation did not finish in time; retry it'));
-      },limit);
+      },Math.max(0,deadline-Date.now()));
       timer?.unref?.();
     });
     return Promise.race([this.run('presentation',data,undefined,undefined,undefined,controller),bounded])
