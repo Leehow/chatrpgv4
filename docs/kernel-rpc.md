@@ -10479,3 +10479,125 @@ Test (`tests/extension/gates.test.mjs`): a run whose `table.player_input` is
 refused leaves the turn closed, and twelve `narrate` calls are refused; the third
 exhausts the class, the `refusals` lane names `narrate`, and the run is cut
 before the twelfth. It dies when the exemption is made unconditional again.
+
+## 78. A refused effect the delivery could not answer for is told (2026-09-17, extends §34.17, bounds §32)
+
+§69 gave the Keeper the receipts the prose never told. This is its mirror, and the
+worse half: the prose told it, and the books never got it.
+
+**Retained live evidence** (`playtest-evidence/pipicoc-20260914`, home `t4`,
+campaign `game-1c0faba5`, turn 103, 2026-09-17). Turns 95–103 existed for one
+thing: getting a precise location — board, shallow pit, far end of the left
+footing — onto an already-filed sanitation complaint. The clerk agreed on screen.
+Then one assistant message carried the closing `narrate` and, behind it, the
+`apply` that was to write it:
+
+```
+{"turn":103,"lane":"provider-call","blocks":["thinking","toolCall","toolCall"]}
+{"turn":103,"tool":"narrate","call_id":"t103-c2","ok":true}
+{"turn":103,"tool":"narrate","event":"turn-closed"}
+{"turn":103,"tool":"apply","ok":false,"code":"blocked","reason":"the turn is closed, waiting for the player","blocked_after_close":1}
+```
+
+The host refused correctly: a closed turn has no doors (§77). `object-item-15`
+kept `changed_turn: 92` — eleven turns stale — and the six phrases that should
+have been written to it are all absent. The player read that it was filed.
+Nothing on any surface a player can see said otherwise, and nothing in the next
+capsule did either. It is a failure the player cannot detect and that detonates
+later, when an inspector walks to an eleven-turn-old description.
+
+`blocked_after_close` has fired four times in the retained evidence. Three were
+in character creation. Turn 103 is the only one in play, and it is this.
+
+### 78.1 What the host can and cannot know
+
+Two refusals were examined together, because both end with the player believing
+something that did not happen.
+
+- **`action_not_authorized` (§32.2).** Turns 77 and 85 of the same campaign: the
+  `apply` alone in its own message, refused, and the closing `narrate` a full
+  provider call later. The Keeper had the verdict, the grounds, the `missing`
+  choice and the instruction in hand while it wrote, and wrote a story anyway —
+  once as done, once (the other direction) as not done.
+- **`blocked_after_close` (§77).** Turn 103: the prose was published *before* the
+  host's answer existed.
+
+**They are not the same defect, and the difference is in the ordering, not the
+reason.** A refusal the Keeper was answered with in time is answerable: §32's own
+`fix` tells it what to do, the turn is not ended, and the player is meant to be
+put back in front of their choice in the fiction. Whether the Keeper then wrote
+honestly is a question about the prose, and the host has no way to ask it. **It
+must not acquire one.** Judging a delivery's claims by keyword, regex, similarity
+or a model comparison is exactly the hardcoded-semantics ban, and announcing every
+refusal instead would put a machine notice on most of what §32 exists to do.
+
+So the rule is keyed on the one thing the host knows for certain and structurally:
+**whether the delivery could have carried the answer at all.** That is a property
+of the assistant message's shape — the order of its tool calls — and of the verb.
+No prose is read, no words are matched, no language is detected.
+
+### 78.2 The three clauses
+
+The effect verbs are `resolve` and `apply` (`EFFECT_TOOLS`). A refused `look`,
+`lookup` or `recall` leaves nothing behind it; a refused `narrate` or `ask` is
+§34.17's, which has its own answer.
+
+1. **A delivery ahead of an effect is refused whole.** One message with `narrate`
+   before an effect verb can only ever end as turn 103 did: the narrate closes the
+   turn and everything behind it is blocked after close. The whole message is
+   refused — refusing only the effect would publish the very turn this prevents —
+   and the Keeper is told to send `resolve`/`apply` first and write the delivery
+   once it has their answers (`reason: "effect_behind_delivery"`).
+2. **A delivery behind a refused effect is refused.** One message with an effect
+   verb before the `narrate`: the delivery was composed before the host answered,
+   so if that answer is a refusal the delivery cannot be what the player reads.
+   The turn has not closed yet, so the repair is available and is taken in
+   preference to telling the player anything
+   (`reason: "delivery_behind_refused_effect"`). `action_not_authorized` reaches
+   this the same way any other refusal does.
+3. **When neither repair is left, the player is told.** Each refusal above is
+   spent once per turn, exactly as §34.17's is, so a table is never left unable to
+   deliver. Past that point the delivery lands with no answer in it, or has already
+   closed the turn with the effect behind it — and there is nothing to repair. One
+   `coc-delivery` notice at `agent_end`, `details.refused_effect`, caption
+   `refused_effect_notice`, row `lane: "delivery", reason: "refused_effect_notice"`.
+
+The notice says only what the host knows: something the Keeper tried to record was
+refused, and this turn's text was written before that was known, so what was read
+about it is uncertain. **It does not say what the prose claimed.** It is one
+authored English caption projected by the words lane for the table's play
+language, like every other notice (§23).
+
+### 78.3 The three ends (§31)
+
+- **Writes it:** the host, in two places it already refused in — the closed-turn
+  gate (`effect_untold: true` beside `blocked_after_close`) and `runTool`'s catch,
+  which is where §32's refusal and every kernel refusal of an effect arrive.
+- **Reads it:** the `tool_call` gate, for the two repairs, and `agent_end` for the
+  notice. Nothing else holds a field: there is no per-turn refusal ledger, because
+  a ledger nobody reads is the defect this section is an instance of.
+- **Acts on it:** the Keeper, by sending the effect and the delivery in the order
+  the refusal names; and the player, by knowing which part of a turn to doubt.
+
+### 78.4 What is deliberately not here
+
+- **`blocked_after_close` is not relaxed.** §77's refusal is right. Clause 1
+  removes the shape that produces it; it does not admit the call.
+- **§32 is not relaxed and not announced.** An admission refusal a round trip
+  before the delivery says nothing to the player, produces no notice and trips no
+  gate. That boundary is a test, not a comment: widening the exit to all refusals
+  turns it red.
+- **No ledger of refused effects, and nothing in the next capsule.** §69's `untold`
+  carries receipts the kernel minted; a refused effect minted nothing, and carrying
+  a proposal forward would be the offer ledger pressing the Keeper, which §31
+  forbids.
+- **Nothing reads the prose.** Not here and not anywhere downstream. The measured
+  cost of clause 1 on real traffic is zero: across the 590 assistant messages of
+  `game-1c0faba5`, a `narrate` shared its message with an effect verb exactly
+  twice — turn 0 and turn 103 — and both times the narrate came first.
+
+Tests (`tests/extension/refused-effect-is-told.test.mjs`): the ahead shape refused
+whole and then delivered in order; the same shape twice, where the second lands and
+the player is told; a delivery held behind an `action_not_authorized` and rewritten;
+that repair spent, where the player is told instead; an admission refusal a round
+trip earlier that says nothing; and a `look` after close that still says nothing.

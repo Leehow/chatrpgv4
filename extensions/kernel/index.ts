@@ -247,6 +247,25 @@ interface TableState {
 	/** A narrate was blocked because the turn had already closed: the delivery the player read is the
 	 * Keeper's first half and the continuation never landed (contract §34.17). */
 	deliveryCutShort?: boolean;
+	/** Contract §78: the calls of one assistant message that put the closing `narrate` ahead of an
+	 * effect verb. The narrate would close the turn and the effect behind it could never land, so
+	 * the message is refused whole and the Keeper sends the effect first. */
+	deliveryAheadOfEffect?: Set<string>;
+	/** Contract §78: the `narrate` calls of one assistant message that also carries an effect verb
+	 * ahead of them. The delivery was composed before the host answered that effect, so a refusal
+	 * makes it a delivery written without its answer; it is refused so the Keeper writes it again. */
+	deliveryBehindEffect?: Set<string>;
+	/** Contract §78: an effect in this message was refused while the delivery behind it was still
+	 * pending. Read by the `narrate` call that follows, once. */
+	effectRefusedBeforeDelivery?: boolean;
+	/** Contract §78: each ordering refusal is spent once per turn, like §34.17's, so a Keeper that
+	 * writes the same shape again is never left unable to deliver at all. */
+	deliveryOrderRefused?: boolean;
+	/** Contract §78: an effect verb the host refused whose answer this turn's delivery could not
+	 * carry -- it was blocked after the delivery had already closed the turn, or it was refused in
+	 * the same message as a delivery that then landed. Nothing can be repaired, so the player is
+	 * told at `agent_end`. */
+	refusedEffectUntold?: boolean;
 	/** Contract §38: an agent run ended leaving this turn open with nothing delivered, so no one can
 	 * finish it any more. The next player input releases it instead of being refused turn_state. */
 	strandedTurn?: boolean;
@@ -354,6 +373,15 @@ const TURN_CLOSED_REASON = "the turn is closed, waiting for the player";
 const TURN_CLOSED_STOP = "The turn is closed and the player has the move. Call no tool and write nothing more; the next player input opens a new turn.";
 const RUNAWAY_STOP_AT = 3;
 const RUNAWAY_ABORT_AT = 6;
+/**
+ * Contract §78: the verbs that change the world the player was told about. A refusal of one of these
+ * leaves the fiction and the books apart; a refused `look`, `lookup` or `recall` leaves nothing at
+ * all behind, and a refused `ask` or `narrate` is §34.17's, which already has its own answer.
+ */
+const EFFECT_TOOLS: ReadonlySet<string> = new Set(["resolve", "apply"]);
+/** §78's one sentence: the order the Keeper is asked for, and why. */
+const DELIVERY_ORDER_REASON = "One narrate delivers the whole turn and closes it, so an effect behind it can never land and the player"
+	+ " would read it as done. Send resolve and apply before the narrate, and write the delivery once you have their answers.";
 /** Refusals of one class (tool, code, the field the kernel named) a turn tolerates before that tool is shut for the turn. */
 /** Contract §38.11: the same commit failure twice is the service, not the text. One retry, then stop --
  *  the streak that escalates elsewhere in this host (§32.2, §38, §38.7) is also two. */
@@ -1824,6 +1852,30 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	/**
+	 * Contract §78: an effect the host refused, and a delivery that could not carry the answer.
+	 *
+	 * H-SIDE `t4` turn 103, 2026-09-17: one assistant message carried the closing `narrate` and,
+	 * behind it, the `apply` that turns 95-103 existed for -- writing one precise location onto an
+	 * already-filed complaint. The narrate closed the turn, the apply was correctly blocked
+	 * (`blocked_after_close: 1`, the only one of the four on that build that happened in play), and
+	 * `object-item-15` kept `changed_turn: 92`. The prose said it was filed. Nothing on any surface a
+	 * player can see said otherwise, and the cost of that lands whenever someone acts on the record.
+	 *
+	 * This says only what the host knows for certain: an effect was refused, and the turn the player
+	 * just read was written before that was known. It does not say what the prose claimed -- nothing
+	 * here reads the prose, and the ban on doing so is what makes the ordering the whole signal.
+	 */
+	async function emitRefusedEffectNotice(state: TableState, turn: number): Promise<void> {
+		let line = "Something the Keeper tried to record this turn was refused, and this turn’s text was written before that was known — so"
+			+ " take what you just read about it as uncertain. Nothing else settled was lost; say anything and the Keeper can put it right.";
+		try { line = (await surface.words()).line("refused_effect_notice"); }
+		catch { /* an unreadable content root still owes the player the English line */ }
+		pi.sendMessage({ customType: "coc-delivery", content: line, display: true,
+			details: { coc_delivery: true, turn, refused_effect: true } });
+		void record({ lane: "delivery", turn, ok: true, reason: "refused_effect_notice" });
+	}
+
+	/**
 	 * Contract §47: the host's own preparation state, said by the host, out of fiction, and only
 	 * while it is still true.
 	 *
@@ -2395,6 +2447,13 @@ export default function (pi: ExtensionAPI) {
 				details: result,
 			};
 		} catch (error) {
+			// Contract §78: this effect did not happen, and the delivery behind it in the same message
+			// was written before anyone knew that. While that narrate is still pending the repair is
+			// available and the `tool_call` gate takes it; once that gate is spent for this turn the
+			// delivery lands carrying an answer it never had, and the player is the only one who can be
+			// told. `action_not_authorized` (§32) reaches this the same way any other refusal does --
+			// the mechanism is the ordering, not the reason.
+			if (EFFECT_TOOLS.has(spec.name) && state.deliveryBehindEffect?.size) state.effectRefusedBeforeDelivery = true;
 			if (spec.name === "recall") error = state.recallPages.diagnostic(error);
 			if (spec.name === "recall" && isKernelError(error) && error.details?.reason === "recall_page_stale") state.recallPages.forget(params);
 			const code = isKernelError(error) ? error.code : "internal";
@@ -2965,6 +3024,12 @@ export default function (pi: ExtensionAPI) {
 		state.deliveryCutShort = false;
 		state.splitDelivery = undefined;
 		state.splitDeliveryRefused = false;
+		// §78: the ordering refusal and the notice it falls back to are the turn's, like §34.17's.
+		state.deliveryAheadOfEffect = undefined;
+		state.deliveryBehindEffect = undefined;
+		state.effectRefusedBeforeDelivery = false;
+		state.deliveryOrderRefused = false;
+		state.refusedEffectUntold = false;
 		state.providerFailure = undefined;
 		state.terminalProviderFailure = undefined;
 		const text = event.prompt;
@@ -3033,6 +3098,12 @@ export default function (pi: ExtensionAPI) {
 			state.toolCallsThisTurn = 0;
 			state.deliveryTriedThisTurn = false;
 			state.blockedAfterClose = 0;			state.blockedAfterExhausted = 0;
+			// §78: a new player turn is a new delivery, so it starts with its one ordering refusal intact.
+			state.deliveryAheadOfEffect = undefined;
+			state.deliveryBehindEffect = undefined;
+			state.effectRefusedBeforeDelivery = false;
+			state.deliveryOrderRefused = false;
+			state.refusedEffectUntold = false;
 			state.floorDraft = undefined;
 			state.recoveryOwed = null;
 			state.recoveryLanded = false;
@@ -3173,6 +3244,31 @@ export default function (pi: ExtensionAPI) {
 				+ " the first would close the turn and the rest would be refused, so the player would read only the first part."
 				+ " Send the delivery again as a single narrate carrying all of it." };
 		}
+		// Contract §78, first shape: the delivery is ahead of an effect verb in this same message. The
+		// narrate would close the turn and every effect behind it would be blocked after close, so the
+		// message is refused whole -- refusing only the effect would publish exactly the turn this
+		// exists to prevent. Spent once per turn, like §34.17's.
+		if (state.deliveryAheadOfEffect?.has(event.toolCallId)) {
+			state.deliveryOrderRefused = true;
+			await record({ tool: name, started_at: new Date().toISOString(), ok: false, code: "blocked", reason: "effect_behind_delivery" });
+			return { block: true, reason: DELIVERY_ORDER_REASON };
+		}
+		// Contract §78, second shape: an effect in this message was refused, and this narrate was
+		// written before that answer existed. The turn has not closed yet, so the repair is available
+		// and is taken: the delivery is refused, and the Keeper writes it again knowing what landed.
+		// Once the turn has spent its one ordering refusal the delivery goes through, and what goes
+		// through is a delivery carrying an answer it never had -- nothing is left to repair, so the
+		// player is told instead (`agent_end`).
+		if (state.deliveryBehindEffect?.has(event.toolCallId) && state.effectRefusedBeforeDelivery) {
+			state.effectRefusedBeforeDelivery = false;
+			if (state.deliveryOrderRefused) state.refusedEffectUntold = true;
+			else {
+				state.deliveryOrderRefused = true;
+				await record({ tool: name, started_at: new Date().toISOString(), ok: false, code: "blocked", reason: "delivery_behind_refused_effect" });
+				return { block: true, reason: "An effect this message asked for was refused, and this narrate was written before that answer existed, so it"
+					+ " cannot be what the player reads. Write the delivery again for what actually landed: nothing refused has happened." };
+			}
+		}
 		// Contract §38.11: the history store is down for this run. Terminating the run is the intent,
 		// but a run that has already written its next call must not be allowed to spend another model
 		// call and another continuity review on a turn that cannot land.
@@ -3192,8 +3288,14 @@ export default function (pi: ExtensionAPI) {
 			// Contract §34.17: a *narrate* refused after close is the other half of a delivery that has
 			// already been published. The counter proved the host knew; now the player is told (agent_end).
 			if (name === "narrate") state.deliveryCutShort = true;
+			// Contract §78: an effect verb refused after close is the turn's own account arriving behind
+			// a door the delivery already shut. `t4` turn 103: nine turns of work went into one `apply`
+			// that was to write a location onto a filed complaint, it came after the narrate in the same
+			// message, and the object's `changed_turn` stayed eleven turns stale with nobody told. No
+			// repair is left here -- the prose is published -- so the player is (agent_end).
+			if (EFFECT_TOOLS.has(name)) state.refusedEffectUntold = true;
 			await record({ tool: name, started_at: new Date().toISOString(), ok: false, code: "blocked", reason: TURN_CLOSED_REASON, blocked_after_close: blocked,
-				...(name === "narrate" ? { delivery_cut_short: true } : {}) });
+				...(name === "narrate" ? { delivery_cut_short: true } : {}), ...(EFFECT_TOOLS.has(name) ? { effect_untold: true } : {}) });
 			if (blocked >= RUNAWAY_ABORT_AT) {
 				await record({ lane: "runaway", turn: state.turn, blocked, aborted: true });
 				// The cut reaches message_end as `stopReason: "error"` like any dead call, and only the host
@@ -3398,6 +3500,27 @@ export default function (pi: ExtensionAPI) {
 		state.splitDelivery = narrates.length > 1 && !state.splitDeliveryRefused
 			? new Set(narrates.map((b) => String(b.id)))
 			: undefined;
+		// Contract §78. The delivery and the host's answer to an effect, written in one breath. Read
+		// off the same message shape and in the same place, because it is the same seam: `blocks` is
+		// the order the calls will execute in, and that order is the whole signal. `t4` turn 103 is the
+		// first half of it -- narrate, then the `apply` that was nine turns of work -- and the second
+		// half is its mirror, an effect whose refusal arrives while the delivery behind it is already
+		// written. Neither reads a word of the prose.
+		const calls = blocks.filter((b) => b.type === "toolCall");
+		const delivery = calls.findIndex((b) => b.name === "narrate");
+		const effects = calls.map((b, index) => ({ name: String(b.name), index }))
+			.filter((call) => EFFECT_TOOLS.has(call.name));
+		// The shape is recorded whether or not the refusal is still available to spend: once spent, the
+		// same shape is what says the delivery that lands carried no answer, and the player is told.
+		const ahead = delivery >= 0 && effects.some((call) => call.index > delivery);
+		// The spend is read here and not at each call, so that one message is refused as one message:
+		// setting the flag on the first refusal would let the second call of the same batch through,
+		// which is the very turn this prevents (§34.17 keeps its own spend the same way).
+		state.deliveryAheadOfEffect = ahead && !state.deliveryOrderRefused ? new Set(calls.map((b) => String(b.id))) : undefined;
+		state.deliveryBehindEffect = !ahead && delivery >= 0 && effects.some((call) => call.index < delivery)
+			? new Set(narrates.map((b) => String(b.id)))
+			: undefined;
+		state.effectRefusedBeforeDelivery = false;
 		if (hasToolCalls) {
 			// An assistant message with tool calls keeps only the calls: the Keeper's process talk before a
 			// call ("let me check the clues first") is not a line, and player-visible text comes only from
@@ -3653,6 +3776,13 @@ export default function (pi: ExtensionAPI) {
 			const turn = state.turn;
 			state.deliveryCutShort = false;
 			setTimeout(() => void emitCutShortNotice(state, turn), 0);
+		}
+		// Contract §78: same place, same reason -- a turn that closed normally by every other measure,
+		// and an effect behind that close that the player was never told did not happen. Once per turn.
+		if (state.refusedEffectUntold) {
+			const turn = state.turn;
+			state.refusedEffectUntold = false;
+			setTimeout(() => void emitRefusedEffectNotice(state, turn), 0);
 		}
 		// Contract §38.11: the history store is down. This is not the generic no-delivery notice and
 		// must not be replaced by it: the host knows the cause and the player is owed it.

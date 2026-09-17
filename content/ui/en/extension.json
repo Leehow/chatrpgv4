@@ -28,6 +28,7 @@
   "provider_down_notice": "The connection to the model has now dropped {streak} times in a row, the last after about {seconds}s with nothing returned. That wait was an outage, not the Keeper thinking, and the person running this table has been told.",
   "provider_failed_notice": "This turn could not finish because the connection to the model returned no result. Nothing you did was lost — send anything to continue.",
   "provider_outage_notice": "The connection to the model dropped during this turn: about {seconds}s of the wait returned nothing at all, and the request had to be made again. That was an outage, not the Keeper thinking, and nothing you did was lost.",
+  "refused_effect_notice": "Something the Keeper tried to record this turn was refused, and this turn’s text was written before that was known — so take what you just read about it as uncertain. Nothing else settled was lost; say anything and the Keeper can put it right.",
   "receipt_cash": "cash {before}->{after}",
   "receipt_cash_plain": "cash",
   "receipt_change": "{resource} {before}->{after}",
