@@ -235,9 +235,14 @@ export class SetupDrafts {
   private patchOf(value: unknown): Row {
     if (value == null) return {};
     if (!isJsonObject(value)) throw new RpcError('invalid_params', 'profile must be an object');
-    const unknown = Object.keys(value).filter(key => !FIELDS.includes(key)).sort();
+    // A backstory category sent at the top level is folded into backstory (§97): a live table's
+    // model corrected the face with `personal_description` beside `equipment`, and refusing that
+    // as an unknown field cost a call for nothing.
+    const folded: Row = {...value};
+    for (const key of [...BACKSTORY, 'scenario_bound']) if (Object.hasOwn(folded, key)) { folded.backstory = {...row(folded.backstory), [key]: folded[key]}; delete folded[key]; }
+    const unknown = Object.keys(folded).filter(key => !FIELDS.includes(key)).sort();
     if (unknown.length) throw new RpcError('invalid_params', `profile contains unknown fields: ${unknown.join(', ')}`, {details: {unknown, fields: [...FIELDS].sort()}});
-    return value;
+    return folded;
   }
   /** The first card: generate the numbers once. With a card already on the table this is a revision. */
   async draft(params: Row): Promise<Row> {
@@ -292,7 +297,13 @@ export class SetupDrafts {
   private async reviseLocked(campaign: CampaignWriter, meta: Row, previous: Row, params: Row, options: {reroll?: boolean; dryRun?: boolean} = {}): Promise<Row> {
     if (params.revision !== undefined && params.revision !== null && !equal(params.revision, previous.revision)) throw new RpcError('idempotency_conflict', 'The revision does not apply to the current draft', {codeDetail: 'stale_draft'});
     const language = await playLanguageOf(this.setup.context, meta), patch = this.patchOf(params.profile);
-    const merged = {...row(previous.profile), ...patch};
+    // A patch of one backstory category keeps the others (§97): the model that corrects the face
+    // sends personal_description alone, and a shallow merge would have wiped the rest.
+    const merged: Row = {...row(previous.profile), ...patch};
+    if (isJsonObject(patch.backstory) && isJsonObject(row(previous.profile).backstory)) {
+      merged.backstory = {...row(row(previous.profile).backstory), ...patch.backstory};
+      for (const [key, value] of entries(patch.backstory)) if (value === null) delete merged.backstory[key];
+    }
     const [profile, resolution] = await this.resolveProfile(merged, language, {...meta, id: campaign.id});
     const {era, authoredEra} = await this.eraFor(profile, {...meta, id: campaign.id});
     const relax = this.relaxFrom(params.limits, isJsonObject(previous.limits_override) ? previous.limits_override : {});

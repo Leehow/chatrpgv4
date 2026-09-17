@@ -141,14 +141,17 @@ def test_pending_action_must_come_from_actual_player_input(kernel):
 
 
 def test_new_draft_requires_appearance_and_preserves_it_across_skill_changes(kernel):
-    original = begin(kernel)
-    appearance = original["sheet"]["backstory"]["personal_description"]
+    kernel.ok("campaign.create", {"id": CAMPAIGN, "module": "the-haunting", "play_language": "en"})
     missing = profile()
     missing["backstory"].pop("personal_description")
     missing["backstory"]["traits"] = "Patient and practical"
     error = kernel.err("setup.draft", {"campaign": CAMPAIGN, "profile": missing})
     assert any("personal_description is required" in issue for issue in error["details"]["issues"])
-    assert kernel.ok("setup.steps", {"campaign": CAMPAIGN})["state"]["draft"]["revision"] == original["revision"]
+    original = kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": profile()})
+    appearance = original["sheet"]["backstory"]["personal_description"]
+    # §97: on a revision a backstory patch without the face keeps the face it had.
+    kept = kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": {"backstory": {"traits": "Patient and practical"}}})
+    assert kept["sheet"]["backstory"]["personal_description"] == appearance and kept["sheet"]["backstory"]["traits"] == "Patient and practical"
     changed = kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": {"interest_skills": [*profile()["interest_skills"], "Natural World"]}})
     assert changed["sheet"]["backstory"]["personal_description"] == appearance
     assert changed["sheet"]["creation"]["characteristics"] == original["sheet"]["creation"]["characteristics"]

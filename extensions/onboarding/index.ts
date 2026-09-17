@@ -536,7 +536,9 @@ export default function (pi: ExtensionAPI) {
 			try {
 				setupNotes = asRecord(await bridge.call('setup.note', { campaign: context.campaign, slot: args.slot, value: args.value, ...(args.origin !== undefined ? { origin: args.origin } : {}) })).notes as SetupNotes;
 			} catch (error) {
-				return { ok: false, step: id, code: errorCode(error), message: errorText(error), details: (error as { details?: unknown }).details };
+				// The refusal names what was sent, so a slot the model misspelt is visible to it and in the record.
+				const details = (error as { details?: unknown }).details;
+				return { ok: false, step: id, code: errorCode(error), message: errorText(error), details: details && typeof details === 'object' ? {...(details as Record<string, unknown>), given: {slot: args.slot, origin: args.origin}} : details };
 			}
 			return { ok: true, step: id, notes: setupNotes, brief: renderBrief(setupSlots, setupNotes, guidedCap) };
 		}
@@ -660,12 +662,33 @@ export default function (pi: ExtensionAPI) {
 			"`step: revise` changes the card on the table in place, as often as the player asks: `profile` with only the changed fields (words: equipment, backstory, weapons, skill lists, age, name) moves no number; `numbers` {characteristics?, skills?, credit_rating?} pins the numbers the player wants (each value is the final value; a pinned number stays until the player changes it); `limits` {characteristic_min?, characteristic_max?, skill_cap?, occupation_points?, interest_points?} relaxes exactly those bounds when the player asks to play outside them; `auto_spread: true` spends whatever points are left. A refusal names the field and, for a number past a bound, the `unlock` that would admit it. " +
 			"`step: reroll` is the only call that rolls the dice again (pins stay). Nothing here redraws the card: create-investigator is called once, and with a card on the table it is the same as revise.",
 		promptSnippet: "The one setup tool: walk the kernel's seven-step table, one step at a time.",
+		// Every parameter a step can take is declared here by name (§97): a live table on grok-4.6
+		// sent `slot: true, value: null` three to five times per turn while only `step` and `params`
+		// were declared -- the provider filled undeclared keys with booleans and nulls -- and each
+		// of those was a refused call before the one that nested the same fields under `params`.
 		parameters: Type.Object(
 			{
 				step: Type.String({ description: "which step to do this time; step names come from the kernel's setup table, and the previous result's next holds it" }),
 				params: Type.Optional(
 					Type.Object({}, { additionalProperties: true, description: "the parameters this step wants; they may also be spread at the top level" }),
 				),
+				slot: Type.Optional(Type.String({ description: "note: the creation-brief slot this answer fills, or stop" })),
+				value: Type.Optional(Type.String({ description: "note: the player's words for that slot" })),
+				origin: Type.Optional(Type.String({ description: "note: player or concept" })),
+				profile: Type.Optional(Type.Object({}, { additionalProperties: true, description: "create-investigator / revise: the semantic profile, or only the changed fields" })),
+				numbers: Type.Optional(Type.Object({}, { additionalProperties: true, description: "revise: {characteristics?, skills?, credit_rating?} pinned as final values" })),
+				limits: Type.Optional(Type.Object({}, { additionalProperties: true, description: "revise: relaxed bounds {characteristic_min?, characteristic_max?, skill_cap?, occupation_points?, interest_points?}" })),
+				edits: Type.Optional(Type.Object({}, { additionalProperties: true, description: "adjust (older spelling of revise numbers)" })),
+				auto_spread: Type.Optional(Type.Boolean({ description: "revise: spend whatever points are left" })),
+				keep_pins: Type.Optional(Type.Boolean({ description: "reroll: keep the pinned numbers (default true)" })),
+				consent: Type.Optional(Type.String({ description: "confirm-investigator: approved or delegated" })),
+				pending_action: Type.Optional(Type.String({ description: "confirm-investigator: a verbatim adventure request made before setup finished" })),
+				kind: Type.Optional(Type.String({ description: "choose-source: starter, module or pdf" })),
+				module: Type.Optional(Type.String({ description: "choose-source: the starter or module id" })),
+				pdf: Type.Optional(Type.String({ description: "choose-source: the original PDF path" })),
+				id: Type.Optional(Type.String({ description: "create-campaign: the campaign id" })),
+				title: Type.Optional(Type.String({ description: "create-campaign: the campaign title" })),
+				play_language: Type.Optional(Type.String({ description: "create-campaign: the play language tag" })),
 			},
 			{ additionalProperties: true },
 		),
