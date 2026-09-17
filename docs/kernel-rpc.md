@@ -10241,6 +10241,7 @@ marks one numeric pointer unsupported and one node unit unclear writes both into
 `findings.unsupported`, and writes exactly one `repairs` line, for the number.
 It dies when the numeric gate is removed (the node unit gets a delete-or-cite
 line it must not get) and when `repairs` is not written at all.
+
 ## 75. A preparation that landed is told, not withheld (2026-09-17, amends §47)
 
 §47 gave the host a service notice for the turn a preparation owns, and a re-read so that it is only
