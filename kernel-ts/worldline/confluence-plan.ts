@@ -130,6 +130,16 @@ function mergeWorld(graph: ModuleGraph, states: readonly ConfluenceState[], scen
         for (const [id, value] of entries(state.world.person_labels))
             people.set(id, {...row(people.get(id)), ...row(value)});
     world.person_labels = orderedObject(people);
+    // A person this table established is a union too, and never a choice between lines: each line met
+    // whoever it met, and dropping one would delete a person who has already spoken. First
+    // establishment wins on a name two lines both used, so the turn on the record stays the earliest.
+    const established = new Map<string, Row>();
+    for (const state of states)
+        for (const person of array(state.world.table_people).map(row))
+            if (string(person.name).trim() && !established.has(normalize(person.name)))
+                established.set(normalize(person.name), person);
+    if (established.size)
+        world.table_people = sorted([...established.keys()]).map(key => established.get(key)!);
     world.clock = {
         minutes: Math.max(...states.map(state => Math.trunc(number(row(state.world.clock).minutes || 0))))
     };

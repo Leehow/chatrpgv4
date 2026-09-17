@@ -159,6 +159,8 @@ export class ModuleGraph {
     readonly incoming = new Map<string, Row[]>();
     readonly claimsBySubject = new Map<string, Row[]>();
     readonly names = new Map<string, Set<string>>();
+    /** Handles for the people this table established; see `addTablePerson`. */
+    readonly tableNames = new Map<string, string>();
     readonly moduleNode: Row | null;
     constructor(readonly moduleId: string, readonly raw: Row, readonly digest: string, readonly dossier: Row,
         readonly semanticNames: ReadonlyMap<string, string> = new Map(), readonly campaignView = false) {
@@ -263,8 +265,43 @@ export class ModuleGraph {
         return typeof identity.canonical_name === "string" && identity.canonical_name ? identity.canonical_name : display;
     }
     handle(node: Row): string {
+        if (this.tableNames.has(node.node_id)) return this.tableNames.get(node.node_id)!;
         if (this.semanticNames.has(node.node_id)) return this.semanticNames.get(node.node_id)!;
         return node.node_kind === "scene" && typeof recordOf(node).scene_id === "string" ? recordOf(node).scene_id : stripPrefix(node.node_id, node.node_kind);
+    }
+    /**
+     * A person this table has and the book does not.
+     *
+     * The record is world state, written by `apply npc` and rehydrated on every load; this is only
+     * its projection. It exists because every consumer of a person in this kernel is node-typed --
+     * `npcsPresent`, `npcEntry`, `npcView`, the voices lane, continuity, the resolve context, the
+     * worldline merge, the continuity audit -- so a person represented any other way reaches none of
+     * them. The source snapshot is untouched: `raw` keeps the book, and the module spine gains
+     * nothing (contract §14).
+     *
+     * `id` is minted by the kernel and never travels to the model; `tableNames` makes the handle the
+     * name the Keeper used, which is the only identifier a model is given here (contract §2).
+     */
+    addTablePerson(id: string, name: string, origin: Row = {}): Row {
+        const existing = this.nodes.get(id);
+        if (existing) return existing;
+        const node: Row = {
+            node_id: id, node_kind: "npc", name, aliases: [], summary: null, visibility: "keeper-only",
+            properties: { name, semantic_name: name, facts: [] },
+            campaign_origin: { ...origin, kind: "table" }
+        };
+        this.nodes.set(id, node);
+        this.tableNames.set(id, name);
+        this.byKind.set("npc", [...this.kind("npc"), node]);
+        for (const key of this.nameKeys(node)) {
+            const normalized = normalize(key);
+            this.names.set(normalized, new Set([...(this.names.get(normalized) ?? []), id]));
+        }
+        return node;
+    }
+    /** True for a person `apply npc` established at the table rather than the book or a reviewed adaptation. */
+    isTablePerson(node: Row | null | undefined): boolean {
+        return !!node && this.tableNames.has(string(node.node_id));
     }
     displayName(node: Row): string {
         for (const key of ["display_name", "name", "title"])
@@ -729,7 +766,14 @@ export class ModuleGraph {
         };
     }
     adaptationOrigin(value: any): Row | null {
-        if (!this.campaignView || !value || typeof value !== 'object') return null;
+        if (!value || typeof value !== 'object') return null;
+        // A table person's origin is not gated on `campaignView`: they exist on a plain source load
+        // too, because a table can establish one before it has ever run an adaptation. Saying which
+        // of the three -- book, reviewed adaptation, table -- a person came from is the whole point
+        // of the row, and the answer must never be silently "the book".
+        if (string(value.kind) === 'table')
+            return {kind: 'table', reason: chars(string(value.reason), 400), turn: value.turn ?? null};
+        if (!this.campaignView) return null;
         return {kind: 'campaign_adaptation', reason: chars(string(value.reason), 400),
             sources: array(value.sources).flatMap(id => {const node = this.nodes.get(id); return node ? [{kind: node.node_kind, name: node.name}] : [];})};
     }

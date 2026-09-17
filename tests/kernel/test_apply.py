@@ -173,8 +173,12 @@ def test_reserved_and_unknown_effect_kinds(kernel):
     open_turn(kernel)
     # #19 made item and cash live, §18 (#27) flag/note/ruling, §17 (#29) npc: nothing is
     # reserved now, so an npc effect fails on the name it cannot resolve, not on its kind.
+    # A bare `to` on an unresolvable name no longer fails at all -- that is a person this table
+    # establishes -- so the probe is a pin, which still owes the graph a person it can find, and the
+    # property under test is unchanged: the failure is about the name, never about the kind.
     unknown_npc = kernel.table_err("apply", call_id="t1-c1", effects=[{"kind": "time", "minutes": 1},
-                                                                     {"kind": "npc", "name": "x", "to": "here"}])
+                                                                     {"kind": "npc", "name": "x",
+                                                                      "archetype": "ordinary_adult", "why": "numbers"}])
     assert unknown_npc["code"] == "unknown_entity" and unknown_npc["details"]["index"] == 1
     # §14.8: handout is live now; an unknown card is unknown_entity, and the batch still does not write
     unknown = kernel.table_err("apply", call_id="t1-c1", effects=[{"kind": "time", "minutes": 1},

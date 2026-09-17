@@ -48,7 +48,7 @@ async function personOf(context: ApplyContext, who: any): Promise<Row> {
                 return { id: string(sheet.id), name: string(sheet.name || sheet.id), is_investigator: true };
         }
     throw new RpcError('unknown_entity', `${repr(who)} is nobody at this table`, {
-        fix: 'name an investigator of the party or an NPC of the graph; someone the book never had is prepared with lookup kind adaptation first',
+        fix: 'name an investigator of the party or an NPC this table has; someone the book never had is established first by apply npc under that name, and goes through lookup kind adaptation only when they must persist as a source-connected figure',
         details: { field: 'person.who', who },
     });
 }

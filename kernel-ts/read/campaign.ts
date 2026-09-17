@@ -9,6 +9,7 @@ import { readPublishedGraph } from "./published-graph.js";
 import { campaignModule } from '../adaptation/source.js';
 import { scopedModuleRoot } from '../modules/campaign-scope.js';
 import { ModuleStore } from '../modules/store.js';
+import { withTablePeople } from './table-people.js';
 import { array, row, clone, normalize, stripPrefix, number, repr, type Row } from "./values.js";
 export class CampaignSnapshot {
     readonly dir: string;
@@ -137,7 +138,9 @@ export interface LoadedModule {
     asset?(name: string): Promise<Row | null>;
 }
 export async function loadCampaignModule(context: KernelContext, id: string, world: Row, campaign?: string): Promise<LoadedModule> {
-    return await campaignModule(context, id, world) ?? loadModule(context, id, campaign);
+    // The people this table established ride on both loads, because a table can establish one before
+    // it has ever run an adaptation and `campaignModule` answers null until then.
+    return withTablePeople(await campaignModule(context, id, world) ?? await loadModule(context, id, campaign), world);
 }
 export async function loadModule(context: KernelContext, id: string, campaign?: string): Promise<LoadedModule> {
     // Reads follow the shared library until this campaign's first private write forks it.

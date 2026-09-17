@@ -6,7 +6,8 @@ import {isJsonObject} from '../json.js';
 import {recordOf} from '../read/module-graph.js';
 import {npcsPresent,personLabel} from '../read/capsule.js';
 import {unsupported} from '../read/handlers.js';
-import {array,integer,number,repr,row,sorted,string,truth,type Row} from '../read/values.js';
+import {tablePersonId} from '../read/table-people.js';
+import {array,integer,normalize,number,repr,row,sorted,string,truth,type Row} from '../read/values.js';
 import {stanceTable} from '../write/contributions.js';
 import {required,nowIso} from '../write/store.js';
 import {effectId,type StagedEffect} from './bookkeeping.js';
@@ -45,9 +46,38 @@ export async function stageClue(context:ApplyContext,effect:Row):Promise<StagedE
     if(array(world.discovered_clues??=[]).includes(handle))return {receipt,event:null};world.discovered_clues.push(handle);
     return {receipt,event:{type:'clue-discovered',data:{clue:handle,scene:receipt.scene,how}}};
 }
+/**
+ * The person this effect is about: the book's, a reviewed adaptation's, or -- when the graph knows
+ * nobody by that name -- one this table establishes here (contract §NN, see `read/table-people.ts`).
+ *
+ * The miss is what mints, and nothing is guessed from the name. `graph.npc` has already tried the
+ * handle, the aliases and the anchored whole-word run (contract §2), so a miss is a miss; correcting
+ * a near name is forbidden here and stays forbidden. What changes is the answer to a true miss:
+ * before, `unknown_entity`, and a person who then spoke four times in a turn that closed with no
+ * receipts at all.
+ *
+ * `skill` and `archetype` deliberately still refuse an unknown name. Those pin numbers, and pinning
+ * numbers onto someone the same call is inventing is how a stat block gets attached to a typo; the
+ * Keeper establishes the person first and pins afterwards, which is also the order §34.10 already
+ * describes.
+ */
+function personOfEffect(context:ApplyContext,effect:Row,name:string,why:string|null):{node:Row;established:boolean}{
+    const {graph,world}=context,found=graph.find(name,['npc']);
+    if(found)return{node:found,established:false};
+    // A pin puts numbers on a person. Pinning them in the same call that invents the person is how a
+    // stat block ends up attached to a typo, so a pin keeps the old refusal and its candidates.
+    if(effect.skill!=null||effect.archetype!=null)graph.npc(name);
+    const trimmed=name.trim(),people=array(world.table_people??=[]);
+    const node=graph.addTablePerson(tablePersonId(trimmed),trimmed,{reason:why,turn:context.turn.turn});
+    if(!people.some(person=>normalize(string(row(person).name))===normalize(trimmed)))
+        people.push({name:trimmed,turn:context.turn.turn,why,established_at:nowIso()});
+    return{node,established:true};
+}
 export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEffect>{
-    const {graph,world}=context,node=graph.npc(required(effect,'name')!),handle=graph.handle(node),{to,stance,dead}=effect;
+    const {graph,world}=context;
     const why=typeof effect.why==='string'&&effect.why.trim()?effect.why:null;
+    const {node,established}=personOfEffect(context,effect,string(required(effect,'name')),why);
+    const handle=graph.handle(node),{to,stance,dead}=effect;
     const table=await stanceTable(context.kernel),words=array(table.levels).map(level=>level.value);
     if(dead!=null&&typeof dead!=='boolean')throw new RpcError('invalid_params','npc.dead must be true or false',{fix:'say true on the turn they died',details:{field:'npc.dead'}});
     let pinned=effect.skill??null;
@@ -76,8 +106,11 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
     if(stance!=null&&(typeof stance!=='string'||!words.includes(stance)))unsupported('npc.stance',stance,words,`npc.stance ${repr(stance)} is not one of the ledger's words`);
     if(profile!=null)(world.npc_profiles??={})[handle]=profile;
     const pinnedProfile=profile?{archetype:profile.archetype,characteristics:profile.characteristics,derived:profile.derived,skills:profile.skills}:null;
-    const receipt={id:effectId(context,'npc',handle),kind:'npc',call_id:context.callId,npc:node.node_id,handle,name:graph.displayName(node),label:personLabel(world,handle,graph.displayName(node)),to:moved,stance:stance??null,dead:dead??null,skill:pinned,...(pinnedProfile?{profile:pinnedProfile}:{}),why,at:nowIso()};
-    return {receipt,event:{type:'npc-changed',data:{npc:handle,to:moved,stance:stance??null,dead:dead??null,skill:pinned,...(pinnedProfile?{archetype:profile!.archetype}:{}),why}}};
+    // `established` rides on the receipt and the event so that a person this table just invented is
+    // never indistinguishable from one the book printed -- for the Keeper reading the result, and for
+    // anything that folds receipts later (the ledger, a worldline rebuild, the KPI).
+    const receipt={id:effectId(context,'npc',handle),kind:'npc',call_id:context.callId,npc:node.node_id,handle,name:graph.displayName(node),label:personLabel(world,handle,graph.displayName(node)),to:moved,stance:stance??null,dead:dead??null,skill:pinned,...(pinnedProfile?{profile:pinnedProfile}:{}),...(established?{established:'table'}:{}),why,at:nowIso()};
+    return {receipt,event:{type:'npc-changed',data:{npc:handle,to:moved,stance:stance??null,dead:dead??null,skill:pinned,...(pinnedProfile?{archetype:profile!.archetype}:{}),...(established?{established:'table'}:{}),why}}};
 }
 export async function stageHandout(context:ApplyContext,effect:Row,asset:(module:string,name:string)=>Promise<Row|null>):Promise<StagedEffect>{
     const {graph,world}=context,name=required(effect,'name')!,node=graph.find(name,['handout'])||graph.resolve(name,['handout','asset'],'handout');

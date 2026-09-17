@@ -423,7 +423,10 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
                         status: 'not_found',
                         note: missingScene
                             ? 'This explicitly requested destination scene is absent. A part, entrance, room, floor or counter of a registered place is that place, not an absent one: search the place itself and move there. Prepare and review only a genuinely different physical place, before movement or arrival narration.'
-                            : 'No graph entity matched. Do not open graph adaptation for a physical object or a compatible first-appearance supporting person. Use define/object/item for physical state; ordinary scenery and a one-off person may remain narration. If the player actually chose a missing destination, repeat this lookup with expected_kind scene.',
+                            // These two sentences and `apply person`'s refusal used to disagree: this one
+                            // sent a one-off person to narration, that one sent them to adaptation, and
+                            // `apply npc` accepted neither. All three now name the same road.
+                            : 'No graph entity matched. Do not open graph adaptation for a physical object or a compatible first-appearance supporting person. Use define/object/item for physical state; ordinary scenery may remain narration. A person the book never had is established at the table by apply npc under whatever you are already calling them, a description included; open adaptation for them only when they must persist as a source-connected figure. What the player is called to see them by comes from apply person, for anyone at this table. If the player actually chose a missing destination, repeat this lookup with expected_kind scene.',
                         ...(missingScene ? {preparation: {tool: 'lookup', kind: 'adaptation', action: 'prepare', purpose: 'new_destination', name: query.slice(0, 120),
                             anchors: (sourceNodes.length ? sourceNodes : scene ? [scene] : []).slice(0, 4).map(node => node.name),
                             request: 'Describe the player-chosen destination and its limited connection to the existing campaign. Preserve source causes and all established facts; no automatic clue, NPC appearance, danger or movement.'}} : {})
