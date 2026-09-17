@@ -3044,6 +3044,11 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
                   return result;
                 }}
                 onDraftConfirm={confirmDraftCard}
+                onDraftCatalog={async ()=>{
+                  const answer=await host.invokeExtension!("coc-keeper","draft-catalog",{},{sessionId:selectedSession});
+                  if(!answer.ok)throw new Error(answer.error?.message||"draft-catalog failed");
+                  return answer.data as Record<string,any>;
+                }}
                 onDraftSpread={entry=>draftCardAction(entry,'draft-spread')}
                 onDraftReroll={entry=>draftCardAction(entry,'draft-reroll')}
                 messages={messages}

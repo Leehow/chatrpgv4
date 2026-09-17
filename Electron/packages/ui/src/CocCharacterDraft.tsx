@@ -10,7 +10,7 @@ type Row = Record<string, any>
  * the table, spread the points nobody spent, reroll the dice the pins do not hold.
  */
 type Props={data:Row;onRendered?:()=>Promise<void>;onPresentation?:()=>Promise<Row>;onOverride?:(request:Row)=>Promise<Row>
-  onConfirm?:()=>Promise<Row>;onSpread?:()=>Promise<Row>;onReroll?:()=>Promise<Row>}
+  onConfirm?:()=>Promise<Row>;onSpread?:()=>Promise<Row>;onReroll?:()=>Promise<Row>;onCatalog?:()=>Promise<Row>}
 
 /**
  * Dice notation, the one kind of value that is read rather than translated.
@@ -65,7 +65,7 @@ function pool(budget:Row|undefined,key:string):{total?:number;spent?:number;unsp
   const figure=(value:unknown)=>typeof value==='number'&&Number.isFinite(value)?value:undefined
   return {total:figure(entry.total),spent:figure(entry.spent),unspent:figure(entry.unspent)??0}
 }
-export function CocCharacterDraft({data,onRendered,onPresentation,onOverride,onConfirm,onSpread,onReroll}:Props) {
+export function CocCharacterDraft({data,onRendered,onPresentation,onOverride,onConfirm,onSpread,onReroll,onCatalog}:Props) {
   const [presentation,setPresentation]=useState<Row|null>(data.presentation||null)
   const [showDetails,setShowDetails]=useState(false)
   const [editing,setEditing]=useState(false)
@@ -164,7 +164,17 @@ export function CocCharacterDraft({data,onRendered,onPresentation,onOverride,onC
     return {name,base:allocationsAvailable?Number(final)-occupational-personal:undefined,occupational,personal,final}
   })
   const skillRowsByName=new Map(skillRows.map(row=>[row.name,row]))
-  const skillTable=(names:readonly string[])=><div className="coc-draft-table-scroll"><table className="coc-draft-table coc-draft-skill-detail"><thead><tr>{['Skill','Base value','Occupation points','Interest points','Final value'].map(key=><th key={key}>{t(key)}</th>)}</tr></thead><tbody>{names.map(name=>skillRowsByName.get(name)).filter((row):row is NonNullable<typeof row>=>!!row).map(row=><tr key={row.name} className={pinned.skill(row.name)!==undefined?'coc-draft-pinned':undefined}><th scope="row">{t(row.name)}{pinMark(pinned.skill(row.name))}</th><td>{amount(row.base)}</td><td>{amount(row.occupational)}</td><td>{amount(row.personal)}</td><td>{cell(row.final)}</td></tr>)}</tbody></table></div>
+  /**
+   * A skill the book does not print, written by the player: it is a skill like any other, drawn in
+   * the group it belongs to, and tagged so the player can tell which of these they invented.
+   */
+  const custom=new Set<string>(Array.isArray(sheet.creation?.skills?.custom)?sheet.creation.skills.custom.filter((name:unknown)=>typeof name==='string'):[])
+  /**
+   * The skill table, in both views. The compact one used to print a final value and nothing else,
+   * so the player could not see which pool had bought it -- the one question the worksheet answers
+   * at a glance. The calculation view keeps the base column on top of that.
+   */
+  const skillTable=(names:readonly string[],detailed:boolean)=><div className="coc-draft-table-scroll"><table className="coc-draft-table coc-draft-skill-detail"><thead><tr>{(detailed?['Skill','Base value','Occupation points','Interest points','Final value']:['Skill','Occupation points','Interest points','Final value']).map(key=><th key={key}>{t(key)}</th>)}</tr></thead><tbody>{names.map(name=>skillRowsByName.get(name)).filter((row):row is NonNullable<typeof row>=>!!row).map(row=><tr key={row.name} className={pinned.skill(row.name)!==undefined?'coc-draft-pinned':undefined}><th scope="row">{t(row.name)}{custom.has(row.name)&&<span className="coc-draft-tag">{t('Custom')}</span>}{pinMark(pinned.skill(row.name))}</th>{detailed?<td>{amount(row.base)}</td>:null}<td>{amount(row.occupational)}</td><td>{amount(row.personal)}</td><td>{cell(row.final)}</td></tr>)}</tbody></table></div>
   const budgets=[{key:'Occupation points',account:occupation,spent:typeof occupation?.spent==='number'&&typeof credit==='number'?occupation.spent+credit:undefined},{key:'Interest points',account:interest,spent:interest?.spent}]
   const statGrid=(rows:Row,derived=false)=><dl className={`coc-draft-stats${derived?' coc-draft-derived':''}`}>{Object.entries(rows).map(([key,value])=>{
     const held=derived?undefined:pinned.characteristic(key)
@@ -221,11 +231,10 @@ export function CocCharacterDraft({data,onRendered,onPresentation,onOverride,onC
    */
   const skillGroups=groupSkills(Object.keys(sheet.skills||{}),sheet)
   const groupHeading=(key:string)=>t(key==='occupation'?'Occupation skills':key==='interest'?'Interest skills':'Other skills')
-  const subset=(names:readonly string[]):Row=>Object.fromEntries(names.map(name=>[name,sheet.skills[name]]))
   const skillSections=skillGroups
     ?skillGroups.filter(group=>group.names.length>0).map(group=><div className="coc-draft-skill-group" key={group.key} data-skill-group={group.key}>
-      <h4>{groupHeading(group.key)}</h4>{showDetails?skillTable(group.names):values(subset(group.names),pinned.skill)}</div>)
-    :(showDetails?skillTable(Object.keys(sheet.skills||{})):values(sheet.skills,pinned.skill))
+      <h4>{groupHeading(group.key)}</h4>{skillTable(group.names,showDetails)}</div>)
+    :skillTable(Object.keys(sheet.skills||{}),showDetails)
   const budgetBars=pools.length>0&&<div className="coc-draft-budget">
     {pools.map(({key,figures})=>{
       const total=figures!.total,spent=figures!.spent
@@ -274,6 +283,6 @@ export function CocCharacterDraft({data,onRendered,onPresentation,onOverride,onC
     <h3>{t('Equipment')}</h3><ul className="coc-draft-kit">{(sheet.equipment||[]).filter((item:string)=>!presentation.finance_equipment?.includes(item)).map((item:string,i:number)=><li key={i}>{t(item)}</li>)}</ul>
     {!!sheet.weapons?.length&&<><h3>{t('Weapons')}</h3>{sheet.weapons.map((weapon:Row,i:number)=><div key={i}>{values(weapon)}</div>)}</>}
     {error&&<p role="alert">{t('Preview unavailable')}: {error} <button type="button" onClick={()=>{setError(null);if(onRendered)void onRendered().catch(e=>setError(failureText(e)))}}>{t('Retry')}</button></p>}
-    {editing&&onOverride&&<CocCharacterDraftEdit data={data} t={t} onOverride={onOverride} onClose={()=>setEditing(false)}/>}
+    {editing&&onOverride&&<CocCharacterDraftEdit data={data} t={t} onOverride={onOverride} onCatalog={onCatalog} onClose={()=>setEditing(false)}/>}
   </section>
 }

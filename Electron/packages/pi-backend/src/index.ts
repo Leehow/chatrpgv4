@@ -9567,6 +9567,20 @@ export class PiHostBackend implements HostBackend {
       if(!Number.isSafeInteger(revision)||Number(revision)<1)return this.cocDenied('invalid_params','Invalid draft revision');
       const edits=isRecord(params)?params.edits:undefined;
       if(!isRecord(edits))return this.cocDenied('invalid_params','Invalid draft edits');
+      /**
+       * A skill edit is either a final value or what each pool bought (§98). The worksheet sends
+       * the second, because a sum cannot say which pool the player meant; the first is still
+       * accepted, for a card drawn before the boxes existed.
+       */
+      if(isRecord(edits.skills))for(const [name,value] of Object.entries(edits.skills)) {
+        if(Number.isSafeInteger(value))continue;
+        if(!isRecord(value))return this.cocDenied('invalid_params',`Invalid skill edit: ${name}`);
+        const extra=Object.keys(value).filter(key=>!['occupation','interest'].includes(key));
+        if(extra.length)return this.cocDenied('invalid_params',`Invalid skill edit: ${name}`);
+        for(const pool of ['occupation','interest'])
+          if(value[pool]!==undefined&&!(Number.isSafeInteger(value[pool])&&Number(value[pool])>=0))
+            return this.cocDenied('invalid_params',`Invalid skill edit: ${name}`);
+      }
       const limitsOverride=isRecord(params)?params.limits_override:undefined;
       if(limitsOverride!==undefined&&!isRecord(limitsOverride))return this.cocDenied('invalid_params','Invalid limits override');
       const dryRun=isRecord(params)?params.dry_run:undefined;
@@ -9581,11 +9595,18 @@ export class PiHostBackend implements HostBackend {
       if(profile!==undefined) {
         if(!isRecord(profile))return this.cocDenied('invalid_params','Invalid profile patch');
         const names=(value:unknown)=>Array.isArray(value)&&value.every(entry=>typeof entry==='string');
-        const unknown=Object.keys(profile).filter(key=>!['occupation_skills','interest_skills','age'].includes(key));
+        const unknown=Object.keys(profile).filter(key=>!['occupation_skills','interest_skills','age','occupation','custom_skills'].includes(key));
         if(unknown.length)return this.cocDenied('invalid_params',`Unknown profile field: ${unknown.join(', ')}`);
         for(const key of ['occupation_skills','interest_skills'])
           if(profile[key]!==undefined&&!names(profile[key]))return this.cocDenied('invalid_params',`Invalid ${key}`);
         if(profile.age!==undefined&&!Number.isSafeInteger(profile.age))return this.cocDenied('invalid_params','Invalid age');
+        if(profile.occupation!==undefined&&(typeof profile.occupation!=='string'||!profile.occupation.trim()))return this.cocDenied('invalid_params','Invalid occupation');
+        if(profile.custom_skills!==undefined) {
+          const written=Array.isArray(profile.custom_skills)&&profile.custom_skills.every((entry:unknown)=>
+            isRecord(entry)&&typeof entry.name==='string'&&!!entry.name.trim()&&Number.isSafeInteger(entry.base)
+            &&Object.keys(entry).every(key=>['name','base'].includes(key)));
+          if(!written)return this.cocDenied('invalid_params','Invalid custom_skills');
+        }
       }
       const selected=await this.locate(sid), binding=await readCocBinding(selected.path);
       if(!binding||!this.managedNodeModulesRoot)return this.cocDenied('campaign_unbound','No campaign is bound');
@@ -9617,6 +9638,21 @@ export class PiHostBackend implements HostBackend {
         }
         return this.cocDenied(this.cocCode(error),error instanceof Error?error.message:String(error),(error as any)?.details);
       }
+    }
+    /**
+     * What the rulebook prints, for the pickers the dialog draws (§98): the trades with their
+     * required skills and credit range, the skill names, and the weapons. It is a read of the
+     * book rather than of this campaign's draft, so it needs no revision -- but it still goes
+     * through the session's own binding, because the book a campaign plays by is the campaign's.
+     */
+    if(id==='coc-keeper' && method==='draft-catalog') {
+      const sid=isRecord(optsValue)&&typeof optsValue.sessionId==='string'?optsValue.sessionId:'';
+      if(!sid)return this.cocDenied('no_session','Select the draft session');
+      const selected=await this.locate(sid), binding=await readCocBinding(selected.path);
+      if(!binding||!this.managedNodeModulesRoot)return this.cocDenied('campaign_unbound','No campaign is bound');
+      const repo=resolve(this.managedNodeModulesRoot,'..');
+      try {return {ok:true,data:await callColdKernel(repo,binding.home,'setup.catalog',{campaign:binding.campaign},this.env,this.cocRuntime)};}
+      catch(error){return this.cocDenied(this.cocCode(error),error instanceof Error?error.message:String(error),(error as any)?.details);}
     }
     /**
      * The card's two whole-draft verbs (§98), the same shape `draft-override` travels.

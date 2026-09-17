@@ -165,11 +165,59 @@ it('draft-override refuses a profile that is not the three fields, before any ke
     // A field nobody asked for is named, not silently dropped: a patch that half-applies is worse
     // than one that is refused.
     expect(await refuse({name:'Someone else'})).toContain('name');
+    expect(await refuse({occupation:''})).toContain('occupation');
+    expect(await refuse({occupation:7})).toContain('occupation');
+    expect(await refuse({custom_skills:[{name:'Bagpipes'}]})).toContain('custom_skills');
+    expect(await refuse({custom_skills:[{name:'Bagpipes',base:5,pool:'interest'}]})).toContain('custom_skills');
+    expect(await refuse({custom_skills:{name:'Bagpipes',base:5}})).toContain('custom_skills');
     expect(await refuse({occupation_skills:'Accounting'})).toContain('occupation_skills');
     expect(await refuse({interest_skills:[7]})).toContain('interest_skills');
     expect(await refuse({age:'52'})).toContain('age');
     expect(await refuse({age:28.5})).toContain('age');
     expect(await refuse('occupation_skills=Accounting')).toContain('profile');
     expect(mocks.callColdKernel).not.toHaveBeenCalled();
+  } finally {await backend.close();}
+},20000);
+
+/**
+ * §98: the worksheet sends what each pool bought. A bare number is still a final value, for a card
+ * drawn before the boxes existed.
+ */
+it('draft-override accepts a skill edit as a final value or as the two boxes, and refuses anything else',async()=>{
+  mocks.callColdKernel.mockReset();
+  const {backend,session}=await boundBackend();
+  try {
+    mocks.callColdKernel.mockResolvedValue({revision:2,sheet:{name:'Eileen'},labels:{}});
+    const skills={Accounting:{occupation:45,interest:0},Dodge:{interest:26},'Spot Hidden':60};
+    await backend.handle('invokeExtension',['coc-keeper','draft-override',{revision:1,edits:{skills}},{sessionId:session.id}]);
+    expect(mocks.callColdKernel.mock.calls[0][3]).toEqual({campaign:'c1',revision:1,edits:{skills}});
+    await backend.handle('invokeExtension',['coc-keeper','draft-override',
+      {revision:1,edits:{skills:{Accounting:{occupation:45}}},profile:{occupation:'mechanic',custom_skills:[{name:'Bagpipes',base:5}]}},{sessionId:session.id}]);
+    expect(mocks.callColdKernel.mock.calls[1][3]).toMatchObject({profile:{occupation:'mechanic',custom_skills:[{name:'Bagpipes',base:5}]}});
+    mocks.callColdKernel.mockClear();
+    for(const bad of [{Accounting:'45'},{Accounting:{occupation:-1}},{Accounting:{occupation:1.5}},{Accounting:{pool:'occupation'}},{Accounting:null}]) {
+      const answer=await backend.handle('invokeExtension',['coc-keeper','draft-override',{revision:1,edits:{skills:bad}},{sessionId:session.id}]) as any;
+      expect(answer.ok).toBe(false);
+      expect(answer.error.message).toContain('Accounting');
+    }
+    expect(mocks.callColdKernel).not.toHaveBeenCalled();
+  } finally {await backend.close();}
+},20000);
+
+it('draft-catalog reads the book cold, through the session\'s own campaign',async()=>{
+  mocks.callColdKernel.mockReset();
+  const {backend,repo,root,session}=await boundBackend();
+  try {
+    const book={occupations:[{id:'lawyer',label:'Lawyer',skills:['Law'],credit_rating_range:[30,80],formula:'EDU*4'}],skills:[{name:'Law',label:'Law'}],weapons:[]};
+    mocks.callColdKernel.mockResolvedValue(book);
+    const answer=await backend.handle('invokeExtension',['coc-keeper','draft-catalog',{},{sessionId:session.id}]) as any;
+    expect(answer).toEqual({ok:true,data:book});
+    expect(mocks.callColdKernel.mock.calls[0].slice(0,4)).toEqual([repo,root,'setup.catalog',{campaign:'c1'}]);
+    // No session, no campaign: the book a campaign plays by is the campaign's.
+    expect((await backend.handle('invokeExtension',['coc-keeper','draft-catalog',{}]) as any).ok).toBe(false);
+    const projects=await backend.handle('listProjects',[]) as any[];
+    const orphan=await backend.handle('newSession',[projects[0].id]) as any;
+    expect((await backend.handle('invokeExtension',['coc-keeper','draft-catalog',{},{sessionId:orphan.id}]) as any).ok).toBe(false);
+    expect(mocks.callColdKernel).toHaveBeenCalledTimes(1);
   } finally {await backend.close();}
 },20000);

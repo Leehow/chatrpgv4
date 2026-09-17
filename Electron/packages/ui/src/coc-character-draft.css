@@ -28,6 +28,7 @@
 .coc-draft-ask-question { color: var(--muted); font-size: 12px; }
 .coc-draft .coc-draft-nonstandard { display: inline-block; margin-top: 8px; padding: 3px 9px; border: 1px solid var(--accent); border-radius: 999px; color: var(--accent); font-size: 11px; font-weight: 650; }
 .coc-draft-pin { margin-left: 5px; font-size: 10px; line-height: 1; }
+.coc-draft-tag { margin-left: 6px; padding: 1px 6px; border: 1px solid var(--border-strong, var(--border)); border-radius: 999px; color: var(--muted); font-size: 10px; font-weight: 500; }
 .coc-draft-stat.coc-draft-pinned { border-color: var(--accent); }
 .coc-draft-table tr.coc-draft-pinned > :is(th, td) { background: color-mix(in srgb, var(--accent) 6%, transparent); }
 .coc-draft-budget { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 20px; }

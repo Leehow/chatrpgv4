@@ -85,20 +85,21 @@ it('starts compact, toggles calculations locally, and resets on a new revision',
  await screen.findByRole('button',{name:'查看计算详情'});
  await waitFor(()=>expect(ack).toHaveBeenCalledOnce());
  const row=()=>screen.getByText('其他语言（拉丁语）').closest('tr')!;
- expect(row().querySelectorAll('td')).toHaveLength(1);
+ // Compact is name, the two pools, and the final; the calculation view adds the base column.
+ expect(row().querySelectorAll('td')).toHaveLength(3);
  expect(row().textContent).toContain('53');
  expect(screen.queryByText('点数分配')).toBeNull();
  fireEvent.click(screen.getByRole('button',{name:'查看计算详情'}));
  expect(screen.getByRole('button',{name:'收起计算详情'}).getAttribute('aria-expanded')).toBe('true');
  expect(row().querySelectorAll('td')).toHaveLength(4);
  fireEvent.click(screen.getByRole('button',{name:'收起计算详情'}));
- expect(row().querySelectorAll('td')).toHaveLength(1);
+ expect(row().querySelectorAll('td')).toHaveLength(3);
  expect(ack).toHaveBeenCalledOnce();expect(load).toHaveBeenCalledOnce();
  expect(JSON.stringify(data)).toBe(before);
  fireEvent.click(screen.getByRole('button',{name:'查看计算详情'}));
  rerender(<CocCharacterDraft data={{...data,revision:2}} onPresentation={load} onRendered={ack}/>);
  expect(await screen.findByRole('button',{name:'查看计算详情'})).toBeTruthy();
- expect(row().querySelectorAll('td')).toHaveLength(1);
+ expect(row().querySelectorAll('td')).toHaveLength(3);
 })
 
 it('uses semantic financial exclusions without removing physical money-related objects or changing balances',()=>{
@@ -244,7 +245,7 @@ it('carries no substitution note on a card whose period the rulebook does tabula
  * as it did before, so an old card in a live transcript is not suddenly a card with no numbers
  * anybody chose.
  */
-const cardWords={...zh,'Pinned':'钉住','Points left':'剩余点数','Auto-spread':'自动铺平','Non-standard card':'非标准卡','Confirm and open the table':'确认，开桌','Reroll':'重掷','Reroll the dice? Pinned numbers stay.':'重掷骰子？钉住的数不动。','Yes, reroll':'是的，重掷','Cancel':'取消','Click "Confirm and open the table", or say below what to change.':'点「确认，开桌」，或在下面说要改什么。','Credit Rating is above the new occupation range.':'信用评级高于新职业的范围。','Overspent by':'超支','Relaxed to':'放宽到','Above the starting cap':'超过起始上限','occupation points':'职业点','interest points':'兴趣点','Starting skill cap':'起始技能上限','Characteristic maximum':'属性上限','Dodge':'闪避','Spot Hidden':'侦查','Pinned by you':'你钉的','Pinned by the host':'主持人钉的','Occupation skills':'职业技能','Interest skills':'兴趣技能','Other skills':'其他技能','Characteristic points':'属性点',Accounting:'会计','Library Use':'图书馆使用','Credit Rating':'信用评级',Climb:'攀爬'}
+const cardWords={...zh,'Pinned':'钉住','Points left':'剩余点数','Auto-spread':'自动铺平','Non-standard card':'非标准卡','Confirm and open the table':'确认，开桌','Reroll':'重掷','Reroll the dice? Pinned numbers stay.':'重掷骰子？钉住的数不动。','Yes, reroll':'是的，重掷','Cancel':'取消','Click "Confirm and open the table", or say below what to change.':'点「确认，开桌」，或在下面说要改什么。','Credit Rating is above the new occupation range.':'信用评级高于新职业的范围。','Overspent by':'超支','Relaxed to':'放宽到','Above the starting cap':'超过起始上限','occupation points':'职业点','interest points':'兴趣点','Starting skill cap':'起始技能上限','Characteristic maximum':'属性上限','Dodge':'闪避','Spot Hidden':'侦查','Pinned by you':'你钉的','Pinned by the host':'主持人钉的','Occupation skills':'职业技能','Interest skills':'兴趣技能','Other skills':'其他技能','Characteristic points':'属性点',Accounting:'会计','Library Use':'图书馆使用','Credit Rating':'信用评级',Climb:'攀爬','Custom':'自定义','Language (Other: Greek)':'其他语言（希腊语）'}
 const budget={occupation:{total:110,spent:80,unspent:30},interest:{total:31,spent:31,unspent:0},legal:true,notes:[] as string[]}
 const carded=(extra:Record<string,any>={})=>({revision:5,sheet,presentation:{texts:cardWords,play_language:'zh-Hans'},...extra})
 
@@ -423,4 +424,21 @@ it('reports the characteristic allowance, the points left, and the overspend',()
  cleanup()
  const none=render(<CocCharacterDraft data={carded({budget})}/>)
  expect(none.container.querySelector('.coc-draft-characteristic-budget')).toBeNull()
+})
+
+it('says which skills the player wrote, and where each pool\'s points went, without opening the calculations',()=>{
+ const written={...grouped,skills:{...grouped.skills,'Language (Other: Greek)':41},
+  creation:{skills:{...grouped.creation.skills,custom:['Language (Other: Greek)'],
+   interest:{...grouped.creation.skills.interest,pool:['Dodge','Language (Other: Greek)'],allocations:{Dodge:26,'Language (Other: Greek)':40}}}}}
+ const {container}=render(<CocCharacterDraft data={carded({sheet:written})}/>)
+ const row=(name:string)=>screen.getByText(name).closest('tr')!
+ // The compact table used to print a final and nothing else, so the player could not see which
+ // pool had bought it -- the one question the worksheet answers at a glance.
+ expect(Array.from(row('会计').querySelectorAll('td')).map(node=>node.textContent)).toEqual(['45','0','50'])
+ expect(Array.from(row('闪避').querySelectorAll('td')).map(node=>node.textContent)).toEqual(['0','26','48'])
+ const custom=row('其他语言（希腊语）')
+ expect(custom.querySelector('th')?.textContent).toContain('自定义')
+ expect(Array.from(custom.querySelectorAll('td')).map(node=>node.textContent)).toEqual(['0','40','41'])
+ // A skill the book does print carries no tag.
+ expect(row('会计').querySelector('th')?.textContent).not.toContain('自定义')
 })
