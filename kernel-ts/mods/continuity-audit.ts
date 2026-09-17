@@ -18,6 +18,8 @@ export function continuityAuditContext(graph: ModuleGraph, world: Row, turn: Row
     const objects = objectContext(world), sourceNodes = [...new Set([...graph.sceneClueIds(scene), ...array(world.discovered_clues).slice(-4)])]
         .flatMap(name => { const node = graph.find(name); return node ? [node] : []; });
     const moves = array(turn.receipts).filter(receipt => receipt.kind === 'move');
+    const failedRolls = array(turn.receipts).filter(receipt => receipt.kind === 'roll' && receipt.passed === false)
+        .map(receipt => pick(receipt, ['call_id', 'actor_label', 'skill', 'passed', 'level', 'family', 'decision', 'goal', 'summary', 'visibility']));
     const reentry = row(row(row(turn.capsule).mods).thread).reentry;
     const bridge = row(row(reentry).bridge), bridgeClue = graph.find(string(bridge.clue), ['clue']);
     const causalReentry = truth(reentry) ? {...reentry, authority: {
@@ -34,6 +36,8 @@ export function continuityAuditContext(graph: ModuleGraph, world: Row, turn: Row
             moves: moves.map(receipt => pick(receipt, ['from', 'to', 'from_label', 'to_label', 'minutes'])),
             definition: 'active_scene is the persistent gameplay locus, not a physical coordinate.',
             promotion_test: 'A distinct place needs a scene and move only when it becomes the ongoing locus for subsequent player action or durable location-bound state. Spatial wording, scale and motion do not decide this.'},
+        ...(failedRolls.length ? {outcome_commitments: {requires_review: true, failed_rolls: failedRolls,
+            definition: 'A failed roll may have consequences, uncertainty or no result; it does not earn the positive action, perception, clue or fact that roll was meant to decide.'}} : {}),
         ...(causalReentry ? {causal_reentry: causalReentry} : {}),
         present: Object.entries(row(world.npc_presence)).filter(([, at]) => at === world.active_scene).map(([name]) => ({name: index.canonicalName(`npc:${graph.find(name)?.node_id ?? name}`)})),
         receipts: array(turn.receipts).map(receipt => pick(receipt, ['kind', 'actor_label', 'skill', 'passed', 'from_label', 'to_label', 'minutes', 'clue', 'handout', 'label', 'summary', 'how', 'from', 'to', 'owner', 'delta', 'before', 'after', 'name', 'text', 'condition', 'visibility', 'object', 'usage', 'offer', 'offered_to_label', 'handover'])),

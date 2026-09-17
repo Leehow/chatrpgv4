@@ -72,6 +72,27 @@ test('artifact validation collects exact locations and accepts compact passing r
     const repairedOptional = structuredClone(transition); repairedOptional.continuity_review.reentry_review = null;
     assert.deepEqual(normalizeContinuityArtifact(repairedOptional, locusFiles), transition);
 
+    const failed = {outcome_commitments: {requires_review: true, failed_rolls: [
+        {call_id: 't141-c1', skill: 'Listen', passed: false, level: 'failure'}]}};
+    const falseSound = 'Mud gives a short sound under the boards.';
+    assert.ok(continuityArtifactErrors(pass(), falseSound, {'context.json': failed})
+        .some(error => error.path === '/continuity_review/outcome_review'));
+    const respected = {missing: [], findings: [], continuity_review: {verdict: 'pass', summary: 'The failed roll earned no positive fact.', conflicts: [],
+        outcome_review: {verdict: 'pass', basis: 'failed_rolls_respected', claims: []}}};
+    assert.deepEqual(continuityArtifactErrors(respected, 'You hear nothing definite.', {'context.json': failed}), []);
+    const unsupported = {missing: [], findings: [{reason: 'The failed Listen did not earn a sound.', fix: 'Withdraw the new sound; do not reroll.'}],
+        continuity_review: {verdict: 'revise', summary: 'The draft grants a positive perception after failure.', conflicts: [],
+            outcome_review: {verdict: 'revise', basis: 'unsupported_positive_result', claims: [falseSound]}}};
+    assert.deepEqual(continuityArtifactErrors(unsupported, falseSound, {'context.json': failed}), []);
+    const badClaim = structuredClone(unsupported); badClaim.continuity_review.outcome_review.claims = ['A sound the candidate never wrote.'];
+    assert.ok(continuityArtifactErrors(badClaim, falseSound, {'context.json': failed})
+        .some(error => error.path === '/continuity_review/outcome_review/claims/0'));
+    const noFinding = structuredClone(unsupported); noFinding.findings = [];
+    assert.ok(continuityArtifactErrors(noFinding, falseSound, {'context.json': failed})
+        .some(error => error.path === '/findings'));
+    const falseAggregate = structuredClone(unsupported); falseAggregate.continuity_review.verdict = 'pass';
+    assert.equal(normalizeContinuityArtifact(falseAggregate).continuity_review.verdict, 'revise');
+
     const bridgeText = 'The marked report connects the repeated tragedies to Corbitt.';
     const causal = {causal_reentry: {mode: 'introduce_evidence', thread: {name: 'house-haunted', claim: 'Corbitt caused the tragedies.'}, known: [],
         bridge: {clue: 'old-report', relation: 'supports', source_handouts: ['old-report-handout']},
@@ -255,6 +276,8 @@ test('new jobs expose focused context with full fallback, bind accepted reports,
     await call('table.narrate', {call_id: 't1-c1', text: 'The witness keeps the book.'});
     await call('table.player_input', {text: 'Clarify the ownership history.'});
     const turnPath = join(home, '.coc/campaigns/c1/turn.json'), cursor = JSON.parse(await readFile(turnPath, 'utf8'));
+    cursor.receipts = [{id: 'roll:listen-t2-c1', kind: 'roll', call_id: 't2-c1', actor_label: 'Thomas Hayes',
+        skill: 'Listen', passed: false, level: 'failure', visibility: 'public'}];
     cursor.capsule.mods.thread.reentry = {assessed_turn: 1, status: 'misframed', frame: 'The records are unrelated.',
         thread: {name: 'house-haunted-by-corbitt', claim: 'The tragedies share Corbitt as their cause.', importance: 'critical'},
         known: [{name: 'globe-unpublished-story', relation: 'supports', summary: 'Prior tenants suffered linked tragedies.', turns: [1]}],
@@ -273,6 +296,8 @@ test('new jobs expose focused context with full fallback, bind accepted reports,
     assert.equal(focused.scene_commitment.active.handle, 'commission-briefing');
     assert.deepEqual(focused.scene_commitment.moves, []);
     assert.match(focused.scene_commitment.promotion_test, /ongoing locus for subsequent player action or durable location-bound state/);
+    assert.equal(focused.outcome_commitments.failed_rolls[0].skill, 'Listen');
+    assert.equal(focused.outcome_commitments.failed_rolls[0].passed, false);
     assert.equal(focused.causal_reentry.bridge.clue, 'globe-unpublished-story');
     assert.equal(focused.causal_reentry.authority.clue_here, false);
     assert.deepEqual(focused.preparation_wait, {kind: 'adaptation', name: 'athens-pension'});
@@ -281,6 +306,7 @@ test('new jobs expose focused context with full fallback, bind accepted reports,
     assert.ok(focused.coverage.full_evidence_files.includes('history.json'));
     await writeFile(join(job.cwd, 'result.json'), JSON.stringify({...pass(), continuity_review: {...pass().continuity_review,
         locus_review: {verdict: 'pass', mode: 'same_locus', locus: null, claim: null, basis: 'active_scene'},
+        outcome_review: {verdict: 'pass', basis: 'failed_rolls_respected', claims: []},
         reentry_review: {verdict: 'defer', basis: 'preparation_wait', quote: 'The old register ends before the inheritance.', clue: null, relation: null}}}));
     assert.equal((await call('mods.accept', {job: job.job})).continuity_review.verdict, 'pass');
     assert.equal((await call('mods.accept', {job: job.job})).continuity_review.verdict, 'pass');

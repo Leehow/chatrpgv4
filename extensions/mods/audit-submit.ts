@@ -60,7 +60,7 @@ export default function auditSubmit(pi: any) {
     pi.registerTool({
         name: 'submit_audit', label: 'Submit continuity review', executionMode: 'sequential',
         description: 'Submit the review directly as result, or omit it to validate result.json. Successful validation ends this audit immediately. Invalid fields are returned together for one targeted repair; do not rewrite the Keeper candidate or recheck unrelated evidence.',
-        parameters: Type.Object({result: Type.Optional(Type.Any({description: 'Review object: {missing:[], findings:[], continuity_review:{verdict:"pass"|"revise"|"unavailable",summary:string,conflicts:[]}}. Only material conflicts need {claim,reason,evidence:[{file,quote}]}. Pass needs empty issue lists.'}))}),
+        parameters: Type.Object({result: Type.Optional(Type.Any({description: 'Review object: {missing:[], findings:[], continuity_review:{verdict:"pass"|"revise"|"unavailable",summary:string,conflicts:[]}} plus the exact conditional locus_review, outcome_review and reentry_review objects required by context.json. Only material conflicts need {claim,reason,evidence:[{file,quote}]}. Pass needs empty issue lists.'}))}),
         async execute(_id: string, params: any) {
             let result: any, files: Record<string, unknown> = {};
             try {

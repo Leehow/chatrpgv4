@@ -26,7 +26,8 @@ export function normalizeContinuityArtifact(value: any, files: Record<string, un
         const {reentry_review: _unused, ...rest} = review;
         review = rest;
     }
-    const specific = [review.reentry_review?.verdict, review.locus_review?.verdict, review.location_review?.verdict].find(verdict => verdict === 'revise');
+    const specific = [review.reentry_review?.verdict, review.locus_review?.verdict, review.location_review?.verdict,
+        review.outcome_review?.verdict].find(verdict => verdict === 'revise');
     if (review.verdict === 'pass' && specific === 'revise') review = {...review, verdict: 'revise'};
     return review === value.continuity_review ? value : {...value, continuity_review: review};
 }
@@ -60,13 +61,17 @@ export function continuityArtifactErrors(value: any, candidate: string, files: R
     const context = object(files['context.json']) ? files['context.json'] : {};
     const locationAuthority = object(context.location_authority) && context.location_authority.requires_review === true ? context.location_authority : null;
     const sceneCommitment = object(context.scene_commitment) && context.scene_commitment.requires_review === true ? context.scene_commitment : null;
+    const outcomeCommitments = object(context.outcome_commitments) && context.outcome_commitments.requires_review === true ? context.outcome_commitments : null;
     const causalReentry = object(context.causal_reentry) ? context.causal_reentry : null;
     const review = value.continuity_review;
-    if (!keys(review, ['verdict', 'summary', 'conflicts', ...(locationAuthority ? ['location_review'] : []), ...(sceneCommitment ? ['locus_review'] : []), ...(causalReentry && review?.verdict !== 'unavailable' ? ['reentry_review'] : [])], '/continuity_review')) return errors;
+    if (!keys(review, ['verdict', 'summary', 'conflicts', ...(locationAuthority ? ['location_review'] : []), ...(sceneCommitment ? ['locus_review'] : []),
+        ...(outcomeCommitments && review?.verdict !== 'unavailable' ? ['outcome_review'] : []), ...(causalReentry && review?.verdict !== 'unavailable' ? ['reentry_review'] : [])], '/continuity_review')) return errors;
     if (sceneCommitment && !object(review.locus_review))
         add('/continuity_review/locus_review', 'Required object: {verdict, mode, locus, claim, basis}; do not use location_review');
     if (causalReentry && review.verdict !== 'unavailable' && !object(review.reentry_review))
         add('/continuity_review/reentry_review', 'Required object: {verdict, basis, quote, clue, relation}');
+    if (outcomeCommitments && review.verdict !== 'unavailable' && !object(review.outcome_review))
+        add('/continuity_review/outcome_review', 'Required object: {verdict, basis, claims}');
     if (!['pass', 'revise', 'unavailable'].includes(review.verdict)) add('/continuity_review/verdict', 'Expected pass, revise or unavailable');
     if (!words(review.summary)) add('/continuity_review/summary', 'Expected nonempty bounded text');
     const evidenceStrings = new Map<string, string[]>(), conflicts = list(review.conflicts, '/continuity_review/conflicts', 10);
@@ -87,6 +92,28 @@ export function continuityArtifactErrors(value: any, candidate: string, files: R
             if (!evidenceStrings.has(e.file)) evidenceStrings.set(e.file, strings(files[e.file]));
             if (!evidenceStrings.get(e.file)!.some(text => text.includes(e.quote)))
                 add(`${at}/quote`, 'Copy an exact string-value excerpt, without JSON keys or punctuation', {file: e.file, excerpt: e.quote});
+        }
+    }
+    if (outcomeCommitments && object(review.outcome_review)) {
+        const outcome = review.outcome_review, path = '/continuity_review/outcome_review';
+        if (keys(outcome, ['verdict', 'basis', 'claims'], path)) {
+            if (!['pass', 'revise'].includes(outcome.verdict)) add(`${path}/verdict`, 'Expected pass or revise');
+            if (!['failed_rolls_respected', 'unsupported_positive_result'].includes(outcome.basis))
+                add(`${path}/basis`, 'Expected failed_rolls_respected or unsupported_positive_result');
+            const claims = list(outcome.claims, `${path}/claims`, 8);
+            for (const [i, claim] of claims.entries()) if (!words(claim, 1000) || !candidate.includes(claim))
+                add(`${path}/claims/${i}`, 'Copy an exact candidate excerpt that grants the unsupported positive result');
+            if (outcome.basis === 'failed_rolls_respected') {
+                if (outcome.verdict !== 'pass') add(`${path}/verdict`, 'Failed rolls respected uses verdict pass');
+                if (claims.length) add(`${path}/claims`, 'Failed rolls respected carries no unsupported claims');
+            }
+            if (outcome.basis === 'unsupported_positive_result') {
+                if (outcome.verdict !== 'revise') add(`${path}/verdict`, 'An unsupported positive result must revise');
+                if (!claims.length) add(`${path}/claims`, 'Name at least one exact unsupported positive-result excerpt');
+                if (!array(value.findings).length) add('/findings', 'An unsupported positive result needs an actionable finding');
+            }
+            if (outcome.verdict === 'revise' && review.verdict !== 'revise') add('/continuity_review/verdict', 'An outcome revision requires overall revise');
+            if (review.verdict === 'pass' && outcome.verdict !== 'pass') add(`${path}/verdict`, 'Overall pass requires a passing outcome review');
         }
     }
     if (locationAuthority) {
