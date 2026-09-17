@@ -481,9 +481,11 @@ test('an undelivered turn whose final provider call dies is released even when r
         fauxAssistantMessage([fauxToolCall('look', {focus: 'scene'})], {stopReason: 'toolUse'}),
         fauxAssistantMessage([fauxToolCall('narrate', {text: 'A draft the kernel refuses.'})], {stopReason: 'toolUse'}),
         fauxAssistantMessage([fauxToolCall('look', {focus: 'scene'})], {stopReason: 'toolUse'}),
-        // The fixture then runs out of provider responses, producing the terminal stop_reason:error
-        // that now strands this otherwise reviewable turn.
-        fauxAssistantMessage([], {stopReason: 'aborted'})]});
+        // The dead call that strands this otherwise reviewable turn. `error` and not `aborted`: §NN
+        // made `aborted` mean the host's own deadline, which ends the run before it can be steered
+        // and is a different road (`an-abandoned-run-is-not-steered.test.mjs`). What this case is
+        // about is the provider dying with the turn undelivered, which is `error`.
+        fauxAssistantMessage([], {stopReason: 'error', errorMessage: 'Provider 500: connection reset'})]});
     t.after(() => session.dispose());
     session.emit('coc:mods-bridge', {async after() {}, async prepare(method) {
         // Not a review pause: the terminal provider failure is independently sufficient to strand it.

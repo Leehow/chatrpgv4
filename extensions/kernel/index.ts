@@ -241,6 +241,10 @@ interface TableState {
 	terminalProviderFailure?: { ms: number | null; streak: number };
 	/** This run already told the player the model connection dropped: one service notice per run. */
 	providerNoticeSent?: boolean;
+	/** Contract §NN: the last assistant message of this run was cut off by the host rather than
+	 * answered by the provider (`stopReason: "aborted"`). Cleared by the next completed message and
+	 * at every `before_agent_start`, so it names one call and never a turn. */
+	runAbandoned?: boolean;
 	/** This settled run already scheduled the generic no-delivery notice. */
 	turnNoticeSent?: boolean;
 	/** Consecutive `commit_failed` refusals with the same cause (contract §38.11), counted like the
@@ -1830,6 +1834,10 @@ export default function (pi: ExtensionAPI) {
 		named: {model?: string; provider?: string} | undefined): void {
 		const state = table;
 		if (!state) return;
+		// Contract §NN. `aborted` is the one stop reason that is not the provider's answer at all: it is
+		// this host's own deadline, reached and acted on. Recorded per call, not per turn, and read once
+		// at `agent_end` -- see the abandonment guard there for why the difference matters.
+		state.runAbandoned = stopReason === "aborted";
 		// A completed assistant message is the proof the provider answered end to end, body stream
 		// included -- so it, and not a turn boundary, is what ends a streak and clears a terminal failure.
 		if (stopReason !== "error") {
@@ -3128,6 +3136,7 @@ export default function (pi: ExtensionAPI) {
 		state.refusedEffectUntold = false;
 		state.providerFailure = undefined;
 		state.terminalProviderFailure = undefined;
+		state.runAbandoned = false;
 		const text = event.prompt;
 		const startedAt = new Date().toISOString();
 		const began = Date.now();
@@ -3992,6 +4001,32 @@ export default function (pi: ExtensionAPI) {
 					{ triggerTurn: false });
 				void record({ lane: "delivery", turn: state.turn, ok: true, reason: notice, streak, service: !verdict });
 			}
+			return;
+		}
+		// Contract §NN: a run the host gave up on is not steered back.
+		//
+		// Every steer below is `sendHost(..., {triggerTurn: true})`, which is `agent.steer()` while the
+		// run is still streaming; AgentSession's `_handlePostAgentRun` then continues that very run, so
+		// the steer *is* another provider call, made 54 ms after the host's own deadline fired and
+		// carrying the same turn epoch. The host watchdog has no second deadline to spend on it (§NN.2),
+		// and the call it buys is made under exactly the conditions that had just proved fatal.
+		//
+		// M-MAIN `game-3dd94f0a` turn 117, 2026-09-17, from the campaign's telemetry and the host's own
+		// `server.log`:
+		//
+		//   08:23:22.498  provider-request
+		//   08:23:23.222  provider-response  status 200            <- headers, then no block at all
+		//   08:25:26.651  provider-call      ms 124153  aborted    <- `turn watchdog aborting silent run`
+		//   08:25:26.705  provider-request                         <- this steer
+		//   08:25:27.410  provider-response  status 200            <- and the stream never closed again
+		//
+		// The turn stayed `acting` for 23 minutes with nothing owed to anyone. These steers exist for a
+		// Keeper who ended a run without closing the turn; an abandoned run is not that, and the host
+		// deciding to abandon a call and then immediately asking for another one is the host arguing
+		// with itself. Returning here is what lets `agent_settled` do its designed work instead: strand
+		// the turn, tell the player, and release it in this process (§38, §50).
+		if (state.runAbandoned) {
+			void record({ lane: "turn", event: "abandoned_not_steered", turn: state.turn, ok: true });
 			return;
 		}
 		if (state.steeredThisTurn) return;

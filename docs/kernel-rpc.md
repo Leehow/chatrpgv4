@@ -12193,3 +12193,109 @@ The first dies when `defaultExpanded={live && !assistantKeepsSecrets}` goes back
 unconditional; the availability ones die if the card is dropped instead of folded. The wiring has its
 own three: PipiCOC by product id, PipiCOC by session profile with the product read dropped, and the
 base console either way — the middle one dies the moment the profile fallback is removed.
+
+## NN. A retry needs its own deadline (2026-09-17, amends §38.7, extends §50 and §70)
+
+```
+08:23:22.498  provider-request
+08:23:23.222  provider-response  status 200                       <- headers, and then no block at all
+08:25:26.651  provider-call      ms 124153  stop_reason aborted   <- the host's deadline, reached
+              server.log:  [pipi-backend] turn watchdog aborting silent run epoch=7 idleMs=124147
+08:25:26.705  provider-request                                    <- 54 ms later
+08:25:27.410  provider-response  status 200
+              --- and nothing after it, ever ---
+turn.json     {"turn":117,"state":"acting"}     open 23 minutes
+turns/0117.json  never written
+```
+
+M-MAIN `game-3dd94f0a-4b26-41bc-96fa-f89a60abb143` turn 117, 2026-09-17, the second capture of this
+shape in six hours and across one kernel rebuild (the first, turn 63 at 01:05, is the same four rows
+with no abort in the middle and a 59-minute hole after them). **The host does have an abandonment
+point. What it does not have is a second one** — and between the first and the absence of the second
+it spends a provider call of its own.
+
+### NN.1 The 54 ms call is not a retry
+
+Nothing retried anything. Pi never retries an abort: `retryAssistantCall` returns an aborted message
+the moment it sees one, and `_prepareRetry` runs on `stopReason: "error"` alone. The transport did
+not retry either — `httpIdleTimeoutMs` (60 s) is in force on this table and is visible working
+elsewhere in the same campaign, where seven calls ended `stop_reason: "error"` at 60–71 s; it never
+fires here, in either call, because the socket is not idle. **A stream that answers 200 and then
+produces no block is invisible to every timeout below the host.**
+
+The 54 ms call is this kernel extension's own `agent_end` steer — *"This turn is not closed yet:
+deliver it to the player with one narrate, or hand the choice back with one ask."* Sent through
+`sendHost(..., {triggerTurn: true})`, which is `agent.steer()` while the run is still streaming;
+`_handlePostAgentRun` then continues that run for it, exactly as §50 recorded for the notices. So the
+host abandoned a call and, 54 milliseconds later, asked for another one under the same conditions.
+
+**A run the host gave up on is not steered back.** The steers exist for a Keeper who ended a run with
+the turn still open; an abandoned run is not that, and a host that abandons a call and immediately
+buys another is arguing with itself. `noteProviderCall` records `stopReason === "aborted"` as
+`runAbandoned` — per call, cleared by the next completed message and at every `before_agent_start` —
+and `agent_end` returns on it before reaching any steer, leaving one row
+(`lane: "turn", event: "abandoned_not_steered"`).
+
+### NN.2 The deadline belongs to the call, not to the turn
+
+`checkTurnWatchdogs` declines to cut a silent run when `live.hostAbortedTurn` is set. That flag is
+cleared in one place, `agent_start` — and a *continuation* emits no `agent_start`. The steer's call
+therefore inherited the aborted turn's flag, its epoch and its armed recovery, and the watchdog read
+"this turn has already been dealt with" for every sweep after that, for the life of the process.
+**"There is a timeout" and "the call made after the timeout also has a timeout" are two different
+statements, and only the first was true.**
+
+The flag is replaced at that one read by `abandonmentStillCoversTheSilence(live)`: an abandonment
+covers the silence being measured only until a new assistant message has begun. `message_start` with
+`role: "assistant"` stamps `assistantMessageStartedAt` (it is the only event that says a provider
+call has gone in flight; `message_start` deliberately does not count as turn activity, so the 120 s
+runs from the abort's own `message_end`), `abortSessionTurn` stamps `hostAbortedTurnAt`, and both are
+cleared at `agent_start` with the flag. Nothing else about the ladder moves: the timeout is still
+120 s, still idle-based, still `privateCoc`-only, and still arms the durable handoff before it cuts.
+
+**The timeout value is not the defect and is not touched.** 124 s of silence is long, but it is the
+number that caught this; what failed is that it could only be spent once.
+
+### NN.3 What happens after the abandonment
+
+Both halves land on the same answer, which §38 and §50 had already written and which turn 117 never
+reached: **the run settles.** With no steer behind it the abort's `message_end` ends the run,
+`agent_settled` fires in the same process, and the path that was always there runs — the turn is
+marked stranded, `table.status` hands the player the receipts that did settle (§50), the
+`turn_unfinished_notice` goes out in the table's own language from the authored English source, and
+`releaseStrandedTurn` closes the turn here (§73) instead of leaving it welded to the player's next
+sentence. On the host side `agent_settled` is also what cancels the stop escalation, so the process
+is not replaced for a turn that ended cleanly.
+
+What that changes for the player is the whole cost of the defect: turn 117's notice was produced
+only by a *replacement* process's `session_start` recovery, after a SIGKILL, and the turn itself
+stayed `acting` until the player typed again 23 minutes later — four independent data points say the
+same thing, that neither a restart nor a reconnect moves a wedged turn and only the player's next
+sentence does. Nothing here changes that for a turn nobody has abandoned; it stops one from being
+abandoned silently.
+
+**Not addressed here, and named so it is not read as fixed.** Whether that notice reaches the eye is
+a different seam and is not measured by these tests — turn 117 produced a `lane: "delivery",
+reason: "turn_unfinished_notice"` row and the player still reports having been told nothing for 28
+minutes. Also unchanged: `noteProviderCall` treats an abort as proof the provider answered end to
+end, clearing `terminalProviderFailure` and the outage streak, so an abandoned call reads afterwards
+as a healthy one. Separating it needs the extension to know *whose* abort it was — the watchdog's or
+the player's Stop — and the host sends no such signal today.
+
+### NN.4 The three ends (§31)
+
+*Who writes it:* `abortSessionTurn` stamps `hostAbortedTurnAt`; the `message_start` branch of
+`rpcEvent` stamps `assistantMessageStartedAt`; `noteProviderCall` sets `runAbandoned`. *Who reads
+it:* `checkTurnWatchdogs` through `abandonmentStillCoversTheSilence`, and the extension's `agent_end`
+through `state.runAbandoned`. *Who acts on it:* the watchdog, which cuts the second silent call; and
+`agent_settled`, which now gets the run it was always supposed to get.
+
+Tests. Host (`Electron/packages/pi-backend/test/turn-watchdog.test.ts`): an abort, then a
+continuation's `message_start` with no `agent_start` behind it, then a second silence — and a second
+abort; the mirror, where no new message arrives and the same silence is not cut twice; and the
+predicate's own table. The first dies the moment the read goes back to `hostAbortedTurn`. Extension
+(`tests/extension/an-abandoned-run-is-not-steered.test.mjs`): an aborted run leaves no `kind: "steer"`
+message and consumes no second scripted response — the next response's arrival *is* the second
+provider call, which is what makes the assertion mean anything — the abandoned turn is told and
+released in this process and the table is playable on the next sentence, and the same empty message
+with `stop` instead of `aborted` is still steered. They die when the `agent_end` guard is removed.
