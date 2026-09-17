@@ -121,7 +121,8 @@ function atPointer(draft: Row, pointer: unknown): unknown {
  *
  * Measured on `Masks of Nyarlathotep` (669 pages, 2026-09-17): one minor NPC's `age: 32`,
  * `missing: []`, every other unit supported. Two rounds failed, and the player's only offered
- * recovery — 继续准备 — inherited the same draft and failed a third time. A book prepared but
+ * recovery -- the offer to keep preparing in the background -- inherited the same draft and
+ * failed a third time. A book prepared but
  * for one fabricated number is unplayable forever.
  *
  * Only numbers get this line. A prose field the review could not support may well be
