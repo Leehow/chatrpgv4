@@ -572,7 +572,7 @@ export default function (pi: ExtensionAPI) {
 		// the model's next sentence about the person, never a redraw of the numbers.
 		if (id === 'create-investigator' && draftRevision !== undefined && !completed.has('confirm-investigator')) {
 			const args = mergeArgs(raw);
-			return execute({step: 'revise', ...(args.profile !== undefined ? {profile: args.profile} : {}), ...(args.numbers !== undefined ? {numbers: args.numbers} : {}), ...(args.limits !== undefined ? {limits: args.limits} : {})});
+			return execute({step: 'revise', ...(args.profile !== undefined ? {profile: args.profile} : {}), ...(args.numbers !== undefined ? {numbers: args.numbers} : args.edits !== undefined ? {numbers: args.edits} : {}), ...(args.limits !== undefined ? {limits: args.limits} : args.limits_override !== undefined ? {limits: args.limits_override} : {}), ...(args.auto_spread === true ? {auto_spread: true} : {})});
 		}
 		if (!id) {
 			const next = nextStep(steps, state());

@@ -9,6 +9,20 @@ import type { RuleTables } from '../rules/tables.js';
 import type { Chargen } from './chargen.js';
 
 export interface Unresolved { given: string; candidates: string[] }
+/** Split a printed phrase at a separator that sits outside every parenthesis. */
+function splitTopLevel(text: string, separator: RegExp): string[] {
+  const out: string[] = []; let depth = 0, start = 0;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === '(') depth++; else if (ch === ')') depth = Math.max(0, depth - 1);
+    else if (depth === 0) {
+      const match = separator.exec(text.slice(i));
+      if (match && match.index === 0) { out.push(text.slice(start, i).trim()); i += match[0].length - 1; start = i + 1; }
+    }
+  }
+  out.push(text.slice(start).trim());
+  return out.filter(Boolean);
+}
 export interface OccupationCandidate { id: string; label: string; skills: string[] }
 const CANDIDATES = 3;
 /** Words of a normalized name, for the overlap a candidate is ranked by. */
@@ -44,7 +58,24 @@ export class SetupCatalog {
     if (isOtherLanguage(given)) return given;
     const byName = this.skillLabels.get(normalize(given));
     if (byName) return byName;
-    return specializationIdentity(this.chargen.groups, this.chargen.skillTable, given)?.canonical ?? null;
+    const direct = specializationIdentity(this.chargen.groups, this.chargen.skillTable, given)?.canonical;
+    if (direct) return direct;
+    // A printed group name that differs from the declared one only by separator or word order
+    // ("Art/Craft" for "Art and Craft", "Other Language" for "Language (Other)"): the same words,
+    // compared as sets without the joining word — a structural match, never a synonym list.
+    const parts = /^(.+?)\s*\(([^)]+)\)\s*$/.exec(given);
+    if (parts) {
+      const head = new Set(tokens(parts[1]).filter(word => word !== 'and')), member = parts[2].trim();
+      for (const name of Object.keys(row(this.chargen.groups))) {
+        const declared = new Set(tokens(name).filter(word => word !== 'and'));
+        if (declared.size === head.size && [...declared].every(word => head.has(word))) {
+          const canonical = specializationIdentity(this.chargen.groups, this.chargen.skillTable, `${name} (${member})`)?.canonical
+            ?? (name === 'Language (Other)' ? `Language (Other: ${member})` : null);
+          if (canonical) return canonical;
+        }
+      }
+    }
+    return null;
   }
   /** The closest catalog names to a name that resolved to nothing: names sharing the text or a word. */
   skillCandidates(given: string, limit = CANDIDATES): string[] {
@@ -68,7 +99,7 @@ export class SetupCatalog {
   requiredSkills(id: string): string[] {
     const names: string[] = [];
     for (const phrase of array(row(this.chargen.occupationTable[id]).occupational_skills)) {
-      const found = this.chargen.catalogName(string(phrase));
+      const found = this.resolveSkill(string(phrase));
       if (found && !names.includes(found)) names.push(found);
     }
     return names;
@@ -92,13 +123,13 @@ export class SetupCatalog {
    *  "plus four specialisms from: …") is answered from the picks when one of them qualifies and from
    *  the printed options otherwise, and an open entry ("any one other skill") from the interest list
    *  and then the era's standard sheet. Returns the list and what was filled in. */
-  fillOccupationSkills(id: string, picks: string[], interests: string[], standard: string[]): [string[], string[]] {
-    const list: string[] = [], filled: string[] = [];
+  fillOccupationSkills(id: string, picks: string[], interests: string[], standard: string[]): [string[], string[], string[]] {
+    const list: string[] = [], filled: string[] = [], overflow: string[] = [];
     const take = (name: string, fill: boolean): void => { if (name !== 'Credit Rating' && name !== 'Cthulhu Mythos' && !list.includes(name)) { list.push(name); if (fill) filled.push(name); } };
-    for (const name of picks) take(name, false);
+    for (const name of picks) { if (list.length >= 8) { if (!list.includes(name) && !overflow.includes(name)) overflow.push(name); continue; } take(name, false); }
     for (const phrase of array(row(this.chargen.occupationTable[id]).occupational_skills).map(string)) {
       if (list.length >= 8) break;
-      const concrete = this.chargen.catalogName(phrase);
+      const concrete = this.resolveSkill(phrase);
       if (concrete) { take(concrete, true); continue; }
       const options = this.choiceOptions(phrase);
       if (!options.length) continue;
@@ -108,22 +139,27 @@ export class SetupCatalog {
     }
     for (const name of interests) { if (list.length >= 8) break; if (!list.includes(name)) take(name, true); }
     for (const name of standard) { if (list.length >= 8) break; take(name, true); }
-    return [list.slice(0, 8), filled.filter(name => list.slice(0, 8).includes(name))];
+    return [list.slice(0, 8), filled.filter(name => list.slice(0, 8).includes(name)), overflow];
   }
-  /** The concrete names a printed choice offers, from the parenthesis or the colon it prints. */
+  /** The concrete names a printed choice offers. The printed grammar is small and closed:
+   *  `A or B` (alternatives at the top level, outside any parenthesis), `Head (or Alt)` (one
+   *  entry with a printed alternative), `… (X, Y, or Z)` and `…: X, Y, Z` (a list to choose
+   *  from), and a bare group name ("Fighting") that offers its own specializations. */
   private choiceOptions(phrase: string): string[] {
-    const inner = /\(([^)]*)\)/.exec(phrase)?.[1] ?? (phrase.includes(':') ? phrase.slice(phrase.indexOf(':') + 1) : '');
     const names: string[] = [];
-    for (const part of inner.split(/,|\bor\b/)) {
-      const text = part.trim();
-      if (!text) continue;
-      const found = this.chargen.catalogName(text);
-      if (found) { if (!names.includes(found)) names.push(found); continue; }
-      // A group name ("Fighting", "Firearms") offers its own specializations.
-      const group = row(this.chargen.groups)[text];
+    const add = (text: string): void => {
+      const found = this.resolveSkill(text);
+      if (found) { if (!names.includes(found)) names.push(found); return; }
+      const group = row(this.chargen.groups)[text.trim()];
       if (group) for (const member of Array.isArray(group.specializations) ? group.specializations : Object.keys(row(group.specializations)))
-        { const canonical = this.chargen.catalogName(`${text} (${member})`); if (canonical && !names.includes(canonical)) names.push(canonical); }
-    }
+        { const canonical = this.chargen.catalogName(`${text.trim()} (${member})`); if (canonical && !names.includes(canonical)) names.push(canonical); }
+    };
+    const top = splitTopLevel(phrase, /\s+or\s+/);
+    if (top.length > 1) { for (const part of top) add(part); return names; }
+    const alt = /^(.+?)\s*\(\s*or\s+([^)]+)\)\s*$/i.exec(phrase);
+    if (alt) { add(alt[1]); add(alt[2]); return names; }
+    const inner = /\(([^)]*)\)/.exec(phrase)?.[1] ?? (phrase.includes(':') ? phrase.slice(phrase.indexOf(':') + 1) : '');
+    for (const part of inner.split(/,|\bor\b/)) { const text = part.trim(); if (text) add(text); }
     return names;
   }
   private choiceCount(phrase: string): number {
