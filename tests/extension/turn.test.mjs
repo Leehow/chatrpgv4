@@ -295,9 +295,13 @@ test("a settled thinking-only run returns a service notice and releases the turn
 	await table.session.prompt("Continue.");
 	await waitForIdle(table.session);
 	assert.ok(assistantTexts(table.session).includes("The next turn reaches the player."),
-		"the next input releases the stranded turn instead of being refused by turn_state");
-	const inputs = table.kernelRequests().filter(request => request.method === "table.player_input");
-	assert.equal(inputs[1].params.release, "stranded");
+		"the next input lands on an open table instead of being refused by turn_state");
+	// §73: the settled run closed the stranded turn itself, so under FAKE_KERNEL_STRICT_TURN the second
+	// input is an ordinary one and is accepted because the table is already `awaiting_player`.
+	const requests = table.kernelRequests();
+	assert.ok(requests.some(request => request.method === "table.release" && request.params.release === "stranded"));
+	const inputs = requests.filter(request => request.method === "table.player_input");
+	assert.equal(inputs[1].params.release, undefined);
 });
 
 test("material_pending retries the exact failed read once, then replays the original apply", async t => {

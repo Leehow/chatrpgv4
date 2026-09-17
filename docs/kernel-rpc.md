@@ -10067,3 +10067,104 @@ next poll starting a fresh job, which is what the card's ↻ rides on.
 **Not covered by a test, deliberately:** `startDraftPresentation`'s three-line
 pre-warm. Its failure path is a `console.warn`; the behaviour that matters to the
 player is the mailbox, and that is tested above.
+
+## 73. An internal error is not a review, and a declared strand closes itself (2026-09-17, corrects §37.9 and §38.2)
+
+Retained live evidence: H-SIDE t4 `game-1c0faba5-5a90-4eff-ade3-0d62632b4e7a`, turn 86, 2026-09-17.
+Six `narrate` attempts, ~215 s, nothing delivered, and then 43 minutes in which the table could not be
+spoken to at all. Three separate things were wrong, and only one of them is the outage.
+
+### 73.1 What `code: "internal"` was
+
+It was the truth. The host's kernel RPC client gives a call 30 s and then fails it, and the UI session
+carries the message verbatim on four of the five: `kernel mods.job did not answer within 30000 ms`. No
+`details.reason`, which is why the telemetry rows carry a bare `code` and nothing else.
+
+The kernel was not broken by anything the product did. It finished each of those jobs *after* the host had
+given up — four job directories under `.coc/mods/jobs/` were written at 20:16:55, 20:17:37, 20:18:32 and
+20:20:18 local, each after its caller had already been failed — and the attempts got slower as the
+abandoned work piled up (36.3 s, 38.0 s, 38.1 s, 48.8 s, 53.8 s). The same shape appeared on a second table
+and on unrelated agents in the same window, so the first cause is upstream, not in this repository. It is
+recorded here because it is the condition the two rules below have to survive, not because it is a defect
+this section fixes. **A failure faithfully reported is not swallowed, downgraded or retried away.**
+
+### 73.2 The review allowance measures the reviewer
+
+`AUDIT_LIMITS.time_ms` is "active review time" (§35.14) and is sized for the reviews `max_rewrites`
+permits (§37.9). `AuditBudget.start()` nevertheless charged `Date.now()` since the `mods.job` call was
+issued — the host's own wait — to that shared total before reserving anything.
+
+So the five failures did not each buy a review; none of them ever constructed a budget. What they did was
+leave the kernel congested, and the sixth `mods.job` took ~55 s to answer. That wait was booked as review
+time. The reviewer then ran 22.4 s inside its reservation, submitted, and `mods.accept` bound its report —
+and the retained scope (`jobs/d1198add…/review-budget.json`) reads `ms: 81539` against `time_ms: 80000`,
+`requests: 1`, `reviewed_jobs: {}`, `blocked: "The shared review allowance is exhausted"`. The job
+directory `jobs/8d9d575b…/` holds the `accepted.json` that nobody received. The identical review, rerun
+35 minutes later, returned `verdict: pass`.
+
+- **Preparation is not charged.** `start()` takes no preparation figure. A kernel that will not answer is a
+  failure, not a verdict, and it may not spend the reviewer's allowance. The wait remains visible where it
+  belongs: the `lane: "continuity-review"` row's `ms` beside its `child_ms`.
+- **An allowance bounds what may be started, not what has already been produced.** `finish()` threw its
+  exhaustion one line after `mods.accept` had bound the report and one line before `verdict()` could record
+  it, which is why an exhausted block sits beside an empty `reviewed_jobs`. It now latches: `blocked` is
+  written with `blocked_service: false`, the constructor refuses the *next* review of the same input, and
+  the review that already finished keeps the verdict it earned.
+- **The request overrun still throws.** A private session that spent more model calls than it reserved
+  broke the bound it was handed, and its report is not trusted. That is a different fact from the shared
+  allowance running out while the books were being closed.
+
+### 73.3 A declared strand is completed, not promised
+
+§38.3 gives the declaration to the host and §38.2 put the close inside `table.player_input`, so the
+declaration lived in one process's memory and nothing on disk recorded it. On turn 86 the host wrote its
+§50 card at 00:21:50 (`delivery … settled_without_delivery rows:2`) and `turns/0086.json` was written at
+00:56:18 — the moment the player typed again. `turn.json` read `{"turn":86,"state":"acting"}` for 43
+minutes, so every ordinary `table.player_input` was refused; a server restart changed nothing, because the
+mark was never on disk to survive it. This is not particular to turn 86: every stranded turn on that table
+(8, 14, 38, 72, 81) has a `closed_at` equal to the next player input's timestamp. The others looked fine
+only because that player happened to speak within five minutes.
+
+Nothing about the *writing* was broken. Once released, the record landed with `closed_by: "stranded"` and
+all four receipts intact. The missing piece was the trigger.
+
+**`table.release` is that trigger.** It takes `{campaign, release: "stranded"}`, accepts only `open` and
+`acting` (anything else is `invalid_params`, exactly as §38.2's parameter does), writes the same stranded
+record and `turn-stranded` event through the same writer, and leaves the table `awaiting_player` on turn
+n+1 — where a delivered turn also leaves it. It narrates nothing, commits nothing and judges nothing.
+
+The host calls it at `agent_settled`, after §50's card has been issued and only when no player input is
+waiting to be sent; an input that is already queued closes the turn on its own way through, as before.
+
+**§38.2's input-carried release stays, and is not a leftover.** The condition that strands most turns is a
+kernel that will not answer, which is precisely when `table.release` cannot land either — on turn 86 the
+same kernel was refusing `mods.job`, `table.capsule` and `table.player_input` within the same window. So
+the mark is cleared only when the kernel confirms, and until then the next `table.player_input` carries it
+exactly as §38 describes. The completion barrier §38.3 puts in front of the watchdog marker applies to both
+roads: the marker must name this kernel turn durably before either may close it.
+
+### 73.4 The three ends (§31)
+
+- **Writer:** the host, at `agent_settled`, from the same §38.3 predicate as before; the kernel writes the
+  record, the `turn-stranded` event and the `lane: "turn", event: "stranded"` telemetry row.
+- **Reader:** `turn.json` — the cursor the next `table.player_input` meets — and every delivery consumer
+  through `closed_by === "narrate"`, which a stranded record still deliberately fails.
+- **Actor:** the player, who finds a table that will take an utterance, without having had to spend one to
+  make it so; and the operator, for whom `lane: "turn", event: "released"` says whether the close landed.
+
+### 73.5 What is deliberately not here
+
+No retry loop and no larger allowance. Both of the rules above hold whatever the first failure was, and
+neither turns five failures into ten. Why the kernel stopped answering `mods.job` for five consecutive
+calls on a turn-86-sized campaign is a separate question and is still open; §73.1 records what is known
+about it rather than guessing.
+
+### 73.6 Tests
+
+- `tests/extension/continuity-audit.test.mjs` — a stalled preparation is not charged to the reviewer and
+  the verdict it delayed still lands; a review that finished inside its reservation keeps its verdict when
+  the shared allowance runs out; the §38 test that asserted the release rides the next input now asserts it
+  does not.
+- `tests/extension/stranded-turn-closes-itself.test.mjs` — on the real kernel, a run that settles with
+  nothing delivered leaves `turns/0001.json` written and `turn.json` `awaiting_player` with no further
+  player input; and a release the kernel refuses leaves the mark for §38's road.

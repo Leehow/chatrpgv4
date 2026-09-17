@@ -200,7 +200,9 @@ export default function modsExtension(pi: ExtensionAPI): void {
         const result = await current('mods.accept', {campaign, job: job.job});
         budget.verdict(job.job, result.continuity_review.verdict); return result;
       }
-      const limits = budget.start(Date.now() - began); reserved = true;
+      // §73: `began` is the host's own clock since `mods.job` was issued; it is not review time and is not
+      // charged. It stays the telemetry row's `ms`, which is what a stall is actually visible in.
+      const limits = budget.start(); reserved = true;
       const ordinals = (await readdir(job.cwd)).flatMap(name => /^audit-attempt-(\d+)\.json$/.exec(name)?.slice(1).map(Number) ?? []);
       const ordinal = Math.max(0, ...ordinals) + 1, attempt = join(job.cwd, `audit-attempt-${ordinal}.json`);
       const control = `audit-control-${ordinal}.json`, statusFile = `audit-status-${ordinal}.json`;

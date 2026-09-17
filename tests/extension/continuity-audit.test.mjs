@@ -149,6 +149,69 @@ test('a private session cannot exceed its reservation even with shared allowance
     assert.throws(() => new AuditBudget(scope), /paused/);
 });
 
+/**
+ * Contract §73. The allowance measures active review time, so a stall upstream of the reviewer may not
+ * spend it. Retained live evidence (H-SIDE t4 `game-1c0faba5`, turn 86, 2026-09-17): `mods.job` was
+ * unanswered for ~55 s, and `AuditBudget.start()` charged that wait to `time_ms` before the reviewer had
+ * made one call. The reviewer then ran inside its reservation, submitted, and was bound by `mods.accept` --
+ * and the retained accounting read `ms: 81539` against `time_ms: 80000` with `reviewed_jobs: {}`.
+ *
+ * The gate is explicit rather than a race: `mods.job` is held until the test releases it, and the hold is
+ * an order of magnitude longer than the whole fixture allowance, so a charge cannot fail to be visible.
+ */
+test('a stalled preparation is not charged to the reviewer, and the verdict it delays still lands', async () => {
+    const cwd = await mkdtemp(join(directory, 'stall-')), scope = join(cwd, 'budget');
+    // Small enough that any preparation charge at all exhausts the allowance before the reviewer starts.
+    const limits = {...AUDIT_LIMITS, time_ms: 60, per_review_ms: 50};
+    let bridge; const pi = {events: new EventEmitter(), on() {}};
+    pi.events.on('coc:mods-bridge', value => bridge = value); modsExtension(pi);
+    pi.events.emit('coc:kernel-bridge', {call: async method => {
+        if (method === 'mods.job') {
+            await new Promise(resolve => setTimeout(resolve, 20 * limits.time_ms));
+            return {enabled: true, continuity_review: true, cwd, job: 'draft', review_scope: scope, limits,
+                focus: {}, system_prompt: join(cwd, 'prompt.md')};
+        }
+        if (method === 'mods.accept') return pass();
+        return {};
+    }, runtime: {async runTask(task) {
+        const control = JSON.parse(await readFile(join(cwd, task.request.audit.control), 'utf8'));
+        await writeFile(join(cwd, control.status_file), JSON.stringify({requests: 1, artifact_repairs: 0}));
+        task.request.onEvent({type: 'tool_execution_end', toolName: 'submit_audit', result: {details: {kind: 'audit_submission'}}});
+        return {ok: true, ms: 1};
+    }}});
+    await bridge.prepare('narrate', {campaign: 'c1', text: 'A draft the reviewer passed.'});
+    const state = JSON.parse(await readFile(join(scope, 'review-budget.json'), 'utf8'));
+    // Structure, not the cause sentence: the review reached a verdict and nothing latched behind it.
+    assert.equal(state.reviewed_jobs.draft, 'pass');
+    assert.equal(state.blocked, null);
+    assert.ok(state.ms <= limits.per_review_ms, `the reviewer's own spend is all that was booked: ${state.ms}`);
+});
+
+/**
+ * Contract §73. An allowance bounds what may be started, not what has already been produced. `finish()`
+ * used to throw the exhaustion it discovered while closing the books -- one line after `mods.accept` had
+ * bound the report, and one line before `verdict()` could record it. Turn 86's retained scope is the
+ * shape: `blocked` set, `reviewed_jobs` empty, and an `accepted.json` sitting in the job directory.
+ */
+test('a review that finished inside its reservation keeps its verdict when the shared allowance runs out', async () => {
+    const scope = await mkdtemp(join(directory, 'closed-short-')), limits = {...AUDIT_LIMITS, time_ms: 1, per_review_ms: 1};
+    const budget = new AuditBudget(scope, 'input-a', limits);
+    try {
+        budget.start();
+        // The overrun is the quantity under test, so it is spent, not simulated: 40 ms against a 1 ms
+        // allowance cannot land on the other side of the bound however slow the machine is.
+        await new Promise(resolve => setTimeout(resolve, 40));
+        budget.finish(1, 0);
+        budget.verdict('draft-a', 'pass');
+    } finally { budget.close(); }
+    const state = JSON.parse(await readFile(join(scope, 'review-budget.json'), 'utf8'));
+    assert.equal(state.reviewed_jobs['draft-a'], 'pass');
+    // Spent is still spent: the next review of the same input is refused, and as a verdict, not an outage.
+    assert.ok(state.blocked);
+    assert.equal(state.blocked_service, false);
+    assert.throws(() => new AuditBudget(scope, 'input-a', limits), /paused/);
+});
+
 test('checked submission repairs all errors in place and terminates only after valid submission', async () => {
     const cwd = await mkdtemp(join(directory, 'submit-'));
     await writeFile(join(cwd, 'request.json'), JSON.stringify({input: {text: 'His childhood was described.'}, continuity_review: {files: ['memory.json']}}));
@@ -266,7 +329,7 @@ for (const implicit of [false, true]) test(`unavailable ${implicit ? 'implicit' 
  * `midgame-bridge-live-21` turn 3 stayed `acting` forever because the review approved nothing and the
  * kernel then refused every further player utterance.
  */
-test('a turn left undelivered under a paused review is released on the next player input', async t => {
+test('a turn left undelivered under a paused review is released without waiting for the player', async t => {
     const session = await openTable({retainAt: directory, responses: [
         fauxAssistantMessage([fauxToolCall('look', {focus: 'scene'})], {stopReason: 'toolUse'}),
         fauxAssistantMessage([fauxToolCall('narrate', {text: 'Unapproved draft.'})], {stopReason: 'toolUse'}),
@@ -278,10 +341,14 @@ test('a turn left undelivered under a paused review is released on the next play
     }});
     await session.session.prompt('I listen at the door.'); await waitForIdle(session.session);
     await session.session.prompt('I give up on the door.'); await waitForIdle(session.session);
-    const inputs = session.kernelRequests().filter(request => request.method === 'table.player_input');
+    // §73: the release no longer rides the next utterance, so neither input carries one and the table was
+    // already `awaiting_player` when the player spoke.
+    const requests = session.kernelRequests();
+    const inputs = requests.filter(request => request.method === 'table.player_input');
     assert.equal(inputs.length, 2);
-    assert.equal(inputs[0].params.release, undefined);
-    assert.equal(inputs[1].params.release, 'stranded');
+    assert.deepEqual(inputs.map(input => input.params.release), [undefined, undefined]);
+    // Both runs settled undelivered, so both turns closed themselves.
+    assert.deepEqual(requests.filter(request => request.method === 'table.release').map(request => request.params.release), ['stranded', 'stranded']);
 });
 
 /**
@@ -418,10 +485,12 @@ test('an undelivered turn whose final provider call dies is released even when r
     }});
     await session.session.prompt('I listen at the door.'); await waitForIdle(session.session);
     await session.session.prompt('I keep listening.'); await waitForIdle(session.session);
-    const inputs = session.kernelRequests().filter(request => request.method === 'table.player_input');
+    const requests = session.kernelRequests();
+    const inputs = requests.filter(request => request.method === 'table.player_input');
     assert.equal(inputs.length, 2);
-    assert.equal(inputs[0].params.release, undefined);
-    assert.equal(inputs[1].params.release, 'stranded');
+    // §73: the release is its own call at `agent_settled`, so the second input is an ordinary one.
+    assert.deepEqual(inputs.map(input => input.params.release), [undefined, undefined]);
+    assert.ok(requests.some(request => request.method === 'table.release' && request.params.release === 'stranded'));
     assert.ok(session.telemetry().some(row => row.lane === 'provider-call' && row.stop_reason === 'error'));
     assert.equal(customMessages(session.session, 'coc-delivery')
         .filter(message => message.details.provider_outage && message.details.turn === 1).length, 1);
