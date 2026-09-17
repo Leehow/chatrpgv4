@@ -329,7 +329,7 @@ for (const implicit of [false, true]) test(`unavailable ${implicit ? 'implicit' 
  * `midgame-bridge-live-21` turn 3 stayed `acting` forever because the review approved nothing and the
  * kernel then refused every further player utterance.
  */
-test('a turn left undelivered under a paused review is released on the next player input', async t => {
+test('a turn left undelivered under a paused review is released without waiting for the player', async t => {
     const session = await openTable({retainAt: directory, responses: [
         fauxAssistantMessage([fauxToolCall('look', {focus: 'scene'})], {stopReason: 'toolUse'}),
         fauxAssistantMessage([fauxToolCall('narrate', {text: 'Unapproved draft.'})], {stopReason: 'toolUse'}),
@@ -341,10 +341,14 @@ test('a turn left undelivered under a paused review is released on the next play
     }});
     await session.session.prompt('I listen at the door.'); await waitForIdle(session.session);
     await session.session.prompt('I give up on the door.'); await waitForIdle(session.session);
-    const inputs = session.kernelRequests().filter(request => request.method === 'table.player_input');
+    // §73: the release no longer rides the next utterance, so neither input carries one and the table was
+    // already `awaiting_player` when the player spoke.
+    const requests = session.kernelRequests();
+    const inputs = requests.filter(request => request.method === 'table.player_input');
     assert.equal(inputs.length, 2);
-    assert.equal(inputs[0].params.release, undefined);
-    assert.equal(inputs[1].params.release, 'stranded');
+    assert.deepEqual(inputs.map(input => input.params.release), [undefined, undefined]);
+    // Both runs settled undelivered, so both turns closed themselves.
+    assert.deepEqual(requests.filter(request => request.method === 'table.release').map(request => request.params.release), ['stranded', 'stranded']);
 });
 
 /**
@@ -481,10 +485,12 @@ test('an undelivered turn whose final provider call dies is released even when r
     }});
     await session.session.prompt('I listen at the door.'); await waitForIdle(session.session);
     await session.session.prompt('I keep listening.'); await waitForIdle(session.session);
-    const inputs = session.kernelRequests().filter(request => request.method === 'table.player_input');
+    const requests = session.kernelRequests();
+    const inputs = requests.filter(request => request.method === 'table.player_input');
     assert.equal(inputs.length, 2);
-    assert.equal(inputs[0].params.release, undefined);
-    assert.equal(inputs[1].params.release, 'stranded');
+    // §73: the release is its own call at `agent_settled`, so the second input is an ordinary one.
+    assert.deepEqual(inputs.map(input => input.params.release), [undefined, undefined]);
+    assert.ok(requests.some(request => request.method === 'table.release' && request.params.release === 'stranded'));
     assert.ok(session.telemetry().some(row => row.lane === 'provider-call' && row.stop_reason === 'error'));
     assert.equal(customMessages(session.session, 'coc-delivery')
         .filter(message => message.details.provider_outage && message.details.turn === 1).length, 1);

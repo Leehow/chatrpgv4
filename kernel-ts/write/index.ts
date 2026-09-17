@@ -661,6 +661,8 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
      * table `awaiting_player` on the next turn, which is exactly where a delivered turn leaves it.
      */
     async function release(params: Row): Promise<Row> {
+        // No `preflightCampaign` and no mod initialization: this closes a turn, it does not open one, and a
+        // campaign whose contributions would be refused is exactly the one that must not stay `acting`.
         const { campaign, snapshot, module } = await load(params);
         const turn = snapshot.turn;
         if (params.release !== 'stranded')
