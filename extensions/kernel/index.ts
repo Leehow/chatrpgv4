@@ -1825,13 +1825,16 @@ export default function (pi: ExtensionAPI) {
 	 * caption projected for this table's play language by the words lane, like every other notice.
 	 */
 	async function emitPreparationWaitNotice(state: TableState, wait: { kind: string; name?: string }, turn: number): Promise<void> {
-		const still = await preparationStillWaiting(state, wait);
-		if (!still) {
+		const standing = await preparationStanding(state, wait);
+		if (!standing) {
 			void record({ lane: "delivery", turn, ok: true, reason: "preparation_wait_notice_withheld",
 				kind: wait.kind, ...(wait.name ? { name: wait.name } : {}) });
 			return;
 		}
-		let line = wait.kind === "source"
+		const landed = standing === "landed";
+		let line = landed
+			? "The place the Keeper needed is ready now, so the next turn can take you there. Nothing you did was lost — say anything to go on."
+			: wait.kind === "source"
 			? "Part of the source this table needs is still being read, so the Keeper could not use it this turn. Nothing you did was lost, and nothing else at the table is blocked — send anything to continue."
 			: "This table is still preparing a place the Keeper needed, so it could not take you there this turn. Nothing you did was lost — send anything to continue, and the Keeper picks it up once the preparation lands.";
 		// The key is written at the call site, not held in a variable: the caption registry is found by
@@ -1839,7 +1842,8 @@ export default function (pi: ExtensionAPI) {
 		// word nothing asks for (`extension-words`, "caption keys are found by static scan").
 		try {
 			const words = await surface.words();
-			line = wait.kind === "source" ? words.line("source_wait_notice") : words.line("adaptation_wait_notice");
+			line = landed ? words.line("adaptation_ready_notice")
+				: wait.kind === "source" ? words.line("source_wait_notice") : words.line("adaptation_wait_notice");
 		}
 		catch { /* an unreadable content root still owes the player the English line */ }
 		// §50: `triggerTurn: false`. This notice is scheduled from `applyToolSuccess`, on a turn that
@@ -1855,20 +1859,30 @@ export default function (pi: ExtensionAPI) {
 		// seconds of socket I/O, so there the timer fires mid-run. The proven case is §38.5's notice,
 		// which is sent inline from `agent_end` (`settled-turn-is-told.test.mjs`).
 		pi.sendMessage({ customType: "coc-delivery", content: line, display: true,
-			details: { coc_delivery: true, turn, preparation_wait: { kind: wait.kind, ...(wait.name ? { name: wait.name } : {}) } } },
+			details: { coc_delivery: true, turn, preparation_wait: { kind: wait.kind, ...(wait.name ? { name: wait.name } : {}), ...(landed ? { landed: true } : {}) } } },
 			{ triggerTurn: false });
-		void record({ lane: "delivery", turn, ok: true, reason: "preparation_wait_notice",
+		void record({ lane: "delivery", turn, ok: true, reason: landed ? "preparation_ready_notice" : "preparation_wait_notice",
 			kind: wait.kind, ...(wait.name ? { name: wait.name } : {}) });
 	}
 
-	/** The re-read §47 exists for: the state as it stands now, not as the Keeper last saw it. */
-	async function preparationStillWaiting(state: TableState, wait: { kind: string; name?: string }): Promise<boolean> {
+	/**
+	 * The re-read §47 exists for: the state as it stands now, not as the Keeper last saw it.
+	 *
+	 * §75. "Not still running" has two meanings and the notice needs both. `landed` is the answer
+	 * arriving — the place exists, reviewed, waiting only for the table's `apply` — and `null` is the
+	 * work being gone (accepted, cancelled, failed, stale, none, or a kernel that will not answer).
+	 * Collapsing them is what silenced the player: on `game-1c0faba5` all four preparations reached
+	 * `ready` within seconds of the delivery that was waiting for them, so all four notices were
+	 * withheld and four zero-receipt turns arrived with no word of why.
+	 */
+	async function preparationStanding(state: TableState, wait: { kind: string; name?: string }): Promise<"waiting" | "landed" | null> {
 		if (wait.kind === "source") {
 			// A bridge too old to answer cannot be made to lie: with no way to re-read, the host does
-			// not claim the reading is still running.
-			if (!reading?.reading || !readingModule) return false;
-			try { return reading.reading(readingModule, { focus: wait.name ?? "", question: state.sourceWait?.question ?? "" }); }
-			catch { return false; }
+			// not claim the reading is still running. A reading has no `ready` of its own to report --
+			// it has no status verb and nothing to accept -- so it answers this question in two states.
+			if (!reading?.reading || !readingModule) return null;
+			try { return reading.reading(readingModule, { focus: wait.name ?? "", question: state.sourceWait?.question ?? "" }) ? "waiting" : null; }
+			catch { return null; }
 		}
 		// The kernel, because the kernel is the authority §36.15 already re-derives the wait from. This
 		// host's own task map would be cheaper and is not the same question: a child that has exited
@@ -1877,10 +1891,13 @@ export default function (pi: ExtensionAPI) {
 		try {
 			const current = await state.kernel.call<Record<string, unknown>>("adaptation.status",
 				wait.name ? { campaign: state.campaign, name: wait.name } : { campaign: state.campaign });
+			const status = asString(current.status) ?? "";
 			// Strictly narrower than `ADAPTATION_HELD`: `ready` is a decision the Keeper owes an answer
-			// to, and it is not, to the player, "still being prepared".
-			return ["pending", "reviewing"].includes(asString(current.status) ?? "");
-		} catch { return false; }
+			// to, and it is not, to the player, "still being prepared". It is still something the player
+			// is owed a line about, so it answers `landed` rather than nothing (§75).
+			if (["pending", "reviewing"].includes(status)) return "waiting";
+			return status === "ready" ? "landed" : null;
+		} catch { return null; }
 	}
 
 	/**
