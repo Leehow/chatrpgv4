@@ -521,6 +521,10 @@ function handle(method, params) {
 				},
 			};
         case "setup.draft":
+            // §93: a draft the kernel refuses. The extension un-books `create-investigator` before
+            // trying, so whether it re-books on a refusal is only observable through a real one.
+            if (params.profile?.name === "REFUSE")
+                return {ok:false,error:{code:"needs",message:"The card is incomplete",details:{issues:["sex is required"]}}};
             return {ok:true,result:{revision:1,sheet:{name:params.profile.name,occupation:params.profile.occupation,creation:{seed:"private-seed",method:"rolled",characteristics:{multiplier:5,rolls:{STR:{dice:"3d6",faces:[1,1,2],total:4}}},age:{edu_improvement_checks:[{roll:30,edu:50}]},skills:{occupation:{budget:{formula:"EDU*4",total:200},allocations:{Law:25}},interest:{budget:{formula:"INT*2",total:130},allocations:{Law:10}}}}},profile:params.profile,completeness:{valid:true,issues:[]}}};
         case "setup.override": {
             // §92: the numeric edit the model reaches through `adjust`. The fake charges nothing —

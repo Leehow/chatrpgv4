@@ -210,7 +210,7 @@ export class SetupDrafts {
       if (Object.keys(kept).length) wanted.skills = kept;
     }
     if (!Object.keys(wanted).length) return [sheet, {carried: {}, dropped}];
-    try { return [await this.rebuild(sheet, wanted, relax, revision), {carried: clone(wanted), dropped}]; }
+    try { return [await this.rebuild(await this.makeRoom(sheet, row(wanted.skills), relax), wanted, relax, revision), {carried: clone(wanted), dropped}]; }
     catch (error) {
       if (!(error instanceof RpcError) || error.code !== 'needs') throw error;
       const refused = [...entries(row(wanted.characteristics)), ...entries(row(wanted.skills))].map(([field]) => field);
@@ -218,6 +218,59 @@ export class SetupDrafts {
       return [sheet, {carried: {}, dropped: [...dropped, ...refused.map(field => ({field, reason: error.message}))],
         refused: {message: error.message, details: error.details ?? null}}];
     }
+  }
+  /** Contract §93: a number the player set outranks a number the allocator chose.
+   *
+   *  §92 re-applied the stored edits to the freshly rolled card, and on a live table it still lost
+   *  them. The card arrives with both pools already spent to the last point, so the pins land *on
+   *  top* of the machine's own allocation and the pool overflows: one re-draft that added two
+   *  interest skills (`Climb`, `First Aid`) spread the same 300 points over six skills instead of
+   *  four, the pinned values pushed the spend to 344, and the whole set was refused — the player's
+   *  DEX 90 card came back at DEX 50. The arithmetic was right and the precedence was wrong. An
+   *  allocation is what the machine chose when nobody said otherwise; a pin is what somebody said.
+   *
+   *  So the machine's share is what gives way. Before the pins are applied, the unpinned skills in
+   *  each affected pool are walked down from their own allocations — the biggest spender first, the
+   *  same "who is holding the most" reading `refusePool` already reports on — until the pins fit.
+   *  Nothing is invented: every point removed is a point the allocator had put there, and a pool
+   *  the pins cannot fit into even with the allocator emptied is still refused with its own reason,
+   *  because that one the player has to resolve. The pins themselves are never lowered to fit. */
+  async makeRoom(sheet: Row, pins: Row, relax: Row): Promise<Row> {
+    const names = Object.keys(pins);
+    if (!names.length) return sheet;
+    const values = row(sheet.skills), creation = row(sheet.creation), ledger = row(creation.skills);
+    const bound = (key: string, fallback: number): number => Object.hasOwn(relax, key) ? Math.trunc(number(relax[key])) : fallback;
+    const diff = this.setup.chargen.difficultyPolicy(creation.difficulty ?? null);
+    const occupational = new Set(array(row(ledger.occupation).resolved).map(string));
+    const [, spec] = this.setup.chargen.occupation(sheet.occupation);
+    const occupation = evaluateFormula(parseFormula(spec.skill_point_formula || ''), row(sheet.characteristics));
+    const interest = evaluateFormula(parseFormula(string(this.setup.chargen.policy.formulas.personal_interest_points)), row(sheet.characteristics));
+    const pools = [
+      {member: (name: string) => name !== 'Credit Rating' && occupational.has(name), credit: number(sheet.credit_rating),
+        budget: bound('occupation_points', diff ? diff.adjustBudget('occupation', occupation.total) : occupation.total)},
+      {member: (name: string) => name !== 'Credit Rating' && !occupational.has(name), credit: 0,
+        budget: bound('interest_points', diff ? diff.adjustBudget('interest', interest.total) : interest.total)},
+    ];
+    const edited: Row = {...values};
+    for (const pool of pools) {
+      const held = Object.keys(values).filter(pool.member);
+      const base = (name: string): number => this.setup.chargen.skillBase(name, row(sheet.characteristics));
+      const spendOf = (name: string): number => number(edited[name]) - base(name);
+      const wanted = (name: string): number => names.includes(name) ? number(pins[name]) - base(name) : spendOf(name);
+      let over = held.reduce((total, name) => total + wanted(name), 0) + pool.credit - pool.budget;
+      if (over <= 0) continue;
+      // The unpinned skills, biggest allocation first; a stable name order keeps two equal holders
+      // from making the same draft come out differently twice.
+      const givers = held.filter(name => !names.includes(name))
+        .sort((a, b) => spendOf(b) - spendOf(a) || compareUnicode(a, b));
+      for (const name of givers) {
+        if (over <= 0) break;
+        const give = Math.min(over, spendOf(name));
+        if (give <= 0) continue;
+        edited[name] = number(edited[name]) - give; over -= give;
+      }
+    }
+    return {...sheet, skills: edited};
   }
   async previewed(params: Row): Promise<Row> {
     return this.locked(params, async campaign => {

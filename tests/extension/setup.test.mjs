@@ -401,3 +401,40 @@ test('§92 a confirmed card is no longer a draft edit', async (t) => {
 	assert.equal(table.kernelRequests().filter((entry) => entry.method === 'setup.override').length, 0,
 		'and the kernel is never asked, so the refusal cannot depend on its window');
 });
+
+/**
+ * §93: a refused draft must not lock the player out of confirmation.
+ *
+ * `create-investigator` is un-booked before every attempt so the gate will pass it twice, which is
+ * a bet that the attempt succeeds. A refused draft lost that bet and left the step un-booked, so
+ * `confirm-investigator` came back "the table gives it the prerequisites create-investigator, of
+ * which create-investigator are not done" — with a card already on the table. A live table walked
+ * that circle: one refused draft, confirmation locked out, then four more drafts, each of which
+ * rebuilt the numbers the player had just edited by hand.
+ */
+test('§93 a refused draft leaves the card confirmable', async (t) => {
+	const first = firstStep();
+	const table = await openSetup([
+		setupCall({ step: first.id, kind: 'starter', module: 'the-haunting' }),
+		setupCall({ step: 'create-campaign', id: 'setup-refused-draft', title: '闹鬼的房子', play_language: 'zh-Hans' }),
+		setupCall({ step: 'create-investigator', profile: { name: '托马斯·海耶斯', occupation: 'journalist', concept: '记者' } }),
+		setupCall({ step: 'create-investigator', profile: { name: 'REFUSE', occupation: 'journalist', concept: '记者' } }),
+		setupCall({ step: 'confirm-investigator', consent: 'approved' }),
+		fauxAssistantMessage('定了。'),
+	]);
+	t.after(() => table.dispose());
+
+	await table.session.prompt('就这张卡');
+	await waitForIdle(table.session);
+
+	const [, , drafted, refused, confirmed] = setupResults(table.session);
+	assert.equal(drafted.ok, true, 'the first draft lands');
+	assert.equal(refused.ok, false, 'the second is refused by the kernel');
+	assert.equal(refused.code, 'needs');
+
+	assert.equal(confirmed.ok, true, 'and confirmation is still reachable: the refusal un-did nothing');
+	assert.ok(table.kernelRequests().some(entry => entry.method === 'setup.confirm'),
+		'the gate let it through to the kernel rather than refusing on a prerequisite');
+	assert.ok(!JSON.stringify(confirmed).includes('are not done'),
+		'no prerequisite refusal for a step that was done');
+});

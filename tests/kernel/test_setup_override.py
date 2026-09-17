@@ -371,8 +371,40 @@ def test_an_edit_whose_skill_the_rebuilt_card_no_longer_lists_is_dropped_alone(k
     assert "no longer lists" in redrafted["manual"]["dropped"][0]["reason"]
 
 
-def test_a_carry_that_no_longer_fits_carries_nothing_and_reports_the_refusal(kernel):
-    """A partly applied hand is a card nobody typed, so the set fails together and says why."""
+def test_the_allocator_gives_way_so_the_pins_survive_a_new_skill_list(kernel):
+    """§93, the shape that lost a live card: a re-draft that adds two interest skills.
+
+    The fresh card arrives with the pool spent to the last point, spread over six skills instead of
+    four. Under §92 the pins landed on top of that and the pool overflowed (344 against 300), so the
+    whole hand was dropped and a DEX 90 card came back at DEX 50. The allocator's own points are
+    what gives way now.
+    """
+    picked = {**profile(), "interest_skills": ["Accounting", "Law", "First Aid", "Drive Auto"]}
+    kernel.ok("campaign.create", {"id": CAMPAIGN, "module": "the-haunting", "play_language": "en"})
+    draft = kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": picked})
+    interest = draft["sheet"]["creation"]["skills"]["interest"]
+    assert interest["unspent"] == 0, "the premise: the pool arrives spent to the last point"
+    # The pins are the values the player is looking at, which together hold the whole pool. No
+    # relaxation: a raised budget would leave slack and the overflow this is about would not happen.
+    pins = {name: draft["sheet"]["skills"][name] for name in interest["allocations"]}
+    kernel.ok("setup.override", {"campaign": CAMPAIGN, "revision": draft["revision"], "edits": {"skills": pins}})
+    # The two new skills go to the front of the list, where the tiered allocator funds them first —
+    # which is what leaves the pinned skills' points already spent elsewhere.
+    redrafted = kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": {
+        "interest_skills": ["Climb", "Swim", *picked["interest_skills"]]}})
+    for name, value in pins.items():
+        assert redrafted["sheet"]["skills"][name] == value, f"{name} was lowered to fit; a pin is never lowered"
+    assert redrafted["manual"]["dropped"] == [], "nothing had to be given up"
+    assert sorted(redrafted["manual"]["carried"]["skills"]) == sorted(pins)
+    after = redrafted["sheet"]["creation"]["skills"]["interest"]
+    assert after["spent"] <= after["budget"]["total"], "the pool the pins landed in is still legal"
+    # What gave way is the allocator's own share of the two skills it had just started funding.
+    for name in ("Climb", "Swim"):
+        assert name not in after["allocations"], f"{name} kept points the pins needed"
+
+
+def test_a_changed_occupation_still_carries_because_the_allocator_gives_way(kernel):
+    """The §92 version of this case reported a pool refusal and dropped the whole hand."""
     draft = begin(kernel)
     edits = swap(draft["sheet"])
     kernel.ok("setup.override", {"campaign": CAMPAIGN, "revision": draft["revision"], "edits": edits})
@@ -381,12 +413,39 @@ def test_a_carry_that_no_longer_fits_carries_nothing_and_reports_the_refusal(ker
         "occupation_skills": ["Appraise", "Art and Craft (Photography)", "History", "Library Use",
                               "Language (Other: Latin)", "Spot Hidden", "Persuade", "Charm"]}})
     manual = redrafted["manual"]
+    assert manual["dropped"] == [], "the trade changed and the hand still travelled"
+    for name, value in edits["skills"].items():
+        assert redrafted["sheet"]["skills"][name] == value
+
+
+def test_a_pin_the_new_occupation_cannot_afford_is_refused_with_its_reason(kernel):
+    """What making room cannot buy: Credit Rating's range belongs to the trade, not to a budget.
+
+    Journalist allows 9-30 and a Drifter 0-5, so a rating the player pinned as a reporter is not a
+    rating a drifter can hold. No allocation can be freed to make that true, so this one is refused
+    and named rather than quietly rounded down.
+    """
+    draft = begin(kernel)
+    sheet = draft["sheet"]
+    # Both pools start fully spent, so the raise is paid for out of the same pool.
+    cost = 30 - sheet["credit_rating"]
+    allocations = sheet["creation"]["skills"]["occupation"]["allocations"]
+    donor = next(name for name, points in sorted(allocations.items()) if points >= cost)
+    kernel.ok("setup.override", {"campaign": CAMPAIGN, "revision": draft["revision"],
+                                 "edits": {"credit_rating": 30, "skills": {donor: sheet["skills"][donor] - cost}}})
+    redrafted = kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": {
+        "occupation": "Drifter",
+        "occupation_skills": ["Climb", "Jump", "Listen", "Navigate", "Stealth", "Charm", "Spot Hidden", "Survival"]}})
+    manual = redrafted["manual"]
     assert manual["carried"] == {}, "nothing was applied"
-    assert manual["refused"]["details"]["pool"] in {"occupation", "interest"}
-    assert manual["refused"]["message"] == manual["dropped"][0]["reason"], "the player reads the refusal that refused it"
-    assert sorted(row["field"] for row in manual["dropped"]) == sorted(edits["skills"])
-    for name in edits["skills"]:
-        assert redrafted["sheet"]["skills"][name] != edits["skills"][name] or edits["skills"][name] == draft["sheet"]["skills"][name]
+    fields = [row["field"] for row in manual["dropped"]]
+    assert "credit_rating" in fields, "the pin that could not travel is named"
+    reasons = {row["field"]: row["reason"] for row in manual["dropped"]}
+    assert reasons["credit_rating"] == manual["refused"]["message"], "the pin carries the reason that refused it"
+    assert all("no longer lists" in reason for field, reason in reasons.items() if field != "credit_rating"), \
+        "a skill the new trade's card never lists is moot, and says so rather than borrowing the refusal"
+    assert manual["refused"]["details"]["range"] == [0, 5]
+    assert redrafted["sheet"]["credit_rating"] <= 5, "the card the player gets is a legal one"
 
 
 def test_a_draft_that_never_had_a_manual_edit_carries_no_manual_block(kernel):
