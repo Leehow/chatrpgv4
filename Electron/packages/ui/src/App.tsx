@@ -1304,7 +1304,15 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
   useEffect(() => {
     if (!host.getProduct) return
     let current = true
-    void host.getProduct().then(product => { if (current && product?.name) {setProductName(product.name);setProductId(product.id)} }).catch(() => undefined)
+    // §84: this one read decides whether the shell is PipiCOC at all -- `productId === 'pipicoc'`
+    // gates the onboarding, the illustration surface and the composer's own form. It had a bare
+    // catch, and this effect depends only on `host`, which does not change when the relay
+    // reconnects: one dropped request at mount left the person in the base app for the life of
+    // the page, with no banner and nothing to press. Observed 2026-09-17, seconds after the
+    // desktop app restarted; a reload brought the whole product back, which is the recovery this
+    // work exists to remove.
+    void readWithRetry(() => host.getProduct!(), { cancelled: () => !current })
+      .then(product => { if (current && product?.name) { setProductName(product.name); setProductId(product.id) } })
     return () => { current = false }
   }, [host])
   useEffect(() => {
