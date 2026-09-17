@@ -86,7 +86,7 @@ def test_skill_edits_within_the_budget_are_applied(kernel):
 
 
 def test_exceeding_a_pool_is_reported_on_the_card_not_refused(kernel):
-    """§97: the budget is a report. A pin the pool cannot hold stays, the machine's share gives way
+    """§98: the budget is a report. A pin the pool cannot hold stays, the machine's share gives way
     first, and what is still over is written on the card as an overspend."""
     draft = begin(kernel)
     sheet = draft["sheet"]
@@ -348,7 +348,7 @@ def swap(sheet, pool="occupation", points=10):
 
 
 def test_a_pin_survives_a_re_draft_that_changes_the_age(kernel):
-    """§97 replaces §92's carry: a pin is a first-class number on the card, and a revision of the
+    """§98 replaces §92's carry: a pin is a first-class number on the card, and a revision of the
     words never rebuilds it."""
     draft = begin(kernel)
     edits = characteristics_edit(draft["sheet"], "CON", 10)

@@ -491,7 +491,7 @@ describe('the plain copy of a drawn delivery is folded away', () => {
 })
 
 /**
- * Every draft row draws the campaign's current draft (contract §23.4, §97), so after a re-draft
+ * Every draft row draws the campaign's current draft (contract §23.4, §98), so after a re-draft
  * the transcript held two identical cards. One card per campaign: the row with the highest
  * revision is the card, and the rest become a line each -- so the id this names is the only row
  * that renders a full card. A host-side action bumps the revision on a row already there without

@@ -1,4 +1,4 @@
-/** The card as a patched document (contract §97): words change words, numbers change numbers,
+/** The card as a patched document (contract §98): words change words, numbers change numbers,
  *  the dice are rolled once, a pin outranks the allocator, and confirmation has one gate.
  *
  *  One card per campaign, one file per revision (`setup/drafts/<n>.json`). `draft` generates the
@@ -50,7 +50,7 @@ export class SetupDrafts {
     return limitsOf(this.setup.chargen, card ?? row(draft.sheet), isJsonObject(draft.limits_override) ? draft.limits_override : {});
   }
   // ---- the profile: words, resolved against the catalog ------------------------------------------
-  /** The merged profile, its names resolved (§97): required words present, skills and the trade
+  /** The merged profile, its names resolved (§98): required words present, skills and the trade
    *  looked up by name or label, the occupation list filled to eight, unprinted weapons moved to
    *  the equipment. Throws `needs` only for what the model must actually decide. */
   async resolveProfile(profile: Row, language: string, meta: Row): Promise<[Row, Resolution]> {
@@ -135,7 +135,7 @@ export class SetupDrafts {
     return {era, authoredEra};
   }
   // ---- the numbers: pins ---------------------------------------------------------------------------
-  /** `numbers` become pins (§97). Bounds are checked against the limits in force: a value past a
+  /** `numbers` become pins (§98). Bounds are checked against the limits in force: a value past a
    *  bound is refused with the unlock that would admit it, never silently lowered. */
   pinsFrom(numbers: unknown, by: unknown, pins: Pins, limits: Row, bases: Row | null, creditRange: number[], diff: ResolvedDifficulty | null = null, relax: Row = {}): Pins {
     if (numbers == null) return pins;
@@ -235,7 +235,7 @@ export class SetupDrafts {
   private patchOf(value: unknown): Row {
     if (value == null) return {};
     if (!isJsonObject(value)) throw new RpcError('invalid_params', 'profile must be an object');
-    // A backstory category sent at the top level is folded into backstory (§97): a live table's
+    // A backstory category sent at the top level is folded into backstory (§98): a live table's
     // model corrected the face with `personal_description` beside `equipment`, and refusing that
     // as an unknown field cost a call for nothing.
     const folded: Row = {...value};
@@ -293,11 +293,11 @@ export class SetupDrafts {
       return this.reviseLocked(campaign, meta, previous, params);
     });
   }
-  /** The one revision path (§97): words merge, numbers pin, limits relax, nothing rolls. */
+  /** The one revision path (§98): words merge, numbers pin, limits relax, nothing rolls. */
   private async reviseLocked(campaign: CampaignWriter, meta: Row, previous: Row, params: Row, options: {reroll?: boolean; dryRun?: boolean} = {}): Promise<Row> {
     if (params.revision !== undefined && params.revision !== null && !equal(params.revision, previous.revision)) throw new RpcError('idempotency_conflict', 'The revision does not apply to the current draft', {codeDetail: 'stale_draft'});
     const language = await playLanguageOf(this.setup.context, meta), patch = this.patchOf(params.profile);
-    // A patch of one backstory category keeps the others (§97): the model that corrects the face
+    // A patch of one backstory category keeps the others (§98): the model that corrects the face
     // sends personal_description alone, and a shallow merge would have wiped the rest.
     const merged: Row = {...row(previous.profile), ...patch};
     if (isJsonObject(patch.backstory) && isJsonObject(row(previous.profile).backstory)) {
@@ -359,7 +359,7 @@ export class SetupDrafts {
       return this.reviseLocked(campaign, meta, previous, {campaign: params.campaign, numbers: edits, ...(limits !== undefined ? {limits} : {}), by: 'player'}, {dryRun: params.dry_run === true});
     });
   }
-  /** The only call that rolls again (§97); the pins stay unless `keep_pins: false`. */
+  /** The only call that rolls again (§98); the pins stay unless `keep_pins: false`. */
   async reroll(params: Row): Promise<Row> {
     return this.locked(params, async campaign => {
       const meta = await campaign.readCampaign(); this.settingUp(meta);
@@ -370,7 +370,7 @@ export class SetupDrafts {
       return this.reviseLocked(campaign, meta, base, {campaign: params.campaign, revision: params.revision, input_key: params.input_key}, {reroll: true});
     });
   }
-  /** One gate (§97): this is the current card, and it was not drawn in the same breath as the approval. */
+  /** One gate (§98): this is the current card, and it was not drawn in the same breath as the approval. */
   async confirm(params: Row): Promise<Row> {
     return this.locked(params, async campaign => {
       const meta = await campaign.readCampaign(), draft = await this.load(campaign, meta), pinned = params.revision !== undefined && params.revision !== null;
@@ -396,7 +396,7 @@ export class SetupDrafts {
       return {...await this.result(draft), committed: true};
     });
   }
-  /** The catalog the setup prompt is given once (§97). */
+  /** The catalog the setup prompt is given once (§98). */
   async catalog(params: Row): Promise<Row> {
     const campaign = await this.setup.campaign(params), meta = await campaign.readCampaign();
     return this.setup.catalog.compact(await playLanguageOf(this.setup.context, meta));

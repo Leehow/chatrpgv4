@@ -1,7 +1,7 @@
 # 建卡重设计：一张卡、两种改动、一道闸
 
-Status: implemented on branch claude/character-creation-redesign-20260917（2026-09-17；契约 §97；用户拍板 §17 三项：形容词直接定属性顺序、预算不再是闸、确认按钮绕过模型）
-Parent: 无远端工单；契约落地为 `docs/kernel-rpc.md` §97，修订 §23.4、§26（setup 部分）、§92、§96。
+Status: implemented on branch claude/character-creation-redesign-20260917（2026-09-17；契约 §98；用户拍板 §17 三项：形容词直接定属性顺序、预算不再是闸、确认按钮绕过模型）
+Parent: 无远端工单；契约落地为 `docs/kernel-rpc.md` §98，修订 §23.4、§26（setup 部分）、§92、§96。
 Evidence: 2026-09-16/17 血色公路五局建卡记录，见附录 A。
 
 ## Problem Statement
@@ -95,7 +95,7 @@ Evidence: 2026-09-16/17 血色公路五局建卡记录，见附录 A。
 
 ## Further Notes
 
-- 契约新节 §97，标注 amends §23.4、§26、§92、§96；§编号不重排。
+- 契约新节 §98，标注 amends §23.4、§26、§92、§96；§编号不重排。
 - 旧 `setting_up` 战役的草稿文件格式不迁移；重开一局。
 - 打包只到 `~/leehow/code/pipicoc-build/PipiCOC.app`。
 - 附录 A 是现状实测，附录 B 是数据结构与规则细节。

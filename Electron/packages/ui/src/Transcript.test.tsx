@@ -466,7 +466,7 @@ it('loads older history for a timeline anchor, jumps once, and releases later sc
 })
 
 /**
- * §97: one card per campaign, updated in place. A draft row the revision has moved past stays in
+ * §98: one card per campaign, updated in place. A draft row the revision has moved past stays in
  * the transcript as a single line naming which draft it was -- the player watched thirteen
  * identical cards stack up, and folding them away entirely hid that the card had moved at all.
  * The line is drawn in the words that row already carries, never in a word this file keeps.

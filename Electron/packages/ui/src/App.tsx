@@ -2281,7 +2281,7 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
     }
   }
   /**
-   * §97: a card action the host answers on the cold kernel, with no model turn behind it.
+   * §98: a card action the host answers on the cold kernel, with no model turn behind it.
    *
    * The answer is the fresh draft, in the same shape an override returns, and it replaces the
    * revision the player acted on in place — one card per campaign, so the row is rewritten rather
@@ -2312,7 +2312,7 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
     return result
   }
   /**
-   * The confirm button is the whole of confirmation (§97): the host writes the party sheet and
+   * The confirm button is the whole of confirmation (§98): the host writes the party sheet and
    * completes setup without a model turn, and only then does one sentence go into the session so
    * the setup agent closes the prologue and the launcher moves the table to play. A failure of
    * that last sentence cannot un-confirm the card, so it is reported, not retried.

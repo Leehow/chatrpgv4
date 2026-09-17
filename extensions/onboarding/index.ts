@@ -102,7 +102,7 @@ export default function (pi: ExtensionAPI) {
   let setupSlots: SetupSlot[] = [];
   let setupNotes: SetupNotes | undefined;
   let guidedCap = 3;
-  /** The rulebook catalog the setup prompt is given once per session (§97). */
+  /** The rulebook catalog the setup prompt is given once per session (§98). */
   let catalogText = '';
   const guidanceAbort = new AbortController();
   let invokeDisposers:Array<()=>void>=[];
@@ -407,7 +407,7 @@ export default function (pi: ExtensionAPI) {
 
 	// ---- One step ---------------------------------------------------------
 
-	/** Put a new card revision on the table: remember it and append the card (contract §97). Every
+	/** Put a new card revision on the table: remember it and append the card (contract §98). Every
 	 *  writer of a revision comes through here — the first draft, a revision, a reroll — and the
 	 *  card entry is the host's guarantee that the revision was shown; the kernel no longer asks. */
 	async function presentDraft(_current: NonNullable<typeof bridge>, result: Record<string, unknown>): Promise<void> {
@@ -418,7 +418,7 @@ export default function (pi: ExtensionAPI) {
 			pi.sendMessage({customType: 'coc-character-preview', content: JSON.stringify(result.sheet), display: true});
 		}
 	}
-	/** What the model is told about a card (§97): the numbers and the words it needs to describe it,
+	/** What the model is told about a card (§98): the numbers and the words it needs to describe it,
 	 *  never the creation trace, the finance table or the backstory it wrote itself. */
 	function summarize(result: Record<string, unknown>): Record<string, unknown> {
 		const sheet = asRecord(result.sheet);
@@ -542,7 +542,7 @@ export default function (pi: ExtensionAPI) {
 			}
 			return { ok: true, step: id, notes: setupNotes, brief: renderBrief(setupSlots, setupNotes, guidedCap) };
 		}
-		// §97: the card is revised in place. `revise` merges words (`profile`), pins numbers
+		// §98: the card is revised in place. `revise` merges words (`profile`), pins numbers
 		// (`numbers`) and relaxes bounds (`limits`); `reroll` is the one call that rolls again;
 		// `adjust` stays as the §92 spelling of a numbers-only revision. None is a table step: they
 		// neither advance the order nor are done once, because the player may change the card as
@@ -568,7 +568,7 @@ export default function (pi: ExtensionAPI) {
 				return { ok: false, step: id, code: errorCode(error), message: errorText(error), ...(typeof fix === 'string' && fix ? {fix} : {}), details: (error as { details?: unknown }).details };
 			}
 		}
-		// A second `create-investigator` with a card on the table is a revision of that card (§97):
+		// A second `create-investigator` with a card on the table is a revision of that card (§98):
 		// the model's next sentence about the person, never a redraw of the numbers.
 		if (id === 'create-investigator' && draftRevision !== undefined && !completed.has('confirm-investigator')) {
 			const args = mergeArgs(raw);
@@ -662,7 +662,7 @@ export default function (pi: ExtensionAPI) {
 			"`step: revise` changes the card on the table in place, as often as the player asks: `profile` with only the changed fields (words: equipment, backstory, weapons, skill lists, age, name) moves no number; `numbers` {characteristics?, skills?, credit_rating?} pins the numbers the player wants (each value is the final value; a pinned number stays until the player changes it); `limits` {characteristic_min?, characteristic_max?, skill_cap?, occupation_points?, interest_points?} relaxes exactly those bounds when the player asks to play outside them; `auto_spread: true` spends whatever points are left. A refusal names the field and, for a number past a bound, the `unlock` that would admit it. " +
 			"`step: reroll` is the only call that rolls the dice again (pins stay). Nothing here redraws the card: create-investigator is called once, and with a card on the table it is the same as revise.",
 		promptSnippet: "The one setup tool: walk the kernel's seven-step table, one step at a time.",
-		// Every parameter a step can take is declared here by name (§97): a live table on grok-4.6
+		// Every parameter a step can take is declared here by name (§98): a live table on grok-4.6
 		// sent `slot: true, value: null` three to five times per turn while only `step` and `params`
 		// were declared -- the provider filled undeclared keys with booleans and nulls -- and each
 		// of those was a refused call before the one that nested the same fields under `params`.
@@ -746,7 +746,7 @@ export default function (pi: ExtensionAPI) {
         return {systemPrompt:event.systemPrompt+'\nThe setup package context is unavailable. Do not draft or continue setup until it is restored.'};
       }
     }
-    // The catalog (§97): every trade, skill and printed weapon with the play language's label, once,
+    // The catalog (§98): every trade, skill and printed weapon with the play language's label, once,
     // so the model writes names the kernel accepts instead of guessing at them refusal by refusal.
     if(!catalogText && bridge && context.campaign && completed.has('create-campaign')) {
       try {

@@ -319,7 +319,7 @@ export function mechanicsEntry(row:any, language?:string, presentations?:Readonl
       ...marked,...speech,...(tag?{play_language:tag}:{}),...chrome}}};
 }
 export async function readColdSheet(repo:string, context:CocBinding, previewRevision?:number, env:NodeJS.ProcessEnv=process.env, runtimeOptions:CocColdRuntimeOptions={}):Promise<unknown> {
-  // A displayed draft is the host's own fact (contract §97): the card entry in the transcript is
+  // A displayed draft is the host's own fact (contract §98): the card entry in the transcript is
   // the acknowledgement, and the kernel no longer keeps a `previewed_revision` to be told about.
   if(previewRevision!==undefined)return {previewed:true,revision:previewRevision,campaign:context.campaign};
   return callColdKernel(repo, context.home, 'table.view', {campaign:context.campaign}, env, runtimeOptions);

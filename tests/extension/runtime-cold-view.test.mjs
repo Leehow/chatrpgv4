@@ -70,7 +70,7 @@ test('a cold sheet read owns its kernel and a preview acknowledgement owns none'
   ]);
   assert.equal(sheet.method,'table.view');
   assert.deepEqual(sheet.params,{campaign:binding.campaign});
-  // §97: a preview acknowledgement is the host's own fact and spawns no kernel at all.
+  // §98: a preview acknowledgement is the host's own fact and spawns no kernel at all.
   assert.deepEqual(preview,{previewed:true,revision:3,campaign:binding.campaign});
   assert.equal(sheet.campaign,binding.campaign);
   assert.deepEqual(f.pids(),[sheet.pid],'only the sheet read owned a kernel');

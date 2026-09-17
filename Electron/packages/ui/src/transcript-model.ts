@@ -245,7 +245,7 @@ export function foldMarkedDeliveries(messages: readonly ChatMessage[]): ChatMess
 }
 
 /**
- * The one draft row that is the card; every other one is a line (§97).
+ * The one draft row that is the card; every other one is a line (§98).
  *
  * A campaign has one card, updated in place. A re-draft still appends a fresh
  * `coc-character-draft` row, and a host-side action bumps the revision on a row already there

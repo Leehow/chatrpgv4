@@ -22,7 +22,7 @@ export type IllustrationState = { status: 'busy' | 'ready' | 'error'; image?: st
 export type MessageActionHandlers = { onBranch?: (message: ChatMessage) => void; branchMessageIds?: ReadonlySet<string>; branchDisabled?: boolean; onIllustrate?: (message: ChatMessage) => void; illustrateDisabled?: boolean; illustrations?: ReadonlyMap<string, IllustrationState>; actionWords?: Record<string,string>; onCopy: (message: ChatMessage) => Promise<void>; onResend: (message: ChatMessage) => void; resendDisabled: boolean; copiedId: string | null }
 type DocumentOpenProps = { documentBasePath?: string; onOpenDocument?: (path: string) => void }
 /**
- * §97: the card's own verbs. `onDraftOverride` carries the numeric edit dialog's request; the
+ * §98: the card's own verbs. `onDraftOverride` carries the numeric edit dialog's request; the
  * other three are whole-card actions the host answers on the draft the row names.
  */
 type DraftAction = (entry:NonNullable<ChatMessage['presentation']>)=>Promise<Record<string,any>>
@@ -157,7 +157,7 @@ export function Transcript({ stateKey, messages: rawMessages, transcriptRef, wai
   // §16.6: a delivery the mechanics card draws with its markers in place must not also appear as
   // the plain assistant copy that the terminal reads. Folded here, so both the live reducer and a
   // history page get the same answer without either of them knowing about the other.
-  // §97: a campaign has one card. The superseded draft rows stay in the transcript as a line
+  // §98: a campaign has one card. The superseded draft rows stay in the transcript as a line
   // each, so the list itself is unchanged here and MessageList decides which row draws the card.
   const messages = useMemo(() => foldMarkedDeliveries(rawMessages), [rawMessages])
   const prompts = useMemo(() => buildRailPrompts(messages), [messages])
@@ -275,7 +275,7 @@ export function Transcript({ stateKey, messages: rawMessages, transcriptRef, wai
 
 export const MessageList = memo(forwardRef<VirtuosoHandle, { stateKey?: string; messages: ChatMessage[]; active?: boolean; shouldFollow: () => boolean; onAtBottom: (value: boolean) => void; onListHeightChanged: () => void; onLoadOlder?: () => void; onJump: (index: number, id: string) => void } & DocumentOpenProps & SubagentOpenProps & PresentationActionProps & MessageActionHandlers>(function MessageList({ stateKey, messages, active = true, shouldFollow, onAtBottom, onListHeightChanged, onLoadOlder, documentBasePath, onOpenDocument, onOpenSubagents, onChoose, onDraftOverride, onDraftConfirm, onDraftSpread, onDraftReroll, onCopy, onResend, resendDisabled, copiedId, onBranch, branchMessageIds, branchDisabled, onIllustrate, illustrateDisabled, illustrations, actionWords, onJump }, ref) {
   const ids = useMemo(() => messages.map(transcriptMessageIdentity), [messages])
-  // §97: the highest revision among the draft rows is the live card; the rest fold to one line.
+  // §98: the highest revision among the draft rows is the live card; the rest fold to one line.
   const liveDraftId = useMemo(() => liveDraftMessageId(messages), [messages])
   const restoredStateRef = useRef<TranscriptStateRecord | undefined>(undefined)
   const restoredStateCheckedRef = useRef(false)
@@ -389,7 +389,7 @@ function draftWord(details: unknown, key: string): string {
 function PresentationEntry({message,illustration,draftSuperseded,onChoose,onDraftOverride,onDraftConfirm,onDraftSpread,onDraftReroll}:{message:ChatMessage;illustration?:ReactNode;draftSuperseded?:boolean}&PresentationActionProps) {
   useToolRenderers()
   const data=message.presentation!
-  // §97: one card per campaign, updated in place. A row the revision has moved past is a line
+  // §98: one card per campaign, updated in place. A row the revision has moved past is a line
   // saying which draft it was -- kept rather than dropped, so the player sees the card moved.
   if(data.renderer==='coc-character-draft'&&draftSuperseded)return <article className="message assistant-message"><p className="coc-draft-superseded">{draftWord(data.details,'Earlier draft')} · {String((data.details as {revision?:unknown})?.revision??'')}</p></article>
   if(data.renderer==='coc-character-draft')return <article className="message assistant-message"><CocCharacterDraft data={data.details as any} onPresentation={onChoose?async()=>await onChoose(data,'presentation') as any:undefined} onRendered={onChoose?async()=>{await onChoose(data,'previewed')}:undefined} onOverride={onDraftOverride?async(request)=>await onDraftOverride(data,request):undefined} onConfirm={onDraftConfirm?async()=>await onDraftConfirm(data):undefined} onSpread={onDraftSpread?async()=>await onDraftSpread(data):undefined} onReroll={onDraftReroll?async()=>await onDraftReroll(data):undefined}/></article>

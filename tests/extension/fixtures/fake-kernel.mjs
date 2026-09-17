@@ -521,7 +521,7 @@ function handle(method, params) {
 				},
 			};
         case "setup.draft": {
-            // §97: the card is drawn once; a draft with a card already on the table is a revision.
+            // §98: the card is drawn once; a draft with a card already on the table is a revision.
             // The fake keeps one card per campaign for the length of the process.
             if (params.profile?.name === "REFUSE")
                 return {ok:false,error:{code:"needs",message:"The card is incomplete",details:{issues:["sex is required"]}}};
@@ -1046,7 +1046,7 @@ process.stdin.on("data", (chunk) => {
 });
 process.stdin.on("end", () => process.exit(0));
 
-/** §97 fake card: the sheet shape the extension summarizes, with pins, budget and limits. */
+/** §98 fake card: the sheet shape the extension summarizes, with pins, budget and limits. */
 function fakeCard(revision, profile, pins, budget) {
     const skills = {Law: 45, Archaeology: 30};
     for (const [name, pin] of Object.entries(pins.skills)) skills[name] = pin.value;

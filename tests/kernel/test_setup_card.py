@@ -1,4 +1,4 @@
-"""The card is a patched document: words change words, numbers change numbers (contract §97).
+"""The card is a patched document: words change words, numbers change numbers (contract §98).
 
 Every case here is the RPC seam: `setup.draft` / `setup.revise` / `setup.reroll` / `setup.confirm`
 against the emitted kernel, and the card file on disk. Nothing reads an internal function.
@@ -92,7 +92,7 @@ def test_a_profile_revision_moves_no_number(kernel):
 
 
 def test_one_backstory_category_can_be_corrected_alone(kernel):
-    """The live table sent personal_description by itself and the shallow merge wiped the rest (§97)."""
+    """The live table sent personal_description by itself and the shallow merge wiped the rest (§98)."""
     first = draft(kernel, criminal())
     fixed = kernel.ok("setup.revise", {"campaign": CAMPAIGN, "profile": {"backstory": {"personal_description": "皮肤白皙，黑发到肩，很美"}}})
     assert fixed["sheet"]["backstory"]["personal_description"] == "皮肤白皙，黑发到肩，很美"

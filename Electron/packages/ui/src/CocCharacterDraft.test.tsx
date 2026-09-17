@@ -238,7 +238,7 @@ it('carries no substitution note on a card whose period the rulebook does tabula
 })
 
 /**
- * §97: the card is a document with two kinds of number on it. A pinned cell is one somebody set
+ * §98: the card is a document with two kinds of number on it. A pinned cell is one somebody set
  * on purpose -- the player on the sheet, or the model from what the player said -- and it is the
  * one thing a later spread or reroll may not move. A revision that predates pins draws exactly
  * as it did before, so an old card in a live transcript is not suddenly a card with no numbers

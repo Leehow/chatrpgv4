@@ -9602,7 +9602,7 @@ export class PiHostBackend implements HostBackend {
       }
     }
     /**
-     * The card's two whole-draft verbs (§97), the same shape `draft-override` travels.
+     * The card's two whole-draft verbs (§98), the same shape `draft-override` travels.
      *
      * Spread hands the points nobody spent to the kernel's own allocator; reroll throws the dice
      * again and keeps every pinned number. Both answer with the fresh draft, so the cached history
@@ -9640,7 +9640,7 @@ export class PiHostBackend implements HostBackend {
       }
     }
     /**
-     * Confirmation is the button, not a model turn (§97).
+     * Confirmation is the button, not a model turn (§98).
      *
      * The host confirms the revision the card names and completes setup on the cold kernel. The
      * model is told afterwards, by the app, with one ordinary session message — so a model that

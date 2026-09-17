@@ -208,7 +208,7 @@ test("七步表走完：starter 那条路到 complete，交出开桌命令", asy
 	assert.deepEqual(needOccupation.needs, ["profile"], "缺的是表里点名的那个参数");
 
 	assert.equal(made.ok, true);
-	// §97: the model is handed the card's numbers and words, never the creation trace or the seed.
+	// §98: the model is handed the card's numbers and words, never the creation trace or the seed.
 	const summary = made['setup.draft'];
 	assert.equal(summary.card.name, '托马斯·海耶斯');
 	assert.equal(summary.card.skills.Law, 45);
@@ -339,7 +339,7 @@ test("creation brief: the host computes the move from the package's slots and th
  * call that rebuilds from the stored seed and puts the auto-allocated numbers back. A live table
  * reported exactly that: the edit saved, the next turn reverted it, and asking in words did nothing.
  */
-test('§97 revise changes the card in place: words move no number, numbers pin, and each revision reaches the transcript', async (t) => {
+test('§98 revise changes the card in place: words move no number, numbers pin, and each revision reaches the transcript', async (t) => {
 	const first = firstStep();
 	const table = await openSetup([
 		setupCall({ step: first.id, kind: 'starter', module: 'the-haunting' }),
@@ -393,7 +393,7 @@ test('§97 revise changes the card in place: words move no number, numbers pin, 
 	assert.equal(table.kernelRequests().filter((entry) => entry.method === 'setup.previewed').length, 0, 'and nothing asks the kernel to acknowledge a display');
 });
 
-test('§97 a confirmed card is no longer a draft edit', async (t) => {
+test('§98 a confirmed card is no longer a draft edit', async (t) => {
 	const first = firstStep();
 	const table = await openSetup([
 		setupCall({ step: first.id, kind: 'starter', module: 'the-haunting' }),
@@ -416,9 +416,9 @@ test('§97 a confirmed card is no longer a draft edit', async (t) => {
 });
 
 /**
- * §97: a refused draft must not lock the player out of confirmation, and nothing un-books a step.
+ * §98: a refused draft must not lock the player out of confirmation, and nothing un-books a step.
  */
-test('§97 a refused revision leaves the card confirmable', async (t) => {
+test('§98 a refused revision leaves the card confirmable', async (t) => {
 	const first = firstStep();
 	const table = await openSetup([
 		setupCall({ step: first.id, kind: 'starter', module: 'the-haunting' }),
@@ -445,7 +445,7 @@ test('§97 a refused revision leaves the card confirmable', async (t) => {
 		'no prerequisite refusal for a step that was done');
 });
 
-test('§97 the catalog is given to the setup prompt once a campaign exists', async (t) => {
+test('§98 the catalog is given to the setup prompt once a campaign exists', async (t) => {
 	const first = firstStep();
 	const table = await openSetup([
 		setupCall({ step: first.id, kind: 'starter', module: 'the-haunting' }),

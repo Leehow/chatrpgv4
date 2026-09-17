@@ -2,7 +2,7 @@
 
 ## 1.2.0
 
-The words place the array (contract §97). A stated aptitude no longer permutes
+The words place the array (contract §98). A stated aptitude no longer permutes
 this player's own dice -- that gave a described assassin APP 35 -- it orders the
 rulebook's Quick Fire array: strong takes the top, weak the bottom, the rest the
 middle in table order. A defining ability that still reads low is changed as a

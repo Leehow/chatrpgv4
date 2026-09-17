@@ -6,7 +6,7 @@ export function investigatorRow(sheet: Row): Row {
   return {id: sheet.id ?? null, name: sheet.name ?? null, occupation: sheet.occupation ?? null, occupation_stated: sheet.occupation_stated ?? null, hp: sheet.current_hp ?? null,
     san: sheet.current_san ?? null, mp: sheet.current_mp ?? null, luck: sheet.current_luck ?? null};
 }
-/** What a card must structurally hold to be confirmed (contract §97). The budgets are a report on
+/** What a card must structurally hold to be confirmed (contract §98). The budgets are a report on
  *  the card, never a gate here: a pool left unspent, or spent past its total under a relaxed
  *  bound, is a non-standard card, not an incomplete one. */
 export function completeness(sheet: Row): string[] {

@@ -1,4 +1,4 @@
-/** The numbers on the card, and who they belong to (contract §97).
+/** The numbers on the card, and who they belong to (contract §98).
  *
  *  A pin is a number somebody set — the player on the card, the model on the player's word. A soft
  *  allocation is what the machine placed when nobody said otherwise. The flow below keeps every pin

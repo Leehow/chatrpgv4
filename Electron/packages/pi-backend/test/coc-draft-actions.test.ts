@@ -7,7 +7,7 @@ const mocks=vi.hoisted(()=>({callColdKernel:vi.fn()}));
 vi.mock('../src/coc-view.js',async(importOriginal)=>({...await importOriginal<typeof import('../src/coc-view.js')>(),callColdKernel:mocks.callColdKernel}));
 
 /**
- * The card's own actions (§97), on the same bench the override tests use: a session bound to a
+ * The card's own actions (§98), on the same bench the override tests use: a session bound to a
  * campaign sidecar, the kernel call mocked, Pi asleep, and the presentation host recording what
  * each fresh revision is asked to draw.
  */

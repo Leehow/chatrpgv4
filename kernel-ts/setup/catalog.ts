@@ -1,4 +1,4 @@
-/** The catalog is the kernel's job (contract §97): a name the model or the player wrote is
+/** The catalog is the kernel's job (contract §98): a name the model or the player wrote is
  *  resolved here against the rules tables — by its catalog name, by any localized label the
  *  table prints, or by a specialization the table declares — and a name that resolves to nothing
  *  comes back with a few candidates instead of the whole table. */
@@ -141,7 +141,7 @@ export class SetupCatalog {
     return profiles;
   }
   /** What the setup prompt is given once: every entry, every skill, every printed weapon, with the
-   *  play language's labels — so the model never has to guess a name (§97). */
+   *  play language's labels — so the model never has to guess a name (§98). */
   compact(language: string): Row {
     return {
       occupations: Object.keys(this.chargen.occupationTable).map(id => ({id, label: this.occupationLabel(id, language),

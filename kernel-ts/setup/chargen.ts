@@ -200,7 +200,7 @@ export class Chargen {
     }
     return held;
   }
-  /** The Quick Fire array placed by what the player said about the person (contract §97): the
+  /** The Quick Fire array placed by what the player said about the person (contract §98): the
    *  characteristics named strong take the top of the array in the order they were named, the ones
    *  named weak take the bottom, and everything else takes the middle in table order. A rulebook
    *  method, so a described person is a legal card; the words only decide who stands where. */
@@ -214,7 +214,7 @@ export class Chargen {
     return {method: 'quick_fire', values, assignment_order: order, array: values8, ...(aptitude ? {aptitude} : {}),
       source: 'characteristic-dice.generation_methods.quick_fire_array'};
   }
-  /** The characteristics of a card, generated once (contract §97): the dice when nothing was said,
+  /** The characteristics of a card, generated once (contract §98): the dice when nothing was said,
    *  the Quick Fire array when the person was described, point-buy when numbers were written. Age,
    *  Luck and the derived values follow from that one generation; a pinned characteristic is not
    *  moved by the age table, because a pin is the final number somebody wanted. */

@@ -12503,7 +12503,7 @@ confirmable and never reaches the kernel with a prerequisite complaint; and the
 existing override, budget and ledger cases are unchanged. The first two die when
 `makeRoom` stops being called; the fifth dies when the re-book is dropped.
 
-## 97. The card is a patched document: words change words, numbers change numbers, one gate (2026-09-17, amends §23.4, §26, §92 and §96)
+## 98. The card is a patched document: words change words, numbers change numbers, one gate (2026-09-17, amends §23.4, §26, §92 and §96)
 
 Five setup tables on 2026-09-16/17 (`docs/specs/character-creation-redesign.md`, appendix A) showed
 the same shape every time: a trivial trade took seven to ten drafts and 105–198 seconds because
@@ -12588,7 +12588,7 @@ step is never un-booked; the model is handed a summary (card numbers and words, 
 applied, unresolved, filled_in, moved_to_equipment), never the sheet's creation trace or seed.
 
 Cases: `tests/kernel/test_setup_card.py` (29), the rewritten draft and override suites, and
-`tests/extension/setup.test.mjs` §97 cases. The array case dies when `quickFireByAptitude` stops
+`tests/extension/setup.test.mjs` §98 cases. The array case dies when `quickFireByAptitude` stops
 being called; the sticky case dies when `flowSkills` stops reading the inherited share; the
 budget case dies when `completeness` regains its `unspent` lines; the catalog case dies when
 `resolveSkill` stops reading `localized_labels`; the extension case dies when the extension

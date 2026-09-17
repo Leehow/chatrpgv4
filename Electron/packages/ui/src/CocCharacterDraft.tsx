@@ -4,7 +4,7 @@ import './coc-character-draft.css'
 
 type Row = Record<string, any>
 /**
- * The card's own actions (§97). `onOverride` still carries the numeric edit dialog; the three
+ * The card's own actions (§98). `onOverride` still carries the numeric edit dialog; the three
  * added here are whole-card verbs the host answers without the model: confirm the draft and open
  * the table, spread the points nobody spent, reroll the dice the pins do not hold.
  */
@@ -37,7 +37,7 @@ function failureText(value:unknown):string {
   return line.length>240?line.slice(0,237)+'…':line
 }
 /**
- * A number somebody set on purpose, against a number the allocator spread (§97).
+ * A number somebody set on purpose, against a number the allocator spread (§98).
  *
  * `pins` is keyed the way the sheet is -- characteristics by abbreviation, skills by name, plus
  * the single credit rating entry -- and an older revision carries none of it. Absence is drawn as
@@ -161,7 +161,7 @@ export function CocCharacterDraft({data,onRendered,onPresentation,onOverride,onC
     return <div className={`coc-draft-stat${held?' coc-draft-pinned':''}`} key={key}><dt>{t(key)}{pinMark(held)}</dt><dd>{cell(key==='DB'&&value==='none'?0:value)}</dd></div>
   })}</dl>
   /**
-   * The budget is a report, not a gate (§97): two bars saying what each pool holds and what it has
+   * The budget is a report, not a gate (§98): two bars saying what each pool holds and what it has
    * spent, the points nobody spent, and -- when a limit was relaxed -- the one badge that says so.
    * The notes are the kernel's own sentences about the spread, drawn under the bars.
    */

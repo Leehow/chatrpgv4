@@ -335,7 +335,7 @@ def test_a_corrupt_snapshot_fails_loudly_on_the_next_build(kernel):
 
 
 def test_a_described_person_under_a_preset_takes_the_array_and_the_plain_card_keeps_its_dice(seeded_kernel):
-    """§97: the words place the Quick Fire array whatever the difficulty preset; a preset scales
+    """§98: the words place the Quick Fire array whatever the difficulty preset; a preset scales
     budgets and caps, never a characteristic, so the array is the same rulebook array."""
     plain = begin_draft(seeded_kernel, preset("normal"))
     stated = seeded_kernel.ok("setup.draft", {"campaign": CAMPAIGN,

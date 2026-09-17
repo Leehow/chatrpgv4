@@ -149,7 +149,7 @@ def test_new_draft_requires_appearance_and_preserves_it_across_skill_changes(ker
     assert any("personal_description is required" in issue for issue in error["details"]["issues"])
     original = kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": profile()})
     appearance = original["sheet"]["backstory"]["personal_description"]
-    # §97: on a revision a backstory patch without the face keeps the face it had.
+    # §98: on a revision a backstory patch without the face keeps the face it had.
     kept = kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": {"backstory": {"traits": "Patient and practical"}}})
     assert kept["sheet"]["backstory"]["personal_description"] == appearance and kept["sheet"]["backstory"]["traits"] == "Patient and practical"
     changed = kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": {"interest_skills": [*profile()["interest_skills"], "Natural World"]}})
@@ -159,7 +159,7 @@ def test_new_draft_requires_appearance_and_preserves_it_across_skill_changes(ker
 
 def test_a_stated_aptitude_places_the_quick_fire_array(kernel):
     """The defect this pins: a player who said 'very strong, rather slow' got a card whose STR was
-    below average, because the description could only ever permute this player's own dice (§97)."""
+    below average, because the description could only ever permute this player's own dice (§98)."""
     plain = begin(kernel)
     stated = kernel.ok("setup.draft", {"campaign": CAMPAIGN,
                                        "profile": {"aptitude": {"strong": ["STR"], "weak": ["INT"], "origin": "player"}}})
@@ -193,7 +193,7 @@ def test_an_illegal_aptitude_is_refused_and_keeps_the_valid_draft(kernel):
 
 def test_the_interest_list_is_spent_in_the_order_the_player_cares_about(kernel):
     """A reordered list is the player's priority statement: the machine's share of that pool is
-    re-spread from the front, the pins stay, the dice stay (§97)."""
+    re-spread from the front, the pins stay, the dice stay (§98)."""
     begin(kernel)
     long_list = ["Fighting (Brawl)", "Throw", "First Aid", "Climb", "Library Use", "Navigate", "Swim", "Jump"]
     front = kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": {"interest_skills": long_list}})
@@ -241,7 +241,7 @@ def test_a_setting_up_campaign_gets_the_setup_shape_from_mods_context(kernel):
 
 
 def test_prose_moves_a_characteristic_with_or_without_the_package(kernel):
-    """§97: the words choose the array whether or not a setup package is on; a package only shapes the exchange."""
+    """§98: the words choose the array whether or not a setup package is on; a package only shapes the exchange."""
     begin(kernel)
     kernel.ok("mods.configure", {"campaign": CAMPAIGN, "id": "guided-creation", "enabled": False})
     context = kernel.ok("mods.context", {"campaign": CAMPAIGN})
