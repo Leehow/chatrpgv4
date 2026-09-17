@@ -11913,6 +11913,22 @@ directory; an entrance with no way on is refused, with the refusal's wording
 asserted; and a book that ends in its first scene installs with no exit at all.
 The second dies when `missing.push('way_on')` is removed.
 
+**90.4.1 The reader of the snapshot is the snapshot (2026-09-17, found on a live table).**
+`Reading.openingReady(mid, focus)` re-derived `openingReport` on the graph with the
+chosen scene applied, so a book installed before this section — its opening
+published ready at generation 2, no onward relation in its graph — answered
+`module.status: ready` from the roll-up and `setup.complete: opening_preparing`
+from the live derivation, and `module.read.request purpose: "opening"` found the
+identical reading `completed` and answered `blocked` with the roll-up's empty
+`missing` (§46.1's refusal naming nothing, again). The card was confirmed and the
+table could not open. Now `openingReady` answers from the publication snapshot:
+`meta.opening` when the chosen scene is the book's own start, else
+`prepared_openings[<chosen>]` when the book was published ready on that scene; only
+a scene neither has met is derived live. The completed-reading branch of
+`module.read.request` answers `ready` when the snapshot's `missing` is empty. Test:
+`test_fast_guidance.py` "published ready stays ready under a later rule"; it dies
+when the snapshot read is removed.
+
 ## 91. A review that never judged the draft does not refuse it (2026-09-17, amends §36.14 and §38.9, extends §26.1)
 
 The continuity review of §36.14 is a gate before publication, and that is the point: the player never
@@ -12756,6 +12772,64 @@ budget case dies when `completeness` regains its `unspent` lines; the catalog ca
 `resolveSkill` stops reading `localized_labels`; the extension case dies when the extension
 re-books the step or asks for `setup.previewed`.
 
+### §98 addendum — the live App test with the user watching (2026-09-17)
+
+Four things the first App run of §98 showed, all landed the same day:
+
+- **A modern card lists the whole sheet.** The skills table prints a standard sheet for the
+  1920s only, so a card built on the modern finance period listed fifteen skills. `flowSkills`
+  now takes the era's sheet, else the one sheet the table prints, plus every skill the catalog
+  marks `modern_only` when the era has no sheet of its own.
+- **A host pin follows its characteristic; a player pin is the number typed.** Dodge is half DEX
+  and Language (Own) is EDU in the rulebook. A pin the model set on the player's word
+  (`by: "model"`) records `points` above the base it had, and the value is recomputed from the
+  current base on every flow (capped unless relaxed); a pin the player typed (`by: "player"`)
+  is the value. The card marks the two apart.
+- **The characteristic points are reported.** `budget.characteristics {total, spent, unspent,
+  source}` carries the rulebook's point-buy total (`point_buy_460`) as the reference the card
+  draws beside the two skill pools. It is a report, never a gate.
+- **The card's edit control edits the lists and the age.** `setup.override` accepts
+  `profile {occupation_skills?, interest_skills?, age?}` beside `edits` and `limits_override`:
+  the lists are the player's own choice of which skills are occupational (eight at most; the
+  points re-flow around the pins), and a changed age reruns the age table on the same dice while
+  a pinned characteristic stays as typed. Any other profile key is `invalid_params`.
+
+Cases: `tests/kernel/test_setup_card.py` (modern sheet, model pin follows DEX, point-buy report,
+list move through the edit control, age through the edit control).
+
+### §98 addendum 2 — the card's edit control is the worksheet (2026-09-17, user)
+
+The user asked for the edit control to read like the rulebook worksheet, and the kernel's pin
+model follows it:
+
+- **A skill pin is two columns of points.** `pins.skills[name] = {by, occupation, interest,
+  value}`: occupation points (only on a skill of the occupation list) and interest points (on any
+  skill), the value being base plus both, capped unless relaxed. Every pin follows its base —
+  Dodge is half DEX, Language (Own) is EDU — whoever set it; the earlier "player pin is the
+  typed value" rule is withdrawn. `numbers.skills[name]` takes either the object form or a plain
+  final value, which is converted into the skill's own column. Occupation points on a skill
+  outside the list are `needs` with `details.column`, and they fall away when the skill leaves the
+  list. The ledger reports `bases`, both `allocations` columns (pinned or soft) and `custom`.
+  A pin a draft stored before this addendum as `{value, by}` alone is read into the skill's own
+  column when the draft is next revised (the value minus the base), never sunk to its base and
+  never written back without columns. A number sent with `by: model` for a characteristic, skill or
+  credit rating the player pinned is kept out and listed under `kept_player_pins`; the player's pin
+  moves only on the player's own word. On resume, `setup.steps` counts a draft on the table as the
+  new-investigator lane taken, so `create-investigator` stays completed across a restart.
+- **Named weapons.** A `profile.weapons` entry is a printed name, or `{name, profile}`: the player's
+  own name for a weapon that plays by a printed profile. The sheet row keeps the player's name
+  (`name`, `display_name`) with the profile's numbers and `profile`; the equipment list carries the
+  player's name only. An unknown `profile` is `needs` with `candidates`. Found live: a katana
+  became a printed "Sword, medium" beside a bare "武士刀", two weapons for one blade.
+- **Custom skills.** `profile.custom_skills: [{name, base}]` lists skills the player invented; a
+  name the catalog knows is that skill and joins the interest list instead; a language is its
+  catalog form `Language (Other: X)`. A custom skill is listed on the sheet at its base, takes
+  interest points like any other, and is checkable at the table because `SkillResolver` reads
+  every skill the sheet carries.
+- **The edit control may change the trade.** `setup.override`'s `profile` also takes `occupation`
+  and `custom_skills`; a changed trade without a new `occupation_skills` list rebuilds the list from
+  the trade's printed entries around nothing (the old list's skills keep their interest points).
+- `setup.catalog` reaches the host as `draft-catalog`, so the edit control can offer every trade.
 ## 99. A divided document says what each half contains (2026-09-17, amends §97.3)
 
 §97 was built from M-MAIN turn 109 but its fixture omitted the one property the live object had:

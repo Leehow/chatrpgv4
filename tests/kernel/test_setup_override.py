@@ -361,3 +361,25 @@ def test_a_pin_survives_a_re_draft_that_changes_the_age(kernel):
     assert "manual" not in aged["sheet"]["creation"] and "manual" not in aged
     committed = kernel.ok("setup.confirm", {"campaign": CAMPAIGN, "consent": "approved"})
     assert committed["sheet"]["characteristics"]["CON"] == edits["characteristics"]["CON"]
+
+
+def test_a_pin_stored_without_columns_keeps_its_value_and_takes_an_edit(kernel):
+    """A card drawn before the worksheet had columns stored a pin as {value, by} alone (§98 addendum 2).
+
+    Read back, that pin must neither sink the skill to its base nor crash the next edit; its points
+    are read into the skill's own column, so the file written next carries the two columns.
+    """
+    draft = begin(kernel)
+    sheet = draft["sheet"]
+    base = sheet["characteristics"]["DEX"] // 2
+    path = campaign_dir(kernel.workspace) / "setup" / "drafts" / f"{draft['revision']}.json"
+    stored = read_json(path)
+    stored["pins"]["skills"] = {"Dodge": {"value": base + 20, "by": "model"}}
+    path.write_text(json.dumps(stored, ensure_ascii=False), encoding="utf-8")
+    carried = kernel.ok("setup.override", {"campaign": CAMPAIGN, "revision": draft["revision"], "edits": characteristics_edit(sheet, "CON", 10)})
+    assert carried["sheet"]["skills"]["Dodge"] == base + 20
+    assert carried["pins"]["skills"]["Dodge"] == {"by": "model", "occupation": 0, "interest": 20, "value": base + 20}
+    edited = kernel.ok("setup.override", {"campaign": CAMPAIGN, "revision": carried["revision"], "edits": {"skills": {"Dodge": {"interest": 30}}}})
+    assert edited["sheet"]["skills"]["Dodge"] == base + 30
+    assert edited["pins"]["skills"]["Dodge"] == {"by": "player", "occupation": 0, "interest": 30, "value": base + 30}
+    assert read_json(campaign_dir(kernel.workspace) / "setup" / "drafts" / f"{edited['revision']}.json")["pins"]["skills"]["Dodge"]["interest"] == 30

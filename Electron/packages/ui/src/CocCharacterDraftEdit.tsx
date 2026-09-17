@@ -1,8 +1,9 @@
-import {useEffect,useRef,useState} from 'react'
+import {useEffect,useRef,useState,type ReactNode} from 'react'
+import {groupSkills,type SkillGroupKey} from './coc-skill-groups'
 import './coc-character-draft-edit.css'
 
 type Row=Record<string,any>
-type Props={data:Row;t:(key:string)=>string;onOverride:(request:Row)=>Promise<Row>;onClose:()=>void}
+type Props={data:Row;t:(key:string)=>string;onOverride:(request:Row)=>Promise<Row>;onClose:()=>void;onCatalog?:()=>Promise<Row>}
 
 /** The five bounds the unlock disclosure can relax, in display order. */
 const LIMIT_FIELDS=['characteristic_min','characteristic_max','skill_cap','occupation_points','interest_points'] as const
@@ -61,13 +62,66 @@ const parseWhole=(value:string):number|undefined=>/^\s*-?\d+\s*$/.test(value)?pa
  * current payload or the latest `dry_run` preview, and every change rides back to the kernel as
  * raw field edits.
  */
-export function CocCharacterDraftEdit({data,t,onOverride,onClose}:Props) {
+export function CocCharacterDraftEdit({data,t,onOverride,onClose,onCatalog}:Props) {
   const sheet=data.sheet||{}
+  const ledgerOf=(source:Row)=>source?.creation?.skills||{}
+  const allocation=(source:Row,pool:string,name:string):number=>finite(ledgerOf(source)?.[pool]?.allocations?.[name])??0
   const characteristicKeys=Object.keys(sheet.characteristics||{})
   const skillNames=Object.keys(sheet.skills||{}).filter(name=>name!=='Credit Rating')
   const [characteristics,setCharacteristics]=useState<Record<string,string>>(()=>Object.fromEntries(characteristicKeys.map(key=>[key,String(sheet.characteristics[key])])))
-  const [skills,setSkills]=useState<Record<string,string>>(()=>Object.fromEntries(skillNames.map(name=>[name,String(sheet.skills[name])])))
+  /**
+   * The worksheet's two boxes per skill, not one final number (§98).
+   *
+   * A final value is the base plus what each pool bought, and the player was being asked to type
+   * the sum and let the kernel work backwards -- which is why raising one skill read as "not
+   * enough occupation points" for a pool they never meant to spend from. The boxes are the
+   * rulebook's own columns, and they start where the ledger recorded them.
+   */
+  const [occupationPoints,setOccupationPoints]=useState<Record<string,string>>(()=>Object.fromEntries(skillNames.map(name=>[name,String(allocation(sheet,'occupation',name))])))
+  const [interestPoints,setInterestPoints]=useState<Record<string,string>>(()=>Object.fromEntries(skillNames.map(name=>[name,String(allocation(sheet,'interest',name))])))
   const [creditRating,setCreditRating]=useState<string>(sheet.credit_rating===undefined?'':String(sheet.credit_rating))
+  // Age is a characteristic edit in everything but name: the kernel reruns the age table on the
+  // same dice, so EDU, APP, movement and Luck all move with it, and the pins stay as typed.
+  const [age,setAge]=useState<string>(sheet.age===undefined?'':String(sheet.age))
+  const [occupationId,setOccupationId]=useState<string>(String(data.profile?.occupation??sheet.occupation??''))
+  const [catalog,setCatalog]=useState<Row|null>(null)
+  /**
+   * A skill the book does not print, written by the player (§98). The ones already saved are on
+   * the sheet like any other and are drawn in their own group with a tag; the ones added here have
+   * no sheet entry yet, so they live in the Custom skills section until a save gives them one --
+   * which is also why only those can be taken back off the list.
+   */
+  const savedCustom:{name:string;base:number}[]=Array.isArray(data.profile?.custom_skills)
+    ?data.profile.custom_skills.filter((entry:unknown)=>!!entry&&typeof (entry as Row).name==='string').map((entry:Row)=>({name:entry.name,base:finite(entry.base)??0}))
+    :[]
+  const customNames=new Set([...savedCustom.map(entry=>entry.name),...(Array.isArray(ledgerOf(sheet).custom)?ledgerOf(sheet).custom.filter((name:unknown)=>typeof name==='string'):[])])
+  const [added,setAdded]=useState<{name:string;base:number}[]>([])
+  const [draftSkill,setDraftSkill]=useState<{name:string;base:string;interest:string}>({name:'',base:'',interest:''})
+  /**
+   * Which pool bought each skill -- the trade's own list, not a choice (§98).
+   *
+   * The occupation list is the eight the kernel fills from the trade, and it is the kernel's to
+   * fill: a per-row picker asked the player to answer a question the trade had already answered,
+   * and cost the skill name the width of its row to ask it. Changing the trade is how this list
+   * changes, so the dialog reads it and draws an occupation box only where there is occupation
+   * money to spend.
+   *
+   * A revision whose ledger names no lists still recorded what each pool bought, and reading the
+   * allocations back is the nearest true answer -- without it such a card would open with its
+   * eight occupation boxes hidden and their points reported as given back.
+   */
+  const ledgerGroups=groupSkills(skillNames,sheet)
+  const named=(key:SkillGroupKey)=>ledgerGroups?.find(group=>group.key===key)?.names
+  const occupationNames=new Set<string>(named('occupation')??skillNames.filter(name=>allocation(sheet,'occupation',name)>0))
+  const interestNames=new Set<string>(named('interest')??skillNames.filter(name=>!occupationNames.has(name)&&allocation(sheet,'interest',name)>0))
+  const groupOf=(name:string):SkillGroupKey=>occupationNames.has(name)?'occupation':interestNames.has(name)?'interest':'other'
+  const inGroup=(key:SkillGroupKey)=>skillNames.filter(name=>groupOf(name)===key)
+  /** Every skill with a row: the sheet's, plus the ones added in this dialog and not yet saved. */
+  const addedNames=added.map(entry=>entry.name)
+  const editedNames=[...skillNames,...addedNames]
+  const points=(value:string|undefined):number|undefined=>(value??'').trim()===''?0:parseWhole(value??'')
+  const occupationOf=(name:string):number=>occupationNames.has(name)?(points(occupationPoints[name])??0):0
+  const interestOf=(name:string):number=>points(interestPoints[name])??0
   const [unlocked,setUnlocked]=useState(false)
   const [limitsDraft,setLimitsDraft]=useState<Record<string,string>>(()=>{
     const limits=readLimits(data.limits)
@@ -84,6 +138,10 @@ export function CocCharacterDraftEdit({data,t,onOverride,onClose}:Props) {
     return draft
   })
   const [preview,setPreview]=useState<Row|null>(null)
+  // Whether the preview on screen is an answer to what is on screen. While the player is typing
+  // the row computes its own final; the moment the kernel answers, its arithmetic -- which knows
+  // the cap -- replaces it.
+  const [previewFresh,setPreviewFresh]=useState(false)
   const [previewFailed,setPreviewFailed]=useState(false)
   const [fieldErrors,setFieldErrors]=useState<Record<string,string>>({})
   const [superseded,setSuperseded]=useState(false)
@@ -98,12 +156,34 @@ export function CocCharacterDraftEdit({data,t,onOverride,onClose}:Props) {
     const changedCharacteristics:Row={}
     for(const key of characteristicKeys){const value=parseWhole(characteristics[key]||'');if(value!==undefined&&value!==sheet.characteristics[key])changedCharacteristics[key]=value}
     if(Object.keys(changedCharacteristics).length)edits.characteristics=changedCharacteristics
+    /**
+     * A skill edit is what each pool bought, not the sum. The kernel still accepts a bare number
+     * as a final value; the card no longer sends one, because the sum cannot say which pool the
+     * player meant. A skill the trade no longer pays for reports its occupation box as zero, so
+     * the points it was holding are visibly given back rather than silently re-flowed.
+     */
     const changedSkills:Row={}
-    for(const name of skillNames){const value=parseWhole(skills[name]||'');if(value!==undefined&&value!==sheet.skills[name])changedSkills[name]=value}
+    for(const name of editedNames) {
+      const wasOccupation=allocation(sheet,'occupation',name),wasInterest=allocation(sheet,'interest',name)
+      const now=occupationOf(name),interest=interestOf(name)
+      if(now===wasOccupation&&interest===wasInterest)continue
+      const entry:Row={interest}
+      if(occupationNames.has(name)||wasOccupation!==0)entry.occupation=now
+      changedSkills[name]=entry
+    }
     if(Object.keys(changedSkills).length)edits.skills=changedSkills
     const credit=parseWhole(creditRating)
     if(credit!==undefined&&credit!==sheet.credit_rating)edits.credit_rating=credit
     return edits
+  }
+  /** The profile facts the dialog can change: the trade, the age, and the skills written by hand. */
+  const collectProfile=():Row|undefined=>{
+    const patch:Row={}
+    const years=parseWhole(age)
+    if(years!==undefined&&years!==sheet.age)patch.age=years
+    if(occupationId&&occupationId!==String(data.profile?.occupation??sheet.occupation??''))patch.occupation=occupationId
+    if(added.length)patch.custom_skills=[...savedCustom,...added]
+    return Object.keys(patch).length?patch:undefined
   }
   const collectLimitsOverride=():Row|undefined=>{
     const override:Row={}
@@ -131,44 +211,64 @@ export function CocCharacterDraftEdit({data,t,onOverride,onClose}:Props) {
     if(pool&&spend!==undefined&&total!==undefined)message+=` (${t('Spent')}: ${spend} / ${total}) ${t('Take the points from another skill in the same pool, or raise the budget under Unlock limits.')}`
     else if(finite(range[0])!==undefined&&finite(range[1])!==undefined)message+=` (${t('Allowed range')}: ${range[0]} – ${range[1]})`
     const field=typeof details.field==='string'?details.field:''
-    const target=characteristicKeys.includes(field)?`characteristic:${field}`:skillNames.includes(field)?`skill:${field}`:field==='credit_rating'?'credit_rating':'form'
+    const target=characteristicKeys.includes(field)?`characteristic:${field}`:editedNames.includes(field)?`skill:${field}`:field==='credit_rating'?'credit_rating':'form'
     setFieldErrors({[target]:message})
   }
+
+  /**
+   * The rulebook's own list of trades, asked for once when the dialog opens.
+   *
+   * A trade the player picks here is a profile fact: the kernel refills the eight occupation
+   * skills from the new trade around the picks they have already made. A build whose host cannot
+   * answer draws no picker rather than an empty one -- a dropdown with nothing in it reads as "the
+   * book has no occupations".
+   */
+  useEffect(()=>{
+    if(!onCatalog)return
+    let active=true
+    void onCatalog().then(answer=>{if(active&&answer&&typeof answer==='object')setCatalog(answer)}).catch(()=>undefined)
+    return()=>{active=false}
+  },[])
 
   // Debounced live preview: every edit (and every unlocked bound) is rebuilt and revalidated by
   // the kernel, so the derived values and budget meters below are always its arithmetic.
   useEffect(()=>{
     const edits=collectEdits()
     const limitsOverride=collectLimitsOverride()
-    if(!Object.keys(edits).length&&!limitsOverride){sequence.current+=1;setPreview(null);setFieldErrors({});setPreviewFailed(false);return}
+    const profile=collectProfile()
+    if(!Object.keys(edits).length&&!limitsOverride&&!profile){sequence.current+=1;setPreview(null);setPreviewFresh(false);setFieldErrors({});setPreviewFailed(false);return}
     const id=++sequence.current
+    setPreviewFresh(false)
     const timer=setTimeout(()=>{
-      void onOverride({revision:data.revision,edits,...(limitsOverride?{limits_override:limitsOverride}:{}),dry_run:true})
+      void onOverride({revision:data.revision,edits,...(limitsOverride?{limits_override:limitsOverride}:{}),...(profile?{profile}:{}),dry_run:true})
         .then(result=>{
           if(!alive.current||sequence.current!==id)return
           if(result?.superseded){setSuperseded(true);return}
           if(result?.ok===false){applyNeeds(result.error);return}
           setPreview(result)
+          setPreviewFresh(true)
           setFieldErrors({})
           setPreviewFailed(false)
         })
         .catch(()=>{if(alive.current&&sequence.current===id)setPreviewFailed(true)})
     },400)
     return()=>clearTimeout(timer)
-  },[characteristics,skills,creditRating,limitsDraft])
+  },[characteristics,occupationPoints,interestPoints,creditRating,limitsDraft,age,occupationId,added])
 
   const save=async()=>{
     const invalid:Record<string,string>={}
     for(const key of characteristicKeys)if(parseWhole(characteristics[key]||'')===undefined)invalid[`characteristic:${key}`]=t('Enter a whole number.')
-    for(const name of skillNames)if(parseWhole(skills[name]||'')===undefined)invalid[`skill:${name}`]=t('Enter a whole number.')
+    // A blank box is no points, not a mistake; anything else in one is.
+    for(const name of editedNames)if(points(occupationPoints[name])===undefined||points(interestPoints[name])===undefined)invalid[`skill:${name}`]=t('Enter a whole number.')
     if(parseWhole(creditRating)===undefined)invalid.credit_rating=t('Enter a whole number.')
+    if(parseWhole(age)===undefined)invalid.age=t('Enter a whole number.')
     if(Object.keys(invalid).length){setFieldErrors(invalid);return}
     sequence.current+=1
     setSaving(true)
     setSaveFailed(false)
     try {
-      const limitsOverride=collectLimitsOverride()
-      const result=await onOverride({revision:data.revision,edits:collectEdits(),...(limitsOverride?{limits_override:limitsOverride}:{})})
+      const limitsOverride=collectLimitsOverride(),profile=collectProfile()
+      const result=await onOverride({revision:data.revision,edits:collectEdits(),...(limitsOverride?{limits_override:limitsOverride}:{}),...(profile?{profile}:{})})
       if(!alive.current)return
       if(result?.superseded){setSuperseded(true);return}
       if(result?.ok===false){applyNeeds(result.error);return}
@@ -194,7 +294,7 @@ export function CocCharacterDraftEdit({data,t,onOverride,onClose}:Props) {
       interest_points:persistedLimits.interestTotal}[field]
   }
   const limitsChanged=LIMIT_FIELDS.some(field=>(parseWhole(limitsDraft[field]||'')??persistedValue(field))!==persistedValue(field))
-  const saveDisabled=saving||(!Object.keys(collectEdits()).length&&!limitsChanged)
+  const saveDisabled=saving||(!Object.keys(collectEdits()).length&&!limitsChanged&&!collectProfile())
   const ledger=viewSheet.creation?.skills||{}
   const occupation=ledger.occupation,interest=ledger.interest
   const ledgerCredit=finite(occupation?.credit_rating?.value)
@@ -210,13 +310,73 @@ export function CocCharacterDraftEdit({data,t,onOverride,onClose}:Props) {
   }
   const amount=(value:unknown)=>typeof value==='number'?String(value):'—'
   const rangeCaption=(min:number|undefined,max:number|undefined)=>`${t('Allowed range')}: ${amount(min)} – ${amount(max)}`
-  const field=(id:string,label:string,value:string,onChange:(next:string)=>void,caption:string)=>(
+  const field=(id:string,label:string,value:string,onChange:(next:string)=>void,caption:string,extra?:ReactNode)=>(
     <div className="coc-draft-edit-field" key={id}>
       <label><span>{label}</span><input inputMode="numeric" value={value} aria-invalid={!!fieldErrors[id]} onChange={event=>onChange(event.target.value)}/></label>
       <p className="coc-draft-edit-caption">{caption}</p>
+      {extra}
       {fieldErrors[id]&&<p className="coc-draft-edit-error" role="alert">{fieldErrors[id]}</p>}
     </div>
   )
+  /**
+   * The point-buy allowance for characteristics, recomputed from what the player is typing.
+   *
+   * The dialog computes no number it then saves -- this one is a reading of the eight fields on
+   * screen against the total the kernel put on the card, so the allowance moves under the cursor
+   * instead of a round trip later. Luck is rolled, never bought, so it is not in the sum. The
+   * dry-run answer carries the same figures, and they replace these the moment it lands.
+   */
+  const characteristicTotal=finite((view.budget as Row|undefined)?.characteristics?.total)??finite((data.budget as Row|undefined)?.characteristics?.total)
+  const characteristicSpend=characteristicKeys.filter(key=>key!=='LUCK')
+    .reduce((sum,key)=>sum+(parseWhole(characteristics[key]||'')??finite(sheet.characteristics?.[key])??0),0)
+  const characteristicLeft=characteristicTotal===undefined?undefined:characteristicTotal-characteristicSpend
+  const groupOrder:SkillGroupKey[]=['occupation','interest','other']
+  const groupHeading=(key:SkillGroupKey)=>t(key==='occupation'?'Occupation skills':key==='interest'?'Interest skills':'Other skills')
+  /**
+   * The base chance the rulebook prints for a skill, off the ledger the kernel writes. Dodge's is
+   * half DEX, so a changed characteristic moves it -- which is why this reads the preview's sheet
+   * when one is in rather than the sheet the dialog opened on.
+   */
+  const baseOf=(name:string):number=>finite(ledgerOf(viewSheet).bases?.[name])
+    ??finite(added.find(entry=>entry.name===name)?.base)
+    ??finite(skillBase(name))??0
+  /** What the row adds up to: the kernel's answer when it is current, the row's own until then. */
+  const finalOf=(name:string):number=>{
+    const answered=previewFresh?finite(preview?.sheet?.skills?.[name]):undefined
+    return answered??baseOf(name)+occupationOf(name)+interestOf(name)
+  }
+  const pointsBox=(name:string,pool:'occupation'|'interest',value:string,onChange:(next:string)=>void)=>{
+    const caption=pool==='occupation'?t('Occupation points'):t('Interest points')
+    return <label className="coc-draft-edit-box"><span>{caption}</span>
+      <input inputMode="numeric" aria-label={`${t(name)} ${caption}`} aria-invalid={!!fieldErrors[`skill:${name}`]} value={value} onChange={event=>onChange(event.target.value)}/></label>
+  }
+  const skillField=(name:string)=>
+    // The name owns the full width of its row. Sharing the line with a control squeezed it into a
+    // column one letter wide, which is unreadable in any language and worst in the ones that do
+    // not break on spaces.
+    <div className="coc-draft-edit-skill" data-skill={name} key={`skill:${name}`}>
+      <p className="coc-draft-edit-skill-name">{t(name)}{customNames.has(name)&&<span className="coc-draft-edit-tag">{t('Custom')}</span>}</p>
+      <p className="coc-draft-edit-caption">{t('Base')} {baseOf(name)}</p>
+      <div className="coc-draft-edit-boxes">
+        {occupationNames.has(name)&&pointsBox(name,'occupation',occupationPoints[name]||'',next=>setOccupationPoints(current=>({...current,[name]:next})))}
+        {pointsBox(name,'interest',interestPoints[name]||'',next=>setInterestPoints(current=>({...current,[name]:next})))}
+      </div>
+      <p className="coc-draft-edit-final">{t('Final')} {finalOf(name)}</p>
+      {fieldErrors[`skill:${name}`]&&<p className="coc-draft-edit-error" role="alert">{fieldErrors[`skill:${name}`]}</p>}
+    </div>
+  const occupations:Row[]=Array.isArray(catalog?.occupations)?catalog!.occupations.filter((entry:unknown)=>!!entry&&typeof (entry as Row).id==='string'):[]
+  const addSkill=()=>{
+    const name=draftSkill.name.trim()
+    const base=points(draftSkill.base)
+    if(!name||base===undefined||editedNames.includes(name))return
+    setAdded(current=>[...current,{name,base}])
+    setInterestPoints(current=>({...current,[name]:draftSkill.interest.trim()||'0'}))
+    setDraftSkill({name:'',base:'',interest:''})
+  }
+  const removeSkill=(name:string)=>{
+    setAdded(current=>current.filter(entry=>entry.name!==name))
+    setInterestPoints(current=>{const next={...current};delete next[name];return next})
+  }
   const limitLabels:Record<LimitField,string>={characteristic_min:t('Characteristic minimum'),characteristic_max:t('Characteristic maximum'),skill_cap:t('Skill cap'),occupation_points:t('Occupation points'),interest_points:t('Interest points')}
   return <div className="coc-draft-edit-backdrop" onMouseDown={event=>{if(event.target===event.currentTarget)onClose()}}>
     <section className="coc-draft-edit" role="dialog" aria-modal="true" aria-label={t('Edit draft numbers')}>
@@ -228,16 +388,53 @@ export function CocCharacterDraftEdit({data,t,onOverride,onClose}:Props) {
         {fieldErrors.form&&<p className="coc-draft-edit-error" role="alert">{fieldErrors.form}</p>}
         {previewFailed&&<p className="coc-draft-edit-error" role="alert">{t('Preview unavailable')}</p>}
         <h3>{t('Characteristics')}</h3>
+        <div className="coc-draft-edit-identity">
+          {field('age',t('Age'),age,setAge,t('Age changes EDU, APP, movement and Luck.'))}
+          {occupations.length>0&&<div className="coc-draft-edit-field">
+            <label><span>{t('Occupation')}</span>
+              <select aria-label={t('Occupation')} value={occupationId} onChange={event=>setOccupationId(event.target.value)}>
+                {!occupations.some(entry=>entry.id===occupationId)&&<option value={occupationId}>{t(occupationId)}</option>}
+                {occupations.map(entry=><option key={entry.id} value={entry.id}>{typeof entry.label==='string'&&entry.label?entry.label:entry.id}</option>)}
+              </select>
+            </label>
+          </div>}
+        </div>
         <div className="coc-draft-edit-grid">{characteristicKeys.map(key=>field(`characteristic:${key}`,t(key),characteristics[key]||'',next=>setCharacteristics(current=>({...current,[key]:next})),limits?rangeCaption(limits.characteristicMin,limits.characteristicMax):''))}</div>
+        {characteristicTotal!==undefined&&<p className="coc-draft-edit-characteristic-budget">
+          <span>{t('Characteristic points')}</span> <span>{characteristicSpend} / {characteristicTotal}</span>
+          {characteristicLeft!==undefined&&characteristicLeft>0?<> · {t('Points left')} {characteristicLeft}</>:characteristicLeft!==undefined&&characteristicLeft<0?<> · {t('Overspent by')} {-characteristicLeft}</>:null}
+        </p>}
         <h3>{t('Derived values')}</h3>
         <dl className="coc-draft-edit-derived">{Object.entries(viewSheet.derived||{}).map(([key,value])=><div key={key}><dt>{t(key)}</dt><dd>{key==='DB'&&value==='none'?0:String(value)}</dd><p className="coc-draft-edit-caption">{t('Calculated automatically')}</p></div>)}</dl>
         <h3>{t('Skills')}</h3>
         <table className="coc-draft-edit-budgets"><thead><tr><th>{t('Point allocation')}</th><th>{t('Total points')}</th><th>{t('Spent')}</th><th>{t('Remaining')}</th></tr></thead><tbody>{budgets.map(budget=><tr key={budget.key}><th scope="row">{t(budget.key)}</th><td>{amount(budget.total)}</td><td>{amount(budget.spent)}</td><td>{amount(budget.remaining)}</td></tr>)}</tbody></table>
-        <div className="coc-draft-edit-grid">{skillNames.map(name=>{
-          const base=skillBase(name)
-          const caption=base!==undefined&&limits?rangeCaption(base,limits.skillCap):limits?`${t('Starting skill cap')}: ${limits.skillCap}`:''
-          return field(`skill:${name}`,t(name),skills[name]||'',next=>setSkills(current=>({...current,[name]:next})),caption)
-        })}</div>
+        {groupOrder.map(key=><div className="coc-draft-edit-skill-group" key={key} data-skill-group={key}>
+          <h4>{groupHeading(key)}</h4>
+          <div className="coc-draft-edit-grid">{inGroup(key).map(name=>skillField(name))}</div>
+        </div>)}
+        {/* A skill the book does not print. A language is one of these -- the rulebook writes it
+            as a specialisation of Language, and a player who does not know that writes "Latin"
+            and wonders why the sheet has no Latin on it. */}
+        <div className="coc-draft-edit-skill-group" data-skill-group="custom">
+          <h4>{t('Custom skills')}</h4>
+          <p className="coc-draft-edit-caption">{t('A language you speak is written as Language (Other: name).')}</p>
+          <div className="coc-draft-edit-grid">{added.map(entry=><div className="coc-draft-edit-skill" data-skill={entry.name} key={`added:${entry.name}`}>
+            <div className="coc-draft-edit-skill-head"><p className="coc-draft-edit-skill-name">{entry.name}<span className="coc-draft-edit-tag">{t('Custom')}</span></p>
+              <button type="button" onClick={()=>removeSkill(entry.name)}>{t('Remove')}</button></div>
+            <p className="coc-draft-edit-caption">{t('Base')} {entry.base}</p>
+            <div className="coc-draft-edit-boxes">{pointsBox(entry.name,'interest',interestPoints[entry.name]||'',next=>setInterestPoints(current=>({...current,[entry.name]:next})))}</div>
+            <p className="coc-draft-edit-final">{t('Final')} {finalOf(entry.name)}</p>
+          </div>)}</div>
+          <div className="coc-draft-edit-skill coc-draft-edit-add">
+            <label className="coc-draft-edit-box"><span>{t('Skill name')}</span>
+              <input aria-label={t('Skill name')} value={draftSkill.name} onChange={event=>setDraftSkill(current=>({...current,name:event.target.value}))}/></label>
+            <label className="coc-draft-edit-box"><span>{t('Base')}</span>
+              <input inputMode="numeric" aria-label={t('Base')} value={draftSkill.base} onChange={event=>setDraftSkill(current=>({...current,base:event.target.value}))}/></label>
+            <label className="coc-draft-edit-box"><span>{t('Interest points')}</span>
+              <input inputMode="numeric" aria-label={`${t('Skill name')} ${t('Interest points')}`} value={draftSkill.interest} onChange={event=>setDraftSkill(current=>({...current,interest:event.target.value}))}/></label>
+            <button type="button" onClick={addSkill}>{t('Add')}</button>
+          </div>
+        </div>
         {field('credit_rating',t('Credit Rating'),creditRating,setCreditRating,limits?rangeCaption(limits.creditMin,limits.creditMax):'')}
         <h3>{t('Rules in force')}</h3>
         {limits&&<dl className="coc-draft-edit-limits">

@@ -145,6 +145,13 @@ export class Reading {
         const graph = await this.store.readGraph(mid) || {}, contract = await this.store.contract(), chosen = resolveStartScene(graph, focus, contract);
         if (chosen === null || !await this.materialReady(mid, chosen))
             return false;
+        // Readiness is the snapshot taken at publication (§90.4): nothing re-judges a book that is
+        // already installed, so a rule that arrived after the opening was published cannot revoke it.
+        // The roll-up answers for the book's own start; a chosen scene the book was published ready
+        // on answers from that publication. Only a scene neither has met is derived here.
+        const snapshot = row(meta.opening).start_scene === chosen ? row(meta.opening) : row(row(meta.prepared_openings)[chosen]);
+        if (Object.hasOwn(snapshot, 'opening_ready'))
+            return truth(snapshot.opening_ready);
         applyOpeningChoice(graph, chosen, contract);
         return truth((await this.store.opening(graph)).opening_ready);
     }
@@ -278,8 +285,14 @@ export class Reading {
                     }
                     return { ...result, state: existing.state === 'running' ? 'reading' : 'queued', job_id: existing.job_id };
                 }
-                if (existing.state === 'completed')
-                    return { ...result, state: 'blocked', missing: row(meta.opening).missing ?? [], opening: meta.opening ?? null, fix: 'choose an authored opening, then request preparation again' };
+                if (existing.state === 'completed') {
+                    // A refusal names what is missing (§46.1); a completed reading that still answers
+                    // nothing is the snapshot's own list, and an empty one is not a refusal at all.
+                    const missing = array(row(meta.opening).missing);
+                    if (!missing.length)
+                        return { ...result, state: 'ready' };
+                    return { ...result, state: 'blocked', missing, opening: meta.opening ?? null, fix: 'choose an authored opening, then request preparation again' };
+                }
                 if (!truth(params.retry))
                     return { ...result, state: 'blocked', missing: [existing.detail ?? 'reading failed'], fix: 'request the same reading with retry: true' };
             }

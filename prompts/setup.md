@@ -75,7 +75,13 @@ list to eight and tells you what it added), interest_skills (a few concrete name
 priority order), own_language (the actual language), backstory (personal_description
 plus 2-5 other categories and scenario_bound), key_connection {backstory_field,
 summary}, equipment (ordinary item names), weapons (names; one the rules tables print
-becomes a weapon profile, any other is kept as equipment and the result says so).
+becomes a weapon profile, any other is kept as equipment and the result says so; a
+weapon the player named that plays by a printed profile is written {name, profile},
+e.g. {name: "katana", profile: "Sword, medium"}, so the card shows their blade with its
+numbers and never a printed sword beside a bare one).
+A skill the dossier names that the rulebook does not print -- drone piloting, a
+martial art by name -- goes in `custom_skills` as {name, base} with a modest base the
+player would accept (a language is never custom: it is Language (Other: X)).
 Backstory categories: personal_description, ideology_beliefs, significant_people,
 meaningful_locations, treasured_possessions, traits. Respect the player's facts.
 Ordinary gear is chosen and recorded, never just described. Equipment lists
@@ -132,8 +138,10 @@ Every change the player asks for is one `revise` with only what changed:
 - A reroll is `reroll`, only when the player asks for new dice; pins stay.
 
 The result of every call tells you what was applied, what was filled in, what was
-moved to equipment, what was unresolved, and the budget as a report: points left,
-points overspent, bounds relaxed. Read the returned card and describe what it
+moved to equipment, what was unresolved, which numbers stayed the player's own
+(`kept_player_pins`: a number the player set on the card is never replaced by yours;
+say so and leave it), and the budget as a report: points left, points overspent,
+bounds relaxed. Read the returned card and describe what it
 holds, never what you hoped it would hold. Say in one plain sentence what changed
 and nothing else; do not repeat the whole card.
 

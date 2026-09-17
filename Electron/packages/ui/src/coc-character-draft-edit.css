@@ -41,3 +41,23 @@
 @media (max-width: 600px) {
   .coc-draft-edit-grid, .coc-draft-edit-derived, .coc-draft-edit-limits { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+.coc-draft-edit-skill-group + .coc-draft-edit-skill-group { margin-top: 14px; }
+.coc-draft-edit-skill-group h4 { margin: 0 0 6px; color: var(--muted); font-size: 11px; font-weight: 650; letter-spacing: .03em; }
+.coc-draft-edit-characteristic-budget { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; margin-top: 10px; color: var(--muted); font-size: 12px; }
+
+.coc-draft-edit-identity { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 16px; }
+.coc-draft-edit-identity select { width: 100%; padding: 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); font: inherit; font-size: 12px; }
+.coc-draft-edit-skill { min-width: 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.coc-draft-edit-skill-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+/* The name owns the whole row: sharing the line with a control squeezed it to one letter wide. */
+.coc-draft-edit-skill > .coc-draft-edit-skill-name { display: block; width: 100%; }
+.coc-draft-edit-skill-name { min-width: 0; margin: 0; color: var(--text-strong); font-size: 12px; font-weight: 600; line-height: 1.4; overflow-wrap: break-word; }
+.coc-draft-edit-tag { margin-left: 6px; padding: 1px 6px; border: 1px solid var(--border-strong, var(--border)); border-radius: 999px; color: var(--muted); font-size: 10px; font-weight: 500; }
+.coc-draft-edit-boxes { display: flex; gap: 8px; margin-top: 6px; }
+.coc-draft-edit-box { flex: 1 1 0; min-width: 0; display: block; }
+.coc-draft-edit-box > span { display: block; color: var(--muted); font-size: 10px; }
+.coc-draft-edit-box input { width: 100%; box-sizing: border-box; padding: 5px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-raised, var(--surface)); color: var(--text); font: inherit; font-size: 12px; font-variant-numeric: tabular-nums; }
+.coc-draft-edit-final { margin-top: 6px; color: var(--text-strong); font-size: 12px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.coc-draft-edit-add { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; margin-top: 10px; }
+.coc-draft-edit-add button { padding: 6px 12px; border: 1px solid var(--border-strong, var(--border)); border-radius: 6px; background: var(--surface-raised, var(--surface)); color: var(--accent); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }

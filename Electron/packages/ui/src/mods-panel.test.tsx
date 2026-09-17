@@ -104,3 +104,20 @@ test('captions a refused mods request by its code',async()=>{
   expect(alert.querySelector('summary')?.textContent).toBe(say('zh-Hans','errors','details'));
   expect(alert.querySelector('details')?.textContent).toContain('a turn is settling');
 });
+
+
+test('only a mods-changed event reloads the list, and a reload keeps the controls live', async () => {
+  const invoke = vi.fn(async ()=>({ok:true,data:{campaign:'c1',ui:ui('en'),mods:[row]}}));
+  let listener: ((event:{type:string}) => void) | undefined;
+  const subscribeExt = (cb:(event:{type:string}) => void) => { listener = cb; return () => {}; };
+  render(<Panel api={{invoke, subscribeExt}} />);
+  await screen.findByText('Natural NPC');
+  expect(invoke).toHaveBeenCalledTimes(1);
+  listener!({type:'timeline-changed'});
+  listener!({type:'mods-progress'});
+  await new Promise(resolve => setTimeout(resolve, 20));
+  expect(invoke).toHaveBeenCalledTimes(1);
+  listener!({type:'mods-changed'});
+  await waitFor(()=>expect(invoke).toHaveBeenCalledTimes(2));
+  expect((screen.getByLabelText(en('campaign')) as HTMLInputElement).disabled).toBe(false);
+});

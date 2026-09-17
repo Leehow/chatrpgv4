@@ -53,7 +53,8 @@ export class Setup {
     const investigatorKinds = new Set<string>();
     for (const receipt of array(row(meta.setup).receipts)) if (isJsonObject(receipt) && receipt.kind === 'investigator') investigatorKinds.add(receipt.source === 'library' ? 'library' : 'new');
     if (investigatorKinds.has('new')) { completed.add('create-investigator'); completed.add('confirm-investigator'); }
-    if (truth(row(meta.setup).draft_revision)) completed.add('create-investigator');
+    // A draft on the table is the new-investigator lane, taken: without the lane the step would be filtered out of the completed list on resume and the card could never be confirmed after a restart.
+    if (truth(row(meta.setup).draft_revision)) { completed.add('create-investigator'); investigatorKinds.add('new'); }
     if (investigatorKinds.has('library')) { completed.add('browse-library'); completed.add('load-investigator'); }
     if (['ready_for_table', 'active'].includes(meta.status)) completed.add('complete');
     const ordered = this.steps.order(new Set([kind, ...investigatorKinds])).filter(step => completed.has(step));

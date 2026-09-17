@@ -358,3 +358,44 @@ def test_a_period_the_agent_invents_is_still_refused_with_the_closed_set(tmp_pat
         assert picked["sheet"]["finance"]["source"] == "cash-assets.periods.modern"
     finally:
         client.close()
+
+
+def test_a_resumed_setup_counts_the_draft_as_the_investigator_step(kernel):
+    """A draft on the table is the new-investigator lane, taken: the resumed step list must say so, or a
+    restart mid-setup leaves the card unconfirmable (the step's prerequisite reads as never done)."""
+    begin(kernel)
+    completed = kernel.ok("setup.steps", {"campaign": CAMPAIGN})["completed"]
+    assert "create-investigator" in completed
+    assert "confirm-investigator" not in completed
+
+
+def test_a_model_number_never_overwrites_a_player_pin(kernel):
+    draft = begin(kernel)
+    sheet = draft["sheet"]
+    dex = sheet["characteristics"]["DEX"] + (5 if sheet["characteristics"]["DEX"] <= 85 else -5)
+    mine = kernel.ok("setup.override", {"campaign": CAMPAIGN, "revision": draft["revision"], "edits": {"characteristics": {"DEX": dex}, "skills": {"Dodge": {"interest": 10}}}})
+    assert mine["pins"]["characteristics"]["DEX"]["by"] == "player" and mine["pins"]["skills"]["Dodge"]["by"] == "player"
+    theirs = kernel.ok("setup.revise", {"campaign": CAMPAIGN, "revision": mine["revision"], "by": "model",
+                                       "numbers": {"characteristics": {"DEX": 15}, "skills": {"Dodge": 70}}})
+    assert theirs["sheet"]["characteristics"]["DEX"] == dex
+    assert theirs["sheet"]["skills"]["Dodge"] == mine["sheet"]["skills"]["Dodge"]
+    assert theirs["pins"]["characteristics"]["DEX"] == mine["pins"]["characteristics"]["DEX"]
+    assert theirs["pins"]["skills"]["Dodge"] == mine["pins"]["skills"]["Dodge"]
+    assert sorted(theirs["kept_player_pins"]) == ["DEX", "Dodge"]
+    assert theirs["revision"] == mine["revision"], "nothing changed, so the card did not move"
+
+
+def test_a_named_weapon_plays_by_its_printed_profile_under_the_players_name(kernel):
+    """A dossier blade is one weapon on the card: the player's name, the printed profile's numbers."""
+    kernel.ok("campaign.create", {"id": CAMPAIGN, "module": "the-haunting", "play_language": "en"})
+    draft = kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": {**profile(), "weapons": [{"name": "武士刀", "profile": "Sword, medium"}, ".38 Automatic", "Knife, small"]}})
+    weapons = draft["sheet"]["weapons"]
+    katana = next(w for w in weapons if w["name"] == "武士刀")
+    assert katana["profile"].startswith("Sword, medium") and katana["display_name"] == "武士刀"
+    printed = next(w for w in weapons if w["name"] == ".38 Automatic")
+    assert katana["damage_die"] == "1D6+1" and katana["skill"] == "Fighting (Sword)" and printed["damage_die"]
+    assert any(w["name"].startswith("Knife, small") for w in weapons), "a printed name shortened to its head still resolves"
+    assert "武士刀" in draft["sheet"]["equipment"] and "Sword, medium" not in draft["sheet"]["equipment"]
+    assert draft["moved_to_equipment"] == []
+    refused = kernel.call("setup.revise", {"campaign": CAMPAIGN, "revision": draft["revision"], "profile": {"weapons": [{"name": "飞刀", "profile": "Boomerang of Doom"}]}})
+    assert refused["error"]["code"] == "needs" and refused["error"]["details"]["field"] == "weapons" and refused["error"]["details"]["candidates"]

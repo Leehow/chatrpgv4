@@ -28,6 +28,7 @@
 .coc-draft-ask-question { color: var(--muted); font-size: 12px; }
 .coc-draft .coc-draft-nonstandard { display: inline-block; margin-top: 8px; padding: 3px 9px; border: 1px solid var(--accent); border-radius: 999px; color: var(--accent); font-size: 11px; font-weight: 650; }
 .coc-draft-pin { margin-left: 5px; font-size: 10px; line-height: 1; }
+.coc-draft-tag { margin-left: 6px; padding: 1px 6px; border: 1px solid var(--border-strong, var(--border)); border-radius: 999px; color: var(--muted); font-size: 10px; font-weight: 500; }
 .coc-draft-stat.coc-draft-pinned { border-color: var(--accent); }
 .coc-draft-table tr.coc-draft-pinned > :is(th, td) { background: color-mix(in srgb, var(--accent) 6%, transparent); }
 .coc-draft-budget { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 20px; }
@@ -37,6 +38,9 @@
 .coc-draft-budget-track { margin-top: 6px; height: 6px; border-radius: 999px; background: color-mix(in srgb, var(--text) 8%, transparent); overflow: hidden; }
 .coc-draft-budget-fill { height: 100%; border-radius: 999px; background: var(--accent); }
 .coc-draft .coc-draft-budget-left { margin-top: 6px; color: var(--muted); font-size: 11px; }
+.coc-draft .coc-draft-skill-group + .coc-draft-skill-group { margin-top: 16px; }
+.coc-draft .coc-draft-skill-group h4 { margin: 0 0 8px; padding: 0; color: var(--muted); font-size: 11px; font-weight: 650; letter-spacing: .03em; }
+.coc-draft .coc-draft-characteristic-budget { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; margin-top: 12px; color: var(--muted); font-size: 12px; }
 .coc-draft-superseded { margin: 6px 0; color: var(--muted); font-size: 12px; }
 .coc-draft :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .coc-draft .coc-draft-guidance { flex: 1 1 200px; margin: 0; padding: 0; color: var(--muted); font-size: 12px; line-height: 1.65; }
