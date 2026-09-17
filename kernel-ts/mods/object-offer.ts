@@ -30,6 +30,10 @@
  *
  * Nothing here is §31.2's offer ledger, which counts capabilities the Keeper was shown and never
  * reached for. This is world state about a physical object, and it does belong in the capsule.
+ *
+ * Deployment (§NN.5): what this file requires, `extensions/kernel/tools.ts` must already offer. The
+ * kernel is rebuilt live and that schema is read once at server start, so a rebuild without a restart
+ * refuses every person-to-person move for a field the Keeper has no way to write.
  */
 import {RpcError} from '../errors.js';
 import {array, clone, equal, row, string, truth, type Row} from '../read/values.js';

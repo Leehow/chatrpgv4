@@ -109,6 +109,9 @@ const ObjectEffect = Type.Object({
   to: Type.String({description:"New owner: investigator, NPC, scene or existing container instance; here means the current scene"}),
   condition: Type.Optional(StringEnum(["intact","damaged","jammed","broken"] as const, {description:"Initial condition, or an explicit existing-object state change with the same from/to owner and a causal why; ownership transfers preserve state"})),
   from: Type.Optional(Type.String({description:"Required current owner when transferring an existing instance"})),
+  // Contract §NN.5: the kernel requires `handover` the moment it is rebuilt, and this schema is read
+  // once at server start. Rebuild without restarting and the Keeper is refused for a field its tool
+  // does not declare, on every retry, on every table. These three ship with the kernel half or not at all.
   offer: Type.Optional(StringEnum(["made","accepted","declined"] as const, {description:"Holding a thing out is not giving it: made records that from is offering it to to and moves nothing, declined closes that and leaves it exactly where it was, accepted closes it and moves it. Use made whenever a check is about to decide whether they take it, then close it with the result"})),
   handover: Type.Optional(StringEnum(["given","taken","check"] as const, {description:"Required when this moves a thing between two different people: given when both sides were willing and no dice were asked, taken when one side's leave was neither sought nor needed, check when a roll already settled in this turn decided it"})),
   check: Type.Optional(Type.String({description:"With handover check, the call_id of a resolve already settled in this turn. It must have passed; a roll that has not settled yet cannot be named, so settle the check first or hold the thing out with offer made"})),

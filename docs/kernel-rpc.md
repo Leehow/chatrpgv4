@@ -11257,4 +11257,30 @@ plus `handover`, and `check` when the ground named one. Turn 125's transfer and
 its failed roll sat in one turn record with nothing joining them; a receipt that
 records which roll carried it can be read back instead of guessed at.
 
+### NN.5 Deployment: the two halves land together, or a common path dies
+
+**The kernel side and the extension side of this section must take effect in the
+same deployment. A rebuild without a server restart makes person-to-person
+object transfers permanently impossible on every live table.**
+
+The two halves have different lifetimes. `kernel-ts/mods/stage.ts` is compiled
+into the kernel, which the host starts fresh for each call, so a rebuild is live
+immediately. `extensions/kernel/tools.ts` is the tool schema the Keeper reads,
+and it is loaded once when the server starts. Rebuild without restarting and the
+kernel begins requiring `handover` while the schema in front of the Keeper has no
+such field. The refusal is correct, its `fix` names the field, and the Keeper
+cannot supply it — it has no way to write a key its tool does not declare. Every
+handover between two people is then refused on every retry, on every table, with
+no recovery available to the Keeper. Restarting the server clears it; nothing
+short of that does.
+
+So: rebuild and restart together, and pair the tables at the same moment.
+
+**This is not specific to this section.** It holds for every change where the
+kernel validates a field that exists only in the extension's schema, and it has
+teeth in exactly one direction: a kernel that starts *requiring* something the
+schema has not yet offered is a closed door, while a schema that offers something
+the kernel does not yet know is one ordinary refusal the Keeper can back out of.
+When the two cannot ship together, ship the schema first.
+
 Tests: `tests/extension/an-offer-is-not-a-delivery.test.mjs`.
