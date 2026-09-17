@@ -63,12 +63,14 @@ export function createComponent(React) {
     }
     const refusal = (err) => ({code: typeof err?.code === "string" ? err.code : "",
       message: typeof err?.message === "string" ? err.message : String(err ?? "")});
-    async function load() {
+    // `quiet` is a reload behind a list that is already drawn: the controls stay live while it runs.
+    // Greying them out for every reload made the panel flicker whenever the table was busy.
+    async function load(quiet = false) {
       const current = ++generation.current;
-      setBusy(true);
+      if (!quiet) setBusy(true);
       try { const data = await request("mods.list"); if (current === generation.current) {setAnswer(data); setError(null);} }
       catch (err) { if (current === generation.current) setError(refusal(err)); }
-      finally { if (current === generation.current) setBusy(false); }
+      finally { if (!quiet && current === generation.current) setBusy(false); }
     }
     async function mutate(method, params) {
       setBusy(true); setError(null);
@@ -77,7 +79,10 @@ export function createComponent(React) {
       finally { setBusy(false); }
     }
     useEffect(() => { void load(); return () => { generation.current++; }; }, [api]);
-    useEffect(() => api.subscribeExt?.(() => { void load(); }), [api]);
+    // The extension channel carries every event of the table (timeline updates, progress, presentations);
+    // only a Mod change is this panel's business. Anything else reloaded the list on every transcript
+    // tick and the panel flickered for the whole turn. An event without a type is an older host: reload.
+    useEffect(() => api.subscribeExt?.((event) => { if (event && typeof event.type === "string" && event.type !== "mods-changed") return; void load(true); }), [api]);
     const unsorted = groupMods(answer?.mods);
     const order = answer?.pending_order || answer?.order || unsorted.map(row=>row.id);
     const groups = unsorted.sort((a,b)=>order.indexOf(a.id)-order.indexOf(b.id));
