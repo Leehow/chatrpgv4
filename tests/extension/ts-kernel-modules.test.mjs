@@ -101,6 +101,26 @@ async function compare(name, cases, t) {
   await writeFile(join(evidence, name + '-captured.json'), captured);
   await writeFile(join(evidence, name + '-typescript.json'), api.pythonJsonDumps(actual));
   for (const [i, item] of cases.entries()) await t.test(item.name ?? String(i), () => {
+    // Contract §NN also post-dates the frozen oracle: `way_on` is a readiness entry the historical
+    // implementation had no concept of. Assert the new requirement here -- it is carried exactly
+    // when the produced graph's start scene publishes no way out and the book does not end there --
+    // then compare the opening the oracle did answer, which by §46 is readiness with that one entry
+    // removed. The oracle's own bytes are never touched.
+    const wayOn = actual[i].value?.opening?.missing?.includes('way_on');
+    if (wayOn) {
+      const graph = actual[i].value.graph, start = actual[i].value.opening.start_scene;
+      const scenes = new Set(graph.nodes.filter(node => node.node_kind === 'scene').map(node => node.node_id));
+      const exits = graph.relations.filter(rel => rel.from_node_id === start && rel.to_node_id !== start
+        && scenes.has(rel.to_node_id)
+        && ['route-to', 'play-precedes', 'may-lead-to', 'alternative-to', 'hands-off-to'].includes(rel.relation_kind));
+      assert.deepEqual(exits, [], 'way_on is only for a start scene that publishes no way out');
+      const record = graph.nodes.find(node => node.node_id === start)?.properties?.runtime_projection?.record;
+      assert.notEqual(record?.is_final, true, 'a book that ends in its first scene has accounted for it');
+      assert.ok(!expected[i].value.opening.missing.includes('way_on'), 'this is the post-freeze addition');
+      const missing = actual[i].value.opening.missing.filter(entry => entry !== 'way_on');
+      actual[i] = { ...actual[i], value: { ...actual[i].value,
+        opening: { ...actual[i].value.opening, missing, opening_ready: !missing.length } } };
+    }
     if (actual[i].value?.required_review && expected[i].value?.required_review && !['skeleton','guidance'].includes(item.packet?.purpose)) {
       // The frozen oracle predates the scope-review requirement. Keep every prior assertion
       // and compare the unchanged payload; assert the new TS requirement separately.
@@ -273,7 +293,13 @@ test('native owners recover unpublished attempts without exposing or duplicating
     const first = api.createModuleRuntime(context), second = api.createModuleRuntime(context);
     const ok = (owner, method, params) => owner.handlers[method](params);
     const store = first.source.store;
-    const rawDraft = purpose === 'index' ? { title: 'Book', language: 'en', sections: [{ name: 'Opening', pages: [[1, 2]], source_refs: [{ page: 1 }] }] } : clone(base);
+    // The opening draft is `base` plus the one thing contract §NN requires an opening to account
+    // for: where the first scene leads, or that the book ends in it. `base` is a single scene, so
+    // it ends there. Without that, publication is refused for `way_on` before this test's own
+    // injected failure, and the subject here is an interrupted metadata publication, not readiness.
+    const opening = clone(base);
+    opening.nodes[0].properties.is_final = true;
+    const rawDraft = purpose === 'index' ? { title: 'Book', language: 'en', sections: [{ name: 'Opening', pages: [[1, 2]], source_refs: [{ page: 1 }] }] } : opening;
     const review = { checked: [{ paths: ['/nodes/0', '/nodes/1', '/nodes/1/properties/mechanics/profile/characteristics/STR', '/claims/0', '/coverage'], verdict: 'supported', source_refs: refs }], missing: [] };
     const prepare = async job => {
       const observations = { file_sha256: job.source.file_sha256, read_pages: [1, 2], full_pages: [1, 2], review_pages: [1, 2] };

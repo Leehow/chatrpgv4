@@ -11178,3 +11178,125 @@ is invented.
 Test (`App.model-not-yet-known.test.tsx`): a host that answers with the
 placeholder leaves 加载模型… on the chip and no provider mark. It dies when
 `isUnreadModel` is made to return false.
+
+## NN. An installed opening has a way on (2026-09-17, extends §46)
+
+One 41-page PDF (`b0b3b1772fadddf1`), three tables, three readings of the same
+bytes at the same `reading_version` and the same `generation: 2`:
+
+```
+a-main   nodes=11  rels=9   entry=scene-dunwich-1895        scenes visited 3   (103 turns)
+t5       nodes=10  rels=9   entry=scene-dunwich-1895        scenes visited 1   ( 24 turns)
+t6       nodes= 7  rels=6   entry=scene-adventure-begins    scenes visited 1   ( 32 turns)
+```
+
+All three published `status: "installed"`, `opening_ready: true`. Reading is
+model-driven — `work/read-*/attempt-*/task.json` is a reading task, not a
+transform — so **the variance is expected and is not the defect.** Requiring a
+model reader to be reproducible byte for byte is neither achievable nor the
+right thing to ask for. What is owed is that whatever it draws, the product
+either can be played or says why not.
+
+### NN.1 Two things the evidence does *not* support, recorded so they are not tried again
+
+**The exit is not broken, and no file redeems it.** The ledger's verdict on t6
+was that its entrance's single `route-to` pointed at
+`scene-dunwich-1287`, whose properties are only
+
+```json
+{"runtime_projection": {"document": "story-graph.json", "collection": "scenes",
+                        "record": {"scene_id": "dunwich-1287", "is_start": false, "is_final": false}}}
+```
+
+and that `story-graph.json` exists nowhere in the module directory — so the way
+on could not be redeemed. **`story-graph.json` exists nowhere for any book.** It
+is a label from the retired seven-file IR, written by `assembleVisual`
+(`kernel-ts/modules/visual.ts`) onto *every* scene node in *every* graph
+including the starters, and its only readers (`recordOf`, `entityView`,
+`voice/jobs.ts`, `audit-evidence.ts`) take `record` inline and never open a
+file. A gate on that document existing would refuse every module the product
+knows how to make. An unread neighbour behind the entrance is likewise the
+*designed* shape: `checkOpeningBatch` requires an opening batch to prepare
+exactly one scene and defer the rest, and `apply move` reads the destination's
+pages in the foreground through its own `material_pending` gate.
+
+**Node count against page count is not a criterion.** "41 pages should yield
+more than 7 nodes" is a hardcoded opinion about how much a book owes, of the
+kind this project forbids. The same table shows why it would also be wrong: the
+starter with a **0-node, 0-relation** graph is the book that played furthest
+(133 turns, 17 scenes).
+
+**And structure does not separate the three draws.** a-main, t5 and t6 published
+the same shape — one prepared entrance, one exit, one unprepared neighbour
+carrying the same four-key record. No structural gate can refuse t6 and admit
+a-main, because at generation 2 there is nothing to tell them apart. What ended
+both t6 tables was two defects that landed on `0.9.3a` *after* they ran: §45
+(the opening it had already played was revoked by a later background reading;
+t6's campaign module holds that section's exact signature, `missing: []` with one
+`clue_supports_nothing` and `opening_ready: false`, written at 08:58, one minute
+after §45 landed) and §49 (an exit whose pages are unread was filtered out of the
+offer entirely, so the Keeper was never told a way existed).
+
+### NN.2 The rule
+
+`missing` accounts for **an exit that resolves to nothing**. Nothing accounted
+for **an opening with no exit at all.**
+
+- A start scene that publishes no way on — no `route-to`, `play-precedes`,
+  `may-lead-to`, `alternative-to` or `hands-off-to` relation to another scene
+  node, and no `scene_edges` entry that resolves to one — and that the book does
+  not say it ends in (`is_final`/`is_ending`, an `ending` node, or a declared
+  `ending_scene_ids` naming it) puts **`way_on`** in `missing`. By §46 that alone
+  makes `opening_ready` false, and by `reading.ts` `status` stays `assembled`.
+- A self-loop is not a way on. A non-scene target is not a way on.
+- **This is accounting, not an opinion about the destination.** The book either
+  names where the first scene leads or says it stops there; either answer
+  passes, and the second is why a one-scene book is still installable. What is
+  behind the exit, whether its pages are read, and how many nodes the book got
+  are all outside readiness and stay outside it (§46).
+- It cannot revoke an opening in play: merging a reading only ever adds
+  relations, so a graph that had a way on keeps it.
+
+Without this, the entrance's `sceneExits` is empty, so §49's route rows have
+nothing to report — not a locked way, not an unread way, no way — and the table
+sits in the first scene with no receipt that says why.
+
+### NN.3 The refusal names what to add, never what to delete
+
+An opening publication that is not ready is rejected at `Reading.publish`, and a
+refusal's `fix` is executed literally by the reader: a vague one has already made
+a reader delete work it had just got right. The `way_on` rejection therefore says
+to keep every node and claim in the draft including `ready_nodes`, and to add
+exactly one of two things the pages can answer — the onward relation the book
+gives with the target scene node it names, or `is_final` on this scene when the
+book ends there — and says in as many words not to invent a destination and not
+to remove anything.
+
+`way_on` reaches a player only the way every other `missing` entry does: joined
+into the diagnostic behind `reading_failed`, settled to the `preparation_failed`
+caption by §46.3. It is a system-language token and never a player-facing word.
+
+### NN.4 The three ends (§31)
+
+Who writes it: `openingReport` in `kernel-ts/write/source.ts`. For a book with
+`reading_version: 1` that is **at publication only** — `Reading.publish` rolls
+`meta.opening` and `meta.opening_ready` up once per completed reading, and
+`module.status` returns that snapshot rather than re-deriving it. (The live
+re-derivation in the `module.status` handler is the other branch, for starters
+and legacy modules, which have no reading queue.) Who reads it: `opening_ready`
+(§46), and through it `module.status`, `module.read.request`'s opening branch
+and `setup.complete`. Who acts on it: `Reading.publish` refuses the opening
+publication and names the next reading.
+
+**Nothing re-judges a book that is already installed, and that is deliberate.**
+A snapshot is what §46 made readiness so that further reading could not revoke an
+opening in play, and a campaign plays its own compiled fork besides. A book
+installed before this section stays installed; it is re-judged the next time it
+publishes a reading, which for an imported book is the next deepening its own
+table asks for.
+
+Test (`tests/extension/opening-way-on.test.mjs`): the t6 shape installs and its
+`runtime_projection.document` is shown to name no file anywhere in the module
+directory; an entrance with no way on is refused, with the refusal's wording
+asserted; and a book that ends in its first scene installs with no exit at all.
+The second dies when `missing.push('way_on')` is removed.

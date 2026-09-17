@@ -498,7 +498,16 @@ export class Reading {
                     opening.missing.push('start_scene_material');
                 }
                 if (job.purpose === 'opening' && !truth(opening.opening_ready) && !truth(opening.choice))
-                    reject(`the opening is not playable: ${repr(opening.missing ?? null)} ${repr(opening.findings ?? null)}`);
+                    reject(`the opening is not playable: ${repr(opening.missing ?? null)} ${repr(opening.findings ?? null)}`
+                        // Contract section NN. A refusal's `fix` is executed literally, so this one says what to
+                        // add and what not to touch: a vague instruction has made a reader delete correct work.
+                        + (array(opening.missing).includes('way_on')
+                            ? '. This opening publishes no way on from ' + repr(opening.start_scene) + '. Keep every node and claim already in this draft'
+                                + ' exactly as it is, including ready_nodes, and add only what the pages state: either the relation the book gives from'
+                                + ' this scene to the place it leads to (route-to, play-precedes, may-lead-to, alternative-to or hands-off-to) together with'
+                                + ' the target scene node the book names for it, or, when the book ends in this scene, is_final on this scene. Do not invent'
+                                + ' a destination the pages do not name, and do not remove anything to satisfy this.'
+                            : ''));
                 if (['skeleton', 'guidance'].includes(job.purpose))
                     opening.opening_ready = false;
                 if (job.purpose === 'opening' && truth(opening.opening_ready)) {
