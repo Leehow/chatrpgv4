@@ -11339,3 +11339,145 @@ once that a refused effect is behind the prose. It dies when the gate is keyed o
 the run again, when the counter is reset at `agent_start` again, or when the
 notice is owed by a turn that never delivered. `gates.test.mjs`'s §77 case now
 reads the closed-turn answer instead of the opening's.
+## 87. A person this table has and the book does not (2026-09-17, amends §17.3, §51.4 and §56.1)
+
+```
+apply npc "门房"          ->  unknown_entity: no npc named '门房' in the module graph
+look  focus=npc "门房"    ->  unknown_entity, candidates: []
+speech.who                ->  {label: "门房"}          (accepted)
+resolve action.target     ->  rolled against            (accepted)
+```
+
+Four surfaces, one person, two of them refusing what the other two had already taken. On H-SIDE t4
+(`homes/t4`, campaign game-1c0faba5, 121 turns) twenty people spoke as `{label}` and carried 60 of
+that table's 270 spans across 22 turns; seventeen of the campaign's 32 `unknown_entity` refusals
+were `apply npc` on one of them. `stageNpc` resolved through `graph.npc()`, which is the module
+graph and nothing else, so there was no writer for a person the table met.
+
+Turns 96–99 are the whole cost in one run. A building superintendent unlocked a cellar, led the
+investigator down, answered three questions about a party wall, took her card and left. Five staging
+attempts were refused across four turns. `present` and `voices` were `[]` in every capsule. **Turn 98
+closed with zero receipts** — the only two world writes that turn wanted were his presence and his
+stance.
+
+**Refusing did not prevent a fabrication; it relocated one.** Turn 106, refused on an
+assessors'-window clerk, the Keeper reached for the book's own `records-clerk` and staged the Hall of
+Records clerk at the assessors' window. That was accepted. A refusal with no lawful road moves the
+write onto an authored person's record.
+
+### 87.1 The record is world state
+
+`world.table_people[] = {name, turn, why, established_at}`.
+
+The graph projection is rebuilt from it on every load, in the position the adaptation overlay
+already occupies. The pinned source snapshot stays immutable, `raw` keeps the book, and **the module
+spine gains nothing** (§14). The projection exists because every consumer of a person in this kernel
+is node-typed — `npcsPresent`, `npcEntry`, `npcView`, the voices lane, continuity, the resolve
+context, the worldline merge, the continuity audit — so a person represented any other way reaches
+none of them.
+
+`campaign_origin.kind` is `table`, and `adaptationOrigin` answers it without the `campaignView`
+gate: a table can establish someone before it has ever run an adaptation. Saying which of the three
+roads a person came by — the book, a reviewed adaptation, this — is the point of the row, and the
+answer is never silently "the book".
+
+On a worldline merge `table_people` is a union and never a choice between lines: each line met
+whoever it met, and dropping one deletes a person who has already spoken. First establishment wins
+on a name two lines both used.
+
+### 87.2 The boundary is mechanical
+
+**A person is persistent when the Keeper called for persistence** (`lookup kind=adaptation
+purpose=persistent_npc`), **and a person the table simply used is this.** Nothing reads a name, a
+role or a description to decide which. Adaptation is unchanged: it costs a reviewed proposal and a
+turn of the table's time, which is the right price for someone the campaign will keep and far too
+much for someone who says three lines and goes.
+
+A pin — `skill` or `archetype` — keeps the old refusal and its candidates on an unknown name.
+Pinning numbers in the same call that invents the person is how a stat block gets attached to a typo.
+
+Near-name correction stays forbidden. `graph.npc` has already tried the handle, the aliases and the
+anchored whole-word run (§2); a miss is a miss.
+
+### 87.3 What the Keeper hands in is an appellation, not a name
+
+t4's were `管楼的`, `the janitor`, `评税处窗口职员`. A write entrance that demanded a personal name
+would be asking the Keeper to invent one, which is a fabrication the table never made. **Any
+non-empty string is the identity and nothing inspects it.**
+
+The player-facing word stays §79's. `personLabel` already prefers `world.person_labels` over the
+graph's own word for everyone, so `apply person` is what puts a name on a card in the play language
+whether the graph got the person from the book or from here. **The book needs that road as badly as
+the table does:** the-haunting authors an NPC whose printed `name` is `the Hall of Records clerk`, an
+English description, and it is what every surface naming him carried through 47 resolved spans on a
+`zh-Hans` table — while `world.person_labels` stayed `null` for all 121 turns. §79's writer exists
+and nothing sends the Keeper to it.
+
+### 87.4 Duplicates are the known edge, and a roster is the mitigation
+
+One man was called `管楼的`, `门房`, `superintendent` and `the janitor` on t4. Under this rule that
+is four of him. **Deciding they are one person is an open semantic judgement and no code here makes
+it.**
+
+What an `npc` miss carries instead is the list of people this table has already established,
+appended **after** everything the query itself ranked so a genuine near-name is never displaced. It
+is a list to pick from, not a match: nothing compares the query to those names. Duplicates will
+still occur. §79 is how a table settles on one word for someone.
+
+### 87.5 §51.4 takes on a second kind: the books and the prose disagree about where a person is
+
+A person the prose gave lines to in this room while `npc_presence` puts them in another scene or off
+the board. Same shape as §51.4's clue rows, same self-clearing, same "names the call and nothing
+more": one `apply npc` makes the two records agree, and the window is this scene's occupancy, so
+walking out ends it.
+
+**The condition is disagreement, not absence, and the difference is the whole measurement.** Every
+authored person is seeded into `npc_presence` when the campaign is created, so "the ledger has them
+nowhere" is almost never true and **counting `npc` receipts against spoken spans measures nothing** —
+speaking from the room the book already put you in owes no receipt at all. Replaying t4 forward from
+that seed through every `npc` receipt: of 162 resolved spans by the eight authored people, 113 were
+spoken from the right room. The gap is the other 49 — **30** where the books had them standing in a
+different scene (Steven Knott answers at the Hall of Records, the Globe morgue and the Board of
+Health while the ledger keeps him in his own office) and **19** where a previous `to: away` had taken
+them off the board and nothing brought them back. 23 of that campaign's 132 turns would have carried
+a row.
+
+Two boundaries:
+
+- **A row says the two records disagree, never which of them is right.** The kernel has no standing
+  to rule between the Keeper's prose and its own ledger.
+- **Nothing infers presence from prose.** `speech.who` is the kernel's own resolution, written when
+  the turn was delivered; §17 keeps the runtime ledger written by receipts and explicit `apply`
+  alone. A span that stayed a `{label}` is passed over on purpose — whether 听筒那头, "the voice on
+  the other end of the line", is a person at all is not the kernel's judgement to make, and a row for
+  it would be this section asking the Keeper to mint people out of scenery.
+
+### 87.6 Deployment order
+
+**Nothing here requires a field the extension schema does not already provide, so either side may
+ship first.** `NpcEffect.name` is a free `Type.String`; the write entrance is a *relaxation* of a
+kernel-side refusal, and everything new travels outward and additively — `established: "table"` on
+the `npc` receipt and the `npc-changed` event, `origin.kind: "table"` on a person row, `npc` rows in
+`unrecorded`, the roster in a candidate list.
+
+The general rule this is measured against: **when a kernel check reads a field that only the
+extension schema supplies, the two must go out together, and if only one half can ship it is the
+schema first.** A kernel demanding a field no schema offers is a door closed on every call that needs
+it; a schema carrying a field no kernel reads yet is an ordinary ignored value.
+
+The mirrored case applies to prompt text rather than fields, and it is the one that bound this
+change. `tools.ts` described `apply npc.name` as "the NPC's name" and told the Keeper in the
+adaptation `purpose` line that a first-appearance supporting NPC has no adaptation purpose. Both
+sentences became false the moment the kernel gained the write entrance, and **a false sentence in a
+tool description is worse than a missing one, because the Keeper believes a restriction that no
+longer exists and never walks the road that was opened.** That is a fix nobody uses. §42.5 and
+§34.16 are the same shape on the same day: a sentence false in one state was copied into a `fix`,
+executed literally, and cost a table 360 minutes for nothing.
+
+So the text ships with the kernel, **in one branch**, and the order the rule asks for is satisfied by
+the deploy rather than by the split: the rebuild makes the kernel live and the service restart makes
+the description live, seconds later. Kernel ahead of the text for those seconds is a road open and
+unadvertised, which is harmless. Text ahead of the kernel would point the Keeper at a call that is
+still refused, and a `fix` is executed literally (§34.7). **Splitting these two across branches is
+what would break it**, in either direction: the text alone is a lie, and the kernel alone is a road
+the Keeper has been told not to take.
