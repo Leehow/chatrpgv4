@@ -110,8 +110,11 @@ export function flowSkills(chargen: Chargen, input: FlowInput): Flow {
     }
     const remaining = budget - held;
     if (remaining > 0) {
-      const fresh = input.previous === null || Object.keys(previous).length === 0 && Object.keys(inherited).length > 0;
-      const targets = order.filter(name => members.includes(name) && !Object.hasOwn(pins.skills, name) && (input.spreadAll || fresh || !Object.hasOwn(inherited, name)));
+      // Whatever the pins and the inherited share leave is spent, on every skill nobody pinned, in
+      // list order and by tiers: an allocation already held only grows, never moves, and the only
+      // points that stay unspent are the ones every soft skill's cap refuses (user, 2026-09-17:
+      // a machine-built card is never handed over with points left on the table).
+      const targets = order.filter(name => members.includes(name) && !Object.hasOwn(pins.skills, name));
       if (targets.length) {
         const values: Row = Object.fromEntries(targets.map(name => [name, number(base[name]) + (soft[name] ?? 0)]));
         const [added] = Chargen.spread(targets, new Set(targets), remaining, values, cap, tiers);

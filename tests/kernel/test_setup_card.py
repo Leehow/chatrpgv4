@@ -199,7 +199,8 @@ def test_a_pinned_skill_survives_a_list_change_and_the_new_skills_take_only_what
     assert widened["pins"]["skills"]["Dodge"]["interest"] == pinned["pins"]["skills"]["Dodge"]["interest"]
     assert widened["budget"]["interest"]["unspent"] >= 0
     for name in ("Throw", "Climb"):
-        assert widened["sheet"]["skills"][name] <= pinned["sheet"]["skills"][name], "an older allocation only ever gives way, never grows on its own"
+        assert widened["sheet"]["skills"][name] >= 0 and widened["sheet"]["skills"][name] <= 75
+    assert widened["budget"]["interest"]["unspent"] == 0 or all(widened["sheet"]["skills"][n] >= 75 for n in ("Throw", "Climb", "First Aid", "Natural World")), "what the pins leave is spent unless every soft skill is capped"
 
 
 def test_soft_allocations_are_sticky_and_only_the_biggest_holder_gives_way(kernel):
@@ -251,9 +252,12 @@ def test_auto_spread_spends_what_is_left_and_moves_no_pin(kernel):
     draft(kernel, criminal())
     kernel.ok("setup.revise", {"campaign": CAMPAIGN, "numbers": {"skills": {"Dodge": 60}}})
     relaxed = kernel.ok("setup.revise", {"campaign": CAMPAIGN, "limits": {"interest_points": 300, "occupation_points": 600}})
+    # A raised budget is spent as it is raised; auto_spread can only confirm there is nothing left.
     spread = kernel.ok("setup.revise", {"campaign": CAMPAIGN, "auto_spread": True})
-    assert spread["budget"]["interest"]["unspent"] < relaxed["budget"]["interest"]["unspent"]
-    assert spread["budget"]["occupation"]["unspent"] < relaxed["budget"]["occupation"]["unspent"]
+    assert spread["budget"]["interest"]["unspent"] <= relaxed["budget"]["interest"]["unspent"]
+    assert spread["budget"]["occupation"]["unspent"] <= relaxed["budget"]["occupation"]["unspent"]
+    capped = lambda card, names: all(card["sheet"]["skills"][n] >= card["limits"]["skill_cap"] for n in names)
+    assert spread["budget"]["interest"]["unspent"] == 0 or capped(spread, [n for n in spread["sheet"]["creation"]["skills"]["interest"]["pool"] if n != "Dodge"])
     assert spread["sheet"]["skills"]["Dodge"] == 60
 
 
@@ -493,3 +497,17 @@ def test_the_edit_control_can_change_the_age_and_the_age_table_reruns_on_the_sam
     assert older["sheet"]["characteristics"]["APP"] == 85, "a pinned characteristic is not aged"
     assert older["sheet"]["creation"]["characteristics"]["rolls"] == first["sheet"]["creation"]["characteristics"]["rolls"], "same dice"
     assert older["sheet"]["derived"]["MOV"] < first["sheet"]["derived"]["MOV"]
+
+
+def test_a_bigger_budget_after_a_characteristic_edit_is_spent_not_left_on_the_table(kernel):
+    """The App preview showed 352 / 375 after DEX went to 90 (user, 2026-09-17): the raised budget
+    goes onto the skills nobody pinned, and the allocations already held only grow."""
+    first = draft(kernel, criminal())
+    dex = first["sheet"]["characteristics"]["DEX"]
+    raised = kernel.ok("setup.override", {"campaign": CAMPAIGN, "revision": first["revision"], "edits": {"characteristics": {"DEX": 90, "EDU": 80}}})
+    assert raised["budget"]["occupation"]["total"] > first["budget"]["occupation"]["total"]
+    occ = raised["sheet"]["creation"]["skills"]["occupation"]
+    assert raised["budget"]["occupation"]["unspent"] == 0 or all(raised["sheet"]["skills"][n] >= 75 for n in occ["resolved"]), raised["budget"]
+    before = first["sheet"]["creation"]["skills"]["occupation"]["allocations"]
+    for name, points in before.items():
+        assert occ["allocations"].get(name, 0) >= points, "an allocation already held only grows"
