@@ -30,7 +30,9 @@ import { shapeSettlement, tagNpcReceipts } from './projection.js';
  * declared modifier now either reaches the dice or the call is refused by name; a family that
  * learns to carry it is added here, and nothing is ever dropped in silence again.
  */
-const MODIFIER_CARRIERS = new Set([ORDINARY, COMBINED, OPPOSED, LUCK_ROLL,
+// The social adjudication carries them too (§113): its roll is the ordinary check that follows it, and a
+// die the player's own words earned is the one advantage a social attempt can be given.
+const MODIFIER_CARRIERS = new Set([ORDINARY, COMBINED, OPPOSED, LUCK_ROLL, SOCIAL,
     'decision:coc7:combat:attack', 'decision:coc7:combat:defend', 'decision:coc7:combat:maneuver']);
 /** What to do instead, per decision that cannot carry the declaration. Never a bare "remove it". */
 const MODIFIER_INSTEAD: Readonly<Record<string, string>> = Object.freeze({
@@ -152,7 +154,8 @@ export class ResolvePipeline {
     constructor(readonly context: SettleContext, readonly resolver: SkillResolver, readonly modifiers: [
         number,
         number,
-        string
+        string,
+        string | null
     ], readonly npcInSession = false, readonly families: FixedFamilies = {}) {
         const action = context.action;
         this.intent = string(action.intent);

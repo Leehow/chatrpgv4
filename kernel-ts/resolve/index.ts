@@ -32,13 +32,14 @@ export interface ResolveContributions extends FixedFamilies {
     requireMaterial?: (graph: ModuleGraph, names: any[]) => Promise<void>;
     beforeMain?: (input:ModResolveInput)=>Promise<ModResolveResult|null>;
 }
-function modifiers(input: any, arithmetic: CheckArithmetic): [
+function modifiers(input: any, arithmetic: CheckArithmetic, intent: unknown = null): [
     number,
     number,
-    string
+    string,
+    string | null
 ] {
     if (input == null)
-        return [0, 0, 'regular'];
+        return [0, 0, 'regular', null];
     if (!isJsonObject(input))
         throw new RpcError('invalid_params', 'action.modifiers must be an object');
     const bonus = Object.hasOwn(input, 'bonus_dice') ? input.bonus_dice : 0;
@@ -49,7 +50,16 @@ function modifiers(input: any, arithmetic: CheckArithmetic): [
             throw new RpcError('invalid_params', `modifiers.${label} must be 0, 1 or 2`);
     if (!arithmetic.difficulties().includes(string(difficulty)))
         unsupportedValue('difficulty', difficulty, arithmetic.difficulties());
-    return [number(bonus), number(penalty), string(difficulty)];
+    const reason = Object.hasOwn(input, 'reason') && input.reason != null ? input.reason : null;
+    if (reason !== null && (typeof reason !== 'string' || !reason.trim()))
+        throw new RpcError('invalid_params', 'modifiers.reason is one clause of text');
+    // A social attempt's dice are what the player's own words earned (spec thin-book-play C): a modifier on
+    // one without its reason is a number nobody can read, so it is refused by name; elsewhere the reason is
+    // recorded when given. Either way it travels on the roll receipt as modifier_reason.
+    const moved = number(bonus) > 0 || number(penalty) > 0 || string(difficulty) !== 'regular';
+    if (moved && intent === 'social' && reason === null)
+        throw new RpcError('needs', 'a modifier on a social attempt needs modifiers.reason: one clause of what in the player\'s words earned it', {details: {field: 'modifiers.reason'}});
+    return [number(bonus), number(penalty), string(difficulty), reason === null ? null : string(reason).trim()];
 }
 function bindChoice(turn: Row, action: Row, callId: string): Row | null {
     if (action.choice == null)
@@ -189,7 +199,7 @@ export function createResolveRuntime(kernel: KernelContext, writer: ResolveWrite
                     throw new RpcError('not_implemented', 'The source material gate is not implemented in the TypeScript resolve runtime');
             }
             const { arithmetic, observations } = await engine();
-            const rollModifiers = modifiers(action.modifiers, arithmetic);
+            const rollModifiers = modifiers(action.modifiers, arithmetic, action.intent);
             if (!contributions.beforeMain && (contributed || ['objects:use', 'objects:repair'].includes(string(action.decision || ''))))
                 throw new RpcError('not_implemented', 'Mod and object settlements are not implemented in the TypeScript resolve runtime', {
                     details: {

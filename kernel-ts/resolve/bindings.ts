@@ -241,11 +241,24 @@ export function executorArgs(context: SettleContext, plan: Row, selected: Row): 
         // were filtered out of the plan and the roll came out plain (§95). The pushed roll keeps the
         // original check's dice, which `locked` already wrote into the payload -- only fill in when
         // the plan carries neither, so an inherited zero is never overwritten by a fresh declaration.
-        if (payload.bonus == null && payload.penalty == null) {
+        if (payload.social_adjudication_ref != null) {
+            // The adjudication's own dice (a supporting clue, the person's stance) and the die the player's
+            // words earned (§113) add up; the arithmetic caps the total at two either way.
+            const [bonus, penalty] = context.declaredModifiers;
+            if (bonus || penalty) {
+                output.bonus = number(payload.bonus ?? 0) + bonus;
+                output.penalty = number(payload.penalty ?? 0) + penalty;
+            }
+        }
+        else if (payload.bonus == null && payload.penalty == null) {
             const [bonus, penalty] = context.declaredModifiers;
             output.bonus = bonus;
             output.penalty = penalty;
         }
+        // The reason the dice were given rides beside them to the receipt (§113); it is host-owned, never a decision slot.
+        const reason = context.declaredModifiers[3];
+        if (reason && (number(output.bonus) > 0 || number(output.penalty) > 0 || string(output.difficulty ?? 'regular') !== 'regular'))
+            output.modifier_reason = reason;
     }
     else if (capability === 'opposed') {
         const ref = string(payload.actor_check_ref || '');
@@ -292,7 +305,7 @@ export function executorArgs(context: SettleContext, plan: Row, selected: Row): 
     }
     else if (capability === 'push_policy') {
         delete output.investigator;
-        copy(['original_check_decision_id', 'method_changed', 'failure_consequence', 'target', 'difficulty', 'bonus', 'penalty', 'skill', 'canonical_roll_receipt']);
+        copy(['original_check_decision_id', 'method_changed', 'failure_consequence', 'target', 'difficulty', 'bonus', 'penalty', 'modifier_reason', 'skill', 'canonical_roll_receipt']);
     }
     else if (capability === 'luck_spend')
         copy(['points', 'source_roll_id', 'canonical_roll_receipt', 'original_check_decision_id']);

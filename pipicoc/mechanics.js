@@ -735,6 +735,10 @@ export function createComponent(React) {
             h(N, null, text(row.roll)),
             h("span", { className: "coc-mech-target" }, `/${text(row.target)}`)),
           needWord ? h("span", { className: "coc-mech-need" }, needWord) : null,
+          // The dice the fiction earned, and why: a bonus die nobody could see was a bonus die the player
+          // could not have played for (spec thin-book-play C).
+          num(row.bonus) ? h("span", { className: "coc-mech-mod", "data-mod": "bonus" }, fill(t("bonus"), { n: num(row.bonus) }), text(row.modifier_reason) ? ` · ${fill(t("because"), { reason: text(row.modifier_reason) })}` : "") : null,
+          num(row.penalty) ? h("span", { className: "coc-mech-mod", "data-mod": "penalty" }, fill(t("penalty"), { n: num(row.penalty) }), text(row.modifier_reason) ? ` · ${fill(t("because"), { reason: text(row.modifier_reason) })}` : "") : null,
           levelWord ? h("span", { className: "coc-mech-lv" }, levelWord) : null,
           row.pushed ? h("span", { className: "coc-mech-faces" }, t("pushed")) : null,
           h(Stamp, { tone: row.passed ? "pass" : "fail" }, row.passed ? t("pass") : t("fail")));

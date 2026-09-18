@@ -1,3 +1,7 @@
+# 1.2.22
+
+- Adds the unmet-question check: each question the player put to someone is answered, deflected in character with a reason, or refused with one; a repeated line is not an answer. Found on a 24-turn table where three NPCs answered every new question with the same three sentences.
+
 # 1.2.21
 
 - Adopts the §101 runtime-file allowlist, so only `mod.json` and `auditor.md` enter campaign homes; the engineering changelog remains source evidence and is never projected by `mods.list`.

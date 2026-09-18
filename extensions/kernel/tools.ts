@@ -331,13 +331,14 @@ const ResolveAction = Type.Object({
 			bonus_dice: Type.Optional(
 				Type.Integer({
 					description:
-						"0 to 2 bonus dice: how you say this attempt is favoured. Give one when the fiction genuinely helps the person doing it, two when the advantage is overwhelming — several of them at it together, a companion steadying the thing, a prepared tool, surprise, an opponent already busy fending someone else off are usual shapes of it, examples rather than a list to match against; you judge the situation. difficulty only makes an attempt harder, so this is the only way to say it is easier, and an advantage you do not put here never reaches the dice",
+						"0 to 2 bonus dice: how you say this attempt is favoured. Give one when the fiction genuinely helps the person doing it, two when the advantage is overwhelming — several of them at it together, a companion steadying the thing, a prepared tool, surprise, an opponent already busy fending someone else off are usual shapes of it, examples rather than a list to match against; you judge the situation. On a social attempt (charm, persuade, fast talk, intimidate) the die is what the player's own words earned: one when the story is specific, fits what this person wants or fears and gives them a reason; two when they already trust the speaker or the claim is backed by something they can see; none when 'I lie to him' has nothing behind it. difficulty only makes an attempt harder, so this is the only way to say it is easier, and an advantage you do not put here never reaches the dice",
 				}),
 			),
 			penalty_dice: Type.Optional(
 				Type.Integer({ description: "0 to 2 penalty dice: the situation works against the attempt (bad light, poor footing, a hurried try) without raising the difficulty" }),
 			),
 			difficulty: Type.Optional(StringEnum(["regular", "hard", "extreme"] as const)),
+			reason: Type.Optional(Type.String({ description: "one clause: what in the fiction earned this modifier. Required on a social attempt whenever you give dice or raise the difficulty; it is written on the roll receipt and the player reads it there" })),
 		}),
 	),
 	skill: Type.Optional(Type.String({ description: "an explicit skill or characteristic name; takes precedence over inference from method" })),

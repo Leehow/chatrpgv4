@@ -110,17 +110,20 @@ def test_a_combined_check_rolls_the_declared_bonus_die(seeded_kernel):
 
 # ---- and where it cannot be carried, the call is refused by name -------------------------------
 
-def test_a_decision_that_cannot_carry_the_dice_refuses_instead_of_dropping_them(seeded_kernel):
+def test_a_social_attempt_carries_the_die_the_players_words_earned(seeded_kernel):
+    """§113: the social adjudication carries declared dice into the check it leads to, with their reason."""
     open_turn(seeded_kernel, "我去报社。")
     seeded_kernel.table("apply", call_id="t1-c1", effects=[{"kind": "move", "to": "newspaper-morgue"}])
-    error = resolve_err(seeded_kernel, "t1-c2", intent="social", goal="让阿蒂放我们进剪报室",
-                        method="用说服跟他讲道理", target="Arty Wilmot", modifiers={"bonus_dice": 1})
-    assert error["code"] == "invalid_params"
-    assert error["details"]["decision"] == "social:adjudicate-difficulty"
-    assert error["details"]["declared"] == {"bonus_dice": 1, "penalty_dice": 0}
-    # The same action without the declaration settles: the refusal names the field, not the action.
-    assert resolve(seeded_kernel, "t1-c2", intent="social", goal="让阿蒂放我们进剪报室",
-                   method="用说服跟他讲道理", target="Arty Wilmot")["decision"] == "social:adjudicate-difficulty"
+    result = resolve(seeded_kernel, "t1-c2", intent="social", goal="让阿蒂放我们进剪报室",
+                     method="用说服跟他讲道理", target="Arty Wilmot",
+                     modifiers={"bonus_dice": 1, "reason": "the reporter's card and the editor's name give him a reason"})
+    assert result["decision"] == "social:adjudicate-difficulty"
+    rolls = [r for r in receipts(seeded_kernel).values() if r.get("kind") in ("roll", "check") or "roll" in str(r.get("id", ""))]
+    social_rolls = [r for r in rolls if r.get("skill") == "Persuade"]
+    assert social_rolls, rolls
+    roll = social_rolls[-1]
+    assert roll["bonus"] == 1 and rolled_extra_tens(roll.get("check") or roll)
+    assert roll["modifier_reason"] == "the reporter's card and the editor's name give him a reason"
 
 
 # ---- and the card the player reads says a die was added ---------------------------------------
@@ -132,3 +135,33 @@ def test_the_mechanics_card_reports_the_dice(seeded_kernel):
     rows = narrate(seeded_kernel, "t1-c2", "你贴着门板，屏住呼吸。")["mechanics"]
     row = next(row for row in rows if row["kind"] == "roll")
     assert row["bonus"] == 1 and row["penalty"] == 0
+
+
+# ---- the reason a social die was given is refused when missing, and printed when present ------
+
+def test_a_social_modifier_without_its_reason_is_refused_by_name(seeded_kernel):
+    open_turn(seeded_kernel, "我去报社。")
+    seeded_kernel.table("apply", call_id="t1-c1", effects=[{"kind": "move", "to": "newspaper-morgue"}])
+    error = resolve_err(seeded_kernel, "t1-c2", intent="social", goal="让他放松", method="用说服跟他讲道理",
+                        target="Arty Wilmot", modifiers={"bonus_dice": 1})
+    assert error["code"] == "needs" and error["details"]["field"] == "modifiers.reason"
+
+
+def test_a_social_modifier_with_its_reason_reaches_the_dice_and_the_receipt(seeded_kernel):
+    open_turn(seeded_kernel, "我去报社。")
+    seeded_kernel.table("apply", call_id="t1-c1", effects=[{"kind": "move", "to": "newspaper-morgue"}])
+    result = resolve(seeded_kernel, "t1-c2", intent="social", goal="让他放松", method="用说服跟他讲道理",
+                     target="Arty Wilmot", modifiers={"bonus_dice": 1, "reason": "the heartbreak story fits what he wants to hear"})
+    assert result["decision"] == "social:adjudicate-difficulty"
+    roll = [r for r in receipts(seeded_kernel).values() if r.get("skill") == "Persuade"][-1]
+    assert roll["bonus"] == 1 and rolled_extra_tens(roll.get("check") or roll)
+    assert roll["modifier_reason"] == "the heartbreak story fits what he wants to hear"
+
+
+def test_an_ordinary_modifier_records_its_reason_when_given_and_needs_none(seeded_kernel):
+    open_turn(seeded_kernel)
+    plain = resolve(seeded_kernel, "t1-c1", intent="investigate", goal="听墙角", method="用聆听贴门", modifiers={"bonus_dice": 1})
+    assert "modifier_reason" not in roll_of(seeded_kernel, plain["receipt"])
+    said = resolve(seeded_kernel, "t1-c2", intent="investigate", goal="听墙角", method="用聆听贴门",
+                   modifiers={"bonus_dice": 1, "reason": "the door is thin"})
+    assert roll_of(seeded_kernel, said["receipt"])["modifier_reason"] == "the door is thin"

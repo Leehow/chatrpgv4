@@ -76,7 +76,8 @@ export class SettleContext {
     declaredModifiers: [
         number,
         number,
-        string
+        string,
+        string | null
     ] = [0, 0, 'regular'];
     private knownSpells: string[] = [];
     private learningSources: Row = {};

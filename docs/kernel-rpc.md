@@ -13561,3 +13561,32 @@ Acceptance: `tests/extension/reading-intent.test.mjs` proves a map omitted by th
 separate pass that reopens its page before publication. `tests/extension/ts-kernel-modules.test.mjs` proves
 a matching persisted attempt publishes through a fresh kernel owner, while the existing native-owner test
 continues to prove that a requeued/reclaimed attempt receives a new token and cannot reuse the old one.
+
+
+## 113. Roleplay reaches the dice, the book is consulted before a denial, and a person does not repeat (2026-09-18, spec thin-book-play C/D; amends §95, §34, §40)
+
+A 24-turn table: seven social checks, all `regular` with no dice, so a story built to win an
+old man over rolled exactly like "I lie to him"; three people answered every new question with the
+same three sentences; and "is there a clinic" was denied from a five-node graph until the player
+protested out of character and a source lookup found the doctor's house.
+
+- **`action.modifiers.reason`** is one clause of what in the fiction earned a modifier. On a
+  `social` attempt any bonus die, penalty die or raised difficulty without it is `needs
+  {field: "modifiers.reason"}`; elsewhere it is optional. It travels on the roll receipt as
+  `modifier_reason` (and through a push's copied fields), and the mechanics card prints the dice
+  with it: `bonus die ×1 · because …`. The tool's own description says what a social die is
+  earned by: a story that is specific, fits what this person wants or fears and gives them a
+  reason; two when they already trust the speaker or something they can see backs the claim; none
+  for a bare "I deceive him".
+- **A thin graph is not the book saying no.** The capsule carries `reading` (§90.5); the Keeper
+  prompt says to look `kind=source` before any NPC denies a person, place or service the graph
+  does not hold, and that a denial is only ever the book's.
+- **An unmet question is a finding.** narration-audit 1.2.22 checks that every question the player
+  put to someone is answered, deflected in character with a reason, or refused with one, and that
+  a word-for-word repeated line is not an answer.
+- **A person does not repeat (D).** The voice lane's packet carries `said`: the lines this person
+  already spoke at this table; the host refuses a `{{say}}` line that repeats twelve or more
+  consecutive characters of one of them, before the audit, as `needs {reason: "repeated_line"}`.
+
+Tests: `test_declared_dice.py` (a social modifier without a reason is refused by name; with one,
+the receipt carries it), `ui-words-surfaces` (the three captions exist), voice tests (D).

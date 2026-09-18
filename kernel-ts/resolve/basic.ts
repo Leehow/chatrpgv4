@@ -192,6 +192,7 @@ export const executeCheck: SettlementExecutor = async (context, args, plan) => {
         passed: data.passed,
         bonus: data.bonus,
         penalty: data.penalty,
+        ...(typeof args.modifier_reason === 'string' && args.modifier_reason ? { modifier_reason: args.modifier_reason } : {}),
         visibility: string(args.visibility || 'public'),
         pushed,
         kind,
