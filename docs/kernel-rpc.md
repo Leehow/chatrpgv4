@@ -13246,7 +13246,9 @@ with Lima inset` on physical page 56. The product never started source reading a
 text-only item named `旅馆公开路线图`. No map mechanics row or image reached the player.
 
 That probe was already too late. A player must not know that the source book contains a map or ask the
-Keeper to fetch it. During PDF indexing, the reader records navigation-only `map_candidates` rows with
+Keeper to fetch it. A PDF reader claim self-enqueues one background index job when indexing has never
+run and no prior index attempt exists; failed attempts are retained and are not silently respawned.
+During PDF indexing, the reader records navigation-only `map_candidates` rows with
 an authored map name, exact semantic place focus and physical pages. When a graph contains the matching
 scene, the host projects those rows into `scene.properties.map_candidates`. This marker is Keeper-only
 navigation metadata: it authorizes no pixels, region names or player knowledge and never becomes a

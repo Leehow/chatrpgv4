@@ -281,6 +281,20 @@ test('canonical PDF clue properties and knows/supports relations reach the exist
   assert.deepEqual(api.threadSection(graph,world,scene,[npc]).lines,[]);
 });
 
+test('a bound PDF self-enqueues one background index when the reader first claims work', async () => {
+  const require=createRequire(import.meta.url),flock=promisify(require('fs-ext').flock);
+  const workspace=join(evidence,'auto-index'),path=join(evidence,'auto-index.pdf'),sourceBytes=Buffer.from('%PDF-1.7\nindex queue fixture\n');
+  await writeFile(path,sourceBytes);
+  const context=await api.createKernelContext({workspace,content:join(ROOT,'content'),locks:api.createAdvisoryLocks(flock)}),runtime=api.createModuleRuntime(context);
+  try {
+    const {module_id}=await runtime.handlers['module.source.bind']({source:{path,page_count:2,file_sha256:createHash('sha256').update(sourceBytes).digest('hex')}});
+    const first=await runtime.handlers['module.read.claim']({module_id,owner:'index-owner'});
+    assert.equal(first.purpose,'index');assert.equal(first.foreground,false);assert.equal(first.focus,'');assert.deepEqual(first.pages,[]);
+    const queue=await runtime.source.store.queue(module_id);
+    assert.equal(queue.filter(job=>job.purpose==='index').length,1);
+  } finally {await runtime.close();await context.git.close();}
+});
+
 test('source assembly and changed-page projection preserve accepted facts and assets', async t => {
   const meta = { id: 'book-1', title: 'Book', languages: ['en'], reading: { materials: [] } };
   const first = { op: 'assemble', name: 'initial published source', draft: clone(base), packet: clone(packet), meta };

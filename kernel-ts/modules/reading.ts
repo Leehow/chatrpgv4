@@ -29,6 +29,13 @@ export class Reading {
     private closePromise?: Promise<void>;
     constructor(readonly store: ModuleStore) { }
     private key(mid: string, job: string): string { return `${mid}/${job}`; }
+    private ensureIndexJob(meta: Row, queue: Row[]): boolean {
+        if (meta.source !== 'pdf' || !truth(meta.reading_version) || truth(row(meta.reading).index_complete)
+            || queue.some(job => job.purpose === 'index')) return false;
+        const source = row(meta.source_document), key = jsonDigest([source.file_sha256, 'index', '', '', '', []]);
+        queue.push({ job_id: `read-${queue.length + 1}`, key, purpose: 'index', focus: '', question: '', pages: [], foreground: false, state: 'queued', attempts: 0, at: nowIso() });
+        return true;
+    }
     private owned(): void { if (this.closed)
         throw new RpcError('invalid_params', 'this reading attempt no longer owns publication'); }
     private mutex<T>(mid: string, action: () => Promise<T>): Promise<T> {
@@ -356,6 +363,7 @@ export class Reading {
         const mid = validateModuleId(params.module_id), directory = this.store.moduleDir(mid);
         return this.mutex(mid, async () => {
             const meta = await this.store.module(mid), source = await this.source(meta), queue = await this.store.queue(mid), active: Row[] = [];
+            this.ensureIndexJob(meta, queue);
             for (const stale of queue) {
                 const committed = row(row(meta.reading).completed)[stale.job_id];
                 if (truth(committed)) {
