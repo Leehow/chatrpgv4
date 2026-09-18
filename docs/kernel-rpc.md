@@ -13168,3 +13168,21 @@ The three ends are closed. Investigator sheets and NPC mechanics profiles write 
 participant construction and retained-session rebinding carry them; characteristic-named weapons and
 Dominate read them for authoritative rolls. `tests/kernel/test_sessions.py` pins both the floating
 knife's target 90 and its damage expression `1D4+2` through the production TS RPC seam.
+
+## 105. An opponent attack cost belongs to its authored weapon (2026-09-17)
+
+H-SIDE turn 172 had Corbitt explicitly attack with `weapon: "claws"`. The roll correctly used
+Fighting 50, but the turn still spent 1 MP and displayed the floating knife's resource change while
+the delivered fiction said the knife remained stuck in the mud. The operation's
+`opponent_attack_resource_cost` was applied before weapon selection and therefore charged every NPC
+attack in the encounter.
+
+The combat operation already writes the binding: `opponent_weapon_id: "floating-knife"`. Combat
+execution now selects the actual weapon first and charges `opponent_attack_resource_cost` only when
+that weapon matches the authored opponent weapon. An operation that deliberately supplies a cost but
+no weapon binding retains its previous any-opponent-attack meaning. The resource receipt and player
+card therefore agree with the chosen attack; no prose inference is involved.
+
+`tests/kernel/test_sessions.py::test_floating_knife_cost_is_not_charged_to_corbitts_claws` opens the
+authored encounter through production TS RPC, chooses Corbitt's claws, and pins both the absence of an
+MP effect and the unchanged participant MP.

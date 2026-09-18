@@ -356,16 +356,16 @@ export async function executeCombatResolve(context: SettleContext, input: Row): 
             const target = string(args.target_npc_id || '');
             if (!Object.hasOwn(session.participants, target))
                 throw new RpcError('unknown_entity', `${target || 'the target'} is not in this combat`, { details: { query: target, candidates: Object.keys(session.participants).filter(id => id !== actor) } });
-            const cost = operation.opponent_attack_resource_cost;
-            if (session.participants[actor].side !== 'investigator' && isJsonObject(cost)) {
-                const before = number(session.participants[actor].magic_points || 0);
-                if (before >= number(cost.cost || 0))
-                    session.participants[actor].magic_points = before - number(cost.cost || 0);
-            }
             let weapon = args.weapon_id ?? null;
             if (weapon === null && session.participants[actor].weapons.length) {
                 const first = session.participants[actor].weapons[0];
                 weapon = isJsonObject(first) ? first.weapon_id : string(first);
+            }
+            const cost = operation.opponent_attack_resource_cost, costWeapon = string(operation.opponent_weapon_id || '');
+            if (session.participants[actor].side !== 'investigator' && isJsonObject(cost) && (!costWeapon || costWeapon === string(weapon))) {
+                const before = number(session.participants[actor].magic_points || 0);
+                if (before >= number(cost.cost || 0))
+                    session.participants[actor].magic_points = before - number(cost.cost || 0);
             }
             session.pendingAttack = pendingAttack(session, context, actor, target, weapon, operation, intentText(args, `${actor} attacks ${target}`), args);
             hints.push(`an attack is pending: ${target} must answer with a defense`);

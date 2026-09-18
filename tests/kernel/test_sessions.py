@@ -158,6 +158,24 @@ def test_combat_against_corbitt_with_the_revolver(tmp_path):
         client.close()
 
 
+def test_floating_knife_cost_is_not_charged_to_corbitts_claws(kernel):
+    open_turn(kernel, "我举起撬棍迎战。")
+    n = walk_to_confrontation(kernel)
+    _attack, defend, n = attack_and_npc_defense(kernel, n)
+    assert defend["session"]["turn_of"] == CORBITT
+    before = next(row for row in read_json(save_path(kernel, "combat.json"))["participants"]
+                  if row["actor_id"] == CORBITT)["magic_points"]
+
+    strike = resolve(kernel, f"t1-c{n}", intent="combat", goal="科比特伸爪扑来", method="用干爪抓",
+                     actor="Walter Corbitt", target="托马斯·海斯", weapon="claws")
+
+    assert strike["outcome"]["status"] == "pending_defense"
+    assert [effect for effect in strike["effects"] if effect["kind"] == "mp"] == []
+    after = next(row for row in read_json(save_path(kernel, "combat.json"))["participants"]
+                 if row["actor_id"] == CORBITT)["magic_points"]
+    assert after == before
+
+
 def test_an_unlocked_authored_encounter_must_be_entered_before_combat_starts(kernel):
     """§102: Corbitt staged beside his newly found body may not silently lose the target scene's rules."""
     open_turn(kernel, "我发现科比特的尸体，立刻举枪。")
