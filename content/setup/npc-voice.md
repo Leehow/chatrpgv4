@@ -35,6 +35,27 @@ fall once, not a tail on every line.
 must be different from every one of them in at least the ending habit or the
 address terms. Two masks that could be swapped are one mask.
 
+## Who they are talking to
+
+When the packet carries an `investigator` block, that is the person at the table
+this one will mostly be speaking to: their `sex`, and their `address` when this
+table has established what they are called to their face.
+
+- An address term in your mask has to fit them. Never invent one that contradicts
+the `sex` you were given: the Keeper performs that line all game, and a mask that
+misaddresses the investigator is wrong in the most visible place a mask can be
+wrong.
+- `sex` and `address` are the table's own words in play_language — open text a
+person wrote, not a closed set of titles. Do not translate them, and do not treat
+them as a list to choose from.
+- When `address` is given, this table has settled on that word: use it, and invent
+no other.
+- When what you have does not settle which form your language uses — no block, or
+a word that does not tell you — write an address term that fits anyone, or none at
+all. A mask with no address term is still a mask.
+- `taken_masks` asks you to stay apart from the other masks: stay apart by the
+ending habit. Never reach for another address term just to be different.
+
 ## The three exchanges
 
 Each is one line: what a stranger says, an arrow (→), what this person says

@@ -6,7 +6,8 @@ Keeper's `apply dossier` kept out of a `shape: "lines"` word. Through the RPC se
 import json
 import shutil
 
-from conftest import CAMPAIGN, WORKTREE, campaign_dir, create_campaign, narrate, narrate_opening, open_turn, read_json, read_jsonl
+from conftest import (CAMPAIGN, PREGEN, WORKTREE, campaign_dir, create_campaign, narrate, narrate_opening, open_turn,
+                      read_json, read_jsonl)
 
 KNOTT = "Steven Knott"
 KNOTT_HANDLE = "steven-knott"
@@ -91,7 +92,7 @@ def test_the_packet_is_closed_and_names_the_person_by_handle(kernel):
     on(kernel)
     packet = job(kernel)
     assert packet["job_id"] == f"voice:{CAMPAIGN}:{packet['npc']['handle']}"
-    assert set(packet) == {"job_id", "play_language", "module", "coarse_language", "npc", "documents", "taken_masks", "said", "budget", "instruction"}
+    assert set(packet) == {"job_id", "play_language", "module", "coarse_language", "npc", "documents", "taken_masks", "said", "budget", "instruction", "investigator"}
     assert packet["said"] == []
     assert packet["play_language"] == "zh-Hans" and packet["coarse_language"] is True
     assert packet["budget"] == {"mask_chars": 200, "exchanges": 3, "max_chars": 200}
@@ -102,6 +103,31 @@ def test_the_packet_is_closed_and_names_the_person_by_handle(kernel):
     settle(kernel)
     configure(kernel, settings={"coarse_language": False})
     assert job(kernel)["coarse_language"] is False
+
+
+def test_the_packet_carries_the_investigator_the_mask_has_to_fit(kernel):
+    """§118: a mask is written for a listener. Until this, the lane was blind to who that was, so a mask
+    invented its own address term -- campaign game-ca56ce50 had 内特·帕特森 call a woman 小伙子 all game."""
+    on(kernel)
+    sheet = read_json(campaign_dir(kernel.workspace) / "party" / f"{PREGEN}.json")
+    packet = job(kernel)
+    assert packet["investigator"] == {"sex": sheet["sex"]}, "the sheet's own free text, the value §117 makes the Keeper owe"
+    assert sheet["name"] not in json.dumps(packet["investigator"]), "no name travels with the listener"
+    # The other half is the word this table has settled on for them to their face (§79).
+    kernel.ok("table.apply", {"campaign": CAMPAIGN, "call_id": "t1-c1", "effects": [
+        {"kind": "person", "who": sheet["name"], "address": "汤米"}]})
+    assert job(kernel)["investigator"] == {"sex": sheet["sex"], "address": "汤米"}
+
+
+def test_a_packet_with_nothing_to_say_about_the_listener_carries_no_investigator(kernel):
+    """§118: absent is absent. A sheet with no `sex` and no §79 record yet leaves the mask's writer with no
+    listener facts at all, and the packet says nothing rather than filling the blank in."""
+    on(kernel)
+    path = campaign_dir(kernel.workspace) / "party" / f"{PREGEN}.json"
+    sheet = read_json(path)
+    sheet.pop("sex", None)
+    path.write_text(json.dumps(sheet, ensure_ascii=False), encoding="utf-8")
+    assert "investigator" not in job(kernel)
 
 
 def test_the_write_lands_in_the_package_namespace_and_reaches_the_capsule_as_voices(kernel):

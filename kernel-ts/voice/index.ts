@@ -10,7 +10,7 @@ import { npcView } from '../read/capsule.js';
 import { array, number, repr, row, string, type Row } from '../read/values.js';
 import { createWriteRuntime } from '../write/index.js';
 import { readNpcLedger } from '../write/contributions.js';
-import { KEYS, buildPacket, fail, nextPerson, openJob, parseJobId, readJob, submit } from './jobs.js';
+import { KEYS, buildPacket, fail, investigatorIdentity, nextPerson, openJob, parseJobId, readJob, submit } from './jobs.js';
 /** The lane instruction is authored content (`content/setup/npc-voice.md`, §40.7); the packet carries it whole.
  *  Until 1.1.0 nothing read the file and the model saw only the kernel's short fallback passage. */
 async function laneInstruction(context: KernelContext): Promise<string | undefined> {
@@ -42,7 +42,7 @@ export function createVoiceHandlers(context: KernelContext, writer: ReturnType<t
                 return { job_id: null };
             const ledger = await readNpcLedger(campaign), dossier = npcView(graph, snapshot.world, node, ledger);
             const handle = graph.handle(node), said = (await campaign.records()).flatMap((record: Row) => array(record.speech).filter(line => row(row(line).who).npc === handle).map(line => string(row(line).text)));
-            const packet = buildPacket(campaign, graph, snapshot.world, node, await playLanguageOf(context, snapshot.meta), dossier, await laneInstruction(context), said);
+            const packet = buildPacket(campaign, graph, snapshot.world, node, await playLanguageOf(context, snapshot.meta), dossier, await laneInstruction(context), said, await investigatorIdentity(campaign, snapshot.world));
             return openJob(campaign, graph.handle(node), packet);
         },
         'voice.submit': async (params) => {

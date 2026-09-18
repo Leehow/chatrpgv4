@@ -34,6 +34,7 @@ function packet(handle) {
 			knowledge: ["the cellar door sticks"],
 		},
 		documents: ["A rent book in his own hand."],
+		investigator: { sex: "女", address: "薇姐" },
 		taken_masks: ["自称鄙人，句尾带「这个嘛」。"],
 		budget: { mask_chars: 200, exchanges: 3, max_chars: 200 },
 		instruction: "Write how this person is heard: a mask of one line, then three exchanges.",
@@ -141,6 +142,7 @@ test("a committed turn drains the queue, one job per person, on a closed packet 
 	assert.match(inputText(seen), /\[Person\] Steven Knott/);
 	assert.match(inputText(seen), /\[Hides\] he knows what walks under the house/);
 	assert.match(inputText(seen), /\[Coarse language\] on/);
+	assert.match(inputText(seen), /\[The investigator this person is talking to\] sex: 女 \| addressed as: 薇姐/);
 	assert.ok(!inputText(seen).includes("voice:camp:"), "the model never reads the job id");
 	assert.ok(!seen.systemPrompt.includes("voice:camp:"));
 	assert.deepEqual(table.rows().map(row => [row.npc, row.ok, row.model]), [
@@ -149,6 +151,19 @@ test("a committed turn drains the queue, one job per person, on a closed packet 
 	assert.ok(table.rows().every(row => typeof row.ms === "number"));
 	assert.deepEqual(table.rows("lane-call").filter(row => row.subsession === "voice").map(row => row.phase).slice(0, 3),
 		["start", "response", "end"]);
+});
+
+test("a packet with no investigator says nothing about one", async (t) => {
+	let seen;
+	const table = await openVoice(t, {
+		people: ["steven-knott"],
+		responses: [context => { seen = context; return answer("你是谁？", "雨大。", "地窖呢？"); }],
+		rpc: (method, _params, queue) => method === "voice.job" && queue.length ? { ...packet(queue.shift()), investigator: undefined } : undefined,
+	});
+	table.commit(1);
+	await completed(table, 1);
+	await asked(table, 2);
+	assert.ok(!inputText(seen).includes("[The investigator"), "absent is absent: the frame fills nothing in");
 });
 
 test("one commit cannot become an unbounded run of model calls", async (t) => {

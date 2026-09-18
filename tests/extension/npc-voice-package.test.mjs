@@ -89,6 +89,9 @@ test("the lane instruction is authored in English and asks for exactly the shape
   // `content/setup/**` is system content and is guarded against CJK by tests/kernel/test_system_language.py,
   // so the two-mouths example lives here in English and verbatim in the package's own agent.md.
   assert.match(instruction, /Same thought, two mouths/);
+  // §118: the mask is written for a listener, and an address term in it must fit that listener.
+  assert.match(instruction, /## Who they are talking to/);
+  assert.match(instruction, /Never invent one that contradicts/);
 });
 
 /**

@@ -13705,3 +13705,42 @@ project's policy; the project's open-language and no-semantic-hardcode rules sti
 Acceptance: public facts carry free-text sex; the verifier prompt names the new kind and receives that
 identity; the closed host/kernel schemas retain a grounded finding and return it in the next capsule; the
 Keeper prompt names the same authority without authoring any language-specific title.
+
+## 118. A speech mask is written for the people who are actually at the table (2026-09-18, amends §40.7 and §117)
+
+Campaign `game-ca56ce50` (`血色公路`, turn 1): the capsule carried `known.investigator.sex: "女"` and 内特·帕特森
+said 「小伙子你真打算在这儿过夜？」. The Keeper had not lost the identity and was not guessing from a name — the
+capsule's `voices` section orders it to wear that person's mask on every line, and the mask was
+`自称老子，管外来人叫小伙子，卡车粗口，话常反问收尾。`. `voice.job` wrote that mask from a packet that names "what
+they call the person they are talking to" as a thing the mask has to settle and then withholds every fact that
+could settle it: the person's own dossier, the book, the setting and the masks other people already wear
+(`taken_masks`) — nothing about the table. Turn 0 of the same campaign, before any mask existed, called the same
+investigator 小姐.
+
+§117 repaired the consumer half — the Keeper is told to respect a free-text `sex`, and the verifier may file
+`investigator_identity_mismatch` — and left the producer writing blind. A mask is written once for the life of a
+campaign (§40.7: a person whose lines exist is never offered again), so a wrong address term is not one bad
+sentence: it is that person's voice for the rest of the table.
+
+- **The packet gains `investigator`: `{sex?, address?}`**, absent when neither exists and never filled in. `sex` is
+  the sheet's own free text — the same value §117 makes the Keeper respect and the capsule already carries.
+  `address` is `world.person_labels[<sheet id>].address`, the word this table calls them to their face (§79) and
+  the one thing a mask may quote back at them. It is the investigator `known.investigator` carries, so the lane and
+  the Keeper look at the same person. **No name travels here**, for `taken_masks`' reason: a mask says how someone
+  talks, and a name in it would be an address term for someone this person has not been introduced to.
+- **The instruction** (`content/setup/npc-voice.md`, and the kernel's fallback passage in `voice/jobs.ts`) says what
+  to do with it: the mask's address terms must fit the person it is written for, and never contradict the `sex`
+  given. `sex` and `address` are the table's own open text in the play language, not a list of titles and not
+  something to translate; nothing in code enumerates any language's forms. When `address` is given it is this
+  table's established word — use it and invent no other. When the facts given do not settle the language's form,
+  choose wording that fits anyone, or no address term at all. Staying apart from `taken_masks` is the ending
+  habit's job: the rule already reads "the ending habit or the address terms", and a lane writing for a known
+  listener uses the first.
+- **What this does not do.** It does not rewrite a mask already written, and it does not validate one against `sex`
+  after the fact — a judge ranking address terms is a title list by another route. A table that played before this
+  section keeps the mask it has; that case is §117's, where the Keeper owes the identity and the verifier may say
+  so.
+
+Acceptance: `voice.job`'s closed packet carries `investigator` with the sheet's `sex` and the table's `address`,
+and nothing that names them; the lane's own prompt renders it; the instruction forbids an address term the
+listener's own facts do not support; the closed-packet test names the new field.

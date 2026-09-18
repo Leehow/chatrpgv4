@@ -59,6 +59,7 @@ interface JobPacket {
 		deflect_lines?: unknown;
 		knowledge?: unknown;
 	};
+	investigator?: { sex?: string; address?: string };
 	documents?: unknown;
 	taken_masks?: unknown;
 	budget?: { mask_chars?: number; exchanges?: number; max_chars?: number };
@@ -124,6 +125,18 @@ function shapeVerdict(parsed: unknown): { honours: boolean; why: string } | unde
 	return { honours: row.honours, why: typeof row.why === "string" ? row.why.trim().slice(0, 200) : "" };
 }
 
+/** Who the mask is written for (contract §118): the listener's own facts, so that no address term in the mask can
+ *  contradict them. Both are the table's words in the play language -- open text, never a title list -- and no name
+ *  travels with them. */
+function investigatorBlock(packet: JobPacket): string[] {
+	const who = packet.investigator ?? {};
+	const facts = [
+		...(typeof who.sex === "string" && who.sex.trim() ? [`sex: ${who.sex.trim()}`] : []),
+		...(typeof who.address === "string" && who.address.trim() ? [`addressed as: ${who.address.trim()}`] : []),
+	];
+	return facts.length ? [`[The investigator this person is talking to] ${facts.join(" | ")}`, ""] : [];
+}
+
 function userInput(packet: JobPacket, objection?: string): string {
 	const npc = packet.npc ?? {};
 	const documents = Array.isArray(packet.documents)
@@ -148,6 +161,7 @@ function userInput(packet: JobPacket, objection?: string): string {
 		...field("Deflects with", npc.deflect_lines),
 		...field("Knows", npc.knowledge),
 		"",
+		...investigatorBlock(packet),
 		"[Their own documents]",
 		documents.length ? documents.join("\n\n") : "(none)",
 		"",
