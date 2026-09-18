@@ -451,6 +451,7 @@ import fs from 'node:fs';
 import {join} from 'node:path';
 import {syncBuiltinESMExports} from 'node:module';
 import {setTimeout as delay} from 'node:timers/promises';
+import {waitForValue} from ${JSON.stringify(new URL('./wait.mjs', import.meta.url).href)};
 import {createAssemblyWorkspace} from ${JSON.stringify(new URL('../../scripts/assembly-workspace.mjs', import.meta.url).href)};
 const repo=${JSON.stringify(repo)}, workspace=await createAssemblyWorkspace({repo,output:'.tmp/runtime'});
 const log=join(workspace.work,'npm-ci.log'), sentinel=join(repo,'sentinel'), trigger=join(repo,'late-output');
@@ -477,9 +478,14 @@ try {
   fs.writeFileSync(trigger,'emit late output');
   const deadline=Date.now()+5000;
   while(lateBytes<16*1024*1024){if(Date.now()>deadline)throw new Error('Late stdout did not drain');await delay(10);}
-  await delay(50);global.gc();
-  const retained=process.memoryUsage().arrayBuffers-before;
+  await delay(50);
   assert.ok(fs.readFileSync(sentinel,'utf8')==='sentinel must not change','late data must not reach the reused FD');
+  // \`global.gc()\` returns before V8's ArrayBuffer sweeper has released the dead pipe
+  // buffers, so one reading is load-sensitive. Buffers the runner really kept remain
+  // reachable and no sweep can free them; wait on the budget within the test timeout.
+  let retained=Infinity;
+  await waitForValue(()=>{global.gc();retained=process.memoryUsage().arrayBuffers-before;return retained<4*1024*1024;},
+    {timeoutMs:3000,label:'dead late-output buffers released after GC sweep'}).catch(()=>{});
   assert.ok(retained<4*1024*1024,'returned runner retained late output buffers: '+retained);
   assert.equal(originalKill(pid,0),true,'the late output came from the still-live child');
   console.log(JSON.stringify({lateBytes,retained,reusedFD:true}));
