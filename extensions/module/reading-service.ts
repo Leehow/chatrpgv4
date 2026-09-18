@@ -755,6 +755,8 @@ export class ReadingService implements ReadingBridge {
 					await this.call("module.read.finish", { module_id: job.module_id, job_id: job.job_id, lease: job.lease,
 						outcome: "completed", draft_path: join(cwd, "draft.json"), review_path: join(cwd, "review.json"), assets }, campaign);
 					publishing = false;
+					// The book turns its own pages next (spec thin-book-play B); never on the critical path, never a failure.
+					if (job.purpose === "index" || job.purpose === "opening") await this.call("module.read.ahead", { module_id: job.module_id, ...(job.purpose === "opening" && job.focus ? { focus: job.focus } : {}) }, campaign).catch(() => undefined);
 					return;
 				} catch (failure) {
 					// Provider/transport failure during verification preserves the completed read.

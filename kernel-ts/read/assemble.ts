@@ -375,6 +375,18 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
     if (fitBudget(sections.worldlines, 1536, "last"))
         truncated.push("worldlines");
     let head = HEAD;
+    // The book's own navigation (spec thin-book-play B): what the book holds and what is still unread, so a
+    // thin graph is never mistaken for the book saying no. Names and pages only; the reading is asked for by name.
+    if (truth(module.meta.reading_version)) {
+        const viewed = new Set(array(row(module.meta.reading).viewed_pages).map(number));
+        sections.reading = {
+            index_complete: truth(row(module.meta.reading).index_complete),
+            sections: module.sections.map(section => ({ name: string(section.name), pages: array(section.pages).map((pair: number[]) => [number(pair[0]) + 1, number(pair[1]) + 1]),
+                read: array(section.pages).every((pair: number[]) => { for (let page = number(pair[0]); page <= number(pair[1]); page++) if (!viewed.has(page)) return false; return true; }) }))
+        };
+        if (fitBudget(row(sections.reading).sections, 512, "last"))
+            truncated.push("reading");
+    }
     if (options.moduleBrief ?? full) {
         const [brief, cut] = fittedModuleSection(graph);
         sections.module = brief;

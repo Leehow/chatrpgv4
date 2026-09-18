@@ -57,7 +57,7 @@ def test_guidance_opens_setup_but_not_world_or_play_and_preserves_confirmation(k
     finish(kernel, ready_job)
     result = kernel.ok("setup.complete", {"campaign": "early"})
     assert result["prologue"]["opening"] == "Who are you?"
-    assert "reading" not in result, "an opening with a way on asks for no repair"
+    assert "way_on" not in result["reading"], "an opening with a way on asks for no repair"
     world = json.loads((directory / "world.json").read_text())
     assert world["npc_presence"]["lena"] == "dock"
     meta = json.loads((directory / "campaign.json").read_text())
@@ -198,6 +198,11 @@ def test_an_opening_published_ready_stays_ready_under_a_later_rule(kernel, tmp_p
     finish(kernel, job)
     ready_job, _, _ = opening(kernel, mid)
     assert finish(kernel, ready_job)["opening_ready"]
+    request(kernel, mid, "index")
+    index_job = claim(kernel, mid)
+    observed(index_job)
+    write(Path(index_job["work_dir"]) / "draft.json", {"title": "Book", "language": "en", "sections": [{"name": "The harbor", "pages": [[1, 2]]}]})
+    finish(kernel, index_job)
     # The published graph as a reading from before the rule left it: no way on, digest following the bytes.
     module_dir = kernel.workspace / ".coc/modules" / mid
     meta = json.loads((module_dir / "module.json").read_text())
@@ -221,6 +226,13 @@ def test_an_opening_published_ready_stays_ready_under_a_later_rule(kernel, tmp_p
     assert done["module_id"] == mid
     # The connection point is missing, so the handoff asks the reader for exactly that edge, in the background.
     assert done["reading"]["way_on"]["scene"] == "scene-dock" and done["reading"]["way_on"]["state"] == "queued"
-    queue = json.loads((kernel.workspace / ".coc/module-campaigns/installed/modules" / mid / "deepen-queue.json").read_text())
+    # The repair is the book's own work: it goes to the shared library, and the handoff forks nothing (contract 22.6).
+    assert not (kernel.workspace / ".coc/module-campaigns/installed/modules" / mid / "module.json").exists()
+    queue = json.loads((kernel.workspace / ".coc/modules" / mid / "deepen-queue.json").read_text())
     repair = [job for job in queue if job.get("repair") == "way_on"]
     assert len(repair) == 1 and repair[0]["purpose"] == "opening" and repair[0]["state"] == "queued" and repair[0]["resume_from"]
+    assert done["reading"]["ahead"]["sections"] == [], "every indexed page was viewed by the opening reading"
+    kernel.ok("table.open", {"campaign": "installed"})
+    reading = kernel.ok("table.capsule", {"campaign": "installed"})["reading"]
+    assert reading["index_complete"] is True
+    assert reading["sections"] == [{"name": "The harbor", "pages": [[1, 2]], "read": True}]

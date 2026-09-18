@@ -257,7 +257,57 @@ export class Reading {
             if (truth(reply.job_id))
                 queued.push(reply.job_id);
         }
+        // The exits the book wrote, then the pages the book turns to next (spec thin-book-play B).
+        const ahead = await this.queueAheadReading({ module_id: mid, focus: graph.handle(scene) });
+        queued.push(...array(ahead.queued).map(string));
         return queued;
+    }
+    /**
+     * The book's own order is a way on the reader did not write (spec thin-book-play B). Adjacent reading
+     * follows exits; this follows the index: the section holding the scene's pages, the section after it,
+     * and every section whose name the scene's own text says. Without an index it asks for the index. It
+     * never blocks a turn: each request is background, and a refusal is logged, not raised.
+     */
+    async queueAheadReading(params: Row): Promise<Row> {
+        const mid = validateModuleId(params.module_id), queued: string[] = [];
+        if (!await this.store.exists(mid)) return { queued };
+        const meta = await this.store.module(mid), reading = row(meta.reading);
+        if (!truth(meta.reading_version)) return { queued };
+        const ask = async (request: Row): Promise<void> => {
+            try {
+                const reply = await this.request({ module_id: mid, foreground: false, ...request });
+                if (truth(reply.job_id) && ['queued', 'reading'].includes(string(reply.state))) queued.push(string(reply.job_id));
+            }
+            catch (error) {
+                if (!(error instanceof RpcError)) throw error;
+                await this.store.appendBuildLog(mid, { event: 'read-ahead-unavailable', focus: string(request.focus ?? ''), detail: error.message });
+            }
+        };
+        if (!truth(reading.index_complete)) { await ask({ purpose: 'index', focus: '' }); return { queued, reason: 'index' }; }
+        const graph = await this.store.graph(mid);
+        let scene: Row;
+        try { scene = truth(params.focus) ? graph.scene(string(params.focus)) : graph.startScene(); }
+        catch (error) { if (!(error instanceof RpcError)) throw error; return { queued, reason: 'no_scene' }; }
+        const minPage = (item: Row) => Math.min(...array(item.pages).map((pair: number[]) => number(pair[0])));
+        const sections = [...await this.store.sections(mid)].sort((a, b) => minPage(a) - minPage(b));
+        // A published node's references are {source_id, pdf_index} (zero-based); a draft's are {page} (one-based).
+        const scenePages = array(scene.source_refs).map(ref => integer(row(ref).pdf_index) ? number(row(ref).pdf_index) : integer(row(ref).page) ? number(row(ref).page) - 1 : -1).filter(page => page >= 0);
+        const holds = (section: Row) => array(section.pages).some((pair: number[]) => scenePages.some(page => page >= number(pair[0]) && page <= number(pair[1])));
+        const containing = sections.filter(holds), last = containing.length ? Math.max(...containing.map(section => sections.indexOf(section))) : -1;
+        const next = last >= 0 && last + 1 < sections.length ? [sections[last + 1]] : [];
+        const props = row(scene.properties);
+        const said = normalize([scene.summary, props.exit_conditions, props.entry_landmarks, props.opening_read_aloud].filter(truth).join(' '));
+        const named = sections.filter(section => { const name = normalize(section.name); return name.length >= 2 && said.includes(name); });
+        const viewed = new Set(array(reading.viewed_pages).map(number)), read = new Set(array(reading.materials).map(material => normalize(string(material.focus ?? ''))));
+        const covered = (section: Row) => array(section.pages).every((pair: number[]) => { for (let page = number(pair[0]); page <= number(pair[1]); page++) if (!viewed.has(page)) return false; return true; });
+        const chosen: string[] = [];
+        for (const section of [...containing, ...next, ...named]) {
+            const name = string(section.name);
+            if (chosen.includes(name) || covered(section) || read.has(normalize(name))) continue;
+            chosen.push(name);
+            await ask({ purpose: 'detail', focus: name });
+        }
+        return { queued, scene: scene.node_id, sections: chosen };
     }
     async request(params: Row): Promise<Row> {
         const mid = validateModuleId(params.module_id), purpose = params.purpose;

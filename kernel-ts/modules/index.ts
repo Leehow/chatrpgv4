@@ -19,6 +19,7 @@ function handlersFor(store: ModuleStore, reading: Reading): HandlerGroup {
     return Object.freeze({
         'module.source.bind': params => reading.bind(params),
         'module.read.request': params => reading.request(params),
+        'module.read.ahead': params => reading.queueAheadReading(params),
         'module.read.claim': params => reading.claim(params),
         'module.read.finish': params => reading.finish(params),
         'module.read.unwait': params => reading.unwait(params),
@@ -144,6 +145,11 @@ export function createModuleRuntime(context: KernelContext) {
         materialReady: async (moduleId: string, name: string, campaign?: string) => (await owner(campaign, moduleId)).reading.materialReady(moduleId, name),
         openingReady: async (moduleId: string, focus = '', campaign?: string) => (await owner(campaign, moduleId)).reading.openingReady(moduleId, focus),
         request: async (params: Row) => (await owner(params.campaign, required(params, 'module_id'), true)).reading.request(params),
+        // Reading the book ahead, and repairing its opening, are the book's own work: before a table forks
+        // they go to the shared library, where every table on that book gets them (contract 22.6); a fork
+        // happens only on a table's first private write, never on the handoff.
+        ahead: async (params: Row) => (await owner(params.campaign, required(params, 'module_id'))).reading.queueAheadReading(params),
+        requestFollowing: async (params: Row) => (await owner(params.campaign, required(params, 'module_id'))).reading.request(params),
         // Before a campaign forks it follows the shared library, so it enqueues nothing there:
         // a table's prefetch may never write into the shared queue on another table's behalf.
         queueAdjacentReading: async (graph: ModuleGraph, scene: Row) => graph.sourceCampaign === undefined

@@ -682,3 +682,33 @@ def test_an_index_refusal_names_the_sections_without_a_reference_and_the_repair_
     write(Path(job["work_dir"]) / "draft.json", draft)
     finish(kernel, job)
     assert kernel.ok("module.status", {"module_id": mid})["reading"]["index_complete"]
+
+
+def test_read_ahead_follows_the_index_after_the_opening(kernel, tmp_path):
+    """The book's own order is a way on the reader did not write: after the opening, the section the book
+    turns to next is asked for in the background, once, and a section already viewed is not."""
+    mid, _ = bind(kernel, tmp_path)
+    assert kernel.ok("module.read.ahead", {"module_id": mid})["reason"] == "index", "no index: the index is what is asked for"
+    request(kernel, mid, "index")
+    job = claim(kernel, mid)
+    observed(job, read_pages=[1], full_pages=[1], review_pages=[1])
+    write(Path(job["work_dir"]) / "draft.json", {"title": "Book", "language": "en", "sections": [
+        {"name": "The dock", "pages": [[1, 1]]}, {"name": "The tower", "pages": [[2, 2]], "source_refs": [{"page": 1}]}]})
+    finish(kernel, job)
+    request(kernel, mid, "opening")
+    job = claim(kernel, mid)
+    refs = [{"page": 1}]
+    write(Path(job["work_dir"]) / "draft.json", {"nodes": [
+        {"node_id": "scene-dock", "node_kind": "scene", "name": "Dock", "summary": "The harbor dock.", "source_refs": refs,
+         "visibility": "player-safe", "properties": {"is_entrance": True, "is_final": True}}],
+        "claims": [], "node_refs": [], "coverage": {}, "dependencies": [], "critical": ["/nodes/0"], "ready_nodes": ["scene-dock"]})
+    write(Path(job["work_dir"]) / "review.json", {"checked": [{"paths": ["/nodes/0", "/coverage"], "verdict": "supported", "source_refs": refs}], "missing": []})
+    observed(job, read_pages=[1], full_pages=[1], review_pages=[1])
+    assert finish(kernel, job)["opening_ready"]
+    ahead = kernel.ok("module.read.ahead", {"module_id": mid})
+    assert ahead["sections"] == ["The tower"] and len(ahead["queued"]) == 1
+    queue_path = kernel.workspace / ".coc/modules" / mid / "deepen-queue.json"
+    tower = [row for row in json.loads(queue_path.read_text()) if row["purpose"] == "detail" and row["focus"] == "The tower"]
+    assert len(tower) == 1 and tower[0]["state"] == "queued" and tower[0]["foreground"] is False
+    kernel.ok("module.read.ahead", {"module_id": mid})
+    assert len([row for row in json.loads(queue_path.read_text()) if row["focus"] == "The tower"]) == 1, "asked once"

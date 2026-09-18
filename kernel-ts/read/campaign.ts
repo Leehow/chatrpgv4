@@ -1,5 +1,5 @@
 /** An operation's immutable saved inputs, loaded through the foundation read capability. */
-import { join, relative, resolve, sep } from "node:path";
+import { join, relative, resolve, sep , dirname} from "node:path";
 import { realpath, readFile } from "node:fs/promises";
 import type { KernelContext } from "../context.js";
 import { RpcError } from "../errors.js";
@@ -133,6 +133,8 @@ export interface LoadedModule {
     meta: Row;
     generation: number;
     path: string;
+    /** The book's own navigation (the index reading's sections), pages zero-based; empty until indexed. */
+    sections: Row[];
     material(name: string): string;
     adapted?: boolean;
     asset?(name: string): Promise<Row | null>;
@@ -191,10 +193,15 @@ export async function loadModule(context: KernelContext, id: string, campaign?: 
         const ready = new Set(array(row(meta.reading).materials).flatMap(m => array(m.node_ids)));
         return matches.length > 0 && matches.every(id => ready.has(id)) ? "ready" : "missing";
     };
+    let sections: Row[] = [];
+    if (registered && typeof meta.index_file === 'string') {
+        try { sections = array(await context.snapshots.readJson(resolve(dirname(metadataPath), meta.index_file))); } catch { sections = []; }
+    }
     return {
         graph,
         meta,
         generation,
+        sections,
         path,
         material,
         ...(asset ? { asset } : {})

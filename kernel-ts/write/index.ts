@@ -112,6 +112,7 @@ export interface WriteContributions {
     sourceGraphPath?(moduleId: string, campaign?: string): Promise<string>;
     queueAdjacentReading?(graph: ModuleGraph, scene: Row): Promise<string[]>;
     requestReading?(params: Row): Promise<Row>;
+    queueAheadReading?(params: Row): Promise<Row>;
     mods?: {
         initializeWorld(world: Row): Promise<boolean>;
         initializeCampaign(campaign: CampaignWriter, world: Row, options?: {pending?: boolean}): Promise<void>;
@@ -128,6 +129,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
     startSetupWorld(campaign: CampaignWriter, meta: Row): Promise<boolean>;
     setupOpeningReady(moduleId: string, focus?: string, campaign?: string): Promise<boolean>;
     requestReading(params: Row): Promise<Row>;
+    queueAheadReading(params: Row): Promise<Row>;
     sourceGraphPath(moduleId: string, campaign?: string): Promise<string>;
     transaction(params: Row, options?: {
         repairLegacyTrail?: boolean;
@@ -188,6 +190,10 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
     async function setupOpeningReady(moduleId: string, focus?: string, campaign?: string): Promise<boolean> {
         const ready = contributions.openingReady;
         return ready ? ready(moduleId, focus, campaign) : missingContribution('visual source opening');
+    }
+    async function queueAheadReading(params: Row): Promise<Row> {
+        const ahead = contributions.queueAheadReading;
+        return ahead ? ahead(params) : { queued: [] };
     }
     async function requestReading(params: Row): Promise<Row> {
         const request = contributions.requestReading;
@@ -1020,6 +1026,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         startSetupWorld,
         setupOpeningReady,
         requestReading,
+        queueAheadReading,
         sourceGraphPath,
         handlers: Object.freeze({
             'campaign.create': create,

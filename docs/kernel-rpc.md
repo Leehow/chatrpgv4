@@ -11992,10 +11992,22 @@ exits, so that table read nothing ahead. Two rules:
   ending asks for it**: `module.read.request {purpose: "opening", focus: <start>, repair: "way_on",
   foreground: false}`. `repair` is its own reading identity (the completed opening neither answers
   for it nor blocks it), the job carries `repair` and `resume_from` the completed opening's work,
-  the reader's brief is §90.3's own fix text, and publication still passes §90. The handoff reports
+  the reader's brief is §90.3's own fix text, and publication still passes §90. The request and the
+  read-ahead below are the book's own work: before the table forks they go to the shared library
+  (contract 22.6), and the handoff forks nothing. The handoff reports
   `reading.way_on {scene, state, job_id}`; nothing here may fail the handoff. Readiness is not
   re-judged. Tests: `test_fast_guidance.py` (repair queued when the way on is missing, none when
   it is there), `test_visual_reading.py` (an index refusal names its rows and the repair lands).
+- **The book turns its own pages next (spec thin-book-play B).** `module.read.ahead {module_id,
+  campaign?, focus?}` asks, in the background, for the index when there is none, else for a
+  `detail` reading of the section holding the scene's pages, the section after it in page order,
+  and every section whose name the scene's own text says (a section already viewed in full, or
+  already read by name, is not asked for again). It runs after an index or opening publication
+  (the host calls it), at `setup.complete` (reported as `handoff.reading.ahead`), and after the
+  exits on every `apply move`. The capsule carries `reading {index_complete, sections: [{name,
+  pages, read}]}` for a visually read book (512 bytes, trimmed from the end), so a thin graph is
+  never mistaken for the book saying no. Tests: `test_visual_reading.py` (the next section is
+  asked for once; no index asks for the index), `test_fast_guidance.py` (the capsule's book list).
 
 ## 91. A review that never judged the draft does not refuse it (2026-09-17, amends §36.14 and §38.9, extends §26.1)
 
