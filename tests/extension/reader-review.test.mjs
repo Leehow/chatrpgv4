@@ -49,6 +49,27 @@ test('only coverage receives all observed pages while every unit retains the exa
  assert.ok(review.checked.some(item=>item.paths.includes('/coverage')));
 });
 
+test('a large review packet stays line-readable so coverage can see every assigned page',async t=>{
+ const cwd=await mkdtemp(join(tmpdir(),'coc-readable-review-task-'));t.after(()=>rm(cwd,{recursive:true,force:true}));
+ let sawLarge=false;
+ const index=Array.from({length:120},(_,i)=>({name:`Section ${i}`,topics:[`bounded-${i}-${'x'.repeat(600)}`]}));
+ const pages=await reviewCandidate({cwd,task:{purpose:'detail',focus:'Time circle',question:'How does the table return?',review_scope_pages:[4,15],index},
+  draft:{nodes:[{node_id:'rule-return',source_refs:[{page:4}],properties:{}}],claims:[],coverage:{},ready_nodes:['rule-return']},
+  instructions:'unused',round:1,model:{id:'fixture/vision'},source:{pdf:'unused',cache:'unused'},signal:new AbortController().signal,
+  record(){},progress(){},async run(request){
+   const raw=await readFile(join(request.cwd,'task.json'),'utf8'),task=JSON.parse(raw);
+   sawLarge ||= Buffer.byteLength(raw)>50_000;
+   assert.ok(Math.max(...raw.split('\n').map(line=>Buffer.byteLength(line)))<50_000,'no packet line exceeds the reader limit');
+   const seen=task.required_review.includes('/coverage')?task.review_scope_pages:[4];
+   request.onEvent({type:'tool_execution_end',toolCallId:'pages',isError:false,result:{details:{kind:'source_pages',observations:seen.map(page=>({page}))}}});
+   await writeFile(request.eventLog+'.images.jsonl',JSON.stringify({included:['pages']})+'\n');
+   await writeFile(join(request.cwd,'review.json'),JSON.stringify({checked:[{paths:task.required_review,verdict:'supported',source_refs:seen.map(page=>({page}))}],missing:[]}));
+   return {ok:true,ms:1,stderr:''};
+  }});
+ assert.equal(sawLarge,true);
+ assert.deepEqual(pages.sort((a,b)=>a-b),[4,15]);
+});
+
 test('omitted fields retry only their unit and retained complete units survive a resumed batch',async t=>{
  const cwd=await mkdtemp(join(tmpdir(),'coc-review-omission-'));t.after(()=>rm(cwd,{recursive:true,force:true}));
  const counts=new Map(),records=[];let omit=true;

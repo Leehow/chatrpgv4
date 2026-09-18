@@ -13623,3 +13623,21 @@ epithet before speech/named reference, and `called.name` plus the say token rema
 introduction. The line is concise and independent of the authored secret name. The nine-person capsule
 again retains at least four complete dossiers while keeping every person's name or stub and the same
 privacy behavior on focused `look` views.
+
+## 116. A reviewer can read its own assigned source pages (2026-09-18, amends §22 and §81)
+
+Independent source review receives the exact `required_review` pointers and, for `/coverage`, the exact
+`review_scope_pages` it must reopen. These are executable assignment data, not optional context. The host
+therefore writes each review unit's `task.json` as line-readable indented JSON. A large index or known-node
+context must not turn the packet into one line larger than the reader tool's per-line limit.
+
+The live failure was deterministic: a 62.7 KiB one-line packet exceeded the reader's 50 KiB line limit;
+reader confinement correctly refused the reviewer's attempted non-canonical shell workaround. The first
+review guessed four pages from the draft; its semantic retry guessed five more adjacent pages, but neither
+could see that pages 4 and 15 were also assigned, so the unchanged `scope review did not view every assigned
+source page` gate correctly rejected both. The repair changes only packet serialization. It does not relax
+page observation, review evidence, confinement, retry budgets, or publication.
+
+Acceptance: a review packet larger than 50 KiB remains valid JSON, contains the exact scope pages, and has
+no line at or above the reader limit; the coverage reviewer then opens every assigned page and passes the
+existing evidence gate.

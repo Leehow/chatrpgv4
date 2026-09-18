@@ -229,7 +229,7 @@ export async function reviewCandidate(options: {
 			// Observed navigation/context pages belong to coverage, not every fact unit.
 			const {review_scope_pages: _scopePages, ...taskContext} = options.task;
 			const unitTask = { ...taskContext, required_review: paths, ...(requiredPages.length ? {review_scope_pages: requiredPages} : {}) };
-			await writeFile(join(cwd, "task.json"), JSON.stringify(unitTask) + "\n");
+			await writeFile(join(cwd, "task.json"), JSON.stringify(unitTask, null, 2) + "\n");
 			const imageCalls = new Map<string, Row[]>(), pages = new Set<number>();
 			const eventLog = join(cwd, "events.jsonl");
 			active++;
