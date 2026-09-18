@@ -488,7 +488,14 @@ export class Reading {
             if (job.state === 'completed')
                 return { ...job.result, replayed: true };
             const lease = this.leases.get(this.key(mid, job.job_id));
-            if (!lease || lease.jobId !== job.job_id || lease.token !== params.lease || job.lease !== params.lease)
+            // The persisted token is the cold-replay authority. A hot owner also has native lock
+            // handles in `leases`; after a kernel restart those handles are necessarily gone while
+            // the host reader may still be finishing the exact same attempt. Accept that finish only
+            // while the persisted job is still running with the same token. If recovery has requeued
+            // or reclaimed it, state/token changed and the old attempt remains rejected.
+            if (lease
+                ? lease.jobId !== job.job_id || lease.token !== params.lease || job.lease !== params.lease
+                : job.state !== 'running' || job.lease !== params.lease)
                 throw new RpcError('invalid_params', 'this reading attempt no longer owns publication');
             const outcome = params.outcome;
             if (!['completed', 'failed', 'cancelled'].includes(outcome))

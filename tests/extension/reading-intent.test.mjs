@@ -11,7 +11,7 @@
  * real kernel refusing an `apply` on the Haunting graph.
  */
 import { strict as assert } from "node:assert";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
@@ -116,6 +116,52 @@ test("the read row names its job and the physical pages the reader consumed", as
 	assert.ok(calls.some((call) => call.method === "module.read.finish" && call.params.outcome === "completed"), JSON.stringify(calls));
 	// The row and the observations the kernel publishes from are built from the same set.
 	assert.deepEqual(JSON.parse(await readFile(join(cwd, "observations.json"), "utf8")).read_pages, [12]);
+});
+
+test("a PDF index gets a separate map-page completeness audit before publication", async (t) => {
+	const home = await mkdtemp(join(tmpdir(), "index-map-audit-"));
+	t.after(() => rm(home, { recursive: true, force: true }));
+	const cwd = join(home, "work", "read-1"), cache = join(home, ".coc", "modules", "book", "cache", "pages");
+	await mkdir(cwd, { recursive: true });
+	await mkdir(cache, { recursive: true });
+	const image = join(cache, "page-12-region-0-0-1-1-2000.jpg");
+	const initial = { title: "Book", language: "en", sections: [{ name: "Town", pages: [[10, 20]] }], map_candidates: [] };
+	const audited = { ...initial, sections: [{ ...initial.sections[0], source_refs: [{ page: 10 }] }], map_candidates: [{ name: "Town plan", focus: "Town", pages: [12] }] };
+	const phases = [], finished = [];
+	const runtime = {
+		contentRoot: join(ROOT, "content"),
+		async runTask({ request }) {
+			const task = JSON.parse(await readFile(join(request.cwd, "task.json"), "utf8"));
+			const audit = request.brief.includes("independent map-page completeness audit");
+			phases.push({ audit, task });
+			if (audit) assert.deepEqual(task.index_audit_pages, [12]);
+			await writeFile(join(request.cwd, "draft.json"), JSON.stringify(audit ? audited : initial) + "\n");
+			await appendFile(join(cache, "requests.jsonl"), JSON.stringify({ file_sha256: "source-sha", path: image, page: 12, box: [0, 0, 1, 1] }) + "\n");
+			const call = audit ? "audit-page" : "index-page";
+			request.onEvent?.({ type: "tool_execution_start", toolName: "pdf", toolCallId: call, args: { pages: [12] } });
+			request.onEvent?.({ type: "tool_execution_end", toolCallId: call, isError: false,
+				result: { content: [{ type: "image" }], details: { kind: "source_pages", observations: [{ path: image, page: 12, box: [0, 0, 1, 1] }] } } });
+			await writeFile(request.eventLog + ".images.jsonl", JSON.stringify({ included: [call] }) + "\n");
+			return { ok: true, code: 0, timedOut: false, ms: 2, stderr: "", command: [] };
+		},
+		async check() { return { ok: true }; },
+		async sourceInfo() { throw new Error("not a guidance job"); },
+	};
+	const service = new ReadingService({ home, runtime, model: () => ({ id: "fixture/vision", vision: true, thinking: "off" }), progress() {}, record() {},
+		async call(method, params) {
+			assert.equal(method, "module.read.finish");
+			finished.push(params);
+			return { state: params.outcome === "completed" ? "ready" : params.outcome };
+		} });
+	t.after(() => service.close());
+	await service.runJob({ job_id: "read-1", module_id: "book", purpose: "index", focus: "", question: "", pages: [], foreground: false, lease: "L1",
+		work_dir: cwd, source: { path: join(home, ".coc", "modules", "book", "source.pdf"), page_count: 30, file_sha256: "source-sha" },
+		index: {}, known_nodes: [], known_claims: [], vocabulary: {}, coverage_domains: [] }, new AbortController().signal);
+	assert.deepEqual(phases.map(row => row.audit), [false, true], JSON.stringify({ phases, finished }));
+	const draft = JSON.parse(await readFile(join(cwd, "draft.json"), "utf8"));
+	assert.deepEqual(draft.map_candidates, audited.map_candidates);
+	assert.deepEqual(draft.sections[0].source_refs, [{ page: 10 }]);
+	assert.equal(finished.find(row => row.outcome === "completed")?.draft_path, join(cwd, "draft.json"));
 });
 
 test("a kernel refusal that points at details.clues_here shows the clues that are here", async (t) => {

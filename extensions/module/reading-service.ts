@@ -72,6 +72,9 @@ function canonical(value: any): string {
 	if (value && typeof value === "object") return "{" + Object.keys(value).sort().map(k => JSON.stringify(k) + ":" + canonical(value[k])).join(",") + "}";
 	return JSON.stringify(value);
 }
+const integerList = (value: unknown): number[] => Array.isArray(value)
+	? value.filter((entry): entry is number => Number.isInteger(entry))
+	: [];
 function editedSourcePages(before: Row, after: Row): Set<number> {
 	const result = new Set<number>();
 	for (const collection of ["nodes", "claims"]) {
@@ -90,7 +93,7 @@ function validCheckpoint(checkpoint: Row, bytes: Buffer, job: Row): boolean {
 	const observed = checkpoint.observations;
 	if (observed?.file_sha256 !== job.source.file_sha256) return false;
 	return job.purpose === "index"
-		? observed.full_pages?.length > 0
+		? checkpoint.index_map_audited === true && observed.full_pages?.length > 0
 		: draftPages(JSON.parse(bytes.toString())).every(page => observed.read_pages?.includes(page));
 }
 const delay = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
@@ -567,7 +570,7 @@ export class ReadingService implements ReadingBridge {
 				let phaseCompleted = false;
 				let publishing = false;
 				try {
-					const phases: Array<"index" | "read" | "verify"> = job.purpose === "index" ? (readComplete ? [] : ["index"]) : (readComplete ? ["verify"] : ["read", "verify"]);
+					const phases: Array<"index" | "index-audit" | "read" | "verify"> = job.purpose === "index" ? (readComplete ? [] : ["index", "index-audit"]) : (readComplete ? ["verify"] : ["read", "verify"]);
 					for (const phase of phases) {
 						phaseCompleted = false;
 						let previousDraft: Row | undefined, previousPages: number[] = [];
@@ -585,7 +588,12 @@ export class ReadingService implements ReadingBridge {
 								await writeFile(join(cwd, "task.json"), JSON.stringify(task, null, 2) + "\n");
 							} catch { /* the first draft has not been written */ }
 						}
-						const instructions = join(cwd, `instructions-${phase}.md`);
+						if (phase === "index-audit") {
+							task.index_audit_pages = [...new Set(integerList(observations.index_candidate_pages).filter(page => page > 0))].sort((a, b) => a - b);
+							await writeFile(join(cwd, "task.json"), JSON.stringify(task, null, 2) + "\n");
+						}
+						const promptPhase = phase === "index-audit" ? "index" : phase;
+						const instructions = join(cwd, `instructions-${promptPhase}.md`);
 						this.deps.progress({ module_id: job.module_id, campaign, job_id: job.job_id, stage: phase === "read" && job.purpose === "skeleton" ? "skeleton" : phase, focus: job.focus, of: job.source.page_count });
 						if (phase === "verify") {
 							if (job.purpose === "opening") {
@@ -612,20 +620,27 @@ export class ReadingService implements ReadingBridge {
 						}
 						const imagePaths = new Set<string>();
 						const imageCalls = new Map<string, string[]>();
+						const sourcePages = new Set<number>();
 
 						const reads = new Map<string, string>();
 						const run = await this.runtime().runTask({ kind: "reader", request: { cwd, model: model.id, thinking: model.thinking,
 							...(job.purpose==="guidance"?{imageHistory:4}:{}),
 							submission:["guidance","opening"].includes(job.purpose),
 							priority: () => job.foreground === false ? "background" : "foreground",
-							prompt: { phase, guidance: job.purpose === "guidance" }, source: { pdf: job.source.path, cache },
+							prompt: { phase: promptPhase, guidance: job.purpose === "guidance" }, source: { pdf: job.source.path, cache },
 							eventLog: join(cwd, `${phase}-${round}.jsonl`),
-							brief: `${readerInput({task})} Your phase is ${phase}. Use page images to produce draft.json. If a draft was retained from this same interrupted request, inspect its sources and repair it instead of rewriting merely for style. ${["guidance","opening"].includes(job.purpose) ? "Use submit_reading as your sole final tool call to save/check this batch and finish without a closing reply." : ""} ${round > 1 || job.resume_from ? "Read findings.json if present and address its concrete findings." : ""}`,
+							brief: phase === "index-audit"
+								? `${readerInput({task})} This is the independent map-page completeness audit of the retained PDF index. Read draft.json. View every physical page in task.index_audit_pages with pdf, compare each page to draft.map_candidates, and immediately add every authored map whose depicted place can be identified. Preserve existing sections and candidates; repair missing section source_refs but do not rewrite for style. Finish only after every assigned page has been checked, then stop.`
+								: `${readerInput({task})} Your phase is ${phase}. Use page images to produce draft.json. If a draft was retained from this same interrupted request, inspect its sources and repair it instead of rewriting merely for style. ${["guidance","opening"].includes(job.purpose) ? "Use submit_reading as your sole final tool call to save/check this batch and finish without a closing reply." : ""} ${round > 1 || job.resume_from ? "Read findings.json if present and address its concrete findings." : ""}`,
 							onEvent(event) {
 								if (event.type === "tool_execution_start" && event.toolName === "read" && event.args?.path) reads.set(event.toolCallId, resolve(cwd, event.args.path));
 								if (event.type === "tool_execution_end" && !event.isError && event.result?.content?.some((c: Row) => c.type === "image")) {
 									const path = reads.get(event.toolCallId); if (path) imageCalls.set(event.toolCallId, [path]);
-									if (event.result?.details?.kind === "source_pages") imageCalls.set(event.toolCallId, event.result.details.observations.map((row: Row) => row.path));
+									if (event.result?.details?.kind === "source_pages") {
+										const viewed = event.result.details.observations;
+										imageCalls.set(event.toolCallId, viewed.map((row: Row) => row.path));
+										for (const row of viewed) if (Number.isInteger(row.page) && (!row.box || JSON.stringify(row.box) === "[0,0,1,1]")) sourcePages.add(row.page);
+									}
 								}
 							},
 						} }, signal);
@@ -649,19 +664,28 @@ export class ReadingService implements ReadingBridge {
 							...(run.ok && !pageLogFailure ? { pages: pagesRead } : {}) });
 						if (!run.ok) throw new Error(run.error || (run.timedOut ? "reader timed out" : run.stderr || "reader failed"));
 						if (pageLogFailure) throw pageLogFailure;
+						if (phase === "index-audit") {
+							const missing = integerList(task.index_audit_pages).filter(page => !sourcePages.has(page));
+							if (missing.length) throw new Error(`index map audit did not inspect physical pages ${missing.join(", ")}`);
+						}
 						const key = "read_pages";
-						observations[key] = pagesRead;
+						observations[key] = phase === "index-audit" ? [...new Set([...integerList(observations[key]), ...pagesRead])].sort((a, b) => a - b) : pagesRead;
 						if (previousDraft) {
 							const changed = editedSourcePages(previousDraft, JSON.parse(await readFile(join(cwd, "draft.json"), "utf8")));
 							const absent = [...changed].filter(page => !observations.read_pages.includes(page));
 							if (absent.length) throw new Error(`changed source records require viewing physical pages ${absent.join(", ")}`);
 							observations.read_pages = [...new Set([...previousPages, ...observations.read_pages])];
 						}
-						if (phase === "index") observations.full_pages = [...new Set(rows.filter(row => JSON.stringify(row.box) === "[0,0,1,1]").map(row => row.page))];
+						if (phase === "index") {
+							observations.index_candidate_pages = [...sourcePages].sort((a, b) => a - b);
+							observations.full_pages = [...new Set(rows.filter(row => JSON.stringify(row.box) === "[0,0,1,1]").map(row => row.page))];
+						}
+						if (phase === "index-audit") observations.full_pages = [...new Set([...integerList(observations.full_pages), ...sourcePages])].sort((a, b) => a - b);
 						await writeFile(join(cwd, "observations.json"), JSON.stringify(observations) + "\n");
-						if (phase === "read" || phase === "index") {
+						if (phase === "read" || phase === "index-audit") {
 							readComplete = true;
 							await writeFile(join(cwd, "read-complete.json"), JSON.stringify({ job_id: job.job_id, draft_sha256: sha(await readFile(join(cwd, "draft.json"))),
+								...(phase === "index-audit" ? { index_map_audited: true } : {}),
 								...(job.purpose === "guidance" ? {guidance_sha256:sha(await readFile(join(cwd,"guidance.json")))} : {}), observations }) + "\n");
 						}
 						phaseCompleted = true;

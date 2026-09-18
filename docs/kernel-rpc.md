@@ -13482,3 +13482,41 @@ Acceptance: a pending adaptation permits a pure define/adopt batch and still blo
 registration lets the audited narration close. A successor capsule labels and carries the prior stranded
 player declaration; admission receives it beside the exact current input; a scripted semantic verdict can
 authorize continuation, while all ordinary turns and replacement instructions keep the existing path.
+
+## 112. PDF map markers survive indexing omissions and kernel restarts (2026-09-18, amends §22 and §107)
+
+M-MAIN supplied the live failure behind this contract. Its first automatic index reader directly viewed
+physical pages 56, 76 and 81, including the Peru route map, Lima map and Golden Chamber map, but wrote none
+of them to `map_candidates`. It accumulated a long whole-book draft and wrote the candidate list once at
+the end. Indexing was also the only visual-source phase with no independent completeness pass. A second
+attempt did recover all three maps, but both attempts ended with `this reading attempt no longer owns
+publication`: a hot reload restarted the kernel while the host-owned reader was still working. The queue
+kept the same running job and token, yet `module.read.finish` required an in-memory lease held only by the
+retired kernel. Finally, the index example omitted `source_refs` even though the publication gate requires
+an observed navigation page for a range it did not read in full.
+
+An index now has two tool-enabled visual passes. The first builds the navigation draft and records every
+full source page it opened directly after bookmark or overview navigation. The second is a separate
+map-page completeness audit: it reopens every recorded page, compares it to the retained
+`map_candidates`, adds any authored map whose depicted place can be identified, and repairs missing
+section `source_refs` without replacing existing sections or candidates. Publication is impossible until
+the audit has viewed every assigned page, and only an audited checkpoint may skip those passes after an
+interruption. The source prompt's index example now carries the same `source_refs` field the gate enforces.
+
+The semantic pass remains necessary. General document-layout systems such as
+[LayoutParser](https://github.com/Layout-Parser/layout-parser) and
+[DocLayNet](https://arxiv.org/abs/2206.01062) support page regions such as figures or pictures across
+different layouts, confirming that visual page inspection is the correct layer. Their categories do not
+establish that a figure is a game map, which authored place it depicts, or what a player may know. They
+therefore do not replace the source-bound visual audit or the later region/redaction review.
+
+A matching persisted job token is also cold-replay authority. After a kernel restart, a finish may publish
+the still-`running` attempt when its persisted token still matches. If recovery has requeued or reclaimed
+the job, its state or token differs and the old attempt remains rejected. The metadata lock still serializes
+publication; a restart no longer discards completed reader work merely because its native lock handles died
+with the old process.
+
+Acceptance: `tests/extension/reading-intent.test.mjs` proves a map omitted by the first pass is added by a
+separate pass that reopens its page before publication. `tests/extension/ts-kernel-modules.test.mjs` proves
+a matching persisted attempt publishes through a fresh kernel owner, while the existing native-owner test
+continues to prove that a requeued/reclaimed attempt receives a new token and cannot reuse the old one.

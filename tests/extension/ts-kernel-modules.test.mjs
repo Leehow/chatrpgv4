@@ -363,3 +363,26 @@ test('native owners recover unpublished attempts without exposing or duplicating
     } finally { await first.close(); await second.close(); await context.git.close(); }
   });
 });
+
+test('a matching persisted reading lease may publish after the kernel process restarts', async t => {
+  const require = createRequire(import.meta.url), flock = promisify(require('fs-ext').flock);
+  const workspace = join(evidence, 'cold-finish'), path = join(evidence, 'cold-finish.pdf');
+  const sourceBytes = Buffer.from('%PDF-1.7\ncold publication fixture\n');
+  await writeFile(path, sourceBytes);
+  const context = await api.createKernelContext({ workspace, content: join(ROOT, 'content'), locks: api.createAdvisoryLocks(flock) });
+  const first = api.createModuleRuntime(context), second = api.createModuleRuntime(context);
+  const ok = (owner, method, params) => owner.handlers[method](params);
+  try {
+    const { module_id } = await ok(first, 'module.source.bind', { source: { path, page_count: 2, file_sha256: createHash('sha256').update(sourceBytes).digest('hex') } });
+    await ok(first, 'module.read.request', { module_id, purpose: 'index' });
+    const job = await ok(first, 'module.read.claim', { module_id, owner: 'first-owner' });
+    const draft = { title: 'Book', language: 'en', sections: [{ name: 'Opening', pages: [[1, 2]], source_refs: [{ page: 1 }] }] };
+    const observations = { file_sha256: job.source.file_sha256, read_pages: [1, 2], full_pages: [1, 2], review_pages: [] };
+    for (const [name, value] of [['draft', draft], ['observations', observations], ['review', {}]]) await writeFile(join(job.work_dir, name + '.json'), api.pythonJsonDumps(value));
+    const params = { module_id, job_id: job.job_id, lease: job.lease, outcome: 'completed', draft_path: join(job.work_dir, 'draft.json'), review_path: join(job.work_dir, 'review.json') };
+    await first.close();
+    const result = await ok(second, 'module.read.finish', params);
+    assert.equal(result.state, 'preparing');
+    assert.equal((await second.source.store.module(module_id)).reading.index_complete, true);
+  } finally { await first.close(); await second.close(); await context.git.close(); }
+});
