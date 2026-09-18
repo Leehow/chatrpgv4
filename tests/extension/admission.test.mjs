@@ -325,6 +325,64 @@ test("the player's answer to an ask is not a new proposal: the resolve that sett
 	assert.deepEqual(admissionRows(table).map((row) => row.verdict), ["authorized"]);
 });
 
+test("a kernel-required authored encounter move stays inside the player's admitted attack", async (t) => {
+	const attack = {
+		intent: "combat",
+		goal: "砸向床板上人形的头部",
+		method: "双手抡长柄钢撬棍砸头",
+		target: "Walter Corbitt",
+		weapon: "长柄钢撬棍",
+	};
+	const table = await openTable({
+		responses: [
+			fauxAssistantMessage([fauxToolCall("resolve", { action: attack })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("apply", {
+				effects: [{ kind: "move", to: "corbitt-confrontation", travel_minutes: 5 }],
+			})], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("apply", {
+				effects: [{ kind: "move", to: "corbitt-confrontation", via: "the chosen attack reaches the authored encounter" }],
+			})], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("resolve", { action: attack })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("narrate", { text: "撬棍落下。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage("after"),
+		],
+		env: {
+			FAKE_KERNEL_ERRORS: JSON.stringify({
+				"table.resolve": {
+					code: "needs",
+					message: "Walter Corbitt has source-authored combat rules in corbitt-confrontation, not corbitt-house",
+					fix: "enter the authored encounter first, then retry this same chosen attack",
+					details: {
+						reason: "combat_scene_required",
+						target: "walter-corbitt",
+						current: "corbitt-house",
+						destinations: [{ scene: "corbitt-confrontation", name: "Corbitt's hidden chamber" }],
+					},
+				},
+			}),
+			FAKE_KERNEL_ERRORS_ONCE: "1",
+		},
+		laneResponses: {
+			admission: [
+				verdict({ verdict: "authorized", grounds: "the player chose this attack on Walter Corbitt" }),
+				verdict({ verdict: "not_authorized", grounds: "the player did not name that scene", missing: "whether to enter the authored encounter" }),
+			],
+		},
+	});
+	t.after(() => table.dispose());
+	await table.session.prompt("我抡起长柄钢撬棍砸向床板上的科比特");
+
+	assert.equal(kernelCalls(table, "table.resolve").length, 2, "the refused start and same chosen retry both reach the kernel");
+	assert.equal(kernelCalls(table, "table.apply").length, 1, "the kernel-required scene transition is not refused as a new player action");
+	assert.equal(table.lanes.admission.requests().length, 2, "the external attack and an added time cost are reviewed; the exact internal move is not");
+	assert.deepEqual(admissionRows(table).map((row) => [row.verb, row.verdict ?? row.skipped, row.reused ?? null]), [
+		["resolve", "authorized", false],
+		["apply", "not_authorized", false],
+		["apply", "combat_scene_required", null],
+		["resolve", "authorized", true],
+	]);
+});
+
 test("a repeated outage stops promising a resend and notifies the operator once per streak", async (t) => {
 	const table = await openTable({
 		responses: [

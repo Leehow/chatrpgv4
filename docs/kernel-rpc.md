@@ -13028,6 +13028,23 @@ movement, presence and combat receipts. `tests/kernel/test_sessions.py` reproduc
 wrong-scene start, proves it is atomic, then enters the encounter and proves Flesh Ward preparations
 are present.
 
+The first live retest exposed the host half of that sequence. H-SIDE turn 169 correctly refused the
+attack with `combat_scene_required`, but action admission then refused the named `apply move` because
+the player had chosen to hit Corbitt, not to name the graph's internal encounter scene. The host now
+treats only that exact kernel-returned destination as an internal continuation of the already admitted
+attack. The permission is written only by a `resolve` refusal whose structured reason is
+`combat_scene_required`, is restricted to a one-effect `apply move` to one of that refusal's
+destinations, is consumed when that move succeeds, and is cleared on the next player input or process
+open. It cannot authorize a clue, time, money, item or a different destination; the retried attack still
+uses the ordinary admission verdict. Telemetry records the skipped semantic review as
+`skipped: "combat_scene_required"`.
+
+This is the host equivalent of a state-machine internal microstep: the W3C SCXML run-to-completion
+model finishes internally enabled transitions before accepting another external event, and XState's
+internal events can be raised by the machine but not sent from outside. The player attack is the
+external event; the kernel's structured refusal raises the bounded internal scene transition. A new
+player turn cannot manufacture or inherit it.
+
 ## 103. A name the player was not told is not on the player's card (2026-09-17, amends §17.10 and §79.3)
 
 Acceptance play, campaign `game-570b0f06`, 血色公路, prologue. The Keeper's first two turns did

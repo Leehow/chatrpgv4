@@ -376,6 +376,8 @@ interface TableState {
 	/** Verdicts by proposal key (contract §32.4): valid for this turn only, cleared with the next player input. */
 	admission: Map<string, AdmissionVerdict>;
 	admissionRefused: string[];
+	/** §102: exact authored encounter destinations raised by a combat-start refusal in this turn. */
+	combatSceneMoves: Set<string>;
 	/** Consecutive failed reviews (contract §32.2's outage): the first failure reads as transient, a
 	 * streak turns the service notice persistent and notifies the operator out of fiction, once per
 	 * streak. A live verdict resets it; a turn boundary does not -- an outage is a service condition,
@@ -1065,6 +1067,7 @@ export default function (pi: ExtensionAPI) {
 		table.playerText = asString(open.pending_turn?.player_text);
 		table.admission = new Map();
 		table.admissionRefused = [];
+		table.combatSceneMoves.clear();
 		// A cold recovered turn still owes the consequences already written by
 		// its dead process. Feed those retained receipts into the same wait and
 		// admission context as live noteLanded calls; otherwise a later pending
@@ -1481,6 +1484,29 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	/**
+	 * A §102 combat refusal is an internal state transition raised by the already reviewed attack,
+	 * not a second voluntary destination. Only the exact, one-effect move returned by the kernel is
+	 * eligible; the permission never covers a mixed batch.
+	 */
+	function combatSceneMove(state: TableState, payload: Record<string, unknown>): string | undefined {
+		const effects = Array.isArray(payload.effects) ? payload.effects as Array<Record<string, unknown>> : [];
+		if (effects.length !== 1 || effects[0]?.kind !== "move" || effects[0].travel_minutes !== undefined) return undefined;
+		const destination = asString(effects[0].to);
+		return destination && state.combatSceneMoves.has(destination) ? destination : undefined;
+	}
+
+	function noteCombatSceneRequired(state: TableState, error: unknown): void {
+		if (!isKernelError(error) || error.details?.reason !== "combat_scene_required") return;
+		const current = asString(error.details.current);
+		if (current && state.scene?.handle && current !== state.scene.handle) return;
+		const destinations = Array.isArray(error.details.destinations) ? error.details.destinations : [];
+		for (const row of destinations) {
+			const destination = asString((row as Record<string, unknown> | null)?.scene);
+			if (destination) state.combatSceneMoves.add(destination);
+		}
+	}
+
+	/**
 	 * What discharges a recovery the Director asked for (contract §40), read from receipts alone.
 	 *
 	 * The keeper-pacing ladder in receipt form: information reached the player (`clue`, `handout`, `map`,
@@ -1553,6 +1579,11 @@ export default function (pi: ExtensionAPI) {
 	 * proposal is reused, admitting and refusing alike (contract §32.4).
 	 */
 	async function admitAction(state: TableState, tool: "resolve" | "apply", payload: Record<string, unknown>, signal?: AbortSignal): Promise<void> {
+		const internalCombatMove = tool === "apply" ? combatSceneMove(state, payload) : undefined;
+		if (internalCombatMove) {
+			await record({ lane: "admission", verb: tool, ok: true, skipped: "combat_scene_required", destination: internalCombatMove });
+			return;
+		}
 		const destinations: AdmissionDestination[] = [];
 		if (tool === 'apply' && Array.isArray(payload.effects)) for (const effect of payload.effects as Array<Record<string, unknown>>) {
 			if (effect.kind !== 'move' || typeof effect.to !== 'string' || destinations.some(value => value.requested === effect.to)) continue;
@@ -2487,7 +2518,9 @@ export default function (pi: ExtensionAPI) {
 				result.note = "This is published graph material. Use lookup kind source only if an original-page recheck is needed.";
 			}
 			await prepareMapViews(state,result);
+			const completedCombatMove = spec.name === "apply" ? combatSceneMove(state, payload) : undefined;
 			applyToolSuccess(state, spec.name, toolCallId, result);
+			if (completedCombatMove) state.combatSceneMoves.delete(completedCombatMove);
 			if (closesOpening && sessionCtx) {
 				// Words in the play language from the extension surface; whether the fold starts open is
 				// decided and recorded by the hints module (once per home, only while the setting is on).
@@ -2547,6 +2580,7 @@ export default function (pi: ExtensionAPI) {
 				details: result,
 			};
 		} catch (error) {
+			if (spec.name === "resolve") noteCombatSceneRequired(state, error);
 			// Contract §78: this effect did not happen, and the delivery behind it in the same message
 			// was written before anyone knew that. While that narrate is still pending the repair is
 			// available and the `tool_call` gate takes it; once that gate is spent for this turn the
@@ -2850,6 +2884,7 @@ export default function (pi: ExtensionAPI) {
 				recent: [],
 				admission: new Map(),
 				admissionRefused: [],
+				combatSceneMoves: new Set(),
 				admissionOutage: 0,
 				reviewOutage: 0,
 				unreviewedStreak: 0,
@@ -3229,6 +3264,7 @@ export default function (pi: ExtensionAPI) {
 			state.resend = undefined;
 			state.admission = new Map();
 			state.admissionRefused = [];
+			state.combatSceneMoves.clear();
 			state.landed = [];
 			// This input answers the ask that closed the last turn, if one did: a resolve settling one
 			// of its options is the player's own answer and is not put to review.
