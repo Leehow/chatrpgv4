@@ -639,7 +639,7 @@ export class Reading {
         }
         if (!seen.size)
             reject('index pages were not viewed as full page images: []');
-        const sections = truth(meta.index_file) ? await this.store.sections(mid) : [];
+        const sections = truth(meta.index_file) ? await this.store.sections(mid) : [], unreferenced: string[] = [];
         for (const raw of draft.sections) {
             const item = clone(raw);
             if (!object(item) || typeof item.name !== 'string' || !Array.isArray(item.pages) || !item.pages.length)
@@ -655,8 +655,7 @@ export class Reading {
                 }
                 else {
                     for (let page = number(pair[0]); page <= number(pair[1]); page++)
-                        if (!seen.has(page))
-                            reject('unseen navigation ranges need an observed source reference');
+                        if (!seen.has(page)) { if (!unreferenced.includes(item.name)) unreferenced.push(item.name); break; }
                 }
                 ranges.push([number(pair[0]) - 1, number(pair[1]) - 1]);
             }
@@ -669,6 +668,13 @@ export class Reading {
             Object.assign(item, { pages: ranges, state });
             sections.push(item);
         }
+        // A refusal names the rows it is about, and its fix is executed literally by the reader (§90.3):
+        // a whole-draft refusal made a reader rewrite twenty-one good sections, or give up.
+        if (unreferenced.length)
+            throw new RpcError('invalid_params', `unseen navigation ranges need an observed source reference: ${unreferenced.map(name => repr(name)).join(', ')}`, {
+                fix: `add source_refs naming the observed contents or heading page you took each range from to these sections only: ${unreferenced.join('; ')}. Keep every other section exactly as it is and submit the same draft again`,
+                details: { reason: 'reading_failed', path: '/sections', sections: unreferenced },
+            });
         if (seen.has(1) && !validSourceLanguage(draft.language))
             reject('identify the source language using a BCP 47 tag');
         const indexPath = join(job.work_dir, 'index.json');

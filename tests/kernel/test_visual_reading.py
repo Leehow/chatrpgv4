@@ -660,3 +660,25 @@ def test_later_npc_reading_adds_textual_dossier_facts_without_replacing_old_ones
         'review_path': str(Path(job['work_dir']) / 'review.json')})
     assert error['code'] == 'needs_choice' and error['details']['path'].endswith('/properties/agenda')
     assert kernel.ok('module.status', {'module_id': mid})['generation'] == 2
+
+
+def test_an_index_refusal_names_the_sections_without_a_reference_and_the_repair_lands(kernel, tmp_path):
+    """The refusal is executed literally by the reader: it names the rows and asks only for their references."""
+    mid, _ = bind(kernel, tmp_path)
+    request(kernel, mid, "index")
+    job = claim(kernel, mid)
+    observed(job, full_pages=[1])
+    draft = {"title": "Book", "language": "en", "sections": [
+        {"name": "Contents", "pages": [[1, 1]]},
+        {"name": "The town", "pages": [[2, 2]]},
+        {"name": "The mine", "pages": [[1, 2]]}]}
+    write(Path(job["work_dir"]) / "draft.json", draft)
+    error = kernel.err("module.read.finish", {"module_id": mid, "job_id": job["job_id"], "lease": job["lease"],
+        "outcome": "completed", "draft_path": str(Path(job["work_dir"]) / "draft.json")})
+    assert error["details"]["sections"] == ["The town", "The mine"]
+    assert "source_refs" in error["fix"] and "The town" in error["fix"] and "Contents" not in error["details"]["sections"]
+    for section in draft["sections"][1:]:
+        section["source_refs"] = [{"page": 1}]
+    write(Path(job["work_dir"]) / "draft.json", draft)
+    finish(kernel, job)
+    assert kernel.ok("module.status", {"module_id": mid})["reading"]["index_complete"]

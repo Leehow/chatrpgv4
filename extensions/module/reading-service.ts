@@ -104,8 +104,13 @@ function validCheckpoint(checkpoint: Row, bytes: Buffer, job: Row): boolean {
 const delay = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
 const error = (reason: string, message: string, fix: string, extra: Row = {}) =>
 	new KernelError({ code: "needs", message, fix, details: { reason, ...extra } });
-function openingFinishSemanticRejection(failure: unknown, job: Row): boolean {
-	return job.purpose === "opening" && isKernelError(failure) && failure.code === "invalid_params";
+/**
+ * A draft the kernel refused with a fix is a repair, whatever the reading was for. Only an opening
+ * used to get the round; an index refused for rows without their contents-page reference, or a
+ * detail refused on one node, ended as a failed job nobody retried, and the book stayed unread.
+ */
+function finishSemanticRejection(failure: unknown): boolean {
+	return isKernelError(failure) && failure.code === "invalid_params";
 }
 /** Resolve a JSON pointer against a draft, or `undefined` when it does not land. */
 function atPointer(draft: Row, pointer: unknown): unknown {
@@ -756,7 +761,7 @@ export class ReadingService implements ReadingBridge {
 						} catch { /* no completed read to invalidate */ }
 					}
 					detail = isKernelError(failure) ? failure.toToolText() : String(failure);
-					if (publishing && openingFinishSemanticRejection(failure, job) && !finishRepairUsed) {
+					if (publishing && finishSemanticRejection(failure) && !finishRepairUsed) {
 						finishRepairUsed = true;
 						lastRound = Math.max(lastRound, round + 1);
 					}
