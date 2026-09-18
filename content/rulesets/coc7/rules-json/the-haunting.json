@@ -76,12 +76,13 @@
       "extends": "knife_medium",
       "name": "The Floating Knife",
       "skill": "POW",
+      "adds_damage_bonus": false,
       "special": "mythos_animated",
       "rule_refs": [
         "core.combat.weapons",
         "module.haunting.corbitt_floating_knife_mp"
       ],
-      "note": "Corbitt animates the dagger with Mythos magic (1 MP/round). It attacks using Corbitt's POW vs the target's Dodge; the knife itself is a medium blade (1D4+2+DB) when it connects."
+      "note": "Corbitt animates the dagger with Mythos magic (1 MP/round). It attacks using Corbitt's POW vs the target's Dodge and deals the scenario's fixed 1D4+2 damage without Corbitt's damage bonus."
     }
   ]
 }

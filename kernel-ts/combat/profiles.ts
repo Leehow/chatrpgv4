@@ -64,7 +64,7 @@ export async function investigatorCombatParticipant(tables: RuleTables, sheet: R
             firearms = own;
     }
     const hpMax = number(derived.HP || 10);
-    return { actor_id: string(sheet.id), side: 'investigator', dex: number(characteristics.DEX ?? 50), combat_skill: number(skills['Fighting (Brawl)'] ?? 25),
+    return { actor_id: string(sheet.id), side: 'investigator', characteristics, dex: number(characteristics.DEX ?? 50), combat_skill: number(skills['Fighting (Brawl)'] ?? 25),
         dodge_skill: number(skills.Dodge ?? Math.max(1, Math.floor(number(characteristics.DEX ?? 50) / 2))), firearms_skill: firearms,
         has_ready_firearm: !!weapon && weapon.magazine != null, build: number(derived.BUILD ?? damage.build), damage_bonus: string(derived.DB ?? damage.damage_bonus),
         hp_max: hpMax, hp_current: integer(sheet.current_hp) || typeof sheet.current_hp === 'boolean' ? number(sheet.current_hp) : hpMax,
@@ -92,7 +92,7 @@ export async function npcCombatParticipant(tables: RuleTables, handle: string, p
     let weapons = array(profile.weapons).map(weapon => isJsonObject(weapon) ? clone(weapon) : { weapon_id: string(weapon) });
     if (!weapons.length)
         weapons = [{ weapon_id: 'unarmed' }];
-    return { actor_id: handle, side, dex: characteristics.DEX, combat_skill: number(skills['Fighting (Brawl)'] ?? skills.Brawl ?? skills.Fighting ?? 25),
+    return { actor_id: handle, side, characteristics, dex: characteristics.DEX, combat_skill: number(skills['Fighting (Brawl)'] ?? skills.Brawl ?? skills.Fighting ?? 25),
         dodge_skill: number(skills.Dodge ?? Math.max(1, Math.floor(characteristics.DEX / 2))),
         firearms_skill: Math.max(0, ...entries(skills).filter(([key]) => key.startsWith('Firearms')).map(([, value]) => number(value))),
         has_ready_firearm: truth(profile.has_ready_firearm), build: number(derived.Build ?? damage.build), damage_bonus: string(derived.DB ?? damage.damage_bonus),

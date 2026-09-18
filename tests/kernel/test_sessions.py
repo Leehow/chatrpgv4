@@ -206,10 +206,12 @@ def test_defense_none_and_the_snapshot_survives_a_restart(tmp_path):
         assert stand["outcome"]["defense"] == "none" and stand["outcome"]["opposed_outcome"] == "unopposed"
         rolled = [r for r in stand["outcome"]["rolls"]]
         assert rolled[0]["actor"] == CORBITT and rolled[0]["skill"] == "POW"  # the floating knife: Corbitt's POW
+        assert rolled[0]["target"] == 90
         # No defense roll; the only investigator die is the CON roll a major wound may force.
         assert all(r["skill"] == "CON" for r in rolled[1:] if r["actor"] == INVESTIGATOR)
         hp = [e for e in stand["effects"] if e["kind"] == "hp"]
         if stand["outcome"]["turn_outcome"] == "hit":
+            assert stand["outcome"]["damage"][0]["expression"] == "1D4+2"
             assert hp and hp[0]["subject"] == INVESTIGATOR and hp[0]["after"] < 12
             assert sheet(client)["current_hp"] == hp[0]["after"]
             healing = read_json(save_path(client, "healing-state", f"{INVESTIGATOR}.json"))

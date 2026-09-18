@@ -13141,3 +13141,30 @@ row), `::test_the_lane_can_name_a_person_the_scan_cannot_see` (`named: true` on 
 named person is refused), `tests/extension/npc-journal-lane.test.mjs` (the prompt carries the list
 and the rules, label and named travel to `journal.submit`), `tests/extension/character-presentation.test.mjs`
 (a `named: false` row's word is not sent for translation).
+
+## 104. Characteristic-driven combat weapons use the actor's authored characteristic (2026-09-17)
+
+H-SIDE turn 171 proved that entering the authored Corbitt encounter was necessary but not sufficient.
+The floating knife finally rolled `POW` instead of generic Fighting, yet its target was 50 while the
+source-authored Walter Corbitt profile and the live `look npc` projection both said POW 90. A
+deterministic no-defense reproduction also showed damage `1D4+2+1D4`, while the authored attack says
+`1D4+2`.
+
+The two causes are separate and confirmed. `npcCombatParticipant` read the profile's complete
+characteristics but copied only DEX and CON into the persisted participant. `CombatSession` then used
+`combat_skill` for every weapon whose skill was neither Firearms nor Throw, so a weapon explicitly
+declaring `skill: "POW"` fell back to Corbitt's Fighting 50. Separately, the module's floating-knife
+weapon extends the ordinary medium knife and had not overridden that weapon's damage-bonus flag.
+
+Combat participants now carry their integer characteristic map. Attack target selection first checks
+that map for the weapon's exact characteristic name, then retains the existing Firearms, Throw and
+combat-skill fallbacks. Dominate reads the same carried POW instead of relying on its old numeric
+fallback. The map is an optional combat-snapshot field for backward compatibility; before using any
+weapon, the runtime refreshes it from the current investigator sheet or NPC profile, so a retained
+mid-combat snapshot created before this section acquires the source numbers without replaying a turn.
+The module weapon explicitly sets `adds_damage_bonus: false`, preserving its authored `1D4+2`.
+
+The three ends are closed. Investigator sheets and NPC mechanics profiles write characteristics;
+participant construction and retained-session rebinding carry them; characteristic-named weapons and
+Dominate read them for authoritative rolls. `tests/kernel/test_sessions.py` pins both the floating
+knife's target 90 and its damage expression `1D4+2` through the production TS RPC seam.

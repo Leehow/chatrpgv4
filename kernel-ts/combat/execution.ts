@@ -129,6 +129,7 @@ export async function startCombat(context: SettleContext, args: Row): Promise<[
         npc.weapons = [{ weapon_id: preferred }, ...npc.weapons.filter((value: Row) => value.weapon_id !== preferred)];
     for (const spec of [investigator, npc]) {
         session.addParticipant(spec.actor_id, spec.side, { dex: spec.dex, combatSkill: spec.combat_skill, build: spec.build, hpMax: spec.hp_max,
+            characteristics: spec.characteristics,
             weapons: [...spec.weapons], conditions: [...spec.conditions], dodgeSkill: spec.dodge_skill, con: spec.con, firearmsSkill: spec.firearms_skill,
             hasReadyFirearm: spec.has_ready_firearm, damageBonus: spec.damage_bonus, magicPoints: spec.magic_points, armor: spec.armor, armorRule: spec.armor_rule });
         session.participants[spec.actor_id].hp_current = spec.hp_current;
@@ -211,10 +212,12 @@ function engineDefense(pending: Row, choice: string): string | null {
 const loadCombat = (context: SettleContext) => CombatSession.load(context, context.rng, context.tables, { trustedInMemory: true });
 const storedOperation = async (context: SettleContext): Promise<Row> => ({ ...row(row(await context.readSave('combat-operation.json')).operation) });
 async function bindUsageSkill(context: SettleContext, session: CombatSession, actor: string, weaponId: any): Promise<void> {
+    const sheet = context.sheetById(actor), profile = sheet ?? context.npcProfile(actor);
+    if (profile && session.participants[actor])
+        session.participants[actor].characteristics = Object.fromEntries(entries(row(profile.characteristics)).filter(([, value]) => Number.isInteger(value)));
     if (!weaponId) return;
     const weapon = row(session.weaponCatalog[string(weaponId)]);
     if (!weapon.usage_id) return;
-    const sheet = context.sheetById(actor), profile = sheet ?? context.npcProfile(actor);
     if (!profile) throw new RpcError('needs','The acting person needs a profile before using this object');
     const skills = {...row(profile.skills)};
     if (skills['Fighting (Brawl)'] == null && skills.Brawl != null) skills['Fighting (Brawl)'] = skills.Brawl;

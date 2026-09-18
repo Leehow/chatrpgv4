@@ -26,6 +26,7 @@ export interface ParticipantOptions {
     combatSkill: number;
     build: number;
     hpMax: number;
+    characteristics?: Row;
     magicPoints?: number;
     armor?: number;
     armorRule?: string | null;
@@ -128,7 +129,7 @@ export class CombatSession {
             valueError(`invalid armor_rule ${repr(armorRule)}`);
         if (Object.hasOwn(this.participants, actorId))
             valueError(`duplicate participant ${actorId}`);
-        const participant: Row = { actor_id: actorId, side, dex: options.dex, combat_skill: options.combatSkill,
+        const participant: Row = { actor_id: actorId, side, characteristics: { ...row(options.characteristics) }, dex: options.dex, combat_skill: options.combatSkill,
             dodge_skill: options.dodgeSkill ?? options.combatSkill, firearms_skill: options.firearmsSkill ?? 0, has_ready_firearm: options.hasReadyFirearm ?? false,
             build: options.build, damage_bonus: options.damageBonus ?? 'none', con: options.con ?? 50, hp_max: options.hpMax, hp_current: options.hpMax,
             magic_points: options.magicPoints ?? 0, armor: options.armor ?? 0, armor_rule: armorRule, weapons: options.weapons || [], conditions: [...options.conditions || []],
@@ -656,8 +657,15 @@ export class CombatSession {
             turn.reload_rounds_remaining = left;
         }
     }
+    private characteristicValue(participant: Row, name: string): number | null {
+        const characteristics = row(participant.characteristics), value = characteristics[name] ?? characteristics[name.toUpperCase()];
+        return integer(value) ? number(value) : null;
+    }
     private firearmSkill(attacker: Row, weapon: Row): number {
         const skill = string(weapon.skill ?? '');
+        const characteristic = this.characteristicValue(attacker, skill);
+        if (characteristic !== null)
+            return characteristic;
         return number(skill.startsWith('Firearms') ? attacker.firearms_skill ?? attacker.combat_skill : skill.startsWith('Throw') ? attacker.throw_skill ?? attacker.combat_skill : attacker.combat_skill);
     }
     private proneAimModifiers(attacker: Row, target: Row | null, firearm: boolean, thrown: boolean, melee: boolean, pointBlank: boolean, bonus: number, penalty: number, mods: Row): [
@@ -1049,8 +1057,8 @@ export class CombatSession {
             return;
         }
         caster.magic_points--;
-        const [attack, rolled] = this.percentile(actor, 'POW', caster.pow ?? 90, `Dominate ${string(targetId)}`), target = this.participants[targetId!];
-        const [defense, resisted] = this.percentile(targetId!, 'POW', target.pow ?? target.combat_skill, `resist Dominate from ${actor}`), opposed = resolveOpposed(attack, defense, 'fight_back');
+        const [attack, rolled] = this.percentile(actor, 'POW', this.characteristicValue(caster, 'POW') ?? caster.pow ?? 90, `Dominate ${string(targetId)}`), target = this.participants[targetId!];
+        const [defense, resisted] = this.percentile(targetId!, 'POW', this.characteristicValue(target, 'POW') ?? target.pow ?? target.combat_skill, `resist Dominate from ${actor}`), opposed = resolveOpposed(attack, defense, 'fight_back');
         Object.assign(turn, { roll_id: rolled.roll_id, opposed_roll_id: resisted.roll_id, defense_kind: 'none', opposed_outcome: opposed });
         if (['attacker_higher', 'tie_attacker_wins'].includes(opposed)) {
             const rounds = this.rng.randint(1, 6) + 1;

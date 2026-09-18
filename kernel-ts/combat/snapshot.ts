@@ -91,7 +91,7 @@ export function restoreCombatSnapshot(session: CombatSession, input: Row, option
     for (const participant of data.participants) {
         if (!object(participant))
             valueError('combat participant must be an object');
-        if (!schema(participant, PARTICIPANT_KEYS, ['major_wound_con', 'mechanics_revision_ref', 'throw_skill']))
+        if (!schema(participant, PARTICIPANT_KEYS, ['major_wound_con', 'mechanics_revision_ref', 'throw_skill', 'characteristics']))
             valueError('combat participant must use the exact schema');
         const id = participant.actor_id, conditions = participant.conditions;
         if (typeof id !== 'string' || Object.hasOwn(session.participants, id))
@@ -100,6 +100,9 @@ export function restoreCombatSnapshot(session: CombatSession, input: Row, option
             valueError('combat participant side is invalid');
         if (Object.hasOwn(participant, 'mechanics_revision_ref'))
             validateMechanicsRevisionRef(participant.mechanics_revision_ref, id);
+        if (Object.hasOwn(participant, 'characteristics') && (!object(participant.characteristics)
+            || entries(participant.characteristics).some(([, value]) => !integer(value))))
+            valueError('combat participant characteristics are invalid');
         if (!validConditions(conditions))
             valueError('combat participant conditions are invalid');
         const maximum = whole(participant.hp_max, 'participant hp_max', 1), hp = whole(participant.hp_current, 'participant hp_current');
