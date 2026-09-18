@@ -5608,6 +5608,34 @@ the reviewer's prompt; the evidence that it decides the case is the seven-pair p
 deepseek-v4-flash, deepseek-v4-pro and grok-4.3 now agree on all seven, including the two that used to
 split.
 
+**An undisclosed voluntary price is not an entailed step (2026-09-18).** Asking for a service
+or naming a goal does not authorize a price the player has not yet been told. Before settling a
+voluntary debit, item surrender, or other resource commitment, the reviewer must find either the
+relevant terms in an earlier player-visible delivery followed by acceptance, or an explicit still-valid
+player delegation covering those terms (for example a spending limit). The Keeper's proposal, source
+price, affordability, an NPC's demand, or another effect already landed this turn cannot supply that
+consent. Saying the price in the same delivery as the debit, or proceeding after a quote without
+new player acceptance, is too late. Routine time and effort inherent in an already-chosen action
+remain entailed; a new voluntary bargain or commitment is what needs consent. Absent disclosure and
+acceptance or applicable delegation, return `not_authorized` (or `uncertain` if the evidence is
+incomplete), naming the missing terms and choice. A request to fill a tank with no quoted price does
+not authorize a five-dollar debit; accepting the earlier five-dollar quote does. An unchanged accepted
+bargain needs no second confirmation. Hidden dangers, involuntary rule consequences and NPC initiative
+remain outside this voluntary-consent requirement; it is not a veto over outcomes.
+
+The Keeper first takes up the player's already-declared gestures and speech in the scene, lets the
+NPC state the relevant terms and ask whether to proceed, then ends with `narrate` and awaits free
+player input. Fictional prices are dialogue, not a resource-ledger recap, and may be spoken explicitly;
+no `ask` mechanics menu is added. Neither the paid service, the payment nor its dependent resource
+changes may be settled or narrated as completed while that bargain is still unchosen. Unrelated
+already-authorized actions may continue.
+
+Implementation decision: this is a clarification of the existing semantic admission lane and base
+Keeper prompt, not a new confirmation state machine, keyword classifier, or Mod. The host still
+supplies exact player input, prior deliveries and the proposed effects; the model judges consent; a
+refusal stops the batch before Mod hooks and the kernel. Scripted lane tests establish that transport
+and refusal/retry boundary only, not that a live model always judges the bargain correctly.
+
 ### 32.3 What the reviewer reads: the player's context, not the Keeper's
 
 The input is the exact current player text (the `table.player_input` prompt; on a recovered turn,
@@ -5679,11 +5707,19 @@ refusal was right is a human reading of the turn record.
 
 ### 32.8 The base prompt
 
-`prompts/keeper.md` gains two paragraphs and no package changes: what a refusal means and what to do
+`prompts/keeper.md` initially gains two paragraphs and no package changes: what a refusal means and what to do
 with it (§32.2), and orientation — re-establish public relationships after setup, handoff, a gap or a
 subject change without restaging; answer a "what is that?" with its public meaning first, never as a
 penalty and never with a secret; a `handout` is a physical document, a clue is what was learned, a
 summary is neither. Craft and pacing stay with the packages of §30.
+
+The 2026-09-18 amendment adds the unchosen-terms paragraph and clarifies declared action uptake:
+the prohibition on inventing investigator actions does not
+prohibit rendering actions or speech the player actually supplied. Enact those gestures and spoken
+meaning in the scene, with visible responses, rather than dropping the investigator's side of the
+exchange or returning a bare paraphrase. Do not extend that declaration into a new payment, promise,
+thought, feeling, or choice. A missing bargain confirmation is a real decision point, not the empty
+"do you go on?" handoff the writing guidance forbids.
 
 ### 32.9 What is verified and what is not (2026-09-11)
 
