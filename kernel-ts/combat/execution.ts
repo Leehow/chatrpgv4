@@ -13,7 +13,7 @@ import { objectTransferReceipt } from '../mods/object-transfer.js';
 import { selectObjectWeapon } from '../mods/usages.js';
 import { CombatSession, VALID_OUTCOMES } from './engine.js';
 import { UnknownWeaponError } from './catalog.js';
-import { combatOperationFor, investigatorCombatParticipant, moduleWeapons, npcCombatParticipant, resolveInvestigatorWeapon, sheetSkillValue, weaponOptions } from './profiles.js';
+import { combatOperationDestinations, combatOperationFor, investigatorCombatParticipant, moduleWeapons, npcCombatParticipant, resolveInvestigatorWeapon, sheetSkillValue, weaponOptions } from './profiles.js';
 import { syncCombatants } from './resources.js';
 import { archetypeIds } from '../apply/archetype.js';
 const SELF_RESOLVING = ['aim', 'reload', 'maneuver', 'flee'];
@@ -107,7 +107,19 @@ export async function startCombat(context: SettleContext, args: Row): Promise<[
             fix: `set action.weapon to one of details.needs.options, or arm ${string(weaponId)} first with apply item: its name plus the rules-table profile in weapon (a heavy blunt tool is club_large)`,
             details: { needs: { field: 'weapon', options: weaponOptions(sheet) } },
         });
-    const [affordance, operation] = combatOperationFor(context.graph, context.graph.scene(context.activeScene), target, weapon?.weapon_id ?? null), opponent = row(operation.opponent);
+    const activeScene = context.graph.scene(context.activeScene), [affordance, operation] = combatOperationFor(context.graph, activeScene, target, weapon?.weapon_id ?? null);
+    if (!affordance) {
+        const destinations = combatOperationDestinations(context.graph, context.world, activeScene, target, weapon?.weapon_id ?? null);
+        if (destinations.length) {
+            const publicDestinations = destinations.map(({ operation: _operation, ...destination }) => destination),
+                choices = publicDestinations.map(destination => `${string(destination.name)} (${string(destination.scene)})`).join(', ');
+            throw new RpcError('needs', `${context.graph.displayName(node)} has source-authored combat rules in ${choices}, not ${context.activeScene}`, {
+                fix: `enter the authored encounter first: apply move with to set to one of details.destinations[].scene (${publicDestinations.map(destination => string(destination.scene)).join(', ')}); if ${context.graph.displayName(node)} is not present there, apply npc with that name and to: here; then retry this same chosen attack. Do not narrate a strike, roll damage or spend resources before those calls succeed`,
+                details: { reason: 'combat_scene_required', target, current: context.activeScene, destinations: publicDestinations },
+            });
+        }
+    }
+    const opponent = row(operation.opponent);
     const extra = [...array(profile.weapons), ...array(opponent.weapons)].filter(value => isJsonObject(value) && (truth(value.extends) || truth(value.skill) && truth(value.damage || value.damage_die)));
     const catalog = await moduleWeapons(context.tables, context.graph, [...extra, ...weaponRows(context.world)]);
     const combatId = `${operation.combat_id || 'combat-' + context.activeScene}-t${context.turnNumber}`;
