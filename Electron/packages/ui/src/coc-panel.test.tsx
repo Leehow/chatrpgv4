@@ -650,6 +650,13 @@ it('renders a canonical weapon as a read-only entry with separate labeled parame
  expect(screen.getByText('笔记本').closest('li')?.querySelector('dl')).toBeNull();
  expect(JSON.stringify(snapshot)).toBe(before);
 });
+it('distinguishes multiple combat usages of the same physical object',async()=>{
+ const weapon=(usage:string)=>({name:'长柄钢撬棍',object_id:'crowbar-1',weapon_id:`usage-${usage}`,usage,damage:'1D8'});
+ render(<Panel api={host({ok:true,data:{status:'ready',view:view({investigators:[{...investigator,weapons:[weapon('挥砸撬棍'),weapon('直捅撬棍')]}]}),campaign:'c1'}})}/>);
+ await screen.findByText('长柄钢撬棍 · 挥砸撬棍');
+ expect(screen.getByText('长柄钢撬棍 · 直捅撬棍')).toBeTruthy();
+ expect(screen.queryAllByText('长柄钢撬棍')).toHaveLength(0);
+});
 it('supports legacy weapon fields and preserves supplied quantities without inventing missing parameters',async()=>{
  render(<Panel api={host({ok:true,data:{status:'ready',view:view({investigators:[{...investigator,weapons:[{name:'Old pistol',damage:'1D6',range:10,attacks:1,ammo:0,quantity:2}]}]}),campaign:'c1'}})}/>);
  const row=(await screen.findByText('Old pistol')).closest('li')!;

@@ -522,7 +522,9 @@ function languageRows(sheet) {
  */
 function itemLine(item, term = value => value) {
   if (!isRecord(item)) return { title: term(text(item)), quantity: undefined, details: [] };
-  const title = term(text(item.label || item.display_name || item.name || item.id));
+  const rawTitle = text(item.label || item.display_name || item.name || item.id);
+  const usage = text(item.usage);
+  const title = usage && usage !== rawTitle ? `${term(rawTitle)} · ${term(usage)}` : term(rawTitle);
   const details = [];
   for (const aliases of [["damage_die","damage"],["base_range_yards","range"],["uses_per_round","attacks"],["magazine"],["ammo"],["malfunction"],["skill"],["adds_damage_bonus"],["special"],["description"]]) {
     const key = aliases.find(key => item[key] !== undefined && item[key] !== null && item[key] !== "");

@@ -13186,3 +13186,16 @@ card therefore agree with the chosen attack; no prose inference is involved.
 `tests/kernel/test_sessions.py::test_floating_knife_cost_is_not_charged_to_corbitts_claws` opens the
 authored encounter through production TS RPC, chooses Corbitt's claws, and pins both the absence of an
 MP effect and the unchanged participant MP.
+
+## 106. One object with several combat usages has distinguishable weapon rows (2026-09-17)
+
+H-SIDE turn 174 added a second accepted use of the same carried crowbar: the prior `挥砸撬棍` and the
+new `直捅撬棍` correctly remained two executable usage records for one physical object. The
+investigator panel rendered both rows only as `长柄钢撬棍`, making one object look duplicated and
+leaving the player unable to tell which combat profile each fold described.
+
+The public sheet already carries both `name` and `usage`. The panel now titles an executable usage as
+`<object name> · <usage name>` when those words differ; ordinary weapons and legacy rows without a
+usage keep their existing title. This changes no object, quantity, owner or combat profile.
+`Electron/packages/ui/src/coc-panel.test.tsx` pins two usage rows for one object and the absence of an
+undifferentiated duplicate title.
