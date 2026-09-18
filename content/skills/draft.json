@@ -1,0 +1,17 @@
+[
+  {
+    "name": "ordinary-check-with-consequence",
+    "use_when": "An authorized action is uncertain or costly.",
+    "procedure": "Resolve; inspect the result; batch only supported effects in one apply; deliver. Exit on needs, choice, material, authorization or active-session divergence."
+  },
+  {
+    "name": "direct-authorized-change",
+    "use_when": "An authorized world change is uncontested.",
+    "procedure": "Skip resolve; batch entailed effects in one apply; deliver. Never infer consent to undisclosed costs, choices or hidden consequences."
+  },
+  {
+    "name": "repair-named-gap",
+    "use_when": "A tool refused with a named gap.",
+    "procedure": "Follow retryable, next, fix and closed choices; repair only that gap and retry only if permitted. Stop on action_not_authorized, admission_unavailable or stop."
+  }
+]

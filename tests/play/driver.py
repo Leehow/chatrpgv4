@@ -33,6 +33,7 @@ Only stdlib is used; run with `uv run --frozen python tests/play/driver.py ...`.
 from __future__ import annotations
 
 import argparse
+from copy import deepcopy
 import hashlib
 import json
 import os
@@ -62,6 +63,11 @@ TOOL_RESULT_TRUNCATE_BYTES = 4096
 STARTUP_READY_TIMEOUT = 30.0
 
 SETTLE_EXIT_CODES = {"settled": 0, "undelivered_with_tools": 5, "empty": 4, "timeout": 3}
+NOTICE_DETAIL_KEYS = frozenset({
+    "provider_outage", "commit_unavailable", "delivery_cut_short", "refused_effect",
+    "preparation_wait", "resend_held", "turn_unfinished", "standing_conditions",
+    "input_refused", "empty_input", "review_unavailable",
+})
 
 
 class DriverError(Exception):
@@ -122,6 +128,18 @@ def extract_result_text(result) -> str:
         if isinstance(block, dict) and block.get("type") == "text":
             parts.append(block.get("text") or "")
     return "\n".join(parts)
+
+
+def extract_host_delivery(message: dict) -> dict | None:
+    """Classify a visible host envelope by the contract's closed notice markers."""
+    details = message.get("details")
+    if (message.get("customType") != "coc-delivery" or message.get("display") is not True
+            or not isinstance(message.get("content"), str)
+            or not isinstance(details, dict) or details.get("coc_delivery") is not True):
+        return None
+    kind = "notice" if NOTICE_DETAIL_KEYS.intersection(details) else "narrate"
+    return {"kind": kind, "rendered_text": message["content"], "mechanics": [],
+            "pending_choice": None, "details": deepcopy(details)}
 
 
 def resolve_launcher(launcher_arg: str | None) -> Path:
@@ -485,7 +503,25 @@ class Daemon:
             # player in the app had been given the words (contract §32.9).
             delivered = ""
             delivery: dict | None = None
+            notices: list[dict] = []
             rejected_delivery = False
+
+            def capture_host_delivery(host: dict) -> None:
+                nonlocal delivered, delivery, rejected_delivery
+                rejected_delivery = False
+                if host["kind"] == "notice":
+                    notices.append({"content": host["rendered_text"], "details": deepcopy(host["details"])})
+                    if delivery is None:
+                        delivery = host
+                        delivered = host["rendered_text"]
+                elif delivery is None or delivery["kind"] == "notice":
+                    delivery = host
+                    delivered = host["rendered_text"]
+                elif not delivered:
+                    # Host publication can fill missing prose, but never erase tool mechanics/choice.
+                    delivered = host["rendered_text"]
+                    delivery["rendered_text"] = delivered
+
             stop_reason: str | None = None
             deadline = started_mono + timeout
             settle_deadline: float | None = None
@@ -531,11 +567,17 @@ class Daemon:
                     final_text_parts.clear()
                 if etype == "message_update":
                     ev = event.get("assistantMessageEvent") or {}
-                    if ev.get("type") == "text_delta":
+                    if ev.get("type") == "text_delta" and (event.get("message") or {}).get("display") is not False:
                         text_parts.append(ev.get("delta") or "")
                 elif etype == "message_end":
                     msg = event.get("message") or {}
-                    if msg.get("role") == "assistant":
+                    host = extract_host_delivery(msg) if msg.get("role") == "custom" else None
+                    if host is not None:
+                        capture_host_delivery(host)
+                    elif msg.get("role") == "assistant" and msg.get("display") is False:
+                        final_text_parts.clear()
+                        text_parts.clear()
+                    elif msg.get("role") == "assistant":
                         # The delivery is the last assistant message; earlier ones carry
                         # tool calls (their text, if any, is not table speech).
                         final_text_parts = [
@@ -581,9 +623,9 @@ class Daemon:
                 elif etype == "entry_appended":
                     entry = event.get("entry") or {}
                     data = entry.get("data") or {}
-                    if entry.get("customType") == "coc-delivery" and isinstance(entry.get("content"), str):
-                        delivered = entry["content"]
-                        rejected_delivery = False
+                    host = extract_host_delivery(entry)
+                    if host is not None:
+                        capture_host_delivery(host)
                     elif entry.get("customType") == "coc-telemetry" and data.get("tool") == "narrate" and data.get("implicit"):
                         rejected_delivery = data.get("ok") is False
                 elif etype == "agent_settled":
@@ -625,14 +667,15 @@ class Daemon:
 
             return self._finalize_turn(n, text, started_at, started_mono, tool_records,
                                         final_text, settle_class, stop_reason,
-                                        stale_settles=stale_settles, delivery=delivery)
+                                        stale_settles=stale_settles, delivery=delivery,
+                                        **({"notices": notices} if notices else {}))
         finally:
             self.pi.end_turn()
 
     def _finalize_turn(self, n: int, player_text: str, started_at: str, started_mono: float,
                         tool_records: list[dict], final_text: str,
                         settle_class: str, stop_reason: str | None, stale_settles: int = 0,
-                        delivery: dict | None = None) -> dict:
+                        delivery: dict | None = None, notices: list[dict] | None = None) -> dict:
         wall_seconds = round(time.monotonic() - started_mono, 3)
         clean_tools = [
             {"name": t.get("name"), "args": t.get("args"), "result_text": t.get("result_text", ""),
@@ -647,8 +690,9 @@ class Daemon:
             # How many settles arrived before this turn had begun; each one would have ended the
             # turn early and left the keeper playing it unwatched.
             **({"stale_settles": stale_settles} if stale_settles else {}),
-            # The player-visible delivery of this turn, as the kernel projected it (§16.2).
+            # The player-visible kernel delivery (§16.2) or terminal host notice (§13.11).
             **({"delivery": delivery} if delivery else {}),
+            **({"notices": notices} if notices else {}),
         }
         write_json(self.dir / f"turn-{n}.json", summary)
         self._write_heartbeat("running")
@@ -972,6 +1016,10 @@ def cmd_turn(args: argparse.Namespace) -> int:
 
     summary = resp["summary"]
     print(summary.get("final_text") or "(no assistant text this turn)")
+    for index, notice in enumerate(summary.get("notices") or []):
+        if index == 0 and (summary.get("delivery") or {}).get("kind") == "notice":
+            continue  # The first notice is already printed as the primary text.
+        print(notice["content"])
     tool_names = ", ".join(t["name"] for t in summary["tools"]) if summary["tools"] else "(none)"
     print(f"[turn {summary['turn']} | {summary['wall_seconds']:.1f}s | tools: {tool_names}]")
     return SETTLE_EXIT_CODES.get(summary["settle_class"], 1)

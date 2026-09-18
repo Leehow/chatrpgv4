@@ -31,6 +31,8 @@ ascending turn number).
 from __future__ import annotations
 
 import argparse
+from collections import Counter
+from datetime import datetime
 import json
 import re
 import statistics
@@ -245,6 +247,178 @@ def admission(rows: list[dict[str, Any]]) -> dict[str, Any]:
                           "mean": round(sum(ms) / len(ms)) if ms else 0}}
 
 
+def skills(rows: list[dict[str, Any]], turns: tuple[int, int] | None = None,
+           campaign: str | None = None) -> dict[str, Any]:
+    """Contract §13.11: one skills row is one settled agent run, not a receipt.
+
+    Rates use observed denominators; missing outcomes are not failures or successes.
+    Only exact provider/model identities share an arm. Evidence must share a nonempty
+    run_id as well as campaign/turn; an interrupted run cannot lend evidence to recovery.
+    Mixed or malformed identities are reported separately, never in model comparisons.
+    The CLI supplies campaign identity from its file path.
+    """
+    ledger = [r for r in rows if r.get("lane") == "skills"]
+    if not ledger:
+        return {}
+
+    def identity(row):
+        owner = row.get("campaign_id") or row.get("campaign") or campaign
+        turn = row.get("turn")
+        run_id = row.get("run_id")
+        return (owner, turn, run_id) if (owner and type(turn) is int
+                                       and isinstance(run_id, str) and run_id.strip()) else None
+
+    identities = Counter(identity(r) for r in ledger)
+    evidence: dict[tuple, list[dict[str, Any]]] = {}
+    for row in rows:
+        key = identity(row)
+        if key is not None:
+            evidence.setdefault(key, []).append(row)
+
+    def distribution(values):
+        counts = Counter(values)
+        return {"samples": len(values), "counts": {str(v): counts[v] for v in sorted(counts)},
+                "min": min(values) if values else None,
+                "max": max(values) if values else None,
+                "median": statistics.median(values) if values else None,
+                "mean": round(statistics.mean(values), 3) if values else None}
+
+    def rate(numerator, denominator):
+        return round(numerator / denominator, 3) if denominator else None
+
+    def timestamp(value):
+        if not isinstance(value, str):
+            return None
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            return parsed.timestamp() if parsed.tzinfo is not None else None
+        except ValueError:
+            return None
+
+    def model_identity(row):
+        def name(value):
+            return isinstance(value, str) and bool(value.strip())
+
+        # Older ledgers have only the exact top-level identity; never invent per-model rounds.
+        if "provider_models" not in row and "mixed_provider_model" not in row:
+            pair = row.get("provider"), row.get("model")
+            return ("single", pair) if all(name(v) for v in pair) else ("unavailable", None)
+        models = row.get("provider_models")
+        mixed = row.get("mixed_provider_model")
+        if not isinstance(models, list) or not models or type(mixed) is not bool:
+            return "unavailable", None
+        pairs = []
+        for entry in models:
+            if (not isinstance(entry, dict) or not name(entry.get("provider"))
+                    or not name(entry.get("model")) or type(entry.get("rounds")) is not int
+                    or entry["rounds"] <= 0):
+                return "unavailable", None
+            pairs.append((entry["provider"], entry["model"]))
+        if len(set(pairs)) != len(pairs) or mixed != (len(pairs) > 1):
+            return "unavailable", None
+        if "provider_rounds" in row and (type(row["provider_rounds"]) is not int
+                or row["provider_rounds"] != sum(m["rounds"] for m in models)):
+            return "unavailable", None
+        if mixed:
+            valid = row.get("provider") is None and row.get("model") is None
+            return ("mixed", None) if valid else ("unavailable", None)
+        if any(not name(row.get(k)) or row[k] != v for k, v in zip(("provider", "model"), pairs[0])):
+            return "unavailable", None
+        return "single", pairs[0]
+
+    def summarize_runs(provider, model, enabled, runs):
+        offered = Counter(name for r in runs for name in (r.get("offered") or []))
+        selected = [r for r in runs if isinstance(r.get("selected"), str) and r["selected"]]
+        offered_runs = sum(bool(r.get("offered")) for r in runs)
+        delivery_known = [r for r in selected if type(r.get("delivered")) is bool]
+        fallback_known = [r for r in selected if type(r.get("fallback")) is bool]
+        refusal_known = [r for r in runs if isinstance(r.get("refusal_classes"), list)]
+        sequences = Counter(tuple(r["tool_names"]) for r in runs if isinstance(r.get("tool_names"), list))
+        wall_ms = []
+        reviews = []
+        admission_runs = 0
+        for run in runs:
+            key = identity(run)
+            if key is None or identities[key] != 1:
+                continue
+            joined = evidence[key]
+            review_rows = [r for r in joined if r.get("lane") == "admission"]
+            if review_rows:
+                admission_runs += 1
+                reviews.extend(review_rows)
+            starts = [r for r in joined if r.get("tool") == "table.player_input" and r.get("ok") is True]
+            ends = [r for r in joined if is_tool_call(r) and r.get("tool") in ("ask", "narrate")
+                    and r.get("ok") is True]
+            if len(starts) == len(ends) == 1 and run.get("delivered") is True:
+                start, end = timestamp(starts[0].get("started_at")), timestamp(ends[0].get("started_at"))
+                duration = ends[0].get("ms")
+                if start is not None and end is not None and type(duration) in (int, float) and duration >= 0:
+                    elapsed = round((end - start) * 1000 + duration)
+                    if elapsed >= 0:
+                        wall_ms.append(elapsed)
+        delivered = sum(r["delivered"] for r in delivery_known)
+        fallback = sum(r["fallback"] for r in fallback_known)
+        refused = sum(bool(r["refusal_classes"]) for r in refusal_known)
+        return {
+            "provider": provider, "model": model, "enabled": enabled,
+            "rows": len(runs), "runs": len(runs),
+            "offered_runs": offered_runs, "offered": dict(sorted(offered.items())),
+            "selected_runs": len(selected),
+            "selected": dict(sorted(Counter(r["selected"] for r in selected).items())),
+            "invalid_selections": sum(r.get("invalid_selection") is not None for r in runs),
+            "selection_rate": rate(len(selected), offered_runs),
+            "delivered_after_selection": {"runs": delivered, "observed": len(delivery_known),
+                                           "rate": rate(delivered, len(delivery_known))},
+            "fallback_after_selection": {"runs": fallback, "observed": len(fallback_known),
+                                          "rate": rate(fallback, len(fallback_known))},
+            "refusals": {"runs": refused, "observed": len(refusal_known),
+                         "rate": rate(refused, len(refusal_known)),
+                         "classes": dict(sorted(Counter(c for r in refusal_known for c in r["refusal_classes"]).items()))},
+            "provider_rounds": distribution([r["provider_rounds"] for r in runs
+                                             if type(r.get("provider_rounds")) is int and r["provider_rounds"] >= 0]),
+            "tool_sequences": [{"tool_names": list(seq), "runs": count} for seq, count in sorted(sequences.items())],
+            "tool_sequences_unavailable": len(runs) - sum(sequences.values()),
+            "wall_ms": {"source": "table.player_input.started_at to delivery RPC completion",
+                        "status": "available" if wall_ms else "unavailable",
+                        "unavailable_runs": len(runs) - len(wall_ms), **distribution(wall_ms)},
+            "admission": {"status": "available" if admission_runs else "unavailable",
+                          "joined_runs": admission_runs, "unavailable_runs": len(runs) - admission_runs,
+                          "summary": admission(reviews)},
+        }
+
+    groups: dict[tuple, list[dict[str, Any]]] = {}
+    mixed_runs, unavailable_identity_runs = [], []
+    for row in ledger:
+        if turns is not None and (type(row.get("turn")) is not int
+                                 or not turns[0] <= row["turn"] <= turns[1]):
+            continue
+        enabled = row.get("enabled") if type(row.get("enabled")) is bool else None
+        status, pair = model_identity(row)
+        if status == "single":
+            groups.setdefault((*pair, enabled), []).append(row)
+            continue
+        entry = {**summarize_runs(None, None, enabled, [row]),
+                 "campaign": row.get("campaign_id") or row.get("campaign") or campaign,
+                 "turn": row.get("turn"), "run_id": row.get("run_id"),
+                 "provider_models": row.get("provider_models"),
+                 "mixed_provider_model": row.get("mixed_provider_model"),
+                 "identity_status": status, "comparison_eligible": False}
+        # Even inconsistent mixed metadata must remain visibly excluded as a mixed run.
+        target = mixed_runs if status == "mixed" or row.get("mixed_provider_model") is True else unavailable_identity_runs
+        target.append(entry)
+    strata = []
+    for (provider, model, enabled), runs in sorted(groups.items(), key=lambda item: json.dumps(item[0])):
+        observed_models = [entry for r in runs for entry in r.get("provider_models", [])]
+        model_rounds = sum(entry["rounds"] for entry in observed_models) if observed_models else None
+        strata.append({**summarize_runs(provider, model, enabled, runs),
+                       "comparison_eligible": enabled is not None,
+                       "provider_models": [{"provider": provider, "model": model, "rounds": model_rounds}],
+                       "provider_models_unavailable_runs": sum("provider_models" not in r for r in runs)})
+    return {"rows": sum(s["rows"] for s in strata) + len(mixed_runs) + len(unavailable_identity_runs),
+            "strata": strata, "mixed_runs": sorted(mixed_runs, key=lambda r: json.dumps(r, sort_keys=True)),
+            "unavailable_identity_runs": sorted(unavailable_identity_runs, key=lambda r: json.dumps(r, sort_keys=True))}
+
+
 def lanes(rows: list[dict[str, Any]]) -> dict[str, Any]:
     """Every lane's own outcome rows: how many, how many failed, and the worst run of
     consecutive failures.
@@ -339,6 +513,8 @@ def format_report(per_turn: dict[int, dict[str, Any]], summary: dict[str, Any], 
         )
     lines.append("---")
     for key, value in summary.items():
+        if key == "skills":
+            value = json.dumps(value, ensure_ascii=False, sort_keys=True)
         lines.append(f"{key}: {value}")
     return "\n".join(lines)
 
@@ -386,6 +562,9 @@ def main(argv: list[str] | None = None) -> int:
     reviews = admission(rows)
     if reviews:
         summary["admission"] = reviews
+    skill_ledger = skills(rows, turns, campaign)
+    if skill_ledger:
+        summary["skills"] = skill_ledger
     health = lanes(rows)
     if health:
         summary["lanes"] = health

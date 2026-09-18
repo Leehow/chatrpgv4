@@ -91,6 +91,197 @@ def test_rejected_implicit_draft_is_not_a_final_response():
     assert result["settle_class"] == "empty"
 
 
+def review_notice(**overrides):
+    return {"role": "custom", "customType": "coc-delivery", "display": True,
+            "content": "This turn could not be published. Settled actions remain recorded.",
+            "details": {"coc_delivery": True, "turn": 8, "review_unavailable": True,
+                        "streak": 0, "service": False}, **overrides}
+
+
+def failed_narrate_events():
+    return [
+        (0, {"type": "agent_start"}),
+        (.1, {"type": "tool_execution_start", "toolName": "narrate", "toolCallId": "draft", "args": {}}),
+        (.2, {"type": "tool_execution_end", "toolName": "narrate", "toolCallId": "draft",
+              "isError": True, "result": {"content": [{"type": "text", "text": "Continuity review is paused; no draft was approved"}]}}),
+        (.3, {"type": "agent_end"}),
+    ]
+
+
+@pytest.mark.parametrize("event_type,field", [("message_end", "message"), ("entry_appended", "entry")])
+def test_failed_narrate_then_visible_review_notice_is_settled(event_type, field, monkeypatch, capsys):
+    notice = review_notice()
+    result = replay_turn(failed_narrate_events() + [
+        (.4, {"type": event_type, field: notice}),
+        (.5, {"type": "agent_settled"}),
+    ])
+    assert result["final_text"] == notice["content"]
+    assert result["settle_class"] == "settled"
+    assert result["stop_reason"] == "agent_settled"
+    assert result["delivery"] == {"kind": "notice", "rendered_text": notice["content"],
+                                  "mechanics": [], "pending_choice": None, "details": notice["details"]}
+    assert result["delivery"]["details"] is not notice["details"]
+    assert result["notices"] == [{"content": notice["content"], "details": notice["details"]}]
+    assert result["notices"][0]["details"] is not notice["details"]
+
+    spec = importlib.util.spec_from_file_location("driver_notice_cli", DRIVER)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    monkeypatch.setattr(module, "rpc_call", lambda *a, **kw: {"ok": True, "summary": {**result, "turn": 8}})
+    assert module.cmd_turn(SimpleNamespace(run="notice-replay", text="Continue.", timeout=10)) == 0
+    assert capsys.readouterr().out.count(notice["content"]) == 1
+
+
+@pytest.mark.parametrize("overrides", [
+    {"display": False}, {"display": None}, {"display": 1},
+    {"customType": "coc-capsule"}, {"details": None}, {"details": {}},
+    {"details": {"coc_delivery": False}}, {"details": {"coc_delivery": 1}},
+    {"content": [{"type": "text", "text": "Not string content"}]},
+])
+@pytest.mark.parametrize("event_type,field", [("message_end", "message"), ("entry_appended", "entry")])
+def test_hidden_or_unmarked_custom_messages_are_not_delivery(overrides, event_type, field):
+    result = replay_turn(failed_narrate_events() + [
+        (.4, {"type": event_type, field: review_notice(**overrides)}),
+        (.5, {"type": "agent_settled"}),
+    ])
+    assert result["final_text"] == ""
+    assert result["delivery"] is None
+    assert result["settle_class"] == "undelivered_with_tools"
+
+
+@pytest.mark.parametrize("event", [
+    {"type": "message_start", "message": review_notice()},
+    {"type": "message_end", "message": review_notice(role="user")},
+    {"type": "message_end", "message": {key: value for key, value in review_notice().items() if key != "details"}},
+    {"type": "message_end", "message": {key: value for key, value in review_notice().items() if key != "display"}},
+    {"type": "message_update", "message": {"role": "assistant", "display": False},
+     "assistantMessageEvent": {"type": "text_delta", "delta": "Hidden draft"}},
+    {"type": "message_end", "message": review_notice(role="assistant", display=False,
+        content=[{"type": "text", "text": "Hidden assistant text"}])},
+    {"type": "entry_appended", "entry": {"type": "message", "message": review_notice()}},
+])
+def test_other_event_shapes_are_not_notice_delivery(event):
+    result = replay_turn([(0, {"type": "agent_start"}), (.1, event), (.2, {"type": "agent_settled"})])
+    assert result["final_text"] == ""
+    assert result["delivery"] is None
+    assert result["settle_class"] == "empty"
+
+
+@pytest.mark.parametrize("tool", ["narrate", "ask"])
+def test_successful_delivery_overrides_earlier_notice(tool):
+    body = {"rendered_text": "The clerk opens the ledger.", "mechanics": [{"kind": "check"}],
+            "pending_choice": {"kind": "choice"} if tool == "ask" else None}
+    result = replay_turn([
+        (0, {"type": "agent_start"}),
+        (.1, {"type": "message_end", "message": review_notice()}),
+        (.2, {"type": "tool_execution_start", "toolName": tool, "toolCallId": "published", "args": {}}),
+        (.3, {"type": "tool_execution_end", "toolName": tool, "toolCallId": "published",
+              "result": {"content": [{"type": "text", "text": json.dumps(body)}]}}),
+        (.4, {"type": "agent_settled"}),
+    ])
+    assert result["final_text"] == body["rendered_text"]
+    assert result["delivery"] == {"kind": tool, **body}
+    assert result["settle_class"] == "settled"
+    assert result["notices"] == [{"content": review_notice()["content"], "details": review_notice()["details"]}]
+
+
+@pytest.mark.parametrize("event_type,field", [("message_end", "message"), ("entry_appended", "entry")])
+@pytest.mark.parametrize("supplemental", [False, True])
+def test_host_publication_preserves_structured_story(event_type, field, supplemental, monkeypatch, capsys):
+    body = {"rendered_text": "The clerk opens the ledger.", "mechanics": [{"kind": "check"}],
+            "pending_choice": {"kind": "choice"}}
+    publication = review_notice() if supplemental else review_notice(
+        content=body["rendered_text"], details={"coc_delivery": True, "turn": 8})
+    result = replay_turn([
+        (0, {"type": "agent_start"}),
+        (.1, {"type": "tool_execution_start", "toolName": "ask", "toolCallId": "story", "args": {}}),
+        (.2, {"type": "tool_execution_end", "toolName": "ask", "toolCallId": "story",
+              "result": {"content": [{"type": "text", "text": json.dumps(body)}]}}),
+        (.3, {"type": event_type, field: publication}),
+        (.4, {"type": "agent_settled"}),
+    ])
+    assert result["final_text"] == body["rendered_text"]
+    assert result["delivery"] == {"kind": "ask", **body}
+    assert result["settle_class"] == "settled"
+    if supplemental:
+        assert result["notices"] == [{"content": publication["content"], "details": publication["details"]}]
+    else:
+        assert "notices" not in result
+
+    spec = importlib.util.spec_from_file_location("driver_publication_cli", DRIVER)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    monkeypatch.setattr(module, "rpc_call", lambda *a, **kw: {"ok": True, "summary": {**result, "turn": 8}})
+    assert module.cmd_turn(SimpleNamespace(run="publication-replay", text="Continue.", timeout=10)) == 0
+    output = capsys.readouterr().out
+    assert output.count(body["rendered_text"]) == 1
+    if supplemental:
+        assert output.count(publication["content"]) == 1
+        assert output.index(body["rendered_text"]) < output.index(publication["content"])
+
+
+@pytest.mark.parametrize("event_type,field", [("message_end", "message"), ("entry_appended", "entry")])
+@pytest.mark.parametrize("earlier_notice", [False, True])
+def test_host_narrative_without_tool_result(event_type, field, earlier_notice):
+    story = review_notice(content="The door opens.", details={"coc_delivery": True, "turn": 8})
+    events = [(0, {"type": "agent_start"})]
+    if earlier_notice:
+        events.append((.1, {"type": event_type, field: review_notice()}))
+    result = replay_turn(events + [(.2, {"type": event_type, field: story}), (.3, {"type": "agent_settled"})])
+    assert result["final_text"] == story["content"]
+    assert result["delivery"] == {"kind": "narrate", "rendered_text": story["content"],
+                                  "mechanics": [], "pending_choice": None, "details": story["details"]}
+    assert result["delivery"]["details"] is not story["details"]
+    assert result["settle_class"] == "settled"
+    assert bool(result.get("notices")) == earlier_notice
+
+
+@pytest.mark.parametrize("marker", [
+    "provider_outage", "commit_unavailable", "delivery_cut_short", "refused_effect",
+    "preparation_wait", "resend_held", "turn_unfinished", "standing_conditions",
+    "input_refused", "empty_input", "review_unavailable",
+])
+def test_closed_notice_markers_preserve_nested_details(marker):
+    notice = review_notice(details={"coc_delivery": True, "turn": 8, marker: {"reason": ["held"]}})
+    result = replay_turn([(0, {"type": "message_end", "message": notice}), (.1, {"type": "agent_settled"})])
+    assert result["delivery"]["kind"] == "notice"
+    assert result["notices"][0]["details"] == notice["details"]
+    notice["details"][marker]["reason"].append("changed")
+    assert result["notices"][0]["details"][marker] == {"reason": ["held"]}
+    assert result["delivery"]["details"][marker] == {"reason": ["held"]}
+
+
+def test_multiple_notices_preserve_first_primary_and_persist_in_order(tmp_path, monkeypatch, capsys):
+    first, second = review_notice(), review_notice(content="The service remains paused.")
+    result = replay_turn(failed_narrate_events() + [
+        (.4, {"type": "message_end", "message": first}),
+        (.5, {"type": "message_end", "message": second}),
+        (.6, {"type": "agent_settled"}),
+    ])
+    assert result["final_text"] == first["content"]
+    assert result["delivery"]["rendered_text"] == first["content"]
+    assert [notice["content"] for notice in result["notices"]] == [first["content"], second["content"]]
+    spec = importlib.util.spec_from_file_location("driver_notice_persistence", DRIVER)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    daemon = module.Daemon.__new__(module.Daemon)
+    daemon.run_id, daemon.dir = "notice-replay", tmp_path
+    daemon._write_heartbeat = lambda *args: None
+    daemon.log = SimpleNamespace(write=lambda *args: None)
+    response = daemon._finalize_turn(8, "Continue.", module.now_iso(), module.time.monotonic(),
+        result["tools"], result["final_text"], result["settle_class"], result["stop_reason"],
+        delivery=result["delivery"], notices=result["notices"])
+    assert read_json(tmp_path / "turn-8.json")["notices"] == result["notices"]
+    monkeypatch.setattr(module, "rpc_call", lambda *a, **kw: response)
+    assert module.cmd_turn(SimpleNamespace(run="notice-replay", text="Continue.", timeout=10)) == 0
+    output = capsys.readouterr().out
+    assert output.count(first["content"]) == output.count(second["content"]) == 1
+    assert output.index(first["content"]) < output.index(second["content"])
+    daemon._finalize_turn(9, "Continue.", module.now_iso(), module.time.monotonic(), [],
+                          "Story.", "settled", "agent_settled")
+    assert "notices" not in read_json(tmp_path / "turn-9.json")
+
+
 def test_resumed_work_that_never_finishes_times_out():
     result = replay_turn([(0, {"type": "agent_start"}), (.1, {"type": "agent_end"}),
                           (.2, {"type": "agent_start"})], timeout=3)

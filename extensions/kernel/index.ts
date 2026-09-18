@@ -38,6 +38,69 @@ import {
 
 type TurnState = "awaiting_player" | "open" | "acting" | "asked" | "committed";
 
+type SkillCard = { name: string; use_when: string; procedure: string };
+type SkillProjection = { experiment: "procedural-skill-e0"; optional: true; cards: SkillCard[]; truncated?: true };
+
+/** Package-owned guidance only: validate before projecting, then drop whole tail cards to fit 1 KiB. */
+export function projectSkillCards(source: unknown): SkillProjection {
+	if (!Array.isArray(source) || source.some((card) => !card || typeof card !== "object"
+		|| Object.keys(card).length !== 3
+		|| ["name", "use_when", "procedure"].some((key) => typeof card[key] !== "string" || !card[key].trim()))
+		|| new Set(source.map((card) => card.name)).size !== source.length) {
+		throw new Error("Invalid procedural skill cards: expected unique name/use_when/procedure strings");
+	}
+	const projection: SkillProjection = { experiment: "procedural-skill-e0", optional: true,
+		cards: source.slice(0, 3).map(({ name, use_when, procedure }) => ({ name, use_when, procedure })) };
+	if (source.length > 3) projection.truncated = true;
+	while (Buffer.byteLength(JSON.stringify(projection), "utf8") > 1024) {
+		projection.truncated = true;
+		projection.cards.pop();
+	}
+	return projection;
+}
+
+type SkillRun = {
+	run_id: string;
+	enabled: boolean;
+	offered: string[];
+	selected: string | null;
+	invalid_selection: string | null;
+	tool_names: string[];
+	provider_rounds: number;
+	provider_models: Array<{ provider: string | null; model: string | null; rounds: number }>;
+	mixed_provider_model: boolean;
+	refusal_classes: string[];
+	delivered: boolean;
+	diverged: boolean;
+	provider: string | null;
+	model: string | null;
+};
+
+function newSkillRun(): SkillRun {
+	return { run_id: randomUUID(), enabled: process.env.PI_COC_SKILLS === "1", offered: [], selected: null, invalid_selection: null,
+		tool_names: [], provider_rounds: 0, provider_models: [], mixed_provider_model: false,
+		refusal_classes: [], delivered: false, diverged: false, provider: null, model: null };
+}
+
+function noteSkillProviderRound(run: SkillRun, provider: string | null, model: string | null): void {
+	run.provider_rounds += 1;
+	const identity = run.provider_models.find((row) => row.provider === provider && row.model === model);
+	if (identity) identity.rounds += 1;
+	else run.provider_models.push({ provider, model, rounds: 1 });
+	run.mixed_provider_model = run.provider_models.length > 1;
+	run.provider = run.mixed_provider_model ? null : provider;
+	run.model = run.mixed_provider_model ? null : model;
+}
+
+/** Never forward the annotation, including when it is invalid or the experiment is disabled. */
+function takeSkillAnnotation(run: SkillRun | undefined, input: Record<string, unknown>): void {
+	const annotation = input.using_skill;
+	delete input.using_skill;
+	if (annotation === undefined || !run) return;
+	if (typeof annotation === "string" && run.offered.includes(annotation)) run.selected ??= annotation;
+	else run.invalid_selection ??= typeof annotation === "string" ? annotation : JSON.stringify(annotation);
+}
+
 interface OpenResult {
 	campaign?: { id?: string; title?: string; play_language?: string };
 	turn?: { number?: number; state?: TurnState };
@@ -295,6 +358,8 @@ interface TableState {
 	 * finish it any more. The next player input releases it instead of being refused turn_state. */
 	strandedTurn?: boolean;
 	roundTrips: number;
+	/** E0 measurements belong to one settled run, including its retries and queued continuations. */
+	skillRun?: SkillRun;
 	mintedCallIds: Map<string, string>;
 	/** Calls the kernel rejected this turn: key of name+params to a count and the last error. Blocked on the third identical resend. */
 	rejected: Map<string, { count: number; last: string }>;
@@ -960,7 +1025,13 @@ export default function (pi: ExtensionAPI) {
 	// ---- Telemetry --------------------------------------------------------
 
 	async function record(entry: Record<string, unknown>): Promise<void> {
-		const line = { turn: table?.turn ?? null, ...entry };
+		const run = table?.skillRun;
+		// Stamp ownership before the first await; a detached settlement carries its own run_id.
+		const line = { turn: table?.turn ?? null, ...entry, ...(run ? { run_id: run.run_id } : {}) };
+		if (run && COC_TOOL_NAMES.includes(entry.tool as never) && entry.ok === false) {
+			const cls = String(entry.code ?? entry.reason ?? "error");
+			if (!run.refusal_classes.includes(cls)) run.refusal_classes.push(cls);
+		}
 		try {
 			pi.appendEntry("coc-telemetry", line);
 		} catch {
@@ -1708,6 +1779,12 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	function applyToolSuccess(state: TableState, tool: string, toolCallId: string, result: Record<string, unknown>): void {
+		const run = state.skillRun;
+		if (run) {
+			if (tool === "ask" || tool === "narrate") run.delivered = true;
+			const session = result.session as SessionSummary | undefined;
+			if (tool === "ask" || result.pending_choice || (session?.kind && !session.ended && session.status !== "ended")) run.diverged = true;
+		}
 		// A landed narrate is the proof that the review is back: it is the only verb the continuity
 		// review gates, so its success -- not a turn boundary -- is what ends an outage streak.
 		if (tool === "narrate") { state.reviewOutage = 0; state.reviewOutageNotified = false; }
@@ -2434,6 +2511,7 @@ export default function (pi: ExtensionAPI) {
 		onUpdate?: AgentToolUpdateCallback<Record<string, unknown>>,
 	): Promise<{ content: Array<{ type: "text"; text: string }>; details: Record<string, unknown>; terminate?: boolean }> {
 		const state = table;
+		takeSkillAnnotation(state?.skillRun, params);
 		if (!state) {
 			throw new Error(startupError ?? "the kernel is not up, so this table cannot open");
 		}
@@ -2530,6 +2608,10 @@ export default function (pi: ExtensionAPI) {
                 } else result = (await state.kernel.call<Record<string, unknown>>(spec.method, payload, onProgress)) ?? {};
             }
 			catch (failure) {
+				if (isKernelError(failure) && failure.details?.reason === "material_pending" && state.skillRun) {
+					state.skillRun.diverged = true;
+					if (!state.skillRun.refusal_classes.includes("material_pending")) state.skillRun.refusal_classes.push("material_pending");
+				}
 				if (!(isKernelError(failure)) || failure.details?.reason !== "material_pending" || !reading || !readingModule) throw failure;
 				const read = { ...(failure.details.read as Record<string, unknown>), foreground: true };
 				const readKey = JSON.stringify([read.purpose ?? "", read.material ?? "", read.focus ?? "", read.question ?? "", read.guidance_key ?? ""]);
@@ -2575,6 +2657,7 @@ export default function (pi: ExtensionAPI) {
 			}
 			const adaptationPending = spec.name === 'lookup' && params.kind === 'adaptation' && ['pending', 'reviewing'].includes(String(result.status));
 			if (adaptationPending) {
+				if (state.skillRun) state.skillRun.diverged = true;
 				state.preparationWait = { kind: "adaptation", name: asString(result.name), status: asString(result.status) };
 				const status = {campaign: state.campaign, turn: state.turn, name: result.name, status: result.status,
 					message: result.service_status};
@@ -3087,8 +3170,15 @@ export default function (pi: ExtensionAPI) {
 		waitingInputs.push({ text: event.text, images: event.images });
 		return { action: "handled" };
 	});
-	pi.on("agent_settled", () => {
+	pi.on("agent_settled", async () => {
 		if (!table) return;
+		const run = table.skillRun;
+		table.skillRun = undefined;
+		if (run) {
+			const { diverged, ...measurements } = run;
+			await record({ lane: "skills", campaign: table.campaign, ...measurements,
+				fallback: run.selected !== null && (diverged || run.refusal_classes.length > 0 || !run.delivered) });
+		}
 		// Contract §38: the run itself is the structural boundary. If it settled with the turn still
 		// open/acting and no narrate/ask delivery, there is no actor left who can finish it before the
 		// player's next input — which the state guard would otherwise reject. The cause is irrelevant.
@@ -3193,6 +3283,7 @@ export default function (pi: ExtensionAPI) {
 	pi.on("before_agent_start", async (event) => {
 		const state = table;
 		if (!state) return;
+		state.skillRun = newSkillRun();
 		state.reviewUnavailable = undefined;
 		state.reviewNoticeSent = false;
 		state.providerNoticeSent = false;
@@ -3320,22 +3411,31 @@ export default function (pi: ExtensionAPI) {
 				ms: Date.now() - began,
 				ok: true,
 			});
-			// Contract §13.9: the capsule enters the model context verbatim. Another extension that wants to
-			// see it (the table display reads the director beat) takes it off the bus rather than parsing that
-			// host message a second time, and never alters its JSON.
+			// §13.11: append host guidance to a fresh view; the raw kernel capsule is never changed.
+			let capsule = result.capsule ?? {};
+			if (state.skillRun?.enabled && runtime) {
+				try {
+					const skills = projectSkillCards(JSON.parse(await readFile(join(runtime.contentRoot, "skills", "draft.json"), "utf8")));
+					capsule = { ...(capsule as Record<string, unknown>), skills };
+					state.skillRun.offered = skills.cards.map((card) => card.name);
+				} catch (error) {
+					// Optional guidance cannot turn an already accepted player input into a refusal.
+					await record({ lane: "skills-projection", ok: false, error: String(error) });
+				}
+			}
 			const contextEpoch = randomUUID();
 			pi.events.emit("coc:capsule", {
 				epoch: contextEpoch,
 				campaign: state.campaign,
 				turn: state.turn,
-				capsule: result.capsule ?? {},
+				capsule,
 				context: result._context,
 				answering: state.answering,
 			});
 			return {
 				message: {
 					customType: "coc-capsule",
-					content: JSON.stringify(result.capsule ?? {}),
+					content: JSON.stringify(capsule),
 					display: false,
 					details: { coc_host: true, turn: state.turn, epoch: contextEpoch, context: result._context },
 				},
@@ -3394,6 +3494,8 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("agent_start", async () => {
 		if (table) {
+			// Host-only openings skip before_agent_start; continuations must keep the same ledger.
+			table.skillRun ??= newSkillRun();
 			table.closedThisRun = false;
 			table.runCut = false;
 			// §86: `blockedAfterClose` is NOT reset here any more. pi starts a continuation run for any
@@ -3413,6 +3515,11 @@ export default function (pi: ExtensionAPI) {
 		const name = event.toolName;
 		if (!COC_TOOL_NAMES.includes(name as never)) return;
 		const input = event.input as Record<string, unknown>;
+		takeSkillAnnotation(table?.skillRun, input);
+		if (table?.skillRun) {
+			table.skillRun.tool_names.push(name);
+			if (name === "lookup" && input.kind === "source" && input.source_mode !== "answer") table.skillRun.diverged = true;
+		}
 		normalizeToolInput(name, input);
 
 		const state = table;
@@ -3674,7 +3781,7 @@ export default function (pi: ExtensionAPI) {
 		}
 	}
 
-	pi.on("message_end", async (event) => {
+	pi.on("message_end", async (event, ctx) => {
 		// How long the Keeper's own call actually took. The two rows above bracket the request and the
 		// arrival of its headers, and neither carries a duration, so a turn with a six-minute hole in it
 		// could not be attributed to the model, the host or anything else -- the evidence simply was not
@@ -3688,6 +3795,10 @@ export default function (pi: ExtensionAPI) {
 			// now partitioned: these legs plus the tool rows account for it, and a hole in one of them
 			// is a hole somebody can point at.
 			const from = providerRequestAt !== undefined ? "request" : "previous";
+			// Some adapters omit onPayload. Their completed assistant attempt is still a provider round.
+			if (table?.skillRun && from === "previous") {
+				noteSkillProviderRound(table.skillRun, ctx.model?.provider ?? null, ctx.model?.id ?? null);
+			}
 			const mark = providerRequestAt ?? legMark;
 			providerRequestAt = undefined;
 			legMark = now;
@@ -3857,6 +3968,7 @@ export default function (pi: ExtensionAPI) {
 						: state.sourceWait ? {preparation_wait: {kind: 'source',
 							...(state.sourceWait.focus ? {name: state.sourceWait.focus} : {})}} : {}),
 					...(state.rebindingRefused ? {rebinding_refused: {...state.rebindingRefused}} : {}) };
+				state.skillRun?.tool_names.push(tool);
 				const prepared = await mods?.prepare(tool, params, state.lanes.signal);
 				// §91: the host's own closing delivery is reviewed on the same terms as an explicit one.
 				if (prepared?.unreviewed) noteUnreviewedDelivery(state, prepared.unreviewed);
@@ -3933,6 +4045,9 @@ export default function (pi: ExtensionAPI) {
 	pi.on("before_provider_request", async (event, ctx) => {
 		const payload = event.payload as {model?: string; reasoning?: {effort?: string}; reasoning_effort?: string};
 		providerRequestAt = Date.now();
+		if (table?.skillRun) {
+			noteSkillProviderRound(table.skillRun, ctx.model?.provider ?? null, payload?.model ?? ctx.model?.id ?? null);
+		}
 		// Held for the message that ends this call: a call that dies produces no response row, so the
 		// only place the model and provider it was made against still exist is here (§38.7).
 		providerRequestModel = {...(payload?.model ? {model: payload.model} : {}),

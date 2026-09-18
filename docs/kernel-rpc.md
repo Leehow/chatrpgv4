@@ -829,7 +829,7 @@ acceptance remain pending until their dedicated checks are recorded.
 
 ### 13.9 扩展侧（切片 3）
 
-- 胶囊仍是一条 `coc-capsule` 宿主消息，内容原样 JSON；不做二次渲染。
+- 胶囊仍是一条 `coc-capsule` 宿主消息，内容是 JSON；内核返回的九节不做二次渲染。§13.11 的默认关闭 E0 实验可在发送前附加一个 host-owned `skills` 节，但不得改写或删除任何内核节。
 - `table` 扩展状态行加 Director 节拍（`director.beat`）与 `override`，只显示。
 - 守秘人提示加一段：九节各是什么、`director` 是建议不是台词、`pressures`/`obligations` 是这回合该记得的账。
 - 工具描述：`look` 与 `lookup` 说明胶囊已含的内容；`resolve` 的 `needs_choice` 结果里若 `decision_source: "director"` 会直接结算，无需再调。
@@ -860,6 +860,70 @@ acceptance remain pending until their dedicated checks are recorded.
 - **`may-emit-effect` 的效果清单**以 `Ontology.effect_ids()` 暴露（决策 → 效果 id）。本树的 `narrate` 没有「每个状态效果恰交代一次」的确定性检查——12.5 的 `committed` 句子直接由收据生成——所以这份清单目前没有消费者；接那条检查的切片直接读它，不另抄一份。
 - **`module` 节（#22，已实现）的装法。** 条件与 `style_full` 同一个：本进程为该战役第一次 `player_input` 打开的那一回合，及其前的任何 `table.capsule`；`resume` 的条件是它的子集（新书的 turn 0/1 没有 resume，但有简报）。内容全部来自模组图：`title`（模组节点名）、`era`（模组记录声明了才有）、`synopsis`（模组节点 summary）、`factions`（`faction` 与 `organization` 节点）、`places`（`location`）、`people`（全部 `npc`，含未登场者）、`endings`（`ending`）与 `conclusions`（`conclusion`）的名字、`structure_type`（与 Director 同一读法，缺省 `branching_investigation`）。名册的 `line` 取节点 summary（与名字相同时跳过），人物取 `relationship_to_investigators；agenda`，再退到记录的 prose；只复制不改写。装进 2KB 的顺序：先把行长从 120 字逐级降到 80/40/20/0（名册宁可全员短句，也不丢人——尾裁会先丢掉排在最后的 Walter Corbitt），仍超才按项裁尾；任一步发生都记入 `truncated`（the-haunting 在 40 字时装下，`truncated: ["module"]`；the-white-war 全长装下，不记）。有这一节时 `head` 追加一句说明。
 - **`investigator_combat_participant` 的火器技能按武器自己的技能取**（#19 顺带修）。`weapons.json` 拼作 `Firearms (Rifle/shotgun)`、技能表拼作 `Firearms (Rifle/Shotgun)`，此前精确匹配落空就退到表上最高的 Firearms（霰弹枪按手枪 55 开火）。现在 `sessions.sheet_skill_value` 按 `normalize` 匹配表上技能，表上没有再按同法取技能表的基础值（25），两边都没有才退到旧行为。`weapons.json` 里 `Firearms (Rifle)`/`Firearms (rifle)`/`Firearms (MG)`/`Fighting` 这类不在技能表里的拼法仍走旧行为——那是内容漂移，`content/rulesets` 不在本切片范围。
+
+### 13.11 程序技能 E0：默认关闭的 host-owned 实验（2026-09-18）
+
+**目的与边界。** 历史真桌里 2,420/2,420 个带工具的 assistant 消息批宽都是 1；严格耗时样本的玩家回合中位 57.3 秒、provider 请求中位 4 次，含工具错误的回合中位 95 秒而干净回合为 45 秒。E0 只验证一个问题：少量手写、可忽略的程序提示能否让 Grok 4.6 / DeepSeek V4.1 Flash 这一档守秘人少买模型往返与返工。它不是自进化实现，不建立持久技能库、不改规则、不自动执行工具、不增加第八个动词。
+
+**开关与来源。** `PI_COC_SKILLS=1` 才启用；其他值与缺省都关闭。三条 draft card 是英文系统内容，唯一手写源在 `content/skills/draft.json`，不写进战役存储，不含模组名、秘密、玩家画像、骰值或结果。E0 固定三条：
+
+- `ordinary-check-with-consequence`：玩家已授权且结果不确定/有代价时，先 `resolve`；只据真实结果把支持的 effect 合为一次 `apply`，最后交付；遇 `needs`、选择、材料、授权或活跃会话分叉就退出技能。
+- `direct-authorized-change`：玩家已授权、无争议的世界改变跳过检定，把蕴含的 effect 合为一次 `apply` 后交付；未披露的代价与选择永远不能由技能补成同意。
+- `repair-named-gap`：工具拒绝后只按 `retryable`、`next`、`fix` 与闭合选项修命名缺口；只在允许时重试，在 `action_not_authorized`、`admission_unavailable` 与 `stop` 上停止。
+
+**Keeper-only 投影。** 内核九节原样保留。开关打开时，kernel 扩展在发 `coc:capsule` 总线和隐藏 `coc-capsule` 消息前附加顶层 `skills`：
+
+```json
+{
+  "experiment": "procedural-skill-e0",
+  "optional": true,
+  "cards": [
+    {"name": "<semantic name>", "use_when": "<English guide>", "procedure": "<English procedure>"}
+  ]
+}
+```
+
+最多三条，总序列化预算 1 KiB；超限按尾裁并显式带 `truncated: true`。关闭时这个键完全不存在。它是参考，不是义务：忽略不欠债、不计 refusal、不进入下一回合的 pressure/obligation。`prompts/keeper.md` 只说明它是可选程序建议；不能要求采用，也不能让故事正文提到技能。
+
+**采用注解。** 七个 Keeper tool 的 schema 都可带 host-only `using_skill?: string`。想采用时，守秘人在该程序第一个相关调用上抄当前 `cards[].name`；后续调用不必重复。kernel 扩展在 admission、Mod hook、call-id 与 RPC 之前摘掉它，因此它不能改变授权、参数、幂等、规则或收据。每个 agent run 只认第一个有效 offered name；未知名或关闭时给的名字同样被摘掉，只记 `invalid_selection`，不阻断玩家行动。
+
+**只计数的使用账。** 每个 `agent_settled` 对应一行 campaign telemetry：
+
+```json
+{
+  "lane": "skills",
+  "run_id": "<host-only UUID>",
+  "enabled": true,
+  "offered": ["ordinary-check-with-consequence"],
+  "selected": "ordinary-check-with-consequence",
+  "invalid_selection": null,
+  "tool_names": ["resolve", "apply", "narrate"],
+  "provider_rounds": 3,
+  "provider_models": [{"provider": "grok-build", "model": "grok-4.6", "rounds": 3}],
+  "mixed_provider_model": false,
+  "refusal_classes": [],
+  "delivered": true,
+  "fallback": false,
+  "provider": "grok-build",
+  "model": "grok-4.6"
+}
+```
+
+关闭臂也写 `enabled:false` 与空 `offered`，使开关状态可审计。`run_id` 由 host 在 agent run 开始时铸造，不进模型上下文；本 run 的 player-input、admission、provider 与工具 telemetry 都带同一个 id，KPI 只按精确 id 连接耗时和复核证据。中断进程后恢复是一个新 id；旧证据缺 id 或 id 不同就报 unavailable，不能借给恢复 run。`provider_models` 对本 run 见过的每个精确 provider/model 计轮次；只有恰好一种身份时 `provider`/`model` 才非空。见过多种时 `mixed_provider_model:true`，该 run 单列为不具备模型对照资格，绝不把全部轮次归给最后一个模型。
+
+`fallback` 只是一项离线判据：选过技能且本 run 有 refusal、进入未计划选择/材料/活跃会话路径、进入 `lookup adaptation` 的 `pending`/`reviewing` preparation wait，或 settled 时未完成交付。它不是收据，不进 mechanics，不进下一胶囊，不反馈成提醒。KPI 按模型与臂分层汇总 offered→selected→delivered/fallback、provider rounds、工具序列、拒绝/返工；mixed identity 单列且排除于 per-model 比较，模型层之间不合并平均。
+
+**三端。** 谁写：包里的英文 card；谁读：host 投影与守秘人；谁据它行动：守秘人自愿给正常七动词。谁写采用：守秘人的 `using_skill`；谁读：host telemetry；谁据它行动：KPI/实验报告，没有在线消费者。谁写结果：host 从本 run 已有 closed telemetry 写 `lane:skills`；谁读：KPI；谁据它行动：E0 是否继续，永远不是下一回合。
+
+**真桌判据。** 唯一验收仍是 `tests/play/driver.py` RPC 起真实 `bin/pi-coc`，本主会话是唯一玩家，一次一句自然输入。Grok 4.6 做完整 OFF→ON 新战役对照；有认证路由时 DeepSeek V4.1 Flash 做短 ON→OFF 复核，精确 provider/model 从 runtime 证据取。两臂各用新 campaign/run id 与同一 pregen/module，玩家根据每桌实际叙事自然行动，不用预定台词或脚本。小样本只准判 `harmful`、`no directional benefit`、`promising enough to expand`。任何未授权结算、无收据世界改变、半截交付、秘密泄露、技能被当作义务，均覆盖全部速度收益并判失败。
+
+**真桌证据必须认玩家实际看见的终止通知（E0 turn-8 后补）。** `pi.sendMessage` 发出的 `role:custom`、`customType:"coc-delivery"`、`display:true` 且 `details.coc_delivery:true` 是玩家可见信封，但**信封名本身不等于 notice**：宿主在 Keeper 停在成功 `narrate`/`ask` 工具消息上时，也用同一信封发布已通过的正文；那条只有基础 `{coc_delivery, turn}`，必须保留既有 narrative `delivery`、mechanics 与 pending choice，不能覆盖成 notice。
+
+终止/补充 notice 只认当前生产者声明的闭合标记：`provider_outage`、`commit_unavailable`、`delivery_cut_short`、`refused_effect`、`preparation_wait`、`resend_held`、`turn_unfinished`、`standing_conditions`、`input_refused`、`empty_input`、`review_unavailable`。每条可见 notice 原样追加进 `turn-N.json.notices[]`（content + details）。若本回合没有成功正文，第一条 notice 同时成为 `final_text` 与 `delivery:{kind:"notice", rendered_text, mechanics:[], pending_choice:null, details}`，CLI 回显且 exit 0；若已有或后来出现成功 `narrate`/`ask`，正文始终是主 `final_text`/`delivery`，notice 只留在 `notices[]`，CLI 在正文后另行回显。只有基础字段的 host-published 正文若缺少已捕获工具结果，按 `delivery.kind:"narrate"` 保存；若已有结构化工具结果，只补足可见正文，绝不清空 mechanics/choice。隐藏 custom message、别的 custom type 与 `display:false` 绝不能算交付。`notice` 只证明玩家没有被留在空白里，**不**把 continuity verdict 改成 story pass，也不把没有正文的回合计作完整叙事安全通过；分析必须按 `delivery.kind` 分开。旧 `.coc/playtests/` 证据原样保留，不回写。
+
+**E0 真桌裁定（证据保留于四个 `e0-*-20260918a-run`）。** 三卡整体是 `no directional benefit`，继续默认关闭，不建立自动学习/演化，也不加采用配额。`xai/grok-4.6` 的十个匹配目标为 1004.553s / 44 calls / 50 provider rounds（OFF）对 900.937s / 45 / 48（ON）；只有 `ordinary-check-with-consequence` 被采用四次，其四组匹配目标为 443.683s / 20 / 22 对 302.527s / 15 / 18，方向为 `promising enough to expand`，但两次 fallback、样本自选且状态分叉，只授权后续**单模型、单卡**复验，不授权上线。`direct-authorized-change` 与 `repair-named-gap` 均未被采用，因此是未测试，不是失败。
+
+`opencode-go/deepseek-v4.1-flash` 两臂各六回合、零次有效采用；ON 为 913.418s / 56 delivery-inclusive calls / 45 rounds，OFF 为 719.479s / 39 / 37，观测方向 `harmful`，但只能归因于当前投影臂，不能声称执行技能有害；不继续 DeepSeek 扩大实验。Grok OFF turn 8 的两次 continuity `revise` 都是有效 verdict（先纠正 12:00/“午前”，再拒绝失败 Library Use 后的正向发现）；产品同回合发了玩家可见终止 notice，旧 driver 漏记才报告 `undelivered_with_tools`。证据原样保留，后补只修未来 driver 分类。所有结论都是小样本方向判断，不是统计显著性结论。
 
 ## 14. 建卡、模组存储与来源车道（切片 4，票 #17）
 

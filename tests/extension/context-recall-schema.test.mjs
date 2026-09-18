@@ -89,10 +89,11 @@ test("recall documents bounds, defaults, exact-source authority and complete con
 	}
 });
 
-test("host-only snapshots and context identity never enter the public recall schema or prose", () => {
+test("internal snapshots and context identity stay hidden while the declared skill annotation is exposed", () => {
 	assert.deepEqual(Object.keys(properties).sort(), [
-		"about", "detail", "diff", "include_superseded", "kinds", "limit", "page", "read", "role", "turns", "types", "what",
+		"about", "detail", "diff", "include_superseded", "kinds", "limit", "page", "read", "role", "turns", "types", "using_skill", "what",
 	]);
+	assert.match(properties.using_skill.description, /host-only annotation/);
 	const visible = JSON.stringify(recall);
 	for (const internal of ["_snapshot", "_context", "source_revision", "call_id"]) {
 		assert.equal(visible.includes(internal), false, internal);

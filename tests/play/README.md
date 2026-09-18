@@ -71,6 +71,37 @@ A `turn`'s `settle_class` is one of `settled` (visible text delivered, exit 0),
 `undelivered_with_tools` (tools ran but no visible text, exit 5),
 `empty` (nothing happened, exit 4), or `timeout` (exit 3).
 
+Settled visible text may be narrative or a terminal host notice. A `message_end`
+with `role: "custom"`, `customType: "coc-delivery"`, `display: true`, string
+content, and `details.coc_delivery: true` is a visible delivery envelope, not
+necessarily a notice. A notice must carry one of the closed detail keys:
+`provider_outage`, `commit_unavailable`, `delivery_cut_short`, `refused_effect`,
+`preparation_wait`, `resend_held`, `turn_unfinished`, `standing_conditions`,
+`input_refused`, `empty_input`, or `review_unavailable`.
+
+Each notice is retained in turn order in `notices[]` as `{content, details}` with
+deep-copied details; the field is omitted when there are no notices. Without a
+successful narrative, the first notice supplies `final_text` and
+`delivery: {kind: "notice", rendered_text, details, mechanics: [], pending_choice: null}`,
+even after a failed `narrate` (settled, exit 0). Later notices append without
+replacing it. Successful `narrate`/`ask` delivery always remains primary, whether
+it precedes or follows a notice; its mechanics and pending choice are preserved.
+The CLI prints primary text first, then each non-primary notice once.
+
+A host envelope carrying only base `coc_delivery`/`turn` details publishes
+successful narrative. It preserves an existing structured tool delivery and only
+fills missing visible prose. Without a captured tool result it creates
+`delivery.kind: "narrate"` with copied host details, empty mechanics, and null
+pending choice. `entry_appended` uses the same filters and classification;
+implicit-delivery telemetry still controls rejection of unpublished drafts.
+Hidden or unmarked custom messages do not count as delivery.
+
+Analysis must distinguish `delivery.kind: "notice"` and supplemental `notices[]`
+from narrative `narrate`/`ask`: a notice proves the player received an explanation,
+not that narrative passed review or that a complete story turn was delivered.
+This evidence classification neither creates narrative mechanics nor rewrites
+retained runs.
+
 If the daemon dies, `status` and `stop` fall back to reading these files
 directly instead of failing outright -- a dead driver should stay
 diagnosable. `driver.py log --run <run_id> --tail 100` is the first thing to

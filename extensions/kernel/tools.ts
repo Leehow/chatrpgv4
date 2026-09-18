@@ -22,6 +22,10 @@ export interface CocToolSpec {
 	parameters: TSchema;
 }
 
+const UsingSkill = Type.Optional(Type.String({
+	description: "Optional host-only annotation: copy an exact currently offered skills.cards name on the first relevant call if deliberately following it. Never grants authority; later calls need not repeat it.",
+}));
+
 const EndingEffect = Type.Object({
     kind: StringEnum(["ending"] as const),
     scope: StringEnum(["chapter", "campaign"] as const, { description: "chapter leaves the same campaign playable; campaign is only the final end of the entire adventure, never a pause or a chapter boundary. For an incorrectly completed legacy chapter, scope chapter reclassifies the existing ending without repeating its accounting; narrate commits the correction before continuing" }),
@@ -422,6 +426,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 			"See the side the turn capsule did not answer. The capsule already carries the current value of all of this: the world clock, the scene and its exits, the way back (the scenes walked through, nearest first), the clues here that are still undiscovered and how they are obtained, the agendas and secrets of those present, and what is pressing — do not look those up again, the capsule is current. Use this for what the capsule does not have: with no parameters it re-reads the scene (dramatic question, pressure moves, exits, affordances, who is present); focus npc with a name gives the Keeper view of an entity the capsule did not list (agenda, fear, secret, voice, relationships, known facts); focus investigator gives the detail of the investigator sheet; focus clues gives what is discovered and what is obtainable here; focus time gives the world clock; focus session gives the whole of a fight, a chase or a bout of madness that is underway — the round, whose turn it is, what may be done, what is owed — which is the one thing that survives a restart nowhere else. The opening turn has no capsule, so look at the opening scene first. Everything it returns is Keeper-only and must never be copied into the player's text.",
 		promptSnippet: "See the side the capsule did not answer: scene, NPC, investigator, clues, the clock, or the session underway",
 		parameters: Type.Object({
+			using_skill: UsingSkill,
 			focus: Type.Optional(
 				StringEnum(["scene", "npc", "investigator", "clues", "time", "session", "object", "map"] as const, {
 					description: "which side to look at; defaults to scene",
@@ -438,6 +443,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 			"Search the module graph for what the capsule did not answer. The briefing for kind secret with scope scene — the clues in this scene still undiscovered, the secrets and agendas of those present, the Keeper's notes — is already in the capsule; do not look it up again. Use scope module only when you want the whole book's secrets and ending nodes. With kind module it finds entities on the graph by name or alias, at most 8 rows, each with a summary, visibility and relations. Say expected_kind when the role matters; only a missing scene advertises adaptation. A physical object uses define/object/item, while compatible scenery and a first-appearance supporting person may remain narration. Promote a recurring NPC only when persistent identity or sourced knowledge is needed. Adaptation is reserved for persistent graph topology, not ordinary detail. With kind catalog it searches the rulebook's own printed records — including the equipment and price lists, each row carrying its printed amount, currency and page provenance — so a price you are about to charge can come from the book rather than from the air; narrow it with kinds, and pass the returned price_id to apply cash (contract §58). With kind rule it searches the rule index.",
 		promptSnippet: "Look up an entity the capsule did not answer, or the whole book's secrets and endings",
 		parameters: Type.Object({
+			using_skill: UsingSkill,
 			kind: StringEnum(["module", "source", "secret", "rule", "catalog", "continuity", "adaptation"] as const, {
 					description: "module searches known names; use expected_kind scene for a possible absent destination. continuity joins acquired evidence and causal relationships. adaptation prepare requires a purpose and drafts persistent source-connected graph topology; status is nonblocking, cancel stops it. source defaults to preparing graph material; source_mode answer checks one question against original pages without updating the graph",
 			}),
@@ -467,6 +473,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 			"Look back, three ways, always bounded: at most 12 KiB of JSON including metadata, 20 listing rows, and 4096 Unicode code points per text page; byte pressure may shorten a page further. memory: assertions extracted from past turns, ranked by those present and the investigators; narrow with about and kinds, including promise. These are conversation_report candidates, not module truth: retain status, state, correction and supersession/source annotations; an old belief or superseded statement is not a current fact. transcript: without read, cards only (turn, role, size, bounded original head and read reference), even for one-to-three-turn ranges; never automatic entries of full text. read returns one bounded original-text page, total characters, actual range, truncated and next. verified with verification_scope record_integrity_only means the complete original matches the canonical turn record before slicing, not that the statement is module truth. history: defaults to the latest 20 turns; the default section is diff if diff is supplied, events if types is supplied, otherwise timeline. Select other sections with page.section. Timeline keeps scene, clock, receipts and delivery head; events retain types filters; diff shows receipt-derived changes between two turns. Follow returned next, read or detail references as complete recall arguments, preserving their query filters. page uses a stable listing offset; detail reads one oversized structured row as bounded original JSON text pages, not a summary. A stale or unknown continuation requires the returned page-0 refresh, never reuse its old offset on changed sources. There is no all-text escape; follow pages to reconstruct an original. Use recall for earlier wording or threads; never invent an unavailable original.",
 		promptSnippet: "Look back: memory assertions, verbatim transcript, history timeline",
 		parameters: Type.Object({
+			using_skill: UsingSkill,
 			what: StringEnum(["transcript", "memory", "history"] as const, {
 				description: "which way to look back: past assertions, verbatim text, or the timeline",
 			}),
@@ -570,6 +577,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 			"Hand one action to the rules. You only describe the action; the kernel picks the rule: say who, what he wants to achieve, how he does it, against whom, what is at stake, and it chooses the decision, takes the target value and rolls, returning receipts, the success level, and possibly a session (combat, chase, sanity bout) and available continuations. You do not roll, do not compute, do not change numbers; do not use it for ordinary uncontested actions. An attack is intent combat plus target and weapon (bare hands is unarmed). When the kernel reports needs_choice it has already listed the candidates and when each applies: pick one, write it into action.decision, and call again. When it would have reported needs_choice but exactly one candidate matches the beat suggested by this turn's capsule, the kernel settles it for you and writes decision_source director into the result — that call already counted, so do not make a second one for it. If the pending defence in the result is the player's, use ask to hand dodge-or-fight-back back to him and settle it next turn with defense; if it is an NPC's, decide it yourself with actor and defense. To push a failed check, set push true and write into stakes what failing the push costs; to spend luck, give luck. When the fiction gives the person an edge — several of them at it together, a prepared approach, an opponent already occupied — say so with modifiers.bonus_dice; nothing else on the action carries an advantage to the dice, and difficulty only ever makes the attempt harder. On an attack the dice go to the attacker, on a defence to the defender. When it cannot recognise a skill the kernel reports needs with candidates: add skill and call again. With intent idle, meta, stuck or ambiguous it does not roll and only returns a judgement.",
 		promptSnippet: "Roll one action against the rules; returns receipts, success level and session state",
 		parameters: Type.Object({
+			using_skill: UsingSkill,
 			action: ResolveAction,
 		}),
 	},
@@ -581,6 +589,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 			"Land this turn's changes to the world: move walks to another scene, clue gives the investigator a clue, time advances the clock, clock pins the opening datetime once when the book gives no full date, damage hurts, item and cash change possessions, handout delivers a document, and map reveals only named source-backed regions the investigators learned. Use look focus map to inspect semantic map and region names; map why states what established that knowledge. The whole batch is validated before anything is written, and one bad effect writes none of them. What happens in narration without an apply did not happen. Viewing an already delivered map is a UI action and changes nothing. fork, switch and merge take effect after narrate commits; at most one may be last in a batch. threat moves one authored threat clock.",
 		promptSnippet: "Land this turn's world changes: move, clue, time, handout, map, item, cash; apply clock pins the opening datetime once when the book gives no full date",
 		parameters: Type.Object({
+			using_skill: UsingSkill,
 			effects: Type.Array(
 				Type.Union([EndingEffect, AdaptationEffect, MoveEffect, ClueEffect, ClockEffect, TimeEffect, DamageEffect, ItemEffect, DefineEffect, UsageEffect, ObjectEffect, AbilityEffect, CashEffect, FlagEffect, NoteEffect, RulingEffect, NpcEffect, PersonEffect, ThreatEffect, ForkEffect, SwitchEffect, MergeEffect, HandoutEffect, MapEffect]),
 				{ minItems: 1, description: "the changes to land this turn, in the order they happened" },
@@ -595,6 +604,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 			"Close with a structured interaction only for a required mechanical decision. Ordinary story questions belong in narrate prose and await free input. kind mechanics forbids a prompt and uses only closed action identifiers: push, spend_luck, accept, dodge, fight_back, flee. Never automatically ask how to handle a failed check; normally narrate its fictional consequence. Questions and options are JSON for frontend controls, never part of rendered prose. text contains fiction only, and takes the same {{marker}} placement and {{say:Name}}…{{/say}} wrapping of spoken lines narrate does. After the call write no more prose.",
 		promptSnippet: "Hand one choice back to the player, and close the turn with it",
 		parameters: Type.Object({
+			using_skill: UsingSkill,
 			text: Type.Optional(
 				Type.String({
 					description:
@@ -615,6 +625,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 			"Deliver story text and close the turn. Describe fiction and observable consequences only. Roll values, targets, grades, resource accounting, elapsed time as a figure (minutes, hours) and rule options are exclusively mechanics JSON rendered by the frontend and its clock. Do not repeat them in text or ask how to handle a failed check. Use the campaign play_language. Mark where each mechanic happened: resolve and apply hand back markers (the `markers` list in their result — copy a name exactly), and writing {{that-marker}} at the point in the sentence where it happened lets the frontend draw the roll or the change there instead of after everything. Place only markers this turn handed back, each at most once; leaving one out is fine and simply groups it at the end. A marker naming nothing this turn is dropped from the delivery and reported in dropped_markers — the prose still goes out, but that mechanic never landed, so do not write it as done. Wrap every spoken line as {{say:Name}}…{{/say}} with Name exactly as present[].name gives it (a label for anyone not present), keeping the play language's own quotation marks inside the token; the kernel strips the tokens and the frontend colours each speaker. After delivery write no more prose.",
 		promptSnippet: "Deliver this turn's narration and close the turn",
 		parameters: Type.Object({
+			using_skill: UsingSkill,
 			text: Type.String({ description: "this turn's narration, delivered to the player verbatim, with each mechanic's {{marker}} at the point it happened and every spoken line inside {{say:Name}}…{{/say}}" }),
 		}),
 	},
