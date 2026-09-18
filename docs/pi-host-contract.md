@@ -107,6 +107,8 @@ effects remain usable without the UI mount.
 
 ### 3.2 视觉读者：带工具的子 Pi
 
+2026-09-18 amendment: checked completion now also covers detail authors and their independent review units, alongside opening, guidance and checked source answers. It uses the same documented `AgentToolResult.terminate` flag and existing submit tool; no Pi fork, forced exit or aborted-run success conversion is introduced. A detail review's first prompt is a pointer-preserving projection, with the full task/candidate retained for on-demand context. This changes prompt volume and avoids closing-prose requests, not source evidence or publication authority (kernel contract §22.4.2).
+
 Guidance-only latency refinement uses the documented AgentToolResult.terminate
 flag (Pi 0.85.1 structured-output example). Its private submit_reading tool checks
 the written artifacts and terminates the completed batch, avoiding a final prose

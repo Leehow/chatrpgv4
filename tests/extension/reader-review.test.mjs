@@ -3,8 +3,33 @@ import {test} from 'node:test';
 import {mkdtemp,readFile,writeFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
-import {reviewCandidate,reviewUnits,checkReviewEvidence} from '../../extensions/module/reader-review.ts';
+import {reviewCandidate,reviewUnits,checkReviewEvidence,detailReviewInput} from '../../extensions/module/reader-review.ts';
 import {createRuntime} from '../../runtime/host.ts';
+
+test('detail first input preserves original pointers and connected context without authoring catalogs',()=>{
+ const draft={nodes:[{node_id:'scene-road',source_refs:[{page:1}],properties:{difficulty:2}},{node_id:'npc-guide',source_refs:[{page:2}],properties:{}}],claims:[{subject_id:'npc-guide',predicate:'present-in',object:{node_id:'scene-road'}}],ready_nodes:['scene-road'],coverage:{setting:'prepared'},dependencies:[],node_refs:[]};
+ const task={purpose:'detail',focus:'Road',question:'What is visible now?',source:{page_count:20},required_review:['/nodes/0','/nodes/0/properties/difficulty'],index:[{name:'Unrelated appendix'}],vocabulary:{large:'x'.repeat(30000)},known_nodes:[{node_id:'module-book',node_kind:'module',summary:'Global source setting'},{node_id:'scene-road',summary:'Accepted road'},{node_id:'npc-guide',summary:'Accepted guide'},{node_id:'npc-elsewhere',summary:'Omitted but retained'}],known_claims:[{subject_id:'npc-guide',predicate:'present-in',object:{node_id:'scene-road'}},{subject_id:'npc-elsewhere',predicate:'present-in',object:{node_id:'scene-elsewhere'}}]};
+ const before=JSON.stringify({task,draft}),input=detailReviewInput(task,draft,task.required_review);
+ assert.deepEqual(input.task.required_review,task.required_review);assert.deepEqual(Object.keys(input.review_records),['/nodes/0']);
+ assert.deepEqual(input.review_records['/nodes/0'],draft.nodes[0]);
+ assert.deepEqual(input.known_context.nodes.map(n=>n.node_id),['module-book','scene-road','npc-guide']);
+ assert.deepEqual(input.candidate_context.nodes,[draft.nodes[1]]);assert.equal(input.known_context.claims.length,1);
+ assert.equal(input.task.vocabulary,undefined);assert.equal(input.task.index,undefined);assert.equal(input.omitted_context.known_nodes,1);
+ assert.equal(input.omitted_context.full_task,'task.json');assert.equal(input.omitted_context.full_candidate,'draft.json');
+ assert.equal(JSON.stringify({task,draft}),before);assert.ok(JSON.stringify(input).length<JSON.stringify({task,draft}).length/5);
+ const coverage=detailReviewInput({...task,required_review:['/coverage'],review_scope_pages:[1,2]},draft,['/coverage']);
+ assert.deepEqual(Object.keys(coverage.review_records),['/nodes/0','/nodes/1','/claims/0']);assert.deepEqual(coverage.task.review_scope_pages,[1,2]);assert.deepEqual(coverage.coverage_context.ready_nodes,['scene-road']);
+});
+
+test('focused records retain legal negative and signed array pointer spellings',()=>{
+ const draft={nodes:[{node_id:'scene-first',properties:{'a/b':1}},{node_id:'scene-last',properties:{danger:2}}],claims:[]};
+ for(const [spelling,index] of [['-1',1],['+0',0],['00',0],[' 1 ',1]]){
+  const path=`/nodes/${spelling}/properties/${index?'danger':'a~1b'}`,task={purpose:'detail',required_review:[path]};
+  const input=JSON.parse(JSON.stringify(detailReviewInput(task,draft,[path])));
+  assert.deepEqual(input.task.required_review,[path]);
+  assert.deepEqual(input.review_records[`/nodes/${spelling}`],draft.nodes[index]);
+ }
+});
 
 test('review grouping retains numeric children and critical nested pointers',()=>{
  const groups=reviewUnits({nodes:[{properties:{mechanics:{HP:10},image_sources:[{page:2}]}}],claims:[],critical:['/nodes/0/properties/mechanics']});
@@ -59,6 +84,10 @@ test('a large review packet stays line-readable so coverage can see every assign
   record(){},progress(){},async run(request){
    const raw=await readFile(join(request.cwd,'task.json'),'utf8'),task=JSON.parse(raw);
    sawLarge ||= Buffer.byteLength(raw)>50_000;
+   assert.equal(request.submission,true);
+   assert.ok(!request.brief.includes('bounded-119-'),'the full navigation catalog is not initial reviewer input');
+   const focused=JSON.parse(await readFile(join(request.cwd,'review-input.json'),'utf8'));
+   assert.equal(focused.task.index,undefined);assert.deepEqual(focused.task.required_review,task.required_review);
    assert.ok(Math.max(...raw.split('\n').map(line=>Buffer.byteLength(line)))<50_000,'no packet line exceeds the reader limit');
    const seen=task.required_review.includes('/coverage')?task.review_scope_pages:[4];
    request.onEvent({type:'tool_execution_end',toolCallId:'pages',isError:false,result:{details:{kind:'source_pages',observations:seen.map(page=>({page}))}}});
@@ -68,6 +97,21 @@ test('a large review packet stays line-readable so coverage can see every assign
   }});
  assert.equal(sawLarge,true);
  assert.deepEqual(pages.sort((a,b)=>a-b),[4,15]);
+});
+
+test('an oversized focused input names its own readable file instead of forcing full-task ingestion',async t=>{
+ const cwd=await mkdtemp(join(tmpdir(),'coc-focused-review-'));t.after(()=>rm(cwd,{recursive:true,force:true}));
+ await reviewCandidate({cwd,task:{purpose:'detail',focus:'Road',question:'What is visible?',vocabulary:{noise:'not-needed'}},draft:{nodes:[{node_id:'scene-road',summary:'x'.repeat(30000),source_refs:[{page:1}],properties:{}}],claims:[]},instructions:'unused',round:1,model:{id:'fixture/vision'},source:{pdf:'unused',cache:'unused'},signal:new AbortController().signal,record(){},progress(){},async run(request){
+  assert.match(request.brief,/^Read review-input.json/);assert.equal(request.submission,true);
+  const focused=JSON.parse(await readFile(join(request.cwd,'review-input.json'),'utf8'));
+  assert.equal(focused.review_records['/nodes/0'].summary.length,30000);
+  assert.equal(JSON.parse(await readFile(join(request.cwd,'draft.json'),'utf8')).nodes[0].summary.length,30000);
+  const task=JSON.parse(await readFile(join(request.cwd,'task.json'),'utf8'));
+  request.onEvent({type:'tool_execution_end',toolCallId:'p',isError:false,result:{details:{kind:'source_pages',observations:[{page:1}]}}});
+  await writeFile(request.eventLog+'.images.jsonl',JSON.stringify({included:['p']})+'\n');
+  await writeFile(join(request.cwd,'review.json'),JSON.stringify({checked:[{paths:task.required_review,verdict:'supported',source_refs:[{page:1}]}],missing:[]}));
+  return{ok:true,ms:1,stderr:''};
+ }});
 });
 
 test('omitted fields retry only their unit and retained complete units survive a resumed batch',async t=>{

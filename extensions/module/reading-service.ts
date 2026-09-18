@@ -638,7 +638,7 @@ export class ReadingService implements ReadingBridge {
 						const instructions = join(cwd, `instructions-${promptPhase}.md`);
 						this.deps.progress({ module_id: job.module_id, campaign, job_id: job.job_id, stage: phase === "read" && job.purpose === "skeleton" ? "skeleton" : phase, focus: job.focus, of: job.source.page_count });
 						if (phase === "verify") {
-							if (job.purpose === "opening" || job.purpose === "answer") {
+							if (["opening", "detail", "answer"].includes(job.purpose)) {
 								try {
 									const checked = await this.runtime().check({kind:'source-draft',packet:join(cwd,'task.json'),draft:join(cwd,'draft.json')},signal);
 									if (!checked.ok) throw new Error(JSON.stringify(checked.error));
@@ -669,13 +669,13 @@ export class ReadingService implements ReadingBridge {
 						const reads = new Map<string, string>();
 						const run = await this.runtime().runTask({ kind: "reader", request: { cwd, model: model.id, thinking: model.thinking,
 							...(["guidance", "answer"].includes(job.purpose) ? {imageHistory:4} : {}),
-							submission:["guidance","opening","answer"].includes(job.purpose),
+							submission:["guidance","opening","detail","answer"].includes(job.purpose),
 							priority: () => job.foreground === false ? "background" : "foreground",
 							prompt: { phase: promptPhase, guidance: job.purpose === "guidance", answer: job.purpose === "answer" }, source: { pdf: job.source.path, cache },
 							eventLog: join(cwd, `${phase}-${round}.jsonl`),
 							brief: phase === "index-audit"
 								? `${readerInput({task})} This is the independent map-page completeness audit of the retained PDF index. Read draft.json${round > 1 || job.resume_from ? " and findings.json" : ""}. View every physical page in task.index_audit_pages with pdf, compare each page to draft.map_candidates, and immediately add every authored map whose depicted place can be identified. Every task.required_map_candidates row must remain. Preserve existing sections and candidates; repair missing section source_refs but do not cite any page unless you viewed that full page in this audit or it is in task.index_audit_pages. If another page is needed as a reference, view it first. Do not rewrite for style. Finish only after every assigned page has been checked, then stop.`
-								: `${readerInput({task})} Your phase is ${phase}. ${job.repair === "way_on" ? WAY_ON_ASK + " " : ""}Use page images to produce draft.json. If a draft was retained from this same interrupted request, inspect its sources and repair it instead of rewriting merely for style. ${["guidance","opening","answer"].includes(job.purpose) ? "Use submit_reading as your sole final tool call to save/check this batch and finish without a closing reply." : ""} ${round > 1 || job.resume_from ? "Read findings.json if present and address its concrete findings." : ""}`,
+								: `${readerInput({task})} Your phase is ${phase}. ${job.repair === "way_on" ? WAY_ON_ASK + " " : ""}Use page images to produce draft.json. If a draft was retained from this same interrupted request, inspect its sources and repair it instead of rewriting merely for style. ${["guidance","opening","detail","answer"].includes(job.purpose) ? "Use submit_reading as your sole final tool call to save/check this batch and finish without a closing reply." : ""} ${round > 1 || job.resume_from ? "Read findings.json if present and address its concrete findings." : ""}`,
 							onEvent(event) {
 								if (event.type === "tool_execution_start" && event.toolName === "read" && event.args?.path) reads.set(event.toolCallId, resolve(cwd, event.args.path));
 								if (event.type === "tool_execution_end" && !event.isError && event.result?.content?.some((c: Row) => c.type === "image")) {

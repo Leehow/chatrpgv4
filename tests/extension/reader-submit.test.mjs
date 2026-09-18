@@ -14,15 +14,15 @@ const draft={nodes:[{node_id:'scene-dock',node_kind:'scene',name:'Dock',source_r
 const guidance={opening:'At the dock, who are you?',advice:'Public source premise.',scene:'Dock',guide:'',handoff:'Continue the meeting.'};
 const review={checked:[{paths:['/nodes/0'],source_refs:[{page:1}],verdict:'supported'}],missing:[],guidance:{approved:true,issues:[]}};
 const json=(path,value)=>writeFile(path,JSON.stringify(value)+'\n');
-async function setup(t,reviewing=false,purpose="guidance"){
+async function setup(t,reviewing=false,purpose="guidance",extraTask={}){
  const cwd=process.cwd(),dir=await mkdtemp(join(tmpdir(),'coc-submit-'));
  t.after(async()=>{process.chdir(cwd);await rm(dir,{recursive:true,force:true});});
- await json(join(dir,'task.json'),{purpose,...(purpose==='opening'?{opening_batch:true}:{}),module_id:'book-1',source:{page_count:2},known_nodes:[],...(reviewing?{required_review:['/nodes/0']}: {})});
+ await json(join(dir,'task.json'),{purpose,...(purpose==='opening'?{opening_batch:true}:{}),module_id:'book-1',source:{page_count:2},known_nodes:[],...(reviewing?{required_review:['/nodes/0']}: {}),...extraTask});
  await json(join(dir,'draft.json'),draft);await json(join(dir,'guidance.json'),guidance);
  process.chdir(dir);const handlers={};let tool;
  await readerSubmit({on(name,fn){handlers[name]=fn},registerTool(value){tool=value},async exec(file,args,options){
   try{return {...await promisify(execFile)(file,args,options),code:0}}catch(error){return {code:error.code,stdout:error.stdout,stderr:error.stderr}}}});
- const see=()=>handlers.context({messages:[{role:'toolResult',content:[{type:'image',data:'AA=='}],details:{kind:'source_pages',observations:[{page:1}]}}]});
+ const see=(pages=[1])=>handlers.context({messages:[{role:'toolResult',content:[{type:'image',data:'AA=='}],details:{kind:'source_pages',observations:pages.map(page=>({page}))}}]});
  const overview=()=>handlers.context({messages:[{role:'toolResult',content:[{type:'image',data:'AA=='}],details:{kind:'source_overview',manifest:{tiles:[{page:1}]}}}]});
  return {tool,see,overview,dir};
 }
@@ -78,6 +78,23 @@ test('opening submission checks one first scene and permits thin deferred destin
  await assert.rejects(tool.execute('too-broad',{draft:{...opening,ready_nodes:['scene-dock','scene-warehouse']}}),/exactly the selected first scene/);
  assert.equal((await tool.execute('first-batch',{draft:opening})).terminate,true);
  assert.deepEqual(JSON.parse(await readFile(join(dir,'draft.json'),'utf8')).ready_nodes,['scene-dock']);
+});
+
+test('detail submission checks its scoped delta without imposing the first-opening batch rule',async t=>{
+ const {tool,see}=await setup(t,false,'detail',{focus:'Dock and warehouse',question:'Prepare these two adjoining rooms.'});
+ const detail={...draft,nodes:[...draft.nodes,{node_id:'scene-warehouse',node_kind:'scene',name:'Warehouse',source_refs:[{page:1}],properties:{}}],ready_nodes:['scene-dock','scene-warehouse']};
+ await assert.rejects(tool.execute('unseen',{draft:detail}),/View original physical pages/);
+ see();assert.equal((await tool.execute('detail',{draft:detail})).terminate,true);
+});
+
+test('detail coverage submission views every assigned page and preserves negative findings',async t=>{
+ const {tool,see,dir}=await setup(t,true,'detail',{required_review:['/coverage'],review_scope_pages:[1,2]});
+ see();const findings={checked:[{path:'/coverage',verdict:'unclear',source_refs:[{page:1}],reason:'The route needs more evidence.'}],missing:['A necessary condition remains unclear.']};
+ await assert.rejects(tool.execute('partial',{review:findings}),/did not view every assigned source page/);
+ see([2]);assert.equal((await tool.execute('complete',{review:findings})).terminate,true);
+ assert.deepEqual(JSON.parse(await readFile(join(dir,'review.json'),'utf8')),findings);
+ await json(join(dir,'draft.json'),{...draft,changed:true});
+ await assert.rejects(tool.execute('changed',{review:findings}),/candidate pair/);
 });
 
 test('source answer submission checks the bounded artifact and requires original-page evidence',async t=>{

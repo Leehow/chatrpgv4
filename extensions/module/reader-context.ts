@@ -7,7 +7,7 @@ type ToolGate = { block: true; reason: string } | undefined;
 type AllowedCheck = { command: string; wrapper: string; bytes: Buffer };
 
 const UNICODE_SPACES = /[\u00A0\u2000-\u200A\u202F\u205F\u3000]/g;
-const HOST_FILES = new Set(["task.json", "packet.json", "baseline.json", "findings.json", "observations.json", "read-complete.json"]);
+const HOST_FILES = new Set(["task.json", "packet.json", "baseline.json", "findings.json", "observations.json", "read-complete.json", "review-input.json"]);
 const blocked = (tool: string, reason: string): ToolGate => ({ block: true, reason: `Reader confinement blocked ${tool}: ${reason}` });
 const shellQuote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
 
