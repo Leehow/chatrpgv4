@@ -4915,8 +4915,44 @@ package is enabled. Three properties follow, and they are the point:
 * **It is campaign-scoped.** `world.mods.state` survives worldlines and upgrades
   and never leaves the campaign that wrote it.
 
-Establishing is a Keeper judgement in fiction, never a derivation. No list maps
-names, trades or places to languages, and the instructions forbid inferring one.
+Establishing is a Keeper judgement in fiction, never a deterministic derivation. No
+code or data table maps names, trades or places to languages. An individual's name,
+ancestry or trade alone is not evidence of their tongue.
+
+**Language comprehension decision (2026-09-18; Natural NPC 1.4.2).** Missing `speaks`
+means unknown, never shared fluency, whether `language.bound` is true or false.
+The Keeper uses the source's explicit setting and the actual exchange to establish
+the working language semantically; a conversation in the stated local language
+need not wait for the book to repeat that language in every NPC profile. Authored
+individual exceptions win. Where the source is silent, persist that supported
+choice with `apply dossier` in the package's existing campaign state. On an opening
+turn where `apply` is forbidden, use the same supported language and sheet limits
+without a write, then record it at the first lawful opportunity; this is not a new
+opening mutation exemption. If the exchange's language remains genuinely unknown,
+keep comprehension uncertain and allow gestures or clarification, not automatic
+fluency or an invented language puzzle.
+
+Read the investigator's actual Language skills (retrieve the sheet if absent from
+the capsule). The player's complete sentence is intended meaning, not guaranteed
+speech: comprehension and expression both follow the recorded value. Preserve the
+chosen intent; show what crosses and what fails without choosing a different action
+for the player. Ordinary talk does not acquire a roll. `play_language` is display,
+and `language_mixing` controls rendering only. The full instruction and per-turn
+reminder carry this rule; the existing language audit also checks unsupported fluent
+exchanges when `speaks` is absent rather than skipping them. Natural NPC joins the
+shared delivery audit without an `audit_on_decisions` filter: language comprehension
+applies to later conversation too, not just the first-impression roll. Its impression
+check still inspects only newly settled impression receipts. Audit `request.json`
+also carries `present` (the existing NPC dossier projection, including source/table
+language) and `player_text` alongside its existing `party` and `scene`. The Mod job
+builder writes these from the same live world/turn; the shared auditor reads them
+to check both comprehension and the preservation of player intent, returning its
+ordinary findings. This works with Natural NPC alone, without depending on another
+Mod's source-review bundle. No new lane, parser, language registry or mutation is introduced. Writer: the Keeper's existing dossier
+effect; reader: the NPC dossier/capsule; actor: the Keeper, applying language limits
+and settling any resulting world change through ordinary receipts. Regression tests
+cover missing-language projection, table establishment, package isolation and prompt
+wiring; only live play can prove that a model follows the instruction.
 
 ### 28.8 Out of this version
 
