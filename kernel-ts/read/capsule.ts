@@ -65,7 +65,7 @@ export function untoldBlock(graph: ModuleGraph, world: Row, journal: Row, node: 
     const label = string(personRecord(world, graph.handle(node)).name || entry.label || "").trim();
     return {
         ...(label ? { label } : {}),
-        use: `The investigators have not been told this person's name. Describe observable appearance; before speech or a named reference, use apply person to establish ${label ? repr(label) : "a stable appearance-based epithet"} as this table's name, then use called.name in prose and the say token until the fiction introduces the name. The book's name is Keeper-only; a speaker title reveals it just as prose does.`,
+        use: "Private until introduced: appearance only; apply person, then called.name and say token.",
     };
 }
 export function clueLabel(graph: ModuleGraph, world: Row, handle: string): string {

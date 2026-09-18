@@ -78,7 +78,7 @@ export class SettleContext {
         number,
         string,
         string | null
-    ] = [0, 0, 'regular'];
+    ] = [0, 0, 'regular', null];
     private knownSpells: string[] = [];
     private learningSources: Row = {};
     private settlementPending = false;

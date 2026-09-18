@@ -461,7 +461,10 @@ export class Reading {
                     Object.assign(stale, { state: 'completed', finished_at: nowIso(), reused_generation: meta.generation ?? 0, result: { state: 'ready', generation: meta.generation ?? 0, opening_ready: truth(meta.opening_ready) } });
                 }
             }
-            const pending = queue.filter(job => job.state === 'queued').sort((a, b) => Number(!truth(a.foreground)) - Number(!truth(b.foreground)) || Number(a.purpose !== 'opening') - Number(b.purpose !== 'opening') || compareUnicode(a.at, b.at));
+            const purposePriority = (job: Row): number => job.purpose === 'opening' ? 0 : job.purpose === 'index' ? 2 : 1;
+            const pending = queue.filter(job => job.state === 'queued').sort((a, b) =>
+                Number(!truth(a.foreground)) - Number(!truth(b.foreground)) ||
+                purposePriority(a) - purposePriority(b) || compareUnicode(a.at, b.at));
             if (active.length >= 3) {
                 await this.store.writeQueue(mid, queue);
                 return { job_id: null };

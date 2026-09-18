@@ -13590,3 +13590,36 @@ protested out of character and a source lookup found the doctor's house.
 
 Tests: `test_declared_dice.py` (a social modifier without a reason is refused by name; with one,
 the receipt carries it), `ui-words-surfaces` (the three captions exist), voice tests (D).
+
+## 114. Automatic PDF indexing never overtakes requested source work (2026-09-18, amends §22 and §107)
+
+`ensureIndexJob` is called from `module.read.claim`, so a bound PDF can acquire its background index even
+when the caller queued only an opening or a focused detail. The first full regression after §107 exposed
+the scheduling consequence: the automatic index was older than a later detail request, both were
+background, and the claim order compared only opening-vs-other before timestamp. The index therefore
+occupied the single test owner and the caller wrote a detail graph into an index job, which correctly
+failed as `index draft needs a sections array`. Production has more reader capacity, but the same ordering
+can still delay the source fact a live turn asked for behind a whole-book navigation pass.
+
+Reader priority is now: foreground before background; within either lane, authored opening first,
+explicit guidance/skeleton/detail next, and automatic index last; timestamp breaks ties within the same
+class. Indexing still self-enqueues once and uses spare background capacity. It never overtakes a source
+read someone explicitly requested, and it starts as soon as those higher-value jobs leave a slot.
+
+Acceptance: a cold bind plus opening keeps both the requested opening and one queued index; opening is
+claimed first. With an index already queued, a newly requested detail is claimed before it. The index is
+still claimable after explicit work completes.
+
+## 115. Untold-name safety does not evict a crowded room (2026-09-18, amends §40.7 and §103)
+
+The §103 capsule put the full untold-name operating paragraph inside every `present[]` row. On the
+nine-person voice bench that repeated paragraph consumed the 3 KiB section budget nine times, reducing
+full dossiers from at least four to two and replacing the rest with name-only stubs. The privacy rule was
+correct; repeating its explanation displaced the people it was meant to govern.
+
+Each untold row keeps the same executable facts -- optional stable table label plus a bounded `use` line
+that says the authored name is private, observable appearance is safe, `apply person` establishes an
+epithet before speech/named reference, and `called.name` plus the say token remain authoritative until
+introduction. The line is concise and independent of the authored secret name. The nine-person capsule
+again retains at least four complete dossiers while keeping every person's name or stub and the same
+privacy behavior on focused `look` views.

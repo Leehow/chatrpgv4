@@ -18,16 +18,21 @@ def test_cold_long_book_queues_opening_directly_and_new_questions_revisit_ready_
     mid = book(kernel, tmp_path)
     job, draft, review = opening(kernel, mid)
     store = ModuleStore(kernel.workspace)
-    assert len(store.read_queue(mid)) == 1
+    assert len(store.read_queue(mid)) == 2
     assert job['pages'] == [] and job['purpose'] == 'opening'
+    assert [row['purpose'] for row in store.read_queue(mid)] == ['opening', 'index']
     assert not store.module(mid)['reading']['index_complete']
     finish(kernel, job)
     first = request(kernel, mid, 'detail', focus='Lena', question='What does she know about the tower?')
     same = request(kernel, mid, 'detail', focus='Lena', question='What does she know about the tower?')
     other = request(kernel, mid, 'detail', focus='Lena', question='What is her biography?')
     assert first['job_id'] == same['job_id'] != other['job_id']
-    assert len(store.read_queue(mid)) == 3
+    assert len(store.read_queue(mid)) == 4
     assert store.module(mid)['reading']['viewed_pages'] == [0, 1]
+    focused = kernel.ok('module.read.claim', {'module_id': mid})
+    assert focused['purpose'] == 'detail' and focused['question'] == 'What does she know about the tower?', store.read_queue(mid)
+    automatic = kernel.ok('module.read.claim', {'module_id': mid})
+    assert automatic['purpose'] == 'index'
 
 
 def test_selective_navigation_is_one_owned_job_and_unread_ranges_remain_navigation(kernel, tmp_path):
