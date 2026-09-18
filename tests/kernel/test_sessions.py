@@ -605,6 +605,9 @@ def test_maneuver_and_nonresisting_attack_have_receipts(kernel):
                      goal="disarm", method="grip the wrist", target="Walter Corbitt", weapon="unarmed")
     assert result["decision"] == "combat:maneuver"
     assert result["receipts"]
+    follow = resolve(kernel, f"t1-c{n + 1}", intent="combat", actor="Walter Corbitt",
+                     goal="claw the investigator", method="claws", target="Thomas Hayes", weapon="claws")
+    assert follow["outcome"]["status"] == "pending_defense"
 
 
 def test_nonresisting_target_settles_in_one_attack(kernel):

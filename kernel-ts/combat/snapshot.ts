@@ -8,7 +8,7 @@ import { OUT_OF_FIGHT_CONDITIONS } from '../healing/conditions.js';
 const ROOT_KEYS = ['schema_version', 'combat_id', 'scene_ref', 'started_at_turn', 'status', 'participants', 'rounds', 'damage_chain', 'revision', 'current_round', 'current_initiative', 'initiative_cursor', 'initiative_progress', 'pending_attack', 'ended_at_turn', 'outcome', 'jammed_weapons', 'weapon_catalog', 'turn_counter', 'roll_counter'];
 const PARTICIPANT_KEYS = ['actor_id', 'side', 'dex', 'combat_skill', 'dodge_skill', 'firearms_skill', 'has_ready_firearm', 'build', 'damage_bonus', 'con', 'hp_max', 'hp_current', 'magic_points', 'armor', 'armor_rule', 'weapons', 'conditions', 'active_effects', '_defended_this_round', '_dived_for_cover', '_forfeit_next_attack', '_aiming', '_ammo', '_reload_remaining'];
 const TURN_KEYS = ['turn_id', 'actor_id', 'dex', 'dex_reason', 'declared_intent', 'action', 'target_actor_id', 'roll_id', 'opposed_roll_id', 'opposed_outcome', 'defense_kind', 'outcome', 'effect_applied', 'damage_roll_id', 'resolution_hint'];
-const TURN_OPTIONAL = ['goal', 'weapon_id', 'attack_modifiers', 'malfunction', 'cover_reroll_roll_id', 'defender_goal', 'fight_back_damage_roll_id', 'fight_back_weapon_id', 'shots', 'hits', 'volleys', 'rounds_fired', 'dived_for_cover', 'suppression_targets', 'dive_rolls', 'maneuver_build_difference', 'maneuver_penalty_dice', 'ammo_loaded', 'ammo_after', 'reload_rounds_remaining', 'resolution_command_id', 'luck_spend'];
+const TURN_OPTIONAL = ['goal', 'weapon_id', 'attack_modifiers', 'malfunction', 'cover_reroll_roll_id', 'defender_goal', 'fight_back_damage_roll_id', 'fight_back_weapon_id', 'shots', 'hits', 'volleys', 'rounds_fired', 'dived_for_cover', 'suppression_targets', 'dive_rolls', 'maneuver_build_difference', 'maneuver_penalty_dice', 'keeper_bonus', 'keeper_penalty', 'ammo_loaded', 'ammo_after', 'reload_rounds_remaining', 'resolution_command_id', 'luck_spend'];
 const DAMAGE_KEYS = ['damage_roll_id', 'source_turn_id', 'source_actor_id', 'target_actor_id', 'weapon_id', 'die', 'die_rolls', 'rolled_total', 'raw_damage', 'hp_before', 'hp_delta', 'hp_after', 'armor_absorbed', 'armor_before', 'armor_after', 'rulebook_exception', 'bypass_armor', 'half_damage_bonus', 'damage_multiplier', 'weapon_effect_ids', 'marker', 'status_after', 'provenance'];
 const EXTREME_KEYS = ['impale_or_max', 'extreme_damage', 'extreme_breakdown', 'is_impale'];
 const MALFUNCTION_KEYS = ['malfunction_roll_id', 'source_turn_id', 'source_actor_id', 'weapon_id', 'weapon_display_name', 'roll', 'malfunction_threshold', 'effect', 'marker'];
@@ -186,6 +186,9 @@ export function restoreCombatSnapshot(session: CombatSession, input: Row, option
                     valueError('combat turn roll provenance is invalid');
             if (turn.resolution_command_id != null && !text(turn.resolution_command_id))
                 valueError('combat turn command provenance is invalid');
+            for (const field of ['keeper_bonus', 'keeper_penalty'])
+                if (Object.hasOwn(turn, field) && whole(turn[field], `turn ${field}`) > 2)
+                    valueError(`combat turn ${field} is out of range`);
             turns.set(id, [i + 1, turn]);
             for (const binding of damageBindingsForTurn(turn)) {
                 if (bindings.has(binding.damage_roll_id))

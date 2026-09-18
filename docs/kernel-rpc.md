@@ -13291,3 +13291,17 @@ candidate-to-scene projection and the exact arrival descriptor; `tests/kernel/te
 pin known-region-only derivatives. Live acceptance still requires an A or M PDF arrival to produce and
 open the real image, prove original-page/private paths and unrevealed regions are absent from the player
 surface, then reveal one newly earned region without replacing the old card.
+
+## 108. A maneuver snapshot admits the declared-dice fields its engine writes (2026-09-17)
+
+H-SIDE turn 178 tried to flee after an earlier combat maneuver. The flee, a following NPC attack and
+every retry failed before adjudication with `ValueError: combat turn must use the exact schema`.
+The maneuver engine always writes `keeper_bonus` and `keeper_penalty`, including zero, into the turn;
+the snapshot reader's exact optional-key set omitted both. The maneuver itself committed, then made the
+next load of that combat impossible.
+
+The snapshot contract now admits exactly those two engine-owned fields and validates each as an integer
+from 0 through 2, the same closed modifier range accepted at resolve entry. No other unknown turn field
+is accepted. `tests/kernel/test_sessions.py::test_maneuver_and_nonresisting_attack_have_receipts`
+settles a maneuver and then loads the persisted combat for the next NPC attack, reproducing the live
+boundary rather than checking only the maneuver's immediate result.
