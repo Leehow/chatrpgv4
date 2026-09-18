@@ -110,8 +110,10 @@ export function createModuleRuntime(context: KernelContext) {
     const claimsOrFinishes = new Set(['module.read.claim', 'module.read.finish', 'module.read.unwait']);
     // Both name one job, so both follow the workspace whose queue holds that job id.
     const byJobId = new Set(['module.read.finish', 'module.read.unwait']);
-    const queuedJobs = async (value: typeof library, id: string, jobId?: any): Promise<boolean> =>
-        (await value.store.queue(id)).some(job => jobId === undefined ? job.state === 'queued' : job.job_id === jobId);
+    const queuedJobs = async (value: typeof library, id: string, jobId?: any, lease?: any): Promise<boolean> =>
+        (await value.store.queue(id)).some(job => jobId === undefined
+            ? job.state === 'queued'
+            : job.job_id === jobId && (lease === undefined || job.lease === lease));
     const dispatch = async (method: string, params: Row): Promise<Row> => {
         if (libraryOnly.has(method) || params.campaign === undefined || typeof params.module_id !== 'string')
             return library.handlers[method](params);
@@ -119,8 +121,13 @@ export function createModuleRuntime(context: KernelContext) {
         if (claimsOrFinishes.has(method)) {
             const value = scopedRuntime(campaign);
             if (await scopedModuleRoot(context, campaign, id) === null) return library.handlers[method](params);
-            if (byJobId.has(method))
-                return (await queuedJobs(value, id, params.job_id) ? value : library).handlers[method](params);
+            if (byJobId.has(method)) {
+                // Ordinal job ids collide between the shared library and a campaign fork. A finish
+                // carries the opaque attempt lease, so route by both; otherwise a private `read-7`
+                // can capture the shared `read-7` and reject a valid publication.
+                const lease = method === 'module.read.finish' ? params.lease : undefined;
+                return (await queuedJobs(value, id, params.job_id, lease) ? value : library).handlers[method](params);
+            }
             if (await queuedJobs(value, id)) return value.handlers[method](params);
             // No private work is queued; the shared queue may still hold work for this campaign.
             const shared = await library.handlers[method](params);

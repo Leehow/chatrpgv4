@@ -204,8 +204,17 @@ test('two kernel processes isolate one source module per campaign in the same ho
   assert.ok(claimedShared.job_id, 'a scoped claim reads the shared queue');
   assert.equal(claimedShared.purpose, 'detail');
   await call(first, 'module.read.request', A, { purpose: 'detail', focus: 'Cellar', question: 'Fork the campaign while a shared lease is open.' });
+  // Job ids are ordinal inside one queue. A private queue may already contain the same id as the
+  // shared job; routing by id alone sends the shared finish to the wrong Reading owner and rejects
+  // its otherwise matching token. The lease is the cross-scope discriminator.
+  const privateQueue = await queue(A);
+  const collision = { job_id: claimedShared.job_id, key: 'private-collision', purpose: 'detail', focus: 'Private decoy', question: '', pages: [],
+    foreground: false, state: 'failed', attempts: 1, at: new Date().toISOString(), lease: 'private-decoy-lease', detail: 'fixture decoy' };
+  assert.ok(!privateQueue.some(job => job.job_id === claimedShared.job_id), 'fixture needs an unused private ordinal');
+  privateQueue.push(collision); await save(join(store(A), 'deepen-queue.json'), privateQueue);
   await call(second, 'module.read.finish', A, { job_id: claimedShared.job_id, lease: claimedShared.lease, outcome: 'cancelled' });
   assert.equal((await queue()).find(job => job.job_id === claimedShared.job_id).state, 'cancelled');
+  await save(join(store(A), 'deepen-queue.json'), (await queue(A)).filter(job => job.key !== collision.key));
   assert.equal((await inspect(second, A)).sourceCampaign, A);
   rootBytes = await treeDigest(store());
 

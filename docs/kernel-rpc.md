@@ -13516,6 +13516,12 @@ the job, its state or token differs and the old attempt remains rejected. The me
 publication; a restart no longer discards completed reader work merely because its native lock handles died
 with the old process.
 
+Campaign-private and shared-library queues may both contain `read-7`; job ids are ordinal only inside one
+queue. A campaign-scoped `module.read.finish` therefore chooses its queue by the pair `(job_id, lease)`, not
+by `job_id` alone. This is host routing data, never a model-visible identifier. A colliding private job with
+a different lease cannot capture, reject or cancel a shared job's publication, and the shared lease still
+cannot authorize the private job.
+
 Acceptance: `tests/extension/reading-intent.test.mjs` proves a map omitted by the first pass is added by a
 separate pass that reopens its page before publication. `tests/extension/ts-kernel-modules.test.mjs` proves
 a matching persisted attempt publishes through a fresh kernel owner, while the existing native-owner test
