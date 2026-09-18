@@ -412,20 +412,41 @@ describe('the time section reads the clock in the fiction', () => {
     expect(screen.queryByText(/已过/)).toBeNull();
   });
 
-  it('falls back to elapsed time for a module that never said when it opens', async () => {
+  it('prints the day and hour for a module that never said when it opens', async () => {
+    const undated = view({ clock: { minutes: 95, elapsed: '1 h 35 min', day: 1, hh: '01', mm: '35', day_part: 'small_hours' } });
+    render(<Panel api={host({ ok: true, data: { status: 'ready', view: undated, campaign: 'c1' } })} />);
+    await screen.findByText('第 1 天 01:35');
+    expect(screen.queryByText(/已过/)).toBeNull();
+  });
+
+  it('falls back to elapsed time when the kernel supplies no day', async () => {
     const undated = view({ clock: { minutes: 95, elapsed: '1 h 35 min' } });
     render(<Panel api={host({ ok: true, data: { status: 'ready', view: undated, campaign: 'c1' } })} />);
     await screen.findByText('已过 1 小时 35 分');
   });
 
-  it('drops a zero hour and keeps turn and scene as quiet meta pills', async () => {
+  it.each([
+    { day: 0, hh: '01', mm: '35' },
+    { day: 1.5, hh: '01', mm: '35' },
+    { day: '1', hh: '01', mm: '35' },
+    { day: 1, hh: 1, mm: '35' },
+    { day: 1, hh: '01' },
+  ])('falls back to elapsed time for malformed day-clock fields: %j', async fields => {
+    const undated = view({ clock: { minutes: 95, elapsed: '1 h 35 min', ...fields } });
+    render(<Panel api={host({ ok: true, data: { status: 'ready', view: undated, campaign: 'c1' } })} />);
+    await screen.findByText('已过 1 小时 35 分');
+    expect(screen.queryByText(/undefined/)).toBeNull();
+  });
+
+  it('keeps a zero hour and keeps turn and scene as quiet meta pills', async () => {
     const v = view({
-      clock: { minutes: 55, elapsed: '0 h 55 min' }, turn: 5,
+      clock: { minutes: 55, elapsed: '0 h 55 min', day: 1, hh: '00', mm: '55' }, turn: 5,
       scene: { name: 'crowe-house-ground' },
       standing_labels: { 'crowe-house-ground': '克罗屋一楼' },
     });
     const { container } = render(<Panel api={host({ ok: true, data: { status: 'ready', view: v, campaign: 'c1' } })} />);
-    await screen.findByText('已过 55 分');
+    await screen.findByText('第 1 天 00:55');
+    expect(screen.queryByText(/已过/)).toBeNull();
     const pills = Array.from(container.querySelectorAll('.coc-standing-meta .coc-standing-item'))
       .map(el => el.textContent);
     expect(pills).toEqual(['回合5', '场景克罗屋一楼']);

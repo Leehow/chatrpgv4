@@ -1,5 +1,10 @@
 """The UI must not forge an action when it polls the investigator sheet."""
-from conftest import CAMPAIGN, MODULE, PREGEN, campaign_dir, create_campaign, open_turn  # noqa: F401
+import json
+import shutil
+
+import pytest
+
+from conftest import CAMPAIGN, CONTENT_DIR, MODULE, PREGEN, RpcClient, campaign_dir, create_campaign, open_turn  # noqa: F401
 
 
 def test_sheet_is_read_only_and_hides_undiscovered_clues(kernel):
@@ -27,6 +32,65 @@ def test_the_view_carries_the_clock_in_the_fiction_not_only_elapsed(kernel):
     kernel.table('apply', call_id='t1-c1', effects=[{'kind': 'time', 'minutes': 250}])
     assert kernel.ok('table.view', {'campaign': CAMPAIGN})['clock'] == {
         'minutes': 250, 'elapsed': '4 h 10 min', 'at': '1920-10-12T14:10', 'day_part': 'afternoon'}
+
+
+@pytest.mark.parametrize('start_time', [None, '23:30'])
+def test_the_view_carries_a_day_clock_without_a_declared_date(tmp_path, start_time):
+    content = tmp_path / 'content'
+    shutil.copytree(CONTENT_DIR, content)
+
+    def remove_date(value):
+        if isinstance(value, dict):
+            if 'start_clock' in value:
+                value.pop('start_clock')
+                value.pop('start_time', None)
+                if start_time is not None:
+                    value['start_time'] = start_time
+            for child in value.values():
+                remove_date(child)
+        elif isinstance(value, list):
+            for child in value:
+                remove_date(child)
+
+    for name in ('module-meta.json', 'module-graph.json'):
+        path = content / 'starters/the-haunting' / name
+        # Graph-only starters no longer carry a separate metadata file.
+        if path.exists():
+            data = json.loads(path.read_text())
+            remove_date(data)
+            path.write_text(json.dumps(data))
+    client = RpcClient(tmp_path / 'workspace', content=content)
+    try:
+        opened = open_turn(client, 'I wait for a while.')
+        start = 0 if start_time is None else 23 * 60 + 30
+        initial = {
+            'minutes': 0, 'elapsed': '0 h 0 min', 'day': 1,
+            'hh': '00' if start_time is None else '23',
+            'mm': '00' if start_time is None else '30',
+            'day_part': 'small_hours' if start_time is None else 'night'}
+        assert client.ok('table.view', {'campaign': CAMPAIGN})['clock'] == initial
+        assert opened['capsule']['where']['clock'] == initial
+        client.table('apply', call_id='t1-c1', effects=[{'kind': 'time', 'minutes': 90}])
+        clock = client.ok('table.view', {'campaign': CAMPAIGN})['clock']
+        assert clock == {
+            'minutes': 90, 'elapsed': '1 h 30 min',
+            'day': 1 if start_time is None else 2,
+            'hh': '01', 'mm': '30' if start_time is None else '00',
+            'day_part': 'small_hours'}
+        assert clock['day'] - 1 == (start + clock['minutes']) // 1440
+        # Advance to the next midnight, not a full day after the 90-minute reading.
+        remaining = 1440 - (start + 90) % 1440
+        ended = client.table('apply', call_id='t1-c2', effects=[{'kind': 'time', 'minutes': remaining}])
+        clock = client.ok('table.view', {'campaign': CAMPAIGN})['clock']
+        assert clock == {
+            'minutes': 90 + remaining,
+            'elapsed': f'{(90 + remaining) // 60} h {(90 + remaining) % 60} min',
+            'day': 2 if start_time is None else 3,
+            'hh': '00', 'mm': '00', 'day_part': 'small_hours'}
+        assert clock['day'] - 1 == (start + clock['minutes']) // 1440
+        assert ended['day_ended']['days'] == 1
+    finally:
+        client.close()
 
 
 def test_sheet_does_not_persist_legacy_trail_migration(kernel):

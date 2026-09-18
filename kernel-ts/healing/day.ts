@@ -1,22 +1,12 @@
 /** The existing midnight SAN-day close, shared with the later sanity family. */
 import { isJsonObject, orderedObject } from '../json.js';
-import { clockSection } from '../read/capsule.js';
-import { moduleDeclaration, type ModuleGraph } from '../read/module-graph.js';
+import { clockStart } from '../read/capsule.js';
+import type { ModuleGraph } from '../read/module-graph.js';
 import { array, clone, entries, integer, number, row, string, truth, type Row } from '../read/values.js';
 import { valueError } from '../resolve/arithmetic.js';
 import type { SettleContext } from '../resolve/context.js';
 export function gameDayOf(graph: ModuleGraph, minutes: number): number {
-    const zero = clockSection(graph, { clock: { minutes: 0 } }), at = typeof zero.at === 'string' ? /T(\d\d):(\d\d)/.exec(zero.at) : null;
-    let start = at ? Number(at[1]) * 60 + Number(at[2]) : 0;
-    if (!at) {
-        const text = moduleDeclaration(graph.moduleNode).start_time;
-        if (typeof text === 'string' && text.includes(':')) {
-            const parts = text.split(':'), hour = Number(parts[0]), minute = Number(parts[1]);
-            if (parts.length === 2 && parts.every(part => /^[+-]?\d+(?:_\d+)*$/.test(part.trim())) && Number.isInteger(hour) && Number.isInteger(minute) && hour >= 0 && hour < 24 && minute >= 0 && minute < 60)
-                start = hour * 60 + minute;
-        }
-    }
-    return Math.floor((start + Math.trunc(minutes)) / 1440);
+    return Math.floor((clockStart(graph).minutes + Math.trunc(minutes)) / 1440);
 }
 function intField(value: any): number {
     if (value === null || value === undefined)

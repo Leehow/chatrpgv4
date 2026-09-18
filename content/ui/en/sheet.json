@@ -9,6 +9,7 @@
   "clues": "Clues",
   "condition": "Condition",
   "creditRating": "Credit rating",
+  "day.clock": "Day {d} {hh}:{mm}",
   "elapsed.dhm": "{d}d {hh}h {mm}m elapsed",
   "elapsed.hm": "{hh}h {mm}m elapsed",
   "elapsed.m": "{mm}m elapsed",

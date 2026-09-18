@@ -959,9 +959,12 @@ export function createComponent(React) {
     const meta = lines.filter(line => !line.live);
     const live = lines.filter(line => line.live);
     const at = storyTime(clock.at);
-    if (at === null && minutes === undefined && !lines.length) return null;
+    const hasDayClock = Number.isInteger(clock.day) && clock.day >= 1
+      && typeof clock.hh === "string" && typeof clock.mm === "string";
+    if (at === null && !hasDayClock && minutes === undefined && !lines.length) return null;
     const span = minutes === undefined ? null : elapsed(minutes);
     const reading = at ? fill(t("at"), at)
+      : hasDayClock ? fill(t("day.clock"), { d: clock.day, hh: clock.hh, mm: clock.mm })
       : span ? fill(t(span.days > 0 ? "elapsed.dhm" : span.hours > 0 ? "elapsed.hm" : "elapsed.m"),
           { d: span.days, hh: span.hours, mm: span.minutes })
       : null;

@@ -75,6 +75,22 @@ export function clueLabel(graph: ModuleGraph, world: Row, handle: string): strin
     const node = graph.find(handle, ["clue"]);
     return node ? graph.displayName(node) : handle;
 }
+/** The declared local opening anchors both clock readings and midnight day boundaries. */
+export function clockStart(graph: ModuleGraph): { at: Date | null; minutes: number } {
+    const declaration = moduleDeclaration(graph.moduleNode), stamp = row(declaration.start_clock).local_datetime;
+    if (typeof stamp === "string" && stamp.trim()) {
+        const local = stamp.trim().replace(/(?:Z|[+-]\d\d:\d\d)$/, ""), parsed = new Date(local + "Z");
+        if (Number.isFinite(parsed.getTime()))
+            return { at: parsed, minutes: parsed.getUTCHours() * 60 + parsed.getUTCMinutes() };
+    }
+    const text = declaration.start_time;
+    if (typeof text === 'string' && text.includes(':')) {
+        const parts = text.split(':'), hour = Number(parts[0]), minute = Number(parts[1]);
+        if (parts.length === 2 && parts.every(part => /^[+-]?\d+(?:_\d+)*$/.test(part.trim())) && Number.isInteger(hour) && Number.isInteger(minute) && hour >= 0 && hour < 24 && minute >= 0 && minute < 60)
+            return { at: null, minutes: hour * 60 + minute };
+    }
+    return { at: null, minutes: 0 };
+}
 export function clockSection(graph: ModuleGraph, world: Row): Row {
     const minutes = Math.trunc(number(row(world.clock).minutes)),
         mod = (n: number, by: number) => (n % by + by) % by,
@@ -82,27 +98,19 @@ export function clockSection(graph: ModuleGraph, world: Row): Row {
         minutes,
         elapsed: `${Math.floor(minutes / 60)} h ${mod(minutes, 60)} min`
     };
-    const declaration = moduleDeclaration(graph.moduleNode),
-        stamp = row(declaration.start_clock).local_datetime;
-    let minuteOfDay: number | null = null;
-    if (typeof stamp === "string" && stamp.trim()) {
-        const local = stamp.trim().replace(/(?:Z|[+-]\d\d:\d\d)$/, ""),
-            parsed = new Date(local + "Z");
-        if (Number.isFinite(parsed.getTime())) {
-            const current = new Date(parsed.getTime() + minutes * 60000);
-            result.at = current.toISOString().slice(0, 16);
-            minuteOfDay = current.getUTCHours() * 60 + current.getUTCMinutes();
-        }
+    const start = clockStart(graph);
+    let minuteOfDay = mod(start.minutes + minutes, 1440);
+    if (start.at) {
+        const current = new Date(start.at.getTime() + minutes * 60000);
+        result.at = current.toISOString().slice(0, 16);
+        minuteOfDay = current.getUTCHours() * 60 + current.getUTCMinutes();
     }
-    if (minuteOfDay == null && typeof declaration.start_time === "string" && declaration.start_time.includes(":")) {
-        const values = declaration.start_time.split(":"),
-            hour = Number(values[0]),
-            minute = Number(values[1]);
-        if (values.length === 2 && Number.isInteger(hour) && Number.isInteger(minute) && hour >= 0 && hour < 24 && minute >= 0 && minute < 60)
-            minuteOfDay = mod(hour * 60 + minute + minutes, 1440);
+    else {
+        result.day = Math.floor((start.minutes + minutes) / 1440) + 1;
+        result.hh = String(Math.floor(minuteOfDay / 60)).padStart(2, "0");
+        result.mm = String(mod(minuteOfDay, 60)).padStart(2, "0");
     }
-    if (minuteOfDay != null)
-        result.day_part = ([[5, "dawn"], [8, "morning"], [12, "midday"], [14, "afternoon"], [18, "evening"], [22, "night"]] as const).filter(([hour]) => minuteOfDay! >= hour * 60).at(-1)?.[1] ?? "small_hours";
+    result.day_part = ([[5, "dawn"], [8, "morning"], [12, "midday"], [14, "afternoon"], [18, "evening"], [22, "night"]] as const).filter(([hour]) => minuteOfDay >= hour * 60).at(-1)?.[1] ?? "small_hours";
     return result;
 }
 export function whereSection(graph: ModuleGraph, world: Row, scene: Row, material: (name: string) => string = () => "ready", compact = false): Row {

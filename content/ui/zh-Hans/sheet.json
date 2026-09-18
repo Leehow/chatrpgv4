@@ -9,6 +9,7 @@
   "clues": "线索",
   "condition": "状态",
   "creditRating": "信用评级",
+  "day.clock": "第 {d} 天 {hh}:{mm}",
   "elapsed.dhm": "已过 {d} 天 {hh} 小时 {mm} 分",
   "elapsed.hm": "已过 {hh} 小时 {mm} 分",
   "elapsed.m": "已过 {mm} 分",
