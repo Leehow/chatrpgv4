@@ -5,7 +5,7 @@ import { RpcError } from "../errors.js";
 import type { KernelContext } from "../context.js";
 import type { HandlerGroup } from "../handlers.js";
 import { CampaignSnapshot, loadCampaignModule } from "./campaign.js";
-import { clockSection } from "./capsule.js";
+import { clockSection, parseClockLocal } from "./capsule.js";
 import type { ModuleGraph } from "./module-graph.js";
 import { integer, number, string, truth, row, type Row } from "./values.js";
 
@@ -199,11 +199,15 @@ export async function tableGraph(context: KernelContext, params: Row): Promise<R
         return value;
     };
     const moduleId = string(campaign.meta.module_id),
-        graph = moduleId ? (await loadCampaignModule(context, moduleId, campaign.world, campaign.id)).graph : null;
+        graph = moduleId ? (await loadCampaignModule(context, moduleId, campaign.world, campaign.id)).graph : null,
+        pinned = row(campaign.world.clock).start_local,
+        currentAnchor = parseClockLocal(pinned) ? pinned : undefined;
     const nodes = kept.map(commit => {
         const { kind, turn } = kinds.get(commit.sha)!, clock = clockOf(commit);
         return {
-            sha: commit.sha, turn, clock: clock.minutes, when: whenOf(graph, clock), kind,
+            // Pre-pin history shares the current calendar; a node's own anchor always wins.
+            sha: commit.sha, turn, clock: clock.minutes,
+            when: whenOf(graph, { ...clock, start_local: clock.start_local ?? currentAnchor }), kind,
             title: turn != null ? commit.subject.replace(TURN_SUBJECT, "").trim() : commit.subject,
             at: commit.at, parents: [...commit.parents], tip_of: tips.get(commit.sha) ?? []
         };

@@ -177,9 +177,14 @@ def test_undated_nodes_share_the_view_day_clock(undated_client):
     expected = {"day": 1, "hh": 10, "mm": 30} if start_time is None else {"day": 2, "hh": 1, "mm": 0}
     assert node["when"] == expected
     assert node["when"] == {key: int(clock[key]) for key in ("day", "hh", "mm")}
+    for historical in graph(client)["nodes"]:
+        assert set(historical["when"]) == {"day", "hh", "mm"}
+        base_minutes = 9 * 60 if start_time is None else 23 * 60 + 30
+        minutes = base_minutes + historical["clock"]
+        assert historical["when"] == {"day": minutes // 1440 + 1, "hh": minutes % 1440 // 60, "mm": minutes % 60}
 
 
-def test_pinned_nodes_use_their_own_committed_anchor(undated_client):
+def test_pinned_nodes_backfill_setup_and_turn_zero_anchor(undated_client):
     client, start_time = undated_client
     play(client, 0)
     before = by_sha(graph(client))
@@ -197,7 +202,45 @@ def test_pinned_nodes_use_their_own_committed_anchor(undated_client):
     expected = {"y": 1975, "mo": 7, "d": 12, "hh": 10, "mm": 30} if start_time is None else {"y": 1975, "mo": 7, "d": 13, "hh": 1, "mm": 0}
     assert node["when"] == expected
     assert node["when"] == {"y": at.year, "mo": at.month, "d": at.day, "hh": at.hour, "mm": at.minute}
-    assert all(nodes[sha]["when"] == old["when"] for sha, old in before.items())
+    opening = {"y": 1975, "mo": 7, "d": 12, "hh": 9, "mm": 0} if start_time is None else {"y": 1975, "mo": 7, "d": 12, "hh": 23, "mm": 30}
+    setup = [node for node in before.values() if node["kind"] == "setup"]
+    turn_zero = next(node for node in nodes.values() if node["turn"] == 0)
+    assert setup
+    assert turn_zero["when"] == opening
+    for sha, old in before.items():
+        assert nodes[sha]["clock"] == old["clock"] == 0
+        assert nodes[sha]["when"] == turn_zero["when"] == opening
+
+
+def test_pinned_nodes_use_their_own_committed_anchor(undated_client):
+    client, start_time = undated_client
+    play(client, 0)
+    client.table("player_input", text="I establish the opening date.")
+    client.table("apply", call_id="t1-c1", effects=[
+        {"kind": "clock", "local_datetime": f"1975-07-12T{start_time or '09:00'}",
+         "why": "The main line begins on this date."},
+        {"kind": "time", "minutes": 90},
+    ])
+    narrate(client, "t1-c2", "Time passes on the main line.")
+    main = next(node for node in graph(client)["nodes"] if node["turn"] == 1)
+    # Fork before the first pin so the new line can establish a different opening date.
+    fork(client, 2, "if-date", from_turn=0)
+    client.table("player_input", text="I establish the alternate opening date.")
+    client.table("apply", call_id="t3-c1", effects=[
+        {"kind": "clock", "local_datetime": f"1975-07-20T{start_time or '09:00'}",
+         "why": "The alternate line begins on another date."},
+    ])
+    narrate(client, "t3-c2", "The alternate date is established.")
+    result = graph(client)
+    nodes = by_sha(result)
+    assert result["active"] == "if-date"
+    assert nodes[main["sha"]]["clock"] == main["clock"] == 90
+    expected = {"y": 1975, "mo": 7, "d": 12, "hh": 10, "mm": 30} if start_time is None else {"y": 1975, "mo": 7, "d": 13, "hh": 1, "mm": 0}
+    assert nodes[main["sha"]]["when"] == main["when"] == expected
+    alternate = next(node for node in result["nodes"] if "if-date" in node["tip_of"])
+    assert alternate["kind"] == "turn"
+    assert alternate["clock"] == 0
+    assert alternate["when"] == {"y": 1975, "mo": 7, "d": 20, "hh": 9 if start_time is None else 23, "mm": 0 if start_time is None else 30}
 
 
 # ---- a forked line: registry forked_from, fork edges through parents, tips on both lines ------
