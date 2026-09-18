@@ -55,9 +55,8 @@ test("一个关掉的回合只有一道闸门：换一轮再来，还是同一�
 	const table = await openTable({
 		responses: [
 			call("narrate", { text: "门在你身后合上。" }),
-			// The delivering run ends here, exactly as it did live: the turn is closed and nothing of
-			// the repair below belongs to it.
-			fauxAssistantMessage("回合已交付。"),
+			// The terminal delivery ends this run. The explicit continuation below begins directly
+			// with the repair calls; no automatic post-tool response is consumed first.
 			...repair(), ...repair(), ...repair(),
 			fauxAssistantMessage("这条不该出现"),
 		],

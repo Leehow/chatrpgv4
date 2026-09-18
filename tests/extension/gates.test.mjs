@@ -19,6 +19,13 @@ function resultText(message) {
 		.join("");
 }
 
+function deliveryTexts(session) {
+	return [
+		...assistantTexts(session),
+		...customMessages(session, "coc-delivery").map((message) => message.content),
+	];
+}
+
 /**
  * §34.16 (2026-09-15): a Keeper that keeps calling tools after its turn closed gets a firmer answer at the
  * third blocked call and has its run cut at the sixth, so the next player input never waits on a run that
@@ -37,6 +44,14 @@ test("回合关了还在连番调工具：第三次起回一句「停」，第�
 	t.after(() => table.dispose());
 
 	await table.session.prompt("我关上门");
+	await waitForIdle(table.session);
+	// A terminal delivery no longer buys this continuation itself. Reproduce the distinct safety
+	// case deliberately: a later host continuation reaches the same already-closed turn.
+	await table.session.sendCustomMessage(
+		{ customType: "coc-host", content: "Continue the already-closed turn.", display: false,
+			details: { coc_host: true, kind: "test-continuation" } },
+		{ triggerTurn: true },
+	).catch(() => undefined);
 	await waitForIdle(table.session);
 
 	const blocked = toolResults(table.session, "look");
@@ -85,10 +100,9 @@ test("narrate 之后，同一批次余下的调用被拒", async (t) => {
 		assert.match(resultText(blocked), /the turn is closed, waiting for the player/);
 	}
 
-	assert.equal(
-		assistantTexts(table.session).at(-1),
-		"门在你身后合上。",
-		"交付就是守秘人的正文原样（契约 §16.1）",
+	assert.ok(
+		deliveryTexts(table.session).includes("门在你身后合上。"),
+		"交付就是守秘人的正文原样；随后的§78 notice是另一条可见消息（契约 §16.1）",
 	);
 	// 机制不进正文，只作为语言中立的投影进会话条目与总线（契约 §16.2）；
 	// 这一回合一条收据都没落，所以投影是空的，也就不发条目。
@@ -139,7 +153,7 @@ test("开桌回合：awaiting_player 拒写，但 narrate 放行", async (t) => 
 	assert.ok(narrate, "开桌的 narrate 应该放行");
 	assert.equal(narrate.params.call_id, "t0-c1", "开桌是第 0 回合");
 
-	assert.equal(assistantTexts(table.session).at(-1), "一九二五年的波士顿，雨还没停。");
+	assert.ok(deliveryTexts(table.session).includes("一九二五年的波士顿，雨还没停。"));
 });
 
 

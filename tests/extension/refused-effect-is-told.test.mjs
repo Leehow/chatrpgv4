@@ -49,8 +49,37 @@ const refusingReview = {
 
 const told = (session) =>
 	customMessages(session.session, "coc-delivery").filter((message) => message.details.refused_effect);
+const visibleTexts = (session) => [
+	...assistantTexts(session.session),
+	...customMessages(session.session, "coc-delivery").map((message) => message.content),
+];
 const applies = (session) => session.kernelRequests().filter((entry) => entry.method === "table.apply").length;
 const closed = (rows) => rows.some((row) => row.tool === "narrate" && row.event === "turn-closed");
+
+for (const [tool, input] of [
+	["narrate", { text: FILED }],
+	["ask", { kind: "mechanics", text: "撬棍朝你的肩膀砸下来。", options: ["dodge", "fight_back"] }],
+]) {
+	test(`a successful terminal ${tool} delivery ends the batch before a post-close provider call`, async (t) => {
+		const session = await openTable({
+			responses: [
+				fauxAssistantMessage([fauxToolCall(tool, input)], { stopReason: "toolUse" }),
+				fauxAssistantMessage([fauxToolCall("apply", { effects: NOTE })], { stopReason: "toolUse" }),
+			],
+		});
+		t.after(() => session.dispose());
+		await session.session.prompt("我请他把位置写准。");
+		await waitForIdle(session.session);
+
+		const rows = session.telemetry();
+		assert.equal(rows.filter((row) => row.lane === "provider-call").length, 1,
+			`the terminal delivery must not buy a second Keeper call: ${JSON.stringify(rows)}`);
+		assert.deepEqual(rows.filter((row) => row.blocked_after_close), [],
+			`no post-close call should exist: ${JSON.stringify(rows)}`);
+		assert.equal(applies(session), 0, "the scripted second response must remain unconsumed");
+		assert.deepEqual(told(session), [], "a valid terminal delivery needs no refused-effect repair notice");
+	});
+}
 
 test("a delivery written ahead of an effect is refused whole, so the effect is answered before the door closes", async (t) => {
 	const session = await openTable({
@@ -76,7 +105,7 @@ test("a delivery written ahead of an effect is refused whole, so the effect is a
 
 	// The turn then lands in that order: the effect reaches the kernel, the delivery follows it.
 	assert.equal(applies(session), 1);
-	assert.ok(assistantTexts(session.session).includes(FILED), JSON.stringify(assistantTexts(session.session)));
+	assert.ok(visibleTexts(session).includes(FILED), JSON.stringify(visibleTexts(session)));
 	// Nothing was left unanswered, so the player is told nothing: this is the repair, not a notice.
 	assert.deepEqual(told(session), []);
 });
@@ -110,16 +139,15 @@ test("an effect blocked after the turn closed is told to the player, because the
 		JSON.stringify(rows.filter((row) => row.lane === "delivery")));
 });
 
-test("an effect in the message after the delivery is told too: the notice does not depend on the gate being spent", async (t) => {
-	// The other way a turn reaches the same place, and the one §34.16 already knew about: the delivery
-	// closed the turn in its own message and the Keeper sent the effect in the next one. Nothing about
-	// the message shape can be refused ahead of time here -- the turn was legitimately closed when the
-	// message was written -- so the notice is the only thing left, and it is owed on the first offence.
+test("a successful delivery does not request a separate post-close effect message", async (t) => {
+	// The 2026-09-18 App opening was exactly this shape: narrate succeeded, then Pi's ordinary
+	// post-tool call let the Keeper attempt unrelated object definitions on the closed turn. A
+	// terminal delivery now ends the batch before that response can be requested. This does not
+	// weaken the same-message ordering gate tested above and below.
 	const session = await openTable({
 		responses: [
 			fauxAssistantMessage([fauxToolCall("narrate", { text: FILED })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("apply", { effects: NOTE })], { stopReason: "toolUse" }),
-			fauxAssistantMessage("Should never be consumed."),
 		],
 	});
 	t.after(() => session.dispose());
@@ -127,13 +155,10 @@ test("an effect in the message after the delivery is told too: the notice does n
 	await waitForIdle(session.session);
 
 	const rows = session.telemetry();
-	const blocked = rows.filter((row) => row.blocked_after_close);
-	assert.equal(blocked.length, 1, JSON.stringify(blocked));
-	assert.equal(blocked[0].effect_untold, true);
-	assert.equal(applies(session), 0);
-	// The ordering gate never fired: there was no shape to refuse.
-	assert.deepEqual(rows.filter((row) => row.reason === "effect_behind_delivery"), []);
-	assert.equal(told(session).length, 1, JSON.stringify(customMessages(session.session, "coc-delivery")));
+	assert.equal(rows.filter((row) => row.lane === "provider-call").length, 1, JSON.stringify(rows));
+	assert.deepEqual(rows.filter((row) => row.blocked_after_close), []);
+	assert.equal(applies(session), 0, "the post-close response must remain unconsumed");
+	assert.deepEqual(told(session), [], "the valid delivery needs no repair notice");
 });
 
 test("a delivery behind an effect the action review refused is refused too, and the Keeper writes it again", async (t) => {
@@ -164,8 +189,8 @@ test("a delivery behind an effect the action review refused is refused too, and 
 	// The turn still closes, on the delivery written with the answer in hand: §32 is not relaxed,
 	// a refusal is still not a stop, and the player reads one turn rather than a notice.
 	assert.ok(closed(rows), JSON.stringify(rows));
-	assert.ok(assistantTexts(session.session).includes("职员把本子推回来。"), JSON.stringify(assistantTexts(session.session)));
-	assert.ok(!assistantTexts(session.session).includes(FILED), "the delivery written before the answer must not reach the player");
+	assert.ok(visibleTexts(session).includes("职员把本子推回来。"), JSON.stringify(visibleTexts(session)));
+	assert.ok(!visibleTexts(session).includes(FILED), "the delivery written before the answer must not reach the player");
 	assert.deepEqual(told(session), []);
 });
 

@@ -12,6 +12,11 @@ import { assistantTexts, customMessages, openTable, waitFor, waitForIdle } from 
 
 const SEVEN = ["apply", "ask", "look", "lookup", "narrate", "recall", "resolve"];
 
+const deliveryTexts = (table) => [
+	...assistantTexts(table.session).filter(Boolean),
+	...customMessages(table.session, "coc-delivery").map((message) => message.content),
+];
+
 test('a map reveal becomes one flattened conversation image and hides its source instructions',async t=>{
 	const table=await openTable({env:{FAKE_KERNEL_MAP:'1'},responses:[
 		fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'map',name:'house-map',regions:['entry'],region_labels:{entry:'门厅'},level_labels:{'Ground Floor':'一层'},label:'宅邸地图',why:'看见了门厅'}]})],{stopReason:'toolUse'}),
@@ -84,7 +89,7 @@ test("a pending adaptation owns the rest of the turn and cannot fall through int
 	assert.equal(requests.filter(row => row.method === "table.narrate").length, 1, "the Keeper can only yield honestly");
 	assert.equal(table.entries("coc-adaptation-status").at(-1)?.status, "pending");
 	assert.deepEqual(reviewed.find(value => value.method === "narrate")?.payload.preparation_wait, {kind: "adaptation", name: "athens-study"});
-	assert.equal(assistantTexts(table.session).filter(Boolean).at(-1), "书房还在准备中；这期间你没有移动，也没有花钱。");
+	assert.ok(deliveryTexts(table).includes("书房还在准备中；这期间你没有移动，也没有花钱。"));
 });
 
 test("a preparation that becomes pending after a landed move preserves and delivers that move", async t => {
@@ -107,7 +112,7 @@ test("a preparation that becomes pending after a landed move preserves and deliv
 	assert.equal(requests.filter(row => row.method === "table.apply").length, 1,
 		"the preparation blocks later writes but cannot erase the move that already landed");
 	assert.equal(requests.filter(row => row.method === "table.narrate").length, 1);
-	assert.equal(assistantTexts(table.session).filter(Boolean).at(-1), delivered);
+	assert.ok(deliveryTexts(table).includes(delivered));
 	const wait = customMessages(table.session, "coc-host").find(message => message.details?.kind === "adaptation-wait");
 	assert.match(wait?.content ?? "", /this turn already settled/i);
 	assert.match(wait?.content ?? "", /apply landed:.*move:/i);
@@ -140,7 +145,7 @@ test("cold recovery carries retained receipts into a later preparation wait", as
 	assert.match(wait?.content ?? "", /receipt already landed: roll:spot-hidden-t1-c1/i);
 	assert.doesNotMatch(wait?.content ?? "", /\[object Object\]/);
 	assert.equal(table.kernelRequests().filter(row => row.method === "table.apply").length, 0);
-	assert.equal(assistantTexts(table.session).filter(Boolean).at(-1), delivered);
+	assert.ok(deliveryTexts(table).includes(delivered));
 });
 
 test("a later status control can release a retained adaptation wait without reopening other tools early", async t => {
@@ -245,7 +250,7 @@ test("a player input rejected after a source timeout gets a fresh bounded close-
 	const requests = table.kernelRequests();
 	assert.equal(requests.filter(row => row.method === "table.player_input").length, 2, "the kernel remains authoritative and rejects the second input");
 	assert.equal(requests.filter(row => row.method === "table.narrate").length, 1, "the later run receives a fresh chance to close the timed-out turn");
-	assert.equal(assistantTexts(table.session).at(-1), waitNotice);
+	assert.ok(deliveryTexts(table).includes(waitNotice));
 });
 
 test("a source-wait steer is spent once so the Keeper's own prose still closes the turn", async t => {
@@ -294,7 +299,7 @@ test("a settled thinking-only run returns a service notice and releases the turn
 
 	await table.session.prompt("Continue.");
 	await waitForIdle(table.session);
-	assert.ok(assistantTexts(table.session).includes("The next turn reaches the player."),
+	assert.ok(deliveryTexts(table).includes("The next turn reaches the player."),
 		"the next input lands on an open table instead of being refused by turn_state");
 	// §73: the settled run closed the stranded turn itself, so under FAKE_KERNEL_STRICT_TURN the second
 	// input is an ordinary one and is accepted because the table is already `awaiting_player`.
@@ -440,12 +445,10 @@ test("一个玩家回合：七个工具、胶囊、call_id、rendered_text 交�
 	const narrate = requests.find((entry) => entry.method === "table.narrate");
 	assert.equal(narrate.params.call_id, "t1-c3");
 
-	const texts = assistantTexts(table.session).filter((text) => text.length > 0);
-	const delivered = texts.at(-1);
-	assert.equal(
-		delivered,
-		"门框上有一道深深的抓痕。",
-		"最后一条助手消息的正文就是守秘人写的那段，一字不改（契约 §16.1）",
+	const texts = deliveryTexts(table);
+	assert.ok(
+		texts.includes("门框上有一道深深的抓痕。"),
+		"守秘人写的交付一字不改地到达；terminal tool batch 使用 host delivery surface（契约 §16.1）",
 	);
 	// 机制是语言中立的 JSON 投影，只走会话条目与总线，不进正文（契约 §16.2）。
 	const [projected] = table.entries("coc-mechanics");
@@ -525,7 +528,7 @@ test("every Keeper call leaves its own duration, so a slow turn can be attribute
 	await waitForIdle(table.session);
 
 	const calls = table.telemetry().filter((row) => row.lane === "provider-call");
-	assert.ok(calls.length >= 2, `one row per Keeper call, got ${calls.length}`);
+	assert.equal(calls.length, 1, `the terminal delivery needs exactly one Keeper call, got ${calls.length}`);
 	for (const row of calls) {
 		assert.equal(typeof row.ms, "number", JSON.stringify(row));
 		assert.ok(row.ms >= 0 && row.ms < 60_000, `a plausible duration, got ${row.ms}`);
@@ -544,7 +547,7 @@ test("ordinary questions use free prose and never create story action controls",
  await table.session.prompt("我看看门厅。");
  assert.equal(table.kernelRequests().filter(x=>x.method==="table.ask").length,0);
  assert.equal(table.entries("coc-choice").length,0);
- assert.equal(assistantTexts(table.session).at(-1),"门厅很安静，你准备怎么做？");
+ assert.ok(deliveryTexts(table).includes("门厅很安静，你准备怎么做？"));
 });
 
 test("守秘人写了台词却没调 narrate：宿主替它 narrate，正文原样送进内核", async (t) => {
@@ -664,8 +667,8 @@ test("物品与现金：item、cash 原样进内核，收据只进机制投影�
 	assert.match(receipts, /item:点三八左轮-t1-c1/, "物品收据带 slug 与回合序号，原样回到守秘人手上");
 	assert.match(receipts, /cash:t1-c1/);
 
-	const delivered = assistantTexts(table.session).filter((text) => text.length > 0).at(-1);
-	assert.equal(delivered, "看门人把左轮推过桌面。", "交付就是守秘人的正文：内核不往里插机制行（契约 §16.2）");
+	assert.ok(deliveryTexts(table).includes("看门人把左轮推过桌面。"),
+		"交付就是守秘人的正文：内核不往里插机制行（契约 §16.2）");
 	const [projected] = table.entries("coc-mechanics");
 	assert.deepEqual(projected.mechanics, [
 		{ kind: "item", name: "点三八左轮", label: "左轮", quantity: 1, to: "托马斯·海耶斯" },
@@ -807,8 +810,10 @@ test("隐式交付被拒：原稿不留在屏幕上，回合仍等着被关掉",
 	await waitForIdle(table.session);
 
 	const delivered = assistantTexts(table.session).filter((text) => text.length > 0);
-	assert.deepEqual(delivered, [], "被拒的原稿一个字都没留下");
+	assert.ok(!delivered.includes(draft), "被拒的原稿一个字都没留下");
 	assert.ok(!delivered.some((text) => text.includes("{{")), "玩家读不到花括号");
+	assert.ok(customMessages(table.session, "coc-delivery").some((message) => message.details?.turn_unfinished),
+		"没有正文交付时，玩家仍收到独立的宿主服务通知");
 	const refused = table.telemetry().filter((row) => row.tool === "narrate" && row.ok === false);
 	assert.equal(refused.length, 1);
 	assert.equal(refused[0].code_detail, "unknown_marker");

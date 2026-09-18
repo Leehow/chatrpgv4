@@ -257,7 +257,7 @@ test("a delivery made under an adaptation wait carries the host's own notice, be
 	assert.deepEqual(notice.details.preparation_wait, { kind: "adaptation", name: "roxbury-sanitarium" });
 	assert.equal(notice.customType, "coc-delivery", "it rides the channel the other service notices use");
 	// It is the host's line, not the Keeper's: the delivered fiction is untouched and separate.
-	assert.equal(assistantTexts(table.session).filter(Boolean).at(-1), delivered);
+	assert.ok(assistantTexts(table.session).filter(Boolean).includes(delivered));
 	assert.notEqual(notice.content, delivered);
 	assert.ok(notice.content.trim(), "a notice with no words tells the player nothing");
 	const rows = table.telemetry().filter((row) => row.reason === "preparation_wait_notice");
@@ -282,7 +282,7 @@ test("a delivery made under a source-reading wait carries the same notice, named
 
 	const notice = waitNotices(table).at(-1);
 	assert.deepEqual(notice.details.preparation_wait, { kind: "source", name: "adventure-begins" });
-	assert.equal(assistantTexts(table.session).filter(Boolean).at(-1), delivered);
+	assert.ok(assistantTexts(table.session).filter(Boolean).includes(delivered));
 	assert.ok(asked.length >= 1, "the host asked the reading service where that material stands");
 	assert.equal(asked.at(-1).focus, "adventure-begins");
 });

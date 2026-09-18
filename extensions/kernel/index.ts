@@ -2703,6 +2703,10 @@ export default function (pi: ExtensionAPI) {
 			return {
 				content: [{ type: "text", text: JSON.stringify(result) }],
 				details: result,
+				// A successful delivery is the terminal result of this turn. Pi skips the ordinary
+				// post-tool provider call only when every result in the batch terminates, so a batch
+				// that wrongly places another call beside narrate/ask still reaches the ordering gates.
+				...(spec.name === "narrate" || spec.name === "ask" ? { terminate: true } : {}),
 			};
 		} catch (error) {
 			if (spec.name === "resolve") noteCombatSceneRequired(state, error);

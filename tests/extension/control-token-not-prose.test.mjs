@@ -48,7 +48,7 @@ const notices = (session) =>
 	customMessages(session.session, "coc-delivery").filter((message) => message.details.provider_outage);
 const deliveryRows = (session) => session.telemetry().filter((row) => row.lane === "delivery");
 
-test("a control token from a resent call never reaches the player, and the delivery does", async (t) => {
+test("a terminal delivery makes the resent-control-token path unreachable", async (t) => {
 	const session = await openTable({
 		settings: retrying,
 		env: { PI_COC_PROVIDER_NOTICE_MS: "1" },
@@ -66,21 +66,13 @@ test("a control token from a resent call never reaches the player, and the deliv
 	const shown = read(session);
 	assert.ok(!shown.some((text) => text.includes("<|eos|>")),
 		`the provider's control token was read as the Keeper's prose: ${JSON.stringify(shown)}`);
-	// And the turn is not lost to save it: what the kernel rendered is what the player reads.
 	assert.ok(shown.includes("门厅里落满灰。"), JSON.stringify(shown));
 
-	// The turn says what actually happened: the outage, out of fiction, once (§37.12).
-	const told = notices(session);
-	assert.equal(told.length, 1, JSON.stringify(told));
-	assert.equal(told[0].details.terminal, false);
-
-	// The rows name both halves rather than leaving the drop unattributable.
-	const rows = deliveryRows(session);
-	assert.ok(rows.some((row) => row.reason === "failed_leg_not_delivered" && row.held === true),
-		`the delivery must be held for the leg that completes: ${JSON.stringify(rows)}`);
-	assert.ok(rows.some((row) => row.reason === "text_not_a_delivery"),
-		`the resend's text block must leave with the message: ${JSON.stringify(rows)}`);
-	// The kernel was never asked to publish the token: no second narrate, implicit or otherwise.
+	// `narrate` is terminal: no automatic post-tool call means neither the scripted dead leg nor
+	// its resend exists, and therefore no outage or repair notice is invented for a call not made.
+	assert.deepEqual(notices(session), []);
+	assert.equal(session.telemetry().filter((row) => row.lane === "provider-call").length, 1);
+	assert.deepEqual(deliveryRows(session).filter((row) => ["failed_leg_not_delivered", "text_not_a_delivery"].includes(row.reason)), []);
 	const narrates = session.kernelRequests().filter((request) => request.method === "table.narrate");
 	assert.equal(narrates.length, 1, JSON.stringify(narrates.map((request) => request.params?.text)));
 	assert.equal(narrates[0].params.text, "门厅里落满灰。");

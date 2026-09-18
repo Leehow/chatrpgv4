@@ -449,14 +449,22 @@ export async function waitForIdle(session, { timeoutMs = 15_000 } = {}) {
 }
 
 export function assistantTexts(session) {
+	// Historical helper name: player-visible Keeper prose can be an assistant message or the
+	// displayed coc-delivery emitted when a terminal tool batch ends on narrate/ask and therefore
+	// has no follow-up assistant message to replace. Tests must observe the same two surfaces as the
+	// renderer and play driver, while still excluding host notices carried by other custom types.
 	return session.messages
-		.filter((message) => message.role === "assistant")
-		.map((message) =>
-			(message.content ?? [])
+		.filter((message) => message.role === "assistant"
+			|| message.role === "custom" && message.customType === "coc-delivery" && message.display === true)
+		.map((message) => {
+			if (message.role === "custom") return typeof message.content === "string"
+				? message.content
+				: (message.content ?? []).filter((block) => block.type === "text").map((block) => block.text).join("");
+			return (message.content ?? [])
 				.filter((block) => block.type === "text")
 				.map((block) => block.text)
-				.join(""),
-		);
+				.join("");
+		});
 }
 
 export function toolResultTexts(session) {
