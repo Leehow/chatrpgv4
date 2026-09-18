@@ -12985,6 +12985,49 @@ Tests: `tests/kernel/test_mod_packages.py` pins legacy digest compatibility, sco
 player-safe list shape. `tests/extension/mod-package-boundary.test.mjs` checks every shipped manifest's
 runtime allowlist and the actual referenced prompt material.
 
+## 102. An authored encounter must be entered before its combat rules can run (2026-09-17)
+
+H-DETOUR turns 62–64 found Corbitt's body in `basement-rites`, established Walter Corbitt there and
+opened an ordinary combat without first entering the now-unlocked `corbitt-confrontation` scene.
+The authored graph had already done all the hard work: discovering `corbitt-body-found` enabled the
+edge from `basement-rites` to `corbitt-confrontation`, and that target scene's combat affordance
+carried `module_rules_id: "the-haunting"`, two preparations (Flesh Ward and animate body), the
+floating-knife weapon and its Magic Point cost. `startCombat`, however, read combat affordances only
+from `world.active_scene`. Finding none was treated as permission to open a generic fight.
+
+The result was internally consistent and source-wrong: `combat-operation.json` held no operation,
+Corbitt's armor was zero, the ordinary blow reduced 16 HP to 14, and the floating knife rolled
+`Fighting (Brawl) 50` with Corbitt's damage bonus instead of its authored POW attack. A missing
+state transition silently erased every source rule attached to the target state.
+
+Combat start now guards that seam. When the current scene has no matching authored
+`combat_engagement`, the kernel inspects only its directly authored exits whose conditions are true
+in the current world. If one or more such destinations carry a combat operation for the present
+target and selected weapon, `resolve` refuses before creating a session, rolling dice, spending
+resources or changing HP. The `needs` response names `reason: "combat_scene_required"`, the target,
+the current scene and each eligible destination/affordance, and its fix says to `apply move` to one
+of those scenes, establish the already-present opponent there if necessary, then retry the same
+chosen attack. No transition is automatic: scene state still changes only through `apply`, and the
+player's attack remains the authorization for the retry.
+
+An ordinary fight remains ordinary when the current scene has no operation and no currently
+enabled outgoing encounter does either. A source operation on a locked, unknown or unrelated scene
+does not reach across the graph. Multiple enabled destinations are reported rather than guessed.
+Once the authored encounter is active, the existing operation selection, preparations, weapons,
+resource costs, own-dagger exception and ending rules are unchanged.
+
+This follows the same transition discipline used by SCXML and XState: state-specific actions are
+selected from the active state, and a guarded transition must be taken before actions of its target
+state execute. It deliberately does not copy the target state's effects backward or perform the
+transition as a side effect of combat.
+
+The three ends are explicit. The source graph writes the clue-gated scene edge and the destination's
+combat affordance. Combat start reads both before it may fall back to generic rules. The Keeper acts
+on the refusal with the existing `apply move`/`apply npc`/`resolve` sequence, producing the ordinary
+movement, presence and combat receipts. `tests/kernel/test_sessions.py` reproduces the retained
+wrong-scene start, proves it is atomic, then enters the encounter and proves Flesh Ward preparations
+are present.
+
 ## 103. A name the player was not told is not on the player's card (2026-09-17, amends §17.10 and §79.3)
 
 Acceptance play, campaign `game-570b0f06`, 血色公路, prologue. The Keeper's first two turns did

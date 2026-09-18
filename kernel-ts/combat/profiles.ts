@@ -1,6 +1,6 @@
 /** Authored and investigator weapon/participant projections used by combat and chase. */
 import { isJsonObject } from '../json.js';
-import { ModuleGraph, recordOf } from '../read/module-graph.js';
+import { ModuleGraph, conditionStatus, recordOf } from '../read/module-graph.js';
 import { array, clone, entries, integer, normalize, number, row, string, truth, type Row } from '../read/values.js';
 import { RuleTables } from '../rules/tables.js';
 import { caseFold } from '../rules/casefold.js';
@@ -127,6 +127,24 @@ export function combatOperationFor(graph: ModuleGraph, scene: Row, npcHandle: st
     }
     matched.sort((a, b) => a[0] - b[0] || (a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0));
     return matched.length ? [matched[0][1], matched[0][2]] : [null, {}];
+}
+/** §102: an enabled authored exit whose target owns this opponent's combat operation. The caller
+ * refuses before opening a generic fight; state still changes only through the existing move verb. */
+export function combatOperationDestinations(graph: ModuleGraph, world: Row, scene: Row, npcHandle: string, weaponId: string | null): Row[] {
+    const result: Row[] = [];
+    for (const exit of graph.sceneExits(scene)) {
+        if (truth(exit.when) && conditionStatus(exit.when, world) !== true)
+            continue;
+        const destination = graph.sceneByHandle(string(exit.to));
+        if (!destination)
+            continue;
+        const [affordance, operation] = combatOperationFor(graph, destination, npcHandle, weaponId);
+        if (!affordance)
+            continue;
+        result.push({ scene: graph.handle(destination), name: graph.displayName(destination), affordance,
+            module_rules_id: operation.module_rules_id ?? null, operation });
+    }
+    return result;
 }
 export async function moduleWeaponCatalog(context: KernelContext, graph: ModuleGraph): Promise<Map<string, Row>> {
     const tables = new RuleTables(context);

@@ -158,6 +158,39 @@ def test_combat_against_corbitt_with_the_revolver(tmp_path):
         client.close()
 
 
+def test_an_unlocked_authored_encounter_must_be_entered_before_combat_starts(kernel):
+    """§102: Corbitt staged beside his newly found body may not silently lose the target scene's rules."""
+    open_turn(kernel, "我发现科比特的尸体，立刻举枪。")
+    kernel.table("apply", call_id="t1-c1", effects=[{"kind": "move", "to": "corbitt-house-ground"}])
+    kernel.table("apply", call_id="t1-c2", effects=[{"kind": "move", "to": "basement-rites"}])
+    kernel.table("apply", call_id="t1-c3", effects=[{"kind": "clue", "clue": "corbitt-body-found"}])
+    kernel.table("apply", call_id="t1-c4", effects=[{"kind": "npc", "name": "Walter Corbitt", "to": "here",
+                                                       "why": "His body is behind the opened boards"}])
+
+    refused = resolve_err(kernel, "t1-c5", intent="combat", goal="朝科比特开枪", method="用左轮射击",
+                           target="Walter Corbitt", weapon=".38 Revolver")
+    assert refused["code"] == "needs"
+    assert refused["details"] == {
+        "reason": "combat_scene_required",
+        "target": "walter-corbitt",
+        "current": "basement-rites",
+        "destinations": [{"scene": "corbitt-confrontation", "name": "corbitt-confrontation",
+                          "affordance": "conventional-assault", "module_rules_id": "the-haunting"}],
+    }
+    assert "apply move" in refused["fix"] and "corbitt-confrontation" in refused["fix"]
+    assert kernel.table("look", focus="session")["session"] is None
+
+    kernel.table("apply", call_id="t1-c5", effects=[{"kind": "move", "to": "corbitt-confrontation"},
+                                                       {"kind": "npc", "name": "Walter Corbitt", "to": "here",
+                                                        "why": "The opened hiding place is the confrontation"}])
+    attack = resolve(kernel, "t1-c6", intent="combat", goal="朝科比特开枪", method="用左轮射击",
+                     target="Walter Corbitt", weapon=".38 Revolver")
+    corbitt = next(row for row in attack["session"]["participants"] if row["name"] == CORBITT)
+    assert corbitt["armor"] >= 2
+    assert {row["kind"] for row in attack["effects"]} == {"mp", "armor"}
+    assert len([row for row in attack["effects"] if row["kind"] == "mp" and row["subject"] == CORBITT]) == 2
+
+
 def test_defense_none_and_the_snapshot_survives_a_restart(tmp_path):
     client = RpcClient(tmp_path / "ws", env={"COC_KERNEL_SEED": "6"})
     try:
