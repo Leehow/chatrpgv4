@@ -355,6 +355,10 @@ for (const implicit of [false, true]) test(`unavailable ${implicit ? 'implicit' 
     await session.session.prompt('Continue.'); await waitForIdle(session.session);
     assert.equal(audits, 1); assert.equal(session.kernelRequests().filter(r => r.method === 'table.narrate').length, 0);
     assert.ok(assistantTexts(session.session).every(text => !text.includes('Unapproved') && !text.includes('Should never')));
+    // The refusal row names the kernel's reason either way (§12.8): an implicit delivery's used to be a bare `needs`,
+    // so a week of telemetry showed forty-second narrate failures with nothing to say what they were.
+    const refused = session.telemetry().find(row => row.tool === 'narrate' && row.ok === false);
+    assert.deepEqual([refused?.implicit ?? false, refused?.reason], [implicit, 'continuity_review_unavailable']);
 });
 
 /**

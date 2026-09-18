@@ -156,7 +156,7 @@ async function childCatalog(agentHome: string): Promise<ReadonlyMap<string, Read
  * deployment with no such host at all (the CLI table) — is one source fewer and never an error: the
  * lane then runs on whatever the caller asked for, which is the behaviour that predates the setting.
  */
-const LANE_SETTINGS_FILE = "pipiui-settings.json";
+export const LANE_SETTINGS_FILE = "pipiui-settings.json";
 const LANE_EXTENSION = "coc-keeper";
 
 /**
@@ -214,12 +214,20 @@ const LANE_THINKING_DEFAULT = "low";
 export const LANE_HTTP_IDLE_TIMEOUT_MS = 25_000;
 
 async function laneChoice(agentHome: string): Promise<{ model?: string; thinking?: string }> {
-  let stored: unknown;
-  try {
-    const settings = JSON.parse(await readFile(join(agentHome, LANE_SETTINGS_FILE), "utf8"));
-    const slot = settings?.extensions?.[LANE_EXTENSION];
-    stored = slot?.settings;
-  } catch { /* no host settings document, or an unreadable one: the caller's own choice stands */ }
+  let document: unknown;
+  try { document = JSON.parse(await readFile(join(agentHome, LANE_SETTINGS_FILE), "utf8")); }
+  catch { /* no host settings document, or an unreadable one: the caller's own choice stands */ }
+  return laneChoiceOf(document);
+}
+
+/**
+ * The lane choice held in a parsed host settings document, or nothing for any shape that is not one.
+ * Shared with the zero-tool lanes (`extensions/lanes/subsession.ts`, contract §107.3), which read the
+ * same document at the moment they run: one setting, one store, every lane.
+ */
+export function laneChoiceOf(document: unknown): { model?: string; thinking?: string } {
+  const slot = (document as { extensions?: Record<string, { settings?: unknown }> } | undefined)?.extensions?.[LANE_EXTENSION];
+  const stored = slot && typeof slot === "object" ? slot.settings : undefined;
   const pick = (key: string, field: string): string | undefined => {
     const value = (stored as Record<string, unknown> | undefined)?.[key] as Record<string, unknown> | undefined;
     const chosen = value && typeof value === "object" ? value[field] : undefined;

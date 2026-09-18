@@ -3833,9 +3833,13 @@ export default function (pi: ExtensionAPI) {
 				rendered = asString(result.rendered_text);
 			} catch (error) {
 				const detail = refusalDetail(error);
+				// The kernel's own `reason` travels on this row as it does on an explicit verb's (§12.8):
+				// without it a continuity review that timed out and a Mod repair were both a bare `needs`.
+				const reason = asString((error as { details?: { reason?: unknown } })?.details?.reason);
 				await record({
 					tool, call_id: callId, started_at: startedAt, ms: Date.now() - began, ok: false, implicit: true,
 					code: isKernelError(error) ? error.code : "internal",
+					...(reason ? { reason } : {}),
 					...(detail ? { code_detail: detail } : {}),
 				});
 				// The draft does not stay on screen (contract §34.14). A refused delivery is a turn that did

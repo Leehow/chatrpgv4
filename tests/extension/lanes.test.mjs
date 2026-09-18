@@ -10,6 +10,9 @@ import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { assistantTexts, customMessages, openTable, waitFor } from "./harness.mjs";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 /** 交付就是守秘人的正文原样（契约 §16.1）：内核不再往里插机制行。 */
 const RENDERED = "门框上有一道深深的抓痕。";
@@ -538,6 +541,28 @@ test("不点名模型时两条车道都跟桌子同模型", async (t) => {
 	assert.equal((await waitForLaneRow(table, "verifier")).model, "faux/faux-1", "校验车道缺省用桌子的模型");
 	assert.equal((await waitForLaneRow(table, "memory")).model, "faux/faux-1", "记忆车道同理");
 	assert.equal(assistantTexts(table.session).filter((text) => text.length > 0).at(-1), RENDERED);
+});
+
+test("不点名环境变量的车道跟 App 的车道模型设置；点了名的仍以变量为准（§109.3）", async (t) => {
+	// 直到 §109，面板里那一个「车道模型」只到得了 mod 子进程；准入、校验、记忆这些零工具车道
+	// 仍跟桌子，于是把桌子放在慢模型上时，玩家等的恰是没被设置动到的那条（准入 p50 20 s / p90 79 s）。
+	const agentHome = mkdtempSync(join(tmpdir(), "pi-coc-lane-setting-"));
+	writeFileSync(join(agentHome, "pipiui-settings.json"), JSON.stringify({
+		extensions: { "coc-keeper": { settings: { "ext.coc-keeper.laneModel": { model: "verifier/v1" } } } },
+	}));
+	const table = await openTable({
+		responses: keeperTurn(),
+		// 校验车道不点名变量：应当跟设置里的 verifier/v1（那条假供应商自己的队列），而不是桌子的 faux/faux-1。
+		// 记忆车道仍点名 memory/m1。
+		env: { PI_COC_VERIFIER_MODEL: undefined, PI_CODING_AGENT_DIR: agentHome },
+		laneResponses: { verifier: [fauxAssistantMessage(JSON.stringify({ findings: [] }))], memory: [noCandidates()] },
+	});
+	t.after(() => table.dispose());
+
+	await table.session.prompt("我检查地窖门的门框");
+	const verifier = await waitForLaneRow(table, "verifier");
+	assert.deepEqual([verifier.model, verifier.ok], ["verifier/v1", true], "没点名变量的车道跟设置，不跟桌子");
+	assert.equal((await waitForLaneRow(table, "memory")).model, "memory/m1", "点了名的变量仍然赢过设置");
 });
 
 test("重开桌子：胶囊自己带 resume，宿主不为它多发一条消息", async (t) => {

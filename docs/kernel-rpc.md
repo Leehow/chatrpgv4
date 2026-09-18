@@ -6579,7 +6579,8 @@ chasing the wrong thing. The same day's mitigation made the settings section and
 *say* "read when a session starts". That is a label on a trap, and it is not what a person who has
 just changed a setting needs to be told.
 
-**The setting is now read at task time and the environment variable is left to the operator.** The
+**The setting is now read at task time and the environment variable is left to the operator.** (Since
+§109.3 the zero-tool lanes read the same setting at the same moment.) The
 host no longer injects either value into a child's environment. `runtime/tasks.ts` reads the current
 choice from the host's own settings document under `context.agentHome` — the same directory
 `childCatalog` already reads `models-store.json` and `models.json` from — each time it starts a `mod`
@@ -11001,7 +11002,8 @@ first attempt's refusal is a second sample, not a repair.
 **What this does not do.** The publication gate is still all-or-nothing: one
 unsupported unit still refuses the whole submission, and a book whose reviewer
 disagrees about content still fails. This section only stops a reviewer's *own*
-transport mistakes from being charged to the book. The remaining question — what
+transport mistakes from being charged to the book. (A reviewer the *transport*
+dropped -- no answer at all -- is §109.1's case, with its own retries.) The remaining question — what
 partial credit should look like for a 669-page reading — is open, and is not
 decided here.
 
@@ -13305,3 +13307,107 @@ from 0 through 2, the same closed modifier range accepted at resolve entry. No o
 is accepted. `tests/kernel/test_sessions.py::test_maneuver_and_nonresisting_attack_have_receipts`
 settles a maneuver and then loads the persisted combat for the next NPC attack, reproducing the live
 boundary rather than checking only the maneuver's immediate result.
+
+## 109. A slow lane is retried where it was dropped, counted where it ran, and moved by one setting (2026-09-17, amends §81, §12.8, §37.10)
+
+A survey of the seven days to 2026-09-17 (33 tables, `campaigns/*/telemetry.jsonl` beside the
+app's play-session logs) put the player's wait at 86 s per turn at the median and 227 s at p90,
+and traced the long tail to four shapes. This section settles three of them; the fourth, a
+Keeper provider call that streamed nothing for 627 s, was already closed by the idle watchdog
+of 2026-09-15 (`runtime/launch.ts`, `httpIdleTimeoutMs`) and is only recorded here as the
+evidence that it was needed.
+
+### 109.1 A reviewer the transport dropped is asked again, later (amends §81)
+
+`Cold Harvest`, `game-a70232d0`, 2026-09-13/14. One scene (`krasivyi-oktabur-3`) was read four
+times (`read-13` to `read-16`), two rounds each, 29 to 37 review units a round, 11.8 hours of
+reviewer time in all, and the scene ended `blocked`. Every job died the same way:
+
+```
+Review unit 26: Request timed out.; Review unit 30: Request timed out.; ...
+Review unit 33: OpenAI API error (500): 500 "Auth context expired."; Review unit 6: Connection error.
+```
+
+The units that had passed were reused from the review cache on the next job. The units a
+provider had dropped were not: each had one retry (§81), the retry ran immediately, it hit the
+same outage, `failures.length` was non-zero, the job threw `Source review did not complete every
+unit`, the Keeper was told the reading failed, and the next player turn started the book again.
+
+**A transport loss is not a semantic failure and does not spend the semantic retry.** A reviewer
+child that ended without timing out and without an answer -- the provider dropped the connection,
+its request timed out, its auth context expired, the child died -- is a `TransportFailure`. It
+never judged the draft, so there is nothing to repair: no `failure.json` is written for it and the
+next child is not told it was rejected (telling it so sends it looking for a mistake it never
+made). The same request is made again after a wait: up to three times, at 2 s, 6 s and 18 s,
+short beside a review and long beside the blips on record. A child that timed out at its own
+budget did run, may be slow for a reason the draft carries, and keeps §81's one carried retry.
+
+**A unit that fails leaves a row.** Before this, `phase: "verify"` rows were written for the
+reviews that passed and nothing for the ones that did not, so a job's death was legible only in
+`findings.json`. Now: `{lane: "reading", event: "review_transport_retry", unit, attempt, wait_ms,
+detail}` for every transport retry, and `{lane: "reading", phase: "verify", unit, attempt, ok:
+false, reason: "transport" | "review", detail}` when the unit gives up. `attempt` numbers every
+run of the unit whatever ended the previous one, so rows and directories stay unique.
+
+**What this does not do.** The publication gate is still all-or-nothing (§81.3), and a job whose
+outage outlasts the three waits still fails and is retried by the Keeper as before -- with the
+passed units cached. Partial credit for a long reading remains the open question §81 left.
+
+Tests (`tests/extension/reader-review.test.mjs`): two dropped reviewers are retried after the
+configured waits with no `failure.json`, the answer lands on the third attempt as one row; a
+lasting outage exhausts the three retries, the unit fails with `reason: "transport"`; a reviewer
+that answered wrongly still gets exactly one retry, with the reason. The reuse case's counts
+moved from 3/4/... to 5/6/... because a dropped run now costs its unit three more attempts.
+
+### 109.2 A Mod child is a row, not a hole (amends §12.8)
+
+`game-dab0f988`, 2026-09-13, turns 4 to 6: three `apply` calls of 281, 308 and 292 s. The
+admission rows inside them accounted for 38, 32 and 24 s. The four minutes between were nothing
+at all. They were two definition children each, run back to back at 90 to 180 s apiece, three of
+them killed at the 180 s cap, and the only record of any of it was `.coc/mods/jobs/<digest>/
+run-1.json`. §12.8's continuity-review row exists for exactly this reason; the definition, usage
+and audit children never got one.
+
+Every run of a Mod child now writes `{lane: "mod-agent", campaign, role: "create" | "usage" |
+"audit", attempt, ok, ms, timed_out, model?}`, plus `reason: "timeout" | "failed" | "raised"` and
+`detail` when it did not finish. The row is written beside `run-N.json`, so the two agree by
+construction. Nothing about what the child does changes.
+
+Test (`tests/extension/mods.test.mjs`): a definition child that finished leaves one row with its
+model and duration; one killed at its cap leaves a row with `reason: "timeout"` beside the
+`mod_agent_failed` refusal.
+
+### 109.3 One lane-model setting, every lane (amends §12.5, §12.8, §37.10)
+
+§37.10 made the panel's lane-model setting reach the `mod` children at the moment they run. It
+reached nothing else: every zero-tool lane -- admission (§32), verifier (§12.5), memory (§12.8),
+journal, voice -- followed the table's own model unless an operator set its environment variable
+by hand. So the one visible choice moved half the lanes, and the half it did not move was the one
+the player waits on. Admission latency by model, the week to 2026-09-17:
+
+| model | n | p50 | p90 | max |
+| --- | --- | --- | --- | --- |
+| grok-build/grok-4.6 | 20 | 19.9 s | 78.8 s | 94.0 s |
+| xai/grok-4.6 | 4 | 38.1 s | 71.5 s | 71.5 s |
+| opencode-go/deepseek-v4.1-flash | 60 | 2.4 s | 16.2 s | 69.7 s |
+| deepseek-extended/deepseek-flash | 16 | 1.0 s | 1.2 s | 1.4 s |
+
+`resolveLaneModel` now reads, highest first: the lane's own environment variable, then the host's
+lane-model setting (`ext.coc-keeper.laneModel` in the agent home's `pipiui-settings.json`, read at
+the moment the lane runs, the same document and the same moment as §37.10), then the table's own
+model. A named model runs as written or the lane says which part of the name is unavailable,
+exactly as for the variable: a setting is an operator's choice too. The setting's reasoning level
+does not travel here -- `runLane` passes no thinking level and the adapter's default stands
+(§12.8.1). This section chooses no model; it makes the choice that exists reach every lane.
+
+Test (`tests/extension/lanes.test.mjs`): with the verifier's variable unset and the setting naming
+`verifier/v1`, the verifier row carries that model; the memory lane, whose variable is set, keeps
+the variable's.
+
+### 109.4 An implicit delivery's refusal names its reason (amends §12.8)
+
+The `tool: "narrate", implicit: true, ok: false` row carried `code` and `code_detail` but not the
+kernel's `reason`, so a week of telemetry showed forty-second narrate failures as a bare `needs`
+where the explicit verb's row would have said `continuity_review_unavailable`. It now carries
+`reason` exactly as the explicit row does. Test: `tests/extension/continuity-audit.test.mjs`,
+the unavailable-delivery pair.

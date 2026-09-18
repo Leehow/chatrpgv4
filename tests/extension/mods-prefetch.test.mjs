@@ -54,7 +54,8 @@ async function harness(t, options = {}) {
     }
     throw new Error(`Unexpected RPC ${method}`);
   };
-  pi.events.emit('coc:kernel-bridge', {call, record: row => (row.event === 'scan' ? scans : telemetry).push(row), runtime: {
+  // `telemetry` holds the prefetch lane's own rows; the child runs underneath also write `mod-agent` rows (§109.2), which are not this lane's account.
+  pi.events.emit('coc:kernel-bridge', {call, record: row => { if (row.event === 'scan') scans.push(row); else if (row.lane === 'usage-prefetch') telemetry.push(row); }, runtime: {
     async runTask(task, signal) {
       active++; peak = Math.max(peak, active); runs.push({task, signal});
       try {

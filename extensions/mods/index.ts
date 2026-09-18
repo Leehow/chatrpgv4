@@ -166,6 +166,19 @@ export default function modsExtension(pi: ExtensionAPI): void {
     catch { /* telemetry must never break a review */ }
   }
 
+  /**
+   * One campaign telemetry row per run of a definition, usage or audit child (contract §109.2). These
+   * children left no row either: on 2026-09-13 (`game-dab0f988`, turns 4-6) three `apply` calls took
+   * 281, 308 and 292 s, the admission rows inside them accounted for 38, 32 and 24 s, and the four
+   * minutes between were nothing at all -- two definition children each, run back to back, three of
+   * them killed at the 180 s cap, and the only record of any of it was `.coc/mods/jobs/<digest>/run-1.json`.
+   * A lane that costs the player minutes and shows the operator nothing is not observable.
+   */
+  function agentRow(row: Record<string, unknown>): void {
+    try { record?.({lane: 'mod-agent', ...row}); }
+    catch { /* telemetry must never break a job */ }
+  }
+
   /** The model the child actually ran with: the runtime resolves it (§37.10), so the request cannot say. */
   function ranWith(outcome: any): string | undefined {
     const command: unknown = outcome?.command;
@@ -320,9 +333,13 @@ export default function modsExtension(pi: ExtensionAPI): void {
       }
       catch (error) {
         await writeFile(join(job.cwd, `run-${attempt}.json`), JSON.stringify({ok:false, raised:errorText(error), ms:Date.now() - began}, null, 2)).catch(() => undefined);
+        agentRow({campaign, role, attempt, ok:false, ms:Date.now() - began, reason:"raised", detail:errorText(error).slice(0, 200)});
         throw error;
       }
       await writeFile(join(job.cwd, `run-${attempt}.json`), JSON.stringify(outcome, null, 2));
+      agentRow({campaign, role, attempt, ok:outcome.ok === true, ms:outcome.ms ?? Date.now() - began, timed_out:outcome.timedOut === true,
+        ...(ranWith(outcome) ? {model:ranWith(outcome)} : {}),
+        ...(outcome.ok ? {} : {reason:outcome.timedOut ? "timeout" : "failed", detail:String(outcome.error ?? outcome.stderr ?? "").slice(0, 200)})});
       if (role === "usage") signal?.throwIfAborted();
       // Which agent ran out of time decides what the Keeper can do about it, and the roles want
       // opposite things: a creator's batch is too big, an auditor's turn is not. A refusal that does

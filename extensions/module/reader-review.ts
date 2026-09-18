@@ -136,13 +136,54 @@ async function retainReview(file: string, key: string, reviewPath: string, image
 	await writeFile(temporary,JSON.stringify(entry)+'\n'); await rename(temporary,file);
 }
 
+/**
+ * A reviewer child that never produced a review: the provider dropped the connection, the request
+ * timed out at the transport, an auth context expired mid-stream, or the child died before writing
+ * anything. Nothing about the *review* was judged, so nothing about it can be repaired by telling
+ * the next attempt what went wrong -- the previous attempt said nothing.
+ *
+ * `Cold Harvest`, 2026-09-13/14: four readings of the same scene (`read-13` to `read-16`), 11.8
+ * hours of reviewer time, and every one of them died on rows like `Review unit 26: Request timed
+ * out.`, `Review unit 9: OpenAI API error (500): "Auth context expired."`, `Review unit 6:
+ * Connection error.` Each such unit had spent its one retry on the same kind of blip, the whole
+ * job failed with `Source review did not complete every unit`, the Keeper was told the reading
+ * failed, and the next player turn started the book again. The units that had passed were reused
+ * from the cache; the ones a provider had dropped were not retried, they were re-rolled -- and a
+ * provider outage lasts longer than one immediate retry.
+ */
+class TransportFailure extends Error {
+	constructor(detail: string) { super(detail); this.name = "TransportFailure"; }
+}
+
+/**
+ * How many times a unit may lose its reviewer to the transport before the failure is the job's,
+ * and how long to wait between those attempts. Separate from the unit's one semantic retry (§81):
+ * a semantic retry is a repair and carries the reason; a transport retry is the same request again,
+ * later. The waits are short next to a review (minutes) and long next to the blips on record
+ * (a dropped connection recovers in seconds; an expired auth context is reissued on the next call).
+ */
+const TRANSPORT_RETRIES = 3;
+const TRANSPORT_BACKOFF_MS = [2_000, 6_000, 18_000];
+
+function pause(ms: number, signal: AbortSignal): Promise<void> {
+	return new Promise(resolve => {
+		if (signal.aborted || ms <= 0) return resolve();
+		const timer = setTimeout(done, ms);
+		function done() { clearTimeout(timer); signal.removeEventListener("abort", done); resolve(); }
+		signal.addEventListener("abort", done, { once: true });
+	});
+}
+
 export async function reviewCandidate(options: {
 	cwd: string; task: Row; draft: Row; instructions: string; round: number;
 	model: { id: string; thinking?: string }; source: { pdf: string; cache: string; file_sha256?: string }; signal: AbortSignal;
 	cacheRoot?: string; reviewVersion?: string;
 	run: (request: ReaderRequest) => Promise<ReaderOutcome>;
 	record(row: Row): void; progress(row: Row): void;
+	/** Test seam: the waits between transport retries, in order. Production uses `TRANSPORT_BACKOFF_MS`. */
+	transportBackoffMs?: number[];
 }): Promise<number[]> {
+	const backoff = options.transportBackoffMs ?? TRANSPORT_BACKOFF_MS;
 	const guidanceBytes = options.task.purpose === "guidance" ? await readFile(join(options.cwd, "guidance.json"), "utf8") : undefined;
 	const candidateBytes = guidanceBytes ? await readFile(join(options.cwd,"draft.json")) : Buffer.from(JSON.stringify(options.draft));
 	const {commands: _commands, ...semanticTask} = options.task;
@@ -173,7 +214,12 @@ export async function reviewCandidate(options: {
 			// written into attempt 1's own directory and attempt 2 started in a fresh `mkdtemp`, so
 			// nothing ever read it: the retry was a second roll of the same dice (§81).
 			let previousFailure: string | undefined;
-			for (let attempt = 1; attempt <= 2 && !options.signal.aborted; attempt++) {
+			// `attempt` numbers every run of this unit, whatever ended the previous one: the rows and
+			// the directories stay unique. The two budgets underneath are separate -- one semantic
+			// retry, which carries the reason (§81), and `TRANSPORT_RETRIES` transport retries, which
+			// carry nothing because the previous attempt never answered.
+			let semanticRetried = false, transportRetries = 0, retryAfter: number | undefined;
+			for (let attempt = 1; !options.signal.aborted; attempt++) {
 			const unitRoot = join(options.cwd, `verify-${options.round}`, `unit-${index + 1}`);
 			await mkdir(unitRoot, {recursive:true});
 			const cwd = await mkdtemp(join(unitRoot, `attempt-${attempt}-`));
@@ -202,6 +248,9 @@ export async function reviewCandidate(options: {
 							imageCalls.set(event.toolCallId, event.result.details.observations);
 					},
 				});
+				// A child that timed out at its own budget did run, and may be slow for a reason the
+				// draft carries; a child that failed without timing out never got to answer.
+				if (!run.ok && !run.timedOut && !options.signal.aborted) throw new TransportFailure(run.error || run.stderr || "source reviewer failed");
 				if (!run.ok) throw new Error(run.error || (run.timedOut ? "source reviewer timed out" : run.stderr || "source reviewer failed"));
 				const included = (await readFile(eventLog + ".images.jsonl", "utf8")).trim().split("\n")
 					.filter(Boolean).flatMap(line => JSON.parse(line).included ?? []);
@@ -221,16 +270,35 @@ export async function reviewCandidate(options: {
 				options.record({ lane: "reading", phase: "verify", unit: index + 1, attempt, ms: run.ms, ok: true, image_reads: pages.size, pages: [...pages].sort((a, b) => a - b) });
 				break;
 			} catch (failure) {
-				if (attempt === 1 && !options.signal.aborted) {
+				if (failure instanceof TransportFailure && !options.signal.aborted && transportRetries < TRANSPORT_RETRIES) {
+					// The same request again, later. No `failure.json`: there is no reviewer answer to
+					// repair, and telling the next child "your previous attempt was rejected" would send
+					// it looking for a mistake it never made.
+					retryAfter = backoff[Math.min(transportRetries, backoff.length - 1)] ?? 0;
+					transportRetries++;
+					options.record({ lane: "reading", event: "review_transport_retry", unit: index + 1, attempt, wait_ms: retryAfter, detail: String(failure.message).slice(0, 200) });
+				} else {
+				if (!(failure instanceof TransportFailure) && !semanticRetried && !options.signal.aborted) {
+					semanticRetried = true;
 					previousFailure = String(failure);
 					await writeFile(join(cwd, "failure.json"), JSON.stringify({error: previousFailure}) + "\n");
 					continue;
 				}
 				failures.push(`Review unit ${index + 1}: ${String(failure)}`);
 				results[index] = { checked: [], missing: [failures[failures.length - 1]] };
+				// A unit that failed used to leave no row at all: the telemetry showed the reviews that
+				// passed and nothing where the others should have been, so a job's death could only be
+				// read from `findings.json` by hand.
+				options.record({ lane: "reading", phase: "verify", unit: index + 1, attempt, ok: false,
+					reason: failure instanceof TransportFailure ? "transport" : "review", detail: String(failure instanceof Error ? failure.message : failure).slice(0, 200) });
+				break;
+				}
 			} finally {
 				active--;
 			}
+			// The wait happens outside the try, after `active` has been released: a unit waiting for
+			// the transport to recover is not a reviewer running.
+			if (retryAfter !== undefined) { await pause(retryAfter, options.signal); retryAfter = undefined; }
 			}
 			completed++;
 			options.progress({ stage: "verify", reviewed: completed, review_total: units.length, activeReaders: active });

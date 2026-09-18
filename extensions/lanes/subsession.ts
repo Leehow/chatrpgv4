@@ -12,6 +12,10 @@
 import { parseJsonWithRepair } from "@earendil-works/pi-ai";
 import type { ThinkingLevel } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { LANE_SETTINGS_FILE, laneChoiceOf } from "../../runtime/tasks.ts";
+import { agentHomeOf } from "../ui/hints.ts";
 
 /**
  * The closed set of lane failure reasons; the memory lane maps it onto `memory.fail`'s reason.
@@ -32,21 +36,45 @@ export function parseModelRef(raw: string): { provider: string; id: string } | u
 	return { provider: trimmed.slice(0, slash), id: trimmed.slice(slash + 1) };
 }
 
-/** The lane model: the one the environment variable names, else the table's own model (contract §12.5, §12.8). */
+/**
+ * The lane-model setting the host's panel writes (`ext.coc-keeper.laneModel`), read from the agent
+ * home at the moment a lane runs, the same way the `mod` children read it (contract §37.10). Any
+ * shape that is not a settings document is simply no choice.
+ */
+function laneSetting(ctx: ExtensionContext): string | undefined {
+	try { return laneChoiceOf(JSON.parse(readFileSync(join(agentHomeOf(ctx.cwd), LANE_SETTINGS_FILE), "utf8"))).model; }
+	catch { return undefined; }
+}
+
+/**
+ * The lane model (contract §12.5, §12.8, §109.3). Highest first: the environment variable the lane
+ * is named by, then the host's lane-model setting, then the table's own model.
+ *
+ * Until §109 the setting reached only the `mod` children; every zero-tool lane -- admission,
+ * verifier, memory, journal, voice -- followed the table unless an operator set its variable by
+ * hand. So the one visible choice moved half the lanes, and the half it did not move was the one
+ * the player waits on: the admission review at `grok-4.6` ran 20 s at the median and 79 s at p90
+ * across the week of 2026-09-11, against 2.4 s and 16 s on the fast model the setting could have
+ * named. A named model runs as written or the lane says which part of the name is unavailable,
+ * exactly as for the variable: a setting is an operator's choice too.
+ */
 export function resolveLaneModel(
 	ctx: ExtensionContext,
 	envName: string,
 ): { ok: true; model: NonNullable<ExtensionContext["model"]> } | { ok: false; detail: string } {
-	const raw = process.env[envName]?.trim();
+	const env = process.env[envName]?.trim();
+	const setting = env ? undefined : laneSetting(ctx);
+	const raw = env || setting;
 	if (!raw) {
 		const current = ctx.model;
 		if (!current) return { ok: false, detail: `${envName} is unset and the current session has no model` };
 		return { ok: true, model: current };
 	}
+	const named = env ? `${envName}=${raw}` : `the lane-model setting ${raw}`;
 	const ref = parseModelRef(raw);
-	if (!ref) return { ok: false, detail: `${envName}=${raw} is not provider/model` };
+	if (!ref) return { ok: false, detail: `${named} is not provider/model` };
 	const found = ctx.modelRegistry.find(ref.provider, ref.id);
-	if (!found) return { ok: false, detail: `${envName}=${raw} is not in the model registry` };
+	if (!found) return { ok: false, detail: `${named} is not in the model registry` };
 	return { ok: true, model: found };
 }
 

@@ -153,7 +153,8 @@ test('unchanged source retries reuse only completed positive review groups and i
  const cwd=await mkdtemp(join(tmpdir(),'coc-review-reuse-'));t.after(()=>rm(cwd,{recursive:true,force:true}));
  const draft={nodes:[{node_id:'npc-one',source_refs:[{page:1}],properties:{}},{node_id:'npc-two',source_refs:[{page:2}],properties:{}}],claims:[]};
  let fail=true,runs=0;const records=[];
- const options={cwd,cacheRoot:join(cwd,'cache'),reviewVersion:'fixture-v1',task:{purpose:'opening'},draft,
+ // A run that fails without timing out is a transport loss and gets its own retries (below); zero waits keep the case quick.
+ const options={cwd,cacheRoot:join(cwd,'cache'),reviewVersion:'fixture-v1',task:{purpose:'opening'},draft,transportBackoffMs:[0,0,0],
   instructions:'unused',round:1,model:{id:'fixture/vision',thinking:'low'},source:{pdf:'unused',cache:'unused',file_sha256:'a'.repeat(64)},signal:new AbortController().signal,progress(){},record(row){records.push(row)},
   async run(request){
    runs++;assert.match(request.brief, /input_json/);const task=JSON.parse(await readFile(join(request.cwd,'task.json'),'utf8'));const pointer=task.required_review[0];
@@ -164,15 +165,15 @@ test('unchanged source retries reuse only completed positive review groups and i
    await writeFile(join(request.cwd,'review.json'),JSON.stringify({checked:[{paths:task.required_review,source_refs:[{page}],verdict:'supported'}],missing:[]}));
    return {ok:true,ms:1,stderr:''};
   }};
- await assert.rejects(reviewCandidate(options),/temporary source service failure/);assert.equal(runs,3);
- fail=false;assert.deepEqual((await reviewCandidate({...options,round:2})).sort(),[1,2]);assert.equal(runs,4);
+ await assert.rejects(reviewCandidate(options),/temporary source service failure/);assert.equal(runs,5,'one run for the unit that passed, one plus three transport retries for the one the service dropped');
+ fail=false;assert.deepEqual((await reviewCandidate({...options,round:2})).sort(),[1,2]);assert.equal(runs,6);
  assert.equal(records.filter(row=>row.reused).length,1);
- await reviewCandidate({...options,round:3});assert.equal(runs,4);
- await reviewCandidate({...options,round:4,draft:{...draft,nodes:[{...draft.nodes[0],summary:'Changed source meaning'},draft.nodes[1]]}});assert.equal(runs,6);
- await reviewCandidate({...options,round:5,source:{...options.source,file_sha256:'b'.repeat(64)}});assert.equal(runs,8);
- await reviewCandidate({...options,round:6,reviewVersion:'fixture-v2'});assert.equal(runs,10);
+ await reviewCandidate({...options,round:3});assert.equal(runs,6);
+ await reviewCandidate({...options,round:4,draft:{...draft,nodes:[{...draft.nodes[0],summary:'Changed source meaning'},draft.nodes[1]]}});assert.equal(runs,8);
+ await reviewCandidate({...options,round:5,source:{...options.source,file_sha256:'b'.repeat(64)}});assert.equal(runs,10);
+ await reviewCandidate({...options,round:6,reviewVersion:'fixture-v2'});assert.equal(runs,12);
  const evidence=records.find(row=>row.reused).evidence;await writeFile(evidence,'{}');
- await reviewCandidate({...options,round:7});assert.equal(runs,11,'changed retained proof is a cache miss');
+ await reviewCandidate({...options,round:7});assert.equal(runs,13,'changed retained proof is a cache miss');
 });
 
 test('semantic rejections are never reused as successful review results',async t=>{
@@ -252,4 +253,51 @@ test('an assigned pointer is never the reviewer’s mistake, even when it is not
  const invented={checked:[{paths:['/coverage'],verdict:'supported',source_refs:[{page:1}],reason:'scope'},
   {paths:['/nodes/9'],verdict:'supported',source_refs:[{page:1}],reason:'invented'}],missing:[]};
  assert.throws(()=>checkReviewEvidence(invented,['/coverage'],new Set([1]),[],draft),/does not exist in the draft/);
+});
+
+test('a reviewer the transport dropped is asked again after a wait, and only a lasting outage fails its unit',async t=>{
+ // Cold Harvest, 2026-09-13/14: `Request timed out.`, `Connection error.`, `500 "Auth context expired."` on a
+ // handful of units failed four whole readings of one scene. A dropped reviewer never answered, so there is
+ // nothing to repair -- the same request is made again, later, and no failure.json is written for it.
+ const cwd=await mkdtemp(join(tmpdir(),'coc-review-transport-'));t.after(()=>rm(cwd,{recursive:true,force:true}));
+ const failureSeen=[],rows=[];let runs=0,drops=2;
+ const options={cwd,task:{purpose:'detail',focus:'Farm',question:''},draft:{nodes:[{node_id:'scene-farm',source_refs:[{page:3}],properties:{}}],claims:[]},
+  instructions:'unused',round:1,model:{id:'fixture/vision'},source:{pdf:'unused',cache:'unused'},signal:new AbortController().signal,
+  transportBackoffMs:[1,1,1],progress(){},record(row){rows.push(row)},
+  async run(request){
+   runs++;
+   failureSeen.push(await readFile(join(request.cwd,'failure.json'),'utf8').catch(()=>null));
+   if(drops-->0)return {ok:false,timedOut:false,ms:1,stderr:'',error:'OpenAI API error (500): 500 "Auth context expired."'};
+   request.onEvent({type:'tool_execution_end',toolCallId:'pages',isError:false,result:{details:{kind:'source_pages',observations:[{page:3}]}}});
+   await writeFile(request.eventLog+'.images.jsonl',JSON.stringify({included:['pages']})+'\n');
+   await writeFile(join(request.cwd,'review.json'),JSON.stringify({checked:[{paths:['/nodes/0'],verdict:'supported',source_refs:[{page:3}],reason:'seen'}],missing:[]}));
+   return {ok:true,ms:1,stderr:''};
+  }};
+ assert.deepEqual(await reviewCandidate(options),[3]);
+ assert.equal(runs,3,'two drops, then the answer');
+ assert.deepEqual(failureSeen,[null,null,null],'a transport retry is not told it was rejected');
+ const retries=rows.filter(row=>row.event==='review_transport_retry');
+ assert.deepEqual(retries.map(row=>[row.unit,row.attempt,row.wait_ms]),[[1,1,1],[1,2,1]]);
+ assert.match(retries[0].detail,/Auth context expired/);
+ const verified=rows.filter(row=>row.phase==='verify');
+ assert.deepEqual(verified.map(row=>[row.attempt,row.ok]),[[3,true]],'the answer is one row, on the attempt that gave it');
+ // A lasting outage: the retries run out, the unit fails, and the failure leaves a row where the review should be.
+ runs=0;drops=99;rows.length=0;
+ await assert.rejects(reviewCandidate({...options,round:2}),/Auth context expired/);
+ assert.equal(runs,4,'one attempt and three transport retries');
+ assert.equal(rows.filter(row=>row.event==='review_transport_retry').length,3);
+ assert.deepEqual(rows.filter(row=>row.phase==='verify').map(row=>[row.attempt,row.ok,row.reason]),[[4,false,'transport']]);
+ // A reviewer that answered wrongly is still repaired, not re-rolled: one retry, with the reason.
+ runs=0;drops=0;rows.length=0;failureSeen.length=0;
+ const wrong={...options,round:3,async run(request){
+  runs++;failureSeen.push(await readFile(join(request.cwd,'failure.json'),'utf8').catch(()=>null));
+  request.onEvent({type:'tool_execution_end',toolCallId:'pages',isError:false,result:{details:{kind:'source_pages',observations:[{page:3}]}}});
+  await writeFile(request.eventLog+'.images.jsonl',JSON.stringify({included:['pages']})+'\n');
+  await writeFile(join(request.cwd,'review.json'),JSON.stringify({checked:[],missing:[]}));
+  return {ok:true,ms:1,stderr:''};
+ }};
+ await assert.rejects(reviewCandidate(wrong),/omitted assigned fields/);
+ assert.equal(runs,2);
+ assert.equal(failureSeen[0],null);assert.match(failureSeen[1],/omitted assigned fields/);
+ assert.deepEqual(rows.filter(row=>row.phase==='verify').map(row=>[row.attempt,row.ok,row.reason]),[[2,false,'review']]);
 });

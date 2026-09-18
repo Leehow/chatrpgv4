@@ -381,3 +381,38 @@ test('the reader command honours a narrowed allowlist and keeps the reading defa
   const narrowed = readerCommand('provider/model','/task/prompt.md','low',false,false,undefined,'read,write,edit');
   assert.equal(narrowed[narrowed.indexOf('--tools')+1], 'read,write,edit');
 });
+
+test('every definition child leaves a mod-agent row, and a child that timed out says so', async () => {
+  // 2026-09-13, game-dab0f988 turns 4-6: three `apply` calls of 281-308 s, admission accounting for
+  // 24-38 s of each, and nothing in the telemetry for the four minutes between -- two definition
+  // children per call, three of them killed at 180 s, visible only in .coc/mods/jobs/*/run-1.json.
+  const pi = piSurface();
+  let bridge;
+  pi.events.on('coc:mods-bridge', value=>{bridge=value;});
+  modsExtension(pi);
+  const cwd = await mkdtemp(join(tmpdir(), 'coc-mods-'));
+  const rows = [];
+  let outcome = {ok:true, code:0, timedOut:false, ms:1234, stderr:'', command:['pi','--model','lane/fast-1']};
+  pi.events.emit('coc:kernel-bridge',{
+    record: row => rows.push(row),
+    call:async(method,params)=>{
+      if(method==='mods.queued') return {effects:[],unfinished:[]};
+      if(method==='mods.job') return {enabled:true, accepted:false, job:`job-${params.input.name}`, cwd, system_prompt:join(cwd,'prompt.md'), role:'create'};
+      return {definition:{name:params.job.replace('job-','')}, provenance:{mod:'enhanced-items', job:params.job}};
+    },
+    runtime:{
+      async runTask() { return outcome; },
+      async check() { return {ok:true}; },
+    },
+  });
+  await bridge.prepare('apply', {campaign:'c1', effects:[{kind:'define', name:'钢笔', category:'item', description:'一支钢笔'}]});
+  const agent = rows.filter(row => row.lane === 'mod-agent');
+  assert.deepEqual(agent.map(row => [row.campaign, row.role, row.attempt, row.ok, row.ms, row.timed_out, row.model]),
+    [['c1', 'create', 1, true, 1234, false, 'lane/fast-1']], 'one row per child run, with what it ran as and how long it took');
+  outcome = {ok:false, code:143, timedOut:true, ms:180015, stderr:'', command:['pi','--model','lane/slow-1']};
+  await assert.rejects(() => bridge.prepare('apply', {campaign:'c1', effects:[{kind:'define', name:'外套', category:'item', description:'一件外套'}]}),
+    error => error.details?.reason === 'mod_agent_failed' && error.details?.timed_out === true);
+  const killed = rows.filter(row => row.lane === 'mod-agent').at(-1);
+  assert.deepEqual([killed.role, killed.ok, killed.reason, killed.timed_out, killed.ms, killed.model], ['create', false, 'timeout', true, 180015, 'lane/slow-1'],
+    'a child killed at its cap is a row, not a hole');
+});
