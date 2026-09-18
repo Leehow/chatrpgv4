@@ -13411,3 +13411,74 @@ kernel's `reason`, so a week of telemetry showed forty-second narrate failures a
 where the explicit verb's row would have said `continuity_review_unavailable`. It now carries
 `reason` exactly as the explicit row does. Test: `tests/extension/continuity-audit.test.mjs`,
 the unavailable-delivery pair.
+
+## 110. Continuity review uses a background-scale safety window, not a forty-second turn deadline (2026-09-18, amends §37.9, §37.11, §37.12 and §38.8)
+
+The 40 s `per_review_ms` / 80 s `time_ms` allowance treated elapsed wall time as evidence that a
+continuity reviewer had failed. That assumption is false for a tool-enabled background model task:
+reading focused evidence, reasoning over combined Mod checklists and submitting the checked artifact may
+legitimately take longer while the child is still producing output.
+
+Live campaign `game-cef418b6-2ec5-413d-9fcf-94dcb5099f61` makes the boundary concrete. Its first reviewer
+streamed continuously and was killed at 40,018 ms without submitting; the next spent most of the same
+allowance reasoning and reading object evidence and was killed at 40,022 ms. After the Keeper registered
+the four mechanically meaningful starting objects, the same lane submitted a passing review in 7,397 ms.
+The first two records are not continuity verdicts and do not prove a dead transport. They prove only that
+a productive background task outlived an interactive-turn deadline.
+
+Continuity review therefore keeps its semantic limits -- at most six model calls per review, twelve across
+the input, one Keeper rewrite and one artifact repair -- but its wall-clock values are now safety ceilings,
+not a review allowance: one hour per review and two hours across the initial review plus its one permitted
+repair. These values match the existing tool-enabled reader scale. They are not latency targets and must
+not be used to choose a faster model or to classify a long productive stream as a continuity failure.
+
+Transport liveness remains separate. The review child's measured 25 s HTTP idle watchdog still interrupts
+a connection that stops producing data and lets the provider retry it; cancellation still stops work the
+caller no longer owns; the process safety ceiling still prevents an orphan from running forever. §91 is
+unchanged: if one of those service boundaries ends a child before a checked submission, no verdict exists
+and the draft is delivered unreviewed rather than refused.
+
+Acceptance: `AUDIT_LIMITS.per_review_ms` is at least one hour and `time_ms` holds both reviews permitted by
+`max_rewrites`; a review receives that full background-scale reservation; the idle watchdog remains much
+shorter and independently configured; request, rewrite and artifact-repair ceilings remain unchanged.
+
+## 111. A preparation wait cannot deadlock its own audit repair, and a stranded declaration remains the player's (2026-09-18, amends §32, §38, §47 and §73)
+
+Live campaign `game-32bc9a85-ebd9-42e1-90b8-26c4a48694bb`, turn 8, exposed two ends of one lost-action
+seam. The player explicitly drank, mounted her owned motorcycle and chose the town bar. Preparing that
+destination opened an adaptation wait. The wait blocked an `apply`; the narration audit then required the
+owned motorcycle to be registered; the registration repair was another `apply`, so the same wait blocked
+it too. The turn ended `closed_by: "stranded"`, with the player's exact declaration on disk and no
+delivery. On the next turn the player wrote only "continue". The adaptation was accepted, but admission
+saw only that new word and refused the move as unchosen. The final delivery repeated mounting the bike and
+never reached the bar. "Send anything to continue" had not continued the action.
+
+### 111.1 Registration bookkeeping passes through an in-flight adaptation wait
+
+An adaptation wait still owns every effect whose truth may depend on the prepared destination: movement,
+time, clues, payments, transfers, usages and other world changes remain blocked. One closed batch is exempt:
+at least one `define`, at least one same-owner `object adopt`, and no other effect kind. Before the Mod has
+materialized it, the host admits only the public registration fields needed by that shape; a `from`, state
+mutation or unrelated effect makes the whole batch non-registration and the wait blocks it. This is the
+same bookkeeping class action admission and the Mod deferral path already treat as non-voluntary and
+non-fictional. It changes no location, clock, custody or player choice, and exists specifically so the
+narration audit can ask for registration without taking away the only tool that performs it.
+
+### 111.2 The next admission review receives the immediately preceding stranded declaration
+
+`recent` now labels a stranded record as `closed: "stranded"` even though it has no Keeper delivery. The
+host retains the newest such player text separately from delivered dialogue and supplies it to action
+admission as the immediately preceding unfinished declaration. The current input remains exact and
+authoritative; the older declaration is not automatic consent. The admission model decides semantically
+whether the current words continue, narrow, replace or withdraw it. A bare request to continue may resume
+it; a new or contrary instruction does not. No keyword list, language branch or host-side intent regex is
+introduced.
+
+The stranded record remains non-delivery evidence: it is not copied into Keeper history, does not mint a
+receipt and does not claim the action happened. It is kept for one successor turn only, because after that
+turn closes the immediately preceding record is no longer stranded.
+
+Acceptance: a pending adaptation permits a pure define/adopt batch and still blocks a mixed batch; its
+registration lets the audited narration close. A successor capsule labels and carries the prior stranded
+player declaration; admission receives it beside the exact current input; a scripted semantic verdict can
+authorize continuation, while all ordinary turns and replacement instructions keep the existing path.

@@ -333,7 +333,9 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
             turn: record.turn,
             player: record.player_text ?? null,
             keeper: chars(record.rendered_text || "", 200),
-            ...(record.closed_how ? { closed: record.closed_how, receipts: array(record.receipts).length } : {})
+            ...(record.closed_by === "stranded"
+                ? { closed: "stranded", receipts: array(record.receipts).length }
+                : record.closed_how ? { closed: record.closed_how, receipts: array(record.receipts).length } : {})
         })),
         warnings: array(warningRecord?.warnings).map(warning => ({
             turn: warningRecord!.turn,

@@ -354,6 +354,8 @@ interface TableState {
 	lanes: AbortController;
 	/** The exact current player text (contract §32.3); a turn with none — the opening — puts nothing to review. */
 	playerText?: string;
+	/** §111: the immediately preceding stranded turn's exact player text, retained for one admission context. */
+	interruptedPlayerText?: string;
 	/**
 	 * Contract §71: a resend held because it repeats, byte for byte, the words the running turn is
 	 * already working on. Held, never dropped: if that turn delivers, the resend is spent; if it
@@ -517,6 +519,25 @@ const ADAPTATION_HELD = ["pending", "reviewing", "ready"];
 const ADAPTATION_OVER = ["stale", "failed"];
 /** Receipt kinds that discharge an owed recovery; mirrors `RECOVERY_TAKES` in kernel-ts/read/offer.ts. */
 const RECOVERY_RECEIPT_KINDS = new Set(["clue", "move", "npc", "session", "handout", "map", "item"]);
+
+/**
+ * §111.1: the one write shape an in-flight adaptation wait may not take away. It enriches equipment
+ * already owned and carries no movement, time, clue, payment, transfer, usage or state mutation.
+ */
+function registrationBookkeeping(input: Record<string, unknown>): boolean {
+	const effects = Array.isArray(input.effects) ? input.effects as Array<Record<string, unknown>> : [];
+	if (!effects.length) return false;
+	const defineKeys = new Set(["kind", "name", "description", "category", "template"]);
+	const adoptKeys = new Set(["kind", "name", "to", "adopt", "definition", "why"]);
+	const exact = (effect: Record<string, unknown>, allowed: ReadonlySet<string>) =>
+		Object.keys(effect).every(key => allowed.has(key));
+	return effects.every(effect => effect.kind === "define"
+		? exact(effect, defineKeys)
+		: effect.kind === "object" && typeof effect.adopt === "string" && !!effect.adopt.trim()
+			&& typeof effect.to === "string" && !!effect.to.trim() && exact(effect, adoptKeys))
+		&& effects.some(effect => effect.kind === "define")
+		&& effects.some(effect => effect.kind === "object");
+}
 /** The one host steer of the turn floor (docs/specs/turn-floor.md D4), sent when a turn is about to close on prose alone. */
 const FLOOR_STEER =
 	"This turn used no tool and nothing landed. Read director.offer and the people present: what changes in the world, apply; " +
@@ -1067,6 +1088,7 @@ export default function (pi: ExtensionAPI) {
 			...(asString(open.scene?.display_name) ? { label: asString(open.scene?.display_name) } : {}) };
 		table.prologue = asString(open.setup_prologue);
 		table.playerText = asString(open.pending_turn?.player_text);
+		table.interruptedPlayerText = undefined;
 		table.admission = new Map();
 		table.admissionRefused = [];
 		table.combatSceneMoves.clear();
@@ -1475,6 +1497,11 @@ export default function (pi: ExtensionAPI) {
 			state.recoveryOwed = { blocked: typeof recovery.blocked === "number" ? recovery.blocked : 0, steps };
 		}
 		if (Array.isArray(view.recent)) {
+			state.interruptedPlayerText = [...view.recent].reverse().flatMap((row) => {
+				const entry = row as Record<string, unknown> | null;
+				const player = asString(entry?.player);
+				return entry?.closed === "stranded" && player ? [player] : [];
+			})[0];
 			state.recent = view.recent.flatMap((row) => {
 				const entry = row as Record<string, unknown> | null;
 				const keeper = asString(entry?.keeper);
@@ -1636,6 +1663,7 @@ export default function (pi: ExtensionAPI) {
 		const context: AdmissionContext = {
 			turn: state.turn,
 			playerText: state.playerText,
+			...(state.interruptedPlayerText ? { interruptedPlayerText: state.interruptedPlayerText } : {}),
 			investigators: state.party,
 			...(state.scene?.label ?? state.scene?.handle ? { scene: state.scene.label ?? state.scene.handle } : {}),
 			present: state.present,
@@ -3478,11 +3506,12 @@ export default function (pi: ExtensionAPI) {
 			return { block: true, reason: blocked >= RUNAWAY_STOP_AT ? TURN_CLOSED_STOP : TURN_CLOSED_REASON };
 		}
 		const adaptationControl = name === 'lookup' && input.kind === 'adaptation' && ['status', 'cancel'].includes(String(input.action));
+		const registration = name === "apply" && registrationBookkeeping(input);
 		// Only an adaptation wait owns the rest of the turn: it is one named job with its own control verb,
 		// and nothing else can advance while the destination it is building is undecided. A source wait is
 		// not here on purpose -- one unread page never stopped the rest of the table from settling (§22).
 		const retainedTerminal = state.preparationWait?.status && !['pending', 'reviewing'].includes(state.preparationWait.status);
-		if (state.preparationWait && ((retainedTerminal && !adaptationControl) || (!retainedTerminal && name !== "narrate" && !adaptationControl))) {
+		if (state.preparationWait && !registration && ((retainedTerminal && !adaptationControl) || (!retainedTerminal && name !== "narrate" && !adaptationControl))) {
 			// §47. This was the one tool-level block in this gate that recorded nothing — every other
 			// one writes `ok: false, code: "blocked"` — and the silence is why the defect it causes was
 			// unreadable for a day. On `game-1c0faba5` turn 12 and `game-3dd94f0a` turn 52 the shape is

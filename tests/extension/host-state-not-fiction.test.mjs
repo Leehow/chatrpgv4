@@ -171,6 +171,35 @@ test("a tool the preparation wait blocks leaves a telemetry row, like every othe
 	assert.ok(table.telemetry().some((row) => row.tool === "narrate" && row.ok === true), "and the turn still closed");
 });
 
+test("a pending adaptation cannot block the pure registration its narration audit requires", async (t) => {
+	const delivered = "你扣好头盔，手扶着已经登记的摩托，等镇里的路接通。";
+	const registration = fauxToolCall("apply", { effects: [
+		{ kind: "define", name: "Black motorcycle", description: "The investigator's existing motorcycle.", category: "item", template: "" },
+		{ kind: "object", name: "The investigator's motorcycle", to: "托马斯·海耶斯", adopt: "Black motorcycle",
+			definition: "Black motorcycle", why: "Register existing owned transport without awarding another copy" },
+	] });
+	const table = await openTable({
+		env: { FAKE_KERNEL_ADAPTATION_PENDING: "1", PI_COC_ADAPTATION_WAIT_MS: "0" },
+		responses: [
+			fauxAssistantMessage([PREPARE], { stopReason: "toolUse" }),
+			fauxAssistantMessage([registration], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("narrate", { text: delivered })], { stopReason: "toolUse" }),
+			fauxAssistantMessage(delivered),
+		],
+	});
+	t.after(() => table.dispose());
+	// Isolate the host wait gate: Mod materialization is covered by its own registration suites.
+	table.emit("coc:mods-bridge", { async after() {}, async prepare() {} });
+	await table.session.prompt("我跨上自己的摩托，准备去镇里的酒馆。");
+
+	assert.equal(table.kernelRequests().filter(row => row.method === "table.apply").length, 1,
+		"pure registration reaches the kernel while the destination preparation remains pending");
+	assert.equal(table.telemetry().filter(row => row.reason === "preparation_wait" && row.tool === "apply").length, 0,
+		"the wait does not classify registration bookkeeping as destination-dependent work");
+	assert.equal(table.kernelRequests().filter(row => row.method === "table.narrate").length, 1,
+		"the audited turn still has a door after registration");
+});
+
 test("a finished preparation is never described as still running", async (t) => {
 	// `ADAPTATION_HELD` keeps `ready` as a wait because the Keeper owes it an answer. On campaign
 	// game-ef7545c5 the single adaptation row in 785 telemetry lines was

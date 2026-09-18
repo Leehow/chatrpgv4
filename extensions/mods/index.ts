@@ -235,8 +235,9 @@ export default function modsExtension(pi: ExtensionAPI): void {
         outcome = await owner.runTask({kind: 'mod', request: {cwd: job.cwd, systemPrompt: job.system_prompt,
           model: context?.model ? `${context.model.provider}/${context.model.id}` : undefined,
           // No `thinking`: a lane's reasoning effort is not the table's, and the runtime decides it
-          // (contract §37.11). Handing the Keeper's own chip down here is what made a review at `high`
-          // spend its whole 40 s budget inside one unfinished thinking stream.
+          // (contract §37.11). Handing the Keeper's own chip down here made reviews inherit unrelated
+          // latency and cost; §110 separately replaced the former 40 s deadline with a background-scale
+          // process safety ceiling.
           tools: 'read,write,edit,bash', audit: {control}, timeoutMs: limits.timeoutMs,
           eventLog: join(job.cwd, `audit-agent-${ordinal}.jsonl`),
           onEvent(event) {

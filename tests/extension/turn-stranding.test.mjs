@@ -55,6 +55,13 @@ test('a stranded acting turn is released, recorded with its receipts, and the ne
 	assert.equal(opened.turn, 2);
 	assert.equal(opened.state, 'open');
 	assert.ok(opened.capsule);
+	assert.deepEqual(opened.capsule.recent.at(-1), {
+		turn: 1,
+		player: 'I listen at the door.',
+		keeper: '',
+		closed: 'stranded',
+		receipts: 1,
+	}, 'the successor carries the exact unfinished declaration without presenting it as a delivery');
 
 	const stranded = await recordFile(home, 1);
 	assert.equal(stranded.closed_by, 'stranded');

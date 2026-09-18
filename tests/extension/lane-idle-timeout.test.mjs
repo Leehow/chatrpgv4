@@ -1,10 +1,10 @@
 /**
  * A lane child's stalled stream fails retryably inside its budget (contract §37.12).
  *
- * The agent home's `httpIdleTimeoutMs` is 60 s and belongs to the operator's table; a continuity
- * review has `AUDIT_LIMITS.per_review_ms` (40 s). A timeout longer than the budget can never fire,
- * so silence after a good connection is always a SIGTERM at the end of the budget with no reason
- * attached, and never the retryable transport error pi's own auto-retry already recovers from —
+ * The agent home's `httpIdleTimeoutMs` is 60 s and belongs to the operator's table. Before §110 a
+ * continuity review had only 40 s of wall clock, so a longer idle timeout could never fire and silence
+ * after a good connection became a SIGTERM with no reason attached instead of the retryable transport
+ * error pi's own auto-retry already recovers from —
  * `.coc/mods/jobs/f1336e40…` (no response at all, killed at 40,031 ms) and
  * `…/homes/m-main/.coc/mods/jobs/b6242e2a…` (headers and first chunks, then 38 s of silence, killed
  * at 40,015 ms), both on the build that already carried the 60 s setting.
@@ -70,14 +70,14 @@ async function launch(context, kind, cwd, extra = {}) {
  * healthy silence the retained lane streams actually contain (16.42 s, measured over 4,075 gaps in
  * 103 `audit-agent-*.jsonl` children).
  */
-test("the lane's idle timeout fits between the budget it must fire inside and the silence a healthy stream takes", () => {
+test("the lane's idle timeout separates stalled transport from a productive background review", () => {
   const WORST_HEALTHY_SILENCE_MS = 16_420;
   assert.ok(LANE_HTTP_IDLE_TIMEOUT_MS > WORST_HEALTHY_SILENCE_MS,
     `${LANE_HTTP_IDLE_TIMEOUT_MS} would abort streams that are merely thinking (worst observed ${WORST_HEALTHY_SILENCE_MS} ms)`);
-  // Pi's own backoff before the retry, plus the median whole-child wall clock (6.53 s) the retry
-  // needs: a threshold that leaves less than this fires only to run out of budget anyway.
+  // The liveness watchdog remains far below the process safety ceiling. It does not limit how long a
+  // stream that is still producing output may reason.
   assert.ok(LANE_HTTP_IDLE_TIMEOUT_MS + 2_000 + 6_530 < AUDIT_LIMITS.per_review_ms,
-    `${LANE_HTTP_IDLE_TIMEOUT_MS} leaves no room to retry inside ${AUDIT_LIMITS.per_review_ms} ms`);
+    `${LANE_HTTP_IDLE_TIMEOUT_MS} is not distinct from the ${AUDIT_LIMITS.per_review_ms} ms safety ceiling`);
 });
 
 test("a mod lane child carries its own idle timeout as trusted project settings, and a reader child does not", async t => {

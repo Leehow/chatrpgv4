@@ -287,7 +287,9 @@ function capsule(playerText) {
 			axes: ["感官先于解释", "留白胜过说明"],
 			directives: [{ id: "reveal-through-detail", line: "把线索藏进一个具体的东西里，别直接报答案。" }],
 		},
-		recent: [],
+		recent: process.env.FAKE_KERNEL_INTERRUPTED_PLAYER_TEXT
+			? [{ turn: Math.max(0, turn - 1), player: process.env.FAKE_KERNEL_INTERRUPTED_PLAYER_TEXT, keeper: "", closed: "stranded", receipts: 0 }]
+			: [],
 		warnings: [],
 		truncated: [],
 	};

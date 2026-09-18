@@ -1,12 +1,14 @@
 /** Shared artifact validation; semantic judgment belongs to the private reviewer. */
 export const CONTINUITY_AUDIT = 'audit.continuity.v1';
 /**
- * `per_review_ms` caps one review; `time_ms` is the shared allowance for a whole player input and is
- * sized to hold the reviews `max_rewrites` already permits (initial + one bounded repair). Reserving the
- * whole remaining allowance for the first review left the permitted repair whatever seconds were left,
- * which on a slow lane model is none: see contract §37.9.
+ * A continuity review is a tool-enabled background task, so elapsed wall time is not a semantic budget.
+ * These are hour-scale process safety ceilings (contract §110), while request/rewrite/repair counts remain
+ * the actual review bounds. The shared ceiling holds the initial review plus its one permitted repair.
  */
-export const AUDIT_LIMITS = Object.freeze({per_review_ms: 40000, time_ms: 80000, max_requests: 12, per_review: 6, max_rewrites: 1, max_artifact_repairs: 1});
+const BACKGROUND_REVIEW_SAFETY_MS = 60 * 60 * 1000;
+export const AUDIT_LIMITS = Object.freeze({per_review_ms: BACKGROUND_REVIEW_SAFETY_MS,
+    time_ms: BACKGROUND_REVIEW_SAFETY_MS * 2, max_requests: 12, per_review: 6, max_rewrites: 1,
+    max_artifact_repairs: 1});
 export type AuditIssue = {path: string; message: string; file?: string; excerpt?: string};
 const object = (v: any): v is Record<string, any> => v !== null && typeof v === 'object' && !Array.isArray(v);
 const row = (v: any): Record<string, any> => object(v) ? v : {};

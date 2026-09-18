@@ -598,6 +598,17 @@ test('each review reserves one review worth of time, so the permitted repair is 
         `a ${slow} ms review must still fit the initial review plus ${AUDIT_LIMITS.max_rewrites} repair, got ${reviews}`);
 });
 
+test('continuity review uses a background-scale safety ceiling, not a forty-second turn deadline', () => {
+    assert.ok(AUDIT_LIMITS.per_review_ms >= 60 * 60 * 1000,
+        `one review received only ${AUDIT_LIMITS.per_review_ms} ms`);
+    assert.ok(AUDIT_LIMITS.time_ms >= AUDIT_LIMITS.per_review_ms * (AUDIT_LIMITS.max_rewrites + 1),
+        'the initial review and its permitted repair each need the full background-scale ceiling');
+    assert.deepEqual({max_requests: AUDIT_LIMITS.max_requests, per_review: AUDIT_LIMITS.per_review,
+        max_rewrites: AUDIT_LIMITS.max_rewrites, max_artifact_repairs: AUDIT_LIMITS.max_artifact_repairs},
+        {max_requests: 12, per_review: 6, max_rewrites: 1, max_artifact_repairs: 1},
+        'removing the short wall-clock deadline must not relax semantic review bounds');
+});
+
 test('a single review can never outspend its own cap', async () => {
     const scope = await mkdtemp(join(directory, 'per-review-'));
     const budget = new AuditBudget(scope, 'input-a');

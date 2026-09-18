@@ -162,14 +162,12 @@ const LANE_EXTENSION = "coc-keeper";
 /**
  * The reasoning effort a `mod` lane child runs at when nobody has chosen one (contract §37.11).
  *
- * Not the table's. A continuity review has a fixed wall-clock budget (`AUDIT_LIMITS.per_review_ms`,
- * 40 s), and the table's reasoning effort is a Keeper-quality choice with no relation to it; a
- * review that gets 40 s of clock at `high` can spend all of it inside a first thinking stream it
- * never finishes, and as a campaign's context grows any table left on a high effort eventually
- * crosses that cap whichever lane model is picked. Two campaigns died of exactly this on
- * 2026-09-14 (§37.11), both on a table set to `high`, one of them with the lane already moved to a
- * fast model. A knob whose absent value points at the failure is not a fix, so the absent value is
- * now the lane's own.
+ * Not the table's. The table's reasoning effort is a Keeper-quality choice with no relation to a
+ * background review. Before §110 the reviewer had a 40 s wall-clock allowance, so `high` could spend
+ * the entire allowance inside one unfinished thinking stream; two campaigns died of exactly this on
+ * 2026-09-14 (§37.11). §110 removed that interactive deadline in favour of an hour-scale process safety
+ * ceiling, but the efforts remain separate: changing Keeper quality must not silently change review
+ * latency and cost.
  *
  * `low` rather than `off` or `minimal`, on the authorized lane models' own thinking maps rather
  * than on taste: `grok-build/grok-4.6` maps `off` to null, so pi's `clampThinkingLevel` moves a
@@ -185,13 +183,12 @@ const LANE_THINKING_DEFAULT = "low";
  * How long a lane child's provider connection may say nothing before its transport gives up
  * (contract §37.12).
  *
- * Not the table's, and not a fraction of the child's budget either. The agent home's
+ * Not the table's, and not a fraction of the child's safety ceiling either. The agent home's
  * `httpIdleTimeoutMs` is 60 s -- chosen in `runtime/launch.ts` as twice the worst time-to-headers
- * across 15,942 retained table requests -- while a continuity review gets `AUDIT_LIMITS.per_review_ms`
- * (40 s) of wall clock. A timeout larger than the budget can never fire: the child's own timer kills
- * it first, so a connection that answers and then goes quiet costs the whole budget and arrives as a
- * SIGTERM with no reason, instead of the retryable "terminated" that pi's own auto-retry recovers
- * from. Two retained runs are exactly this shape: `.coc/mods/jobs/f1336e40...` sent its request at
+ * across 15,942 retained table requests. Before §110 a continuity review had only 40 s of wall clock,
+ * so that transport timeout could never fire: the child's own timer killed it first and a connection
+ * that went quiet arrived as a SIGTERM with no reason instead of the retryable "terminated" that pi's
+ * own auto-retry recovers from. Two retained runs are exactly this shape: `.coc/mods/jobs/f1336e40...` sent its request at
  * 04:08:20.656Z, received nothing at all, and was killed at 40,031 ms; `homes/m-main/.coc/mods/jobs/
  * b6242e2a...` took headers and its first chunks at 04:46:03, went silent for 38 s, and was killed at
  * 40,015 ms.
@@ -206,10 +203,8 @@ const LANE_THINKING_DEFAULT = "low";
  * gaps between their streamed events (`audit-agent-*.jsonl`), the worst healthy mid-stream silence is
  * 16.42 s -- a real one, inside a thinking stream that went on to settle -- with p99.9 at 10.79 s and
  * the worst time-to-first-token at 10.49 s. 25 s clears the worst observed healthy silence by half
- * again, and still leaves 13 s of a 40 s budget for the retry pi schedules 2 s later: more than the
- * 6.53 s median and near the 12.02 s p90 of a whole child's wall clock. Nothing clamps it against a
- * shrunken reservation on purpose -- a timeout that cannot fire inside what is left is simply today's
- * behaviour, which is the right thing to fall back to.
+ * again while remaining far below §110's hour-scale process safety ceiling. It measures transport
+ * liveness only; a productive stream may take as long as its work requires.
  */
 export const LANE_HTTP_IDLE_TIMEOUT_MS = 25_000;
 

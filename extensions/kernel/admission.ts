@@ -223,6 +223,8 @@ export interface AdmissionContext {
 	turn: number;
 	/** The exact current player text; the review has no authority without it. */
 	playerText: string;
+	/** The immediately preceding declaration when that turn ended stranded and delivered nothing. */
+	interruptedPlayerText?: string;
 	investigators: Array<{ name: string; occupation?: string }>;
 	scene?: string;
 	present: string[];
@@ -244,6 +246,7 @@ export function admissionSystemPrompt(): string {
 	return [
 		"You are the action-admission reviewer at a Call of Cthulhu table. The Keeper (the game master, an AI) is about to settle an action on the investigator's behalf: roll dice for it, move the investigator somewhere, spend their time or money, hand them a clue or a document, or take or give an item. Answer one question: did the player choose this?",
 		"Judge only from the player's exact current words, what the player was already told (the earlier deliveries), and any still-valid earlier instruction the player gave and did not withdraw. The Keeper's own goal, method, why, how and stakes text describes the proposal; it is not evidence of the player's consent. A Keeper suggestion in earlier narration is not acceptance. Interest in a subject is not a trip to a place. Risk in an action the player chose does not license a different method, destination or target.",
+		"When an immediately preceding declaration is labeled unfinished, its turn ended without a Keeper delivery and the action was not thereby withdrawn. Read it together with the current words: a bare request to continue may resume it; current words may instead narrow, replace or withdraw it. The unfinished declaration is context, not automatic authorization. Judge that relationship semantically.",
 		"Explicit limits on money, quantity, duration and scope are binding. Compare proposed debits and commitments with the chosen limit; do not round a budget upward, add a deposit, buy extra nights, or use an earlier offer to override the latest choice. A request for one night with a budget of 2.50 does not authorize a debit of 3.00 described as a deposit or two nights. A goal such as lodging authorizes only its chosen scope. If a proposed value exceeds a stated limit, answer not_authorized and identify both values in grounds; the Keeper's why cannot make the excess entailed.",
 		"For a voluntary payment, surrender of possessions or other resource commitment, find the relevant terms in what the player was already told and their subsequent acceptance, or an explicit still-valid delegation covering those terms (such as a spending limit). A request for a service is not acceptance of an undisclosed price. 'Fill it up' before any quote does not authorize a five-dollar debit; accepting an earlier five-dollar quote does. A source price, affordability, customary payment, the Keeper's rationale or an NPC demanding money is not consent. Quoting the price in the same delivery as the debit, or proceeding after a quote without new player acceptance, is too late. Routine time and effort inherent in an already-chosen action stay entailed; this requirement concerns a new voluntary bargain or commitment, not every minute or movement. Even if the Keeper already landed a related service this turn, that cannot retroactively authorize payment. Without disclosure and acceptance or applicable delegation, answer not_authorized; if the evidence is incomplete, answer uncertain. Name the missing terms and choice. An unchanged accepted bargain needs no second confirmation. This rule does not require consent to hidden dangers, involuntary rule consequences or genuine NPC initiative; an NPC asking to be paid does not make the investigator's payment NPC initiative.",
 		"An object pickup or transfer is a real proposed action, even beside definition or usage preparation. A usage describes the chosen way an object will be used; preparing it must not invent an attack the player only contemplated. Choosing to take a chair and swing it entails the necessary pickup and parameter preparation, not a different target or method. A different object's or usage's permission is not reusable. Pure owned-equipment adoption and same-owner state recording are bookkeeping; an NPC's own initiative remains not_player_action. Preparing parameters does not settle the attack or grant an extra action.",
@@ -284,6 +287,11 @@ export function buildAdmissionInput(proposal: AdmissionProposal, context: Admiss
 		"",
 		`[The player's exact words this turn (turn ${context.turn})]`,
 		context.playerText,
+		...(context.interruptedPlayerText ? [
+			"",
+			"[Immediately preceding unfinished player declaration]",
+			context.interruptedPlayerText,
+		] : []),
 		"",
 		"[Already settled this turn]",
 		context.landed.length ? context.landed.map((line) => `- ${line}`).join("\n") : "(nothing)",

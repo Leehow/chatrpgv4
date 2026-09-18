@@ -262,6 +262,25 @@ test("a recovered turn is reviewed against the words the broken turn was answeri
 	assert.equal(kernelCalls(table, "table.apply").length, 1);
 });
 
+test("a continuation is reviewed beside the immediately preceding stranded declaration", async (t) => {
+	const table = await openTable({
+		env: { FAKE_KERNEL_INTERRUPTED_PLAYER_TEXT: "我骑车去镇里的酒馆。" },
+		responses: [
+			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "move", to: "last-stop" }] })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("narrate", { text: "你沿主街骑到酒馆门前。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage("after"),
+		],
+		laneResponses: { admission: [verdict({ verdict: "authorized", grounds: "continue resumes the immediately preceding unfinished ride to the bar" })] },
+	});
+	t.after(() => table.dispose());
+	await table.session.prompt("继续？");
+
+	const [request] = table.lanes.admission.requests();
+	assert.match(request, /\[The player's exact words this turn \(turn \d+\)\]\n继续？/);
+	assert.match(request, /\[Immediately preceding unfinished player declaration\]\n我骑车去镇里的酒馆。/);
+	assert.equal(kernelCalls(table, "table.apply").length, 1, "the existing semantic lane may admit the resumed action");
+});
+
 test("an uncertain verdict refuses too, naming what is unclear", async (t) => {
 	const table = await openTable({
 		responses: [
