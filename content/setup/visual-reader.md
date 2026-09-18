@@ -18,11 +18,18 @@ Identify the authored structure from native navigation and selected contents, ov
 
     {"title":"the actual title", "language":"en", "sections":[
       {"name":"a section or page topic", "pages":[[1,3]], "topics":["what this section covers"],
-       "entities":["source names"], "references":[{"name":"an appendix or other reference"}]}]}
+       "entities":["source names"], "references":[{"name":"an appendix or other reference"}]}],
+     "map_candidates":[{"name":"the authored map title", "focus":"the exact authored place it depicts", "pages":[12]}]}
 
 Ranges here use physical pages starting at 1, both endpoints included. Ranges may overlap and may locate unread material; cite the observed contents or heading page in source_refs on each row. They are navigation, never a claim that every page in the range was read. Include locations of global background, opening choices, important people, tables, map/handout regions and cross-references. A cover or contents page is a page too. Index facts are navigation, not permission to play.
 
 Keep this phase to navigation. Record that a table, stat block or detailed passage is present and where it is; do not extract its numbers, reconstruct its full contents or verify fine details here. The later read phase inspects those details when needed. Use readable headings and short topics when small print would require a separate close reading.
+
+Record every map identified by the navigation pages in `map_candidates`. `focus` is the exact authored
+place name that a later scene uses, and `pages` are physical PDF pages. This is a private navigation
+marker only: do not infer regions, safety, labels or player knowledge from it. The host attaches a
+matching candidate to that scene so first arrival can request visual review before presenting anything.
+Omit a candidate whose depicted place cannot be identified from the navigation evidence.
 
 ## Read phase
 
@@ -35,6 +42,12 @@ For purpose detail, task.focus and task.question bound both extraction and revie
 For purpose opening, prepare the first playable scene and its immediate interaction, with the global facts needed to portray it correctly. Include the people actually there; do not prepare midgame NPC statistics, later encounters or all endings. The next location may be a thin sourced node omitted from ready_nodes. Preserve source navigation for later on-demand reading and create thin sourced destinations only where they help connect the current scope. A complete opening is a usable start, not the entire campaign compressed into one draft. This is the first publication batch: exactly one scene belongs in ready_nodes. Preserve the selected scene identity from task.focus and known_nodes exactly; extra description belongs in summary. Also include the people actually present and the discoverable material needed for their first interaction in ready_nodes, unless task.known_nodes already marks them ready. Merely including a node in the graph does not mark its material ready. Stop when that scene, the people actually present and the source dependencies of its immediate choices are prepared. Keep future destinations thin and not ready; existing background detail requests will prepare them. Include image_sources in this batch only for assets needed in the first interaction; prepare other handout crops later. Use submit_reading alone to check this batch and finish immediately, without a closing prose reply or an additional sweep of the chapter.
 
 When a source contains a usable map, keep it as an existing `asset` or `handout` node and describe reveal units in `properties.map_regions`. Each region needs a semantic `region_id`, source name, optional level, `source_asset`, normalized `source_box`, and normalized `placement`. Regions may be smaller than scenes. A player map may supply safe source pixels directly. A Keeper map may supply a later secret region only when explicit redaction boxes remove every private annotation and an independent reviewer supports `safe_after_redactions: true`; never assume two map versions align. Do not reveal a whole floor merely because one room was entered, and do not invent or redraw missing geography.
+
+When task.material is `map`, publish a `depicts` claim from the completed map asset/handout to the
+focused scene. A scene's existing `properties.map_candidates` row is navigation, not a second map;
+preserve it while replacing its pending role with the reviewed asset, region and claim data. For an
+ordinary opening/detail read that sees only a navigation reference to a later map, retain or add the
+same bounded scene marker instead of extracting unneeded pixels.
 
 When task.repair is present, read the retained draft and baseline first and address its concrete findings with targeted edits. Do not restart navigation or rewrite supported material merely because one review failed. Missing or malformed review files are host/reviewer failures, not evidence of wrong source facts. If task.must_view_pages is present, view those pages before retaining their facts: the previous draft lacks a complete host reading checkpoint. When repairing a validated reading, view the source pages of every record you change; unchanged records keep their earlier source evidence. A numeric field the review could not support has one of two repairs and no third: view a page that prints that exact value and cite it, or delete the field. Re-citing pages that do not print it fails identically, however minor the number is. Deleting an unsourced number is correct, not a loss — every numeric field is reviewed automatically, so a number the book does not state cannot survive review in any form. This never applies to a printed value you can see on the page: find its page rather than deleting it.
 

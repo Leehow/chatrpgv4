@@ -13235,3 +13235,36 @@ The public sheet already carries both `name` and `usage`. The panel now titles a
 usage keep their existing title. This changes no object, quantity, owner or combat profile.
 `Electron/packages/ui/src/coc-panel.test.tsx` pins two usage rows for one object and the absence of an
 undifferentiated duplicate title.
+
+## 107. A PDF scene advertises its map before the player arrives (2026-09-17)
+
+The nine-table plan had tested PDF upload and demand text reading, while map privacy remained only a
+deterministic contract test. M-MAIN turn 134 supplied the first live probe: at the Lima hotel, the
+player used an existing museum map-loan note and asked for a public Lima/southern-Peru map marked only
+with places already confirmed in play. The bound source PDF contains `Map of the Republic of Peru
+with Lima inset` on physical page 56. The product never started source reading and generated a
+text-only item named `旅馆公开路线图`. No map mechanics row or image reached the player.
+
+That probe was already too late. A player must not know that the source book contains a map or ask the
+Keeper to fetch it. During PDF indexing, the reader records navigation-only `map_candidates` rows with
+an authored map name, exact semantic place focus and physical pages. When a graph contains the matching
+scene, the host projects those rows into `scene.properties.map_candidates`. This marker is Keeper-only
+navigation metadata: it authorizes no pixels, region names or player knowledge and never becomes a
+card by itself.
+
+The first real move into a marked scene is the consumer. Before committing the move, the kernel checks
+for a reviewed map that `depicts` that scene. If none exists and this map focus has not already been
+settled, it raises the existing `material_pending` descriptor with `material: "map"` and the candidate
+physical pages. The host's existing visual reader and independent reviewer then publish the real
+asset/handout, semantic regions, scene correspondence, crops and redactions. The unchanged move retries;
+§39.2 mints the first-arrival map receipt and sends only the flattened player-safe derivative. A false
+candidate may settle as no usable map; it does not loop or expose the source page. A scene with no marker
+pays for no map read.
+
+The three ends are explicit. The PDF index/graph publication writes the scene marker. `apply move`
+reads it and raises a bounded map-material request. The reviewed `depicts` map then drives the existing
+first-arrival delivery and `world.maps_presented`. `tests/extension/ts-kernel-modules.test.mjs` pins
+candidate-to-scene projection and the exact arrival descriptor; `tests/kernel/test_map.py` continues to
+pin known-region-only derivatives. Live acceptance still requires an A or M PDF arrival to produce and
+open the real image, prove original-page/private paths and unrevealed regions are absent from the player
+surface, then reveal one newly earned region without replacing the old card.

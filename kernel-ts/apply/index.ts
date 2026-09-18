@@ -64,6 +64,7 @@ export interface ApplyContributions {
         event: DomainEvent;
     }>;
     readonly requireMaterial?: (graph: ModuleGraph, names: any[]) => Promise<void>;
+    readonly requireArrivalMapMaterial?: (graph: ModuleGraph, scene: Row) => Promise<void>;
     readonly materialReady?: (moduleId: string, name: string) => Promise<boolean>;
     readonly queueAdjacentReading?: (graph: ModuleGraph, scene: Row) => Promise<string[]>;
     readonly asset?: (moduleId:string,name:string)=>Promise<Row|null>;
@@ -108,6 +109,14 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                 await contributions.requireMaterial(graph, names);
             else if (truth(module.meta.reading_version))
                 throw new RpcError('not_implemented', 'The source material gate is not implemented in the TypeScript apply runtime');
+            if (contributions.requireArrivalMapMaterial) {
+                const current = graph.handle(graph.scene(string(transaction.world.active_scene)));
+                for (const effect of effects.filter(isJsonObject).filter(effect => effect.kind === 'move')) {
+                    const to = effect.to, destination = typeof to === 'string' ? graph.find(to, ['scene']) : null;
+                    if (destination && graph.handle(destination) !== current)
+                        await contributions.requireArrivalMapMaterial(graph, destination);
+                }
+            }
             if (!Object.hasOwn(transaction.world, 'scene_trail')) {
                 const repaired = await writer.transaction(params, { preload: false });
                 Object.assign(transaction.world, repaired.world);

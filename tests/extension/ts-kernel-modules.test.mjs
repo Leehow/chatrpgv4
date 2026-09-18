@@ -17,7 +17,7 @@ await mkdir(evidenceRoot, { recursive: true });
 const evidence = await mkdtemp(join(evidenceRoot, 'direct-'));
 const exports = [
   ['json', ['parsePythonJson', 'pythonJsonDumps', 'canonicalJson']],
-  ['modules/visual', ['checkDraft', 'checkReview', 'requiredViewPages', 'assembleVisual']],
+  ['modules/visual', ['checkDraft', 'checkReview', 'requiredViewPages', 'assembleVisual', 'attachMapCandidates']],
   ['write/source', ['openingReport', 'startSceneCandidates', 'assetRegistry']],
   ['read/module-graph', ['ModuleGraph']],
   ['read/thread', ['threadSection']],
@@ -237,6 +237,22 @@ test('a PDF map demand emits a bounded material-pending descriptor with candidat
       purpose: 'detail', material: 'map', focus: 'Farm', pages: [17, 23],
       question: 'Identify the source-backed map material needed to orient investigators at Farm; extract only independently revealable map regions and safe place correspondence.',
     });
+    return true;
+  });
+  await reading.close();
+});
+
+test('an indexed map candidate marks its scene and first arrival requests reviewed map material', async () => {
+  const meta={id:'book-1',title:'Book',source:'pdf',reading:{materials:[],map_candidates:[{name:'Map of the Dock',focus:'Dock',pages:[9,7]}]}};
+  const filled=api.checkDraft(clone(base),packet,contract,new Set([1]));
+  const raw=api.assembleVisual(null,filled,meta,contract),scene=raw.nodes.find(node=>node.node_id==='scene-dock');
+  assert.deepEqual(scene.properties.map_candidates,[{name:'Map of the Dock',focus:'Dock',pages:[7,9]}]);
+  const graph=new api.ModuleGraph('book-1',raw,'',contract.graph.actor_dossier);
+  const reading=new api.Reading({module:async()=>meta});
+  await assert.rejects(reading.requireArrivalMapMaterial(graph,graph.scene('Dock')),error=>{
+    assert.equal(error.details.reason,'material_pending');
+    assert.deepEqual(error.details.read,{purpose:'detail',material:'map',focus:'dock',pages:[7,9],
+      question:'Prepare the source-backed map Map of the Dock that depicts Dock; extract only independently revealable regions and safe place correspondence.'});
     return true;
   });
   await reading.close();

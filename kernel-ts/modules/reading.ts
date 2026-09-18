@@ -6,13 +6,14 @@ import { internalError, RpcError } from '../errors.js';
 import { sha256File, writeJsonAtomic } from '../fileio.js';
 import { compareUnicode, isJsonObject, jsonDigest } from '../json.js';
 import { withExclusiveLock, type LockLease } from '../locks.js';
-import type { ModuleGraph } from '../read/module-graph.js';
+import { ModuleGraph } from '../read/module-graph.js';
+import { mapsDepictingScene } from '../read/maps.js';
 import { array, clone, equal, integer, normalize, number, repr, row, sorted, string, truth, type Row } from '../read/values.js';
 import { nowIso } from '../write/store.js';
 import { validSourceLanguage, vocabulary } from './contract.js';
 import { childPath, inside, resolvedPath } from './paths.js';
 import { ModuleStore, validateModuleId } from './store.js';
-import { applyOpeningChoice, assembleVisual, checkDraft, checkReview, reject, resolveStartScene } from './visual.js';
+import { applyOpeningChoice, assembleVisual, attachMapCandidates, checkDraft, checkReview, reject, resolveStartScene } from './visual.js';
 const object = (value: any): boolean => isJsonObject(value);
 const PURPOSES = ['index', 'skeleton', 'guidance', 'opening', 'detail'];
 const uuid = (): string => randomUUID().replaceAll('-', '');
@@ -179,6 +180,28 @@ export class Reading {
         throw new RpcError('needs', `the map material for ${bounded} is not prepared`, {
             fix: 'read the required map material before retrying this unchanged look',
             details: { reason: 'material_pending', read: { purpose: 'detail', material: 'map', focus: bounded, question, ...(pages.length ? { pages } : {}) } },
+        });
+    }
+    async requireArrivalMapMaterial(graph: ModuleGraph, scene: Row): Promise<void> {
+        if (mapsDepictingScene(graph, scene).length) return;
+        const candidates = array(row(scene.properties).map_candidates);
+        if (!candidates.length) return;
+        const focus = graph.handle(scene), names = candidates.map(candidate => string(row(candidate).name)).filter(Boolean);
+        const pages = [...new Set(candidates.flatMap(candidate => array(row(candidate).pages).filter(integer).map(number)))].filter(page => page > 0).sort((a, b) => a - b);
+        if (!pages.length) return;
+        if (graph.materialOverride)
+            throw new RpcError('needs', `the pinned source has no prepared map for ${focus}`, {
+                fix: 'prepare and review the source material as an adaptation rebase before showing this map',
+                details: { reason: 'adaptation_material_missing', focus },
+            });
+        const meta = await this.store.module(graph.moduleId);
+        if (meta.source !== 'pdf') return;
+        const ready = array(meta.reading?.materials).some(material => material.material === 'map' && normalize(material.focus ?? '') === normalize(focus));
+        if (ready) return;
+        const question = `Prepare the source-backed map${names.length === 1 ? ` ${names[0]}` : names.length ? `s ${names.join(', ')}` : ''} that depicts ${graph.displayName(scene)}; extract only independently revealable regions and safe place correspondence.`;
+        throw new RpcError('needs', `the map material for ${focus} is not prepared`, {
+            fix: 'read the required map material before retrying this unchanged move',
+            details: { reason: 'material_pending', read: { purpose: 'detail', material: 'map', focus, question, pages } },
         });
     }
     async requireMaterial(graph: ModuleGraph, names: any[]): Promise<void> {
@@ -594,8 +617,9 @@ export class Reading {
         if (Object.hasOwn(draft, 'map_candidates')) {
             if (!Array.isArray(draft.map_candidates)) reject('map_candidates must be a list');
             for (const candidate of draft.map_candidates) {
-                if (!object(candidate) || typeof candidate.name !== 'string' || !candidate.name.trim() || !Array.isArray(candidate.pages) || !candidate.pages.length || candidate.pages.some((page: any) => !integer(page) || page < 1 || page > number(meta.page_count)))
-                    reject('map candidates need a name and physical page numbers in the original PDF');
+                if (!object(candidate) || typeof candidate.name !== 'string' || !candidate.name.trim() || typeof candidate.focus !== 'string' || !candidate.focus.trim()
+                    || !Array.isArray(candidate.pages) || !candidate.pages.length || candidate.pages.some((page: any) => !integer(page) || page < 1 || page > number(meta.page_count)))
+                    reject('map candidates need a name, exact place focus and physical page numbers in the original PDF');
             }
         }
         if (!seen.size)
@@ -637,7 +661,10 @@ export class Reading {
         await writeJsonAtomic(indexPath, sections.sort((a, b) => minPage(a) - minPage(b) || compareUnicode(a.name, b.name)));
         meta.index_file = relative(await resolvedPath(this.store.moduleDir(mid)), indexPath);
         if (Array.isArray(draft.map_candidates))
-            meta.reading.map_candidates = draft.map_candidates.map((candidate: Row) => ({ name: candidate.name.trim(), pages: [...new Set(candidate.pages.map(number))].sort((a: unknown, b: unknown) => number(a) - number(b)), ...(typeof candidate.focus === 'string' && candidate.focus.trim() ? { focus: candidate.focus.trim() } : {}) }));
+            meta.reading.map_candidates = draft.map_candidates.map((candidate: Row) => ({ name: candidate.name.trim(), focus: candidate.focus.trim(), pages: [...new Set(candidate.pages.map(number))].sort((a: unknown, b: unknown) => number(a) - number(b)) }));
+        const graph = await this.store.readGraph(mid);
+        if (graph && attachMapCandidates(graph, array(meta.reading.map_candidates), mid))
+            await this.store.writeGraph(meta, graph);
         if (seen.has(1) && typeof draft.title === 'string' && draft.title.trim())
             meta.title = draft.title.trim();
         if (seen.has(1) && typeof draft.language === 'string' && draft.language.trim())

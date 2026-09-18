@@ -144,6 +144,7 @@ export function createModuleRuntime(context: KernelContext) {
             : (await owner(graph.sourceCampaign, graph.moduleId)).reading.queueAdjacentReading(graph, scene),
         requireMaterial: async (graph: ModuleGraph, names: any[]) => (await owner(graph.sourceCampaign, graph.moduleId)).reading.requireMaterial(graph, names),
         requireMapMaterial: async (graph: ModuleGraph, params: Row) => (await owner(graph.sourceCampaign, graph.moduleId)).reading.requireMapMaterial(graph, params),
+        requireArrivalMapMaterial: async (graph: ModuleGraph, scene: Row) => (await owner(graph.sourceCampaign, graph.moduleId)).reading.requireArrivalMapMaterial(graph, scene),
     });
     return Object.freeze({ handlers, source, close: async () => {
         closed = true;

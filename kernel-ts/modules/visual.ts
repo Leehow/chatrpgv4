@@ -137,6 +137,16 @@ export function checkDraft(draft: any, packet: Row, contract: ModuleContract, se
         if (array(node.aliases).some(alias => typeof alias !== 'string'))
             reject('aliases must contain names');
         const props = row(node.properties);
+        if (Object.hasOwn(props, 'map_candidates')) {
+            if (kind !== 'scene' || !Array.isArray(props.map_candidates) || !props.map_candidates.length)
+                reject('map_candidates belongs to a scene and must not be empty', `/nodes/${i}/properties/map_candidates`);
+            for (const [n, value] of props.map_candidates.entries()) {
+                const candidate = row(value);
+                if (typeof candidate.name !== 'string' || !candidate.name.trim() || typeof candidate.focus !== 'string' || !candidate.focus.trim()
+                    || !Array.isArray(candidate.pages) || !candidate.pages.length || candidate.pages.some(page => !integer(page) || page < 1 || page > count))
+                    reject('a scene map candidate needs name, exact place focus and physical page numbers', `/nodes/${i}/properties/map_candidates/${n}`);
+            }
+        }
         if (['asset', 'handout'].includes(kind) && Object.hasOwn(props, 'asset_ref')) {
             const prior = row(array(packet.known_nodes).find(n => n.node_id === id));
             if (!equal(props.asset_ref, row(prior.properties).asset_ref ?? null))
@@ -201,7 +211,7 @@ export function checkDraft(draft: any, packet: Row, contract: ModuleContract, se
     for (const path of required)
         pointer(draft, path);
     for (const [i, node] of nodes.entries()) {
-        for (const path of numericPaths(Object.fromEntries(entries(node.properties).filter(([key]) => key !== 'image_sources')), `/nodes/${i}/properties`))
+        for (const path of numericPaths(Object.fromEntries(entries(node.properties).filter(([key]) => !['image_sources', 'map_candidates'].includes(key))), `/nodes/${i}/properties`))
             required.add(path);
         if (filled.ready_nodes.includes(node.node_id) || packet.purpose === 'guidance')
             required.add(`/nodes/${i}`);
@@ -337,6 +347,7 @@ export function assembleVisual(previous: Row | null, filled: Row, meta: Row, con
                 }
             }
     }
+    attachMapCandidates(graph, array(row(meta.reading).map_candidates), meta.id);
     const view = new ModuleGraph(meta.id, graph, '', row(contract.graph.actor_dossier));
     for (const node of nodes.values()) {
         if (node.node_kind !== 'scene')
@@ -365,6 +376,26 @@ export function assembleVisual(previous: Row | null, filled: Row, meta: Row, con
     if (truth(row(meta.opening_choice).start_scene))
         applyOpeningChoice(graph, meta.opening_choice.start_scene, contract);
     return graph;
+}
+
+/** Index navigation marks scenes that have a source map without authorizing any pixels or regions. */
+export function attachMapCandidates(graph: Row, candidates: Row[], moduleId = 'module'): boolean {
+    if (!Array.isArray(graph.nodes) || !candidates.length) return false;
+    const view = new ModuleGraph(moduleId, graph, '', {});
+    let changed = false;
+    for (const raw of candidates) {
+        const candidate = row(raw), name = string(candidate.name).trim(), focus = string(candidate.focus).trim();
+        const pages = [...new Set(array(candidate.pages).filter(integer).map(number))].filter(page => page > 0).sort((a, b) => a - b);
+        if (!name || !focus || !pages.length) continue;
+        const scene = view.find(focus, ['scene']);
+        if (!scene) continue;
+        scene.properties ??= {};
+        const marker = { name, focus, pages }, existing = array(row(scene.properties).map_candidates);
+        if (existing.some(value => equal(value, marker))) continue;
+        scene.properties.map_candidates = [...existing, marker];
+        changed = true;
+    }
+    return changed;
 }
 
 /** Host first-batch check reuses the kernel's scene identity; publication remains authoritative. */
