@@ -119,6 +119,20 @@ def test_the_packet_carries_the_investigator_the_mask_has_to_fit(kernel):
     assert job(kernel)["investigator"] == {"sex": sheet["sex"], "address": "汤米"}
 
 
+def test_the_packet_carries_what_is_visible_of_the_listener(kernel):
+    """§119: a mask written for someone the speaker has not met names what it can see -- and invents nothing
+    when the sheet says nothing."""
+    on(kernel)
+    path = campaign_dir(kernel.workspace) / "party" / f"{PREGEN}.json"
+    sheet = read_json(path)
+    assert "appearance" not in job(kernel)["investigator"], "nothing written, nothing invented"
+    written = "机车皮夹克，墨镜，一头中长黑发。"
+    sheet["backstory"]["personal_description"] = written * 30
+    path.write_text(json.dumps(sheet, ensure_ascii=False), encoding="utf-8")
+    appearance = job(kernel)["investigator"]["appearance"]
+    assert len(appearance) == 200 and appearance == (written * 30)[:200]
+
+
 def test_a_packet_with_nothing_to_say_about_the_listener_carries_no_investigator(kernel):
     """§118: absent is absent. A sheet with no `sex` and no §79 record yet leaves the mask's writer with no
     listener facts at all, and the packet says nothing rather than filling the blank in."""

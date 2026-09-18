@@ -8,9 +8,9 @@ import { isJsonObject, jsonDigest } from '../json.js';
 import { CampaignWriter, nowIso } from '../write/store.js';
 import { ModuleGraph, recordOf } from '../read/module-graph.js';
 import { readNpcLedger } from '../write/contributions.js';
-import { personRecord } from '../read/capsule.js';
+import { personRecord, APPEARANCE_CHARS } from '../read/capsule.js';
 import { FAILURE_REASONS, committedRecords } from '../memory/jobs.js';
-import { array, clone, entries, integer, number, repr, row, string, truth, type Row } from '../read/values.js';
+import { array, chars, clone, entries, integer, number, repr, row, string, truth, type Row } from '../read/values.js';
 export const MOD = 'npc-voice';
 export const MASK_KEY = 'voice_mask';
 export const EXCHANGES_KEY = 'exchanges';
@@ -34,7 +34,8 @@ const INSTRUCTION = 'Write how this person is heard, in the play language. First
     'never an aphorism. Same thought, two mouths: mocking messy hair, a coarse labourer swears at it and a respectable man ' +
     'asks whether that is a hen coop on your head. The book\'s voice, if given, governs. The investigator block, when the packet carries one, ' +
     'is who this person is talking to: the mask\'s address terms must fit it, never contradict the sex given, use a given address and invent no other, ' +
-    'and where those facts do not settle your language\'s form use wording that fits anyone. Differ from taken_masks by the ending habit, not by another ' +
+    'and an address term may come from what is visible -- what they wear, carry or ride, how they look; where those facts do not settle ' +
+    'your language\'s form use wording that fits anyone. Differ from taken_masks by the ending habit, not by another ' +
     'address term. No numbers, no rules, no name of ' +
     'any other person, nothing the player has not discovered: hides is who they are, not what they say aloud. ' +
     'Answer {"voice": {"mask": "…", "exchanges": ["…", "…", "…"]}} and nothing else. ' +
@@ -126,17 +127,20 @@ export function takenMasks(graph: ModuleGraph, world: Row, node: Row): string[] 
             add(row(row(words)[MASK_KEY]).value);
     return masks.slice(0, TAKEN_MASKS);
 }
-/** Who the mask is written for (contract §118): the two facts an address term in that mask has to fit -- the
- *  sheet's free-text `sex` (§117, the value the Keeper owes) and the word this table calls them to their face
- *  (§79). The investigator the capsule's `known.investigator` carries, and never a name: a mask says how someone
+/** Who the mask is written for (contract §118, §119): the facts an address term in that mask has to fit -- the
+ *  sheet's free-text `sex` (§117, the value the Keeper owes), the word this table calls them to their face (§79),
+ *  and what can be seen of them (§119), so a person with no name for them can still be named out of what is
+ *  visible. The investigator the capsule's `known.investigator` carries, and never a name: a mask says how someone
  *  talks, and an address term built from a name is one this person has not been introduced to. */
 export async function investigatorIdentity(campaign: CampaignWriter, world: Row): Promise<Row | null> {
     const sheet = (await campaign.party())[0];
     const sex = typeof sheet?.sex === 'string' ? sheet.sex.trim() : '';
     const address = string(personRecord(world, string(sheet?.id)).address || '').trim();
-    if (!sex && !address)
+    const written = string(row(row(sheet).backstory).personal_description || '').trim();
+    const appearance = written ? chars(written, APPEARANCE_CHARS) : '';
+    if (!sex && !address && !appearance)
         return null;
-    return { ...(sex ? { sex } : {}), ...(address ? { address } : {}) };
+    return { ...(sex ? { sex } : {}), ...(address ? { address } : {}), ...(appearance ? { appearance } : {}) };
 }
 /** The closed packet: the Keeper-side dossier as present[] shows it, the person's own documents bounded, the setting. */
 export function buildPacket(campaign: CampaignWriter, graph: ModuleGraph, world: Row, node: Row, language: string, dossier: Row, instruction: string = INSTRUCTION, said: string[] = [], investigator: Row | null = null): Row {

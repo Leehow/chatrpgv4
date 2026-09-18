@@ -479,6 +479,10 @@ export function investigatorView(sheet: Row): Row {
         luck: sheet.current_luck ?? null
     };
 }
+/** The cap §119 puts on a written appearance wherever it is projected. The `known` section is budgeted by popping
+ *  its largest list and the investigator is an object, so an unbounded string here would evict clue rows instead
+ *  of itself; the voice lane's packet carries the same bounded string. */
+export const APPEARANCE_CHARS = 200;
 export function investigatorSummary(sheet: Row): Row {
     // The conditions standing on the sheet, and -- when one of them takes the action away -- the
     // sentence that says so. Turn 107 of `game-83177d61` settled `unconscious` correctly and this
@@ -497,6 +501,11 @@ export function investigatorSummary(sheet: Row): Row {
     // the strength, and the Keeper is told once, as a fact about this table, not as a fault.
     const budget = row(row(sheet.creation).budget);
     const nonStandard = budget.legal === false ? { non_standard_card: array(budget.notes).map((note: any) => typeof note === 'string' ? note : string(row(note).text)).filter(Boolean) } : {};
+    // What this table can see of them before it knows them (§119): the appearance the player wrote at setup and
+    // the card already shows, and the years on that card. The mask lane reads the same words (§118), so a person
+    // with no name for the investigator can still be given one out of what is visible.
+    const written = string(row(sheet.backstory).personal_description || '').trim();
+    const appearance = written ? chars(written, APPEARANCE_CHARS) : '', years = integer(sheet.age) ? number(sheet.age) : null;
     return {
         ...nonStandard,
         id: sheet.id ?? null,
@@ -504,6 +513,8 @@ export function investigatorSummary(sheet: Row): Row {
         occupation: sheet.occupation ?? null,
         occupation_stated: sheet.occupation_stated ?? null,
         sex: sheet.sex ?? null,
+        ...(appearance ? { appearance } : {}),
+        ...(years != null ? { age: years } : {}),
         hp: sheet.current_hp ?? null,
         san: sheet.current_san ?? null,
         mp: sheet.current_mp ?? null,

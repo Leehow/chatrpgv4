@@ -59,7 +59,7 @@ interface JobPacket {
 		deflect_lines?: unknown;
 		knowledge?: unknown;
 	};
-	investigator?: { sex?: string; address?: string };
+	investigator?: { sex?: string; address?: string; appearance?: string };
 	documents?: unknown;
 	taken_masks?: unknown;
 	budget?: { mask_chars?: number; exchanges?: number; max_chars?: number };
@@ -133,6 +133,7 @@ function investigatorBlock(packet: JobPacket): string[] {
 	const facts = [
 		...(typeof who.sex === "string" && who.sex.trim() ? [`sex: ${who.sex.trim()}`] : []),
 		...(typeof who.address === "string" && who.address.trim() ? [`addressed as: ${who.address.trim()}`] : []),
+		...(typeof who.appearance === "string" && who.appearance.trim() ? [`looks like: ${who.appearance.trim()}`] : []),
 	];
 	return facts.length ? [`[The investigator this person is talking to] ${facts.join(" | ")}`, ""] : [];
 }

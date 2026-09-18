@@ -1,6 +1,6 @@
 import json
 
-from conftest import narrate, OPENING_SCENE, PREGEN, open_turn
+from conftest import narrate, OPENING_SCENE, PREGEN, campaign_dir, open_turn, read_json
 
 BUDGETS = {"where": 4096, "present": 3072, "known": 3072, "recent": 2048}
 
@@ -53,6 +53,8 @@ def test_player_input_capsule_has_all_sections(kernel):
     investigator = known["investigator"]
     assert investigator["id"] == PREGEN
     assert investigator["sex"] == "M", "the keeper reads the sheet's sex, never a guess from the name"
+    assert investigator["age"] == 34
+    assert "appearance" not in investigator, "this pregen writes no description and the capsule invents none"
     assert {"name": "Spot Hidden", "value": 55} in investigator["skills_of_note"]
 
     assert capsule["recent"] == [{"turn": 0, "player": None, "keeper": "开场。\n\n诺特把钥匙拍在桌上。", "closed": "explicit", "receipts": 0}]
@@ -64,6 +66,28 @@ def test_player_input_capsule_has_all_sections(kernel):
     refreshed = kernel.table("capsule")
     assert refreshed.pop("_context") == result["_context"]
     assert refreshed == capsule
+
+
+def test_the_appearance_the_player_wrote_reaches_the_keeper_bounded(kernel):
+    """§119: the first thing anyone says to a stranger is about what the stranger looks like, and no name has
+    been said yet. The description the player writes at setup never reached the keeper at all."""
+    open_turn(kernel)
+    path = campaign_dir(kernel.workspace) / "party" / f"{PREGEN}.json"
+    sheet = read_json(path)
+    written = "瘦高个，穿一件洗白的风衣，右手总插在口袋里。"
+    sheet["backstory"]["personal_description"] = written
+    path.write_text(json.dumps(sheet, ensure_ascii=False), encoding="utf-8")
+    assert kernel.table("capsule")["known"]["investigator"]["appearance"] == written
+    # `known` is budgeted by popping its largest list and the investigator is an object, so the written
+    # appearance is cut rather than left able to evict clue rows: the rows are still there with a
+    # maximum-length description on the sheet.
+    rows = [c["name"] for c in kernel.table("capsule")["known"]["clues_here"]]
+    sheet["backstory"]["personal_description"] = written * 20
+    path.write_text(json.dumps(sheet, ensure_ascii=False), encoding="utf-8")
+    known = kernel.table("capsule")["known"]
+    appearance = known["investigator"]["appearance"]
+    assert len(appearance) == 200 and appearance == (written * 20)[:200]
+    assert size(known) <= BUDGETS["known"] and [c["name"] for c in known["clues_here"]] == rows
 
 
 def test_look_focus_variants(kernel):

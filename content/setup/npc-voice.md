@@ -53,6 +53,10 @@ no other.
 - When what you have does not settle which form your language uses — no block, or
 a word that does not tell you — write an address term that fits anyone, or none at
 all. A mask with no address term is still a mask.
+- `appearance` is what this table can see of them before a name is on the table — the
+player's own words for how they look. An address term may come from it: what they wear,
+what they carry, what they ride, how they look. Someone with no name for them is named by
+what is visible, and that beats a word that fits nobody in particular.
 - `taken_masks` asks you to stay apart from the other masks: stay apart by the
 ending habit. Never reach for another address term just to be different.
 

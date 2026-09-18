@@ -13744,3 +13744,36 @@ sentence: it is that person's voice for the rest of the table.
 Acceptance: `voice.job`'s closed packet carries `investigator` with the sheet's `sex` and the table's `address`,
 and nothing that names them; the lane's own prompt renders it; the instruction forbids an address term the
 listener's own facts do not support; the closed-packet test names the new field.
+
+## 119. The table can see the investigator before it knows their name (2026-09-18, amends §40.7 and §118)
+
+The first thing anyone says to a stranger is about what the stranger looks like — 「嘿，开摩托车的！」
+「那个穿皮衣的小妞」 — and the capsule gave the Keeper none of it. `investigatorSummary` carried name,
+occupation, sex, the rule-side numbers and a top-eight of skills; `backstory.personal_description`, the appearance
+this product requires the player to write and shows on their own card, never reached the table at all. It was
+reachable through `look focus investigator` and nothing in a turn asks for that call. In campaign `game-ca56ce50`
+the opening described the investigator out of the player's own line back at them (皮衣、哈雷、半箱油 came from
+"我把头盔挂在车把上，靠着哈雷点了根烟", not from the sheet) because that was the only appearance in the room —
+and §118's mask, with no looks to work from, named the listener by a word that fits nobody.
+
+- **`known.investigator` gains `appearance` and `age`.** `appearance` is `backstory.personal_description`, the
+  player's own words in the play language, cut to 200 characters (`chars`, rune-safe). The bound is not decoration:
+  the `known` section is budgeted by popping its largest list and the investigator is an object, so an unbounded
+  string here would evict clue rows instead of itself. Absent when the sheet has none (a card from the legacy
+  one-shot path may carry no description). `age` is the sheet's own number, on the card the player sees.
+- **The `head` says what it is for**, because a field nobody is told about is a field nobody uses (§31): a person
+  who has not been introduced can be addressed by what is visible — the coat, the gun, the motorcycle — instead
+  of a name nobody has said.
+- **§118's packet carries the same fact.** `investigator.appearance` rides beside `sex` and `address` (same 200
+  characters), so the standing mask a person wears all campaign can be written from what is visible —
+  「管外来人叫开摩托车的」 — instead of from a term that fits nobody in particular. §118's rules are unchanged:
+  no name travels, and no address term may contradict the listener's own facts.
+- **What this does not do.** It does not project the equipment list or the `APP` number: the gear is a nameable
+  fact about the investigator and stays one `look focus investigator` away, and a number in the Keeper's prose is
+  what the mechanisms rule forbids. The appearance is the sheet's, so it does not change when the fiction changes
+  their clothes; a scene that dresses them differently is the Keeper's prose, and it is already the authority on
+  what is in front of them this turn.
+
+Acceptance: a sheet with a description shows it bounded to 200 characters in `known.investigator.appearance`, a
+sheet without one carries no key; `age` rides with it; the packet carries the same bounded string; the lane's
+prompt renders it; the `head` names it.

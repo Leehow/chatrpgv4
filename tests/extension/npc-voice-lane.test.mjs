@@ -34,7 +34,7 @@ function packet(handle) {
 			knowledge: ["the cellar door sticks"],
 		},
 		documents: ["A rent book in his own hand."],
-		investigator: { sex: "女", address: "薇姐" },
+		investigator: { sex: "女", address: "薇姐", appearance: "黑色机车皮夹克，墨镜。" },
 		taken_masks: ["自称鄙人，句尾带「这个嘛」。"],
 		budget: { mask_chars: 200, exchanges: 3, max_chars: 200 },
 		instruction: "Write how this person is heard: a mask of one line, then three exchanges.",
@@ -142,7 +142,7 @@ test("a committed turn drains the queue, one job per person, on a closed packet 
 	assert.match(inputText(seen), /\[Person\] Steven Knott/);
 	assert.match(inputText(seen), /\[Hides\] he knows what walks under the house/);
 	assert.match(inputText(seen), /\[Coarse language\] on/);
-	assert.match(inputText(seen), /\[The investigator this person is talking to\] sex: 女 \| addressed as: 薇姐/);
+	assert.match(inputText(seen), /\[The investigator this person is talking to\] sex: 女 \| addressed as: 薇姐 \| looks like: 黑色机车皮夹克，墨镜。/);
 	assert.ok(!inputText(seen).includes("voice:camp:"), "the model never reads the job id");
 	assert.ok(!seen.systemPrompt.includes("voice:camp:"));
 	assert.deepEqual(table.rows().map(row => [row.npc, row.ok, row.model]), [

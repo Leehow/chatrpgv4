@@ -92,6 +92,8 @@ test("the lane instruction is authored in English and asks for exactly the shape
   // §118: the mask is written for a listener, and an address term in it must fit that listener.
   assert.match(instruction, /## Who they are talking to/);
   assert.match(instruction, /Never invent one that contradicts/);
+  // §119: the mask may name what is visible when nobody has said a name yet.
+  assert.match(instruction, /`appearance` is what this table can see of them/);
 });
 
 /**
