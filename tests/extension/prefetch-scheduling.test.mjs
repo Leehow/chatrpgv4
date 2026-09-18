@@ -75,7 +75,9 @@ test('real TS leases allow two background focuses while preserving one foregroun
  await request(clients[2],'Needed',true);const needed=await claim(clients[2]);assert.equal(needed.focus,'Needed');
  await finish(clients[0],a);const c=await claim(clients[0]);assert.equal(c.focus,'C','background failure does not suspend unrelated queue work');
  await finish(clients[2],needed);const promoted=await request(clients[2],'B',true);assert.equal(promoted.job_id,b.job_id);
- await request(clients[2],'B',true,'A different question');assert.equal((await claim(clients[2])).job_id,null,'same-focus work cannot race publication');
+ await request(clients[2],'B',true,'A different question');
+ const indexing=await claim(clients[2]);assert.equal(indexing.purpose,'index','only unrelated automatic indexing may use the free background slot');
+ await finish(clients[2],indexing);
  await request(clients[2],'E');const e=await claim(clients[2]);assert.equal(e.focus,'E','promotion frees a background slot without duplicating the original job');
 });
 
@@ -99,7 +101,7 @@ test('a foreground reading nobody waits on gives its lease back to the read the 
  await request('Bar Cordano',true);
  const left=await claim();assert.equal(left.focus,'Bar Cordano');
  await request('museo-de-arqueologia',true);
- assert.equal((await claim()).job_id,null,'the running foreground read holds the only foreground lease');
+ const indexing=await claim();assert.equal(indexing.purpose,'index','the running foreground read leaves only the automatic background index claimable');
  assert.deepEqual(await client.call('module.read.unwait',{module_id,job_id:left.job_id}),{job_id:left.job_id,foreground:false});
  const here=await claim();
  assert.equal(here.focus,'museo-de-arqueologia','the read the table is blocked on takes the freed foreground lease');
