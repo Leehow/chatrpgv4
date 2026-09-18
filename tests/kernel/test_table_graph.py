@@ -7,13 +7,15 @@ same bytes of history."""
 
 from __future__ import annotations
 
+import json
+import shutil
 import subprocess
 from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
 
-from conftest import CAMPAIGN, RpcClient, campaign_dir, narrate, narrate_opening, read_json, repo_dir
+from conftest import CAMPAIGN, CONTENT_DIR, RpcClient, campaign_dir, narrate, narrate_opening, read_json, repo_dir
 from rpc_support import snapshot
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -134,6 +136,68 @@ def test_turn_nodes_clock_and_projection(client: RpcClient):
     for node in result["nodes"]:
         for parent in node["parents"]:
             assert order.index(node["sha"]) < order.index(parent)
+
+
+@pytest.fixture(params=[None, "23:30"])
+def undated_client(tmp_path: Path, request):
+    content = tmp_path / "content"
+    shutil.copytree(CONTENT_DIR, content)
+
+    def remove_date(value):
+        if isinstance(value, dict):
+            if "start_clock" in value:
+                value.pop("start_clock")
+                value.pop("start_time", None)
+                if request.param is not None:
+                    value["start_time"] = request.param
+            for child in value.values():
+                remove_date(child)
+        elif isinstance(value, list):
+            for child in value:
+                remove_date(child)
+
+    path = content / "starters/the-haunting/module-graph.json"
+    data = json.loads(path.read_text())
+    remove_date(data)
+    path.write_text(json.dumps(data))
+    session = RpcClient(tmp_path / "ws", content=content, command=TS_COMMAND)
+    yield session, request.param
+    session.close()
+
+
+def test_undated_nodes_share_the_view_day_clock(undated_client):
+    client, start_time = undated_client
+    play(client, 0)
+    client.table("player_input", text="I wait for a while.")
+    client.table("apply", call_id="t1-c1", effects=[{"kind": "time", "minutes": 90}])
+    narrate(client, "t1-c2", "The wait ends.")
+    clock = client.table("view")["clock"]
+    node = next(node for node in graph(client)["nodes"] if node["turn"] == 1)
+    assert node["clock"] == clock["minutes"] == 90
+    expected = {"day": 1, "hh": 10, "mm": 30} if start_time is None else {"day": 2, "hh": 1, "mm": 0}
+    assert node["when"] == expected
+    assert node["when"] == {key: int(clock[key]) for key in ("day", "hh", "mm")}
+
+
+def test_pinned_nodes_use_their_own_committed_anchor(undated_client):
+    client, start_time = undated_client
+    play(client, 0)
+    before = by_sha(graph(client))
+    client.table("player_input", text="I wait for a while.")
+    client.table("apply", call_id="t1-c1", effects=[
+        {"kind": "clock", "local_datetime": f"1975-07-12T{start_time or '09:00'}",
+         "why": "The opening date is now established."},
+        {"kind": "time", "minutes": 90},
+    ])
+    narrate(client, "t1-c2", "The wait ends on the established date.")
+    nodes = by_sha(graph(client))
+    node = next(node for node in nodes.values() if node["turn"] == 1)
+    at = datetime.fromisoformat(client.table("view")["clock"]["at"])
+    assert node["clock"] == 90
+    expected = {"y": 1975, "mo": 7, "d": 12, "hh": 10, "mm": 30} if start_time is None else {"y": 1975, "mo": 7, "d": 13, "hh": 1, "mm": 0}
+    assert node["when"] == expected
+    assert node["when"] == {"y": at.year, "mo": at.month, "d": at.day, "hh": at.hour, "mm": at.minute}
+    assert all(nodes[sha]["when"] == old["when"] for sha, old in before.items())
 
 
 # ---- a forked line: registry forked_from, fork edges through parents, tips on both lines ------

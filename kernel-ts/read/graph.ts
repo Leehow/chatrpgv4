@@ -56,9 +56,11 @@ async function commitWalk(context: KernelContext, campaign: string): Promise<{ t
     return { tips, commits };
 }
 
+type WorldClock = Row & { minutes: number };
+
 /** One cat-file --batch for every kept commit's world.json; one git show per node would not scale. */
-async function batchWorldClocks(context: KernelContext, campaign: string, shas: readonly string[]): Promise<Map<string, number | null>> {
-    const result = new Map<string, number | null>();
+async function batchWorldClocks(context: KernelContext, campaign: string, shas: readonly string[]): Promise<Map<string, WorldClock | null>> {
+    const result = new Map<string, WorldClock | null>();
     if (!shas.length)
         return result;
     const batch = await context.git.runInput(campaign, ["cat-file", "--batch"], shas.map(sha => `${sha}:world.json\n`).join(""));
@@ -69,7 +71,7 @@ async function batchWorldClocks(context: KernelContext, campaign: string, shas: 
     const bytes = Buffer.from(batch.stdout, "utf8");
     let offset = 0;
     for (const sha of shas) {
-        let clock: number | null = null;
+        let clock: WorldClock | null = null;
         const headerEnd = bytes.indexOf(0x0a, offset);
         if (headerEnd >= 0) {
             const header = bytes.subarray(offset, headerEnd).toString("ascii");
@@ -78,9 +80,9 @@ async function batchWorldClocks(context: KernelContext, campaign: string, shas: 
                 const size = Number(match[1]), start = headerEnd + 1;
                 try {
                     const world = JSON.parse(bytes.subarray(start, start + size).toString("utf8"));
-                    const minutes = row(world.clock).minutes;
+                    const saved = row(world.clock), minutes = saved.minutes;
                     if (typeof minutes === "number" && Number.isFinite(minutes))
-                        clock = Math.trunc(minutes);
+                        clock = { ...saved, minutes: Math.trunc(minutes) };
                 }
                 catch { /* An unreadable snapshot falls back to the parent clock below. */ }
                 offset = start + size + 1;
@@ -125,12 +127,15 @@ function classify(commits: readonly RawCommit[]): Map<string, { kind: string; tu
 }
 
 /** The same projection the capsule and table.view use (clockSection); no panel-side clock math. */
-function whenOf(graph: ModuleGraph | null, minutes: number): Row | null {
+function whenOf(graph: ModuleGraph | null, clock: WorldClock): Row | null {
     if (!graph)
         return null;
-    const at = clockSection(graph, { clock: { minutes } }).at;
+    const reading = clockSection(graph, { clock }), at = reading.at;
     const match = typeof at === "string" ? /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(at) : null;
-    return match ? { y: Number(match[1]), mo: Number(match[2]), d: Number(match[3]), hh: Number(match[4]), mm: Number(match[5]) } : null;
+    if (match)
+        return { y: Number(match[1]), mo: Number(match[2]), d: Number(match[3]), hh: Number(match[4]), mm: Number(match[5]) };
+    return reading.day != null && reading.hh != null && reading.mm != null
+        ? { day: Number(reading.day), hh: Number(reading.hh), mm: Number(reading.mm) } : null;
 }
 
 function graphLines(meta: Row): { active: string; lines: Row[] } {
@@ -175,20 +180,20 @@ export async function tableGraph(context: KernelContext, params: Row): Promise<R
             }
         }
     const clocks = await batchWorldClocks(context, campaign.id, kept.map(commit => commit.sha)),
-        resolved = new Map<string, number>();
-    const clockOf = (commit: RawCommit): number => {
+        resolved = new Map<string, WorldClock>();
+    const clockOf = (commit: RawCommit): WorldClock => {
         const cached = resolved.get(commit.sha);
         if (cached !== undefined)
             return cached;
         const own = clocks.get(commit.sha);
-        let value: number;
+        let value: WorldClock;
         if (own != null)
             value = own;
         else {
             // A commit without a readable world snapshot inherits the newest clock its parents knew.
-            resolved.set(commit.sha, 0); // commits form a DAG; the placeholder only guards pathological cycles
+            resolved.set(commit.sha, { minutes: 0 }); // commits form a DAG; the placeholder only guards pathological cycles
             const inherited = commit.parents.map(sha => bySha.get(sha)).filter((parent): parent is RawCommit => Boolean(parent)).map(clockOf);
-            value = inherited.length ? Math.max(...inherited) : 0;
+            value = inherited.length ? inherited.reduce((latest, next) => next.minutes > latest.minutes ? next : latest) : { minutes: 0 };
         }
         resolved.set(commit.sha, value);
         return value;
@@ -198,7 +203,7 @@ export async function tableGraph(context: KernelContext, params: Row): Promise<R
     const nodes = kept.map(commit => {
         const { kind, turn } = kinds.get(commit.sha)!, clock = clockOf(commit);
         return {
-            sha: commit.sha, turn, clock, when: whenOf(graph, clock), kind,
+            sha: commit.sha, turn, clock: clock.minutes, when: whenOf(graph, clock), kind,
             title: turn != null ? commit.subject.replace(TURN_SUBJECT, "").trim() : commit.subject,
             at: commit.at, parents: [...commit.parents], tip_of: tips.get(commit.sha) ?? []
         };

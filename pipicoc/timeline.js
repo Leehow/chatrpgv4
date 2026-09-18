@@ -394,7 +394,7 @@ export function layoutGraph(payload) {
     const node = ordered.find(n => n.clock === clock && isRecord(n.when));
     if (!node) continue;
     const y = clockY.get(clock);
-    if (!band || y - band.y >= 160 || JSON.stringify([node.when.y,node.when.mo,node.when.d]) !== JSON.stringify([band.when.y,band.when.mo,band.when.d])) {
+    if (!band || y - band.y >= 160 || JSON.stringify([node.when.y,node.when.mo,node.when.d,node.when.day]) !== JSON.stringify([band.when.y,band.when.mo,band.when.d,band.when.day])) {
       band = {y,when:node.when,end:node.when};
       rulerRows.push(band);
     } else band.end = node.when;
@@ -468,10 +468,16 @@ export function createComponent(React) {
     const ui = (isRecord(answer) && isRecord(answer.ui) && answer.ui) || lastUi;
     const t = (key, fallback) => word(ui, "timeline", key, fallback);
     const said = (failure) => word(ui, "errors", failure.code, word(ui, "errors", "unknown"));
-    /* A module that never declared when its story opens projects `when: null` (§13.10: the
-       kernel does not guess). The caption then stays unsaid -- a raw `{y}/{mo}` pattern is the
-       template, never a reading the player should see. */
-    const atTime = (when) => (isRecord(when) ? fill(t("at"), whenValues(when)) : null);
+    // Calendar and day-clock readings share the sheet's projection and words; no date is guessed.
+    const atTime = (when) => {
+      if (!isRecord(when)) return null;
+      if (when.y != null) return fill(t("at"), whenValues(when));
+      if (when.day != null && when.hh != null && when.mm != null)
+        return fill(word(ui, "sheet", "day.clock"), {
+          d: when.day, hh: String(when.hh).padStart(2, "0"), mm: String(when.mm).padStart(2, "0"),
+        });
+      return null;
+    };
 
     const graph = useMemo(
       () => (answer && answer.status !== "unbound" ? layoutGraph(answer) : null),
