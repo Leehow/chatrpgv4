@@ -51,9 +51,9 @@ adds `coc.mods` and host-only `mods.list/install/defaults/configure` invoke hand
 These handlers always use the explicitly bound campaign. The Mods runtime and game
 effects remain usable without the UI mount.
 
-`package.json` 的 `pi` 字段只声明 `extensions`，七个：`mods`（Mod 任务与交付前检查）、`kernel`（内核子进程与七个动词、校验车道）、`onboarding`（建卡的一个 `setup` 工具，只在 setup 模式注册）、`module`（无人值守构建与按需深读，两个模式都不注册工具）、`memory`（记忆抽取车道）、`table`（桌况显示、`/coc` 命令面、COC 自己的上下文折叠——契约 §19，见第 3.5 节；这三件都只在 play 模式注册）、`deepseek`（DeepSeek Extended provider 扩展，从 PipiUI 上游移植，注册在最后；不注册任何工具，只调 `registerProvider` 挂载 `deepseek-extended`（`openai-responses`，hosted `web_search`）并挂一个 `before_provider_request` 钩子）。加载顺序有意义：`kernel` 在最前，它在 `session_start` 里把内核 RPC 闭包发上总线，后面几个扩展的 `session_start` 才拿得到（扩展的 `session_start` 按加载顺序串行跑）；即便如此每个扩展都在**加载时**就订阅 `coc:kernel-bridge`，两种顺序都接得住。
+`package.json` 的 `pi` 字段只声明 `extensions`：`mods`（Mod 任务与交付前检查）、`kernel`（内核子进程与七个动词、校验车道）、`onboarding`（建卡的一个 `setup` 工具，只在 setup 模式注册）、`module`（无人值守构建与按需深读，两个模式都不注册工具）、`memory`（记忆抽取车道）、`table`（桌况显示、`/coc` 命令面、COC 自己的上下文折叠——契约 §19，见第 3.5 节；这三件都只在 play 模式注册）、`npc-journal` 与 `npc-voice`（NPC 后台车道）、`thinking-schedule`（第 3.7 节的主守秘人请求档位调度）、`deepseek`、`image-gen` 与 `grok-build-oauth`（provider／图像能力，不注册 Keeper 动词）。加载顺序有意义：`kernel` 在最前，它在 `session_start` 里把内核 RPC 闭包发上总线，后面几个扩展的 `session_start` 才拿得到（扩展的 `session_start` 按加载顺序串行跑）；即便如此每个扩展都在**加载时**就订阅 `coc:kernel-bridge`，两种顺序都接得住。
 
-`extensions/lanes/` 不是扩展，是几个扩展共用的模块，只被 import，不进 `pi.extensions`：`subsession.ts`（两条车道的零工具补全）与 `host.ts`（运行模式与 JSONL 追加）。手艺文档走回合胶囊的 `style` 节，不走 Pi skills；`prompts` 目录只被启动器读取，不交给 Pi 发现。
+`extensions/lanes/` 不是扩展，是几个扩展共用的模块，只被 import，不进 `pi.extensions`：`subsession.ts`（两条车道的零工具补全）与 `host.ts`（运行模式与 JSONL 追加）。`thinking-schedule` 是 play-only 的无工具扩展，按第 3.7 节调度主守秘人的请求档位；它不改变车道。手艺文档走回合胶囊的 `style` 节，不走 Pi skills；`prompts` 目录只被启动器读取，不交给 Pi 发现。
 
 **提示词的语言（契约 §16.1）**：`prompts/keeper.md` 与 `prompts/setup.md` 是英文——系统语言是英文，`extensions/**`、`bin/*`、`prompts/**` 里不出现中日韩字符（守卫在 `tests/extension/system-language.test.mjs`）。玩家看到的字不由提示词的语言决定：守秘人提示里有一句写死的法则，要求一切玩家可见的文字用战役的 `play_language` 写。所以换玩测语言不必改这两页，只改战役的 `play_language`。
 
@@ -254,6 +254,14 @@ must be explicitly cancelled by task 3.
 
 `PI_COC_HOME` 指向包含 `.coc/` 的资料库根，默认当前目录。所有路径先归一化；不同战役共用模组资料、保持各自世界状态。OCR 凭据、抽取器和资料包命令覆盖配置已经移除。
 
+### 3.7 首次判断保留桌面思考，工具续行降到最低档
+
+一次玩家输入里的每个工具结果都会让 Pi 再发一次模型请求；同一个会话档位原本会原样带到每次请求。PipiCOC 只在 `play` 模式安装 `thinking-schedule` 扩展：`before_agent_start` 记住玩家为这张桌子选择的档位，首个模型请求照常使用它；一个完整的非交付工具批返回后，扩展调用 `pi.setThinkingLevel("off")`，由 Pi 按当前模型能力向上夹到实际可用的最低档。真正支持关闭的模型续行不再 thinking，`grok-build/grok-4.6` 因而续行在 `minimal`，只提供 `low` 的模型续行仍是 `low`，不支持 reasoning 的模型保持 `off`。省略 reasoning 字段不被当成关闭思考，也不改 provider payload。
+
+扩展在 `turn_end` 看完整 assistant 工具批，而不是在某一条工具结果到达时切档；这个事件发生在成功、被 gate 拦截、参数非法、截断与中止的结果都完成之后，也仍早于下一次 `prepareNextTurn`。因此并行批与顺序批都不会被中途结果误判。含 `narrate` 或 `ask` 的交付批不切，因为它不会购买下一次模型请求。自动重试、压缩续行和 `agent_end` 排入的续行仍属于同一次 agent prompt，保持低档。只有 `agent_settled` 才恢复本次输入开始时的档位，下一条玩家输入因此重新获得桌面档位。恢复只在当前档位仍是扩展刚设下的实际档位时发生；若外部在运行中另行改变档位，扩展不把人的新选择覆盖回去。`session_shutdown` 也做同一份有条件恢复。
+
+这只是主守秘人的请求调度：行动准入、校验、记忆、NPC journal/voice 与读者是各自的模型调用，继续遵守各车道自己的模型与 thinking 预算。切档不减少必要的 provider 往返，也不把首轮 thinking 变成可复用计划。
+
 ## 4. 我们依赖的行为，以及各自的核对方法
 
 每条都有一个测试或一次真桌回合能证明；升版后失一条就是不兼容。
@@ -289,6 +297,7 @@ must be explicitly cancelled by task 3.
 | `ctx.mode` 由运行模式在 `bindExtensions` 时给；非 `tui` 的命令降级只回一行 | `command.test.mjs`「非交互模式」：六条子命令各一行 warning，零内核调用、零遥测、模型没换 |
 | `pi.setModel(model)` 换当前会话的模型，`ctx.model` 立刻反映；provider 没配鉴权时返回 `false` 且不换 | `command.test.mjs`「/coc model」 |
 | `pi.setThinkingLevel(level)` 按模型能力夹等级，真值要 `pi.getThinkingLevel()` 读回来 | `command.test.mjs`「/coc thinking」：遥测记的是读回来的值，不是请求的值 |
+| `turn_end` 在完整工具批结束后、下一次 `prepareNextTurn` 之前发；后续工具轮重新读取 `agent.state.thinkingLevel`；`agent_settled` 等自动重试、压缩与排队续行全结束才发 | `thinking-schedule.test.mjs`：首个完整非交付工具批降到模型实际最低档，真 Pi blocked-call 续行也降档，交付批不切，settled/关闭有条件恢复 |
 | `session_before_compact` 返回 `{compaction}` 时 Pi 不叫模型；压缩条目记 `fromHook: true`，`details` 原样落盘 | `fold.test.mjs`「折叠按类型与回合距离丢」 |
 | `buildContextEntries` 只认 `firstKeptEntryId` 一个切点：之前的一切换成摘要，之后的原样留 | 同上：折叠后上下文里恰好两条玩家输入、两份胶囊、四条工具结果 |
 | `CompactionEntry.details` 原样保存扩展写的东西，下一次 `session_before_compact` 能从上一条压缩条目读回来 | `fold.test.mjs`「连着折叠两次」 |

@@ -19,6 +19,7 @@
       "./extensions/table",
       "./extensions/npc-journal",
       "./extensions/npc-voice",
+      "./extensions/thinking-schedule",
       "./extensions/deepseek",
       "./extensions/image-gen",
       "./extensions/grok-build-oauth"
