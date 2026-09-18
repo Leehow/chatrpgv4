@@ -263,6 +263,11 @@ export class Reading {
         const mid = validateModuleId(params.module_id), purpose = params.purpose;
         if (!PURPOSES.includes(purpose))
             throw new RpcError('invalid_params', `purpose must be one of ${repr(PURPOSES)}`);
+        // A repair asks the reader for one named thing on top of a completed reading (§90.3, thin-book-play B0);
+        // it is its own reading identity, so the completed one neither answers for it nor blocks it.
+        const repair = params.repair;
+        if (repair !== undefined && (repair !== 'way_on' || purpose !== 'opening'))
+            throw new RpcError('invalid_params', 'repair is way_on, and only on an opening reading');
         return this.mutex(mid, async () => {
             const meta = await this.store.module(mid);
             // A cached ready result cannot authorize consuming an altered published generation.
@@ -293,7 +298,7 @@ export class Reading {
                     return { ...result, state: 'ready', setup_ready: true, guidance_key: guidanceKey, ...accepted };
             }
             if (purpose === 'skeleton' && truth(await this.store.readGraph(mid)) ||
-                purpose === 'opening' && await this.openingReady(mid, focus) ||
+                purpose === 'opening' && !repair && await this.openingReady(mid, focus) ||
                 purpose === 'detail' && !question && await this.materialReady(mid, focus) ||
                 purpose === 'index' && truth(reading.index_complete))
                 return { ...result, state: 'ready' };
@@ -303,6 +308,8 @@ export class Reading {
             const identity: any[] = [source.file_sha256, purpose, material ?? '', normalize(focus), question, pages];
             if (purpose === 'guidance')
                 identity.push(guidanceKey);
+            if (repair)
+                identity.push('repair', repair);
             const key = jsonDigest(identity);
             if (purpose === 'detail' && array(reading.materials).some(material => material.key === key))
                 return { ...result, state: 'ready' };
@@ -326,7 +333,22 @@ export class Reading {
                 if (!truth(params.retry))
                     return { ...result, state: 'blocked', missing: [existing.detail ?? 'reading failed'], fix: 'request the same reading with retry: true' };
             }
-            const job: Row = { job_id: `read-${queue.length + 1}`, key, purpose, ...(material ? { material } : {}), focus, question, pages, foreground: truth(params.foreground), state: 'queued', attempts: 0, at: nowIso() };
+            const job: Row = { job_id: `read-${queue.length + 1}`, key, purpose, ...(material ? { material } : {}), ...(repair ? { repair } : {}), focus, question, pages, foreground: truth(params.foreground), state: 'queued', attempts: 0, at: nowIso() };
+            // The repair extends the reading it repairs: the reader starts from that draft, not from nothing.
+            if (repair && !existing) {
+                // The reading it extends is the one on this scene, or the book's own opening read with no focus.
+                const completedReading = (jobs: Row[]) => [...jobs].reverse().find(job => job.purpose === purpose && job.state === 'completed' && truth(job.work_dir) && (normalize(job.focus ?? '') === normalize(focus) || !string(job.focus ?? '').trim()));
+                let done = completedReading(queue);
+                // A campaign's fork starts with an empty queue; the reading it repairs was published in the shared library.
+                if (!done) {
+                    const libraryRoot = join(this.store.context.stateRoot, 'modules');
+                    if (libraryRoot !== this.store.root) {
+                        const library = new ModuleStore({ ...this.store.context, moduleRoot: libraryRoot });
+                        if (await library.exists(mid)) done = completedReading(await library.queue(mid));
+                    }
+                }
+                if (done) job.resume_from = done.work_dir;
+            }
             if (purpose === 'guidance')
                 for (const key of ['guidance_key', 'play_language', 'occupations'])
                     job[key] = params[key];

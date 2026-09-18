@@ -11979,6 +11979,24 @@ a scene neither has met is derived live. The completed-reading branch of
 `test_fast_guidance.py` "published ready stays ready under a later rule"; it dies
 when the snapshot read is removed.
 
+### 90.5 The connection point is the opening reading's deliverable; an installed book gets it repaired (2026-09-18, spec thin-book-play A/B0)
+
+book-4's opening reading wrote its exit as prose (`exit_conditions`) and no `route-to`, before
+this section existed; §90.4 does not re-judge an installed book, and adjacent reading follows
+exits, so that table read nothing ahead. Two rules:
+
+- **A refused reading draft is a repair round for every purpose**, not only an opening: the host
+  gives one more round with the refusal in `findings.json`. An index refusal for rows without a
+  reference names them in `details.sections` and its `fix` asks for their `source_refs` only.
+- **`setup.complete` on a visually read book whose start scene has no way on and is not an
+  ending asks for it**: `module.read.request {purpose: "opening", focus: <start>, repair: "way_on",
+  foreground: false}`. `repair` is its own reading identity (the completed opening neither answers
+  for it nor blocks it), the job carries `repair` and `resume_from` the completed opening's work,
+  the reader's brief is §90.3's own fix text, and publication still passes §90. The handoff reports
+  `reading.way_on {scene, state, job_id}`; nothing here may fail the handoff. Readiness is not
+  re-judged. Tests: `test_fast_guidance.py` (repair queued when the way on is missing, none when
+  it is there), `test_visual_reading.py` (an index refusal names its rows and the repair lands).
+
 ## 91. A review that never judged the draft does not refuse it (2026-09-17, amends §36.14 and §38.9, extends §26.1)
 
 The continuity review of §36.14 is a gate before publication, and that is the point: the player never

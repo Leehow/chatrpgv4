@@ -13,6 +13,7 @@ import type { createWriteRuntime } from '../write/index.js';
 import { type CampaignWriter, nowIso } from '../write/store.js';
 import { commit, CommitFailed } from '../write/history.js';
 import { moduleAvailable, moduleEra } from '../library/index.js';
+import { endings } from '../write/source.js';
 import { Chargen, ChargenError, ALLOCATION_POLICIES, defaultInvestigatorId, resolveRulebookEra } from './chargen.js';
 import { SetupSteps } from './steps.js';
 import { SetupDrafts } from './drafts.js';
@@ -66,6 +67,23 @@ export class Setup {
     state.default_rulebook_era = await this.tables.defaultFinancePeriod();
     state.start_scene = meta.opening_scene ?? null; state.waiting_for_opening = truth(row(meta.setup).waiting_for_opening);
     return {...table, completed: ordered, state};
+  }
+  /**
+   * The connection point is the opening reading's deliverable (spec thin-book-play B0). A book installed
+   * before the way_on rule (§90) may start in a scene with no way on: adjacent reading follows exits, so
+   * such a table reads nothing ahead and sits in its first scene. This asks the reader, in the background,
+   * for exactly the one edge §90.3 names; readiness is not re-judged (§90.4). Nothing here may fail the handoff.
+   */
+  private async wayOnRepair(moduleId: string, campaignId: string, focus: unknown): Promise<Row | null> {
+    try {
+      const graph = (await loadModule(this.context, moduleId, campaignId)).graph;
+      const start = truth(focus) ? graph.scene(string(focus)) : graph.startScene();
+      if (graph.sceneExits(start).length || endings(graph.raw).ids.includes(string(start.node_id))) return null;
+      const reply = await this.writer.requestReading({module_id: moduleId, campaign: campaignId, purpose: 'opening', focus: graph.handle(start), repair: 'way_on', foreground: false});
+      return {way_on: {scene: string(start.node_id), state: reply.state ?? null, job_id: reply.job_id ?? null}};
+    } catch (error) {
+      return {way_on: {error: error instanceof Error ? error.message : String(error)}};
+    }
   }
   occupations(): Row { return {occupations: this.chargen.occupations(), source: 'content/rulesets/coc7/rules-json/occupations.json'}; }
   async investigator(params: Row): Promise<Row> {
@@ -126,8 +144,9 @@ export class Setup {
     }
     const generation = Math.trunc(number(module!.generation || 0));
     if (await this.writer.startSetupWorld(campaign, meta)) meta = await campaign.readCampaign();
+    const reading = truth(module!.reading_version) ? await this.wayOnRepair(moduleId, campaign.id, meta.opening_scene) : null;
     const handoff: Row = {receipt: 'setup:handoff', module_id: moduleId, module_generation: generation, prologue: row(meta.setup).prologue ?? null,
-      investigators: party.map(sheet => string(sheet.id)), at: nowIso(), launch: this.steps.launchLine(campaign.id)};
+      investigators: party.map(sheet => string(sheet.id)), at: nowIso(), launch: this.steps.launchLine(campaign.id), ...(reading ? {reading} : {})};
     const block: Row = {...row(meta.setup), handoff}; delete block.waiting_for_opening;
     meta.setup = block; meta.module_generation = generation; meta.status = 'ready_for_table'; await campaign.writeCampaign(meta);
     await campaign.appendEvent(0, {type: 'setup-completed', receipt: 'setup:handoff', data: {module_id: moduleId, module_generation: generation, investigators: handoff.investigators}});

@@ -57,6 +57,7 @@ def test_guidance_opens_setup_but_not_world_or_play_and_preserves_confirmation(k
     finish(kernel, ready_job)
     result = kernel.ok("setup.complete", {"campaign": "early"})
     assert result["prologue"]["opening"] == "Who are you?"
+    assert "reading" not in result, "an opening with a way on asks for no repair"
     world = json.loads((directory / "world.json").read_text())
     assert world["npc_presence"]["lena"] == "dock"
     meta = json.loads((directory / "campaign.json").read_text())
@@ -216,4 +217,10 @@ def test_an_opening_published_ready_stays_ready_under_a_later_rule(kernel, tmp_p
     kernel.ok("campaign.create", {"id": "installed", "module": mid, "guidance_key": KEY, "play_language": "en"})
     kernel.ok("setup.prologue", {"campaign": "installed", "scene": "Dock", "text": "Who are you?"})
     confirmed_investigator(kernel, "installed")
-    assert kernel.ok("setup.complete", {"campaign": "installed"})["module_id"] == mid
+    done = kernel.ok("setup.complete", {"campaign": "installed"})
+    assert done["module_id"] == mid
+    # The connection point is missing, so the handoff asks the reader for exactly that edge, in the background.
+    assert done["reading"]["way_on"]["scene"] == "scene-dock" and done["reading"]["way_on"]["state"] == "queued"
+    queue = json.loads((kernel.workspace / ".coc/module-campaigns/installed/modules" / mid / "deepen-queue.json").read_text())
+    repair = [job for job in queue if job.get("repair") == "way_on"]
+    assert len(repair) == 1 and repair[0]["purpose"] == "opening" and repair[0]["state"] == "queued" and repair[0]["resume_from"]

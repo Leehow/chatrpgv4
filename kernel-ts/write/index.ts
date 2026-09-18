@@ -111,6 +111,7 @@ export interface WriteContributions {
     openingReady?(moduleId: string, focus?: string, campaign?: string): Promise<boolean>;
     sourceGraphPath?(moduleId: string, campaign?: string): Promise<string>;
     queueAdjacentReading?(graph: ModuleGraph, scene: Row): Promise<string[]>;
+    requestReading?(params: Row): Promise<Row>;
     mods?: {
         initializeWorld(world: Row): Promise<boolean>;
         initializeCampaign(campaign: CampaignWriter, world: Row, options?: {pending?: boolean}): Promise<void>;
@@ -126,6 +127,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
     }): Promise<CampaignWriter>;
     startSetupWorld(campaign: CampaignWriter, meta: Row): Promise<boolean>;
     setupOpeningReady(moduleId: string, focus?: string, campaign?: string): Promise<boolean>;
+    requestReading(params: Row): Promise<Row>;
     sourceGraphPath(moduleId: string, campaign?: string): Promise<string>;
     transaction(params: Row, options?: {
         repairLegacyTrail?: boolean;
@@ -186,6 +188,10 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
     async function setupOpeningReady(moduleId: string, focus?: string, campaign?: string): Promise<boolean> {
         const ready = contributions.openingReady;
         return ready ? ready(moduleId, focus, campaign) : missingContribution('visual source opening');
+    }
+    async function requestReading(params: Row): Promise<Row> {
+        const request = contributions.requestReading;
+        return request ? request(params) : missingContribution('visual source reading');
     }
     async function sourceGraphPath(moduleId: string, campaign?: string): Promise<string> {
         if (contributions.sourceGraphPath) return contributions.sourceGraphPath(moduleId, campaign);
@@ -1013,6 +1019,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         campaign:openCampaign,
         startSetupWorld,
         setupOpeningReady,
+        requestReading,
         sourceGraphPath,
         handlers: Object.freeze({
             'campaign.create': create,

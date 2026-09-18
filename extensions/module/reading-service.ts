@@ -109,6 +109,8 @@ const error = (reason: string, message: string, fix: string, extra: Row = {}) =>
  * used to get the round; an index refused for rows without their contents-page reference, or a
  * detail refused on one node, ended as a failed job nobody retried, and the book stayed unread.
  */
+/** §90.3's own words: the one thing a way-on repair adds, and what it must not touch. */
+const WAY_ON_ASK = "This reading repairs one thing: the opening scene publishes no way on. Keep every node and claim already in the retained draft exactly as it is, including ready_nodes, and add only what the pages state: either the relation the book gives from this scene to the place it leads to (route-to, play-precedes, may-lead-to, alternative-to or hands-off-to) together with the target scene node the book names for it, or, when the book ends in this scene, is_final on this scene. Do not invent a destination the pages do not name, and do not remove anything.";
 function finishSemanticRejection(failure: unknown): boolean {
 	return isKernelError(failure) && failure.code === "invalid_params";
 }
@@ -567,6 +569,11 @@ export class ReadingService implements ReadingBridge {
 						readComplete = !checkpoint.requires_repair && checkpoint.job_id === job.job_id;
 					}
 				}
+				else if (job.repair && previous.purpose === job.purpose && previous.source.file_sha256 === job.source.file_sha256) {
+					// A repair extends the completed reading it repairs (§90.5): that draft is the starting point,
+					// and the whole read runs again on top of it, so nothing here marks the read complete.
+					await copyFile(join(job.resume_from, "draft.json"), join(cwd, "draft.json"));
+				}
 			} catch { /* a partial draft remains useful input, but only a host checkpoint skips reading */ }
 		}
 		let requiredMapCandidates: Row[] = [];
@@ -658,7 +665,7 @@ export class ReadingService implements ReadingBridge {
 							eventLog: join(cwd, `${phase}-${round}.jsonl`),
 							brief: phase === "index-audit"
 								? `${readerInput({task})} This is the independent map-page completeness audit of the retained PDF index. Read draft.json${round > 1 || job.resume_from ? " and findings.json" : ""}. View every physical page in task.index_audit_pages with pdf, compare each page to draft.map_candidates, and immediately add every authored map whose depicted place can be identified. Every task.required_map_candidates row must remain. Preserve existing sections and candidates; repair missing section source_refs but do not cite any page unless you viewed that full page in this audit or it is in task.index_audit_pages. If another page is needed as a reference, view it first. Do not rewrite for style. Finish only after every assigned page has been checked, then stop.`
-								: `${readerInput({task})} Your phase is ${phase}. Use page images to produce draft.json. If a draft was retained from this same interrupted request, inspect its sources and repair it instead of rewriting merely for style. ${["guidance","opening"].includes(job.purpose) ? "Use submit_reading as your sole final tool call to save/check this batch and finish without a closing reply." : ""} ${round > 1 || job.resume_from ? "Read findings.json if present and address its concrete findings." : ""}`,
+								: `${readerInput({task})} Your phase is ${phase}. ${job.repair === "way_on" ? WAY_ON_ASK + " " : ""}Use page images to produce draft.json. If a draft was retained from this same interrupted request, inspect its sources and repair it instead of rewriting merely for style. ${["guidance","opening"].includes(job.purpose) ? "Use submit_reading as your sole final tool call to save/check this batch and finish without a closing reply." : ""} ${round > 1 || job.resume_from ? "Read findings.json if present and address its concrete findings." : ""}`,
 							onEvent(event) {
 								if (event.type === "tool_execution_start" && event.toolName === "read" && event.args?.path) reads.set(event.toolCallId, resolve(cwd, event.args.path));
 								if (event.type === "tool_execution_end" && !event.isError && event.result?.content?.some((c: Row) => c.type === "image")) {

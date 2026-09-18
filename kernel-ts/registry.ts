@@ -37,6 +37,7 @@ export function createKernelRuntime(context: KernelContext): {
     const adaptations = new AdaptationJobs(context, (id, name) => modules.source.store.asset(id, name));
     const worldlines = createWorldlineRuntime(context,clockEngines);
     const writer = createWriteRuntime(context, { openingReady: modules.source.openingReady,
+        requestReading: modules.source.request,
         mods,
         worldlines,
         sourceGraphPath: modules.source.graphPath,

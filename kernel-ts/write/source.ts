@@ -42,7 +42,7 @@ function entrances(graph: Row, graphView: ModuleGraph): string[] {
         return sorted(new Set(declared.flatMap(id => scenes.filter(s => s.node_id === id || graphView.handle(s) === id).map(s => s.node_id))));
     return sorted(scenes.filter(s => row(s.properties).is_entrance === true || row(s.properties).is_start === true || recordOf(s).is_start === true).map(s => s.node_id));
 }
-function endings(graph: Row): {
+export function endings(graph: Row): {
     ids: string[];
     accounted: boolean;
 } {
