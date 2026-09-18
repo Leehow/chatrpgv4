@@ -75,6 +75,8 @@ export function clueLabel(graph: ModuleGraph, world: Row, handle: string): strin
     const node = graph.find(handle, ["clue"]);
     return node ? graph.displayName(node) : handle;
 }
+/** The hour a table opens at when the book named neither a date nor a clock time (contract §23). */
+export const DEFAULT_START_MINUTES = 9 * 60;
 /** The declared local opening anchors both clock readings and midnight day boundaries. */
 export function clockStart(graph: ModuleGraph): { at: Date | null; minutes: number } {
     const declaration = moduleDeclaration(graph.moduleNode), stamp = row(declaration.start_clock).local_datetime;
@@ -89,7 +91,10 @@ export function clockStart(graph: ModuleGraph): { at: Date | null; minutes: numb
         if (parts.length === 2 && parts.every(part => /^[+-]?\d+(?:_\d+)*$/.test(part.trim())) && Number.isInteger(hour) && Number.isInteger(minute) && hour >= 0 && hour < 24 && minute >= 0 && minute < 60)
             return { at: null, minutes: hour * 60 + minute };
     }
-    return { at: null, minutes: 0 };
+    // A book that named neither a date nor an hour still opens in the morning: the table's own
+    // clock reads 09:00 from its first turn instead of the zero the elapsed counter starts at.
+    // Midnight would have put the small hours in front of the player on turn one.
+    return { at: null, minutes: DEFAULT_START_MINUTES };
 }
 export function clockSection(graph: ModuleGraph, world: Row): Row {
     const minutes = Math.trunc(number(row(world.clock).minutes)),

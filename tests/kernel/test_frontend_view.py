@@ -62,12 +62,13 @@ def test_the_view_carries_a_day_clock_without_a_declared_date(tmp_path, start_ti
     client = RpcClient(tmp_path / 'workspace', content=content)
     try:
         opened = open_turn(client, 'I wait for a while.')
-        start = 0 if start_time is None else 23 * 60 + 30
+        # A book that named no opening hour opens at the system's default, 09:00 (contract §23).
+        start = 9 * 60 if start_time is None else 23 * 60 + 30
         initial = {
             'minutes': 0, 'elapsed': '0 h 0 min', 'day': 1,
-            'hh': '00' if start_time is None else '23',
+            'hh': '09' if start_time is None else '23',
             'mm': '00' if start_time is None else '30',
-            'day_part': 'small_hours' if start_time is None else 'night'}
+            'day_part': 'morning' if start_time is None else 'night'}
         assert client.ok('table.view', {'campaign': CAMPAIGN})['clock'] == initial
         assert opened['capsule']['where']['clock'] == initial
         client.table('apply', call_id='t1-c1', effects=[{'kind': 'time', 'minutes': 90}])
@@ -75,8 +76,9 @@ def test_the_view_carries_a_day_clock_without_a_declared_date(tmp_path, start_ti
         assert clock == {
             'minutes': 90, 'elapsed': '1 h 30 min',
             'day': 1 if start_time is None else 2,
-            'hh': '01', 'mm': '30' if start_time is None else '00',
-            'day_part': 'small_hours'}
+            'hh': '10' if start_time is None else '01',
+            'mm': '30' if start_time is None else '00',
+            'day_part': 'morning' if start_time is None else 'small_hours'}
         assert clock['day'] - 1 == (start + clock['minutes']) // 1440
         # Advance to the next midnight, not a full day after the 90-minute reading.
         remaining = 1440 - (start + 90) % 1440
