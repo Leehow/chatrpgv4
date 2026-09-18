@@ -13641,3 +13641,32 @@ page observation, review evidence, confinement, retry budgets, or publication.
 Acceptance: a review packet larger than 50 KiB remains valid JSON, contains the exact scope pages, and has
 no line at or above the reader limit; the coverage reviewer then opens every assigned page and passes the
 existing evidence gate.
+
+## 117. The table addresses the investigator it actually knows (2026-09-18, amends §12.5, §23.4 and §32.6)
+
+H-SIDE turns 187 and 188 called a woman investigator `先生` in consecutive deliveries even though both
+turn capsules carried `known.investigator.sex: "女"`. This is no longer the old missing-data defect: the
+Keeper received the identity and ignored it. The after-delivery verifier also returned no finding because
+its public reference said only `Investigator: name (occupation)` and its closed finding set had no identity
+contradiction. Producer and consumer existed separately; this seam failed at both adoption and audit.
+
+The Keeper must respect the capsule's free-text investigator `sex` when choosing pronouns, forms of address
+or identity descriptions. It never infers identity from a name or occupation. When that open text does not
+settle a language-specific form, neutral wording is safer than a guess. This is model semantics, not a
+language table, title list, regex or hard delivery refusal.
+
+The deterministic public-context projection now includes the same bounded `{name, occupation, sex}` facts
+the capsule already gives the Keeper. The verifier reads them and may file
+`investigator_identity_mismatch` when delivered prose explicitly contradicts that identity. Ambiguous or
+open identity text is not a finding. Like every §12.5 finding, it is advisory after delivery and reaches the
+next capsule; it does not rewrite prose or state. The sheet/capsule writes the identity, Keeper and verifier
+read it, and the Keeper uses a prior finding on the next turn -- all three seam ends are present.
+
+This follows two independently published dialogue-consistency patterns: explicit persona conditioning plus
+a separate consistency listener/evaluator, rather than lexical bans ([Kim et al., EMNLP 2020](https://aclanthology.org/2020.emnlp-main.65/)); and structured contradiction detection that generalizes better than an unstructured detector
+([Nie et al., ACL-IJCNLP 2021](https://aclanthology.org/2021.acl-long.134/)). They validate the shape, not the
+project's policy; the project's open-language and no-semantic-hardcode rules still govern the implementation.
+
+Acceptance: public facts carry free-text sex; the verifier prompt names the new kind and receives that
+identity; the closed host/kernel schemas retain a grounded finding and return it in the next capsule; the
+Keeper prompt names the same authority without authoring any language-specific title.

@@ -280,6 +280,7 @@ test("the verifier always names the language it wants its findings in", async ()
 	const notATag = await verifierSystemPrompt("ZZZZ");
 	assert.ok(notATag.includes(`Write why in ${declared.default}.`), "a value that is not a tag reads as the default");
 	assert.ok(named.includes("play_language_mismatch"), "the fourth finding kind is named to the lane");
+	assert.ok(named.includes("investigator_identity_mismatch"), "identity consistency is judged semantically by the lane");
 });
 
 test("the shipped languages declare exactly the keys the extensions ask for", () => {

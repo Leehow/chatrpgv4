@@ -129,6 +129,16 @@ def test_warn_files_the_verifiers_play_language_finding(kernel):
     assert capsule["warnings"] == [{"turn": 1, **finding}]
 
 
+def test_warn_files_an_investigator_identity_mismatch_without_classifying_it(kernel):
+    open_turn(kernel)
+    kernel.table("narrate", call_id="t1-c1", text="警员点头说：先生，已经登记好了。")
+    finding = {"kind": "investigator_identity_mismatch", "quote": "先生，已经登记好了", "why": "调查员身份记录与这个称呼冲突"}
+    result = warn(kernel, 1, [finding])
+    assert result["accepted"] == 1 and result["warnings"] == [finding]
+    capsule = kernel.table("player_input", text="我纠正他的称呼。")["capsule"]
+    assert capsule["warnings"] == [{"turn": 1, **finding}]
+
+
 def test_warnings_reach_the_next_capsule_only_for_the_latest_committed_turn(kernel):
     open_turn(kernel)
     kernel.table("narrate", call_id="t1-c1", text="诺特看着你。")
@@ -196,11 +206,11 @@ def test_narrate_facts_carry_what_the_player_was_already_told(kernel):
     create_campaign(kernel)
     opening = narrate_opening(kernel)
     # Before anything was delivered the public record is the investigator's own identity, nothing more.
-    assert len(opening["facts"]["public"]) == 1 and opening["facts"]["public"][0].startswith(f"Investigator: {INV} ("), opening["facts"]["public"]
+    assert len(opening["facts"]["public"]) == 1 and opening["facts"]["public"][0].startswith(f"Investigator: {INV} (") and "; sex: " in opening["facts"]["public"][0], opening["facts"]["public"]
     kernel.table("player_input", text="我问诺特这房子的事。")
     result = kernel.table("narrate", call_id="t1-c1", text="诺特说起了马卡里奥一家。")
     public = result["facts"]["public"]
-    assert public[0].startswith(f"Investigator: {INV} (")
+    assert public[0].startswith(f"Investigator: {INV} (") and "; sex: " in public[0]
     told = [line for line in public if line.startswith("Told at turn 0: ")]
     assert told and "诺特把钥匙拍在桌上" in told[0], public
     # The Keeper-only list is unchanged by it: an undiscovered clue stays Keeper-only until its receipt lands.

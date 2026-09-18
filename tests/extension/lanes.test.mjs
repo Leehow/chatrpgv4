@@ -237,6 +237,7 @@ test("校验车道：读正文与两份事实清单，发现交给 table.warn", 
 					findings: [
 						{ kind: "reveal", quote: "门框上有一道深深的抓痕。", why: "地窖的抓痕还没被玩家发现。" },
 						{ kind: "play_language_mismatch", quote: "门框上有一道深深的抓痕。", why: "这一句不是战役的玩家语言。" },
+						{ kind: "investigator_identity_mismatch", quote: "门框上有一道深深的抓痕。", why: "称呼与调查员身份冲突。" },
 						{ kind: "没这一类", quote: "随便", why: "闭合枚举之外的整条丢掉" },
 						{ kind: "player_agency", quote: "缺 why 的一条" },
 					],
@@ -258,6 +259,7 @@ test("校验车道：读正文与两份事实清单，发现交给 table.warn", 
 		// 第四类（§23，2026-09-09）：内核不再按脚本拒交付，用没用玩家语言由车道读了以后报，
 		// 和另外三类一样是建议。`why` 仍写在战役的语言里。
 		{ kind: "play_language_mismatch", quote: "门框上有一道深深的抓痕。", why: "这一句不是战役的玩家语言。" },
+		{ kind: "investigator_identity_mismatch", quote: "门框上有一道深深的抓痕。", why: "称呼与调查员身份冲突。" },
 	]);
 
 	assert.ok(seen, "校验车道确实起了一次子会话");
@@ -271,7 +273,7 @@ test("校验车道：读正文与两份事实清单，发现交给 table.warn", 
 	const row = await waitForLaneRow(table, "verifier");
 	assert.equal(row.ok, true);
 	assert.equal(row.turn, 1);
-	assert.equal(row.findings, 2, "两条留下来了：闭合枚举之外那条和缺 why 那条被丢掉");
+	assert.equal(row.findings, 3, "三条留下来了：闭合枚举之外那条和缺 why 那条被丢掉");
 	assert.equal(row.model, "verifier/v1");
 });
 

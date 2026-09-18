@@ -173,7 +173,7 @@ export function publicContext(party: Row[], prologue: any, earlier: Row[]): stri
     const lines: string[] = [];
     for (const sheet of party)
         if (typeof sheet.name === 'string' && sheet.name)
-            lines.push(`Investigator: ${sheet.name}${typeof sheet.occupation === 'string' && sheet.occupation ? ` (${sheet.occupation})` : ''}`);
+            lines.push(`Investigator: ${sheet.name}${typeof sheet.occupation === 'string' && sheet.occupation ? ` (${sheet.occupation})` : ''}${typeof sheet.sex === 'string' && sheet.sex.trim() ? `; sex: ${sheet.sex.trim()}` : ''}`);
     if (typeof prologue === 'string' && prologue.trim())
         lines.push(`Setup prologue told the player: ${chars(words(prologue), 600)}`);
     for (const record of earlier.filter(r => truth(r.rendered_text)).sort((a, b) => number(a.turn) - number(b.turn)).slice(-2))

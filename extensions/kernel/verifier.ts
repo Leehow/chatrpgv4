@@ -7,7 +7,7 @@
  * no state, blocks no delivery, reopens no turn); the lane judges with neither keywords nor
  * regexes; a failure only writes telemetry and never nags the Keeper.
  *
- * The fourth kind, `play_language_mismatch`, arrived with the open-language ruling (§23,
+ * `play_language_mismatch` arrived with the open-language ruling (§23,
  * 2026-09-09). The kernel used to refuse a delivery whose player-facing fields carried none of the
  * campaign's script, which is a character-class detector and an open set has no table to look in.
  * Whether the prose is written in the player's language is a reading, so it is this lane's reading,
@@ -20,7 +20,7 @@ import { runLane } from "../lanes/subsession.ts";
 import { extensionContentRoot } from "../ui/words.ts";
 
 /** The closed set of finding kinds; a row of any other kind is dropped whole. */
-const FINDING_KINDS: ReadonlySet<string> = new Set(["reveal", "uncommitted_state", "player_agency", "play_language_mismatch", "unmarked_speech"]);
+const FINDING_KINDS: ReadonlySet<string> = new Set(["reveal", "uncommitted_state", "player_agency", "play_language_mismatch", "unmarked_speech", "investigator_identity_mismatch"]);
 
 /** The kernel takes at most 10 (§12.5), so trim here rather than have the whole batch judged invalid_params. */
 const MAX_FINDINGS = 10;
@@ -82,14 +82,15 @@ export async function verifierSystemPrompt(playLanguage?: string, contentRoot?: 
 	const tag = await playLanguageTag(extensionContentRoot(contentRoot), playLanguage);
 	return [
 		"You are doing an after-the-fact verification pass for a Call of Cthulhu Keeper. The prose you read has already been delivered to the player and cannot be changed; you only report, you never rewrite.",
-		"Look for five kinds of problem, and report none if you find none:",
+		"Look for six kinds of problem, and report none if you find none:",
 		"- reveal: the prose says something from the Keeper-only list that the player has not yet earned at the table. What the already-public list shows the player was told before — their own name and occupation, the setup's prologue, earlier deliveries — is not a reveal when it is said again. When the thing revealed is one of the [Keeper-only facts] lines that begin \"Undiscovered clue:\", also answer clue with that line's name, copied exactly; leave clue out otherwise.",
 		"- uncommitted_state: the prose claims a state change that is not on the committed-facts list — moving somewhere, gaining a clue, a number going up or down, time passing.",
 		"- player_agency: the prose makes a voluntary choice for the player that he did not declare (a choice, something he said, an action he took).",
 		`- play_language_mismatch: the player-facing prose is not written in ${tag}. Judge the prose as a reader of that language would, not by counting characters; proper names, quoted rules terms and dice notation are not a mismatch.`,
 		"- unmarked_speech: a line someone speaks aloud that is not listed under [Spoken lines] below. Reported speech, thought, signage and a document's text are not lines.",
+		"- investigator_identity_mismatch: the prose uses a pronoun, form of address, or identity description that explicitly conflicts with the investigator identity under [Already public]. Never infer identity from a name or occupation. If the supplied free-text sex is absent or does not settle the form in this language, do not report a mismatch.",
 		"Answer with one JSON object only, no code fence and no explanation:",
-		'{"findings":[{"kind":"reveal"|"uncommitted_state"|"player_agency"|"play_language_mismatch"|"unmarked_speech","quote":"<the sentence from the prose, word for word, <=120 chars>","why":"<=200 chars>","clue":"<the undiscovered clue name, on a reveal about one>"}]}',
+		'{"findings":[{"kind":"reveal"|"uncommitted_state"|"player_agency"|"play_language_mismatch"|"unmarked_speech"|"investigator_identity_mismatch","quote":"<the sentence from the prose, word for word, <=120 chars>","why":"<=200 chars>","clue":"<the undiscovered clue name, on a reveal about one>"}]}',
 		'With no problems, answer {"findings":[]}.',
 		"The quote must be taken verbatim from the prose: change one character, splice two sentences, or add a mark of punctuation, and the row is dropped.",
 		`Write why in ${tag}.`,

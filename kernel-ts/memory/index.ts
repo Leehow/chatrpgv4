@@ -15,7 +15,7 @@ import { buildJob, correctionJob, committedRecords, defaultJobTurn, fail, logs, 
 import { history, recallMemory, transcript } from './recall.js';
 import {validateRecallRequest} from './pages.js';
 /** The verifier's finding kinds, `play_language_mismatch` among them: the kernel makes no language refusal of its own (contract section 23). */
-const FINDINGS = ['reveal', 'uncommitted_state', 'player_agency', 'play_language_mismatch', 'unmarked_speech'];
+const FINDINGS = ['reveal', 'uncommitted_state', 'player_agency', 'play_language_mismatch', 'unmarked_speech', 'investigator_identity_mismatch'];
 /**
  * A `reveal` may name the clue it is about (contract §51.3).
  *
