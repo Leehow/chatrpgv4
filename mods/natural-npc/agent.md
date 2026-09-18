@@ -32,40 +32,39 @@ The initial impression is pair-specific. It is not the party's shared stance and
 does not overwrite later interactions. Continue to use the existing social checks,
 NPC ledger and apply npc for subsequent developments, with a reason when needed.
 
-## When you and this person do not share a language
+## The language of the exchange
 
-The dossier's `speaks` is what the book says about their tongue. If the book says
-nothing, there is no barrier and you play them in the play language as before. Never
-decide someone speaks a foreign language because of their name, their trade or where
-they live; that is the book's to say, not yours to infer.
+The dossier's `speaks` records a person's tongue. Missing `speaks` means unknown,
+not shared fluency. In `mods.vocabulary`, `language` with `bound: true` means the
+reader asked and the book was silent; unbound means it was never asked. Neither
+absence proves that the person shares the investigator's language.
 
-Before you read that silence as an answer, check that the question was asked. The mods
-section carries `vocabulary`: the word `language` is listed there with `bound: true` when
-this module was read under it, and only then does a missing `speaks` mean the book does
-not say. A module built before this package was installed was never asked, so `speaks` is
-absent from everyone in it -- that is not a table where nobody speaks anything else, it is
-a table where nothing was recorded.
+Use the source's explicit setting and the actual exchange to establish the working
+language. This is your contextual judgement, not a country-to-language table: a
+conversation in the stated local language need not wait for every NPC profile to
+repeat it. Respect an individual's authored language or dialect over the ordinary
+setting. A name, ancestry or trade alone does not establish what someone speaks.
+The player's display language does not establish it either.
 
-Where the source is silent, you may establish a person's tongue at the table and keep it:
+Where the source is silent and the exchange supports a language, keep that fact:
 `apply {kind: "dossier", name: "<person>", values: {language: "<what they speak, and how
-well>"}, why: "<what in the fiction settled it>"}`. It lands in this package's own state, so
-it is not a change to the book: it survives the campaign, and it goes with this package if
-it is ever turned off. From then on `speaks` reads back like any other, and you play them
-the same way every time.
+well>"}, why: "<what in the fiction supports it>"}`. This writes this package's
+campaign state, never the book; `speaks` then reads it back while the package is on.
+Do not overwrite an authored value. On the opening turn, when `apply` is forbidden,
+use the supported working language and the sheet's limits without a write; record
+it at the first lawful opportunity. Do not retry a forbidden opening mutation.
 
-Establish it only when the fiction already settled it -- the book's own text about this
-place or this person, something they said, something the party saw. Default is a shared
-language. If nothing in the fiction has raised the question, do not raise it: a table where
-every stranger is a language puzzle is worse than one where none of them is. And the
-standing rule holds here too, in the one place it is most tempting to break: never from a
-name, a trade or a neighbourhood. If the source already gives someone `speaks`, that word
-stands and this is refused -- the book is not yours to overwrite.
+If the language genuinely remains uncertain, do not grant fluent understanding.
+Keep that uncertainty in the exchange: gestures, a few recognised words or a
+clarification can carry it. Do not manufacture an exotic tongue or a language puzzle
+for every stranger. A known shared language works normally; unknown is not shared.
 
-The investigator's side is on the sheet: `Language (Own: ...)` and `Language (Other: ...)`.
-Read the value that is actually there. Do not roll for ordinary conversation — the
-rulebook asks for no roll, and the value itself decides how much lands. A roll belongs
-only where the book asks for one: a difficult passage, an archaic dialect, a document
-carrying its own stated requirement.
+The investigator's side is on the sheet: `own_language`, `Language (Own)` or
+`Language (Own: ...)`, and `Language (Other: ...)`. Read the actual values; if the
+capsule lacks them, retrieve the sheet with `look focus:"investigator"` before fluent dialogue. Do not
+roll for ordinary conversation: the value itself decides how much lands. A roll
+belongs only where the book asks for one, such as a difficult passage, an archaic
+dialect or a document carrying its own stated requirement.
 
 The printed ladder is the density, not a number you invent. At 5 they can name the
 language and nothing more; at 10 simple ideas cross; at 30 transactional requests are
@@ -80,11 +79,17 @@ other language, what they cannot falls back to their own. Fragments inside a sen
 never a whole line in a language this table is not playing in — the kernel enforces
 that floor and will reject a delivery carrying no play-language script at all.
 
-The other direction is the more interesting half. Someone who does not follow the
-investigator acts on what they think they heard: they fetch the wrong thing, answer a
-question nobody asked, take offence at a word that was not meant. That misunderstanding
-is a real event, not decoration; land it like any other consequence, and if it changes
-the world it needs a receipt.
+What the player writes is what the investigator means, not what they manage to say.
+Keep that chosen intent exactly, but let it reach the other ear only as far as the
+sheet allows. A complete player sentence grants neither fluent expression nor
+fluent comprehension. Do not answer a different question or choose a replacement
+action for the player. Make clear what got across and what did not.
+
+Someone who does not follow the investigator acts on what they think they heard:
+they fetch the wrong thing, answer a question nobody asked, or take offence at a
+word that was not meant. Not just less information -- wrong information can be held
+confidently. Such a misunderstanding is a real consequence, not decoration; if it
+changes the world it needs a receipt.
 
 Two things the barrier must never do. It may hide what was said — that is the point,
 and it is what makes a translator, a written note or a skill roll worth something — but

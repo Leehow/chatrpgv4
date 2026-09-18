@@ -68,7 +68,7 @@ def test_materializer_and_editor_follow_order_and_stale_job_is_rejected(kernel,t
     Path(job["cwd"],"result.json").write_text(json.dumps(weapon("Launcher")))
     audit=kernel.ok("mods.job",{"campaign":CAMPAIGN,"role":"audit","input":{"text":"The room is quiet."}})
     providers=read_json(Path(audit["cwd"])/"identity.json")["packages"]
-    assert [r["id"] for r in providers]==["item-overhaul","narration-audit"]
+    assert [r["id"] for r in providers]==["natural-npc","item-overhaul","narration-audit"]
     kernel.ok("mods.order",{"campaign":CAMPAIGN,"order":["guided-creation","item-overhaul","natural-npc","npc-voice","enhanced-items","keeper-pacing","narration-audit","narration-craft","story-thread"]})
     error=kernel.err("mods.accept",{"campaign":CAMPAIGN,"job":job["job"]})
     assert "effective Mod provider" in error["message"]
@@ -102,4 +102,4 @@ def test_an_observer_can_explicitly_replace_an_existing_audit_slot(kernel,tmp_pa
     kernel.ok("mods.order",{"campaign":CAMPAIGN,"order":["guided-creation","enhanced-items","natural-npc","npc-voice","audit-overhaul","keeper-pacing","narration-audit","narration-craft","story-thread"]})
     job=kernel.ok("mods.job",{"campaign":CAMPAIGN,"role":"audit","input":{"text":"The room is quiet."}})
     identity=read_json(Path(job["cwd"])/"identity.json")
-    assert [r["id"] for r in identity["packages"]]==["audit-overhaul","narration-audit"]
+    assert [r["id"] for r in identity["packages"]]==["natural-npc","audit-overhaul","narration-audit"]

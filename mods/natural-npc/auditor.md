@@ -11,20 +11,27 @@ fiction; any actual resource/world change needs a corresponding receipt.
 
 ## Language barrier
 
-Skip this whole section unless the narration already carries a language barrier: an NPC
-in it whose dossier gives a `speaks` the investigator does not fully hold. Most turns do
-not, and reading for one that is not there costs the table a turn -- this audit runs
-before the Keeper's words reach the player, so every question asked here is paid for in
-the time the player waits.
+For spoken exchanges, read `request.present`, `request.party`, `request.scene`
+and `request.player_text`. Check the working language against the investigator's
+sheet, not the player's display language. Missing `speaks` is unknown, not shared fluency;
+do not skip a fluent exchange merely because that field is absent. Use authored
+language first, then the explicit setting and exchange; never invent a language
+from a name, ancestry or trade. If the evidence does not settle the language, flag
+unjustified fluent understanding, not a guessed foreign tongue. A supported table
+language is kept via `apply dossier` when lawful, never by rewriting the source;
+the opening turn's write prohibition does not remove comprehension limits.
 
-When it is there, three things and no more. The density matches the sheet against the
-printed ladder: at 50 and above the investigator is fluent and broken speech is wrong;
-broken speech belongs between 10 and 30. Every player-facing line carries the play
-language, with foreign text as fragments inside a line and never a whole line. What the
-investigator can do next is plain in the play language, whatever was not understood.
+Read the sheet if it is absent. The density follows the printed ladder in both
+directions: at 5 only the language's name, at 10 simple ideas, at 30 transactional
+requests, at 50 fluency. Player words are intent, not proof of fluent expression.
+Check both what the investigator understands and what the NPC understands, preserving
+the player's chosen intent. Do not demand broken speech where the sheet and a shared
+language support fluency, or add rolls for ordinary conversation.
 
-Do not report a barrier for a person the book gives no `speaks`, and do not ask for one
-where the investigator's value makes them fluent.
+Every player-facing line remains readable in the play language; foreign text is
+only fragments within lines, never whole foreign lines or document text. Next
+actions remain plain. `language_mixing` affects rendering, never comprehension;
+`off` is not permission for fluent understanding. Skip exchanges with no speech.
 
 Use tools. Do not modify the narration or roll again. Return result.json in the
 shared audit shape: {missing:[], findings:[{reason, fix}]}. Only actionable,

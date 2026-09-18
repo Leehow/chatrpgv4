@@ -1,5 +1,20 @@
 # Natural NPC
 
+## 1.4.2
+
+An absent NPC language is unknown, not permission for fluent conversation. The
+Keeper establishes a working language from the explicit setting and exchange,
+respects authored exceptions, and records supported table facts through the existing
+dossier effect when lawful. Opening-turn write restrictions still apply, without
+removing the investigator's comprehension limits. No locale table or new lane.
+
+Player words express intent, not guaranteed fluency. The full instructions and
+per-turn reminder apply the sheet's Language value to both speaking and listening;
+the audit no longer exempts an exchange merely because `speaks` is missing. It joins
+the shared delivery audit on later turns too, not only on first-impression rolls.
+`language_mixing` changes presentation only. Ordinary conversation still has no roll.
+Existing campaign locks remain unchanged until an explicit package upgrade.
+
 ## 1.4.1
 
 Adopts the §101 runtime-file allowlist. Only the manifest and referenced Keeper/auditor instructions

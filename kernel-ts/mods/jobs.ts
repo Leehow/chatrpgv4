@@ -8,7 +8,7 @@ import { isJsonObject, jsonDigest } from '../json.js';
 import { loadCampaignModule } from '../read/campaign.js';
 import { playLanguageOf } from '../read/languages.js';
 import { recordOf, type ModuleGraph } from '../read/module-graph.js';
-import { whereSection } from '../read/capsule.js';
+import { presentSection, whereSection } from '../read/capsule.js';
 import { MOD_CAPABILITIES, objectContext, unregisteredEquipment, findNamedObject } from '../read/mods.js';
 import { array, chars, clone, entries, equal, normalize, row, sorted, string, truth, values, type Row } from '../read/values.js';
 import { RuleTables } from '../rules/tables.js';
@@ -184,6 +184,10 @@ export class ModJobs {
             scene: whereSection(graph, world, graph.scene(world.active_scene as string)), party, objects: objectContext(world), receipts: prefetch ? [] : field(turn, 'receipts', []),
             known_handouts: (await this.knownHandouts(graph, world)).map(item => ({name: item.name, preview: chars(item.text, 240)})),
             unregistered_equipment: unregisteredEquipment(party, claimedEquipment(world))};
+        if (role === 'audit') {
+            request.present = presentSection(graph, world, graph.scene(world.active_scene as string));
+            request.player_text = turn.player_text ?? null;
+        }
         if (evidence) request[continuity ? 'continuity_review' : 'source_review'] = evidence.descriptor;
         if (role === 'create' || role === 'usage') request.catalogs = await this.presets(role === 'usage' ? 'weapon' : string(row(params.input).category));
         if (physicalBasis) {
