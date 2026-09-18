@@ -82,6 +82,53 @@ test('uncached installed-module guidance uses the bridge owner for both author a
   assert.equal(tasks[0].request.cwd,tasks[1].request.cwd);
 });
 
+for (const advice of [
+  'English is useful for ordinary conversation in this public setting; limited English can hinder enquiries.',
+  'Choose a source-fitting investigator.',
+]) {
+  test(`setup language briefing accepts guidance with or without language recommendations: ${advice}`, async t => {
+    // A transport/prompt seam, not evidence of live-model compliance.
+    const table = await openTable({mode:'setup', campaign:null, env:{PI_COC_SETUP_AUTOSTART:'1'}, responses:[
+      setupCall({step:'choose-source',kind:'starter',module:'the-haunting'}),
+      setupCall({step:'create-campaign',id:'setup-fixture',title:'Public setting',play_language:'en'}),
+      fauxAssistantMessage('Ready for the investigator.'),
+    ]});
+    t.after(() => table.dispose());
+    const folder=join(table.workspace,'.coc/modules/the-haunting');
+    mkdirSync(folder,{recursive:true});
+    writeFileSync(join(folder,'module.json'),JSON.stringify({id:'the-haunting'}));
+    writeFileSync(join(folder,'module-graph.json'),JSON.stringify({nodes:[
+      {node_id:'module-the-haunting',node_kind:'module',name:'Public setting',summary:'An opening meeting.'},
+    ]}));
+    const guidance={opening:'In West Texas, a station owner asks who you are.',advice,
+      scene:'The meeting begins.',guide:'',handoff:'Continue the meeting.'};
+    const current=table.runtimeBridges().at(-1);
+    table.emit('coc:kernel-bridge',{...current,runtime:{...current.runtime,async runTask(task){
+      const review=task.request.systemPrompt.endsWith('character-guidance-review.md');
+      writeFileSync(join(task.request.cwd,review?'review.json':'guidance.json'),
+        JSON.stringify(review?{approved:true,issues:[]}:guidance));
+      return {ok:true};
+    }}});
+    await table.session.prompt('Start with this source.');
+    await waitForIdle(table.session);
+    assert.deepEqual(setupResults(table.session).find(row=>row.step==='create-campaign').character_guidance,guidance);
+    let prompt;
+    table.faux.setResponses([context=>{prompt=context.systemPrompt;return fauxAssistantMessage('A short setup reply.');}]);
+    await table.session.prompt('My investigator knows very little of the local language.');
+    await waitForIdle(table.session);
+    assert.ok(prompt.includes(guidance.opening) && prompt.includes(advice));
+    assert.match(prompt,/Before create-investigator, briefly explain useful or explicitly required languages/);
+    assert.match(prompt,/this advice or the public opening/);
+    assert.match(prompt,/Distinguish authored requirements from contextual recommendations/);
+    assert.match(prompt,/do not invent a requirement or expose a secret/);
+    assert.match(prompt,/compare the actual own_language and Language skills/);
+    assert.match(prompt,/not an extra question or confirmation gate/);
+    assert.match(prompt,/preserve chosen limitations and never change language skills merely to remove a warning/);
+    assert.match(prompt,/identity, edition\/method, any material language difficulty/);
+    assert.ok(!table.kernelRequests().some(row=>row.method==='setup.confirm'));
+  });
+}
+
 /** 每次 `setup` 的结果原样解析出来，按调用顺序。 */
 function setupResults(session) {
 	return session.messages

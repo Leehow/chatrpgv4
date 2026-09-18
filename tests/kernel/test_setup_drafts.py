@@ -49,6 +49,22 @@ def test_draft_is_complete_without_party_and_confirm_commits_exact_card(kernel, 
     assert kernel.ok("setup.complete", {"campaign": CAMPAIGN})["status"] == "ready_for_table"
 
 
+def test_language_advice_does_not_block_a_player_chosen_low_skill(kernel):
+    kernel.ok("campaign.create", {"id": CAMPAIGN, "module": "the-haunting", "play_language": "en"})
+    concept = {**profile(), "own_language": "Chinese",
+               "interest_skills": ["Language (Other: English)", "Accounting", "Law", "First Aid"]}
+    draft = kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": concept})
+    limited = kernel.ok("setup.revise", {"campaign": CAMPAIGN, "revision": draft["revision"],
+                                        "by": "player", "numbers": {"skills": {"Language (Other: English)": 1}}})
+    assert limited["sheet"]["own_language"] == "Chinese"
+    assert limited["sheet"]["skills"]["Language (Other: English)"] == 1
+    committed = kernel.ok("setup.confirm", {"campaign": CAMPAIGN, "revision": limited["revision"],
+                                            "consent": "approved"})
+    assert committed["sheet"] == limited["sheet"]
+    assert committed["sheet"]["characteristics"] == draft["sheet"]["characteristics"]
+    assert kernel.ok("setup.complete", {"campaign": CAMPAIGN})["status"] == "ready_for_table"
+
+
 def test_a_revision_keeps_unrelated_rolls_and_a_stale_revision_cannot_be_confirmed(kernel):
     original = begin(kernel)
     repeated = kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": profile()})

@@ -3227,6 +3227,35 @@ not relabeled as rulebook Quick Fire. No invented point method or outstanding sk
 choice may pass completeness. Skill directions, concrete specialties, languages,
 backstory and ordinary kit are semantic choices supplied by the setup model.
 
+**Language briefing before the draft (2026-09-18).** The setup guide uses the
+existing character-guidance advice and the public opening/setting to tell the
+player, briefly in `play_language`, which languages the scenario explicitly
+requires or which the setting makes useful, and what missing them can hinder
+(ordinary conversation or reading). Explicit requirements and contextual advice
+must be distinguished; unknown needs stay unknown. This is the model's judgement,
+not a place-to-language table, and the display language is not a character skill.
+Do not reveal a secret document, identity, location or later event as the reason.
+
+Give this advice in the host voice before `create-investigator` exposes a card
+with a confirmation button, including the delegated immediate-creation path. It
+is a short notice, not an extra questionnaire step or a confirmation gate. After
+the tool returns, compare the actual `own_language` and Language skill values with
+the advice; make any material limitation plain in the short card account, before
+inviting confirmation. Recheck after a relevant revision, without repeating an
+already accepted disadvantage on unrelated edits. Do not invent skill thresholds,
+raise a low value, spend points or substitute a language merely to remove a
+warning. Language choices change only on the player's request, acceptance, or
+explicit delegation, and an explicit limitation is preserved. A weak language
+alone neither blocks confirmation nor authorizes a reroll. A translator or a
+companion is a possible approach, never an automatically granted resource.
+
+No new field, lane, validator or language registry is introduced. Writer: the
+existing guidance generator and the setup model's contextual reading. Reader:
+the setup instruction receives guidance plus the returned draft. Actor: the
+player makes an informed choice; only the existing setup tool changes the card.
+Cached guidance without a language recommendation still supplies its public
+orientation; absent evidence is not permission to invent a requirement.
+
 **The trade the player named stays on the card.** `occupation` is a catalog id
 because the budget formula, the skill list and the credit range hang off it; the
 player's words are not always an entry. A nurse, a truck driver or a dock labourer
@@ -6208,6 +6237,8 @@ Spec: `docs/specs/turn-floor.md`. Two live tables (medians 167 and 37 characters
 **34.15 A starting weapon could not be named at creation (2026-09-12, table G).** The player brought a .38 revolver and a single-shot sleeve derringer. `setup.draft` refused eight times on `weapons must use existing rulebook profile names`, and the Keeper gave up and put both guns in `equipment`, apologising to the player in the prose that "this version's weapon list only accepts its own names". Two faults. `validateProfile` accepted only an exact key of `weapons.json` — the ASCII slugs `revolver_38`, `knife_small` — while `apply item weapon` has always taken the id *or* the printable name (§19), so one table taught the Keeper a convention the other refused; and a Keeper drafting in the play language never writes either. Worse, the refusal named no legal value: the same `details` ships `skills`, `occupations`, `backstory_fields` and the aptitude vocabulary, and shipped nothing for the hundred and six weapons, so there was nothing to read and nothing to correct towards. Repaired in `kernel-ts/setup/drafts.ts`. One index, built whole from the table and keyed by both the id and the printable name, is what validation checks and what the sheet resolves through — what is accepted is exactly what can be written, so no draft can pass the gate and then fail to build. The card takes the printable name: a profile reached by its id is never written onto the sheet, or into `equipment`, as `revolver_38`. The refusal now carries `details.weapons`, the printable names, narrowed to the era the draft names (advisory only — which era's entry is legal here has not changed) and falling back to the whole table when the era matches nothing. The issue text names `details.weapons` and says where a weapon the rulebook does not print belongs: out of `weapons`, into `equipment` under the name the player used, which is where the object lane registers it. Nothing promises the Keeper that parameters will arrive — that depends on an active package, and a fix text is executed literally (§34.7). Tests: `test_a_starting_weapon_is_named_the_way_play_names_it`, `test_a_weapon_the_rulebook_never_printed_is_refused_with_the_profiles_and_a_place_to_put_it`.
 
 **34.16 A closed turn's run is cut at the sixth blocked call (2026-09-15).** After `narrate` closes a turn the host blocks every further tool call of that run with "the turn is closed, waiting for the player" (§34.12's `blocked`). On the merged 0.9.3a of 2026-09-15 grok-4.6 did not stop at that answer: 178 blocked `look`/`resolve`/`apply` calls in seventeen minutes after one opening, the run never settled, and the driver's next player input timed out waiting for idle. Now the host counts blocked calls (`blocked_after_close` on the telemetry row): from the third the block's reason is the firmer "The turn is closed and the player has the move. Call no tool and write nothing more; the next player input opens a new turn.", and at the sixth the host records `{lane: "runaway", turn, blocked: 6, aborted: true}` and aborts the run through the extension context. ~~The count is per run and resets at `agent_start` and with the next turn.~~ **Struck 2026-09-17, §86: that sentence is false and must not be pasted from. The count is per _turn_ and is cleared only at the turn boundary. Resetting it at `agent_start` let a continuation run — pi starts one for any message queued from `agent_end` — begin it again at zero on a turn that had not changed, so the cut never arrived; on `t10` turn 0 the notice that restarted it was §78's own.** Nothing refused has happened; the turn stays closed as it was. Test: `gates.test.mjs` "回合关了还在连番调工具".
+
+**Successful delivery ends its own tool batch (2026-09-18).** A fresh App opening (`game-d79c075a-fc0e-4903-87f7-e61199754b85`, turn 0) completed `look → resolve → narrate`; Pi then performed the ordinary automatic post-tool provider call, and the Keeper used it for an `apply` that merely tried to define existing sheet objects and a person alias. The closed-turn gate correctly refused it, but §78 consequently put a repair notice under an otherwise valid opening. A successful `narrate` or `ask` now returns Pi's tool-result `terminate: true`: when it is the only finalized result in the batch, Pi skips that automatic follow-up call and proceeds through normal `agent_end`/`agent_settled` delivery. This is a terminal-result hint, not an abort, a synthetic settle or a relaxation of §78. If the same assistant batch also contains another call, Pi's all-results condition is not met; serial execution, the ordering gate and the refused-effect notice keep their existing behaviour. Test: `refused-effect-is-told.test.mjs` "a successful terminal delivery ends the batch before a post-close provider call".
 
 ## 35. Turn illustrations: the message-action illustration lane (2026-09-12)
 
