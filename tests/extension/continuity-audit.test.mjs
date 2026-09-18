@@ -183,12 +183,14 @@ test('a private session cannot exceed its reservation even with shared allowance
 test('a stalled preparation is not charged to the reviewer, and the verdict it delays still lands', async () => {
     const cwd = await mkdtemp(join(directory, 'stall-')), scope = join(cwd, 'budget');
     // Small enough that any preparation charge at all exhausts the allowance before the reviewer starts.
-    const limits = {...AUDIT_LIMITS, time_ms: 60, per_review_ms: 50};
+    // Keep the review reservation comfortably above fixture I/O under a saturated full suite,
+    // while the preparation stall still exceeds the entire shared allowance on its own.
+    const limits = {...AUDIT_LIMITS, time_ms: 1000, per_review_ms: 500};
     let bridge; const pi = {events: new EventEmitter(), on() {}};
     pi.events.on('coc:mods-bridge', value => bridge = value); modsExtension(pi);
     pi.events.emit('coc:kernel-bridge', {call: async method => {
         if (method === 'mods.job') {
-            await new Promise(resolve => setTimeout(resolve, 20 * limits.time_ms));
+            await new Promise(resolve => setTimeout(resolve, limits.time_ms + 200));
             return {enabled: true, continuity_review: true, cwd, job: 'draft', review_scope: scope, limits,
                 focus: {}, system_prompt: join(cwd, 'prompt.md')};
         }
