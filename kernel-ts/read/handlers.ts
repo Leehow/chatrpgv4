@@ -12,7 +12,7 @@ import { SessionView } from "./session-view.js";
 import { RuleObservations } from "./rule-facts.js";
 import { buildCapsule } from "./assemble.js";
 import { contextBinding } from "./context.js";
-import { clockSection, sceneLabel, clueLabel, npcsPresent, cluesHere, whereSection, presentSection, npcView, investigatorView, fittedModuleSection } from "./capsule.js";
+import { clockSection, sceneLabel, personLabel, clueLabel, npcsPresent, cluesHere, whereSection, presentSection, npcView, investigatorView, fittedModuleSection } from "./capsule.js";
 import { incapacitatedBy } from "../healing/conditions.js";
 import { crossLineReader } from "./worldline.js";
 import { mechanics } from "./mechanics.js";
@@ -206,7 +206,7 @@ async function requireNoTransition(campaign: CampaignSnapshot, contributions: Re
 async function present(campaign: CampaignSnapshot, module: LoadedModule): Promise<Row[]> {
     const { graph } = module,
         scene = graph.scene(campaign.world.active_scene);
-    return presentSection(graph, campaign.world, scene, row(campaign.jsonFiles.get("npc-ledger.json")), campaign.logs.get("memory/candidates.jsonl") ?? [], () => [], { journal: row(campaign.jsonFiles.get("npc-journal.json")) });
+    return presentSection(graph, campaign.world, scene, row(campaign.jsonFiles.get("npc-ledger.json")), campaign.logs.get("memory/candidates.jsonl") ?? [], () => [], { journal: row(campaign.jsonFiles.get("npc-journal.json")), records: await campaign.files("turns") });
 }
 /** The player's NPC notebook: newest-seen first, at most six exchanges each, newest first. The journal never
  *  stores death; `dead_since_turn` is merged from the ledger, the sole truth, at projection time. */
@@ -228,7 +228,7 @@ async function npcJournalSection(campaign: CampaignSnapshot, graph?: ModuleGraph
         return {
             // The handle a say span carries (§40.2), so the legend swatch and the line share one anchor.
             id: node ? graph!.handle(node) : id,
-            name: named ? string(entry.name) : label,
+            name: node ? personLabel(campaign.world, graph!.handle(node), named ? string(entry.name) : label) : named ? string(entry.name) : label,
             named,
             description: string(entry.description),
             seen_count: number(entry.seen_count),
@@ -370,7 +370,7 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
                 }
                 catch { /* A derived cache that cannot be read says nothing about what the player was told. */
                 }
-                return npcView(graph, world, graph.npc(required(params, "name")), ledger, journal);
+                return npcView(graph, world, graph.npc(required(params, "name")), ledger, journal, await campaign.files("turns"));
             }
             if (focus === "investigator") {
                 campaign.party = await campaign.files("party");

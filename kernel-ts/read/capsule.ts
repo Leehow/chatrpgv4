@@ -4,6 +4,7 @@ import { ModuleGraph, recordOf, moduleDeclaration, describeCondition, conditionS
 import { entries, values, array, row, number, integer, truth, string, normalize, chars, length, words, clone, repr, type Row } from "./values.js";
 import { clueGate, structureType } from "./director.js";
 import { incapacitatedBy } from "../healing/conditions.js";
+import { toldTurn } from "../journal/naming.js";
 export const jsonSize = (value: any): number => Buffer.byteLength(pythonJsonDumps(value), "utf8");
 /**
  * The one name this table uses for a place, by its handle: the campaign label the Keeper gave it,
@@ -55,23 +56,16 @@ export function calledBlock(world: Row, id: string, authored: string): Row | nul
         } : {}),
     };
 }
-/**
- * The block a Keeper-facing surface carries for a person the player has never been shown the name of
- * (contract §103), or `null` when the journal holds no such row.
- *
- * The journal lane writes a person under a `label` until a turn's record shows the player their
- * name, so this reads the journal, not the world: what the player has been told is a fact about the
- * table that the lane judges and the record grounds, and the capsule only repeats it. `use` for
- * §66's reason again: the field alone is read past, and a Keeper who writes the book's name into a
- * say token has just told the player the name.
- */
-export function untoldBlock(journal: Row, node: Row): Row | null {
-    const entry = row(row(journal.entries)[string(node.node_id)]), label = typeof entry.label === "string" ? entry.label.trim() : "";
-    if (!isJsonObject(entry) || integer(entry.named_at) || !label)
+/** The reminder starts before the first delivery, not after the asynchronous journal writes a label.
+ * Committed deliveries and the lane's `named_at` ground disclosure; a table epithet is not disclosure. */
+export function untoldBlock(graph: ModuleGraph, world: Row, journal: Row, node: Row, records: Row[] = []): Row | null {
+    const entry = row(row(journal.entries)[string(node.node_id)]);
+    if (integer(entry.named_at) || toldTurn(graph, node, records) !== null)
         return null;
+    const label = string(personRecord(world, graph.handle(node)).name || entry.label || "").trim();
     return {
-        label,
-        use: `The investigators have not been told this person's name; their journal knows them as ${repr(label)}. Writing the name in prose or in a say token tells the player the name; until the fiction gives it, show them the way the label does.`,
+        ...(label ? { label } : {}),
+        use: `The investigators have not been told this person's name. Describe observable appearance; before speech or a named reference, use apply person to establish ${label ? repr(label) : "a stable appearance-based epithet"} as this table's name, then use called.name in prose and the say token until the fiction introduces the name. The book's name is Keeper-only; a speaker title reveals it just as prose does.`,
     };
 }
 export function clueLabel(graph: ModuleGraph, world: Row, handle: string): string {
@@ -336,8 +330,8 @@ function npcState(graph: ModuleGraph, world: Row, node: Row): Row | null {
             : `${who} is ${state} and takes no action of their own -- no answer, no help, no lie. Say the state in the fiction, and say what is being done about it. CoC 7e ends ${state === "unconscious" ? "it" : "unconsciousness"} when a hit point comes back: someone present succeeding at First Aid or Medicine on them -- resolve with the rescuer as actor and ${who} as target${conditions.includes("major_wound") ? ". Rest returns no hit point while the major wound is ticked; the weekly recovery roll is the next one the rules run themselves" : " -- or rest, apply time, until natural healing returns one"}. First Aid stabilizes a dying one first.`,
     };
 }
-export function npcEntry(graph: ModuleGraph, world: Row, node: Row, ledger: Row, memories: Map<string, Row>, across: (node: Row) => Row[] = () => [], seat: LinesSeat = "keep", journal: Row = {}): Row {
-    const state = npcState(graph, world, node);
+export function npcEntry(graph: ModuleGraph, world: Row, node: Row, ledger: Row, memories: Map<string, Row>, across: (node: Row) => Row[] = () => [], seat: LinesSeat = "keep", journal: Row = {}, records: Row[] = []): Row {
+    const state = npcState(graph, world, node), untold = untoldBlock(graph, world, journal, node, records);
     const entry: Row = {
         name: graph.displayName(node),
         // What this table calls them (§79), before the dossier for the same reason `state` is: the
@@ -346,7 +340,7 @@ export function npcEntry(graph: ModuleGraph, world: Row, node: Row, ledger: Row,
         // ages out. `name` above stays the identity the Keeper hands back to `apply`.
         ...(calledBlock(world, graph.handle(node), graph.displayName(node)) ? {called: calledBlock(world, graph.handle(node), graph.displayName(node))} : {}),
         // And whether the player has been told it at all (§103), in the same seat for the same reason.
-        ...(untoldBlock(journal, node) ? {untold: untoldBlock(journal, node)} : {}),
+        ...(untold ? {untold} : {}),
         ...(graph.adaptationOrigin(node.campaign_origin) ? {origin: graph.adaptationOrigin(node.campaign_origin)} : {}),
         // Before the dossier, not after it: what his body is doing decides whether any of the rest
         // of it can happen this turn, and present[] is budgeted from the top.
@@ -397,19 +391,19 @@ export function npcEntry(graph: ModuleGraph, world: Row, node: Row, ledger: Row,
     return entry;
 }
 /** `options.voices` true is the capsule's form (contract §40.7): the lines-shaped words leave the rows for `voices`. */
-export function presentSection(graph: ModuleGraph, world: Row, scene: Row, ledger: Row = {}, memory: Row[] = [], across: (node: Row) => Row[] = () => [], options: { voices?: boolean; journal?: Row } = {}): Row[] {
+export function presentSection(graph: ModuleGraph, world: Row, scene: Row, ledger: Row = {}, memory: Row[] = [], across: (node: Row) => Row[] = () => [], options: { voices?: boolean; journal?: Row; records?: Row[] } = {}): Row[] {
     const memories = new Map(memory.filter(m => truth(m.id)).map(m => [string(m.id), m]));
     const rank = (entry: Row) => truth(row(entry.history).promises) ? 0 : truth(row(entry.history).met_turns) || truth(entry.toward_party) ? 1 : truth(entry.wants) ? 2 : 3;
-    return npcsPresent(graph, world, scene).map(node => npcEntry(graph, world, node, ledger, memories, across, options.voices ? "drop" : "keep", row(options.journal))).sort((a, b) => rank(a) - rank(b));
+    return npcsPresent(graph, world, scene).map(node => npcEntry(graph, world, node, ledger, memories, across, options.voices ? "drop" : "keep", row(options.journal), options.records)).sort((a, b) => rank(a) - rank(b));
 }
-export function npcView(graph: ModuleGraph, world: Row, node: Row, ledger: Row = {}, journal: Row = {}): Row {
-    const handle = graph.handle(node),
+export function npcView(graph: ModuleGraph, world: Row, node: Row, ledger: Row = {}, journal: Row = {}, records: Row[] = []): Row {
+    const untold = untoldBlock(graph, world, journal, node, records), handle = graph.handle(node),
         view: Row = {
         kind: "npc",
         ...(graph.adaptationOrigin(node.campaign_origin) ? {origin: graph.adaptationOrigin(node.campaign_origin)} : {}),
         name: graph.displayName(node),
         ...(calledBlock(world, handle, graph.displayName(node)) ? {called: calledBlock(world, handle, graph.displayName(node))} : {}),
-        ...(untoldBlock(journal, node) ? {untold: untoldBlock(journal, node)} : {}),
+        ...(untold ? {untold} : {}),
         id: handle,
         node_id: node.node_id,
         scene: row(world.npc_presence)[handle] ?? null,

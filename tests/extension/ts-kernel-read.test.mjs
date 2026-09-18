@@ -404,8 +404,17 @@ test('saved session views match Python without constructing engine writers',asyn
 test('NPC dossiers and public object views preserve their different secrecy boundaries',async t=>{
   const doctor=graph.nodes.get('npc-east-doctor'),ledger={[doctor.node_id]:{stance:{value:'friendly',because:[{how:'keeper',turn:2,stance:'friendly',why:'Helped at the gate'}]},turns_present:{count:3,last:4},promises:[{memory_id:'promise-one',turn:2}]}},memories=[{id:'promise-one',statement:'Return the borrowed key.',status:'candidate'}];
   const expected=oracle('npc',{node:doctor.node_id,scene:sceneId,world,ledger,memories,sheet:party[0]});
-  same({entry:api.npcEntry(graph,world,doctor,ledger,new Map(memories.map(m=>[m.id,m]))),view:api.npcView(graph,world,doctor,ledger),
-    present:api.presentSection(graph,world,scene,ledger,memories),investigator:api.investigatorView(party[0])},expected,'NPC/public investigator projections');
+  // The frozen oracle predates §103's opening-turn reminder. Assert that new TS behavior directly,
+  // then compare only the unchanged dossier fields; never rewrite the historical oracle.
+  const dossier = value => {
+    assert.ok(value.untold);
+    assert.equal(value.untold.label, undefined);
+    assert.match(value.untold.use, /apply person/);
+    const {untold, ...legacy} = value;
+    return legacy;
+  };
+  same({entry:dossier(api.npcEntry(graph,world,doctor,ledger,new Map(memories.map(m=>[m.id,m])))),view:dossier(api.npcView(graph,world,doctor,ledger)),
+    present:api.presentSection(graph,world,scene,ledger,memories).map(dossier),investigator:api.investigatorView(party[0])},expected,'NPC/public investigator projections');
   const definitions={case:{id:'case',name:'Case',category:'item',description:'Private compartment',basis:'Source',parameters:{},traits:[],player_view:{description:'A leather case',fields:[]}},
     paper:{id:'paper',name:'Letter',category:'item',description:'Hidden source provenance',basis:'Source',parameters:{},traits:[],player_view:{description:'A folded letter',fields:[]}},
     pistol:{id:'pistol',name:'Pistol',category:'weapon',description:'Secret tuning',basis:'Source',parameters:{damage:'1D10',magazine:6,hidden_modifier:9},traits:[{name:'visible'},{name:'secret'}],player_view:{description:'A pistol',fields:['damage','magazine'],traits:['visible']}}};

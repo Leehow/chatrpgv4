@@ -10784,7 +10784,8 @@ And the Keeper-facing end, which is the one the relapses are about:
 
 Beside `called`, the same seats carry `untold` when the player has never been shown the person's
 name at all (§103): what the table calls someone and whether the player has been told it are two
-facts, and the second is the journal's, not this record's.
+facts. The second comes from committed deliveries and the journal lane's judgment, not from the
+mere existence of this record.
 
 `called` carries a `use` sentence whenever an address is set, for §66's reason: the bare field was
 available in the memory section and was read past. Pronoun-free, English, naming the word and saying
@@ -13113,10 +13114,13 @@ The fact is a journal fact, not a world fact, because the lane that already read
 prose is the one that can judge it and the record is what grounds it:
 
 - **Deterministic floor (the kernel's).** A turn's record shows the player the name when a
-  resolved say span is theirs (§40.4 titles the span with the name) or when one of their name words
-  occurs in the delivered prose — `nameWords`: the name the book prints and the one the graph
-  displays, plus §79's table name, normalized. Not the aliases: `the landlord` is a key the Keeper
-  may resolve a person by, and reading it as the name being told is a judgment the floor does not
+  resolved say span belongs to them and its displayed `who.name` carries one of their name words
+  (§40.4 titles the span with that word), or when a name word occurs in the delivered prose —
+  `nameWords`: the name the book prints and the one the graph displays, normalized. §79's table
+  name may be an anonymous description, so it is not a name word. A resolved identity alone does
+  not disclose a name: speech displayed under a table epithet leaves the person unnamed. Not the
+  aliases: `the landlord` is a key the Keeper may resolve a person by, and reading it as the name
+  being told is a judgment the floor does not
   make. A word that begins or ends in a Latin letter or digit
   must occur as a run of its own (`nate` is not in `donate`), a word in a script that writes no
   boundary is a substring. `journal.job` scans the committed records up to its turn and stores the
@@ -13149,16 +13153,33 @@ The fixed instruction (§17.10) says all of this to the lane in English; the lan
 
 ### 103.3 The readers
 
-- **`table.view` → `npcs.journal[]`** gains `named`. A row with `named_at` shows `name`; a row with a
-  `label` and no `named_at` shows the label *as* `name` with `named: false`; a row with neither
+- **`table.view` → `npcs.journal[]`** gains `named`. A row with `named_at` shows the table's name when
+  set, otherwise its recorded `name`; a row with a `label` and no `named_at` shows the table's
+  `person_labels.name` when present, otherwise the
+  journal label, *as* `name` with `named: false`; a row with neither
   predates this section and shows the name it always showed. The panel changes nothing: `name` is
   the word it prints. The presentation lane (`journalTexts`) skips `named: false` rows — the label is
   the lane's own play-language prose, like the description.
-- **The capsule's `present[]` and `look focus=npc`** carry `untold: {label, use}` beside `called`
-  for a person whose journal row is unnamed: the Keeper writes a name into every line about a person
-  (§79's reason), and whether the player has heard it belongs in the same seat. `use` states the
-  consequence — the name in prose or in a say token *is* telling the player — and nothing more; a
-  Keeper who has the fiction give the name simply gives it, and the next job's scan records it.
+- **The capsule's `present[]` and `look focus=npc`** carry `untold: {label?, use}` beside `called`
+  from the opening turn, without waiting for a journal row or a journal job. The committed-record
+  floor and any journal `named_at` decide whether the name has been disclosed. `label` prefers the
+  table's `person_labels.name`, then the journal label, and is absent before either exists. `use`
+  instructs the Keeper to describe observable appearance, establish a stable table epithet with
+  `apply person` before speech or named reference, and put that epithet in prose and say tokens
+  until the fiction introduces the name. `present[].name` remains a Keeper-only identity.
+- **The base Keeper prompt and the host's missing-speech retry steer** permit `present[].name` or
+  `called.name` in a say token, but for an `untold` person require the table epithet until an
+  in-fiction introduction. On introduction the
+  Keeper may update `apply person` to the learned name so the cards and legend keep the same word.
+  No semantic introduction detector is added: the floor records actual disclosure, including a
+  leak, while the Keeper and the existing journal lane judge the fiction.
+
+**Kernel decision (2026-09-18).** The reported `game-32bc9a85` leak was a second route to the same
+failure: the base prompt required the authored full name in every say token, while the anonymous
+reminder waited for a journal label. Fix the producer instruction, project the reminder before the
+first delivery, and count the speech's displayed word rather than its resolved identity. Preserve
+existing `named_at` and all historical deliveries; this repair does not make a disclosed name secret
+again. The optional narration-audit change is separate and is not part of this repair.
 
 ### 103.4 What this does not do
 

@@ -525,8 +525,10 @@ const FLOOR_STEER =
 /** The one host steer of §40 (user ruling 2026-09-15): people are on stage and the draft wraps no spoken line. */
 const SPEECH_STEER =
 	"People are present and this draft wraps no spoken line. Every line anyone says aloud goes inside " +
-	"{{say:Name}}\u2026{{/say}}, Name exactly as present[].name gives it (the investigator too, when you render " +
-	"the player's words as theirs); a person not in present[] takes the label the prose uses for them. Rewrite " +
+	"{{say:Name}}\u2026{{/say}}, Name exactly as present[].name or called.name gives it (the investigator too, when you render " +
+	"the player's words as theirs). For an untold person, first establish an appearance-based epithet with apply person " +
+	"if called.name is absent, and use that epithet until the fiction introduces the name; never reveal the book's name " +
+	"through a speaker title. A person not in present[] takes the label the prose uses for them. Rewrite " +
 	"the same turn with every spoken line wrapped, and close with narrate. The braces never reach the player.";
 
 let table: TableState | undefined;

@@ -6,7 +6,7 @@ and events.jsonl."""
 
 import json
 
-from conftest import MODULE, narrate, CAMPAIGN, campaign_dir, open_turn, read_json, read_jsonl
+from conftest import MODULE, narrate, CAMPAIGN, campaign_dir, create_campaign, open_turn, read_json, read_jsonl
 
 INV = "托马斯·海斯"
 KNOTT = "Steven Knott"
@@ -324,6 +324,74 @@ def test_the_lane_can_name_a_person_the_scan_cannot_see(kernel):
     assert submit_err(kernel, packet["job_id"], [{"name": KNOTT, "label": "那个人"}])["details"]["field"] == "label"
     submit(kernel, packet["job_id"], [{"name": KNOTT, "exchange": "他又点点头。"}])
     assert read_json(journal_path(kernel.workspace))["entries"][KNOTT_ID]["named_at"] == 2
+
+
+def test_untold_starts_at_opening_without_a_journal(kernel):
+    create_campaign(kernel)
+    kernel.table("open")
+    capsule = kernel.table("capsule")
+    person = next(p for p in capsule["present"] if p["name"] == KNOTT)
+    assert "untold" in person and "label" not in person["untold"]
+    assert "apply person" in person["untold"]["use"] and "called.name" in person["untold"]["use"]
+    assert not journal_path(kernel.workspace).exists()
+    assert kernel.table("look", focus="npc", name=KNOTT)["untold"] == person["untold"]
+    assert kernel.table("look", focus="npc")["present"][0]["untold"] == person["untold"]
+    assert kernel.table("look", focus="scene")["present"][0]["untold"] == person["untold"]
+    narrate(kernel, "t0-c1", "The man waits quietly.")
+    later = kernel.table("player_input", text="I wait.")
+    assert "untold" in later["capsule"]["present"][0], "journal lag must not remove the reminder"
+
+
+def test_a_table_epithet_is_not_disclosure_and_is_shared_by_player_surfaces(kernel):
+    open_turn(kernel, "I wait for the man to speak.")
+    label = "The man with the keys"
+    kernel.table("apply", call_id="t1-c1", effects=[{"kind": "person", "who": KNOTT, "name": label}])
+    delivery = narrate(kernel, "t1-c2", f'{label} looks up. {{{{say:{label}}}}}"Please sit."{{{{/say}}}}')
+    assert delivery["speech"][0]["who"] == {"npc": "steven-knott", "name": label}
+    packet = job(kernel)
+    assert packet["unnamed"] == [KNOTT], "neither the epithet in prose nor its resolved speaker is a true name"
+    submit(kernel, packet["job_id"], [{"name": KNOTT, "label": "The seated man", "description": f"{label} waits."}])
+    stored = read_json(journal_path(kernel.workspace))["entries"][KNOTT_ID]
+    assert "named_at" not in stored
+    [person] = kernel.ok("table.view", {"campaign": CAMPAIGN})["npcs"]["journal"]
+    assert person["name"] == label and person["named"] is False
+    later = kernel.table("player_input", text="I look at the keys.")
+    assert later["capsule"]["present"][0]["untold"]["label"] == label
+    assert kernel.table("look", focus="npc", name=KNOTT)["untold"]["label"] == label
+    narrate(kernel, "t2-c1", f'{label} nods. {{{{say:{label}}}}}"They fit the house."{{{{/say}}}}')
+    packet = job(kernel, turn=2)
+    assert packet["unnamed"] == [KNOTT] and packet["prior"][0]["label"] == label
+    submit(kernel, packet["job_id"], [{"name": KNOTT, "exchange": "He nodded."}])
+    assert "named_at" not in read_json(journal_path(kernel.workspace))["entries"][KNOTT_ID]
+    kernel.table("player_input", text="I ask his name.")
+    kernel.table("apply", call_id="t3-c1", effects=[{"kind": "person", "who": label, "name": KNOTT}])
+    narrate(kernel, "t3-c2", f'{{{{say:{KNOTT}}}}}"My name is {KNOTT}."{{{{/say}}}}')
+    later = kernel.table("player_input", text="I nod.")
+    assert "untold" not in later["capsule"]["present"][0], "the committed introduction works before journal processing"
+    packet = job(kernel, turn=3)
+    assert packet["unnamed"] == []
+    submit(kernel, packet["job_id"], [])
+    assert read_json(journal_path(kernel.workspace))["entries"][KNOTT_ID]["named_at"] == 3
+    assert kernel.ok("table.view", {"campaign": CAMPAIGN})["npcs"]["journal"][0]["name"] == KNOTT
+
+
+def test_committed_name_is_known_before_the_journal_runs(kernel):
+    create_campaign(kernel)
+    narrate(kernel, "t0-c1", f'The man says, "I am {KNOTT}."')
+    later = kernel.table("player_input", text="I nod.")
+    assert "untold" not in later["capsule"]["present"][0]
+    assert "untold" not in kernel.table("look", focus="npc", name=KNOTT)
+    assert "untold" not in kernel.table("look", focus="npc")["present"][0]
+    assert not journal_path(kernel.workspace).exists()
+
+
+def test_a_resolved_authored_token_displayed_as_epithet_does_not_disclose_name(kernel):
+    open_turn(kernel)
+    label = "The letting agent"
+    kernel.table("apply", call_id="t1-c1", effects=[{"kind": "person", "who": KNOTT, "name": label}])
+    delivery = narrate(kernel, "t1-c2", f'{{{{say:{KNOTT}}}}}"Sit down."{{{{/say}}}}')
+    assert delivery["speech"][0]["who"]["name"] == label
+    assert job(kernel)["unnamed"] == [KNOTT], "the displayed word, not the raw token or identity, is the floor"
 
 
 def test_a_say_span_of_theirs_shows_the_player_the_name(kernel):

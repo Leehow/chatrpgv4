@@ -6,6 +6,7 @@ import { appendJsonl } from '../fileio.js';
 import { CampaignWriter, nowIso } from '../write/store.js';
 import { ModuleGraph } from '../read/module-graph.js';
 import { personRecord, sceneLabel } from '../read/capsule.js';
+import { occurs, nameWords, toldTurn } from './naming.js';
 import { array, row, clone, string, number, integer, truth, repr, sorted, length, normalize, type Row } from '../read/values.js';
 import { FAILURE_REASONS, committedRecords, logs, proseOf, writeLines } from '../memory/jobs.js';
 export const BUDGET = { max_entries: 6, max_description_chars: 300, max_exchange_chars: 200, max_label_chars: 60 };
@@ -68,49 +69,6 @@ export async function defaultJobTurn(campaign: CampaignWriter): Promise<number |
     }
     return null;
 }
-/** Whether `key` occurs in `text` as a run of its own (contract §103): a key that begins or ends in a Latin letter or
- *  a digit must not continue one on that side (`nate` is not in `donate`); a key whose ends are any other script is a
- *  plain substring, since those scripts write no boundary. Both strings are already normalized. */
-function occurs(text: string, key: string): boolean {
-    const latin = (char: string) => /^[a-z0-9]$/.test(char);
-    let from = 0;
-    while (from <= text.length) {
-        const at = text.indexOf(key, from);
-        if (at < 0)
-            return false;
-        const before = at > 0 ? text[at - 1] : '', after = text[at + key.length] ?? '';
-        if (!(latin(key[0]) && latin(before)) && !(latin(key[key.length - 1]) && latin(after)))
-            return true;
-        from = at + 1;
-    }
-    return false;
-}
-/** The words that are this person's name to the player (§103): the name the book prints and the one the graph
- *  displays, plus the name this table gave them (§79). Not the aliases: `the landlord` is a key the Keeper may
- *  resolve a person by, and reading it as the name being told is the judgment this file does not make -- the
- *  lane's `named` covers what the floor leaves. Normalized; empty strings dropped. */
-export function nameWords(graph: ModuleGraph, world: Row, node: Row): string[] {
-    const handle = graph.handle(node);
-    return [...new Set([node.name, graph.displayName(node), personRecord(world, handle).name].map(normalize).filter(Boolean))];
-}
-/** The first turn, up to `upTo`, whose record shows the player this person's name (§103): a resolved say span of
- *  theirs (the card titles the span with the name, §40.4) or one of their names in the delivered prose, by exact
- *  match after normalization. What this cannot see -- a transliteration, a surname alone -- the lane reports with
- *  `named`. `null` when no record shows it. */
-function toldTurn(graph: ModuleGraph, world: Row, node: Row, records: Map<number, Row>, upTo: number): number | null {
-    const handle = graph.handle(node), words = nameWords(graph, world, node);
-    for (const turn of [...records.keys()].sort((a, b) => a - b)) {
-        if (turn > upTo)
-            break;
-        const record = records.get(turn)!;
-        if (array(record.speech).some(line => string(row(row(line).who).npc) === handle))
-            return turn;
-        const prose = normalize(record.rendered_text);
-        if (words.some(word => occurs(prose, word)))
-            return turn;
-    }
-    return null;
-}
 /** The deterministic recordable set: present in the turn's world snapshot, referenced by the turn's receipts
  *  (clue.from, roll interactions, npc receipts), or already named in the journal. Graph-only NPCs never enter. */
 function collectNamed(graph: ModuleGraph, record: Row, entries: Row): Array<[string, string]> {
@@ -160,8 +118,8 @@ export async function buildJob(campaign: CampaignWriter, graph: ModuleGraph, lan
         const node = graph.nodes.get(id);
         if (!node || words[id] !== undefined)
             continue;
-        words[id] = nameWords(graph, world, node);
-        const at = toldTurn(graph, world, node, committed, turn);
+        words[id] = nameWords(graph, node);
+        const at = toldTurn(graph, node, committed.values(), turn);
         if (at != null)
             told[id] = at;
     }
@@ -172,7 +130,8 @@ export async function buildJob(campaign: CampaignWriter, graph: ModuleGraph, lan
         if (namedPrior.has(name) || !isJsonObject(journal.entries[id]))
             continue;
         namedPrior.add(name);
-        const stored = row(journal.entries[id]), label = typeof stored.label === 'string' ? stored.label.trim() : '';
+        const stored = row(journal.entries[id]), node = graph.nodes.get(id);
+        const label = string((node ? personRecord(world, graph.handle(node)).name : '') || stored.label || '').trim();
         prior.push({ name, ...(label && !isNamed(id) ? { label } : {}), description: string(stored.description), last_seen_turn: number(stored.last_seen_turn) });
     }
     const present = array(snapshot.present).map(name => npcNode(graph, name)).filter(truth) as Row[];
