@@ -837,9 +837,9 @@ function sourceMaterialRefusal(failure: unknown, read: Record<string, unknown>):
 			+ " What the investigators already carry, whoever is already on stage, the scenes and people the graph already knows, and ordinary narration all settle as usual, with their own receipts."
 			+ ` Settle whatever the player's own action can reach without it and return control so they can act on something else.${HOST_SAYS_THE_WAIT}`
 			+ ` Do not send this read again this turn and do not narrate what${named ? ` ${focus}` : " the unread material"} would have said;`
-			+ " on a later player turn, retry the original action or lookup kind=source with the exact focus and question in details.read; do not invent another question",
+			+ ` on a later player turn, ${read.purpose === 'answer' ? 'repeat lookup kind=source source_mode=answer' : 'retry the original action or lookup kind=source'} with the exact focus and question in details.read; do not invent another question`,
 		details: { ...failure.details, reason,
-			read: { ...(read.purpose ? { purpose: read.purpose } : {}), ...(read.material ? { material: read.material } : {}),
+			read: { ...(read.purpose ? { purpose: read.purpose } : {}), ...(read.purpose === 'answer' ? {source_mode:'answer'} : {}), ...(read.material ? { material: read.material } : {}),
 				focus, ...(read.question ? { question: read.question } : {}) } },
 	});
 }
@@ -2478,17 +2478,28 @@ export default function (pi: ExtensionAPI) {
 						+ " put the way forward within reach and let them take it. Nothing has happened yet; this draft was not delivered.",
 					details: { reason: "recovery_owed", blocked: state.recoveryOwed.blocked, steps: state.recoveryOwed.steps } });
 			}
+			let sourceAnswer: Record<string, unknown> | undefined;
+			if (spec.name === 'lookup' && params.source_mode !== undefined && (params.kind !== 'source' || !['answer', 'prepare'].includes(String(params.source_mode))))
+				throw new KernelError({code:'invalid_params', message:'source_mode is answer or prepare, and only applies to source lookup'});
 			if (spec.name === "lookup" && params.kind === "source") {
+				const answerOnly = params.source_mode === 'answer';
+				if (answerOnly && !asString(params.question)?.trim()) throw new KernelError({code:'invalid_params', message:'A source answer needs a nonempty question'});
 				if (!asString(params.query)?.trim()) throw new KernelError({
 					code: "invalid_params", message: "Source lookup needs a named query; question supplies additional scope",
 					fix: "pass the place or entity as query and describe the unresolved source question" });
 				if (!reading || !readingModule) throw new KernelError({ code: "needs", message: "the source reading service is unavailable",
 					fix: "reopen the table with its module reading extension available", details: { reason: "reading_failed" } });
-				const sourceRead = { purpose: "detail", focus: params.query, question: params.question ?? "" };
-				try { await reading.ensure(readingModule, { ...sourceRead, retry: params.retry === true, foreground: true }, signal); }
+				const sourceRead = { purpose: answerOnly ? "answer" : "detail", focus: params.query, question: params.question ?? "" };
+				try {
+					const response = await reading.ensure(readingModule, { ...sourceRead, retry: params.retry === true, foreground: true }, signal);
+					if (answerOnly) {
+						if (!response.source_answer || typeof response.source_answer !== 'object') throw new KernelError({code:'internal', message:'The source consultation returned no checked answer'});
+						sourceAnswer = response.source_answer;
+					}
+				}
 				catch (readFailure) { throw sourceMaterialRefusal(readFailure, sourceRead); }
-				payload.kind = "module";
-                payload.canonical_source = true;
+				delete payload.source_mode;
+				if (!answerOnly) { payload.kind = "module"; payload.canonical_source = true; }
 			}
 			let result: Record<string, unknown>;
 			// Action admission (contract §32) runs ahead of every Mod hook and of the kernel: a refused
@@ -2509,7 +2520,8 @@ export default function (pi: ExtensionAPI) {
         }
       }
 			try {
-                if (spec.name === 'lookup' && params.kind === 'adaptation') {
+                if (sourceAnswer) result = { source_answer: sourceAnswer };
+                else if (spec.name === 'lookup' && params.kind === 'adaptation') {
                     if (!runtime) throw new KernelError({code: 'needs', message: 'The adaptation runtime is unavailable'});
                     adaptations ??= adaptationService(runtime, (method, args) => state.kernel.call(method, args), () => ({
                         name: process.env.PI_COC_ADAPTATION_MODEL || `${sessionCtx?.model?.provider}/${sessionCtx?.model?.id}`, thinking: pi.getThinkingLevel()

@@ -80,6 +80,14 @@ test('opening submission checks one first scene and permits thin deferred destin
  assert.deepEqual(JSON.parse(await readFile(join(dir,'draft.json'),'utf8')).ready_nodes,['scene-dock']);
 });
 
+test('source answer submission checks the bounded artifact and requires original-page evidence',async t=>{
+ const {tool,see,overview}=await setup(t,false,'answer');
+ const answer={status:'answered',answer:'The source describes a harbor.',source_refs:[{page:1}],limitations:''};
+ overview();await assert.rejects(tool.execute('navigation',{draft:answer}),/View original physical pages/);
+ see();assert.equal((await tool.execute('answer',{draft:answer})).terminate,true);
+ await assert.rejects(tool.execute('graph',{draft:{...answer,nodes:[]}}),/exactly.*fields/);
+});
+
 test('opening review can terminate with required source evidence without a guidance document',async t=>{
  const {tool,see}=await setup(t,true,'opening');see();
  const result=await tool.execute('review',{review:{checked:review.checked,missing:[]}});

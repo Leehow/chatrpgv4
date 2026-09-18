@@ -34,7 +34,7 @@ export async function snapshotSource(context: KernelContext, module: LoadedModul
         assets[node.node_id] = item;
     }
     const data = {module_id: module.graph.moduleId, raw: module.graph.raw, digest: module.graph.digest, dossier: module.graph.dossier,
-        meta: module.meta, generation: module.generation, path: module.path,
+        meta: module.meta, generation: module.generation, path: module.path, sections: module.sections,
         ready: [...module.graph.nodes.keys()].filter(id => module.material(id) === 'ready'), assets};
     const digest = jsonDigest(data);
     await immutable(join(root, `${digest}.json`), pythonJsonDumps(data));
@@ -45,7 +45,7 @@ export async function pinnedSource(context: KernelContext, digest: string): Prom
     const raw = row(parsePythonJson(await readFile(join(context.stateRoot, 'adaptation-sources', `${digest}.json`), 'utf8')));
     if (jsonDigest(raw) !== digest) throw new RpcError('needs', 'Adaptation source snapshot has changed');
     const graph = new ModuleGraph(raw.module_id, raw.raw, raw.digest, raw.dossier), ready = new Set(array(raw.ready));
-    return {graph, meta: raw.meta, generation: raw.generation, path: raw.path,
+    return {graph, meta: raw.meta, generation: raw.generation, path: raw.path, sections: array(raw.sections),
         material: name => { const node = graph.find(name); return node && ready.has(node.node_id) ? 'ready' : 'missing'; },
         asset: async name => { const node = graph.find(name); return node ? row(raw.assets)[node.node_id] ?? null : null; }};
 }

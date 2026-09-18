@@ -82,6 +82,8 @@ const mapCandidateKey = (candidate: Row): string => canonical({
 });
 function editedSourcePages(before: Row, after: Row): Set<number> {
 	const result = new Set<number>();
+	if (Array.isArray(after.source_refs) && canonical(before) !== canonical(after))
+		for (const ref of after.source_refs) result.add(ref.page);
 	for (const collection of ["nodes", "claims"]) {
 		const id = (row: Row) => row.node_id ?? row.claim_id ?? canonical([row.subject_id, row.predicate, row.object]);
 		const previous = new Map((before[collection] ?? []).map((r: Row) => [id(r), canonical(r)]));
@@ -368,7 +370,7 @@ export class ReadingService implements ReadingBridge {
 			const interrupted = new Promise<never>((_resolve, reject) => {
 				timer = setTimeout(() => reject(error("reading_timeout", "the source is still being read",
 					params.purpose === "opening" ? "return control, then call prepare-module again to rejoin the retained preparation"
-						: "use ask to return control; on a later player turn, retry the original action or lookup kind=source with the exact focus and question in details.read; do not invent another question",
+						: `use ask to return control; on a later player turn, ${params.purpose === 'answer' ? 'repeat lookup kind=source source_mode=answer' : 'retry the original action or lookup kind=source'} with the exact focus and question in details.read; do not invent another question`,
 					// The job handle travels beside `read` for telemetry (#65); the fix names only `read`, so the model does not see it.
 					{ read: { purpose: params.purpose, ...(params.material ? { material: params.material } : {}), focus: params.focus ?? "", question: params.question ?? "" },
 						...(request.jobId ? { job_id: request.jobId } : {}) })), wait);
@@ -435,10 +437,16 @@ export class ReadingService implements ReadingBridge {
 
 	private async fulfil(mid: string, params: Row, request: PendingReading, campaign: string | undefined): Promise<Row> {
 		let retry = params.retry === true;
+		let answerGeneration: number | undefined;
 		while (!this.stopped && !request.cancelled) {
 			// `request.foreground`, never `params.foreground`: this loop polls every 300 ms, and the
 			// original params would re-promote a job the last waiter has already let go (§61).
-			const response = await this.call("module.read.request", { ...params, foreground: request.foreground, module_id: mid, retry }, campaign);
+			const response = await this.call("module.read.request", { ...params, foreground: request.foreground, module_id: mid, retry,
+				...(params.purpose === 'answer' && answerGeneration !== undefined ? {context_generation: answerGeneration} : {}) }, campaign);
+			if (params.purpose === 'answer' && answerGeneration === undefined) {
+				if (!Number.isSafeInteger(response.generation) || response.generation < 0) throw error('reading_failed', 'the source consultation returned no context generation', 'retry the same source consultation explicitly');
+				answerGeneration = response.generation;
+			}
 			if (request.foreground && response.job_id) {
 				const running = this.jobs.get(JSON.stringify([campaign, mid,response.job_id]));
 				if (running) { running.foreground = true; wakeReaderSlots(); }
@@ -630,10 +638,12 @@ export class ReadingService implements ReadingBridge {
 						const instructions = join(cwd, `instructions-${promptPhase}.md`);
 						this.deps.progress({ module_id: job.module_id, campaign, job_id: job.job_id, stage: phase === "read" && job.purpose === "skeleton" ? "skeleton" : phase, focus: job.focus, of: job.source.page_count });
 						if (phase === "verify") {
-							if (job.purpose === "opening") {
+							if (job.purpose === "opening" || job.purpose === "answer") {
 								try {
 									const checked = await this.runtime().check({kind:'source-draft',packet:join(cwd,'task.json'),draft:join(cwd,'draft.json')},signal);
 									if (!checked.ok) throw new Error(JSON.stringify(checked.error));
+									if (job.purpose === 'answer' && (!Array.isArray(checked.required_view_pages) || checked.required_view_pages.some((page: number) => !observations.read_pages.includes(page))))
+										throw new Error('Source answer requires original-page observations before independent review');
 								}
 								catch (error) { phaseCompleted = true; throw error; }
 							}
@@ -641,10 +651,10 @@ export class ReadingService implements ReadingBridge {
 								draft: JSON.parse(await readFile(join(cwd, "draft.json"), "utf8")), instructions, round,
 								model, source: { pdf: job.source.path, cache, file_sha256:job.source.file_sha256 }, signal,
 								cacheRoot:join(cache,'..','reviews'),
-								reviewVersion:sha(Buffer.concat([Buffer.from(sourceRenderVersion),await readFile(join(this.runtime().contentRoot,'setup',job.purpose === 'guidance' ? 'visual-guidance.md' : 'visual-reader.md'))])),
+								reviewVersion:sha(Buffer.concat([Buffer.from(sourceRenderVersion),await readFile(join(this.runtime().contentRoot,'setup',job.purpose === 'answer' ? 'source-answer.md' : job.purpose === 'guidance' ? 'visual-guidance.md' : 'visual-reader.md'))])),
 								run: ({systemPrompt: _instructions, ...request}) => this.runtime().runTask({ kind: "reader", request: { ...request,
 									priority: () => job.foreground === false ? "background" : "foreground",
-									prompt: { phase: "verify", guidance: job.purpose === "guidance" } } }, request.signal),
+									prompt: { phase: "verify", guidance: job.purpose === "guidance", answer: job.purpose === "answer" } } }, request.signal),
 								// Every verify row names the job and round it belongs to (#65); the reviewer adds unit and attempt.
 								record: row => this.deps.record({ module_id: job.module_id, job_id: job.job_id, purpose: job.purpose, focus: job.focus ?? "", round, ...row, campaign }),
 								progress: row => this.deps.progress({ module_id: job.module_id, job_id: job.job_id, ...row, campaign }) });
@@ -658,14 +668,14 @@ export class ReadingService implements ReadingBridge {
 
 						const reads = new Map<string, string>();
 						const run = await this.runtime().runTask({ kind: "reader", request: { cwd, model: model.id, thinking: model.thinking,
-							...(job.purpose==="guidance"?{imageHistory:4}:{}),
-							submission:["guidance","opening"].includes(job.purpose),
+							...(["guidance", "answer"].includes(job.purpose) ? {imageHistory:4} : {}),
+							submission:["guidance","opening","answer"].includes(job.purpose),
 							priority: () => job.foreground === false ? "background" : "foreground",
-							prompt: { phase: promptPhase, guidance: job.purpose === "guidance" }, source: { pdf: job.source.path, cache },
+							prompt: { phase: promptPhase, guidance: job.purpose === "guidance", answer: job.purpose === "answer" }, source: { pdf: job.source.path, cache },
 							eventLog: join(cwd, `${phase}-${round}.jsonl`),
 							brief: phase === "index-audit"
 								? `${readerInput({task})} This is the independent map-page completeness audit of the retained PDF index. Read draft.json${round > 1 || job.resume_from ? " and findings.json" : ""}. View every physical page in task.index_audit_pages with pdf, compare each page to draft.map_candidates, and immediately add every authored map whose depicted place can be identified. Every task.required_map_candidates row must remain. Preserve existing sections and candidates; repair missing section source_refs but do not cite any page unless you viewed that full page in this audit or it is in task.index_audit_pages. If another page is needed as a reference, view it first. Do not rewrite for style. Finish only after every assigned page has been checked, then stop.`
-								: `${readerInput({task})} Your phase is ${phase}. ${job.repair === "way_on" ? WAY_ON_ASK + " " : ""}Use page images to produce draft.json. If a draft was retained from this same interrupted request, inspect its sources and repair it instead of rewriting merely for style. ${["guidance","opening"].includes(job.purpose) ? "Use submit_reading as your sole final tool call to save/check this batch and finish without a closing reply." : ""} ${round > 1 || job.resume_from ? "Read findings.json if present and address its concrete findings." : ""}`,
+								: `${readerInput({task})} Your phase is ${phase}. ${job.repair === "way_on" ? WAY_ON_ASK + " " : ""}Use page images to produce draft.json. If a draft was retained from this same interrupted request, inspect its sources and repair it instead of rewriting merely for style. ${["guidance","opening","answer"].includes(job.purpose) ? "Use submit_reading as your sole final tool call to save/check this batch and finish without a closing reply." : ""} ${round > 1 || job.resume_from ? "Read findings.json if present and address its concrete findings." : ""}`,
 							onEvent(event) {
 								if (event.type === "tool_execution_start" && event.toolName === "read" && event.args?.path) reads.set(event.toolCallId, resolve(cwd, event.args.path));
 								if (event.type === "tool_execution_end" && !event.isError && event.result?.content?.some((c: Row) => c.type === "image")) {
@@ -737,7 +747,7 @@ export class ReadingService implements ReadingBridge {
 						phaseCompleted = true;
 					}
 					const assets = [];
-					if (job.purpose !== "index") {
+					if (job.purpose !== "index" && job.purpose !== "answer") {
 						const draft = JSON.parse(await readFile(join(cwd, "draft.json"), "utf8"));
 						validateMapRegions(draft);
 						for (const node of publishableAssetNodes(draft, job.purpose)) {
@@ -759,6 +769,7 @@ export class ReadingService implements ReadingBridge {
 					if (job.purpose === "index" || job.purpose === "opening") await this.call("module.read.ahead", { module_id: job.module_id, ...(job.purpose === "opening" && job.focus ? { focus: job.focus } : {}) }, campaign).catch(() => undefined);
 					return;
 				} catch (failure) {
+					if (isKernelError(failure) && failure.details?.reason === 'source_context_changed') throw failure;
 					// Provider/transport failure during verification preserves the completed read.
 					// A completed but rejected semantic review requires a source-grounded repair.
 					if (phaseCompleted) {

@@ -123,7 +123,10 @@ export async function ensureCampaignModule(context: KernelContext, campaign: str
                 for (const key of Object.keys(row(meta.character_guidance)))
                     await copy(join('character-guidance', key, 'accepted.json'));
                 const privateMeta = clone(meta);
-                if (privateMeta.reading) privateMeta.reading.completed = {};
+                if (privateMeta.reading) {
+                    privateMeta.reading.completed = {};
+                    privateMeta.reading.answers = {};
+                }
                 // A missing index may not keep claiming a complete one: the campaign could not
                 // resolve its sections, and only a real index publication can say otherwise.
                 if (!indexCopied && privateMeta.reading) {

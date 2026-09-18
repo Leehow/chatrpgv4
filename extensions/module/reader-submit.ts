@@ -10,8 +10,8 @@ export default async function readerSubmit(pi: any) {
 	const cwd = process.cwd();
 	const checker = process.env.PI_COC_READER_CHECK ?? join(resourceRootFrom(import.meta.url), "bin/coc-read-check");
 	const task = JSON.parse(await readFile(join(cwd, "task.json"), "utf8"));
-	const guidanceTask = task.purpose === "guidance";
-	if (!guidanceTask && task.purpose !== "opening") throw new Error("Checked submission is only available for guidance and opening");
+	const guidanceTask = task.purpose === "guidance", answerTask = task.purpose === "answer";
+	if (!guidanceTask && !answerTask && task.purpose !== "opening") throw new Error("Checked submission is only available for guidance, opening and source answers");
 	const reviewing = Array.isArray(task.required_review);
 	const candidateFiles = ["draft.json", ...(guidanceTask ? ["guidance.json"] : [])];
 	const originals = reviewing ? await Promise.all(candidateFiles.map(name => readFile(join(cwd, name)))) : [];
@@ -28,6 +28,7 @@ export default async function readerSubmit(pi: any) {
 		executionMode: "sequential",
 		description: reviewing
 			? "Save and check review.json, then finish without another model reply. Supply review or omit it if already written. Never modify the candidate files. Call alone after viewing the original cited pages."
+			: answerTask ? "Save and check the scoped source answer in draft.json, then finish without another model reply. Supply draft or omit it if already written. Use only status, answer, source_refs and limitations; no graph fields. Call alone after viewing every cited original page."
 			: guidanceTask ? "Save and check draft.json and guidance.json, then finish without another model reply. Supply both small objects, or omit them if already written with write/edit/bash. Failure returns findings for repair. Call alone after viewing the required original pages."
 			: "Save and check the first opening batch in draft.json, then finish without a closing reply. Prepare exactly the selected first scene with its necessary people, source facts and immediate actions; defer future scene detail. Supply draft or omit it if already written. Failure returns findings for repair. Call alone after viewing the required original pages.",
 		parameters: reviewing ? Type.Object({review:Type.Optional(Type.Any())})
@@ -43,7 +44,7 @@ export default async function readerSubmit(pi: any) {
 				for (const [i, name] of candidateFiles.entries())
 					if (!(await readFile(join(cwd, name))).equals(originals[i])) throw new Error("reviewer modified its candidate pair");
 				const review = JSON.parse(await readFile(join(cwd, "review.json"), "utf8"));
-				checkReviewEvidence(review, task.required_review, seen);
+				checkReviewEvidence(review, task.required_review, seen, answerTask ? task.review_scope_pages ?? [] : [], JSON.parse(originals[0].toString()));
 				if (guidanceTask && (typeof review.guidance?.approved !== "boolean" || !Array.isArray(review.guidance?.issues))) throw new Error("review needs guidance approved and issues");
 			} else {
 				if (guidanceTask) {

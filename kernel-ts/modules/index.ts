@@ -1,5 +1,6 @@
 /** Static source API and its single owner-local publication lifetime. */
 import type { KernelContext } from '../context.js';
+import { join } from 'node:path';
 import { RpcError } from '../errors.js';
 import type { HandlerGroup } from '../handlers.js';
 import type { ModuleGraph } from '../read/module-graph.js';
@@ -103,6 +104,20 @@ export function createModuleRuntime(context: KernelContext) {
         }
         return await scopedModuleRoot(context, campaign, id) !== null ? value : library;
     };
+    const ahead = async (params: Row): Promise<Row> => {
+        const id = required(params, 'module_id');
+        let value = await owner(params.campaign, id);
+        if (!await value.store.exists(id) || !truth((await value.store.module(id)).reading_version)) return { queued: [] };
+        let focus = params.focus;
+        if (params.campaign !== undefined) {
+            const path = join(context.campaignsRoot, params.campaign, 'world.json');
+            const world = await context.snapshots.pathExists(path) ? row(await context.snapshots.readJson(path)) : {};
+            if (truth(row(world.adaptation).source)) return { queued: [] };
+            focus = world.active_scene || focus;
+            value = await owner(params.campaign, id, true);
+        }
+        return value.reading.queueAheadReading({ ...params, focus });
+    };
     const libraryOnly = new Set(['module.register', 'module.list']);
     // A scoped request or opening choice is the campaign's first private write and forks it.
     // Claims, finishes and unwaits instead follow the workspace that already owns the job, so a
@@ -116,6 +131,7 @@ export function createModuleRuntime(context: KernelContext) {
             ? job.state === 'queued'
             : job.job_id === jobId && (lease === undefined || job.lease === lease));
     const dispatch = async (method: string, params: Row): Promise<Row> => {
+        if (method === 'module.read.ahead') return ahead(params);
         if (libraryOnly.has(method) || params.campaign === undefined || typeof params.module_id !== 'string')
             return library.handlers[method](params);
         const id = required(params, 'module_id'), campaign = params.campaign;
@@ -145,11 +161,9 @@ export function createModuleRuntime(context: KernelContext) {
         materialReady: async (moduleId: string, name: string, campaign?: string) => (await owner(campaign, moduleId)).reading.materialReady(moduleId, name),
         openingReady: async (moduleId: string, focus = '', campaign?: string) => (await owner(campaign, moduleId)).reading.openingReady(moduleId, focus),
         request: async (params: Row) => (await owner(params.campaign, required(params, 'module_id'), true)).reading.request(params),
-        // Reading the book ahead, and repairing its opening, are the book's own work: before a table forks
-        // they go to the shared library, where every table on that book gets them (contract 22.6); a fork
-        // happens only on a table's first private write, never on the handoff.
-        ahead: async (params: Row) => (await owner(params.campaign, required(params, 'module_id'))).reading.queueAheadReading(params),
-        requestFollowing: async (params: Row) => (await owner(params.campaign, required(params, 'module_id'))).reading.request(params),
+        // Campaign maintenance is a private write, just like an explicit source request.
+        ahead,
+        requestFollowing: async (params: Row) => (await owner(params.campaign, required(params, 'module_id'), true)).reading.request(params),
         // Before a campaign forks it follows the shared library, so it enqueues nothing there:
         // a table's prefetch may never write into the shared queue on another table's behalf.
         queueAdjacentReading: async (graph: ModuleGraph, scene: Row) => graph.sourceCampaign === undefined

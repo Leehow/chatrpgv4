@@ -10,12 +10,14 @@ import { ModuleGraph } from '../read/module-graph.js';
 import { mapsDepictingScene } from '../read/maps.js';
 import { array, clone, equal, integer, normalize, number, repr, row, sorted, string, truth, type Row } from '../read/values.js';
 import { nowIso } from '../write/store.js';
+import { endings } from '../write/source.js';
 import { validSourceLanguage, vocabulary } from './contract.js';
 import { childPath, inside, resolvedPath } from './paths.js';
 import { ModuleStore, validateModuleId } from './store.js';
 import { applyOpeningChoice, assembleVisual, attachMapCandidates, checkDraft, checkReview, reject, resolveStartScene } from './visual.js';
 const object = (value: any): boolean => isJsonObject(value);
-const PURPOSES = ['index', 'skeleton', 'guidance', 'opening', 'detail'];
+import { SOURCE_ANSWER_PROTOCOL, checkSourceAnswer, checkSourceAnswerReview, sourceAnswerResult } from './source-answer.js';
+const PURPOSES = ['index', 'skeleton', 'guidance', 'opening', 'detail', 'answer'];
 const uuid = (): string => randomUUID().replaceAll('-', '');
 type PublicationLease = {
     handles: LockLease[];
@@ -257,57 +259,41 @@ export class Reading {
             if (truth(reply.job_id))
                 queued.push(reply.job_id);
         }
-        // The exits the book wrote, then the pages the book turns to next (spec thin-book-play B).
-        const ahead = await this.queueAheadReading({ module_id: mid, focus: graph.handle(scene) });
-        queued.push(...array(ahead.queued).map(string));
         return queued;
     }
-    /**
-     * The book's own order is a way on the reader did not write (spec thin-book-play B). Adjacent reading
-     * follows exits; this follows the index: the section holding the scene's pages, the section after it,
-     * and every section whose name the scene's own text says. Without an index it asks for the index. It
-     * never blocks a turn: each request is background, and a refusal is logged, not raised.
-     */
+    /** Maintain source-backed routes without interpreting page order or the scene's prose. */
     async queueAheadReading(params: Row): Promise<Row> {
         const mid = validateModuleId(params.module_id), queued: string[] = [];
         if (!await this.store.exists(mid)) return { queued };
         const meta = await this.store.module(mid), reading = row(meta.reading);
         if (!truth(meta.reading_version)) return { queued };
-        const ask = async (request: Row): Promise<void> => {
+        const ask = async (request: Row): Promise<Row | null> => {
             try {
                 const reply = await this.request({ module_id: mid, foreground: false, ...request });
                 if (truth(reply.job_id) && ['queued', 'reading'].includes(string(reply.state))) queued.push(string(reply.job_id));
+                return reply;
             }
             catch (error) {
                 if (!(error instanceof RpcError)) throw error;
                 await this.store.appendBuildLog(mid, { event: 'read-ahead-unavailable', focus: string(request.focus ?? ''), detail: error.message });
+                return null;
             }
         };
-        if (!truth(reading.index_complete)) { await ask({ purpose: 'index', focus: '' }); return { queued, reason: 'index' }; }
+        if (!truth(reading.index_complete)) await ask({ purpose: 'index', focus: '' });
+        if (!await this.store.readGraph(mid)) return { queued, reason: 'index' };
         const graph = await this.store.graph(mid);
         let scene: Row;
         try { scene = truth(params.focus) ? graph.scene(string(params.focus)) : graph.startScene(); }
         catch (error) { if (!(error instanceof RpcError)) throw error; return { queued, reason: 'no_scene' }; }
-        const minPage = (item: Row) => Math.min(...array(item.pages).map((pair: number[]) => number(pair[0])));
-        const sections = [...await this.store.sections(mid)].sort((a, b) => minPage(a) - minPage(b));
-        // A published node's references are {source_id, pdf_index} (zero-based); a draft's are {page} (one-based).
-        const scenePages = array(scene.source_refs).map(ref => integer(row(ref).pdf_index) ? number(row(ref).pdf_index) : integer(row(ref).page) ? number(row(ref).page) - 1 : -1).filter(page => page >= 0);
-        const holds = (section: Row) => array(section.pages).some((pair: number[]) => scenePages.some(page => page >= number(pair[0]) && page <= number(pair[1])));
-        const containing = sections.filter(holds), last = containing.length ? Math.max(...containing.map(section => sections.indexOf(section))) : -1;
-        const next = last >= 0 && last + 1 < sections.length ? [sections[last + 1]] : [];
-        const props = row(scene.properties);
-        const said = normalize([scene.summary, props.exit_conditions, props.entry_landmarks, props.opening_read_aloud].filter(truth).join(' '));
-        const named = sections.filter(section => { const name = normalize(section.name); return name.length >= 2 && said.includes(name); });
-        const viewed = new Set(array(reading.viewed_pages).map(number)), read = new Set(array(reading.materials).map(material => normalize(string(material.focus ?? ''))));
-        const covered = (section: Row) => array(section.pages).every((pair: number[]) => { for (let page = number(pair[0]); page <= number(pair[1]); page++) if (!viewed.has(page)) return false; return true; });
-        const chosen: string[] = [];
-        for (const section of [...containing, ...next, ...named]) {
-            const name = string(section.name);
-            if (chosen.includes(name) || covered(section) || read.has(normalize(name))) continue;
-            chosen.push(name);
-            await ask({ purpose: 'detail', focus: name });
+        const exits = graph.sceneExits(scene);
+        const isEntrance = (await this.store.candidates(graph.raw)).some(candidate => candidate.node_id === scene.node_id || candidate.scene_id === graph.handle(scene));
+        let wayOn: Row | null = null;
+        if (!exits.length && isEntrance && !endings(graph.raw).ids.includes(string(scene.node_id))) {
+            const reply = await ask({ purpose: 'opening', focus: graph.handle(scene), repair: 'way_on' });
+            if (reply) wayOn = { scene: string(scene.node_id), state: reply.state, job_id: reply.job_id ?? null };
         }
-        return { queued, scene: scene.node_id, sections: chosen };
+        queued.push(...await this.queueAdjacentReading(graph, scene));
+        return { queued: [...new Set(queued)], scene: scene.node_id, ...(wayOn ? { way_on: wayOn } : {}) };
     }
     async request(params: Row): Promise<Row> {
         const mid = validateModuleId(params.module_id), purpose = params.purpose;
@@ -320,6 +306,15 @@ export class Reading {
             throw new RpcError('invalid_params', 'repair is way_on, and only on an opening reading');
         return this.mutex(mid, async () => {
             const meta = await this.store.module(mid);
+            if (Object.hasOwn(params, 'context_generation')) {
+                if (purpose !== 'answer' || !integer(params.context_generation) || number(params.context_generation) < 0)
+                    throw new RpcError('invalid_params', 'context_generation is a nonnegative answer-wait generation');
+                if (!equal(params.context_generation, meta.generation ?? 0))
+                    throw new RpcError('needs', 'source context changed while this consultation was waiting', {
+                        fix: 'on a later player turn, repeat lookup kind=source source_mode=answer with the exact focus and question; this wait did not start another reading',
+                        details: { reason: 'source_context_changed', read: { purpose: 'answer', source_mode: 'answer', focus: params.focus, question: params.question } },
+                    });
+            }
             // A cached ready result cannot authorize consuming an altered published generation.
             if (purpose !== 'index') await this.store.readGraph(mid);
             if (!Object.hasOwn(meta, 'reading'))
@@ -338,6 +333,8 @@ export class Reading {
                 throw new RpcError('invalid_params', 'focus and question must be strings');
             if (purpose === 'detail' && !focus.trim())
                 throw new RpcError('invalid_params', 'a detail reading needs a named focus', { fix: 'pass the entity or place as focus, and the unresolved question when known' });
+            if (purpose === 'answer' && (!focus.trim() || !question.trim()))
+                throw new RpcError('invalid_params', 'a source consultation needs a named focus and a nonempty question');
             const result = { generation: meta.generation ?? 0, missing: [] }, guidanceKey = params.guidance_key;
             if (purpose === 'guidance') {
                 // Any tag-shaped play_language is accepted (contract section 23); membership is never checked.
@@ -360,7 +357,18 @@ export class Reading {
                 identity.push(guidanceKey);
             if (repair)
                 identity.push('repair', repair);
+            if (purpose === 'answer') identity.push(SOURCE_ANSWER_PROTOCOL, meta.generation ?? 0);
             const key = jsonDigest(identity);
+            if (purpose === 'answer') {
+                const accepted = row(reading.answers)[key];
+                if (accepted) {
+                    const draftPath = await this.contained(this.store.moduleDir(mid), join(this.store.moduleDir(mid), accepted.draft));
+                    const reviewPath = await this.contained(this.store.moduleDir(mid), join(this.store.moduleDir(mid), accepted.review));
+                    if (await sha256File(draftPath) !== accepted.draft_sha256 || await sha256File(reviewPath) !== accepted.review_sha256)
+                        throw new RpcError('needs', 'retained source answer evidence changed', { details: { reason: 'source_answer_integrity' } });
+                    return { ...result, state: 'ready', source_answer: accepted.result };
+                }
+            }
             if (purpose === 'detail' && array(reading.materials).some(material => material.key === key))
                 return { ...result, state: 'ready' };
             const queue = await this.store.queue(mid), existing = [...queue].reverse().find(job => job.key === key);
@@ -373,6 +381,7 @@ export class Reading {
                     return { ...result, state: existing.state === 'running' ? 'reading' : 'queued', job_id: existing.job_id };
                 }
                 if (existing.state === 'completed') {
+                    if (purpose === 'answer') throw new RpcError('needs', 'the completed source answer has no accepted evidence', { details: { reason: 'source_answer_integrity' } });
                     // A refusal names what is missing (§46.1); a completed reading that still answers
                     // nothing is the snapshot's own list, and an empty one is not a refusal at all.
                     const missing = array(row(meta.opening).missing);
@@ -384,6 +393,7 @@ export class Reading {
                     return { ...result, state: 'blocked', missing: [existing.detail ?? 'reading failed'], fix: 'request the same reading with retry: true' };
             }
             const job: Row = { job_id: `read-${queue.length + 1}`, key, purpose, ...(material ? { material } : {}), ...(repair ? { repair } : {}), focus, question, pages, foreground: truth(params.foreground), state: 'queued', attempts: 0, at: nowIso() };
+            if (purpose === 'answer') job.context_generation = meta.generation ?? 0;
             // The repair extends the reading it repairs: the reader starts from that draft, not from nothing.
             if (repair && !existing) {
                 // The reading it extends is the one on this scene, or the book's own opening read with no focus.
@@ -470,6 +480,10 @@ export class Reading {
                 return { job_id: null };
             }
             for (const job of pending) {
+                if (job.purpose === 'answer' && !equal(job.context_generation, meta.generation ?? 0)) {
+                    Object.assign(job, { state: 'failed', detail: 'source context changed; request a fresh consultation' });
+                    continue;
+                }
                 const foreground = truth(job.foreground);
                 if (active.filter(other => truth(other.foreground) === foreground).length >= (foreground ? 1 : 2)
                     || active.some(other => normalize(other.focus ?? '') === normalize(job.focus ?? '')))
@@ -521,7 +535,7 @@ export class Reading {
                     // an earlier package must still be readable when that package is gone.
                     const recorded = new Map(array(row(meta.vocabulary).actor_profile_keys).map(entry => [string(row(entry).key), row(entry)]));
                     const added = array(contributed.actor_profile_keys).filter(entry => !recorded.has(string(entry.key)));
-                    if (added.length) {
+                    if (added.length && job.purpose !== 'answer') {
                         for (const entry of added)
                             recorded.set(string(entry.key), entry);
                         meta.vocabulary = { actor_profile_keys: [...recorded.values()] };
@@ -590,6 +604,31 @@ export class Reading {
             let guidance: Row | null = null, opening: Row | null = null;
             if (job.purpose === 'index')
                 await this.finishIndex(mid, meta, job, draft, new Set(array(observations.full_pages)));
+            else if (job.purpose === 'answer') {
+                if (!equal(job.context_generation, meta.generation ?? 0) || !equal(packet.base_generation, meta.generation ?? 0))
+                    throw new RpcError('needs', 'source context changed while the answer was being checked', { fix: 'request the same consultation against the current source context', details: { reason: 'source_context_changed' } });
+                const source = await this.source(meta);
+                if (source.file_sha256 !== packet.source.file_sha256) reject('answer source identity changed');
+                if (array(params.assets).length) reject('source consultations cannot publish assets');
+                const answer = checkSourceAnswer(draft, packet, seen), draftPath = await this.contained(work, params.draft_path);
+                const reviewPath = await this.contained(work, params.review_path), review = row(await this.store.context.snapshots.readJson(reviewPath));
+                const draftDigest = await sha256File(draftPath);
+                if (review.draft_sha256 !== draftDigest) reject('the answer candidate does not match its independent review');
+                checkSourceAnswerReview(answer, review, packet, new Set(array(observations.review_pages)));
+                const result = { state: 'ready', generation: meta.generation ?? 0, source_answer: sourceAnswerResult(answer, mid) };
+                meta.reading.answers ??= {};
+                meta.reading.answers[job.key] = { protocol: SOURCE_ANSWER_PROTOCOL, source_sha256: source.file_sha256, context_generation: meta.generation ?? 0,
+                    draft: relative(this.store.moduleDir(mid), draftPath), review: relative(this.store.moduleDir(mid), reviewPath),
+                    draft_sha256: draftDigest, review_sha256: await sha256File(reviewPath), result: result.source_answer };
+                meta.reading.completed ??= {};
+                meta.reading.completed[job.job_id] = result;
+                Object.assign(job, { state: 'completed', result, finished_at: nowIso() });
+                this.owned();
+                await this.store.writeModule(meta);
+                await this.store.writeQueue(mid, queue);
+                await this.release(mid, job.job_id);
+                return result;
+            }
             else {
                 const contract = await this.store.contract(), filled = checkDraft(draft, packet, contract, seen);
                 const reviewPath = await this.contained(work, params.review_path), review = clone(await this.store.context.snapshots.readJson(reviewPath));

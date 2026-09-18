@@ -58,6 +58,12 @@ const DamageEffect = Type.Object({
 	why: Type.Optional(Type.String({ description: "one sentence: how they were hurt" })),
 });
 
+const ClockEffect = Type.Object({
+	kind: Type.Literal('clock'),
+	local_datetime: Type.String({ description: "Pin the opening datetime once when the book gives no full date: YYYY-MM-DDTHH:MM, no timezone; preserve any declared start_time" }),
+	why: Type.Optional(Type.String({ description: "one sentence: why this opening date was chosen" })),
+});
+
 const TimeEffect = Type.Object({
 	kind: StringEnum(["time"] as const, { description: "the world clock moves forward" }),
 	minutes: Type.Integer({ description: "minutes advanced. Six hours or more is a day of rest and the party heals for it (1 HP a day with no major wound), an hour or more regenerates magic points; the result lists what came back in recovered, and your narration owes those numbers like any other change" }),
@@ -433,7 +439,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 		promptSnippet: "Look up an entity the capsule did not answer, or the whole book's secrets and endings",
 		parameters: Type.Object({
 			kind: StringEnum(["module", "source", "secret", "rule", "catalog", "continuity", "adaptation"] as const, {
-					description: "module searches known names; use expected_kind scene for a possible absent destination. continuity joins acquired evidence and causal relationships. adaptation prepare requires a purpose and drafts persistent source-connected graph topology; status is nonblocking, cancel stops it. source without question prepares missing material; with question rechecks original pages",
+					description: "module searches known names; use expected_kind scene for a possible absent destination. continuity joins acquired evidence and causal relationships. adaptation prepare requires a purpose and drafts persistent source-connected graph topology; status is nonblocking, cancel stops it. source defaults to preparing graph material; source_mode answer checks one question against original pages without updating the graph",
 			}),
 			query: Type.Optional(Type.String({ description: "module/rule/catalog: a name or search text. continuity: a semantic entity name, never a prose question; omit query when using anchors. source: entity name, with detail in question. Omissible for secret." })),
 			expected_kind: Type.Optional(StringEnum(['scene', 'npc', 'clue', 'object', 'handout'] as const, {description: 'module only: the graph role being sought. Only an explicit scene miss may offer a new-destination adaptation'})),
@@ -445,6 +451,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 			purpose: Type.Optional(StringEnum(['new_destination', 'persistent_npc', 'source_rebinding', 'handout', 'rebase'] as const, {description: 'required for adaptation prepare. Physical objects have no adaptation purpose, and neither does a supporting person you only need on stage -- apply npc establishes them at the table with no proposal and no turn spent. persistent_npc is for someone who must persist as a source-connected figure'})),
 			request: Type.Optional(Type.String({description: "adaptation: the player's actual direction and the source-connected change to prepare; never an instruction to force a player choice"})),
 			rebase: Type.Optional(Type.Boolean({description: "prepare review of the latest source with the existing accepted adaptations, at a safe start of turn"})),
+			source_mode: Type.Optional(StringEnum(['answer', 'prepare'] as const, {description: 'source only: prefer answer for a narrow factual consultation (requires question); it returns independently checked source evidence, not graph readiness. Use prepare for playable entities/rules, changes to accepted material or revealable assets. Omitted preserves prepare. Unresolved/conflicting answers are not facts and never authorize actions'})),
 			question: Type.Optional(Type.String({ description: "for source only: the precise original-page question; ordinary module queries do not start reading" })),
 			retry: Type.Optional(Type.Boolean({ description: "explicitly retry a failed source reading, or, with adaptation prepare, start a fresh attempt at a proposal that failed instead of receiving that same failure again" })),
 			scope: Type.Optional(
@@ -571,11 +578,11 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 		label: "Apply",
 		method: "table.apply",
 		description:
-			"Land this turn's changes to the world: move walks to another scene, clue gives the investigator a clue, time advances the clock, damage hurts, item and cash change possessions, handout delivers a document, and map reveals only named source-backed regions the investigators learned. Use look focus map to inspect semantic map and region names; map why states what established that knowledge. The whole batch is validated before anything is written, and one bad effect writes none of them. What happens in narration without an apply did not happen. Viewing an already delivered map is a UI action and changes nothing. fork, switch and merge take effect after narrate commits; at most one may be last in a batch. threat moves one authored threat clock.",
-		promptSnippet: "Land this turn's world changes: move, clue, time, handout, map, item, cash",
+			"Land this turn's changes to the world: move walks to another scene, clue gives the investigator a clue, time advances the clock, clock pins the opening datetime once when the book gives no full date, damage hurts, item and cash change possessions, handout delivers a document, and map reveals only named source-backed regions the investigators learned. Use look focus map to inspect semantic map and region names; map why states what established that knowledge. The whole batch is validated before anything is written, and one bad effect writes none of them. What happens in narration without an apply did not happen. Viewing an already delivered map is a UI action and changes nothing. fork, switch and merge take effect after narrate commits; at most one may be last in a batch. threat moves one authored threat clock.",
+		promptSnippet: "Land this turn's world changes: move, clue, time, handout, map, item, cash; apply clock pins the opening datetime once when the book gives no full date",
 		parameters: Type.Object({
 			effects: Type.Array(
-				Type.Union([EndingEffect, AdaptationEffect, MoveEffect, ClueEffect, TimeEffect, DamageEffect, ItemEffect, DefineEffect, UsageEffect, ObjectEffect, AbilityEffect, CashEffect, FlagEffect, NoteEffect, RulingEffect, NpcEffect, PersonEffect, ThreatEffect, ForkEffect, SwitchEffect, MergeEffect, HandoutEffect, MapEffect]),
+				Type.Union([EndingEffect, AdaptationEffect, MoveEffect, ClueEffect, ClockEffect, TimeEffect, DamageEffect, ItemEffect, DefineEffect, UsageEffect, ObjectEffect, AbilityEffect, CashEffect, FlagEffect, NoteEffect, RulingEffect, NpcEffect, PersonEffect, ThreatEffect, ForkEffect, SwitchEffect, MergeEffect, HandoutEffect, MapEffect]),
 				{ minItems: 1, description: "the changes to land this turn, in the order they happened" },
 			),
 		}),

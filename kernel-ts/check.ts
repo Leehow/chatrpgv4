@@ -5,6 +5,7 @@ import { RpcError, internalError } from './errors.js';
 import { loadModuleContract } from './modules/contract.js';
 import { checkDraft, checkOpeningBatch, requiredViewPages } from './modules/visual.js';
 import { row } from './read/values.js';
+import { ANSWER_REVIEW_PATHS, checkSourceAnswer } from './modules/source-answer.js';
 import { validateDefinition } from './mods/definition.js';
 import {validateUsage} from './mods/usages.js';
 export { pythonJsonDumps as serializeCheckResult } from './json.js';
@@ -32,6 +33,10 @@ export async function checkSourceDraft(content: string, packetPath: string, draf
 }> {
     try {
         const draft = await snapshots.readJson(draftPath), packet = row(await snapshots.readJson(packetPath));
+        if (packet.purpose === 'answer') {
+            const answer = checkSourceAnswer(draft, packet);
+            return { ok: true, required_review: ANSWER_REVIEW_PATHS, required_view_pages: [...new Set(answer.source_refs.map((ref: any) => ref.page))] };
+        }
         const filled = checkDraft(draft, packet, await loadModuleContract({ content, snapshots }));
         if (packet.opening_batch === true && packet.purpose === 'opening') checkOpeningBatch(row(draft),packet.focus,packet.known_nodes);
         const path = join(dirname(packetPath), 'baseline.json');

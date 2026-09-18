@@ -13,7 +13,6 @@ import type { createWriteRuntime } from '../write/index.js';
 import { type CampaignWriter, nowIso } from '../write/store.js';
 import { commit, CommitFailed } from '../write/history.js';
 import { moduleAvailable, moduleEra } from '../library/index.js';
-import { endings } from '../write/source.js';
 import { Chargen, ChargenError, ALLOCATION_POLICIES, defaultInvestigatorId, resolveRulebookEra } from './chargen.js';
 import { SetupSteps } from './steps.js';
 import { SetupDrafts } from './drafts.js';
@@ -79,9 +78,7 @@ export class Setup {
       const graph = (await loadModule(this.context, moduleId, campaignId)).graph;
       const start = truth(focus) ? graph.scene(string(focus)) : graph.startScene();
       const ahead = await this.writer.queueAheadReading({module_id: moduleId, campaign: campaignId, focus: graph.handle(start)});
-      if (graph.sceneExits(start).length || endings(graph.raw).ids.includes(string(start.node_id))) return {ahead};
-      const reply = await this.writer.requestReading({module_id: moduleId, campaign: campaignId, purpose: 'opening', focus: graph.handle(start), repair: 'way_on', foreground: false});
-      return {ahead, way_on: {scene: string(start.node_id), state: reply.state ?? null, job_id: reply.job_id ?? null}};
+      return {ahead, ...(ahead.way_on ? {way_on: ahead.way_on} : {})};
     } catch (error) {
       return {way_on: {error: error instanceof Error ? error.message : String(error)}};
     }

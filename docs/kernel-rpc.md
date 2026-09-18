@@ -850,8 +850,9 @@ acceptance remain pending until their dedicated checks are recorded.
 - **`promise` 的接续。** 与 `relationship` 同一条确定性规则：同 `subject` 同 `entities` 的新 `promise` 给旧的加 `valid_until_turn` / `superseded_by`；抽取指令多一句。
 - **`style` 的行。** 轴与 directive 的 play_language 短句（2026-09-10 起六条轴、十一条 directive，§30.12）住在 `content/craft/beat-directives.json`（`axis_lines`、`directive_lines`），没有对应语言的行时退到 `en`，再退到图上的 `name` / `rationale`；轴按 `language_applicability` 过滤（`translationese` 只给 zh-Hans）。「重开进程后的第一回合」= 本进程第一次 `player_input` 打开的那一回合：那一回合的所有胶囊（含 `table.capsule`）都给全部 directive，2KB；之后的回合按节拍表，1KB。十七条时 zh-Hans 全量 2019 字节刚好装下、`en` 全量超预算按 `truncated` 裁尾；十一条之后的尺寸由 #71 记录，预算不变。
 - **采纳落两处。** `narrate` 与 `ask` 关回合时都算 `director_adoption`，写进回合记录，并在 `telemetry.jsonl` 写一行 `{lane: "director", turn, closed_by, beat, adopted, evidence}`；turn 0 没有胶囊，记录里为 `null`。`CHARACTER` 的 social 族与 `RECOVER` 的 healing/development 族从本回合 `calls` 结果的 `family` 反查收据；`MONTAGE` 看本回合 `time` 收据的总分钟数 ≥ 60；`CHOICE` 以 `ask` 关闭时 `evidence` 为空数组。
-- **`where.clock.at` 与 `day_part`** 只在模组节点声明了故事何时开场时给：`start_clock.local_datetime`（`module-meta.json` 的本地日期时间，The Haunting 是 `1920-10-12T10:00:00`）或退而求其次的 `start_time`（`HH:MM`，只有钟点没有日期，因此只有 `day_part` 没有 `at`）。`at` = 声明的开场时刻 + `world.clock.minutes`，以 `YYYY-MM-DDTHH:MM` 给出；`elapsed` 仍然是从战役开局算起的已过时间，两者不是一回事。`day_part` 的边界是**起始钟点**（5 dawn / 8 morning / 12 midday / 14 afternoon / 18 evening / 22 night，之前是 `small_hours`）。两者都不声明的模组一个都不给——不猜。谁写它：starter 模组是 `module-meta.json` 手写；PDF 构图的模组由 skeleton/opening 读者在模组节点 `properties` 上声明（`content/setup/visual-reader.md`，带 source_refs 并进 critical，detail 补读也能后补），谁也不许按现实世界历史推断书里没写的开场时刻。`table.view` 的 `clock` 与胶囊同一份投影（§23），面板据此显示局内时间。`structure_type` 读模组节点记录的 `structure_type`，没有就 `branching_investigation`。`campaign.create` 接受 `register`（文本图 `play-register` 的 legacy key，缺省 `purist`），写进 `campaign.json`。
-- **游戏日 = 局内午夜。** 声明了开场时刻的模组，日序号是 `(开场时刻的当日分钟 + world.clock.minutes) // 1440`，与 `where.clock.at` 换日期的那一刻严格一致；两者都不声明的模组退回 `minutes // 1440`。任何推进时钟的效果都可能跨过它——`time` 是守秘人有意让时间过去，`move` 的行程同样在走——所以夜里开车跨过 0 点也算过了一天，而 `_stage_recovery` 仍然正确地不把行程当休息。
+- **开场锚点由桌面钉一次（`apply clock`，2026-09-18 用户裁定）。** 模组只声明了粗粒度日期（如模组节点 `era: "1975年7月"`）或什么都没声明时，`start_clock.local_datetime` 不存在，投影只能给「第 N 天 HH:MM」；那一天由写故事的人补一次：`apply clock {local_datetime, why}` 把「书里现在几号几点」钉在 `world.clock.start_local`（本地 ISO `YYYY-MM-DDTHH:MM`，无时区）。守卫三条：模组已声明完整 `start_clock.local_datetime` 时拒绝（书是权威，桌面不改写它）；已经钉过时拒绝（只一次，第二次会改写已发生的日期）；模组只声明了 `start_time` 时，钉的时刻必须与它同钟点（不许悄悄改掉书里的钟点）。优先级：`world.clock.start_local` → 模组的 `local_datetime` → `start_time` → 默认 09:00。钉上之后 `at` 照旧给、`day`/`hh`/`mm` 不再给，玩家看到的是日期，「游戏日」的日界跟着同一个锚点走。收据 kind `clock`（`minutes` 不变，只命名起点），不产生规范事件（§12.1 是二十四类闭集）。它也在开场准入白名单里：开场那一批可以只带它（钉的是计数器的起点，不动任何世界状态），因此玩家在开场旁白里看到的就是书里的日期，而不是第几天。未钉而模组也没声明完整时刻时，胶囊的时钟节带一句 `pin`。
+- **`where.clock.at` 与 `day_part`** 只在模组节点声明了故事何时开场时给：`start_clock.local_datetime`（`module-meta.json` 的本地日期时间，The Haunting 是 `1920-10-12T10:00:00`）或退而求其次的 `start_time`（`HH:MM`，只有钟点没有日期，因此只有 `day_part` 没有 `at`）。`at` = 声明的开场时刻 + `world.clock.minutes`，以 `YYYY-MM-DDTHH:MM` 给出；`elapsed` 仍然是从战役开局算起的已过时间，两者不是一回事。`day_part` 的边界是**起始钟点**（5 dawn / 8 morning / 12 midday / 14 afternoon / 18 evening / 22 night，之前是 `small_hours`）。**没有日期不等于没有时钟（2026-09-18 用户裁定）。** 没有 `at` 的模组不再「一个都不给」：`at` 仍然只在声明了开场时刻时给（日期不许猜），但同一次投影里给出**局内第几天与钟点**——`day`（1 起算）、`hh`、`mm`（两位补零），锚点与该模组自己的日界同源：`day = floor((起始分钟 + minutes) / 1440) + 1`、`hh:mm = (起始分钟 + minutes) % 1440`，起始分钟取 `start_time` 的钟点，两者都不声明时为 **09:00**（`DEFAULT_START_MINUTES`，即战役开局是第 1 天 09:00；2026-09-18 用户裁定：没有日期不等于没有时钟，而一个从午夜开场的默认会把半夜三点摆在玩家面前，所以默认钟点是早上 09:00，不是从书里推出来的）；`day_part` 按同一条钟点分档一并给。声明了 `at` 的模组 `clock` 字面形状不变。三端：写它的是这份投影本身（`clockSection`），读它的是 `table.view` 与胶囊（同一份），据它行动的是玩家（知道局内几点）与守秘人（让散文的时间与钟对齐，`apply time` 是唯一能移动它的动词）。面板：有 `at` 印绝对时刻，没有 `at` 而有 `day`/`hh`/`mm` 就印 `content/ui/<tag>/sheet.json` 的 `day.clock`（「第 {d} 天 {hh}:{mm}」），两者都没有（老内核）才退到 `elapsed`。谁写它：starter 模组是 `module-meta.json` 手写；PDF 构图的模组由 skeleton/opening 读者在模组节点 `properties` 上声明（`content/setup/visual-reader.md`，带 source_refs 并进 critical，detail 补读也能后补），谁也不许按现实世界历史推断书里没写的开场时刻。`table.view` 的 `clock` 与胶囊同一份投影（§23），面板据此显示局内时间。`structure_type` 读模组节点记录的 `structure_type`，没有就 `branching_investigation`。`campaign.create` 接受 `register`（文本图 `play-register` 的 legacy key，缺省 `purist`），写进 `campaign.json`。
+- **游戏日 = 局内午夜。** 声明了开场时刻的模组，日序号是 `(开场时刻的当日分钟 + world.clock.minutes) // 1440`，与 `where.clock.at` 换日期的那一刻严格一致；两者都不声明的模组退回 `(540 + minutes) // 1440`（默认 09:00 开局，日界仍是局内午夜：第 1 天从开局走到次日 00:00）。任何推进时钟的效果都可能跨过它——`time` 是守秘人有意让时间过去，`move` 的行程同样在走——所以夜里开车跨过 0 点也算过了一天，而 `_stage_recovery` 仍然正确地不把行程当休息。
 - **`apply` 跨过午夜时结果多一个 `day_ended`**：`{days, sanity: [{investigator, day_start_san, went_indefinitely_insane}]}`，没跨就没有这个键。理智引擎同时在**自己的存档**里留下一条 `day_ended` 事件（`daily_san_lost / threshold / day_start_san / next_day_start_san / indefinite_insanity_triggered`）——注意它不是 `events.jsonl` 的规范事件，那张表是闭合的 24 类，跨日没有进去；它记的是**判了哪一天、对着什么阈值**——p.168 的「一天损失五分之一」以前没有任何产品路径调用者，计数于是从战役第一分钟起只增不减，这条事件让下一次它再失灵时看得出来。一次推进跨 N 个午夜就按序关 N 次日；推进内部没有路径能动 SAN，所以只有第一次有东西可判，**判定永远只针对队伍真正经历的最后一天，绝不跨天求和**。
 - **本体校验的池。** `graph:rule:coc7` 对规则图节点 id；`graph:director:production` 对 Director 图节点 id；`graph:text:production` 对文本图节点 id；`graph:live-state:campaign` 的 `locator` 对 RuleGraph 的 `REGISTERED_CONDITION_PATHS`；`graph:execution:coc7-resolver` 的 `locator` 对 resolver 的 `public_api_index` 加内核执行器名；`graph:module:<id>` 对该模组图的节点 id（当前注册表没有模组引用）。关系两端必须是已登记的 `ref_id`。每进程校验一次，结果缓存。
 - **`may-emit-effect` 的效果清单**以 `Ontology.effect_ids()` 暴露（决策 → 效果 id）。本树的 `narrate` 没有「每个状态效果恰交代一次」的确定性检查——12.5 的 `committed` 句子直接由收据生成——所以这份清单目前没有消费者；接那条检查的切片直接读它，不另抄一份。
@@ -1859,7 +1860,9 @@ repeating successful reading after Pi has already recovered a provider failure.
 
 `module.json` 增加 `reading_version: 1` 和 `source_document: {path, file_sha256, page_count}`。路径相对模组目录，必须落在该目录内。来源发布后不可原位替换。同文件重复导入返回已有模组；同 id 不同摘要报 `invalid_params` 并给出创建新模组的 `fix`。哈希和内部作业标识只在宿主与内核间传递。
 
-宿主私有 PDF 工具的三种互斥操作：
+The host-private PDF tool has four mutually exclusive navigation/page operations (native-text search added by the approved `pdf-source-fast-path` plan, 2026-09-18):
+
+- `search {query, first_page?, last_page?, limit?, cursor?}`: a bounded, cancellable literal search of the original PDF's native text through the existing host PDF.js document owner. Return physical pages, available page labels, bounded original snippets, actual searched scope, continuation/truncation and text availability. Unicode/case/whitespace normalization is retrieval, not a language or intent classifier. A zero-match result is not absence of source facts or absence of a text layer. Empty/unusable text leaves the existing visual route available; no OCR fallback or text-bundle ingestion is restored. Search results are explicitly navigation-only, like overview sheets: they never create page observations or satisfy source/review evidence. Reopen original pages before relying on their contents. In-memory page-text reuse follows document identity and lifetime; search adds no persistent full-book prerequisite, new dependency or wider file access.
 
 - `info`：返回真实页数、已有书签与页面标签。没有书签返回空数组，不由程序猜章节。
 - `page <page> [--box x0,y0,x1,y1]`：按需渲染并返回图片路径、物理页号、裁剪范围和实际尺寸；读者再用 Pi `read` 看图。`page` 是从 1 起的物理页序，印刷页码只是标签。`box` 是应用 PDF 旋转后的可视整页上、左为原点的归一化矩形；满足 `0 <= x0 < x1 <= 1` 与 `0 <= y0 < y1 <= 1`。内核持久化 `pdf_index = page - 1`，只在边界转换一次。
@@ -1935,6 +1938,18 @@ Keeper 工具总数仍是七个。`lookup {kind: "module", query}` 查现有图�
 成功的读取结果通过原工具调用返回，不在桌外偷偷触发一个新的 Keeper 回合。背景预读仅在空闲时启动；素材就绪后进入后续胶囊，不自行叙事。
 
 合并 §16.3 的结构化交互后，阅读等待说明放在 ask 的 prompt/options JSON 中，不进入正文。若 Keeper 只输出等待散文，宿主丢弃该草稿，并沿已有单次修正机制要求显式 ask；不得合成空选项调用。
+
+### 22.4.1 Checked source consultation without graph publication (2026-09-18)
+
+The approved `pdf-source-fast-path` plan adds `source_mode: "answer" | "prepare"` to `lookup kind=source`. Omission preserves preparation. Answer mode requires a named query and nonempty question. The Keeper chooses the mode; the host never classifies question text with keywords. Automatic `material_pending` recovery always prepares material, never substitutes an answer for readiness.
+
+Purpose `answer` uses the same scoped reading queue, source binding, claim/finish lease, owned attempt directory, cancellation and retained evidence. A tool-enabled author writes a bounded answer artifact, not a graph shard; a fresh tool-enabled reviewer independently opens the cited original pages, checks the answer against the question and supplied accepted context, and cannot modify the candidate. Both use checked submission without an unnecessary closing prose request. Search snippets alone are insufficient evidence. Supported answers, unresolved evidence, contradictions and requirements for preparation are explicit distinct outcomes; absence of a search hit never establishes an absent source fact.
+
+`module.read.finish` accepts a checked answer only after path/scope/lease/source/actual-page/candidate/review validation. It does not assemble or write a graph, increase generation, change opening/material readiness, reveal assets, change world state or create game receipts. The evidence remains in its immutable attempt directory; a separate compact `reading.answers` index points to it, never to fake prepared node ids. The accepted identity binds the exact question, normalized focus, source digest, protocol and context generation inside the owning campaign workspace. Source/context changes invalidate reuse; a changed context while in flight requires a recheck, not a semantic auto-merge. After the first answer request returns its generation, the host pins that value as the internal `context_generation` on every poll. A changed generation returns `source_context_changed` before enqueueing any replacement, retains the original question and answer mode, and releases the original job's foreground wait; one waiting call never silently renews its model budget under another job. Private answers are not inherited by another campaign. Completion and its accepted reference publish atomically and replay idempotently.
+
+The existing lookup call returns the checked answer and normalized original-source references directly, explicitly marked as consultation rather than prepared material; it no longer rewrites answer mode into a module graph lookup. The Keeper may use a supported answer to explain source material, but entity registration, numeric settlement, readiness, handout revelation and changed accepted facts still require their existing preparation/apply/resolve paths. Conflicts and unresolved/preparation-required results remain non-authoritative. No automatic new Keeper turn or hidden graph preparation follows an answer. Existing foreground wait policy is unchanged; shorter work, not a longer timeout, is the performance goal.
+
+Producer: the scoped source author/reviewer and validated finish write the answer artifact and accepted reference. Reader: request/ensure replay and the source lookup result expose it to the Keeper. Adoption: the Keeper answers the current question, or explicitly requests preparation when game-state material is needed; resolve/apply never treat answer-only evidence as readiness. Tests cover real native-text navigation without image evidence, answer/prepare routing, independent visual proof, immutable graph/world state, exact reuse, source/context invalidation and interleaved campaign isolation.
 
 ### 22.5 开场、失败与旧数据
 
@@ -11993,21 +12008,24 @@ exits, so that table read nothing ahead. Two rules:
   foreground: false}`. `repair` is its own reading identity (the completed opening neither answers
   for it nor blocks it), the job carries `repair` and `resume_from` the completed opening's work,
   the reader's brief is §90.3's own fix text, and publication still passes §90. The request and the
-  read-ahead below are the book's own work: before the table forks they go to the shared library
-  (contract 22.6), and the handoff forks nothing. The handoff reports
+  read-ahead below respect §22.6: campaign-owned maintenance forks a private source workspace
+  before enqueueing; it never modifies a shared library on behalf of a running table. The handoff reports
   `reading.way_on {scene, state, job_id}`; nothing here may fail the handoff. Readiness is not
   re-judged. Tests: `test_fast_guidance.py` (repair queued when the way on is missing, none when
   it is there), `test_visual_reading.py` (an index refusal names its rows and the repair lands).
-- **The book turns its own pages next (spec thin-book-play B).** `module.read.ahead {module_id,
-  campaign?, focus?}` asks, in the background, for the index when there is none, else for a
-  `detail` reading of the section holding the scene's pages, the section after it in page order,
-  and every section whose name the scene's own text says (a section already viewed in full, or
-  already read by name, is not asked for again). It runs after an index or opening publication
-  (the host calls it), at `setup.complete` (reported as `handoff.reading.ahead`), and after the
-  exits on every `apply move`. The capsule carries `reading {index_complete, sections: [{name,
-  pages, read}]}` for a visually read book (512 bytes, trimmed from the end), so a thin graph is
-  never mistaken for the book saying no. Tests: `test_visual_reading.py` (the next section is
-  asked for once; no index asks for the index), `test_fast_guidance.py` (the capsule's book list).
+- **Reading follows authored connections, not page order.** `module.read.ahead {module_id,
+  campaign?, focus?}` performs bounded background maintenance: request a missing index, repair
+  a non-final entrance with no authored way on, and prefetch the unprepared destinations of
+  the current scene's actual graph exits. Index section names and page adjacency are navigation,
+  not evidence of a story connection; prose substring matches do not schedule semantic work.
+  Run this at setup handoff, table re-entry and after a reading publication, as well as scene
+  movement. A finished repair must therefore hand off to ordinary adjacent reading without
+  another setup or player collision. Queue identities suppress duplicate and failed work;
+  there is no automatic retry loop. Missing source files do not revoke playable material.
+  The capsule carries bounded `reading {index_complete, sections: [{name, pages, read}]}`;
+  `read` means accepted prepared material for that section, never merely viewed pages.
+  Old pinned adaptation snapshots may have no index; new snapshots preserve the pinned index,
+  and neither follows a mutable library. This is a navigation aid, not a completeness claim.
 
 ## 91. A review that never judged the draft does not refuse it (2026-09-17, amends §36.14 and §38.9, extends §26.1)
 
@@ -13562,7 +13580,6 @@ separate pass that reopens its page before publication. `tests/extension/ts-kern
 a matching persisted attempt publishes through a fresh kernel owner, while the existing native-owner test
 continues to prove that a requeued/reclaimed attempt receives a new token and cannot reuse the old one.
 
-
 ## 113. Roleplay reaches the dice, the book is consulted before a denial, and a person does not repeat (2026-09-18, spec thin-book-play C/D; amends §95, §34, §40)
 
 A 24-turn table: seven social checks, all `regular` with no dice, so a story built to win an
@@ -13575,18 +13592,25 @@ protested out of character and a source lookup found the doctor's house.
   {field: "modifiers.reason"}`; elsewhere it is optional. It travels on the roll receipt as
   `modifier_reason` (and through a push's copied fields), and the mechanics card prints the dice
   with it: `bonus die ×1 · because …`. The tool's own description says what a social die is
-  earned by: a story that is specific, fits what this person wants or fears and gives them a
-  reason; two when they already trust the speaker or something they can see backs the claim; none
-  for a bare "I deceive him".
+  earned by: concrete leverage that fits this person's wants, fears, knowledge or circumstances.
+  Specificity and eloquence alone earn nothing. The Keeper judges an actual advantage, chooses
+  zero to two dice according to the rules, explains it, and does not count engine-derived
+  circumstances twice. Reasons supplied by the Keeper use the play language because they are
+  player-visible data; host-authored instructions and labels remain English source material.
 - **A thin graph is not the book saying no.** The capsule carries `reading` (§90.5); the Keeper
   prompt says to look `kind=source` before any NPC denies a person, place or service the graph
   does not hold, and that a denial is only ever the book's.
 - **An unmet question is a finding.** narration-audit 1.2.22 checks that every question the player
   put to someone is answered, deflected in character with a reason, or refused with one, and that
   a word-for-word repeated line is not an answer.
-- **A person does not repeat (D).** The voice lane's packet carries `said`: the lines this person
-  already spoke at this table; the host refuses a `{{say}}` line that repeats twelve or more
-  consecutive characters of one of them, before the audit, as `needs {reason: "repeated_line"}`.
+- **A person responds to this exchange (D).** The voice lane's packet and the per-turn Keeper
+  projection carry bounded `said` history from committed `speech` records of the same NPC in
+  this campaign/worldline. The live projection matters even when the mask was authored or the
+  one-shot voice job already completed. It is evidence of what was said, not a new NPC fact or
+  a player-facing journal. Model instructions ask for a response to the current question, not
+  reuse of sample exchanges or habitual deflection. Deliberate repetition remains possible;
+  there is no character-count, substring or semantic hard refusal on delivery. The existing
+  narration audit judges unanswered questions and unhelpful repetition in context.
 
 Tests: `test_declared_dice.py` (a social modifier without a reason is refused by name; with one,
 the receipt carries it), `ui-words-surfaces` (the three captions exist), voice tests (D).

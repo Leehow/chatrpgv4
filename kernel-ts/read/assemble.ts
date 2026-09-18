@@ -17,7 +17,7 @@ import { directorOffer, directorRecovery } from "./offer.js";
 import { pythonJsonDumps, utf8Bytes } from "../json.js";
 import { playLanguageOf } from "./languages.js";
 import { RpcError } from "../errors.js";
-import { array, row, number, string, truth, chars, clone, type Row } from "./values.js";
+import { array, row, number, string, truth, chars, clone, normalize, type Row } from "./values.js";
 import type { ModuleGraph } from "./module-graph.js";
 export const HEAD = "Everything at the start of this turn: the clock, the undiscovered clues here and their gates, the secrets " +
     "and agendas of those present, the way back and the exits, pressures and obligations, the rule-layer " +
@@ -282,6 +282,8 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
         story = campaign.logs.get("memory/story.jsonl") ?? [];
     const where = whereSection(graph, world, scene, material, true);
     where.clock = clockSection(graph, world);
+    if (!where.clock.at)
+        where.clock.pin = "Use apply clock once to pin the opening local_datetime when the book gives no full date, keeping any declared start_time.";
     where.session = session;
     const [clocks, near] = clockPressures(situations, party, session, array(dg.threshold("pressure-clock-near-full-fraction"))),
         previous = playedRecords(campaign.records, number(turn.turn))[0],
@@ -378,11 +380,13 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
     // The book's own navigation (spec thin-book-play B): what the book holds and what is still unread, so a
     // thin graph is never mistaken for the book saying no. Names and pages only; the reading is asked for by name.
     if (truth(module.meta.reading_version)) {
-        const viewed = new Set(array(row(module.meta.reading).viewed_pages).map(number));
+        const prepared = new Set(array(row(module.meta.reading).materials)
+            .filter(material => material.purpose === 'detail' && !material.question && !material.material)
+            .map(material => normalize(string(material.focus))));
         sections.reading = {
             index_complete: truth(row(module.meta.reading).index_complete),
             sections: module.sections.map(section => ({ name: string(section.name), pages: array(section.pages).map((pair: number[]) => [number(pair[0]) + 1, number(pair[1]) + 1]),
-                read: array(section.pages).every((pair: number[]) => { for (let page = number(pair[0]); page <= number(pair[1]); page++) if (!viewed.has(page)) return false; return true; }) }))
+                read: prepared.has(normalize(string(section.name))) }))
         };
         if (fitBudget(row(sections.reading).sections, 512, "last"))
             truncated.push("reading");

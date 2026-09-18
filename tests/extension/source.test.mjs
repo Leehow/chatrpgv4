@@ -4,7 +4,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createCanvas, loadImage } from "@napi-rs/canvas";
-import { sourceAsset, sourceInfo, sourceOverview, sourcePage } from "../../extensions/module/source.ts";
+import { sourceAsset, sourceInfo, sourceOverview, sourcePage, sourceSearch, closeSourceDocuments } from "../../extensions/module/source.ts";
 
 function pdf(rotation = 0) {
 	const stream = "1 0 0 rg 0 0 100 100 re f 0 0 1 rg 100 0 100 100 re f";
@@ -37,6 +37,21 @@ function labelledPdf(marker = "a") {
 	text+=`xref\n0 ${size}\n0000000000 65535 f \n${offsets.slice(1).map(value=>String(value).padStart(10,"0")+" 00000 n ").join("\n")}\ntrailer\n<< /Size ${size} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
 	return text;
 }
+
+function textPdf(streams, brokenPage = -1) {
+	const objects = ["<< /Type /Catalog /Pages 2 0 R /PageLabels << /Nums [0 << /P (Leaf-) /S /D /St 7 >>] >> >>",
+		`<< /Type /Pages /Kids [${streams.map((_, i) => `${i === brokenPage ? 999 : 4 + i * 2} 0 R`).join(" ")}] /Count ${streams.length} >>`,
+		"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"];
+	for (const [i, stream] of streams.entries()) objects.push(
+		`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] /Resources << /Font << /F1 3 0 R >> >> /Contents ${5 + i * 2} 0 R >>`,
+		`<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}\nendstream`);
+	let text = "%PDF-1.7\n";
+	const offsets = [0];
+	for (const [i, object] of objects.entries()) { offsets.push(Buffer.byteLength(text)); text += `${i + 1} 0 obj\n${object}\nendobj\n`; }
+	const xref = Buffer.byteLength(text), size = objects.length + 1;
+	return text + `xref\n0 ${size}\n0000000000 65535 f \n${offsets.slice(1).map(n => String(n).padStart(10, "0") + " 00000 n ").join("\n")}\ntrailer\n<< /Size ${size} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+}
+const textStream = text => `BT /F1 12 Tf 20 160 Td (${text}) Tj ET`;
 
 async function fixture(t, rotation = 0) {
 	const root = await mkdtemp(join(tmpdir(), "coc-source-"));
@@ -166,6 +181,90 @@ test("a labelled contact sheet has stable tiles, a separate cache log and byte-i
 	assert.equal((await readFile(join(cache,"overviews.jsonl"),"utf8")).trim().split("\n").length,2);
 	const oldPath=first.path,oldSource=first.file_sha256;await writeFile(file,labelledPdf("b"));
 	const changed=await sourceOverview(file,cache,1,4);assert.equal(changed.reused,false);assert.notEqual(changed.path,oldPath);assert.notEqual(changed.file_sha256,oldSource);
+});
+
+test("native search normalizes literal text across items and whitespace, preserving physical pages and snippets", async t => {
+	const {file, cache} = await fixture(t);
+	await writeFile(file, textPdf(["", "BT /F1 12 Tf 20 160 Td (Har) Tj /F1 14 Tf (bor) Tj 0 -20 Td (Gate) Tj ET", textStream("Elsewhere")]));
+	const result = await sourceSearch(file, {query: "  ＨＡＲＢＯＲ\t\n gate  "});
+	assert.equal(result.navigation_only, true);
+	assert.deepEqual(result.matches.map(row => [row.page, row.pdf_label]), [[2, "Leaf-8"]]);
+	assert.match(result.matches[0].snippet, /Harbor\s+Gate/);
+	assert.ok(result.matches[0].snippet.length <= 240);
+	assert.deepEqual(result.scope, {first_page:1,last_page:3,searched_first_page:1,searched_last_page:3,complete:true});
+	assert.deepEqual(result.text_availability, {scope:"searched_pages",pages_with_text:[2,3],empty_pages:[1],extraction_errors:[]});
+	assert.equal(result.next_cursor, null);
+	await assert.rejects(readFile(join(cache, "requests.jsonl")), error => error.code === "ENOENT");
+	const miss = await sourceSearch(file, {query:"Absent",first_page:2,last_page:3});
+	assert.deepEqual(miss.matches, []); assert.deepEqual(miss.text_availability.pages_with_text, [2,3]);
+	const empty = await sourceSearch(file, {query:"Absent",first_page:1,last_page:1});
+	assert.deepEqual(empty.matches, []); assert.deepEqual(empty.text_availability.pages_with_text, []);
+	assert.deepEqual(empty.text_availability.empty_pages, [1]);
+});
+
+test("native search bounds candidate pages and scan work, with source/query/range-bound continuation", async t => {
+	const {file} = await fixture(t);
+	await writeFile(file, textPdf(Array.from({length:53}, () => textStream("A Harbor " + "long context ".repeat(40)))));
+	const first = await sourceSearch(file, {query:"Harbor",limit:2});
+	assert.deepEqual(first.matches.map(row => row.page), [1,2]);
+	assert.equal(first.truncated, true); assert.equal(first.scope.complete, false);
+	assert.ok(first.matches.every(row => row.snippet.length <= 240));
+	const next = await sourceSearch(file, {query:"Harbor",limit:2,cursor:first.next_cursor});
+	assert.deepEqual(next.matches.map(row => row.page), [3,4]);
+	assert.equal(next.scope.searched_first_page, 3);
+	assert.equal((await sourceSearch(file, {query:"Harbor"})).matches.length, 8);
+	const miss = await sourceSearch(file, {query:"Absent"});
+	assert.equal(miss.scope.searched_last_page, 50); assert.equal(miss.truncated, true);
+	const end = await sourceSearch(file, {query:"Absent",cursor:miss.next_cursor});
+	assert.equal(end.scope.searched_first_page, 51); assert.equal(end.scope.searched_last_page, 53);
+	assert.equal(end.truncated, false); assert.equal(end.next_cursor, null);
+	// A continuation is not a claim that this call inspected the earlier pages.
+	assert.equal(end.scope.complete, false);
+	for (const options of [{query:"Other",cursor:first.next_cursor},{query:"Harbor",last_page:52,cursor:first.next_cursor},
+		{query:"Harbor",cursor:"invalid"}]) await assert.rejects(sourceSearch(file, options), /cursor/);
+});
+
+test("native search invalidates page text and cursors when source identity changes", async t => {
+	const {file} = await fixture(t);
+	await writeFile(file, textPdf([textStream("Old Harbor"), textStream("Old Harbor")]));
+	const old = await sourceSearch(file, {query:"Old",limit:1});
+	await writeFile(file, textPdf([textStream("New Harbor"), textStream("New Harbor")]));
+	assert.deepEqual((await sourceSearch(file, {query:"Old"})).matches, []);
+	assert.equal((await sourceSearch(file, {query:"New"})).matches.length, 2);
+	await assert.rejects(sourceSearch(file, {query:"Old",cursor:old.next_cursor}), /cursor/);
+});
+
+test("native search reports extraction errors separately from empty pages and missing matches", async t => {
+	const {file} = await fixture(t);
+	await writeFile(file, textPdf([textStream("Harbor"), "", ""], 2));
+	const result = await sourceSearch(file, {query:"Absent"});
+	assert.deepEqual(result.matches, []);
+	assert.deepEqual(result.text_availability.pages_with_text, [1]);
+	assert.deepEqual(result.text_availability.empty_pages, [2]);
+	assert.deepEqual(result.text_availability.extraction_errors.map(row => row.page), [3]);
+	assert.equal(result.scope.complete, false); assert.equal(result.truncated, false);
+});
+
+test("native search validates selectors and cancellation preserves concurrent document owners", async t => {
+	const {file, cache} = await fixture(t);
+	await writeFile(file, textPdf(Array.from({length:4}, () => textStream("Harbor"))));
+	for (const options of [null, [], {query:""}, {query:" \n\t "}, {query:"x".repeat(257)}, {query:1},
+		{query:"Harbor",limit:0},{query:"Harbor",limit:21},{query:"Harbor",limit:1.5},
+		{query:"Harbor",first_page:0},{query:"Harbor",first_page:2,last_page:1},
+		{query:"Harbor",last_page:5},{query:"Harbor",first_page:1.5},{query:"Harbor",bbox:true}])
+		await assert.rejects(sourceSearch(file, options), /search/);
+	await assert.rejects(sourceSearch(file, {query:"Harbor"}, AbortSignal.abort()), /cancelled/);
+	await sourceSearch(file, {query:"Harbor"});
+	const controller = new AbortController();
+	const interrupted = sourceSearch(file, {query:"Harbor"}, controller.signal);
+	const rejection = assert.rejects(interrupted, /cancelled/);
+	const peer = sourceSearch(file, {query:"Harbor"});
+	setImmediate(() => controller.abort());
+	const [result, page] = await Promise.all([peer, sourcePage(file,cache,1,{pixels:512}), rejection]);
+	assert.equal(result.matches.length, 4); assert.equal(page.page, 1);
+	await closeSourceDocuments();
+	assert.equal((await sourceSearch(file, {query:"Harbor"})).matches.length, 4);
+	await closeSourceDocuments();
 });
 
 test("contact-sheet ranges fail before page rendering and cancellation stays bounded",async t=>{

@@ -87,8 +87,11 @@ export function checkReviewEvidence(review: Row, paths: string[], pages: Set<num
 	if (!Array.isArray(review?.checked) || !Array.isArray(review?.missing)) throw new Error("invalid source review");
 	const checked = new Set<string>(), assigned = new Set(paths);
 	for (const row of review.checked) {
-		if (!Array.isArray(row?.source_refs) || !row.source_refs.length || row.source_refs.some((ref: Row) => !pages.has(ref.page)))
-			throw new Error("review cites a page not supplied to this reviewer");
+		if (!Array.isArray(row?.source_refs) || !row.source_refs.length)
+			throw new Error('Each checked entry needs source_refs: [{page: physicalPage}]. Use that exact field name; this is a schema error, not a request to reread pages.');
+		const unseen = row.source_refs.filter((ref: Row) => !pages.has(ref.page)).map((ref: Row) => ref.page);
+		if (unseen.length)
+			throw new Error(`review cites a page not supplied to this reviewer: ${JSON.stringify(unseen)}; viewed physical pages: ${JSON.stringify([...pages])}`);
 		for (const path of row.paths ?? [row.path]) {
 			// Only the paths the reviewer added itself. The assigned ones are this host's own
 			// contract -- `/coverage` is synthesised here and is not a draft key at all -- so
@@ -185,12 +188,13 @@ export async function reviewCandidate(options: {
 }): Promise<number[]> {
 	const backoff = options.transportBackoffMs ?? TRANSPORT_BACKOFF_MS;
 	const guidanceBytes = options.task.purpose === "guidance" ? await readFile(join(options.cwd, "guidance.json"), "utf8") : undefined;
-	const candidateBytes = guidanceBytes ? await readFile(join(options.cwd,"draft.json")) : Buffer.from(JSON.stringify(options.draft));
+	const answerTask = options.task.purpose === 'answer';
+	const candidateBytes = guidanceBytes || answerTask ? await readFile(join(options.cwd,"draft.json")) : Buffer.from(JSON.stringify(options.draft));
 	const {commands: _commands, ...semanticTask} = options.task;
 	const identity = options.cacheRoot && options.source.file_sha256 ? canonical({protocol:reviewProtocol,
 		version:options.reviewVersion, source:options.source.file_sha256, draft:options.draft,
 		guidance:guidanceBytes, task:semanticTask, model:options.model}) : undefined;
-	const units = guidanceBytes ? [reviewUnits(options.draft).flat()] : reviewUnits(options.draft), results: Row[] = [], observed = new Set<number>();
+	const units = answerTask ? [['/status', '/answer', '/source_refs', '/limitations']] : guidanceBytes ? [reviewUnits(options.draft).flat()] : reviewUnits(options.draft), results: Row[] = [], observed = new Set<number>();
 	const scopePages = [...new Set<number>((options.task.review_scope_pages?.length ? options.task.review_scope_pages : [...(options.draft.nodes ?? []), ...(options.draft.claims ?? [])]
 		.flatMap((item: Row) => (item.source_refs ?? []).map((ref: Row) => ref.page)))
 		.filter((page: any) => Number.isInteger(page) && page > 0))].sort((a,b) => a-b);
@@ -200,7 +204,7 @@ export async function reviewCandidate(options: {
 	await Promise.allSettled(Array.from({ length: capacity }, async () => {
 		while (next < units.length && !options.signal.aborted) {
 			const index = next++, paths = units[index];
-			const requiredPages = paths.includes('/coverage') ? scopePages : [];
+			const requiredPages = answerTask ? [...new Set<number>((options.draft.source_refs ?? []).map((ref: Row) => ref.page))] : paths.includes('/coverage') ? scopePages : [];
 			const key = identity ? digest(identity + canonical(paths)) : undefined;
 			const cacheFile = key ? join(options.cacheRoot!,key+'.json') : undefined;
 			const cached = cacheFile ? await cachedReview(cacheFile,key!,paths,!!guidanceBytes,requiredPages,options.draft) : undefined;
@@ -239,10 +243,11 @@ export async function reviewCandidate(options: {
 				: "";
 			try {
 				const run = await options.run({ cwd, model: options.model.id, thinking: options.model.thinking,
-					...(guidanceBytes?{imageHistory:4}:{}),
-					submission:!!guidanceBytes || options.task.purpose === "opening",
+					...(guidanceBytes || answerTask ? {imageHistory:4} : {}),
+					submission:!!guidanceBytes || answerTask || options.task.purpose === "opening",
 					systemPrompt: options.instructions, source: options.source, signal: options.signal, eventLog,
-					brief: (guidanceBytes ? readerInput({task:unitTask, draft:options.draft, guidance:JSON.parse(guidanceBytes)}) : readerInput({task:unitTask,draft:options.draft})) + " Independently review only task.required_review against original images using pdf. Keep the full graph as context. Produce checked paths, verdict, source_refs and reason, plus missing (only necessary current material). Never edit the draft. " + (requiredPages.length ? "For /coverage, view every review_scope_pages page as evidence, not as a whole-range extraction assignment. State the requested use from task.purpose/focus/question in your reason. An empty detail question requests the focused entity's current use and necessary dependencies, not its whole chapter. Compare that use to the candidate for omitted discoverable facts and investigation connections, including when no clue or conclusion was proposed. Every missing item must identify its source and explain which requested use or immediate dependency would fail without it; appearing on a viewed page or map is insufficient. " : "") + mapBrief + (guidanceBytes ? "Also review guidance.json under the Independent review instructions and include guidance:{approved,issues} in the same review. Never modify guidance.json. Pass this small review object directly to submit_reading as your sole final tool call; a separate write followed by submit would waste another model request. " : options.task.purpose === "opening" ? "Pass the review to submit_reading as your sole final tool call; no separate final prose is needed. " : "Write review.json. ") + (previousFailure ? "Your previous attempt at this same unit was rejected; failure.json holds the reason. Read it and answer for the assigned pointers exactly as task.required_review spells them. " : "") + "Finish this unit and stop.",
+					brief: answerTask ? readerInput({task:unitTask, draft:options.draft}) + " Independently review the complete source answer, status and limitations for task.question against original page images and accepted context. View every cited source page. Do not modify draft.json. Use submit_reading with review as your sole final tool call. " + (previousFailure ? "Read failure.json for the previous attempt's concrete rejection. " : "")
+					: (guidanceBytes ? readerInput({task:unitTask, draft:options.draft, guidance:JSON.parse(guidanceBytes)}) : readerInput({task:unitTask,draft:options.draft})) + " Independently review only task.required_review against original images using pdf. Keep the full graph as context. Produce checked paths, verdict, source_refs and reason, plus missing (only necessary current material). Never edit the draft. " + (requiredPages.length ? "For /coverage, view every review_scope_pages page as evidence, not as a whole-range extraction assignment. State the requested use from task.purpose/focus/question in your reason. An empty detail question requests the focused entity's current use and necessary dependencies, not its whole chapter. Compare that use to the candidate for omitted discoverable facts and investigation connections, including when no clue or conclusion was proposed. Every missing item must identify its source and explain which requested use or immediate dependency would fail without it; appearing on a viewed page or map is insufficient. " : "") + mapBrief + (guidanceBytes ? "Also review guidance.json under the Independent review instructions and include guidance:{approved,issues} in the same review. Never modify guidance.json. Pass this small review object directly to submit_reading as your sole final tool call; a separate write followed by submit would waste another model request. " : options.task.purpose === "opening" ? "Pass the review to submit_reading as your sole final tool call; no separate final prose is needed. " : "Write review.json. ") + (previousFailure ? "Your previous attempt at this same unit was rejected; failure.json holds the reason. Read it and answer for the assigned pointers exactly as task.required_review spells them. " : "") + "Finish this unit and stop.",
 					onEvent(event) {
 						if (event.type === "tool_execution_end" && !event.isError && event.result?.details?.kind === "source_pages")
 							imageCalls.set(event.toolCallId, event.result.details.observations);
@@ -310,9 +315,11 @@ export async function reviewCandidate(options: {
 		throw new Error(failures.join("; "));
 	}
 	if (results.filter(Boolean).length !== units.length) throw new Error("Source review did not complete every unit");
-	if(guidanceBytes && (!(await readFile(join(options.cwd,"draft.json"))).equals(candidateBytes)||await readFile(join(options.cwd,"guidance.json"),"utf8")!==guidanceBytes))throw new Error("Source pair changed during review");
+	if ((guidanceBytes || answerTask) && !(await readFile(join(options.cwd,"draft.json"))).equals(candidateBytes)) throw new Error("Source candidate changed during review");
+	if (guidanceBytes && await readFile(join(options.cwd,"guidance.json"),"utf8") !== guidanceBytes) throw new Error("Source pair changed during review");
 	await writeFile(join(options.cwd, "review.json"), JSON.stringify({
 		checked: results.flatMap(r => r.checked), missing: results.flatMap(r => r.missing),
+		...(answerTask ? { draft_sha256: digest(candidateBytes) } : {}),
 		...(guidanceBytes ? {guidance: {...results[0].guidance,
 			draft_sha256: createHash("sha256").update(candidateBytes).digest("hex"),
 			guidance_sha256: createHash("sha256").update(guidanceBytes).digest("hex")}} : {}),

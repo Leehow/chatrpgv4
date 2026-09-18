@@ -2,24 +2,31 @@
 import { createHash } from "node:crypto";
 import { Type } from "typebox";
 import { readFile } from "node:fs/promises";
-import { sourceInfo, sourceOverview, sourcePage, closeSourceDocuments } from "./source.ts";
+import { sourceInfo, sourceOverview, sourcePage, sourceSearch, closeSourceDocuments } from "./source.ts";
 
 export default function readerPdf(pi: any) {
 	pi.on("session_shutdown", () => closeSourceDocuments());
 	pi.registerTool({ name: "pdf", label: "Read original PDF pages",
-		description: "Inspect native bookmarks/page labels with no arguments; use overview for one navigation-only contact sheet of at most 20 contiguous physical pages; or view exact physical pages as source evidence. Reopen overview candidates with pages before using facts. Physical pages start at 1; box optionally zooms exact pages.",
+		description: "Inspect bookmarks/page labels with no arguments; search literal source wording to locate candidate pages (8 results by default, at most 20; at most 50 pages searched per call, continue with cursor and the same query/range); use overview for a contact sheet of at most 20 pages; or view exact pages as source evidence. Search and overview are navigation only: reopen candidates with pages before using facts. Zero matches do not prove absence; empty or garbled text needs visual navigation. Physical pages start at 1; box optionally zooms exact pages.",
 		parameters: Type.Object({
 			pages:Type.Optional(Type.Array(Type.Integer({minimum:1}),{minItems:1,maxItems:12})),
 			box:Type.Optional(Type.Array(Type.Number({minimum:0,maximum:1}),{minItems:4,maxItems:4})),
 			overview:Type.Optional(Type.Object({first_page:Type.Integer({minimum:1}),last_page:Type.Integer({minimum:1})},{additionalProperties:false})),
+			search:Type.Optional(Type.Object({query:Type.String({minLength:1,maxLength:256}),
+				first_page:Type.Optional(Type.Integer({minimum:1})),last_page:Type.Optional(Type.Integer({minimum:1})),
+				limit:Type.Optional(Type.Integer({minimum:1,maximum:20})),cursor:Type.Optional(Type.String({maxLength:256}))},{additionalProperties:false})),
 		},{additionalProperties:false}),
 		async execute(_id: string, params: any, signal: AbortSignal) {
 			const config = JSON.parse(process.env.PI_COC_READER_SOURCE ?? "null");
 			if (!config) throw new Error("This reader has no bound PDF");
 			if (signal.aborted) throw new Error("Source reading cancelled");
-			if(Object.keys(params).some(key=>!["pages","box","overview"].includes(key)))throw new Error("Unknown PDF mode parameter");
-			const hasPages=Object.hasOwn(params,"pages"),hasOverview=Object.hasOwn(params,"overview"),hasBox=Object.hasOwn(params,"box");
-			if(Number(hasPages)+Number(hasOverview)>1||hasBox&&!hasPages)throw new Error("Choose exactly one PDF mode: info, overview, or exact pages");
+			if(Object.keys(params).some(key=>!["pages","box","overview","search"].includes(key)))throw new Error("Unknown PDF mode parameter");
+			const hasPages=Object.hasOwn(params,"pages"),hasOverview=Object.hasOwn(params,"overview"),hasBox=Object.hasOwn(params,"box"),hasSearch=Object.hasOwn(params,"search");
+			if(Number(hasPages)+Number(hasOverview)+Number(hasSearch)>1||hasBox&&!hasPages)throw new Error("Choose exactly one PDF mode: info, search, overview, or exact pages");
+			if(hasSearch) {
+				const result=await sourceSearch(config.pdf,params.search,signal);
+				return {content:[{type:"text",text:JSON.stringify(result)}],details:{kind:"source_search",...result}};
+			}
 			if(hasOverview) {
 				const overview=params.overview;
 				if(!overview||typeof overview!=="object"||Array.isArray(overview))throw new Error("overview needs first_page and last_page");

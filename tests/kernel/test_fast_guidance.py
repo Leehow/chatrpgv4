@@ -226,13 +226,23 @@ def test_an_opening_published_ready_stays_ready_under_a_later_rule(kernel, tmp_p
     assert done["module_id"] == mid
     # The connection point is missing, so the handoff asks the reader for exactly that edge, in the background.
     assert done["reading"]["way_on"]["scene"] == "scene-dock" and done["reading"]["way_on"]["state"] == "queued"
-    # The repair is the book's own work: it goes to the shared library, and the handoff forks nothing (contract 22.6).
-    assert not (kernel.workspace / ".coc/module-campaigns/installed/modules" / mid / "module.json").exists()
-    queue = json.loads((kernel.workspace / ".coc/modules" / mid / "deepen-queue.json").read_text())
-    repair = [job for job in queue if job.get("repair") == "way_on"]
-    assert len(repair) == 1 and repair[0]["purpose"] == "opening" and repair[0]["state"] == "queued" and repair[0]["resume_from"]
-    assert done["reading"]["ahead"]["sections"] == [], "every indexed page was viewed by the opening reading"
+    # A running campaign never repairs the shared library on its own behalf (contract 22.6/§90.5).
+    # The accepted generation is forked first, and only the private queue receives the bounded way-on job.
+    private_dir = kernel.workspace / ".coc/module-campaigns/installed/modules" / mid
+    assert (private_dir / "module.json").exists()
+    private_queue = json.loads((private_dir / "deepen-queue.json").read_text())
+    assert [(row["purpose"], row.get("repair"), row["focus"], row["state"]) for row in private_queue] == [
+        ("opening", "way_on", "dock", "queued")]
+    assert private_queue[0]["resume_from"]
+    shared_queue = json.loads((module_dir / "deepen-queue.json").read_text())
+    assert not [row for row in shared_queue if row["state"] == "queued"]
+    assert done["reading"]["ahead"] == {
+        "queued": [private_queue[0]["job_id"]],
+        "scene": "scene-dock",
+        "way_on": done["reading"]["way_on"],
+    }
     kernel.ok("table.open", {"campaign": "installed"})
     reading = kernel.ok("table.capsule", {"campaign": "installed"})["reading"]
     assert reading["index_complete"] is True
-    assert reading["sections"] == [{"name": "The harbor", "pages": [[1, 2]], "read": True}]
+    assert reading["sections"] == [{"name": "The harbor", "pages": [[1, 2]], "read": False}], \
+        "viewed opening pages do not claim that the indexed section was prepared"

@@ -6,7 +6,7 @@ import type { HandlerGroup, ProgressReporter } from '../handlers.js';
 import type { TurnTransaction } from '../transactions.js';
 import { RpcError, internalError } from '../errors.js';
 import { sha256Text,isJsonObject } from '../json.js';
-import { fileSize, truncateFile } from '../fileio.js';
+import { appendJsonl, fileSize, truncateFile } from '../fileio.js';
 import { CampaignSnapshot, loadModule, loadCampaignModule, replayTrail, type LoadedModule } from '../read/campaign.js';
 import { scopedModuleRoot } from '../modules/campaign-scope.js';
 import { ModuleGraph, recordOf } from '../read/module-graph.js';
@@ -565,6 +565,15 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             snapshot.meta.status = 'active';
             snapshot.meta.activated_at = nowIso();
             await campaign.writeCampaign(snapshot.meta);
+        }
+        // Re-entry repairs pre-gate openings too; setup.complete is not called for an existing table.
+        // Source maintenance is optional and must never revoke an already playable campaign.
+        if (moduleReading && !module.graph.materialOverride) {
+            try {
+                await queueAheadReading({ module_id: module.graph.moduleId, campaign: campaign.id, focus: snapshot.world.active_scene });
+            } catch (error) {
+                await appendJsonl(campaign.path('telemetry.jsonl'), { lane: 'reading', event: 'read-ahead-unavailable', detail: error instanceof Error ? error.message : String(error) });
+            }
         }
         if (contributions.queueAdjacentReading)
             await contributions.queueAdjacentReading(module.graph, module.graph.scene(snapshot.world.active_scene));

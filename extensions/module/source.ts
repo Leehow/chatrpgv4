@@ -35,7 +35,7 @@ async function loadPdf(path: string) {
 	};
 	const task = getDocument(options);
 	try {
-		return { document: await task.promise, sha256, close: () => task.destroy() };
+		return { document: await task.promise, sha256, textPages: new Map<number, Promise<string>>(), close: () => task.destroy() };
 	} catch (error) {
 		await task.destroy();
 		throw error;
@@ -99,7 +99,7 @@ async function openPdf(path: string) {
 	};
 	try {
 		const value = await owned.loaded;
-		return {document:value.document,sha256:value.sha256,close};
+		return {document:value.document,sha256:value.sha256,textPages:value.textPages,close};
 	} catch (error) {
 		if (documents.get(path) === owned) documents.delete(path);
 		await close(); throw error;
@@ -134,6 +134,92 @@ export async function sourceInfo(pdf: string) {
 		}
 		return { path: resolve(pdf), file_sha256: sha256, page_count: document.numPages,
 			labels: await document.getPageLabels(), bookmarks: await entries(outline) };
+	} finally { await close(); }
+}
+
+export interface SourceSearchOptions { query: string; first_page?: number; last_page?: number; limit?: number; cursor?: string }
+const searchPageLimit = 50, searchSnippetLimit = 240;
+const normalizeSearch = (text: string) => text.normalize("NFKC").toLowerCase().replace(/\s+/gu, " ").trim();
+
+/** Map a normalized match back to a bounded slice of the original extracted text. */
+function searchSnippet(original: string, offset: number): string {
+	let low = 0, high = original.length;
+	while (low < high) {
+		const middle = Math.floor((low + high) / 2);
+		if (normalizeSearch(original.slice(0, middle)).length <= offset) low = middle + 1;
+		else high = middle;
+	}
+	const start = Math.max(0, low - 1 - 60);
+	return original.slice(start, start + searchSnippetLimit);
+}
+
+/** Native text locates candidate pages only; it never records image observations. */
+export async function sourceSearch(pdf: string, options: SourceSearchOptions, signal?: AbortSignal) {
+	if (!options || typeof options !== "object" || Array.isArray(options) ||
+		Object.keys(options).some(key => !["query", "first_page", "last_page", "limit", "cursor"].includes(key)))
+		throw new Error("search needs query and optional first_page, last_page, limit, cursor");
+	if (typeof options.query !== "string" || options.query.length > 256 || !normalizeSearch(options.query))
+		throw new Error("search query must contain 1-256 characters of literal text");
+	const query = normalizeSearch(options.query), limit = options.limit ?? 8;
+	if (!Number.isInteger(limit) || limit < 1 || limit > 20) throw new Error("search limit must be an integer from 1 to 20");
+	const cancelled = () => { if (signal?.aborted) throw new Error("Source search cancelled"); };
+	cancelled();
+	const { document, sha256, textPages, close } = await openPdf(pdf);
+	try {
+		cancelled();
+		const first = options.first_page ?? 1, last = options.last_page ?? document.numPages;
+		if (!Number.isInteger(first) || !Number.isInteger(last) || first < 1 || last < first || last > document.numPages)
+			throw new Error(`search needs an ordered physical-page range within 1-${document.numPages}`);
+		const binding = createHash("sha256").update(JSON.stringify(["native-search-v1", sha256, query, first, last])).digest("hex");
+		let next = first;
+		if (options.cursor !== undefined) {
+			try {
+				if (typeof options.cursor !== "string" || options.cursor.length > 256) throw new Error();
+				const cursor = JSON.parse(Buffer.from(options.cursor, "base64url").toString("utf8"));
+				if (cursor.binding !== binding || !Number.isInteger(cursor.next) || cursor.next < first || cursor.next > last) throw new Error();
+				next = cursor.next;
+			} catch { throw new Error("search cursor does not match this source, query or range; restart the search"); }
+		}
+		const labels = await document.getPageLabels(), searchedFirst = next;
+		const matches: Array<{page: number; pdf_label: string | null; snippet: string}> = [];
+		const withText: number[] = [], empty: number[] = [], errors: Array<{page: number; error: string}> = [];
+		for (; next <= last && next - searchedFirst < searchPageLimit && matches.length < limit; next++) {
+			cancelled();
+			let pending = textPages.get(next);
+			if (!pending) {
+				const page = next;
+				pending = (async () => {
+					const content = await (await document.getPage(page)).getTextContent();
+					return content.items.map(item => "str" in item ? item.str + (item.hasEOL ? "\n" : "") : "").join("");
+				})();
+				textPages.set(page, pending);
+				void pending.catch(() => { if (textPages.get(page) === pending) textPages.delete(page); });
+			}
+			try {
+				const original = await pending;
+				cancelled();
+				const text = normalizeSearch(original);
+				if (text) {
+					withText.push(next);
+					const offset = text.indexOf(query);
+					if (offset >= 0) matches.push({ page: next, pdf_label: labels?.[next - 1] ?? null, snippet: searchSnippet(original, offset) });
+				} else empty.push(next);
+			} catch (error) {
+				cancelled();
+				errors.push({page: next, error: String(error).slice(0, 240)});
+			}
+			// Let cancellation run even when all page text is already cached. A shared
+			// extraction retains this document lease until it settles, never destroys a peer.
+			await new Promise<void>(resolve => setImmediate(resolve));
+		}
+		cancelled();
+		const truncated = next <= last;
+		return { navigation_only: true, matches,
+			scope: { first_page: first, last_page: last, searched_first_page: searchedFirst, searched_last_page: next - 1,
+				complete: searchedFirst === first && !truncated && errors.length === 0 },
+			truncated, next_cursor: truncated ? Buffer.from(JSON.stringify({binding, next})).toString("base64url") : null,
+			text_availability: { scope: "searched_pages", pages_with_text: withText, empty_pages: empty, extraction_errors: errors },
+			guidance: "Navigation only, not source evidence. Open candidate original pages before using facts. No match does not mean no text layer or no fact in the book. For empty, failed or garbled text use info, overview and original pages." };
 	} finally { await close(); }
 }
 
