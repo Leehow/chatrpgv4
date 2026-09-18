@@ -58,7 +58,7 @@ def test_job_packet_shape_and_the_closed_recordable_set(kernel):
     narrated = first_turn(kernel)
     packet = job(kernel)
     assert set(packet) == {"job_id", "turn", "commit", "scene", "present", "investigators", "player_text",
-                           "keeper_text", "speech", "recordable", "prior", "budget", "instruction"}
+                           "keeper_text", "speech", "recordable", "unnamed", "prior", "budget", "instruction"}
     assert packet["job_id"] == "journal:c1:t1" and packet["turn"] == 1 and packet["commit"] == narrated["commit"]
     assert packet["scene"] == {"name": "commission-briefing", "display_name": "Knott's Office"}
     assert packet["present"] == [KNOTT]
@@ -70,7 +70,11 @@ def test_job_packet_shape_and_the_closed_recordable_set(kernel):
     assert packet["recordable"] == [KNOTT]
     assert CORBITT not in packet["recordable"]
     assert packet["prior"] == []
-    assert packet["budget"] == {"max_entries": 6, "max_description_chars": 300, "max_exchange_chars": 200}
+    # §103: the prose wrote 诺特, which is not the name the graph prints; whether that told the player
+    # the name is the lane's call, so he is on the closed unnamed list until the lane or a record says so.
+    assert packet["unnamed"] == [KNOTT]
+    assert packet["budget"] == {"max_entries": 6, "max_description_chars": 300, "max_exchange_chars": 200,
+                                "max_label_chars": 60}
     assert "recordable" in packet["instruction"] and "zh-Hans" in packet["instruction"]
     stored = read_json(journal_dir(kernel.workspace) / "jobs" / "journal:c1:t1.json")
     assert stored["status"] == "open" and stored["packet"]["job_id"] == "journal:c1:t1"
@@ -89,12 +93,13 @@ def test_recordable_also_covers_receipt_references_and_journal_names(kernel):
     narrate(kernel, "t1-c2", "诺特把委托说清楚了，信是科比特写的。")
     packet = job(kernel, turn=1)
     assert packet["recordable"] == [KNOTT, CORBITT], "present ∪ receipt-referenced"
-    submit(kernel, packet["job_id"], [{"name": CORBITT, "description": "写信的人。", "exchange": "他的信到了调查员手上。"}])
+    submit(kernel, packet["job_id"], [{"name": CORBITT, "label": "写信的人", "description": "写信的人。",
+                                       "exchange": "他的信到了调查员手上。"}])
     close_turn(kernel, 2)
     packet = job(kernel, turn=2)
     assert packet["present"] == [KNOTT] and packet["recordable"] == [KNOTT, CORBITT], \
         "turn 2 has no receipt naming Corbitt: he is recordable only through the journal"
-    assert packet["prior"] == [{"name": CORBITT, "description": "写信的人。", "last_seen_turn": 1}]
+    assert packet["prior"] == [{"name": CORBITT, "label": "写信的人", "description": "写信的人。", "last_seen_turn": 1}]
 
 
 # ---- submit: the deterministic merge -------------------------------------------------------
@@ -103,7 +108,7 @@ def test_submit_merges_entries_and_counts_a_turn_once(kernel):
     first_turn(kernel)
     # Two rows for the same person in one job: seen_count still moves at most once per turn.
     result = submit(kernel, "journal:c1:t1", [
-        {"name": KNOTT, "description": "房东先生，有些心不在焉。", "exchange": "他把钥匙推过来。"},
+        {"name": KNOTT, "named": True, "description": "房东先生，有些心不在焉。", "exchange": "他把钥匙推过来。"},
         {"name": KNOTT, "exchange": "他叹了口气。"},
     ])
     assert result == {"job_id": "journal:c1:t1", "turn": 1, "entries": 2}
@@ -134,7 +139,7 @@ def test_submit_merges_entries_and_counts_a_turn_once(kernel):
 def test_each_rejection_points_at_the_entry_and_nothing_lands(kernel):
     first_turn(kernel)
     job_id = job(kernel)["job_id"]
-    ok = {"name": KNOTT, "exchange": "点头。"}
+    ok = {"name": KNOTT, "named": True, "exchange": "点头。"}
     cases = [
         ("unknown field", [{**ok, "mood": "happy"}], 0, "mood"),
         ("machine key", [{**ok, "turn": 1}], 0, "turn"),
@@ -168,7 +173,7 @@ def test_each_rejection_points_at_the_entry_and_nothing_lands(kernel):
 
 def test_replay_is_idempotent_and_divergence_conflicts(kernel):
     first_turn(kernel)
-    entries = [{"name": KNOTT, "description": "房东。", "exchange": "给了钥匙。"}]
+    entries = [{"name": KNOTT, "named": True, "description": "房东。", "exchange": "给了钥匙。"}]
     first = submit(kernel, "journal:c1:t1", entries)
     again = submit(kernel, "journal:c1:t1", entries)
     assert again == {**first, "replayed": True}
@@ -209,7 +214,7 @@ def test_fail_backlogs_the_job_and_the_default_does_not_redispatch_it(kernel):
 
 def test_table_view_projects_the_journal_for_the_player(kernel):
     first_turn(kernel)
-    submit(kernel, "journal:c1:t1", [{"name": KNOTT, "description": "房东先生。", "exchange": "他把钥匙推过来。"}])
+    submit(kernel, "journal:c1:t1", [{"name": KNOTT, "named": True, "description": "房东先生。", "exchange": "他把钥匙推过来。"}])
     # Grow the file by hand: a second person and an exchange history longer than the projection gives.
     path = journal_path(kernel.workspace)
     data = read_json(path)
@@ -228,10 +233,12 @@ def test_table_view_projects_the_journal_for_the_player(kernel):
     assert [e["name"] for e in journal] == [CORBITT, KNOTT], "newest last_seen_turn first"
     corbitt, knott = journal
     # `id` is the handle a say span carries (contract §40.3): the legend swatch and the line share one anchor.
-    assert set(corbitt) == {"id", "name", "description", "seen_count", "last_seen_turn", "exchanges"}
+    assert set(corbitt) == {"id", "name", "named", "description", "seen_count", "last_seen_turn", "exchanges"}
     assert corbitt["id"] == "walter-corbitt" and knott["id"] == "steven-knott"
+    # A row written by hand with neither label nor named_at predates §103 and shows the name it always showed.
+    assert corbitt["named"] is True and knott["named"] is True
     assert "dead_since_turn" not in corbitt
-    assert set(knott) == {"id", "name", "description", "seen_count", "last_seen_turn", "dead_since_turn", "exchanges"}
+    assert set(knott) == {"id", "name", "named", "description", "seen_count", "last_seen_turn", "dead_since_turn", "exchanges"}
     assert knott["dead_since_turn"] == 5
     assert knott["seen_count"] == 1 and knott["last_seen_turn"] == 1
     assert [e["turn"] for e in knott["exchanges"]] == [8, 7, 6, 5, 4, 3], "at most six, newest first"
@@ -243,3 +250,88 @@ def test_table_view_setting_up_has_the_empty_journal_shape(kernel):
     assert created["campaign"]["status"] == "setting_up"
     view = kernel.ok("table.view", {"campaign": CAMPAIGN})
     assert view["state"] == "setting_up" and view["npcs"] == {"journal": []}
+
+
+# ---- §103: a name the player was not told -------------------------------------------------------
+
+def test_a_person_the_prose_never_named_is_journaled_under_a_label(kernel):
+    """血色公路 t1: the book seats two men in the scene, the prose describes them and names nobody, and
+    the sheet panel listed them under their full names. The recordable name stays the book's word,
+    but a person on the closed `unnamed` list is written under a label, and the player's card shows
+    the label until a record or the lane says the name was given."""
+    first_turn(kernel)
+    packet = job(kernel)
+    assert packet["unnamed"] == [KNOTT]
+    # The leak fails closed: a first row for an unnamed person needs a label, and neither the label
+    # nor the prose the player reads may carry the name.
+    missing = submit_err(kernel, packet["job_id"], [{"name": KNOTT, "description": "办公桌后的男人。"}])
+    assert missing["code"] == "invalid_params" and missing["details"] == {"index": 0, "field": "label", "name": KNOTT, "unnamed": [KNOTT]}
+    assert "label" in missing["fix"] and "named" in missing["fix"]
+    carrying = submit_err(kernel, packet["job_id"], [{"name": KNOTT, "label": f"{KNOTT} at the desk"}])
+    assert carrying["code"] == "invalid_params" and carrying["details"] == {"index": 0, "field": "label", "name": KNOTT}
+    described = submit_err(kernel, packet["job_id"], [{"name": KNOTT, "label": "办公桌后的男人", "description": f"{KNOTT} 坐在桌后。"}])
+    assert described["code"] == "invalid_params" and described["details"]["field"] == "description"
+    submit(kernel, packet["job_id"], [{"name": KNOTT, "label": "办公桌后的男人", "description": "戴着遮阳帽舌的男子。", "exchange": "他把钥匙推过来。"}])
+    stored = read_json(journal_path(kernel.workspace))["entries"][KNOTT_ID]
+    assert stored["name"] == KNOTT and stored["label"] == "办公桌后的男人" and "named_at" not in stored
+    # The player's card: the label stands where the name would, and says so.
+    [knott] = kernel.ok("table.view", {"campaign": CAMPAIGN})["npcs"]["journal"]
+    assert knott["id"] == "steven-knott" and knott["name"] == "办公桌后的男人" and knott["named"] is False
+    # The Keeper's capsule: the same seat that carries `called` (§79) carries `untold`, with the label and its consequence.
+    kernel.table("player_input", text="我等他开口。")
+    capsule = kernel.table("look", focus="npc")
+    [present] = capsule["present"]
+    assert present["name"] == KNOTT
+    assert present["untold"]["label"] == "办公桌后的男人" and "say token" in present["untold"]["use"]
+    assert kernel.table("look", focus="npc", name=KNOTT)["untold"]["label"] == "办公桌后的男人"
+    # Turn 2's prose prints the name the graph displays. The record shows it, so the job takes him off
+    # the list, and the submit records the turn even though the lane wrote nothing about him.
+    narrate(kernel, "t2-c1", f"{KNOTT} 终于站起来，自报了姓名。")
+    packet = job(kernel, turn=2)
+    assert packet["unnamed"] == [] and packet["prior"] == [{"name": KNOTT, "description": "戴着遮阳帽舌的男子。", "last_seen_turn": 1}]
+    named_already = submit_err(kernel, packet["job_id"], [{"name": KNOTT, "label": "另一个称谓"}])
+    assert named_already["code"] == "invalid_params" and named_already["details"] == {"index": 0, "field": "label", "name": KNOTT, "unnamed": []}
+    submit(kernel, packet["job_id"], [])
+    stored = read_json(journal_path(kernel.workspace))["entries"][KNOTT_ID]
+    assert stored["named_at"] == 2 and stored["label"] == "办公桌后的男人", "the label stays on file; the name takes over the card"
+    [knott] = kernel.ok("table.view", {"campaign": CAMPAIGN})["npcs"]["journal"]
+    assert knott["name"] == KNOTT and knott["named"] is True
+    kernel.table("player_input", text="我点头。")
+    [present] = kernel.table("look", focus="npc")["present"]
+    assert "untold" not in present
+
+
+def test_the_lane_can_name_a_person_the_scan_cannot_see(kernel):
+    """The fixture's prose says 诺特 for `Steven Knott`: no record can see that as the name being told,
+    so the lane says it with `named: true`, which can add a turn and never take one away."""
+    first_turn(kernel)
+    submit(kernel, "journal:c1:t1", [{"name": KNOTT, "label": "办公桌后的男人", "description": "戴着遮阳帽舌的男子。"}])
+    close_turn(kernel, 2, "诺特自报了姓名。")
+    packet = job(kernel, turn=2)
+    assert packet["unnamed"] == [KNOTT], "诺特 is not a word the scan reads as the name"
+    assert packet["prior"] == [{"name": KNOTT, "label": "办公桌后的男人", "description": "戴着遮阳帽舌的男子。", "last_seen_turn": 1}]
+    wrong = submit_err(kernel, packet["job_id"], [{"name": KNOTT, "named": "yes"}])
+    assert wrong["code"] == "invalid_params" and wrong["details"] == {"index": 0, "field": "named"}
+    submit(kernel, packet["job_id"], [{"name": KNOTT, "named": True, "exchange": "他说了自己的名字。"}])
+    stored = read_json(journal_path(kernel.workspace))["entries"][KNOTT_ID]
+    assert stored["named_at"] == 2
+    [knott] = kernel.ok("table.view", {"campaign": CAMPAIGN})["npcs"]["journal"]
+    assert knott["name"] == KNOTT and knott["named"] is True
+    close_turn(kernel, 3)
+    packet = job(kernel, turn=3)
+    assert packet["unnamed"] == [] and "label" not in packet["prior"][0]
+    # Naming is one-way: a later turn without the name does not take it back, and a label is refused now.
+    assert submit_err(kernel, packet["job_id"], [{"name": KNOTT, "label": "那个人"}])["details"]["field"] == "label"
+    submit(kernel, packet["job_id"], [{"name": KNOTT, "exchange": "他又点点头。"}])
+    assert read_json(journal_path(kernel.workspace))["entries"][KNOTT_ID]["named_at"] == 2
+
+
+def test_a_say_span_of_theirs_shows_the_player_the_name(kernel):
+    """§40.4 titles a resolved span with the speaker's name: a say token of theirs is the name being
+    told, whatever the prose around it calls them."""
+    open_turn(kernel, "我等他开口。")
+    narrate(kernel, "t1-c1", f"房东抬起头。{{{{say:{KNOTT}}}}}「请坐。」{{{{/say}}}}")
+    packet = job(kernel)
+    assert packet["unnamed"] == []
+    submit(kernel, packet["job_id"], [{"name": KNOTT, "description": "房东。", "exchange": "他请调查员坐下。"}])
+    assert read_json(journal_path(kernel.workspace))["entries"][KNOTT_ID]["named_at"] == 1

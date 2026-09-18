@@ -19,11 +19,11 @@ function packet(turn, lane = "journal") {
 	return {
 		job_id: `${lane}:camp:t${turn}`, turn, commit: "private-commit-key",
 		scene: { name: "hall", display_name: "Entrance Hall" },
-		present: ["Dooley"], investigators: [{ name: "Thomas" }], recordable: ["Dooley"],
+		present: ["Dooley"], investigators: [{ name: "Thomas" }], recordable: ["Dooley"], unnamed: ["Dooley"],
 		player_text: "I ask the caretaker about the locked door.",
 		keeper_text: "Dooley hands you the key.",
-		prior: [{ name: "Dooley", description: "The caretaker." }],
-		budget: { max_entries: 2, max_description_chars: 40, max_exchange_chars: 40 },
+		prior: [{ name: "Dooley", label: "The caretaker", description: "The caretaker." }],
+		budget: { max_entries: 3, max_description_chars: 40, max_exchange_chars: 40, max_label_chars: 30 },
 		instruction: "Record only people who appeared; use the campaign's play language.",
 	};
 }
@@ -129,6 +129,8 @@ test("mounted NPC lane sends a closed player-safe prompt and payload, then refre
 			{ name: "Too long", description: "x".repeat(41) },
 			{ name: "No prose" },
 			{ name: "Dooley", exchange: "Points to the door." },
+			{ name: "Dooley", label: " The man with the keys ", named: true, secret: "omit" },
+			{ name: "Dooley", label: "x".repeat(31) },
 			{ name: "Dooley", description: "Beyond the packet budget." },
 		]);
 	}] });
@@ -139,19 +141,25 @@ test("mounted NPC lane sends a closed player-safe prompt and payload, then refre
 		campaign: "camp", job_id: "journal:camp:t7", entries: [
 			{ name: "Dooley", description: "The caretaker.", exchange: "Hands over a key." },
 			{ name: "Dooley", exchange: "Points to the door." },
+			// §103: a label and a naming travel as they are; whether either is owed is the kernel's check.
+			{ name: "Dooley", label: "The man with the keys", named: true },
 		],
 	});
 	assert.equal(seen.tools, undefined);
 	assert.match(seen.systemPrompt, /Record only people who appeared/);
-	assert.match(seen.systemPrompt, /at most 2 rows/);
+	assert.match(seen.systemPrompt, /at most 3 rows/);
+	assert.match(seen.systemPrompt, /label, only for a name listed under not yet named: 1 to 30 characters/);
+	assert.match(seen.systemPrompt, /named: true, only for a name listed under not yet named/);
 	assert.match(inputText(seen), /\[Recordable names\] Dooley/);
+	assert.match(inputText(seen), /\[Not yet named to the player\] Dooley/);
+	assert.match(inputText(seen), /- Dooley \(label: The caretaker\): The caretaker\./);
 	assert.match(inputText(seen), /Dooley hands you the key/);
 	assert.ok(!inputText(seen).includes("private-commit-key"));
 	assert.deepEqual(table.pushes, [{
 		schemaVersion: 1, sessionCapability: "lane-test-capability", action: "ext.emit",
 		extensionId: "coc-keeper", event: "sheet-changed",
 	}]);
-	assert.equal(table.rows()[0].entries, 2);
+	assert.equal(table.rows()[0].entries, 3);
 	assert.equal(table.rows()[0].model, "journal/j1");
 	assert.deepEqual(table.rows("lane-call").filter(row => row.subsession === "journal").map(row => row.phase), ["start", "response", "end"]);
 });

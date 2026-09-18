@@ -315,7 +315,7 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
     const warningRecord = [...campaign.records].sort((a, b) => number(b.turn) - number(a.turn)).find(record => number(record.turn) < number(turn.turn) && record.closed_by === "narrate");
     const sections: Row = clone({
         where,
-        present: presentSection(graph, world, scene, row(campaign.jsonFiles.get("npc-ledger.json")), memory, across, { voices: true }),
+        present: presentSection(graph, world, scene, row(campaign.jsonFiles.get("npc-ledger.json")), memory, across, { voices: true, journal: row(campaign.jsonFiles.get("npc-journal.json")) }),
         voices: voicesSection(graph, world, scene),
         known: knownSection(graph, world, scene, party, campaign.records),
         // The body that cannot act goes first: `fitBudget(..., "last")` trims this section from the

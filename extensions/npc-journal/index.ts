@@ -34,6 +34,7 @@ import { emitToPanel } from "../../pipicoc/host-bridge.ts";
 const DEFAULT_MAX_ENTRIES = 6;
 const DEFAULT_MAX_DESCRIPTION_CHARS = 300;
 const DEFAULT_MAX_EXCHANGE_CHARS = 200;
+const DEFAULT_MAX_LABEL_CHARS = 60;
 /** The manifest id the sheet panel is mounted under; the same id the turn commit announces to. */
 const PANEL_ID = "coc-keeper";
 
@@ -42,6 +43,10 @@ interface Entry {
 	name: string;
 	description?: string;
 	exchange?: string;
+	/** §103: how the player would know someone whose name they have not been told; never the name. */
+	label?: string;
+	/** §103: this turn's narrative gave the player the name, in a spelling the kernel's own scan could not see. */
+	named?: true;
 }
 
 /** The job packet from `journal.job`; only the fields it lists are read, and nothing else reaches the prompt. */
@@ -55,8 +60,9 @@ interface JobPacket {
 	player_text?: string;
 	keeper_text?: string;
 	recordable?: unknown[];
-	prior?: Array<{ name?: string; description?: string; last_seen_turn?: number }>;
-	budget?: { max_entries?: number; max_description_chars?: number; max_exchange_chars?: number };
+	unnamed?: unknown[];
+	prior?: Array<{ name?: string; label?: string; description?: string; last_seen_turn?: number }>;
+	budget?: { max_entries?: number; max_description_chars?: number; max_exchange_chars?: number; max_label_chars?: number };
 	instruction?: string;
 }
 
@@ -75,7 +81,7 @@ function names(rows: unknown): string {
 function priorLines(rows: JobPacket["prior"]): string {
 	if (!Array.isArray(rows) || rows.length === 0) return "(none)";
 	return rows
-		.map((row) => `- ${row.name ?? "?"}${row.description ? `: ${row.description}` : ""}`)
+		.map((row) => `- ${row.name ?? "?"}${row.label ? ` (label: ${row.label})` : ""}${row.description ? `: ${row.description}` : ""}`)
 		.join("\n");
 }
 
@@ -83,6 +89,7 @@ function systemPrompt(packet: JobPacket): string {
 	const maxEntries = packet.budget?.max_entries ?? DEFAULT_MAX_ENTRIES;
 	const maxDescription = packet.budget?.max_description_chars ?? DEFAULT_MAX_DESCRIPTION_CHARS;
 	const maxExchange = packet.budget?.max_exchange_chars ?? DEFAULT_MAX_EXCHANGE_CHARS;
+	const maxLabel = packet.budget?.max_label_chars ?? DEFAULT_MAX_LABEL_CHARS;
 	return [
 		// The instruction is the fixed passage the kernel writes (contract §17.10); the lane passes it
 		// on verbatim, rewriting nothing and adding nothing.
@@ -90,12 +97,14 @@ function systemPrompt(packet: JobPacket): string {
 			"Write an entry only for someone who truly appeared in this turn's narrative, and write it in the campaign's play language.",
 		"",
 		"Answer with one JSON object only, no code fence and no explanation:",
-		'{"entries":[{"name":"...","description":"...","exchange":"..."}]}',
+		'{"entries":[{"name":"...","description":"...","exchange":"...","label":"...","named":true}]}',
 		"Field rules:",
 		"- name must be one of the recordable names below, copied exactly.",
 		`- description is 1 to ${maxDescription} characters and says only what the player can perceive; omit it to keep the stored one.`,
 		`- exchange is 1 to ${maxExchange} characters, one sentence on what passed between this person and the player this turn; omit it when nothing passed.`,
-		"- write no key other than name, description and exchange, and in particular no turn number, commit, receipt id or entry id.",
+		`- label, only for a name listed under not yet named: 1 to ${maxLabel} characters saying how the player would know this person from what was shown, carrying no part of the name; the description and the exchange must not name them either.`,
+		"- named: true, only for a name listed under not yet named, when this turn's prose actually gave the player the name in any spelling; then give no label.",
+		"- write no key other than name, description, exchange, label and named, and in particular no turn number, commit, receipt id or entry id.",
 		`- at most ${maxEntries} rows; with nobody new to record, answer {"entries":[]}.`,
 	].join("\n");
 }
@@ -106,6 +115,7 @@ function userInput(packet: JobPacket): string {
 		`[Present] ${names(packet.present)}`,
 		`[Investigators] ${names(packet.investigators)}`,
 		`[Recordable names] ${names(packet.recordable)}`,
+		`[Not yet named to the player] ${names(packet.unnamed)}`,
 		"",
 		"[What the player said this turn]",
 		packet.player_text?.trim() || "(nothing)",
@@ -119,8 +129,9 @@ function userInput(packet: JobPacket): string {
 }
 
 /**
- * Shape check: closed fields only, and an entry carries at least one of description/exchange.
- * Whether a name belongs to this turn (recordable membership, ambiguity) is the kernel's check.
+ * Shape check: closed fields only, and an entry carries at least one of description/exchange/label/named.
+ * Whether a name belongs to this turn (recordable membership, ambiguity, whether a label is owed or
+ * carries the name) is the kernel's check.
  */
 function shapeEntries(parsed: unknown, packet: JobPacket): Entry[] | undefined {
 	if (!parsed || typeof parsed !== "object") return undefined;
@@ -129,6 +140,7 @@ function shapeEntries(parsed: unknown, packet: JobPacket): Entry[] | undefined {
 	const limit = packet.budget?.max_entries ?? DEFAULT_MAX_ENTRIES;
 	const maxDescription = packet.budget?.max_description_chars ?? DEFAULT_MAX_DESCRIPTION_CHARS;
 	const maxExchange = packet.budget?.max_exchange_chars ?? DEFAULT_MAX_EXCHANGE_CHARS;
+	const maxLabel = packet.budget?.max_label_chars ?? DEFAULT_MAX_LABEL_CHARS;
 	const entries: Entry[] = [];
 	for (const row of raw) {
 		if (!row || typeof row !== "object") continue;
@@ -145,7 +157,13 @@ function shapeEntries(parsed: unknown, packet: JobPacket): Entry[] | undefined {
 			if (exchange.length > maxExchange) continue;
 			entry.exchange = exchange;
 		}
-		if (!entry.description && !entry.exchange) continue;
+		if (typeof record.label === "string" && record.label.trim().length >= 1) {
+			const label = record.label.trim();
+			if (label.length > maxLabel) continue;
+			entry.label = label;
+		}
+		if (record.named === true) entry.named = true;
+		if (!entry.description && !entry.exchange && !entry.label && !entry.named) continue;
 		entries.push(entry);
 		if (entries.length >= limit) break;
 	}

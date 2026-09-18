@@ -190,6 +190,9 @@ export function prepareCluePresentation(options:TextOptions&{campaign:string;vie
  * scene the Keeper renamed afterwards keeps the book's name in the entries already written. Both
  * are the same class of word as a clue's graph name, and reach the player the same way: projected
  * once per language, merged under the glossary, looked up by the panel.
+ *
+ * A row the projection marks `named: false` (contract §103) carries the lane's label in `name`,
+ * already in the play language, and stays out of here like the lane's other prose.
  */
 export function journalTexts(view:Row):string[] {
   const texts=new Set<string>();
@@ -197,7 +200,7 @@ export function journalTexts(view:Row):string[] {
   const journal=Array.isArray((view?.npcs as Row)?.journal)?((view.npcs as Row).journal as Row[]):[];
   for(const entry of journal) {
     if(!entry||typeof entry!=='object')continue;
-    add(entry.name);
+    if(entry.named!==false)add(entry.name);
     for(const exchange of Array.isArray(entry.exchanges)?entry.exchanges as Row[]:[])
       if(exchange&&typeof exchange==='object')add(exchange.scene);
   }

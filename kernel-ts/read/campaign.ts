@@ -64,7 +64,7 @@ export class CampaignSnapshot {
             await Promise.all(saves.map(path => this.optional(join("save", path))));
         if (mode === "view")
             return;
-        for (const path of ["npc-ledger.json", ...(mode === "all" ? ["save/worldlines/anchor.json", "save/worldlines/echoes.json"] : [])]) {
+        for (const path of ["npc-ledger.json", "npc-journal.json", ...(mode === "all" ? ["save/worldlines/anchor.json", "save/worldlines/echoes.json"] : [])]) {
             try {
                 await this.optional(path);
             }

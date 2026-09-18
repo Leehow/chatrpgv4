@@ -18,7 +18,7 @@ import { crossLineReader } from "./worldline.js";
 import { mechanics } from "./mechanics.js";
 import { publicSheet, objectLook } from "./mods.js";
 import { mapCatalog, mapView, type AssetReader } from './maps.js';
-import { array, row, entries, number, truth, string, repr, normalize, clone, sorted, type Row } from "./values.js";
+import { array, row, entries, number, integer, truth, string, repr, normalize, clone, sorted, type Row } from "./values.js";
 const LOOK_FOCUS = ["clues", "investigator", "map", "npc", "object", "scene", "session", "time"];
 const LOOKUP_KINDS = ["catalog", "module", "rule", "secret", "continuity"];
 export type RuleLookup = (campaign: CampaignSnapshot, module: LoadedModule, params: Row) => Promise<KernelResult>;
@@ -206,7 +206,7 @@ async function requireNoTransition(campaign: CampaignSnapshot, contributions: Re
 async function present(campaign: CampaignSnapshot, module: LoadedModule): Promise<Row[]> {
     const { graph } = module,
         scene = graph.scene(campaign.world.active_scene);
-    return presentSection(graph, campaign.world, scene, row(campaign.jsonFiles.get("npc-ledger.json")), campaign.logs.get("memory/candidates.jsonl") ?? []);
+    return presentSection(graph, campaign.world, scene, row(campaign.jsonFiles.get("npc-ledger.json")), campaign.logs.get("memory/candidates.jsonl") ?? [], () => [], { journal: row(campaign.jsonFiles.get("npc-journal.json")) });
 }
 /** The player's NPC notebook: newest-seen first, at most six exchanges each, newest first. The journal never
  *  stores death; `dead_since_turn` is merged from the ledger, the sole truth, at projection time. */
@@ -222,10 +222,14 @@ async function npcJournalSection(campaign: CampaignSnapshot, graph?: ModuleGraph
     catch { /* Death simply does not project when the ledger cannot be read. */ }
     return Object.entries(row(stored.entries)).map(([id, value]) => {
         const entry = row(value), dead = row(row(ledger[id]).dead), node = graph?.nodes.get(id);
+        // §103: a person the player has never been shown the name of is listed under the lane's label. A row
+        // with no label at all predates the label and shows the name it always showed.
+        const label = typeof entry.label === "string" ? entry.label.trim() : "", named = !!integer(entry.named_at) || !label;
         return {
             // The handle a say span carries (§40.2), so the legend swatch and the line share one anchor.
             id: node ? graph!.handle(node) : id,
-            name: string(entry.name),
+            name: named ? string(entry.name) : label,
+            named,
             description: string(entry.description),
             seen_count: number(entry.seen_count),
             last_seen_turn: number(entry.last_seen_turn),
@@ -355,13 +359,18 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
                     await campaign.preload("people");
                     return { present: await present(campaign, module) };
                 }
-                let ledger: Row = {};
+                let ledger: Row = {}, journal: Row = {};
                 try {
                     ledger = row(await campaign.optional("npc-ledger.json"));
                 }
                 catch { /* Existing NPC views tolerate a missing or unreadable ledger. */
                 }
-                return npcView(graph, world, graph.npc(required(params, "name")), ledger);
+                try {
+                    journal = row(await campaign.optional("npc-journal.json"));
+                }
+                catch { /* A derived cache that cannot be read says nothing about what the player was told. */
+                }
+                return npcView(graph, world, graph.npc(required(params, "name")), ledger, journal);
             }
             if (focus === "investigator") {
                 campaign.party = await campaign.files("party");

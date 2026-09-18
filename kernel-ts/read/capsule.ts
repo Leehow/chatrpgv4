@@ -1,7 +1,7 @@
 /** Keeper and player read projections preserve the existing authored/state boundary. */
 import { pythonJsonDumps, compareUnicode, isJsonObject } from "../json.js";
 import { ModuleGraph, recordOf, moduleDeclaration, describeCondition, conditionStatus, dossierLabels } from "./module-graph.js";
-import { entries, values, array, row, number, truth, string, normalize, chars, length, words, clone, repr, type Row } from "./values.js";
+import { entries, values, array, row, number, integer, truth, string, normalize, chars, length, words, clone, repr, type Row } from "./values.js";
 import { clueGate, structureType } from "./director.js";
 import { incapacitatedBy } from "../healing/conditions.js";
 export const jsonSize = (value: any): number => Buffer.byteLength(pythonJsonDumps(value), "utf8");
@@ -53,6 +53,25 @@ export function calledBlock(world: Row, id: string, authored: string): Row | nul
             address,
             use: `${repr(address)} is how this table addresses ${name || authored}, established in play and not withdrawn since. Use it in every line spoken to them; an earlier form of address does not come back.`,
         } : {}),
+    };
+}
+/**
+ * The block a Keeper-facing surface carries for a person the player has never been shown the name of
+ * (contract §103), or `null` when the journal holds no such row.
+ *
+ * The journal lane writes a person under a `label` until a turn's record shows the player their
+ * name, so this reads the journal, not the world: what the player has been told is a fact about the
+ * table that the lane judges and the record grounds, and the capsule only repeats it. `use` for
+ * §66's reason again: the field alone is read past, and a Keeper who writes the book's name into a
+ * say token has just told the player the name.
+ */
+export function untoldBlock(journal: Row, node: Row): Row | null {
+    const entry = row(row(journal.entries)[string(node.node_id)]), label = typeof entry.label === "string" ? entry.label.trim() : "";
+    if (!isJsonObject(entry) || integer(entry.named_at) || !label)
+        return null;
+    return {
+        label,
+        use: `The investigators have not been told this person's name; their journal knows them as ${repr(label)}. Writing the name in prose or in a say token tells the player the name; until the fiction gives it, show them the way the label does.`,
     };
 }
 export function clueLabel(graph: ModuleGraph, world: Row, handle: string): string {
@@ -317,7 +336,7 @@ function npcState(graph: ModuleGraph, world: Row, node: Row): Row | null {
             : `${who} is ${state} and takes no action of their own -- no answer, no help, no lie. Say the state in the fiction, and say what is being done about it. CoC 7e ends ${state === "unconscious" ? "it" : "unconsciousness"} when a hit point comes back: someone present succeeding at First Aid or Medicine on them -- resolve with the rescuer as actor and ${who} as target${conditions.includes("major_wound") ? ". Rest returns no hit point while the major wound is ticked; the weekly recovery roll is the next one the rules run themselves" : " -- or rest, apply time, until natural healing returns one"}. First Aid stabilizes a dying one first.`,
     };
 }
-export function npcEntry(graph: ModuleGraph, world: Row, node: Row, ledger: Row, memories: Map<string, Row>, across: (node: Row) => Row[] = () => [], seat: LinesSeat = "keep"): Row {
+export function npcEntry(graph: ModuleGraph, world: Row, node: Row, ledger: Row, memories: Map<string, Row>, across: (node: Row) => Row[] = () => [], seat: LinesSeat = "keep", journal: Row = {}): Row {
     const state = npcState(graph, world, node);
     const entry: Row = {
         name: graph.displayName(node),
@@ -326,6 +345,8 @@ export function npcEntry(graph: ModuleGraph, world: Row, node: Row, ledger: Row,
         // to be in front of them on the turn they write it, not ranked into a memory section that
         // ages out. `name` above stays the identity the Keeper hands back to `apply`.
         ...(calledBlock(world, graph.handle(node), graph.displayName(node)) ? {called: calledBlock(world, graph.handle(node), graph.displayName(node))} : {}),
+        // And whether the player has been told it at all (§103), in the same seat for the same reason.
+        ...(untoldBlock(journal, node) ? {untold: untoldBlock(journal, node)} : {}),
         ...(graph.adaptationOrigin(node.campaign_origin) ? {origin: graph.adaptationOrigin(node.campaign_origin)} : {}),
         // Before the dossier, not after it: what his body is doing decides whether any of the rest
         // of it can happen this turn, and present[] is budgeted from the top.
@@ -376,18 +397,19 @@ export function npcEntry(graph: ModuleGraph, world: Row, node: Row, ledger: Row,
     return entry;
 }
 /** `options.voices` true is the capsule's form (contract §40.7): the lines-shaped words leave the rows for `voices`. */
-export function presentSection(graph: ModuleGraph, world: Row, scene: Row, ledger: Row = {}, memory: Row[] = [], across: (node: Row) => Row[] = () => [], options: { voices?: boolean } = {}): Row[] {
+export function presentSection(graph: ModuleGraph, world: Row, scene: Row, ledger: Row = {}, memory: Row[] = [], across: (node: Row) => Row[] = () => [], options: { voices?: boolean; journal?: Row } = {}): Row[] {
     const memories = new Map(memory.filter(m => truth(m.id)).map(m => [string(m.id), m]));
     const rank = (entry: Row) => truth(row(entry.history).promises) ? 0 : truth(row(entry.history).met_turns) || truth(entry.toward_party) ? 1 : truth(entry.wants) ? 2 : 3;
-    return npcsPresent(graph, world, scene).map(node => npcEntry(graph, world, node, ledger, memories, across, options.voices ? "drop" : "keep")).sort((a, b) => rank(a) - rank(b));
+    return npcsPresent(graph, world, scene).map(node => npcEntry(graph, world, node, ledger, memories, across, options.voices ? "drop" : "keep", row(options.journal))).sort((a, b) => rank(a) - rank(b));
 }
-export function npcView(graph: ModuleGraph, world: Row, node: Row, ledger: Row = {}): Row {
+export function npcView(graph: ModuleGraph, world: Row, node: Row, ledger: Row = {}, journal: Row = {}): Row {
     const handle = graph.handle(node),
         view: Row = {
         kind: "npc",
         ...(graph.adaptationOrigin(node.campaign_origin) ? {origin: graph.adaptationOrigin(node.campaign_origin)} : {}),
         name: graph.displayName(node),
         ...(calledBlock(world, handle, graph.displayName(node)) ? {called: calledBlock(world, handle, graph.displayName(node))} : {}),
+        ...(untoldBlock(journal, node) ? {untold: untoldBlock(journal, node)} : {}),
         id: handle,
         node_id: node.node_id,
         scene: row(world.npc_presence)[handle] ?? null,

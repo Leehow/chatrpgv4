@@ -1472,9 +1472,13 @@ An `apply npc` skill pin fills missing source material; it cannot contradict an 
 "<npc node id>": {
   "name": "<play_language 的名字>",
   "description": "<玩家视角的一两句话：他是谁、看起来怎样>",
+  "label"?: "<玩家还不知道名字时，车道给的称谓：怎么认出他>",
+  "named_at"?: n,
   "first_seen_turn": n, "last_seen_turn": n, "seen_count": n,
   "exchanges": [{"turn": n, "scene": "<display_name>", "summary": "<这一回合他与玩家之间发生了什么，一句>"}]}
 ```
+
+`label` 与 `named_at` 是 §103 加的：玩家**没有被告知名字**的人先以 `label` 记，`named_at` 是玩家第一次被给到名字的回合；两者的写法与投影见 §103。
 
 **名字与场景走展示车道（2026-09-12 修正）。** `name` 写的是**可记录名**——车道被要求逐字照抄（`journal.submit` 校验成员资格），所以它是模组图的词，不是 play_language 的词；`exchanges[].scene` 是那一回合的 `display_name` 快照，之后守秘人改名也不会回填。两者都由展示车道投影：`journalTexts` 收集它们，写进 `setup/presentations/journal-<语言>.json`，表读取时并进词表（`SHEET_LANES`），面板用 `term()` 查（契约 §23 的两条腿）。车道自己写的 `description` 与 `exchanges[].summary` 本来就是 play_language，不进投影。
 
@@ -1487,23 +1491,26 @@ An `apply npc` skill pin fills missing source material; it cannot contradict an 
  "scene": {"name", "display_name"}, "present": [名], "investigators": [{"id", "name"}],
  "player_text": "...", "keeper_text": "<守秘人正文原样>",
  "recordable": ["<允许记录的名字，闭集>"],
- "prior": [{"name", "description", "last_seen_turn"}（已在日志里的在场者，供改写描述时衔接）],
- "budget": {"max_entries": 6, "max_description_chars": 300, "max_exchange_chars": 200},
+ "unnamed": ["<recordable 里玩家尚未被告知名字的人，闭集（§103）>"],
+ "prior": [{"name", "label"?, "description", "last_seen_turn"}（已在日志里的在场者，供改写描述时衔接；`label` 只在他仍未被点名时给）],
+ "budget": {"max_entries": 6, "max_description_chars": 300, "max_exchange_chars": 200, "max_label_chars": 60},
  "instruction": "<固定英文指令>"}
 ```
 
 `recordable` 是确定性闭集，取三者之并：该回合 `world` 快照里**在场**的 NPC；该回合收据引用到的 NPC（`clue.from`、`interactions`、`npc` 收据）；已在日志里的名字。图上只在别处的 NPC 不在集内——**没出场就没有条目**，这是「只在剧情中出现才记录」的确定性落法。指令（英文，固定）要点：只为这一回合叙事里真正出场（说话、行动、被互动）的 NPC 写条目；`description` 只写玩家能感知到的（外貌、身份、言行），严禁写出动机、秘密、守秘人材料；`exchange` 一句概括这一回合他与玩家的来往；全部用 `play_language` 写；`prior` 里已有描述且本回合没有新信息的，只给 `exchange` 不复述描述。
 
-**提交** `journal.submit`，params `{"campaign", "job_id", "entries": [{"name", "description"?, "exchange"?}]}`。校验与 `memory.submit` 同一家：未知字段、机器键、`recordable` 之外的名字、同名歧义都报 `invalid_params`（`details.index` 指到那一条，`fix` 列出 `recordable`）；整批要么全落要么全不落；同任务同内容重放幂等，内容不同报 `idempotency_conflict`。合并是确定性的：新名字建条目（`first_seen_turn` = 任务回合）；`last_seen_turn` 推进、`seen_count` 每回合至多 +1；给了 `description` 就整段替换（车道自己决定何时改写，内核不比diff）；给了 `exchange` 就追加 `{"turn", "scene", "summary"}`。成功发 **`journal-written`** 事件（`{"job_id", "turn", "entries": n}`，§12.1 的枚举因此再加一类）。失败与 `journal.fail {"campaign", "job_id", "reason", "detail"}` 写 `npc-journal/backlog.jsonl`，形状与重派法则同 §12.3 的 backlog。任务文件 `npc-journal/jobs/<job_id>.json` 整文件原子写。
+**提交** `journal.submit`，params `{"campaign", "job_id", "entries": [{"name", "description"?, "exchange"?, "label"?, "named"?: true}]}`（`label` 与 `named` 见 §103）。校验与 `memory.submit` 同一家：未知字段、机器键、`recordable` 之外的名字、同名歧义都报 `invalid_params`（`details.index` 指到那一条，`fix` 列出 `recordable`）；整批要么全落要么全不落；同任务同内容重放幂等，内容不同报 `idempotency_conflict`。合并是确定性的：新名字建条目（`first_seen_turn` = 任务回合）；`last_seen_turn` 推进、`seen_count` 每回合至多 +1；给了 `description` 就整段替换（车道自己决定何时改写，内核不比diff）；给了 `exchange` 就追加 `{"turn", "scene", "summary"}`。成功发 **`journal-written`** 事件（`{"job_id", "turn", "entries": n}`，§12.1 的枚举因此再加一类）。失败与 `journal.fail {"campaign", "job_id", "reason", "detail"}` 写 `npc-journal/backlog.jsonl`，形状与重派法则同 §12.3 的 backlog。任务文件 `npc-journal/jobs/<job_id>.json` 整文件原子写。
 
 **车道接线**（§12.8 同一家，**第四条零工具模型车道**——产出是 ≤ 6 条短 JSON，与记忆/校验/行动准入同构，2026-09-12 用户明文授权这一条，不推广）：`extensions/npc-journal` 订阅 `coc:turn-committed`，`journal.job`（显式 `turn`）→ `runLane` 零工具补全（模型 `PI_COC_NPCJOURNAL_MODEL`，缺省与桌子同模型；`subsession: "journal"` 的四行遥测照旧）→ `journal.submit`；失败一次重试，再失败 `journal.fail`。同一时刻只跑一个任务，后来的排队；`session_start` 补抽 ≤ `PI_COC_NPCJOURNAL_BACKFILL`（缺省 5）个回合；经 `coc:kernel-bridge` 调内核，不另开客户端；永不阻塞 `narrate`。提交成功后 announce 一次 sheet 刷新（与 ui-words 车道同一个 `sheet-changed` 通道），面板由此自己重读。
 
 **投影**（本节修订 §23 的 read-only sheet 形状）：`table.view` 加
 
 ```
-"npcs": {"journal": [{"name", "description", "seen_count", "last_seen_turn",
+"npcs": {"journal": [{"id", "name", "named", "description", "seen_count", "last_seen_turn",
                         "dead_since_turn"?, "exchanges": [{"turn", "scene", "summary"}（≤ 6 条，新的在前）]}]}
 ```
+
+`named: false` 的行，`name` 是车道的 `label` 而不是名字（§103）。
 
 按 `last_seen_turn` 新者在前；`dead_since_turn` 从账本投影（日志自己不存死讯，账本是唯一真相）；`exchanges` 全量留在文件里，投影只给最近 6 条。setting-up 形状为 `npcs: {journal: []}`。player-safe 由构造保证：能进日志的只有玩家可感知内容，守秘人秘密（stance、agenda、secret）从来不经过这条管道。
 
@@ -10739,6 +10746,10 @@ And the Keeper-facing end, which is the one the relapses are about:
   the turn it was made, and where a stranger's first line finds it;
 - `look focus=npc`'s `called`.
 
+Beside `called`, the same seats carry `untold` when the player has never been shown the person's
+name at all (§103): what the table calls someone and whether the player has been told it are two
+facts, and the second is the journal's, not this record's.
+
 `called` carries a `use` sentence whenever an address is set, for §66's reason: the bare field was
 available in the memory section and was read past. Pronoun-free, English, naming the word and saying
 it was established in play and has not been withdrawn.
@@ -12973,3 +12984,100 @@ changelog.
 Tests: `tests/kernel/test_mod_packages.py` pins legacy digest compatibility, scoped freezing and the
 player-safe list shape. `tests/extension/mod-package-boundary.test.mjs` checks every shipped manifest's
 runtime allowlist and the actual referenced prompt material.
+
+## 103. A name the player was not told is not on the player's card (2026-09-17, amends §17.10 and §79.3)
+
+Acceptance play, campaign `game-570b0f06`, 血色公路, prologue. The Keeper's first two turns did
+this right: the gas-station owner introduced himself, and the two men under the awning were «一个
+中等个，牙口不好，帽檐压得很低» and «年纪更大，坐得笔直，一句话也没有» — described, never named.
+The sheet panel's people section listed all three under their full names, 内特·帕特森 and 史蒂夫·
+布朗 included, from turn 1. The player had never heard either.
+
+The panel prints `npcs.journal[].name`; the journal lane must copy a `recordable` name exactly
+(§17.10, `journal.submit` refuses anything else); `recordable` is whoever `world.npc_presence`
+seats in the scene, under `graph.displayName`, and the presence table is filled from the book when
+the campaign is created. So a person the book seats in a room is on the player's card under their
+true name the first turn they glance at anybody, and no link in that chain asks whether the player
+was told. The lane's description was clean — looks only, as instructed. Only the name leaked, and it
+leaked *because* the lane obeyed.
+
+Both journal jobs of that table show it: `present` and `recordable` carry the three full names,
+`keeper_text` at t0 names the owner and nobody else, at t1 nobody; `world.person_labels` is null.
+
+**What the system lacked.** *Whether the investigators have been told this person's name* lived
+nowhere: not in `world`, not in the ledger, not in the module IR (`visibility: player-safe` is the
+node's), not in the capsule's `present[]`. §79's record is *what this table calls someone*, written
+by the Keeper; it is not *whether the player has heard it*, and nothing wrote it anyway
+(`table-people.ts`: null for 121 turns). The same junction feeds the say legend (§40.4) and every
+card label through `personLabel`; the journal was only the first surface a real table caught.
+
+### 103.1 The fact and where it lives
+
+The fact is a journal fact, not a world fact, because the lane that already reads every turn's
+prose is the one that can judge it and the record is what grounds it:
+
+- **Deterministic floor (the kernel's).** A turn's record shows the player the name when a
+  resolved say span is theirs (§40.4 titles the span with the name) or when one of their name words
+  occurs in the delivered prose — `nameWords`: the name the book prints and the one the graph
+  displays, plus §79's table name, normalized. Not the aliases: `the landlord` is a key the Keeper
+  may resolve a person by, and reading it as the name being told is a judgment the floor does not
+  make. A word that begins or ends in a Latin letter or digit
+  must occur as a run of its own (`nate` is not in `donate`), a word in a script that writes no
+  boundary is a substring. `journal.job` scans the committed records up to its turn and stores the
+  first such turn per person in the job (`told`), and puts everyone else on the packet's closed
+  **`unnamed`** list.
+- **The lane's judgment, on top.** What the scan cannot see — a transliteration, a surname alone
+  (the fixture's «诺特» for `Steven Knott`) — the lane reports with **`named: true`** on the entry.
+  It can only add a turn; nothing un-names a person.
+- **Storage.** `npc-journal.json` entries gain `label` (the lane's phrase for someone the player has
+  not been told the name of) and `named_at` (the first turn the player was shown it: the record's
+  turn when the record has one, else the job's turn on `named: true`; never raised once set).
+  `journal.submit` applies `told` to every existing row it names, whether or not the lane wrote
+  about that person this turn.
+
+### 103.2 The writer: `journal.submit`
+
+Entry fields are `name`, `description`, `exchange`, `label`, `named`. On top of §17.10's checks:
+
+- `label`: one line, 1–60 characters (`budget.max_label_chars`), no `{{`; refused when the person is
+  already named (`fix` lists `unnamed`), and refused when it carries one of the person's name words.
+- `named`: `true` or absent.
+- For a person on `unnamed` without `named: true`: a `description` or `exchange` carrying a name word
+  is refused (it is the player's card), and a **first** row for them without a `label` is refused —
+  the leak fails closed, the row waits for the retry. A person who already has a row keeps the label
+  they have.
+- Merge: `label` given replaces the stored one; `named_at` per 102.1.
+
+The fixed instruction (§17.10) says all of this to the lane in English; the lane's prompt lists
+`unnamed` under `[Not yet named to the player]` and shows a stored label beside its prior row.
+
+### 103.3 The readers
+
+- **`table.view` → `npcs.journal[]`** gains `named`. A row with `named_at` shows `name`; a row with a
+  `label` and no `named_at` shows the label *as* `name` with `named: false`; a row with neither
+  predates this section and shows the name it always showed. The panel changes nothing: `name` is
+  the word it prints. The presentation lane (`journalTexts`) skips `named: false` rows — the label is
+  the lane's own play-language prose, like the description.
+- **The capsule's `present[]` and `look focus=npc`** carry `untold: {label, use}` beside `called`
+  for a person whose journal row is unnamed: the Keeper writes a name into every line about a person
+  (§79's reason), and whether the player has heard it belongs in the same seat. `use` states the
+  consequence — the name in prose or in a say token *is* telling the player — and nothing more; a
+  Keeper who has the fiction give the name simply gives it, and the next job's scan records it.
+
+### 103.4 What this does not do
+
+It does not stop the Keeper naming anyone: introducing a person is play. It does not rename cards:
+a roll against an unnamed person still prints `personLabel`'s word, which is the book's until §79's
+writer is used; the capsule's `untold.use` is what tells the Keeper that, and `apply person` is the
+table's word for it. It does not read the book for who "should" stay anonymous: the only question
+asked is whether the player has been shown the name, and the record or the lane answers it.
+
+**Guards.** `tests/kernel/test_journal.py::test_a_person_the_prose_never_named_is_journaled_under_a_label`
+(the closed `unnamed` list; a first row without a label is refused, a label carrying the name is
+refused, a description carrying the name is refused; the projection shows the label with `named:
+false` and the capsule's `present[]` carries `untold`; the exact name in a later turn's prose sets
+`named_at` from the record, and the projection switches to the name without the lane rewriting the
+row), `::test_the_lane_can_name_a_person_the_scan_cannot_see` (`named: true` on «诺特»; a label for a
+named person is refused), `tests/extension/npc-journal-lane.test.mjs` (the prompt carries the list
+and the rules, label and named travel to `journal.submit`), `tests/extension/character-presentation.test.mjs`
+(a `named: false` row's word is not sent for translation).
