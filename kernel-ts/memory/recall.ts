@@ -9,7 +9,7 @@ import { array, row, number, integer, string, truth, sorted, chars, length, word
 import { CANDIDATE_KINDS, logs, records, proseOf } from './jobs.js';
 import {RECALL_CHARS, pageOptions, detailOptions, position, publicRecall, recallBytes, recallSnapshot, textPage, rowsPage, rowDetail} from './pages.js';
 const ROLES = ['player', 'keeper'];
-const RECEIPTS = ['roll', 'move', 'clue', 'delta', 'session', 'time'];
+const RECEIPTS = ['roll', 'move', 'clue', 'delta', 'session', 'time', 'clock'];
 export function parseSpan(value: any, current: number, defaults: number): number[] {
     if (value == null)
         return [Math.max(0, current - defaults + 1), current];

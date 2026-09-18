@@ -77,8 +77,18 @@ export function clueLabel(graph: ModuleGraph, world: Row, handle: string): strin
 }
 /** The hour a table opens at when the book named neither a date nor a clock time (contract §23). */
 export const DEFAULT_START_MINUTES = 9 * 60;
-/** The declared local opening anchors both clock readings and midnight day boundaries. */
-export function clockStart(graph: ModuleGraph): { at: Date | null; minutes: number } {
+/** Strict, timezone-free calendar minutes; a round trip rejects normalized invalid dates. */
+export function parseClockLocal(value: unknown): Date | null {
+    if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value))
+        return null;
+    const parsed = new Date(value + "Z");
+    return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 16) === value ? parsed : null;
+}
+/** The table's pinned opening, then the book, anchors readings and midnight boundaries. */
+export function clockStart(graph: ModuleGraph, clock?: Row): { at: Date | null; minutes: number } {
+    const pinned = parseClockLocal(row(clock).start_local);
+    if (pinned)
+        return { at: pinned, minutes: pinned.getUTCHours() * 60 + pinned.getUTCMinutes() };
     const declaration = moduleDeclaration(graph.moduleNode), stamp = row(declaration.start_clock).local_datetime;
     if (typeof stamp === "string" && stamp.trim()) {
         const local = stamp.trim().replace(/(?:Z|[+-]\d\d:\d\d)$/, ""), parsed = new Date(local + "Z");
@@ -103,7 +113,7 @@ export function clockSection(graph: ModuleGraph, world: Row): Row {
         minutes,
         elapsed: `${Math.floor(minutes / 60)} h ${mod(minutes, 60)} min`
     };
-    const start = clockStart(graph);
+    const start = clockStart(graph, row(world.clock));
     let minuteOfDay = mod(start.minutes + minutes, 1440);
     if (start.at) {
         const current = new Date(start.at.getTime() + minutes * 60000);

@@ -16,7 +16,7 @@ import { npcPatient } from '../healing/patient.js';
 import { markersOf } from '../resolve/projection.js';
 import { createWriteRuntime } from '../write/index.js';
 import { nowIso } from '../write/store.js';
-import { advanceClock } from './clock.js';
+import { advanceClock, stageClock } from './clock.js';
 import { stageMove } from './move.js';
 import {appendJsonl} from '../fileio.js';
 import {join} from 'node:path';
@@ -28,7 +28,7 @@ import {stageItem,stageCash,commitInventorySheets} from './inventory.js';
 import type {createWorldlineRuntime} from '../worldline/index.js';
 import type {createModRuntime} from '../mods/index.js';
 import type {CampaignWriter} from '../write/store.js';
-const KINDS = ['ability', 'adaptation', 'cash', 'clue', 'damage', 'define', 'dossier', 'ending', 'flag', 'fork', 'handout', 'item', 'map', 'merge', 'move', 'note', 'npc', 'object', 'person', 'ruling', 'switch', 'threat', 'time', 'usage'];
+const KINDS = ['ability', 'adaptation', 'cash', 'clock', 'clue', 'damage', 'define', 'dossier', 'ending', 'flag', 'fork', 'handout', 'item', 'map', 'merge', 'move', 'note', 'npc', 'object', 'person', 'ruling', 'switch', 'threat', 'time', 'usage'];
 export interface ApplyContext {
     readonly kernel: KernelContext;
     readonly transaction: TurnTransaction;
@@ -79,7 +79,7 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
             const transaction = await writer.transaction(params, { repairLegacyTrail: false, preload: false }), { campaign, turn } = transaction;
             const effects = params.effects;
             const callParams = Array.isArray(effects) ? { ...params, effects: effects.map(effect => isJsonObject(effect) ? Object.fromEntries(entries(effect).filter(([key]) => !key.startsWith('_'))) : effect) } : params;
-            const opening = Array.isArray(effects) && effects.length > 0 && effects.every(effect => isJsonObject(effect) && ['define', 'object', 'ability', 'usage'].includes(string(effect.kind)));
+            const opening = Array.isArray(effects) && effects.length > 0 && effects.every(effect => isJsonObject(effect) && ['define', 'object', 'ability', 'usage', 'clock'].includes(string(effect.kind)));
             const started = await transaction.beginWrite('table.apply', callParams, { allowOpening: opening });
             if (started.kind === 'replay')
                 return started.result;
@@ -89,7 +89,7 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                 throw new RpcError('invalid_params','A usage preparation batch contains only define, object and usage; apply other actions separately');
             if (effects.some(effect => isJsonObject(effect) && effect.kind === 'adaptation') && effects.length !== 1)
                 throw new RpcError('invalid_params', 'Accept an adaptation alone; ordinary effects belong to later calls');
-            const available = (kind: string) => kind === 'adaptation' ? !!contributions.adaptation : ['clue','npc','item','cash','flag','note','person','ruling','threat'].includes(kind) || (['define','object','ability','dossier','usage'].includes(kind)?!!contributions.mods:['fork','switch','merge'].includes(kind)?!!contributions.worldlines:['handout','map'].includes(kind)?!!contributions.asset:['time', 'damage', 'move'].includes(kind) ? !!contributions.resources : kind === 'ending' ? !!contributions.ending : false);
+            const available = (kind: string) => kind === 'adaptation' ? !!contributions.adaptation : ['clock','clue','npc','item','cash','flag','note','person','ruling','threat'].includes(kind) || (['define','object','ability','dossier','usage'].includes(kind)?!!contributions.mods:['fork','switch','merge'].includes(kind)?!!contributions.worldlines:['handout','map'].includes(kind)?!!contributions.asset:['time', 'damage', 'move'].includes(kind) ? !!contributions.resources : kind === 'ending' ? !!contributions.ending : false);
             // A partial backend refuses unimplemented batches before any domain draws or writes.
             for (const [index, effect] of effects.entries())
                 if (isJsonObject(effect) && typeof effect.kind === 'string' && KINDS.includes(effect.kind) && !available(effect.kind))
@@ -180,6 +180,13 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                             continue;
                         }
                         event = moved.event;
+                    }
+                    else if (kind === 'clock') {
+                        receipt = stageClock(context, effect);
+                        receipts.push(receipt);
+                        ids.push(string(receipt.id));
+                        taken.add(string(receipt.id));
+                        continue;
                     }
                     else if (kind === 'ending')
                         ({ receipt, event } = await contributions.ending!(context, effect));

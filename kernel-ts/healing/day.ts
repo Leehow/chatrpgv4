@@ -5,8 +5,8 @@ import type { ModuleGraph } from '../read/module-graph.js';
 import { array, clone, entries, integer, number, row, string, truth, type Row } from '../read/values.js';
 import { valueError } from '../resolve/arithmetic.js';
 import type { SettleContext } from '../resolve/context.js';
-export function gameDayOf(graph: ModuleGraph, minutes: number): number {
-    return Math.floor((clockStart(graph).minutes + Math.trunc(minutes)) / 1440);
+export function gameDayOf(graph: ModuleGraph, minutes: number, clock?: Row): number {
+    return Math.floor((clockStart(graph, clock).minutes + Math.trunc(minutes)) / 1440);
 }
 function intField(value: any): number {
     if (value === null || value === undefined)
@@ -78,7 +78,7 @@ export function closeSanityDays(input: Row, investigatorId: string, cmValue: num
     return state;
 }
 export async function stageDayBoundary(context: Pick<SettleContext, 'graph' | 'world' | 'party' | 'readSave' | 'writeSave'>, before: number): Promise<Row | null> {
-    const after = Math.trunc(number(row(context.world.clock).minutes)), days = gameDayOf(context.graph, after) - gameDayOf(context.graph, before);
+    const after = Math.trunc(number(row(context.world.clock).minutes)), days = gameDayOf(context.graph, after, context.world.clock) - gameDayOf(context.graph, before, context.world.clock);
     if (days <= 0)
         return null;
     const sanity: Row[] = [];

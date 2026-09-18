@@ -70,7 +70,9 @@ def test_the_view_carries_a_day_clock_without_a_declared_date(tmp_path, start_ti
             'mm': '00' if start_time is None else '30',
             'day_part': 'morning' if start_time is None else 'night'}
         assert client.ok('table.view', {'campaign': CAMPAIGN})['clock'] == initial
-        assert opened['capsule']['where']['clock'] == initial
+        assert opened['capsule']['where']['clock'] == {
+            **initial,
+            'pin': 'Use apply clock once to pin the opening local_datetime when the book gives no full date, keeping any declared start_time.'}
         client.table('apply', call_id='t1-c1', effects=[{'kind': 'time', 'minutes': 90}])
         clock = client.ok('table.view', {'campaign': CAMPAIGN})['clock']
         assert clock == {
