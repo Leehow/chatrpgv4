@@ -23,6 +23,8 @@ Evidence: 玩家 Musen 2026-09-17/18 血色公路 24 回合记录（grok-4.6 low
 
 **A. 读书草稿被拒是修一轮，不是失败。** 内核对任何 purpose 的 `module.read.finish` 以 `invalid_params` 拒绝草稿时，读书服务把拒绝原文和 fix 写进 findings.json，同一阶段再跑一轮（今天只有 opening 有这一轮），一次为限。内核的索引拒绝要点名是哪几节缺引用，fix 说「给这几节补上观察过的目录页」，不再是「整份重写」。
 
+**B0. 连接点是开场读书的交付物，丢了要补。** 按需解析（`queueAdjacentReading`）跟着场景出口走；book-4 的开场读书把出口写成了散文（`exit_conditions`），没建 route-to 关系和目标场景节点，当时还没有 §90 的 way_on 规则拦它，之后 §90.4 又不重判已安装的书，于是这本书的邻接读书一次都没触发。修法：视觉读的书在 `setup.complete` 时，若起始场景没有任何出口且不是终章，后台排一次 opening 的「补连接点」读书，ask 就是 §90.3 那段 fix 原文（保留一切已有节点与断言，只补书上写的那条出口关系和它指向的场景节点，或者标 is_final）；这不是重判就绪，是给已安装的书补一条边。补上之后现有的邻接读书自然接管。
+
 **B. 开场就绪之后，机器替 KP 往前读。** 视觉读的书在开场发布后（以及 `setup.complete` 时）后台排两样读书：索引没建就排索引；索引在了，就排「开场邻接」的 detail 读书——包含开场页码的那一节、页码上紧接着的下一节，以及节名出现在开场场景文本里的节。以后每次 `apply move` 换场，在既有的出口邻接之外，也排页码上的下一节。胶囊里给 KP 一份紧凑的书目：每节名字、页码、读没读，≤512 字。KP 从此知道书里有什么、什么还没读。
 
 **C. 图外事物先翻书；说辞进骰子并上卡。** 提示词加一条：玩家问到图里没有的人、地、事，先 `lookup kind=source`，读的时候 NPC 可以拖、可以含糊，永远不替书说「没有」；否认只能来自书。`resolve.modifiers` 加 `reason`（一句话：小说里什么换来了这个修正），给了奖励骰/惩罚骰/难度就必须写；描述里补社交条款：说辞具体、贴这个 NPC 想要或害怕的东西、给了他一个理由——一颗；他本来就信这个人、谎言有眼前的东西撑着——两颗；「我骗他」后面什么都没有——零颗。内核把 `reason` 写进掷骰收据（`modifier_reason`），机制卡片画出「奖励骰 +1 · 因为……」。叙事审计加一条义务：玩家这回合说的每个问题，要么被回答，要么被角色化地回避，要么被有理由地拒绝。
@@ -42,6 +44,7 @@ Evidence: 玩家 Musen 2026-09-17/18 血色公路 24 回合记录（grok-4.6 low
 ## Implementation Decisions
 
 - A 在 `extensions/module/reading-service.ts`：`openingFinishSemanticRejection` 放宽为「任何 purpose 的 finish `invalid_params`」，`finishRepairUsed` 一次为限；`kernel-ts/modules/reading.ts` `finishIndex` 的拒绝带 `details.sections`（缺引用的节名），fix 文案点名补 `source_refs`。
+- B0 在 `kernel-ts/setup/index.ts` `complete` 里：起始场景 `sceneExits` 为空且不在 `endings` → `module.read.request {purpose:'opening', focus:<start scene>, retry:true, repair:'way_on'}`，读书服务把 §90.3 的文案作为该轮 ask；发布仍走 §90 校验。
 - B 在 `kernel-ts/modules/reading.ts` 发布 opening 与 index 之后各挂一个 `queueAheadReading(mid, scene)`：按 `sections.json` 的页码排序，取包含场景 `source_refs` 页的那一节及其下一节，加上节名出现在场景 `exit_conditions`/`entry_landmarks`/`summary` 里的节；每节一个 `detail` 请求，focus 用节名，foreground false。`apply move` 的 `queueAdjacentReading` 之后同样调用。胶囊 `reading` 段在 `kernel-ts/read/assemble.ts` 加 `sections: [{name, pages, read}]`，预算 512。
 - C：`prompts/keeper.md` Source reading 段加图外先翻书条款；`extensions/kernel/tools.ts` `modifiers` 加 `reason` 并补社交描述；内核 `resolve` 校验：有修正无 `reason` → `needs`；`kernel-ts/resolve/arithmetic.ts` 收据加 `modifier_reason`；`pipicoc/mechanics.js` 骰子行画修正与原因；界面字 `Bonus die`/`Penalty die`/`because` 走 ui-words 车道；`mods/narration-audit/auditor.md` 加「逐问回应」义务（版本号升）。
 - D：`kernel-ts/voice` 的 packet 加 `said`（npc-journal 里该 NPC 最近 8 句）；`extensions/npc-voice` 指令文件加不复读条款；`extensions/kernel` 交付前钩子做 `{{say}}` 逐字比对，命中即 `needs` 打回，收据记 `repeated_line`。
@@ -49,7 +52,7 @@ Evidence: 玩家 Musen 2026-09-17/18 血色公路 24 回合记录（grok-4.6 low
 
 ## Testing Decisions
 
-- 内核：索引草稿缺引用 → 拒绝点名节；opening 发布后队列里有邻接 detail 任务；胶囊带 sections；resolve 带 bonus 无 reason → needs，有 reason → 收据 `modifier_reason`；voice.job 包里有 `said`；交付钩子逐字比对命中。每条配一个能被变异测试杀死的用例。
+- 内核：起始场景无出口的已安装书在 complete 时排出补连接点读书，有出口或 is_final 的不排；索引草稿缺引用 → 拒绝点名节；opening 发布后队列里有邻接 detail 任务；胶囊带 sections；resolve 带 bonus 无 reason → needs，有 reason → 收据 `modifier_reason`；voice.job 包里有 `said`；交付钩子逐字比对命中。每条配一个能被变异测试杀死的用例。
 - 扩展：finish 拒绝（purpose index）给一轮修补（fake-kernel）；mechanics 卡片渲染奖励骰行（vitest）。
 - 真桌：用 driver.py 以 Musen 的 24 句输入当玩家脚本、grok-4.6 low 当 KP 重放 book-4，对照上面五条目标；最后由真人再玩一局验收。
 
@@ -62,6 +65,7 @@ Evidence: 玩家 Musen 2026-09-17/18 血色公路 24 回合记录（grok-4.6 low
 ## Further Notes
 
 - 与 §46/§90 的关系：B 不改变就绪判定，只在就绪之后补材料；A 不放松校验，只把校验结果还给读者。
+- book-4 的序幕出口在 read-2（2026-09-16）就丢了：读者指令第 49 行要求 route-to，产物只有 `exit_conditions` 散文；§90 于次日生效，§90.4 不重判已安装的书。
 - 复读比对用逐字连续字符，不做同义判断；阈值 12 个字符是初值，附录记录为什么。
 
 ## 附录 A：证据
