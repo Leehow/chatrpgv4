@@ -13502,6 +13502,11 @@ map-page completeness audit: it reopens every recorded page, compares it to the 
 section `source_refs` without replacing existing sections or candidates. Publication is impossible until
 the audit has viewed every assigned page, and only an audited checkpoint may skip those passes after an
 interruption. The source prompt's index example now carries the same `source_refs` field the gate enforces.
+Retried indexing is monotonic for map navigation: every candidate retained from the preceding attempt is
+an input obligation, its pages join the audit set, and removing it fails before publication. Every final
+candidate page and section reference must likewise be among the full pages actually viewed by the current
+index/audit attempt; adding a new reference requires opening that page first. This prevents a repair from
+trading one omission for another or inventing a range-start citation it never inspected.
 
 The semantic pass remains necessary. General document-layout systems such as
 [LayoutParser](https://github.com/Layout-Parser/layout-parser) and

@@ -11,6 +11,7 @@
  * real kernel refusing an `apply` on the Haunting graph.
  */
 import { strict as assert } from "node:assert";
+import { createHash } from "node:crypto";
 import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -121,12 +122,23 @@ test("the read row names its job and the physical pages the reader consumed", as
 test("a PDF index gets a separate map-page completeness audit before publication", async (t) => {
 	const home = await mkdtemp(join(tmpdir(), "index-map-audit-"));
 	t.after(() => rm(home, { recursive: true, force: true }));
-	const cwd = join(home, "work", "read-1"), cache = join(home, ".coc", "modules", "book", "cache", "pages");
+	const cwd = join(home, "work", "read-1"), previous = join(home, "work", "read-0"), cache = join(home, ".coc", "modules", "book", "cache", "pages");
 	await mkdir(cwd, { recursive: true });
+	await mkdir(previous, { recursive: true });
 	await mkdir(cache, { recursive: true });
-	const image = join(cache, "page-12-region-0-0-1-1-2000.jpg");
+	const image = page => join(cache, `page-${page}-region-0-0-1-1-2000.jpg`);
+	const retained = { title: "Book", language: "en", sections: [{ name: "Town", pages: [[10, 20]] }],
+		map_candidates: [{ name: "Existing district map", focus: "District", pages: [13] }] };
 	const initial = { title: "Book", language: "en", sections: [{ name: "Town", pages: [[10, 20]] }], map_candidates: [] };
-	const audited = { ...initial, sections: [{ ...initial.sections[0], source_refs: [{ page: 10 }] }], map_candidates: [{ name: "Town plan", focus: "Town", pages: [12] }] };
+	const audited = { ...initial, sections: [{ ...initial.sections[0], source_refs: [{ page: 10 }] }], map_candidates: [
+		{ name: "Town plan", focus: "Town", pages: [12] }, retained.map_candidates[0],
+	] };
+	const digest = createHash("sha256").update(JSON.stringify(retained) + "\n").digest("hex");
+	await writeFile(join(previous, "packet.json"), JSON.stringify({ key: "index-key", source: { file_sha256: "source-sha" } }) + "\n");
+	await writeFile(join(previous, "draft.json"), JSON.stringify(retained) + "\n");
+	await writeFile(join(previous, "findings.json"), JSON.stringify({ error: "publication interrupted" }) + "\n");
+	await writeFile(join(previous, "read-complete.json"), JSON.stringify({ job_id: "read-1", draft_sha256: digest, index_map_audited: true, requires_repair: true,
+		observations: { file_sha256: "source-sha", read_pages: [13], full_pages: [13], review_pages: [], index_candidate_pages: [13] } }) + "\n");
 	const phases = [], finished = [];
 	const runtime = {
 		contentRoot: join(ROOT, "content"),
@@ -134,13 +146,17 @@ test("a PDF index gets a separate map-page completeness audit before publication
 			const task = JSON.parse(await readFile(join(request.cwd, "task.json"), "utf8"));
 			const audit = request.brief.includes("independent map-page completeness audit");
 			phases.push({ audit, task });
-			if (audit) assert.deepEqual(task.index_audit_pages, [12]);
+			if (audit) {
+				assert.deepEqual(task.index_audit_pages, [12, 13]);
+				assert.deepEqual(task.required_map_candidates, retained.map_candidates);
+			}
 			await writeFile(join(request.cwd, "draft.json"), JSON.stringify(audit ? audited : initial) + "\n");
-			await appendFile(join(cache, "requests.jsonl"), JSON.stringify({ file_sha256: "source-sha", path: image, page: 12, box: [0, 0, 1, 1] }) + "\n");
+			const pages = audit ? [10, ...task.index_audit_pages] : [12];
+			for (const page of pages) await appendFile(join(cache, "requests.jsonl"), JSON.stringify({ file_sha256: "source-sha", path: image(page), page, box: [0, 0, 1, 1] }) + "\n");
 			const call = audit ? "audit-page" : "index-page";
-			request.onEvent?.({ type: "tool_execution_start", toolName: "pdf", toolCallId: call, args: { pages: [12] } });
+			request.onEvent?.({ type: "tool_execution_start", toolName: "pdf", toolCallId: call, args: { pages } });
 			request.onEvent?.({ type: "tool_execution_end", toolCallId: call, isError: false,
-				result: { content: [{ type: "image" }], details: { kind: "source_pages", observations: [{ path: image, page: 12, box: [0, 0, 1, 1] }] } } });
+				result: { content: [{ type: "image" }], details: { kind: "source_pages", observations: pages.map(page => ({ path: image(page), page, box: [0, 0, 1, 1] })) } } });
 			await writeFile(request.eventLog + ".images.jsonl", JSON.stringify({ included: [call] }) + "\n");
 			return { ok: true, code: 0, timedOut: false, ms: 2, stderr: "", command: [] };
 		},
@@ -154,7 +170,7 @@ test("a PDF index gets a separate map-page completeness audit before publication
 			return { state: params.outcome === "completed" ? "ready" : params.outcome };
 		} });
 	t.after(() => service.close());
-	await service.runJob({ job_id: "read-1", module_id: "book", purpose: "index", focus: "", question: "", pages: [], foreground: false, lease: "L1",
+	await service.runJob({ job_id: "read-1", key: "index-key", module_id: "book", purpose: "index", focus: "", question: "", pages: [], foreground: false, lease: "L1", resume_from: previous,
 		work_dir: cwd, source: { path: join(home, ".coc", "modules", "book", "source.pdf"), page_count: 30, file_sha256: "source-sha" },
 		index: {}, known_nodes: [], known_claims: [], vocabulary: {}, coverage_domains: [] }, new AbortController().signal);
 	assert.deepEqual(phases.map(row => row.audit), [false, true], JSON.stringify({ phases, finished }));

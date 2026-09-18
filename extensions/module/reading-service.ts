@@ -75,6 +75,11 @@ function canonical(value: any): string {
 const integerList = (value: unknown): number[] => Array.isArray(value)
 	? value.filter((entry): entry is number => Number.isInteger(entry))
 	: [];
+const mapCandidateKey = (candidate: Row): string => canonical({
+	name: candidate.name,
+	focus: candidate.focus,
+	pages: [...integerList(candidate.pages)].sort((a, b) => a - b),
+});
 function editedSourcePages(before: Row, after: Row): Set<number> {
 	const result = new Set<number>();
 	for (const collection of ["nodes", "claims"]) {
@@ -559,6 +564,13 @@ export class ReadingService implements ReadingBridge {
 				}
 			} catch { /* a partial draft remains useful input, but only a host checkpoint skips reading */ }
 		}
+		let requiredMapCandidates: Row[] = [];
+		if (job.purpose === "index") {
+			try {
+				const retained = JSON.parse(await readFile(join(cwd, "draft.json"), "utf8"));
+				requiredMapCandidates = Array.isArray(retained.map_candidates) ? retained.map_candidates : [];
+			} catch { /* a fresh index has no retained candidates */ }
+		}
 		await writeFile(join(cwd, "observations.json"), JSON.stringify(observations) + "\n");
 		let detail = "the reader did not produce a valid draft";
 		try {
@@ -589,7 +601,17 @@ export class ReadingService implements ReadingBridge {
 							} catch { /* the first draft has not been written */ }
 						}
 						if (phase === "index-audit") {
-							task.index_audit_pages = [...new Set(integerList(observations.index_candidate_pages).filter(page => page > 0))].sort((a, b) => a - b);
+							const draft = JSON.parse(await readFile(join(cwd, "draft.json"), "utf8"));
+							const currentCandidates = Array.isArray(draft.map_candidates) ? draft.map_candidates : [];
+							const currentRefs = (Array.isArray(draft.sections) ? draft.sections : []).flatMap((section: Row) =>
+								(Array.isArray(section.source_refs) ? section.source_refs : []).map((ref: Row) => ref.page));
+							task.required_map_candidates = requiredMapCandidates;
+							task.index_audit_pages = [...new Set([
+								...integerList(observations.index_candidate_pages),
+								...requiredMapCandidates.flatMap(candidate => integerList(candidate.pages)),
+								...currentCandidates.flatMap((candidate: Row) => integerList(candidate.pages)),
+								...integerList(currentRefs),
+							].filter(page => page > 0))].sort((a, b) => a - b);
 							await writeFile(join(cwd, "task.json"), JSON.stringify(task, null, 2) + "\n");
 						}
 						const promptPhase = phase === "index-audit" ? "index" : phase;
@@ -630,7 +652,7 @@ export class ReadingService implements ReadingBridge {
 							prompt: { phase: promptPhase, guidance: job.purpose === "guidance" }, source: { pdf: job.source.path, cache },
 							eventLog: join(cwd, `${phase}-${round}.jsonl`),
 							brief: phase === "index-audit"
-								? `${readerInput({task})} This is the independent map-page completeness audit of the retained PDF index. Read draft.json. View every physical page in task.index_audit_pages with pdf, compare each page to draft.map_candidates, and immediately add every authored map whose depicted place can be identified. Preserve existing sections and candidates; repair missing section source_refs but do not rewrite for style. Finish only after every assigned page has been checked, then stop.`
+								? `${readerInput({task})} This is the independent map-page completeness audit of the retained PDF index. Read draft.json${round > 1 || job.resume_from ? " and findings.json" : ""}. View every physical page in task.index_audit_pages with pdf, compare each page to draft.map_candidates, and immediately add every authored map whose depicted place can be identified. Every task.required_map_candidates row must remain. Preserve existing sections and candidates; repair missing section source_refs but do not cite any page unless you viewed that full page in this audit or it is in task.index_audit_pages. If another page is needed as a reference, view it first. Do not rewrite for style. Finish only after every assigned page has been checked, then stop.`
 								: `${readerInput({task})} Your phase is ${phase}. Use page images to produce draft.json. If a draft was retained from this same interrupted request, inspect its sources and repair it instead of rewriting merely for style. ${["guidance","opening"].includes(job.purpose) ? "Use submit_reading as your sole final tool call to save/check this batch and finish without a closing reply." : ""} ${round > 1 || job.resume_from ? "Read findings.json if present and address its concrete findings." : ""}`,
 							onEvent(event) {
 								if (event.type === "tool_execution_start" && event.toolName === "read" && event.args?.path) reads.set(event.toolCallId, resolve(cwd, event.args.path));
@@ -667,6 +689,18 @@ export class ReadingService implements ReadingBridge {
 						if (phase === "index-audit") {
 							const missing = integerList(task.index_audit_pages).filter(page => !sourcePages.has(page));
 							if (missing.length) throw new Error(`index map audit did not inspect physical pages ${missing.join(", ")}`);
+							const draft = JSON.parse(await readFile(join(cwd, "draft.json"), "utf8"));
+							const finalCandidates: Row[] = Array.isArray(draft.map_candidates) ? draft.map_candidates : [];
+							const finalKeys = new Set(finalCandidates.map(mapCandidateKey));
+							const removed = requiredMapCandidates.filter(candidate => !finalKeys.has(mapCandidateKey(candidate)));
+							if (removed.length) throw new Error(`index map audit removed retained candidates: ${removed.map(candidate => candidate.name ?? candidate.focus ?? "unnamed").join(", ")}`);
+							const observed = new Set([...integerList(observations.full_pages), ...sourcePages]);
+							const cited = [...(Array.isArray(draft.sections) ? draft.sections : []).flatMap((section: Row) =>
+								(Array.isArray(section.source_refs) ? section.source_refs : []).map((ref: Row) => ref.page)),
+								...finalCandidates.flatMap(candidate => integerList(candidate.pages))]
+								.filter((page): page is number => Number.isInteger(page));
+							const unviewed = [...new Set(cited.filter(page => !observed.has(page)))].sort((a, b) => a - b);
+							if (unviewed.length) throw new Error(`index navigation references require viewing physical pages ${unviewed.join(", ")}`);
 						}
 						const key = "read_pages";
 						observations[key] = phase === "index-audit" ? [...new Set([...integerList(observations[key]), ...pagesRead])].sort((a, b) => a - b) : pagesRead;
@@ -677,7 +711,7 @@ export class ReadingService implements ReadingBridge {
 							observations.read_pages = [...new Set([...previousPages, ...observations.read_pages])];
 						}
 						if (phase === "index") {
-							observations.index_candidate_pages = [...sourcePages].sort((a, b) => a - b);
+							observations.index_candidate_pages = [...new Set([...integerList(observations.index_candidate_pages), ...sourcePages])].sort((a, b) => a - b);
 							observations.full_pages = [...new Set(rows.filter(row => JSON.stringify(row.box) === "[0,0,1,1]").map(row => row.page))];
 						}
 						if (phase === "index-audit") observations.full_pages = [...new Set([...integerList(observations.full_pages), ...sourcePages])].sort((a, b) => a - b);
