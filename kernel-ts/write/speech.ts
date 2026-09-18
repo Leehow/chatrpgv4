@@ -7,7 +7,7 @@
  */
 import { ModuleGraph } from '../read/module-graph.js';
 import { npcsPresent, personLabel } from '../read/capsule.js';
-import { array, entries, normalize, row, string, truth, type Row } from '../read/values.js';
+import { array, entries, normalize, normalizeText, row, string, truth, type Row } from '../read/values.js';
 
 /** Who a span resolved to. `npc` is the graph handle (a name the model may hold), never a node id. */
 export type Speaker = { npc: string; name: string } | { investigator: string; name: string } | { label: string };
@@ -130,4 +130,48 @@ export function speakerResolver(graph: ModuleGraph, world: Row, party: Row[]): S
 /** What the Keeper is told back beside the rows (§40.2): the labels that matched nobody, when any. */
 export function unresolvedSpeakers(speech: Row[]): string[] {
     return [...new Set(array(speech).flatMap(entry => truth(entry) && typeof (entry as Row).who === 'object' && (entry as Row).who && typeof ((entry as Row).who as Row).label === 'string' ? [string(((entry as Row).who as Row).label)] : []))];
+}
+
+/** The characters of a spoken line that two lines can share: letters and digits only, in order. */
+const spokenChars = (text: unknown): string => normalizeText(text).replace(/\s+/gu, '');
+/** The longest run of characters two strings share, in order and unbroken. */
+function longestSharedRun(a: string, b: string): string {
+    let best = '', prev = new Array<number>(b.length + 1).fill(0);
+    for (let i = 1; i <= a.length; i++) {
+        const cur = new Array<number>(b.length + 1).fill(0);
+        for (let j = 1; j <= b.length; j++) {
+            if (a[i - 1] !== b[j - 1]) continue;
+            cur[j] = prev[j - 1] + 1;
+            if (cur[j] > best.length) best = a.slice(i - cur[j], i);
+        }
+        prev = cur;
+    }
+    return best;
+}
+/**
+ * A person does not repeat (§113 D). A `say` line of this delivery that shares `minimum` or more
+ * consecutive characters with a line the same person already spoke at this table is returned with
+ * the earlier turn, for the caller to refuse before any audit. Letters and digits only, so quotation
+ * marks and punctuation neither hide a repeat nor make one. Twelve characters is a clause in any
+ * script the table plays in; a greeting or a name alone is shorter than that and never matches.
+ */
+export function repeatedLine(speech: Row[], records: Row[], minimum = 12): Row | null {
+    const said = new Map<string, Array<{ turn: number; text: string; chars: string }>>();
+    for (const record of records)
+        for (const line of array(record.speech)) {
+            const npc = string(row(row(line).who).npc || ''), text = string(row(line).text || '');
+            if (!npc || !text.trim()) continue;
+            if (!said.has(npc)) said.set(npc, []);
+            said.get(npc)!.push({ turn: Number(record.turn) || 0, text, chars: spokenChars(text) });
+        }
+    for (const line of speech) {
+        const who = row(row(line).who), npc = string(who.npc || ''), chars = spokenChars(row(line).text);
+        if (!npc || chars.length < minimum) continue;
+        for (const earlier of said.get(npc) ?? []) {
+            const shared = longestSharedRun(chars, earlier.chars);
+            if (shared.length >= minimum)
+                return { npc, name: string(who.name || npc), line: string(row(line).text), earlier_turn: earlier.turn, earlier_line: earlier.text, shared };
+        }
+    }
+    return null;
 }

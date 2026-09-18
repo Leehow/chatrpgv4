@@ -91,7 +91,8 @@ def test_the_packet_is_closed_and_names_the_person_by_handle(kernel):
     on(kernel)
     packet = job(kernel)
     assert packet["job_id"] == f"voice:{CAMPAIGN}:{packet['npc']['handle']}"
-    assert set(packet) == {"job_id", "play_language", "module", "coarse_language", "npc", "documents", "taken_masks", "budget", "instruction"}
+    assert set(packet) == {"job_id", "play_language", "module", "coarse_language", "npc", "documents", "taken_masks", "said", "budget", "instruction"}
+    assert packet["said"] == []
     assert packet["play_language"] == "zh-Hans" and packet["coarse_language"] is True
     assert packet["budget"] == {"mask_chars": 200, "exchanges": 3, "max_chars": 200}
     assert packet["taken_masks"] == []
@@ -222,3 +223,13 @@ def test_a_record_left_by_the_two_line_word_is_replaced_not_kept_beside(kernel):
     submit(kernel, packet["job_id"], VOICE)
     knott = present(kernel)[KNOTT]
     assert "sounds like" not in knott and knott["mask"] == [VOICE["mask"]]
+
+
+def test_the_packet_carries_the_lines_this_person_already_said(kernel):
+    """§113 D: the lane is told what this mouth has already said at this table."""
+    create_campaign(kernel)
+    narrate_opening(kernel, "开场。\n\n{{say:Steven Knott}}「钥匙在这儿，拿去就是。」{{/say}}诺特把钥匙拍在桌上。")
+    kernel.table("player_input", text="我仔细观察诺特。")
+    packet = job(kernel)
+    assert packet["said"] == ["「钥匙在这儿，拿去就是。」"]
+    assert "said" in packet["instruction"]

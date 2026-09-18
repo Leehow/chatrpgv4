@@ -31,7 +31,7 @@ import { loadModuleContract, validSourceLanguage } from '../modules/contract.js'
 import { defaultModPlan, preflightCampaign as validateContributions, rebuildNpcLedger, updateNpcLedger, stanceTable, writeEpisode } from './contributions.js';
 import { asciiSlug, facts, publicContext, directorAdoption, offerLedger } from './text.js';
 import { deliveryText, deliveryRecord } from './delivery.js';
-import { speakerResolver } from './speech.js';
+import { speakerResolver, repeatedLine } from './speech.js';
 import { readableTurn, rebuildTurn, syncCheckpoint, resumeView, checkpointFromRecord, writeCheckpoint } from './continuation.js';
 import {activeName} from '../read/worldline.js';
 import {eventOf} from '../worldline/index.js';
@@ -118,6 +118,19 @@ export interface WriteContributions {
         initializeCampaign(campaign: CampaignWriter, world: Row, options?: {pending?: boolean}): Promise<void>;
         validateWorld(world: Row): Promise<void>;
     };
+}
+
+/** §113 D: a person does not repeat. Refused before any audit, naming the line and the turn it was said. */
+async function refuseRepeatedLine(snapshot: CampaignSnapshot, campaign: CampaignWriter, speech: unknown): Promise<void> {
+    const lines = array(speech);
+    if (!lines.length) return;
+    const records = snapshot.records.length ? snapshot.records : await campaign.records();
+    const repeat = repeatedLine(lines, records);
+    if (!repeat) return;
+    throw new RpcError('needs', `${string(repeat.name)} already said this at this table (turn ${string(repeat.earlier_turn)}): ${string(repeat.line)}`, {
+        fix: 'This person does not repeat. When the same point comes back they move: give a little, refuse harder, or change the subject. Rewrite only that line and deliver again; everything else stands.',
+        details: { reason: 'repeated_line', ...repeat },
+    });
 }
 export function createWriteRuntime(context: KernelContext, contributions: WriteContributions = {}): {
     handlers: HandlerGroup;
@@ -841,6 +854,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         if(truth(turn.worldline))throw new RpcError('invalid_params','a turn that forks or switches the worldline cannot be closed by ask',{fix:"close this turn with narrate; ask on the new line's first turn",details:{worldline:row(turn.worldline).operation??null}});
         const receipts = [...array(turn.receipts)];
         const { placed, ...delivery } = deliveryText(text, receipts, speakerResolver(module.graph, snapshot.world, snapshot.party));
+        await refuseRepeatedLine(snapshot, campaign, delivery.speech);
         const language = await playLanguageOf(context, snapshot.meta);
         await stanceTable(context);
         const n = number(turn.turn), pending = {
@@ -902,6 +916,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         await validateMods(snapshot.world);
         const text = required(params, 'text')!, receipts = [...array(turn.receipts)];
         const { placed, ...delivery } = deliveryText(text, receipts, speakerResolver(module.graph, snapshot.world, snapshot.party)), rendered = delivery.rendered_text;
+        await refuseRepeatedLine(snapshot, campaign, delivery.speech);
         const language = await playLanguageOf(context, snapshot.meta);
         // Nothing is read out of the prose. Figures travel as the mechanics projection and the
         // frontend draws them (2026-09-09 user decision, contract section 16.3); whether the words

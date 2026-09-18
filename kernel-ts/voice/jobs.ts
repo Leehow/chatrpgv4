@@ -23,6 +23,8 @@ const DOCUMENT_BYTES = 4096;
 const TAKEN_MASKS = 12;
 export const jobId = (campaign: string, handle: string) => `voice:${campaign}:${handle}`;
 /** The fallback when `content/setup/npc-voice.md` cannot be read; the file is the instruction (§40.7). */
+/** The last lines this person spoke at this table that ride in the packet (§113 D). */
+const SAID_LINES = 8;
 const INSTRUCTION = 'Write how this person is heard, in the play language. First a mask, one line: what they call themselves ' +
     'and the person they are talking to, one sentence-ending habit, the level of their words (their trade, their schooling), ' +
     'one pet phrase. One or two markers a listener could name, not five; different from every mask in taken_masks; register, ' +
@@ -31,7 +33,9 @@ const INSTRUCTION = 'Write how this person is heard, in the play language. First
     'never an aphorism. Same thought, two mouths: mocking messy hair, a coarse labourer swears at it and a respectable man ' +
     'asks whether that is a hen coop on your head. The book\'s voice, if given, governs. No numbers, no rules, no name of ' +
     'any other person, nothing the player has not discovered: hides is who they are, not what they say aloud. ' +
-    'Answer {"voice": {"mask": "…", "exchanges": ["…", "…", "…"]}} and nothing else.';
+    'Answer {"voice": {"mask": "…", "exchanges": ["…", "…", "…"]}} and nothing else. ' +
+    'Lines under said were already spoken by this person at this table: no exchange reuses one, and the pet phrase is not one of them; ' +
+    'when the same point comes back, this person moves -- gives a little, refuses harder, or changes the subject.';
 export function parseJobId(campaign: CampaignWriter, value: any): string {
     const found = typeof value === 'string' ? /^voice:([A-Za-z0-9][A-Za-z0-9._-]{0,63}):(.+)$/.exec(value) : null;
     if (!found || found[1] !== campaign.id)
@@ -119,7 +123,7 @@ export function takenMasks(graph: ModuleGraph, world: Row, node: Row): string[] 
     return masks.slice(0, TAKEN_MASKS);
 }
 /** The closed packet: the Keeper-side dossier as present[] shows it, the person's own documents bounded, the setting. */
-export function buildPacket(campaign: CampaignWriter, graph: ModuleGraph, world: Row, node: Row, language: string, dossier: Row, instruction: string = INSTRUCTION): Row {
+export function buildPacket(campaign: CampaignWriter, graph: ModuleGraph, world: Row, node: Row, language: string, dossier: Row, instruction: string = INSTRUCTION, said: string[] = []): Row {
     const handle = graph.handle(node), lock = packageState(world) ?? {};
     const documents: string[] = [];
     let bytes = 0;
@@ -150,7 +154,7 @@ export function buildPacket(campaign: CampaignWriter, graph: ModuleGraph, world:
     return { job_id: jobId(campaign.id, handle), play_language: language,
         module: { title: graph.title(), ...(typeof era === 'string' && era.trim() ? { era } : {}) },
         coarse_language: row(lock.settings).coarse_language !== false,
-        npc, documents, taken_masks: takenMasks(graph, world, node), budget: { ...BUDGET }, instruction };
+        npc, documents, taken_masks: takenMasks(graph, world, node), said: said.slice(-SAID_LINES), budget: { ...BUDGET }, instruction };
 }
 export async function openJob(campaign: CampaignWriter, handle: string, packet: Row): Promise<Row> {
     const existing = await readJob(campaign, handle);

@@ -126,3 +126,20 @@ def test_a_line_left_unmarked_is_a_verifier_finding(kernel):
     error = kernel.err("table.warn", {"campaign": CAMPAIGN, "turn": 1, "lane": "verifier", "findings": [
         {"kind": "loud_speech", "quote": "「钥匙在这儿。」", "why": "not a kind"}]})
     assert error["code"] == "invalid_params" and "unmarked_speech" in error["fix"]
+
+
+def test_a_line_a_person_already_said_is_refused_and_a_moved_line_lands(kernel):
+    """§113 D: the same clause from the same mouth is refused before any audit, naming the earlier turn."""
+    open_turn(kernel)
+    line = "「钥匙在这儿，拿去就是，别再问我第二遍了。」"
+    narrate(kernel, "t1-c1", f"诺特把钥匙推过来。{{{{say:{KNOTT}}}}}{line}{{{{/say}}}}")
+    kernel.table("player_input", text="我再问一次钥匙的事。")
+    error = kernel.table_err("narrate", call_id="t2-c1", text=f"诺特叹气。{{{{say:{KNOTT}}}}}{line}{{{{/say}}}}")
+    assert error["code"] == "needs" and error["details"]["reason"] == "repeated_line"
+    assert error["details"]["npc"] == KNOTT_HANDLE and error["details"]["earlier_turn"] == 1 and error["details"]["line"] == line
+    # Punctuation is not a difference, and a shared clause inside a longer line is still a repeat.
+    dressed = kernel.table_err("narrate", call_id="t2-c1", text=f"{{{{say:{KNOTT}}}}}「行吧……钥匙在这儿，拿去就是，别再问我第二遍了，听见没？」{{{{/say}}}}")
+    assert dressed["details"]["reason"] == "repeated_line"
+    # A line that moves lands; a short greeting can never match.
+    moved = narrate(kernel, "t2-c1", f"{{{{say:{KNOTT}}}}}「够了。钥匙你拿着，门在楼上，别让我再看见你。」{{{{/say}}}}")
+    assert moved["speech"][0]["text"].startswith("「够了")
