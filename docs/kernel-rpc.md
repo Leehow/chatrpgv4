@@ -2641,6 +2641,32 @@ per-unit evidence isolation stay intact.
 
 ## 23. PipiCOC local frontend (2026-09-07)
 
+### Host decision: shell renderer failure containment (2026-09-19)
+
+A surviving native window is not proof of a surviving UI. The Electron shell
+must observe its own `render-process-gone` and main-frame load failures, not
+only failures in embedded browser tabs. Record bounded, metadata-only diagnostics
+under the application userData directory (timestamp, event, exit reason/code and
+recovery outcome); never record session content, credentials or full URLs.
+
+An unexpected shell renderer exit may reload that same UI once per failure burst.
+Successful loading alone does not reset the budget: require a stable interval
+before another automatic attempt. Suppress recovery during window disposal or
+application shutdown, and cancel pending recovery timers/listeners on disposal.
+A repeated failure must stop automatic retries and report the failure through a
+native host surface rather than silently leave an unexplained blank window.
+Recovery does not restart the application or Keeper, send player input, replay
+RPC mutations, clear storage, or change campaign/module evidence. The original
+exit reason must remain distinguishable from a recovery/load failure. A web
+rendering smoke check does not prove native renderer-crash recovery.
+
+Verification: 26 focused recovery/lifecycle tests and the Electron build passed;
+the vendored suite matches its existing failure baseline, and the language/UI-word
+guards pass. An isolated native `BaseWindow`/`WebContentsView` probe forced two
+renderer exits: the first restored the document in a new renderer process, the
+second stopped retries and invoked the host notice exactly once. This probe did
+not restart or modify the installed application and is not gameplay acceptance.
+
 ### Current implementation decision: shared presentation attempts (2026-09-14)
 
 The four UI/map/character/document presenters share only their bounded file-attempt protocol: attempt/check setup, up to two owner-runner rounds, event logs, output reads and repair findings. The existing tool-enabled Pi runner, prompts, validators, model/thinking, 120-second per-round timeout and cancellation/error identities remain unchanged. Cache keys and commit points stay with each caller: UI persists only complete projections; maps preserve accepted partial words; character vocabulary merges per round with finance/equipment kept separate; documents require a whole validated reading and retain owner-scoped single-flight. Authored-language, seed, known-label, empty-input and cache bypasses remain intact. No new language table, bare completion or spawn backend is introduced. See `docs/specs/coherent-path-ablation.md` for the binding difference matrix and executable test seams.

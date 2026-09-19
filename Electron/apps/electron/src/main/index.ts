@@ -16,6 +16,9 @@ import {
 import { BrowserSessionHost, installBrowserNativeTrace, mountBrowserShellView, routeBrowserView, withBrowserTabsHost } from './browser-host.js'
 import { BrowserMobileWindowController } from './browser-mobile-window.js'
 import { installOwnedRuntimeShutdown } from './app-lifecycle.js'
+import { createShellDiagnosticLog, installShellRecovery, shellErrorNotice, shellErrorWordsFromAnswer, type ShellErrorWords } from './shell-recovery.js'
+
+const shellErrorWords = new WeakMap<object, ShellErrorWords>()
 import { resolveSystemProxyEnvironment } from './system-proxy.js'
 import { loadProductIdentity } from './product-identity.js'
 import { withProjectDirectoryPicker } from './project-directory-picker.js'
@@ -70,7 +73,10 @@ export function registerPipiHostIpc(
       return { protocolVersion: PIPI_HOST_PROTOCOL_VERSION, id: request.id, type: 'response', ok: true, result: undefined }
     }
     try {
-      return { protocolVersion: PIPI_HOST_PROTOCOL_VERSION, id: request.id, type: 'response', ok: true, result: await backend.handle(request.method, request.params) }
+      const result = await backend.handle(request.method, request.params)
+      const words = shellErrorWordsFromAnswer(result)
+      if (words) shellErrorWords.set(event.sender, words)
+      return { protocolVersion: PIPI_HOST_PROTOCOL_VERSION, id: request.id, type: 'response', ok: true, result }
     } catch (error) {
       const errorCode = error && typeof error === 'object' && typeof (error as { code?: unknown }).code === 'string'
         ? (error as { code: string }).code
@@ -138,7 +144,25 @@ function createWindow(
     },
     () => shellView.webContents.getZoomFactor()
   )
+  const rendererUrl = process.env.ELECTRON_RENDERER_URL
+  const diagnostics = createShellDiagnosticLog(app.getPath('userData'))
+  const recovery = installShellRecovery({
+    contents: shellView.webContents,
+    window,
+    app,
+    isQuitting: isAppQuitting,
+    load: () => rendererUrl
+      ? shellView.webContents.loadURL(rendererUrl)
+      : shellView.webContents.loadFile(join(__dirname, '../renderer/index.html')),
+    log: diagnostics.write,
+    showError: () => dialog.showMessageBox(window, {
+      type: 'error',
+      title: productName,
+      ...shellErrorNotice(diagnostics.path, shellErrorWords.get(shellView.webContents)),
+    }),
+  })
   window.on('close', () => {
+    recovery.dispose()
     browser.detachWindow()
     mobileWindows.dispose()
     unmountShellView()
@@ -148,11 +172,7 @@ function createWindow(
     onClosed()
   })
 
-  if (process.env.ELECTRON_RENDERER_URL) {
-    void shellView.webContents.loadURL(process.env.ELECTRON_RENDERER_URL)
-  } else {
-    void shellView.webContents.loadFile(join(__dirname, '../renderer/index.html'))
-  }
+  recovery.load()
 }
 
 // Electron's package exports no runtime app object under Vitest; keep IPC registration importable.
