@@ -1,6 +1,6 @@
 {
   "id": "narration-audit",
-  "version": "1.2.22",
+  "version": "1.2.24",
   "game_api": "pipicoc.game.v1",
   "state_version": 1,
   "author": "PipiCOC",
@@ -9,8 +9,8 @@
     "zh-Hans": "叙述交代审计"
   },
   "description": {
-    "en": "Before delivery, every settled receipt must have its fictional consequence in the text; numbers and style are never asked for.",
-    "zh-Hans": "交付前检查每张结算收据在正文里有没有虚构后果；从不要求数字，不评风格。"
+    "en": "Before delivery, settled consequences must appear and the prose must remain intelligible; numbers, length and literary taste are never graded.",
+    "zh-Hans": "交付前检查结算后果是否写出、正文能否正常理解；不要求数字，不按篇幅或文学偏好打分。"
   },
   "default_enabled": true,
   "requires": [

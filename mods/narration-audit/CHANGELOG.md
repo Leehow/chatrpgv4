@@ -1,3 +1,11 @@
+# 1.2.24
+
+- Tightens the 1.2.23 intelligibility check after its first retained original-save retest still passed malformed actor/body-part phrases and repeated clipped status dialogue. The reviewer now receives concrete language-neutral failure shapes, treats one occurrence as enough to revise, does not exempt terse or archaic character speech, and asks for one whole-candidate rewrite when the pattern repeats. The boundary remains intelligibility rather than literary taste.
+
+# 1.2.23
+
+- Adds a narrow pre-delivery intelligibility check after a retained long-table delivery degraded into omitted subjects, malformed actor/body-part phrases and context shorthand copied as dialogue. This is not a literary score: voice, rhythm, length, description and formality remain outside the audit. A finding only asks the Keeper to preserve the same facts and choices while rewriting genuinely hard-to-understand prose as natural, complete sentences in the play language.
+
 # 1.2.22
 
 - Adds the unmet-question check: each question the player put to someone is answered, deflected in character with a reason, or refused with one; a repeated line is not an answer. Found on a 24-turn table where three NPCs answered every new question with the same three sentences.

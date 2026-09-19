@@ -170,7 +170,7 @@ def test_style_gives_every_directive_on_the_first_turn_and_the_beats_pick_afterw
     first = open_turn(kernel, "我仔细观察诺特。")["capsule"]
     style = first["style"]
     assert style["language"] == "zh-Hans" and style["register"] == "purist"
-    assert len(style["axes"]) == 6 and "avoid translationese" in style["axes"]  # English lines (§16.1); zh-Hans keeps the axis
+    assert len(style["axes"]) == 6 and "write natural, complete sentences" in style["axes"]  # English lines (§16.1); zh-Hans keeps the axis
     assert {d["id"] for d in style["directives"]} == ALL_DIRECTIVES and all(d["line"] for d in style["directives"])
     assert kernel.table("capsule")["style"] == style  # same turn, same process: still the full list
     narrate(kernel, "t1-c1", "……")
@@ -178,6 +178,22 @@ def test_style_gives_every_directive_on_the_first_turn_and_the_beats_pick_afterw
     beat = later["director"]["beat"]
     assert [d["id"] for d in later["style"]["directives"]] == BEAT_TABLE["beats"][beat]
     assert len(later["style"]["directives"]) <= 4 and size(later["style"]) <= 1536  # the four floor lines ride along (turn floor)
+
+
+def test_style_treats_compact_context_as_facts_not_player_facing_prose(kernel):
+    """A long table's compressed memory must not become the Keeper's sentence pattern.
+
+    The live failure was grammatical erosion across the whole delivery (for example, an actor's
+    name joined directly to a body part and compressed status notes copied as dialogue).  This is
+    base readability, not a new semantic classifier or a synchronous literary review.
+    """
+    style = open_turn(kernel, "我们继续进镇。")['capsule']['style']
+    directives = {row['id']: row['line'] for row in style['directives']}
+    assert directives['final-prose-guard-before-output'] == (
+        'reread: complete natural sentences; context is facts, not phrasing')
+    assert directives['repetition-policy'] == (
+        'settled facts briefly, but as complete sentences; never fragments; enact this action')
+    assert 'write natural, complete sentences' in style['axes']
 
 
 def test_a_new_process_starts_over_with_the_full_directives(tmp_path):

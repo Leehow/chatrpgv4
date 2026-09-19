@@ -70,7 +70,7 @@
     ]
   },
   "axis_lines": {
-    "style-axis:avoid-translationese": "avoid translationese",
+    "style-axis:avoid-translationese": "write natural, complete sentences",
     "style-axis:avoid-ai-summary-voice": "avoid summary voice",
     "style-axis:avoid-log-style-summary": "avoid log-style summary",
     "style-axis:avoid-semantic-repetition": "no stale repetition; an echo placed on purpose is not repetition",
@@ -82,8 +82,8 @@
     "player-action-uptake": "enact the declared action from the world's view",
     "rewrite-abstract-explanation-to-action": "inner states become action, voice, posture, gaze, evidence",
     "skill-interpretation-after-visible-evidence": "skill judgement after the visible evidence",
-    "final-prose-guard-before-output": "reread a hard draft for meaning first",
-    "repetition-policy": "compress settled facts; a callback placed on purpose is not repetition; enact the current action yourself",
+    "final-prose-guard-before-output": "reread: complete natural sentences; context is facts, not phrasing",
+    "repetition-policy": "settled facts briefly, but as complete sentences; never fragments; enact this action",
     "action-uptake-review": "check the draft enacts the action, not the player's phrasing",
     "rewrite-ai-summary-voice": "information via scene detail or NPC speech, not report voice",
     "rewrite-camera-direction-staging": "one natural sentence names the person and the focus",

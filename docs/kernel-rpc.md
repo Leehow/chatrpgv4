@@ -897,6 +897,8 @@ acceptance remain pending until their dedicated checks are recorded.
 
 内容目录加 `content/craft/text-graph.json`（旧树 `references/text-graph.json` 原样带过来）。只读 `play-register`、`style-axis`、`craft-directive`、`beat-type` 四类。`style` 节：`language` 取战役；`register` 取战役的 `register`（建战役时可给，缺省 `purist`）；`axes` 是 style-axis 的短句（play_language；2026-09-10 起六条，退役的三条见 §30.12）；`directives` 按节拍挑：图上 craft-directive 与 Director 节拍的对应表写在 `content/craft/beat-directives.json`（每节拍 ≤ 4 条 directive id，内容团队维护的闭合表，不是模型判断）。重开进程后的第一回合给全部 directive（预算 2KB），之后只给按节拍挑的（1KB）。
 
+**2026-09-19 可读性边界。** 胶囊、`memory`、`recent`、账本和 NPC 档案里的短句是压缩事实，不是给守秘人仿写的文风样本。玩家正文必须使用 `play_language` 中自然、完整的句子，明确谁做了什么以及事物之间的关系；“简短”不允许省掉读者理解所需的主语、动作、宾语、介词或连接关系。`repetition-policy` 只允许少写已经成立的事实，不允许把它们压成残句；`final-prose-guard-before-output` 要求在调用 `narrate` 前把最终草稿作为玩家读一遍，发现事实压缩语、日志字段语或上下文残句被照抄时，先改写成自然正文。这一生产端仍是现有基础提示和 `style` 自检，不增加同步文学评分器、不新增语义正则或语言表；§113 另记录同一真实故障暴露出的既有 `narration-audit` 防漏边界修订。
+
 ### 13.7 采纳证据（无写侧）
 
 `narrate` 关回合时内核算 `director_adoption` 写进回合记录与遥测：`{beat, adopted: bool, evidence: [收据 id]}`。判定表闭合：REVEAL → 本回合有 `reveal` 列表里的 `clue` 收据；PRESSURE → 有 `time`/`damage`/`delta`（负向）/`session start` 收据；CHOICE → 回合以 `ask` 关闭；SUBSYSTEM → 有 `session` 收据，或有会话内的 roll 收据（带 `session_kind`，或 `roll_kind: combat_check`）；CHARACTER → 有 social 族的 roll 收据或 `present` 非空且无移动；RECOVER → healing/development 族决策结算；CUT/ADVANCE → 有 `move` 收据；MONTAGE → 有 `time` 收据且 ≥ 60 分钟；DEEPEN → 有 core-check 族 roll 收据且无 `move`；PAYOFF → 有 `clue` 收据且该线索 `supports` 某 `conclusion`。这是遥测，不是奖惩：胶囊不据此改变下一回合的建议。
@@ -14074,6 +14076,19 @@ protested out of character and a source lookup found the doctor's house.
 - **An unmet question is a finding.** narration-audit 1.2.22 checks that every question the player
   put to someone is answered, deflected in character with a reason, or refused with one, and that
   a word-for-word repeated line is not an answer.
+- **Unintelligible prose is revised before delivery.** narration-audit 1.2.23 adds one narrow
+  exception to its no-style-grading boundary: omitted words, broken grammar, context shorthand,
+  malformed subject/action/object relations or disconnected fragments that make the candidate
+  genuinely hard to understand produce a finding. The fix preserves the same facts, choices and
+  receipts and rewrites only into natural, complete sentences in `play_language`. Voice, rhythm,
+  length, description, formality and literary taste remain outside the audit. This reuses the
+  existing tool-enabled pre-delivery review; it adds no model call, lane, semantic regex, language
+  table or post-delivery repair.
+  **1.2.24** tightens that same check after the retained original-save retest showed 1.2.23 still
+  passing an actor name attached directly to another person's body part and repeated clipped status
+  notes as dialogue. One such malformed relation now revises; terse, archaic or characterful speech
+  is no exemption, and a repeated pattern requests one whole-candidate rewrite while preserving the
+  same facts and choices. This is a rubric correction inside the same audit, not a new mechanism.
 - **A person responds to this exchange (D).** The voice lane's packet and the per-turn Keeper
   projection carry bounded `said` history from committed `speech` records of the same NPC in
   this campaign/worldline. The live projection matters even when the mask was authored or the
