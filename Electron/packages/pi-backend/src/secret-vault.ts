@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createCipheriv, createDecipheriv, randomBytes, randomUUID } from "node:crypto";
 import {
   chmodSync,
   closeSync,
@@ -16,7 +16,11 @@ import { dirname, join } from "node:path";
 export const VAULT_FILE = "secret-vault.json";
 export const VAULT_KEY_FILE = "secret-vault.key";
 export const MIN_SECRET_LEN = 8;
-export const MEMORY_VAULT_MESSAGE = "密钥仅保存在当前 App 主进程内存中，退出 App 后清除。";
+export const PERSISTED_VAULT_MESSAGE = "密钥保存在 App profile 的加密 vault 中，并在会话启动或设置变化后注入 agent；密钥文件本身不会落明文。";
+/** @deprecated Kept as an import-compatible alias; the vault is now persistent. */
+export const MEMORY_VAULT_MESSAGE = PERSISTED_VAULT_MESSAGE;
+const PERSISTED_VAULT_VERSION = 2;
+const VAULT_CIPHER = "aes-256-gcm";
 
 export type VaultDiagKind =
   | "available"
@@ -51,7 +55,7 @@ export function memoryVaultDiagnosis(platform: NodeJS.Platform = process.platfor
   return {
     available: true,
     kind: "available",
-    message: MEMORY_VAULT_MESSAGE,
+    message: PERSISTED_VAULT_MESSAGE,
     retryable: false,
     platform,
   };
@@ -107,16 +111,7 @@ function emptyVault(): VaultDocument {
   return { version: 1, revision: 0, secrets: [], mounts: {} };
 }
 
-function vaultOf(dir: string): VaultDocument {
-  const existing = stores.get(dir);
-  if (existing) return existing;
-  const created = emptyVault();
-  stores.set(dir, created);
-  return created;
-}
-
-export function loadVault(dir: string): VaultDocument {
-  const vault = vaultOf(dir);
+function cloneVault(vault: VaultDocument): VaultDocument {
   return {
     version: 1,
     revision: vault.revision,
@@ -125,6 +120,94 @@ export function loadVault(dir: string): VaultDocument {
       Object.entries(vault.mounts).map(([sessionId, mounts]) => [sessionId, mounts.map((mount) => ({ ...mount }))]),
     ),
   };
+}
+
+/** Project-scoped vault namespaces are opaque in-memory names, not disk paths. App/session vaults persist. */
+function persistableVaultDir(dir: string): boolean {
+  return !dir.includes("?extension-project=");
+}
+
+function vaultKey(dir: string): Buffer {
+  const { key } = vaultPaths(dir);
+  ensureSecureDirectory(dirname(key));
+  if (existsSync(key)) {
+    const value = readFileSync(key);
+    if (value.length !== 32) throw new Error("secret vault key has an invalid length");
+    return value;
+  }
+  const value = randomBytes(32);
+  atomicWriteFile(key, value);
+  return value;
+}
+
+function readPersistedVault(dir: string): VaultDocument | undefined {
+  if (!persistableVaultDir(dir)) return undefined;
+  const { file } = vaultPaths(dir);
+  if (!existsSync(file)) return undefined;
+  let envelope: {
+    version?: unknown;
+    algorithm?: unknown;
+    iv?: unknown;
+    tag?: unknown;
+    ciphertext?: unknown;
+  };
+  try {
+    envelope = JSON.parse(readFileSync(file, "utf8")) as typeof envelope;
+  } catch {
+    // A pre-persistence/plain leftover is not imported. The next write replaces it
+    // with the encrypted envelope instead of exposing or trusting its contents.
+    return undefined;
+  }
+  // A pre-persistence/plain leftover is deliberately ignored and replaced on the next write;
+  // never import a plaintext secret file into the encrypted vault implicitly.
+  if (envelope?.version !== PERSISTED_VAULT_VERSION) return undefined;
+  if (envelope.algorithm !== VAULT_CIPHER || typeof envelope.iv !== "string" || typeof envelope.tag !== "string" || typeof envelope.ciphertext !== "string") {
+    throw new Error("secret vault envelope is invalid");
+  }
+  const { key } = vaultPaths(dir);
+  if (!existsSync(key)) throw new Error("secret vault key is missing");
+  const decipher = createDecipheriv(VAULT_CIPHER, vaultKey(dir), Buffer.from(envelope.iv, "base64"));
+  decipher.setAuthTag(Buffer.from(envelope.tag, "base64"));
+  const plaintext = Buffer.concat([
+    decipher.update(Buffer.from(envelope.ciphertext, "base64")),
+    decipher.final(),
+  ]).toString("utf8");
+  const parsed = JSON.parse(plaintext) as VaultDocument;
+  if (parsed?.version !== 1 || !Array.isArray(parsed.secrets) || !parsed.mounts || typeof parsed.mounts !== "object") {
+    throw new Error("secret vault document is invalid");
+  }
+  return cloneVault(parsed);
+}
+
+function persistVault(dir: string, vault: VaultDocument): void {
+  if (!persistableVaultDir(dir)) return;
+  const key = vaultKey(dir);
+  const iv = randomBytes(12);
+  const cipher = createCipheriv(VAULT_CIPHER, key, iv);
+  const ciphertext = Buffer.concat([
+    cipher.update(JSON.stringify(cloneVault(vault)), "utf8"),
+    cipher.final(),
+  ]);
+  const envelope = {
+    version: PERSISTED_VAULT_VERSION,
+    algorithm: VAULT_CIPHER,
+    iv: iv.toString("base64"),
+    tag: cipher.getAuthTag().toString("base64"),
+    ciphertext: ciphertext.toString("base64"),
+  };
+  atomicWriteFile(vaultPaths(dir).file, `${JSON.stringify(envelope)}\n`);
+}
+
+function vaultOf(dir: string): VaultDocument {
+  const existing = stores.get(dir);
+  if (existing) return existing;
+  const created = readPersistedVault(dir) ?? emptyVault();
+  stores.set(dir, created);
+  return created;
+}
+
+export function loadVault(dir: string): VaultDocument {
+  return cloneVault(vaultOf(dir));
 }
 
 export function atomicWriteFile(path: string, data: string | Buffer): void {
@@ -164,22 +247,24 @@ function serializeDir<T>(dir: string, work: () => T): Promise<T> {
 }
 
 export function saveVault(dir: string, vault: VaultDocument): void {
-  stores.set(dir, {
-    version: 1,
-    revision: vault.revision,
-    secrets: vault.secrets.map((secret) => ({ ...secret })),
-    mounts: Object.fromEntries(
-      Object.entries(vault.mounts).map(([sessionId, mounts]) => [sessionId, mounts.map((mount) => ({ ...mount }))]),
-    ),
-  });
+  const copy = cloneVault(vault);
+  stores.set(dir, copy);
+  persistVault(dir, copy);
 }
 
 async function mutateVault<T>(dir: string, mutate: (vault: VaultDocument) => T): Promise<T> {
   return serializeDir(dir, () => {
     const vault = vaultOf(dir);
-    const result = mutate(vault);
-    vault.revision += 1;
-    return result;
+    const before = cloneVault(vault);
+    try {
+      const result = mutate(vault);
+      vault.revision += 1;
+      persistVault(dir, vault);
+      return result;
+    } catch (error) {
+      stores.set(dir, before);
+      throw error;
+    }
   });
 }
 

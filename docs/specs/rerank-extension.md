@@ -6,7 +6,7 @@
 
 重排只对「候选列表」有意义，而候选列表来自检索。当前产品里真正产生候选列表的是 `lookup`（模组文本检索）与 `recall`（战役记忆），两者现在都返回未排序列表。把它们改成先重排再交给守秘人，是**产品行为的变化**，不属于「加一个可配置的供应商」这件事本身。所以本切片只交付能力与配置面：
 
-- **谁写**：PipiUI 设置面板。本包贡献一个**受控设置节**（`app/settings-rerank.js`）：选供应商 → 该厂商的模型下拉 → 贴 API key。`provider` 与 `model` 是普通设置，`apiKey` 是 `format: "secret"`（进 vault，不落盘）。
+- **谁写**：PipiUI 设置面板。本包贡献一个**受控设置节**（`app/settings-rerank.js`）：选供应商 → 该厂商的模型下拉 → 贴 API key。`provider` 与 `model` 是普通设置，`apiKey` 是 `format: "secret"`（进加密 vault，密文与独立 key 文件落盘）。
 - **谁读**：`agent/index.js` 的 `rerank()`，配置经 spawn 注入的 env 读入（见下）。
 - **谁据它行动**：本切片只有 `/rerank:test`（一次性验证 key 能不能用）。真正的消费者（`lookup` / `recall` / 模组深读）**尚未接线**，接哪条是下一步的产品决定。
 
@@ -18,7 +18,7 @@
 
 **表里一行 = 端点 + 鉴权头 + 模型候选。** 选了供应商，端点就定了；模型从**该厂商的候选列表**里选（下拉），所以面板上没有一个要手打 id 或 URL 的框。2026-09-18 的首版曾把 model / Base URL 做成空白输入框，用户指出那正是外行答不出来的东西（「不是都选择供应商了么」）——现在它们不是可选，是不存在。
 
-模型表是各家文档核验过的**静态目录**（2026-09-18）。**实时拉取做不到**：那要带着 key 发 HTTP，而 key 只活在 agent 进程里（渲染进程 fetch 会被 CORS 挡，vault 只回存在性不回值）；真要实时列表，得等会话在 key 之后起，走 agent 侧的另一条路。
+模型表是各家文档核验过的**静态目录**（2026-09-18）。**实时拉取暂不做**：那要带着 key 发 HTTP，而渲染进程 fetch 会被 CORS 挡；先用按厂商核验的静态表，避免把 secret 暴露给 renderer。
 
 预设（2026-09-18 按各厂商文档核验，来源见 `.pi/findings/rerank-vendors.md`）：
 
@@ -49,9 +49,9 @@
 
 ### 生效时机与 key 的生命周期（2026-09-19 真桌反馈）
 
-宿主在 **spawn 时**把这两样东西塞进子进程环境（`spawn-assembly.ts` 把 `pkg.secretEnv` 赋进 child env），运行中的进程拿不到新值——所以：**保存 key 后要重开桌（新会话）才生效**。改设置会给存活会话发一条 `ext.settings_changed`，但那条只带非 secret 快照，不带 key。面板的描述与 `config.js` 的拒绝文案都把这条写明了（错误码仍是 `unconfigured`）。
+宿主在 **spawn 时**把这两样东西塞进子进程环境（`spawn-assembly.ts` 把 `pkg.secretEnv` 赋进 child env）。设置变化后，宿主会给挂载该扩展的空闲会话请求 graceful hot restart；下一次发送前重新 spawn，新的 key 就会进入环境。忙碌回合不会被打断，会在 idle 边界刷新。改设置仍会发 `ext.settings_changed` 非 secret 快照，但 secret 通过新的 spawn env 生效。
 
-**key 不落盘（框架现状）**：`secret-vault.ts` 的 `MEMORY_VAULT_MESSAGE` 就是这句话——密钥只在当前 App 主进程内存里，退出 App 即清除。（设置本身落在 `<agentDir>/pipiui-settings.json` 的 `extensions.rerank.settings`，而 secret 只回存在性。）面板里写明了这一点，免得被当成「存不上」。
+**key 持久化**：`secret-vault.ts` 用 AES-256-GCM 把 vault 写入 App profile 的 `secret-vault.json`，随机密钥保存在权限为 0600 的 `secret-vault.key`；文件里不出现明文 key。App 重启后会解密加载，旧的内存缓存只作为当前进程缓存。设置本身仍落在 `<agentDir>/pipiui-settings.json` 的 `extensions.rerank.settings`，secret 只回存在性。
 
 **key 只在提交时写**：宿主有一道 `MIN_SECRET_LEN = 8` 的闸（`index.ts:8625`），逐字符写会把半截密钥送进去并被拒；面板改为**失焦或回车才提交**，并且只让最新一次写入的结果点亮错误横幅（旧回复乱序落回会把失败钉在已写成功的值上），错误横幅直接显示宿主的 code 与原文。
 

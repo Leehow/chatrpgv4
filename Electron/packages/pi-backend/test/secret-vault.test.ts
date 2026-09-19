@@ -56,18 +56,28 @@ describe("secret vault", () => {
     return dir;
   }
 
-  it("puts into process memory without writing vault files or needing a DEK", async () => {
+  it("persists secrets in an encrypted vault and never writes plaintext", async () => {
     const dir = await tmp();
     const leftover = join(dir, "secret-vault.json");
     writeFileSync(leftover, "{\"version\":1,\"secrets\":[]}");
     await putSecret(dir, { name: "openai", envName: "OPENAI_API_KEY", value: "sk-live-supersecret" });
-    expect(existsSync(join(dir, "secret-vault.key"))).toBe(false);
-    expect(existsSync(join(dir, "secret-vault-dek.sealed"))).toBe(false);
-    expect(readFileSync(leftover, "utf8")).toBe("{\"version\":1,\"secrets\":[]}");
+    const { key } = vaultPaths(dir);
+    expect(existsSync(key)).toBe(true);
+    expect(readFileSync(leftover, "utf8")).not.toContain("sk-live-supersecret");
+    expect(readFileSync(leftover, "utf8")).not.toContain("OPENAI_API_KEY");
     expect(listSecretMeta(dir)).toEqual([expect.objectContaining({ name: "openai", envName: "OPENAI_API_KEY" })]);
     await mountSecret(dir, "s1", "openai");
     expect(revealMountedSecrets(dir, "s1")[0]?.value).toBe("sk-live-supersecret");
     expect(JSON.stringify(listSecretMeta(dir))).not.toContain("sk-live-supersecret");
+  });
+
+  it("reloads the encrypted vault after the in-memory process cache is cleared", async () => {
+    const dir = await tmp();
+    await putSecret(dir, { name: "persisted", envName: "PERSISTED_TOKEN", value: "persisted-secret-value" });
+    await mountSecret(dir, "session-1", "persisted");
+    resetInMemoryVault(dir);
+    expect(listSecretMeta(dir)).toEqual([expect.objectContaining({ name: "persisted", envName: "PERSISTED_TOKEN" })]);
+    expect(revealMountedSecrets(dir, "session-1")[0]?.value).toBe("persisted-secret-value");
   });
 
   it("mounts per session and injects only that session's worker env", async () => {
@@ -310,15 +320,16 @@ describe("secret vault", () => {
     expect(rewrites).toBe(0);
   });
 
-  it("never writes vault files even when leftover ciphertext already exists", async () => {
+  it("replaces a stale non-vault file with encrypted vault data on the next write", async () => {
     const dir = await tmp();
     const { file, key } = vaultPaths(dir);
     writeFileSync(file, "old-ciphertext");
     await putSecret(dir, { name: "perm", envName: "PERM_TOKEN", value: "abcdefghijkl" });
-    expect(readFileSync(file, "utf8")).toBe("old-ciphertext");
-    expect(existsSync(key)).toBe(false);
+    expect(readFileSync(file, "utf8")).not.toBe("old-ciphertext");
+    expect(readFileSync(file, "utf8")).not.toContain("abcdefghijkl");
+    expect(existsSync(key)).toBe(true);
     expect(memoryVaultDiagnosis().available).toBe(true);
-    expect(memoryVaultDiagnosis().message).toContain("仅保存在当前 App 主进程内存");
+    expect(memoryVaultDiagnosis().message).toContain("加密 vault");
   });
 
   it("does not rewrite when the session writer stop is not confirmed", async () => {

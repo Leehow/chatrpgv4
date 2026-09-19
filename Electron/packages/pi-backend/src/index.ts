@@ -8649,7 +8649,9 @@ export class PiHostBackend implements HostBackend {
       const existing = await readProjectExtensionSettingsValues(projectPiAgentDir(root), id, secretKeys);
       const next = { ...existing, ...validated.values };
       await writeProjectExtensionSettingsValues(projectPiAgentDir(root), id, next, manifest?.settingsVersion);
-      this.notifyExtensionSettingsChanged(id, next);      return { ok: true, data: next };
+      this.notifyExtensionSettingsChanged(id, next);
+      if (Object.keys(validated.secrets).length > 0 || validated.cleared.length > 0) this.requestExtensionSecretHotRestart(id);
+      return { ok: true, data: next };
     }
     if (Object.keys(validated.secrets).length > 0) {
       try {
@@ -8673,6 +8675,7 @@ export class PiHostBackend implements HostBackend {
       return merged;
     });
     this.notifyExtensionSettingsChanged(id, next);
+    if (Object.keys(validated.secrets).length > 0 || validated.cleared.length > 0) this.requestExtensionSecretHotRestart(id);
     return { ok: true, data: next };
   }
   private async migrateLoadedExtensions(projectRoot?: string): Promise<void> {
@@ -9126,6 +9129,19 @@ export class PiHostBackend implements HostBackend {
       if (!this.liveProcessUsable(live) || !live.process?.stdin) continue;
       if (!this.extensions.isMounted(sessionId, id)) continue;
       void this.enqueueExtInvoke(sessionId, id, EXT_SETTINGS_CHANGED_METHOD, { settings }).catch(() => undefined);
+    }
+  }
+
+  /**
+   * Secret settings are not included in `ext.settings_changed` for redaction and IPC safety.
+   * A live child therefore needs the same graceful idle restart used by extension availability
+   * changes; the next send respawns it with the newly persisted vault value. Busy turns defer the
+   * restart until their normal idle boundary, never cutting a player's turn in half.
+   */
+  private requestExtensionSecretHotRestart(id: string): void {
+    for (const [sessionId, live] of this.live) {
+      if (!live.mountedExtensionIds?.has(id) || this.sidebarArchivedCache.has(sessionId)) continue;
+      this.requestExtensionHotRestart(sessionId, "state");
     }
   }
   /**

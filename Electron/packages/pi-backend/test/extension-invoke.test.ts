@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { createPiHostBackend } from "../src/index.js";
 import { extensionSettingsEnvName } from "../src/spawn-assembly.js";
+import { listSecretMeta } from "../src/secret-vault.js";
 
 let root = "";
 afterEach(async () => {
@@ -32,7 +33,10 @@ function invokeAgentManifest(overrides: Record<string, unknown> = {}) {
         scope: "app",
         schema: {
           type: "object",
-          properties: { "ext.invoke-agent.flag": { type: "boolean" } },
+          properties: {
+            "ext.invoke-agent.flag": { type: "boolean" },
+            "ext.invoke-agent.token": { type: "string", format: "secret" },
+          },
         },
       },
     },
@@ -58,7 +62,7 @@ function backendFor(dirs: {
   runtime: string;
   env?: Record<string, string>;
   timeoutMs?: number;
-  capture?: { args?: string[]; env?: NodeJS.ProcessEnv };
+  capture?: { args?: string[]; env?: NodeJS.ProcessEnv; spawnCount?: number };
 }) {
   return createPiHostBackend({
     agentDir: dirs.agent,
@@ -71,6 +75,7 @@ function backendFor(dirs: {
       if (dirs.capture && argv.includes("--mode") && argv.includes("rpc") && !argv.includes("--no-session")) {
         dirs.capture.args = argv;
         dirs.capture.env = options.env;
+        dirs.capture.spawnCount = (dirs.capture.spawnCount ?? 0) + 1;
       }
       return spawn(process.execPath, [fakePi], {
         ...options,
@@ -206,10 +211,24 @@ describe("invokeExtension and spawn settings snapshot", () => {
       if (settingsText.includes("pipiui.settings_changed")) break;
       await new Promise((r) => setTimeout(r, 20));
     }
-    // Delivered over the ext-invoke channel: pi has no stdin command for this.
+    // Non-secret settings still travel over the ext-invoke channel: pi has no stdin command for this.
     expect(settingsText).toContain("pipiui.settings_changed");
     expect(settingsText).toContain("invoke-agent");
     expect(settingsText).toContain("ext.invoke-agent.flag");
+
+    // A secret-setting change is different: its value cannot ride that snapshot. The host marks the
+    // mounted child for a graceful hot restart; the next send gets a fresh spawn environment.
+    await backend.handle("updateExtensionSettings" as never, [
+      "invoke-agent",
+      { "ext.invoke-agent.token": "secret-token-value" },
+    ]);
+    expect(listSecretMeta(agent)).toEqual(expect.arrayContaining([expect.objectContaining({ name: "ext.invoke-agent.token" })]));
+    await backend.handle("sendPrompt", ["session-1", "after-secret-change"]);
+    const restartedUntil = Date.now() + 1000;
+    while ((capture.spawnCount ?? 0) < 2 && Date.now() < restartedUntil) await new Promise((r) => setTimeout(r, 20));
+    expect(capture.spawnCount).toBeGreaterThanOrEqual(2);
+    expect(capture.env?.EXT_INVOKE_AGENT_TOKEN).toBe("secret-token-value");
+
     await backend.close();
   });
 });

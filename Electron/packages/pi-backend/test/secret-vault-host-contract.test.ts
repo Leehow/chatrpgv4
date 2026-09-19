@@ -70,13 +70,13 @@ describe("secret vault host/spawn contract", () => {
     return { hostProfile, project, captured };
   }
 
-  it("puts without OS encryption, lists metadata, writes no vault file, and hides DEK from workers", async () => {
+  it("persists encrypted metadata, lists it, and hides plaintext/keys from workers", async () => {
     const { hostProfile, project, captured } = await fixture();
     const leftover = join(hostProfile, "secret-vault.json");
     await writeFile(leftover, "{\"version\":1,\"secrets\":[]}");
     const diagnosis = await backend!.handle("diagnoseSecretVault", []);
     expect(diagnosis).toMatchObject({ available: true, kind: "available" });
-    expect(JSON.stringify(diagnosis)).toContain("仅保存在当前 App 主进程内存");
+    expect(JSON.stringify(diagnosis)).toContain("加密 vault");
 
     const put = await backend!.handle("putSecretVault", [{
       name: "demo",
@@ -97,8 +97,8 @@ describe("secret vault host/spawn contract", () => {
     expect(JSON.stringify(listed)).not.toContain(FAKE_VALUE);
     expect(listSecretMeta(hostProfile).map((item) => item.envName)).toEqual(["DEMO_TOKEN"]);
     expect(existsSync(leftover)).toBe(true);
-    expect(await (await import("node:fs/promises")).readFile(leftover, "utf8")).toBe("{\"version\":1,\"secrets\":[]}");
-    expect(existsSync(join(hostProfile, "secret-vault-dek.sealed"))).toBe(false);
+    expect(await (await import("node:fs/promises")).readFile(leftover, "utf8")).not.toContain(FAKE_VALUE);
+    expect(existsSync(join(hostProfile, "secret-vault.key"))).toBe(true);
     expect(existsSync(join(projectPiAgentDir(project), "secret-vault.json"))).toBe(false);
     expect(existsSync(join(project, "secret-vault.json"))).toBe(false);
 
@@ -115,7 +115,7 @@ describe("secret vault host/spawn contract", () => {
     expect(worker.PIPIUI_SECRET_VAULT_DEK).toBeUndefined();
   });
 
-  it("lets host put/list the same in-memory vault when no safeStorage provider exists", async () => {
+  it("lets host put/list the same persisted vault when no OS keychain provider exists", async () => {
     const { hostProfile, project } = await fixture();
     await backend!.handle("getSessionLease", ["session-1"]);
     const put = await backend!.handle("putSecretVault", [{
@@ -132,7 +132,8 @@ describe("secret vault host/spawn contract", () => {
     expect(listed.secrets).toEqual([expect.objectContaining({ envName: "HOST_TOKEN" })]);
     expect(listed.mounts).toEqual([expect.objectContaining({ envName: "HOST_TOKEN" })]);
     expect(JSON.stringify(listed)).not.toContain(FAKE_VALUE);
-    expect(existsSync(join(hostProfile, "secret-vault.json"))).toBe(false);
+    expect(existsSync(join(hostProfile, "secret-vault.json"))).toBe(true);
+    expect(existsSync(join(hostProfile, "secret-vault.key"))).toBe(true);
     expect(existsSync(join(projectPiAgentDir(project), "secret-vault.json"))).toBe(false);
   });
 

@@ -103,7 +103,8 @@ describe("pipiui secret vault tools", () => {
     expect(put.ok).toBe(true);
     expect(JSON.stringify(put)).not.toContain("ghp_toolsecret99");
     expect(listSecretMeta(root)).toEqual([expect.objectContaining({ name: "gh", envName: "GH_TOKEN" })]);
-    expect(existsSync(join(root, "secret-vault.json"))).toBe(false);
+    expect(existsSync(join(root, "secret-vault.json"))).toBe(true);
+    expect(existsSync(join(root, "secret-vault.key"))).toBe(true);
     const listed = parse(await tools.secret_vault_list!.execute("2", {}, undefined, undefined, ctx));
     expect(listed.secrets).toEqual([expect.objectContaining({ name: "gh", envName: "GH_TOKEN" })]);
     expect(listed.mounts).toEqual([expect.objectContaining({ envName: "GH_TOKEN" })]);

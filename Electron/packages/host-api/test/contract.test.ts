@@ -1146,7 +1146,7 @@ describe('secret vault host contract', () => {
             result: {
               available: true,
               kind: 'available',
-              message: '密钥仅保存在当前 App 主进程内存中，退出 App 后清除。',
+              message: '密钥保存在 App profile 的加密 vault 中，并在会话启动或设置变化后注入 agent；密钥文件本身不会落明文。',
               retryable: false,
               platform: 'linux',
             },
