@@ -6,6 +6,8 @@ Keeper's `apply dossier` kept out of a `shape: "lines"` word. Through the RPC se
 import json
 import shutil
 
+import pytest
+
 from conftest import (CAMPAIGN, PREGEN, WORKTREE, campaign_dir, create_campaign, narrate, narrate_opening, open_turn,
                       read_json, read_jsonl)
 
@@ -91,14 +93,16 @@ def test_nobody_needs_a_voice_while_the_package_is_off(kernel):
 def test_the_packet_is_closed_and_names_the_person_by_handle(kernel):
     on(kernel)
     packet = job(kernel)
-    assert packet["job_id"] == f"voice:{CAMPAIGN}:{packet['npc']['handle']}"
-    assert set(packet) == {"job_id", "play_language", "module", "coarse_language", "npc", "documents", "taken_masks", "said", "budget", "instruction", "investigator"}
+    lock = read_json(campaign_dir(kernel.workspace) / "world.json")["mods"]["active"][MOD]
+    assert packet["generation"] == {key: lock[key] for key in ("version", "digest", "state_version")}
+    assert packet["job_id"] == f"voice:{CAMPAIGN}:{packet['npc']['handle']}@{lock['digest']}"
+    assert set(packet) == {"job_id", "generation", "play_language", "module", "coarse_language", "npc", "documents", "taken_masks", "said", "budget", "instruction", "investigator"}
     assert packet["said"] == []
     assert packet["play_language"] == "zh-Hans" and packet["coarse_language"] is True
     assert packet["budget"] == {"mask_chars": 200, "exchanges": 3, "max_chars": 200}
     assert packet["taken_masks"] == []
     assert packet["npc"]["name"] and KNOTT_ID not in json.dumps(packet)
-    assert "two mouths" in packet["instruction"] and "taken_masks" in packet["instruction"]
+    assert "taken_masks" in packet["instruction"]
     # The setting rides in the packet: turned off, the lane is told so.
     settle(kernel)
     configure(kernel, settings={"coarse_language": False})
@@ -164,7 +168,11 @@ def test_the_write_lands_in_the_package_namespace_and_reaches_the_capsule_as_voi
     knott = next(p for p in turn["present"] if p["name"] == KNOTT)
     assert "mask" not in knott and "in exchange" not in knott
     assert turn["voices"] == [{"name": KNOTT, "mask": VOICE["mask"], "in exchange": VOICE["exchanges"]}]
-    assert "voices" in turn["head"] and "never read an exchange out" in turn["head"]
+    # §40.8: the head names the flexible register, answers-first, exchanges as reference.
+    assert "voices" in turn["head"] and "flexible register" in turn["head"]
+    assert "Answer the player's words first" in turn["head"] and "Exchanges are reference" in turn["head"]
+    assert "never lines to read out or slogans to repeat" in turn["head"]
+    assert "Wear the mask on every line" not in turn["head"]
     # ... and only while the package is on.
     narrate(kernel, "t2-c1", "诺特点了点头。")
     configure(kernel, enabled=False)
@@ -273,3 +281,165 @@ def test_the_packet_carries_the_lines_this_person_already_said(kernel):
     packet = job(kernel)
     assert packet["said"] == ["「钥匙在这儿，拿去就是。」"]
     assert "said" in packet["instruction"]
+    assert packet["generation"]["state_version"] == 2
+    assert "investigator" in packet
+
+
+def installed_voice(kernel, tmp_path, version, state_version):
+    path = tmp_path / version
+    shutil.copytree(WORKTREE / "mods" / MOD, path)
+    manifest = read_json(path / "mod.json")
+    manifest.update(version=version, state_version=state_version)
+    if state_version == 1:
+        manifest.pop("migrations", None)
+    (path / "mod.json").write_text(json.dumps(manifest), encoding="utf-8")
+    kernel.ok("mods.install", {"path": str(path)})
+
+
+def legacy_campaign(kernel, tmp_path):
+    installed_voice(kernel, tmp_path, "1.1.2", 1)
+    create_campaign(kernel)
+    narrate_opening(kernel)
+    # Model a save with no enrollment, then use the real activation path for its old lock.
+    path = campaign_dir(kernel.workspace) / "world.json"
+    world = read_json(path)
+    world["mods"]["active"].pop(MOD, None)
+    world["mods"]["state"].pop(MOD, None)
+    path.write_text(json.dumps(world), encoding="utf-8")
+    assert job(kernel) == {"job_id": None}, "a missing lock must not auto-enroll"
+    configure(kernel, version="1.1.2")
+    return campaign_dir(kernel.workspace)
+
+
+def job_file(root, packet):
+    generation = packet.get("generation")
+    folder = root / "npc-voice" / "jobs"
+    if generation:
+        folder = folder / "v2" / generation["digest"]
+    return folder / f"{packet['npc']['handle']}.json"
+
+
+def test_explicit_upgrade_archives_cards_and_preserves_jobs_and_turns(kernel, tmp_path):
+    root = legacy_campaign(kernel, tmp_path)
+    old = job(kernel)
+    assert old["job_id"] == f"voice:{CAMPAIGN}:{KNOTT_HANDLE}"
+    assert "generation" not in old
+    submit(kernel, old["job_id"], VOICE)
+    assert submit(kernel, old["job_id"], VOICE)["replayed"] is True
+    old_bytes = job_file(root, old).read_bytes()
+    old_dossier = read_json(root / "world.json")["mods"]["state"][MOD]["dossier"]
+    turns = {path: path.read_bytes() for path in (root / "turns").rglob("*") if path.is_file()}
+    assert turns, "retention must check actual historical files"
+    configure(kernel)
+    state = read_json(root / "world.json")["mods"]["state"][MOD]
+    assert state["legacy_voice_dossier"] == old_dossier
+    assert state["dossier"] == {}
+    new = job(kernel)
+    assert new["npc"]["handle"] == KNOTT_HANDLE, "old done must not suppress regeneration"
+    assert new["job_id"] != old["job_id"]
+    assert read_json(job_file(root, new))["generation"] == new["generation"]
+    assert submit_err(kernel, old["job_id"], VOICE)["code"] == "invalid_params"
+    kernel.err("voice.fail", {"campaign": CAMPAIGN, "job_id": old["job_id"], "reason": "model_error"})
+    submit(kernel, new["job_id"], VOICE)
+    assert submit(kernel, new["job_id"], VOICE)["replayed"] is True
+    assert job_file(root, old).read_bytes() == old_bytes
+    assert all(path.read_bytes() == data for path, data in turns.items())
+    assert read_json(root / "world.json")["mods"]["state"][MOD]["legacy_voice_dossier"] == old_dossier
+
+
+def test_upgrade_stays_pending_and_preserves_explicit_disable(kernel, tmp_path):
+    root = legacy_campaign(kernel, tmp_path)
+    configure(kernel, version="1.1.2", enabled=False)
+    kernel.table("player_input", text="I look around.")
+    kernel.ok("mods.configure", {"campaign": CAMPAIGN, "id": MOD, "version": VERSION})
+    world = read_json(root / "world.json")
+    assert world["mods"]["active"][MOD]["version"] == "1.1.2"
+    assert world["mods"]["pending"][MOD]["enabled"] is False
+    assert job(kernel) == {"job_id": None}
+    settle(kernel)
+    kernel.table("player_input", text="I wait.")
+    lock = read_json(root / "world.json")["mods"]["active"][MOD]
+    assert lock["state_version"] == 2 and lock["enabled"] is False
+    assert job(kernel) == {"job_id": None}
+
+
+def test_current_generation_is_unique_and_stale_submit_and_fail_are_read_only(kernel, tmp_path):
+    create_campaign(kernel)
+    narrate_opening(kernel)
+    root = campaign_dir(kernel.workspace)
+    old = job(kernel)
+    installed_voice(kernel, tmp_path, "1.2.1", 2)
+    configure(kernel, version="1.2.1")
+    current = job(kernel)
+    assert current["job_id"] != old["job_id"]
+    assert current["generation"]["digest"] != old["generation"]["digest"]
+    before = {path: path.read_bytes() for path in [root / "world.json", job_file(root, old), job_file(root, current)]}
+    assert submit_err(kernel, old["job_id"], VOICE)["code"] == "invalid_params"
+    kernel.err("voice.fail", {"campaign": CAMPAIGN, "job_id": old["job_id"], "reason": "model_error"})
+    assert all(path.read_bytes() == data for path, data in before.items())
+    submit(kernel, current["job_id"], VOICE)
+    assert submit(kernel, current["job_id"], VOICE)["replayed"] is True
+    configure(kernel, version="1.2.1", enabled=False)
+    assert submit_err(kernel, current["job_id"], VOICE)["code"] == "invalid_params"
+
+
+@pytest.mark.parametrize("location", ["job", "packet"])
+@pytest.mark.parametrize("field,value", [("version", "9.9.9"), ("state_version", 1), ("state_version", "2"), ("digest", "0" * 64)])
+def test_submit_checks_all_generation_fields_before_any_write(kernel, location, field, value):
+    on(kernel)
+    packet = job(kernel)
+    root = campaign_dir(kernel.workspace)
+    path = job_file(root, packet)
+    stored = read_json(path)
+    (stored if location == "job" else stored["packet"])["generation"][field] = value
+    path.write_text(json.dumps(stored), encoding="utf-8")
+    before = path.read_bytes(), (root / "world.json").read_bytes()
+    assert submit_err(kernel, packet["job_id"], VOICE)["code"] == "invalid_params"
+    assert (path.read_bytes(), (root / "world.json").read_bytes()) == before
+
+
+def test_old_inflight_result_cannot_write_after_pending_upgrade_applies(kernel, tmp_path):
+    root = legacy_campaign(kernel, tmp_path)
+    old = job(kernel)
+    kernel.table("player_input", text="I wait.")
+    configure(kernel)
+    assert job(kernel)["job_id"] == old["job_id"], "pending is not active"
+    settle(kernel)
+    kernel.table("player_input", text="I look around.")
+    current = job(kernel)
+    assert current["job_id"] != old["job_id"]
+    paths = [root / "world.json", job_file(root, old), job_file(root, current)]
+    before = [path.read_bytes() for path in paths]
+    assert submit_err(kernel, old["job_id"], VOICE)["code"] == "invalid_params"
+    kernel.err("voice.fail", {"campaign": CAMPAIGN, "job_id": old["job_id"], "reason": "model_error"})
+    assert [path.read_bytes() for path in paths] == before
+
+
+def test_source_authored_words_survive_real_package_upgrade(kernel, tmp_path):
+    from test_mod_vocabulary import built_module, played, table_npcs
+
+    installed_voice(kernel, tmp_path, "1.1.2", 1)
+    mid, _ = built_module(kernel, tmp_path, {"voice_mask": ["Measured, courteous speech."], "exchanges": ["Good morning. -> Good morning to you."]})
+    campaign = played(kernel, tmp_path, mid)
+    kernel.ok("table.narrate", {"campaign": campaign, "call_id": "t0-c1", "text": "The tenant waits."})
+    root = campaign_dir(kernel.workspace, campaign)
+    world = read_json(root / "world.json")
+    world["mods"]["active"].pop(MOD)
+    (root / "world.json").write_text(json.dumps(world), encoding="utf-8")
+    kernel.ok("mods.configure", {"campaign": campaign, "id": MOD, "version": "1.1.2", "enabled": True})
+    before = table_npcs(kernel, campaign)["Tenant"]
+    module_root = kernel.workspace / ".coc" / "modules" / mid
+    evidence = {path: path.read_bytes() for path in module_root.rglob("*") if path.is_file()}
+    kernel.ok("mods.configure", {"campaign": campaign, "id": MOD, "version": VERSION})
+    after = table_npcs(kernel, campaign)["Tenant"]
+    assert after["mask"] == before["mask"] == ["Measured, courteous speech."]
+    assert after["in exchange"] == before["in exchange"]
+    assert kernel.ok("voice.job", {"campaign": campaign, "backfill": True}) == {"job_id": None}
+    assert all(path.read_bytes() == data for path, data in evidence.items())
+
+
+def test_v2_identity_parser_rejects_invalid_suffixes(kernel):
+    on(kernel)
+    packet = job(kernel)
+    for identity in [packet["job_id"].split("@")[0], packet["job_id"] + "extra", packet["job_id"] + "/../x"]:
+        assert submit_err(kernel, identity, VOICE)["code"] == "invalid_params"

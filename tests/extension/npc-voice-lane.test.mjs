@@ -1,6 +1,6 @@
 /** The real Pi-mounted npc-voice lane against a stubbed kernel and a faux provider, not a playtest. */
 import { strict as assert } from "node:assert";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { setTimeout as settle } from "node:timers/promises";
@@ -41,7 +41,7 @@ function packet(handle) {
 	};
 }
 
-async function openVoice(t, { env = {}, people = [], responses = [], rpc, mode = "play" } = {}) {
+async function openVoice(t, { env = {}, people = [], responses = [], reviews = [], writer, rpc, mode = "play" } = {}) {
 	const workspace = mkdtempSync(join(tmpdir(), "pi-coc-voice-lane-"));
 	const values = {
 		PI_COC_MODE: mode, PI_COC_HOME: workspace, PI_OFFLINE: "1",
@@ -65,7 +65,7 @@ async function openVoice(t, { env = {}, people = [], responses = [], rpc, mode =
 		rmSync(workspace, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
 	});
 	const voice = fauxProvider({ provider: "voice", models: [{ id: "v1" }] });
-	voice.setResponses(responses);
+	voice.setResponses(reviews.length ? reviews : Array(30).fill(null).map(() => verdict(true)));
 	const modelRuntime = await ModelRuntime.create({
 		authPath: join(workspace, "auth.json"), modelsPath: null,
 		modelsStorePath: join(workspace, "models-store.json"), refreshOnCreate: false,
@@ -95,11 +95,24 @@ async function openVoice(t, { env = {}, people = [], responses = [], rpc, mode =
 		if (method === "voice.job") return packet(queue.shift());
 		return {};
 	};
-	api.events.emit("coc:kernel-bridge", { campaign: "camp", call });
+	const tasks = [], pending = [...responses];
+	const runtime = { home: workspace, async runTask(task, signal) {
+		tasks.push(task);
+		const request = task.request;
+		if (writer) return writer(request, signal);
+		const context = { systemPrompt: readFileSync(request.systemPrompt, "utf8"),
+			messages: [{ content: [{ text: readFileSync(join(request.cwd, "packet.json"), "utf8") }] }] };
+		const response = pending.shift();
+		const message = typeof response === "function" ? await response(context) : response;
+		writeFileSync(request.eventLog, JSON.stringify({ type: "agent_end" }) + "\n");
+		if (message) writeFileSync(join(request.cwd, "draft.json"), message.content.map(block => block.text ?? "").join(""));
+		return { ok: true, code: 0, timedOut: false, ms: 1, stderr: "", command: [] };
+	} };
+	api.events.emit("coc:kernel-bridge", { campaign: "camp", call, runtime });
 	await session.bindExtensions({ mode: "print", onError: error => errors.push(error) });
 	t.after(() => assert.deepEqual(errors, [], "Pi must not swallow an extension lifecycle error"));
 	return {
-		voice, queue,
+		voice, queue, tasks,
 		commit: turn => api.events.emit("coc:turn-committed", { campaign: "camp", turn }),
 		hook: type => session._extensionRunner.emit({ type, reason: "quit" }),
 		calls: method => requests.filter(row => row.method === method),
@@ -134,11 +147,16 @@ test("a committed turn drains the queue, one job per person, on a closed packet 
 		{ campaign: "camp", job_id: "voice:camp:dooley", voice: { mask: "自称俺，句尾带「呗」。", exchanges: ["随便看看。", "跟你没关系！", "走了。"] } },
 	]);
 	assert.equal(table.calls("voice.fail").length, 0);
-	assert.equal(seen.tools, undefined, "the voice lane is a zero-tool subsession");
+	assert.equal(table.tasks[0].kind, "mod");
+	assert.equal(table.tasks[0].request.tools, "read,write,edit,bash");
+	assert.equal(table.tasks[0].request.priority, "background");
+	assert.ok(existsSync(join(table.tasks[0].request.cwd, "draft.json")));
+	assert.ok(existsSync(table.tasks[0].request.eventLog));
 	assert.match(seen.systemPrompt, /a mask of one line, then three exchanges/);
 	assert.match(seen.systemPrompt, /mask is one line of 1 to 200 characters/);
 	assert.match(seen.systemPrompt, /exchanges is exactly 3 strings/);
-	assert.match(inputText(seen), /\[Masks other people here already wear\]\n- 自称鄙人，句尾带「这个嘛」。/);
+	assert.match(inputText(seen), /Masks other people here already wear/);
+	assert.match(inputText(seen), /自称鄙人，句尾带「这个嘛」。/);
 	assert.match(inputText(seen), /\[Person\] Steven Knott/);
 	assert.match(inputText(seen), /\[Hides\] he knows what walks under the house/);
 	assert.match(inputText(seen), /\[Coarse language\] on/);
@@ -228,12 +246,12 @@ test("a person is tried at most twice in a session, and the re-offered job ends 
 	table.commit(1);
 	await completed(table);
 	assert.equal(table.calls("voice.fail").length, 1);
-	const modelCalls = table.rows("lane-call").filter(row => row.phase === "start").length;
+	const modelCalls = table.tasks.length;
 	assert.equal(modelCalls, 2, "two attempts is one retry");
 	table.commit(2);
 	await completed(table, 2);
 	await settle(40);
-	assert.equal(table.rows("lane-call").filter(row => row.phase === "start").length, 2, "the retired person costs no further model call");
+	assert.equal(table.tasks.length, 2, "the retired person costs no further model call");
 	assert.equal(table.calls("voice.submit").length, 0);
 	assert.equal(table.calls("voice.fail").length, 1, "a person already failed is not failed twice");
 	assert.deepEqual(table.rows()[1].skipped, "retry_budget");
@@ -285,11 +303,14 @@ test("setup mode registers no voice lane at all", async (t) => {
 });
 
 
-/** A packet carrying the book's `voice`, which is what wakes the guard; the default packet carries none so the other tests stay one call per person. */
+/** Review also runs without a source voice; this packet checks source authority. */
 const voiced = (method, params, queue) => method === "voice.job" ? (() => { const p = packet(queue.shift()); return p.npc ? { ...p, npc: { ...p.npc, voice: "clipped, defensive" } } : p; })() : undefined;
 
-test("a person the book says does not speak is filed as silent, with no lines and no judge", async (t) => {
-	const table = await openVoice(t, { people: ["steven-knott"], responses: [silence()] });
+test("a person the book says does not speak is filed as silent only after affirmative review", async (t) => {
+	let judged;
+	const table = await openVoice(t, { people: ["steven-knott"], responses: [silence()],
+		reviews: [context => { judged = context; return verdict(true, "The source explicitly says they do not speak"); }],
+		rpc: (method, _params, queue) => method === "voice.job" && queue.length ? { ...packet(queue.shift()), npc: { voice: "Does not speak; communicates through knocks." } } : undefined });
 	table.commit(1);
 	await completed(table);
 	assert.deepEqual(table.calls("voice.submit").map(row => row.params), [
@@ -297,27 +318,183 @@ test("a person the book says does not speak is filed as silent, with no lines an
 	]);
 	assert.equal(table.calls("voice.fail").length, 0);
 	assert.equal(table.rows()[0].ok, true);
+	assert.equal(table.rows()[0].voice_check, "passed");
+	assert.match(inputText(judged), /Does not speak; communicates through knocks/);
+	assert.match(inputText(judged), /"voice":null/);
+	assert.match(judged.systemPrompt, /explicitly says.*does not speak/);
+});
+
+for (const unavailable of [false, true]) {
+	test(`a silent candidate with ${unavailable ? "unavailable" : "negative"} review is not submitted`, async t => {
+		let reviews = 0;
+		const table = await openVoice(t, { people: ["dooley"], responses: Array.from({ length: 4 }, silence),
+			rpc: (method, _params, queue) => {
+				if (method !== "voice.job" || !queue.length) return undefined;
+				const p = packet(queue.shift());
+				return { ...p, npc: { ...p.npc, voice: "soft-spoken" } };
+			},
+			reviews: Array(4).fill(context => {
+				reviews++;
+				assert.match(inputText(context), /soft-spoken/);
+				assert.match(inputText(context), /"voice":null/);
+				if (unavailable) throw new Error("review offline");
+				return verdict(false, "Soft-spoken is not an explicit statement that this person does not speak");
+			}),
+		});
+		table.commit(1);
+		await completed(table);
+		assert.equal(reviews, unavailable ? 2 : 4);
+		assert.equal(table.calls("voice.submit").length, 0);
+		assert.equal(table.calls("voice.fail").length, 1);
+	});
+}
+
+test("a repair that switches to silence still needs affirmative semantic review", async t => {
+	let reviews = 0;
+	const table = await openVoice(t, { people: ["dooley"], rpc: voiced,
+		responses: [answer("a", "b", "c"), silence(), answer("a", "b", "c"), silence()],
+		reviews: Array(4).fill(context => {
+			reviews++;
+			if (reviews % 2 === 0) assert.match(inputText(context), /"voice":null/);
+			return verdict(false, "The source does not support this candidate");
+		}),
+	});
+	table.commit(1);
+	await completed(table);
+	assert.equal(reviews, 4);
+	assert.equal(table.calls("voice.submit").length, 0);
+	assert.equal(table.calls("voice.fail").length, 1);
+});
+
+test("an unsupported silent candidate can be repaired to reviewed speech", async t => {
+	let repaired;
+	const table = await openVoice(t, { people: ["dooley"], rpc: voiced,
+		responses: [silence(), context => { repaired = inputText(context); return answer("a", "b", "c"); }],
+		reviews: [verdict(false, "The source describes speaking, not silence"), verdict(true)],
+	});
+	table.commit(1);
+	await completed(table);
+	assert.match(repaired, /Candidate to repair/);
+	assert.match(repaired, /does_not_speak/);
+	assert.equal(table.calls("voice.submit").length, 1);
+	assert.deepEqual(table.calls("voice.submit")[0].params.voice.exchanges, ["a", "b", "c"]);
+	assert.equal(table.rows()[0].voice_check, "repaired_passed");
 });
 
 test("the voice guard reads the lines against the book's voice and bounces them once", async (t) => {
 	let judge;
 	const table = await openVoice(t, {
 		people: ["steven-knott"], rpc: voiced,
-		responses: [answer("没什么好说的。", "雨呗。", "滚！！"), context => { judge = context; return verdict(false, "a clipped man does not scream"); }, answer("没什么好说的。", "雨呗。", "……你问这个做什么。")],
+		responses: [answer("没什么好说的。", "雨呗。", "滚！！"), answer("没什么好说的。", "雨呗。", "……你问这个做什么。")],
+		reviews: [context => { judge = context; return verdict(false, "a clipped man does not scream"); }, verdict(true)],
 	});
 	table.commit(1);
 	await completed(table);
-	assert.match(judge.systemPrompt, /register only/);
-	assert.match(judge.systemPrompt, /wear the mask/);
+	assert.match(judge.systemPrompt, /natural connected speech/);
+	assert.match(judge.systemPrompt, /listener/);
 	assert.match(inputText(judge), /\[Voice the book gives them\] clipped, defensive/);
 	assert.match(inputText(judge), /\[Mask\] 自称俺，句尾带「呗」。/);
 	assert.match(inputText(judge), /3\. 滚！！/);
 	assert.deepEqual(table.calls("voice.submit").map(row => row.params.voice.exchanges), [["没什么好说的。", "雨呗。", "……你问这个做什么。"]]);
-	assert.equal(table.rows().find(row => row.npc)?.voice_check, "rewritten");
+	assert.equal(table.rows().find(row => row.npc)?.voice_check, "repaired_passed");
+});
+
+for (const [label, review] of [
+	["negative", () => verdict(false, "repeats the same agenda")],
+	["malformed", () => fauxAssistantMessage('{"honours":true}')],
+	["unavailable", () => { throw new Error("review offline"); }],
+]) {
+	test(`a ${label} review without source voice cannot publish, including after repair`, async t => {
+		const table = await openVoice(t, { people: ["dooley"],
+			responses: Array(4).fill(null).map(() => answer("a", "b", "c")),
+			reviews: Array(4).fill(review) });
+		table.commit(1);
+		await completed(table);
+		assert.equal(table.calls("voice.submit").length, 0);
+		assert.equal(table.calls("voice.fail").length, 1);
+		assert.equal(table.tasks.length, label === "negative" ? 4 : 2);
+	});
+}
+
+test("said and listener reach writer and every review; version-2 job IDs stay opaque", async t => {
+	let written, judged;
+	const table = await openVoice(t, { people: ["dooley"],
+		responses: [context => { written = inputText(context); return answer("a", "b", "c"); }],
+		reviews: [context => { judged = inputText(context); return verdict(true); }],
+		rpc: (method, _params, queue) => method === "voice.job" && queue.length ? {
+			...packet(queue.shift()), job_id: "voice:camp:dooley@digest", said: ["Please do not repeat this."],
+			generation: { version: "1.2.0", digest: "digest", state_version: 2 },
+		} : undefined });
+	table.commit(1);
+	await completed(table);
+	for (const input of [written, judged]) {
+		assert.match(input, /Please do not repeat this/);
+		assert.match(input, /薇姐/);
+		assert.ok(!input.includes("voice:camp:"));
+	}
+	assert.equal(table.rows()[0].npc, "dooley");
+	assert.equal(table.calls("voice.submit")[0].params.job_id, "voice:camp:dooley@digest");
+});
+
+test("a new package generation does not inherit a retired job's retry budget", async t => {
+	let generation = "old", submitted = false;
+	const table = await openVoice(t, {
+		responses: [fauxAssistantMessage("bad"), fauxAssistantMessage("bad"), answer("a", "b", "c")],
+		rpc: (method) => {
+			if (method === "voice.submit") submitted = true;
+			if (method === "voice.job") return submitted ? { job_id: null } : { ...packet("dooley"), job_id: `voice:camp:dooley@${generation}` };
+		},
+	});
+	table.commit(1);
+	await completed(table);
+	assert.equal(table.calls("voice.fail").length, 1);
+	generation = "new";
+	table.commit(2);
+	await waitFor(() => table.calls("voice.submit").length === 1, { label: "new generation submitted" });
+	assert.equal(table.calls("voice.submit")[0].params.job_id, "voice:camp:dooley@new");
+});
+
+test("silence without any source voice evidence is reviewed but not filed", async t => {
+	let reviews = 0;
+	const table = await openVoice(t, { people: ["dooley"], responses: Array.from({ length: 4 }, silence),
+		reviews: Array(4).fill(() => { reviews++; return verdict(false, "No source evidence of silence"); }) });
+	table.commit(1);
+	await completed(table);
+	assert.equal(reviews, 4);
+	assert.equal(table.calls("voice.submit").length, 0);
+	assert.equal(table.calls("voice.fail").length, 1);
+});
+
+test("a successful child with no artifact never publishes closing prose", async t => {
+	const table = await openVoice(t, { people: ["dooley"], writer: async request => {
+		writeFileSync(request.eventLog, JSON.stringify({ text: JSON.stringify({ voice: voiceOf("a", "b", "c") }) }));
+		return { ok: true, code: 0, timedOut: false, ms: 1, stderr: "", command: [] };
+	} });
+	table.commit(1);
+	await completed(table);
+	assert.equal(table.calls("voice.submit").length, 0);
+	assert.equal(table.calls("voice.fail").length, 1);
+});
+
+test("shutdown cancels the writer and cannot publish its late draft", async t => {
+	let release;
+	const table = await openVoice(t, { people: ["dooley"], writer: async (request, signal) => {
+		await new Promise(resolve => { release = resolve; });
+		assert.equal(signal.aborted, true);
+		writeFileSync(join(request.cwd, "draft.json"), JSON.stringify({ voice: voiceOf("a", "b", "c") }));
+		return { ok: true, code: 0, timedOut: false, ms: 1, stderr: "", command: [] };
+	} });
+	table.commit(1);
+	await waitFor(() => release, { label: "writer started" });
+	await table.hook("session_shutdown");
+	release();
+	await settle(60);
+	assert.equal(table.calls("voice.submit").length, 0);
+	assert.equal(table.calls("voice.fail").length, 0);
 });
 
 test("the voice guard lets honoured lines through unchanged", async (t) => {
-	const table = await openVoice(t, { people: ["dooley"], rpc: voiced, responses: [answer("先买份报。", "下雨了。", "跟你没关系。"), verdict(true)] });
+	const table = await openVoice(t, { people: ["dooley"], rpc: voiced, responses: [answer("先买份报。", "下雨了。", "跟你没关系。")], reviews: [verdict(true)] });
 	table.commit(1);
 	await completed(table);
 	assert.deepEqual(table.calls("voice.submit").map(row => row.params.voice.exchanges), [["先买份报。", "下雨了。", "跟你没关系。"]]);

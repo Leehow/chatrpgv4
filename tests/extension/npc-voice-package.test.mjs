@@ -11,6 +11,7 @@ import {pathToFileURL} from 'node:url';
 import {test} from 'node:test';
 import {build} from 'esbuild';
 import {authored} from '../../pipicoc/mods-panel.js';
+import {runtimeEntrypoints} from '../../runtime/deployment.mjs';
 
 const ROOT = resolve(import.meta.dirname, '../..');
 const PACKAGE = join(ROOT, 'mods/npc-voice');
@@ -20,7 +21,7 @@ async function loader(t) {
   const home = await mkdtemp(join(tmpdir(), 'npc-voice-manifest-'));
   t.after(() => rm(home, {recursive: true, force: true}));
   await build({
-    stdin: {contents: "export {manifestFrom, packageFiles, runtimePackageFiles} from './kernel-ts/read/mods.ts';", resolveDir: ROOT, loader: 'ts'},
+    stdin: {contents: "export {manifestFrom, packageFiles, runtimePackageFiles} from './kernel-ts/read/mods.ts'; export {readerCommand} from './extensions/module/reader.ts';", resolveDir: ROOT, loader: 'ts'},
     outfile: join(home, 'mods.mjs'), bundle: true, packages: 'external', platform: 'node', format: 'esm',
     target: 'node22', logLevel: 'silent',
   });
@@ -37,17 +38,23 @@ test('the shipped npc-voice manifest is what §40.5 describes', async t => {
   const loaded = api.manifestFrom(await api.packageFiles(PACKAGE));
 
   assert.equal(loaded.id, 'npc-voice');
-  assert.equal(loaded.version, '1.1.2');
+  assert.equal(loaded.version, '1.2.0');
+  assert.equal(loaded.state_version, 2);
+  assert.deepEqual(loaded.migrations, [{from: 1, to: 2, operations: [
+    {op: 'rename', from: 'dossier', to: 'legacy_voice_dossier'},
+    {op: 'default', key: 'dossier', value: {}},
+  ]}]);
   assert.equal(loaded.game_api, 'pipicoc.game.v1');
   assert.equal(loaded.default_enabled, true);
-  assert.deepEqual(loaded.requires, ['graph.vocabulary.v1', 'graph.vocabulary.table.v1', 'context.npc.v1', 'mods.package-files.v1']);
+  assert.deepEqual(loaded.requires, ['graph.vocabulary.v1', 'graph.vocabulary.table.v1', 'context.npc.v1', 'mods.package-files.v1', 'npc.voice.generation.v2']);
   assert.deepEqual(loaded.settings, {coarse_language: true});
   assert.equal(loaded.contributes.instructions, 'agent.md');
   assert.equal(loaded.contributes.brief, 'brief.md');
   // §40.7: two lines-shaped words, a mask of one line and three exchanges, in this order.
   const [mask, exchanges] = loaded.contributes.vocabulary.actor_profile_keys;
   assert.deepEqual([mask.key, mask.label, mask.shape], ['voice_mask', 'mask', 'lines']);
-  assert.match(mask.ask, /sentence-ending habit/);
+  assert.match(mask.ask, /flexible habits/);
+  assert.match(mask.ask, /without requiring a catchphrase/);
   assert.deepEqual([exchanges.key, exchanges.label, exchanges.shape], ['exchanges', 'in exchange', 'lines']);
   assert.match(exchanges.ask, /up to three exchanges/);
 
@@ -70,6 +77,15 @@ test('the shipped npc-voice manifest is what §40.5 describes', async t => {
   assert.ok(files_of(api.runtimePackageFiles(source, loaded)));
 });
 
+test('the reused writer runner has tools but no implicit extensions, context or skills', async t => {
+  const api = await loader(t);
+  const context = { resourceRoot: ROOT, entrypoints: runtimeEntrypoints(ROOT), env: {}, nodeExecutable: process.execPath };
+  const command = api.readerCommand('voice/v1', 'instructions.md', undefined, false, false, context, 'read,write,edit,bash');
+  for (const flag of ['--no-session', '--no-context-files', '--no-extensions', '--no-skills']) assert.ok(command.includes(flag));
+  assert.equal(command[command.indexOf('--tools') + 1], 'read,write,edit,bash');
+  assert.ok(!command.some(part => part.includes('extensions/kernel')));
+});
+
 test('the per-turn brief stays inside its 250-byte share of the §30.7 ceiling', async t => {
   const brief = await readFile(join(PACKAGE, 'brief.md'));
   assert.ok(brief.byteLength <= 250, `brief.md is ${brief.byteLength} bytes`);
@@ -77,6 +93,21 @@ test('the per-turn brief stays inside its 250-byte share of the §30.7 ceiling',
   assert.match(text, /`mask`/);
   assert.match(text, /never read out/);
   assert.match(text, /coarse_language/);
+});
+
+test('writer, full instruction, brief and capsule head agree on flexible register', async () => {
+  const [writer, full, brief, head] = await Promise.all([
+    'content/setup/npc-voice.md', 'mods/npc-voice/agent.md', 'mods/npc-voice/brief.md', 'kernel-ts/read/assemble.ts',
+  ].map(path => readFile(join(ROOT, path), 'utf8')));
+  for (const text of [writer, full, brief, head]) {
+    assert.match(text, /register/);
+    assert.match(text, /listener/);
+    assert.match(text, /secret/);
+    assert.doesNotMatch(text, /Wear the mask on every line|Wear each person's `mask` on every line|Every reply wears the mask|first question brushed off/);
+  }
+  assert.match(writer, /ordinary first contact/i);
+  assert.match(writer, /direct useful answer/);
+  assert.match(writer, /`said`/);
 });
 
 test("the lane instruction is authored in English and asks for exactly the shape the lane checks", async () => {

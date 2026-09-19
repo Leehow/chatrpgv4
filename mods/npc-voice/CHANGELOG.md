@@ -1,5 +1,11 @@
 # NPC Voice
 
+## 1.2.0
+- Masks describe flexible register, not compulsory mannerisms; varied exchanges answer the current words naturally, without mandatory brush-offs or catchphrases.
+- Writing uses the tool-enabled background task runner, with semantic review of every speaking candidate and one reviewed repair.
+- State version 2 archives generated cards in `legacy_voice_dossier` on explicit campaign upgrade. Current/met people regenerate through the ordinary queue; source-authored words, old jobs and turn evidence remain untouched.
+- New jobs carry the active package generation and use digest-scoped identities and storage. Stale results cannot write into a newer or disabled configuration; legacy locks retain their original job paths.
+
 ## 1.1.2
 - Adopts the §101 runtime-file allowlist; the engineering changelog is no longer frozen into campaign homes.
 

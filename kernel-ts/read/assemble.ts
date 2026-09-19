@@ -41,9 +41,9 @@ export const HEAD = "Everything at the start of this turn: the clock, the undisc
     "director.recovery, when present, is the one part of the Director that is not advice: the player is " +
     "blocked and its steps name the operation that unblocks them. Take one — its receipt closes the debt — " +
     "or this turn's first narrate is refused once. It never asks you to choose for the player or to skip a " +
-    "risk the book gates with a check. voices is how each person present talks: their mask (what they call " +
-    "people, how their sentences end, the level of their words, one pet phrase) and exchanges that show it in " +
-    "reply. Wear the mask on every line that person speaks; never read an exchange out. " +
+    "risk the book gates with a check. voices gives each person's flexible register, not a required marker " +
+    "on every line or a topic for every reply. Answer the player's words first; preserve source secrets and " +
+    "listener identity. Exchanges are reference, never lines to read out or slogans to repeat. " +
     "unrecorded is what an earlier turn's prose already gave the player while the ledger still disagrees, " +
     "of two kinds: a clue still called undiscovered, and a person you gave lines to here whom the books " +
     "put in another scene or off the board. Each row names the call that closes the gap, and says only " +

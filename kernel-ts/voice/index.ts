@@ -10,7 +10,7 @@ import { npcView } from '../read/capsule.js';
 import { array, number, repr, row, string, type Row } from '../read/values.js';
 import { createWriteRuntime } from '../write/index.js';
 import { readNpcLedger } from '../write/contributions.js';
-import { KEYS, buildPacket, fail, investigatorIdentity, nextPerson, openJob, parseJobId, readJob, submit } from './jobs.js';
+import { KEYS, assertJobGeneration, buildPacket, fail, investigatorIdentity, nextPerson, openJob, parseJobId, readJob, submit } from './jobs.js';
 /** The lane instruction is authored content (`content/setup/npc-voice.md`, §40.7); the packet carries it whole.
  *  Until 1.1.0 nothing read the file and the model saw only the kernel's short fallback passage. */
 async function laneInstruction(context: KernelContext): Promise<string | undefined> {
@@ -46,8 +46,8 @@ export function createVoiceHandlers(context: KernelContext, writer: ReturnType<t
             return openJob(campaign, graph.handle(node), packet);
         },
         'voice.submit': async (params) => {
-            const { campaign, snapshot, module } = await load(params), handle = parseJobId(campaign, params.job_id);
-            const job = await readJob(campaign, handle);
+            const { campaign, snapshot, module } = await load(params), { handle, generation } = parseJobId(campaign, params.job_id, snapshot.world);
+            const job = await readJob(campaign, handle, generation);
             if (!job)
                 throw new RpcError('invalid_params', `no voice job for ${handle}`, { fix: 'call voice.job first', details: { job_id: params.job_id ?? null } });
             const turn = number(row(await campaign.readTurn()).turn);
@@ -58,8 +58,10 @@ export function createVoiceHandlers(context: KernelContext, writer: ReturnType<t
             return result;
         },
         'voice.fail': async (params) => {
-            const { campaign } = await load(params), handle = parseJobId(campaign, params.job_id);
-            return fail(campaign, await readJob(campaign, handle), string(params.job_id), handle, params.reason, params.detail);
+            const { campaign, snapshot } = await load(params), { handle, generation } = parseJobId(campaign, params.job_id, snapshot.world);
+            const job = await readJob(campaign, handle, generation);
+            if (job) assertJobGeneration(campaign, snapshot.world, job);
+            return fail(campaign, job, string(params.job_id), handle, params.reason, params.detail);
         }
     });
 }

@@ -114,6 +114,8 @@ export function createComponent(React) {
       answer && !groups.length && h("p", null, t("empty")),
       ...groups.map(({id, versions}) => {
         const active = versions.find(v=>v.active)?.active;
+        const pending = versions.find(v=>v.pending)?.pending;
+        const available = versions.filter(v=>v.version !== active?.version).map(v=>v.version);
         const row = versions.find(v=>v.version === (selected[id] ?? active?.version)) ?? versions.at(-1);
         const name = authored(row.name, ui?.tag) || id;
         const description = authored(row.description, ui?.tag);
@@ -132,6 +134,9 @@ export function createComponent(React) {
               value:row.version, onChange:e=>setSelected(s=>({...s,[id]:e.target.value}))},
               ...versions.map(v=>h("option", {key:v.version, value:v.version}, v.version)))),
             h("span", {style:{color:"var(--subtle)"}}, row.author)),
+          answer.campaign && h("p", {role:"status"}, t(!active ? "notAdded" : active.enabled ? "enabled" : "disabled")),
+          active && h("p", {style:{color:"var(--muted)"}}, `${t("lockedVersion")}: ${active.version}`),
+          available.length > 0 && h("p", {style:{color:"var(--muted)"}}, `${t("availableVersions")}: ${available.join(", ")}`),
           !row.compatible && h("p", {role:"status"}, t("incompatible")),
           h("label", {style:{display:"block", marginBottom:8}},
             h("input", {type:"checkbox", checked:!!active?.enabled, disabled:busy || !answer.campaign || !row.compatible,
@@ -141,7 +146,8 @@ export function createComponent(React) {
               onChange:e=>void mutate("mods.defaults", {id, enabled:e.target.checked})}), " ", t("defaults")),
           active && active.version !== row.version && h("button", {type:"button", disabled:busy || !row.compatible,
             onClick:()=>void mutate("mods.configure", {id, version:row.version})}, t("update")),
-          row.pending && h("p", {role:"status", style:{color:"var(--accent)"}}, t("pending")),
+          pending && h("p", {role:"status", style:{color:"var(--accent)"}},
+            `${t("pending")}: ${pending.version} · ${t(pending.enabled ? "enabled" : "disabled")}`),
           h("details", null, h("summary", {style:{cursor:"pointer", color:"var(--muted)"}}, t("settings")),
             ...Object.entries(row.settings ?? {}).map(([key, fallback]) => {
               const current = active?.version === row.version ? (active.settings?.[key] ?? fallback) : fallback;

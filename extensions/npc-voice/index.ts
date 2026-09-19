@@ -1,9 +1,9 @@
 /**
- * The NPC voice lane (contract §40.5/§40.7, the §17.10 shape, scheduling shared with §12.8).
+ * The NPC voice lane (contract §40.8, scheduling shared with §12.8).
  *
  * Most imported books give most people no printed speech at all, so most people at most tables
  * have nothing for the Keeper to perform from. This lane writes one speech mask per person — how
- * their speech is marked — and three exchanges showing it in reply, and `voice.submit` files them
+ * their register varies — and three exchanges showing it in reply, and `voice.submit` files them
  * under this package's own dossier words (§28.7), where they reach the Keeper in the capsule's
  * `voices`. They are Keeper-facing material like `voice`: never the journal, never `table.view`,
  * never the player.
@@ -12,7 +12,7 @@
  * after the delivery and is not awaited); only one job runs at a time and the rest queue; whatever
  * has not finished at process exit is left to a later dispatch. One job is one person, and a
  * person whose lines are already written — authored by the book or established here — is never
- * offered, so this lane calls a model once per person for the life of a campaign.
+ * offered until an explicit package upgrade starts a new generation.
  *
  * Draining: `voice.job` names no turn. A committed turn may leave several people needing lines
  * (a crowded scene), so a commit drains the queue — asking again until the kernel answers
@@ -27,6 +27,10 @@
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import type { HostRuntime } from "../../runtime/host.ts";
+import { writeVoice } from "./writer.ts";
 import { cocMode } from "../lanes/host.ts";
 import { resolveLaneModel, runLane } from "../lanes/subsession.ts";
 import { createLaneQueue, type KernelCall, type LaneJob } from "../lanes/queue.ts";
@@ -62,6 +66,7 @@ interface JobPacket {
 	investigator?: { sex?: string; address?: string; appearance?: string };
 	documents?: unknown;
 	taken_masks?: unknown;
+	said?: unknown;
 	budget?: { mask_chars?: number; exchanges?: number; max_chars?: number };
 	instruction?: string;
 }
@@ -79,19 +84,21 @@ function systemPrompt(packet: JobPacket): string {
 	const maskChars = packet.budget?.mask_chars ?? DEFAULT_MAX_CHARS;
 	const maxChars = packet.budget?.max_chars ?? DEFAULT_MAX_CHARS;
 	return [
-		// The instruction is the fixed passage the kernel writes (contract §40.7); the lane passes it
-		// on verbatim, rewriting nothing and adding nothing.
+		// The kernel carries the authored instruction; host artifact and shape rules follow it.
 		packet.instruction ??
 			"Write how this person is heard, in the campaign's play language: a mask of one line, then three exchanges of a stranger's words and this person's reply.",
 		"",
-		"Answer with one JSON object only, no code fence and no explanation:",
+		"Write draft.json as one JSON object only, no code fence and no explanation:",
 		'{"voice":{"mask":"...","exchanges":["...","...","..."]}}',
 		'or, only for a person the book says does not speak: {"voice":null,"reason":"does_not_speak"}',
 		"Field rules:",
 		`- mask is one line of 1 to ${maskChars} characters.`,
-		`- exchanges is exactly ${exchanges} strings, in that order: a first question brushed off, something ordinary, something that touches what they hide.`,
+		`- exchanges is exactly ${exchanges} strings: ordinary first contact, a direct practical answer, and a sensitive question without revealing secrets.`,
 		`- each exchange is 1 to ${maxChars} characters, on one line, and no two are the same line.`,
-		"- write everything in play_language, and write no key other than voice.",
+		"- Use flexible register, not a catchphrase or a marker on every line. Show conversational range, not one repeated agenda.",
+		"- Answer each question directly when the source permits it. Occupation does not decide every topic; courtesy and uncertainty fit any register.",
+		"- Preserve source voice, secrets and listener identity; do not copy examples or recent said lines.",
+		"- write everything in play_language; the only keys are voice, and reason for a source-grounded silent result. Never include a job id.",
 		"- no numbers, no rules, no braces, no other person's name, and nothing the player has not discovered.",
 	].join("\n");
 }
@@ -101,28 +108,33 @@ type Voice = { mask: string; exchanges: string[] };
 type Lines = { voice: Voice } | { silent: true };
 const SILENT_REASON = "does_not_speak";
 
-/** The second zero-tool call of §40.5's voice guard: do a mask and its exchanges honour the book's one-line `voice`,
- *  and does every reply wear the mask? Register only. */
+/** Short semantic validation in the existing validation lane; never a code-level prose classifier. */
 function judgePrompt(): string {
 	return [
-		"You check a speech mask and three sample exchanges against a book's one-line description of how a person sounds.",
-		"Judge register only: manner, temper, how much they say, whether they would raise their voice — never the content.",
-		"A reply that contradicts the description (a quiet person shouting, a formal person cursing) does not honour it,",
-		"and neither does a reply that does not wear the mask (the address term or the ending habit the mask names is absent from every reply).",
+		"Review every candidate against the supplied source, even when it has no voice description or the candidate is silent.",
+		"For a silent candidate (voice:null), approve only if the source explicitly says this person does not speak. A nonempty voice description, soft speech, reserve or shyness does not establish silence.",
+		"For a speaking candidate, reject invented speech when the source explicitly establishes silence; otherwise assess the mask and exchanges below.",
+		"Require natural connected speech, actual answers to the example questions, and conversational range rather than repeated refusal or agenda.",
+		"Honour source voice and secrets, play_language, coarse_language and listener identity. Do not invent facts or disclose hidden names.",
+		"Register must stay flexible: no compulsory marker, catchphrase or occupational topic on every line. Ordinary courtesy, agreement and uncertainty are valid.",
+		"Reject copied or repetitive wording from the other examples, taken_masks or recent said lines. Judge meaning, not exact word overlap.",
 		"Answer with one JSON object only, no code fence and no explanation:",
 		'{"honours":true|false,"why":"<at most 120 characters, in English>"}',
 	].join("\n");
 }
 
-function judgeInput(voice: string, value: Voice): string {
-	return [`[Voice the book gives them] ${voice}`, "", `[Mask] ${value.mask}`, "", "[Exchanges]", ...value.exchanges.map((line, index) => `${index + 1}. ${line}`)].join("\n");
+function judgeInput(packet: JobPacket, value: Lines): string {
+	const candidate = "voice" in value
+		? [`[Mask] ${value.voice.mask}`, "", "[Exchanges]", ...value.voice.exchanges.map((line, index) => `${index + 1}. ${line}`)]
+		: [`[Silent candidate] ${JSON.stringify({ voice: null, reason: SILENT_REASON })}`];
+	return [userInput(packet), "", ...candidate].join("\n");
 }
 
 function shapeVerdict(parsed: unknown): { honours: boolean; why: string } | undefined {
 	if (!parsed || typeof parsed !== "object") return undefined;
 	const row = parsed as { honours?: unknown; why?: unknown };
-	if (typeof row.honours !== "boolean") return undefined;
-	return { honours: row.honours, why: typeof row.why === "string" ? row.why.trim().slice(0, 200) : "" };
+	if (typeof row.honours !== "boolean" || typeof row.why !== "string") return undefined;
+	return { honours: row.honours, why: row.why.trim().slice(0, 200) };
 }
 
 /** Who the mask is written for (contract §118): the listener's own facts, so that no address term in the mask can
@@ -168,7 +180,9 @@ function userInput(packet: JobPacket, objection?: string): string {
 		"",
 		"[Masks other people here already wear]",
 		taken.length ? taken.map((mask) => `- ${mask}`).join("\n") : "(none yet)",
-		...(objection ? ["", `[A reviewer read your mask and exchanges against the voice the book gives them and objected] ${objection}`, "Rewrite the mask and all three exchanges so they honour that voice."] : []),
+		"",
+		...field("Recent said lines: do not repeat", packet.said),
+		...(objection ? ["", `[Review objection] ${objection}`, "Repair the candidate below. Keep source facts and listener identity; answer naturally without repeated wording."] : []),
 	].join("\n");
 }
 
@@ -180,7 +194,7 @@ function userInput(packet: JobPacket, objection?: string): string {
 function shapeLines(parsed: unknown, packet: JobPacket): Lines | undefined {
 	if (!parsed || typeof parsed !== "object") return undefined;
 	const raw = (parsed as { voice?: unknown }).voice;
-	// The book's silence, honoured: a null voice with the one closed reason, and nothing else on the object.
+	// Shape only: source support for silence is decided by the semantic reviewer, not field presence.
 	if (raw === null) return (parsed as { reason?: unknown }).reason === SILENT_REASON ? { silent: true } : undefined;
 	if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
 	const wanted = packet.budget?.exchanges ?? DEFAULT_EXCHANGES;
@@ -216,23 +230,24 @@ function errorText(error: unknown): string {
 	return (error instanceof Error ? error.message : String(error)).slice(0, 200);
 }
 
-/** `voice:<campaign>:<handle>`: the handle is the job's last colon-separated part when the packet omits it. */
+/** Job identity is opaque, including legacy jobs; a missing display handle is not parsed from it. */
 function handleOf(packet: JobPacket, jobId: string): string {
 	const named = packet.npc?.handle;
-	if (typeof named === "string" && named.trim()) return named.trim();
-	const tail = jobId.slice(jobId.lastIndexOf(":") + 1);
-	return tail || jobId;
+	return typeof named === "string" && named.trim() ? named.trim() : jobId;
 }
 
 export default function (pi: ExtensionAPI) {
 	// The setup process has no turns and so nobody to hear: it registers nothing and subscribes to nothing.
 	if (cocMode() === "setup") return;
 
-	/** Attempts spent on a person this session; MAX_ATTEMPTS of them is the retry budget of §40.5. */
+	let runtime: HostRuntime | undefined;
+	pi.events.on("coc:kernel-bridge", data => { runtime = (data as { runtime?: HostRuntime } | undefined)?.runtime; });
+
+	/** Attempts spent on an opaque generation job this session; MAX_ATTEMPTS is the retry budget. */
 	const attempts = new Map<string, number>();
-	/** People whose budget is spent: the kernel keeps offering their failed job, and this lane keeps declining. */
+	/** Generation jobs whose budget is spent; a different package generation gets its own allowance. */
 	const retired = new Set<string>();
-	/** One telemetry row per retired person, not one per commit that meets them again. */
+	/** One telemetry row per retired job, not one per commit that meets it again. */
 	const noticed = new Set<string>();
 
 	// The shared writer, which also escalates a streak of failures to the operator (contract §56).
@@ -260,7 +275,7 @@ export default function (pi: ExtensionAPI) {
 
 	// ---- One person -------------------------------------------------------
 
-	/** One attempt: the subsession writes the two lines, then `voice.submit`. Failure reasons use `voice.fail`'s closed enum. */
+	/** One attempt: tool-enabled writing, semantic review, at most one reviewed repair, then publication. */
 	async function attempt(
 		packet: JobPacket,
 		jobId: string,
@@ -268,45 +283,39 @@ export default function (pi: ExtensionAPI) {
 		call: KernelCall,
 		note: (row: Record<string, unknown>) => Promise<void>,
 	): Promise<{ ok: true; model: string; voice_check?: string } | { ok: false; reason: string; detail: string }> {
-		const write = (objection?: string) => runLane<Lines>({
-			ctx: scheduler.ctx as ExtensionContext,
-			envName: "PI_COC_VOICE_MODEL",
-			// The four `lane: "lane-call"` rows this round leaves (contract §12.8.1) travel the job's own
-			// telemetry, so a backfill round is marked as one there too.
-			lane: "voice",
-			record: (row) => note({ job_id: jobId, ...row }),
+		const owner = runtime;
+		if (!owner) return { ok: false, reason: "lane_error", detail: "The voice task runtime is unavailable" };
+		const model = resolveLaneModel(scheduler.ctx as ExtensionContext, "PI_COC_VOICE_MODEL");
+		if (!model.ok) return { ok: false, reason: "lane_error", detail: model.detail };
+		const signal = scheduler.signal;
+		const write = (objection?: string, previous?: Lines) => writeVoice<Lines>({
+			runtime: owner, jobId, model: `${model.model.provider}/${model.model.id}`,
 			systemPrompt: systemPrompt(packet),
-			input: userInput(packet, objection),
-			signal: scheduler.signal,
-			shape: (parsed) => shapeLines(parsed, packet),
+			input: userInput(packet, objection) + (previous ? `\n[Candidate to repair]\n${JSON.stringify("voice" in previous ? previous : { voice: null, reason: SILENT_REASON })}` : ""),
+			signal, shape: parsed => shapeLines(parsed, packet),
 		});
 		let lane = await write();
-		if (!lane.ok) {
-			// `voice.fail` takes the journal's enum (`invalid | lane_error | model_error`); the lane's own
-			// four reasons map onto it exactly as the journal lane maps them.
-			return { ok: false, reason: lane.reason === "model_unavailable" ? "lane_error" : "model_error", detail: lane.detail };
-		}
-		// §40.5's voice guard: when the book gives a `voice`, a second zero-tool call reads the two lines
-		// against it and may send them back once with its objection. One bounce, then whatever the rewrite
-		// brings is filed: the guard is a nudge, never a gate, and a judge that cannot answer waives.
+		if (!lane.ok) return lane;
 		let voiceCheck: string | undefined;
-		const voice = typeof packet.npc?.voice === "string" ? packet.npc.voice.trim() : "";
-		if (voice && "voice" in lane.value) {
+		for (let round = 0; ; round++) {
+			const input = judgeInput(packet, lane.value);
+			await writeFile(join(lane.cwd, "review-input.json"), JSON.stringify({ systemPrompt: judgePrompt(), input }));
 			const verdict = await runLane<{ honours: boolean; why: string }>({
 				ctx: scheduler.ctx as ExtensionContext, envName: "PI_COC_VOICE_MODEL", lane: "voice",
-				record: (row) => note({ job_id: jobId, check: "voice", ...row }),
-				systemPrompt: judgePrompt(), input: judgeInput(voice, lane.value.voice), signal: scheduler.signal, shape: shapeVerdict,
+				record: row => note({ job_id: jobId, check: "voice", ...row }),
+				systemPrompt: judgePrompt(), input, signal, shape: shapeVerdict, timeoutMs: 120_000,
 			});
-			if (!verdict.ok) voiceCheck = "waived";
-			else if (verdict.value.honours) voiceCheck = "passed";
-			else {
-				const again = await write(verdict.value.why || "the mask and exchanges do not honour the voice");
-				voiceCheck = "rewritten";
-				if (again.ok) lane = again;
-				else voiceCheck = "rewrite_failed";
-			}
+			await writeFile(join(lane.cwd, "review.json"), JSON.stringify(verdict));
+			if (!verdict.ok) return { ok: false, reason: "model_error", detail: `Voice review unavailable: ${verdict.detail}` };
+			if (verdict.value.honours) { voiceCheck = round ? "repaired_passed" : "passed"; break; }
+			if (round) return { ok: false, reason: "model_error", detail: `Voice review rejected repair: ${verdict.value.why}` };
+			const previous = lane.value;
+			lane = await write(verdict.value.why || "The candidate failed semantic review", previous);
+			if (!lane.ok) return lane;
+			// Every repaired candidate is reviewed again, including a switch to or from silence.
 		}
 		try {
+			if (signal.aborted || scheduler.stopped) return { ok: false, reason: "lane_error", detail: "Voice generation was cancelled" };
 			await call("voice.submit", "voice" in lane.value
 				? { campaign, job_id: jobId, voice: lane.value.voice }
 				: { campaign, job_id: jobId, voice: null, reason: SILENT_REASON });
@@ -333,9 +342,9 @@ export default function (pi: ExtensionAPI) {
 	): Promise<boolean> {
 		const began = Date.now();
 		let last: { ok: false; reason: string; detail: string } | undefined;
-		const spent = attempts.get(handle) ?? 0;
+		const spent = attempts.get(jobId) ?? 0;
 		for (let tries = spent; tries < MAX_ATTEMPTS && !scheduler.stopped; tries += 1) {
-			attempts.set(handle, tries + 1);
+			attempts.set(jobId, tries + 1);
 			const outcome = await attempt(packet, jobId, campaign, call, note);
 			if (outcome.ok) {
 				await note({
@@ -348,7 +357,7 @@ export default function (pi: ExtensionAPI) {
 			last = outcome;
 		}
 		if (scheduler.stopped) return false;
-		retired.add(handle);
+		retired.add(jobId);
 		const failure = last ?? { reason: "lane_error", detail: "the lane never started" };
 		try {
 			await call("voice.fail", { campaign, job_id: jobId, reason: failure.reason, detail: failure.detail });
@@ -409,11 +418,11 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 			const handle = handleOf(packet, jobId);
-			if (retired.has(handle) || (attempts.get(handle) ?? 0) >= MAX_ATTEMPTS) {
+			if (retired.has(jobId) || (attempts.get(jobId) ?? 0) >= MAX_ATTEMPTS) {
 				// A failed job is offered again (§40.5) and the kernel's order is fixed, so the same person
 				// would come back on every further ask: end the drain instead of spinning on them.
-				if (!noticed.has(handle)) {
-					noticed.add(handle);
+				if (!noticed.has(jobId)) {
+					noticed.add(jobId);
 					await note({ npc: handle, job_id: jobId, ok: false, reason: "lane_error", skipped: "retry_budget" });
 				}
 				return;

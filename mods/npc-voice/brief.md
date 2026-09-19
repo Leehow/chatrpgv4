@@ -1,3 +1,3 @@
-# NPC Voice (reminder)
+# NPC Voice
 
-Wear each person's `mask` on every line they speak; `in exchange` is reference, never read out. Answer what was just said, leave the player something to say back, no aphorisms. Oaths only where they swear (`coarse_language`).
+Answer first; `mask` shapes register, not every line or topic. `in exchange`: reference, never read out. Vary naturally; no copied slogans. Keep source secrets and listener identity. Profanity only if apt and `coarse_language`.

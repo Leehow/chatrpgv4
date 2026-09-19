@@ -1,10 +1,14 @@
 {
-  "id": "npc-voice", "version": "1.1.2", "game_api": "pipicoc.game.v1",
-  "state_version": 1, "author": "PipiCOC",
+  "id": "npc-voice", "version": "1.2.0", "game_api": "pipicoc.game.v1",
+  "state_version": 2, "author": "PipiCOC",
+  "migrations": [{"from": 1, "to": 2, "operations": [
+    {"op": "rename", "from": "dossier", "to": "legacy_voice_dossier"},
+    {"op": "default", "key": "dossier", "value": {}}
+  ]}],
   "name": {"zh-Hans": "NPC 口吻", "en": "NPC Voice"},
-  "description": {"zh-Hans": "调查员说人话，NPC 戴语言面具：每个人一张很小的面具——自称与称呼、句末习惯、用词层次、一句口癖——再配三组「陌生人问一句、他答一句」的示例。书里印了台词的人照书说；书里没写的人，后台车道替他写一次。面具是守秘人每句都要戴上的，示例只作参考，从不照念。", "en": "The investigator speaks plainly; every NPC wears a small speech mask — what they call people, how their sentences end, the level of their words, one pet phrase — with three sample exchanges showing it in reply. A book that prints someone's speech keeps it; for the people a book left silent a background lane writes the mask once. The Keeper wears the mask on every line and never reads an exchange out."},
+  "description": {"en": "NPCs answer what was actually said in their own register. A small speech mask describes flexible habits; three varied exchanges illustrate natural replies, not compulsory catchphrases, refusals or short sentences. Source-authored speech stands. A reviewed background lane fills missing cards, while an explicit campaign upgrade archives older generated cards and regenerates current or met people. Examples are never a script to recite."},
   "default_enabled": true,
-  "requires": ["graph.vocabulary.v1", "graph.vocabulary.table.v1", "context.npc.v1", "mods.package-files.v1"],
+  "requires": ["graph.vocabulary.v1", "graph.vocabulary.table.v1", "context.npc.v1", "mods.package-files.v1", "npc.voice.generation.v2"],
   "package_files": ["agent.md", "brief.md"],
   "dependencies": {}, "conflicts": [],
   "settings": {"coarse_language": true},
@@ -13,7 +17,7 @@
     "instructions": "agent.md", "brief": "brief.md",
     "vocabulary": {"actor_profile_keys": [
       {"key": "voice_mask", "label": "mask", "shape": "lines",
-       "ask": "one line, only when the book prints this person's speech: what they call themselves and the one they talk to, one sentence-ending habit, the level of their words, one pet phrase"},
+       "ask": "one line, only when the book prints this person's speech: their register and flexible habits of address, wording or sentence endings, without requiring a catchphrase or a marker in every sentence"},
       {"key": "exchanges", "label": "in exchange", "shape": "lines",
        "ask": "up to three exchanges the book prints, each on one line: what someone says to this person, an arrow, what this person says back"}
     ]}

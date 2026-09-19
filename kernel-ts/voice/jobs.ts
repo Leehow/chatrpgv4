@@ -22,42 +22,57 @@ const LEGACY_KEY = 'sample_lines';
 export const BUDGET = { mask_chars: 200, exchanges: 3, max_chars: 200 };
 const DOCUMENT_BYTES = 4096;
 const TAKEN_MASKS = 12;
-export const jobId = (campaign: string, handle: string) => `voice:${campaign}:${handle}`;
+export const jobId = (campaign: string, handle: string, generation: Row | null = null) => `voice:${campaign}:${handle}${generation ? `@${generation.digest}` : ''}`;
+/** Version-1 locks keep their original identity and storage. New identities come only from the lock. */
+export function generationOf(world: Row): Row | null {
+    const lock = packageState(world);
+    return lock && number(lock.state_version) >= 2 ? { version: lock.version, digest: lock.digest, state_version: lock.state_version } : null;
+}
 /** The fallback when `content/setup/npc-voice.md` cannot be read; the file is the instruction (§40.7). */
 /** The last lines this person spoke at this table that ride in the packet (§113 D). */
 const SAID_LINES = 8;
-const INSTRUCTION = 'Write how this person is heard, in the play language. First a mask, one line: what they call themselves ' +
-    'and the person they are talking to, one sentence-ending habit, the level of their words (their trade, their schooling), ' +
-    'one pet phrase. One or two markers a listener could name, not five; different from every mask in taken_masks; register, ' +
-    'never a dialect caricature. Then three exchanges, each one line: what a stranger says, an arrow, what this person says ' +
-    'back wearing the mask -- mundane talk that answers the words just said and leaves the stranger something to say next, ' +
-    'never an aphorism. Same thought, two mouths: mocking messy hair, a coarse labourer swears at it and a respectable man ' +
-    'asks whether that is a hen coop on your head. The book\'s voice, if given, governs. The investigator block, when the packet carries one, ' +
-    'is who this person is talking to: the mask\'s address terms must fit it, never contradict the sex given, use a given address and invent no other, ' +
-    'and an address term may come from what is visible -- what they wear, carry or ride, how they look; where those facts do not settle ' +
-    'your language\'s form use wording that fits anyone. Differ from taken_masks by the ending habit, not by another ' +
-    'address term. No numbers, no rules, no name of ' +
-    'any other person, nothing the player has not discovered: hides is who they are, not what they say aloud. ' +
-    'Answer {"voice": {"mask": "…", "exchanges": ["…", "…", "…"]}} and nothing else. ' +
-    'Lines under said were already spoken by this person at this table: no exchange reuses one, and the pet phrase is not one of them; ' +
-    'when the same point comes back, this person moves -- gives a little, refuses harder, or changes the subject.';
-export function parseJobId(campaign: CampaignWriter, value: any): string {
-    const found = typeof value === 'string' ? /^voice:([A-Za-z0-9][A-Za-z0-9._-]{0,63}):(.+)$/.exec(value) : null;
-    if (!found || found[1] !== campaign.id)
-        throw new RpcError('invalid_params', 'job_id must be the voice:<campaign>:<handle> that voice.job returned', { details: { job_id: value ?? null } });
-    return found[2];
+const INSTRUCTION = 'Write how this person is heard, in the play language. First a mask, one line describing register and flexible ' +
+    'habits of address, wording or sentence endings, distinct from taken_masks without a dialect caricature. Do not require a ' +
+    'catchphrase, topic, refusal, abruptness or a marker in every sentence. Then three varied exchanges, each one line: what ' +
+    'someone says, an arrow, and this person answering those actual words in natural connected speech. The first is ordinary ' +
+    'first contact, not a mandatory brush-off. Courtesy, uncertainty, agreement and direct answers fit every register. Vary ' +
+    'the responses, not three versions of an agenda; examples illustrate a voice, never a phrase bank or a script to recite. ' +
+    'Let the situation decide cooperation, emotion and length. The book\'s voice and facts govern. The investigator block is ' +
+    'the listener: respect the given sex and address, invent no name or relationship, and use only supplied visible facts ' +
+    'for an address term. Where those facts do not settle the language\'s form, use wording that fits anyone. Never leak ' +
+    'secrets, undiscovered facts, other people\'s names or rules: hides informs the person, not what they say aloud. ' +
+    'Lines under said were already spoken at this table: do not copy them or recycle example wording when a topic returns. ' +
+    'Answer {"voice": {"mask": "…", "exchanges": ["…", "…", "…"]}}; only a source that says the person does not speak ' +
+    'permits {"voice": null, "reason": "does_not_speak"}.';
+export function parseJobId(campaign: CampaignWriter, value: any, world: Row): { handle: string; generation: Row | null } {
+    const found = typeof value === 'string' ? /^voice:([A-Za-z0-9][A-Za-z0-9._-]{0,63}):([^@]+)(?:@([a-f0-9]{64}))?$/.exec(value) : null;
+    const generation = generationOf(world), lock = row(row(row(world.mods).active)[MOD]);
+    if (!found || found[1] !== campaign.id || (found[3] ? !generation || found[3] !== generation.digest : number(lock.state_version) >= 2))
+        throw new RpcError('invalid_params', 'job_id must identify the current voice generation returned by voice.job', { details: { job_id: value ?? null } });
+    return { handle: found[2], generation };
 }
-const jobPath = (handle: string) => join('npc-voice/jobs', handle.replace(/[^A-Za-z0-9._-]/g, '_') + '.json');
-export async function readJob(campaign: CampaignWriter, handle: string): Promise<Row | null> {
+/** Check before idempotent replay too: stale results may never establish current words. */
+export function assertJobGeneration(campaign: CampaignWriter, world: Row, job: Row): void {
+    const { handle, generation } = parseJobId(campaign, job.job_id, world);
+    const matches = (value: any): boolean => {
+        const stored = row(value);
+        return stored.version === generation?.version && stored.digest === generation?.digest &&
+            integer(stored.state_version) && number(stored.state_version) === number(generation?.state_version);
+    };
+    if (handle !== job.npc || (generation ? !matches(job.generation) || !matches(row(job.packet).generation) || row(job.packet).job_id !== job.job_id : job.generation != null))
+        throw new RpcError('invalid_params', 'voice job generation does not match the current enabled package lock', { details: { job_id: job.job_id } });
+}
+const jobPath = (handle: string, generation: Row | null = null) => join('npc-voice/jobs', ...(generation ? ['v2', string(generation.digest)] : []), handle.replace(/[^A-Za-z0-9._-]/g, '_') + '.json');
+export async function readJob(campaign: CampaignWriter, handle: string, generation: Row | null = null): Promise<Row | null> {
     try {
-        const value = await campaign.context.snapshots.readJson(campaign.path(jobPath(handle)));
+        const value = await campaign.context.snapshots.readJson(campaign.path(jobPath(handle, generation)));
         return isJsonObject(value) ? clone(value) : null;
     }
     catch {
         return null;
     }
 }
-const writeJob = (campaign: CampaignWriter, handle: string, value: Row) => campaign.write(jobPath(handle), value);
+const writeJob = (campaign: CampaignWriter, handle: string, value: Row) => campaign.write(jobPath(handle, value.generation ?? null), value);
 /** The package's lock and settings, or null when it is not on: the lane has nothing to do then. */
 export function packageState(world: Row): Row | null {
     const lock = row(row(row(world.mods).active)[MOD]);
@@ -107,7 +122,7 @@ export async function nextPerson(campaign: CampaignWriter, graph: ModuleGraph, w
             if (node.node_kind === 'npc')
                 take(node);
     for (const node of ordered)
-        if (needsLines(graph, world, node) && (await readJob(campaign, graph.handle(node)))?.status !== 'done')
+        if (needsLines(graph, world, node) && (await readJob(campaign, graph.handle(node), generationOf(world)))?.status !== 'done')
             return node;
     return null;
 }
@@ -171,16 +186,17 @@ export function buildPacket(campaign: CampaignWriter, graph: ModuleGraph, world:
     if (knowledge.length)
         npc.knowledge = knowledge.slice(0, 3);
     const era = recordOf(graph.moduleNode ?? null).era ?? recordOf(graph.moduleNode ?? null).period ?? null;
-    return { job_id: jobId(campaign.id, handle), play_language: language,
+    const generation = generationOf(world);
+    return { job_id: jobId(campaign.id, handle, generation), ...(generation ? { generation } : {}), play_language: language,
         module: { title: graph.title(), ...(typeof era === 'string' && era.trim() ? { era } : {}) },
         coarse_language: row(lock.settings).coarse_language !== false,
         npc, documents, taken_masks: takenMasks(graph, world, node), said: said.slice(-SAID_LINES), budget: { ...BUDGET }, instruction,
         ...(investigator ? { investigator } : {}) };
 }
 export async function openJob(campaign: CampaignWriter, handle: string, packet: Row): Promise<Row> {
-    const existing = await readJob(campaign, handle);
+    const existing = await readJob(campaign, handle, packet.generation ?? null);
     if (!existing || !['done'].includes(string(existing.status)))
-        await writeJob(campaign, handle, { job_id: packet.job_id, npc: handle, status: 'open', opened_at: nowIso(), packet });
+        await writeJob(campaign, handle, { job_id: packet.job_id, ...(packet.generation ? { generation: clone(packet.generation) } : {}), npc: handle, status: 'open', opened_at: nowIso(), packet });
     return packet;
 }
 const FIX = `a mask of one line (1-${BUDGET.mask_chars} characters) and exactly ${BUDGET.exchanges} exchanges, each one line of 1-${BUDGET.max_chars} characters, different from each other, no {{ in any of them`;
@@ -203,6 +219,7 @@ export function validateVoice(value: any): { mask: string; exchanges: string[] }
 }
 /** The one write: into the package's §28.7 namespace, never the graph. Idempotent by digest. */
 export async function submit(campaign: CampaignWriter, graph: ModuleGraph, world: Row, job: Row, value: any, turn: number, reason?: any): Promise<[Row, boolean]> {
+    assertJobGeneration(campaign, world, job);
     const handle = string(job.npc), digest = jsonDigest(value === null ? { reason: reason ?? null } : value ?? null);
     if (job.status === 'done') {
         if (job.voice_sha256 === digest)
