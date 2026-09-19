@@ -161,6 +161,24 @@ test("建卡模式：只注册 setup 这一个工具，不开桌、不跑车道"
 	assert.ok(!methods.includes("table.capsule"), "建卡进程没有胶囊");
 });
 
+test("宿主已经完成建卡时，收尾回合直接交接而不再读取 setup Mod 上下文", async (t) => {
+	const table = await openTable({
+		mode: "setup",
+		campaign: "setup-complete",
+		env: { PI_COC_SETUP_AUTOSTART: "1", FAKE_SETUP_COMPLETED: "all" },
+		responses: [fauxAssistantMessage("桌子已经确认。")],
+	});
+	t.after(() => table.dispose());
+
+	await table.session.prompt("Confirmed from the card. Open the table.");
+	await waitForIdle(table.session);
+
+	assert.equal(table.kernelRequests().filter((entry) => entry.method === "mods.context").length, 0,
+		"ready_for_table has no world yet, so the resumed setup process must not enter the play Mod context path");
+	assert.equal(table.entries("coc-setup-exit").length, 1,
+		"the already committed handoff still tells the wrapper to replace setup with play");
+});
+
 test("选内置 starter 就是 starter 来源，不是 pdf，也不会被要资料包（#32）", async (t) => {
 	const table = await openSetup([]);
 	t.after(() => table.dispose());

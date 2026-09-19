@@ -521,7 +521,7 @@ function handle(method, params) {
 				result: {
 					...SETUP_TABLE,
 					steps: SETUP_STEPS,
-					completed: [],
+					completed: process.env.FAKE_SETUP_COMPLETED === "all" ? SETUP_STEPS.map((step) => step.id) : [],
 					state: {},
 				},
 			};

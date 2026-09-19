@@ -706,6 +706,16 @@ export default function (pi: ExtensionAPI) {
   pi.on('before_agent_start',async(event)=>{
     lastPlayerInput=event.prompt;inputKey=randomUUID();guidanceBlocked=false;
     await ensureSteps();
+    // The frontend's confirm button commits the draft and completes setup on a cold kernel before
+    // it sends its ordinary closing sentence (§98). A fresh setup process therefore resumes with
+    // `complete` already booked and no world yet: asking `mods.context` at that point takes the
+    // play-only branch and fails because `table.open` has not created the world. Finish the existing
+    // handoff first; the agent only owes the short prologue close, and agent_end will let the wrapper
+    // replace this setup child with the play child.
+    if(completed.has('complete')) {
+      await finish();
+      return {systemPrompt:event.systemPrompt+'\nSetup is already complete. Do not call setup or continue character creation. Close the prologue briefly; the host will open the table.'};
+    }
     let guidance: Guidance | undefined;
     // The campaign id may be known before the campaign exists (PI_COC_CAMPAIGN); preparing guidance for a campaign that a
     // rejected create-campaign never made throws, and that used to poison every later turn with a guidance refusal.
