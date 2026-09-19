@@ -162,8 +162,60 @@ test('v2 folding keeps safe user boundaries without copying v1 line archives', (
     assert.equal(nextInput.firstKeptEntryId, 'entry-8', 'pre-input fold keeps the last complete group, not a tool result');
 });
 
+test('the optional workspace rides after the current capsule and yields before any current material', () => {
+    const history = api.historyView(binding(2), []);
+    const workspace = api.customMessage('coc-workspace', {kind: 'coc_workspace', evidence: ['a'.repeat(200)]});
+    const base = [...group(1), ...group(2)];
+    const placed = api.projectedMessages({messages: base, binding: binding(2), history, workspace});
+    const capsuleAt = placed.messages.findIndex(message => message.customType === 'coc-capsule');
+    const workspaceAt = placed.messages.findIndex(message => message.customType === 'coc-workspace');
+    const tailAt = placed.messages.findIndex(message => message.role === 'toolResult');
+    assert.equal(workspaceAt, capsuleAt + 1, 'the workspace follows the current capsule');
+    assert.ok(workspaceAt < tailAt, 'and precedes this turn\'s working traffic');
+    assert.equal(placed.workspaceKept, true);
+    // A working tail that no longer fits once the workspace joins: the workspace is omitted and
+    // the tail is cut exactly as it would be without KIC — current material always wins.
+    const heavy = [...base];
+    heavy[7].content[0].text = 'Machine output '.repeat(3000);
+    const squeezed = api.projectedMessages({messages: heavy, binding: binding(2), history, workspace, budget: 2600});
+    assert.equal(squeezed.messages.filter(message => message.customType === 'coc-workspace').length, 0,
+        'the workspace is omitted instead of displacing the turn\'s own traffic');
+    assert.equal(squeezed.workspaceKept, undefined);
+    // A degraded boundary never carries one either.
+    const broken = api.projectedMessages({messages: [...group(1),
+        {role: 'user', content: [{type: 'text', text: 'Next'}]},
+        {role: 'custom', customType: 'coc-capsule', content: '{}', details: {context: binding(2)}},
+        {role: 'toolResult', toolCallId: 'call-1', content: [{type: 'text', text: 'Late result'}]}], binding: binding(2), history, workspace});
+    assert.equal(broken.degraded, 'tool_pair_unavailable');
+    assert.equal(broken.messages.some(message => message.customType === 'coc-workspace'), false);
+});
+
+test('a coc-workspace carrying workpad entries is the same transport-only closed noise', () => {
+    const history = api.historyView(binding(2), []);
+    // KIC-04: the message now also carries the Keeper's own workpad section; the policy classifies
+    // by type, so a workpad-carrying copy behaves exactly like any other coc-workspace.
+    const workspace = api.customMessage('coc-workspace', {kind: 'coc_workspace', evidence: ['a'.repeat(120)],
+        workpad: {focus: 'the letter', entries: [{id: 'q1', kind: 'hypothesis', text: 'x'.repeat(120),
+            status: 'tentative', evidence: ['npc:gardener'], turn: 1, validity: 'stale', needs_recheck: true}]}});
+    const base = [...group(1), ...group(2)];
+    const placed = api.projectedMessages({messages: base, binding: binding(2), history, workspace});
+    assert.equal(placed.workspaceKept, true, 'it joins the request when there is room');
+    const squeezed = api.projectedMessages({messages: [...base], binding: binding(2), history, workspace, budget: 900});
+    assert.equal(squeezed.messages.filter(message => message.customType === 'coc-workspace').length, 0,
+        'and is omitted whole when there is not, never partially injected');
+    const stale = {role: 'custom', customType: 'coc-workspace', content: JSON.stringify({kind: 'coc_workspace', workpad: {entries: []}}), details: {}, timestamp: 5};
+    const older = api.projectedMessages({messages: [stale, ...group(1), ...group(2)], binding: binding(2), history});
+    assert.equal(older.messages.filter(message => message.customType === 'coc-workspace').length, 0,
+        'an older copy is regenerated or omitted, never accumulated');
+    const plan = api.foldPlan(entries([...group(1), ...group(2)]).map((entry, i) => i === 0
+        ? {type: 'custom_message', id: entry.id, customType: 'coc-workspace', content: JSON.stringify({kind: 'coc_workspace', workpad: {entries: [{id: 'q1'}]}}), details: {}}
+        : entry), binding(2), history);
+    assert.ok(plan, 'a persisted workpad copy never vetoes the fold');
+    assert.equal(plan.summary.includes('workpad'), false, 'and is dropped without riding the summary');
+});
+
 function runtimeFixture(turn = 0, branch = [], records = []) {
-    const hooks = new Map(), bus = new Map(), rows = [], state = {revision: 'a'.repeat(64), available: true, calls: 0, compacts: 0};
+    const hooks = new Map(), bus = new Map(), rows = [], state = {revision: 'a'.repeat(64), available: true, calls: 0, methods: [], compacts: 0};
     const cap = () => ({turn: {number: turn, player_text: 'Input'}, recent: [], module: {title: 'Book'}, style: {floor: ['World response']},
         mods: {instructions: [{form: 'full', text: `rule-${state.revision[0]}`}]}});
     const meta = () => ({...binding(turn), source_revision: state.available ? state.revision : null, unavailable: !state.available});
@@ -171,6 +223,7 @@ function runtimeFixture(turn = 0, branch = [], records = []) {
     api.installContextPolicy(pi, row => rows.push(row));
     bus.get('coc:kernel-bridge')({campaign: 'test-campaign', call: async (method, params) => {
         state.calls++;
+        state.methods.push(method);
         if (method === 'table.capsule') return {...cap(), _context: meta()};
         if (params.read) {
             const record = records.find(row => row.turn === params.read.turn && row.role === params.read.role);
@@ -185,7 +238,7 @@ function runtimeFixture(turn = 0, branch = [], records = []) {
     const messages = group(turn); messages[1].details.epoch = 'fixture-input';
     const ctx = {model: {contextWindow: 1000000}, getContextUsage: () => ({percent: 1, contextWindow: 1000000}),
         sessionManager: {getBranch: () => branch}, compact: options => {state.compacts++; options.onComplete();}};
-    return {hooks, bus, rows, state, messages, ctx};
+    return {hooks, bus, rows, state, messages, ctx, cap};
 }
 
 test('known source-changing tools invalidate the cached full briefing without changing archived messages', async () => {
@@ -200,6 +253,26 @@ test('known source-changing tools invalidate the cached full briefing without ch
     const changed = await t.hooks.get('context')({messages: t.messages}, t.ctx);
     assert.equal(JSON.parse(changed.messages.find(message => message.customType === api.BRIEF_TYPE).content).instructions[0].text, 'rule-b');
     assert.equal(t.messages[1].details.context.source_revision, 'a'.repeat(64));
+});
+
+test('unchanged source binding reuses the prepared brief across input epochs', async () => {
+    const t = runtimeFixture(0);
+    const initial = await t.hooks.get('context')({messages: t.messages}, t.ctx);
+    const first = t.rows.filter(row => row.event === 'prepared').at(-1);
+    const calls = t.state.calls;
+    const next = group(1);
+    next[1].details.epoch = 'next-input';
+    const nextCapsule = t.cap(1);
+    t.bus.get('coc:capsule')({capsule: nextCapsule, context: {...binding(1), source_revision: t.state.revision}, epoch: 'next-input'});
+    const projected = await t.hooks.get('context')({messages: next}, t.ctx);
+    const second = t.rows.filter(row => row.event === 'prepared').at(-1);
+    const brief = result => result.messages.find(message => message.customType === api.BRIEF_TYPE)?.content;
+    assert.equal(brief(projected), brief(initial), 'unchanged source keeps the prepared brief across turns');
+    assert.equal(first.read_calls, 0, 'the fixture starts with no prior turns to read');
+    assert.equal(first.source_revision, second.source_revision);
+    assert.equal(t.state.methods.filter(method => method === 'table.capsule').length,
+        1, 'the prepared current brief is reused without a second capsule hydration');
+    assert.ok(t.state.calls > calls, 'the next turn still reads its bounded history through the existing path');
 });
 
 test('raw retained pressure requests persistence even when projected usage is low, once per unchanged epoch', async () => {

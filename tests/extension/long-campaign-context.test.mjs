@@ -64,6 +64,15 @@ test('campaign length never reaches the provider: the branch outgrows the ceilin
     assert.ok(stored > ceiling, `the branch outgrew the ceiling: ${stored} > ${ceiling}`);
     const largest = Math.max(...requests.map(request => request.bytes));
     assert.ok(largest <= ceiling, `the largest request stayed under the ceiling: ${largest} <= ${ceiling}`);
+    // M1 freezes a measured request-size distribution as a broad comparison interval: the existing
+    // bounded path carries a real brief/history payload, while no percentile may cross its ceiling.
+    const rows = table.telemetry().filter(row => row.lane === 'context' && row.event === 'request');
+    assert.ok(rows.length >= turns, `request telemetry covers the run: ${rows.length}`);
+    const sizes = rows.map(row => row.request_bytes).sort((a, b) => a - b);
+    const percentile = fraction => sizes[Math.min(sizes.length - 1, Math.floor((sizes.length - 1) * fraction))];
+    assert.ok(percentile(0.5) >= 8 * 1024, `baseline p50 remains a non-empty bounded request: ${percentile(0.5)}`);
+    assert.ok(percentile(0.95) <= ceiling, `baseline p95 stays under the configured ceiling: ${percentile(0.95)} <= ${ceiling}`);
+    assert.ok(rows.every(row => row.ceiling_bytes === ceiling), 'telemetry preserves the configured request ceiling');
     // The ceiling is a ceiling, not a coincidence of a short branch: growth stopped reaching it.
     const grew = requests.at(-1).branchBytes - requests[0].branchBytes;
     assert.ok(grew > 0, 'the branch kept growing across the run');

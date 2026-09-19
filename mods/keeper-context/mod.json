@@ -1,0 +1,51 @@
+{
+  "id": "keeper-context",
+  "version": "1.0.0",
+  "game_api": "pipicoc.game.v1",
+  "state_version": 1,
+  "author": "PipiCOC",
+  "name": "Keeper Context",
+  "description": "Optional Keeper guidance for a bounded, host-owned workspace; it never becomes world state or action authority.",
+  "default_enabled": false,
+  "requires": [
+    "context.workspace.v1",
+    "mods.package-files.v1"
+  ],
+  "package_files": [
+    "agent.md",
+    "brief.md"
+  ],
+  "dependencies": {},
+  "conflicts": [],
+  "settings": {
+    "mode": "off",
+    "workspace_bytes": 24576,
+    "candidate_limit": 128,
+    "rerank_candidates": 48
+  },
+  "settings_schema": {
+    "mode": {
+      "enum": [
+        "off",
+        "shadow",
+        "on"
+      ]
+    },
+    "workspace_bytes": {
+      "minimum": 4096,
+      "maximum": 24576
+    },
+    "candidate_limit": {
+      "minimum": 1,
+      "maximum": 128
+    },
+    "rerank_candidates": {
+      "minimum": 1,
+      "maximum": 48
+    }
+  },
+  "contributes": {
+    "instructions": "agent.md",
+    "brief": "brief.md"
+  }
+}

@@ -34,7 +34,7 @@ The policy separates three things:
 2. **Active request:** current instructions, a current capsule, the current player input and unresolved tool exchange, plus bounded recent dialogue and retrieval references.
 3. **Recovery:** existing candidate memory, obligations, rulings, NPC history and continuity projections supply relevant context; bounded `recall` returns original evidence when needed.
 
-There is no summarization model, embedding service, new Keeper verb, extra foreground semantic lane or independent long-term memory database in this proposal.
+There is no summarization model, embedding service, new Keeper verb, extra foreground semantic lane or independent long-term memory database in this proposal. A later KIC slice may add a bounded, discardable host evidence cache, an optional deterministic rerank adapter and a default-off policy package; those remain outside this bounded policy's authority and are not a second memory registry.
 
 ## User Stories
 
@@ -221,12 +221,12 @@ No worker may edit the same shared contract region or host binding as another wo
 
 ## Out of Scope
 
-- New extension package, vector database, embeddings, a semantic keyword classifier, or a second memory registry.
+- A second summary model, vector database, embeddings, a semantic keyword classifier, or a second memory registry. KIC's single default-off policy package and host-owned bounded evidence cache are the named compatibility path, not an independent context owner.
 - A model-generated chapter summary or an extra summarization lane. Reconsider only if genuine-play evidence identifies missing continuity that existing projections and bounded originals cannot serve well.
 - Changing Director scores, story assessment categories, admission authority, or turning compression metrics into narrative pressure.
 - Automatically promoting memory to truth, closing promises, repairing candidate semantics, retrying all backlog jobs, or modifying old evidence.
 - General cross-campaign memory, new worldline knowledge rights, unrestricted cross-line transcript APIs, or arbitrary branch-summary redesign.
-- General `look`/`lookup` payload hardening, global Mod budgets, package UI, installation or unrelated current dirty changes.
+- General `look`/`lookup` payload hardening, global Mod budgets, package UI, installation or unrelated current dirty changes. KIC's optional rerank consumer, Workpad lifecycle and workspace read/projection implementation belong to their later slices.
 
 ## Further Notes
 

@@ -2,15 +2,20 @@
 import {createHash} from 'node:crypto';
 import type {ExtensionAPI, ExtensionContext} from '@earendil-works/pi-coding-agent';
 import {compactAt} from './fold.ts';
+import {createWorkpadStore, type WorkpadView} from './workspace/workpad-store.ts';
+import {selectWorkspace, workspaceBudgetOf, workspaceModeOf, type WorkspaceMode} from './workspace/projection.ts';
+import {rankWorkspaceCandidates} from './workspace/reranker.ts';
 import {bindingOf, customMessage, epochOf, sourceOf, historyView, metadata, quoteView, briefForTurn, projectedMessages, foldPlan,
-    boundedTail, requestBudget, BYTES_PER_TOKEN, HISTORY_BYTES, POLICY_VERSION, DIAGNOSTIC_TYPE, entryMessage, object, sizeOf,
+    boundedTail, requestBudget, BYTES_PER_TOKEN, HISTORY_BYTES, POLICY_VERSION, DIAGNOSTIC_TYPE, WORKSPACE_TYPE, entryMessage, object, sizeOf,
     type ContextBinding, type Quote, type Row} from './context-policy.ts';
 
 type KernelCall = (method: string, params: Row) => Promise<unknown>;
-type Prepared = {binding: ContextBinding; capsule: Row; history: Row; brief: Row; key: string; answering?: string[]};
+type Prepared = {binding: ContextBinding; capsule: Row; history: Row; brief: Row; key: string; answering?: string[];
+    workspace?: Row; workspaceMode: WorkspaceMode};
 const fingerprint = (value: unknown): string => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 
-export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row) => void): void {
+export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row) => void,
+    workpadRoot?: () => string | undefined): void {
     let observedTurn: number | undefined;
     const record = (row: Row): void => writeTelemetry({...(observedTurn === undefined ? {} : {turn: observedTurn}), ...row});
     let failedGeneration: number | undefined, inputPending = false;
@@ -158,7 +163,57 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
                 } catch (error) {unavailable = error instanceof Error ? error.message.slice(0, 160) : 'Original records are unavailable';}
                 if (ticket !== generation) return undefined;
                 const history = historyView(binding, quotes, unavailable);
-                prepared = {binding, capsule: current, history, brief: brief!, key: epochOf(binding), answering};
+                // KIC-03 (contract §19.2): the optional workspace is host work behind the package's
+                // own mode. Off, unknown or missing reads nothing; shadow reads and records only;
+                // on injects. Any failure here is a miss on the optional layer, never a degraded turn.
+                const workspaceMode = workspaceModeOf(current), workspaceBudget = workspaceBudgetOf(current);
+                let workspace: Row | undefined;
+                if (workspaceMode !== 'off') {
+                    const began = Date.now();
+                    try {
+                        const snapshot = await rpc('table.workspace.read', {});
+                        if (ticket !== generation) return undefined;
+                        const candidatePool = object(snapshot.candidates), candidates = [
+                            ...(Array.isArray(candidatePool.static) ? candidatePool.static : []),
+                            ...(Array.isArray(candidatePool.records) ? candidatePool.records : []),
+                        ].map(value => object(value));
+                        const query = String(object(current.turn).player_text ?? '');
+                        const rerank = await rankWorkspaceCandidates({query, candidates});
+                        if (rerank.status !== 'skipped') record({lane: 'workspace-rerank', event: rerank.status,
+                            reason: rerank.status === 'fallback' ? rerank.reason : undefined, candidates: rerank.candidates,
+                            ms: rerank.ms, ...(rerank.provider ? {provider: rerank.provider} : {}),
+                            ...(rerank.model ? {model: rerank.model} : {})});
+                        // KIC-04: the Keeper's own published workpad joins the same selection. Any
+                        // failure here — root, store, corrupt file — is a miss on the optional layer,
+                        // never a degraded selection and never a degraded request.
+                        let workpad: WorkpadView | undefined;
+                        try {
+                            const root = workpadRoot?.();
+                            if (root) {
+                                const read = await createWorkpadStore(root)
+                                    .read({campaign: binding.campaign, worldline: binding.worldline, loop: binding.loop});
+                                if (read.status === 'ok') workpad = read.view;
+                            }
+                        } catch { workpad = undefined; }
+                        const selection = selectWorkspace({snapshot, binding, budget: workspaceBudget, workpad,
+                            ...(rerank.status === 'ranked' || rerank.status === 'cache' || rerank.status === 'fallback'
+                                ? {rankedLocators: rerank.order} : {})});
+                        if (selection.status === 'selected') {
+                            workspace = selection.message;
+                            record({lane: 'workspace', event: workspaceMode === 'shadow' ? 'shadow' : 'selected', mode: workspaceMode,
+                                packed_static: selection.counts.packed.static, packed_records: selection.counts.packed.records,
+                                filtered_static: selection.counts.filtered.static, filtered_records: selection.counts.filtered.records,
+                                omitted_static_manifest: selection.counts.omitted.static.manifest, omitted_records_manifest: selection.counts.omitted.records.manifest,
+                                omitted_static_budget: selection.counts.omitted.static.budget, omitted_records_budget: selection.counts.omitted.records.budget,
+                                workpad_entries: selection.counts.workpad.packed, workpad_omitted: selection.counts.workpad.omitted,
+                                truncated: selection.counts.truncated, bytes: sizeOf(workspace), budget_bytes: workspaceBudget, ms: Date.now() - began});
+                        } else record({lane: 'workspace', event: 'omitted', mode: workspaceMode, reason: selection.reason, ms: Date.now() - began});
+                    } catch (error) {
+                        record({lane: 'workspace', event: 'omitted', mode: workspaceMode, reason: 'workspace_read_failed',
+                            detail: error instanceof Error ? error.message.slice(0, 160) : 'Unknown workspace read error'});
+                    }
+                }
+                prepared = {binding, capsule: current, history, brief: brief!, key: epochOf(binding), answering, workspace, workspaceMode};
                 record({lane: 'context', event: 'prepared', version: POLICY_VERSION, turn: binding.turn,
                     history_bytes: sizeOf(history), briefing_bytes: sizeOf(brief), source_revision: binding.source_revision,
                     read_calls: reads, read_bytes: readBytes, rehydrated, ms: Date.now() - began,
@@ -207,13 +262,17 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
             if (message.role !== 'custom' || message.customType !== 'coc-capsule' || !sameInput && (!actual || epochOf(actual) !== snapshot.key)) return message;
             seen = true;
             return {...message, content: JSON.stringify(view), details: {...object(message.details), context: snapshot.binding}};
-        });
+        })
+            // The workspace is transport-only: at most one current message, injected below for this
+            // request. A persisted copy from anywhere is dropped here, not projected onward.
+            .filter(message => !(message.role === 'custom' && message.customType === WORKSPACE_TYPE));
         if (!seen && !messages.some(message => message.role === 'custom' && message.customType === 'coc-capsule')) {
             // A new opening/recovery may have only a host prompt; this ephemeral capsule is not persisted.
             selected.push({...customMessage('coc-capsule', view), details: {coc_host: true, turn: snapshot.binding.turn, context: snapshot.binding}});
         }
+        const workspace = snapshot.workspaceMode === 'on' ? snapshot.workspace : undefined;
         const result = projectedMessages({messages: selected, binding: snapshot.binding, history: snapshot.history,
-            brief: briefForTurn(snapshot.brief, view), answering: snapshot.answering, budget});
+            brief: briefForTurn(snapshot.brief, view), answering: snapshot.answering, budget, workspace});
         const window = ctx.model?.contextWindow, available = typeof window === 'number' ? window - Math.min(16384, Math.floor(window / 4)) : Infinity;
         const reason = result.degraded ?? (Math.ceil(sizeOf(result.messages) / BYTES_PER_TOKEN) > available ? 'request_window_estimate' : undefined);
         const outgoing = reason ? [diagnostic(reason), ...result.messages.filter(message => !(message.role === 'custom' && message.customType === DIAGNOSTIC_TYPE))] : result.messages;
@@ -221,6 +280,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         record({lane: 'context', event: 'request', version: POLICY_VERSION, turn: snapshot.binding.turn,
             history_bytes: sizeOf(snapshot.history), protected_bytes: result.protectedBytes, unknown_bytes: result.unknownBytes,
             request_bytes: bytes, local_token_estimate: estimatedTokens, context_window: window ?? null, ceiling_bytes: ceiling,
+            ...(result.workspaceKept && workspace ? {workspace_bytes: sizeOf(workspace)} : {}),
             ...(result.droppedTail ? {dropped_tail: result.droppedTail} : {}),
             ...(result.droppedUnknown ? {dropped_unknown: result.droppedUnknown} : {}),
             ...(result.degraded ? {reason: result.degraded} : {}),

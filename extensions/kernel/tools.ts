@@ -26,6 +26,16 @@ const UsingSkill = Type.Optional(Type.String({
 	description: "Optional host-only annotation: copy an exact currently offered skills.cards name on the first relevant call if deliberately following it. Never grants authority; later calls need not repeat it.",
 }));
 
+/**
+ * The workpad patch is deliberately schema-permissive: Pi validates tool arguments against this
+ * schema before the tool runs, and a schema refusal would block the delivery that carried the
+ * patch — exactly what the contract forbids (§19.2). The shape guidance lives in the description;
+ * the host validates strictly after stripping and drops whatever does not conform.
+ */
+const WorkpadPatch = Type.Optional(Type.Unknown({
+	description: "Host-only working notes. The host strips this before the table sees the call and files it only if this exact delivery lands; a malformed, oversized, refused, split, cancelled or stale patch is silently dropped and the delivery itself is unchanged — never rewrite the delivery to fix a patch. Shape: {focus?: string (one line, at most 200 chars), upserts?: array of at most 8 {id: short stable name you choose (letters, digits, dot, dash, underscore; reusing an id replaces that item), kind: \"open_question\" | \"hypothesis\" | \"conditional_continuation\", text: one short sentence in your own words, at most 200 chars, never a receipt number or a settled outcome, status?: \"tentative\" | \"needs_recheck\" | \"discarded\", defaults to tentative, evidence: array of 1–4 names from the current coc-workspace index this item rests on, such as npc:gardener or turn:12}, removes?: array of at most 8 earlier ids to remove; the whole patch stays under 1 KiB and every upsert must cite evidence the index actually showed you. Notes are your private scratchpad across turns: they never become facts, clues obtained, obligations, notes, rulings, admissions or player-visible anything, and they never replace a fresh lookup",
+}));
+
 const EndingEffect = Type.Object({
     kind: StringEnum(["ending"] as const),
     scope: StringEnum(["chapter", "campaign"] as const, { description: "chapter leaves the same campaign playable; campaign is only the final end of the entire adventure, never a pause or a chapter boundary. For an incorrectly completed legacy chapter, scope chapter reclassifies the existing ending without repeating its accounting; narrate commits the correction before continuing" }),
@@ -617,6 +627,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 
 			options: Type.Array(Type.String(), { minItems: 2, description: "Mechanics: only push, spend_luck, accept, dodge, fight_back, flee. Never automatically ask after a failed roll." }),
 			binds: Type.Optional(Type.String({ description: "the name of the pending choice this binds to" })),
+			workpad_patch: WorkpadPatch,
 		}),
 	},
 	{
@@ -629,6 +640,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 		parameters: Type.Object({
 			using_skill: UsingSkill,
 			text: Type.String({ description: "this turn's narration, delivered to the player verbatim, with each mechanic's {{marker}} at the point it happened and every spoken line inside {{say:Name}}…{{/say}}" }),
+			workpad_patch: WorkpadPatch,
 		}),
 	},
 ];

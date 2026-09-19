@@ -39,6 +39,7 @@
  */
 
 import { appendFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { dirname, join } from 'node:path';
 import { SETUP_STEPS, SETUP_TABLE } from "./setup-steps.mjs";
 
@@ -55,6 +56,36 @@ let received = 0;
 let turn = 0;
 let state = "awaiting_player";
 let materialPending = process.env.FAKE_KERNEL_MATERIAL_PENDING === "1";
+
+/**
+ * KIC-04 fixture: when set, the capsule carries a real `_context` binding plus an active
+ * `keeper-context` package (mode on), and `table.workspace.read` answers with a valid snapshot
+ * bound to the current turn. The state stamp is per-turn, so entries published on an earlier
+ * turn are stale on the next one — exactly the invalidation the projection has to show.
+ */
+const WORKSPACE_ON = process.env.FAKE_KERNEL_WORKSPACE === "1";
+const WORKSPACE_REVISION = "a".repeat(64);
+const workspaceStamp = (t) => createHash("sha256").update(`workspace-stamp:${t}`).digest("hex");
+const workspaceScope = () => ({ campaign: CAMPAIGNS[0].id, worldline: "main", loop: 0 });
+const workspaceContext = () => ({
+	version: 1,
+	campaign: CAMPAIGNS[0].id,
+	worldline: "main",
+	loop: 0,
+	turn,
+	source_revision: WORKSPACE_REVISION,
+	memory_coverage: { committed: turn, completed: turn, gaps: 0, recent: [], older: { gaps: 0 } },
+});
+const workspaceRef = (locator, kind) => ({
+	id: createHash("sha256").update(`id:${locator}`).digest("hex"),
+	locator,
+	kind,
+	authority: "module_source",
+	scope: workspaceScope(),
+	source_revision: WORKSPACE_REVISION,
+	identity: createHash("sha256").update(`identity:${locator}`).digest("hex"),
+	coverage: "complete",
+});
 
 // 契约第 4 节：能回 pending_turn，说明上次进程死在回合中途，状态是 open 或 acting。
 if (process.env.FAKE_KERNEL_PENDING === "1") {
@@ -292,6 +323,10 @@ function capsule(playerText) {
 			: [],
 		warnings: [],
 		truncated: [],
+		...(WORKSPACE_ON ? {
+			_context: workspaceContext(),
+			mods: { instructions: [{ mod: "keeper-context", version: "1.0.0", settings: { mode: "on", workspace_bytes: 24576 }, form: "full", instruction: "workspace on" }] },
+		} : {}),
 	};
 }
 
@@ -802,6 +837,21 @@ function handle(method, params) {
 		}
 		case "table.capsule":
 			return { ok: true, result: capsule(null) };
+		case "table.workspace.read": {
+			if (!WORKSPACE_ON) return { ok: false, error: { code: "unknown_method", message: `fake kernel does not know ${method}` } };
+			return {
+				ok: true,
+				result: {
+					version: 1,
+					status: "valid",
+					binding: { ...workspaceContext(), stateStamp: workspaceStamp(turn), generation: 1 },
+					source: { available: true, revision: WORKSPACE_REVISION, authority: "module_source", generation: 1 },
+					authority: { checked: true, allowed: ["module_source", "campaign_adaptation", "table_record"], scope: workspaceScope() },
+					coverage: { static: { status: "complete", count: 2, ready: 2, omitted: 0 }, records: { status: "complete", count: 0, omitted: 0 } },
+					manifest: { version: 1, static: [workspaceRef("npc:gardener", "npc"), workspaceRef("scene:estate", "scene")], records: [], truncated: false },
+				},
+			};
+		}
 		case "table.status":
 			// Contract §16.2: `table.status` carries this turn's mechanics projection too.
 			return { ok: true, result: { turn, state, receipts: [], pending_choice: null, mechanics: [...turnMechanics] } };

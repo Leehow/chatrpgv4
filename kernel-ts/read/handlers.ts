@@ -12,6 +12,7 @@ import { SessionView } from "./session-view.js";
 import { RuleObservations } from "./rule-facts.js";
 import { buildCapsule } from "./assemble.js";
 import { contextBinding } from "./context.js";
+import { workspaceRead } from "./workspace.js";
 import { clockSection, sceneLabel, personLabel, clueLabel, npcsPresent, cluesHere, whereSection, presentSection, npcView, investigatorView, fittedModuleSection } from "./capsule.js";
 import { incapacitatedBy } from "../healing/conditions.js";
 import { crossLineReader } from "./worldline.js";
@@ -329,6 +330,7 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
                 pending_choice: turn.pending_choice ?? null
             };
         },
+        "table.workspace.read": async (params) => workspaceRead(context, params),
         "table.capsule": async (params) => {
             if (params.rehydrate != null && typeof params.rehydrate !== 'boolean')
                 throw new RpcError('invalid_params', 'params.rehydrate must be boolean when supplied');

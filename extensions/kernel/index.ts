@@ -21,6 +21,9 @@ import { MAP_DOCUMENT_NONE, renderMapView, type MapAttachment } from './map-view
 import { AUTHORED_MAP_WORDS, KEEPER_MAP_WORDS, mapCardTexts, type MapWordsOptions, prepareMapWords, projectMapCard, readMapWords } from '../module/map-presentation.ts';
 import { COC_TOOLS, COC_TOOL_NAMES, type CocToolSpec, WRITE_TOOLS } from "./tools.ts";
 import { RecallPages } from "./recall-pages.ts";
+import { workspaceModeOf } from '../table/workspace/projection.ts';
+import { bindWorkpadPatch, publishWorkpadPatch, takeWorkpadPatch, type WorkpadBinding } from '../table/workspace/workpad.ts';
+import { workpadStoreRoot } from '../table/workspace/workpad-store.ts';
 import { randomUUID } from "node:crypto";
 import { type CommitPayload, runVerifierLane } from "./verifier.ts";
 import {
@@ -180,6 +183,8 @@ interface TableState {
 	telemetryPath: string;
 	/** The campaign's play_language, used to tell the verifier lane which language to write `why` in; not mentioned when the kernel gives none. */
 	playLanguage?: string;
+	/** The keeper-context package's own mode from the current capsule (contract §19.2): off reads and writes nothing. */
+	workpadMode: "off" | "shadow" | "on";
 	turn: number;
 	state: TurnState;
 	/** The ordinal of state-changing calls minted this turn. */
@@ -2515,6 +2520,19 @@ export default function (pi: ExtensionAPI) {
 		if (!state) {
 			throw new Error(startupError ?? "the kernel is not up, so this table cannot open");
 		}
+		// KIC-04 (contract §19.2). The workpad patch is host-only: it is deleted from the arguments
+		// before the payload exists, so Mod hooks, admission and the kernel never see it. What
+		// survives here is a binding to the call-start snapshot or nothing; either way the delivery
+		// below is byte-identical and no model round is ever spent on a dropped draft.
+		const workpadRaw = takeWorkpadPatch(spec.name, params);
+		let workpad: WorkpadBinding | undefined;
+		if (workpadRaw !== undefined) {
+			workpad = await bindWorkpadPatch({
+				workspaceRead: (campaign) => state.kernel.call("table.workspace.read", { campaign }),
+				root: () => sessionCtx ? workpadStoreRoot(cocHome(sessionCtx.cwd)) : undefined,
+				record: (row) => void record(row),
+			}, spec.name, state.campaign, state.workpadMode, workpadRaw);
+		}
 		// Whether this narrate closes the opening turn, read before the success path clears the flag: the
 		// Keeper's opening is the one delivery that carries the beginner's "?" fold (opening-guidance §4).
 		const closesOpening = spec.name === "narrate" && state.openingPending;
@@ -2700,6 +2718,10 @@ export default function (pi: ExtensionAPI) {
 					...(state.session?.kind ? { session_kind: state.session.kind } : {}),
 				});
 			}
+			// The delivery truly landed: the kernel returned and the bookkeeping above ran. Only now is
+			// the bound patch published; every failure mode — abort, refusal, split delivery, revision
+			// conflict, quota — drops it inside publishWorkpadPatch without touching this result.
+			if (workpad) await publishWorkpadPatch({ record: (row) => void record(row) }, workpad, signal);
 			return {
 				content: [{ type: "text", text: JSON.stringify(result) }],
 				details: result,
@@ -2710,6 +2732,10 @@ export default function (pi: ExtensionAPI) {
 			};
 		} catch (error) {
 			if (spec.name === "resolve") noteCombatSceneRequired(state, error);
+			// A refused, cancelled or timed-out delivery never publishes its patch. The drop is one
+			// telemetry row beside the refusal; the delivery's own error handling stands unchanged.
+			if (workpad) void record({ lane: "workpad", event: "dropped", reason: "delivery_failed",
+				turn: workpad.turn, code: isKernelError(error) ? error.code : "internal" });
 			// Contract §78: this effect did not happen, and the delivery behind it in the same message
 			// was written before anyone knew that. While that narrate is still pending the repair is
 			// available and the `tool_call` gate takes it; once that gate is spent for this turn the
@@ -2974,6 +3000,7 @@ export default function (pi: ExtensionAPI) {
 				kernel,
 				campaign,
 				telemetryPath: join(cocHome(ctx.cwd), ".coc", "campaigns", campaign, "telemetry.jsonl"),
+				workpadMode: "off",
 				turn: 0,
 				state: "awaiting_player",
 				callOrdinal: 0,
@@ -3417,6 +3444,9 @@ export default function (pi: ExtensionAPI) {
 			});
 			// §13.11: append host guidance to a fresh view; the raw kernel capsule is never changed.
 			let capsule = result.capsule ?? {};
+			// The package's own mode rides the capsule the table already holds (contract §19.2); the
+			// workpad gate reads it from here so a patch is bound only when the layer is enabled.
+			state.workpadMode = workspaceModeOf(capsule);
 			if (state.skillRun?.enabled && runtime) {
 				try {
 					const skills = projectSkillCards(JSON.parse(await readFile(join(runtime.contentRoot, "skills", "draft.json"), "utf8")));

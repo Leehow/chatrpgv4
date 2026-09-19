@@ -4,11 +4,11 @@
 
 ## 为什么是扩展，而不是改动现有链路
 
-重排只对「候选列表」有意义，而候选列表来自检索。当前产品里真正产生候选列表的是 `lookup`（模组文本检索）与 `recall`（战役记忆），两者现在都返回未排序列表。把它们改成先重排再交给守秘人，是**产品行为的变化**，不属于「加一个可配置的供应商」这件事本身。所以本切片只交付能力与配置面：
+重排只对「候选列表」有意义，而候选列表来自检索。当前产品里真正产生候选列表的是 `lookup`（模组文本检索）与 `recall`（战役记忆），两者现在都返回未排序列表。把它们改成先重排再交给守秘人，是**产品行为的变化**，不属于「加一个可配置的供应商」这件事本身。供应商能力与配置面仍由本扩展负责；KIC-05 现在通过 table workspace selector 作为一个可选 host consumer 使用它，但不改公开 `lookup`/`recall` 结果：
 
 - **谁写**：PipiUI 设置面板。本包贡献一个**受控设置节**（`app/settings-rerank.js`）：选供应商 → 该厂商的模型下拉 → 贴 API key。`provider` 与 `model` 是普通设置，`apiKey` 是 `format: "secret"`（进加密 vault，密文与独立 key 文件落盘）。
 - **谁读**：`agent/index.js` 的 `rerank()`，配置经 spawn 注入的 env 读入（见下）。
-- **谁据它行动**：本切片只有 `/rerank:test`（一次性验证 key 能不能用）。真正的消费者（`lookup` / `recall` / 模组深读）**尚未接线**，接哪条是下一步的产品决定。
+- **谁据它行动**：`/rerank:test` 仍是独立配置探针；KIC-05 的 workspace selector 在候选最终截断前，把已通过 scope/authority/state 过滤的有限 candidate pool 交给 `rerank()`。它最多每个请求代次调用一次，结果只改变 advisory workspace 的稳定顺序；未知/重复 ID、非有限分数、超时、限流、未配置或取消立即回到确定性顺序，不重试、不把分数暴露给 Keeper、不改变公开 `lookup`/`recall` 或 action authority。
 
 ### 受控设置节需要宿主收录（否则不存在）
 

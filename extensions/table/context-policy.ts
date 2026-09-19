@@ -15,6 +15,8 @@ export const UNCLASSIFIED_BYTES = 16 * 1024;
 export const HISTORY_TYPE = 'coc-history';
 export const BRIEF_TYPE = 'coc-context-brief';
 export const DIAGNOSTIC_TYPE = 'coc-context-status';
+/** Transport-only KIC workspace (contract §19.2): injected per request, never persisted. */
+export const WORKSPACE_TYPE = 'coc-workspace';
 export const POLICY_VERSION = 2;
 export type Row = Record<string, any>;
 export interface ContextBinding {
@@ -173,7 +175,9 @@ const LEGACY_TURN_NOTES = new Set(['opening', 'recovery', 'steer', 'floor', 'pla
 function closedNoise(message: Row): boolean {
     if (['user', 'assistant', 'toolResult', 'compactionSummary'].includes(message.role)) return true;
     if (message.role !== 'custom') return false;
-    if (['coc-capsule', HISTORY_TYPE, BRIEF_TYPE, DIAGNOSTIC_TYPE].includes(message.customType)) return true;
+    // A coc-workspace from an older binding is regenerated for the current request or omitted;
+    // keeping one would let stale evidence ride every later turn as unclassified material.
+    if (['coc-capsule', HISTORY_TYPE, BRIEF_TYPE, DIAGNOSTIC_TYPE, WORKSPACE_TYPE].includes(message.customType)) return true;
     const details = object(message.details);
     if (message.customType === 'coc-delivery' && details.coc_delivery === true && Number.isSafeInteger(details.turn)) return true;
     return message.customType === 'coc-host' && (details.kind === 'compacted'
@@ -182,7 +186,7 @@ function closedNoise(message: Row): boolean {
 }
 export interface Projection {
     messages: Row[]; start: number; protectedBytes: number; unknownBytes: number;
-    degraded?: string; droppedTail?: number; droppedUnknown?: number; overCeiling?: boolean;
+    degraded?: string; droppedTail?: number; droppedUnknown?: number; overCeiling?: boolean; workspaceKept?: boolean;
 }
 /**
  * The one request projection, and the one place the ceiling is enforced. Every exit fits
@@ -191,6 +195,7 @@ export interface Projection {
  */
 export function projectedMessages(input: {
     messages: Row[]; binding: ContextBinding; history: Row; brief?: Row; answering?: string[]; budget?: number;
+    workspace?: Row;
 }): Projection {
     const {messages, binding} = input, budget = input.budget ?? requestBudget();
     const fallback = (degraded: string): Projection => {
@@ -214,13 +219,24 @@ export function projectedMessages(input: {
     const opening = tail.slice(0, capsule < 0 ? 1 : capsule + 1), working = tail.slice(opening.length);
     // Retained pre-boundary material is unclassified, not authoritative: the ceiling takes it first.
     let droppedUnknown = 0;
-    const room = (): number => Math.max(0, budget - sizeOf([...unknown, ...brief, history, ...opening]));
+    const fixed = (extra: Row[]): Row[] => [...unknown, ...brief, history, ...opening, ...extra];
+    const room = (extra: Row[]): number => Math.max(0, budget - sizeOf(fixed(extra)));
     while (unknown.length && sizeOf(unknown) > Math.min(UNCLASSIFIED_BYTES, budget)) {unknown = unknown.slice(1); droppedUnknown++;}
-    let cut = boundedTail(working, room());
-    while (unknown.length && cut.over) {unknown = unknown.slice(1); droppedUnknown++; cut = boundedTail(working, room());}
-    const projected = [...unknown, ...brief, history, ...opening, ...cut.messages];
+    let cut = boundedTail(working, room([]));
+    // The optional workspace joins only when it displaces no current material: if this turn's own
+    // traffic is already being cut, or would have to be cut to fit it, the workspace is omitted.
+    // Current capsule, the player's words, pending context, tool pairing and the ceiling all
+    // precede it (contract §19.2); a missing workspace is a miss, never a degraded request.
+    const optional = input.workspace ? [input.workspace] : [];
+    let workspaceKept = false;
+    if (optional.length && !cut.over && !cut.dropped) {
+        const widened = boundedTail(working, room(optional));
+        if (!widened.over && !widened.dropped) {cut = widened; workspaceKept = true;}
+    }
+    while (unknown.length && cut.over) {unknown = unknown.slice(1); droppedUnknown++; cut = boundedTail(working, room(workspaceKept ? optional : []));}
+    const projected = [...fixed(workspaceKept ? optional : []), ...cut.messages];
     const over = cut.over || sizeOf(projected) > budget;
-    return {messages: projected, start,
+    return {messages: projected, start, ...(workspaceKept ? {workspaceKept} : {}),
         protectedBytes: sizeOf(opening) + sizeOf(cut.messages) + (brief.length ? sizeOf(brief) : 0), unknownBytes: unknown.length ? sizeOf(unknown) : 0,
         ...(cut.dropped ? {droppedTail: cut.dropped} : {}), ...(droppedUnknown ? {droppedUnknown} : {}),
         ...(over ? {overCeiling: true} : {}),

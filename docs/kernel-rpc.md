@@ -163,6 +163,40 @@ Inherited worldlines follow canonical restore snapshots, not equality filters on
 The task-3 outbound/fold policy will cache and invalidate this rehydration by context epoch;
 that host consumption is not claimed implemented by this contract amendment.
 
+### table.workspace.read（宿主向；KIC-02 read-side snapshot）
+
+This host-only method is the KIC-02 workspace read contribution described in §19.2. It is not
+visible in the Keeper tool surface and does not add a verb. The TypeScript read handler returns a
+bounded, read-only manifest of static module and complete formal-record references from one
+consistent snapshot, bound to the current campaign, worldline, loop, turn, source revision and
+independent dynamic state stamp. It returns `unverifiable` rather than treating missing or stale
+source/state/coverage as valid evidence, and has no transition, receipt, call id, event, job,
+adaptation or world write. The KIC-03 selector/projection consumes this method from the table
+extension (see the KIC-03 implementation record in §19.2); the KIC-04 Workpad consumes it for
+call-start patch binding (see the KIC-04 implementation record in §19.2); the KIC-05 rerank consumer is implemented as an optional host adapter over the pre-truncation candidate pool; it never changes public lookup/recall or action authority.
+
+The KIC-04 Workpad strip/publish host path also consumes this method once per delivery
+call that carries a patch (call-start binding only). Read-side semantics (KIC-02, binding):
+
+- Formal records are loaded explicitly. A reference names one canonical committed record under the
+  existing authority convention (`closed_by === "narrate"` with a non-empty campaign `commit`).
+  turn-0 implicit, ask, stranded or commit-less records carry no authority here; they are skipped
+  and never mark an otherwise valid snapshot `unverifiable`.
+- Static and record references share one bounded manifest budget, with a reserved record slice, so
+  a large static module can never crowd record references out entirely. Quota omission of either
+  kind is reported as `truncated: true` with `omitted` counts on a `valid` snapshot; it is never a
+  status downgrade. Only a records read that itself failed leaves the snapshot `unverifiable`.
+- A node the table or a reviewed adaptation minted (`campaign_origin`) carries authority
+  `campaign_adaptation`, not `module_source`; a node whose source material is not prepared degrades
+  to `unavailable` coverage and the static coverage section reports `partial`. References carry an
+  `identity` hash for provenance deduplication — never a body hash, because no evidence body
+  travels in a manifest; an EvidenceStore `content_hash` is minted only by a host `put` over the
+  same bounded body, and a manifest reference cannot be replayed into the store as one.
+- `stateStamp` covers the whole current dynamic state before any dynamic view is bound to it:
+  world, current turn, party sheets and the session saves (combat, chase, sanity states). It is a
+  validation stamp only; unverified dynamic state is never stored as fact, and the snapshot itself
+  remains static/record references only.
+
 ### table.status（切片 0）
 result：`{"turn": int, "state": "...", "receipts": [...本回合收据摘要], "mechanics": [...本回合的 §16.2 投影], "labels": {...玩家语言词表}, "pending_choice": null | {...}}`。
 - `mechanics` 与 `labels` 是交付时那张卡的同一份投影与同一份词表（§16.2、§23）；一条没能交付的回合靠它们把已结算的事实送到玩家面前（§50）。
@@ -1690,7 +1724,9 @@ and Pi 0.85.1 `docs/models.md` (`thinkingLevelMap`).
 [bounded-play-context](specs/bounded-play-context.md), D1–D5/D8/D9, is the approved successor to
 this section's cumulative fold. One pure selection policy in the table extension serves both the
 outbound `context` projection and persisted `session_before_compact` adapter; no second compressor,
-model summary, Pi fork, new memory store or foreground semantic lane is introduced.
+model summary, Pi fork or foreground semantic lane is introduced. KIC's bounded, discardable,
+host-owned evidence cache and optional deterministic rerank adapter are the named exceptions:
+neither is a second memory registry, a world-state store, or a foreground semantic lane.
 
 - Closed-history contribution has a **32 KiB serialized UTF-8 ceiling per outbound request**,
   with at most 4 KiB of omission/coverage/recall metadata inside that same budget. Prefer the latest
@@ -1734,6 +1770,168 @@ model summary, Pi fork, new memory store or foreground semantic lane is introduc
 Implementation and actual outbound-Pi integration checks belong to `bounded-context-policy`;
 genuine continuity/restart/cost verification belongs to `context-live-acceptance`. Neither is
 claimed complete by this interface amendment or the legacy tests below.
+
+#### KIC workspace contract (KIC-01; contract and catalog only)
+
+KIC adds one optional, host-owned layer above this bounded policy. Its evidence cache is a
+bounded, discardable performance resource, not world state: it may contain only references to
+verified static or record evidence and short workpad drafts, may be evicted or rebuilt at any
+time, is never copied into `world.mods`, campaign commits, formal memory, notes, rulings,
+obligations or player-visible records, and does not grant knowledge across campaigns or
+worldlines. The cache must fail as a miss when scope, permission, source revision or dynamic
+state cannot be verified. `source_revision` remains the effective-source identity; a future
+workspace `stateStamp` is a separate current-state binding and must not be inferred from a turn
+number or from `source_revision`.
+
+The host binds every workspace read, evidence reference, workpad patch and projection to an
+opaque `{campaign, worldline, loop, turn, source_revision, stateStamp, generation}` identity.
+The binding is host-only and is never supplied by a Keeper or copied into player UI, admission,
+Mod text, tool arguments, receipts or call ids. `table.workspace.read` is the KIC-02 host-only,
+read-side handler. It assembles a bounded reference manifest from the current consistent snapshot
+and existing module/source bindings, but it must not open or advance a turn, call `touchActing`,
+mint a call id or receipt, roll, advance time, publish an adaptation, start a reader or memory
+job, or write world/campaign state. This method is a closed method-table entry, not an eighth
+Keeper verb; the KIC-03 projection, KIC-04 Workpad and KIC-05 rerank adapter are delivered as core host work; there is no Python registration or fallback path.
+
+The sole model-facing workspace message is the transport-only `coc-workspace` custom message.
+For one `{campaign, worldline, loop, turn, generation}` it contains at most one current
+projection, a bounded set of evidence groups, short Workpad items and bounded omission
+information; it never contains private cache paths, opaque ids, provider secrets or rank
+scores. Projection is idempotent: remove older `coc-workspace` messages for the same session
+before inserting the one current binding, and never duplicate tool calls/results, receipts,
+call ids or current capsule authority. It is classified by the same bounded context policy and
+has its own KIC budget (initially 24 KiB, including serialized evidence, Workpad and omission
+metadata) inside the existing request ceiling. If the budget or binding is unavailable, omit the
+optional message and use the existing capsule, bounded history and lookup/recall paths. The
+message is Keeper-only; it is not sent to player UI or action admission.
+
+KIC-03 selection is delivered as deterministic host work in the table extension
+(`extensions/table/workspace/projection.ts`, wired in `context-runtime.ts`). Each prepared
+binding reads
+`table.workspace.read` once and hard-filters the snapshot: a status that is not `valid`, any
+campaign/worldline/loop/turn/source-revision mismatch, unchecked authority, a missing state
+stamp, a reference whose scope, source revision, coverage or authority does not admit it, or a
+metadata floor that cannot fit the budget all omit the message (fail-open), never degrade it.
+Admissible references
+deduplicate by locator and pack in stable source order — `module_source` by locator,
+`campaign_adaptation` by locator, then
+`table_record` by turn — into the `keeper-context` settings budget (clamped to the 24 KiB KIC
+ceiling), carrying locator/kind/turn names only, never hashes, cache paths or claimed body
+truth, with filtered and omitted counts always reported; the message is explicitly advisory and
+names where verified material lives, never the material. The mode is the package's own scalar
+setting read from the capsule the host already holds: `off` (and no package, or an unknown
+value) reads nothing and injects nothing; `shadow` selects and records telemetry without
+injecting; `on` injects. Selection and omission are recorded on the `workspace` telemetry lane.
+The request path keeps at most one current `coc-workspace` message per
+binding — older ones are closed noise for projection and fold alike, never unclassified retained
+material, and a persisted copy is stripped before the one current message is injected after the
+current capsule — and the current capsule, the player's own words, any pending choice, tool
+pairing and the existing request ceiling all take precedence over it: when this turn's own
+traffic would have to be cut to fit the workspace, the workspace is omitted instead. A
+workspace read that fails, a snapshot that is not valid and a budget that cannot hold the
+envelope are misses on the optional layer; the bounded history, brief and lookup/recall paths
+are unchanged. Workpad and rerank: the Workpad is delivered (KIC-04 record below); rerank remains
+unimplemented.
+
+The optional `workpad_patch` direction is host-only on `narrate` and `ask`. The host strips it
+before Mod, admission and kernel parameter validation, binds it to the call's starting
+campaign/worldline/loop/turn/stateStamp and Workpad revision, and publishes it only after the
+same delivery succeeds. It is limited to reversible questions, tentative hypotheses and
+conditional continuations that reference existing evidence. It cannot be a fact, obligation,
+player choice, ruling, authorization, hidden chain of thought or a reason to skip lookup.
+Invalid, stale, over-budget, cancelled, refused or partially delivered patches are discarded
+without changing delivery semantics. This is a contract direction for a later slice, not a
+KIC-01 schema or persistence implementation.
+
+##### KIC-04 implementation record (Workpad lifecycle; delivered)
+
+The host-only `workpad_patch` parameter exists on the `narrate` and `ask` tool schemas. Its
+closed shape is `{focus?: string, upserts?: [{id, kind: "open_question" | "hypothesis" |
+"conditional_continuation", text, status?: "tentative" | "needs_recheck" | "discarded",
+evidence: [locator...]}], removes?: [id...]}`. There is no confidence number, no
+confirm-as-fact, no `do_not_research`, no arbitrary JSON Pointer and no free-form payload: the
+host validates the patch strictly against this shape, and any unknown key, oversized text, bad
+identifier or missing evidence name discards the whole patch. Every upsert must cite at least
+one evidence entry that exists in the same call-start snapshot — a module locator or a committed
+record locator from `table.workspace.read` — so a workpad item cannot rest on invented sources.
+The host deletes the patch from the call arguments before the payload is built, so Mod hooks,
+action admission, the kernel RPC and every player-visible surface never see it; the model-facing
+result of the delivery is byte-identical whether a patch was carried, dropped or published, and
+no model round is ever spent on repairing a draft.
+
+When the package mode is not `off`, the host binds a carried patch at call start: one
+`table.workspace.read` gives the `{campaign, worldline, loop, turn, stateStamp}` binding and the
+evidence universe, and the Workpad store's current revision is the patch's base revision. The
+patch publishes only after the same delivery call truly succeeds — the kernel returned, the
+delivery bookkeeping ran and the call was not aborted. A kernel refusal (including any
+language-backed refusal), a cancellation or timeout, a split-delivery or ordering refusal, an
+unavailable or unverifiable binding and an unverified evidence name all discard the patch with a
+telemetry row on the `workpad` lane and leave the delivery semantics untouched. A second patch
+bound to the same base revision loses the revision compare and is discarded; there is no model
+merge. `mode: "off"` silently drops patches: nothing is read and nothing is written. `shadow`
+runs the full lifecycle but injects nothing; `on` adds the projection below.
+
+The Workpad store is a host cache beside the evidence store under
+`<home>/.coc/workspace-cache/workpad`, one bounded file per `{campaign, worldline, loop}` scope.
+It is rebuilt from nothing at any time: a corrupt, oversized, foreign-scope or stale-revision
+file reads as an empty workpad, and a publish overwrites atomically (temporary file plus
+rename, writes serialized per store). The whole workpad is bounded to 2 KiB serialized and one
+patch to 1 KiB, with hard caps on item count, text length, identifier length and cited evidence
+names; a patch that would push the workpad past a bound is discarded as over-limit, never
+silently evicting the Keeper's earlier items. Entries carry the turn and state stamp they were
+published under. A scene or state change never deletes them: on a later binding they are marked
+`stale` and carry `needs_recheck` in the projection, and the same item re-published refreshes
+its binding. Switching worldline or loop starts a separate empty workpad — nothing is inherited
+or merged across lines — and the dormant line's file is retained for a later return. The store
+never writes world state, campaign commits, Git, notes, rulings, obligations, memory or player
+records, and it is not a fact store: the workpad is the Keeper's own reversible working notes.
+
+Projection joins the existing KIC-03 `coc-workspace` message (contract above): short workpad
+entries — the Keeper's own item name, kind, status, text and cited evidence names, plus the one
+focus line — are appended after the evidence entries inside the same budget, current entries
+first, stale (`needs_recheck`) entries after, dropped for budget before any evidence entry is
+dropped, with an omission count reported. They appear only where the KIC-03 mode gate already
+injects the message: nothing in `shadow` or `off`, nothing persisted to the branch, nothing in
+player UI, admission, notes, rulings or obligations, and never an action authorization or a
+reason to skip lookup. Rerank is optional host work and never enters the player UI/admission path.
+
+##### KIC-05 implementation record (optional rerank consumer; delivered)
+
+The table workspace lane widens and hard-filters a host-only candidate pool before the model-facing
+manifest cut. It keeps the raw player words as query, sends only bounded `{id,text}` candidate
+pairs to the existing `extensions/rerank` adapter, calls at most once per prepared request
+binding, and caches by exact query/candidate/settings digest. Small pools skip the call. A missing
+configuration, timeout/cancel, provider error, duplicate/unknown/non-finite result or stale
+candidate set falls back to deterministic source order without retry or a model repair turn.
+Scores remain host-only and never enter `coc-workspace`; the projection carries only advisory
+locators/kinds/turns/authority/coverage. KIC-05 does not alter public `lookup`/`recall`, grant
+truth or action authority, or add a Keeper verb.
+
+Rerank is an optional host adapter over the pre-truncation candidate pool, never a new recall
+source. The pool is first filtered by campaign/worldline scope, permissions, source/state
+validity and authority, then widened and deduplicated from existing module, record and memory
+candidate paths. It must not claim to recover candidates already omitted by those paths or
+change public `lookup`/`recall` results. At most one call is allowed per request generation,
+and an unchanged query/candidate binding is not called again. The input is the minimum
+permitted `{id, text}` candidate data, subject to an explicit data licence; no secrets, player
+UI, complete tool results or opaque tokens are sent. A missing configuration, cancellation,
+timeout, rate limit, malformed response, unknown/duplicate id, non-finite score or stale
+binding immediately falls back to the deterministic candidate order without a retry or a
+main-model explanation round. Scores only order already-authorized candidates: they never
+establish truth, completeness, permission, action admission or tool arguments.
+
+The package contribution is deliberately inert. `context.workspace.v1` is the TypeScript
+production capability that permits the future `keeper-context` package to declare only English
+`instructions` plus per-turn `brief` and scalar mode/budget settings. The package has no
+executable payload, Keeper tool, kernel/Pi object, cache, workspace body or world-state write;
+without the package, or with its `mode` set to `off`, the existing bounded context and seven
+Keeper verbs are unchanged. The package is default-off so A/B/C/D/E experiments can enable
+static workspace guidance, Workpad and rerank independently. An enabled package still cannot make later consumers available: `coc-workspace` projection,
+Workpad and rerank remain core host work; `table.workspace.read` and its caches remain outside
+package code.
+
+This is the TypeScript production contract. The retired Python kernel is not a second
+implementation, compatibility registration point or fallback for this method or capability.
 
 #### Legacy cumulative fold (superseded design; retained evidence)
 
@@ -3863,6 +4061,28 @@ never import kernel or Pi implementation objects. The current adapter translates
 these contributions into the seven verbs, the existing transaction and host jobs.
 The kernel owns dice, identities, validation, world changes and persistence; a Mod
 owns its policy, prompts, presets and tests. No Mod may overwrite authored source.
+
+### Host-only workspace capability (KIC-01; TypeScript production path)
+
+`context.workspace.v1` is a closed TypeScript kernel capability registration for the optional
+`keeper-context` policy package. It does not grant a package access to the Pi session, kernel
+objects, player UI, secrets, evidence bodies, world state or executable code. A package requiring
+it may contribute only English `instructions`, a per-turn `brief`, and schema-checked scalar
+mode/budget settings. The capability exists so the package can be catalogued and version-locked;
+it does not itself install a reader, a cache, a projection, a Workpad, a candidate expander or a
+rerank consumer.
+
+`table.workspace.read` is the corresponding host-only method-table entry and read handler. It is
+not in the seven Keeper verbs; no Mod can add or implement it. The KIC-02 handler is binding-aware
+and read-only as specified in §19.2. The capability registration and package default-off remain;
+the KIC-03 selector/projection and KIC-04 Workpad strip/publish/projection are delivered as core
+host work in the table and kernel extensions; KIC-05 rerank is an optional host adapter only,
+with no Python registration or fallback path.
+
+The existing Mod safe boundary remains in force: package activation can change only the package's
+own instructions, brief and declared settings. `mode: "off"` is the default and is suitable for
+A/B/C/D/E ablation. Turning the package off or omitting it leaves bounded history, capsule,
+lookup, recall and all seven verbs unchanged and never deletes formal records or evidence.
 
 The first implementation supports declarative percentile decisions (a maximum of
 named actor values, target-scoped reuse and result mappings), generated weapon,
