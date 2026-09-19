@@ -12,6 +12,9 @@ import {stanceTable} from '../write/contributions.js';
 import {required,nowIso} from '../write/store.js';
 import {effectId,type StagedEffect} from './bookkeeping.js';
 import {archetypeIds,rollArchetypeProfile} from './archetype.js';
+import {VALID_CONDITIONS} from '../combat/engine.js';
+import {incapacitatedBy} from '../healing/conditions.js';
+import {npcProfileOf} from '../resolve/context.js';
 import type {ApplyContext} from './index.js';
 export async function stageClue(context:ApplyContext,effect:Row):Promise<StagedEffect>{
     const name=required(effect,'clue')!,{world,graph}=context,turn=context.turn.turn;
@@ -74,7 +77,7 @@ function personOfEffect(context:ApplyContext,effect:Row,name:string,why:string|n
     catch(error){
         // A pin, an ambiguity, or a name the book has something to say about: the graph's own answer
         // stands, with the candidates it minted. Only a name it is silent on reaches the table.
-        if(effect.skill!=null||effect.archetype!=null||graph.candidates(name,['npc']).length)throw error;
+        if(effect.skill!=null||effect.archetype!=null||effect.conditions!=null||graph.candidates(name,['npc']).length)throw error;
     }
     const trimmed=name.trim(),people=array(world.table_people??=[]);
     const node=graph.addTablePerson(tablePersonId(trimmed),trimmed,{reason:why,turn:context.turn.turn});
@@ -87,6 +90,26 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
     const why=typeof effect.why==='string'&&effect.why.trim()?effect.why:null;
     const {node,established}=personOfEffect(context,effect,string(required(effect,'name')),why);
     const handle=graph.handle(node),{to,stance,dead}=effect;
+    if(effect.conditions!=null){
+        const combined=['to','stance','dead','skill','archetype'].filter(key=>effect[key]!=null);
+        if(combined.length)throw new RpcError('invalid_params','npc.conditions is its own state-changing effect',{fix:'put the condition change and the other npc change in two effects in the same atomic batch',details:{field:'npc.conditions',conflicts:combined}});
+        if(!isJsonObject(effect.conditions)||Object.keys(effect.conditions).some(key=>!['gained','lost'].includes(key)))throw new RpcError('invalid_params','npc.conditions must be {gained?: string[], lost?: string[]}',{fix:'name the rules conditions that became true or stopped being true',details:{field:'npc.conditions'}});
+        for(const key of ['gained','lost'])if(Object.hasOwn(effect.conditions,key)&&!Array.isArray(effect.conditions[key]))throw new RpcError('invalid_params',`npc.conditions.${key} must be a list`,{fix:'use a list of rules condition names',details:{field:`npc.conditions.${key}`}});
+        const gained=array(effect.conditions.gained).map(string),lost=array(effect.conditions.lost).map(string);
+        const options=sorted([...VALID_CONDITIONS].filter(value=>value!=='dead'));
+        const duplicates=[...gained,...lost].filter((value,index,all)=>all.indexOf(value)!==index);
+        const invalid=[...gained,...lost].filter(value=>!options.includes(value));
+        if(!gained.length&&!lost.length)throw new RpcError('invalid_params','npc.conditions needs at least one gained or lost condition',{fix:'name what became true or stopped being true',details:{field:'npc.conditions',options}});
+        if(duplicates.length)throw new RpcError('invalid_params',`npc.conditions repeats ${repr(sorted([...new Set(duplicates)]))}`,{fix:'each condition appears once, on only one side',details:{field:'npc.conditions',duplicates:sorted([...new Set(duplicates)])}});
+        if(invalid.length)throw new RpcError('invalid_params',`npc.conditions contains unsupported values ${repr(sorted([...new Set(invalid)]))}`,{fix:'use one of details.options; record death with dead: true',details:{field:'npc.conditions',options}});
+        const profile=npcProfileOf(graph,world,handle),before=[...new Set(array(profile?.conditions??row(row(world.npc_resources)[handle]).conditions).map(string))];
+        const after=before.filter(value=>!lost.includes(value));for(const value of gained)if(!after.includes(value))after.push(value);
+        const actualGained=after.filter(value=>!before.includes(value)),actualLost=before.filter(value=>!after.includes(value));
+        ((world.npc_resources??={})[handle]??={}).conditions=[...after];
+        const label=personLabel(world,handle,graph.displayName(node));
+        const receipt={id:effectId(context,'condition',handle),kind:'condition',call_id:context.callId,subject:handle,subject_label:label,subject_is_investigator:false,npc:handle,before,after,gained:actualGained,lost:actualLost,incapacitated:incapacitatedBy(after),visibility:'public',why,at:nowIso()};
+        return {receipt,event:{type:'npc-changed',data:{npc:handle,conditions:{before,after,gained:actualGained,lost:actualLost},why}}};
+    }
     const table=await stanceTable(context.kernel),words=array(table.levels).map(level=>level.value);
     if(dead!=null&&typeof dead!=='boolean')throw new RpcError('invalid_params','npc.dead must be true or false',{fix:'say true on the turn they died',details:{field:'npc.dead'}});
     let pinned=effect.skill??null;
@@ -106,7 +129,7 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
         if(truth(existing.archetype))throw new RpcError('invalid_params',`${graph.displayName(node)} already has a pinned ${string(existing.archetype)} profile from turn ${string(existing.pinned_turn)}`,{fix:'resolve against it; a pin is made once for the campaign',details:{field:'npc.archetype',actor:handle,archetype:existing.archetype,pinned_turn:existing.pinned_turn??null}});
         profile=await rollArchetypeProfile(context.kernel,archetype.trim(),why,number(context.turn.turn));
     }
-    if(to==null&&stance==null&&dead==null&&pinned==null&&profile==null)throw new RpcError('invalid_params','an npc effect needs `to`, `stance`, `dead`, `skill`, `archetype`, or a combination',{fix:`move them with to: here/away/<scene>, set stance to one of ${repr(words)}, say dead: true, pin a skill they have, or name an archetype for a person the book gave no numbers`});
+    if(to==null&&stance==null&&dead==null&&pinned==null&&profile==null)throw new RpcError('invalid_params','an npc effect needs `to`, `stance`, `conditions`, `dead`, `skill`, `archetype`, or a combination',{fix:`move them with to: here/away/<scene>, set stance to one of ${repr(words)}, change an explicit condition, say dead: true, pin a skill they have, or name an archetype for a person the book gave no numbers`});
     const presence=world.npc_presence??={};let moved:string|null=null;
     if(to!=null){
         if(typeof to!=='string'||!to.trim())throw new RpcError('invalid_params',"npc.to must be a scene name, 'here' or 'away'",{fix:'a scene name on the graph, or here / away',details:{field:'npc.to',options:['here','away']}});

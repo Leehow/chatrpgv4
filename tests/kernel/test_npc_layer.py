@@ -163,6 +163,49 @@ def test_apply_npc_needs_something_to_do_and_a_word_the_ledger_knows(kernel):
     assert "Steven Knott" in present(kernel)
 
 
+def test_apply_npc_conditions_write_the_existing_body_store_and_standard_receipt(kernel):
+    open_turn(kernel)
+    applied = kernel.table("apply", call_id="t1-c1", effects=[{
+        "kind": "npc", "name": "Steven Knott",
+        "conditions": {"gained": ["unconscious"]},
+        "why": "the poison took hold",
+    }])
+    assert applied["receipts"] == ["condition:steven-knott-t1-c1"]
+    state = present(kernel)["Steven Knott"]["state"]
+    assert state["conditions"] == ["unconscious"]
+    assert state["incapacitated"] == ["unconscious"]
+    assert "takes no action" in state["cannot_act"]
+
+    delivered = narrate(kernel, "t1-c2", "诺特失去知觉，倒在椅中。")
+    card = next(row for row in delivered["mechanics"] if row["kind"] == "condition")
+    assert card["gained"] == ["unconscious"] and card["lost"] == []
+    assert card["standing"] == ["unconscious"] and card["incapacitated"] == ["unconscious"]
+    assert card["subject_is_investigator"] is False and card["subject_label"] == "Steven Knott"
+
+    kernel.table("player_input", text="我检查他的呼吸。")
+    kernel.table("apply", call_id="t2-c1", effects=[{
+        "kind": "npc", "name": "Steven Knott",
+        "conditions": {"lost": ["unconscious"]},
+        "why": "the poison passed",
+    }])
+    assert "state" not in present(kernel)["Steven Knott"]
+
+
+def test_apply_npc_conditions_reject_unknown_overlap_death_and_combined_mutation(kernel):
+    open_turn(kernel)
+    for conditions in ({}, {"gained": ["sleepy"]}, {"gained": ["unconscious"], "lost": ["unconscious"]}, {"lost": ["dead"]}):
+        error = kernel.table_err("apply", call_id="t1-c1", effects=[{
+            "kind": "npc", "name": "Steven Knott", "conditions": conditions,
+        }])
+        assert error["code"] == "invalid_params"
+    combined = kernel.table_err("apply", call_id="t1-c1", effects=[{
+        "kind": "npc", "name": "Steven Knott", "to": "away",
+        "conditions": {"gained": ["unconscious"]},
+    }])
+    assert combined["code"] == "invalid_params"
+    assert "npc_resources" not in read_json(campaign_dir(kernel.workspace) / "world.json")
+
+
 def test_the_keeper_can_set_a_stance_and_the_reason_reaches_the_capsule(kernel):
     open_turn(kernel)
     kernel.table("apply", call_id="t1-c1", effects=[

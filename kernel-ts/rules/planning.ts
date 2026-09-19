@@ -64,8 +64,11 @@ export const SLOT_TO_ACTION: Readonly<Record<string, string>> = Object.freeze({
 export function noAvailableDecision(intent: string, considered: string[], withheld: Row[]): never {
     const unmet = new Map(withheld.map(value => [value.decision_ref, array(value.unmet)]));
     const explanation = [...unmet].filter(([, rows]) => rows.length).map(([ref, rows]) => `${semanticName(ref)}: ` + rows.map(value => `${value.path} is ${repr(value.actual)}, needs ${value.requirement}`).join(", ")).join("; ");
+    const missingNpcCondition = [...unmet.values()].flat().some(value => typeof value.path === 'string' && value.path.startsWith('actor.conditions.'));
     throw new RpcError("needs", `no rule decision is available for intent ${repr(intent)} in the current state${explanation ? ` (${explanation})` : ""}`, {
-        fix: "change action.intent, name action.decision, or resolve the state the unmet conditions describe",
+        fix: missingNpcCondition
+            ? "if the fiction already established the missing condition on an NPC, record it first with apply npc {name: <the NPC name>, conditions: {gained: [<condition>]}, why: <what established it>}, then resolve again; otherwise change action.intent, name action.decision, or establish the missing state without inventing it"
+            : "change action.intent, name action.decision, or resolve the state the unmet conditions describe",
         details: {
             needs: {
                 field: "intent",

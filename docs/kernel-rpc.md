@@ -1578,7 +1578,7 @@ contract one.
 - **`knows` 有两个来源，同一个出口。** `npc_knows` 合并以该 NPC 为主语的 `knows` claim 与 starter 记录里的 `facts[].clue_id`，按图上顺序去重。`npc_claim_lines` 取对象节点的 summary/name，再退到 claim 的 `statement`，只复制不改写。`npcs_knowing` 按 `knows` claim 反算 `known_by_ids`，不改图上已授权的那份。
 - **`min_trust` 丢弃。** starter 的 `facts[].min_trust` 没有任何消费者，投影时不带；没有规则读的数字不是事实。
 - **关系不新增。** `npc_ties` 只读 §17.2 列的十种关系，两个方向都读，按 `(种类, 对端)` 去重；`present` 里按「在场者 → 派系/组织 → 其余」排序后裁到 6 条。
-- **`apply npc` 的形状。** `{kind: "npc", name, to?, stance?, why?}`，`to` 取场景名、`here`（当前场景）或 `away`（下场），`stance` 取账本四词；两者全缺报 `invalid_params`。收据 `npc:<slug>-t<n>-c<k>`（句柄无拉丁 slug 时退到 `npc:t<n>-c<k>`，与 `item`/`cash` 同一条），事件 **`npc-changed`**（事件枚举因此从十八类变十九类）。`to` 写 `world.npc_presence`——位置的唯一真相仍在世界里，账本只引用。
+- **`apply npc` 的形状。** `{kind: "npc", name, to?, stance?, conditions?, why?}`，`to` 取场景名、`here`（当前场景）或 `away`（下场），`stance` 取账本四词；`conditions` 是 `{gained?: [...], lost?: [...]}`，只在叙事、毒物、法术或别的非伤害裁定真正改变这个人的规则状态时使用，词来自规则引擎的闭合 condition 表。死亡仍用既有 `dead: true`，不能借 condition 移除；同一个 npc effect 若带 `conditions` 就不兼带 `to`/`stance`/`dead`/`skill`/`archetype`，需要同时移动与改变状态时，把两条 effect 放在同一个原子 batch。全缺、两边都空、同一状态同时 gained/lost、未知状态或互斥字段报 `invalid_params`，不写任何世界状态。普通变体收据仍是 `npc:<slug>-t<n>-c<k>`（句柄无拉丁 slug 时退到 `npc:t<n>-c<k>`，与 `item`/`cash` 同一条），事件 **`npc-changed`**（事件枚举因此从十八类变十九类）。condition 变体写现有 `world.npc_resources[handle].conditions`，铸造与治疗/伤害同形的 `condition` 收据（`before/after/gained/lost/incapacitated/subject_label`，玩家可见）；它不是第二套 NPC 状态。`to` 写 `world.npc_presence`——位置的唯一真相仍在世界里，账本只引用。
 - **账本是收据的折叠，别的什么都不是。** `npc.apply_receipts` 只认四种收据：`roll`（互动与 stance）、`clue`（`from` → `disclosed`）、`npc`（守秘人显式改写）、`delta`（NPC 的 HP ≤ 0 → `dead`）。因此 `_rebuild_ledger` 重放 `turns/*.json` 与 `memory/candidates.jsonl` 就能重建整份账本——崩溃恢复、世界线切换、以及本切片之前的老战役第一次 `table.open`，走的是同一条路。只在文件不存在时重建：磁盘上的账本就是状态。
 - **收据自己说清是谁。** `resolve` 结算后给本次调用的 roll 收据补 `family`、`npc`（本次判定针对的在场 NPC，NPC 自己掷的那条不补）与 `approach`。这是让账本能只读收据的前提；守秘人从不被问这件事。
 - **stance 的数全在表里。** `content/rulesets/coc7/rules-json/npc-stance.json`：初值 0、区间 −5..5、四档阈值（≤ −3 hostile、≤ −1 wary、≤ 1 neutral、其余 warm）、`social[approach][level]` 的增减、`pushed_failure_delta`、`combat_target_score`。代码里没有一个字面量；表里没写的 approach 或 level 一律动 0——沉默是零，不是猜。显式 `apply npc stance` 把分数置为该档下界。
@@ -8079,9 +8079,16 @@ engine already keeps an incapacitated participant out of the initiative order th
 
 A state that takes the action away and cannot be ended is not a condition, it is the end of the campaign
 for that character. CoC 7e gives three exits out of `unconscious`, and the kernel implements all three.
-Every one of them turns on the same fact — the character regains a hit point — which is why
-`HealingSession.heal` is the single place the condition is dropped: any hit point gained clears
-`unconscious` (and `dying` once hit points are above zero, and `major_wound` at half maximum).
+Damage and natural recovery turn on hit points, so `HealingSession.heal` drops `unconscious` when a
+hit point is gained (and `dying` once hit points are above zero, and `major_wound` at half maximum).
+First Aid's rule is stronger: a successful use can rouse an unconscious person even when their hit
+points were already full (for example a poison- or story-caused condition). The success therefore
+removes `unconscious` directly as well as attempting its ordinary +1 HP; zero HP gained at the cap
+does not turn a successful rousing into no effect. The one-hour wound limit applies when First Aid is
+restoring injury. An unconscious, non-dying patient with no wound clock remains eligible for the
+rousing use; a wound clock older than sixty minutes does not become eligible merely because the
+patient is unconscious. The same principle applies to successful Medicine under the existing rule
+below. Every change still leaves the ordinary condition receipt.
 
 - **First Aid.** `resolve {decision: "healing:first-aid-ordinary"}`. A success grants 1 hit point and
   rouses an unconscious person; it must be delivered within the hour, may be attempted once with further

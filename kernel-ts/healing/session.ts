@@ -190,7 +190,12 @@ export class HealingSession {
         this.firstAidUsed = true;
         if (pushed)
             this.firstAidPushUsed = true;
-        const gained = SUCCESS_OUTCOMES.has(result.outcome) ? this.heal(1) : 0;
+        const success = SUCCESS_OUTCOMES.has(result.outcome);
+        const gained = success ? this.heal(1) : 0;
+        // First Aid can rouse an unconscious person even when no hit point can be added because
+        // the patient is already at the cap (for example a poison- or story-caused condition).
+        // Rousing is an effect of the successful treatment, not an accidental consequence of +1.
+        if(success)this.removeCondition('unconscious');
         const data: Row = {
             skill: 'First Aid', difficulty, outcome: result.outcome ?? null, roll: result.roll ?? null, target: skillValue, pushed,
             already_used_today: false, hp_before: before, hp_gained: gained, hp_after: this.currentHp,
@@ -221,6 +226,7 @@ export class HealingSession {
             const dice = rollExpression('1D3', this.rng);
             healingDice = { expression: '1D3', raw: [...dice.rolls], total: dice.total };
             gained = this.heal(healingDice.total);
+            this.removeCondition('unconscious');
         }
         this.medicineUsed = true;
         return this.event('medicine', { skill: 'Medicine', difficulty, outcome: result.outcome ?? null, roll: result.roll ?? null, target: skillValue,

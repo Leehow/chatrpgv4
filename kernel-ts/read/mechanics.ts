@@ -114,6 +114,10 @@ export function mechanicsOf(receipt: Row, texts: ReadonlyMap<string, string> = n
             visibility: receipt.visibility || "public"
         };
         investigator(out, receipt, "subject");
+        // NPC bodies use the same condition receipt but never expose their runtime handle. The
+        // player-facing label is still owed so a condition card says who changed.
+        if (!out.subject_is_investigator)
+            labeled(out, "subject_label", receipt.subject_label);
         return out;
     }
     if (kind === "move") {

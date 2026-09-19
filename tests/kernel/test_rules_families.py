@@ -351,6 +351,31 @@ def test_first_aid_on_a_wounded_investigator(seeded_kernel):
         assert again["outcome"]["hp_after"] == 8 and again["receipts"] == []
 
 
+def test_first_aid_can_rouse_an_unconscious_npc_without_an_injury_clock(seeded_kernel):
+    open_turn(seeded_kernel, "我给昏迷的诺特做急救。")
+    seeded_kernel.table("apply", call_id="t1-c1", effects=[
+        {"kind": "npc", "name": "Steven Knott", "archetype": "ordinary_adult", "why": "his body now matters"},
+    ])
+    missing = resolve_err(seeded_kernel, "t1-c2", intent="investigate", goal="唤醒诺特",
+                          method="清理气道并做急救", target="Steven Knott", stakes="他仍不醒")
+    assert "apply npc" in missing["fix"] and "conditions" in missing["fix"]
+
+    seeded_kernel.table("apply", call_id="t1-c3", effects=[
+        {"kind": "npc", "name": "Steven Knott", "conditions": {"gained": ["unconscious"]},
+         "why": "the poison took hold"},
+    ])
+
+    # No damage receipt or wound ledger exists. The rousing use is still an ordinary First Aid
+    # decision, rather than the old `time.minutes_since_injury is None` refusal.
+    result = resolve(seeded_kernel, "t1-c4", intent="investigate", goal="唤醒诺特",
+                     method="清理气道并做急救", target="Steven Knott", stakes="他仍不醒")
+    assert result["decision"] == "healing:first-aid-ordinary"
+    assert result["outcome"].get("patient", result["outcome"].get("subject")) == "steven-knott"
+    world = read_json(campaign_dir(seeded_kernel.workspace) / "world.json")
+    conditions = world["npc_resources"]["steven-knott"]["conditions"]
+    assert ("unconscious" not in conditions) is result["outcome"]["passed"]
+
+
 def test_situations_show_the_dying_clock(kernel):
     open_turn(kernel, "我倒下了。")
     assert kernel.table("look")["where"]["situations"] == []

@@ -30,7 +30,7 @@
       "file_sha256": "a860499cf34b40cac385f51b6e667ab37ec0796c7329494def08c8b161fd71eb"
     }
   ],
-  "graph_content_digest": "18483bb1b6c654f2eab2674f98c0747b906de841d45b9807026a10b1b93915da",
+  "graph_content_digest": "6b890a6b9d0da2716ec4afcb96261b7ee056deb96b4c27049cb7921111bd9972",
   "shards": [
     {
       "shard_id": "shard:coc7:chase:section-chase-complete-source",

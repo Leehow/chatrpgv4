@@ -2558,7 +2558,7 @@
         "span-wounds-and-healing-page-131-block-24"
       ],
       "hard_gate": true,
-      "name": "Not dying and within sixty minutes of the active wound",
+    "name": "Not dying, and either within sixty minutes of the active wound or unconscious without a wound clock",
       "node_id": "condition:coc7:healing:first-aid-ordinary-eligible",
       "node_kind": "condition",
       "properties": {
@@ -2571,11 +2571,32 @@
               },
               "op": "not"
             },
+        {
+          "of": [
             {
               "op": "lte",
               "path": "time.minutes_since_injury",
               "value": 60
+            },
+            {
+              "of": [
+                {
+                  "of": {
+                    "op": "exists",
+                    "path": "time.minutes_since_injury"
+                  },
+                  "op": "not"
+                },
+                {
+                  "op": "exists",
+                  "path": "actor.conditions.unconscious"
+                }
+              ],
+              "op": "all"
             }
+          ],
+          "op": "any"
+        }
           ],
           "op": "all"
         },

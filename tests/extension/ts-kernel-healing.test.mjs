@@ -77,6 +77,25 @@ json.dump(out,sys.stdout,ensure_ascii=False)
 `;
 
 const methods = { first_aid: 'firstAid', medicine: 'medicine', dying_con_roll: 'dyingConRoll', stabilized_con_roll: 'stabilizedConRoll', weekly_recovery: 'weeklyRecovery', major_wound_recovery_roll: 'majorWoundRecoveryRoll', reset_daily_treatments: 'resetDailyTreatments', reopen_subsequent_first_aid_attempt: 'reopenSubsequentFirstAidAttempt', set_usage_scope: 'setUsageScope' };
+
+test('successful treatment rouses an unconscious full-HP patient without inventing HP gain', () => {
+  const successful = { outcome: 'regular', roll: 1 };
+  const firstAid = new api.HealingSession(arithmetic, 'patient', 11, 50, new api.PythonRandom('full-first-aid'), {
+    currentHp: 11, conditions: ['unconscious'],
+  });
+  const aid = firstAid.firstAid(50, successful);
+  assert.equal(aid.hp_gained, 0);
+  assert.equal(firstAid.currentHp, 11);
+  assert.deepEqual(firstAid.conditions, []);
+
+  const medicine = new api.HealingSession(arithmetic, 'patient', 11, 50, new api.PythonRandom('full-medicine'), {
+    currentHp: 11, conditions: ['unconscious'],
+  });
+  const treated = medicine.medicine(50, successful, true);
+  assert.equal(treated.hp_gained, 0);
+  assert.equal(medicine.currentHp, 11);
+  assert.deepEqual(medicine.conditions, []);
+});
 const camel = options => Object.fromEntries(Object.entries(options).map(([key, value]) => [key.replace(/_([a-z])/g, (_, char) => char.toUpperCase()), value]));
 async function execute(input) {
   const c = clone(input), rng = new api.PythonRandom(c.seed ?? 'healing-oracle'), results = [];

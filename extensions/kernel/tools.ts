@@ -216,7 +216,7 @@ const RulingEffect = Type.Object({
 
 /** A person moved on or off the stage, or where you read them as standing (contract §17.3). */
 const NpcEffect = Type.Object({
-	kind: StringEnum(["npc"] as const, { description: "move someone on or off the stage, set where they stand with the party, or record that they died" }),
+	kind: StringEnum(["npc"] as const, { description: "move someone on or off the stage, set where they stand with the party, record a rules condition, or record that they died" }),
 	name: Type.String({ description: "what you are calling this person. A name from the book, or -- for someone the book never had -- whatever you are already calling them, a description like \"the clerk at the archive window\" included; the table establishes them under that word on this call, and apply person is what decides the word the player sees. Reuse the exact word you used before: two spellings make two people, and a refusal lists the ones this table already has" }),
 	to: Type.Optional(Type.String({ description: "where they are now: a scene name, `here` for this scene, or `away` to take them off stage" })),
 	stance: Type.Optional(StringEnum(["hostile", "wary", "neutral", "warm"] as const, {
@@ -233,6 +233,12 @@ const NpcEffect = Type.Object({
 	})),
 	dead: Type.Optional(Type.Boolean({
 		description: "true on the turn they died. Say it for every death the dice did not settle — killed outside a fight, destroyed by a ruling, dead of what the story did to them — or the table goes on treating them as someone the party can still meet",
+	})),
+	conditions: Type.Optional(Type.Object({
+		gained: Type.Optional(Type.Array(Type.String(), { description: "rules conditions that became true of this NPC because of the settled fiction" })),
+		lost: Type.Optional(Type.Array(Type.String(), { description: "rules conditions that stopped being true of this NPC because of the settled fiction" })),
+	}, {
+		description: "an explicit non-damage condition change, such as unconscious from poison or roused after its cause ends. Use the condition names the rules and current state expose. This variant stands alone in one npc effect; combine it with movement using two effects in the same batch. Death still uses dead: true",
 	})),
 	why: Type.Optional(Type.String({ description: "one sentence: why they moved, why they now stand there, or how they died" })),
 });
