@@ -1,9 +1,11 @@
 /** Request and persistence adapters for the one bounded play-context policy. */
 import {createHash} from 'node:crypto';
+import {dirname, join} from 'node:path';
 import type {ExtensionAPI, ExtensionContext} from '@earendil-works/pi-coding-agent';
 import {compactAt} from './fold.ts';
 import {createWorkpadStore, type WorkpadView} from './workspace/workpad-store.ts';
-import {selectWorkspace, workspaceBudgetOf, workspaceModeOf, type WorkspaceMode} from './workspace/projection.ts';
+import {selectWorkspace, workspaceBudgetOf, workspaceModeOf, workspaceSettingsOf, workspaceCandidates, type WorkspaceMode} from './workspace/projection.ts';
+import {reuseEvidence, dormantEvidence} from './workspace/evidence.ts';
 import {rankWorkspaceCandidates} from './workspace/reranker.ts';
 import {bindingOf, customMessage, epochOf, sourceOf, historyView, metadata, quoteView, briefForTurn, projectedMessages, foldPlan,
     boundedTail, requestBudget, BYTES_PER_TOKEN, HISTORY_BYTES, POLICY_VERSION, DIAGNOSTIC_TYPE, WORKSPACE_TYPE, entryMessage, object, sizeOf,
@@ -24,8 +26,17 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     let preparing: Promise<Prepared | undefined> | undefined, brief: Row | undefined, briefKey: string | undefined;
     let lastFold: string | undefined, lastAttempt: string | undefined, lastDegraded: string | undefined;
     let lastReason = 'context_unavailable';
+    let optionalWork = new AbortController();
+    // Invalidating a snapshot must not disable its event subscriptions while rehydration waits.
+    let observedWorkspaceMode: WorkspaceMode = 'off';
     const sourceCalls = new Set<string>();
-    const invalidate = (): void => {generation++; prepared = undefined; preparing = undefined;};
+    const stateCalls = new Set<string>();
+    const reads = new Map<string, {kind: string; name?: string; query?: string}>();
+    const evidenceNames = new Set<string>(), ruleNames = new Set<string>();
+    const invalidate = (): void => {
+        optionalWork.abort(); optionalWork = new AbortController();
+        generation++; prepared = undefined; preparing = undefined;
+    };
     const degraded = (reason: string): void => {
         lastReason = reason;
         const key = `${generation}:${reason}`;
@@ -37,7 +48,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         const nextCampaign = typeof value.campaign === 'string' ? value.campaign : undefined;
         const changed = call !== nextCall || campaign !== nextCampaign;
         call = nextCall; campaign = nextCampaign;
-        if (changed) invalidate();
+        if (changed) {observedWorkspaceMode = 'off'; invalidate();}
     });
     pi.events.on('coc:table-open', data => {
         const turn = object(object(object(data).open).turn).number;
@@ -47,6 +58,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         const value = object(data);
         inputPending = false;
         capsule = value.capsule ? structuredClone(value.capsule) : undefined;
+        observedWorkspaceMode = workspaceModeOf(capsule);
         if (Number.isSafeInteger(object(capsule?.turn).number)) observedTurn = object(capsule?.turn).number;
         rawBinding = value.context;
         inputEpoch = typeof value.epoch === 'string' ? value.epoch : undefined;
@@ -58,25 +70,51 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     // ones the host published: undo the latch and let the next request prepare against them. Without this,
     // every request until the next accepted input runs degraded on `player_input_not_accepted`.
     pi.events.on('coc:input-refused', () => {inputPending = false; invalidate();});
+    pi.events.on('coc:source-published', data => {
+        if (observedWorkspaceMode === 'off' || object(data).campaign && object(data).campaign !== campaign) return;
+        capsule = undefined; rawBinding = undefined; brief = undefined; briefKey = undefined; invalidate();
+    });
     pi.on('tool_call', async event => {
         const input = object(event.input);
+        if (event.toolName === 'look' || event.toolName === 'lookup')
+            reads.set(event.toolCallId, {kind: String(input.kind ?? input.focus ?? ''),
+                name: typeof input.name === 'string' ? input.name : undefined,
+                query: typeof input.query === 'string' ? input.query : undefined});
+        if (['apply', 'resolve', 'narrate', 'ask'].includes(event.toolName)) stateCalls.add(event.toolCallId);
         if (event.toolName === 'lookup' && input.kind === 'source'
             || event.toolName === 'apply' && Array.isArray(input.effects) && input.effects.some((effect: Row) => effect.kind === 'adaptation'))
             sourceCalls.add(event.toolCallId);
     });
     pi.on('tool_result', async event => {
-        if (!sourceCalls.delete(event.toolCallId)) return;
+        const read = reads.get(event.toolCallId); reads.delete(event.toolCallId);
+        let captured = false;
+        if (read && !event.isError && observedWorkspaceMode !== 'off') {
+            const result = object(event.details);
+            const remember = (set: Set<string>, name: unknown) => {
+                if (typeof name !== 'string' || !name || name.length > 200) return;
+                set.delete(name); set.add(name); while (set.size > 16) set.delete(set.values().next().value!);
+                captured = true;
+            };
+            for (const entity of Array.isArray(result.entities) ? result.entities : []) remember(evidenceNames, object(entity).name);
+            for (const rule of Array.isArray(result.rules) ? result.rules : []) remember(ruleNames, object(rule).name);
+            if (read.kind === 'npc' || read.kind === 'module') remember(evidenceNames, read.name ?? read.query);
+        }
+        const stateChanged = stateCalls.delete(event.toolCallId);
+        const sourceChanged = sourceCalls.delete(event.toolCallId);
+        // A failed transport can hide a committed mutation. Re-read the actual kernel state;
+        // never infer arrival or settlement from the requested effect or an error flag.
+        if (!sourceChanged && !captured && !(stateChanged && observedWorkspaceMode !== 'off')) return;
         capsule = undefined; rawBinding = undefined; brief = undefined; briefKey = undefined; invalidate();
     });
-    pi.on('session_start', async () => {invalidate(); inputPending = false; brief = undefined; briefKey = undefined; lastFold = undefined; lastAttempt = undefined; sourceCalls.clear();});
-    pi.on('session_shutdown', async () => {call = undefined; capsule = undefined; rawBinding = undefined; invalidate();});
+    pi.on('session_start', async () => {invalidate(); observedWorkspaceMode = 'off'; inputPending = false; brief = undefined; briefKey = undefined; lastFold = undefined; lastAttempt = undefined; sourceCalls.clear(); stateCalls.clear();});
+    pi.on('session_shutdown', async () => {call = undefined; capsule = undefined; rawBinding = undefined; observedWorkspaceMode = 'off'; invalidate();});
 
     async function prepare(): Promise<Prepared | undefined> {
         if (inputPending) {failedGeneration = generation; degraded('player_input_not_accepted'); return undefined;}
         if (failedGeneration === generation) return undefined;
         if (prepared) return prepared;
         if (preparing) return preparing;
-        const ticket = generation, bridge = call, owner = campaign;
+        const ticket = generation, bridge = call, owner = campaign, signal = optionalWork.signal;
         const fail = (reason: string): undefined => {
             if (ticket === generation) {failedGeneration = ticket; degraded(reason);}
             return undefined;
@@ -90,6 +128,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
             try {
                 if (!binding || !current) {
                     const result = await rpc('table.capsule', {rehydrate: true});
+                    if (ticket !== generation || signal.aborted) return undefined;
                     const {_context, ...view} = result;
                     binding = bindingOf(_context); current = view;
                     if (!binding) return fail('context_binding_unavailable');
@@ -100,6 +139,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
                     let full = current;
                     if (!rehydrated) {
                         const result = await rpc('table.capsule', {rehydrate: true});
+                        if (ticket !== generation || signal.aborted) return undefined;
                         const {_context, ...view} = result;
                         const actual = bindingOf(_context);
                         if (!actual || actual.campaign !== binding.campaign || actual.worldline !== binding.worldline
@@ -167,39 +207,86 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
                 // own mode. Off, unknown or missing reads nothing; shadow reads and records only;
                 // on injects. Any failure here is a miss on the optional layer, never a degraded turn.
                 const workspaceMode = workspaceModeOf(current), workspaceBudget = workspaceBudgetOf(current);
+                observedWorkspaceMode = workspaceMode;
                 let workspace: Row | undefined;
                 if (workspaceMode !== 'off') {
                     const began = Date.now();
                     try {
-                        const snapshot = await rpc('table.workspace.read', {});
+                        const settings = workspaceSettingsOf(current);
+                        const dormantLimit = Math.min(32, Math.floor(settings.candidates / 4));
+                        const snapshot = await rpc('table.workspace.read', {query: String(object(current.turn).player_text ?? ''),
+                            names: [...evidenceNames], rules: [...ruleNames], candidate_limit: settings.candidates - dormantLimit});
                         if (ticket !== generation) return undefined;
-                        const candidatePool = object(snapshot.candidates), candidates = [
-                            ...(Array.isArray(candidatePool.static) ? candidatePool.static : []),
-                            ...(Array.isArray(candidatePool.records) ? candidatePool.records : []),
-                        ].map(value => object(value));
+                        let candidates = workspaceCandidates(snapshot, binding).slice(0, settings.candidates);
+                        let cacheRoot: string | undefined;
+                        try {cacheRoot = workpadRoot?.();} catch { /* Cache availability never gates the snapshot. */ }
+                        if (cacheRoot && dormantLimit && workspaceCandidates(snapshot, binding).length) {
+                            const dormant = await dormantEvidence(join(dirname(cacheRoot), 'evidence'), snapshot, dormantLimit, signal);
+                            if (ticket !== generation || signal.aborted) return undefined;
+                            // Fresh metadata for a locator always wins. Dormant scene/entity bodies
+                            // extend the pool before ranking; they never replace current state.
+                            const fresh = new Map(candidates.map(ref => [ref.locator, ref]));
+                            const raw = object(snapshot.candidates), manifest = object(snapshot.manifest);
+                            const known = new Set([...(Array.isArray(raw.static) ? raw.static : Array.isArray(manifest.static) ? manifest.static : []),
+                                ...(Array.isArray(raw.records) ? raw.records : Array.isArray(manifest.records) ? manifest.records : [])]
+                                .map(ref => object(ref).locator));
+                            const restored = dormant.filter(ref => !known.has(ref.locator) || fresh.has(ref.locator))
+                                .map(ref => fresh.get(ref.locator) ?? ref);
+                            const seen = new Set<string>();
+                            candidates = [...candidates.slice(0, 4), ...restored, ...candidates]
+                                .filter(ref => {if (seen.has(ref.locator)) return false; seen.add(ref.locator); return true;})
+                                .slice(0, settings.candidates);
+                            record({lane: 'workspace-evidence', event: 'dormant', restored: dormant.length,
+                                inspection_budget: settings.candidates, cache_budget: dormantLimit});
+                        }
+                        candidates = candidates.map((candidate, priority) => ({...candidate, priority}));
+                        snapshot.candidates = {static: candidates.filter(ref => ref.authority !== 'table_record'), records: candidates.filter(ref => ref.authority === 'table_record')};
                         const query = String(object(current.turn).player_text ?? '');
-                        const rerank = await rankWorkspaceCandidates({query, candidates});
+                        const deterministic = selectWorkspace({snapshot, binding, budget: workspaceBudget});
+                        const fits = deterministic.status === 'selected'
+                            && deterministic.counts.omitted.static.budget + deterministic.counts.omitted.records.budget === 0;
+                        const rerank = workspaceMode === 'shadow' || !settings.rerank || !settings.remote || fits
+                            ? {status: 'skipped' as const, reason: workspaceMode === 'shadow' ? 'shadow' : !settings.rerank ? 'disabled' : !settings.remote ? 'permission' : 'fits'}
+                            : await rankWorkspaceCandidates({query, candidates, signal, maxCandidates: settings.rankCandidates,
+                                binding: snapshot.binding});
+                        if (ticket !== generation || signal.aborted) return undefined;
                         if (rerank.status !== 'skipped') record({lane: 'workspace-rerank', event: rerank.status,
                             reason: rerank.status === 'fallback' ? rerank.reason : undefined, candidates: rerank.candidates,
                             ms: rerank.ms, ...(rerank.provider ? {provider: rerank.provider} : {}),
                             ...(rerank.model ? {model: rerank.model} : {})});
+                        else record({lane: 'workspace-rerank', event: 'skipped', reason: rerank.reason});
                         // KIC-04: the Keeper's own published workpad joins the same selection. Any
                         // failure here — root, store, corrupt file — is a miss on the optional layer,
                         // never a degraded selection and never a degraded request.
                         let workpad: WorkpadView | undefined;
                         try {
                             const root = workpadRoot?.();
-                            if (root) {
+                            if (root && settings.workpad) {
                                 const read = await createWorkpadStore(root)
-                                    .read({campaign: binding.campaign, worldline: binding.worldline, loop: binding.loop});
+                                    .read({campaign: binding.campaign, worldline: binding.worldline, loop: binding.loop,
+                                        ...(typeof object(snapshot.binding).scene === 'string' && object(snapshot.binding).scene
+                                            ? {scene: object(snapshot.binding).scene} : {})});
                                 if (read.status === 'ok') workpad = read.view;
                             }
                         } catch { workpad = undefined; }
+                        if (ticket !== generation || signal.aborted) return undefined;
                         const selection = selectWorkspace({snapshot, binding, budget: workspaceBudget, workpad,
                             ...(rerank.status === 'ranked' || rerank.status === 'cache' || rerank.status === 'fallback'
                                 ? {rankedLocators: rerank.order} : {})});
                         if (selection.status === 'selected') {
                             workspace = selection.message;
+                            if (cacheRoot) {
+                                const view = JSON.parse(String(workspace.content));
+                                const selectedNames = new Set(view.evidence.map((ref: Row) => ref.locator));
+                                const reused = await reuseEvidence(join(dirname(cacheRoot), 'evidence'), snapshot, candidates.filter(ref => selectedNames.has(ref.locator)), signal);
+                                if (ticket !== generation || signal.aborted) return undefined;
+                                const restored = new Map(reused.candidates.map(ref => [ref.locator, ref]));
+                                view.evidence = view.evidence.map((ref: Row) => typeof restored.get(ref.locator)?.body === 'string'
+                                    ? {...ref, body: restored.get(ref.locator)!.body} : ref);
+                                workspace = {...workspace, content: JSON.stringify(view)};
+                                record({lane: 'workspace-evidence', valid: candidates.length, selected: view.evidence.length,
+                                    hits: reused.hits, stored: reused.stored, misses: reused.misses});
+                            }
                             record({lane: 'workspace', event: workspaceMode === 'shadow' ? 'shadow' : 'selected', mode: workspaceMode,
                                 packed_static: selection.counts.packed.static, packed_records: selection.counts.packed.records,
                                 filtered_static: selection.counts.filtered.static, filtered_records: selection.counts.filtered.records,
@@ -213,6 +300,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
                             detail: error instanceof Error ? error.message.slice(0, 160) : 'Unknown workspace read error'});
                     }
                 }
+                if (ticket !== generation || signal.aborted) return undefined;
                 prepared = {binding, capsule: current, history, brief: brief!, key: epochOf(binding), answering, workspace, workspaceMode};
                 record({lane: 'context', event: 'prepared', version: POLICY_VERSION, turn: binding.turn,
                     history_bytes: sizeOf(history), briefing_bytes: sizeOf(brief), source_revision: binding.source_revision,
@@ -234,7 +322,11 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         note: 'Some context could not be safely reduced and was retained. Preserve authoritative state and pending choices; do not invent missing history. This host notice is not a story event or a new obligation.',
     });
     pi.on('context', async (event, ctx) => {
-        const snapshot = await prepare();
+        const ticket = generation;
+        let snapshot = await prepare();
+        // A concurrent input may replace a generation while its optional work is awaiting I/O.
+        // Try the current accepted binding once; an unaccepted input uses the normal fallback.
+        if (!snapshot && ticket !== generation && !inputPending) snapshot = await prepare();
         // The host notice can be prepended on any exit, so the ceiling reserves room for it.
         const ceiling = requestBudget(ctx.model?.contextWindow), budget = Math.max(0, ceiling - sizeOf([diagnostic('reserve')]));
         if (!snapshot) {
@@ -270,7 +362,21 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
             // A new opening/recovery may have only a host prompt; this ephemeral capsule is not persisted.
             selected.push({...customMessage('coc-capsule', view), details: {coc_host: true, turn: snapshot.binding.turn, context: snapshot.binding}});
         }
-        const workspace = snapshot.workspaceMode === 'on' ? snapshot.workspace : undefined;
+        let workspace = snapshot.workspaceMode === 'on' ? snapshot.workspace : undefined;
+        // The context event contains messages only. Optional evidence must also leave room for
+        // the actual system prompt, tool schemas and output reservation in the provider request.
+        if (workspace) {
+            try {
+                const active = typeof pi.getActiveTools === 'function' ? new Set(pi.getActiveTools()) : undefined;
+                const tools = typeof pi.getAllTools === 'function' ? pi.getAllTools().filter(tool => !active || active.has(tool.name)) : [];
+                const overhead = sizeOf({system: typeof ctx.getSystemPrompt === 'function' ? ctx.getSystemPrompt() : '', tools});
+                const baseline = projectedMessages({messages: selected, binding: snapshot.binding, history: snapshot.history,
+                    brief: briefForTurn(snapshot.brief, view), answering: snapshot.answering, budget});
+                const reserve = Math.min(16384, Math.floor((ctx.model?.contextWindow ?? 65536) / 4)) * BYTES_PER_TOKEN;
+                const totalLimit = Math.min(ceiling, (ctx.model?.contextWindow ?? Infinity) * BYTES_PER_TOKEN - reserve);
+                if (sizeOf(baseline.messages) + sizeOf(workspace) + overhead > totalLimit) workspace = undefined;
+            } catch {workspace = undefined;}
+        }
         const result = projectedMessages({messages: selected, binding: snapshot.binding, history: snapshot.history,
             brief: briefForTurn(snapshot.brief, view), answering: snapshot.answering, budget, workspace});
         const window = ctx.model?.contextWindow, available = typeof window === 'number' ? window - Math.min(16384, Math.floor(window / 4)) : Infinity;
@@ -281,6 +387,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
             history_bytes: sizeOf(snapshot.history), protected_bytes: result.protectedBytes, unknown_bytes: result.unknownBytes,
             request_bytes: bytes, local_token_estimate: estimatedTokens, context_window: window ?? null, ceiling_bytes: ceiling,
             ...(result.workspaceKept && workspace ? {workspace_bytes: sizeOf(workspace)} : {}),
+            ...(result.workspaceKept && workspace ? {workspace_evidence_injected: JSON.parse(String(workspace.content)).evidence.length} : {}),
             ...(result.droppedTail ? {dropped_tail: result.droppedTail} : {}),
             ...(result.droppedUnknown ? {dropped_unknown: result.droppedUnknown} : {}),
             ...(result.degraded ? {reason: result.degraded} : {}),

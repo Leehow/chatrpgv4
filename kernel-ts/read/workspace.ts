@@ -7,19 +7,19 @@ import { buildCapsule } from "./assemble.js";
 import type { CampaignSnapshot } from "./campaign.js";
 import { contextBinding } from "./context.js";
 import { readCampaign } from "./handlers.js";
-import { number, row, string, type Row } from "./values.js";
+import { array, number, row, string, type Row } from "./values.js";
+import {sourceReference, workspaceNodes, WORKSPACE_ADAPTER} from './workspace-candidates.js';
+import {RuleObservations} from './rule-facts.js';
 
 const MAX_EVIDENCE = 24;
 const MAX_CANDIDATES = 128;
 // Static and record references share one bounded manifest budget; these slots are reserved for
 // records so a large static module can never structurally crowd record references out entirely.
 const RECORD_SLOTS = 12;
-const MAX_NODES = 48;
 // Campaign-minted nodes lead the static scan (bounded), so what this table itself made can never
 // be crowded out of the manifest by lexicographic id order — the same reservation logic as the
 // record slots, on the static side.
-const ADAPTED_PRIORITY = 12;
-const AUTHORITIES = ["module_source", "campaign_adaptation", "table_record"] as const;
+const AUTHORITIES = ["module_source", "rules_source", "campaign_adaptation", "table_record"] as const;
 
 type Binding = {
     campaign: string;
@@ -29,6 +29,9 @@ type Binding = {
     source_revision: string | null;
     stateStamp: string | null;
     generation: number;
+    scene: string;
+    rules_revision: string | null;
+    adapter: string;
 };
 
 /**
@@ -70,34 +73,36 @@ function unavailable(reason: string): KernelResult {
         manifest: { version: 1, static: [], records: [], truncated: false } };
 }
 
-/**
- * Static module references only — the static-only boundary of this snapshot. `identity` names the
- * node's provenance identity, never a body hash: no evidence body travels in a manifest, so a
- * store read can never mistake this value for the content hash of a stored body. A node the table
- * or a reviewed adaptation minted (`campaign_origin`) is `campaign_adaptation`, not book source,
- * and a node whose source material is not prepared degrades to `unavailable` coverage.
- */
-function staticReferences(module: { graph: { nodes: Map<string, Row>; handle(node: Row): string } ; material(name: string): string } , scope: Row, source: string): Row[] {
-    const nodes = [...module.graph.nodes.values()].sort((left, right) => string(left.node_id).localeCompare(string(right.node_id)));
-    const adapted = nodes.filter(node => node.campaign_origin !== null && typeof node.campaign_origin === "object");
-    const authored = nodes.filter(node => !(node.campaign_origin !== null && typeof node.campaign_origin === "object"));
-    const ordered = [...adapted.slice(0, ADAPTED_PRIORITY), ...authored, ...adapted.slice(ADAPTED_PRIORITY)];
-    const result: Row[] = [];
-    for (const node of ordered) {
-        if (result.length >= MAX_NODES) break;
-        const id = string(node.node_id || node.id || node.handle);
-        if (!id) continue;
-        const kind = string(node.node_kind || node.kind || "module");
-        const locator = `${kind}:${id}`;
-        const adapted = node.campaign_origin !== null && typeof node.campaign_origin === "object";
-        const ready = module.material(module.graph.handle(node)) === "ready";
-        const text = string(node.summary || node.name || node.prose || id).slice(0, 2000);
-        result.push({ id: jsonDigest({ source, locator }), locator, kind,
-            authority: adapted ? "campaign_adaptation" : "module_source", scope,
-            source_revision: source, identity: jsonDigest({ source, node_id: id, kind, name: node.name ?? null, summary: node.summary ?? null }),
-            ...(text ? { text } : {}), coverage: ready ? "complete" : "unavailable" });
+/** A bounded dependency group. If its closure is too large, expose a gap instead of a partial rule. */
+function ruleReference(rules: RuleObservations, name: string, scope: Row, source: string, revision: string): Row | null {
+    const node = rules.nodes.get(name);
+    if (!node || node.node_kind !== 'rule') return null;
+    const group: Row[] = [], pending = [node.node_id], seen = new Set<string>(), links: Row[] = [];
+    const incoming = new Map<string, Row[]>();
+    for (const relation of array(rules.graph.relations)) {
+        const list = incoming.get(relation.to_node_id) ?? [];
+        list.push(relation); incoming.set(relation.to_node_id, list);
     }
-    return result;
+    let omitted = false;
+    for (let i = 0; i < pending.length && i < 32; i++) {
+        const id = pending[i]; if (seen.has(id)) continue; seen.add(id);
+        const member = rules.nodes.get(id); if (!member) continue;
+        group.push(member);
+        const relations = [...(rules.outgoing.get(id) ?? []), ...(incoming.get(id) ?? [])];
+        if (relations.length > 32) omitted = true;
+        for (const relation of relations.slice(0, 32)) {
+            links.push(relation);
+            const target = relation.from_node_id === id ? relation.to_node_id : relation.from_node_id;
+            if (seen.has(target)) continue;
+            if (pending.length < 64) pending.push(target); else omitted = true;
+        }
+    }
+    const body = JSON.stringify({rule: name, source_group: group, relations: links}), complete = !omitted && pending.every(id => seen.has(id)) && Buffer.byteLength(body, 'utf8') <= 8192;
+    return {locator: `rule:${name}`, kind: 'rule', scope, source_revision: source, rules_revision: revision,
+        adapter: WORKSPACE_ADAPTER, authority: 'rules_source', audience: 'keeper_only', identity: jsonDigest({revision, name}),
+        ...(complete ? {body, text: body} : {}), coverage: complete ? {status: 'complete', projection: 'rule_dependency_group'}
+            : {status: 'partial', omitted: ['rule_dependency_group'], read: {kind: 'rule', query: name}},
+        scene_refs: [], entity_refs: [], thread_refs: []};
 }
 
 /**
@@ -122,7 +127,7 @@ function recordReferences(records: readonly Row[], scope: Row, source: string): 
 }
 
 /**
- * Assemble only references and bounded metadata from one campaign snapshot. It intentionally does
+ * Assemble bounded static projections and record references from one campaign snapshot. It intentionally does
  * not call `look`, `lookup`, `touchActing`, or any transaction contribution; this is not a Keeper
  * tool and it cannot produce a receipt/call_id/event/job.
  */
@@ -141,7 +146,15 @@ export async function workspaceRead(context: KernelContext, params: Row): Promis
     // `preload("view")` intentionally skips turn records; this snapshot is their one explicit
     // reader. A missing turns directory is a young campaign (no records yet), not an error.
     let recordsUnavailable: string | null = null;
-    try { campaign.records = await campaign.files("turns"); }
+    const requested = params.candidate_limit;
+    const limit = typeof requested === 'number' && Number.isInteger(requested) ? Math.min(MAX_CANDIDATES, Math.max(1, requested)) : MAX_CANDIDATES;
+    let recordFiles = 0;
+    try {
+        const directory = join(campaign.dir, 'turns');
+        const names = (await context.snapshots.sortedChildNames(directory, path => context.snapshots.isFile(path))).filter(name => name.endsWith('.json'));
+        recordFiles = names.length;
+        campaign.records = await Promise.all(names.slice(-Math.min(RECORD_SLOTS, limit)).map(async name => row(await campaign.optional(join('turns', name)))));
+    }
     catch (error) { recordsUnavailable = error instanceof Error ? error.message : String(error); }
     let capsule: Row;
     try { capsule = await buildCapsule(campaign, module); }
@@ -155,22 +168,33 @@ export async function workspaceRead(context: KernelContext, params: Row): Promis
         try { dynamic = await stateStamp(campaign, worldline, loop); }
         catch (error) { return unavailable(error instanceof Error ? error.message : String(error)); }
     }
+    let rules: RuleObservations | undefined, rulesRevision: string | null = null;
+    try {rules = await RuleObservations.load(context); rulesRevision = jsonDigest({graph: rules.manifest.graph_content_digest, package: rules.packageManifest, adapter: WORKSPACE_ADAPTER});}
+    catch { /* Unavailable rules remove rule evidence, never degrade the game's current state. */ }
+    const scene = string(campaign.world.active_scene);
     const actual: Binding = { campaign: campaign.id, worldline, loop, turn: number(campaign.turn.turn), source_revision: source,
-        stateStamp: dynamic, generation: module.generation };
+        stateStamp: dynamic, generation: module.generation, scene, rules_revision: rulesRevision, adapter: WORKSPACE_ADAPTER };
     if (!source || !dynamic) return unavailable("source or state binding is unavailable");
     if (!bindingMatches(expectedBinding(params), actual)) return { version: 1, status: "unverifiable", binding: actual,
         source: { available: false, revision: source }, authority: { checked: false },
         coverage: { static: { status: "unavailable" }, records: { status: "unavailable" } },
         manifest: { version: 1, static: [], records: [], truncated: false } };
-    const scope = { campaign: campaign.id, worldline, loop },
-        statics = staticReferences(module, scope, source),
-        records = recordReferences(campaign.records, scope, source),
+    const scope = { campaign: campaign.id, worldline, loop };
+    const names = array(params.names).filter(value => typeof value === 'string').slice(0, 16);
+    const ruleNames = array(params.rules).filter(value => typeof value === 'string').slice(0, Math.min(8, Math.floor(limit / 4)));
+    const ruleRefs = rules && rulesRevision ? ruleNames.map(name => ruleReference(rules!, name, scope, source, rulesRevision!)).filter((ref): ref is Row => Boolean(ref)) : [];
+    const records = recordReferences(campaign.records, scope, source).slice(-Math.min(RECORD_SLOTS, Math.floor(limit / 4)));
+    const pool = workspaceNodes(module.graph, {revision: source, scene, query: string(params.query || campaign.turn.player_text), names,
+        present: array(capsule.present).map(person => string(row(person).name)), limit: Math.max(0, limit - records.length - ruleRefs.length)});
+    const statics = [...ruleRefs, ...pool.nodes.map(node => sourceReference(module.graph, node, scope, source, scene,
+        module.material(module.graph.handle(node)) === 'ready'))];
+    const
         recordManifest = records.slice(0, RECORD_SLOTS),
         staticManifest = statics.slice(0, Math.max(0, MAX_EVIDENCE - recordManifest.length)),
-        staticOmitted = Math.max(0, module.graph.nodes.size - staticManifest.length),
-        recordOmitted = Math.max(0, records.length - recordManifest.length),
-        truncated = staticOmitted > 0 || recordOmitted > 0,
-        unready = statics.filter(ref => ref.coverage !== "complete").length;
+        staticOmitted = Math.max(0, module.graph.nodes.size - pool.nodes.length),
+        recordOmitted = Math.max(0, recordFiles - recordManifest.length),
+        truncated = staticOmitted > 0 || recordOmitted > 0 || statics.length > staticManifest.length,
+        unready = statics.filter(ref => ref.coverage !== 'complete' && row(ref.coverage).status !== 'complete').length;
     // Quota omission is reported as `truncated` on an otherwise valid snapshot; only a records
     // read that itself failed leaves the snapshot unverifiable.
     if (recordsUnavailable) return { version: 1, status: "unverifiable", binding: actual,
@@ -182,16 +206,18 @@ export async function workspaceRead(context: KernelContext, params: Row): Promis
         version: 1,
         status: "valid",
         binding: actual,
+        relevant_entities: [...new Set([...array(capsule.present).map(person => string(row(person).name)),
+            ...array(campaign.world.discovered_clues).filter(value => typeof value === 'string')])].slice(0, 32),
         source: { available: true, revision: source, authority: "module_source", generation: module.generation },
         authority: { checked: true, allowed: [...AUTHORITIES], scope },
         coverage: {
             static: { status: unready > 0 ? "partial" : "complete", count: statics.length, ready: statics.length - unready, omitted: staticOmitted },
             records: { status: "complete", count: records.length, omitted: recordOmitted }
         },
-        // Host-only candidates are wider than the model-facing manifest so a reranker can rank
-        // before the 24-entry projection cut. Their bounded text never reaches the Keeper unless
-        // the selector explicitly projects an advisory locator entry.
-        candidates: { static: statics.slice(0, MAX_CANDIDATES), records: records.slice(0, MAX_CANDIDATES) },
+        // Host-only candidates precede the 24-entry projection cut. The host validates their
+        // provenance before choosing source bodies; records remain non-executable source cards.
+        inspected: pool.inspected + records.length + ruleRefs.length,
+        candidates: { static: statics, records },
         manifest: { version: 1, static: staticManifest, records: recordManifest, truncated }
     };
 }

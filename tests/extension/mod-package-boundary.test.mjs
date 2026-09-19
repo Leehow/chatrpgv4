@@ -29,6 +29,7 @@ test('keeper-context is a default-off policy package with no executable or autho
   assert.deepEqual(Object.keys(manifest.contributes).sort(), ['brief', 'instructions']);
   assert.deepEqual(manifest.settings, {
     mode: 'off', workspace_bytes: 24576, candidate_limit: 128, rerank_candidates: 48,
+    workpad_enabled: true, rerank_enabled: false, rerank_allow_remote: false,
   });
   assert.deepEqual(manifest.settings_schema.mode.enum, ['off', 'shadow', 'on']);
   for (const name of manifest.package_files)

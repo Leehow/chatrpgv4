@@ -4,9 +4,11 @@ import {rerank as rerankClient} from '../../rerank/agent/index.js';
 import type {Row} from '../context-policy.ts';
 
 export const RERANK_CANDIDATE_LIMIT = 48;
-export const RERANK_MIN_CANDIDATES = 9;
+export const RERANK_MIN_CANDIDATES = 2;
 export const RERANK_TIMEOUT_MS = 500;
 const RANK_CACHE_LIMIT = 128;
+const RANK_INPUT_BYTES = 48 * 1024;
+const RANK_DOCUMENT_BYTES = 2 * 1024;
 
 type RankRow = {index: number; score: number};
 type RankResult = {provider?: string; model?: string; results?: RankRow[]};
@@ -18,7 +20,12 @@ export type RankOutcome =
 
 const cache = new Map<string, {order: string[]; provider?: string; model?: string}>();
 const digest = (value: unknown): string => createHash('sha256').update(JSON.stringify(value)).digest('hex');
-const text = (value: unknown): string => typeof value === 'string' ? value.trim().slice(0, 2000) : '';
+const text = (value: unknown): string => {
+    if (typeof value !== 'string') return '';
+    let result = '', bytes = 0;
+    for (const char of value.trim()) {const count = Buffer.byteLength(char, 'utf8'); if (bytes + count > RANK_DOCUMENT_BYTES) break; result += char; bytes += count;}
+    return result;
+};
 const defaultRanker: RankClient = (query, documents, options) => rerankClient(query, documents, {topN: options.topN, signal: options.signal});
 
 function remember(key: string, value: {order: string[]; provider?: string; model?: string}): void {
@@ -38,18 +45,28 @@ export async function rankWorkspaceCandidates(input: {
     ranker?: RankClient;
     maxCandidates?: number;
     timeoutMs?: number;
+    binding?: unknown;
 }): Promise<RankOutcome> {
     const query = input.query.trim();
+    // Keep the player's query intact. If it alone cannot fit, skip optional ranking instead
+    // of truncating the declaration or sending a request beyond the input ceiling.
+    const queryBytes = Buffer.byteLength(JSON.stringify({query, documents: []}), 'utf8') + 1024;
+    if (queryBytes > RANK_INPUT_BYTES) return {status: 'skipped', reason: 'query_over_budget'};
     const limit = Math.min(Math.max(1, input.maxCandidates ?? RERANK_CANDIDATE_LIMIT), RERANK_CANDIDATE_LIMIT);
-    const pool = input.candidates.map(candidate => ({locator: text(candidate.locator), body: text(candidate.text)}))
+    let bytes = queryBytes;
+    const pool = input.candidates.slice(0, 128).map(candidate => ({locator: typeof candidate.locator === 'string' ? candidate.locator : '', body: text(candidate.text)}))
         .filter(candidate => candidate.locator && candidate.body)
         .filter((candidate, index, all) => all.findIndex(other => other.locator === candidate.locator) === index)
-        .slice(0, limit);
+        .slice(0, limit).filter(candidate => {
+            const count = Buffer.byteLength(JSON.stringify(candidate), 'utf8');
+            if (bytes + count > RANK_INPUT_BYTES) return false; bytes += count; return true;
+        });
     const fallback = (reason: string, began: number): RankOutcome => ({status: 'fallback', reason, candidates: pool.length,
         order: pool.map(candidate => candidate.locator), ms: Date.now() - began});
     if (!query) return {status: 'skipped', reason: 'empty_query'};
+    if (input.signal?.aborted) return {status: 'skipped', reason: 'cancelled'};
     if (pool.length < RERANK_MIN_CANDIDATES) return {status: 'skipped', reason: 'too_few_candidates'};
-    const key = digest({query, pool, settings: process.env.PIPIUI_EXT_SETTINGS_RERANK ?? ''});
+    const key = digest({query, pool, binding: input.binding, adapter: 'workspace-rank-v2', settings: process.env.PIPIUI_EXT_SETTINGS_RERANK ?? ''});
     const hit = cache.get(key);
     if (hit) {
         cache.delete(key); cache.set(key, hit);
@@ -57,10 +74,19 @@ export async function rankWorkspaceCandidates(input: {
             candidates: pool.length, ms: 0};
     }
     const began = Date.now(), controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(new Error('rerank deadline exceeded')), input.timeoutMs ?? RERANK_TIMEOUT_MS);
+    const timer = setTimeout(() => controller.abort(new DOMException('rerank deadline exceeded', 'AbortError')), input.timeoutMs ?? RERANK_TIMEOUT_MS);
     const signal = input.signal ? AbortSignal.any([input.signal, controller.signal]) : controller.signal;
+    let abort: (() => void) | undefined;
     try {
-        const result = await (input.ranker ?? defaultRanker)(query, pool.map(candidate => candidate.body), {signal, topN: pool.length});
+        const cancelled = new Promise<never>((_, reject) => {
+            abort = () => reject(new DOMException('rerank cancelled', 'AbortError'));
+            signal.addEventListener('abort', abort, {once: true});
+            if (signal.aborted) abort();
+        });
+        const result = await Promise.race([
+            (input.ranker ?? defaultRanker)(query, pool.map(candidate => candidate.body), {signal, topN: pool.length}), cancelled,
+        ]);
+        if (signal.aborted) return fallback('cancelled', began);
         const rows = Array.isArray(result?.results) ? result.results : [];
         const seen = new Set<number>(), order: string[] = [];
         for (const row of rows) {
@@ -76,7 +102,7 @@ export async function rankWorkspaceCandidates(input: {
         return {status: 'ranked', ...value, candidates: pool.length, ms: Date.now() - began};
     } catch (error) {
         return fallback(error instanceof Error && error.name === 'AbortError' ? 'timeout' : 'unavailable', began);
-    } finally { clearTimeout(timer); }
+    } finally { clearTimeout(timer); if (abort) signal.removeEventListener('abort', abort); }
 }
 
 export function clearRankCache(): void { cache.clear(); }

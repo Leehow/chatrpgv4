@@ -66,10 +66,11 @@ let materialPending = process.env.FAKE_KERNEL_MATERIAL_PENDING === "1";
 const WORKSPACE_ON = process.env.FAKE_KERNEL_WORKSPACE === "1";
 const WORKSPACE_REVISION = "a".repeat(64);
 const workspaceStamp = (t) => createHash("sha256").update(`workspace-stamp:${t}`).digest("hex");
-const workspaceScope = () => ({ campaign: CAMPAIGNS[0].id, worldline: "main", loop: 0 });
+let workspaceCampaign = CAMPAIGNS[0].id;
+const workspaceScope = () => ({ campaign: workspaceCampaign, worldline: "main", loop: 0 });
 const workspaceContext = () => ({
 	version: 1,
-	campaign: CAMPAIGNS[0].id,
+	campaign: workspaceCampaign,
 	worldline: "main",
 	loop: 0,
 	turn,
@@ -772,6 +773,7 @@ function handle(method, params) {
 		case "adaptation.cancel":
 			return { ok: true, result: { name: params.name, status: "cancelled" } };
 		case "table.open": {
+			if (typeof params.campaign === 'string') workspaceCampaign = params.campaign;
 			const opening = process.env.FAKE_KERNEL_OPENING === "1";
 			const pending = process.env.FAKE_KERNEL_PENDING === "1";
 			const resume = process.env.FAKE_KERNEL_RESUME === "1";

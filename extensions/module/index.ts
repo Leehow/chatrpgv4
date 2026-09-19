@@ -35,7 +35,12 @@ export default function (pi: ExtensionAPI) {
         retireReader();
         const home = bridge.runtime.home, current = bridge;
         reading = new ReadingService({
-            call: current.call, campaign: () => campaign, runtime: current.runtime, home,
+            call: async (method, params) => {
+                const result = await current.call(method, params);
+                if (method === 'module.read.finish' && params.outcome === 'completed')
+                    pi.events.emit('coc:source-published', {campaign: params.campaign, module_id: params.module_id});
+                return result;
+            }, campaign: () => campaign, runtime: current.runtime, home,
             model: () => {
                 const id = current.runtime.readerModel || (ctx?.model ? `${ctx.model.provider}/${ctx.model.id}` : "");
                 const slash = id.indexOf("/");

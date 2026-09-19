@@ -5,6 +5,7 @@ export {
   EvidenceStore,
   createEvidenceStore,
   evidenceStoreRoot,
+  evidenceId,
   type EvidenceAuthority,
   type EvidenceBinding,
   type EvidenceCoverage,

@@ -1,6 +1,6 @@
 {
   "id": "keeper-context",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "game_api": "pipicoc.game.v1",
   "state_version": 1,
   "author": "PipiCOC",
@@ -21,7 +21,10 @@
     "mode": "off",
     "workspace_bytes": 24576,
     "candidate_limit": 128,
-    "rerank_candidates": 48
+    "rerank_candidates": 48,
+    "workpad_enabled": true,
+    "rerank_enabled": false,
+    "rerank_allow_remote": false
   },
   "settings_schema": {
     "mode": {
@@ -38,6 +41,24 @@
     "candidate_limit": {
       "minimum": 1,
       "maximum": 128
+    },
+    "workpad_enabled": {
+      "enum": [
+        true,
+        false
+      ]
+    },
+    "rerank_enabled": {
+      "enum": [
+        true,
+        false
+      ]
+    },
+    "rerank_allow_remote": {
+      "enum": [
+        true,
+        false
+      ]
     },
     "rerank_candidates": {
       "minimum": 1,

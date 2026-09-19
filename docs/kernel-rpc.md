@@ -165,6 +165,50 @@ that host consumption is not claimed implemented by this contract amendment.
 
 ### table.workspace.read（宿主向；KIC-02 read-side snapshot）
 
+#### Completion amendment (2026-09-19, spec #92)
+
+The reference-only implementation below is a baseline, not completion of the v2.0 evidence
+reuse design. The completion contract adds bounded static evidence bodies, a semantic `scene`
+binding, independent rule/projection revisions and scene/entity/thread references. Optional
+host parameters supply bounded successful-read references and the unchanged player query;
+none is an action or a request to start a source reader. Static source excerpts never carry
+current NPC position, possessions, HP, knowledge, receipts or executable markers. Coverage
+describes the selected source fields/range, not completeness of a whole entity or rulebook.
+
+The existing context runtime owns one cancellable request generation. Tool outcomes that may
+change state invalidate its prepared view; the next model request rehydrates authoritative
+state. A refusal is not proof of movement. New input, source changes and shutdown cancel old
+optional work, and every async completion checks the generation before publication. Late
+rank results cannot seed a replacement request or rank cache. Off mode retains the previous
+bounded context path and performs no workspace/cache/rank work.
+
+The host evidence store is consumed on the request path: verified static contributions are
+captured under their current scope/revision, read back only with that binding, and projected
+as bounded quoted source data. Current state remains the capsule/tool chain. Dormant scene
+references survive a move and a restart; they do not restore world snapshots. The final
+workspace contains at most 24 evidence groups within 24 KiB, with explicit omissions.
+
+`keeper-context` keeps its own `mode` and adds independent `workpad_enabled`, `rerank_enabled`
+and `rerank_allow_remote` settings. Remote ranking requires both ranking flags and a configured
+provider. Scope, authority, audience, version and coverage filtering precede any transmission.
+Everything that already fits skips ranking. Shadow observes deterministic local selection only.
+The shared candidate limit is at most 128; rank sees at most 48 candidates and 48 KiB total
+UTF-8 document text, with at most 2 KiB per document. Deadline and cancellation are host-enforced
+even when an adapter does not cooperate. Cache reuse binds the exact ordered candidate set,
+contents, query, scope, source/projection revisions and provider configuration.
+
+Workpad is scene-local under `{campaign, worldline, loop, scene}`. The call-start binding and
+revision belong to the host. Successful delivery alone may publish the patch; another request,
+scope change, cancellation or revision conflict discards it. Changed source/state dependencies
+mark the document and its focus for recheck. Discarded hypotheses are not injected. Drafts
+never become notes, rulings, obligations, admission evidence or player UI.
+
+Cache writes use bounded native advisory locking and atomic publication. Quotas include
+serialized references, bodies, drafts and temporary reservations across the common cache root;
+eviction is confined to rebuildable cache data. Formal campaign and playtest evidence are never
+cache eviction candidates. New testing and release status lives in the #92 acceptance ticket;
+the original four-turn run does not prove these amended guarantees or a performance win.
+
 This host-only method is the KIC-02 workspace read contribution described in §19.2. It is not
 visible in the Keeper tool surface and does not add a verb. The TypeScript read handler returns a
 bounded, read-only manifest of static module and complete formal-record references from one

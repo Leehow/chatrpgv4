@@ -21,7 +21,7 @@ import { MAP_DOCUMENT_NONE, renderMapView, type MapAttachment } from './map-view
 import { AUTHORED_MAP_WORDS, KEEPER_MAP_WORDS, mapCardTexts, type MapWordsOptions, prepareMapWords, projectMapCard, readMapWords } from '../module/map-presentation.ts';
 import { COC_TOOLS, COC_TOOL_NAMES, type CocToolSpec, WRITE_TOOLS } from "./tools.ts";
 import { RecallPages } from "./recall-pages.ts";
-import { workspaceModeOf } from '../table/workspace/projection.ts';
+import { workspaceSettingsOf } from '../table/workspace/projection.ts';
 import { bindWorkpadPatch, publishWorkpadPatch, takeWorkpadPatch, type WorkpadBinding } from '../table/workspace/workpad.ts';
 import { workpadStoreRoot } from '../table/workspace/workpad-store.ts';
 import { randomUUID } from "node:crypto";
@@ -2528,9 +2528,11 @@ export default function (pi: ExtensionAPI) {
 		let workpad: WorkpadBinding | undefined;
 		if (workpadRaw !== undefined) {
 			workpad = await bindWorkpadPatch({
-				workspaceRead: (campaign) => state.kernel.call("table.workspace.read", { campaign }),
+				workspaceRead: (campaign, references = []) => state.kernel.call("table.workspace.read", { campaign,
+					names: references.filter(ref => !ref.startsWith('rule:')).map(ref => ref.slice(ref.indexOf(':') + 1)).slice(0, 16),
+					rules: references.filter(ref => ref.startsWith('rule:')).map(ref => ref.slice(5)).slice(0, 8) }),
 				root: () => sessionCtx ? workpadStoreRoot(cocHome(sessionCtx.cwd)) : undefined,
-				record: (row) => void record(row),
+				record: (row) => record(row),
 			}, spec.name, state.campaign, state.workpadMode, workpadRaw);
 		}
 		// Whether this narrate closes the opening turn, read before the success path clears the flag: the
@@ -2721,7 +2723,7 @@ export default function (pi: ExtensionAPI) {
 			// The delivery truly landed: the kernel returned and the bookkeeping above ran. Only now is
 			// the bound patch published; every failure mode — abort, refusal, split delivery, revision
 			// conflict, quota — drops it inside publishWorkpadPatch without touching this result.
-			if (workpad) await publishWorkpadPatch({ record: (row) => void record(row) }, workpad, signal);
+			if (workpad) await publishWorkpadPatch({ record: (row) => record(row) }, workpad, signal);
 			return {
 				content: [{ type: "text", text: JSON.stringify(result) }],
 				details: result,
@@ -3446,7 +3448,8 @@ export default function (pi: ExtensionAPI) {
 			let capsule = result.capsule ?? {};
 			// The package's own mode rides the capsule the table already holds (contract §19.2); the
 			// workpad gate reads it from here so a patch is bound only when the layer is enabled.
-			state.workpadMode = workspaceModeOf(capsule);
+			const workspaceSettings = workspaceSettingsOf(capsule);
+			state.workpadMode = workspaceSettings.workpad ? workspaceSettings.mode : 'off';
 			if (state.skillRun?.enabled && runtime) {
 				try {
 					const skills = projectSkillCards(JSON.parse(await readFile(join(runtime.contentRoot, "skills", "draft.json"), "utf8")));

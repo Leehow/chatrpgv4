@@ -106,7 +106,8 @@ test('a table-minted person carries campaign_adaptation authority while authored
   assert.equal(snapshot.status, 'valid');
   const minted = snapshot.manifest.static.filter(ref => ref.authority === 'campaign_adaptation');
   assert.ok(minted.length >= 1, 'the table-minted person is campaign_adaptation, never book source');
-  assert.ok(minted.every(ref => ref.coverage === 'complete'), 'a rehydrated table person is ready material');
+  assert.ok(minted.every(ref => ref.coverage.status === 'complete' && ref.coverage.entity_complete === false),
+    'a rehydrated table person exposes complete static fields, never a complete dynamic NPC view');
   assert.ok(snapshot.manifest.static.some(ref => ref.authority === 'module_source'), 'authored nodes stay module_source');
   assert.ok(snapshot.authority.allowed.includes('campaign_adaptation'), 'the checked authority vocabulary names the adaptation authority');
   assert.deepEqual(snapshot.manifest.records.map(ref => ref.locator), ['turn:1']);

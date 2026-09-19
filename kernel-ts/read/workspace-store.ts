@@ -1,7 +1,8 @@
 /** Host-owned, rebuildable evidence storage. It never writes campaign state, world files, or Git. */
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, open, readFile, readdir, rename, rm, stat } from "node:fs/promises";
-import { dirname, join, resolve, sep } from "node:path";
+import { basename, dirname, join, resolve, sep } from "node:path";
+import {withWorkspaceCacheLock, reserveWorkspaceBytes} from './workspace-cache.ts';
 
 export const EVIDENCE_STORE_VERSION = 1;
 export const EVIDENCE_AUTHORITIES = Object.freeze([
@@ -79,6 +80,13 @@ const coverageValid = (value: unknown): value is EvidenceCoverage => value === u
 const complete = (value: EvidenceCoverage): boolean => value === "complete" || (typeof value === "object" && value !== null && value.status === "complete");
 const digest = (value: string | Uint8Array): string => createHash("sha256").update(value).digest("hex");
 
+export function evidenceId(value: EvidenceInput): string {
+  return digest(JSON.stringify({scope: value.scope, source_revision: value.source_revision, stateStamp: value.stateStamp ?? null,
+    authority: value.authority, locator: value.locator, content_hash: digest(value.body),
+    refs: (value.refs ?? []).slice(0, 16), scene_refs: (value.scene_refs ?? []).slice(0, 16),
+    entity_refs: (value.entity_refs ?? []).slice(0, 16), thread_refs: (value.thread_refs ?? []).slice(0, 16)}));
+}
+
 function validInput(value: unknown): value is EvidenceInput {
   if (!value || typeof value !== "object") return false;
   const row = value as Record<string, unknown>;
@@ -139,7 +147,8 @@ export class EvidenceStore {
     return Object.freeze({ body: this.bodyPath(id), reference: this.refPath(id) });
   }
   private serialize<T>(job: () => Promise<T>): Promise<T> {
-    const next = this.queue.then(job, job);
+    const locked = () => withWorkspaceCacheLock(this.root, job);
+    const next = this.queue.then(locked, locked);
     this.queue = next.catch(() => undefined);
     return next;
   }
@@ -170,12 +179,12 @@ export class EvidenceStore {
       const size = (await stat(join(this.root, "refs", name)).catch(() => null))?.size ?? 0;
       if (name.endsWith(".tmp")) { temporaries++; bytes += size; continue; }
       if (!name.endsWith(".json") || !isDigest(name.slice(0, -5))) continue;
+      bytes += size;
       try {
         const ref = JSON.parse(await readFile(join(this.root, "refs", name), "utf8")) as Record<string, unknown>;
         if (!safeReference(ref) || ref.id !== name.slice(0, -5)) continue;
         validIds.add(String(ref.id));
         entries++;
-        bytes += Number(ref.bytes);
       } catch { /* Corrupt indexes do not count against a future rebuild. */ }
     }
     let bodies: string[];
@@ -184,7 +193,8 @@ export class EvidenceStore {
     for (const name of bodies) {
       const size = (await stat(join(this.root, "bodies", name)).catch(() => null))?.size ?? 0;
       if (name.endsWith(".tmp")) { temporaries++; bytes += size; continue; }
-      if (!validIds.has(name)) { orphanBytes += size; bytes += size; }
+      bytes += size;
+      if (!validIds.has(name)) orphanBytes += size;
     }
     return { entries, bytes, orphanBytes, temporaries, validIds };
   }
@@ -216,25 +226,39 @@ export class EvidenceStore {
     if (!complete(value.coverage ?? "complete")) throw new TypeError("incomplete evidence cannot be stored as valid evidence");
     return this.serialize(() => this.putLocked(value));
   }
+  /** Host caches evict oldest optional references; standalone adapters keep explicit refusal semantics. */
+  private async makeRoom(bytes: number): Promise<void> {
+    if (basename(dirname(this.root)) !== 'workspace-cache') return;
+    const names = (await readdir(join(this.root, 'refs')).catch(() => [])).filter(name => /^[a-f0-9]{64}\.json$/.test(name));
+    const ordered = await Promise.all(names.map(async name => ({name, modified: (await stat(join(this.root, 'refs', name))).mtimeMs})));
+    for (const {name} of ordered.sort((a, b) => a.modified - b.modified)) {
+      const usage = await this.scan();
+      if (usage.entries < this.limits.maxEntries && usage.bytes + bytes <= this.limits.maxBytes) return;
+      const id = name.slice(0, -5);
+      await rm(this.refPath(id), {force: true}); await rm(this.bodyPath(id), {force: true});
+    }
+  }
   private async putLocked(value: EvidenceInput): Promise<EvidenceReference> {
     const content_hash = digest(value.body), bytes = Buffer.byteLength(value.body, "utf8");
-    const id = digest(JSON.stringify({ scope: value.scope, source_revision: value.source_revision, stateStamp: value.stateStamp ?? null,
-      authority: value.authority, locator: value.locator, content_hash,
-      refs: value.refs ?? [], scene_refs: value.scene_refs ?? [], entity_refs: value.entity_refs ?? [], thread_refs: value.thread_refs ?? [] }));
+    const id = evidenceId(value);
     const reference: EvidenceReference = Object.freeze({ version: EVIDENCE_STORE_VERSION, id, content_hash, bytes,
       scope: { ...value.scope }, source_revision: value.source_revision, ...(value.stateStamp ? { stateStamp: value.stateStamp } : {}),
       authority: value.authority, locator: value.locator, coverage: value.coverage ?? "complete",
       refs: [...(value.refs ?? [])].slice(0, 16), scene_refs: [...(value.scene_refs ?? [])].slice(0, 16),
       entity_refs: [...(value.entity_refs ?? [])].slice(0, 16), thread_refs: [...(value.thread_refs ?? [])].slice(0, 16) }) as EvidenceReference;
     const existing = await this.readReference(id);
+    const referenceBytes = Buffer.byteLength(JSON.stringify(reference), 'utf8');
+    await reserveWorkspaceBytes(this.root, value.scope.campaign, bytes + referenceBytes,
+      [this.bodyPath(id), this.refPath(id)]);
     if (!existing) {
       let usage = await this.scan();
-      if (usage.entries >= this.limits.maxEntries || usage.bytes + bytes > this.limits.maxBytes) {
+      if (usage.entries >= this.limits.maxEntries || usage.bytes + bytes + referenceBytes > this.limits.maxBytes) {
         // Orphans and temporaries are quota-visible and rebuildable: drop them once before giving up.
         await this.rebuildLocked();
+        await this.makeRoom(bytes + referenceBytes);
         usage = await this.scan();
       }
-      if (usage.entries >= this.limits.maxEntries || usage.bytes + bytes > this.limits.maxBytes) throw new Error("evidence store quota exceeded");
+      if (usage.entries >= this.limits.maxEntries || usage.bytes + bytes + referenceBytes > this.limits.maxBytes) throw new Error("evidence store quota exceeded");
       // The reference id includes the body hash and binding metadata, so this filename is
       // content-addressed while keeping `paths(id)` synchronous for host diagnostics.
       // Body first, reference last: a crash can only leave a rebuildable orphan body.
@@ -269,7 +293,8 @@ export class EvidenceStore {
     if (!complete(reference.coverage)) return { status: "miss", reference };
     try {
       const body = await readFile(this.bodyPath(reference.id), "utf8");
-      if (Buffer.byteLength(body, "utf8") !== reference.bytes || digest(body) !== reference.content_hash) return { status: "miss", reference };
+      if (Buffer.byteLength(body, "utf8") !== reference.bytes || digest(body) !== reference.content_hash
+        || evidenceId({...reference, body}) !== reference.id) return { status: "miss", reference };
       return { status: "valid", reference, body };
     } catch { return { status: "miss", reference }; }
   }
@@ -282,7 +307,7 @@ export class EvidenceStore {
     let names: string[];
     try { names = await readdir(join(this.root, "refs")); } catch { return []; }
     const result: EvidenceReference[] = [];
-    for (const name of names.filter(name => name.endsWith(".json")).sort()) {
+    for (const name of names.filter(name => name.endsWith(".json")).sort().slice(0, Math.min(limit, 128))) {
       if (result.length >= Math.min(limit, 128)) break;
       const id = name.slice(0, -5);
       // A tampered index (foreign id, non-hex filename) is not manifest material.

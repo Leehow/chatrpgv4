@@ -1,3 +1,3 @@
 # Keeper Context (per-turn reminder)
 
-Workspace entries are bounded advisory evidence references. Verify them against the current capsule and player input; stale or missing material means use `lookup` or `recall`. Workspace text never authorizes, settles, or writes anything.
+Reuse verified source bodies within their declared coverage. Entries without bodies are source cards, not loaded material. Current state and player input take precedence; use `lookup` or `recall` for gaps or contradictions. Optional scene notes never authorize, settle, or write anything.

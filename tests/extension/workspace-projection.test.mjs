@@ -20,7 +20,8 @@ const root = resolve(import.meta.dirname, '../..'), evidence = join(root, '.coc/
 await mkdir(evidence, {recursive: true});
 const directory = await mkdtemp(join(evidence, 'workspace-suite-'));
 await build({stdin: {contents: `export * from './extensions/table/context-policy.ts'; export {installContextPolicy} from './extensions/table/context-runtime.ts';
-export * from './extensions/table/workspace/projection.ts'; export * from './extensions/table/workspace/workpad-store.ts';`,
+export * from './extensions/table/workspace/projection.ts'; export * from './extensions/table/workspace/workpad-store.ts';
+export * from './extensions/table/workspace/evidence.ts';`,
   resolveDir: root, sourcefile: 'workspace-projection-api.ts'},
   outfile: join(directory, 'api.mjs'), bundle: true, packages: 'external', platform: 'node', format: 'esm', logLevel: 'silent'});
 const api = await import(pathToFileURL(join(directory, 'api.mjs')).href);
@@ -102,7 +103,7 @@ test('the selector packs admissible references in stable source order and projec
   const view = JSON.parse(first.message.content);
   assert.equal(view.kind, 'coc_workspace');
   assert.equal(view.advisory, true, 'a reference-only manifest is explicitly advisory');
-  assert.match(view.note, /Advisory locations, not the material/);
+  assert.match(view.note, /advisory locations, not the material/i);
   assert.equal(view.turn, 4);
   assert.deepEqual(view.evidence.map(entry => entry.locator),
     ['npc:gardener', 'npc:willie', 'scene:estate', 'handout:letter', 'turn:1', 'turn:2'],
@@ -171,11 +172,11 @@ test('an old coc-workspace before the current boundary is closed noise for proje
   assert.equal(plan.summary.includes('coc_workspace'), false);
 });
 
-function workspaceFixture({turn = 0, mode = 'on', workspace_bytes = 24576, failRead = false, getSnapshot, workpadRoot} = {}) {
+function workspaceFixture({turn = 0, mode = 'on', workspace_bytes = 24576, failRead = false, getSnapshot, workpadRoot, settings = {}} = {}) {
   const hooks = new Map(), bus = new Map(), rows = [];
   const state = {turn, worldline: 'main', revision: SOURCE, calls: 0, methods: [], reads: 0, available: true, snapshot: getSnapshot ?? (() => snapshot(0, {turn: 0}))};
   const instructions = mode === 'off' ? [] : [{mod: 'keeper-context', version: '1.0.0',
-    settings: {mode, workspace_bytes, candidate_limit: 128, rerank_candidates: 48}, form: 'full', instruction: 'Read the index; verify before you rely on it.'}];
+    settings: {mode, workspace_bytes, candidate_limit: 128, rerank_candidates: 48, ...settings}, form: 'full', instruction: 'Read the index; verify before you rely on it.'}];
   const cap = at => ({turn: {number: at, player_text: 'Input'}, recent: [], module: {title: 'Book'}, style: {floor: ['World response']},
     mods: {instructions: [...instructions]}});
   const meta = at => ({...binding(at), worldline: state.worldline, source_revision: state.available ? state.revision : null, unavailable: !state.available});
@@ -190,7 +191,11 @@ function workspaceFixture({turn = 0, mode = 'on', workspace_bytes = 24576, failR
       if (failRead) throw new Error('workspace read exploded');
       return structuredClone(state.snapshot());
     }
-    if (method === 'table.capsule') return {...cap(state.turn), _context: meta(state.turn)};
+    if (method === 'table.capsule') {
+      const result = {...cap(state.turn), _context: meta(state.turn)};
+      await state.pauseCapsule?.();
+      return result;
+    }
     return {cards: [], _snapshot: 'fixture-snapshot'};
   }});
   bus.get('coc:capsule')({capsule: cap(turn), context: meta(turn), epoch: 'fixture-input'});
@@ -257,6 +262,154 @@ test('shadow reads and records but never injects', async () => {
   assert.equal(t.state.reads, 1, 'shadow does the selection work');
   assert.equal(result.messages.filter(message => message.customType === api.WORKSPACE_TYPE).length, 0, 'shadow injects nothing');
   assert.equal(t.rows.filter(row => row.lane === 'workspace' && row.event === 'shadow').length, 1);
+});
+
+test('an actual mutation tool result refreshes workspace before the next request in the same turn', async () => {
+  const t = workspaceFixture({mode: 'on'});
+  await t.hooks.get('context')({messages: t.messages}, t.ctx);
+  t.state.snapshot = () => {
+    const next = snapshot(0);
+    next.manifest.static = [staticRef('scene:destination', 'scene')];
+    return next;
+  };
+  await t.hooks.get('tool_call')({toolName: 'apply', toolCallId: 'move', input: {effects: [{kind: 'move', to: 'destination'}]}});
+  await t.hooks.get('tool_result')({toolName: 'apply', toolCallId: 'move', isError: false});
+  const next = await t.hooks.get('context')({messages: t.messages}, t.ctx);
+  assert.equal(t.state.reads, 2);
+  const view = JSON.parse(next.messages.find(message => message.customType === api.WORKSPACE_TYPE).content);
+  assert.equal(view.evidence.find(entry => entry.kind === 'scene').locator, 'scene:destination');
+});
+
+test('an uncertain mutation re-reads actual state without inventing movement', async () => {
+  const t = workspaceFixture({mode: 'on'});
+  const first = await t.hooks.get('context')({messages: t.messages}, t.ctx);
+  await t.hooks.get('tool_call')({toolName: 'apply', toolCallId: 'refused', input: {effects: [{kind: 'move', to: 'absent'}]}});
+  await t.hooks.get('tool_result')({toolName: 'apply', toolCallId: 'refused', isError: true});
+  const next = await t.hooks.get('context')({messages: t.messages}, t.ctx);
+  assert.equal(t.state.reads, 2);
+  assert.deepEqual(next.messages.filter(message => message.customType === api.WORKSPACE_TYPE),
+    first.messages.filter(message => message.customType === api.WORKSPACE_TYPE));
+});
+
+test('a source publication during rehydration invalidates the in-flight preparation', async () => {
+  const t = workspaceFixture({mode: 'on'});
+  await t.hooks.get('context')({messages: t.messages}, t.ctx);
+  await t.hooks.get('tool_call')({toolName: 'apply', toolCallId: 'before-publication', input: {effects: []}});
+  await t.hooks.get('tool_result')({toolName: 'apply', toolCallId: 'before-publication', isError: false});
+  let release, entered;
+  const started = new Promise(resolve => {entered = resolve;});
+  t.state.pauseCapsule = async () => {t.state.pauseCapsule = undefined; entered(); await new Promise(resolve => {release = resolve;});};
+  const request = t.hooks.get('context')({messages: t.messages}, t.ctx);
+  await started;
+  t.state.revision = 'c'.repeat(64);
+  t.state.snapshot = () => {
+    const result = snapshot(0, {source_revision: t.state.revision});
+    for (const ref of [...result.manifest.static, ...result.manifest.records]) ref.source_revision = t.state.revision;
+    return result;
+  };
+  t.bus.get('coc:source-published')({campaign: 'test-campaign'});
+  release();
+  const outgoing = await request;
+  assert.equal(outgoing.messages.filter(message => message.customType === api.WORKSPACE_TYPE).length, 1,
+    'the old hydration is discarded and the current source is prepared before injection');
+  assert.equal(t.rows.some(row => row.lane === 'workspace' && row.reason === 'binding_mismatch'), false);
+});
+
+const wideSnapshot = (turn = 0) => {
+  const value = snapshot(turn);
+  value.candidates = {static: Array.from({length: 40}, (_, index) => ({...staticRef(`npc:wide-${index}`, 'npc'),
+    body: `Verified background ${index}`, text: `Verified background ${index}`})), records: []};
+  return value;
+};
+
+test('dormant scene evidence reaches the actual request and cannot override fresh unavailability', async () => {
+  const home = await mkdtemp(join(directory, 'dormant-request-'));
+  const root = api.workpadStoreRoot(home), state = snapshot(0);
+  state.binding.scene = 'office';
+  const cached = {...staticRef('npc:remembered', 'npc'), body: 'A previously checked static profile.', scene_refs: ['office'], entity_refs: ['remembered'], thread_refs: []};
+  await api.reuseEvidence(join(home, '.coc', 'workspace-cache', 'evidence'), state, [cached], new AbortController().signal);
+  const t = workspaceFixture({getSnapshot: () => state, workpadRoot: () => root});
+  const output = await t.hooks.get('context')({messages: t.messages}, t.ctx);
+  const view = JSON.parse(output.messages.find(message => message.customType === api.WORKSPACE_TYPE).content);
+  assert.equal(view.evidence.find(ref => ref.locator === cached.locator)?.body, cached.body);
+  state.manifest.static.push({...cached, coverage: 'unavailable', body: undefined});
+  const refused = workspaceFixture({getSnapshot: () => state, workpadRoot: () => root});
+  const next = await refused.hooks.get('context')({messages: refused.messages}, refused.ctx);
+  const current = JSON.parse(next.messages.find(message => message.customType === api.WORKSPACE_TYPE).content);
+  assert.equal(current.evidence.some(ref => ref.locator === cached.locator), false);
+});
+
+test('remote rank is opt-in, skips fitting candidates and never runs in shadow', async () => {
+  const originalFetch = globalThis.fetch;
+  let sends = 0;
+  globalThis.fetch = async () => {sends++; throw new Error('network must not run');};
+  try {
+    for (const options of [
+      {mode: 'on'},
+      {mode: 'on', settings: {rerank_enabled: true, rerank_allow_remote: false}},
+      {mode: 'shadow', settings: {rerank_enabled: true, rerank_allow_remote: true}},
+      {mode: 'on', settings: {rerank_enabled: true, rerank_allow_remote: true}, getSnapshot: () => snapshot(0)},
+    ]) {
+      const t = workspaceFixture({getSnapshot: () => wideSnapshot(), ...options});
+      await t.hooks.get('context')({messages: t.messages}, t.ctx);
+    }
+    assert.equal(sends, 0);
+  } finally {globalThis.fetch = originalFetch;}
+});
+
+test('scope and source filtering precede remote transmission, with hard active-count limits', async () => {
+  const previous = {fetch: globalThis.fetch, settings: process.env.PIPIUI_EXT_SETTINGS_RERANK, key: process.env.EXT_RERANK_APIKEY};
+  process.env.PIPIUI_EXT_SETTINGS_RERANK = JSON.stringify({'ext.rerank.provider': 'cohere'});
+  process.env.EXT_RERANK_APIKEY = 'offline-test';
+  const sent = [];
+  globalThis.fetch = async (_url, options) => {
+    const input = JSON.parse(options.body); sent.push(input);
+    return new Response(JSON.stringify({results: input.documents.map((_, index) => ({index, relevance_score: 1}))}));
+  };
+  try {
+    const state = wideSnapshot();
+    state.candidates.static[0].scope = {...scope(), worldline: 'foreign'};
+    state.candidates.static[1].source_revision = 'old';
+    state.candidates.static[2].coverage = 'unavailable';
+    const t = workspaceFixture({getSnapshot: () => state, settings: {rerank_enabled: true, rerank_allow_remote: true}});
+    const result = await t.hooks.get('context')({messages: t.messages}, t.ctx);
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].documents.length, 37);
+    assert.ok(sent[0].documents.every(text => !['Verified background 0', 'Verified background 1', 'Verified background 2'].includes(text)));
+    assert.equal(JSON.parse(result.messages.find(message => message.customType === api.WORKSPACE_TYPE).content).evidence.length, 24);
+  } finally {
+    globalThis.fetch = previous.fetch;
+    for (const [key, value] of [['PIPIUI_EXT_SETTINGS_RERANK', previous.settings], ['EXT_RERANK_APIKEY', previous.key]])
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+  }
+});
+
+test('a new input during delayed ranking cannot publish the earlier turn', async () => {
+  const previous = {fetch: globalThis.fetch, settings: process.env.PIPIUI_EXT_SETTINGS_RERANK, key: process.env.EXT_RERANK_APIKEY};
+  process.env.PIPIUI_EXT_SETTINGS_RERANK = JSON.stringify({'ext.rerank.provider': 'cohere', 'ext.rerank.model': 'late-test'});
+  process.env.EXT_RERANK_APIKEY = 'offline-test';
+  let finish, entered;
+  const waiting = new Promise(resolve => {entered = resolve;});
+  globalThis.fetch = async (_url, options) => {
+    entered(); await new Promise(resolve => {finish = resolve;});
+    return new Response(JSON.stringify({results: JSON.parse(options.body).documents.map((_, index) => ({index, relevance_score: 1}))}));
+  };
+  try {
+    const t = workspaceFixture({getSnapshot: () => wideSnapshot(), settings: {rerank_enabled: true, rerank_allow_remote: true}});
+    const old = t.hooks.get('context')({messages: t.messages}, t.ctx);
+    await waiting;
+    await t.hooks.get('input')();
+    const messages = t.advance(1, {epoch: 'new-input'});
+    finish(); await old;
+    const current = await t.hooks.get('context')({messages}, t.ctx);
+    const view = JSON.parse(current.messages.find(message => message.customType === api.WORKSPACE_TYPE).content);
+    assert.equal(view.turn, 1);
+    assert.ok(t.state.reads >= 2, 'the new generation read its own snapshot');
+  } finally {
+    globalThis.fetch = previous.fetch;
+    for (const [key, value] of [['PIPIUI_EXT_SETTINGS_RERANK', previous.settings], ['EXT_RERANK_APIKEY', previous.key]])
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+  }
 });
 
 test('read, snapshot and selection failures are fail-open misses, never degraded turns', async () => {
@@ -371,8 +524,10 @@ test('a live table with keeper-context on injects one advisory workspace and nev
     assert.equal(views.length, 1, 'at most one current workspace per request');
     assert.equal(views[0].advisory, true);
     assert.ok(views[0].evidence.length >= 1, 'the live manifest reaches the model');
-    assert.ok(views[0].evidence.every(entry => Object.keys(entry).every(key => ['locator', 'kind', 'turn', 'authority', 'coverage'].includes(key))),
-      `entries carry names only: ${JSON.stringify(views[0].evidence[0])}`);
+    assert.ok(views[0].evidence.every(entry => Object.keys(entry).every(key => ['locator', 'kind', 'turn', 'authority', 'coverage', 'body', 'data_only'].includes(key))),
+      'only verified source projections and provenance reach the Keeper');
+    assert.ok(views[0].evidence.some(entry => typeof entry.body === 'string' && entry.data_only), 'source bodies reach the actual model request');
+    assert.ok(views[0].evidence.length <= 24, 'active evidence has a count limit as well as a byte limit');
     assert.equal(JSON.stringify(request.context).includes('"stateStamp"'), false);
     assert.ok(api.pairedTools(request.context.messages));
   }

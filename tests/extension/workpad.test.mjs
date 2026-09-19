@@ -215,6 +215,13 @@ describe('workpad projection', () => {
 });
 
 describe('workpad patch parameter handling', () => {
+  test('a foreign campaign snapshot cannot bind a patch for this delivery', async () => {
+    const events = [];
+    const bound = await api.bindWorkpadPatch({workspaceRead: async () => snapshot(), root: () => directory,
+      record: row => events.push(row)}, 'narrate', 'another-campaign', 'on', {focus: 'A short question'});
+    assert.equal(bound, undefined);
+    assert.equal(events.at(-1).reason, 'binding_unavailable');
+  });
   test('takeWorkpadPatch deletes the patch from the arguments and only for delivery tools', () => {
     const params = {text: 'story', workpad_patch: {focus: 'x'}};
     assert.deepEqual(api.takeWorkpadPatch('narrate', params), {focus: 'x'});
@@ -265,7 +272,8 @@ test('a delivered narrate publishes its patch and the next request shows it stal
   const readAt = requests1.findIndex(r => r.method === 'table.workspace.read');
   assert.ok(readAt >= 0 && readAt < requests1.findIndex(r => r.method === 'table.narrate'),
     'the call-start binding read precedes the delivery');
-  assert.deepEqual(Object.keys(requests1[readAt].params).sort(), ['campaign'], 'the read is host-only and parameterless');
+  assert.ok(Object.keys(requests1[readAt].params).every(key => ['campaign', 'query', 'names', 'rules', 'candidate_limit'].includes(key)),
+    'the pure read carries only bounded host retrieval hints, never delivery arguments');
   // Publish: the store file exists beside the evidence cache and telemetry recorded the lifecycle.
   await waitFor(() => existsSync(join(table.workspace, '.coc', 'workspace-cache', 'workpad')), {timeoutMs: 10000});
   const storeFiles = readdirSync(join(table.workspace, '.coc', 'workspace-cache', 'workpad')).filter(f => f.endsWith('.json'));

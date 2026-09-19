@@ -122,9 +122,9 @@ test('quota truncation is reported on a valid snapshot, never as unverifiable', 
   assert.equal(snapshot.status, 'valid', 'omitted references truncate; they never poison');
   assert.equal(snapshot.manifest.truncated, true);
   assert.equal(snapshot.coverage.records.status, 'complete');
-  assert.equal(snapshot.coverage.records.count, 26, 'all committed records are known');
+  assert.equal(snapshot.coverage.records.count, 12, 'only the bounded recent record window is inspected');
   assert.equal(snapshot.manifest.records.length, 12, 'records take their reserved slots');
-  assert.equal(snapshot.coverage.records.omitted, 14);
+  assert.ok(snapshot.coverage.records.omitted >= 14, 'uninspected record files are explicit omissions');
   assert.equal(snapshot.manifest.static.length, 12, 'statics share the remaining budget');
 });
 
@@ -138,6 +138,26 @@ test('stateStamp covers party state before any dynamic view binds to it', async 
   const changed = await table.call('table.workspace.read');
   assert.notEqual(changed.binding.stateStamp, first.binding.stateStamp, 'party state is inside the dynamic stamp');
   assert.equal(changed.binding.source_revision, first.binding.source_revision, 'source identity does not move with party state');
+});
+
+test('rules carry an independent version and an oversized dependency group is never a complete body', async t => {
+  const table = await openTable(t);
+  const snapshot = await table.call('table.workspace.read', {rules: ['rule:coc7:chase:barriers'], candidate_limit: 16});
+  assert.match(snapshot.binding.rules_revision, /^[a-f0-9]{64}$/);
+  assert.notEqual(snapshot.binding.rules_revision, snapshot.binding.source_revision);
+  assert.ok(snapshot.inspected <= 16);
+  const rule = snapshot.candidates.static.find(ref => ref.authority === 'rules_source');
+  assert.ok(rule);
+  assert.equal(rule.rules_revision, snapshot.binding.rules_revision);
+  if (rule.coverage.status === 'complete') {
+    const body = JSON.parse(rule.body);
+    assert.ok(Array.isArray(body.source_group) && Array.isArray(body.relations));
+    assert.ok(Buffer.byteLength(rule.body, 'utf8') <= 8192);
+  } else {
+    assert.equal(rule.coverage.status, 'partial');
+    assert.equal(rule.body, undefined);
+    assert.ok(rule.coverage.omitted.includes('rule_dependency_group'));
+  }
 });
 
 test('evidence store round-trips atomically and fails closed for corruption, scope, state, and incomplete coverage', async t => {

@@ -2,8 +2,9 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import { dirname, join, resolve, sep } from "node:path";
+import {withWorkspaceCacheLock, reserveWorkspaceBytes} from '../../../kernel-ts/read/workspace-cache.ts';
 
-export const WORKPAD_STORE_VERSION = 1;
+export const WORKPAD_STORE_VERSION = 2;
 /** Whole-workpad and single-patch byte bounds (plan §1 configuration starting points). */
 export const WORKPAD_BYTES = 2 * 1024;
 export const WORKPAD_PATCH_BYTES = 1024;
@@ -19,7 +20,7 @@ export const WORKPAD_KINDS = Object.freeze(["open_question", "hypothesis", "cond
 export const WORKPAD_STATUSES = Object.freeze(["tentative", "needs_recheck", "discarded"] as const);
 export type WorkpadKind = typeof WORKPAD_KINDS[number];
 export type WorkpadStatus = typeof WORKPAD_STATUSES[number];
-export type WorkpadScope = Readonly<{ campaign: string; worldline: string; loop: number }>;
+export type WorkpadScope = Readonly<{ campaign: string; worldline: string; loop: number; scene?: string }>;
 
 export interface WorkpadUpsert {
   readonly id: string;
@@ -43,11 +44,14 @@ export interface WorkpadEntry {
   readonly evidence: readonly string[];
   readonly turn: number;
   readonly stateStamp: string;
+  readonly sourceRevision?: string;
 }
 export interface WorkpadView {
   readonly revision: number;
   readonly focus: string | null;
   readonly entries: readonly WorkpadEntry[];
+  readonly stateStamp?: string;
+  readonly sourceRevision?: string;
 }
 export type WorkpadRead = { readonly status: "empty" } | { readonly status: "ok"; readonly view: WorkpadView };
 export type WorkpadPublish =
@@ -63,7 +67,8 @@ const isScope = (value: unknown): value is WorkpadScope => {
   if (!value || typeof value !== "object") return false;
   const row = value as Record<string, unknown>;
   return isText(row.campaign) && isText(row.worldline) && typeof row.loop === "number"
-    && Number.isSafeInteger(row.loop) && row.loop >= 0;
+    && Number.isSafeInteger(row.loop) && row.loop >= 0
+    && (row.scene === undefined || isText(row.scene));
 };
 
 /**
@@ -132,7 +137,8 @@ function safeEntry(value: unknown): value is WorkpadEntry {
     && row.evidence.every(ref => isText(ref) && ref.length <= WORKPAD_TEXT_CHARS)
     && typeof row.turn === "number" && Number.isSafeInteger(row.turn) && row.turn >= 0
     && isText(row.stateStamp) && row.stateStamp.length <= 64
-    && Object.keys(row).every(key => ["id", "kind", "text", "status", "evidence", "turn", "stateStamp"].includes(key));
+    && (row.sourceRevision === undefined || isText(row.sourceRevision))
+    && Object.keys(row).every(key => ["id", "kind", "text", "status", "evidence", "turn", "stateStamp", "sourceRevision"].includes(key));
 }
 
 /**
@@ -163,12 +169,13 @@ export class WorkpadStore {
   }
 
   private serialize<T>(job: () => Promise<T>): Promise<T> {
-    const next = this.queue.then(job, job);
+    const locked = () => withWorkspaceCacheLock(this.root, job);
+    const next = this.queue.then(locked, locked);
     this.queue = next.catch(() => undefined);
     return next;
   }
 
-  private async atomic(path: string, data: string): Promise<void> {
+  private async atomic(path: string, data: string, signal?: AbortSignal): Promise<void> {
     await mkdir(dirname(path), { recursive: true, mode: 0o700 });
     const temporary = `${path}.${randomUUID()}.tmp`;
     let handle;
@@ -177,6 +184,7 @@ export class WorkpadStore {
       await handle.writeFile(data, "utf8");
       await handle.sync();
       await handle.close();
+      if (signal?.aborted) throw new Error('workpad publication cancelled');
       await rename(temporary, path);
     } catch (error) {
       await handle?.close().catch(() => undefined);
@@ -198,7 +206,8 @@ export class WorkpadStore {
     try { document = JSON.parse(raw) as Record<string, unknown>; } catch { return { status: "empty" }; }
     if (document.version !== WORKPAD_STORE_VERSION || !isScope(document.scope)) return { status: "empty" };
     const fileScope = document.scope as WorkpadScope;
-    if (fileScope.campaign !== scope.campaign || fileScope.worldline !== scope.worldline || fileScope.loop !== scope.loop) return { status: "empty" };
+    if (fileScope.campaign !== scope.campaign || fileScope.worldline !== scope.worldline || fileScope.loop !== scope.loop
+      || fileScope.scene !== scope.scene) return { status: "empty" };
     if (!Number.isSafeInteger(document.revision) || (document.revision as number) < 0) return { status: "empty" };
     if (document.focus !== null && typeof document.focus !== "string") return { status: "empty" };
     if (!Array.isArray(document.entries)) return { status: "empty" };
@@ -207,7 +216,9 @@ export class WorkpadStore {
     const ids = new Set((document.entries as WorkpadEntry[]).map(entry => entry.id));
     if (ids.size !== document.entries.length) return { status: "empty" };
     const view: WorkpadView = { revision: document.revision as number, focus: (document.focus as string | null) ?? null,
-      entries: document.entries as WorkpadEntry[] };
+      entries: document.entries as WorkpadEntry[],
+      ...(typeof document.stateStamp === 'string' ? {stateStamp: document.stateStamp} : {}),
+      ...(typeof document.sourceRevision === 'string' ? {sourceRevision: document.sourceRevision} : {}) };
     if (serialized(view) > WORKPAD_BYTES) return { status: "empty" };
     return { status: "ok", view };
   }
@@ -223,18 +234,19 @@ export class WorkpadStore {
    * over-limit instead of silently evicting the Keeper's earlier items.
    */
   async publish(input: {
-    scope: WorkpadScope; baseRevision: number; turn: number; stateStamp: string; patch: WorkpadPatch;
+    scope: WorkpadScope; baseRevision: number; turn: number; stateStamp: string; sourceRevision?: string; patch: WorkpadPatch; signal?: AbortSignal;
   }): Promise<WorkpadPublish> {
     if (!isScope(input.scope) || !isText(input.stateStamp) || !Number.isSafeInteger(input.turn) || input.turn < 0) {
       return { status: "discarded", reason: "invalid_scope" };
     }
     const validated = validateWorkpadPatch(input.patch);
     if (!validated.ok) return { status: "discarded", reason: validated.reason };
-    return this.serialize(() => this.publishLocked(input.scope, input.baseRevision, input.turn, input.stateStamp, validated.patch));
+    return this.serialize(() => this.publishLocked(input.scope, input.baseRevision, input.turn, input.stateStamp, validated.patch, input.sourceRevision, input.signal));
   }
 
-  private async publishLocked(scope: WorkpadScope, baseRevision: number, turn: number, stateStamp: string, patch: WorkpadPatch): Promise<WorkpadPublish> {
+  private async publishLocked(scope: WorkpadScope, baseRevision: number, turn: number, stateStamp: string, patch: WorkpadPatch, sourceRevision?: string, signal?: AbortSignal): Promise<WorkpadPublish> {
     const current = await this.readLocked(scope);
+    if (signal?.aborted) return {status: 'discarded', reason: 'cancelled'};
     const currentRevision = current.status === "ok" ? current.view.revision : 0;
     if (currentRevision !== baseRevision) return { status: "discarded", reason: "revision_conflict" };
     const focus = patch.focus !== undefined ? patch.focus : current.status === "ok" ? current.view.focus : null;
@@ -243,11 +255,13 @@ export class WorkpadStore {
     for (const upsert of patch.upserts) {
       entries = entries.filter(entry => entry.id !== upsert.id);
       entries.push({ id: upsert.id, kind: upsert.kind, text: upsert.text, status: upsert.status,
-        evidence: [...upsert.evidence], turn, stateStamp });
+        evidence: [...upsert.evidence], turn, stateStamp, ...(sourceRevision ? {sourceRevision} : {}) });
     }
-    const view: WorkpadView = { revision: currentRevision + 1, focus, entries };
-    if (entries.length > WORKPAD_MAX_ITEMS || serialized(view) > WORKPAD_BYTES) return { status: "discarded", reason: "workpad_over_limit" };
-    await this.atomic(this.path(scope), JSON.stringify({ version: WORKPAD_STORE_VERSION, scope: { ...scope }, ...view }));
+    const view: WorkpadView = { revision: currentRevision + 1, focus, entries, stateStamp, ...(sourceRevision ? {sourceRevision} : {}) };
+    const document = { version: WORKPAD_STORE_VERSION, scope: { ...scope }, ...view };
+    if (entries.length > WORKPAD_MAX_ITEMS || serialized(document) > WORKPAD_BYTES) return { status: "discarded", reason: "workpad_over_limit" };
+    await reserveWorkspaceBytes(this.root, scope.campaign, serialized(document), [this.path(scope)]);
+    await this.atomic(this.path(scope), JSON.stringify(document), signal);
     return { status: "published", view };
   }
 }

@@ -8,7 +8,8 @@ import {build} from 'esbuild';
 const root = resolve(import.meta.dirname, '../..');
 const temporary = await mkdtemp(join(root, '.coc', 'workspace-store-suite-'));
 after(() => rm(temporary, {recursive: true, force: true}));
-await build({stdin: {contents: `export {EvidenceStore, evidenceStoreRoot} from './kernel-ts/read/workspace-store.ts';`,
+await build({stdin: {contents: `export {EvidenceStore, evidenceStoreRoot} from './kernel-ts/read/workspace-store.ts';
+export {withWorkspaceCacheLock, reserveWorkspaceBytes} from './kernel-ts/read/workspace-cache.ts';`,
   resolveDir: root, sourcefile: 'workspace-store-api.ts'}, outfile: join(temporary, 'api.mjs'),
   bundle: true, packages: 'external', platform: 'node', format: 'esm', target: 'node22', logLevel: 'silent'});
 const api = await import(pathToFileURL(join(temporary, 'api.mjs')).href);
@@ -35,7 +36,7 @@ test('concurrent puts serialize: Promise.all cannot break maxEntries or maxBytes
 
 test('orphan bodies and abandoned temporaries are quota-visible and rebuildable', async t => {
   const home = await mkdtemp(join(temporary, 'orphan-'));
-  const store = new api.EvidenceStore(join(home, 'cache'), {maxEntries: 8, maxBytes: 600});
+  const store = new api.EvidenceStore(join(home, 'cache'), {maxEntries: 8, maxBytes: 4096});
   const first = await store.put(input('turn:1', 'Small body.'));
   await writeFile(join(home, 'cache', 'bodies', hex('c')), 'x'.repeat(5000));
   await writeFile(join(home, 'cache', 'bodies', `${hex('d')}.tmp`), 'partial write');
@@ -49,7 +50,7 @@ test('orphan bodies and abandoned temporaries are quota-visible and rebuildable'
   assert.equal(rebuilt.droppedOrphans, 0);
   assert.equal(rebuilt.droppedTemporaries, 0);
   // Quota still binds once only valid entries remain.
-  await assert.rejects(store.put(input('turn:3', 'x'.repeat(700))), /quota exceeded/);
+  await assert.rejects(store.put(input('turn:3', 'x'.repeat(4096))), /quota exceeded/);
 });
 
 test('a valid put still exceeds the entry quota after a rebuild, and rebuild drops orphans on demand', async t => {
@@ -78,4 +79,24 @@ test('a matching put repairs a corrupted body; missing bodies are healed the sam
   await rm(store.paths(reference.id).body);
   await store.put(input('turn:3', 'The original text.'));
   assert.equal((await store.read(reference.id, binding(input('turn:3')))).status, 'valid', 'a deleted body is rewritten, not treated as fresh quota');
+});
+
+test('separate evidence store instances cannot race past one entry quota', async () => {
+  const home = await mkdtemp(join(temporary, 'two-writers-')), root = join(home, 'cache');
+  const outcomes = await Promise.allSettled([new api.EvidenceStore(root, {maxEntries: 1, maxBytes: 4096}).put(input('first')),
+    new api.EvidenceStore(root, {maxEntries: 1, maxBytes: 4096}).put(input('second'))]);
+  assert.equal(outcomes.filter(result => result.status === 'fulfilled').length, 1);
+  assert.equal((await readdir(join(root, 'refs'))).filter(name => name.endsWith('.json')).length, 1);
+});
+
+test('the common governor reserves metadata and temporary bytes without touching formal files', async () => {
+  const home = await mkdtemp(join(temporary, 'governor-')), root = api.evidenceStoreRoot(home);
+  const store = new api.EvidenceStore(root);
+  await store.put(input('governed', 'x'.repeat(1000)));
+  const marker = join(home, 'formal-evidence.json'); await writeFile(marker, 'retained');
+  await api.withWorkspaceCacheLock(root, () => api.reserveWorkspaceBytes(root, 'c1', 1024, [], {campaign: 2048, total: 2048}));
+  const remaining = await store.manifest(binding(input('governed')));
+  // Evicting a body or reference is a rebuildable miss; neither can turn into authority.
+  for (const ref of remaining) assert.notEqual((await store.read(ref.id, binding(input('governed')))).status, 'valid');
+  assert.equal(await readFile(marker, 'utf8'), 'retained');
 });
