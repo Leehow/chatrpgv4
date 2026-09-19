@@ -123,7 +123,8 @@ function defaultMounts(root) {
 		'the fake tree must carry the same provider manifests the repo does');
 	return ['--no-extensions', ...['kernel', 'mods', 'onboarding', 'module', 'memory', 'table', 'npc-journal', 'npc-voice'].flatMap(name => ['-e', join(root, 'build/extensions', name, 'index.mjs')]),
 		...providers.flatMap(entry => ['-e', entry.entry]),
-		'-e', join(root, 'build/extensions/image-gen/agent/index.mjs')];
+		'-e', join(root, 'build/extensions/image-gen/agent/index.mjs'),
+		'-e', join(root, 'build/extensions/rerank/agent/index.mjs')];
 }
 
 test("shared extension mount helpers preserve consumer boundaries in source and compiled layouts", () => {
@@ -138,6 +139,7 @@ test("shared extension mount helpers preserve consumer boundaries in source and 
 			entrypoints.agent,
 			...entrypoints.providerExtensions,
 			entrypoints.imageGen,
+			entrypoints.rerank,
 		]);
 		assert.deepEqual(readerProviderExtensionPaths(entrypoints), entrypoints.providerExtensions);
 		assert.equal(readerProviderExtensionPaths(entrypoints).includes(entrypoints.imageGen), false);

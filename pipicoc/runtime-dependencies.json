@@ -89,6 +89,7 @@
     "build/extensions/deepseek/agent/index.mjs",
     "build/extensions/image-gen/agent/index.mjs",
     "build/extensions/grok-build-oauth/agent/index.mjs",
+    "build/extensions/rerank/agent/index.mjs",
     "build/extensions/module/source.mjs",
     "build/extensions/module/reader-context.mjs",
     "build/extensions/module/reader-pdf.mjs",

@@ -135,8 +135,10 @@ export const DEFAULT_SETTINGS_TAB = 'models'
 // it sits with 扩展, its own kind. `coc-difficulty` is the COC Keeper extension's creation-
 // difficulty section (contract §33.5), admitted the same way, and `coc-lane-model` is its picker for
 // the model the Keeper's background lanes run on -- contributing a section is not enough on its own,
-// because a tab only exists once its id is admitted here.
-export const HOST_SETTINGS_TAB_IDS = ['models', 'extensions', 'coc-difficulty', 'coc-lane-model', 'image-model', 'themes', 'updates'] as const
+// because a tab only exists once its id is admitted here. `rerank` is the Rerank extension's
+// provider / model / key picker: the model list depends on the chosen provider, so it is a
+// controlled section rather than a schema form, and it is admitted here for the same reason.
+export const HOST_SETTINGS_TAB_IDS = ['models', 'extensions', 'coc-difficulty', 'coc-lane-model', 'image-model', 'rerank', 'themes', 'updates'] as const
 
 // --- panels ----------------------------------------------------------------
 

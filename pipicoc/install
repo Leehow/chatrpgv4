@@ -24,7 +24,7 @@ const compiled=existsSync(join(root,'deployment.json'));
 if(compiled&&(!process.env.PI_COC_HOME||!process.env.PI_CODING_AGENT_DIR))throw new Error('Standalone installation requires its writable profile and COC home');
 const context=composeRuntimeContext({owner:'preparation',home:process.env.PI_COC_HOME||root},{resourceRoot:root,
   agentHome:compiled?process.env.PI_CODING_AGENT_DIR:join(root,'.pi/coc-agent')});
-for(const path of [context.entrypoints.agent,context.entrypoints.deepseek,context.entrypoints.grokBuild,context.entrypoints.imageGen])accessSync(path,constants.R_OK);
+for(const path of [context.entrypoints.agent,context.entrypoints.deepseek,context.entrypoints.grokBuild,context.entrypoints.imageGen,context.entrypoints.rerank])accessSync(path,constants.R_OK);
 function generatedDirectory(path){
   if(existsSync(path)&&lstatSync(path).isSymbolicLink())throw new Error(`Generated asset directory must not be a symbolic link: ${path}`);
   mkdirSync(path,{recursive:true});chmodSync(path,0o755);
@@ -66,7 +66,7 @@ copyGeneratedFile(context.entrypoints.deepseek,join(provider,'agent/index.mjs'))
 const providerManifest=JSON.parse(readFileSync(join(provider,'pipiui-extension.json'),'utf8'));
 providerManifest.agent.extension='agent/index.mjs';
 writeGeneratedManifest(join(provider,'pipiui-extension.json'),providerManifest);
-for(const [name,entrypoint] of [['grok-build-oauth',context.entrypoints.grokBuild],['image-gen',context.entrypoints.imageGen]]){
+for(const [name,entrypoint] of [['grok-build-oauth',context.entrypoints.grokBuild],['image-gen',context.entrypoints.imageGen],['rerank',context.entrypoints.rerank]]){
   const dest=join(context.agentHome,'extensions',name);
   copyGeneratedTree(join(root,'extensions',name),dest);
   copyGeneratedFile(entrypoint,join(dest,'agent/index.mjs'));

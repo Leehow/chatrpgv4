@@ -1,0 +1,54 @@
+{
+  "id": "rerank",
+  "name": "Rerank",
+  "version": "0.1.0",
+  "category": "integration",
+  "description": "Cross-encoder re-ranking for retrieval: choose a rerank provider and paste its API key. It stays off every existing retrieval path until a caller is wired to it.",
+  "capabilities": ["settings.read", "settings.write"],
+  "agent": {
+    "extension": "agent/index.js"
+  },
+  "app": {
+    "settings": {
+      "scope": "app",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "ext.rerank.provider": {
+            "type": "string",
+            "title": "Provider",
+            "description": "Which vendor serves the rerank call. The endpoint comes with the choice, so nothing else needs filling in. Providers whose rerank needs a cloud login rather than a pasted key (Google Vertex AI, AWS Bedrock, a self-hosted NVIDIA NIM) are not listed.",
+            "enum": ["cohere", "qwen", "jina", "voyage", "siliconflow", "zeroentropy", "fireworks", "pinecone", "openrouter"]
+          },
+          "ext.rerank.model": {
+            "type": "string",
+            "title": "Model",
+            "description": "Which of that provider's rerank models to call; the section offers the provider's own catalogue as a dropdown."
+          },
+          "ext.rerank.apiKey": {
+            "type": "string",
+            "format": "secret",
+            "title": "API key",
+            "description": "Kept in the app vault; handed to the agent as an environment variable when a session starts, never written to a settings file. A key saved while a table is open is picked up by the next session, so reopen the table before testing it with /rerank:test."
+          }
+        }
+      }
+    },
+    "ui": {
+      "settingsSections": [
+        {
+          "id": "rerank",
+          "title": "Rerank",
+          "description": "Provider, API key and model for cross-encoder re-ranking",
+          "entry": "app/settings-rerank.js"
+        }
+      ]
+    }
+  },
+  "settingsVersion": 1,
+  "migrations": [],
+  "lifecycle": {
+    "onDisable": "dispose-app-immediate; unmount-agent-on-next-session"
+  },
+  "defaultEnabled": true
+}

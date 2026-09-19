@@ -26,6 +26,7 @@ const SETTINGS_NAV_HINTS: Record<string, string> = {
   'image-model': '头像与插图',
   'coc-difficulty': '角色创建与倍率',
   'coc-lane-model': '后台车道与审查',
+  rerank: '供应商与模型',
 }
 
 export { SETTINGS_NAV_HINTS }

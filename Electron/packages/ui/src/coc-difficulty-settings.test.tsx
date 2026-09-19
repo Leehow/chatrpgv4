@@ -32,7 +32,7 @@ function renderSection(host: ReturnType<typeof hostWith>) {
 
 describe('registration (contract §33.5)', () => {
   it('admits coc-difficulty into the host whitelist right after extensions', () => {
-    expect(HOST_SETTINGS_TAB_IDS).toEqual(['models', 'extensions', 'coc-difficulty', 'coc-lane-model', 'image-model', 'themes', 'updates']);
+    expect(HOST_SETTINGS_TAB_IDS).toEqual(['models', 'extensions', 'coc-difficulty', 'coc-lane-model', 'image-model', 'rerank', 'themes', 'updates']);
   });
   it('carries a nav hint', () => {
     expect(typeof SETTINGS_NAV_HINTS['coc-difficulty']).toBe('string');
@@ -43,6 +43,12 @@ describe('registration (contract §33.5)', () => {
   it('admits the lane-model picker and gives it a nav hint too', () => {
     expect(HOST_SETTINGS_TAB_IDS).toContain('coc-lane-model');
     expect(SETTINGS_NAV_HINTS['coc-lane-model']?.length).toBeGreaterThan(0);
+  });
+  // The Rerank extension's picker is controlled (its model list depends on the chosen vendor), so
+  // it needs the same two admissions a tab needs: the whitelist entry and a nav hint.
+  it('admits the rerank picker and gives it a nav hint too', () => {
+    expect(HOST_SETTINGS_TAB_IDS).toContain('rerank');
+    expect(SETTINGS_NAV_HINTS['rerank']?.length).toBeGreaterThan(0);
   });
 });
 

@@ -14,6 +14,7 @@ export const COMPILED_ENTRIES = Object.freeze({
   deepseek: 'build/extensions/deepseek/agent/index.mjs',
   imageGen: 'build/extensions/image-gen/agent/index.mjs',
   grokBuild: 'build/extensions/grok-build-oauth/agent/index.mjs',
+  rerank: 'build/extensions/rerank/agent/index.mjs',
   characterGuidance: 'build/extensions/module/character-guidance.mjs',
   characterPresentation: 'build/extensions/module/character-presentation.mjs',
   documentPresentation: 'build/extensions/mods/document-presentation.mjs',
@@ -78,11 +79,15 @@ export const HOST_MOUNTS = Object.freeze({
   'prompt-observer': 'kernel/pipiui-prompt-observer.mjs',
 });
 
-const sessionExtensionGroups = entrypoints => [entrypoints.extensions, entrypoints.providerExtensions, [entrypoints.imageGen]];
+const sessionExtensionGroups = entrypoints => [entrypoints.extensions, entrypoints.providerExtensions, [entrypoints.imageGen], [entrypoints.rerank]];
 export function sessionExtensionPaths(entrypoints) { return Object.freeze(sessionExtensionGroups(entrypoints).flat()); }
 export function desktopSessionExtensionPaths(entrypoints) {
-  const [extensions, providers, imageGen] = sessionExtensionGroups(entrypoints);
-  return Object.freeze([join(entrypoints.hostAssets, HOST_MOUNTS['ext-invoke']), ...extensions, entrypoints.agent, ...providers, ...imageGen]);
+  // Everything after the first two groups is a single-entrypoint capability mount (image
+  // generation, rerank). Spreading the remainder rather than naming today's entries is the
+  // point: a group added to `sessionExtensionGroups` used to be mounted by the lane command
+  // and silently dropped here, which is a mount that exists everywhere except the Keeper.
+  const [extensions, providers, ...capabilityMounts] = sessionExtensionGroups(entrypoints);
+  return Object.freeze([join(entrypoints.hostAssets, HOST_MOUNTS['ext-invoke']), ...extensions, entrypoints.agent, ...providers, ...capabilityMounts.flat()]);
 }
 export function readerProviderExtensionPaths(entrypoints) {
   const [, providers] = sessionExtensionGroups(entrypoints);

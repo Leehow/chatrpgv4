@@ -56,6 +56,7 @@ test('UI transport survives while coding persona and tools cannot replace the Ke
     ...['kernel','mods','onboarding','module','memory','table','npc-journal','npc-voice'].map(name => `/repo/build/extensions/${name}/index.mjs`),
     '/repo/build/pipicoc/agent.mjs',
     '/repo/build/extensions/image-gen/agent/index.mjs',
+    '/repo/build/extensions/rerank/agent/index.mjs',
   ]);
   assert.ok(!result.some(value => value.startsWith('/repo/') && value.endsWith('.ts')));
   const explicitNoExtensions = keeperArguments(['--no-extensions'], '/repo');

@@ -22,7 +22,8 @@
       "./extensions/thinking-schedule",
       "./extensions/deepseek",
       "./extensions/image-gen",
-      "./extensions/grok-build-oauth"
+      "./extensions/grok-build-oauth",
+      "./extensions/rerank"
     ]
   },
   "peerDependencies": {
