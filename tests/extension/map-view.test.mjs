@@ -67,6 +67,15 @@ test('a source outside the module jail produces no player image',async()=>{
   assert.equal(result.document,'none');assert.equal(result.image,undefined);
 });
 
+test('the exact campaign-private module root is a legitimate map source jail',async()=>{
+  const root=await mkdtemp(join(tmpdir(),'coc-map-private-')),shared=join(root,'.coc/modules'),campaign='c1',
+    privateRoot=join(root,'.coc/module-campaigns',campaign,'modules'),path=await source(privateRoot);
+  const result=await renderMapView({map:'house',name:'House',regions:[{id:'entry',label:'Entry'}],render:{layers:[
+    {path,source_box:[0,0,1,1],placement:[0,0,1,1],redactions:[]},
+  ]}},{modulesRoot:shared,sourceRoots:[privateRoot],campaignDir:join(root,'.coc/campaigns',campaign)});
+  assert.equal(result.document,'ready');assert.match(result.image,/^data:image\/png;base64,/);
+});
+
 test('an alternate-source secret layer keeps reviewed redactions and does not use the investigator pixels',async()=>{
   const root=await mkdtemp(join(tmpdir(),'coc-map-secret-')),modules=join(root,'module');
   await mkdir(modules,{recursive:true});

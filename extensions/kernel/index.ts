@@ -8,7 +8,7 @@ import type { ImageContent } from "@earendil-works/pi-ai";
 import type { AgentToolUpdateCallback, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { existsSync } from "node:fs";
 import { appendFile, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { createRuntime, type HostRuntime } from "../../runtime/host.ts";
 import { adaptationService } from './adaptation.ts';
 export { kernelCommand } from "../../runtime/host.ts";
@@ -1437,11 +1437,12 @@ export default function (pi: ExtensionAPI) {
 	/** Private source layers end here; only a flattened derivative is retained in the conversation row. */
 	async function prepareMapViews(state: TableState, result: Record<string, unknown>): Promise<void> {
 		if (!Array.isArray(result.map_views)) return;
-		const campaignDir=dirname(state.telemetryPath),modulesRoot=resolve(campaignDir,'../../modules'),prepared:MapAttachment[]=[];
+		const campaignDir=dirname(state.telemetryPath),modulesRoot=resolve(campaignDir,'../../modules'),
+			campaignModulesRoot=resolve(campaignDir,'../../module-campaigns',basename(campaignDir),'modules'),prepared:MapAttachment[]=[];
 		for(const value of result.map_views) {
 			const receipt=value&&typeof value==='object'&&typeof (value as Record<string,unknown>).receipt==='string'?(value as Record<string,unknown>).receipt as string:undefined;
 			try {
-				const map=await renderMapView(value,{modulesRoot,campaignDir,...(receipt?{receipt}:{})});
+				const map=await renderMapView(value,{modulesRoot,sourceRoots:[campaignModulesRoot],campaignDir,...(receipt?{receipt}:{})});
 				if(map)prepared.push(map);
 			} catch {
 				const row=value&&typeof value==='object'?value as Record<string,unknown>:{};

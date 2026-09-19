@@ -32,7 +32,7 @@ function validBox(value: unknown): value is number[] {
 }
 function slug(value: string): string { return value.normalize('NFKD').replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '').toLowerCase().slice(0, 80) || 'map'; }
 
-export async function renderMapView(viewValue: unknown, options: {modulesRoot:string; campaignDir:string; receipt?:string; splitLevels?:boolean}): Promise<MapAttachment | null> {
+export async function renderMapView(viewValue: unknown, options: {modulesRoot:string; sourceRoots?:string[]; campaignDir:string; receipt?:string; splitLevels?:boolean}): Promise<MapAttachment | null> {
     const view = record(viewValue), map = typeof view.map === 'string' ? view.map : '', name = typeof view.name === 'string' ? view.name : map,
         label=typeof view.label==='string'&&view.label?view.label:undefined;
     if (!map) return null;
@@ -44,12 +44,14 @@ export async function renderMapView(viewValue: unknown, options: {modulesRoot:st
     const base:MapAttachment = {kind:'map',...(options.receipt?{receipt:options.receipt}:{}),map,name,...(label?{label}:{}),...(words?{words}:{}),source_revision:revision,view_id:viewId,regions,
         levels:[...new Set(regions.flatMap(region=>region.level?[region.level]:[]))],document:MAP_DOCUMENT_NONE};
     if (!regions.length || layers.length !== regions.length) return base;
-    let modulesReal:string;try{modulesReal=await realpath(options.modulesRoot);}catch{return base;}
+    const roots=[options.modulesRoot,...(options.sourceRoots??[])],sourceRoots:string[]=[];
+    for(const root of roots){try{const actual=await realpath(root);if(!sourceRoots.includes(actual))sourceRoots.push(actual);}catch{/* an absent optional scope owns no bytes */}}
+    if(!sourceRoots.length)return base;
     const sourcePaths:string[]=[];
     for (const layer of layers) {
         if (typeof layer.path !== 'string' || !validBox(layer.placement) || !validBox(layer.source_box)) return base;
         let sourcePath:string;try{sourcePath=await realpath(layer.path);}catch{return base;}
-        if(!confined(modulesReal,sourcePath))return base;
+        if(!sourceRoots.some(root=>confined(root,sourcePath)))return base;
         try { if ((await stat(sourcePath)).size > 20 * 1024 * 1024) return base; } catch { return base; }
         if (!Array.isArray(layer.redactions) || !layer.redactions.every(validBox)) return base;
         sourcePaths.push(sourcePath);

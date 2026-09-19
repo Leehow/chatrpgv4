@@ -1,5 +1,5 @@
 /** Shared starter registration, source playability and published asset projections. */
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { createHash, randomUUID } from 'node:crypto';
 import { basename, dirname, extname, join, relative } from 'node:path';
 import type { KernelContext } from '../context.js';
@@ -397,6 +397,68 @@ export function graphManifest(graph: Row, moduleId: string, generation: number):
         section_ids: [...array(graph.section_ids)], built_at: nowIso()
     };
 }
+
+/** Publish the private bytes named by one starter graph beside its installed graph. */
+async function publishStarterAssets(context: KernelContext, graph: Row, moduleDirectory: string): Promise<void> {
+    const moduleNode = array(graph.nodes).find(node => row(node).node_kind === 'module'), properties = row(row(moduleNode).properties),
+        assetRootId = properties.asset_root_id;
+    if (assetRootId == null) return;
+    if (typeof assetRootId !== 'string' || !/^[a-z0-9][a-z0-9-]{0,127}$/.test(assetRootId))
+        throw new RpcError('invalid_params', 'starter asset_root_id must be a short kebab slug');
+    const root = join(context.stateRoot, 'module-assets', assetRootId);
+    if (!await context.snapshots.pathExists(root)) return;
+    const identityPath = join(root, 'identity.json');
+    if (!await context.snapshots.isFile(identityPath))
+        throw new RpcError('invalid_params', 'starter private asset root has no identity.json', { details: { asset_root_id: assetRootId } });
+    const identity = row(await context.snapshots.readJson(identityPath)), binding = row(properties.source_binding);
+    if (identity.asset_root_id !== assetRootId)
+        throw new RpcError('invalid_params', 'starter private asset root names another root', {
+            details: { expected: assetRootId, actual: identity.asset_root_id ?? null },
+        });
+    if (typeof binding.file_sha256 === 'string' && binding.file_sha256 && identity.file_sha256 !== binding.file_sha256)
+        throw new RpcError('invalid_params', 'starter private asset root belongs to another source document', {
+            details: { asset_root_id: assetRootId, expected: binding.file_sha256, actual: identity.file_sha256 ?? null },
+        });
+    for (const asset of array(assetRegistry(graph).assets)) {
+        if (typeof asset.path !== 'string' || !asset.path) continue;
+        const source = childPath(root, asset.path), target = childPath(moduleDirectory, asset.path);
+        if (!await context.snapshots.isFile(source)) continue;
+        await copyStarterAsset(context, source, target, { asset_root_id: assetRootId, path: asset.path });
+    }
+}
+
+async function copyStarterAsset(context: KernelContext, source: string, target: string, details: Row): Promise<void> {
+    if (await context.snapshots.isFile(target)) {
+        if (await sha256File(source) !== await sha256File(target))
+            throw new RpcError('invalid_params', 'published starter asset conflicts with its immutable source', { details });
+        return;
+    }
+    await mkdir(dirname(target), { recursive: true });
+    const temporary = `${target}.${process.pid}.${randomUUID().replaceAll('-', '')}.tmp`;
+    try {
+        await copyFile(source, temporary);
+        await rename(temporary, target);
+    } finally {
+        await rm(temporary, { force: true }).catch(() => undefined);
+    }
+}
+
+/** A late private root repairs campaign forks of this exact graph without overwriting diverged books. */
+async function publishStarterAssetsToCampaignScopes(context: KernelContext, id: string, graph: Row, moduleDirectory: string, meta: Row): Promise<void> {
+    const scopesRoot = join(context.stateRoot, 'module-campaigns'), assets = array(assetRegistry(graph).assets);
+    for (const campaign of await context.snapshots.sortedChildNames(scopesRoot,
+        path => context.snapshots.isFile(join(path, 'modules', id, 'module.json')))) {
+        const targetDirectory = join(scopesRoot, campaign, 'modules', id), targetMeta = row(await context.snapshots.readJson(join(targetDirectory, 'module.json')));
+        if (targetMeta.source_generation !== meta.generation || targetMeta.graph_digest !== meta.graph_digest) continue;
+        for (const asset of assets) {
+            if (typeof asset.path !== 'string' || !asset.path) continue;
+            const source = childPath(moduleDirectory, asset.path), target = childPath(targetDirectory, asset.path);
+            if (!await context.snapshots.isFile(source)) continue;
+            await copyStarterAsset(context, source, target, { campaign, module_id: id, path: asset.path });
+        }
+    }
+}
+
 export async function registerStarter(context: KernelContext, id: string): Promise<Row> {
     // Every registration path shares this lock and re-reads the module inside it, so two first
     // registrations of one starter cannot race the exclusive graph write.
@@ -468,6 +530,8 @@ async function registerStarterLocked(context: KernelContext, id: string): Promis
     if (!await context.snapshots.pathExists(installedPath))
         throw new RpcError('campaign_not_ready', `module ${repr(id)} has no graph yet`, { fix: 'prepare the original PDF with the visual reading service' });
     const installed = await readPublishedGraph(context, installedPath, meta!, id);
+    await publishStarterAssets(context, installed.raw, folder);
+    await publishStarterAssetsToCampaignScopes(context, id, installed.raw, folder, meta!);
     const installedView = new ModuleGraph(id, clone(installed.raw), installed.digest, dossier);
     // The bundles a starter ships are whichever `character-guidance/<tag>.json` files exist: the
     // file names are the tags, and there is no list to keep in step (contract section 23).
