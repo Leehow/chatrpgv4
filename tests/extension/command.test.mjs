@@ -11,7 +11,7 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
-import { openTable } from "./harness.mjs";
+import { openTable, waitFor } from "./harness.mjs";
 
 /** 一个完整回合：一次 look，一次 narrate，再加一条会被交付替换掉的尾巴。 */
 function keeperTurn(text) {
@@ -24,11 +24,35 @@ function keeperTurn(text) {
 
 /** 起一张已经走过一回合的桌子：胶囊、遥测、模组状态都到位，面板才有东西可读。 */
 async function tableAfterOneTurn(t, options = {}) {
-	const table = await openTable({ uiMode: "tui", responses: keeperTurn("门框上有一道深深的抓痕。"), ...options });
+	const table = await openTable({
+		uiMode: "tui",
+		responses: keeperTurn("门框上有一道深深的抓痕。"),
+		...options,
+		env: { ...NO_BACKFILL, ...options.env },
+	});
 	t.after(() => table.dispose());
 	await table.session.prompt("我检查地窖门的门框");
 	table.ui.notifications.length = 0;
 	return table;
+}
+
+/** Backfill has no turn telemetry to await and is unrelated to command reads. */
+const NO_BACKFILL = { PI_COC_MEMORY_BACKFILL: "0" };
+
+/** Read the same per-turn lane completion record that the command displays. */
+function laneRow(table, lane, turn) {
+	return table.telemetry().some((row) => row.lane === lane && row.turn === turn);
+}
+
+/**
+ * Open the command's RPC window only after the turn's memory lane is done.
+ * The fake kernel records every extension's RPCs, including fire-and-forget
+ * memory.job/memory.fail calls. The lane's telemetry row follows its final
+ * awaited RPC, so it provides a completion boundary without relaxing assertions.
+ */
+async function windowAfterLanesFinish(table, turn = 1) {
+	await waitFor(() => laneRow(table, "memory", turn), { label: `memory lane finished turn ${turn}` });
+	return table.kernelRequests().length;
 }
 
 /** `/coc` 之后 ctx.ui 上最后一条通知。 */
@@ -39,7 +63,7 @@ function lastNotice(table) {
 test("/coc：桌况面板走 ctx.ui，不占回合、不动回合状态机、不进模型上下文（契约 §19.1）", async (t) => {
 	const table = await tableAfterOneTurn(t);
 	const messagesBefore = table.session.messages.length;
-	const requestsBefore = table.kernelRequests().length;
+	const requestsBefore = await windowAfterLanesFinish(table);
 
 	await table.session.prompt("/coc");
 
@@ -134,7 +158,10 @@ test("/coc thinking：切换按 Pi 的闭合等级，认不出就列出等级", 
 test("/coc lanes：两条车道的模型，加最近的车道遥测（失败的那些也在）", async (t) => {
 	// 两条车道的假模型都不给回答：于是两条都失败，正是这条命令唯一能看见的东西。
 	const table = await tableAfterOneTurn(t);
-	await new Promise((resolve) => setTimeout(resolve, 150));
+	// Wait for the rows asserted below rather than guessing how fast lanes run.
+	await waitFor(() => laneRow(table, "verifier", 1) && laneRow(table, "memory", 1), {
+		label: "both lanes recorded turn 1",
+	});
 
 	await table.session.prompt("/coc lanes");
 	const view = lastNotice(table).message;
@@ -180,7 +207,7 @@ test("/coc investigator：库的名册，最新的在前（契约 §21.5）", as
 			]),
 		},
 	});
-	const requestsBefore = table.kernelRequests().length;
+	const requestsBefore = await windowAfterLanesFinish(table);
 
 	await table.session.prompt("/coc investigator");
 	const view = lastNotice(table).message;
@@ -214,7 +241,7 @@ test("/coc investigator：库是空的", async (t) => {
 
 test("/coc investigator save：把当前桌子的卡手动存进库（契约 §21.5，回流之外的保险）", async (t) => {
 	const table = await tableAfterOneTurn(t);
-	const requestsBefore = table.kernelRequests().length;
+	const requestsBefore = await windowAfterLanesFinish(table);
 
 	await table.session.prompt("/coc investigator save");
 	assert.match(lastNotice(table).message, /^investigator {2}saved 托马斯·海耶斯 to the library as thomas-hayes-1 {2}\(new row\)\.$/m);
@@ -248,11 +275,11 @@ test("/coc 认不出的子命令：一条警告，把子命令表说清楚", asy
 
 test("非交互模式：`/coc` 只回一行 interactive only，别的什么都不做（契约 §19.1）", async (t) => {
 	// 测试台缺省绑 print 模式，跟 `--mode rpc` 的驾驭器站在同一侧。
-	const table = await openTable({ responses: keeperTurn("门框上有一道深深的抓痕。") });
+	const table = await openTable({ responses: keeperTurn("门框上有一道深深的抓痕。"), env: NO_BACKFILL });
 	t.after(() => table.dispose());
 	await table.session.prompt("我检查地窖门的门框");
 	table.ui.notifications.length = 0;
-	const requestsBefore = table.kernelRequests().length;
+	const requestsBefore = await windowAfterLanesFinish(table);
 
 	for (const command of [
 		"/coc", "/coc model", "/coc model verifier/v1", "/coc thinking high", "/coc lanes", "/coc evidence",
