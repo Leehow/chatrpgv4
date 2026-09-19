@@ -138,6 +138,19 @@ test('artifact validation collects exact locations and accepts compact passing r
         .some(error => error.path === '/continuity_review/reentry_review/basis'));
 });
 
+test('current audit contexts require an explicit intelligibility verdict before pass', () => {
+    const candidate = 'Crow side stays against Sarah wrist.';
+    const files = {'context.json': {intelligibility_review: {requires_review: true}}};
+    assert.ok(continuityArtifactErrors(pass(), candidate, files)
+        .some(error => error.path === '/continuity_review/intelligibility_review'));
+    const revised = {missing: [], findings: [{reason: candidate, fix: 'Rewrite the whole candidate as natural complete sentences without changing facts.'}],
+        continuity_review: {verdict: 'revise', summary: 'The sentence omits the grammatical relation.', conflicts: [],
+            intelligibility_review: {verdict: 'revise', quote: candidate}}};
+    assert.deepEqual(continuityArtifactErrors(revised, candidate, files), []);
+    const passed = pass(); passed.continuity_review.intelligibility_review = {verdict: 'pass', quote: null};
+    assert.deepEqual(continuityArtifactErrors(passed, 'Crow keeps two fingers on Sarah wrist.', files), []);
+});
+
 test('budget spans revisions, prevents concurrent owners and retains linked explicit retries', async () => {
     const scope = await mkdtemp(join(directory, 'budget-')), limits = {...AUDIT_LIMITS, time_ms: 50000, max_requests: 3, per_review: 2};
     const a = new AuditBudget(scope, 'input-a', limits);
@@ -307,6 +320,7 @@ test('new jobs expose focused context with full fallback, bind accepted reports,
     assert.equal(focused.recent_history[1].player_text, 'Leave the book with the witness; do not take it.');
     assert.ok(focused.coverage.full_evidence_files.includes('history.json'));
     await writeFile(join(job.cwd, 'result.json'), JSON.stringify({...pass(), continuity_review: {...pass().continuity_review,
+        intelligibility_review: {verdict: 'pass', quote: null},
         locus_review: {verdict: 'pass', mode: 'same_locus', locus: null, claim: null, basis: 'active_scene'},
         outcome_review: {verdict: 'pass', basis: 'failed_rolls_respected', claims: []},
         reentry_review: {verdict: 'defer', basis: 'preparation_wait', quote: 'The old register ends before the inheritance.', clue: null, relation: null}}}));
@@ -1003,6 +1017,7 @@ test('the real the-haunting reentry defers on the player\'s own line and revises
     // The turn the player actually played is deliverable: an unmet bridge is distance, not damage.
     const deferred = {missing: [], findings: [], continuity_review: {verdict: 'pass',
         summary: 'The draft continued the action the player chose and claimed no reentry evidence.', conflicts: [],
+        intelligibility_review: {verdict: 'pass', quote: null},
         reentry_review: {verdict: 'defer', basis: 'chosen_action', quote: candidate, clue: null, relation: null},
         locus_review: locus}};
     assert.deepEqual(continuityArtifactErrors(deferred, candidate, files), []);
@@ -1028,6 +1043,7 @@ test('the real the-haunting reentry defers on the player\'s own line and revises
     const revised = {missing: [], findings: [{reason: 'The candidate states that the sanitarium testimony arrived, with no receipt and no placement.',
         fix: 'Withdraw the claim that gabriela-night-visitor reached the investigator; nothing settled it.'}],
         continuity_review: {verdict: 'revise', summary: 'The draft claims evidence that never landed.', conflicts: [],
+            intelligibility_review: {verdict: 'pass', quote: null},
             reentry_review: {verdict: 'revise', basis: 'none', quote: null, clue: null, relation: null}, locus_review: locus}};
     assert.deepEqual(continuityArtifactErrors(revised, fabricated, files), [], 'revise stays available for a fabricated arrival');
 });

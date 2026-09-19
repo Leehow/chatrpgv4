@@ -1,3 +1,11 @@
+# 1.2.26
+
+- Makes intelligibility an explicit checked sub-review in every current continuity-audit context: `{verdict:"pass"|"revise",quote:null|"<exact malformed excerpt>"}`. A missing decision is an artifact error; revise requires the exact excerpt, an actionable whole-candidate rewrite finding and an overall revise. This closes the attention gap retained under 1.2.25, where the final brief named the malformed phrase but Grok still submitted only the locus result.
+
+# 1.2.25
+
+- Repeats the intelligibility decision in the host's final audit task brief immediately before submission. Retained 1.2.24 evidence showed Grok spending its short review on the structurally enumerated locus decision and passing the exact malformed body-part phrases named by the package's earlier system instruction. The late brief now makes those same failure shapes a submission-time decision; no new review or model call is added.
+
 # 1.2.24
 
 - Tightens the 1.2.23 intelligibility check after its first retained original-save retest still passed malformed actor/body-part phrases and repeated clipped status dialogue. The reviewer now receives concrete language-neutral failure shapes, treats one occurrence as enough to revise, does not exempt terse or archaic character speech, and asks for one whole-candidate rewrite when the pattern repeats. The boundary remains intelligibility rather than literary taste.

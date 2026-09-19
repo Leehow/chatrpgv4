@@ -28,7 +28,7 @@ export function normalizeContinuityArtifact(value: any, files: Record<string, un
         const {reentry_review: _unused, ...rest} = review;
         review = rest;
     }
-    const specific = [review.reentry_review?.verdict, review.locus_review?.verdict, review.location_review?.verdict,
+    const specific = [review.intelligibility_review?.verdict, review.reentry_review?.verdict, review.locus_review?.verdict, review.location_review?.verdict,
         review.outcome_review?.verdict].find(verdict => verdict === 'revise');
     if (review.verdict === 'pass' && specific === 'revise') review = {...review, verdict: 'revise'};
     return review === value.continuity_review ? value : {...value, continuity_review: review};
@@ -65,8 +65,9 @@ export function continuityArtifactErrors(value: any, candidate: string, files: R
     const sceneCommitment = object(context.scene_commitment) && context.scene_commitment.requires_review === true ? context.scene_commitment : null;
     const outcomeCommitments = object(context.outcome_commitments) && context.outcome_commitments.requires_review === true ? context.outcome_commitments : null;
     const causalReentry = object(context.causal_reentry) ? context.causal_reentry : null;
+    const intelligibility = object(context.intelligibility_review) && context.intelligibility_review.requires_review === true;
     const review = value.continuity_review;
-    if (!keys(review, ['verdict', 'summary', 'conflicts', ...(locationAuthority ? ['location_review'] : []), ...(sceneCommitment ? ['locus_review'] : []),
+    if (!keys(review, ['verdict', 'summary', 'conflicts', ...(intelligibility && review?.verdict !== 'unavailable' ? ['intelligibility_review'] : []), ...(locationAuthority ? ['location_review'] : []), ...(sceneCommitment ? ['locus_review'] : []),
         ...(outcomeCommitments && review?.verdict !== 'unavailable' ? ['outcome_review'] : []), ...(causalReentry && review?.verdict !== 'unavailable' ? ['reentry_review'] : [])], '/continuity_review')) return errors;
     if (sceneCommitment && !object(review.locus_review))
         add('/continuity_review/locus_review', 'Required object: {verdict, mode, locus, claim, basis}; do not use location_review');
@@ -74,6 +75,8 @@ export function continuityArtifactErrors(value: any, candidate: string, files: R
         add('/continuity_review/reentry_review', 'Required object: {verdict, basis, quote, clue, relation}');
     if (outcomeCommitments && review.verdict !== 'unavailable' && !object(review.outcome_review))
         add('/continuity_review/outcome_review', 'Required object: {verdict, basis, claims}');
+    if (intelligibility && review.verdict !== 'unavailable' && !object(review.intelligibility_review))
+        add('/continuity_review/intelligibility_review', 'Required object: {verdict, quote}');
     if (!['pass', 'revise', 'unavailable'].includes(review.verdict)) add('/continuity_review/verdict', 'Expected pass, revise or unavailable');
     if (!words(review.summary)) add('/continuity_review/summary', 'Expected nonempty bounded text');
     const evidenceStrings = new Map<string, string[]>(), conflicts = list(review.conflicts, '/continuity_review/conflicts', 10);
@@ -94,6 +97,21 @@ export function continuityArtifactErrors(value: any, candidate: string, files: R
             if (!evidenceStrings.has(e.file)) evidenceStrings.set(e.file, strings(files[e.file]));
             if (!evidenceStrings.get(e.file)!.some(text => text.includes(e.quote)))
                 add(`${at}/quote`, 'Copy an exact string-value excerpt, without JSON keys or punctuation', {file: e.file, excerpt: e.quote});
+        }
+    }
+    if (intelligibility && object(review.intelligibility_review)) {
+        const prose = review.intelligibility_review, path = '/continuity_review/intelligibility_review';
+        if (keys(prose, ['verdict', 'quote'], path)) {
+            if (!['pass', 'revise'].includes(prose.verdict)) add(`${path}/verdict`, 'Expected pass or revise');
+            if (prose.verdict === 'pass') {
+                if (prose.quote !== null) add(`${path}/quote`, 'A passing intelligibility review uses quote null');
+            } else {
+                if (!words(prose.quote, 1000) || !candidate.includes(prose.quote))
+                    add(`${path}/quote`, 'Copy one exact candidate excerpt with omitted grammatical relations');
+                if (!array(value.findings).length) add('/findings', 'An intelligibility revision needs an actionable whole-candidate rewrite finding');
+                if (review.verdict !== 'revise') add('/continuity_review/verdict', 'An intelligibility revision requires overall revise');
+            }
+            if (review.verdict === 'pass' && prose.verdict !== 'pass') add(`${path}/verdict`, 'Overall pass requires a passing intelligibility review');
         }
     }
     if (outcomeCommitments && object(review.outcome_review)) {
@@ -228,7 +246,7 @@ export function continuityArtifactErrors(value: any, candidate: string, files: R
         }
     }
     const count = conflicts.length + (Array.isArray(value.findings) ? value.findings.length : 0) + (Array.isArray(value.missing) ? value.missing.length : 0)
-        + Number(review.location_review?.verdict === 'revise' || review.locus_review?.verdict === 'revise' || review.reentry_review?.verdict === 'revise');
+        + Number(review.intelligibility_review?.verdict === 'revise' || review.location_review?.verdict === 'revise' || review.locus_review?.verdict === 'revise' || review.reentry_review?.verdict === 'revise');
     if (review.verdict === 'pass' && count) add('/continuity_review/verdict', 'Pass cannot contain conflicts, missing objects or findings');
     if (review.verdict === 'revise' && !count) add('/continuity_review/verdict', 'Revise needs an actionable conflict, missing object or finding');
     return errors;

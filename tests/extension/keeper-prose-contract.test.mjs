@@ -18,7 +18,7 @@ test('compressed context supplies facts but never the player-facing sentence pat
 test('the existing pre-delivery audit revises unintelligible prose without grading literary taste', async () => {
   const manifest = JSON.parse(await readFile(new URL('../../mods/narration-audit/mod.json', import.meta.url), 'utf8'));
   const auditor = await readFile(new URL('../../mods/narration-audit/auditor.md', import.meta.url), 'utf8');
-  assert.equal(manifest.version, '1.2.24');
+  assert.equal(manifest.version, '1.2.26');
   assert.match(auditor, /must be intelligible to a reader of the campaign's play language/);
   assert.match(auditor, /restore omitted grammatical relations/);
   assert.match(auditor, /preserve the same facts and choices while rewriting the whole candidate as natural, complete sentences/);
@@ -26,4 +26,10 @@ test('the existing pre-delivery audit revises unintelligible prose without gradi
   assert.match(auditor, /one person's name attached directly to another person's body part/);
   assert.match(auditor, /Archaic, terse, foreign or characterful speech is not an exemption/);
   assert.match(auditor, /A single occurrence is enough to revise/);
+});
+
+test('the final audit task brief makes intelligibility a submission-time decision', async () => {
+  const host = await readFile(new URL('../../extensions/mods/index.ts', import.meta.url), 'utf8');
+  assert.match(host, /Before submitting, reread the candidate for intelligibility in the play language/);
+  assert.match(host, /Do not submit pass while any sentence requires the reader to restore omitted grammatical relations/);
 });

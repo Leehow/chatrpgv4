@@ -14089,6 +14089,14 @@ protested out of character and a source lookup found the doctor's house.
   notes as dialogue. One such malformed relation now revises; terse, archaic or characterful speech
   is no exemption, and a repeated pattern requests one whole-candidate rewrite while preserving the
   same facts and choices. This is a rubric correction inside the same audit, not a new mechanism.
+  **1.2.25** repeats that decision in the host's final audit task brief immediately before the candidate
+  JSON. Retained 1.2.24 evidence showed the reviewer spending its short pass on the enumerated locus
+  decision and overlooking the exact malformed body-part relation named in the earlier package text.
+  The late brief changes attention order, not authority or cost: the same reviewer and submission run.
+  **1.2.26** makes that decision a checked `continuity_review.intelligibility_review`
+  `{verdict:"pass"|"revise", quote:null|"<exact malformed excerpt>"}` on every current audit context.
+  Missing it is an artifact error; revise needs the exact candidate excerpt, an actionable whole-candidate
+  rewrite finding and overall revise. This adds structure to the same review, not another semantic actor.
 - **A person responds to this exchange (D).** The voice lane's packet and the per-turn Keeper
   projection carry bounded `said` history from committed `speech` records of the same NPC in
   this campaign/worldline. The live projection matters even when the mask was authored or the
