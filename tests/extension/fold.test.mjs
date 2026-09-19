@@ -134,7 +134,7 @@ test("bounded fold: closed capsules and tool round trips leave the window, the l
 test("the fold writes a v2 manifest and never regrows cumulative v1 lines; raw session and canonical records stay readable (D3)", async (t) => {
 	const table = await openPlayed(t, { campaign: "bounded-manifest" });
 	const rawBefore = table.rawEntries().length;
-	// Raw-retained pressure (>128 KiB) may already have folded during play; the manual fold adds one.
+	// Raw-retained pressure is diagnostic only; the explicit manual fold adds one.
 	const foldsBefore = compactionEntries(table).length;
 
 	await table.session.compact();
@@ -244,7 +244,7 @@ test("threshold reached: `before_agent_start` pre-empts, accepting both a fracti
 	}
 });
 
-test("threshold not reached: the default 70% is far away, so nothing is folded (D4)", async (t) => {
+test("threshold not reached: the default 80% is far away, so nothing is folded (D4)", async (t) => {
 	const table = await openPlayed(t, { campaign: "bounded-below-threshold", turns: 2 });
 
 	assert.deepEqual(foldRows(table), [], "no telemetry row before the threshold");

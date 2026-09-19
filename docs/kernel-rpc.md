@@ -1794,11 +1794,11 @@ neither is a second memory registry, a world-state store, or a foreground semant
 - Fold the same selected view with a safe retained suffix: no orphan tool result, split unfinished
   exchange or blind fallback to Pi's cut. No safe/progressing cut means explicit cancellation or
   degradation, never Pi's generic model summary. `prepareCompaction` failure before the hook does
-  not disable outbound history bounds. Keep `PI_COC_COMPACT_AT` at 70% by default for token-pressure
+  not disable outbound history bounds. Keep `PI_COC_COMPACT_AT` at 80% by default for token-pressure
   persistence, honor unknown post-compaction usage, and suppress repeated same-source no-progress work.
   Retained raw message bytes (latest kept boundary onward plus the latest summary, excluding old
-  compaction details) also trigger persistence above 128 KiB. Projected provider usage alone cannot
-  detect a growing raw message array; this storage-pressure measure is bytes, not claimed tokens.
+  compaction details) remain diagnostic only. They never pre-empt a turn below the measured 80%
+  token-window threshold because the protected current material may be large but not foldable.
   A host-minted input epoch in message details and the capsule bus binds the current message even if
   optional kernel metadata initially degraded. It never enters model content. Known prior COC
   deliveries and turn-scoped host notes expire before the proven current boundary; do not compare
@@ -1991,7 +1991,7 @@ Pi 的缺省压缩不知道这张桌子哪些东西是可再生的。接 `sessio
 - **整段丢**：所有 `coc-capsule` 消息（每回合重新生成，旧的一律是废页）、带工具调用的助手消息与工具结果消息（收据在内核里，`recall` 能拿回来）、上一次折叠自己写的那条说明。（`coc-mechanics` 是 `CustomEntry`，本来就不进模型上下文，丢它不改变守秘人看到的东西。）
 - **原样留**：玩家输入与已交付的正文（它们是逐字记录的对应物）、系统提示、最近两回合的全部往返、任何 `pending_*` 相关的宿主消息。
 - **压缩后补一条宿主消息**：一行英文，说明桌面状态在下一回合的胶囊里、往事用 `recall`、本回合的待决是什么。守秘人不需要从摘要里回忆状态——状态本来就每回合重发。
-- 触发：除了 Pi 自己的阈值，`before_agent_start` 里当上下文占用超过阈值（缺省 70%，`PI_COC_COMPACT_AT` 可调）就先 `ctx.compact()` 再进回合，避免压缩发生在工具往返中间。刚折叠完 `getContextUsage().percent` 是 `null`，那一轮不判。
+- 触发：除了 Pi 自己的硬安全/overflow 保护，`before_agent_start` 只在可测的上下文窗口占用达到阈值（缺省 80%，`PI_COC_COMPACT_AT` 可调）时先 `ctx.compact()` 再进回合，避免压缩发生在工具往返中间。原始 retained bytes 只记诊断，不具备触发资格：胶囊、审计上下文和当前工具结果可能很大但仍只占窗口很小一部分，而且这些受保护材料压缩也删不掉。刚折叠完 `getContextUsage().percent` 是 `null`，那一轮不判。
 - 代价说清楚：留下的逐字对话随局增长，所以折叠**不是定长**的——胶囊、机制、工具往返都没了，但玩家原文与交付会一直累积。要定长得等上游给「按条目丢」的能力（宿主契约第 6 节的请求）。
 
 判据是**条目类型与回合距离，不是内容语义**——不读文本、不做相关性判断（`Agents.md`「语义问题不许硬编码」）。

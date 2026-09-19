@@ -1,7 +1,7 @@
 /** The persisted-fold pressure threshold; request history is bounded independently. */
-export const DEFAULT_COMPACT_AT = 0.7;
+export const DEFAULT_COMPACT_AT = 0.8;
 
-/** Read on each call. Accept a percentage (70) or a fraction (0.7); 1 means 100%. */
+/** Read on each call. Accept a percentage (80) or a fraction (0.8); 1 means 100%. */
 export function compactAt(): number {
     const raw = process.env.PI_COC_COMPACT_AT?.trim();
     if (!raw) return DEFAULT_COMPACT_AT;

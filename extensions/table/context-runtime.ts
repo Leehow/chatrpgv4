@@ -437,9 +437,16 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
             return message ? [message] : [];
         });
         const retainedBytes = sizeOf(retained) + (previous ? Buffer.byteLength(String(previous.summary), 'utf8') : 0);
+        // Raw retained bytes are diagnostic only. Current capsules, audit context and tool results
+        // can be large while the actual model window is mostly empty, and a fold cannot discard
+        // that protected current material. Only measured token-window pressure may pre-empt a turn.
         const rawPressure = retainedBytes > HISTORY_BYTES * 4;
         const tokenPressure = typeof usage?.percent === 'number' && usage.percent >= compactAt() * 100;
-        if (!rawPressure && !tokenPressure) return;
+        if (!tokenPressure) {
+            if (rawPressure) record({lane: 'fold', event: 'raw-pressure-observed', retained_bytes: retainedBytes,
+                raw_pressure: true, percent: usage?.percent ?? null, token_pressure: false});
+            return;
+        }
         record({lane: 'fold', event: 'pressure', retained_bytes: retainedBytes, raw_pressure: rawPressure,
             percent: usage?.percent ?? null, token_pressure: tokenPressure});
         const attempt = snapshot.key;

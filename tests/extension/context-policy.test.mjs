@@ -275,13 +275,28 @@ test('unchanged source binding reuses the prepared brief across input epochs', a
     assert.ok(t.state.calls > calls, 'the next turn still reads its bounded history through the existing path');
 });
 
-test('raw retained pressure requests persistence even when projected usage is low, once per unchanged epoch', async () => {
+test('raw retained bytes alone never compact while measured context usage is below eighty percent', async () => {
     const raw = [...group(0), ...group(1)]; raw[3].content[0].text = 'Old machine output '.repeat(20000);
     const t = runtimeFixture(2, entries(raw));
     await t.hooks.get('before_agent_start')({}, t.ctx);
     await t.hooks.get('before_agent_start')({}, t.ctx);
+    assert.equal(t.state.compacts, 0);
+    assert.ok(t.rows.some(row => row.event === 'raw-pressure-observed' && row.raw_pressure === true && row.token_pressure === false));
+    t.state.revision = 'b'.repeat(64);
+    t.bus.get('coc:capsule')({capsule: t.cap(), context: {...binding(2), source_revision: t.state.revision}, epoch: 'next-input'});
+    await t.hooks.get('before_agent_start')({}, t.ctx);
+    assert.equal(t.state.compacts, 0, 'a new snapshot cannot turn raw bytes into a compaction trigger');
+});
+
+test('the default boundary waits below eighty percent and compacts at eighty percent', async () => {
+    const t = runtimeFixture(2, entries([...group(0), ...group(1)]));
+    t.ctx.getContextUsage = () => ({percent: 79.9, contextWindow: 1000000});
+    await t.hooks.get('before_agent_start')({}, t.ctx);
+    assert.equal(t.state.compacts, 0);
+    t.ctx.getContextUsage = () => ({percent: 80, contextWindow: 1000000});
+    await t.hooks.get('before_agent_start')({}, t.ctx);
     assert.equal(t.state.compacts, 1);
-    assert.ok(t.rows.some(row => row.event === 'pressure' && row.raw_pressure === true && row.token_pressure === false));
+    assert.ok(t.rows.some(row => row.event === 'pressure' && row.percent === 80 && row.token_pressure === true));
 });
 
 test('unavailable binding cancels compaction rather than falling back to a model summary', async () => {
