@@ -21,16 +21,28 @@ async function fixture(compaction?: {
   quietDelayMs?: number;
   waitWatermark?: number;
   waitQuietDelayMs?: number;
-}, proactiveSummaryCompaction = true) {
+}, proactiveSummaryCompaction = true, options: {
+  cocMode?: "play" | "setup" | "legacy";
+  spawnArgs?: string[][];
+} = {}) {
   root = await mkdtemp(join(tmpdir(), "pipi-compact-"));
   const cwd = join(root, "project");
   const dir = join(root, "sessions", "project");
   await mkdir(dir, { recursive: true });
   await mkdir(cwd, { recursive: true });
+  const binding = options.cocMode ? {
+    type: "custom", customType: "coc-session",
+    data: { campaign: "test-campaign", home: root, play_language: "en",
+      ...(options.cocMode === "legacy" ? {} : { mode: options.cocMode }) },
+  } : undefined;
   await writeFile(
     join(dir, "session.jsonl"),
-    JSON.stringify({ type: "session", version: 3, id: "session-1", timestamp: "2026-08-10T00:00:00.000Z", cwd }) + "\n",
+    JSON.stringify({ type: "session", version: 3, id: "session-1", timestamp: "2026-08-10T00:00:00.000Z", cwd }) + "\n"
+      + (binding ? JSON.stringify(binding) + "\n" : ""),
   );
+  const foldDir = join(root, "runtime", "pi-ext", "packages", "context-fold");
+  await mkdir(foldDir, { recursive: true });
+  await writeFile(join(foldDir, "index.ts"), "export default function () {}\n");
   const backend = createPiHostBackend({
     agentDir: join(root, "agent"),
     sessionsRoot: join(root, "sessions"),
@@ -48,11 +60,13 @@ async function fixture(compaction?: {
     // Production default is false (Headroom/context-fold try first). The
     // scheduler still falls back to a host compact when usage stays high.
     proactiveSummaryCompaction,
-    spawn: (_bin, _args, options) =>
-      spawn("/usr/local/bin/node", [new URL("./fake-pi.mjs", import.meta.url).pathname], {
-        ...options,
-        env: { ...options.env, PATH: "/usr/local/bin:/usr/bin:/bin" },
-      }) as any,
+    spawn: (_bin, args, spawnOptions) => {
+      options.spawnArgs?.push([...args]);
+      return spawn("/usr/local/bin/node", [new URL("./fake-pi.mjs", import.meta.url).pathname], {
+        ...spawnOptions,
+        env: { ...spawnOptions.env, PATH: "/usr/local/bin:/usr/bin:/bin" },
+      }) as any;
+    },
   });
   await backend.handle("addProject", [cwd]);
   return backend;
@@ -80,6 +94,40 @@ function classifiedLifecycle(sessionId: string, reason: string, trigger: string)
 }
 
 describe("context compaction", () => {
+  it.each(["play", "legacy", "setup", undefined] as const)("selects one context owner for session mode %s", async (cocMode) => {
+    const spawnArgs: string[][] = [];
+    const backend = await fixture(undefined, false, { cocMode, spawnArgs });
+    const events: any[] = [];
+    const off = backend.subscribe((event) => events.push(event));
+    const keeper = cocMode === "play" || cocMode === "legacy";
+    try {
+      await backend.handle("sendPrompt", ["session-1", "fill-context"]);
+      await waitFor(() => events.some(event => event.channel === "stream"
+        && event.event.type === "status" && event.event.status === "settled"));
+      const foldPath = join(root, "runtime", "pi-ext", "packages", "context-fold", "index.ts");
+      expect(spawnArgs).toHaveLength(1);
+      expect(spawnArgs[0].includes(foldPath)).toBe(!keeper);
+      if (!keeper) {
+        await waitFor(() => compactionEvents(events).length >= 2);
+        expect(compactionEvents(events).map(event => event.trigger)).toEqual(["proactive_idle", "proactive_idle"]);
+        return;
+      }
+      // The fixture's quiet window is 20ms. Even a high fresh sample must not arm a fallback.
+      expect((await backend.handle("getSessionStats", ["session-1"]) as any).contextUsage.tokens).toBe(240000);
+      await settle(200);
+      expect(compactionEvents(events)).toEqual([]);
+      await backend.handle("compact", ["session-1"]);
+      expect(compactionEvents(events)).toEqual(classifiedLifecycle("session-1", "manual", "manual"));
+      for (const [prompt, trigger] of [["__overflow_compact__", "overflow"], ["__threshold_preprompt__", "near_overflow"]]) {
+        events.length = 0;
+        await backend.handle("sendPrompt", ["session-1", prompt]);
+        await waitFor(() => compactionEvents(events).length >= 2
+          && events.some(event => event.channel === "stream" && event.event.type === "status" && event.event.status === "settled"));
+        expect(compactionEvents(events).map(event => event.trigger)).toEqual([trigger, trigger]);
+      }
+    } finally { off(); await backend.close(); }
+  });
+
   it("runs `compact` on demand and reports the lifecycle as stream events", async () => {
     const backend = await fixture();
     await backend.handle("sendPrompt", ["session-1", "go"]);

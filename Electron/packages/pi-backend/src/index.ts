@@ -5739,6 +5739,11 @@ export class PiHostBackend implements HostBackend {
     // arrives with `registeredExtensions`, already seed-overridden.
     const runtimeTree = this.refreshRuntimeTree();
     const kernelPaths = resolveKernelPaths(runtimeTree);
+    const cocBinding = await readCocBinding(found.path);
+    this.assertSessionGeneration(id, generation);
+    const keeperOwnsContext = Boolean(cocBinding && cocBinding.mode !== "setup");
+    // Keeper play has its own bounded request projection and safe persistence fold.
+    if (keeperOwnsContext) delete kernelPaths["context-fold"];
     const runtimeLayout = resolveRuntimeLayout(runtimeTree, {
       managedNodeModulesRoot: this.managedNodeModulesRoot,
     });
@@ -5828,7 +5833,6 @@ export class PiHostBackend implements HostBackend {
       this.assertSessionGeneration(id, generation);
       const dotEnv = await this.readDotEnv();
       this.assertSessionGeneration(id, generation);
-      const cocBinding = await readCocBinding(found.path);
       const cocWatchdogRecovery = cocBinding
         ? await fs.access(cocWatchdogRecoveryPath(found.path)).then(() => true, () => false)
         : false;
@@ -5917,6 +5921,7 @@ export class PiHostBackend implements HostBackend {
       presentationReadTo: cocStartupOffset,
       messageEpoch: 0,
       compaction: new ProactiveCompactionScheduler({
+        enabled: !keeperOwnsContext,
         configuration: this.compactionConfiguration,
         isIdle: () => this.isSessionQuiet(id),
         hasLiveAgents: () => this.sessionHasLiveAgents(id),

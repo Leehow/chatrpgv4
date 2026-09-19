@@ -237,6 +237,8 @@ export class ProactiveCompactionPolicy {
 }
 
 export interface ProactiveCompactionSchedulerOptions {
+  /** Disable proactive scheduling when the session owns its context policy; lifecycle tracking stays live. */
+  enabled?: boolean;
   /**
    * Every live gate the host owns: process alive, no turn running, nothing
    * queued. Re-checked both when arming and when the timer fires — the timer is
@@ -339,7 +341,7 @@ export class ProactiveCompactionScheduler {
 
   /** Recheck all live state; arms, re-arms, or cancels the quiet-period timer. */
   reconsider(): void {
-    if (this.disposed) return;
+    if (this.disposed || this.options.enabled === false) return;
     const hasLiveAgents = this.syncLiveAgentWave();
     if (this.isCompacting || !this.options.isIdle()) {
       this.cancel();

@@ -129,6 +129,7 @@ describe("ProactiveCompactionPolicy", () => {
 
 /** Manual timer/clock so the scheduler's quiet period never costs wall-clock time. */
 function harness(options: {
+  enabled?: boolean;
   idle?: boolean;
   liveAgents?: boolean;
   compact?: () => Promise<unknown>;
@@ -140,6 +141,7 @@ function harness(options: {
   let clock = 0;
   const state = { idle: options.idle ?? true, liveAgents: options.liveAgents ?? false, compactCalls: 0 };
   const scheduler = new ProactiveCompactionScheduler({
+    enabled: options.enabled,
     isIdle: () => state.idle,
     hasLiveAgents: () => state.liveAgents,
     compact: () => {
@@ -185,6 +187,31 @@ const LOW = { tokens: 50_000, contextWindow: 500_000 };
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 describe("ProactiveCompactionScheduler", () => {
+  it.each([false, true])("disables idle compaction without losing lifecycle tracking (summary=%s)", async (summary) => {
+    const h = harness({ enabled: false, shouldCompact: () => summary });
+    h.scheduler.observeUsage(HIGH, h.scheduler.beginUsageRequest());
+    h.setLiveAgents(true);
+    h.scheduler.reconsider();
+    expect(h.pending).toBe(0);
+    h.advance(10 * 60_000);
+    await flush();
+    expect(h.state.compactCalls).toBe(0);
+
+    // Manual and Pi safety compactions still coordinate the host queue.
+    h.scheduler.compactionStarted();
+    expect(h.scheduler.isCompacting).toBe(true);
+    h.scheduler.compactionFinished(true);
+    expect(h.scheduler.isCompacting).toBe(false);
+    h.scheduler.observeUsage(LOW, h.scheduler.beginUsageRequest());
+    h.scheduler.observeUsage(HIGH, h.scheduler.beginUsageRequest());
+    expect(h.pending).toBe(0);
+    h.scheduler.compactionStarted();
+    h.scheduler.settleTurn();
+    expect(h.scheduler.isCompacting).toBe(false);
+    expect(h.pending).toBe(0);
+    h.scheduler.dispose();
+  });
+
   it("never schedules below 45%, however idle the session is", async () => {
     const h = harness();
     h.scheduler.observeUsage(BELOW_LINE, h.scheduler.beginUsageRequest());

@@ -225,6 +225,23 @@ No old test or live result below is evidence that these new guarantees already h
   local estimates. Test the actual outgoing request, not just raw `session.messages`; no accounting
   metric becomes a Keeper obligation.
 
+#### Keeper context ownership (2026-09-19)
+
+For a session with a persisted COC binding in play mode (including an omitted mode, which
+means play), the table extension is the sole context-policy owner. The Electron host does
+not mount its generic `context-fold` surface and disables the non-urgent proactive idle
+compaction scheduler for that session. This is a hard scheduling gate, not
+`proactiveSummaryCompaction: false`, whose high-usage fallback still issues `compact`.
+The scheduler continues observing manual and Pi safety-compaction lifecycles so queue
+coordination remains intact.
+
+This removes the redundant 45%/four-minute quiet policy from Keeper play only. Unbound
+sessions, COC setup and PipiUI coding sessions keep their existing host policy. The table's
+per-request bounded projection, default 70%/128 KiB persistence pressure, manual compaction
+and Pi near-overflow/overflow recovery remain unchanged. No evidence file is removed or
+rewritten. The host decision implements the single-owner boundary in kernel RPC §19.2;
+there is no RPC or campaign-schema change.
+
 #### Legacy cumulative fold (superseded behavior; retained evidence)
 
 The descriptions below record the original implementation. Growing summary/details, broad host-note
