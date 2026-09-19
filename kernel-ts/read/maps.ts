@@ -192,6 +192,31 @@ export async function mapView(graph: ModuleGraph, world: Row, asset: AssetReader
     return view;
 }
 
+/** The case board reads only maps and regions already authorized by arrival or an explicit grant. */
+export async function knownMapViews(graph: ModuleGraph, world: Row, asset: AssetReader): Promise<Row[]> {
+    const presented = new Set(array(world.maps_presented)), views: Row[] = [],
+        hasWord = (value: unknown): value is string => typeof value === 'string' && value.trim().length > 0;
+    for (const node of mapNodes(graph)) {
+        const handle = graph.handle(node), known = new Set(knownMapRegions(world, handle));
+        if (!presented.has(handle) && !known.size) continue;
+        const regions = mapRegions(graph, node), shown = new Set(presented.has(handle) ? playerSafeRegions(graph, regions) : []),
+            selected = regions.filter(region => known.has(region.id) || shown.has(region)),
+            labels = row(row(world.map_labels)[handle]), regionLabels = row(labels.regions), levelLabels = row(labels.levels),
+            keeperWords = hasWord(labels.title) && selected.every(region => hasWord(regionLabels[region.id]) && (!region.level || hasWord(levelLabels[region.level]))),
+            words = keeperWords ? KEEPER_WORDS : AUTHORED_WORDS,
+            titled = keeperWords ? selected.map(region => ({
+                ...region, name: regionLabels[region.id], ...(region.level ? { level: levelLabels[region.level] } : {}),
+            })) : selected,
+            view = await composeMapView(graph, asset, node, titled, keeperWords ? labels.title : graph.displayName(node));
+        views.push({
+            map: view.map, name: view.name, label: view.label, words,
+            regions: view.regions, levels: [...new Set(titled.flatMap(region => region.level ? [region.level] : []))],
+            source_revision: view.source_revision, render: view.render,
+        });
+    }
+    return views;
+}
+
 export async function presentArrivalMaps(context: {graph: ModuleGraph; world: Row; turn: Row; callId: string; mint(base: string): string}, asset: AssetReader): Promise<Array<{receipt: Row; event: Row; view: Row}>> {
     const scene = context.graph.scene(context.world.active_scene), presented = array(context.world.maps_presented).filter(value => typeof value === 'string');
 

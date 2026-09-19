@@ -9889,6 +9889,51 @@ export class PiHostBackend implements HostBackend {
         return this.cocSheetWithIdentityArtwork(await read,params,context);
       }
     }
+    if (id === "coc-keeper" && method === "board") {
+      // A live agent answers this panel in the pack (`pipicoc/board.ts`): composing a map's pixels is a
+      // host hop the kernel has no part in (§39 -- the kernel holds no pixels), and the live pack is
+      // the leg that already runs that hop for a delivery. So a live session is forwarded there first.
+      const live = this.live.get(sessionId);
+      if (live && this.liveProcessUsable(live) && this.extensions.isMounted(sessionId, id)) {
+        return this.enqueueExtInvoke(sessionId, id, method, params);
+      }
+      // Cold -- a restored session with no agent yet. The board still opens: it reads the same
+      // player-safe `table.view` the sheet reads, and the map rows without their layers, so a map
+      // the table knows draws the regions it knows and says it has no page yet (§59's `none`) rather
+      // than a panel that refuses to open. One turn makes the session live and the pixels arrive.
+      const selected = await this.locate(sessionId);
+      const context = await readCocBinding(selected.path);
+      if (!context) return {ok:true,data:{status:"unbound",campaign:null,view:null,maps:[],...await this.cocAnswerWords(undefined)}};
+      const words = await this.cocAnswerWords(context.play_language, context.home);
+      try {
+        if (!this.managedNodeModulesRoot) throw this.cocRefusal("runtime_unavailable", "Canonical runtime is unavailable");
+        const repo = resolve(this.managedNodeModulesRoot, "..");
+        const view = await callColdKernel(repo, context.home, "table.view", {campaign:context.campaign}, this.env, this.cocRuntime);
+        const rows = await callColdKernel(repo, context.home, "table.maps", {campaign:context.campaign}, this.env, this.cocRuntime)
+          .catch(() => ({maps:[]}));
+        const maps = (isRecord(rows) && Array.isArray(rows.maps) ? rows.maps : []).filter(isRecord).map(row => ({
+          map: row.map, name: row.name, label: row.label, words: row.words,
+          regions: Array.isArray(row.regions) ? row.regions : [], levels: Array.isArray(row.levels) ? row.levels : [],
+          view_id: "unavailable", document: "none",
+        }));
+        // Composing a map's pixels is the agent's leg of this hop: it needs the canvas the host does
+        // not ship, so a cold read can name the regions and not the page. A table that has seen a map
+        // is worth one wake, so on the read that found one the session is started and the panel is
+        // told to ask again -- the shape every lane in this file already has (start it, tell the
+        // panel, never hold the read). If the wake fails the regions still answer, and the next turn
+        // brings the pixels anyway.
+        if (maps.length) {
+          void this.ensure(sessionId).then(
+            () => { emitFrame(this.listeners, {protocolVersion:PIPI_HOST_PROTOCOL_VERSION, channel:'ext.coc-keeper', event:{type:'sheet_changed', payload:{campaign:context.campaign}}}); },
+            () => undefined,
+          );
+        }
+        return {ok:true,data:{status:"ready",campaign:context.campaign,view,maps,...words}};
+      } catch(error) {
+        return {ok:true,data:{status:"error",view:null,campaign:context.campaign,maps:[],
+          code:this.cocCode(error),reason:error instanceof Error?error.message:String(error),...words}};
+      }
+    }
     const live = this.live.get(sessionId);
     if (!live || !this.liveProcessUsable(live)) return this.cocDenied("no_session", "no active session");
     if (!this.extensions.isMounted(sessionId, id)) {

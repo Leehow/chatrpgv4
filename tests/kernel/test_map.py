@@ -2,6 +2,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from conftest import OPENING_SCENE, campaign_dir, create_campaign, narrate, open_turn, read_json
 
 
@@ -364,3 +366,169 @@ def test_returning_does_not_present_the_map_again(kernel):
         "kind": "move", "to": "corbitt-house-ground", "via": "hired car", "travel_minutes": 20, "label": "科比特宅",
     }])
     assert not any(item.startswith("map:") for item in again["receipts"])
+
+
+def test_table_maps_is_empty_until_a_map_is_seen(kernel):
+    install_local_map_bytes(kernel, keeper_basement=True)
+    create_campaign(kernel)
+    assert kernel.table("maps") == {"maps": []}
+
+
+def test_table_maps_arrival_reads_only_the_presented_player_safe_regions(kernel):
+    install_local_map_bytes(kernel)
+    open_turn(kernel, "We travel to the house.")
+    applied = kernel.table("apply", call_id="t1-c1", effects=[{
+        "kind": "move", "to": "corbitt-house-ground", "via": "hired car", "travel_minutes": 20,
+        "label": "The house",
+    }])
+    arrival = applied["map_views"][0]
+    maps = kernel.table("maps")["maps"]
+    assert len(maps) == 1
+    view = maps[0]
+    assert set(view) == {"map", "name", "label", "words", "regions", "levels", "source_revision", "render"}
+    assert view["map"] == MAP
+    assert view["words"] == "source"
+    assert view["label"] == view["name"] == arrival["label"]
+    assert view["source_revision"] == arrival["source_revision"]
+    assert view["regions"] == arrival["regions"]
+    ids = [region["id"] for region in view["regions"]]
+    assert ids == [
+        "upper-west-bedroom", "upper-middle-bedroom", "upper-east-bedroom", "upper-landing",
+        "ground-entry-hall", "ground-living-room", "ground-dining-room", "ground-kitchen",
+        "basement-storage",
+    ]
+    assert "hidden-cellar" not in ids
+    assert view["levels"] == ["Upper Story", "Ground Floor", "Basement"]
+    assert view["render"]["layers"] == arrival["render"]["layers"]
+    assert [layer["region"] for layer in view["render"]["layers"]] == ids
+
+
+def test_table_maps_reveal_reads_only_granted_regions_in_authored_order(kernel):
+    target = install_local_map_bytes(kernel)
+    open_turn(kernel, "I note the two rooms I have seen without approaching the house.")
+    applied = kernel.table("apply", call_id="t1-c1", effects=[reveal(
+        ["ground-entry-hall", "upper-west-bedroom"], label="My house plan",
+        region_labels={"ground-entry-hall": "Front hall", "upper-west-bedroom": "West room"},
+        level_labels={"Ground Floor": "Entry level", "Upper Story": "Sleeping level"},
+    )])
+    assert MAP not in world(kernel).get("maps_presented", [])
+    maps = kernel.table("maps")["maps"]
+    assert len(maps) == 1
+    view = maps[0]
+    assert view["map"] == MAP
+    assert view["name"] == applied["map_views"][0]["name"]
+    assert view["label"] == "My house plan"
+    assert view["words"] == "play_language"
+    assert view["regions"] == [
+        {"id": "upper-west-bedroom", "label": "West room", "level": "Sleeping level"},
+        {"id": "ground-entry-hall", "label": "Front hall", "level": "Entry level"},
+    ]
+    assert view["levels"] == ["Sleeping level", "Entry level"]
+    layers = view["render"]["layers"]
+    assert [{"id": layer["region"], "label": layer["label"], "level": layer["level"]} for layer in layers] == view["regions"]
+    assert all(layer["path"] == str(target) and layer["source_asset"] == MAP for layer in layers)
+    assert view["source_revision"] == applied["map_views"][0]["source_revision"]
+
+
+def test_table_maps_does_not_list_unseen_maps_or_keeper_source_assets(kernel):
+    _, basement = install_local_map_bytes(kernel, keeper_basement=True)
+    open_turn(kernel, "I read the handout, then discover the hidden room.")
+    kernel.table("apply", call_id="t1-c1", effects=[{
+        "kind": "handout", "name": PLAN_HANDOUT, "label": "The plan",
+    }])
+    assert kernel.table("maps") == {"maps": []}
+    applied = kernel.table("apply", call_id="t1-c2", effects=[reveal(
+        ["hidden-cellar"], label="My house plan",
+        region_labels={"hidden-cellar": "Secret room"}, level_labels={"Basement": "Below ground"},
+    )])
+    maps = kernel.table("maps")["maps"]
+    assert [view["map"] for view in maps] == [MAP]
+    assert KEEPER_BASEMENT not in [view["map"] for view in maps]
+    assert [region["id"] for region in maps[0]["regions"]] == ["hidden-cellar"]
+    assert maps[0]["render"] == applied["map_views"][0]["render"]
+    layer = maps[0]["render"]["layers"][0]
+    assert layer["source_asset"] == KEEPER_BASEMENT
+    assert layer["path"] == str(basement)
+    assert layer["redactions"] == [[0.4, 0.27, 0.68, 0.5], [0.12, 0.46, 0.93, 0.63]]
+
+
+def test_table_maps_unions_arrival_and_grants_without_partial_words(kernel):
+    install_local_map_bytes(kernel, keeper_basement=True)
+    open_turn(kernel, "We arrive, then discover the hidden room.")
+    arrival = kernel.table("apply", call_id="t1-c1", effects=[{
+        "kind": "move", "to": "corbitt-house-ground", "via": "hired car", "travel_minutes": 20,
+        "label": "The house",
+    }])["map_views"][0]
+    kernel.table("apply", call_id="t1-c2", effects=[reveal(
+        ["ground-entry-hall", "hidden-cellar"], label="My house plan",
+        region_labels={"ground-entry-hall": "Front hall", "hidden-cellar": "Secret room"},
+        level_labels={"Ground Floor": "Entry level", "Basement": "Below ground"},
+    )])
+    authored = next(item for item in kernel.table("look", focus="map")["maps"] if item["name"] == MAP)
+    view, = kernel.table("maps")["maps"]
+    assert view["words"] == "source"
+    assert view["label"] == authored["display_name"] == arrival["label"]
+    assert view["regions"] == [
+        {"id": region["name"], "label": region["label"], "level": region["level"]}
+        for region in authored["regions"]
+    ]
+    assert [region["id"] for region in view["regions"]] == [region["id"] for region in arrival["regions"]] + ["hidden-cellar"]
+    assert view["levels"] == ["Upper Story", "Ground Floor", "Basement"]
+    assert [{"id": layer["region"], "label": layer["label"], "level": layer["level"]} for layer in view["render"]["layers"]] == view["regions"]
+
+
+@pytest.mark.parametrize("field", ["title", "region", "level"])
+@pytest.mark.parametrize("missing", [None, "", "   "])
+def test_table_maps_incomplete_stored_words_fall_back_together(kernel, field, missing):
+    install_local_map_bytes(kernel)
+    open_turn(kernel, "I note the hall.")
+    kernel.table("apply", call_id="t1-c1", effects=[reveal(
+        ["ground-entry-hall"], label="My house plan",
+        region_labels={"ground-entry-hall": "Front hall"}, level_labels={"Ground Floor": "Entry level"},
+    )])
+    authored = next(item for item in kernel.table("look", focus="map")["maps"] if item["name"] == MAP)
+    region = next(item for item in authored["regions"] if item["name"] == "ground-entry-hall")
+    state = world(kernel)
+    labels = state["map_labels"][MAP]
+    if field == "title":
+        labels["title"] = missing
+    elif field == "region":
+        labels["regions"]["ground-entry-hall"] = missing
+    else:
+        labels["levels"]["Ground Floor"] = missing
+    (campaign_dir(kernel.workspace) / "world.json").write_text(json.dumps(state), encoding="utf-8")
+
+    view, = kernel.table("maps")["maps"]
+    assert view["words"] == "source"
+    assert view["label"] == authored["display_name"]
+    assert view["regions"] == [{"id": region["name"], "label": region["label"], "level": region["level"]}]
+    assert view["levels"] == [region["level"]]
+    layer, = view["render"]["layers"]
+    assert layer["label"] == region["label"] and layer["level"] == region["level"]
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+def test_table_maps_is_byte_for_byte_read_only_in_an_open_turn(kernel, legacy):
+    install_local_map_bytes(kernel)
+    open_turn(kernel, "I note the hall.")
+    kernel.table("apply", call_id="t1-c1", effects=[reveal(
+        ["ground-entry-hall"], label="My house plan",
+        region_labels={"ground-entry-hall": "Front hall"}, level_labels={"Ground Floor": "Entry level"},
+    )])
+    narrate(kernel, "t1-c2", "The hall is on your plan.")
+    kernel.table("player_input", text="I check the plan.")
+    root = campaign_dir(kernel.workspace)
+    if legacy:
+        state = world(kernel)
+        state.pop("scene_trail", None)
+        (root / "world.json").write_text(json.dumps(state), encoding="utf-8")
+    assert read_json(root / "turn.json")["state"] == "open"
+    before = {str(path.relative_to(root)): path.read_bytes() for path in root.rglob("*") if path.is_file()}
+    first = kernel.table("maps")
+    between = {str(path.relative_to(root)): path.read_bytes() for path in root.rglob("*") if path.is_file()}
+    second = kernel.table("maps")
+    after = {str(path.relative_to(root)): path.read_bytes() for path in root.rglob("*") if path.is_file()}
+    assert first == second
+    assert first["maps"][0]["map"] == MAP
+    assert before == between == after
+    assert read_json(root / "turn.json")["state"] == "open"

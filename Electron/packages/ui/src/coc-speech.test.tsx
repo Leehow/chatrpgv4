@@ -10,7 +10,7 @@
  *    that does not learn the new token prints `{{say:诺特}}` at the table.
  * 2. **Two people share a hue, or one person changes hue.** The colour is not stored anywhere
  *    (§40.4): it is allocated from the anchor's hash, probing to the next free slot. The probe
- *    and the anchor have to be the same in the delivery card and in the sheet panel's legend, and
+ *    and the anchor have to be the same in the delivery card and in the case board's legend, and
  *    those two files cannot import each other, so this is where the two are compared.
  * 3. **A card cuts a line in half.** A receipt is drawn where it happened, which can be inside a
  *    spoken line; the words after it are still the same mouth.
@@ -21,7 +21,9 @@ import { afterEach, beforeEach, describe, it, expect } from 'vitest'
 // @ts-expect-error -- plain ESM pack asset, no type declarations
 import { createComponent } from '../../../../pipicoc/mechanics.js'
 // @ts-expect-error -- plain ESM pack asset, no type declarations
-import { createComponent as createPanel } from '../../../../pipicoc/panel.js'
+import { createComponent as createPanel } from '../../../../pipicoc/board.js'
+import zhBoard from '../../../../content/ui/zh-Hans/board.json'
+import zhErrors from '../../../../content/ui/zh-Hans/errors.json'
 import { foldMarkedDeliveries, withoutMechanicsMarkers, type ChatMessage } from './transcript-model'
 import { ui } from './fixtures/coc-ui-words'
 
@@ -152,16 +154,14 @@ describe('the card colours a spoken line by who spoke it', () => {
   })
 })
 
-describe('the sheet panel paints the legend for the same people', () => {
-  const journal = (rows: Record<string, unknown>[]) => ({
-    play_language: 'zh-Hans', turn: 5, state: 'awaiting_player',
-    investigators: [{id: 'inv-1', name: '托马斯·海斯', characteristics: {}, skills: {}}],
-    labels: {}, npcs: {journal: rows},
-  })
-
-  /** The panel is driven by one `sheet` answer, the way `coc-panel.test.tsx` drives it. */
-  const host = (view: Record<string, unknown>) => ({
-    invoke: async () => ({ok: true, data: {view, ui: ui('zh-Hans')}}),
+describe('the case board paints the legend for the same people', () => {
+  /** The board is driven by one `board` answer, the way `coc-board.test.tsx` drives it. */
+  const host = (rows: Record<string, unknown>[]) => ({
+    invoke: async () => ({ok: true, data: {status: 'ready', campaign: 'c1',
+      ui: {tag: 'zh-Hans', words: {board: zhBoard, errors: zhErrors}},
+      view: {play_language: 'zh-Hans', turn: 5, state: 'awaiting_player', investigators: [],
+        clues: {discovered: []}, labels: {}, npcs: {journal: rows}},
+      maps: []}}),
   })
 
   it('gives a journal row the hue its lines wear in the transcript', async () => {
@@ -171,10 +171,10 @@ describe('the sheet panel paints the legend for the same people', () => {
     const spoken = ink(spans(card.container)[0])
     expect(spoken).toBe('var(--coc-say-11)')
 
-    const panel = render(<Panel api={host(journal([
+    const panel = render(<Panel api={host([
       {id: 'jackson-elias', name: '埃利亚斯', description: '记者。', exchanges: []},
       {id: 'steven-knott', name: '诺特', description: '看门人。', exchanges: []},
-    ]))} />)
+    ])} />)
     await expect.poll(() => panel.container.querySelectorAll('span.coc-say-dot').length).toBe(2)
     const painted = Array.from(panel.container.querySelectorAll('span.coc-say-dot'))
     expect(ink(painted[0])).toBe(spoken)
@@ -183,7 +183,7 @@ describe('the sheet panel paints the legend for the same people', () => {
   })
 
   it('falls back to the name when a journal row predates the handle projection', async () => {
-    const panel = render(<Panel api={host(journal([{name: '诺特', description: '看门人。', exchanges: []}]))} />)
+    const panel = render(<Panel api={host([{name: '诺特', description: '看门人。', exchanges: []}])} />)
     await expect.poll(() => panel.container.querySelectorAll('span.coc-say-dot').length).toBe(1)
     expect(ink(panel.container.querySelector('span.coc-say-dot')!)).toMatch(/^var\(--coc-say-\d+\)$/)
   })

@@ -19,7 +19,7 @@ import { loadPlayLanguages } from "../../runtime/ui-words.ts";
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 /** The surfaces a player reads, one file per language. `extension` is the extensions' own. */
-const SURFACES = ["choices", "errors", "mechanics", "mods", "onboarding", "paper", "preparation", "sheet", "timeline", "transcript"];
+const SURFACES = ["board", "choices", "errors", "mechanics", "mods", "onboarding", "paper", "preparation", "sheet", "timeline", "transcript"];
 
 /** The failure codes the contract puts in front of a player, plus the two the renderers add. */
 const CODES = [
@@ -35,7 +35,7 @@ const CODES = [
 
 /** The renderers and components whose words are data now. Each is read whole. */
 const RENDERERS = [
-	"pipicoc/panel.js", "pipicoc/mechanics.js", "pipicoc/choices.js", "pipicoc/mods-panel.js",
+	"pipicoc/panel.js", "pipicoc/board.js", "pipicoc/mechanics.js", "pipicoc/choices.js", "pipicoc/mods-panel.js",
 	"pipicoc/preparation.js",
 	"Electron/packages/ui/src/CocOnboarding.tsx", "Electron/packages/ui/src/CocCharacterDraft.tsx",
 ];

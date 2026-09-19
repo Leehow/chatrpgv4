@@ -97,6 +97,13 @@
         },
         {
           "slot": "toolPanel",
+          "id": "coc.board",
+          "title": "Case board",
+          "entry": "pipicoc/board.js",
+          "icon": "pipicoc/board-icon.svg"
+        },
+        {
+          "slot": "toolPanel",
           "id": "coc.timeline",
           "title": "Timeline",
           "entry": "pipicoc/timeline.js",

@@ -19,9 +19,9 @@
  * `world.clue_how` beside the name in `world.clue_labels`, and it is what both surfaces open into.
  *
  * Nothing below is hand-built. The product kernel creates the campaign and settles the clue, the
- * panel is drawn by `pipicoc/panel.js` and the delivery card by `pipicoc/mechanics.js`, both with
- * the captions this build ships -- a test that spelled the projection out itself would pass while
- * the player's screen said something else.
+ * case board is drawn by `pipicoc/board.js` and the delivery card by `pipicoc/mechanics.js`, both
+ * with the captions this build ships -- a test that spelled the projection out itself would pass
+ * while the player's screen said something else.
  */
 import assert from 'node:assert/strict';
 import { after, test } from 'node:test';
@@ -30,7 +30,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
-import { createComponent as createPanel } from '../../pipicoc/panel.js';
+import { createComponent as createBoard } from '../../pipicoc/board.js';
 import { createComponent as createCard } from '../../pipicoc/mechanics.js';
 import { resolveUiWords } from '../../runtime/ui-words.ts';
 
@@ -128,10 +128,13 @@ async function table(t) {
 }
 
 /**
- * The character sheet, drawn by the shipped renderer. `pipicoc/panel.js` takes React by injection,
- * so a stand-in with the four hooks it uses runs the real component over the real `table.view`.
+ * The case board, drawn by the shipped renderer.
+ *
+ * The clue surface moved to `pipicoc/board.js` with the case board (contract §39.3): the sheet is
+ * one credential and one body, and a kept clue is neither. `board.js` takes React by injection, so
+ * a stand-in with the four hooks it uses runs the real component over the real `table.view`.
  */
-async function drawSheet(view, campaign = 'c1') {
+async function drawBoard(view, campaign = 'c1') {
 	const states = [], refs = [], effects = [];
 	let slot = 0, ref = 0, dirty = true;
 	const React = {
@@ -148,12 +151,12 @@ async function drawSheet(view, campaign = 'c1') {
 		useCallback: (fn) => fn,
 		useEffect: (fn) => { effects.push(fn); },
 	};
-	const Panel = createPanel(React);
-	const props = { api: { invoke: async () => ({ ok: true, data: { campaign, view, ui: { tag: UI.tag, words: UI.words } } }) } };
+	const Board = createBoard(React);
+	const props = { api: { invoke: async () => ({ ok: true, data: { status: 'ready', campaign, view, maps: [], ui: { tag: UI.tag, words: UI.words } } }) } };
 	let tree = null;
 	for (let pass = 0; pass < 8 && dirty; pass += 1) {
 		dirty = false; slot = 0; ref = 0; effects.length = 0;
-		tree = Panel(props);
+		tree = Board(props);
 		for (const effect of effects) effect();
 		await new Promise((done) => setTimeout(done, 0));
 	}
@@ -198,7 +201,7 @@ test("the book's own sentence about a clue reaches no player surface, and what t
 
 	// And drawn, because a field the projection drops can still be reached for by a renderer that
 	// has another way in, and a field it carries can still be drawn nowhere.
-	const sheet = await drawSheet(view);
+	const sheet = await drawBoard(view);
 	assert.ok(!sheet.includes(UNEARNED), `the panel draws the Keeper's half of the sentence:\n${sheet}`);
 	assert.ok(sheet.includes(LABEL), 'the panel names the clue');
 	assert.ok(sheet.includes(HOW), `the panel opens into how this table came by it:\n${sheet}`);
@@ -241,7 +244,7 @@ test('a clue nobody accounted for is a name and nothing more, on both surfaces',
 	const view = await game.view();
 	assert.deepEqual(view.clues.discovered, [{ clue: 'windows-nailed-shut', label: LABEL }]);
 
-	const sheet = await drawSheet(view);
+	const sheet = await drawBoard(view);
 	assert.ok(sheet.includes(LABEL), 'the clue is still on the sheet by name');
 	assert.ok(!sheet.includes(UNEARNED), `and the book does not fill the silence:\n${sheet}`);
 	assert.ok(!cardText(delivery.mechanics).includes(UNEARNED));
@@ -262,7 +265,7 @@ test('the account survives the turn it was filed on, because it is world state a
 
 	const view = await game.view();
 	assert.deepEqual(view.clues.discovered, [{ clue: 'windows-nailed-shut', label: LABEL, how: HOW }]);
-	assert.ok((await drawSheet(view)).includes(HOW));
+	assert.ok((await drawBoard(view)).includes(HOW));
 	assert.deepEqual(JSON.parse(await readFile(join(game.home, '.coc/campaigns/c1/world.json'), 'utf8')).clue_how,
 		{ 'windows-nailed-shut': HOW }, 'and it is kept per clue, beside the name');
 });
@@ -302,7 +305,7 @@ test('a confluence keeps both lines\' accounts, by the same union that keeps bot
 	assert.deepEqual(view.clues.discovered.map((clue) => clue.how).sort(), [MAIN, SIDE].sort(),
 		`both lines' accounts stand after the merge:\n${JSON.stringify(view.clues)}`);
 
-	const sheet = await drawSheet(view);
+	const sheet = await drawBoard(view);
 	assert.ok(sheet.includes(MAIN) && sheet.includes(SIDE), 'and the merged panel draws both');
 	for (const clue of GRAPH.nodes.filter((node) => ['clue-windows-nailed-shut', 'clue-dooley-macario-gossip'].includes(node.node_id)))
 		assert.ok(!sheet.includes(clue.summary), `the merged panel draws the book's sentence:\n${clue.summary}`);

@@ -17,7 +17,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const REPO = new URL("../..", import.meta.url).pathname;
-const OPEN = ">>> speaker colour: shared verbatim between pipicoc/mechanics.js and pipicoc/panel.js <<<";
+const OPEN = ">>> speaker colour: shared verbatim between pipicoc/mechanics.js and pipicoc/board.js <<<";
 const CLOSE = ">>> end speaker colour <<<";
 
 /** The shared region of one renderer, markers included, or a failure naming the file. */
@@ -32,8 +32,8 @@ function region(path) {
 
 test("the two renderers carry the same speaker-colour block, byte for byte", () => {
 	const card = region("pipicoc/mechanics.js");
-	const panel = region("pipicoc/panel.js");
-	assert.equal(card, panel, "pipicoc/mechanics.js and pipicoc/panel.js have drifted apart");
+	const panel = region("pipicoc/board.js");
+	assert.equal(card, panel, "pipicoc/mechanics.js and pipicoc/board.js have drifted apart");
 	// A region that shrank to nothing would compare equal and prove nothing.
 	assert.ok(card.length > 2000, "the shared region is too small to be the block");
 });
@@ -64,7 +64,7 @@ test("the block is the whole colour rule: sixteen hues light and dark, one fixed
  * keeps the block itself honest about the one thing it is allowed to add.
  */
 test("the block adds no player-facing word", () => {
-	const block = region("pipicoc/panel.js");
+	const block = region("pipicoc/board.js");
 	const CJK = /[　-〿぀-ヿ㐀-䶿一-鿿가-힯＀-￯]/u;
 	assert.equal(CJK.test(block), false, "the shared block carries no authored non-English text");
 });

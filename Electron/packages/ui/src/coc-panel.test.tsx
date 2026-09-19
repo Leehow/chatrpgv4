@@ -236,12 +236,27 @@ it('pops the settings hint after a click that found no image model', async () =>
  * whichever language shipped first -- puts one English line in a Chinese panel and looks deliberate.
  */
 it('renders the key itself for a caption the language is missing', async () => {
-  const gapped = ui('zh-Hans', { sheet: { clues: undefined } });
+  const gapped = ui('zh-Hans', { sheet: { time: undefined } });
   render(<Panel api={host({ ok: true, data: { status: 'ready', view: view(), campaign: 'c1', ui: gapped } })} />);
   await screen.findByText('图书馆使用');
   // The jump rail's chip carries the same caption, so the assertion names the heading's role.
-  expect(screen.getByRole('heading', { name: 'clues' })).toBeTruthy();
-  expect(screen.queryByText(say('en', 'sheet', 'clues'))).toBeNull();
+  expect(screen.getByRole('heading', { name: 'time' })).toBeTruthy();
+  expect(screen.queryByText(say('en', 'sheet', 'time'))).toBeNull();
+});
+
+/**
+ * The clues and the people moved to the case board (contract §39.3): the sheet is one credential
+ * and one body, and a table's memory of its own investigation is not a row on either. The view
+ * still arrives with both in it -- the sheet draws none of it.
+ */
+it('keeps the clues and the people off the sheet; the case board owns them now', async () => {
+  const { container } = render(<Panel api={host({ ok: true, data: { status: 'ready', view: view(), campaign: 'c1' } })} />);
+  await screen.findByText('图书馆使用');
+  expect(container.querySelector('[data-anchor="clues"]')).toBeNull();
+  expect(container.querySelector('[data-anchor="npcs"]')).toBeNull();
+  expect(screen.queryByRole('heading', { name: '线索' })).toBeNull();
+  expect(screen.queryByRole('heading', { name: '人物' })).toBeNull();
+  expect(container.querySelector('details.coc-clue-fold')).toBeNull();
 });
 
 describe('rules terms come from the kernel glossary', () => {
@@ -301,7 +316,6 @@ describe('icons restate the stable rules keys, never the words', () => {
     expect(headings).toContainEqual(['属性', 'gauge']);
     expect(headings).toContainEqual(['技能（2）', 'target']);
     expect(headings).toContainEqual(['物品', 'backpack']);
-    expect(headings).toContainEqual(['线索', 'search']);
   });
 });
 
@@ -318,88 +332,25 @@ describe('the jump rail mirrors the rendered sections', () => {
     await screen.findByText('力量');
     await waitFor(() => expect(container.querySelectorAll('.coc-sheet-nav-chip').length).toBeGreaterThan(0));
     const chips = Array.from(container.querySelectorAll('.coc-sheet-nav-chip')).map(el => el.textContent);
-    expect(chips).toEqual(['时间', '状态', '属性', '技能（2）', '物品', '线索', '人物']);
+    // No clues or people: those chips moved to the case board with their sections.
+    expect(chips).toEqual(['时间', '状态', '属性', '技能（2）', '物品']);
     expect(chips).not.toContain('财务');
     expect(chips).not.toContain('背景');
-    fireEvent.click(screen.getByRole('button', { name: '线索' }));
-    expect(scrolled).toEqual(['clues']);
+    expect(chips).not.toContain('线索');
+    expect(chips).not.toContain('人物');
+    fireEvent.click(screen.getByRole('button', { name: '物品' }));
+    expect(scrolled).toEqual(['equipment']);
   });
 
   it('lists only what actually rendered, even on a bare sheet', async () => {
-    // Time (the turn count) and Clues (its empty state) always render; a bare sheet's rail is
-    // exactly those two, and none of the sections that chose not to draw.
+    // Time (the turn count) always renders, and Equipment renders its empty state; a bare
+    // sheet's rail is exactly those two, and none of the sections that chose not to draw.
     const bare = view({ investigators: [{ id: 'inv-2', name: '空卡' }], clues: { discovered: [] } });
     const { container } = render(<Panel api={host({ ok: true, data: { status: 'ready', view: bare, campaign: 'c1' } })} />);
     await screen.findByText('空卡');
     await waitFor(() => expect(container.querySelectorAll('.coc-sheet-nav-chip').length).toBeGreaterThan(0));
     const chips = Array.from(container.querySelectorAll('.coc-sheet-nav-chip')).map(el => el.textContent);
-    // Equipment and the NPC journal render their empty states even on a bare sheet, so they keep their chips.
-    expect(chips).toEqual(['时间', '物品', '线索', '人物']);
-  });
-});
-
-describe('a discovered clue is named, not handled', () => {
-  it('shows the label the table gave it rather than the kernel handle', async () => {
-    render(<Panel api={host({ ok: true, data: { status: 'ready', view: view(), campaign: 'c1' } })} />);
-    await screen.findByText('诺特的委托合同');
-    expect(screen.queryByText('knott-commission')).toBeNull();
-  });
-
-  it('unfolds a clue with the table account, and keeps a bare one a plain row', async () => {
-    const withDetail = view({ clues: { discovered: [
-      { clue: 'knott-commission', label: '诺特的委托合同',
-        how: '诺特当面委托调查科比特宅。' },
-      { clue: 'bare-clue', label: '空线索' },
-    ] } });
-    const { container } = render(<Panel api={host({ ok: true, data: { status: 'ready', view: withDetail, campaign: 'c1' } })} />);
-    await screen.findByText('诺特的委托合同');
-    const folds = container.querySelectorAll('details.coc-clue-fold');
-    expect(folds).toHaveLength(1);
-    expect(folds[0].textContent).toContain('诺特的委托合同');
-    expect(folds[0].textContent).toContain('诺特当面委托调查科比特宅。');
-    expect(folds[0].querySelector('summary')?.textContent).not.toContain('科比特宅');
-    expect(screen.getByText('空线索')).toBeTruthy();
-  });
-
-  it('renders a table-authored clue account verbatim instead of sending it through the glossary', async () => {
-    const how = '克兰当面出价，请调查克罗宅。';
-    const withDetail = view({
-      clues: { discovered: [{ clue: 'crane-commission', label: '克兰的佣金', how }] },
-      labels: { ...view().labels, [how]: '不应替换这句桌上记录。' },
-    });
-    const { container } = render(<Panel api={host({ ok: true, data: { status: 'ready', view: withDetail, campaign: 'c1' } })} />);
-    await screen.findByText('克兰的佣金');
-    const body = container.querySelector('details.coc-clue-fold .coc-clue-body');
-    expect(body?.textContent).toBe(how);
-  });
-
-  it("projects an NPC's name and the scene stamped on an exchange, and leaves the lane's own prose alone", async () => {
-    const description = '一位律师，办公室的主人家。';
-    const summary = '他收回被误拿的租约。';
-    const met = view({
-      npcs: { journal: [{ name: 'Steven Knott', description, dead_since_turn: null,
-        exchanges: [{ turn: 1, scene: "Knott's Office", summary }] }] },
-      labels: { ...view().labels, 'Steven Knott': '史蒂文·诺特', "Knott's Office": '诺特的办公室' },
-    });
-    const { container } = render(<Panel api={host({ ok: true, data: { status: 'ready', view: met, campaign: 'c1' } })} />);
-    await screen.findByText('史蒂文·诺特');
-    expect(screen.queryByText('Steven Knott')).toBeNull();
-    const npc = container.querySelector('details.coc-npc')!;
-    expect(npc.querySelector('.coc-npc-exchange-scene')?.textContent).toBe('诺特的办公室');
-    expect(npc.textContent).toContain(description);
-    expect(npc.textContent).toContain(summary);
-    expect(npc.textContent).not.toContain("Knott's Office");
-  });
-
-  it('reads a clue label through the glossary too, so a graph name the Keeper never renamed is projected', async () => {
-    const withGraphName = view({
-      clues: { discovered: [{ clue: 'blood-pool-manifest', label: 'Pools of blood' }] },
-      labels: { ...view().labels, 'Pools of blood': '血泊' },
-    });
-    render(<Panel api={host({ ok: true, data: { status: 'ready', view: withGraphName, campaign: 'c1' } })} />);
-    await screen.findByText('血泊');
-    expect(screen.queryByText('Pools of blood')).toBeNull();
-    expect(screen.queryByText('blood-pool-manifest')).toBeNull();
+    expect(chips).toEqual(['时间', '物品']);
   });
 });
 

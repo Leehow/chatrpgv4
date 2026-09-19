@@ -18,7 +18,7 @@ import { incapacitatedBy } from "../healing/conditions.js";
 import { crossLineReader } from "./worldline.js";
 import { mechanics } from "./mechanics.js";
 import { publicSheet, objectLook } from "./mods.js";
-import { mapCatalog, mapView, type AssetReader } from './maps.js';
+import { knownMapViews, mapCatalog, mapView, type AssetReader } from './maps.js';
 import { array, row, entries, number, integer, truth, string, repr, normalize, clone, sorted, type Row } from "./values.js";
 const LOOK_FOCUS = ["clues", "investigator", "map", "npc", "object", "scene", "session", "time"];
 const LOOKUP_KINDS = ["catalog", "module", "rule", "secret", "continuity"];
@@ -314,6 +314,12 @@ export async function tableView(context: KernelContext, params: Row): Promise<Ro
 export function readHandlers(context: KernelContext, contributions: ReadContributions = {}): HandlerGroup {
     return Object.freeze({
         "table.view": async (params) => tableView(context, params),
+        "table.maps": async (params) => {
+            const { campaign, module } = await readCampaign(context, params, true, true);
+            if (!contributions.asset)
+                throw new RpcError('not_implemented', 'The map asset contribution is unavailable');
+            return { maps: await knownMapViews(module.graph, campaign.world, contributions.asset) };
+        },
         "table.status": async (params) => {
             const { campaign } = await readCampaign(context, params, false, true, contributions),
                 { turn } = campaign,

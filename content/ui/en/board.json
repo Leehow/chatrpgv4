@@ -1,0 +1,17 @@
+{
+  "clues": "Clues",
+  "errorTitle": "The case board could not be read",
+  "loading": "Reading the table…",
+  "maps": "Maps",
+  "mapUnavailable": "No page for this map yet.",
+  "noClues": "Nothing found yet.",
+  "noMaps": "No map yet.",
+  "noNpcs": "Nobody met yet.",
+  "npcs": "People",
+  "refresh": "Refresh",
+  "refreshing": "…",
+  "retry": "Try again",
+  "sections": "Sections",
+  "unboundDetail": "This session is bound to no campaign, and another one is never guessed for it.",
+  "unboundTitle": "No campaign on this session"
+}

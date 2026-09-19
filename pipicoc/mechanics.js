@@ -199,7 +199,7 @@ const CSS = `
   background:color-mix(in oklab, var(--accent) 6%, transparent)}
 `;
 
-/* >>> speaker colour: shared verbatim between pipicoc/mechanics.js and pipicoc/panel.js <<<
+/* >>> speaker colour: shared verbatim between pipicoc/mechanics.js and pipicoc/board.js <<<
  *
  * Contract §40.4. A pack renderer is imported from a `data:` URL (`controlled-component-loader.ts`
  * turns the host-read source into one), so a relative import of a sibling file cannot resolve and

@@ -1,0 +1,17 @@
+{
+  "clues": "线索",
+  "errorTitle": "案板读取失败",
+  "loading": "正在读桌上的状态……",
+  "maps": "地图",
+  "mapUnavailable": "这张地图还没有图页。",
+  "noClues": "还没有发现线索。",
+  "noMaps": "还没有已知的地图。",
+  "noNpcs": "还没有遇见任何人。",
+  "npcs": "人物",
+  "refresh": "刷新",
+  "refreshing": "……",
+  "retry": "重试",
+  "sections": "栏目",
+  "unboundDetail": "此会话没有战役关联，不会自动猜测其他战役。",
+  "unboundTitle": "尚未关联战役"
+}

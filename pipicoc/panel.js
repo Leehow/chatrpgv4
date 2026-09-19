@@ -203,23 +203,6 @@ const CSS = `
 .coc-background [data-field="personal_description"]{padding:12px;border:1px solid var(--border);
   border-radius:9px;background:var(--surface-raised,var(--surface))}
 .coc-background [data-field="Key connection"]{border-left-color:var(--accent)}
-.coc-clue{padding:10px 0;border-top:1px solid var(--border);line-height:1.7}
-.coc-clue:first-child{border-top:0;padding-top:0}
-.coc-clue-name{color:var(--text-strong);font-weight:600}
-.coc-clue-sum{margin-top:3px;color:var(--muted);font-size:12px}
-
-/* A clue whose discovery the Keeper accounted for opens into that account; one filed under a bare
-   name stays a plain line, because there is nothing the player earned to open into. */
-.coc-clue-fold{display:block;padding:0}
-.coc-clue-fold>summary{display:flex;align-items:baseline;gap:6px;padding:6px 0;cursor:pointer;
-  list-style:none;border-radius:4px}
-.coc-clue-fold>summary::-webkit-details-marker{display:none}
-.coc-clue-fold>summary::after{content:"▸";margin-left:auto;flex:none;color:var(--subtle);
-  font-size:10px;transition:transform .12s ease}
-.coc-clue-fold[open]>summary::after{transform:rotate(90deg)}
-.coc-clue-body{padding:0 0 8px;color:var(--muted);line-height:1.6;overflow-wrap:anywhere}
-
-
 .coc-who{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0 0}
 .coc-who button{padding:6px 10px;border:1px solid var(--border);border-radius:7px;
   background:var(--surface);color:var(--muted);font:inherit;font-size:12px;cursor:pointer}
@@ -228,115 +211,10 @@ const CSS = `
 @media (prefers-reduced-motion:reduce){.coc-vital-fill{transition:none}}
 `;
 
-/* >>> speaker colour: shared verbatim between pipicoc/mechanics.js and pipicoc/panel.js <<<
- *
- * Contract §40.4. A pack renderer is imported from a `data:` URL (`controlled-component-loader.ts`
- * turns the host-read source into one), so a relative import of a sibling file cannot resolve and
- * these two renderers have no module to share. Everything between the two markers is therefore
- * authored once and copied byte for byte into both files; `tests/extension/speaker-colour.test.mjs`
- * fails the moment the copies drift.
- *
- * The allocation itself cannot be copied: the delivery card and the legend swatch have to land on
- * the same slot for the same person, so there is one table, and the only thing two `data:` modules
- * of one window share is that window. It is memory and nothing more — no colour is written to the
- * NPC record, to the campaign or to `localStorage` (§40.4), and a reload allocates again from the
- * transcript's own order.
- */
-const SPEAKER_SLOTS = 16;
-const SPEAKER_TABLE = "__pipicocSpeakerSlots1";
-
-/** The palette: sixteen hues, a light value and a dark value each, plus the investigator's own
- *  ink outside them. The shell puts `data-scheme` on its own `<main>` (App.tsx), so the dark half
- *  follows the theme the player chose rather than the operating system's. The hues are the only
- *  new host string §40.4 allows; they are colours, not words. */
-const SPEAKER_CSS = `
-.coc-say,.coc-say-dot{
-  --coc-say-pc:oklch(0.40 0.025 255);
-  --coc-say-0:oklch(0.47 0.145 20);   --coc-say-1:oklch(0.47 0.145 42);
-  --coc-say-2:oklch(0.47 0.145 65);   --coc-say-3:oklch(0.47 0.145 88);
-  --coc-say-4:oklch(0.47 0.145 112);  --coc-say-5:oklch(0.47 0.145 135);
-  --coc-say-6:oklch(0.47 0.145 158);  --coc-say-7:oklch(0.47 0.145 180);
-  --coc-say-8:oklch(0.47 0.145 202);  --coc-say-9:oklch(0.47 0.145 224);
-  --coc-say-10:oklch(0.47 0.145 246); --coc-say-11:oklch(0.47 0.145 268);
-  --coc-say-12:oklch(0.47 0.145 290); --coc-say-13:oklch(0.47 0.145 310);
-  --coc-say-14:oklch(0.47 0.145 330); --coc-say-15:oklch(0.47 0.145 350)}
-[data-scheme="dark"] :is(.coc-say,.coc-say-dot){
-  --coc-say-pc:oklch(0.86 0.020 255);
-  --coc-say-0:oklch(0.80 0.115 20);   --coc-say-1:oklch(0.80 0.115 42);
-  --coc-say-2:oklch(0.80 0.115 65);   --coc-say-3:oklch(0.80 0.115 88);
-  --coc-say-4:oklch(0.80 0.115 112);  --coc-say-5:oklch(0.80 0.115 135);
-  --coc-say-6:oklch(0.80 0.115 158);  --coc-say-7:oklch(0.80 0.115 180);
-  --coc-say-8:oklch(0.80 0.115 202);  --coc-say-9:oklch(0.80 0.115 224);
-  --coc-say-10:oklch(0.80 0.115 246); --coc-say-11:oklch(0.80 0.115 268);
-  --coc-say-12:oklch(0.80 0.115 290); --coc-say-13:oklch(0.80 0.115 310);
-  --coc-say-14:oklch(0.80 0.115 330); --coc-say-15:oklch(0.80 0.115 350)}
-
-/* A spoken line is tinted, and wears a hairline rule at the point it begins, so a reader who does
-   not separate these hues still sees that a line starts here and that it is not the narrator's. */
-.coc-say{color:var(--coc-say-ink,inherit);
-  border-left:2px solid color-mix(in oklab,var(--coc-say-ink,currentColor) 55%,transparent);
-  padding-left:.34em;margin-left:.08em}
-
-/* The legend, beside the journal row for the same person. Decoration only: the name is right
-   next to it, so the dot says nothing a screen reader has to hear. */
-.coc-say-dot{display:inline-block;flex:none;width:8px;height:8px;border-radius:50%;
-  margin-right:7px;vertical-align:baseline;background:var(--coc-say-ink,var(--muted))}
-`;
-
-/** FNV-1a over the anchor, one UTF-16 code unit at a time, low byte first, so a CJK label hashes
- *  as readily as an ASCII handle. */
-function speakerHash(anchor) {
-  let hash = 0x811c9dc5;
-  for (let index = 0; index < anchor.length; index += 1) {
-    const code = anchor.charCodeAt(index);
-    hash = Math.imul(hash ^ (code & 0xff), 0x01000193);
-    hash = Math.imul(hash ^ ((code >>> 8) & 0xff), 0x01000193);
-  }
-  return hash >>> 0;
-}
-
-/**
- * The slot an anchor owns: its hash slot, or the first free one after it.
- *
- * The probe runs in the order the window first shows a person, so two people at one table never
- * share a hue and a reload paints the same colours in the same order. Once all sixteen are taken
- * the probe gives the hash slot back rather than leave a line uncoloured.
- */
-function speakerSlot(anchor) {
-  const scope = typeof globalThis === "object" && globalThis ? globalThis : {};
-  const table = scope[SPEAKER_TABLE] && scope[SPEAKER_TABLE].held instanceof Map
-    ? scope[SPEAKER_TABLE]
-    : (scope[SPEAKER_TABLE] = { held: new Map(), taken: new Set() });
-  const known = table.held.get(anchor);
-  if (known !== undefined) return known;
-  let slot = speakerHash(anchor) % SPEAKER_SLOTS;
-  for (let step = 0; step < SPEAKER_SLOTS && table.taken.has(slot); step += 1) {
-    slot = (slot + 1) % SPEAKER_SLOTS;
-  }
-  table.taken.add(slot);
-  table.held.set(anchor, slot);
-  return slot;
-}
-
-/**
- * The ink for one speaker, as a reference into the palette above.
- *
- * An investigator is never hashed: the player's own voice keeps the one fixed ink outside the hash
- * palette, so it reads the same on every turn of every table. Everyone else takes a hue by their
- * anchor -- a person of the graph by their handle, a label by its own text (§40.4). A speaker with
- * no anchor at all gets no ink rather than somebody else's.
- */
-function speakerInk(anchor, who) {
-  if (who === "investigator") return "var(--coc-say-pc)";
-  const key = typeof anchor === "string" ? anchor.trim() : "";
-  return key ? `var(--coc-say-${speakerSlot(key)})` : "";
-}
-/* >>> end speaker colour <<< */
-
 if (typeof document !== "undefined" && !document.getElementById(STYLE_ID)) {
   const style = document.createElement("style");
   style.id = STYLE_ID;
-  style.textContent = CSS + SPEAKER_CSS;
+  style.textContent = CSS;
   document.head.append(style);
 }
 
@@ -550,14 +428,6 @@ function money(value, term = value => value) {
   const currency = term(text(value.currency));
   if (amount === undefined || amount === null) return ABSENT;
   return currency ? `${text(amount)} ${currency}` : text(amount);
-}
-
-/** A found clue as the player's own record of it: the name the table filed it under, and the
- *  account the Keeper filed of how this table came by it (§80). The module graph's `summary` is
- *  the Keeper's material and no longer reaches this panel. */
-function clueLine(clue) {
-  if (!isRecord(clue)) return { name: text(clue), how: "" };
-  return { name: text(clue.label || clue.name || clue.clue || clue.id), how: text(clue.how) };
 }
 
 const PAPER_STYLE = `
@@ -984,80 +854,6 @@ export function createComponent(React) {
         : null);
   }
 
-  /** Found clues, plus what this scene still has on offer — the old panel's clues section. */
-  function Clues(props) {
-    const { view, t, term = value => value } = props;
-    const clues = isRecord(view.clues) ? view.clues : {};
-    const discovered = Array.isArray(clues.discovered) ? clues.discovered : [];
-    const here = Array.isArray(clues.here) ? clues.here : [];
-    // A clue the scene offers but nobody has found is the Keeper's business, not the player's:
-    // only the ones already marked discovered are named.
-    const foundHere = here.filter(clue => isRecord(clue) && clue.discovered === true);
-    if (!discovered.length && !foundHere.length) {
-      return h(Section, { title: t("clues"), icon: "search", anchor: "clues" }, h("p", { className: "coc-sheet-note" }, t("noClues")));
-    }
-    const seen = new Set();
-    const rows = [];
-    for (const clue of [...foundHere, ...discovered]) {
-      const line = clueLine(clue);
-      const key = line.name || line.how;
-      if (!key || seen.has(key)) continue;
-      seen.add(key);
-      rows.push(line);
-    }
-    return h(Section, { title: t("clues"), icon: "search", anchor: "clues" }, rows.map((row, index) =>
-      row.how
-        // The name stays on the line; how this table came by the clue is one tap away. The name
-        // goes through the glossary -- the Keeper's own label comes back as itself, a graph name
-        // comes back in the play language once the clue lane has projected it. The account does
-        // not: the Keeper wrote it in the play language at the table, like the journal's own prose.
-        ? h("details", { className: "coc-clue coc-clue-fold", key: `${row.name}:${index}` },
-            h("summary", null, h("span", { className: "coc-clue-name" }, term(row.name))),
-            h("div", { className: "coc-clue-body" }, row.how))
-        : h("div", { className: "coc-clue", key: `${row.name}:${index}` },
-            h("span", { className: "coc-clue-name" }, term(row.name)))));
-  }
-
-  /**
-   * The people the investigators have met, as the table's NPC journal projects them (§17.10's
-   * `npcs.journal`). The description and the exchange summary are the journal lane's own prose,
-   * written in the play language, and are drawn as they arrive. The name and the scene stamped on
-   * an exchange are not: the lane must copy a recordable name exactly and the kernel stamps the
-   * scene's display name at the turn it happened, so both are the module graph's words and both go
-   * through the glossary, where the journal lane has projected them. Turn numbers are machine
-   * context and stay off the page. A dead mark rests next to the name when the ledger closed.
-   *
-   * The swatch in front of each name is the legend for the delivery card's spoken lines (§40.4):
-   * the same anchor, the same allocator, so the hue a person's lines wear in the transcript is the
-   * hue their row wears here. The anchor is the row's `id` — the graph handle §40.3 projects — and
-   * falls back to the name for a journal written before that field existed.
-   */
-  function Npcs(props) {
-    const { view, t, term = value => value } = props;
-    const npcs = isRecord(view.npcs) ? view.npcs : {};
-    const journal = Array.isArray(npcs.journal) ? npcs.journal.filter(isRecord) : [];
-    if (!journal.length) {
-      return h(Section, { title: t("npcs"), icon: "body", anchor: "npcs" }, h("p", { className: "coc-sheet-note" }, t("noNpcs")));
-    }
-    return h(Section, { title: t("npcs"), icon: "body", anchor: "npcs" }, journal.map((npc, index) => {
-      const name = term(text(npc.name));
-      const dead = npc.dead_since_turn !== null && npc.dead_since_turn !== undefined;
-      const exchanges = Array.isArray(npc.exchanges) ? npc.exchanges.filter(isRecord) : [];
-      const ink = speakerInk(text(npc.id) || text(npc.name), "npc");
-      return h("details", { className: "coc-clue coc-clue-fold coc-npc", key: `${name}:${index}`, ...(dead ? { "data-dead": "1" } : {}) },
-        h("summary", null,
-          ink ? h("span", { className: "coc-say-dot", "aria-hidden": "true", style: { "--coc-say-ink": ink } }) : null,
-          h("span", { className: "coc-clue-name" }, name),
-          dead ? h("span", { className: "coc-npc-dead", "aria-hidden": "true" }, "\u2020") : null),
-        h("div", { className: "coc-clue-body" },
-          text(npc.description) ? h("p", { className: "coc-npc-description" }, text(npc.description)) : null,
-          exchanges.map((exchange, line) =>
-            h("div", { className: "coc-npc-exchange", key: line },
-              text(exchange.scene) ? h("span", { className: "coc-npc-exchange-scene" }, term(text(exchange.scene))) : null,
-              text(exchange.summary)))));
-    }));
-  }
-
   /** @param {{api: {invoke?: Function, subscribeExt?: Function}}} props */
   return function InvestigatorPanel(props) {
     const api = props.api || {};
@@ -1319,7 +1115,6 @@ export function createComponent(React) {
       sheet ? h(Finance, { sheet, t, term }) : null,
       sheet ? h(Background, { sheet, term, t }) : null,
 
-      h(Clues, { view, t, term }),
-      h(Npcs, { view, t, term }));
+);
   };
 }
