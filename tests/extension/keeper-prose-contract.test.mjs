@@ -8,6 +8,7 @@ test('compressed context supplies facts but never the player-facing sentence pat
   assert.ok(prompt.includes('Write natural, complete sentences in `play_language`'));
   assert.ok(prompt.includes('make clear who does what'));
   assert.ok(prompt.includes('Before `narrate`, reread the final draft as the player'));
+  assert.ok(prompt.includes('Address every player-controlled investigator in the second person'));
 
   const craft = JSON.parse(await readFile(new URL('../../content/craft/beat-directives.json', import.meta.url), 'utf8'));
   assert.equal(craft.axis_lines['style-axis:avoid-translationese'], 'write natural, complete sentences');
@@ -18,7 +19,7 @@ test('compressed context supplies facts but never the player-facing sentence pat
 test('the existing pre-delivery audit revises unintelligible prose without grading literary taste', async () => {
   const manifest = JSON.parse(await readFile(new URL('../../mods/narration-audit/mod.json', import.meta.url), 'utf8'));
   const auditor = await readFile(new URL('../../mods/narration-audit/auditor.md', import.meta.url), 'utf8');
-  assert.equal(manifest.version, '1.2.26');
+  assert.equal(manifest.version, '1.2.27');
   assert.match(auditor, /must be intelligible to a reader of the campaign's play language/);
   assert.match(auditor, /restore omitted grammatical relations/);
   assert.match(auditor, /preserve the same facts and choices while rewriting the whole candidate as natural, complete sentences/);
@@ -26,10 +27,14 @@ test('the existing pre-delivery audit revises unintelligible prose without gradi
   assert.match(auditor, /one person's name attached directly to another person's body part/);
   assert.match(auditor, /Archaic, terse, foreign or characterful speech is not an exemption/);
   assert.match(auditor, /A single occurrence is enough to revise/);
+  assert.match(auditor, /Player-facing narration addresses every player-controlled investigator in the second person/);
+  assert.match(auditor, /NPC dialogue and reported speech may address or refer to the investigator/);
+  assert.match(auditor, /player_address_review/);
 });
 
 test('the final audit task brief makes intelligibility a submission-time decision', async () => {
   const host = await readFile(new URL('../../extensions/mods/index.ts', import.meta.url), 'utf8');
-  assert.match(host, /Before submitting, reread the candidate for intelligibility in the play language/);
+  assert.match(host, /Before submitting, reread the candidate for intelligibility and player address in the play language/);
   assert.match(host, /Do not submit pass while any sentence requires the reader to restore omitted grammatical relations/);
+  assert.match(host, /Do not submit pass when the narrator calls a player-controlled investigator by character name or a third-person pronoun/);
 });

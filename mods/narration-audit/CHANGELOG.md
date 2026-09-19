@@ -1,3 +1,7 @@
+# 1.2.27
+
+- Requires player-facing Keeper narration to address player-controlled investigators in second person. The base prompt writes the rule and the existing continuity audit now submits an independent checked `player_address_review`; missing decisions are artifact errors, and a narrator-side character name or third-person pronoun forces a quote-backed whole-candidate rewrite. NPC dialogue, reported speech, narration about NPCs and natural subject omission remain valid. Retained A-MAIN turns 254–255 showed why intelligibility alone was insufficient: readable Chinese repeatedly called the player `克罗` and `他`.
+
 # 1.2.26
 
 - Makes intelligibility an explicit checked sub-review in every current continuity-audit context: `{verdict:"pass"|"revise",quote:null|"<exact malformed excerpt>"}`. A missing decision is an artifact error; revise requires the exact excerpt, an actionable whole-candidate rewrite finding and an overall revise. This closes the attention gap retained under 1.2.25, where the final brief named the malformed phrase but Grok still submitted only the locus result.

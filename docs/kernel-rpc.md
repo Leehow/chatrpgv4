@@ -14260,3 +14260,32 @@ and §118's mask, with no looks to work from, named the listener by a word that 
 Acceptance: a sheet with a description shows it bounded to 200 characters in `known.investigator.appearance`, a
 sheet without one carries no key; `age` rides with it; the packet carries the same bounded string; the lane's
 prompt renders it; the `head` names it.
+
+## 120. The Keeper addresses the player in the second person (2026-09-19)
+
+A-MAIN retained turns 254 and 255 narrated the sole player-controlled investigator from outside as `克罗` and
+`他`: `克罗不再折回金街` and `他沿水线往北，往南走了一截`. The prose was intelligible, so the checked
+`intelligibility_review` passed exactly as specified. This is not one bad Chinese pronoun. The base Keeper prompt
+never chose a player-facing point of view, and the pre-delivery review had no independent decision that could
+reject a third-person player viewpoint.
+
+Player-facing narration addresses every player-controlled investigator in the second person of `play_language`.
+When the grammar names the subject, use that language's natural second-person form; do not make the Keeper an
+external camera that repeatedly calls the investigator by character name or third-person pronoun. Natural subject
+omission is valid when the sentence still addresses the player. NPC dialogue and reported speech may address or
+refer to the investigator as the fiction requires, and narration about NPCs remains ordinary third person. This
+is semantic model judgment across an open language set, never a pronoun list, character-name regex or renderer
+rewrite.
+
+The production end is the base Keeper prompt. The prevention end remains the existing single tool-enabled
+continuity audit, with no extra model call: every current context requires a checked
+`player_address_review:{verdict:"pass"|"revise",quote:null|exact candidate excerpt}` beside
+`intelligibility_review`. A revision quotes the narrator's third-person player reference, carries an actionable
+finding to rewrite the whole candidate in second person without changing facts or choices, and forces the overall
+review to revise. Missing, malformed or contradictory sub-reviews are artifact errors. The original candidate,
+repair and reviewer artifact remain retained evidence.
+
+The three ends (§31): the Keeper prompt writes the second-person narration; `narrate` and the player read it; the
+checked pre-delivery reviewer prevents a drifted candidate from reaching either. Acceptance requires deterministic
+producer/schema tests plus an original-save Web UI turn whose delivered narration addresses the same investigator
+as `你`, with the retained audit artifact explicitly passing both intelligibility and player address.

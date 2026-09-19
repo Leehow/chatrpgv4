@@ -33,6 +33,8 @@ export function continuityAuditContext(graph: ModuleGraph, world: Row, turn: Row
         scene: {handle: graph.handle(scene), name: graph.displayName(scene), question: recordOf(scene).dramatic_question ?? null},
         intelligibility_review: {requires_review: true,
             definition: 'Judge whether every candidate sentence and spoken line is naturally understandable in the play language without restoring omitted grammatical relations. This is not literary style scoring.'},
+        player_address_review: {requires_review: true, actors: party.map(person => ({name: person.name})),
+            definition: 'Player-facing narration addresses player-controlled investigators in second person. Natural subject omission is allowed; narrator-side character names or third-person pronouns are not. NPC dialogue and reported speech may refer to them as the fiction requires.'},
         scene_commitment: {requires_review: true,
             active: {handle: graph.handle(scene), name: graph.displayName(scene), summary: chars(graph.summary(scene), 700)},
             moves: moves.map(receipt => pick(receipt, ['from', 'to', 'from_label', 'to_label', 'minutes'])),

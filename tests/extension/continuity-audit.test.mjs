@@ -151,6 +151,22 @@ test('current audit contexts require an explicit intelligibility verdict before 
     assert.deepEqual(continuityArtifactErrors(passed, 'Crow keeps two fingers on Sarah wrist.', files), []);
 });
 
+test('current audit contexts require an explicit second-person player-address verdict before pass', () => {
+    const candidate = 'Crow turns east. He follows the waterline.';
+    const files = {'context.json': {player_address_review: {requires_review: true, actors: [{name: 'Crow'}]}}};
+    assert.ok(continuityArtifactErrors(pass(), candidate, files)
+        .some(error => error.path === '/continuity_review/player_address_review'));
+    const revised = {missing: [], findings: [{reason: candidate, fix: 'Rewrite the whole candidate to address the player in second person without changing facts.'}],
+        continuity_review: {verdict: 'revise', summary: 'The narrator uses a third-person player viewpoint.', conflicts: [],
+            player_address_review: {verdict: 'revise', quote: 'Crow turns east.'}}};
+    assert.deepEqual(continuityArtifactErrors(revised, candidate, files), []);
+    const passed = pass(); passed.continuity_review.player_address_review = {verdict: 'pass', quote: null};
+    assert.deepEqual(continuityArtifactErrors(passed, 'You turn east. The guide says Crow should wait.', files), []);
+    const wrongQuote = structuredClone(revised); wrongQuote.continuity_review.player_address_review.quote = 'He walks elsewhere.';
+    assert.ok(continuityArtifactErrors(wrongQuote, candidate, files)
+        .some(error => error.path === '/continuity_review/player_address_review/quote'));
+});
+
 test('budget spans revisions, prevents concurrent owners and retains linked explicit retries', async () => {
     const scope = await mkdtemp(join(directory, 'budget-')), limits = {...AUDIT_LIMITS, time_ms: 50000, max_requests: 3, per_review: 2};
     const a = new AuditBudget(scope, 'input-a', limits);
@@ -308,6 +324,7 @@ test('new jobs expose focused context with full fallback, bind accepted reports,
     assert.equal(focused.clock.minutes, 0);
     assert.equal(typeof focused.clock.at, 'string');
     assert.equal(focused.scene.handle, 'commission-briefing');
+    assert.deepEqual(focused.player_address_review.actors, [{name: '托马斯·海斯'}]);
     assert.equal(focused.scene_commitment.active.handle, 'commission-briefing');
     assert.deepEqual(focused.scene_commitment.moves, []);
     assert.match(focused.scene_commitment.promotion_test, /ongoing locus for subsequent player action or durable location-bound state/);
@@ -321,6 +338,7 @@ test('new jobs expose focused context with full fallback, bind accepted reports,
     assert.ok(focused.coverage.full_evidence_files.includes('history.json'));
     await writeFile(join(job.cwd, 'result.json'), JSON.stringify({...pass(), continuity_review: {...pass().continuity_review,
         intelligibility_review: {verdict: 'pass', quote: null},
+        player_address_review: {verdict: 'pass', quote: null},
         locus_review: {verdict: 'pass', mode: 'same_locus', locus: null, claim: null, basis: 'active_scene'},
         outcome_review: {verdict: 'pass', basis: 'failed_rolls_respected', claims: []},
         reentry_review: {verdict: 'defer', basis: 'preparation_wait', quote: 'The old register ends before the inheritance.', clue: null, relation: null}}}));
@@ -1018,6 +1036,7 @@ test('the real the-haunting reentry defers on the player\'s own line and revises
     const deferred = {missing: [], findings: [], continuity_review: {verdict: 'pass',
         summary: 'The draft continued the action the player chose and claimed no reentry evidence.', conflicts: [],
         intelligibility_review: {verdict: 'pass', quote: null},
+        player_address_review: {verdict: 'pass', quote: null},
         reentry_review: {verdict: 'defer', basis: 'chosen_action', quote: candidate, clue: null, relation: null},
         locus_review: locus}};
     assert.deepEqual(continuityArtifactErrors(deferred, candidate, files), []);
@@ -1044,6 +1063,7 @@ test('the real the-haunting reentry defers on the player\'s own line and revises
         fix: 'Withdraw the claim that gabriela-night-visitor reached the investigator; nothing settled it.'}],
         continuity_review: {verdict: 'revise', summary: 'The draft claims evidence that never landed.', conflicts: [],
             intelligibility_review: {verdict: 'pass', quote: null},
+            player_address_review: {verdict: 'pass', quote: null},
             reentry_review: {verdict: 'revise', basis: 'none', quote: null, clue: null, relation: null}, locus_review: locus}};
     assert.deepEqual(continuityArtifactErrors(revised, fabricated, files), [], 'revise stays available for a fabricated arrival');
 });
