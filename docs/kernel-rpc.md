@@ -224,7 +224,7 @@ params：`{"call_id": "...", "effects": [{"kind": "move", "to": "<场景名>", "
 - `clue`：必须是图上存在的 clue 节点，且 `discoverable-at` 当前场景或在当前场景 record 的 `available_clues` 里；否则 `not_here`。已发现的重复写入返回 `replayed: true`，不报错。写 `discovered_clues`、`clue-discovered` 事件。
 - `time`：推进世界时钟，写 `time-advanced` 事件。**时间过去了，伤就该好。**本批 `time` 效果的分钟数相加（同一批两个四小时就是一夜；`move` 的行程分钟不算——赶路不是休息）：≥360 分钟走治疗引擎的休整入口（`handle_time_trigger`：六小时以上算一天，没有重伤则每天回 1 点生命，规则书 p.121；不到这个数一次都不调，因为同一个函数还会清掉当天的急救次数，十分钟不是新的一天），≥60 分钟走魔法点的每小时回复（规则书的单位是小时，引擎的下限会给任何一次推进至少 1 点）。每个真正变动的资源写一条 `delta` 收据与一条 `resource-changed` 事件，result 另给 `recovered: [{investigator, resource, before, after}]`，好让守秘人在写这一夜之前就知道这一夜的人还站不站得起来（数字本身不进正文，§16.3）。**这条规则一直在规则图上**（`rule:coc7:healing:regular-damage-recovery`），两个引擎的入口也一直写着、测着，只是内核从来没有调用过：真桌上 55 个游戏内小时、三夜睡眠、两次看医生，生命值一整局卡在 5/11。
 - `item`（#19）：`{"kind": "item", "name": "<物品名>", "to"?: "<调查员>", "from"?: "<NPC 名>", "weapon"?: "<规则表武器 id 或 profile 名>", "quantity"?: int, "label"?: "<玩家语言短名>", "why"?}`。叙述里到手的东西由此进调查员表：写 `party/<id>.json` 的 `equipment[]`（名字、数量、来源回合），`weapon` 给了就同时写 `weapons[]`（从 `rules-json/weapons.json` 的武器 profile 取伤害、射程、弹容、技能（`equipment.json` 只是价目表），取不到报 `needs`，`details.needs.options` 列可用 id），之后 `resolve` 的 `weapon` 能解析它、战斗开局按它排弹药。收据 `item:<slug>-t<turn>-c<n>`，渲染 `【变化】物品：<人> 得到 <label 或名>`，事件 `item-transferred`（`{name, to, from?, weapon?, quantity}`）。`quantity` 为负是失去（消耗、交出、被夺），表上没有就报 `invalid_params`。
-- `cash`（#19，§58）：`{"kind": "cash", "subject"?: "<调查员>", "delta": <整数，货币单位随时代>, "source": "price"|"quote"|"found", "price_id"?: "<印刷记录 id，source=price 必填>", "currency"?: "<这笔钱的单位>", "with"?: "<NPC 名>", "why"?}`；**`source` 必填**：钱的数额必须说明来源，`price` 由内核到规则书印刷物价表里解析 `price_id`（解析不到就拒），`quote` 要 `with`（场上谁开的价），`found` 是不涉及价格的进出。`currency` 与余额单位不一致直接拒——内核没有汇率表，不替任何人换算。玩家说的自己兜里有多少是余额不是价格；余额与本局已成交的价在胶囊 `known.investigator.cash` 与 `known.prices_paid` 里。全文见 §58；`with` 是钱的另一头（付给谁、从谁那儿来），落进那个人的账本 `exchanged`（§17.3）与机制投影；不写就只是钱数变了，没有对方。写表上 `finance.cash`（没有 finance 块的时代按 `rules-json/cash-assets.json` 建一个），收据 `cash:t<turn>-c<n>`，渲染 `【变化】现金：<人> <前> → <后>`（没有 `label`，标签固定为 play_language 的「现金」），事件 `resource-changed`（`resource: cash`）。
+- `cash`（#19，§58）：`{"kind": "cash", "subject"?: "<调查员>", "delta": <整数，货币单位随时代>, "source": "price"|"quote"|"found", "settlement"?: "cash"|"spending_level", "price_id"?: "<印刷记录 id，source=price 必填>", "currency"?: "<这笔钱的单位>", "with"?: "<NPC 名>", "why"?}`；**`source` 必填**：钱的数额必须说明来源，`price` 由内核到规则书印刷物价表里解析 `price_id`（解析不到就拒），`quote` 要 `with`（场上谁开的价），`found` 是不涉及价格的进出。`settlement` 缺省 `cash`；`spending_level` 只用于不超过调查员消费等级的负向 `price`/`quote`，记录购买但不改现金。`currency` 与余额单位不一致直接拒——内核没有汇率表，不替任何人换算。玩家说的自己兜里有多少是余额不是价格；余额与本局已成交的价在胶囊 `known.investigator.cash` 与 `known.prices_paid` 里。全文见 §58；`with` 是钱的另一头（付给谁、从谁那儿来），落进那个人的账本 `exchanged`（§17.3）与机制投影；不写就只是钱数变了，没有对方。普通结算写表上 `finance.cash`；消费等级结算保留余额（没有 finance 块的时代都先按 `rules-json/cash-assets.json` 建一个），收据均为 `cash:t<turn>-c<n>`，事件分别是 `resource-changed` 与 `purchase-settled`。
 - 其余种类报 `not_implemented`。
 result：`{"receipts": ["move:hall-of-records-t3-c2", ...], "world": {"active_scene", "clock"}, "material_ready": true, "recovered"?: [{"investigator", "resource", "before", "after"}]}`。切片 0 `material_ready` 恒为 true；`recovered` 只在这一批的休整真的还了资源时出现。
 
@@ -5779,6 +5779,22 @@ not authorize a five-dollar debit; accepting the earlier five-dollar quote does.
 bargain needs no second confirmation. Hidden dangers, involuntary rule consequences and NPC initiative
 remain outside this voluntary-consent requirement; it is not a veto over outcomes.
 
+**The rulebook's Spending Level is already a standing delegation, not a debit (2026-09-19).** The Keeper
+Rulebook pp. 46 and 95 says that ordinary accommodation, food and incidental travel within the
+investigator's living standard require no accounting, and that an occasional purchase no greater than
+the investigator's Spending Level spends no cash. `apply cash` therefore accepts
+`settlement: "spending_level"` for a negative `price` or `quote`: the input magnitude is the purchase
+amount, the kernel verifies it is no greater than `known.investigator.living.spending_level`, and the
+receipt records the purchase with unchanged `before`/`after` cash. This mode does not need an earlier
+price disclosure or a second player acceptance because it commits no tracked resource; admission still
+must find that the player chose the service, item or activity itself. It is not available for money
+received, `source: "found"`, an unsupported finance period, or an amount above the printed limit. The
+Keeper still sees these settlements in `known.prices_paid`; if repeated small purchases are clearly
+being stacked beyond the rule's occasional-use abstraction, the Keeper may combine them and propose a
+real cash debit, which again follows the disclosure-and-acceptance rule above. No language-specific
+classifier decides whether a purchase is ordinary: the Keeper chooses the mode, the admission model
+judges the chosen action, and the kernel enforces the numeric boundary.
+
 The Keeper first takes up the player's already-declared gestures and speech in the scene, lets the
 NPC state the relevant terms and ask whether to proceed, then ends with `narrate` and awaits free
 player input. Fictional prices are dialogue, not a resource-ledger recap, and may be spoken explicitly;
@@ -9018,6 +9034,14 @@ There is deliberately no source meaning "a figure the player said". A number a p
 about their own purse is a balance, and §58.4 puts the balance in front of the keeper so it
 does not have to guess which one it is hearing.
 
+`settlement` is optional and defaults to `cash`. `spending_level` is the rulebook's quick
+settlement for an occasional negative `price` or `quote` no greater than the investigator's
+printed Spending Level: `delta` still names the purchase price, but the receipt carries
+`settlement: "spending_level"`, `purchase_amount`, `spending_level`, `delta: 0`, and equal
+`before` / `after` cash. Positive amounts, `found`, missing Spending Level, and amounts above
+the limit are refused. This is not a hidden allowance invented by the Keeper: the value already
+comes from `cash-assets.json` through the investigator's Credit Rating.
+
 ### 58.3 `currency` is declared, not echoed
 
 `currency` on the receipt used to be copied from the sheet, so `"USD"` was never a claim
@@ -9034,12 +9058,15 @@ the fiction first.
 level). The capsule named no money at all before this, which is why the only figure in the room
 at turn 31 was the one the player had just said out loud.
 
-`known.prices_paid` carries the most recent amounts this campaign has actually charged, with
-their `why`, their `source` and their `price_id` where there is one. These are facts the
-product produced itself and nothing read them back: `npc-ledger.json` keeps the with-an-NPC
-half, but only for the people standing in the room, and a price is a fact about the world, not
-about who is present. Without this, every price a keeper sets is set from nothing, which is how
-the fourth price in one session came out at thirty-one times its own cheapest drink.
+`known.prices_paid` carries the most recent purchase amounts this campaign has settled, with
+their `why`, their `source`, their `settlement` and their `price_id` where there is one. A
+Spending Level purchase stays in this list even though cash did not move, so the Keeper can see
+repeated small purchases and exercise the rulebook's discretion to combine clear stacking into a
+real debit. These are facts the product produced itself and nothing read them back:
+`npc-ledger.json` keeps the with-an-NPC half, but only for the people standing in the room, and a
+price is a fact about the world, not about who is present. Without this, every price a keeper sets
+is set from nothing, which is how the fourth price in one session came out at thirty-one times its
+own cheapest drink.
 
 ### 58.5 The catalog was never `not_implemented`
 
@@ -9056,20 +9083,23 @@ price list can be asked for by name.
 ### 58.6 The three ends (§31)
 
 - **Writes it.** `stageCash` in `kernel-ts/apply/inventory.ts`, from the source the keeper
-  cites; the printed figures come from `equipment.json` through `Catalog`.
+  cites; the printed figures come from `equipment.json` through `Catalog`. It also writes whether
+  the price moved cash or was covered by Spending Level.
 - **Reads it.** `investigatorSummary` and `pricesPaid` in `kernel-ts/read/capsule.ts` for the
-  keeper; `mechanicsOf` in `kernel-ts/read/mechanics.ts` carries the source onto the mechanics
-  card, so a charge can be read back against what it was based on.
+  keeper; `mechanicsOf` in `kernel-ts/read/mechanics.ts` carries the source and settlement onto
+  the mechanics card, so a purchase can be read back against what it was based on.
 - **Acts on it.** The keeper, which must answer "from what?" before it may answer "how much",
-  and has `lookup kind=catalog` to answer it with.
+  has `lookup kind=catalog` to answer it with, and uses the projected Spending Level for quick
+  settlement while escalating clear repeated stacking to a real debit.
 
 ### 58.7 What this section does not decide
 
-It does not check affordability, does not compare a charge against the printed price and refuse
-the difference, and does not read `spending_level` as a limit. It does not detect a currency in
-prose. A shape check on the receipt — a `delta` that happens to equal `before` — is a symptom,
-not this defect: the same mistake at ninety per cent of the balance is silent, and the fix for
-"the number came from nowhere" is a source, not an alarm on one of its shapes.
+It does not compare a charge against the printed price and refuse the difference, and it does
+not detect a currency in prose. Ordinary `settlement: "cash"` still checks affordability exactly
+as before; `settlement: "spending_level"` is the one numeric rule added here and is bounded by the
+printed level. A shape check on the receipt — a `delta` that happens to equal `before` — is a
+symptom, not this defect: the same mistake at ninety per cent of the balance is silent, and the
+fix for "the number came from nowhere" is a source, not an alarm on one of its shapes.
 
 ## 59. A card says which of three things is true about opening it (2026-09-16, amends §16.2)
 

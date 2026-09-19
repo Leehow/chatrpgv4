@@ -231,14 +231,17 @@ export function foldNpcTurn(ledger: Row, graph: ModuleGraph, record: Row, table:
                     turn,
                     receipt: receipt.id ?? null
                 });
-            if (kind === 'cash')
+            if (kind === 'cash') {
+                const quick = receipt.settlement === 'spending_level';
                 item.exchanged.push({
-                    cash: intLike(receipt.delta) ? Math.abs(number(receipt.delta)) : receipt.delta ?? null,
-                    direction: intLike(receipt.delta) && number(receipt.delta) < 0 ? 'paid' : 'received',
+                    cash: quick ? receipt.purchase_amount ?? null : intLike(receipt.delta) ? Math.abs(number(receipt.delta)) : receipt.delta ?? null,
+                    direction: quick || intLike(receipt.delta) && number(receipt.delta) < 0 ? 'paid' : 'received',
+                    ...(quick ? { settlement: 'spending_level' } : {}),
                     currency: receipt.currency ?? null,
                     turn,
                     receipt: receipt.id ?? null
                 });
+            }
         }
         else if (kind === 'npc') {
             const id = npcId(graph, receipt.npc || receipt.name);

@@ -122,6 +122,8 @@ export function committedFacts(receipts: Row[], snapshot: Row, label: (id: any) 
             committed.push(`Scene: ${string(r.from_label || r.from || null)} -> ${string(r.to_label || r.to || null)}${number(r.minutes) > 0 ? ` (${Math.trunc(number(r.minutes))} min)` : ''}`);
         else if (r.kind === 'clue')
             committed.push(`Clue found: ${string(r.label || r.clue || null)}`);
+        else if (r.kind === 'cash' && r.settlement === 'spending_level')
+            committed.push(`Spending level purchase: ${string(r.subject_label || r.subject || null)} ${string(r.purchase_amount ?? null)} ${string(r.currency ?? null)}; cash unchanged at ${string(r.after ?? null)}`);
         else if (r.kind === 'delta' || r.kind === 'cash')
             committed.push(`${string(r.resource ?? null)}: ${string(r.item || r.subject_label || r.subject || null)} ${string(r.before ?? null)} -> ${string(r.after ?? null)}`);
         else if (r.kind === 'item') {

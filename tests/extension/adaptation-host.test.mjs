@@ -102,11 +102,12 @@ test('one deterministic reference repair gets precise feedback; semantic rejecti
     } finally {rejected.owner.abort();}
 });
 
-test('admission reuse distinguishes travel time, display destination and payment counterparty', () => {
+test('admission reuse distinguishes travel, counterparty, source and Spending Level settlement', () => {
     const effects = [{kind: 'move', to: 'Hotel', label: 'Hotel', travel_minutes: 25}, {kind: 'cash', delta: -2.5, source: 'quote', with: 'Clerk'}];
     const key = value => admissionRequest('apply', {effects: value}, {scene: {handle: 'office', label: 'Office'}}).key;
     const base = key(effects);
-    for (const [index, field, value] of [[0, 'travel_minutes', 80], [0, 'label', 'Another place'], [1, 'with', 'Another person']]) {
+    for (const [index, field, value] of [[0, 'travel_minutes', 80], [0, 'label', 'Another place'], [1, 'with', 'Another person'],
+        [1, 'source', 'found'], [1, 'settlement', 'spending_level'], [1, 'currency', 'EUR']]) {
         const changed = structuredClone(effects); changed[index][field] = value;
         assert.notEqual(key(changed), base);
     }

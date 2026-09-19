@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {fauxAssistantMessage, fauxToolCall} from '@earendil-works/pi-ai';
 import {openTable} from './harness.mjs';
+import {admissionSystemPrompt} from '../../extensions/kernel/admission.ts';
 
 const answer = value => fauxAssistantMessage(JSON.stringify(value));
 const call = (tool, args) => fauxAssistantMessage([fauxToolCall(tool, args)], {stopReason: 'toolUse'});
@@ -50,6 +51,51 @@ for (const refusal of ['not_authorized', 'uncertain']) {
     assert.ok(requests[1].includes('Yes, five dollars is fine. Go ahead.'));
   });
 }
+
+test('a chosen purchase within Spending Level settles in one turn without a price-confirmation round trip', async t => {
+  const effects = [{...cash(-0.65), source: 'price', price_id: 'eq.1920s.meals.meals_out.lunch', settlement: 'spending_level'},
+    {kind: 'time', minutes: 30, why: 'Lunch'}];
+  const table = await openTable({
+    responses: [
+      call('apply', {effects}),
+      call('narrate', {text: 'Lunch is brief; you finish and continue into town.'}),
+      fauxAssistantMessage('after'),
+    ],
+    laneResponses: {admission: [
+      answer({verdict: 'entailed', grounds: 'The player chose lunch; Spending Level settles it without a cash debit'}),
+    ]},
+  });
+  t.after(() => table.dispose());
+  await table.session.prompt('I eat lunch and then continue into town.');
+
+  assert.equal(calls(table, 'table.apply').length, 1, 'the chosen ordinary purchase settles on the same player turn');
+  assert.deepEqual(calls(table, 'table.apply')[0].params.effects, effects);
+  assert.equal(table.lanes.admission.requests().length, 1);
+  assert.match(table.lanes.admission.requests()[0], /settlement="spending_level"/);
+  assert.match(table.lanes.admission.requests()[0], /The player's exact words[\s\S]*I eat lunch/);
+  assert.deepEqual(table.telemetry().filter(row => row.lane === 'admission').map(row => row.admitted), [true]);
+});
+
+test('Spending Level removes price confirmation, not the need to choose the purchase itself', async t => {
+  const prompt = admissionSystemPrompt();
+  assert.match(prompt, /does not need an earlier price disclosure or a second confirmation/);
+  assert.match(prompt, /Still judge whether the player chose the service, item or activity itself/);
+  const effects = [{...cash(-0.65), source: 'price', price_id: 'eq.1920s.meals.meals_out.lunch', settlement: 'spending_level'}];
+  const table = await openTable({
+    responses: [
+      call('apply', {effects}),
+      call('narrate', {text: 'The menu remains open in front of you; nothing has been ordered.'}),
+      fauxAssistantMessage('after'),
+    ],
+    laneResponses: {admission: [
+      answer({verdict: 'not_authorized', grounds: 'The player only looked at the menu', missing: 'whether to order lunch'}),
+    ]},
+  });
+  t.after(() => table.dispose());
+  await table.session.prompt('I look over the menu.');
+  assert.equal(calls(table, 'table.apply').length, 0, 'quick settlement cannot invent an unchosen purchase');
+  assert.equal(calls(table, 'table.narrate').length, 1);
+});
 
 test('an accepted quote is not permission for a different debit in the same turn', async t => {
   const table = await openTable({

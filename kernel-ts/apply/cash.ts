@@ -30,6 +30,14 @@ export function addCash(left: Decimal, right: Decimal): Decimal {
     });
 }
 
+/** Exact ordering without converting a stored decimal back through binary floating point. */
+export function compareCash(left: Decimal, right: Decimal): number {
+    const exponent = Math.min(left.exponent, right.exponent);
+    const a = left.coefficient * power(left.exponent - exponent);
+    const b = right.coefficient * power(right.exponent - exponent);
+    return a < b ? -1 : a > b ? 1 : 0;
+}
+
 export function cashText(value: Decimal): string {
     const sign = value.coefficient < 0n ? '-' : '', digits = (value.coefficient < 0n ? -value.coefficient : value.coefficient).toString();
     if (value.exponent >= 0) return `${sign}${digits}${'0'.repeat(value.exponent)}`;

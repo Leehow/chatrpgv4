@@ -360,6 +360,49 @@ def test_a_cash_amount_needs_a_source_and_a_cited_price_is_resolved_from_the_pri
     assert sheet(kernel)["finance"]["cash"]["amount"] == start - printed["price"]["amount"]
 
 
+def test_spending_level_settles_an_occasional_purchase_without_debiting_cash(kernel):
+    """Keeper Rulebook pp. 46 and 95: a purchase no greater than Spending Level needs no
+    bookkeeping and spends no cash. The price still gets a receipt, mechanics projection and
+    capsule row, so repeated small spends remain visible to the Keeper instead of becoming an
+    unlimited hidden allowance."""
+    open_turn(kernel, "我吃完午饭就继续调查。")
+    printed = next(r for r in read_json(RULES / "equipment.json")["records"] if r["price_id"] == LUNCH)
+    price = printed["price"]["amount"]
+    result = kernel.table("apply", call_id="t1-c1", effects=[{
+        "kind": "cash", "delta": -price, "source": "price", "price_id": LUNCH,
+        "settlement": "spending_level", "currency": "USD", "why": "一顿普通午饭",
+    }])
+
+    receipt = receipts_of(kernel)[result["receipts"][0]]
+    assert receipt["settlement"] == "spending_level"
+    assert receipt["purchase_amount"] == price
+    assert receipt["delta"] == 0 and receipt["before"] == receipt["after"]
+    assert receipt["spending_level"] == sheet(kernel)["finance"]["spending_level"]["amount"]
+    assert sheet(kernel)["finance"]["cash"]["amount"] == receipt["before"]
+    settled = events_of(kernel, "purchase-settled")[-1]
+    assert settled["receipt"] == receipt["id"] and settled["data"]["amount"] == price
+
+    narrated = kernel.table("narrate", call_id="t1-c2", text="午饭很快吃完，你重新走上街。")
+    card = next(row for row in narrated["mechanics"] if row["kind"] == "cash")
+    assert card["settlement"] == "spending_level" and card["purchase_amount"] == price
+    assert card["before"] == card["after"]
+    kernel.table("player_input", text="继续。")
+    assert kernel.table("capsule")["known"]["prices_paid"][-1] == {
+        "turn": 1, "amount": price, "currency": "USD", "source": "price",
+        "settlement": "spending_level", "price_id": LUNCH, "why": "一顿普通午饭",
+    }
+
+    too_much = kernel.table_err("apply", call_id="t2-c1", effects=[{
+        "kind": "cash", "delta": -(receipt["spending_level"] + 1), "source": "quote",
+        "with": "steven-knott", "settlement": "spending_level", "why": "超过消费等级的服务",
+    }])
+    assert too_much["code"] == "needs" and too_much["details"]["spending_level"] == receipt["spending_level"]
+    assert "wait for the player" in too_much["fix"]
+    assert kernel.table_err("apply", call_id="t2-c1", effects=[{
+        "kind": "cash", "delta": 1, "source": "found", "settlement": "spending_level",
+    }])["code"] == "invalid_params"
+
+
 def test_the_capsule_tells_the_keeper_the_balance_and_what_this_table_has_already_charged(kernel):
     """Contract §58, §31's three ends on the read side. The M-DETOUR table was played for a
     balance and the capsule named no money at all, so the only figure in the room was the one the

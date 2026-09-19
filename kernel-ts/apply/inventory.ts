@@ -11,7 +11,7 @@ import {RuleTables} from '../rules/tables.js';
 import {Catalog} from '../rules/catalog.js';
 import {required,nowIso} from '../write/store.js';
 import {effectId,type StagedEffect} from './bookkeeping.js';
-import {addCash,cashDecimal,cashStorage,cashText} from './cash.js';
+import {addCash,cashDecimal,cashStorage,cashText,compareCash} from './cash.js';
 import type {ApplyContext} from './index.js';
 type Int=number|bigint;
 const int=(value:any):Int=>typeof value==='bigint'?value:Math.trunc(number(value));
@@ -119,6 +119,8 @@ async function cashSource(context:ApplyContext,effect:Row,heldCurrency:string,su
 }
 export async function stageCash(context:ApplyContext,effect:Row,staged:Map<string,Row>):Promise<StagedEffect>{
     const delta=effect.delta,decimalDelta=cashDecimal(delta);if(!decimalDelta||decimalDelta.coefficient===0n)throw new RpcError('invalid_params',"delta must be a finite non-zero number in the era's currency unit");
+    const settlement=effect.settlement??'cash';
+    if(settlement!=='cash'&&settlement!=='spending_level')throw new RpcError('invalid_params',`settlement must be "cash" or "spending_level", not ${repr(settlement)}`);
     const sheet=await stagedSheet(context,staged,effect.subject),id=string(sheet.id),subject=string(sheet.name||sheet.id),why=typeof effect.why==='string'?effect.why:null;
     const other=typeof effect.with==='string'&&effect.with.trim()?context.graph.npc(effect.with):null;
     let finance=sheet.finance;
@@ -130,14 +132,28 @@ export async function stageCash(context:ApplyContext,effect:Row,staged:Map<strin
     }
     const cash=finance.cash,before=money(cash.amount||0),currency=string(cash.currency||'USD'),decimalBefore=cashDecimal(before);
     if(!decimalBefore)throw new RpcError('invalid_params',`${subject} has an invalid cash balance`,{fix:'repair the investigator cash balance before applying a cash receipt',details:{before,currency}});
-    const decimalAfter=addCash(decimalBefore,decimalDelta);
+    const sourced=await cashSource(context,effect,currency,subject);
+    let effectiveDelta=decimalDelta,purchaseAmount:any=null,spendingLevel:any=null;
+    if(settlement==='spending_level'){
+        if(decimalDelta.coefficient>=0n)throw new RpcError('invalid_params','spending_level settlement is only for a purchase, so delta must be negative',{fix:'use settlement "cash" for money received'});
+        if(sourced.source==='found')throw new RpcError('invalid_params','spending_level settlement needs a price or quote, not source "found"',{fix:'use source "price" or "quote" for a purchase, or settlement "cash" when no price is involved'});
+        const level=row(finance.spending_level),decimalLevel=cashDecimal(level.amount);
+        if(!decimalLevel||decimalLevel.coefficient<0n)throw new RpcError('needs',`${subject} has no usable Spending Level for this finance period`,{fix:'settle the amount from cash after the player accepts the price, or repair the investigator finance block',details:{settlement,spending_level:level.amount??null,currency}});
+        const purchase={coefficient:-decimalDelta.coefficient,exponent:decimalDelta.exponent};
+        if(compareCash(purchase,decimalLevel)>0)throw new RpcError('needs',`${cashText(purchase)} ${currency} is above ${subject}'s Spending Level of ${cashText(decimalLevel)} ${currency}`,{fix:'disclose the price and wait for the player to accept it, then use settlement "cash"',details:{settlement,purchase:cashStorage(purchase),spending_level:cashStorage(decimalLevel),currency}});
+        purchaseAmount=cashStorage(purchase);spendingLevel=cashStorage(decimalLevel);effectiveDelta={coefficient:0n,exponent:0};
+    }
+    const decimalAfter=addCash(decimalBefore,effectiveDelta);
     if(decimalAfter.coefficient<0n)throw new RpcError('invalid_params',`${subject} has ${string(before)} ${currency}; cannot lose ${cashText({coefficient:-decimalDelta.coefficient,exponent:decimalDelta.exponent})}`,{fix:'a smaller delta, or narrate the debt without a cash receipt',details:{before,delta,currency}});
     const after=cashStorage(decimalAfter);
     if(after===null)throw new RpcError('invalid_params','cash result cannot be represented without rounding',{fix:'use an amount that can be stored exactly, or keep this amount as a whole-number cash receipt',details:{before,delta,currency}});
-    const sourced=await cashSource(context,effect,currency,subject);
+    const actualDelta=cashStorage(effectiveDelta);if(actualDelta===null)throw new RpcError('internal','cash delta could not be represented');
     cash.amount=after;sheet.finance=finance;sheet.cash=`${string(after)} ${currency}`;
-    const receipt={id:context.mint(`cash:t${context.turn.turn}-c${context.ordinal}`),kind:'cash',call_id:context.callId,resource:'cash',subject:id,subject_label:personLabel(context.world,id,subject),before,after,delta,with:other?context.graph.handle(other):null,with_label:other?personLabel(context.world,context.graph.handle(other),context.graph.displayName(other)):null,currency,...sourced,why,at:nowIso()};
-    return {receipt,event:{type:'resource-changed',data:{resource:'cash',subject:id,before,after,delta,why,...(other?{with:context.graph.handle(other)}:{})}}};
+    const receipt={id:context.mint(`cash:t${context.turn.turn}-c${context.ordinal}`),kind:'cash',call_id:context.callId,resource:'cash',subject:id,subject_label:personLabel(context.world,id,subject),before,after,delta:actualDelta,
+        ...(settlement==='spending_level'?{settlement,purchase_amount:purchaseAmount,spending_level:spendingLevel}:{}),with:other?context.graph.handle(other):null,with_label:other?personLabel(context.world,context.graph.handle(other),context.graph.displayName(other)):null,currency,...sourced,why,at:nowIso()};
+    return settlement==='spending_level'
+        ?{receipt,event:{type:'purchase-settled',data:{subject:id,amount:purchaseAmount,spending_level:spendingLevel,currency,why,...(other?{with:context.graph.handle(other)}:{})}}}
+        :{receipt,event:{type:'resource-changed',data:{resource:'cash',subject:id,before,after,delta:actualDelta,why,...(other?{with:context.graph.handle(other)}:{})}}};
 }
 export async function commitInventorySheets(context:ApplyContext,staged:Map<string,Row>):Promise<void>{
     for(const [id,sheet] of staged){const current=(await context.campaign.party()).find(value=>string(value.id)===id);if(!current)continue;for(const key of ['equipment','weapons','finance','cash'])if(Object.hasOwn(sheet,key))current[key]=sheet[key];await context.campaign.writeSheet(current);}

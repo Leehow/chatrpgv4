@@ -143,12 +143,13 @@ const AbilityEffect = Type.Object({
   why: Type.Optional(Type.String()),
 });
 
-/** Cash going up or down (contract §5 `cash`, #19; §58 the amount has a source): writes finance.cash. */
+/** A priced transaction (contract §5 `cash`, #19; §58 source and Spending Level settlement). */
 const CashEffect = Type.Object({
-	kind: StringEnum(["cash"] as const, { description: "the money in hand goes up or down" }),
+	kind: StringEnum(["cash"] as const, { description: "settle money received or a purchase, either from cash or under the investigator's Spending Level" }),
 	subject: Type.Optional(Type.String({ description: "whose money; defaults to the current investigator" })),
-	delta: Type.Number({ description: "signed finite change, including fractions, in the unit the balance is already counted in; spent is negative, received is positive" }),
+	delta: Type.Number({ description: "signed finite amount in the balance's unit. A purchase is negative. With settlement spending_level this is the purchase price even though cash remains unchanged" }),
 	source: StringEnum(["price", "quote", "found"] as const, { description: "where the amount came from, before you say how much. price: the rulebook prints this price — give its price_id, and run lookup kind=catalog kinds=[\"item\"] for the thing being bought if you do not have one. quote: someone in the fiction named this amount — name them in `with`. found: no price is involved (found, stolen, wages, a gift, a debt settled). A figure the player said about their own purse is a balance, not a price: the capsule tells you the balance, so charge what the thing is worth, not what they have" }),
+	settlement: Type.Optional(StringEnum(["cash", "spending_level"] as const, { description: "cash (default) changes the purse and requires disclosed terms plus player acceptance. spending_level is the rulebook fast path for an occasional purchase no greater than known.investigator.living.spending_level: it records the price but spends no cash and needs no separate price confirmation. Use it only after the player chose the service, item or activity; the kernel enforces the numeric limit" })),
 	price_id: Type.Optional(Type.String({ description: "required with source price: the price_id of the printed record you are charging, exactly as lookup kind=catalog returned it. An invented one is refused" })),
 	currency: Type.Optional(Type.String({ description: "the unit this amount is counted in, when the fiction named one. It must be the unit the balance is held in — the kernel does not convert between units. If a price was quoted in another currency, settle the exchange in the fiction and record what actually left the purse" })),
 	with: Type.Optional(Type.String({ description: "the person on the other side of it: an NPC name. Name them whenever money is paid to or taken from someone — that is what puts it on their account, and you are told it again the next time they are in the room" })),
@@ -550,6 +551,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 							"clue-discovered",
 							"time-advanced",
 							"resource-changed",
+							"purchase-settled",
 							"decision-settled",
 							"session-changed",
 							"choice-asked",

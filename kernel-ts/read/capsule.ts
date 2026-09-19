@@ -548,13 +548,14 @@ export function pricesPaid(records: Row[], limit = 8): Row[] {
     for (const record of [...records].sort((a, b) => number(b.turn) - number(a.turn)))
         for (const receipt of array(record.receipts)) {
             if (!isJsonObject(receipt) || receipt.kind !== "cash" || paid.length >= limit) continue;
-            const delta = number(receipt.delta ?? 0);
-            if (!(delta < 0)) continue;
+            const delta = number(receipt.delta ?? 0), quick = receipt.settlement === "spending_level";
+            if (!(delta < 0) && !(quick && number(receipt.purchase_amount) > 0)) continue;
             paid.push({
                 turn: record.turn ?? null,
-                amount: -delta,
+                amount: quick ? receipt.purchase_amount : -delta,
                 currency: receipt.currency ?? null,
                 ...(receipt.source != null ? { source: receipt.source } : {}),
+                ...(receipt.settlement != null ? { settlement: receipt.settlement } : {}),
                 ...(receipt.price_id != null ? { price_id: receipt.price_id } : {}),
                 ...(receipt.with_label != null ? { with: receipt.with_label } : {}),
                 why: receipt.why ?? null

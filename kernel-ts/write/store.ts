@@ -56,7 +56,7 @@ export function turnStateError(turn: Row, method: string, allowed: string): RpcE
     });
 }
 export const EVENT_TYPES: ReadonlySet<string> = new Set(['turn-started', 'player-declared', 'roll-resolved', 'scene-moved', 'clue-discovered', 'time-advanced',
-    'turn-finalized', 'resource-changed', 'decision-settled', 'session-changed', 'choice-asked', 'memory-written', 'setup-completed',
+    'turn-finalized', 'resource-changed', 'purchase-settled', 'decision-settled', 'session-changed', 'choice-asked', 'memory-written', 'setup-completed',
     'handout-shown', 'item-transferred', 'definition-created', 'definition-queued', 'ability-acquired', 'flag-set', 'note-written', 'ruling-made',
     'npc-changed', 'person-named', 'dossier-established', 'journal-written', 'worldline-forked', 'worldline-switched', 'worldline-merged', 'adaptation-accepted',
     'turn-stranded', 'map-revealed']);
