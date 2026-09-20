@@ -167,6 +167,31 @@ test('current audit contexts require an explicit second-person player-address ve
         .some(error => error.path === '/continuity_review/player_address_review/quote'));
 });
 
+test('every say span receives one exact ordered intelligibility decision before pass', () => {
+    const first = '「Pulse present. Breath shallow. Eyes no.」', second = '「Stay here until she wakes.」';
+    const candidate = `{{say:Claire}}${first}{{/say}} She watches you. {{say:Nathaniel}}${second}{{/say}}`;
+    assert.ok(continuityArtifactErrors(pass(), candidate, {})
+        .some(error => error.path === '/continuity_review/speech_review'));
+    const passed = pass(); passed.continuity_review.speech_review = {verdict: 'pass', lines: [
+        {quote: first, verdict: 'pass', reason: 'The terse clauses name their states clearly.'},
+        {quote: second, verdict: 'pass', reason: 'The command has an understood listener and explicit action.'}]};
+    assert.deepEqual(continuityArtifactErrors(passed, candidate, {}), []);
+    const reordered = structuredClone(passed); reordered.continuity_review.speech_review.lines.reverse();
+    assert.ok(continuityArtifactErrors(reordered, candidate, {})
+        .some(error => error.path === '/continuity_review/speech_review/lines/0/quote'));
+    const revised = {missing: [], findings: [{reason: first, fix: 'Rewrite the whole candidate in natural complete sentences without changing facts.'}],
+        continuity_review: {verdict: 'revise', summary: 'One spoken line is not naturally understandable.', conflicts: [],
+            speech_review: {verdict: 'revise', lines: [
+                {quote: first, verdict: 'revise', reason: 'The last clause omits the person and the eye state relation.'},
+                {quote: second, verdict: 'pass', reason: 'The command has an understood listener and explicit action.'}]}}};
+    assert.deepEqual(continuityArtifactErrors(revised, candidate, {}), []);
+    const contradictory = structuredClone(revised); contradictory.continuity_review.verdict = 'pass';
+    assert.equal(normalizeContinuityArtifact(contradictory).continuity_review.verdict, 'revise');
+    const noReason = structuredClone(passed); delete noReason.continuity_review.speech_review.lines[0].reason;
+    assert.ok(continuityArtifactErrors(noReason, candidate, {})
+        .some(error => error.path === '/continuity_review/speech_review/lines/0/reason'));
+});
+
 test('budget spans revisions, prevents concurrent owners and retains linked explicit retries', async () => {
     const scope = await mkdtemp(join(directory, 'budget-')), limits = {...AUDIT_LIMITS, time_ms: 50000, max_requests: 3, per_review: 2};
     const a = new AuditBudget(scope, 'input-a', limits);

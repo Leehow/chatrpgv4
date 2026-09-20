@@ -16,6 +16,26 @@ const array = (v: any): any[] => Array.isArray(v) ? v : [];
 const string = (v: any): string => typeof v === 'string' ? v : '';
 const words = (v: any, max = 2000) => typeof v === 'string' && !!v.trim() && v.length <= max;
 const strings = (v: any): string[] => typeof v === 'string' ? [v] : v && typeof v === 'object' ? Object.values(v).flatMap(strings) : [];
+const SAY = /\{\{say:([^}\n]{1,60})\}\}|\{\{\/say\}\}/g;
+/** Exact spoken payloads under the product's closed say-token grammar. Shape repair remains delivery's job. */
+function spokenTexts(text: string): string[] {
+    const result: string[] = [];
+    let start: number | null = null;
+    const close = (end: number) => {
+        if (start === null) return;
+        const raw = text.slice(start, end), paragraph = /\n[ \t]*\n/.exec(raw);
+        const spoken = raw.slice(0, paragraph?.index ?? raw.length).trim();
+        if (spoken) result.push(spoken);
+        start = null;
+    };
+    for (let match = SAY.exec(text); match; match = SAY.exec(text)) {
+        if (match[1] === undefined) close(match.index);
+        else { close(match.index); start = match.index + match[0].length; }
+    }
+    close(text.length);
+    SAY.lastIndex = 0;
+    return result;
+}
 
 /** A specific structured sub-review is more precise than a contradictory aggregate pass. */
 export function normalizeContinuityArtifact(value: any, files: Record<string, unknown> = {}): any {
@@ -28,7 +48,7 @@ export function normalizeContinuityArtifact(value: any, files: Record<string, un
         const {reentry_review: _unused, ...rest} = review;
         review = rest;
     }
-    const specific = [review.intelligibility_review?.verdict, review.player_address_review?.verdict, review.reentry_review?.verdict, review.locus_review?.verdict, review.location_review?.verdict,
+    const specific = [review.intelligibility_review?.verdict, review.player_address_review?.verdict, review.speech_review?.verdict, review.reentry_review?.verdict, review.locus_review?.verdict, review.location_review?.verdict,
         review.outcome_review?.verdict].find(verdict => verdict === 'revise');
     if (review.verdict === 'pass' && specific === 'revise') review = {...review, verdict: 'revise'};
     return review === value.continuity_review ? value : {...value, continuity_review: review};
@@ -67,8 +87,10 @@ export function continuityArtifactErrors(value: any, candidate: string, files: R
     const causalReentry = object(context.causal_reentry) ? context.causal_reentry : null;
     const intelligibility = object(context.intelligibility_review) && context.intelligibility_review.requires_review === true;
     const playerAddress = object(context.player_address_review) && context.player_address_review.requires_review === true;
+    const spokenLines = spokenTexts(candidate);
+    const speechReview = spokenLines.length > 0;
     const review = value.continuity_review;
-    if (!keys(review, ['verdict', 'summary', 'conflicts', ...(intelligibility && review?.verdict !== 'unavailable' ? ['intelligibility_review'] : []), ...(playerAddress && review?.verdict !== 'unavailable' ? ['player_address_review'] : []), ...(locationAuthority ? ['location_review'] : []), ...(sceneCommitment ? ['locus_review'] : []),
+    if (!keys(review, ['verdict', 'summary', 'conflicts', ...(intelligibility && review?.verdict !== 'unavailable' ? ['intelligibility_review'] : []), ...(playerAddress && review?.verdict !== 'unavailable' ? ['player_address_review'] : []), ...(speechReview && review?.verdict !== 'unavailable' ? ['speech_review'] : []), ...(locationAuthority ? ['location_review'] : []), ...(sceneCommitment ? ['locus_review'] : []),
         ...(outcomeCommitments && review?.verdict !== 'unavailable' ? ['outcome_review'] : []), ...(causalReentry && review?.verdict !== 'unavailable' ? ['reentry_review'] : [])], '/continuity_review')) return errors;
     if (sceneCommitment && !object(review.locus_review))
         add('/continuity_review/locus_review', 'Required object: {verdict, mode, locus, claim, basis}; do not use location_review');
@@ -80,6 +102,8 @@ export function continuityArtifactErrors(value: any, candidate: string, files: R
         add('/continuity_review/intelligibility_review', 'Required object: {verdict, quote}');
     if (playerAddress && review.verdict !== 'unavailable' && !object(review.player_address_review))
         add('/continuity_review/player_address_review', 'Required object: {verdict, quote}');
+    if (speechReview && review.verdict !== 'unavailable' && !object(review.speech_review))
+        add('/continuity_review/speech_review', 'Required object: {verdict, lines:[{quote, verdict}]}');
     if (!['pass', 'revise', 'unavailable'].includes(review.verdict)) add('/continuity_review/verdict', 'Expected pass, revise or unavailable');
     if (!words(review.summary)) add('/continuity_review/summary', 'Expected nonempty bounded text');
     const evidenceStrings = new Map<string, string[]>(), conflicts = list(review.conflicts, '/continuity_review/conflicts', 10);
@@ -130,6 +154,27 @@ export function continuityArtifactErrors(value: any, candidate: string, files: R
                 if (review.verdict !== 'revise') add('/continuity_review/verdict', 'A player-address revision requires overall revise');
             }
             if (review.verdict === 'pass' && address.verdict !== 'pass') add(`${path}/verdict`, 'Overall pass requires a passing player-address review');
+        }
+    }
+    if (speechReview && object(review.speech_review)) {
+        const speech = review.speech_review, path = '/continuity_review/speech_review';
+        if (keys(speech, ['verdict', 'lines'], path)) {
+            if (!['pass', 'revise'].includes(speech.verdict)) add(`${path}/verdict`, 'Expected pass or revise');
+            const lines = list(speech.lines, `${path}/lines`, 32);
+            if (lines.length !== spokenLines.length) add(`${path}/lines`, `Copy exactly ${spokenLines.length} spoken lines in candidate order`);
+            for (const [i, line] of lines.entries()) {
+                const at = `${path}/lines/${i}`;
+                if (!keys(line, ['quote', 'verdict', 'reason'], at)) continue;
+                if (!['pass', 'revise'].includes(line.verdict)) add(`${at}/verdict`, 'Expected pass or revise');
+                if (line.quote !== spokenLines[i]) add(`${at}/quote`, 'Copy this complete say-token span text exactly and in order', {excerpt: spokenLines[i] ?? ''});
+                if (!words(line.reason, 600)) add(`${at}/reason`, 'Explain briefly why the line is naturally clear, or which grammatical relation is missing');
+            }
+            const revised = lines.some(line => line?.verdict === 'revise');
+            if (speech.verdict === 'pass' && revised) add(`${path}/verdict`, 'Speech pass requires every quoted line to pass');
+            if (speech.verdict === 'revise' && !revised) add(`${path}/verdict`, 'Speech revise requires at least one quoted line to revise');
+            if (speech.verdict === 'revise' && !array(value.findings).length) add('/findings', 'A speech revision needs an actionable whole-candidate natural-language rewrite finding');
+            if (speech.verdict === 'revise' && review.verdict !== 'revise') add('/continuity_review/verdict', 'A speech revision requires overall revise');
+            if (review.verdict === 'pass' && speech.verdict !== 'pass') add(`${path}/verdict`, 'Overall pass requires a passing speech review');
         }
     }
     if (outcomeCommitments && object(review.outcome_review)) {
@@ -264,7 +309,7 @@ export function continuityArtifactErrors(value: any, candidate: string, files: R
         }
     }
     const count = conflicts.length + (Array.isArray(value.findings) ? value.findings.length : 0) + (Array.isArray(value.missing) ? value.missing.length : 0)
-        + Number(review.intelligibility_review?.verdict === 'revise' || review.player_address_review?.verdict === 'revise' || review.location_review?.verdict === 'revise' || review.locus_review?.verdict === 'revise' || review.reentry_review?.verdict === 'revise');
+        + Number(review.intelligibility_review?.verdict === 'revise' || review.player_address_review?.verdict === 'revise' || review.speech_review?.verdict === 'revise' || review.location_review?.verdict === 'revise' || review.locus_review?.verdict === 'revise' || review.reentry_review?.verdict === 'revise');
     if (review.verdict === 'pass' && count) add('/continuity_review/verdict', 'Pass cannot contain conflicts, missing objects or findings');
     if (review.verdict === 'revise' && !count) add('/continuity_review/verdict', 'Revise needs an actionable conflict, missing object or finding');
     return errors;

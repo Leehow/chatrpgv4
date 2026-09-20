@@ -1,3 +1,11 @@
+# 1.2.29
+
+- Makes every `speech_review.lines[]` row explain why the copied line is naturally clear or which grammatical relation is missing. The production prompt now also says retained delivered prose is continuity evidence rather than a style/voice authority. This follows the retained 1.2.28 false pass where the reviewer copied a line containing `这一床不睁` exactly and still marked it pass with no linguistic judgment.
+
+# 1.2.28
+
+- Requires ordered, exact per-say-span coverage in a checked `speech_review` whenever a candidate contains dialogue. Aggregate pass is impossible unless every quoted line passes; any malformed line forces a finding and overall revision. Code checks only the closed say-token boundary and exact coverage, while the existing tool-enabled reviewer still judges open-language intelligibility. This closes the retained 1.2.27 miss where `脉还在。气浅，眼没有` was present in one say span but the reviewer submitted only an aggregate intelligibility pass.
+
 # 1.2.27
 
 - Requires player-facing Keeper narration to address player-controlled investigators in second person. The base prompt writes the rule and the existing continuity audit now submits an independent checked `player_address_review`; missing decisions are artifact errors, and a narrator-side character name or third-person pronoun forces a quote-backed whole-candidate rewrite. NPC dialogue, reported speech, narration about NPCs and natural subject omission remain valid. Retained A-MAIN turns 254–255 showed why intelligibility alone was insufficient: readable Chinese repeatedly called the player `克罗` and `他`.

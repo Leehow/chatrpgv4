@@ -7781,6 +7781,25 @@ A **compatible correction** keeps the same reviewed map generation identity, sou
 
 Historical cards retain their embedded delivery-time derivative and source-revision fields. They are not re-rendered when the module or campaign changes. A current-map read is evaluated against the active reviewed revision and may be unavailable while an incompatible update awaits review. Campaign knowledge remains in existing world state, and worldline fork/switch/confluence do not create a second map store or transfer a derivative across campaigns. Map offers may be measured but never feed obligations or quotas into later turns.
 
+### 39.3 The case board reads the maps this table has already seen (2026-09-19)
+
+The play UI's right rail carries a third panel beside the investigator sheet and the memory line: the case board, which shows what this table knows -- the maps it has been shown, the clues it has found, and the people it has met. Clues and people already had a player-safe projection, `table.view` (§23), so they needed no new read. Maps did not: `table.view` carries no map at all, and a panel may not call `look` (§23 forbids a view forging the turn's move from `open` to `acting`). `table.maps` is that read.
+
+`table.maps {campaign}` returns `{maps: [row]}` and changes nothing: no turn, no receipt, no world write, no model call, and no movement. It is a **host-facing** read rather than a renderer one -- its rows carry the layer geometry a panel must never hold (the rule §39 already states: private source paths, redaction boxes and placement geometry do not enter a player projection). The host resolves those rows into pixels through the same compose hop the delivery path uses (§39.2, `renderMapView`), and only the flattened attachments reach the panel.
+
+A map is in the answer when this table has already **seen** it: its handle is in `world.maps_presented` (the arrival card of §39.2) or `world.map_knowledge[handle]` is non-empty (`apply map`). A map the module publishes and this table never met is not there, and neither is any region of one.
+
+The regions of a listed map are exactly the union of the two sets the kernel has already authorized:
+
+- every region the player was **shown**, which for a presented map is the player-safe (and independently reviewed `safe_after_redactions`) set §39.2 put on the arrival card;
+- every region the Keeper has since **granted** through `apply map`.
+
+This read therefore invents no new authorization. It is the union of two acts the table already took, and a region that is only safe behind reviewed redactions never widens beyond what arrival rendered.
+
+Each row is `{map, name, label, words, regions:[{id,label,level}], levels, render:{layers}}`. `label`, `regions[].label` and the level names are the words §39.2 already distinguishes: the Keeper's own when `world.map_labels[map]` holds them, otherwise the module's authored ones -- and `words` says which leg wrote the whole row, answering `play_language` only when every selected label came from stored labels. The host reads the same cached projection the delivery hop reads (`.coc/map-words/<tag>-<digest>.json`, warmed when the table opened) and substitutes the authored words before the panel draws them; a row whose words are still authored draws in the module's language and is never half-projected, exactly as §39.2 requires of a card.
+
+**The three ends (§31).** *Writer:* `apply map` and the arrival hop of §39.2, unchanged -- this read adds no writer of its own. *Reader:* the host's board hop, which composes pixels and keeps `render.layers` to itself. *Actor:* the player, who opens the board and reads what the table already established; refreshing the panel is a host read and starts no turn, exactly as §23 requires of the sheet.
+
 ## 40. NPC speech: the say token, speaker colour, and the `npc-voice` lane (2026-09-15)
 
 Spec: `docs/specs/npc-speech.md`. User rulings 2026-09-15: the wrapper form; marking is mandatory and the §30.7 brief ceiling is raised to make room; colours are hashed by the host and never stored; **the model never reads or writes a high-entropy id or hash** — the token carries a name; every person talks their own way, in spoken, colloquial words of their class, trade, era and place; coarse language is on by default and is a package setting with a sidebar toggle.
@@ -7849,6 +7868,76 @@ Supersedes the `sample_lines` word of §40.5 (`npc-voice` 1.1.0; design and sour
 - **The lane instruction** (`content/setup/npc-voice.md`) asks for the mask first (one or two markers a listener could name, different from every mask in `taken_masks` in the ending habit or the address terms, register never dialect caricature), then three exchanges in it: a first question brushed off, something ordinary, something that touches what they hide; every reply answers the words just said, says the mundane thing, and leaves the stranger something to say next; no aphorisms; no other person's name. The voice guard reads mask and exchanges against the book's `voice` and also asks whether every reply wears the mask; still one bounce, never a gate.
 - **The package instruction** stops asking that every line wants something (the rule that produced aphorisms) and asks for three things: wear the mask on every line (pet phrase at most once a turn); talk like a person — acknowledge before answering, say the mundane thing, drift and return, whole sentences with the joints of speech in, a fragment is one beat, nobody says an aphorism; serve the player — a line reacts to what the player just said or did and leaves them something to say back, no line closes the subject, the investigator speaks unmarked. Brief ≤ 250 bytes, names `coarse_language`.
 - **Acceptance** is the lineup test of `docs/specs/npc-voice-mask.md` §4 on the seeded starter `voice-bench` (`content/starters/voice-bench`, unlisted; generated by `tests/play/fixtures/voice-bench/build.mjs`): names stripped, a judge attributes each spoken line to the roster.
+
+### 40.8 Natural speech is not compulsory mannerism (2026-09-19)
+
+Supersedes the performance and voice-guard rules of §40.7 for `npc-voice` 1.2.0.
+Design and acceptance: `docs/specs/npc-voice-natural-speech.md`. Retained evidence:
+Knott in `bg-ui-control-80111ecd9` turn 2 received a complete mask and instruction,
+but reproduced the sample's deadline and paperwork slogans; `game-7dca41f9-ef0a-4f3b-8516-d9c463ae2f2a`
+turn 252 had no `npc-voice` lock or instruction at all. The first is a generation
+and performance failure, the second a campaign enrollment distinction, not the
+opening's asynchronous-card gap.
+
+- **Same public words, a different performance rule.** `mask` and `in exchange`
+  retain their shapes and budgets. A mask describes register and flexible habits;
+  it never requires a topic, catchphrase, refusal, abruptness or a marker in every
+  sentence. The first example is an ordinary first contact, not a compulsory
+  brush-off. Examples demonstrate varied replies, not three versions of an agenda.
+  Answer the player's actual words first; express the scene's response in the
+  person's register. Neither the mask nor its examples overrules facts, source
+  truth, the listener's identity or what that person can know. The capsule head,
+  full instruction, brief, writer and reviewer all follow this rule.
+- **Writing is tool-enabled.** The host reuses the existing Pi task runner with
+  `read,write,edit,bash`, no implicit extensions/context/skills, a per-attempt
+  directory and retained packet, draft and process evidence. It publishes only
+  a parsed and checked artifact, never the child's closing prose. Cancellation
+  cannot publish a draft. No new Keeper verb or provider bypass is introduced.
+  `said` (the last bounded spoken lines already carried by `voice.job`) reaches
+  the writer and reviewer, rather than being dropped at the extension boundary.
+- **Review is a bounded semantic validation, not a prose classifier in code.**
+  Every candidate is reviewed, even if the book has no `voice` field, including a
+  silent result: the reviewer must confirm the source explicitly says the person
+  does not speak. A nonempty `voice` description alone is not evidence of silence.
+  The verdict is `{honours:boolean, why:string}` and checks source/register fit,
+  natural connected speech, answering the actual example question, conversational
+  range, listener fit and copied/repeated wording. One repair is allowed and is
+  reviewed again. Only an affirmative review may reach `voice.submit`; a rejected,
+  unavailable or malformed review is a failed background attempt, not a waiver.
+  Retry/session ceilings remain bounded and play never waits for a card. A source
+  does-not-speak answer remains valid only after the same affirmative review.
+  No semantic regex, language
+  detector or phrase blacklist is introduced.
+- **Explicit upgrade, retained evidence.** `npc-voice` 1.2.0 has `state_version:2`
+  and requires `npc.voice.generation.v2`. Only a runtime implementing these generation
+  identities and checked-publication semantics advertises that capability; an older
+  runtime reports the package incompatible instead of migrating a save it cannot run.
+  Its declarative migration from 1 renames `dossier` to `legacy_voice_dossier`
+  and defaults a new empty `dossier`. Thus previous generated words are archived,
+  not projected or deleted. Source-authored words and historical turn capsules are
+  untouched. Old version-1 jobs retain their paths and identities. Version-2 jobs
+  use `voice:<campaign>:<handle>@<package-digest>` and live at
+  `npc-voice/jobs/v2/<package-digest>/<safe-handle>.json`; the digest is host-minted,
+  never copied by the model. Their packet and job record carry
+  `generation:{version,digest,state_version}` from the campaign's current lock.
+  The parser validates the suffix and generation against the active enabled lock;
+  a stale/disabled version-2 submit is refused without changing the world or old
+  job evidence. A current generation remains idempotent by voice digest. The
+  ordinary present/met queue writes new cards; graph-wide backfill remains off.
+- **Use the existing activation path.** `mods.configure` adds or upgrades a package
+  for the bound campaign, including its existing pending-at-safe-boundary behavior.
+  Installation alone does neither. No automatic enrollment/upgrade of all saves,
+  no override of explicit disable, and no new activation RPC. The existing Mods
+  panel distinguishes `active:null` (not added), `enabled:false` (disabled), enabled
+  and pending configuration. Player-facing words use the existing English-source
+  and presenter route; no hand-authored language branches or translations.
+
+**The three ends (§31).** Writer: the checked background voice artifact, published
+by `voice.submit` after an explicit package configuration. Reader: the current
+capsule's `voices` and package instruction. Actor: the Keeper responding to the
+current player utterance, evidenced by real delivered dialogue, not merely a
+lineup attribution score. Deterministic tests prove wiring, migration and refusal;
+only genuine-table dialogue proves that the voice is natural.
 
 ## 41. A refused player input is never the player's sentence (2026-09-16)
 
@@ -14289,3 +14378,40 @@ The three ends (§31): the Keeper prompt writes the second-person narration; `na
 checked pre-delivery reviewer prevents a drifted candidate from reaching either. Acceptance requires deterministic
 producer/schema tests plus an original-save Web UI turn whose delivered narration addresses the same investigator
 as `你`, with the retained audit artifact explicitly passing both intelligibility and player address.
+
+## 121. Every spoken line is explicitly checked for intelligibility (2026-09-19, amends §120 and BUG-H73)
+
+The first post-§120 wait turn still delivered `脉还在。气浅，眼没有` and `她这一床不睁`. The 1.2.27
+reviewer submitted both required aggregate decisions in one request -- intelligibility pass and player-address pass
+-- while the malformed words sat inside one well-formed `{{say:…}}` span. The rule already named clipped status
+fragments and explicitly denied a terse-character exemption. The remaining failure was attention and evidence:
+an aggregate null quote did not prove that the reviewer inspected each spoken line.
+
+The existing review therefore gains one candidate-dependent checked object whenever the closed say-token syntax
+contains speech: `speech_review:{verdict:"pass"|"revise",lines:[{quote,verdict}]}`. `lines` has exactly one row
+per normalized say span, in text order, and `quote` copies that complete spoken text exactly. Artifact validation
+derives the expected list deterministically from the product's closed say-token grammar; missing, reordered,
+partial, duplicated or invented rows are format errors. Aggregate pass requires every line pass. Any line revise
+requires aggregate speech revise, one actionable whole-candidate natural-language rewrite finding and overall
+continuity revise.
+
+This is not semantic classification in code: code recognizes only the product's closed machine-token boundary and
+exact byte-for-byte coverage. The tool-enabled model still judges whether each quoted line is naturally
+understandable in the open `play_language`, under §120's existing no-fragments rule. It adds no call, language
+table, pronoun list, style score or minimum length, and NPC voice remains free once its sentence can be understood.
+
+Acceptance: deterministic tests prove ordered exact coverage and contradictory aggregate refusal; an original-save
+turn with NPC dialogue retains `speech_review.lines` for every say span and delivers natural, understandable speech.
+
+**1.2.28 retained failure and 1.2.29 amendment.** Exact coverage alone exposed the miss but did not correct it:
+the reviewer copied the complete line containing `这一床不睁` and still marked it pass. A bare verdict let the model
+repeat the aggregate answer without articulating the grammatical joints it had actually checked. Each line row now
+also requires bounded `reason`: for pass, why its subject/action/object or idiomatic omission is naturally clear;
+for revise, which relation is missing or malformed. The host's final brief names scene-object/body-state metonymy
+as a failure when it makes the reader reconstruct the person or action. Validation checks presence and bounds,
+not the semantic answer.
+
+The producer side also clarifies that retained delivered prose is continuity evidence, not a style or voice
+authority. A Keeper may preserve facts and a person's register, but must not imitate malformed grammar merely
+because the same character previously said it. This covers the raw recent dialogue that stays verbatim outside the
+compressed capsule and was not reached by BUG-H73's original facts-not-phrasing sentence.
