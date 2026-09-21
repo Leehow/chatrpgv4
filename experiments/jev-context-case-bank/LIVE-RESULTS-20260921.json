@@ -1,0 +1,1087 @@
+{
+  "version": 1,
+  "kind": "real-jev-component-experiment",
+  "model": "jev-1.13.0",
+  "base_commit": "7faac51571dcc9c13468c65b0002fbcb3ec7919d",
+  "live_play": false,
+  "production_modified": false,
+  "gold_modified": false,
+  "evidence_root": ".pi/prototypes/jev-eight-family-live/runs/",
+  "runs": {
+    "pilot": "2026-09-21T13-45-08.624Z-pilot-RwPjKP",
+    "all_subsets_probe": "2026-09-21T13-55-22.564Z-menu-probe-jlXN62",
+    "formal": "2026-09-21T13-56-49.714Z-comparison-Iz2l48",
+    "posthoc": "2026-09-21T14-01-35.350Z-posthoc-gq7QYS"
+  },
+  "frozen": {
+    "dataset_hashes": {
+      "builtin-source-grounded-contrasts": "825d8df690d8f4a43af224b6d36213209a49908bcf5040b0f779fb014416c103",
+      "pdf-context-contrasts": "f2216b544fd36983606aaa5b9a99cba1ffe3452c731b432edecc72e0f0e45be3"
+    },
+    "bank_sha256": "f2ef6a176ebe680ab63d510ea7992affe86b0db57c2754cca2b4dd2536e4bdd8",
+    "policy_sha256": "edc9aea28aa995e16393126a9ee5a0ce8b076ada19e92ec5465dd6336761dd8e",
+    "runner_sha256": "9f0c51debcbb6d5f1b6e89cf28c0100335eb09bbb054207e24069cb45d9e3156"
+  },
+  "formal": {
+    "policies": {
+      "joint-subsets": {
+        "requests": 56,
+        "available": 56,
+        "unavailable": 0,
+        "all_correct": 43,
+        "fields_total": 98,
+        "fields_correct": 89,
+        "selection_records": 22,
+        "selection_exact": 18,
+        "selection_evidence_covered": 22,
+        "uncertain_selections": 0,
+        "selection_added_text_bytes": 4240,
+        "selection_raw_unit_bytes": 5812,
+        "latency_p50_ms": 388,
+        "latency_p95_ms": 669,
+        "selection_latency_p50_ms": 383,
+        "reported_input_tokens": 65276,
+        "usage_complete": true,
+        "estimated_input_cost_usd": 0.002741592
+      },
+      "independent": {
+        "requests": 22,
+        "available": 22,
+        "unavailable": 0,
+        "all_correct": 16,
+        "fields_total": 34,
+        "fields_correct": 32,
+        "selection_records": 22,
+        "selection_exact": 18,
+        "selection_evidence_covered": 22,
+        "uncertain_selections": 0,
+        "selection_added_text_bytes": 4784,
+        "selection_raw_unit_bytes": 7282,
+        "latency_p50_ms": 380,
+        "latency_p95_ms": 482,
+        "selection_latency_p50_ms": 380,
+        "reported_input_tokens": 35442,
+        "usage_complete": true,
+        "estimated_input_cost_usd": 0.0014885640000000002
+      }
+    },
+    "planned_requests": 78,
+    "sent_requests": 78,
+    "wall_ms": 8086,
+    "stopped_after_unavailable": false,
+    "not_sent": 0,
+    "model_semantic_pass_not_assumed": true
+  },
+  "paired": {
+    "planned_pairs": 22,
+    "valid_pairs": 22,
+    "unavailable_pairs": [],
+    "policies": {
+      "joint-subsets": {
+        "requests": 22,
+        "available": 22,
+        "unavailable": 0,
+        "all_correct": 15,
+        "fields_total": 34,
+        "fields_correct": 31,
+        "selection_records": 22,
+        "selection_exact": 18,
+        "selection_evidence_covered": 22,
+        "uncertain_selections": 0,
+        "selection_added_text_bytes": 4240,
+        "selection_raw_unit_bytes": 5812,
+        "latency_p50_ms": 383,
+        "latency_p95_ms": 463,
+        "selection_latency_p50_ms": 383,
+        "reported_input_tokens": 36818,
+        "usage_complete": true,
+        "reported_output_tokens": 5924,
+        "estimated_input_cost_usd": 0.001546356
+      },
+      "independent": {
+        "requests": 22,
+        "available": 22,
+        "unavailable": 0,
+        "all_correct": 16,
+        "fields_total": 34,
+        "fields_correct": 32,
+        "selection_records": 22,
+        "selection_exact": 18,
+        "selection_evidence_covered": 22,
+        "uncertain_selections": 0,
+        "selection_added_text_bytes": 4784,
+        "selection_raw_unit_bytes": 7282,
+        "latency_p50_ms": 380,
+        "latency_p95_ms": 482,
+        "selection_latency_p50_ms": 380,
+        "reported_input_tokens": 35442,
+        "usage_complete": true,
+        "reported_output_tokens": 4924,
+        "estimated_input_cost_usd": 0.0014885640000000002
+      }
+    },
+    "scope": "Identical dataset/case/arm/repeat pairs only; not the unpaired all-family totals.",
+    "derived_after_run": true,
+    "original_records_unchanged": true
+  },
+  "repeat_stability": {
+    "api_requests": 89,
+    "formal_requests": 78,
+    "formal_wall_ms": 8086,
+    "all_input_tokens": 114039,
+    "formal_input_tokens": 100718,
+    "formal_output_tokens": 13016,
+    "repeat_pairs": 39,
+    "input_hash_mismatches": 0,
+    "choice_changed_pairs": 3,
+    "changes": [
+      {
+        "key": "pdf-context-contrasts/beetle-joint-supplement/empty/independent",
+        "requests": [
+          18,
+          61
+        ],
+        "answers": [
+          {
+            "content": "missing",
+            "candidate_material_1": "adds_needed",
+            "candidate_material_2": "adds_needed",
+            "candidate_material_3": "adds_needed",
+            "candidate_material_4": "adds_needed",
+            "candidate_material_5": "adds_needed",
+            "candidate_material_6": "unrelated"
+          },
+          {
+            "content": "missing",
+            "candidate_material_1": "adds_needed",
+            "candidate_material_2": "adds_needed",
+            "candidate_material_3": "adds_needed",
+            "candidate_material_4": "adds_needed",
+            "candidate_material_5": "adds_needed",
+            "candidate_material_6": "adds_needed"
+          }
+        ]
+      },
+      {
+        "key": "pdf-context-contrasts/beetle-joint-supplement/place-present/independent",
+        "requests": [
+          20,
+          59
+        ],
+        "answers": [
+          {
+            "content": "missing",
+            "candidate_material_1": "redundant",
+            "candidate_material_2": "redundant",
+            "candidate_material_3": "redundant",
+            "candidate_material_4": "adds_needed",
+            "candidate_material_5": "adds_needed",
+            "candidate_material_6": "adds_needed"
+          },
+          {
+            "content": "missing",
+            "candidate_material_1": "redundant",
+            "candidate_material_2": "redundant",
+            "candidate_material_3": "redundant",
+            "candidate_material_4": "adds_needed",
+            "candidate_material_5": "adds_needed",
+            "candidate_material_6": "unrelated"
+          }
+        ]
+      },
+      {
+        "key": "pdf-context-contrasts/idol-context-fidelity/original-full/joint-subsets",
+        "requests": [
+          27,
+          52
+        ],
+        "answers": [
+          {
+            "content": "complete",
+            "source_support": "complete",
+            "selection": "set_0"
+          },
+          {
+            "content": "complete",
+            "source_support": "incomplete",
+            "selection": "set_0"
+          }
+        ]
+      }
+    ]
+  },
+  "by_arm": [
+    {
+      "case_id": "newspaper-interest-vs-travel",
+      "arm_id": "interest",
+      "policy": "joint-subsets",
+      "requests": [
+        1,
+        78
+      ],
+      "all_correct": 0,
+      "wrong_fields": {
+        "travel": 2
+      },
+      "selections": []
+    },
+    {
+      "case_id": "newspaper-interest-vs-travel",
+      "arm_id": "travel",
+      "policy": "joint-subsets",
+      "requests": [
+        2,
+        77
+      ],
+      "all_correct": 2,
+      "wrong_fields": {},
+      "selections": []
+    },
+    {
+      "case_id": "house-outside-vs-inside",
+      "arm_id": "outside",
+      "policy": "joint-subsets",
+      "requests": [
+        3,
+        76
+      ],
+      "all_correct": 2,
+      "wrong_fields": {},
+      "selections": []
+    },
+    {
+      "case_id": "house-outside-vs-inside",
+      "arm_id": "inside",
+      "policy": "joint-subsets",
+      "requests": [
+        4,
+        75
+      ],
+      "all_correct": 2,
+      "wrong_fields": {},
+      "selections": []
+    },
+    {
+      "case_id": "globe-evidence-direction",
+      "arm_id": "support",
+      "policy": "joint-subsets",
+      "requests": [
+        5,
+        74
+      ],
+      "all_correct": 0,
+      "wrong_fields": {
+        "direction": 2
+      },
+      "selections": []
+    },
+    {
+      "case_id": "globe-evidence-direction",
+      "arm_id": "reverse",
+      "policy": "joint-subsets",
+      "requests": [
+        6,
+        73
+      ],
+      "all_correct": 2,
+      "wrong_fields": {},
+      "selections": []
+    },
+    {
+      "case_id": "globe-evidence-direction",
+      "arm_id": "source-attribution",
+      "policy": "joint-subsets",
+      "requests": [
+        7,
+        72
+      ],
+      "all_correct": 2,
+      "wrong_fields": {},
+      "selections": []
+    },
+    {
+      "case_id": "ownership-withdrawal-recall",
+      "arm_id": "before",
+      "policy": "joint-subsets",
+      "requests": [
+        8,
+        71
+      ],
+      "all_correct": 2,
+      "wrong_fields": {},
+      "selections": []
+    },
+    {
+      "case_id": "ownership-withdrawal-recall",
+      "arm_id": "after",
+      "policy": "joint-subsets",
+      "requests": [
+        9,
+        70
+      ],
+      "all_correct": 2,
+      "wrong_fields": {},
+      "selections": []
+    },
+    {
+      "case_id": "ownership-withdrawal-recall",
+      "arm_id": "late",
+      "policy": "joint-subsets",
+      "requests": [
+        10,
+        69
+      ],
+      "all_correct": 2,
+      "wrong_fields": {},
+      "selections": []
+    },
+    {
+      "case_id": "chair-look-vs-swing",
+      "arm_id": "look",
+      "policy": "joint-subsets",
+      "requests": [
+        11,
+        68
+      ],
+      "all_correct": 2,
+      "wrong_fields": {},
+      "selections": []
+    },
+    {
+      "case_id": "chair-look-vs-swing",
+      "arm_id": "swing",
+      "policy": "joint-subsets",
+      "requests": [
+        12,
+        67
+      ],
+      "all_correct": 2,
+      "wrong_fields": {},
+      "selections": []
+    },
+    {
+      "case_id": "beetle-purpose-routing",
+      "arm_id": "where",
+      "policy": "joint-subsets",
+      "requests": [
+        13,
+        66
+      ],
+      "all_correct": 2,
+      "wrong_fields": {},
+      "selections": [
+        {
+          "repeat": 1,
+          "ids": [
+            "beetle-place"
+          ],
+          "exact": true,
+          "added_text_bytes": 323
+        },
+        {
+          "repeat": 2,
+          "ids": [
+            "beetle-place"
+          ],
+          "exact": true,
+          "added_text_bytes": 323
+        }
+      ]
+    },
+    {
+      "case_id": "beetle-purpose-routing",
+      "arm_id": "where",
+      "policy": "independent",
+      "requests": [
+        14,
+        65
+      ],
+      "all_correct": 2,
+      "wrong_fields": {},
+      "selections": [
+        {
+          "repeat": 1,
+          "ids": [
+            "beetle-place"
+          ],
+          "exact": true,
+          "added_text_bytes": 323
+        },
+        {
+          "repeat": 2,
+          "ids": [
+            "beetle-place"
+          ],
+          "exact": true,
+          "added_text_bytes": 323
+        }
+      ]
+    },
+    {
+      "case_id": "beetle-purpose-routing",
+      "arm_id": "fire",
+      "policy": "joint-subsets",
+      "requests": [
+        15,
+        64
+      ],
+      "all_correct": 2,
+      "wrong_fields": {},
+      "selections": [
+        {
+          "repeat": 1,
+          "ids": [
+            "beetle-fire"
+          ],
+          "exact": true,
+          "added_text_bytes": 140
+        },
+        {
+          "repeat": 2,
+          "ids": [
+            "beetle-fire"
+          ],
+          "exact": true,
+          "added_text_bytes": 140
+        }
+      ]
+    },
+    {
+      "case_id": "beetle-purpose-routing",
+      "arm_id": "fire",
+      "policy": "independent",
+      "requests": [
+        16,
+        63
+      ],
+      "all_correct": 2,
+      "wrong_fields": {},
+      "selections": [
+        {
+          "repeat": 1,
+          "ids": [
+            "beetle-fire"
+          ],
+          "exact": true,
+          "added_text_bytes": 140
+        },
+        {
+          "repeat": 2,
+          "ids": [
+            "beetle-fire"
+          ],
+          "exact": true,
+          "added_text_bytes": 140
+        }
+      ]
+    },
+    {
+      "case_id": "beetle-joint-supplement",
+      "arm_id": "empty",
+      "policy": "joint-subsets",
+      "requests": [
+        17,
+        62
+      ],
+      "all_correct": 2,
+      "wrong_fields": {},
+      "selections": [
+        {
+          "repeat": 1,
+          "ids": [
+            "beetle-place",
+            "beetle-fire"
+          ],
+          "exact": true,
+          "added_text_bytes": 463
+        },
+        {
+          "repeat": 2,
+          "ids": [
+            "beetle-place",
+            "beetle-fire"
+          ],
+          "exact": true,
+          "added_text_bytes": 463
+        }
+      ]
+    },
+    {
+      "case_id": "beetle-joint-supplement",
+      "arm_id": "empty",
+      "policy": "independent",
+      "requests": [
+        18,
+        61
+      ],
+      "all_correct": 0,
+      "wrong_fields": {},
+      "selections": [
+        {
+          "repeat": 1,
+          "ids": [
+            "beetle-place",
+            "beetle-place-copy",
+            "beetle-place-paraphrase",
+            "beetle-fire",
+            "beetle-combined"
+          ],
+          "exact": false,
+          "added_text_bytes": 601
+        },
+        {
+          "repeat": 2,
+          "ids": [
+            "beetle-place",
+            "beetle-place-copy",
+            "beetle-place-paraphrase",
+            "beetle-fire",
+            "beetle-combined",
+            "rat-fire"
+          ],
+          "exact": false,
+          "added_text_bytes": 735
+        }
+      ]
+    },
+    {
+      "case_id": "beetle-joint-supplement",
+      "arm_id": "place-present",
+      "policy": "joint-subsets",
+      "requests": [
+        19,
+        60
+      ],
+      "all_correct": 0,
+      "wrong_fields": {},
+      "selections": [
+        {
+          "repeat": 1,
+          "ids": [
+            "beetle-place",
+            "beetle-fire"
+          ],
+          "exact": false,
+          "added_text_bytes": 140
+        },
+        {
+          "repeat": 2,
+          "ids": [
+            "beetle-place",
+            "beetle-fire"
+          ],
+          "exact": false,
+          "added_text_bytes": 140
+        }
+      ]
+    },
+    {
+      "case_id": "beetle-joint-supplement",
+      "arm_id": "place-present",
+      "policy": "independent",
+      "requests": [
+        20,
+        59
+      ],
+      "all_correct": 0,
+      "wrong_fields": {},
+      "selections": [
+        {
+          "repeat": 1,
+          "ids": [
+            "beetle-fire",
+            "beetle-combined",
+            "rat-fire"
+          ],
+          "exact": false,
+          "added_text_bytes": 274
+        },
+        {
+          "repeat": 2,
+          "ids": [
+            "beetle-fire",
+            "beetle-combined"
+          ],
+          "exact": false,
+          "added_text_bytes": 140
+        }
+      ]
+    },
+    {
+      "case_id": "beetle-joint-supplement",
+      "arm_id": "both-present",
+      "policy": "joint-subsets",
+      "requests": [
+        21,
+        58
+      ],
+      "all_correct": 0,
+      "wrong_fields": {},
+      "selections": [
+        {
+          "repeat": 1,
+          "ids": [
+            "beetle-place",
+            "beetle-fire"
+          ],
+          "exact": false,
+          "added_text_bytes": 0
+        },
+        {
+          "repeat": 2,
+          "ids": [
+            "beetle-place",
+            "beetle-fire"
+          ],
+          "exact": false,
+          "added_text_bytes": 0
+        }
+      ]
+    },
+    {
+      "case_id": "beetle-joint-supplement",
+      "arm_id": "both-present",
+      "policy": "independent",
+      "requests": [
+        22,
+        57
+      ],
+      "all_correct": 2,
+      "wrong_fields": {},
+      "selections": [
+        {
+          "repeat": 1,
+          "ids": [],
+          "exact": true,
+          "added_text_bytes": 0
+        },
+        {
+          "repeat": 2,
+          "ids": [],
+          "exact": true,
+          "added_text_bytes": 0
+        }
+      ]
+    },
+    {
+      "case_id": "idol-context-fidelity",
+      "arm_id": "none",
+      "policy": "joint-subsets",
+      "requests": [
+        23,
+        56
+      ],
+      "all_correct": 2,
+      "wrong_fields": {},
+      "selections": [
+        {
+          "repeat": 1,
+          "ids": [
+            "idol-holder",
+            "idol-attack"
+          ],
+          "exact": true,
+          "added_text_bytes": 301
+        },
+        {
+          "repeat": 2,
+          "ids": [
+            "idol-holder",
+            "idol-attack"
+          ],
+          "exact": true,
+          "added_text_bytes": 301
+        }
+      ]
+    },
+    {
+      "case_id": "idol-context-fidelity",
+      "arm_id": "none",
+      "policy": "independent",
+      "requests": [
+        24,
+        55
+      ],
+      "all_correct": 2,
+      "wrong_fields": {},
+      "selections": [
+        {
+          "repeat": 1,
+          "ids": [
+            "idol-holder",
+            "idol-attack"
+          ],
+          "exact": true,
+          "added_text_bytes": 301
+        },
+        {
+          "repeat": 2,
+          "ids": [
+            "idol-holder",
+            "idol-attack"
+          ],
+          "exact": true,
+          "added_text_bytes": 301
+        }
+      ]
+    },
+    {
+      "case_id": "idol-context-fidelity",
+      "arm_id": "holder-only",
+      "policy": "joint-subsets",
+      "requests": [
+        25,
+        54
+      ],
+      "all_correct": 2,
+      "wrong_fields": {},
+      "selections": [
+        {
+          "repeat": 1,
+          "ids": [
+            "idol-attack"
+          ],
+          "exact": true,
+          "added_text_bytes": 151
+        },
+        {
+          "repeat": 2,
+          "ids": [
+            "idol-attack"
+          ],
+          "exact": true,
+          "added_text_bytes": 151
+        }
+      ]
+    },
+    {
+      "case_id": "idol-context-fidelity",
+      "arm_id": "holder-only",
+      "policy": "independent",
+      "requests": [
+        26,
+        53
+      ],
+      "all_correct": 2,
+      "wrong_fields": {},
+      "selections": [
+        {
+          "repeat": 1,
+          "ids": [
+            "idol-attack"
+          ],
+          "exact": true,
+          "added_text_bytes": 151
+        },
+        {
+          "repeat": 2,
+          "ids": [
+            "idol-attack"
+          ],
+          "exact": true,
+          "added_text_bytes": 151
+        }
+      ]
+    },
+    {
+      "case_id": "idol-context-fidelity",
+      "arm_id": "original-full",
+      "policy": "joint-subsets",
+      "requests": [
+        27,
+        52
+      ],
+      "all_correct": 1,
+      "wrong_fields": {
+        "source_support": 1
+      },
+      "selections": [
+        {
+          "repeat": 1,
+          "ids": [],
+          "exact": true,
+          "added_text_bytes": 0
+        },
+        {
+          "repeat": 2,
+          "ids": [],
+          "exact": true,
+          "added_text_bytes": 0
+        }
+      ]
+    },
+    {
+      "case_id": "idol-context-fidelity",
+      "arm_id": "original-full",
+      "policy": "independent",
+      "requests": [
+        28,
+        51
+      ],
+      "all_correct": 2,
+      "wrong_fields": {},
+      "selections": [
+        {
+          "repeat": 1,
+          "ids": [],
+          "exact": true,
+          "added_text_bytes": 0
+        },
+        {
+          "repeat": 2,
+          "ids": [],
+          "exact": true,
+          "added_text_bytes": 0
+        }
+      ]
+    },
+    {
+      "case_id": "idol-context-fidelity",
+      "arm_id": "faithful",
+      "policy": "joint-subsets",
+      "requests": [
+        29,
+        50
+      ],
+      "all_correct": 0,
+      "wrong_fields": {
+        "source_support": 2
+      },
+      "selections": [
+        {
+          "repeat": 1,
+          "ids": [],
+          "exact": true,
+          "added_text_bytes": 0
+        },
+        {
+          "repeat": 2,
+          "ids": [],
+          "exact": true,
+          "added_text_bytes": 0
+        }
+      ]
+    },
+    {
+      "case_id": "idol-context-fidelity",
+      "arm_id": "faithful",
+      "policy": "independent",
+      "requests": [
+        30,
+        49
+      ],
+      "all_correct": 0,
+      "wrong_fields": {
+        "source_support": 2
+      },
+      "selections": [
+        {
+          "repeat": 1,
+          "ids": [],
+          "exact": true,
+          "added_text_bytes": 0
+        },
+        {
+          "repeat": 2,
+          "ids": [],
+          "exact": true,
+          "added_text_bytes": 0
+        }
+      ]
+    },
+    {
+      "case_id": "idol-context-fidelity",
+      "arm_id": "lossy",
+      "policy": "joint-subsets",
+      "requests": [
+        31,
+        48
+      ],
+      "all_correct": 2,
+      "wrong_fields": {},
+      "selections": [
+        {
+          "repeat": 1,
+          "ids": [
+            "idol-holder",
+            "idol-attack"
+          ],
+          "exact": true,
+          "added_text_bytes": 301
+        },
+        {
+          "repeat": 2,
+          "ids": [
+            "idol-holder",
+            "idol-attack"
+          ],
+          "exact": true,
+          "added_text_bytes": 301
+        }
+      ]
+    },
+    {
+      "case_id": "idol-context-fidelity",
+      "arm_id": "lossy",
+      "policy": "independent",
+      "requests": [
+        32,
+        47
+      ],
+      "all_correct": 2,
+      "wrong_fields": {},
+      "selections": [
+        {
+          "repeat": 1,
+          "ids": [
+            "idol-holder",
+            "idol-attack"
+          ],
+          "exact": true,
+          "added_text_bytes": 301
+        },
+        {
+          "repeat": 2,
+          "ids": [
+            "idol-holder",
+            "idol-attack"
+          ],
+          "exact": true,
+          "added_text_bytes": 301
+        }
+      ]
+    },
+    {
+      "case_id": "idol-context-fidelity",
+      "arm_id": "cache-only",
+      "policy": "joint-subsets",
+      "requests": [
+        33,
+        46
+      ],
+      "all_correct": 2,
+      "wrong_fields": {},
+      "selections": [
+        {
+          "repeat": 1,
+          "ids": [
+            "idol-holder",
+            "idol-attack"
+          ],
+          "exact": true,
+          "added_text_bytes": 301
+        },
+        {
+          "repeat": 2,
+          "ids": [
+            "idol-holder",
+            "idol-attack"
+          ],
+          "exact": true,
+          "added_text_bytes": 301
+        }
+      ]
+    },
+    {
+      "case_id": "idol-context-fidelity",
+      "arm_id": "cache-only",
+      "policy": "independent",
+      "requests": [
+        34,
+        45
+      ],
+      "all_correct": 2,
+      "wrong_fields": {},
+      "selections": [
+        {
+          "repeat": 1,
+          "ids": [
+            "idol-holder",
+            "idol-attack"
+          ],
+          "exact": true,
+          "added_text_bytes": 301
+        },
+        {
+          "repeat": 2,
+          "ids": [
+            "idol-holder",
+            "idol-attack"
+          ],
+          "exact": true,
+          "added_text_bytes": 301
+        }
+      ]
+    },
+    {
+      "case_id": "harpoon-conflict-scope",
+      "arm_id": "people",
+      "policy": "joint-subsets",
+      "requests": [
+        35,
+        44
+      ],
+      "all_correct": 0,
+      "wrong_fields": {
+        "consistency": 2
+      },
+      "selections": []
+    },
+    {
+      "case_id": "harpoon-conflict-scope",
+      "arm_id": "rope",
+      "policy": "joint-subsets",
+      "requests": [
+        36,
+        43
+      ],
+      "all_correct": 2,
+      "wrong_fields": {},
+      "selections": []
+    },
+    {
+      "case_id": "idol-contradiction-versus-unsupported",
+      "arm_id": "consistent",
+      "policy": "joint-subsets",
+      "requests": [
+        37,
+        42
+      ],
+      "all_correct": 2,
+      "wrong_fields": {},
+      "selections": []
+    },
+    {
+      "case_id": "idol-contradiction-versus-unsupported",
+      "arm_id": "mutex",
+      "policy": "joint-subsets",
+      "requests": [
+        38,
+        41
+      ],
+      "all_correct": 2,
+      "wrong_fields": {},
+      "selections": []
+    },
+    {
+      "case_id": "idol-contradiction-versus-unsupported",
+      "arm_id": "extra",
+      "policy": "joint-subsets",
+      "requests": [
+        39,
+        40
+      ],
+      "all_correct": 2,
+      "wrong_fields": {},
+      "selections": []
+    }
+  ],
+  "limits": [
+    "The 22 paired records are 11 arms repeated twice, not 22 independent questions.",
+    "The all-family joint totals and selection-only independent totals are not directly comparable.",
+    "Byte metrics are exact source-unit/report-text normalization, not downstream prompt tokens or answer quality.",
+    "Globe support has a current-request versus disputed-record binding ambiguity; raw scores are retained.",
+    "Post-hoc diagnostic changes are not held-out improvements and do not replace formal results.",
+    "Masks cross-chapter discovery and live Keeper behavior were not evaluated."
+  ]
+}

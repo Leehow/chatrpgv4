@@ -1,6 +1,6 @@
 # Jev 八类难点：来源绑定的对照题库
 
-这是对此前 PDF 设计库的补齐，不是又一批任意剧情问答。内置模组、真实记录、合成契约测试与 PDF 各自按能证明的事情使用；没有启动战役、调用 Jev 或改生产代码。
+这是对此前 PDF 设计库的补齐，不是又一批任意剧情问答。内置模组、真实记录、合成契约测试与 PDF 各自按能证明的事情使用。题库构建阶段没有调用 Jev；后续已执行的真实 API 实验见文末，仍未启动战役或修改生产代码。
 
 完整覆盖矩阵与玩家问法见 `COVERAGE.md`。`builtin.json` 和 `pdf.json` 已保存实际输入臂、Choice 问题、评估侧预期及来源，不再只有“以后可以做 partial/full”的文字建议。一次重复、一次换材料是一个输入臂，不是一道新的独立题。
 
@@ -10,6 +10,8 @@
 - `pdf.json`：同对象用途、跨段合取、上下文保真度、联合去冗余、冲突范围与未知事实题。
 - `bank.mjs`：离线数据校验、来源绑定、输入物化、覆盖索引。无模型或内核调用。
 - `bank.test.mjs`：来源与结构守卫、成对变量控制、AND／OR 组合检查、评估标签隔离及错误输入负例。
+- `live-core.mjs` / `live-run.mjs`：真实 API 实验的策略、评分、配对汇总与证据保存；`live-core.test.mjs` 是无网络机械测试。
+- `LIVE-RESULTS-20260921.md` / `.json`：真实结果、负例归因及机器摘要。
 
 原有 `../jev-pdf-player-bank/` 的 30 道问题保留为较广的设计题库。不是把其中每一题都冒充成了本轮已冻结的对照；本轮选取能明确绑定来源和输入变量的切片，加上缺失的内置／历史机制。
 
@@ -77,4 +79,19 @@ node --test experiments/jev-context-case-bank/bank.test.mjs
 
 冷审确认八类都有实质对照，同时指出两项缺口，现已修正：候选组合预期原先没有对应请求输出，现补入可回答的 selection Choice 与多正确选项评分；火免疫段落原先只有“它们”，现补入绑定真实原文的“金属甲虫群”标题。作者实验说明也已移出模型可见的 situation。
 
-最终针对本库及未修改的旧增量用例执行 35 项检查，35 passed、0 failed、0 skipped；其中本库17项。内置／历史24个来源锚点、PDF9个锚点均在本地真实文件完成绑定检查。检查与冷审不等于模型成绩。
+题库落成时针对本库及未修改的旧增量用例执行 35 项检查，35 passed、0 failed、0 skipped；其中题库本身17项。内置／历史24个来源锚点、PDF9个锚点均在本地真实文件完成绑定检查。检查与冷审不等于模型成绩。
+
+## 后续真实 API 实验
+
+已执行的结果见 [LIVE-RESULTS-20260921.md](LIVE-RESULTS-20260921.md)：78次正式请求加11次探针／诊断。联合菜单按全部候选子集机械生成，不使用gold缩小菜单。联合全部题与独立选择题的分母不同，比较请只用同集合 `paired-summary.json`。
+
+```bash
+# No API call; checks bindings and prints the frozen request inventory.
+node experiments/jev-context-case-bank/live-run.mjs --describe
+
+# Real API calls; requires the securely mounted TYPESAFE_API_KEY.
+node experiments/jev-context-case-bank/live-run.mjs --probe --repeat 1 --concurrency 1
+node experiments/jev-context-case-bank/live-run.mjs --repeat 2 --concurrency 4
+```
+
+每次创建独立运行目录，保存请求、响应、代码与输入指纹；不覆盖旧证据。调用前的attempt记录只证明开始尝试，不证明服务端收到了请求；中断后有attempt无响应者结果与费用未知。完整来源／gold仅在评估文件，不进请求。实测报告没有把事后诊断替换为正式分数，也没有端到端收益或真桌结论。
