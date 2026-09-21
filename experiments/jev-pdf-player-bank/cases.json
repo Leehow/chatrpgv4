@@ -1,0 +1,1949 @@
+{
+  "version": 1,
+  "status": "source-grounded-design",
+  "model_evaluation_run": false,
+  "live_play": false,
+  "executable_gold_frozen": false,
+  "source_manifest": "sources.json",
+  "case_count": 30,
+  "cases": [
+    {
+      "id": "larkin-leave-or-follow",
+      "source_id": "masks",
+      "family": "秘鲁序章／领队可信度与离队",
+      "player_context": "设计情境，非真实游玩。Classic 序章流程，不启用 Pulp 英雄能力。我们在利马与 Larkin 吃过晚饭，看见他后半夜脸色发白、手抖；Elias 私下问过我们信不信这个领队。之后在大学储藏室发现一具干尸和一根金条，回到酒店时 Larkin 状态更差，仍说周一早出发去普诺。",
+      "question": "Larkin 晚饭后就不对劲，现在酒店里更像撑不住。他还催周一早上走。我们还跟他进山吗？他会不会自己先溜？",
+      "evidence": [
+        {
+          "physical_page": 66,
+          "printed_page": "63",
+          "section": "PERU／晚饭后观察",
+          "quote": "A successful Medicine roll also indicates that Larkin's symptoms resemble opiate withdrawal.",
+          "role": "异常外观可见，但具体戒断判断还需要成功的 Medicine 检定；当前情境未设定检定成功",
+          "access": "keeper_only",
+          "verification": "visual"
+        },
+        {
+          "physical_page": 71,
+          "printed_page": "68",
+          "section": "PROLOGUE／After the Attack",
+          "quote": "Larkin's plan is simply to leave for Puno before any trouble can catch up with him or his expedition.",
+          "role": "袭击后 Larkin 的真实日程是赶在麻烦追上前离开，不是安心等调查结束",
+          "access": "keeper_only",
+          "verification": "visual"
+        },
+        {
+          "physical_page": 73,
+          "printed_page": "70",
+          "section": "PROLOGUE／Continuing with the Expedition",
+          "quote": "the hired trucks turn up on Monday morning and the expedition travels up to Puno and on to the pyramid as planned.",
+          "role": "Larkin 仍在且未被处理时，远征按原计划出发，不是自动取消",
+          "access": "keeper_only",
+          "verification": "visual"
+        },
+        {
+          "physical_page": 73,
+          "printed_page": "70",
+          "section": "PROLOGUE／Larkin and de Mendoza are Dead, Under Arrest, or in Hiding",
+          "quote": "Elias wishes to press ahead with the expedition, even though its leader, Larkin, is out of the picture.",
+          "role": "领队缺席不等于远征结束；Elias 仍可能带队，且他自己也不精确知道金字塔里等着什么",
+          "access": "keeper_only",
+          "verification": "visual"
+        }
+      ],
+      "answer_requirements": [
+        "晚饭后的苍白、出汗、手抖经 Medicine 可判为类阿片戒断，不能只安慰成受凉或惊吓。",
+        "袭击后酒店里的 Larkin 仍想按原计划去普诺，且有赶在麻烦到来前离开的动机；不要把催出发写成已经成功脱身。",
+        "Larkin 活着且调查者未另行处置时，周一卡车仍会来、远征仍按计划走。",
+        "Larkin 死亡、被捕或躲藏时，Elias 仍希望继续；Sánchez 与 Rizo 若还活着则不愿同行。不得把领队缺席写成模组结束。",
+        "不宣布跟队、扣人、报警或 Larkin 离队已经结算成功。"
+      ],
+      "player_answer_boundary": "玩家可讨论领队身体不对、日程很急、以及没他就未必能取消行程。Larkin 要别人拆封印、de Mendoza 的敌意与 kharisiri 身份仅供守秘人备料，不因问句自动剧透。",
+      "partial_context": "已供 p63 晚饭戒断观察；缺 p68 袭击后酒店动机与 p70 领队缺席仍可继续的分支，容易误答‘他病了所以不会出发’或‘没 Larkin 就结束’。",
+      "traps": [
+        "把戒断症状写成食物中毒或普通感冒",
+        "把催出发当成已经离开利马的既成事实",
+        "认为处理掉 Larkin 就不必再去金字塔",
+        "把 Elias 的继续远征写成他已掌握金字塔全部真相"
+      ],
+      "unresolved": [
+        "原文没有给调查者拖延时 Larkin 是否午夜开溜的精确倒计时。",
+        "Larkin Lives 与 Dead/Arrest/Hiding 是分支，不是同一桌必须发生的连续事件。"
+      ],
+      "evaluation_role": "distributed-evidence-design",
+      "partition_group": "masks-peru"
+    },
+    {
+      "id": "golden-ward-restore-not-loot",
+      "source_id": "masks",
+      "family": "秘鲁序章／金条封印与金字塔镀金",
+      "player_context": "设计情境，非真实游玩。Classic 序章，不把支线财宝当主线胜利。我们在大学储藏室从砸开的木箱里拿到一根两端粗糙的金条，摸上去冰凉；现在人已经到金字塔底下，隧道壁上也镶着金子，旁边房间还堆着钱币首饰。",
+      "question": "仓库那根金条是不是该补回墙上的缺口？其他墙上的金子和地上的财宝，我们还能带走一些吗？",
+      "evidence": [
+        {
+          "physical_page": 71,
+          "printed_page": "68",
+          "section": "PROLOGUE／The Golden Ward",
+          "quote": "Both of its ends are rough, as though the piece was ripped or broken from a larger design.",
+          "role": "大学所得金条是从更大设计上撕下的一段，不是普通金锭",
+          "access": "acquired",
+          "verification": "visual"
+        },
+        {
+          "physical_page": 73,
+          "printed_page": "70",
+          "section": "PROLOGUE／Next Steps: Ensuring the Investigators Know What To Do",
+          "quote": "restoring the section of the ward will have some effect on the kharisiri, or at least on whatever source created them.",
+          "role": "推断方向是把这段放回去可能起作用；不是保证立刻灭杀",
+          "access": "keeper_only",
+          "verification": "visual"
+        },
+        {
+          "physical_page": 83,
+          "printed_page": "80",
+          "section": "PROLOGUE／pyramid chamber loot",
+          "quote": "Removing these items from the ruins has no effect on the entity below the pyramid or its prison",
+          "role": "房间里混杂的金币首饰是仆从搜刮的财宝，搬走不影响封印",
+          "access": "keeper_only",
+          "verification": "visual"
+        },
+        {
+          "physical_page": 83,
+          "printed_page": "80",
+          "section": "PROLOGUE／The Pyramid's Base",
+          "quote": "remove any more of the warding, this further weakens the protections holding the Father of Maggots in place.",
+          "role": "隧道连续金镶才是封印；再拆会削弱而非加强",
+          "access": "keeper_only",
+          "verification": "visual"
+        },
+        {
+          "physical_page": 84,
+          "printed_page": "81",
+          "section": "PERU／Repairing the damaged warding",
+          "quote": "Once the ward has been repaired, the Father of Maggots is completely contained once more.",
+          "role": "实际修复办法、丢失金段时用房间财宝仿制的替代方案，以及修复后的明确后果；不能把前文 some effect 当成全书没有说明",
+          "access": "keeper_only",
+          "verification": "visual"
+        }
+      ],
+      "answer_requirements": [
+        "大学金条与隧道金镶是同一套封印的缺失段；不能把拆下保护金镶等同于拿取散落财宝。",
+        "p70 的 some effect 是出发前的提示，不是全书效果上限。p81 明确写出：清理缺口后可锤入或楔住原段；只有赶时间才要求 STR，失败只是耗时更长。",
+        "如果没有原金段，可根据凹槽形状用房间财宝中的金子仿制；需要适当 Art/Craft 成功或 Hard Mechanical Repair。不能把丢失原段说成无解。",
+        "实际修复后，地下存在再次被完全封住，幼虫不能再逸出，与 kharisiri 的联系断裂，后者在随后数小时陆续死亡；这些是行动成功后的后果，不是本设计情境已经发生的事实。",
+        "室内钱币首饰与墙上连续锤接的金镶必须分开：搬走财宝不影响地下存在或其监狱。",
+        "再拆更多墙上的封印会进一步削弱对 Father of Maggots 的约束，并可能引发震动、裂缝与幼虫，不得说成‘多拿金子就多一层保护’。",
+        "不宣布金条已经成功归位或实体已经被永久关死。"
+      ],
+      "player_answer_boundary": "玩家可比较金条断口与墙上缺口、区分‘墙上的金子’和‘地上的财宝’。实体真名、幼虫释放与 de Mendoza 拆墙经过仅在相应现场或已获笔记后才说，不把附录神名直接报给玩家。",
+      "partial_context": "已供 p68 金条外形及 p70 行前提示；缺 p80 财宝与金镶的区别、p81 修复／替代制作及明确后果。只读提示会误把未读到的完整效果当成原文未知。",
+      "traps": [
+        "把房间财宝的总价值当成封印强度",
+        "认为多撬几块金镶可以补强或随身当护符",
+        "把 restoring 写成已经结算的成功仪式",
+        "把 Larkin 想让人拆封印的阴谋当成玩家已确认的事实"
+      ],
+      "unresolved": [],
+      "evaluation_role": "distributed-evidence-design",
+      "partition_group": "masks-peru"
+    },
+    {
+      "id": "poole-vs-robson-raid",
+      "source_id": "masks",
+      "family": "美国／警方对比与举报路径",
+      "player_context": "设计情境，非真实游玩。Classic 纽约流程，不启用 Pulp 追车或出城框。我们见过 Lt. Poole，他只肯说谋杀可能和‘知道太多’有关；也听人嘀咕 Harlem 第十四分局的 Captain Robson 不干净。我们想帮 Hilton Adams 洗冤，也听说 Ju-Ju House 可能有关；还没有冲进 Ju-Ju House，也没有把任何东西交给警察。",
+      "question": "Harlem 这边是找 Poole 帮忙，还是直接去找那个队长 Robson？把店里的东西交给警察，能不能把人救出来？",
+      "evidence": [
+        {
+          "physical_page": 130,
+          "printed_page": "127",
+          "section": "AMERICA／Poole after Elias' death",
+          "quote": "convinced him to talk about Captain Robson's corruption, then he will confide in them.",
+          "role": "Poole 默认含糊；只有调查者显得清醒或谈到 Robson 腐败时才肯深谈",
+          "access": "keeper_only",
+          "verification": "visual"
+        },
+        {
+          "physical_page": 156,
+          "printed_page": "153",
+          "section": "AMERICA／Meeting Captain Robson",
+          "quote": "the captain is far too well dressed for a man on his official salary",
+          "role": "若实际见到 Robson 并满足判断条件，衣着可支撑腐败怀疑；本情境尚未见面",
+          "access": "keeper_only",
+          "verification": "visual"
+        },
+        {
+          "physical_page": 156,
+          "printed_page": "153",
+          "section": "AMERICA／Meeting Captain Robson",
+          "quote": "Only under the most extreme circumstances will he admit to fitting up Hilton Adams for the murders.",
+          "role": "Robson 几乎不会承认栽赃 Adams；手下也不会出卖他",
+          "access": "keeper_only",
+          "verification": "visual"
+        },
+        {
+          "physical_page": 163,
+          "printed_page": "160",
+          "section": "CHAPTER 2／Capturing Evidence",
+          "quote": "M'Dari clears out everything essential, then sets fire to the shop to destroy any remaining evidence",
+          "role": "把证据交给 Robson 去突袭，他可能先通风报信；Poole 路径才可能洗冤并扳倒 Robson",
+          "access": "keeper_only",
+          "verification": "visual"
+        }
+      ],
+      "answer_requirements": [
+        "Poole 与 Robson 不是同一条‘找警察’通道：前者需先建立清醒印象或谈到腐败才会吐口，后者先笑后套话、警告少在 Harlem 打听。",
+        "衣着过于体面可作腐败旁证，不等于已经证明他栽赃或下令杀人。",
+        "Robson 在极端情况之外不会承认给 Hilton Adams 安谋杀罪名；其下属也不会告发。",
+        "有实体证据时，Robson 可能被说动去突袭 Ju-Ju House，但也可能先通知 M'Dari，对方搬空后放火，洗冤机会随之失去。",
+        "把 Poole 拉进来才可能一网打尽并提供足够证据释放 Adams、扳倒 Robson。不宣布突袭、洗冤或抓捕已经成功。"
+      ],
+      "player_answer_boundary": "玩家可比较两个警察的态度、风险和该把物证交给谁。M'Dari 报信、放火与 Adams 被栽赃的内情仅在相应证据或 NPC 已说出口后才向玩家确认，不因提问自动点破。",
+      "partial_context": "已供 p153 Robson 会面的客气与衣着；缺 p127 Poole 开口条件与 p160 两条突袭结局，容易把‘报警’当成同一结果。",
+      "traps": [
+        "把第十四分局当成可以互相转交的中立警局",
+        "认为见到 Robson 就等于已经立案洗冤",
+        "把 Pulp 出城框当成 Classic 必走结局",
+        "把通风报信写成已经发生的火灾收据"
+      ],
+      "unresolved": [
+        "本批页没有写出 Robson 被 Persuade 后究竟多快通知 M'Dari 的精确时限。",
+        "p127 的 Hudson 车牌与 Witherspoon 是另一条现场线索，不能单凭它判 Robson 有罪。"
+      ],
+      "evaluation_role": "distributed-evidence-design",
+      "partition_group": "masks-new-york-evidence"
+    },
+    {
+      "id": "adams-evidence-beyond-millie",
+      "source_id": "masks",
+      "family": "美国／Hilton Adams 洗冤证据",
+      "player_context": "设计情境，非真实游玩。Classic，不启用 Pulp：Caught in the Crossfire。我们在剧院一带见过 Millie Adams，她说除非答应帮丈夫洗冤，否则不深谈；也听说第十四分局当初把 Harlem 失踪当成街头暴力。还没有搜查 Ju-Ju House，也没有把任何箱子或照片交给警方。",
+      "question": "答应帮 Millie 洗冤以后，我们还得找什么才能让警察真的重查？光有她的说法够不够？",
+      "evidence": [
+        {
+          "physical_page": 150,
+          "printed_page": "147",
+          "section": "AMERICA／What Millie Adams Knows",
+          "quote": "if they agree to try and exonerate her husband, she will provide them with information that may lead to the true killers.",
+          "role": "Millie 的交易是情报换尝试洗冤，不是已经释放丈夫",
+          "access": "acquired",
+          "verification": "visual"
+        },
+        {
+          "physical_page": 150,
+          "printed_page": "147",
+          "section": "AMERICA／What Millie Adams Knows",
+          "quote": "the police at the 14th Precinct refused to take the matter seriously.",
+          "role": "Hilton 当初求助的是同一分局，对方拒绝认真处理失踪",
+          "access": "acquired",
+          "verification": "visual"
+        },
+        {
+          "physical_page": 161,
+          "printed_page": "158",
+          "section": "CHAPTER 2／Locked cash box",
+          "quote": "they could be used as evidence of the cult's involvements in the disappearances and murders.",
+          "role": "M'Dari 上锁钱盒里的受害人物品才是可呈堂的物证之一，须先取得盒子",
+          "access": "keeper_only",
+          "verification": "visual"
+        },
+        {
+          "physical_page": 163,
+          "printed_page": "160",
+          "section": "CHAPTER 2／Capturing Evidence",
+          "quote": "any chance of exonerating Hilton Adams is lost",
+          "role": "证据交给会报信的 Robson 并引发纵火后，洗冤机会被关掉；Poole 路径才写明足够证据",
+          "access": "keeper_only",
+          "verification": "visual"
+        }
+      ],
+      "answer_requirements": [
+        "Millie 同意提供通向真凶的信息，前提是调查者尝试洗冤；这不是法庭释放，也不保证她能说全 Hilton 知道的一切。",
+        "第十四分局曾经拒绝把 Harlem 失踪当回事，并把残尸解释成帮派暴力；不能默认同一分局会自动重审。",
+        "钱盒中可辨认的首饰／私人物品可作为邪教与失踪谋杀相关的物证，但须先进入神职者壁龛并打开锁盒。",
+        "照片可行，但闪光会立刻惊动邪教徒；毁掉 ciimba 会让 M'Dari 知道有人来过。",
+        "不宣布已经洗冤、已经开庭或已经从狱中救出 Hilton。"
+      ],
+      "player_answer_boundary": "玩家可讨论先答应 Millie、再找可呈堂的物证、以及别把证据交给会毁掉现场的人。邪教真名、ciimba 与 M'Dari 日程仅供守秘人，未进入地下室前不自动描述。",
+      "partial_context": "已供 p147 Millie 交易与分局拒绝；缺 p158 钱盒物证和 p160 交错警察后的洗冤分叉，容易把‘答应帮忙’当成救援完成。",
+      "traps": [
+        "把 Pulp 追车／骚乱框当成 Classic 必发",
+        "认为 Millie 已知道并会说出全部地下室细节",
+        "把拍照闪光或带走大型面具当成无代价",
+        "把 Conclusion 的‘愿你们已救出无辜者’写成本局已发生"
+      ],
+      "unresolved": [
+        "本批页没有给出 Hilton 在狱中的精确剩余刑期或开庭日期。",
+        "p160 写 photographs of the detective collecting bribes 可对付 Robson，但未规定需要拍到几次才够。"
+      ],
+      "evaluation_role": "distributed-evidence-design",
+      "partition_group": "masks-new-york-evidence"
+    },
+    {
+      "id": "elias-hotel-papers-elsewhere",
+      "source_id": "masks",
+      "family": "美国／酒店资料遗失后的替代线索",
+      "player_context": "设计情境，非真实游玩。Classic。Elias 在 Chelsea Hotel Room 410 的东西已经被翻过或拿走。我们见过 Jonah Kensington，他觉得 Elias 后来那些笔记太疯，不太愿意拿出来。还没有搜查 Harlem 那家店的里间，也还没去 Carlyle 家。",
+      "question": "酒店房间里的资料没了，是不是线就断了？Kensington 不肯给的那些破纸还有没有用，别处还会不会留下同样的东西？",
+      "evidence": [
+        {
+          "physical_page": 133,
+          "printed_page": "130",
+          "section": "CHAPTER 2／Kensington later notes",
+          "quote": "Elias left more notes with Kensington (Carlyle Papers America #13).",
+          "role": "出版人处另有一份后到笔记，不是酒店房间那一套",
+          "access": "keeper_only",
+          "verification": "visual"
+        },
+        {
+          "physical_page": 133,
+          "printed_page": "130",
+          "section": "CHAPTER 2／Carlyle Papers America #13",
+          "quote": "The books are in Carlyle's safe... Coming for me. Will the ocean protect?",
+          "role": "笔记取得后可指向 Carlyle 保险箱、心理分析档案与开门恐慌；本情境尚未取得笔记",
+          "access": "keeper_only",
+          "verification": "visual"
+        },
+        {
+          "physical_page": 161,
+          "printed_page": "158",
+          "section": "CHAPTER 2／Locked cash box",
+          "quote": "any handouts stolen by the cultists from Jackson Elias' hotel room (Room 410, page 118) can be found here.",
+          "role": "酒店被偷走的宣传页／散页在 Ju-Ju House 锁盒里，与 Kensington 笔记不是同一份",
+          "access": "keeper_only",
+          "verification": "visual"
+        }
+      ],
+      "answer_requirements": [
+        "酒店失窃不等于线索链断开：Kensington 另存后到笔记，Ju-Ju House 锁盒里有从 Room 410 偷走的 handouts。",
+        "Kensington 不愿出示后到笔记，因其显得精神失常并可能损害 Prospero House；需 Hard Charm／Fast Talk／Persuade，或在编辑部无人看管时偷窃。",
+        "America #13 是拼缝的 40 页残稿，指向 Carlyle 保险箱、心理分析师档案和‘开门’恐慌，不能当成酒店原件的完整副本。",
+        "锁盒还混有受害者首饰，打开它不等于已经读完 Elias 全部研究。",
+        "不宣布已经拿到保险箱藏书或已经补齐酒店档案。"
+      ],
+      "player_answer_boundary": "玩家可知道‘别处可能还有 Elias 的纸’并选择去出版人或 Harlem 店里找。笔记全文、保险箱位置细节和锁盒内容在未取得前不自动宣读。",
+      "partial_context": "已供 p130 Kensington 不愿交后到笔记；缺 p158 酒店被盗散页的下落，容易误答线已断或把两份文件当成同一叠。",
+      "traps": [
+        "把 America #11 内罗毕信件当成酒店失窃文件",
+        "认为 Kensington 一旦交出笔记就等于给了 Carlyle 保险箱里的书",
+        "把锁盒首饰与 handouts 混成一份证据",
+        "把 p127 遗嘱宣读当成酒店资料的替代件"
+      ],
+      "unresolved": [
+        "本批页没有重印 Room 410 被偷 handouts 的逐项清单，只标明可在锁盒找到。",
+        "America #13 手写稿与排印转写有少量用词出入，以页图两者并存为准，不擅自统一。"
+      ],
+      "evaluation_role": "distributed-evidence-design",
+      "partition_group": "masks-new-york-evidence"
+    },
+    {
+      "id": "shafik-not-safe-ally",
+      "source_id": "masks",
+      "family": "英格兰／Shafik 同盟条件",
+      "player_context": "设计情境，非真实游玩。Classic 伦敦，不启用 Pulp：Exhibition 追车。我们已听说 Soho 香料店的 Zahra Shafik 和 Penhew 基金会的 Edward Gavigan 不对盘，有人甚至看见她头巾遮脸去博览会私下见面。还没有答应替她做事，也没有跟她去 Essex。",
+      "question": "香料店那个女人好像也讨厌 Gavigan，我们跟她联手把他干掉行不行？她跟他见面，是不是其实是自己人？",
+      "evidence": [
+        {
+          "physical_page": 188,
+          "printed_page": "185",
+          "section": "ENGLAND／Zahra Shafik, spice dealer and high priestess",
+          "quote": "Shafik aims to take control of the London chapter, eliminating Gavigan in the process.",
+          "role": "她要的是伦敦分会控制权，不是调查者的胜利或公开决裂",
+          "access": "keeper_only",
+          "verification": "visual"
+        },
+        {
+          "physical_page": 188,
+          "printed_page": "185",
+          "section": "ENGLAND／Zahra Shafik, spice dealer and high priestess",
+          "quote": "While al-Shakti has not authorized her to eliminate Gavigan, she is sure her true master will approve of her initiative.",
+          "role": "除掉 Gavigan 并非上级授权任务，不能当成教团官方立场",
+          "access": "keeper_only",
+          "verification": "visual"
+        },
+        {
+          "physical_page": 263,
+          "printed_page": "260",
+          "section": "CHAPTER 3／An Important Meeting",
+          "quote": "the pair agree that the investigators must be dealt with in a timely fashion",
+          "role": "博览会密谈是可选场面：两人表面仍共识要尽快处理调查者",
+          "access": "keeper_only",
+          "verification": "visual"
+        },
+        {
+          "physical_page": 263,
+          "printed_page": "260",
+          "section": "CHAPTER 3／Captured by Shafik",
+          "quote": "She cares little if the investigators die in the attempt, just as long as they weaken or distract Gavigan",
+          "role": "把调查者当刀用；她提供 Misr House 仪式时机只为诱使他们去杀 Gavigan",
+          "access": "keeper_only",
+          "verification": "visual"
+        }
+      ],
+      "answer_requirements": [
+        "Shafik 是伦敦兄弟会女祭司、Gavigan 的传声筒，同时是夺权对手；讨厌 Gavigan 不等于与调查者结盟。",
+        "除掉 Gavigan 未经 al-Shakti 授权，只是她自己的倡议；Gavigan 因火箭零件分心，未必察觉这层威胁。",
+        "Wembley 密谈是可选场景，内容故意含糊；两人仍可能同意必须及时处理调查者，并各自安排伏击或召唤。",
+        "若她试图‘合作’，目标是让调查者去 Misr House 月度仪式上杀 Gavigan；她不在乎他们是否死掉。说服失败时可能改用 Mental Suggestion。",
+        "不宣布已经结盟、已经除掉 Gavigan，或她已公开投向调查者。"
+      ],
+      "player_answer_boundary": "玩家可感到她对 Gavigan 不忠、接触有风险。女祭司身份、夺权计划、变形／暗示法术和 Misr House 仪式日程未在场或未听到前不自动解说。",
+      "partial_context": "已供 p185 香料店女祭司与夺权动机；缺 p260 密谈仍要处理调查者、以及把他们当刀的条件，容易把‘她也恨他’写成安全同盟。",
+      "traps": [
+        "把博览会密谈当成她已经叛出教团",
+        "把 Pulp 展览追车框写成 Classic 必发",
+        "认为跟她去 Essex 就是已经被保护",
+        "把 al-Shakti 未授权写成她其实是好人"
+      ],
+      "unresolved": [
+        "密谈细节原文明确交给守秘人增删，不能把示例话题当成必然台词。",
+        "Shafik's role is a wild card, able to be adjusted by the Keeper——本页不规定唯一走向。"
+      ],
+      "evaluation_role": "distributed-evidence-design",
+      "partition_group": "masks-london-rivalry"
+    },
+    {
+      "id": "shipley-paintings-sidetrack",
+      "source_id": "masks",
+      "family": "英格兰／Shipley 绘画支线非主线",
+      "player_context": "设计情境，非真实游玩。Classic。我们从小报编辑 Mahoney 处知道 Elias 翻过 The Scoop 过刊，其中一篇写 Chelsea 画家 Miles Shipley 的骇人画作，地址在 Holbein Mews。还没有上门，也不确定这和 Penhew 基金会是不是一伙。",
+      "question": "Elias 圈过那篇吓人的画展，我们是不是该先去找这个 Shipley？他那些画是不是同一伙人干的？",
+      "evidence": [
+        {
+          "physical_page": 194,
+          "printed_page": "191",
+          "section": "ENGLAND／Elias' Newspaper Research",
+          "quote": "lead to sidetrack adventures that are not significantly related to the core campaign",
+          "role": "England #1 Chelsea Serpent 与 #2 Derbyshire Monster 被标成旁支；#3 Soho 才直接连黑法老兄弟会",
+          "access": "keeper_only",
+          "verification": "visual",
+          "necessity": "supporting-not-required"
+        },
+        {
+          "physical_page": 194,
+          "printed_page": "191",
+          "section": "ENGLAND／What Mahoney Knows About Jackson Elias",
+          "quote": "As far as Mahoney knows, the Penhew Foundation and Edward Gavigan are completely above-board.",
+          "role": "Mahoney 的公开情报到不了基金会；不能从他嘴里把画展和 Gavigan 焊死",
+          "access": "acquired",
+          "verification": "visual",
+          "necessity": "supporting-not-required"
+        },
+        {
+          "physical_page": 218,
+          "printed_page": "215",
+          "section": "ENGLAND／Sidetrack Scenario: The Chelsea Serpent",
+          "quote": "This scenario is not part of the overall campaign plot and is intended as a distraction.",
+          "role": "Chelsea 蛇人事件明确是偏离主线的干扰冒险，不是必做主线节",
+          "access": "keeper_only",
+          "verification": "visual",
+          "necessity": "sufficient-core"
+        },
+        {
+          "physical_page": 218,
+          "printed_page": "215",
+          "section": "ENGLAND／Miles Shipley's Art",
+          "quote": "The story of Miles Shipley has nothing to do with Nyarlathotep's machinations.",
+          "role": "Shipley 画作来自蛇人术士 Ssathasaa，与奈亚拉托提普阴谋分开",
+          "access": "keeper_only",
+          "verification": "visual",
+          "necessity": "sufficient-core"
+        }
+      ],
+      "answer_requirements": [
+        "Chelsea Serpent 正文标明不是整体战役情节的一部分，意图是 distraction；可移动到其他城市，但不能因此变成主线必做。",
+        "Shipley 的画与奈亚拉托提普阴谋无关；危险来自蛇人寄居与 Plutonian Drug，不是 Penhew 的仪式。",
+        "不宣布已经拜访 Shipley、已经阻止开门，或已经证明画作属于黑法老。"
+      ],
+      "player_answer_boundary": "玩家可选择追这篇过刊，但应被告知这是 Elias 随手圈过的小报线索，不一定指向同一伙人。蛇人真名、Bertha 伪装和开门计划未上门前不自动剧透。",
+      "partial_context": "臂A只有p191过刊与地址时，可补p215的明确非主线说明；臂B已供完整p215说明时，不能为了跨章数量再强求小报背景。",
+      "traps": [
+        "把三篇 The Scoop 都当成黑法老线索",
+        "把收藏家出高价当成 Penhew 在收购",
+        "把旁支可以移到纽约／澳洲写成它因此变成全球主线",
+        "把 Ssathasaa 开门与战役大开门仪式混为一谈"
+      ],
+      "unresolved": [
+        "原文说若放任其成熟可能给英格兰带来毁灭，但未在本页给出与主线时限的换算。",
+        "Derbyshire Monster（#2）本批没有页图，不能把 #1 的结论直接套到 #2 细节。"
+      ],
+      "evaluation_role": "sufficiency-control",
+      "partition_group": "masks-shipley-paintings-sidetrack",
+      "optional_context": [
+        "The Scoop 三篇不能一视同仁：#1／#2 是旁支，#3 Slaughter in Soho 才直接连兄弟会。",
+        "Mahoney 认为基金会和 Gavigan 完全正经，不能把他的记忆当成已证实的主线连接。"
+      ]
+    },
+    {
+      "id": "gavigan-office-not-the-cache",
+      "source_id": "masks",
+      "family": "英格兰／基金会、公寓与秘密地下室",
+      "player_context": "设计情境，非真实游玩。Classic。我们拿到过 Penhew 基金会的名片或听人提起 Edward Gavigan，知道基金会在 Bloomsbury、他在 Mayfair 还有住处。还没有夜闯，也还没去 Essex。",
+      "question": "白天去基金会转一圈，再翻他城里的公寓，是不是就够了？真东西是不是都锁在办公室抽屉里？",
+      "evidence": [
+        {
+          "physical_page": 199,
+          "printed_page": "196",
+          "section": "CHAPTER 3／Visiting the Penhew Foundation",
+          "quote": "The Egyptian Collection is open for viewing from noon to 4 p.m., Monday through Friday.",
+          "role": "白天公开可看的是埃及藏品与办公时间，不是邪教档案",
+          "access": "public",
+          "verification": "visual"
+        },
+        {
+          "physical_page": 205,
+          "printed_page": "202",
+          "section": "CHAPTER 3／Secret Room (Basement)",
+          "quote": "Gavigan prepares and experiments with spell casting, as well as storing paperwork not yet removed to Misr House",
+          "role": "真正的施法材料与尚未运走的文件在木乃伊匣暗梯下的秘密室，且部分已计划运去庄园",
+          "access": "keeper_only",
+          "verification": "visual"
+        },
+        {
+          "physical_page": 208,
+          "printed_page": "205",
+          "section": "ENGLAND／Gavigan's Mayfair Flat",
+          "quote": "Gavigan keeps nothing incriminating or pertaining to cult matters in the flat.",
+          "role": "Mayfair 公寓没有邪教物证，埃及摆设也无神话关联",
+          "access": "keeper_only",
+          "verification": "visual"
+        },
+        {
+          "physical_page": 208,
+          "printed_page": "205",
+          "section": "ENGLAND／Gavigan's routine",
+          "quote": "At least once a month, usually twice, Gavigan drives to his country estate in Essex to conduct a rite",
+          "role": "月度仪式与人员车辆在 Misr House；盯基金会白天日程看不到这场",
+          "access": "keeper_only",
+          "verification": "visual"
+        }
+      ],
+      "answer_requirements": [
+        "基金会白天是正经学术机构：门房、管理员、藏品开放时段；公开资料把 Gavigan 写成博学富绅，不能当成已经搜到罪证。",
+        "Mayfair 公寓几乎无物证，只有威士忌、衣物和普通埃及摆设；破门还有邻居目击风险。",
+        "储藏室木乃伊匣后的暗梯通向独立混凝土密室，里面才有法术材料、伪护照、现金和尚未运去 Misr House 的文件。",
+        "部分文书（Henson 交货、铸铁保险箱收据、Limehouse 仓储）指向码头与 Derby，不是办公室抽屉能穷尽。",
+        "不宣布已经进入密室、已经跟踪卡车成功，或已经在庄园打断仪式。"
+      ],
+      "player_answer_boundary": "玩家可比较公开参观、公寓和‘是不是还有里间／乡下’。暗门结构、法术材料和仪式日程未发现前不自动报出。",
+      "partial_context": "已供 p196 基金会开放时间与公开形象；缺 p202 密室与 p205 公寓无证物／月度庄园仪式，容易把白天参观当成搜完。",
+      "traps": [
+        "把公开埃及藏品当成 Brood 或仪式道具",
+        "认为翻完公寓就等于掌握 Gavigan",
+        "把每月 Derby 火车与每月 Essex 仪式混成同一趟",
+        "把 Barrington 查埃及命案写成已经能起诉 Gavigan"
+      ],
+      "unresolved": [
+        "本批页没有列出密室文件运去 Misr House 的精确截止日期。",
+        "木乃伊匣按眼两次的机关是 Spot Hidden 提示，不是保证每个调查者都会发现。"
+      ],
+      "evaluation_role": "distributed-evidence-design",
+      "partition_group": "masks-london-rivalry"
+    },
+    {
+      "id": "van-heuvelen-return-scrolls",
+      "source_id": "masks",
+      "family": "埃及／还卷轴与留译本",
+      "player_context": "设计情境，非真实游玩。Classic，不启用 Pulp：Rewards。我们在旧城蛾街裁缝铺后找到落魄的 Van Heuvelen，他吃饱后愿意谈吉萨的事，床底下还藏着一卷东西。有人在附近神庙为走失的猫祈祷。还没有把卷轴带出埃及，也没有抄完译本。",
+      "question": "荷兰人床底下那卷东西，我们带走自己译，还是逼他还回去？留个抄本再还，行不行？",
+      "evidence": [
+        {
+          "physical_page": 331,
+          "printed_page": "328",
+          "section": "CHAPTER 4／Hunting the Dutchman",
+          "quote": "Van Heuvelen keeps the scrolls of the Black Rites wrapped in canvas in a shallow hole in the dirt floor beneath his cot",
+          "role": "原件现藏在他床下浅坑，不是已经在博物馆或调查者手里",
+          "access": "keeper_only",
+          "verification": "visual"
+        },
+        {
+          "physical_page": 331,
+          "printed_page": "328",
+          "section": "CHAPTER 4／The Clive Expedition",
+          "quote": "insisting that the scrolls found in the tomb were in good shape and quite legible",
+          "role": "他可提供墓中卷轴完好可读的证词；本情境只设定其愿谈，并未设定这句已经说出",
+          "access": "keeper_only",
+          "verification": "visual"
+        },
+        {
+          "physical_page": 336,
+          "printed_page": "333",
+          "section": "EGYPT／Resolutions",
+          "quote": "Van Heuvelen needs to finish his translation and exhibit the scrolls in order to make his name, but Neris wants the holy items returned immediately",
+          "role": "成名译本与立刻归还圣物直接冲突，不是同一选择",
+          "access": "keeper_only",
+          "verification": "visual"
+        },
+        {
+          "physical_page": 336,
+          "printed_page": "333",
+          "section": "EGYPT／Conclusion",
+          "quote": "return Bast's scrolls (while also giving him just enough time to complete his translation",
+          "role": "较佳收场是原件归还，并另给时间译完；不是默认可以出口原件",
+          "access": "keeper_only",
+          "verification": "visual"
+        }
+      ],
+      "answer_requirements": [
+        "原件在床下浅坑；他还未交卷，调查者也不自动已经拥有或抄完。",
+        "他要译完展出成名，Neris 要立刻归还；两边目标冲突，需调查者促成收场。",
+        "较佳结果是尽快劝他还给 Neris 或送回神庙；Conclusion 允许在归还前留出译完的时间，这是守秘人裁量，不是已经完成的译本收据。",
+        "带原件出境会遭遇出口许可阻挠、告发走私，直至武力；卷轴离境后猫群骚扰，未杀猫则归还可叫停。",
+        "不宣布已经译完、已经出口，或已经获得猫护符。"
+      ],
+      "player_answer_boundary": "玩家可讨论劝他还、帮他译、或自己拿走的风险。Bast／Neris 的神性身份与护符跨章效果未经历相应场面前不自动点破。",
+      "partial_context": "已供 p328 床下藏卷与他坚持卷轴可读；缺 p333 归还／译本冲突与出境后果，容易把‘带走研究’当成无代价。",
+      "traps": [
+        "把留译本写成已经存在的抄本",
+        "把 Pulp 幸运奖励当成 Classic 必给",
+        "认为杀掉荷兰人就能安全拿走卷轴（Neris 不知藏处会改盯调查者）",
+        "把 Clive 队当成能带路找到他的人"
+      ],
+      "unresolved": [
+        "‘刚够译完’没有给出天数或检定次数。",
+        "本批页没有写出译本是否可在不持有原件的情况下完成。"
+      ],
+      "evaluation_role": "distributed-evidence-design",
+      "partition_group": "masks-egypt-scrolls-bast"
+    },
+    {
+      "id": "clive-mummy-story-split",
+      "source_id": "masks",
+      "family": "埃及／Clive 木乃伊说辞",
+      "player_context": "设计情境，非真实游玩。Classic。我们在考察队营地听 Dr. Clive 讲发现与失踪：卷轴烂得没法读，木乃伊和两个卫兵一夜消失，后来又说许可证被吊销才搬去孟菲斯。我们也已听 Van Heuvelen 说过墓中卷轴完好可读，两人的说法对不上。还没有闯秘室，也没有对质成功。",
+      "question": "Clive 说卷轴全烂了、木乃伊一夜没了，还说吉萨挖不下去才搬去孟菲斯。我们信领队，还是信那个被开除的荷兰人？",
+      "evidence": [
+        {
+          "physical_page": 340,
+          "printed_page": "337",
+          "section": "EGYPT／The Mummy's Discovery",
+          "quote": "all the scrolls were totally illegible, the result of improper sealing when the coffer was originally placed in the chamber.",
+          "role": "Clive 对调查者的公开说法：卷轴因封存不当完全不可读",
+          "access": "acquired",
+          "verification": "visual"
+        },
+        {
+          "physical_page": 340,
+          "printed_page": "337",
+          "section": "EGYPT／The Mummy's Discovery keeper note",
+          "quote": "Clive gave the real scrolls to Omar al-Shakti, and substituted fragments of useless junk from the Twelfth Dynasty to confuse the find.",
+          "role": "真卷已交给 al-Shakti；Van Heuvelen 知原件完好，但不知其后下落",
+          "access": "keeper_only",
+          "verification": "visual"
+        },
+        {
+          "physical_page": 331,
+          "printed_page": "328",
+          "section": "CHAPTER 4／The Clive Expedition",
+          "quote": "although he contradicts some of Henry Clive's claims, insisting that the scrolls found in the tomb were in good shape and quite legible",
+          "role": "荷兰人可提供与领队冲突的现场记忆，仍不是完整幕后",
+          "access": "acquired",
+          "verification": "visual"
+        },
+        {
+          "physical_page": 342,
+          "printed_page": "339",
+          "section": "EGYPT／A Change of Location",
+          "quote": "Dr. Kafour can confirm that the Clive Expedition's permits for Giza are still valid",
+          "role": "搬去孟菲斯的许可证理由是假的；Clive 与 Winfield 在邪教问题上 Psychology 显示在撒谎",
+          "access": "keeper_only",
+          "verification": "visual"
+        }
+      ],
+      "answer_requirements": [
+        "营地多数人能拼出一致故事，但木乃伊发现与失踪有例外；Clive 称卷轴完全不可读，对质会结束采访并被请出工地。",
+        "Van Heuvelen 的矛盾只覆盖‘出土时卷轴完好’，他不知道真卷已交给 Omar al-Shakti、现场换成十二王朝残片。",
+        "木乃伊、石棺与两名卫兵失踪是营地可听到的情节；卫兵推定死亡，下落未在本页结案。",
+        "Clive 把迁址说成失窃后当局吊销吉萨许可；Kafour 可证实许可仍有效，且是 Clive 自己要求孟菲斯新许可。Gardner 不信迁址。",
+        "问及黑法老兄弟会时全员否认；Psychology 成功显示 Clive 与 Winfield 在撒谎。不宣布已经揭穿、已经追回真卷或木乃伊已经复活。"
+      ],
+      "player_answer_boundary": "玩家可比较领队说辞、荷兰人记忆和博物馆人士能核实的许可。真卷去向、Nitocris 复活计划与兄弟会已有的项链／冠仅供守秘人，未获得相应线索前不自动剧透。",
+      "partial_context": "已供 p337 Clive 公开的不可读卷轴与失踪故事；缺 p328 荷兰人反证和 p339 许可仍有效／撒谎检定，容易把领队说辞当结案。",
+      "traps": [
+        "把 Van Heuvelen 床下的 Black Rites 当成 Clive 交给 al-Shakti 的那批墓中卷轴",
+        "把公开谴责复活是 mumbo jumbo 当成他们不知情",
+        "把迁址当成当局强制，忽略 Clive 主动申请",
+        "把 Broadmoor／Kafour 的新月之夜推测写成已经发生的复活"
+      ],
+      "unresolved": [
+        "两名卫兵‘推定死亡’在本页没有尸体或目击结案。",
+        "Van Heuvelen 不知真卷去向，本批页也没有他后来得知的分支。"
+      ],
+      "evaluation_role": "distributed-evidence-design",
+      "partition_group": "masks-egypt-scrolls-bast"
+    },
+    {
+      "id": "eye-halves-need-new-ward",
+      "source_id": "masks",
+      "family": "Eye of Light and Darkness 残片与新造",
+      "player_context": "设计情境，非真实游玩。Classic 正篇，不混 Pulp。我们在埃及见过 Nuri，拿到一块带奇怪眼睛符号的断裂石板；后来在肯尼亚把符号给 Bundari 看过，他沉思后提到远东有书记把防护写进七书。尚未见到 Brady，也没有施法。",
+      "question": "找到另一半拼回去，能把这东西重新用起来吗？要是不行，我们还缺什么才能做出能用的？",
+      "evidence": [
+        {
+          "physical_page": 323,
+          "printed_page": "320",
+          "section": "NURI OF EL WASTA / Studying the Stone",
+          "quote": "the fragment is half of a warding symbol that was worked into the capstone of the Red Pyramid",
+          "role": "埃及残片只是右半；Nuri 不知道另一半在哪，默认也不能当完整防护用",
+          "access": "keeper_only",
+          "verification": "visual"
+        },
+        {
+          "physical_page": 426,
+          "printed_page": "423",
+          "section": "Bundari's Wisdom",
+          "quote": "Within is the knowledge of how to create the great ward known as the Eye of Light and Darkness",
+          "role": "Bundari 指向的是创造新防护的书，不是拼合旧石",
+          "access": "keeper_only",
+          "verification": "visual"
+        },
+        {
+          "physical_page": 581,
+          "printed_page": "578",
+          "section": "A Real Eye Opener",
+          "quote": "the two halves might make nice bookends, seeing as they cannot be rejoined to form a functioning ward",
+          "role": "Brady/Mu 研究结论：已破的防护无用，必须从零新造",
+          "access": "keeper_only",
+          "verification": "visual"
+        },
+        {
+          "physical_page": 637,
+          "printed_page": "634",
+          "section": "APPENDIX B / Eye of Light and Darkness",
+          "quote": "A great sigil of the Eye is worked into a hard, natural substance, such as granite, and then fixed on a high place",
+          "role": "附录法术要求新刻符号、以血和 POW 完成夜间仪式，不是粘合旧残片",
+          "access": "keeper_only",
+          "verification": "visual"
+        },
+        {
+          "physical_page": 638,
+          "printed_page": "635",
+          "section": "APPENDIX B／Eye of Light and Darkness continued",
+          "quote": "If the POW is not accumulated before dawn the activation fails",
+          "role": "续页补齐累计成本与失败条件；不能在前页句子未完时宣布材料齐全",
+          "access": "keeper_only",
+          "verification": "visual"
+        }
+      ],
+      "answer_requirements": [
+        "残片只是已毁红金字塔防护的右半，不能当完整可用符。",
+        "Brady 明确：两半不能拼回成运作中的防护；已破则无用，必须从零新造。",
+        "Bundari 的七书线索是 how to create，不是修复旧石。",
+        "附录法术要求在硬质天然材料上新刻、下午到满月升起前完成、无克苏鲁神话知识者的血液填瞳孔、夜间咏唱。每小时从每位吟唱者吸取5 POW，直到累计所需量（标准100）；黎明前未凑足则失败，已付能量损失，需要重来。",
+        "不宣布已找到另一半、已译七书或施法成功。"
+      ],
+      "player_answer_boundary": "玩家目前只确定拿到一块断裂石板，以及 Bundari 提过远东有书。拼合无效、必须新造、献血与 POW 规则是守秘人备料；未与 Brady 谈过则不得自动剧透“两半只能当书挡”。Kafour 可 recreate 符号但不懂启动，也不等于已施法。",
+      "partial_context": "已供 p320 右半残片与 p423 七书可创造；缺 p578 不能拼回/必须新造、p634 新刻过夜条件与 p635 成本累计及黎明失败条件，容易误答拼回去就能用。",
+      "traps": [
+        "把 Nuri 半块与 Brady 半块粘合当修复完成",
+        "把 Ali Kafour 能 recreate 符号当成知道如何 activate",
+        "把 Bundari 冥想 1D6+6 小时当成已经给出用法",
+        "把 p579 插图两半合影当成可拼回的规则许可"
+      ],
+      "unresolved": [
+        "p320 写 investigators cannot know it unless they already retrieved the other half from Jack Brady；与 p578 出示 Nuri 半块也可触发同一解释，知情门槛以实际对话为准。",
+        "p635 对完成后的发光时点另用了 when the moon next rises；本题不将它擅自等同于拼好残片后立即发动。"
+      ],
+      "evaluation_role": "distributed-evidence-design",
+      "partition_group": "masks-eye-halves-need-new-ward"
+    },
+    {
+      "id": "who-not-pet-release-timing",
+      "source_id": "masks",
+      "family": "笼中 Who 不是宠物",
+      "player_context": "设计情境，非真实游玩。Classic 正篇。Bundari 送了一笼长相奇怪的三角蜥蜴，让我们每日喂苍蝇，说到黑风山需要朋友时再放出来。还没打开笼子，也还没上山。",
+      "question": "到山上放出来时，我们离它十米远，应该够安全了吧？它能分清谁是自己人吗？",
+      "evidence": [
+        {
+          "physical_page": 428,
+          "printed_page": "425",
+          "section": "THE CAGED CHAMELEON",
+          "quote": "do not let her out until you reach the Mountain of the Black Wind, when you are in need of a friend",
+          "role": "Bundari 口令：只在黑风山、需要朋友时才放",
+          "access": "acquired",
+          "verification": "visual"
+        },
+        {
+          "physical_page": 428,
+          "printed_page": "425",
+          "section": "THE CAGED CHAMELEON",
+          "quote": "Once freed from the cage, Who erupts in rage and hunger, attacking everything in her vicinity",
+          "role": "放出后攻击近处一切；若未喂则优先攻击调查员",
+          "access": "keeper_only",
+          "verification": "visual"
+        },
+        {
+          "physical_page": 448,
+          "printed_page": "445",
+          "section": "Who-Is-Not-What-She-Seems (monstrous form)",
+          "quote": "with a range of 40 feet (12 m)",
+          "role": "舌击距离为十二米；十米不在其攻击范围之外，必须与场景的无差别攻击条件合读",
+          "access": "keeper_only",
+          "verification": "visual"
+        }
+      ],
+      "answer_requirements": [
+        "放出后的形态和攻击能力不能按笼中小蜥蜴估计；怪物表舌击范围为40英尺／12米，因此十米仍在范围内，不能保证安全。",
+        "Bundari 要求只在黑风山、需要朋友时打开；其他时间放出须承担后果。",
+        "放出后因愤怒与饥饿攻击近处一切；若忽视喂食，释放时会把调查员当目标。",
+        "带到黑风山后 Who 不安，停留越久越躁动；未击杀则继续破坏直到退入森林。",
+        "不宣布已放出、已变身或已帮忙打赢。"
+      ],
+      "player_answer_boundary": "玩家已听到 Bundari 的喂食与山上再放的嘲托，以及近处虫子躲开的现象。变身数据、舌击杀人与“放出就攻击一切”是守秘人备料，不得在打开前当成玩家已知。不能把 Who 说成可控宠物或稳定战力。",
+      "partial_context": "已供 p425 喂食、释放时机及攻击近处一切；缺 p445 十二米舌击范围，不能只凭笼中体型认可十米为安全距离。",
+      "traps": [
+        "把驱虫效果当成它已是友好伙伴",
+        "路上提前放出当成可调度的帮手",
+        "把 Bundari “be of service” 读成受控或不伤友方"
+      ],
+      "unresolved": [
+        "原文未规定在黑风山正确时机释放后 Who 是否仍攻击调查员或只攻击教派；不能保证“到山上就帮我们打”。"
+      ],
+      "evaluation_role": "distributed-evidence-design",
+      "partition_group": "masks-kenya-creatures"
+    },
+    {
+      "id": "train-fire-vampires-water-not-bullets",
+      "source_id": "masks",
+      "family": "火车火焰追兵跨实体边界",
+      "player_context": "设计情境，非真实游玩。Classic 正篇，不启用 Pulp: Burning Rails。夜里快到奈罗比时窗外出现一红一蓝两团火，车厢开始变色冒烟；我们还没开枪也没浇水。我们刚看见一个人躲进三等座厕所，紧接着火团出现；尚不知此人的身份。",
+      "question": "开枪打这些火球有用吗？往上浇水行不行？是不是把那个躲厕所的人制住就会停？",
+      "evidence": [
+        {
+          "physical_page": 401,
+          "printed_page": "398",
+          "section": "THE FIRST ATTACK",
+          "quote": "bound to Taan Kaur, they attack until the investigators die, Taan is killed or rendered unconscious, or until they themselves are destroyed",
+          "role": "绑定结束条件：查员死、Taan 死/晕、或火焰精灵自身被毁",
+          "access": "keeper_only",
+          "verification": "visual"
+        },
+        {
+          "physical_page": 402,
+          "printed_page": "399",
+          "section": "THE FIRST ATTACK（续）",
+          "quote": "bottles of alcohol are not recommended, particularly whisky and brandy, which only encourage the fire vampires",
+          "role": "车上有水但酒类会助长；与怪物表水伤害互补",
+          "access": "keeper_only",
+          "verification": "visual"
+        },
+        {
+          "physical_page": 448,
+          "printed_page": "445",
+          "section": "Fire Vampires, in two varieties",
+          "quote": "standard material weapons do no harm (blades, bullets, etc.). Water costs a fire vampire one hit point per half-gallon",
+          "role": "实体表：刀枪无效，水/灭火器有效；红蓝两种对应车上两团火",
+          "access": "keeper_only",
+          "verification": "visual"
+        }
+      ],
+      "answer_requirements": [
+        "这是 Taan Kaur 在三等座厕所召唤并绑定的两只火焰精灵（一蓝一红），只攻击调查员。",
+        "普通刀枪无效；水每半加仑扣 1 HP，手持灭火器 1D6，一桶水 1D3。",
+        "车上有沙桶、厕所水壶、餐车约 40 加仑水与机车水柜；威士忌/白兰地只会助长火焰精灵。",
+        "绑定持续直到调查员死、Taan 被杀/打晕、或精灵自身被毁；不宣布任一条已成立。",
+        "Pulp: Burning Rails 是另一套前提，不得混进 Classic。"
+      ],
+      "player_answer_boundary": "玩家只看到红蓝火团和车厢冒烟。Taan 姓名、绑定规则与“制住她就停”是守秘人备料，未辨认前不得自动指认厕所里的人。可提示车上水与沙是可见资源，不替玩家执行浇水或制伏。",
+      "partial_context": "已供 p398 召唤与绑定结束；缺 p399 车上水/酒禁忌与 p445 刀枪无效、水按半加仑扣 HP，容易误用枪或酒。",
+      "traps": [
+        "把火焰精灵当成可被子弹打中的生物",
+        "用餐车酒类当灭火剂",
+        "把 Pulp 跳车逃跑当成 Classic 必然",
+        "把灭火桶里的沙忽略或把其他乘客当成一起被攻击"
+      ],
+      "unresolved": [
+        "线索是 395–396+445；实际缓存为 398/399+445。THE FIRST ATTACK 从 398 中段开始，召唤与绑定句在 398 已看清。",
+        "p445 写 Other substances also can have an effect，未穷尽沙桶是否按水一样算伤害。"
+      ],
+      "evaluation_role": "distributed-evidence-design",
+      "partition_group": "masks-kenya-creatures"
+    },
+    {
+      "id": "city-lights-not-all-sources",
+      "source_id": "masks",
+      "family": "地下灯光控制与别处光源",
+      "player_context": "设计情境，非真实游玩。Classic 澳大利亚章节。我们从第二条入口深入地下城，沿途看到稀疏电灯、汽油发电机，也见过有红蓝光的大厅，但不知道具体供电方式。还没关灯、没砸发电机。",
+      "question": "把这些电灯或发电机停掉，是不是整座城都会黑掉？那些发着光的大厅是不是也靠这套电？",
+      "evidence": [
+        {
+          "physical_page": 491,
+          "printed_page": "488",
+          "section": "UNDERGROUND",
+          "quote": "Electric lights, hung sparsely but regularly, illuminate the steps after the first 50 feet (15 m) or so",
+          "role": "主入口楼梯的教派电灯与备用发电机、汽油桶，是人装的局部照明",
+          "access": "keeper_only",
+          "verification": "visual"
+        },
+        {
+          "physical_page": 491,
+          "printed_page": "488",
+          "section": "THE SECOND ENTRANCE",
+          "quote": "It is miles underground to the nearest string of lights put up by the cultists",
+          "role": "第二条入口深处才接到教派灯串，说明灯不是全城覆盖",
+          "access": "keeper_only",
+          "verification": "visual"
+        },
+        {
+          "physical_page": 495,
+          "printed_page": "492",
+          "section": "THE SHAFT INTO DARKNESS",
+          "quote": "Lights show no apparent bottom to the chasm",
+          "role": "竖井灯光照不见底；当前情境尚未到达此处，不能当成已经观察到的全城状态",
+          "access": "keeper_only",
+          "verification": "visual"
+        },
+        {
+          "physical_page": 497,
+          "printed_page": "494",
+          "section": "LINES OF LIGHT: LINE WALKERS",
+          "quote": "Each day, the next one of the seven generators is stopped for servicing and adjustment (thus, the lights may go out for while, leaving the investigators in the dark for 1D4 hours)",
+          "role": "七台独立发电机轮流检修会局部停电，不是全城一开关",
+          "access": "keeper_only",
+          "verification": "visual"
+        },
+        {
+          "physical_page": 497,
+          "printed_page": "494",
+          "section": "THE GREAT PLAZAS",
+          "quote": "Since these areas are self-illuminated, the cultists have not strung lights across the floors",
+          "role": "红蓝广场地板自发光，不靠教派电线",
+          "access": "keeper_only",
+          "verification": "visual"
+        }
+      ],
+      "answer_requirements": [
+        "教派电灯由多台独立汽油发电机供电，地图以闪电标记；每天轮流停一台检修，可能局部黑暗 1D4 小时，不是全城一开关。",
+        "第二条入口要走数英里才到最近灯串；主入口楼梯在头 50 英尺之后才有稀疏电灯，底部有备用发电机与 50 加仑油桶。",
+        "红蓝大广场地板自发光，教派没有在那里拉灯；紫穹另有搏动紫光。",
+        "竖井灯光照不见底，与灯线不是同一套照明。",
+        "不宣布已停电、已砸毁发电机或已安全通过。"
+      ],
+      "player_answer_boundary": "玩家可见稀疏电灯、发电机噪音与油味。七台轮换、巡线员、闪电枪与广场自发光是守秘人备料，未搜查前不得当玩家已知。不可把关灯说成整座城或飞水母领域一并变黑。",
+      "partial_context": "已供 p488 灯串与楼梯发电机；缺 p494 七台轮换与广场自发光，容易把停电机当成全城黑暗。",
+      "traps": [
+        "把教派电线当成地下城唯一光源",
+        "把广场自发光或紫穹搏动光当成发电机效果",
+        "把竖井无底黑暗当成停电后的全城状态",
+        "把巡线员每 12 小时巡视当成玩家可随意关灯而无遭遇"
+      ],
+      "unresolved": [
+        "p494 写 lights may go out for while，原文 while 前缺 a，按所见保留。",
+        "砸毁全部七台发电机后广场/紫穹是否仍亮，原文只说广场不靠教派灯，未写摧毁发电机的全局结算。"
+      ],
+      "evaluation_role": "distributed-evidence-design",
+      "partition_group": "masks-australia-endgame"
+    },
+    {
+      "id": "miners-commanded-not-restored",
+      "source_id": "masks",
+      "family": "矿工受控不等于恢复",
+      "player_context": "设计情境，非真实游玩。Classic 澳大利亚章节，不启用 Pulp: Mind Control。我们在地下看见一组行动迟缓的矿工听人短令，还没动手，也没戴过那顶金属帽。",
+      "question": "把管他们的人放倒，再下口令，他们就会听我们的吧？这样算把人救回来了吗？",
+      "evidence": [
+        {
+          "physical_page": 501,
+          "printed_page": "498",
+          "section": "HUSTON'S HEADQUARTERS / Ground Level",
+          "quote": "Unless instructed to, the miners do not react to the investigators. If they have adequately spied out the situation, the investigators can attack the cultist overseer and easily control the entire squad",
+          "role": "夺取监工后可用简单口令指挥整队，这是控制不是恢复",
+          "access": "keeper_only",
+          "verification": "visual"
+        },
+        {
+          "physical_page": 503,
+          "printed_page": "500",
+          "section": "The Mind Controller",
+          "quote": "With it, Huston wipes out the long-term memories of captives, and implants instructions that are very difficult to resist",
+          "role": "头盔抹长期记忆并植入指令；会用装置不等于知道如何让人恢复",
+          "access": "keeper_only",
+          "verification": "visual"
+        },
+        {
+          "physical_page": 508,
+          "printed_page": "505",
+          "section": "Kakakatak",
+          "quote": "rewire the mind controller so that the zombified miners can be returned to themselves",
+          "role": "恢复记忆是 Kakakatak 可能提供的改线交易，不是夺队自动结果",
+          "access": "keeper_only",
+          "verification": "visual"
+        },
+        {
+          "physical_page": 509,
+          "printed_page": "506",
+          "section": "Rewards",
+          "quote": "If the investigators were able to restore memory to any of the zombified miners: +1D4 Sanity points",
+          "role": "恢复记忆是独立奖励条件，与“指挥矿工”分开计算",
+          "access": "keeper_only",
+          "verification": "visual"
+        }
+      ],
+      "answer_requirements": [
+        "矿工是心灵控制装置的受害者，现以僵尸方式生活；听简单口令，指令冲突时听 POW 更高者。",
+        "未受命则不理会调查员；放倒监工后可以指挥整队，这只是控制。",
+        "装置抹长期记忆并植入难抗的指令（Hard INT）；调查员用工程学可在数小时内学会操作，但不确定功能与意图除非实验。",
+        "让矿工 returned to themselves 需要改线控制器，原文把这写成 Kakakatak 可能的交易；章节结束条件里的 de-zombified 与恢复记忆奖励是另一档，不等于已经发生。",
+        "不启用 Pulp 把装置当洗脑军队；不宣布已改线或已恢复。"
+      ],
+      "player_answer_boundary": "玩家可见矿工听短令、反应迟钝。头盔抹记忆、Kakakatak 改线交易与奖励条目是守秘人备料，未接触前不得当玩家已知。不可把“他们听我们的”说成已经救人成功。",
+      "partial_context": "已供 p498 夺监工即可指挥；缺 p500 抹记忆、p505 改线才能 returned to themselves、p506 恢复记忆是独立奖励，容易把听话当成获救。",
+      "traps": [
+        "把 Work Party 听令当成人格已恢复",
+        "把 Pulp: Mind Control 洗脑教众当成 Classic 解法",
+        "以为学会操作头盔就自动知道如何恢复",
+        "把章节结语 If investigators have done their job... miners de-zombified 当成当前已结算"
+      ],
+      "unresolved": [
+        "原文未写没有 Kakakatak 时调查员能否自行改线恢复矿工。",
+        "p506 CONCLUSION 把 de-zombified 写成章节成功叙事，与 Rewards 的 restore memory 是否必须同一操作，未再拆开。"
+      ],
+      "evaluation_role": "distributed-evidence-design",
+      "partition_group": "masks-australia-endgame"
+    },
+    {
+      "id": "shanghai-needle-and-ceiling-traps",
+      "source_id": "masks",
+      "family": "上海药针与视线陷阱",
+      "player_context": "设计情境，非真实游玩。Classic 上海，不混 Pulp 伤害。我们进了 Ho 的神龛小房间，看见雕像、玻璃棺和带金门的柜子；此前在花房见过压榨机和不明液体，但没有鉴定。天花板有没有盖着还不清楚；还没开柜，也没盯着顶看。",
+      "question": "那个柜子能直接撬吗？要是顶上有字，盯着看会出事吗？花园里榨出来的东西能不能当解药？",
+      "evidence": [
+        {
+          "physical_page": 563,
+          "printed_page": "560",
+          "section": "The Pavilion",
+          "quote": "a successful Science (Botany or Pharmacy) or Hard Natural World roll establishes which flowers are used, along with the possibility of any antidote",
+          "role": "花房压榨 Essence of Thoughtful Resignation；实验室鉴定才可能指向解药，见柜子",
+          "access": "keeper_only",
+          "verification": "visual"
+        },
+        {
+          "physical_page": 565,
+          "printed_page": "562",
+          "section": "The Crawling Ceiling",
+          "quote": "anyone staring at the pattern for more than five combat rounds feels their mind being drawn out and into the pattern",
+          "role": "天花板图案是独立的视线陷阱，与药针不是同一机制",
+          "access": "keeper_only",
+          "verification": "visual"
+        },
+        {
+          "physical_page": 565,
+          "printed_page": "562",
+          "section": "The Teak Cabinet",
+          "quote": "a success avoids a poisoned needle trap. On a failed group Luck roll, the poison is still active",
+          "role": "撬柜有毒针；Locksmith/Mechanical Repair 成功才避开",
+          "access": "keeper_only",
+          "verification": "visual"
+        },
+        {
+          "physical_page": 566,
+          "printed_page": "563",
+          "section": "The Teak Cabinet（续）",
+          "quote": "Those blinded by the poison suffer either increased difficulty levels to all rolls requiring sight or a penalty die, whichever is most appropriate",
+          "role": "毒导致失明；医院+Hard Medicine，花房成分已知则降为 Regular",
+          "access": "keeper_only",
+          "verification": "visual"
+        }
+      ],
+      "answer_requirements": [
+        "柜门可用杠杆并成功 Hard STR 强行打开，但这不等于避开毒针。原文仅将避针成功系于 Locksmith 或 Hard Mechanical Repair 成功；不能给 Locksmith 擅加 Hard。群体 Luck 失败表示毒仍有效。",
+        "针上是 Essence of Thoughtful Resignation，须每日更新否则无效；Classic 按 Mild 1D10，不混 Pulp 2D10。",
+        "失明持续到医院/诊所治疗且 Hard Medicine 成功；若已从花房压榨机鉴定出成分，难度降为 Regular。Extreme CON 则暂时失明 1D6 分钟且伤害减半。",
+        "天花板图案是另一陷阱：盯超过五个战斗轮须 Hard POW，失败则心智被吸入；把人拖出房间或关上顶盖会阻止被困心智回来。",
+        "天花板也有挣脱方法，不是永久无解：被困者通过当轮 Sanity 后可再试 Hard POW；相隔几轮进入的多人可连结心智，Luck 成功提供加成，任一相关 Hard POW 成功可使所有参与者返回。",
+        "不宣布已开柜、已中针、已盯顶或已解出解药。"
+      ],
+      "player_answer_boundary": "玩家可见柜子、雕像与可能的玻璃棺。毒名、每日更新、天花板吸入规则与花房解药路径是守秘人备料。未鉴定前不得把花园液体说成已有的解药。",
+      "partial_context": "已供 p562 毒针与天花板盯视；缺 p560 花房鉴定才可能有解药、p563 失明治疗门槛，容易把花园液体当现成解药或把两种陷阱混成一个。",
+      "traps": [
+        "把天花板视线陷阱与毒针失明当成同一效果",
+        "把花房压榨汁直接当已制备解药",
+        "用 Pulp Strong 2D10 替代 Classic Mild 1D10",
+        "把人拖出房间当成救出被吸入的心智"
+      ],
+      "unresolved": [
+        "钥匙在 Ho 身上；本条未把偷钥匙当已发生。"
+      ],
+      "evaluation_role": "distributed-evidence-design",
+      "partition_group": "masks-shanghai-needle-and-ceiling-traps"
+    },
+    {
+      "id": "bast-token-wu-not-ally",
+      "source_id": "masks",
+      "family": "猫护符与 Wu 的限制",
+      "player_context": "设计情境，非真实游玩。Classic。埃及支线已结束，我们戴着一块猫头石坠来到上海，在 Lung 家门口看见一只叫的暹罗猫。尚未进门，也还没打它。不把 Van Heuvelen 情节当本题主线。",
+      "question": "戴着这个坠子，那只猫不会咬我们吧？它会帮我们对付要害 Lung 的东西吗？",
+      "evidence": [
+        {
+          "physical_page": 336,
+          "printed_page": "333",
+          "section": "CONCLUSION",
+          "quote": "a small, carved stone pendant in the form of a cat, which marks the wearer out as favored by the goddess",
+          "role": "坠子来自归还卷轴且无猫受伤的奖励；点名会影响上海与猫魔 Wu 的互动",
+          "access": "acquired",
+          "verification": "visual"
+        },
+        {
+          "physical_page": 656,
+          "printed_page": "653",
+          "section": "Token of Bast's Regard",
+          "quote": "it also safeguards them against the attentions of cat-demons, who will not attack them, except in self-defense",
+          "role": "猫魔不主动攻击佩戴者，自卫除外；伤害猫则坠子碎裂",
+          "access": "keeper_only",
+          "verification": "visual"
+        },
+        {
+          "physical_page": 549,
+          "printed_page": "546",
+          "section": "THE CAT ON THE THRESHOLD",
+          "quote": "If they happen to be wearing the amulets when they visit Mr. Lung, the Siamese cat is incredibly friendly",
+          "role": "戴着则暹罗猫亲近；不戴则躲开并嘶叫，不是战斗盟友描写",
+          "access": "keeper_only",
+          "verification": "visual"
+        },
+        {
+          "physical_page": 554,
+          "printed_page": "551",
+          "section": "THE CAT-DEMON ACTS",
+          "quote": "Even if they are wearing the cat amulets, Wu doesn't mind watching Lung harm them—just because it is expected to be friendly towards them doesn't mean it has to protect them from others",
+          "role": "护符不阻止 Wu 害 Lung，也不保护调查员免于他人；干涉其计划则另说",
+          "access": "keeper_only",
+          "verification": "visual"
+        }
+      ],
+      "answer_requirements": [
+        "戴着 Bast 坠子时，猫与猫魔不主动攻击佩戴者（自卫除外）；门口暹罗猫会亲近。",
+        "伤害猫会使坠子碎裂并变成寻仇猫魔；不戴时伤害猫则会遭猎杀直到打伤目标。",
+        "Wu 即使因护符不对调查员下手，也可以看着别人伤害他们，也不会保护 Lung；一旦厌倦或受伤足够就会显出魔形完成任务。",
+        "Wu 免疫物理武器与自然伤害；护符不是让它成为可控盟友。",
+        "不宣布已打退 Wu 或已救下 Lung。"
+      ],
+      "player_answer_boundary": "玩家已有猫头坠并看见门口的猫。Wu 是猫魔、不保护 Lung、免疫物理伤害是守秘人备料；未显形前不得把暹罗猫直接说成恶魔。不展开 Van Heuvelen 考古冲突。",
+      "partial_context": "已供 p333 坠子奖励与 p546 戴着则猫亲近；缺 p653 猫魔不攻击除非自卫、p551 不保护他人/不阻止害 Lung，容易把护符当成战斗盟友。",
+      "traps": [
+        "把友好当成 Wu 会帮打",
+        "以为护符让所有人免于猫魔",
+        "打猫还以为坠子仍有效",
+        "用普通枪械打 Wu"
+      ],
+      "unresolved": [
+        "p551 后半列出几种对付 Wu 的方法，本条只取护符限制，不把那些方法当玩家已持有。"
+      ],
+      "evaluation_role": "distributed-evidence-design",
+      "partition_group": "masks-egypt-scrolls-bast"
+    },
+    {
+      "id": "local-sabotage-not-global-end",
+      "source_id": "masks",
+      "family": "计时器、局部破坏与全球结局",
+      "player_context": "设计情境，非真实游玩。Classic。我们在澳大利亚和上海各见过一座航海钟，分针秒针与手表一致、时针读数比当地时间少八小时；手稿或谈话里出现过 1926 年 1 月 14 日。还没拨钟、没毁火箭。",
+      "question": "把上海那枚火箭毁掉，或者把钟拨快拨慢，是不是全球这边就完了？澳大利亚停掉会不会一起停？",
+      "evidence": [
+        {
+          "physical_page": 503,
+          "printed_page": "500",
+          "section": "Typewritten Manuscript",
+          "quote": "what Huston must do on January 14, 1926, at particular moments of Greenwich Mean Time",
+          "role": "澳大利亚仪式按 GMT 对齐；钟差八小时是对时工具不是唯一开关",
+          "access": "keeper_only",
+          "verification": "visual"
+        },
+        {
+          "physical_page": 601,
+          "printed_page": "598",
+          "section": "Foiling the Ritual of Opening",
+          "quote": "Without the rocket, the Great Gate could still be opened by those in Kenya, but it would take far longer to achieve",
+          "role": "毁火箭只让开口变慢/暂时，肯尼亚大仪式才决定是否永久",
+          "access": "keeper_only",
+          "verification": "visual"
+        },
+        {
+          "physical_page": 601,
+          "printed_page": "598",
+          "section": "Messing with Time",
+          "quote": "set Sir Aubrey's chronometer 10-20 minutes ahead or behind, making both his spellcasting and his rocket out of phase",
+          "role": "拨钟可使该点仪式错相；每日早餐后他会自己对钟，且可能被奈亚提醒",
+          "access": "keeper_only",
+          "verification": "visual"
+        },
+        {
+          "physical_page": 623,
+          "printed_page": "620",
+          "section": "THE EVENTS OF JANUARY 14, 1926 / Kenya, China, Australia",
+          "quote": "The rite in Kenya is essential to making the Great Gate permanent",
+          "role": "中肯澳是三角三顶点；停火箭且挡住肯尼亚则澳大利亚努力作废，反之亦然",
+          "access": "keeper_only",
+          "verification": "visual"
+        },
+        {
+          "physical_page": 625,
+          "printed_page": "622",
+          "section": "RESULTS",
+          "quote": "The investigators have saved the day. For now, at least",
+          "role": "结局分三档而非二元；即便 Horror Averted 也只是此刻",
+          "access": "keeper_only",
+          "verification": "visual"
+        }
+      ],
+      "answer_requirements": [
+        "各点航海钟把本地时对齐 GMT，1 月 14 日日食是全球同时仪式，不是毁一座钟就全停。",
+        "上海火箭用于撕开实在、打下大门基础；没有火箭肯尼亚仍可能开口，只是更久。肯尼亚大仪式是永久化所必需；无它则火箭打开的门只是暂时。",
+        "把 Aubrey 的钟拨快/慢 10–20 分钟可使该点咏唱与火箭错相；他每天早餐后对钟，且可能被提醒。提前数日毁掉钟，Dark Mistress 可另取一座。",
+        "中肯澳构成三角；只停一地不等于全球结束。p621 计分把火箭成功、人员仍在、钟被拨乱、Eye 防护分开加减。",
+        "结局至少三档（Full / Lesser / Averted），Averted 也写 for now；不宣布火箭已毁或世界已救。"
+      ],
+      "player_answer_boundary": "玩家可见两座钟差八小时，以及日期传闻。三角永久化、计分点和“教派以后还会再试”是守秘人备料，不得把未调查的肯尼亚/澳大利亚进度当成已经结算。不把 Shafik 等伦敦人事扩进本题。",
+      "partial_context": "已供 p500/p594 两座对时的钟；缺 p598 无火箭肯尼亚仍可能开口、p620 三角分工、p622 三档结局，容易把毁火箭或拨一口钟当成全球胜利。",
+      "traps": [
+        "把毁火箭当成大门永不可开",
+        "把拨一口钟当成三地同时失效",
+        "把澳大利亚停摆当成肯尼亚/上海自动失败",
+        "把 Horror Averted 写成永远结束"
+      ],
+      "unresolved": [
+        "p621 计分表未在玩家可见层；本题不要求报出具体分数阈值。",
+        "p619 写即使火箭已毁且三地有 Eye，残余教派仍可能再试，与 p622 后续日食列表如何衔接由守秘人判断。"
+      ],
+      "evaluation_role": "distributed-evidence-design",
+      "partition_group": "masks-australia-endgame"
+    },
+    {
+      "id": "discard-book-hide-trail",
+      "source_id": "blood-highway",
+      "family": "追踪机制与避难地点",
+      "player_context": "设计情境，非真实游玩。按本模组1975年设定，不追加Pulp能力。我们在礼品店接触过黑色蛇皮书，听过脑中的女声，随后在外面察觉有人跟踪；约翰曾让我们遇险时回店里。",
+      "question": "把那本黑书扔掉是不是就能甩掉他们？现在躲回店里，还是去教堂更靠谱？",
+      "evidence": [
+        {
+          "physical_page": 8,
+          "printed_page": null,
+          "section": "动机／书",
+          "quote": "哪怕只是触碰到它",
+          "role": "接触足以引发感知；正文只给大致位置，并列出两个受保护地点",
+          "access": "keeper_only",
+          "verification": "native"
+        },
+        {
+          "physical_page": 31,
+          "printed_page": null,
+          "section": "3I 雷鸟礼品店／守密人须知",
+          "quote": "商店里的各种保护和符咒使她无法发现它的存在",
+          "role": "礼品店保护来源，不能推广为所有建筑均安全",
+          "access": "keeper_only",
+          "verification": "native"
+        },
+        {
+          "physical_page": 80,
+          "printed_page": null,
+          "section": "最后的思考",
+          "quote": "当然，奥斯庭和 艾尔伊希娅 · 斯丽西 · 阿娜 都不 是全知全能 的",
+          "role": "魔法与镇民监视并存、两个地点受保护、敌人并非全知",
+          "access": "keeper_only",
+          "verification": "native"
+        },
+        {
+          "physical_page": 105,
+          "printed_page": null,
+          "section": "附录Ⅴ／伊格之眼、蠕虫的秘密",
+          "quote": "戴上伊格之眼，可以远程监控六英里以内的某 个已 知人物或地点",
+          "role": "已知人物／地点的监视是另一机制；触书还会促成传话与取书行动",
+          "access": "keeper_only",
+          "verification": "native"
+        }
+      ],
+      "answer_requirements": [
+        "区分书引发的女祭司感知、吊坠针对已知人物／地点的观察、镇民传递消息，不能把书当唯一追踪器。",
+        "礼品店和羔羊之血圣灵降临教会是原文明确的保护地点，不可混成基地内教堂。",
+        "丢书后会否永久解除感知、记忆或已下达的搜捕命令，原文没有承诺；答案不得保证立刻安全。",
+        "可根据已获知的帮助与安全感建议回避难点，但不替玩家执行丢书或移动。"
+      ],
+      "player_answer_boundary": "玩家可得到基于已体验女声与跟踪的谨慎判断、约翰已告知的避难建议。监视者姓名、吊坠参数和潜沙怪调遣仅供守秘人备料，不自动解说。",
+      "partial_context": "已供p31礼品店符咒段；缺p8接触触发、p80两处保护与非全知边界，以及p105独立人物监视，容易误答丢书就安全。",
+      "traps": [
+        "把羔羊之血教堂与基地14C教堂混淆",
+        "把触书感知等同伊格之眼的六英里规则",
+        "把庇护解释为敌人遗忘或永不进入"
+      ],
+      "unresolved": [
+        "p8接触即感知与p105触摸后意志检定的触发叙述存在粒度差异，不能擅自统一。",
+        "丢弃后追踪持续多久没有明文规定。"
+      ],
+      "evaluation_role": "distributed-evidence-design",
+      "partition_group": "blood-highway-discard-book-hide-trail"
+    },
+    {
+      "id": "west-road-detour",
+      "source_id": "blood-highway",
+      "family": "路线选择与动态封锁",
+      "player_context": "设计情境，非真实游玩。按本模组通常流程，不启用附录追车细则。车已修好，我们不信任让大家走红路的人，只知道原来那座桥出了问题，尚未实地检查各岔路。",
+      "question": "不走红路，顺着西边那些岔路开出去不行吗？实在不行我们就弃车走。",
+      "evidence": [
+        {
+          "physical_page": 42,
+          "printed_page": null,
+          "section": "13B／扭曲之路",
+          "quote": "车辆不可能绕过 障碍物",
+          "role": "西行道路有残骸巨石，车辆不能绕行",
+          "access": "keeper_only",
+          "verification": "native"
+        },
+        {
+          "physical_page": 42,
+          "printed_page": null,
+          "section": "13B／山脊路、山沟路",
+          "quote": "这条路在 矿工住宅区 与矿工路相交",
+          "role": "区分山脊路陷坑与山沟路断桥，不能笼统判所有岔路可用",
+          "access": "keeper_only",
+          "verification": "native"
+        },
+        {
+          "physical_page": 76,
+          "printed_page": null,
+          "section": "事件时间线3／被锁定为猎物",
+          "quote": "如果他们试图步行逃离， 沙痞们将用越野车（摩托车和皮卡）追赶他们",
+          "role": "弃车不是免于追捕的自动解法",
+          "access": "keeper_only",
+          "verification": "native"
+        },
+        {
+          "physical_page": 77,
+          "printed_page": null,
+          "section": "事件时间线5A／泰希罕来袭",
+          "quote": "所有向南或向西的道路都被骑着摩托车、开 汽车和皮卡的沙漠地痞们严防死守",
+          "role": "逃脱后阶段的动态封路，不提前当作玩家已知事实",
+          "access": "keeper_only",
+          "verification": "native"
+        }
+      ],
+      "answer_requirements": [
+        "静态路况分别说明：扭曲之路西行五英里多受阻，山脊路有隐藏陷坑，山沟路木桥已毁。",
+        "区分当前已见断桥与尚待侦察的岔路，不能凭守秘人地图让玩家全知。",
+        "时间线是敌人可能的行动与回应；到相应逃脱阶段才用南西封锁，不硬推所有玩家必须走红路。",
+        "弃车可作为选择，但原文安排越野追捕，不保证安全，也不判探索新逃法必败。"
+      ],
+      "player_answer_boundary": "只把当前可见路况当确定事实。未知障碍用勘路、地图与观察作为下一步，不把所有陷阱直接报出。",
+      "partial_context": "已有p42静态道路描述；缺p76步行追捕与p77逃脱后的动态封锁，不能只凭地图判断出口。",
+      "traps": [
+        "把时间线建议当不可违抗剧本",
+        "混淆回高速公路的桥与山沟路旧断桥",
+        "套用旧题追车人数／先攻／碰撞规则"
+      ],
+      "unresolved": [
+        "原文没有穷尽所有离开荒野的方案，不能由已列道路推出绝对无路可逃。"
+      ],
+      "evaluation_role": "distributed-evidence-design",
+      "partition_group": "blood-highway-west-road-detour"
+    },
+    {
+      "id": "compound-drain-party-fit",
+      "source_id": "blood-highway",
+      "family": "基地越狱路径与工具条件",
+      "player_context": "设计情境，非真实游玩。采用本模组地点专用规则。我们被关在基地牢房，已看见地面的排水口；同伴体型不同，其中一人很魁梧。还没有撬开盖子或成功找到工具。",
+      "question": "带大家从排水口爬出去行吗？是不是找根撬棍就够了，个子最大的那个怎么办？",
+      "evidence": [
+        {
+          "physical_page": 43,
+          "printed_page": null,
+          "section": "14 基地／东侧排水沟",
+          "quote": "一条直径为三英尺 的排水管从墙下穿过",
+          "role": "外墙出口锈篦子与噪声／撬工具条件",
+          "access": "keeper_only",
+          "verification": "native"
+        },
+        {
+          "physical_page": 52,
+          "printed_page": null,
+          "section": "14J 牢房／下水道出逃",
+          "quote": "只有个 子够小的人（体型不大于 50 ）",
+          "role": "牢房盖子、力量协作、体型门槛与扩口过程",
+          "access": "keeper_only",
+          "verification": "native"
+        },
+        {
+          "physical_page": 54,
+          "printed_page": null,
+          "section": "14K 储藏室",
+          "quote": "地板上有一个排水口，但被箱子盖住了",
+          "role": "另一入口与现场工具，仍须取得房间通行权",
+          "access": "keeper_only",
+          "verification": "native"
+        },
+        {
+          "physical_page": 55,
+          "printed_page": null,
+          "section": "14M 屠宰屋／排水口",
+          "quote": "这里的情况与 14j 的类似，只是开口更大一点，有 两英尺半",
+          "role": "更大开口不是已给所有体型通行保证",
+          "access": "keeper_only",
+          "verification": "native"
+        }
+      ],
+      "answer_requirements": [
+        "牢房盖子需两人力量合计至少120并进行困难力量检定；撬棍能处理外墙锈篦，不等于取代牢房条件。",
+        "牢房原入口允许SIZ≤50；移松石可放宽到≤65，需五次力量检定，每次半小时，小刀／勺子让时间减半；白天还要避免惊动守卫。",
+        "储藏室有被箱子遮住的类似排水口及铲镐耙；屠宰屋盖子用困难力量检定，开口两英尺半，但不能发明SIZ上限。",
+        "沿途仍有进入污水与爬行的心理／体质障碍；不要把蛇洞粪池的三分之二英里、每百码和33分钟套入基地路线。",
+        "不宣布找到工具、移盖或全员逃脱已经成功；先确认各人体型、可用工具与可达入口。"
+      ],
+      "player_answer_boundary": "先答已见牢房入口的实际可行性；其他建筑入口只有搜查或取得可靠情报后才能成为玩家路线选项。",
+      "partial_context": "已有p43外墙出口与p52牢房入口；缺p54储藏室和p55较大入口，容易误断大体型成员只能放弃，也容易把撬外篦条件套用内盖。",
+      "traps": [
+        "把蛇洞12粪池路线当基地下水道",
+        "把管道直径当入口尺寸",
+        "从屠宰屋开口尺寸自行换算体型门槛"
+      ],
+      "unresolved": [
+        "p52把地下管道写为直径10英尺；按原文保留，不擅改单位。",
+        "p55没有给较大入口的精确SIZ上限。"
+      ],
+      "evaluation_role": "distributed-evidence-design",
+      "partition_group": "highway-underground-routes"
+    },
+    {
+      "id": "miller-family-separate-rescue",
+      "source_id": "blood-highway",
+      "family": "失踪家庭的分散位置与救援",
+      "player_context": "设计情境，非真实游玩。采用模组米勒一家预设，不替换身份。我们看过失踪报道，在红房子找到凯莉并准备带她离开；她尚未明确告诉我们孩子的位置。内容边界为克制的救援描述，不呈现虐待细节。",
+      "question": "找到他们妈妈了，是不是两个孩子也在这院子里？带她出去以后，我们还来得及把孩子一起救走吗？",
+      "evidence": [
+        {
+          "physical_page": 9,
+          "printed_page": null,
+          "section": "动机／祭品",
+          "quote": "孩子们，丽贝卡（ 8 岁）和詹姆斯（ 10 岁）",
+          "role": "预设家庭身份及母亲在红房子、孩子在蛇洞转化之厅的分散安排",
+          "access": "keeper_only",
+          "verification": "native"
+        },
+        {
+          "physical_page": 49,
+          "printed_page": null,
+          "section": "14G 红房子／被寻找女性的例外",
+          "quote": "她待在这 里的时间还不长，不至于完全崩溃",
+          "role": "区分一般囚犯与被寻找者例外，不保证母亲能完整提供情报",
+          "access": "keeper_only",
+          "verification": "native"
+        },
+        {
+          "physical_page": 72,
+          "printed_page": null,
+          "section": "15C 转化之厅／营救",
+          "quote": "而转化中的那些孩子是可以被拯救的",
+          "role": "救援仍可能，需协作并照顾身体与心理状态",
+          "access": "keeper_only",
+          "verification": "native"
+        },
+        {
+          "physical_page": 104,
+          "printed_page": null,
+          "section": "附录Ⅴ／堕化食人族",
+          "quote": "将一个人类小孩永久地转化为泰希罕",
+          "role": "完成后的永久性不能与尚处预备阶段的可救状态混同",
+          "access": "keeper_only",
+          "verification": "native"
+        }
+      ],
+      "answer_requirements": [
+        "按预设两名孩子不在母亲所在大院，而在蛇洞转化之厅；母亲获救不等于全家已经找到。",
+        "不能默认母亲全知或能立即交流；原文的被寻找女性例外允许其状态较好，不是自动情报入口。",
+        "未完成转化的目标孩子仍可救；两名成年人合作救下比单人操作安全，单人检定失败可能造成伤害，后续需医疗与长期照护。",
+        "与已完成永久转化及另受奴役的看火孩子分开，不保证所有孩子状态、救法和恢复机会相同。",
+        "没有实时战役时钟，不能承诺还剩多少分钟；仅说明原书到达该情境时允许营救。"
+      ],
+      "player_answer_boundary": "向玩家提供已有身份确认与救援选择，不直接透露未调查地点；孩子位置需由后续线索或NPC可知信息获得。幕后仪式只作状态区分，不复述施虐步骤。",
+      "partial_context": "已有p9家庭分置与p49母亲情况；缺p72实际营救要求及p104完成后的永久性，容易将找到母亲或找到孩子误当救援完成。",
+      "traps": [
+        "将母亲、两个孩子安排在同一牢房",
+        "把所有被囚儿童视作同一状态",
+        "把原书预设改写为已经结算成功的救援"
+      ],
+      "unresolved": [
+        "当前设计没有实局时间与行动记录，不能计算营救截止时间。"
+      ],
+      "evaluation_role": "distributed-evidence-design",
+      "partition_group": "blood-highway-miller-family-separate-rescue"
+    },
+    {
+      "id": "radio-town-outside-contact",
+      "source_id": "blood-highway",
+      "family": "通信设备、供电与联络风险",
+      "player_context": "设计情境，非真实游玩。采用模组1975年通信环境。我们隔窗看见停业电器行有CB设备，也知道废品站办公室有一台正在用的无线电；尚未进行拆取、修复或呼叫。",
+      "question": "店里明明摆着无线电，拿一台就能向镇外求救吧？不然用废品站那台，或者还有别的办法吗？",
+      "evidence": [
+        {
+          "physical_page": 31,
+          "printed_page": null,
+          "section": "3K 阿托米克电器行",
+          "quote": "里面覆盖着一层厚厚的灰尘",
+          "role": "库存可见不等于发射能力、供电和可用状态已经确认",
+          "access": "public",
+          "verification": "native"
+        },
+        {
+          "physical_page": 37,
+          "printed_page": null,
+          "section": "11 文森特兄弟废品回收站／CB",
+          "quote": "但可以联络当地的 无线电 听众",
+          "role": "天线差限制联络对象；店主还会用该设备向塞斯报警",
+          "access": "keeper_only",
+          "verification": "native"
+        },
+        {
+          "physical_page": 24,
+          "printed_page": null,
+          "section": "维兰德住宅区发现表77／短波收音机",
+          "quote": "它可以靠汽车电池运行 30 分钟",
+          "role": "替代联络设备的发现、供电、电子学与联络检定条件",
+          "access": "keeper_only",
+          "verification": "native"
+        }
+      ],
+      "answer_requirements": [
+        "电器行橱窗可见CB、零件、电线与电池，不足以保证随取随用或能向镇外联络。",
+        "废品站CB因天线差有大量静电，只能联络本地听众；办公室上锁且文森特兄弟可能向塞斯通风报信。",
+        "住宅区隐藏夹层有可用的短波设备，但这是发现表条目而非固定门牌77；需要找到它、供直流电。",
+        "汽车电池支持约30分钟，连接正在充电的车可更久；操作需困难电子学、联络需幸运成功，每小时可再尝试，不等于自动报到警察。"
+      ],
+      "player_answer_boundary": "可解释已观察设备仍需检查及本地呼叫风险；隐藏短波机只能在实际获得线索或发现后提出，不能从题库凭空给玩家。",
+      "partial_context": "已有p31可见库存与p37本地CB限制；缺p24可用替代设备的供电／联络条件，易误答所有无线电均无用或CB必可报警。",
+      "traps": [
+        "把发现表77当住宅门牌",
+        "把收听本地广播等同对外双向呼叫",
+        "保证修天线就能联络镇外，原文没有该规则"
+      ],
+      "unresolved": [
+        "p24称设备为短波收音机但同时明确写了联系他人的规则，保留原书叫法，不据此发明设备型号。",
+        "p31未给每台库存设备的具体工作状态。"
+      ],
+      "evaluation_role": "distributed-evidence-design",
+      "partition_group": "blood-highway-radio-town-outside-contact"
+    },
+    {
+      "id": "idol-one-holder-not-invisibility",
+      "source_id": "blood-highway",
+      "family": "护身道具与敌人行为",
+      "player_context": "设计情境，非真实游玩。采用模组地点道具规则。我们在蛇洞神龛拿到了温暖的小蛇像，刚看到一个矮小追兵迟疑后退；同伴没有拿雕像。没有发动攻击。",
+      "question": "这神像能护着我们所有人一起走吗？我拿着它先打一下，那些东西是不是也不敢还手？",
+      "evidence": [
+        {
+          "physical_page": 68,
+          "printed_page": null,
+          "section": "蛇洞6／伊格的神龛",
+          "quote": "不过其同伴无法共享这份庇护",
+          "role": "保护持有人、转手与主动攻击后的例外",
+          "access": "keeper_only",
+          "verification": "native",
+          "necessity": "sufficient-core"
+        },
+        {
+          "physical_page": 100,
+          "printed_page": null,
+          "section": "附录Ⅳ／泰希罕行为和战术",
+          "quote": "它 们 会 坚决执行女祭司的命令",
+          "role": "敌人会合作包抄而非全部呆站；保护不是全队隐形",
+          "access": "keeper_only",
+          "verification": "native",
+          "necessity": "supporting-not-required"
+        },
+        {
+          "physical_page": 101,
+          "printed_page": null,
+          "section": "附录Ⅳ／泰希罕伪装色",
+          "quote": "当 它 们 移动或攻击时，伪装就会消失",
+          "role": "观察不到敌人不等于没有埋伏，区别庇护与感知",
+          "access": "keeper_only",
+          "verification": "native",
+          "necessity": "supporting-not-required"
+        }
+      ],
+      "answer_requirements": [
+        "只有持有神像的人受保护，同伴不能共享，但可以转交；不能凭接力假定整队同时受保护。",
+        "持有人主动攻击泰希罕后，它们不再受震慑，会带惩罚骰攻击持有人，绝非免费进攻。",
+        "对象是泰希罕，不把道具推广为对所有蛇、甲虫或人类有效。"
+      ],
+      "player_answer_boundary": "先描述观察到的后退并让玩家试探或选择；不因一次后退直接给出全套怪物属性。机制条件供守秘人回应实际行动。",
+      "partial_context": "臂A只供p68保护持有人的开头，应补同一小节的同伴／主动攻击例外；臂B完整供给该小节时已经足够，p100-101战术与伪装是可选背景，不应强制追加。",
+      "traps": [
+        "把神像与旧印混同",
+        "给全队永久免疫",
+        "将迟疑或隐藏误认作敌人已离开"
+      ],
+      "unresolved": [
+        "原文未规定快速转手的行动成本及主动攻击解除震慑的持续期限，不补造。"
+      ],
+      "evaluation_role": "sufficiency-control",
+      "partition_group": "highway-tahihan",
+      "optional_context": [
+        "附录说明敌人会包抄并隐蔽；小雕像没有侦测或让全队隐身的规则，仍需顾及没有持物的同伴。"
+      ]
+    },
+    {
+      "id": "fire-swarm-is-not-one-rule",
+      "source_id": "blood-highway",
+      "family": "相似群体威胁的不同应对",
+      "player_context": "设计情境，非真实游玩。采用模组怪物规则。我们此前遇到过变异鼠群，这次在蛇窟建筑外的石粉里又发现了金属一样的小甲虫；返回时可能还要经过鼠群所在洞穴，想用火清出往返路线，尚未执行。",
+      "question": "老鼠和这些金属小虫都能用火赶走吗？点着以后，我们能马上跟着冲过去吧？",
+      "evidence": [
+        {
+          "physical_page": 68,
+          "printed_page": null,
+          "section": "蛇洞4／变异老鼠",
+          "quote": "老鼠不会追得太远",
+          "role": "鼠群遭遇可逃离，不强制当成必须歼灭战",
+          "access": "keeper_only",
+          "verification": "native"
+        },
+        {
+          "physical_page": 71,
+          "printed_page": null,
+          "section": "14 蛇窟／金属甲虫遭遇",
+          "quote": "除建筑物内部外，这些金属甲虫在整个洞穴中随 处可见",
+          "role": "本次地点与停留引发群体遭遇的条件",
+          "access": "keeper_only",
+          "verification": "native"
+        },
+        {
+          "physical_page": 101,
+          "printed_page": null,
+          "section": "附录Ⅳ／变异鼠群",
+          "quote": "如果 放火烧鼠，它们将在两轮后溃散",
+          "role": "鼠群怕火并非即时退散，燃烧期间仍能攻击和引燃受害者",
+          "access": "keeper_only",
+          "verification": "native"
+        },
+        {
+          "physical_page": 103,
+          "printed_page": null,
+          "section": "附录Ⅳ／金属甲虫群",
+          "quote": "它们对火免疫",
+          "role": "关键相反应对；金属不表示有高护甲，别反向误判",
+          "access": "keeper_only",
+          "verification": "native"
+        }
+      ],
+      "answer_requirements": [
+        "变异鼠群与金属甲虫不是同一套规则；金属甲虫对火免疫。",
+        "鼠群遇火两轮后溃散，并非当场消失，仍会攻击且可能引燃人。",
+        "蛇窟建筑外久留可能触发甲虫，建筑内部不按同一分布处理；是否已经遭遇根据实际行动判断。",
+        "不可因金属材质就认定其他攻击无效：附录视作无护甲，成功攻击可减少群体，但不用本题代算伤害。"
+      ],
+      "player_answer_boundary": "玩家只能把旧经验当猜测；若未见甲虫抗火，守秘人不让角色凭空知道免疫。用可见材质差异提示不可保证，实际效果按附录裁定。",
+      "partial_context": "已有p101鼠群火焰反应和p71现场描述；缺p103免疫，模型若按群体相似性迁移会给出错误计划。",
+      "traps": [
+        "把金属甲虫当变异老鼠的换皮",
+        "火免疫误写成所有攻击免疫",
+        "保证建筑内外都能无限安全停留"
+      ],
+      "unresolved": [],
+      "evaluation_role": "distributed-evidence-design",
+      "partition_group": "blood-highway-fire-swarm-is-not-one-rule"
+    },
+    {
+      "id": "clear-water-not-safety-test",
+      "source_id": "blood-highway",
+      "family": "不同水源的证据与未知边界",
+      "player_context": "设计情境，非真实游玩。采用模组场景与辐射规则，不测试整套脱水。我们曾看见矿区警告牌，现在来到洞内一处清澈而有香味的水池，想洗去身上的污物；尚无计数器测量结果。",
+      "question": "矿区有危险牌，可这个池子清清亮亮的，还带香味，能用来洗干净吗？",
+      "evidence": [
+        {
+          "physical_page": 72,
+          "printed_page": null,
+          "section": "15D 女祭司之厅",
+          "quote": "水看起来很清澈， 有一股淡淡的香味",
+          "role": "具体池水可见外观，但不是检测合格说明",
+          "access": "public",
+          "verification": "native"
+        },
+        {
+          "physical_page": 62,
+          "printed_page": null,
+          "section": "维兰德矿井／开采方式",
+          "quote": "这造成了该地区大部分地下水都被重 金属和辐射污染",
+          "role": "区域水风险，不能断言所有池水必然同一污染状态",
+          "access": "keeper_only",
+          "verification": "native"
+        },
+        {
+          "physical_page": 61,
+          "printed_page": null,
+          "section": "15D 仓库／盖革计数器",
+          "quote": "里面的电池早就没电了",
+          "role": "取得仪器还须D型电池，不能拿没电仪器的安静作为阴性结果",
+          "access": "keeper_only",
+          "verification": "native"
+        },
+        {
+          "physical_page": 105,
+          "printed_page": null,
+          "section": "附录Ⅴ／放射性物质与去污染",
+          "quote": "用未受污染的泥土或沙 子擦拭自己",
+          "role": "实际去污染条件及计数器30英尺探测范围，不是泛矿口结算题",
+          "access": "keeper_only",
+          "verification": "native"
+        }
+      ],
+      "answer_requirements": [
+        "清澈和香味不能证明池水安全；p72没有给该池的放射性测量或饮用／清洗许可。",
+        "区域地下水存在污染风险，但不能把大部分污染扩大为该池必然污染，也不能把另一处绿色死水的蛇反应套过来。",
+        "计数器须可工作、有电且会使用；它能检测放射性，不是重金属或一切危险的通用检测器。",
+        "若已受放射物污染，原文建议脱去污染衣物，用未污染泥沙擦拭；不能保证用未经检查的池水即可去污。"
+      ],
+      "player_answer_boundary": "可以答无法单凭外观保证安全，建议先检查和避免追加暴露。仪器位置须经实际发现才成为选项，女祭司的身份与行动不因水问题自动披露。",
+      "partial_context": "已有p72清澈池水外观及p62地区风险；缺p61仪器供电和p105去污限制，测试不确定性与操作条件，不要求重复辐射伤害全表。",
+      "traps": [
+        "清澈等于无污染",
+        "整个地区风险等于此池已测阳性",
+        "把盖革计数器当万能水质仪",
+        "把蛇洞10绿色死水反应移到15D池水"
+      ],
+      "unresolved": [
+        "此池的污染状态原文未明确；正确答案必须保留unknown，不能猜测检测结果。"
+      ],
+      "evaluation_role": "uncertainty-control",
+      "partition_group": "blood-highway-clear-water-not-safety-test"
+    },
+    {
+      "id": "grady-blame-document-chain",
+      "source_id": "blood-highway",
+      "family": "证词、档案与互相矛盾的年代",
+      "player_context": "设计情境，非真实游玩。无Pulp额外调查能力。我们见过矿难墓碑，听说格雷迪该负责任；他的话混乱且坚持有别的原因。我们打算找材料核实，还没获得幕后真相。",
+      "question": "矿难真是格雷迪害的吗？不只听他自己说，还能拿什么来对照？",
+      "evidence": [
+        {
+          "physical_page": 35,
+          "printed_page": null,
+          "section": "7 阿巴托尔公墓",
+          "quote": "有 43 人均死在 1955 年 7 月 12 日",
+          "role": "墓碑日期、58死与15遗体未寻获的地方叙述",
+          "access": "acquired",
+          "verification": "native"
+        },
+        {
+          "physical_page": 58,
+          "printed_page": null,
+          "section": "15A 维兰德办公室／地图和保险记录",
+          "quote": "员工编号与地 图上标注的相对应",
+          "role": "地图失踪标记与赔付档案可互证，地图另标1954塌方",
+          "access": "keeper_only",
+          "verification": "native"
+        },
+        {
+          "physical_page": 60,
+          "printed_page": null,
+          "section": "15C 格雷迪／历史",
+          "quote": "维兰德先生决定把他当做这 场悲剧的替罪羊",
+          "role": "被诬告及格雷迪收藏的失踪报道；幕后原因与玩家证据分开",
+          "access": "keeper_only",
+          "verification": "native"
+        },
+        {
+          "physical_page": 68,
+          "printed_page": null,
+          "section": "蛇洞／矿工遗骨说明",
+          "quote": "一张 1956 年的驾照",
+          "role": "遗骨旁证物带来第三种年代线索，不抹去年代不一致",
+          "access": "keeper_only",
+          "verification": "native"
+        }
+      ],
+      "answer_requirements": [
+        "守秘人真相是他被维兰德利用医疗史当替罪羊，不得把精神健康状况当有罪证明。",
+        "玩家可以交叉核对墓碑、办公室地图上的员工编号与失踪红点、保险赔付，以及格雷迪的剪报；各材料证明的事情不同，保险单不是直接无罪判决。",
+        "保留公墓1955、办公室／个人历史1954以及矿工遗物1956三种年代，不能统一成一个无矛盾日期。",
+        "办公室地图没有标出蛇洞和蛇庙真相；幕后是谁造成坍塌属于守秘人信息，不能伪装成文件原文。"
+      ],
+      "player_answer_boundary": "玩家可获证据去向与目前不足以定罪的判断；未搜到档案不朗读其内容，不直接宣布蛇人幕后原因。",
+      "partial_context": "已有p35墓碑和格雷迪口述；缺p58记录配对、p60诬告背景、p68遗物年份。检索须把证词和物证区分，而非只补一个权威全知答案。",
+      "traps": [
+        "把1954/1955/1956静默纠正",
+        "拿知情守秘人背景当玩家已读档案",
+        "因说话混乱而否定全部证词"
+      ],
+      "unresolved": [
+        "原书年份无法在这些段落内自洽，可能是编辑问题；1956驾照也不能单独证明死者的死亡年份。"
+      ],
+      "evaluation_role": "distributed-evidence-design",
+      "partition_group": "blood-highway-grady-blame-document-chain"
+    },
+    {
+      "id": "temple-hidden-route-not-exit",
+      "source_id": "blood-highway",
+      "family": "地下路线的入口、目的地与出口",
+      "player_context": "设计情境，非真实游玩。采用模组地点结构。我们已发现小神龛后向外拉开的暗门，也远远看见另一条怪异的三角通道；想去中央宗教建筑找人，不愿冒险走怪通道。",
+      "question": "从神龛后面绕过去，能不穿那条怪通道就进寺庙吗？到了里面有没有另一头能直接出去？",
+      "evidence": [
+        {
+          "physical_page": 68,
+          "printed_page": null,
+          "section": "蛇洞6／伊格神龛暗门",
+          "quote": "这扇门在寺庙的那一边看来并不隐蔽",
+          "role": "暗路通往15E寺庙，反向一侧不隐藏；当前只发现入口，终点尚属守秘人备料",
+          "access": "keeper_only",
+          "verification": "native"
+        },
+        {
+          "physical_page": 70,
+          "printed_page": null,
+          "section": "蛇洞13／考验",
+          "quote": "如果想的话可以退回去",
+          "role": "主通道允许回退，但离开直路有截然不同后果",
+          "access": "keeper_only",
+          "verification": "native"
+        },
+        {
+          "physical_page": 73,
+          "printed_page": null,
+          "section": "15E 寺庙与16 伊格神庙",
+          "quote": "这是 通往蛇人城市的路",
+          "role": "寺庙深处接伊格神庙，其后门是可选扩展，不是明确地面出口",
+          "access": "keeper_only",
+          "verification": "native"
+        },
+        {
+          "physical_page": 70,
+          "printed_page": null,
+          "section": "蛇洞12／粪池",
+          "quote": "它确实 通向离蛇洞入口约半英里的一个隐蔽的小水沟",
+          "role": "真正已写明通外界的另一路径，与寺庙后门区分",
+          "access": "keeper_only",
+          "verification": "native"
+        }
+      ],
+      "answer_requirements": [
+        "神龛暗门经下行楼梯、人工直通道和另一端楼梯连到15E，可作为不同于考验通道的路线，但不是瞬移，也不保证无敌人。",
+        "考验通道并非一进入就无法回头；离开其中直路的危险不能用在神龛人工通道上。",
+        "15E寺庙和16伊格神庙不是同一个标号；深处金属门通蛇人城市，由守秘人选择扩展、封闭或塌陷，不可承诺直达地面。",
+        "蛇洞12粪池排水才明确通外界，代价是长距离污水爬行；其三分之二英里路线不是基地14J排污道。"
+      ],
+      "player_answer_boundary": "已发现暗門可描述眼前楼梯；没有走过或拿到路线情报前，只能把终点作为待核路线，不直接给整张地下地图。",
+      "partial_context": "已有p68暗门终点；缺p70考验和外排水线以及p73深处可选门，易误判神龛暗路就是出洞捷径。",
+      "traps": [
+        "寺庙15E与伊格神庙16混称导致路由错接",
+        "可选蛇人城市扩展当已开放出口",
+        "把基地和蛇洞排水路线串起来"
+      ],
+      "unresolved": [
+        "是否启用蛇人城市扩展没有默认确定答案，须依本桌设定。"
+      ],
+      "evaluation_role": "distributed-evidence-design",
+      "partition_group": "highway-underground-routes"
+    },
+    {
+      "id": "armed-allies-not-all-knowing",
+      "source_id": "blood-highway",
+      "family": "求援对象的能力、动机与知情范围",
+      "player_context": "设计情境，非真实游玩。采用模组NPC设定，不启用Pulp英雄能力。我们和药店老板、五金店父子都打过照面，态度不错；现在有人受伤，想找愿意反抗的人。",
+      "question": "药店和五金店那两家能帮我们吗？谁有枪、谁能照顾伤员，他们是不是早就知道这镇子到底怎么回事？",
+      "evidence": [
+        {
+          "physical_page": 29,
+          "printed_page": null,
+          "section": "3G 凯利药店",
+          "quote": "他在朝鲜战争期间接受过一些高级急救培训",
+          "role": "救护能力和讨厌沙痞但不知道全部行径",
+          "access": "keeper_only",
+          "verification": "native"
+        },
+        {
+          "physical_page": 30,
+          "printed_page": null,
+          "section": "3G 凯利药店／跨页续文",
+          "quote": "在柜台 后面放着一把双管猎枪",
+          "role": "凯利可帮助、武器位置及保护他人的动机",
+          "access": "keeper_only",
+          "verification": "native"
+        },
+        {
+          "physical_page": 36,
+          "printed_page": null,
+          "section": "9 本森五金／守密人须知",
+          "quote": "皮特知道沙漠地痞很危险，但对邪教一无所知",
+          "role": "被孩子安危要挟停卖枪；秘密自卫武器在家而非空展示台",
+          "access": "keeper_only",
+          "verification": "native"
+        },
+        {
+          "physical_page": 40,
+          "printed_page": null,
+          "section": "其他房屋／山脊路27号",
+          "quote": "27   彼得 · 本森",
+          "role": "本森家庭住所线索，不把五金商店与藏枪地窖混同",
+          "access": "keeper_only",
+          "verification": "native"
+        }
+      ],
+      "answer_requirements": [
+        "凯利愿意帮助受伤者，有军旅与急救经历，药店柜台后有猎枪、楼上公寓另有旧手枪；不保证能治好任何伤。",
+        "本森因孩子受威胁停止卖枪，店内空枪柜不代表无自卫储备；武器在住宅后院防空洞，入口伪装而非公开柜台。",
+        "本森知道沙痞危险但不知邪教，凯利也不知道全部行径，友好不等于全知。",
+        "请求援助需考虑本森保护孩子的顾虑；不能把私藏武器当玩家已获赠装备。"
+      ],
+      "player_answer_boundary": "对玩家先建议以伤员需求向已接触的友善者求援。藏枪位置、密道、对方内心及未说出的经历是守秘人备料，不无条件揭露。",
+      "partial_context": "已有p29药店友善与p36店面空枪柜；缺p30凯利实际援助和p36幕后储备／知情限制及p40住所。",
+      "traps": [
+        "友好NPC一律知晓幕后",
+        "空枪柜等于镇上无武器",
+        "把防空洞藏枪搬到店铺柜台",
+        "主动结算NPC已参战或赠枪"
+      ],
+      "unresolved": [
+        "本森家是否愿意出借具体武器、随队行动需结合交涉；原文没有自动同意的统一规则。"
+      ],
+      "evaluation_role": "distributed-evidence-design",
+      "partition_group": "blood-highway-armed-allies-not-all-knowing"
+    },
+    {
+      "id": "vanished-pursuer-senses",
+      "source_id": "blood-highway",
+      "family": "视线消失与多感官追踪",
+      "player_context": "设计情境，非真实游玩。采用模组泰希罕设定。我们在洞里看到一个矮小人影突然像石壁一样融进去；没有确定其身份。有人想熄灯贴墙躲起来，让它失去目标。",
+      "question": "刚才那个小东西不见了，是跑走了吗？把灯灭了躲在黑处，它是不是就找不到我们了？",
+      "evidence": [
+        {
+          "physical_page": 71,
+          "printed_page": null,
+          "section": "14 蛇窟／隐藏观察者",
+          "quote": "有一些泰希罕躲在洞穴 里，利用伪装色来保持隐蔽",
+          "role": "本场景看似无人但存在观察者，放行另有命令原因",
+          "access": "keeper_only",
+          "verification": "native"
+        },
+        {
+          "physical_page": 100,
+          "printed_page": null,
+          "section": "附录Ⅳ／泰希罕能力",
+          "quote": "可以在 漆黑的环境中看到东西",
+          "role": "黑暗不阻绝其视觉，另有灵敏嗅听能力与感官脆弱点",
+          "access": "keeper_only",
+          "verification": "native"
+        },
+        {
+          "physical_page": 101,
+          "printed_page": null,
+          "section": "附录Ⅳ／泰希罕伪装色",
+          "quote": "以这种方式隐蔽时，它们必须保持静止",
+          "role": "静止伪装、移动解除及不能改变形状大小，不是瞬移或穿墙",
+          "access": "keeper_only",
+          "verification": "native"
+        }
+      ],
+      "answer_requirements": [
+        "看不见不证明离开；此处可有静止伪装观察者，敌人也可能因命令暂不攻击。",
+        "伪装色改变皮肤颜色与质地，不改变身形大小，移动或攻击时会解除；不得叙述其真正钻入石头或瞬移。",
+        "泰希罕有暗视、灵敏嗅觉和听觉，熄灯不足以保证躲藏成功。",
+        "强光、巨响与刺鼻气味会让其感官脆弱，但原文没有提供一用必成的逃脱数值或方法，不用常识补出保证。"
+      ],
+      "player_answer_boundary": "只确认眼前没有看到离开的动作，灭灯并不等同安全；完整怪物能力与女祭司放行命令留在幕后，直到角色通过观察／可靠传说获得信息。",
+      "partial_context": "已有p71观察者段，缺p100感官与p101静止伪装约束。检索若只补伪装而不补暗视，会误认可熄灯躲藏。",
+      "traps": [
+        "伪装色等于穿墙、变形或无条件隐形",
+        "未攻击等于敌人友善",
+        "暗处一定能逃过非人追踪者"
+      ],
+      "unresolved": [
+        "感官脆弱点未给固定范围与必成功条件，具体尝试由守秘人按行动处理。"
+      ],
+      "evaluation_role": "distributed-evidence-design",
+      "partition_group": "highway-tahihan"
+    }
+  ]
+}

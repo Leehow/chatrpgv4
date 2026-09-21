@@ -1,0 +1,1260 @@
+{
+  "version": 1,
+  "id": "pdf-context-contrasts",
+  "sources": [
+    {
+      "id": "idol-holder",
+      "kind": "pdf-native",
+      "path": ".pi/prototypes/jev-pdf-routing-20260919/corpus.json",
+      "sha256": "e0df90d0714574daf9b037d44ac749b93f03dd645397ce3ccbafc0ad2570d773",
+      "document_sha256": "9cc71c34dd62462f0f3c7bf765defc4bc49667f1f9fee3f0ac172a32464da50c",
+      "selector": {
+        "type": "pdf-page",
+        "page": 68
+      },
+      "quote": "任何持有神像的人都能让泰希罕远离自己， \n不过其同伴无法共享这份庇护 ...... 当然，除非 \n将神像转手给他们。"
+    },
+    {
+      "id": "idol-attack",
+      "kind": "pdf-native",
+      "path": ".pi/prototypes/jev-pdf-routing-20260919/corpus.json",
+      "sha256": "e0df90d0714574daf9b037d44ac749b93f03dd645397ce3ccbafc0ad2570d773",
+      "document_sha256": "9cc71c34dd62462f0f3c7bf765defc4bc49667f1f9fee3f0ac172a32464da50c",
+      "selector": {
+        "type": "pdf-page",
+        "page": 68
+      },
+      "quote": "如果持有神像的人攻击泰希 \n罕，他们将不再受神像的震慑并开始攻击持有者， \n不过攻击的行为会有一个惩罚骰。"
+    },
+    {
+      "id": "beetle-place",
+      "kind": "pdf-native",
+      "path": ".pi/prototypes/jev-pdf-routing-20260919/corpus.json",
+      "sha256": "e0df90d0714574daf9b037d44ac749b93f03dd645397ce3ccbafc0ad2570d773",
+      "document_sha256": "9cc71c34dd62462f0f3c7bf765defc4bc49667f1f9fee3f0ac172a32464da50c",
+      "selector": {
+        "type": "pdf-page",
+        "page": 71
+      },
+      "quote": "除建筑物内部外，这些金属甲虫在整个洞穴中随 \n处可见。然而，由于它们的版本退行，只有 PC 在 \n一个地方待得太久，才会遇到金属甲虫群。每在 \n一个区域探索十分钟，就应该进行一次团体幸运 \n检定：失败意味着金属甲虫群会从涌 上地面 。"
+    },
+    {
+      "id": "beetle-fire",
+      "kind": "pdf-native",
+      "path": ".pi/prototypes/jev-pdf-routing-20260919/corpus.json",
+      "sha256": "e0df90d0714574daf9b037d44ac749b93f03dd645397ce3ccbafc0ad2570d773",
+      "document_sha256": "9cc71c34dd62462f0f3c7bf765defc4bc49667f1f9fee3f0ac172a32464da50c",
+      "selector": {
+        "type": "pdf-page",
+        "page": 103
+      },
+      "quote": "护甲 ：虽然它们是金属，但并不十分坚硬，所以 \n视作没有护甲。它们对火免疫。"
+    },
+    {
+      "id": "rat-fire",
+      "kind": "pdf-native",
+      "path": ".pi/prototypes/jev-pdf-routing-20260919/corpus.json",
+      "sha256": "e0df90d0714574daf9b037d44ac749b93f03dd645397ce3ccbafc0ad2570d773",
+      "document_sha256": "9cc71c34dd62462f0f3c7bf765defc4bc49667f1f9fee3f0ac172a32464da50c",
+      "selector": {
+        "type": "pdf-page",
+        "page": 101
+      },
+      "quote": "放火烧鼠，它们将在两轮后溃散。燃烧期间它们 \n会继续攻击，这可能会导致被攻击者也被 烧着 ） 。"
+    },
+    {
+      "id": "hunt-people",
+      "kind": "pdf-native",
+      "path": ".pi/prototypes/jev-pdf-routing-20260919/corpus.json",
+      "sha256": "e0df90d0714574daf9b037d44ac749b93f03dd645397ce3ccbafc0ad2570d773",
+      "document_sha256": "9cc71c34dd62462f0f3c7bf765defc4bc49667f1f9fee3f0ac172a32464da50c",
+      "selector": {
+        "type": "pdf-page",
+        "page": 81
+      },
+      "quote": "沙漠地痞： 通常会有九个沙痞参加狩猎，每辆车上 \n两个，塞斯的皮卡上有三个，还有两个骑摩托车的， \n守密人可以根据自己的喜好或 PC 的能力进行调整。 \n赛斯是迄今为止最有能力也最危险的敌人，其他沙 \n痞将 听从 他的 指示 。"
+    },
+    {
+      "id": "harpoon-eighty",
+      "kind": "pdf-native",
+      "path": ".pi/prototypes/jev-pdf-routing-20260919/corpus.json",
+      "sha256": "e0df90d0714574daf9b037d44ac749b93f03dd645397ce3ccbafc0ad2570d773",
+      "document_sha256": "9cc71c34dd62462f0f3c7bf765defc4bc49667f1f9fee3f0ac172a32464da50c",
+      "selector": {
+        "type": "pdf-page",
+        "page": 81
+      },
+      "quote": "鱼叉被用八十英尺长的牵引线拴在皮卡的前保 \n险杠上，塞斯会尝试用它来射击并牵制住逃逸的汽 \n车，并让司机踩刹车来迫使其减速。"
+    },
+    {
+      "id": "harpoon-fifty",
+      "kind": "pdf-native",
+      "path": ".pi/prototypes/jev-pdf-routing-20260919/corpus.json",
+      "sha256": "e0df90d0714574daf9b037d44ac749b93f03dd645397ce3ccbafc0ad2570d773",
+      "document_sha256": "9cc71c34dd62462f0f3c7bf765defc4bc49667f1f9fee3f0ac172a32464da50c",
+      "selector": {
+        "type": "pdf-page",
+        "page": 83
+      },
+      "quote": "每根鱼叉都被拴在 50 英尺 \n的牵引绳上，而牵引绳又被固定在皮卡的保险杠上。"
+    },
+    {
+      "id": "beetle-heading",
+      "kind": "pdf-native",
+      "path": ".pi/prototypes/jev-pdf-routing-20260919/corpus.json",
+      "sha256": "e0df90d0714574daf9b037d44ac749b93f03dd645397ce3ccbafc0ad2570d773",
+      "document_sha256": "9cc71c34dd62462f0f3c7bf765defc4bc49667f1f9fee3f0ac172a32464da50c",
+      "selector": {
+        "type": "pdf-page",
+        "page": 103
+      },
+      "quote": "金属甲虫群 \n金属甲虫群"
+    }
+  ],
+  "materials": [
+    {
+      "id": "idol-holder",
+      "text": "任何持有神像的人都能让泰希罕远离自己， \n不过其同伴无法共享这份庇护 ...... 当然，除非 \n将神像转手给他们。",
+      "kind": "verbatim",
+      "source_refs": [
+        "idol-holder"
+      ]
+    },
+    {
+      "id": "idol-attack",
+      "text": "如果持有神像的人攻击泰希 \n罕，他们将不再受神像的震慑并开始攻击持有者， \n不过攻击的行为会有一个惩罚骰。",
+      "kind": "verbatim",
+      "source_refs": [
+        "idol-attack"
+      ]
+    },
+    {
+      "id": "beetle-place",
+      "text": "除建筑物内部外，这些金属甲虫在整个洞穴中随 \n处可见。然而，由于它们的版本退行，只有 PC 在 \n一个地方待得太久，才会遇到金属甲虫群。每在 \n一个区域探索十分钟，就应该进行一次团体幸运 \n检定：失败意味着金属甲虫群会从涌 上地面 。",
+      "kind": "verbatim",
+      "source_refs": [
+        "beetle-place"
+      ]
+    },
+    {
+      "id": "beetle-fire",
+      "text": "金属甲虫群 \n金属甲虫群\n\n护甲 ：虽然它们是金属，但并不十分坚硬，所以 \n视作没有护甲。它们对火免疫。",
+      "kind": "source-combination",
+      "source_refs": [
+        "beetle-heading",
+        "beetle-fire"
+      ]
+    },
+    {
+      "id": "rat-fire",
+      "text": "放火烧鼠，它们将在两轮后溃散。燃烧期间它们 \n会继续攻击，这可能会导致被攻击者也被 烧着 ） 。",
+      "kind": "verbatim",
+      "source_refs": [
+        "rat-fire"
+      ]
+    },
+    {
+      "id": "hunt-people",
+      "text": "沙漠地痞： 通常会有九个沙痞参加狩猎，每辆车上 \n两个，塞斯的皮卡上有三个，还有两个骑摩托车的， \n守密人可以根据自己的喜好或 PC 的能力进行调整。 \n赛斯是迄今为止最有能力也最危险的敌人，其他沙 \n痞将 听从 他的 指示 。",
+      "kind": "verbatim",
+      "source_refs": [
+        "hunt-people"
+      ]
+    },
+    {
+      "id": "harpoon-eighty",
+      "text": "鱼叉被用八十英尺长的牵引线拴在皮卡的前保 \n险杠上，塞斯会尝试用它来射击并牵制住逃逸的汽 \n车，并让司机踩刹车来迫使其减速。",
+      "kind": "verbatim",
+      "source_refs": [
+        "harpoon-eighty"
+      ]
+    },
+    {
+      "id": "harpoon-fifty",
+      "text": "每根鱼叉都被拴在 50 英尺 \n的牵引绳上，而牵引绳又被固定在皮卡的保险杠上。",
+      "kind": "verbatim",
+      "source_refs": [
+        "harpoon-fifty"
+      ]
+    },
+    {
+      "id": "beetle-place-paraphrase",
+      "kind": "faithful-paraphrase",
+      "source_refs": [
+        "beetle-place"
+      ],
+      "text": "除了建筑内部，金属甲虫散布在洞穴里；调查员在同一区域每探索十分钟，团体幸运失败就会引出虫群。"
+    },
+    {
+      "id": "idol-faithful",
+      "kind": "faithful-paraphrase",
+      "source_refs": [
+        "idol-holder",
+        "idol-attack"
+      ],
+      "text": "蛇像的庇护只跟着当前持有人，同伴不能同时享用，但可以把蛇像交给他们。持有人一旦主动攻击泰希罕，对方就不再被蛇像吓住，会反击持有人，反击带一个惩罚骰。"
+    },
+    {
+      "id": "idol-lossy",
+      "kind": "lossy-summary",
+      "source_refs": [
+        "idol-holder",
+        "idol-attack"
+      ],
+      "text": "这个蛇像能让泰希罕害怕，使用时有一些限制。"
+    },
+    {
+      "id": "idol-mutex",
+      "kind": "test-claim",
+      "source_refs": [
+        "idol-holder"
+      ],
+      "text": "只要一人拿着蛇像，所有同伴就同时受到庇护，并不是只有持有人受保护。"
+    },
+    {
+      "id": "idol-extra",
+      "kind": "test-claim",
+      "source_refs": [
+        "idol-holder",
+        "idol-attack"
+      ],
+      "text": "拿着这只蛇像还会额外获得两点护甲。"
+    },
+    {
+      "id": "beetle-place-copy",
+      "text": "除建筑物内部外，这些金属甲虫在整个洞穴中随 \n处可见。然而，由于它们的版本退行，只有 PC 在 \n一个地方待得太久，才会遇到金属甲虫群。每在 \n一个区域探索十分钟，就应该进行一次团体幸运 \n检定：失败意味着金属甲虫群会从涌 上地面 。",
+      "kind": "verbatim",
+      "source_refs": [
+        "beetle-place"
+      ]
+    },
+    {
+      "id": "beetle-combined",
+      "kind": "source-combination",
+      "source_refs": [
+        "beetle-place",
+        "beetle-heading",
+        "beetle-fire"
+      ],
+      "text": "除建筑物内部外，这些金属甲虫在整个洞穴中随 \n处可见。然而，由于它们的版本退行，只有 PC 在 \n一个地方待得太久，才会遇到金属甲虫群。每在 \n一个区域探索十分钟，就应该进行一次团体幸运 \n检定：失败意味着金属甲虫群会从涌 上地面 。\n\n金属甲虫群 \n金属甲虫群\n\n护甲 ：虽然它们是金属，但并不十分坚硬，所以 \n视作没有护甲。它们对火免疫。"
+    },
+    {
+      "id": "idol-combined",
+      "kind": "source-combination",
+      "source_refs": [
+        "idol-holder",
+        "idol-attack"
+      ],
+      "text": "任何持有神像的人都能让泰希罕远离自己， \n不过其同伴无法共享这份庇护 ...... 当然，除非 \n将神像转手给他们。\n\n如果持有神像的人攻击泰希 \n罕，他们将不再受神像的震慑并开始攻击持有者， \n不过攻击的行为会有一个惩罚骰。"
+    }
+  ],
+  "cases": [
+    {
+      "id": "beetle-purpose-routing",
+      "title": "Same creature, location versus fire response",
+      "dimensions": [
+        "purpose-routing"
+      ],
+      "origin": "authored-source-grounded",
+      "grounding": [
+        "beetle-place",
+        "beetle-fire",
+        "rat-fire",
+        "beetle-heading"
+      ],
+      "questions": {
+        "content": {
+          "type": "choice",
+          "instructions": "Does existing_material state all facts required by the player request, including its conditions and exceptions? Judge content completeness separately from source verification. A report may fully state the facts; a topic mention is not enough. Candidate text is not yet in the actor context.",
+          "criteria": {
+            "complete": "Every requested factual clause is present in existing_material.",
+            "missing": "At least one requested factual clause is not stated in existing_material."
+          }
+        },
+        "selection": {
+          "type": "choice",
+          "instructions": "Choose one listed candidate combination that supplies all currently missing requested facts without unnecessary repetition or unrelated material. If no factual content is missing, choose no additions. Assess factual content here; do not mistake a report for verified original text. The combinations refer to candidate aliases in state.",
+          "criteria": {
+            "selection_0": "Candidate combination selection_0; materialized with neutral aliases by buildInput.",
+            "selection_1": "Candidate combination selection_1; materialized with neutral aliases by buildInput.",
+            "selection_2": "Candidate combination selection_2; materialized with neutral aliases by buildInput.",
+            "selection_3": "Candidate combination selection_3; materialized with neutral aliases by buildInput.",
+            "selection_4": "Candidate combination selection_4; materialized with neutral aliases by buildInput.",
+            "selection_5": "Candidate combination selection_5; materialized with neutral aliases by buildInput.",
+            "selection_6": "Candidate combination selection_6; materialized with neutral aliases by buildInput.",
+            "selection_7": "Candidate combination selection_7; materialized with neutral aliases by buildInput."
+          }
+        }
+      },
+      "arms": [
+        {
+          "id": "where",
+          "label": "Location and exposure",
+          "intervention": "Only the player request changes; situation and candidate pool are identical.",
+          "input": {
+            "player_text": "这些金属小虫在屋里屋外都有吗？我们在外面多找一阵东西，会不会把它们招出来？",
+            "situation": "调查员已辨认出蛇窟中的金属甲虫，当前站在建筑外，尚未动手或长时间停留。守秘人准备处理玩家的问题，不自动将幕后规则全部告诉玩家。",
+            "existing_material": [],
+            "candidates": [
+              "beetle-place",
+              "beetle-fire",
+              "rat-fire"
+            ],
+            "cache_only": [],
+            "proposed_effects": []
+          },
+          "expected": {
+            "answers": {
+              "content": "missing",
+              "selection": [
+                "selection_1"
+              ]
+            },
+            "source_refs": [
+              "beetle-place",
+              "beetle-heading"
+            ],
+            "rationale": "The scene supplies the building exclusion and the ten-minute group Luck trigger; neither fire immunity nor rat behavior answers this request.",
+            "acceptable_additions": [
+              [
+                "beetle-place"
+              ]
+            ],
+            "forbidden_additions": [
+              "beetle-fire",
+              "rat-fire"
+            ]
+          }
+        },
+        {
+          "id": "fire",
+          "label": "Fire response",
+          "intervention": "Only the player request changes; situation and candidate pool are identical.",
+          "input": {
+            "player_text": "真遇上这些金属小虫，用火能把它们赶走吗？",
+            "situation": "调查员已辨认出蛇窟中的金属甲虫，当前站在建筑外，尚未动手或长时间停留。守秘人准备处理玩家的问题，不自动将幕后规则全部告诉玩家。",
+            "existing_material": [],
+            "candidates": [
+              "beetle-place",
+              "beetle-fire",
+              "rat-fire"
+            ],
+            "cache_only": [],
+            "proposed_effects": []
+          },
+          "expected": {
+            "answers": {
+              "content": "missing",
+              "selection": [
+                "selection_2"
+              ]
+            },
+            "source_refs": [
+              "beetle-fire",
+              "beetle-heading"
+            ],
+            "rationale": "The monster entry states fire immunity. Location timing is not required by this narrower request, and rat fire response concerns another creature.",
+            "acceptable_additions": [
+              [
+                "beetle-fire"
+              ]
+            ],
+            "forbidden_additions": [
+              "beetle-place",
+              "rat-fire"
+            ]
+          }
+        }
+      ],
+      "design_notes": [
+        "设计情境，非实录：调查员已经辨认出蛇窟中的金属甲虫，现在站在建筑外，尚未动手或长时间停留。本题比较守秘人该补什么材料，不自动将幕后规则告诉玩家。"
+      ],
+      "selection_options": [
+        {
+          "id": "selection_0",
+          "materials": []
+        },
+        {
+          "id": "selection_1",
+          "materials": [
+            "beetle-place"
+          ]
+        },
+        {
+          "id": "selection_2",
+          "materials": [
+            "beetle-fire"
+          ]
+        },
+        {
+          "id": "selection_3",
+          "materials": [
+            "beetle-place",
+            "beetle-fire"
+          ]
+        },
+        {
+          "id": "selection_4",
+          "materials": [
+            "rat-fire"
+          ]
+        },
+        {
+          "id": "selection_5",
+          "materials": [
+            "beetle-place",
+            "rat-fire"
+          ]
+        },
+        {
+          "id": "selection_6",
+          "materials": [
+            "beetle-fire",
+            "rat-fire"
+          ]
+        },
+        {
+          "id": "selection_7",
+          "materials": [
+            "beetle-place",
+            "beetle-fire",
+            "rat-fire"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "beetle-joint-supplement",
+      "title": "Complementary excerpts, duplicate offers and an alternative packet",
+      "dimensions": [
+        "distributed-evidence",
+        "joint-deduplication"
+      ],
+      "origin": "authored-source-grounded",
+      "grounding": [
+        "beetle-place",
+        "beetle-fire",
+        "rat-fire",
+        "beetle-heading"
+      ],
+      "questions": {
+        "content": {
+          "type": "choice",
+          "instructions": "Does existing_material state all facts required by the player request, including its conditions and exceptions? Judge content completeness separately from source verification. A report may fully state the facts; a topic mention is not enough. Candidate text is not yet in the actor context.",
+          "criteria": {
+            "complete": "Every requested factual clause is present in existing_material.",
+            "missing": "At least one requested factual clause is not stated in existing_material."
+          }
+        },
+        "selection": {
+          "type": "choice",
+          "instructions": "Choose one listed candidate combination that supplies all currently missing requested facts without unnecessary repetition or unrelated material. If no factual content is missing, choose no additions. Assess factual content here; do not mistake a report for verified original text. The combinations refer to candidate aliases in state.",
+          "criteria": {
+            "selection_0": "Candidate combination selection_0; materialized with neutral aliases by buildInput.",
+            "selection_1": "Candidate combination selection_1; materialized with neutral aliases by buildInput.",
+            "selection_2": "Candidate combination selection_2; materialized with neutral aliases by buildInput.",
+            "selection_3": "Candidate combination selection_3; materialized with neutral aliases by buildInput.",
+            "selection_4": "Candidate combination selection_4; materialized with neutral aliases by buildInput.",
+            "selection_5": "Candidate combination selection_5; materialized with neutral aliases by buildInput.",
+            "selection_6": "Candidate combination selection_6; materialized with neutral aliases by buildInput.",
+            "selection_7": "Candidate combination selection_7; materialized with neutral aliases by buildInput.",
+            "selection_8": "Candidate combination selection_8; materialized with neutral aliases by buildInput.",
+            "selection_9": "Candidate combination selection_9; materialized with neutral aliases by buildInput.",
+            "selection_10": "Candidate combination selection_10; materialized with neutral aliases by buildInput.",
+            "selection_11": "Candidate combination selection_11; materialized with neutral aliases by buildInput.",
+            "selection_12": "Candidate combination selection_12; materialized with neutral aliases by buildInput.",
+            "selection_13": "Candidate combination selection_13; materialized with neutral aliases by buildInput."
+          }
+        }
+      },
+      "arms": [
+        {
+          "id": "empty",
+          "label": "Nothing supplied",
+          "intervention": "The candidate pool is fixed; no required excerpt is already supplied.",
+          "input": {
+            "player_text": "在屋外多找一阵东西，会不会把金属小虫招出来？真来了能靠点火赶走吗？",
+            "situation": "调查员已辨认出蛇窟中的金属甲虫，当前站在建筑外，尚未动手或长时间停留。守秘人准备处理玩家的问题，不自动将幕后规则全部告诉玩家。",
+            "existing_material": [],
+            "candidates": [
+              "beetle-place",
+              "beetle-place-copy",
+              "beetle-place-paraphrase",
+              "beetle-fire",
+              "beetle-combined",
+              "rat-fire"
+            ],
+            "cache_only": [],
+            "proposed_effects": []
+          },
+          "expected": {
+            "answers": {
+              "content": "missing",
+              "selection": [
+                "selection_3",
+                "selection_4",
+                "selection_5",
+                "selection_6"
+              ]
+            },
+            "source_refs": [
+              "beetle-place",
+              "beetle-fire",
+              "beetle-heading"
+            ],
+            "rationale": "Two facts are required: exposure trigger and fire immunity. A+B, duplicate-A+B, faithful-paraphrase-A+B, or the assembled A+B packet each supplies the content. Semantic sufficiency here does not certify a report as an original quotation. Neither a literal nor a paraphrased duplicate of A substitutes for B.",
+            "acceptable_additions": [
+              [
+                "beetle-place",
+                "beetle-fire"
+              ],
+              [
+                "beetle-place-copy",
+                "beetle-fire"
+              ],
+              [
+                "beetle-place-paraphrase",
+                "beetle-fire"
+              ],
+              [
+                "beetle-combined"
+              ]
+            ],
+            "forbidden_additions": [
+              "rat-fire"
+            ]
+          }
+        },
+        {
+          "id": "place-present",
+          "label": "Exposure already supplied",
+          "intervention": "Only existing_material changes from empty; all candidates remain identical.",
+          "input": {
+            "player_text": "在屋外多找一阵东西，会不会把金属小虫招出来？真来了能靠点火赶走吗？",
+            "situation": "调查员已辨认出蛇窟中的金属甲虫，当前站在建筑外，尚未动手或长时间停留。守秘人准备处理玩家的问题，不自动将幕后规则全部告诉玩家。",
+            "existing_material": [
+              "beetle-place"
+            ],
+            "candidates": [
+              "beetle-place",
+              "beetle-place-copy",
+              "beetle-place-paraphrase",
+              "beetle-fire",
+              "beetle-combined",
+              "rat-fire"
+            ],
+            "cache_only": [],
+            "proposed_effects": []
+          },
+          "expected": {
+            "answers": {
+              "content": "missing",
+              "selection": [
+                "selection_2"
+              ]
+            },
+            "source_refs": [
+              "beetle-place",
+              "beetle-fire",
+              "beetle-heading"
+            ],
+            "rationale": "Only the fire fact is missing. Re-adding A, its faithful paraphrase, or the combined packet repeats existing content and is not the minimal supplement.",
+            "acceptable_additions": [
+              [
+                "beetle-fire"
+              ]
+            ],
+            "forbidden_additions": [
+              "beetle-place",
+              "beetle-place-copy",
+              "beetle-place-paraphrase",
+              "beetle-combined",
+              "rat-fire"
+            ]
+          }
+        },
+        {
+          "id": "both-present",
+          "label": "Both facts supplied",
+          "intervention": "Only existing_material changes; the same candidate pool remains available.",
+          "input": {
+            "player_text": "在屋外多找一阵东西，会不会把金属小虫招出来？真来了能靠点火赶走吗？",
+            "situation": "调查员已辨认出蛇窟中的金属甲虫，当前站在建筑外，尚未动手或长时间停留。守秘人准备处理玩家的问题，不自动将幕后规则全部告诉玩家。",
+            "existing_material": [
+              "beetle-place",
+              "beetle-fire"
+            ],
+            "candidates": [
+              "beetle-place",
+              "beetle-place-copy",
+              "beetle-place-paraphrase",
+              "beetle-fire",
+              "beetle-combined",
+              "rat-fire"
+            ],
+            "cache_only": [],
+            "proposed_effects": []
+          },
+          "expected": {
+            "answers": {
+              "content": "complete",
+              "selection": [
+                "selection_0"
+              ]
+            },
+            "source_refs": [
+              "beetle-place",
+              "beetle-fire",
+              "beetle-heading"
+            ],
+            "rationale": "Both required facts are already stated. No additional packet is required.",
+            "acceptable_additions": [
+              []
+            ],
+            "forbidden_additions": [
+              "beetle-place",
+              "beetle-place-copy",
+              "beetle-place-paraphrase",
+              "beetle-fire",
+              "beetle-combined",
+              "rat-fire"
+            ]
+          }
+        }
+      ],
+      "design_notes": [
+        "设计情境，非实录：调查员已经辨认出蛇窟中的金属甲虫，现在站在建筑外，尚未动手或长时间停留。本题比较守秘人该补什么材料，不自动将幕后规则告诉玩家。"
+      ],
+      "selection_options": [
+        {
+          "id": "selection_0",
+          "materials": []
+        },
+        {
+          "id": "selection_1",
+          "materials": [
+            "beetle-place"
+          ]
+        },
+        {
+          "id": "selection_2",
+          "materials": [
+            "beetle-fire"
+          ]
+        },
+        {
+          "id": "selection_3",
+          "materials": [
+            "beetle-place",
+            "beetle-fire"
+          ]
+        },
+        {
+          "id": "selection_4",
+          "materials": [
+            "beetle-place-copy",
+            "beetle-fire"
+          ]
+        },
+        {
+          "id": "selection_5",
+          "materials": [
+            "beetle-place-paraphrase",
+            "beetle-fire"
+          ]
+        },
+        {
+          "id": "selection_6",
+          "materials": [
+            "beetle-combined"
+          ]
+        },
+        {
+          "id": "selection_7",
+          "materials": [
+            "beetle-place",
+            "beetle-place-copy"
+          ]
+        },
+        {
+          "id": "selection_8",
+          "materials": [
+            "beetle-place",
+            "beetle-place-paraphrase"
+          ]
+        },
+        {
+          "id": "selection_9",
+          "materials": [
+            "beetle-place",
+            "beetle-place-copy",
+            "beetle-fire"
+          ]
+        },
+        {
+          "id": "selection_10",
+          "materials": [
+            "beetle-place",
+            "beetle-place-paraphrase",
+            "beetle-fire"
+          ]
+        },
+        {
+          "id": "selection_11",
+          "materials": [
+            "beetle-combined",
+            "rat-fire"
+          ]
+        },
+        {
+          "id": "selection_12",
+          "materials": [
+            "rat-fire"
+          ]
+        },
+        {
+          "id": "selection_13",
+          "materials": [
+            "beetle-place",
+            "beetle-fire",
+            "rat-fire"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "idol-context-fidelity",
+      "title": "Originals, faithful report, lossy topic summary and cache-only material",
+      "dimensions": [
+        "context-fidelity"
+      ],
+      "origin": "authored-source-grounded",
+      "grounding": [
+        "idol-holder",
+        "idol-attack"
+      ],
+      "questions": {
+        "content": {
+          "type": "choice",
+          "instructions": "Does existing_material state all facts required by the player request, including its conditions and exceptions? Judge content completeness separately from source verification. A report may fully state the facts; a topic mention is not enough. Candidate text is not yet in the actor context.",
+          "criteria": {
+            "complete": "Every requested factual clause is present in existing_material.",
+            "missing": "At least one requested factual clause is not stated in existing_material."
+          }
+        },
+        "source_support": {
+          "type": "choice",
+          "instructions": "Do original source excerpts in existing_material substantiate every requested clause? A context report is not an original source excerpt, even when its content is complete.",
+          "criteria": {
+            "complete": "Original excerpts substantiate all requested clauses.",
+            "incomplete": "Original excerpt support is absent or incomplete."
+          }
+        },
+        "selection": {
+          "type": "choice",
+          "instructions": "Choose one listed candidate combination that supplies all currently missing requested facts without unnecessary repetition or unrelated material. If no factual content is missing, choose no additions. Assess factual content here; do not mistake a report for verified original text. The combinations refer to candidate aliases in state.",
+          "criteria": {
+            "selection_0": "Candidate combination selection_0; materialized with neutral aliases by buildInput.",
+            "selection_1": "Candidate combination selection_1; materialized with neutral aliases by buildInput.",
+            "selection_2": "Candidate combination selection_2; materialized with neutral aliases by buildInput.",
+            "selection_3": "Candidate combination selection_3; materialized with neutral aliases by buildInput."
+          }
+        }
+      },
+      "arms": [
+        {
+          "id": "none",
+          "label": "No relevant current context",
+          "intervention": "Baseline: neither original excerpt nor report is present.",
+          "input": {
+            "player_text": "我拿着这小蛇像，大家就都安全了吗？如果我先动手，那些东西还会怕我吗？",
+            "situation": "调查员拿到了蛇洞神龛的小蛇像，准备带同伴离开，尚未攻击。对话或笔记中的规则说法不自动成为已核验的原文。",
+            "existing_material": [],
+            "candidates": [
+              "idol-holder",
+              "idol-attack"
+            ],
+            "cache_only": [],
+            "proposed_effects": []
+          },
+          "expected": {
+            "answers": {
+              "content": "missing",
+              "source_support": "incomplete",
+              "selection": [
+                "selection_3"
+              ]
+            },
+            "source_refs": [
+              "idol-holder",
+              "idol-attack"
+            ],
+            "rationale": "Neither holder/companion conditions nor the attack exception is present.",
+            "acceptable_additions": [
+              [
+                "idol-holder",
+                "idol-attack"
+              ]
+            ],
+            "forbidden_additions": []
+          }
+        },
+        {
+          "id": "holder-only",
+          "label": "Same-page partial excerpt",
+          "intervention": "Supply exactly the holder/companion paragraph but withhold the adjacent attack exception.",
+          "input": {
+            "player_text": "我拿着这小蛇像，大家就都安全了吗？如果我先动手，那些东西还会怕我吗？",
+            "situation": "调查员拿到了蛇洞神龛的小蛇像，准备带同伴离开，尚未攻击。对话或笔记中的规则说法不自动成为已核验的原文。",
+            "existing_material": [
+              "idol-holder"
+            ],
+            "candidates": [
+              "idol-holder",
+              "idol-attack"
+            ],
+            "cache_only": [],
+            "proposed_effects": []
+          },
+          "expected": {
+            "answers": {
+              "content": "missing",
+              "source_support": "incomplete",
+              "selection": [
+                "selection_2"
+              ]
+            },
+            "source_refs": [
+              "idol-holder",
+              "idol-attack"
+            ],
+            "rationale": "Presence of one excerpt from physical page 68 does not supply the other excerpt on that same page.",
+            "acceptable_additions": [
+              [
+                "idol-attack"
+              ]
+            ],
+            "forbidden_additions": [
+              "idol-holder"
+            ]
+          }
+        },
+        {
+          "id": "original-full",
+          "label": "Both original excerpts",
+          "intervention": "Supply both exact source excerpts; question and candidate pool are unchanged.",
+          "input": {
+            "player_text": "我拿着这小蛇像，大家就都安全了吗？如果我先动手，那些东西还会怕我吗？",
+            "situation": "调查员拿到了蛇洞神龛的小蛇像，准备带同伴离开，尚未攻击。对话或笔记中的规则说法不自动成为已核验的原文。",
+            "existing_material": [
+              "idol-holder",
+              "idol-attack"
+            ],
+            "candidates": [
+              "idol-holder",
+              "idol-attack"
+            ],
+            "cache_only": [],
+            "proposed_effects": []
+          },
+          "expected": {
+            "answers": {
+              "content": "complete",
+              "source_support": "complete",
+              "selection": [
+                "selection_0"
+              ]
+            },
+            "source_refs": [
+              "idol-holder",
+              "idol-attack"
+            ],
+            "rationale": "The party limitation, transfer possibility and attack exception are all present as original text.",
+            "acceptable_additions": [
+              []
+            ],
+            "forbidden_additions": [
+              "idol-holder",
+              "idol-attack"
+            ]
+          }
+        },
+        {
+          "id": "faithful",
+          "label": "Faithful authored report",
+          "intervention": "Replace original text with a clearly attributed authored paraphrase preserving all necessary conditions.",
+          "input": {
+            "player_text": "我拿着这小蛇像，大家就都安全了吗？如果我先动手，那些东西还会怕我吗？",
+            "situation": "调查员拿到了蛇洞神龛的小蛇像，准备带同伴离开，尚未攻击。对话或笔记中的规则说法不自动成为已核验的原文。",
+            "existing_material": [
+              "idol-faithful"
+            ],
+            "candidates": [
+              "idol-holder",
+              "idol-attack"
+            ],
+            "cache_only": [],
+            "proposed_effects": []
+          },
+          "expected": {
+            "answers": {
+              "content": "complete",
+              "source_support": "incomplete",
+              "selection": [
+                "selection_0"
+              ]
+            },
+            "source_refs": [
+              "idol-holder",
+              "idol-attack"
+            ],
+            "rationale": "The report states all necessary facts, so semantic supplementation is unnecessary. Original-text verification remains a separate incomplete axis.",
+            "acceptable_additions": [
+              []
+            ],
+            "forbidden_additions": [
+              "idol-holder",
+              "idol-attack"
+            ]
+          }
+        },
+        {
+          "id": "lossy",
+          "label": "Topic summary only",
+          "intervention": "Replace full content with an authored topic summary that omits the companion and attack conditions.",
+          "input": {
+            "player_text": "我拿着这小蛇像，大家就都安全了吗？如果我先动手，那些东西还会怕我吗？",
+            "situation": "调查员拿到了蛇洞神龛的小蛇像，准备带同伴离开，尚未攻击。对话或笔记中的规则说法不自动成为已核验的原文。",
+            "existing_material": [
+              "idol-lossy"
+            ],
+            "candidates": [
+              "idol-holder",
+              "idol-attack"
+            ],
+            "cache_only": [],
+            "proposed_effects": []
+          },
+          "expected": {
+            "answers": {
+              "content": "missing",
+              "source_support": "incomplete",
+              "selection": [
+                "selection_3"
+              ]
+            },
+            "source_refs": [
+              "idol-holder",
+              "idol-attack"
+            ],
+            "rationale": "Mentioning protection and unspecified limitations does not answer who is protected or what initiating an attack changes.",
+            "acceptable_additions": [
+              [
+                "idol-holder",
+                "idol-attack"
+              ]
+            ],
+            "forbidden_additions": []
+          }
+        },
+        {
+          "id": "cache-only",
+          "label": "Same current source exists only in cache",
+          "intervention": "Keep the source version unchanged, but place the complete packet only in cache_only, not existing_material.",
+          "input": {
+            "player_text": "我拿着这小蛇像，大家就都安全了吗？如果我先动手，那些东西还会怕我吗？",
+            "situation": "调查员拿到了蛇洞神龛的小蛇像，准备带同伴离开，尚未攻击。对话或笔记中的规则说法不自动成为已核验的原文。",
+            "existing_material": [],
+            "candidates": [
+              "idol-holder",
+              "idol-attack"
+            ],
+            "cache_only": [
+              "idol-combined"
+            ],
+            "proposed_effects": []
+          },
+          "expected": {
+            "answers": {
+              "content": "missing",
+              "source_support": "incomplete",
+              "selection": [
+                "selection_3"
+              ]
+            },
+            "source_refs": [
+              "idol-holder",
+              "idol-attack"
+            ],
+            "rationale": "The actor has not received the cached text. This is a visibility control, not semantic detection of stale revisions.",
+            "acceptable_additions": [
+              [
+                "idol-holder",
+                "idol-attack"
+              ]
+            ],
+            "forbidden_additions": []
+          }
+        }
+      ],
+      "design_notes": [
+        "设计情境，非实录：调查员拿到了蛇洞神龛的小蛇像，准备带同伴离开，尚未攻击。当前材料中的作者改写只代表已有上下文，不自动等于核验过的原文。"
+      ],
+      "selection_options": [
+        {
+          "id": "selection_0",
+          "materials": []
+        },
+        {
+          "id": "selection_1",
+          "materials": [
+            "idol-holder"
+          ]
+        },
+        {
+          "id": "selection_2",
+          "materials": [
+            "idol-attack"
+          ]
+        },
+        {
+          "id": "selection_3",
+          "materials": [
+            "idol-holder",
+            "idol-attack"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "harpoon-conflict-scope",
+      "title": "The same real source disagreement, relevant versus outside the question",
+      "dimensions": [
+        "unknown-conflict-scope"
+      ],
+      "origin": "authored-source-grounded",
+      "grounding": [
+        "hunt-people",
+        "harpoon-eighty",
+        "harpoon-fifty"
+      ],
+      "questions": {
+        "consistency": {
+          "type": "choice",
+          "instructions": "Do the supplied statements contain mutually incompatible assertions about the same property directly relevant to the player request? A new unsupported claim is not, by itself, a contradiction. Ignore disagreements about properties outside this request.",
+          "criteria": {
+            "clear": "No directly relevant mutually incompatible claims.",
+            "conflict": "A directly relevant mutually incompatible pair requires review."
+          }
+        },
+        "answer_status": {
+          "type": "choice",
+          "instructions": "Can the supplied original excerpts settle the specific requested fact without choosing between incompatible source versions?",
+          "criteria": {
+            "settled": "The requested fact is stated consistently.",
+            "unresolved": "The requested fact cannot be uniquely settled from the supplied source statements."
+          }
+        }
+      },
+      "arms": [
+        {
+          "id": "people",
+          "label": "People and command",
+          "intervention": "Only the question changes; all three original excerpts are identical across arms.",
+          "input": {
+            "player_text": "追我们的通常有几个人，听谁指挥？",
+            "situation": "调查员正在判断红路追兵的威胁。当前材料包括狩猎人员说明和两段牵引绳描述；尚未进行追逐或伤害结算。",
+            "existing_material": [
+              "hunt-people",
+              "harpoon-eighty",
+              "harpoon-fifty"
+            ],
+            "candidates": [],
+            "cache_only": [],
+            "proposed_effects": []
+          },
+          "expected": {
+            "answers": {
+              "consistency": "clear",
+              "answer_status": "settled"
+            },
+            "source_refs": [
+              "hunt-people"
+            ],
+            "rationale": "The usual nine hunters and Seth commanding them are not contradicted by a disagreement about rope length. The module permits the Keeper to adjust the group; nine is usual, not invariant.",
+            "acceptable_additions": [
+              []
+            ],
+            "forbidden_additions": []
+          }
+        },
+        {
+          "id": "rope",
+          "label": "Rope length",
+          "intervention": "Only the question changes; compare the same property, rope length, not rope length against weapon range.",
+          "input": {
+            "player_text": "那支鱼叉拴着的绳子到底有多长？我想判断离它多远才可能脱开。",
+            "situation": "调查员正在判断红路追兵的威胁。当前材料包括狩猎人员说明和两段牵引绳描述；尚未进行追逐或伤害结算。",
+            "existing_material": [
+              "hunt-people",
+              "harpoon-eighty",
+              "harpoon-fifty"
+            ],
+            "candidates": [],
+            "cache_only": [],
+            "proposed_effects": []
+          },
+          "expected": {
+            "answers": {
+              "consistency": "conflict",
+              "answer_status": "unresolved"
+            },
+            "source_refs": [
+              "harpoon-eighty",
+              "harpoon-fifty"
+            ],
+            "rationale": "Page 81 explicitly gives an eighty-foot tether and page 83 a fifty-foot tether. Do not silently pick one or claim the ambiguity can be cured by unrelated extra pages.",
+            "acceptable_additions": [
+              []
+            ],
+            "forbidden_additions": []
+          }
+        }
+      ],
+      "design_notes": [
+        "设计情境，非实录：调查员正在判断红路追兵的威胁。已供材料固定包含狩猎人员说明及两处牵引绳长度描述，不发生任何追逐结算。"
+      ]
+    },
+    {
+      "id": "idol-contradiction-versus-unsupported",
+      "title": "Mutually exclusive claim versus an unsupported extra effect",
+      "dimensions": [
+        "unknown-conflict-scope"
+      ],
+      "origin": "authored-source-grounded",
+      "grounding": [
+        "idol-holder",
+        "idol-attack"
+      ],
+      "questions": {
+        "consistency": {
+          "type": "choice",
+          "instructions": "Do the supplied statements contain mutually incompatible assertions about the same property directly relevant to the player request? A new unsupported claim is not, by itself, a contradiction. Ignore disagreements about properties outside this request.",
+          "criteria": {
+            "clear": "No directly relevant mutually incompatible claims.",
+            "conflict": "A directly relevant mutually incompatible pair requires review."
+          }
+        },
+        "armor_support": {
+          "type": "choice",
+          "instructions": "Do the supplied original source excerpts establish an armor bonus? A context claim is not proof of an additional source rule. Do not infer that absence here proves a prohibition in every possible source.",
+          "criteria": {
+            "established": "An original excerpt explicitly establishes the bonus.",
+            "not_established": "The supplied original excerpts do not establish any armor bonus."
+          }
+        }
+      },
+      "arms": [
+        {
+          "id": "consistent",
+          "label": "Compatible report",
+          "intervention": "Keep originals fixed and add a faithful report; the player request also asks about armor.",
+          "input": {
+            "player_text": "这小像到底保护谁，我先动手还有用吗？拿着它会给我增加护甲吗？",
+            "situation": "调查员拿到了蛇洞神龛的小蛇像，准备带同伴离开，尚未攻击。对话或笔记中的规则说法不自动成为已核验的原文。",
+            "existing_material": [
+              "idol-holder",
+              "idol-attack",
+              "idol-faithful"
+            ],
+            "candidates": [],
+            "cache_only": [],
+            "proposed_effects": []
+          },
+          "expected": {
+            "answers": {
+              "consistency": "clear",
+              "armor_support": "not_established"
+            },
+            "source_refs": [
+              "idol-holder",
+              "idol-attack"
+            ],
+            "rationale": "The report agrees with the originals; these passages say nothing about armor. Unknown is limited to supplied evidence, not an invented universal rule.",
+            "acceptable_additions": [
+              []
+            ],
+            "forbidden_additions": []
+          }
+        },
+        {
+          "id": "mutex",
+          "label": "Explicit contradictory report",
+          "intervention": "Change only the report to claim simultaneous party protection and explicitly deny holder-only protection.",
+          "input": {
+            "player_text": "这小像到底保护谁，我先动手还有用吗？拿着它会给我增加护甲吗？",
+            "situation": "调查员拿到了蛇洞神龛的小蛇像，准备带同伴离开，尚未攻击。对话或笔记中的规则说法不自动成为已核验的原文。",
+            "existing_material": [
+              "idol-holder",
+              "idol-attack",
+              "idol-mutex"
+            ],
+            "candidates": [],
+            "cache_only": [],
+            "proposed_effects": []
+          },
+          "expected": {
+            "answers": {
+              "consistency": "conflict",
+              "armor_support": "not_established"
+            },
+            "source_refs": [
+              "idol-holder",
+              "idol-attack"
+            ],
+            "rationale": "The companion claim is mutually exclusive with the original. This is an intentionally false test stimulus, never a source quotation or real player history.",
+            "acceptable_additions": [
+              []
+            ],
+            "forbidden_additions": []
+          }
+        },
+        {
+          "id": "extra",
+          "label": "Unsupported added rule",
+          "intervention": "Change only the report to add two armor points; do not negate the original protection conditions.",
+          "input": {
+            "player_text": "这小像到底保护谁，我先动手还有用吗？拿着它会给我增加护甲吗？",
+            "situation": "调查员拿到了蛇洞神龛的小蛇像，准备带同伴离开，尚未攻击。对话或笔记中的规则说法不自动成为已核验的原文。",
+            "existing_material": [
+              "idol-holder",
+              "idol-attack",
+              "idol-extra"
+            ],
+            "candidates": [],
+            "cache_only": [],
+            "proposed_effects": []
+          },
+          "expected": {
+            "answers": {
+              "consistency": "clear",
+              "armor_support": "not_established"
+            },
+            "source_refs": [
+              "idol-holder",
+              "idol-attack"
+            ],
+            "rationale": "An extra unverified armor effect is unsupported but not logically incompatible with the two original protection clauses. Report the missing support without falsely labeling it a proved contradiction.",
+            "acceptable_additions": [
+              []
+            ],
+            "forbidden_additions": []
+          }
+        }
+      ],
+      "design_notes": [
+        "设计情境，非实录：调查员拿到了蛇洞神龛的小蛇像，准备带同伴离开，尚未攻击。当前材料中的作者改写只代表已有上下文，不自动等于核验过的原文。"
+      ]
+    }
+  ]
+}

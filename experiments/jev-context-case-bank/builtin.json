@@ -1,0 +1,977 @@
+{
+  "version": 1,
+  "id": "builtin-source-grounded-contrasts",
+  "sources": [
+    {
+      "id": "newspaper-vague",
+      "kind": "contract-fixture",
+      "path": "tests/extension/admission.test.mjs",
+      "sha256": "3ddedac919c0e0cb8c5d0ce913d0b419f846f9e17d84c538ad4812971c3545e9",
+      "selector": {
+        "type": "text"
+      },
+      "quote": "await table.session.prompt(\"那看看报纸\");\n\n\tassert.equal(kernelCalls(table, \"table.apply\").length, 0, \"the refused apply never reached the kernel\");"
+    },
+    {
+      "id": "newspaper-proposal",
+      "kind": "contract-fixture",
+      "path": "tests/extension/admission.test.mjs",
+      "sha256": "3ddedac919c0e0cb8c5d0ce913d0b419f846f9e17d84c538ad4812971c3545e9",
+      "selector": {
+        "type": "text"
+      },
+      "quote": "{ kind: \"move\", to: \"newspaper-morgue\", travel_minutes: 30 },\n\t\t\t\t\t\t{ kind: \"clue\", clue: \"globe-unpublished-story\" },\n\t\t\t\t\t\t{ kind: \"time\", minutes: 45 },"
+    },
+    {
+      "id": "newspaper-explicit",
+      "kind": "live-record",
+      "path": ".coc/playtests/admission-e2e-1/turn-4.json",
+      "sha256": "301e766036984e8781996b42e9a4937511a2dbef4df59aa4ac8ddabf841c8d94",
+      "selector": {
+        "type": "json",
+        "pointer": "/player_text"
+      },
+      "quote": "我去环球报的剪报室查这栋房子的旧闻。"
+    },
+    {
+      "id": "newspaper-access",
+      "kind": "live-record",
+      "path": ".coc/playtests/admission-e2e-1/turn-4.json",
+      "sha256": "301e766036984e8781996b42e9a4937511a2dbef4df59aa4ac8ddabf841c8d94",
+      "selector": {
+        "type": "json",
+        "pointer": "/final_text"
+      },
+      "quote": "“公众止步。”"
+    },
+    {
+      "id": "house-player",
+      "kind": "live-record",
+      "path": ".coc/playtests/board-map-arrival-20260919/turn-1.json",
+      "sha256": "a62203621aecd2c07067b6885ad641536d8fe8f9cda98bc4fe9bdb401177574a",
+      "selector": {
+        "type": "json",
+        "pointer": "/player_text"
+      },
+      "quote": "天亮以后我先到科比特宅外面走一圈，看看房子的外观和周围街道。"
+    },
+    {
+      "id": "house-exterior",
+      "kind": "live-record",
+      "path": ".coc/playtests/board-map-arrival-20260919/turn-1.json",
+      "sha256": "a62203621aecd2c07067b6885ad641536d8fe8f9cda98bc4fe9bdb401177574a",
+      "selector": {
+        "type": "json",
+        "pointer": "/final_text"
+      },
+      "quote": "从外头能看清的，就是这些——钉死的窗、紧闭的门、夹在新楼中间的旧砖壳。"
+    },
+    {
+      "id": "house-refused-extra",
+      "kind": "live-record",
+      "path": ".coc/playtests/board-map-arrival-20260919/turn-1.json",
+      "sha256": "a62203621aecd2c07067b6885ad641536d8fe8f9cda98bc4fe9bdb401177574a",
+      "selector": {
+        "type": "json",
+        "pointer": "/tools/0/result_text"
+      },
+      "quote": "player choice to receive or act on research leads about newspapers and library"
+    },
+    {
+      "id": "house-accepted-move",
+      "kind": "live-record",
+      "path": ".coc/playtests/board-map-arrival-20260919/turn-1.json",
+      "sha256": "a62203621aecd2c07067b6885ad641536d8fe8f9cda98bc4fe9bdb401177574a",
+      "selector": {
+        "type": "json",
+        "pointer": "/tools/1/args/effects/0/to"
+      },
+      "quote": "corbitt-house-ground"
+    },
+    {
+      "id": "house-cupboard",
+      "kind": "builtin-module",
+      "path": "content/starters/the-haunting/module-graph.json",
+      "sha256": "f681649fde6b38b46654c4eeeced618bd07b6ba0ced08ef697f203d827f3b86b",
+      "selector": {
+        "type": "json",
+        "pointer": "/nodes/126/properties/runtime_projection/record/affordances/0/cue"
+      },
+      "quote": "Pry open the nailed-shut cupboard in the storage room and inspect the old books inside."
+    },
+    {
+      "id": "house-diary-route",
+      "kind": "builtin-module",
+      "path": "content/starters/the-haunting/module-graph.json",
+      "sha256": "f681649fde6b38b46654c4eeeced618bd07b6ba0ced08ef697f203d827f3b86b",
+      "selector": {
+        "type": "json",
+        "pointer": "/nodes/126/properties/runtime_projection/record/affordances/0/clue_id"
+      },
+      "quote": "clue-corbitt-diaries"
+    },
+    {
+      "id": "globe-content",
+      "kind": "builtin-module",
+      "path": "content/starters/the-haunting/module-graph.json",
+      "sha256": "f681649fde6b38b46654c4eeeced618bd07b6ba0ced08ef697f203d827f3b86b",
+      "selector": {
+        "type": "json",
+        "pointer": "/nodes/51/summary"
+      },
+      "quote": "An unpublished 1918 feature lists prior tenants ruined by accidents, illness, and suicide; the Macarios fled under mysterious circumstances."
+    },
+    {
+      "id": "globe-relation",
+      "kind": "builtin-module",
+      "path": "content/starters/the-haunting/module-graph.json",
+      "sha256": "f681649fde6b38b46654c4eeeced618bd07b6ba0ced08ef697f203d827f3b86b",
+      "selector": {
+        "type": "json",
+        "pointer": "/relations/325"
+      },
+      "quote": "{\"relation_id\":\"relation-supports-85\",\"relation_kind\":\"supports\",\"from_node_id\":\"clue-globe-unpublished-story\",\"to_node_id\":\"conclusion-house-haunted-by-corbitt\",\"claim_id\":\"claim-supports-85\",\"properties\":{}}"
+    },
+    {
+      "id": "globe-conclusion",
+      "kind": "builtin-module",
+      "path": "content/starters/the-haunting/module-graph.json",
+      "sha256": "f681649fde6b38b46654c4eeeced618bd07b6ba0ced08ef697f203d827f3b86b",
+      "selector": {
+        "type": "json",
+        "pointer": "/nodes/89/summary"
+      },
+      "quote": "The Corbitt House's tragedies are caused by Corbitt's lingering will — not mere bad luck or a conventional ghost story."
+    },
+    {
+      "id": "globe-report-frame",
+      "kind": "research-report",
+      "path": "docs/research/midgame-causal-reentry-2026-09-13.md",
+      "sha256": "c26f8b1754f20936acb1d0ddc486ad48345f20862b4aad09962f31f7305082cd",
+      "selector": {
+        "type": "text"
+      },
+      "quote": "这些住客互不相识，遭遇也各不相同，我认为只是被记者拼成了一个吓人的故事，不能说明科比特的意志造成了这些事。"
+    },
+    {
+      "id": "globe-report-direction",
+      "kind": "research-report",
+      "path": "docs/research/midgame-causal-reentry-2026-09-13.md",
+      "sha256": "c26f8b1754f20936acb1d0ddc486ad48345f20862b4aad09962f31f7305082cd",
+      "selector": {
+        "type": "text"
+      },
+      "quote": "the known `supports` relation to argue against the thread"
+    },
+    {
+      "id": "ownership-old",
+      "kind": "contract-fixture",
+      "path": "tests/extension/memory-corrections.test.mjs",
+      "sha256": "e87e64634ef56b138d7b97a29abe6c7118f5c366ef200ced822ef5c6a7960e1e",
+      "selector": {
+        "type": "text"
+      },
+      "quote": "The house belongs to Thomas Hayes."
+    },
+    {
+      "id": "ownership-correction",
+      "kind": "contract-fixture",
+      "path": "tests/extension/memory-corrections.test.mjs",
+      "sha256": "e87e64634ef56b138d7b97a29abe6c7118f5c366ef200ced822ef5c6a7960e1e",
+      "selector": {
+        "type": "text"
+      },
+      "quote": "The previous ownership claim has no support and is withdrawn."
+    },
+    {
+      "id": "ownership-current-recall",
+      "kind": "contract-fixture",
+      "path": "tests/extension/memory-corrections.test.mjs",
+      "sha256": "e87e64634ef56b138d7b97a29abe6c7118f5c366ef200ced822ef5c6a7960e1e",
+      "selector": {
+        "type": "text"
+      },
+      "quote": "assert.ok(!current.hits.some(hit => hit.statement === wrong.statement));"
+    },
+    {
+      "id": "ownership-late",
+      "kind": "contract-fixture",
+      "path": "tests/extension/memory-corrections.test.mjs",
+      "sha256": "e87e64634ef56b138d7b97a29abe6c7118f5c366ef200ced822ef5c6a7960e1e",
+      "selector": {
+        "type": "text"
+      },
+      "quote": "late extraction of an identical old report cannot resurrect a withdrawn assertion"
+    },
+    {
+      "id": "ownership-shell",
+      "kind": "contract-fixture",
+      "path": "tests/extension/memory-corrections.test.mjs",
+      "sha256": "e87e64634ef56b138d7b97a29abe6c7118f5c366ef200ced822ef5c6a7960e1e",
+      "selector": {
+        "type": "text"
+      },
+      "quote": "module: 'the-haunting'"
+    },
+    {
+      "id": "chair-look",
+      "kind": "contract-fixture",
+      "path": "tests/extension/object-usages-admission.test.mjs",
+      "sha256": "4479ec0c320d89623f14ffcbde674b460e0c5d6daaacb7905acdd7f5d725b7d3",
+      "selector": {
+        "type": "text"
+      },
+      "quote": "I only look at the chair; I do not pick it up or attack."
+    },
+    {
+      "id": "chair-swing",
+      "kind": "contract-fixture",
+      "path": "tests/extension/object-usages-admission.test.mjs",
+      "sha256": "4479ec0c320d89623f14ffcbde674b460e0c5d6daaacb7905acdd7f5d725b7d3",
+      "selector": {
+        "type": "text"
+      },
+      "quote": "I pick up the chair and swing it at the opponent."
+    },
+    {
+      "id": "chair-take-effect",
+      "kind": "contract-fixture",
+      "path": "tests/extension/object-usages-admission.test.mjs",
+      "sha256": "4479ec0c320d89623f14ffcbde674b460e0c5d6daaacb7905acdd7f5d725b7d3",
+      "selector": {
+        "type": "text"
+      },
+      "quote": "const take={kind:'object',name:'Chair',from:'here',to:'Investigator'};"
+    },
+    {
+      "id": "chair-usage-effect",
+      "kind": "contract-fixture",
+      "path": "tests/extension/object-usages-admission.test.mjs",
+      "sha256": "4479ec0c320d89623f14ffcbde674b460e0c5d6daaacb7905acdd7f5d725b7d3",
+      "selector": {
+        "type": "text"
+      },
+      "quote": "const prepare={kind:'usage',object:'Chair',name:'swing',description:'Take the chair and swing it at the opponent.'};"
+    }
+  ],
+  "materials": [
+    {
+      "id": "newspaper-premise",
+      "text": "已接科比特宅调查委托，尚未出发；没有代为选择报馆或进入受限剪报室的既有授权。环球报办公处与剪报室内部访问分开；工作人员可能限制访问。",
+      "kind": "faithful-paraphrase",
+      "source_refs": [
+        "newspaper-vague",
+        "newspaper-explicit",
+        "newspaper-access"
+      ]
+    },
+    {
+      "id": "house-spatial",
+      "text": "守秘人场景资料：corbitt-house-ground涵盖本次宅外到达和地上层调查；储藏室钉死的柜子需另行撬开检查，关联corbitt-diaries。场景投影提供路线，不代表调查员已进入或已取得书。",
+      "kind": "faithful-paraphrase",
+      "source_refs": [
+        "house-accepted-move",
+        "house-cupboard",
+        "house-diary-route"
+      ]
+    },
+    {
+      "id": "globe-article",
+      "text": "未刊的1918年报道列出前住户遭遇事故、疾病、自杀，马卡里奥一家在神秘情况下逃走。",
+      "kind": "faithful-paraphrase",
+      "source_refs": [
+        "globe-content"
+      ],
+      "meta": {
+        "speaker": "Globe article"
+      }
+    },
+    {
+      "id": "globe-edge",
+      "text": "clue-globe-unpublished-story --supports--> conclusion-house-haunted-by-corbitt; conclusion: The tragedies are caused by Corbitt’s lingering will.",
+      "kind": "faithful-paraphrase",
+      "source_refs": [
+        "globe-relation",
+        "globe-conclusion"
+      ],
+      "meta": {
+        "speaker": "Module graph"
+      }
+    },
+    {
+      "id": "globe-player-frame",
+      "text": "这些住客互不相识，遭遇也各不相同，我认为只是被记者拼成了一个吓人的故事，不能说明科比特的意志造成了这些事。",
+      "kind": "faithful-paraphrase",
+      "source_refs": [
+        "globe-report-frame"
+      ],
+      "meta": {
+        "speaker": "Player"
+      }
+    },
+    {
+      "id": "globe-source-frame",
+      "text": "这些住客互不相识，遭遇也各不相同，我认为只是被记者拼成了一个吓人的故事，不能说明科比特的意志造成了这些事。",
+      "kind": "test-claim",
+      "source_refs": [
+        "globe-report-frame"
+      ],
+      "meta": {
+        "speaker": "Globe article"
+      }
+    },
+    {
+      "id": "ownership-report",
+      "text": "The house belongs to Thomas Hayes.",
+      "kind": "faithful-paraphrase",
+      "source_refs": [
+        "ownership-old"
+      ],
+      "meta": {
+        "speaker": "Keeper",
+        "event_turn": 1,
+        "extraction_turn": 1
+      }
+    },
+    {
+      "id": "ownership-retraction",
+      "text": "The previous ownership claim has no support and is withdrawn.",
+      "kind": "faithful-paraphrase",
+      "source_refs": [
+        "ownership-correction"
+      ],
+      "meta": {
+        "speaker": "Keeper",
+        "event_turn": 2,
+        "extraction_turn": 2
+      }
+    },
+    {
+      "id": "ownership-late-report",
+      "text": "The house belongs to Thomas Hayes.",
+      "kind": "faithful-paraphrase",
+      "source_refs": [
+        "ownership-old",
+        "ownership-late"
+      ],
+      "meta": {
+        "speaker": "Keeper",
+        "event_turn": 0,
+        "extraction_turn": 3
+      }
+    },
+    {
+      "id": "chair-usage",
+      "text": "Chair: swing — Take the chair and swing it at the opponent.",
+      "kind": "faithful-paraphrase",
+      "source_refs": [
+        "chair-usage-effect"
+      ]
+    }
+  ],
+  "cases": [
+    {
+      "id": "newspaper-interest-vs-travel",
+      "title": "报纸兴趣与明确旅行",
+      "dimensions": [
+        "public-spatial-scope"
+      ],
+      "origin": "authored-source-grounded",
+      "grounding": [
+        "newspaper-vague",
+        "newspaper-proposal",
+        "newspaper-explicit",
+        "newspaper-access"
+      ],
+      "questions": {
+        "travel": {
+          "type": "choice",
+          "instructions": "Does the current player request choose travel to the proposed destination? Assess destination choice separately from other proposed effects.",
+          "criteria": {
+            "chosen": "The destination is chosen.",
+            "unchosen": "The destination is not chosen."
+          }
+        },
+        "batch": {
+          "type": "choice",
+          "instructions": "Can every effect in the proposed batch be settled from the supplied choices and established events? Permission to attempt is not evidence of completed acquisition.",
+          "criteria": {
+            "ready": "All effects have sufficient authority and established outcome.",
+            "not_ready": "At least one effect lacks authority or an established outcome."
+          }
+        }
+      },
+      "arms": [
+        {
+          "id": "interest",
+          "label": "只提兴趣",
+          "intervention": "只变player_text；前提、材料、提案相同。",
+          "input": {
+            "player_text": "那看看报纸",
+            "situation": "已接科比特宅调查委托，尚未出发，也尚未取得剪报室访问许可或完成检索。工作人员可能限制访问。提案中的分钟数是待审定的计划参数，不是已经发生的耗时。",
+            "existing_material": [
+              "newspaper-premise"
+            ],
+            "candidates": [],
+            "cache_only": [],
+            "proposed_effects": [
+              {
+                "kind": "move",
+                "to": "newspaper-morgue",
+                "travel_minutes": 30
+              },
+              {
+                "kind": "clue",
+                "clue": "globe-unpublished-story"
+              },
+              {
+                "kind": "time",
+                "minutes": 45
+              }
+            ]
+          },
+          "expected": {
+            "answers": {
+              "travel": "unchosen",
+              "batch": "not_ready"
+            },
+            "source_refs": [
+              "newspaper-vague",
+              "newspaper-proposal"
+            ],
+            "rationale": "未选择去处，不能由报纸兴趣代选旅行。"
+          }
+        },
+        {
+          "id": "travel",
+          "label": "明确去剪报室",
+          "intervention": "只变player_text；引用真实措辞但不搬用原回合全部状态。",
+          "input": {
+            "player_text": "我去环球报的剪报室查这栋房子的旧闻。",
+            "situation": "已接科比特宅调查委托，尚未出发，也尚未取得剪报室访问许可或完成检索。工作人员可能限制访问。提案中的分钟数是待审定的计划参数，不是已经发生的耗时。",
+            "existing_material": [
+              "newspaper-premise"
+            ],
+            "candidates": [],
+            "cache_only": [],
+            "proposed_effects": [
+              {
+                "kind": "move",
+                "to": "newspaper-morgue",
+                "travel_minutes": 30
+              },
+              {
+                "kind": "clue",
+                "clue": "globe-unpublished-story"
+              },
+              {
+                "kind": "time",
+                "minutes": 45
+              }
+            ]
+          },
+          "expected": {
+            "answers": {
+              "travel": "chosen",
+              "batch": "not_ready"
+            },
+            "source_refs": [
+              "newspaper-explicit",
+              "newspaper-access",
+              "newspaper-proposal"
+            ],
+            "rationale": "明确选择旅行；不等于受限访问和发现未刊稿已成功，也不证明45分钟检索已发生。附加clue不能结算，不抹去旅行选择。"
+          }
+        }
+      ],
+      "design_notes": [
+        "受控设计，非真桌A/B：模糊句来自合成契约测试，明确句来自另一上下文的真实turn。本次统一为尚未出发、尚未取得访问许可，也尚未完成检索。固定move/clue/time提案；只改变玩家措辞。时间参数是测试提案，不是已发生或必然耗时。"
+      ]
+    },
+    {
+      "id": "house-outside-vs-inside",
+      "title": "同一场景标识不消除宅外与室内边界",
+      "dimensions": [
+        "public-spatial-scope"
+      ],
+      "origin": "live-derived",
+      "grounding": [
+        "house-player",
+        "house-exterior",
+        "house-cupboard",
+        "house-diary-route",
+        "house-accepted-move",
+        "house-refused-extra"
+      ],
+      "questions": {
+        "entry": {
+          "type": "choice",
+          "instructions": "Does the current request choose entry into the building interior, considering physical scope rather than scene identifier alone?",
+          "criteria": {
+            "chosen": "Interior entry is chosen.",
+            "unchosen": "Interior entry is not chosen."
+          }
+        },
+        "diary": {
+          "type": "choice",
+          "instructions": "Do current choices and established events authorize settling the proposed diary acquisition?",
+          "criteria": {
+            "ready": "Acquisition is supported by the supplied choices and completed events.",
+            "not_ready": "Entry or observation alone does not establish the acquisition."
+          }
+        }
+      },
+      "arms": [
+        {
+          "id": "outside",
+          "label": "外部巡视",
+          "intervention": "只改变player_text，固定资料与提案。",
+          "input": {
+            "player_text": "天亮以后我先到科比特宅外面走一圈，看看房子的外观和周围街道。",
+            "situation": "调查员当前在科比特宅外，尚未搜索室内。场景标识为corbitt-house-ground；守秘人收到的该场景资料也包含地上层调查路线，但资料投影本身不表示角色已进入或发现物品。",
+            "existing_material": [
+              "house-spatial"
+            ],
+            "candidates": [],
+            "cache_only": [],
+            "proposed_effects": [
+              {
+                "kind": "move",
+                "to": "corbitt-house-ground",
+                "via": "Enter the ground-floor interior"
+              },
+              {
+                "kind": "clue",
+                "clue": "corbitt-diaries"
+              }
+            ]
+          },
+          "expected": {
+            "answers": {
+              "entry": "unchosen",
+              "diary": "not_ready"
+            },
+            "source_refs": [
+              "house-player",
+              "house-exterior",
+              "house-cupboard",
+              "house-diary-route",
+              "house-accepted-move",
+              "house-refused-extra"
+            ],
+            "rationale": "外部巡视允许到宅外，不允许代选入内、撬柜、取得日记。真实首批因附加研究线索被拒，随后move/time成功；不是整段旅行非法。"
+          }
+        },
+        {
+          "id": "inside",
+          "label": "明确进屋",
+          "intervention": "作者设计扰动，仅将行动范围改为进入；不是历史第二臂。",
+          "input": {
+            "player_text": "我先进入科比特宅的一层，看看里面的布局。",
+            "situation": "调查员当前在科比特宅外，尚未搜索室内。场景标识为corbitt-house-ground；守秘人收到的该场景资料也包含地上层调查路线，但资料投影本身不表示角色已进入或发现物品。",
+            "existing_material": [
+              "house-spatial"
+            ],
+            "candidates": [],
+            "cache_only": [],
+            "proposed_effects": [
+              {
+                "kind": "move",
+                "to": "corbitt-house-ground",
+                "via": "Enter the ground-floor interior"
+              },
+              {
+                "kind": "clue",
+                "clue": "corbitt-diaries"
+              }
+            ]
+          },
+          "expected": {
+            "answers": {
+              "entry": "chosen",
+              "diary": "not_ready"
+            },
+            "source_refs": [
+              "house-player",
+              "house-exterior",
+              "house-cupboard",
+              "house-diary-route",
+              "house-accepted-move",
+              "house-refused-extra"
+            ],
+            "rationale": "进屋已选择，但看布局不等于撬柜，也不能直接落日记发现。"
+          }
+        }
+      ],
+      "design_notes": [
+        "基于真实宅外巡视的受控设计，非原turn回放。调查员在宅外，室内尚未搜索；进屋臂是本次作者扰动，非历史发生。固定scene id与资料、拟议入内和发现日记；只变玩家话。资料为守秘人内部备料，不自动交付玩家。"
+      ]
+    },
+    {
+      "id": "globe-evidence-direction",
+      "title": "Globe关系方向与观点归属",
+      "dimensions": [
+        "attribution-direction"
+      ],
+      "origin": "report-derived",
+      "grounding": [
+        "globe-content",
+        "globe-relation",
+        "globe-conclusion",
+        "globe-report-frame",
+        "globe-report-direction"
+      ],
+      "questions": {
+        "direction": {
+          "type": "choice",
+          "instructions": "Does the current player interpretation preserve the direction of the supplied graph relation, without treating support as conclusive proof?",
+          "criteria": {
+            "preserved": "The interpretation preserves support and does not assert proof.",
+            "reversed": "The interpretation turns supplied support into opposition."
+          }
+        },
+        "attribution": {
+          "type": "choice",
+          "instructions": "Who is presented as the speaker of the supplied disputed frightening-story statement? Preserve recorded attribution without endorsing its truth.",
+          "criteria": {
+            "player": "It is attributed to the player.",
+            "source": "It is attributed to the article."
+          }
+        }
+      },
+      "arms": [
+        {
+          "id": "support",
+          "label": "支持但未证明",
+          "intervention": "基线：图与文章固定；争议记录归玩家。",
+          "input": {
+            "player_text": "这些悲剧支持科比特意志仍在影响房子的可能，但这份报道还不能独自证明原因。",
+            "situation": "调查员已获得未刊稿。守秘人可见当前模组图的关系行；关系中的内部结论不能自动当成玩家已证明的知识。另有一条带说话者的争议记录，需区分这句话被归给谁，以及其观点是否与已提供的关系方向一致。",
+            "existing_material": [
+              "globe-article",
+              "globe-edge",
+              "globe-player-frame"
+            ],
+            "candidates": [],
+            "cache_only": [],
+            "proposed_effects": []
+          },
+          "expected": {
+            "answers": {
+              "direction": "preserved",
+              "attribution": "player"
+            },
+            "source_refs": [
+              "globe-content",
+              "globe-relation",
+              "globe-conclusion",
+              "globe-report-frame",
+              "globe-report-direction"
+            ],
+            "rationale": "保留supports方向且不升级为证明；记者拼凑论是玩家观点，不是文章断言。"
+          }
+        },
+        {
+          "id": "reverse",
+          "label": "把支持反说成反驳",
+          "intervention": "相对support只变player_text，材料完全固定。",
+          "input": {
+            "player_text": "这份报道反驳了科比特意志造成悲剧的说法，不过是记者拼凑的吓人故事。",
+            "situation": "调查员已获得未刊稿。守秘人可见当前模组图的关系行；关系中的内部结论不能自动当成玩家已证明的知识。另有一条带说话者的争议记录，需区分这句话被归给谁，以及其观点是否与已提供的关系方向一致。",
+            "existing_material": [
+              "globe-article",
+              "globe-edge",
+              "globe-player-frame"
+            ],
+            "candidates": [],
+            "cache_only": [],
+            "proposed_effects": []
+          },
+          "expected": {
+            "answers": {
+              "direction": "reversed",
+              "attribution": "player"
+            },
+            "source_refs": [
+              "globe-content",
+              "globe-relation",
+              "globe-conclusion",
+              "globe-report-frame",
+              "globe-report-direction"
+            ],
+            "rationale": "反驳说颠倒图关系。评测方向判断不随玩家断言变成作者事实。"
+          }
+        },
+        {
+          "id": "source-attribution",
+          "label": "同一句改标文章说话者",
+          "intervention": "相对support只改争议记录speaker；这是故意错误归属的设计扰动，不是文章原文。",
+          "input": {
+            "player_text": "这些悲剧支持科比特意志仍在影响房子的可能，但这份报道还不能独自证明原因。",
+            "situation": "调查员已获得未刊稿。守秘人可见当前模组图的关系行；关系中的内部结论不能自动当成玩家已证明的知识。另有一条带说话者的争议记录，需区分这句话被归给谁，以及其观点是否与已提供的关系方向一致。",
+            "existing_material": [
+              "globe-article",
+              "globe-edge",
+              "globe-source-frame"
+            ],
+            "candidates": [],
+            "cache_only": [],
+            "proposed_effects": []
+          },
+          "expected": {
+            "answers": {
+              "direction": "preserved",
+              "attribution": "source"
+            },
+            "source_refs": [
+              "globe-content",
+              "globe-relation",
+              "globe-conclusion",
+              "globe-report-frame",
+              "globe-report-direction"
+            ],
+            "rationale": "输入将同句归给文章，须识别记录中的来源声称而不是仍答玩家；该归属是测试刺激，不证明原文如此。"
+          }
+        }
+      ],
+      "design_notes": [
+        "报告派生+当前图的设计对照，不是原turn回放，也不是仅凭文章独立推出超自然因果的盲测。设定已获得未刊稿；守秘人收到真实图关系。内部结论不能自动作为玩家已证明的知识。另有一条带说话者的争议记录，需保留其归属；不会因记有一句话就证明话是真的。"
+      ]
+    },
+    {
+      "id": "ownership-withdrawal-recall",
+      "title": "撤回与晚到旧抽取不能确立产权",
+      "dimensions": [
+        "memory-revision"
+      ],
+      "origin": "contract-derived",
+      "grounding": [
+        "ownership-old",
+        "ownership-correction",
+        "ownership-current-recall",
+        "ownership-late",
+        "ownership-shell"
+      ],
+      "questions": {
+        "status": {
+          "type": "choice",
+          "instructions": "What is the current status of the ownership assertion in the supplied conversation reports? Use event chronology and corrections, not arrival order alone.",
+          "criteria": {
+            "unverified": "An unverified report is present without a supplied retraction.",
+            "withdrawn": "The assertion is withdrawn; older reports cannot reinstate it."
+          }
+        },
+        "owner": {
+          "type": "choice",
+          "instructions": "Is a current legal owner established by the supplied evidence, rather than merely asserted in conversation?",
+          "criteria": {
+            "established": "Current ownership is established.",
+            "unknown": "Current ownership is not established."
+          }
+        }
+      },
+      "arms": [
+        {
+          "id": "before",
+          "label": "撤回前",
+          "intervention": "只有旧声明；其余问题和前提固定。",
+          "input": {
+            "player_text": "先前说房子属于托马斯·海斯，那现在能把这句话当确定的产权事实吗？",
+            "situation": "当前资料只有对话报告，没有产权文件或其他产权证明。event_turn表示被报告事件时间，extraction_turn表示提取到达时间。问题问现在能保留哪一种产权说法，不是要求逐字复述历史。",
+            "existing_material": [
+              "ownership-report"
+            ],
+            "candidates": [],
+            "cache_only": [],
+            "proposed_effects": []
+          },
+          "expected": {
+            "answers": {
+              "status": "unverified",
+              "owner": "unknown"
+            },
+            "source_refs": [
+              "ownership-old",
+              "ownership-shell"
+            ],
+            "rationale": "只是未核对的守秘人口头声明，不能当产权证明。"
+          }
+        },
+        {
+          "id": "after",
+          "label": "撤回后",
+          "intervention": "相对before只追加明确撤回，问题与旧声明固定。",
+          "input": {
+            "player_text": "先前说房子属于托马斯·海斯，那现在能把这句话当确定的产权事实吗？",
+            "situation": "当前资料只有对话报告，没有产权文件或其他产权证明。event_turn表示被报告事件时间，extraction_turn表示提取到达时间。问题问现在能保留哪一种产权说法，不是要求逐字复述历史。",
+            "existing_material": [
+              "ownership-report",
+              "ownership-retraction"
+            ],
+            "candidates": [],
+            "cache_only": [],
+            "proposed_effects": []
+          },
+          "expected": {
+            "answers": {
+              "status": "withdrawn",
+              "owner": "unknown"
+            },
+            "source_refs": [
+              "ownership-old",
+              "ownership-correction",
+              "ownership-current-recall",
+              "ownership-late",
+              "ownership-shell"
+            ],
+            "rationale": "撤回使旧句不可当现状；撤回不是把产权转给Knott的证据。"
+          }
+        },
+        {
+          "id": "late",
+          "label": "旧抽取晚到",
+          "intervention": "相对after只追加对旧事件的迟到抽取，不追加新产权事件。",
+          "input": {
+            "player_text": "先前说房子属于托马斯·海斯，那现在能把这句话当确定的产权事实吗？",
+            "situation": "当前资料只有对话报告，没有产权文件或其他产权证明。event_turn表示被报告事件时间，extraction_turn表示提取到达时间。问题问现在能保留哪一种产权说法，不是要求逐字复述历史。",
+            "existing_material": [
+              "ownership-report",
+              "ownership-retraction",
+              "ownership-late-report"
+            ],
+            "candidates": [],
+            "cache_only": [],
+            "proposed_effects": []
+          },
+          "expected": {
+            "answers": {
+              "status": "withdrawn",
+              "owner": "unknown"
+            },
+            "source_refs": [
+              "ownership-old",
+              "ownership-correction",
+              "ownership-current-recall",
+              "ownership-late",
+              "ownership-shell"
+            ],
+            "rationale": "提取到达较晚不改变其旧事件身份，不可复活已撤回断言。"
+          }
+        }
+      ],
+      "design_notes": [
+        "generic contract-derived设计，不是真桌。the-haunting只是契约测试战役壳；无产权文件或新的产权证明。材料中的event_turn是被报告事件时间，extraction_turn是提取到达时间；数值为本次顺序建模，不冒充原测试字段。问题问当前产权，而非逐字历史。"
+      ]
+    },
+    {
+      "id": "chair-look-vs-swing",
+      "title": "同一把椅子：观察与挥击",
+      "dimensions": [
+        "purpose-routing",
+        "public-spatial-scope"
+      ],
+      "origin": "contract-derived",
+      "grounding": [
+        "chair-look",
+        "chair-swing",
+        "chair-take-effect",
+        "chair-usage-effect"
+      ],
+      "questions": {
+        "usage": {
+          "type": "choice",
+          "instructions": "Does the chosen player action authorize the proposed pickup and named usage preparation for this object? Distinguish observation from physical use; do not infer attack success.",
+          "criteria": {
+            "chosen": "The pickup and usage preparation are chosen or entailed.",
+            "unchosen": "The pickup and usage preparation are not chosen."
+          }
+        }
+      },
+      "arms": [
+        {
+          "id": "look",
+          "label": "只看椅子",
+          "intervention": "只变player_text；固定同对象、用法材料和take+swing提案。",
+          "input": {
+            "player_text": "我只看看那把椅子，不拿起来，也不攻击。",
+            "situation": "书房中已有一把Chair和一名对手。提案列出拿取和swing用法准备；目前没有命中或伤害已经结算的记录。",
+            "existing_material": [
+              "chair-usage"
+            ],
+            "candidates": [],
+            "cache_only": [],
+            "proposed_effects": [
+              {
+                "kind": "object",
+                "name": "Chair",
+                "from": "here",
+                "to": "Investigator"
+              },
+              {
+                "kind": "usage",
+                "object": "Chair",
+                "name": "swing",
+                "description": "Take the chair and swing it at the opponent."
+              }
+            ]
+          },
+          "expected": {
+            "answers": {
+              "usage": "unchosen"
+            },
+            "source_refs": [
+              "chair-look",
+              "chair-swing",
+              "chair-take-effect",
+              "chair-usage-effect"
+            ],
+            "rationale": "看同一物件不授权拿起和挥击；不能仅按对象相同路由到攻击用途。"
+          }
+        },
+        {
+          "id": "swing",
+          "label": "拿起挥击",
+          "intervention": "只变player_text；中文为原英文忠实改写。",
+          "input": {
+            "player_text": "我拿起那把椅子，向对手挥过去。",
+            "situation": "书房中已有一把Chair和一名对手。提案列出拿取和swing用法准备；目前没有命中或伤害已经结算的记录。",
+            "existing_material": [
+              "chair-usage"
+            ],
+            "candidates": [],
+            "cache_only": [],
+            "proposed_effects": [
+              {
+                "kind": "object",
+                "name": "Chair",
+                "from": "here",
+                "to": "Investigator"
+              },
+              {
+                "kind": "usage",
+                "object": "Chair",
+                "name": "swing",
+                "description": "Take the chair and swing it at the opponent."
+              }
+            ]
+          },
+          "expected": {
+            "answers": {
+              "usage": "chosen"
+            },
+            "source_refs": [
+              "chair-look",
+              "chair-swing",
+              "chair-take-effect",
+              "chair-usage-effect"
+            ],
+            "rationale": "拿起与挥击已明确选择，可以准备同一swing用法；不能因此声称命中或伤害已结算。"
+          }
+        }
+      ],
+      "design_notes": [
+        "generic contract-derived：书房中已有Chair和对手；只是同物不同动作的通用契约夹具，不是科比特作者图的物件或用法，也不是真实玩测。中文玩家话忠实改写原英文。固定对象、提案与材料，不假定攻击已命中。"
+      ]
+    }
+  ]
+}

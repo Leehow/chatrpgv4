@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "status": "question-bank-design",
+  "model_evaluation_run": false,
+  "live_play": false,
+  "sources": [
+    {
+      "id": "masks",
+      "filename": "Call of Cthulhu - Masks of Nyarlathotep (Larry DiTillio, Lynn Willis, Mike Mason etc.).pdf",
+      "title": "Masks of Nyarlathotep, fifth-edition omnibus, Call of Cthulhu 7th edition",
+      "sha256": "806966db20202a020af6213695dccc0b547fc998a73dd2f1344567e2579a1942",
+      "physical_page_count": 669,
+      "page_numbering": "One-based physical PDF pages; labels verified through the host PDF page accessor. Printed pages 1-666 correspond to physical pages 4-669.",
+      "exposure": "Inspected during question-bank design; no claim of held-out model performance.",
+      "limitations": [
+        "Dense multi-column layouts, image handouts and maps require page-level verification.",
+        "Classic and Pulp alternatives must remain separate.",
+        "Keeper backstory is not automatically investigator knowledge."
+      ]
+    },
+    {
+      "id": "blood-highway",
+      "filename": "血色公路.pdf",
+      "title": "血色公路",
+      "sha256": "9cc71c34dd62462f0f3c7bf765defc4bc49667f1f9fee3f0ac172a32464da50c",
+      "physical_page_count": 111,
+      "page_numbering": "One-based physical PDF pages. The existing native-text corpus has no printed page labels; use null unless independently verified.",
+      "exposure": "Same source bytes as the 2026-09-19 PDF-routing and 2026-09-21 wide/incremental diagnostics. New questions are not an unseen-document test.",
+      "limitations": [
+        "Native extraction is corrupted in parts; unclear text must be checked visually or remain unresolved.",
+        "Maps and plans are not fully represented by native text.",
+        "Some source dates and details conflict; do not silently reconcile them.",
+        "Threat and rescue questions do not require graphic descriptions."
+      ]
+    }
+  ]
+}
