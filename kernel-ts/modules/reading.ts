@@ -1,11 +1,17 @@
 /** One persisted source queue; native descriptor leases own publication attempts. */
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { copyFile, mkdir, readFile, rename, stat } from 'node:fs/promises';
 import { basename, dirname, extname, join, relative } from 'node:path';
 import { internalError, RpcError } from '../errors.js';
 import { sha256File, writeJsonAtomic } from '../fileio.js';
-import { compareUnicode, isJsonObject, jsonDigest } from '../json.js';
+import { compareUnicode, isJsonObject, jsonDigest, parsePythonJson } from '../json.js';
 import { withExclusiveLock, type LockLease } from '../locks.js';
+import type {KernelContext} from '../context.js';
+import {CampaignSnapshot,loadCampaignModule} from '../read/campaign.js';
+import {sourceRevision} from '../read/context.js';
+import {activeMods} from '../read/mods.js';
+import {assertSourcePreparationRequest,type SourcePreparationRequest} from '../../runtime/jev/source-preparation.ts';
+import type {SourcePublicationAdvance} from '../../runtime/jev/read-set.ts';
 import { ModuleGraph } from '../read/module-graph.js';
 import { mapsDepictingScene } from '../read/maps.js';
 import { array, clone, equal, integer, normalize, number, repr, row, sorted, string, truth, type Row } from '../read/values.js';
@@ -25,6 +31,31 @@ type PublicationLease = {
     jobId: string;
     token: string;
 };
+export function sourcePreparationScopeMatches(current:Row,expected:Row):boolean {
+    return ['campaign','worldline','loop','audience'].every(key=>current[key]===expected[key]);
+}
+export interface OwnedSourcePreparation {request:SourcePreparationRequest;currentRevision:string}
+/** Uses the capsule's one source revision algorithm, including its current active package set. */
+export async function sourcePreparationSnapshot(context:KernelContext,campaignId:string,moduleId:string,
+    publication?:{meta:Row;graph:Row}):Promise<Row> {
+    const campaign=await CampaignSnapshot.open(context,campaignId);
+    if(campaign.meta.module_id!==moduleId)throw new RpcError('needs','The source module no longer belongs to this campaign',{details:{reason:'source_preparation_stale'}});
+    let module=await loadCampaignModule(context,moduleId,campaign.world,campaignId);
+    if(publication) {
+        const meta=publication.meta;
+        if(module.adapted||meta.id!==moduleId||meta.campaign_scope!==campaignId||typeof meta.graph_digest!=='string'||!Number.isSafeInteger(meta.generation))
+            throw new RpcError('needs','The candidate publication does not belong to this source owner',{details:{reason:'source_preparation_stale'}});
+        // writeGraph has created and hashed this immutable generation, but module.json still points at the old one.
+        module={...module,meta,generation:meta.generation,graph:new ModuleGraph(moduleId,publication.graph,meta.graph_digest,module.graph.dossier)};
+    }
+    const active=await activeMods(context,campaign.world);
+    const capsule={mods:{active:active.map(mod=>({id:mod.id}))}},revision=await sourceRevision(campaign,module,capsule),worldline=string(campaign.meta.active_worldline||'main');
+    if(typeof revision.task_source_revision!=='string')throw new RpcError('needs','The source revision is unavailable',{details:{reason:'source_preparation_stale'}});
+    let forkOriginRevision=revision.task_source_revision;
+    if(module.meta.campaign_scope===campaignId) {const {campaign_scope:_scope,source_generation:_generation,...seedMeta}=module.meta;forkOriginRevision=(await sourceRevision(campaign,{...module,meta:seedMeta},capsule)).task_source_revision;}
+    return {revision:revision.task_source_revision,forkOriginRevision,turn:campaign.turn.turn,status:campaign.meta.status,
+        scope:{campaign:campaignId,worldline,loop:number(row(row(campaign.meta.worldlines)[worldline]).loop),audience:'keeper'}};
+}
 export class Reading {
     private readonly leases = new Map<string, PublicationLease>();
     private closed = false;
@@ -295,7 +326,31 @@ export class Reading {
         queued.push(...await this.queueAdjacentReading(graph, scene));
         return { queued: [...new Set(queued)], scene: scene.node_id, ...(wayOn ? { way_on: wayOn } : {}) };
     }
-    async request(params: Row): Promise<Row> {
+    async peekAnswer(params: Row): Promise<Row> {
+        const mid = validateModuleId(params.module_id), meta = await this.store.module(mid);
+        if (typeof params.question !== 'string' || !params.question || typeof (params.focus ?? '') !== 'string')
+            throw new RpcError('invalid_params', 'A source answer cache lookup requires question and optional focus');
+        const source = row(meta.source_document);
+        if (typeof source.file_sha256 !== 'string') return {cached: false};
+        const cacheKey = jsonDigest([source.file_sha256, 'answer', '', normalize(params.focus ?? ''), params.question, [], SOURCE_ANSWER_PROTOCOL, meta.generation ?? 0]);
+        const accepted = row(row(row(meta.reading).answers)[cacheKey]);
+        if (!accepted.draft || accepted.source_sha256 !== source.file_sha256 || !equal(accepted.context_generation, meta.generation ?? 0)) return {cached: false};
+        const draftPath = await this.contained(this.store.moduleDir(mid), join(this.store.moduleDir(mid), accepted.draft));
+        const reviewPath = await this.contained(this.store.moduleDir(mid), join(this.store.moduleDir(mid), accepted.review));
+        const [draftBytes, reviewBytes] = await Promise.all([readFile(draftPath), readFile(reviewPath)]);
+        const hash = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
+        if (hash(draftBytes) !== accepted.draft_sha256 || hash(reviewBytes) !== accepted.review_sha256)
+            throw new RpcError('needs', 'Retained source answer evidence changed', {details: {reason: 'source_answer_integrity'}});
+        const draft = row(parsePythonJson(new TextDecoder('utf-8', {fatal: true, ignoreBOM: true}).decode(draftBytes)));
+        const current = await this.store.module(mid);
+        if (!equal(current.generation ?? 0, meta.generation ?? 0) || row(current.source_document).file_sha256 !== source.file_sha256)
+            throw new RpcError('needs', 'Source changed during cache lookup', {details: {reason: 'source_context_changed'}});
+        return {cached: true, source_answer: {...sourceAnswerResult(draft, mid), derivation: 'checked_summary'}, evidence: {
+            resource: `source-answer:${mid}:${cacheKey}`, revision: accepted.draft_sha256, accepted_revision: accepted.draft_sha256,
+            derived: true, record: draft, source_sha256: source.file_sha256,
+        }};
+    }
+    async request(params: Row, preparation?:OwnedSourcePreparation): Promise<Row> {
         const mid = validateModuleId(params.module_id), purpose = params.purpose;
         if (!PURPOSES.includes(purpose))
             throw new RpcError('invalid_params', `purpose must be one of ${repr(PURPOSES)}`);
@@ -306,6 +361,12 @@ export class Reading {
             throw new RpcError('invalid_params', 'repair is way_on, and only on an opening reading');
         return this.mutex(mid, async () => {
             const meta = await this.store.module(mid);
+            if(preparation) {
+                assertSourcePreparationRequest(preparation.request);
+                const replay=[...await this.store.queue(mid)].reverse().find(job=>row(row(job.task_preparation).request).authority?.token===preparation.request.authority.token);
+                const committed=replay?row(row(meta.reading).completed)[replay.job_id]:undefined;
+                if(row(committed)._task_source_advance)return {...committed,replayed:true};
+            }
             if (Object.hasOwn(params, 'context_generation')) {
                 if (purpose !== 'answer' || !integer(params.context_generation) || number(params.context_generation) < 0)
                     throw new RpcError('invalid_params', 'context_generation is a nonnegative answer-wait generation');
@@ -374,10 +435,20 @@ export class Reading {
             const queue = await this.store.queue(mid), existing = [...queue].reverse().find(job => job.key === key);
             if (existing) {
                 if (['queued', 'running'].includes(existing.state)) {
+                    let boundPreparation=false;
+                    if(preparation&&!equal(existing.task_preparation,preparation)) {
+                        // Prefetch can enqueue an exact reading before any owner has claimed it.
+                        // Bind only that untouched queue entry; another worker's attempt is never adopted.
+                        if(existing.state!=='queued'||existing.task_preparation!==undefined||existing.attempts!==0
+                            ||existing.owner!==undefined||existing.lease!==undefined||existing.work_dir!==undefined)
+                            throw new RpcError('needs','This source job does not belong to this pending operation',{details:{reason:'source_preparation_foreign_job'}});
+                        existing.task_preparation=clone(preparation);
+                        boundPreparation=true;
+                    }
                     if (truth(params.foreground)) {
                         existing.foreground = true;
-                        await this.store.writeQueue(mid, queue);
                     }
+                    if(boundPreparation||truth(params.foreground))await this.store.writeQueue(mid,queue);
                     return { ...result, state: existing.state === 'running' ? 'reading' : 'queued', job_id: existing.job_id };
                 }
                 if (existing.state === 'completed') {
@@ -393,6 +464,7 @@ export class Reading {
                     return { ...result, state: 'blocked', missing: [existing.detail ?? 'reading failed'], fix: 'request the same reading with retry: true' };
             }
             const job: Row = { job_id: `read-${queue.length + 1}`, key, purpose, ...(material ? { material } : {}), ...(repair ? { repair } : {}), focus, question, pages, foreground: truth(params.foreground), state: 'queued', attempts: 0, at: nowIso() };
+            if(preparation)job.task_preparation=clone(preparation);
             if (purpose === 'answer') job.context_generation = meta.generation ?? 0;
             // The repair extends the reading it repairs: the reader starts from that draft, not from nothing.
             if (repair && !existing) {
@@ -506,6 +578,12 @@ export class Reading {
                 const handles = [shared, individual];
                 try {
                     this.owned();
+                    const preparation=job.task_preparation as OwnedSourcePreparation|undefined;
+                    if(preparation) {
+                        const current=await sourcePreparationSnapshot(this.store.context,preparation.request.authority.campaign,mid);
+                        if(current.revision!==preparation.currentRevision||!sourcePreparationScopeMatches(current.scope,preparation.request.authority.scope)||current.turn!==preparation.request.authority.turn)
+                            throw new RpcError('needs','Source context changed before its owned preparation claim',{details:{reason:'source_preparation_stale'}});
+                    }
                     if (truth(job.work_dir))
                         job.resume_from = job.work_dir;
                     Object.assign(job, { state: 'running', owner: string(truth(params.owner) ? params.owner : 'host'), lease: uuid(), lock_version: 2, attempts: number(job.attempts) + 1, base_generation: meta.generation ?? 0 });
@@ -540,8 +618,10 @@ export class Reading {
                             recorded.set(string(entry.key), entry);
                         meta.vocabulary = { actor_profile_keys: [...recorded.values()] };
                         await this.store.writeModule(meta);
+                        if(preparation) {preparation.currentRevision=(await sourcePreparationSnapshot(this.store.context,preparation.request.authority.campaign,mid)).revision;await this.store.writeQueue(mid,queue);}
                     }
-                    const packet = { ...job, module_id: mid, source, concurrency: 3, index: job.purpose === 'index' ? [] : await this.store.sections(mid), known_nodes: known, known_claims: graph.claims ?? [], vocabulary: vocabulary(contract, contributed), coverage_domains: [...array(contract.graph.coverage_domains)] };
+                    const {task_preparation:_privatePreparation,...visibleJob}=job;
+                    const packet = { ...visibleJob, module_id: mid, source, concurrency: 3, index: job.purpose === 'index' ? [] : await this.store.sections(mid), known_nodes: known, known_claims: graph.claims ?? [], vocabulary: vocabulary(contract, contributed), coverage_domains: [...array(contract.graph.coverage_domains)] };
                     await writeJsonAtomic(join(work, 'packet.json'), packet);
                     this.owned();
                     return packet;
@@ -595,13 +675,19 @@ export class Reading {
                 await this.release(mid, job.job_id);
                 return { state: outcome };
             }
+            const preparation=job.task_preparation as OwnedSourcePreparation|undefined;
+            if(preparation) {
+                const current=await sourcePreparationSnapshot(this.store.context,preparation.request.authority.campaign,mid);
+                if(job.purpose!=='detail'||current.revision!==preparation.currentRevision||!sourcePreparationScopeMatches(current.scope,preparation.request.authority.scope)||current.turn!==preparation.request.authority.turn)
+                    throw new RpcError('needs','Source context changed before its owned publication',{details:{reason:'source_preparation_stale'}});
+            }
             const work = job.work_dir, packet = clone(row(await this.store.context.snapshots.readJson(join(work, 'packet.json'))));
             const observations = row(await this.store.context.snapshots.readJson(await this.contained(work, join(work, 'observations.json'))));
             if (observations.file_sha256 !== meta.source_document.file_sha256)
                 reject('reader observations do not belong to the registered source');
             const seen = new Set(array(observations.read_pages));
             const draft = clone(await this.store.context.snapshots.readJson(await this.contained(work, params.draft_path)));
-            let guidance: Row | null = null, opening: Row | null = null;
+            let guidance: Row | null = null, opening: Row | null = null, publicationGraph:Row|undefined;
             if (job.purpose === 'index')
                 await this.finishIndex(mid, meta, job, draft, new Set(array(observations.full_pages)));
             else if (job.purpose === 'answer') {
@@ -689,6 +775,7 @@ export class Reading {
                 meta.status = meta.opening_ready ? 'installed' : 'assembled';
                 this.owned();
                 await this.store.writeGraph(meta, graph);
+                publicationGraph=graph;
                 if (guidance) {
                     const key = job.guidance_key, accepted = join(this.store.moduleDir(mid), 'character-guidance', key, 'accepted.json');
                     await writeJsonAtomic(accepted, { fingerprint: key, approved: true, guidance, draft_sha256: await sha256File(join(work, 'draft.json')), source_sha256: meta.file_sha256, review: relative(this.store.moduleDir(mid), reviewPath), at: nowIso() });
@@ -708,6 +795,18 @@ export class Reading {
             Object.assign(job, { state: 'completed', result, finished_at: nowIso() });
             meta.reading.completed ??= {};
             meta.reading.completed[job.job_id] = result;
+            this.owned();
+            if(preparation) {
+                if(!publicationGraph)throw new RpcError('needs','The owned source completion has no candidate graph',{details:{reason:'source_preparation_stale'}});
+                const after=await sourcePreparationSnapshot(this.store.context,preparation.request.authority.campaign,mid,{meta,graph:publicationGraph});
+                const authority=preparation.request.authority;
+                if(after.revision===authority.from||!sourcePreparationScopeMatches(after.scope,authority.scope)||after.turn!==authority.turn)
+                    throw new RpcError('needs','The accepted publication has no exact current source advance',{details:{reason:'source_preparation_stale'}});
+                const advance:SourcePublicationAdvance={...clone(authority),jobId:job.job_id,lease:job.lease,to:after.revision,
+                    publicationId:jsonDigest([authority.token,job.job_id,job.lease,authority.from,after.revision])};
+                result._task_source_advance=advance;
+            }
+            // The graph pointer, completion and exact operation-bound advance become durable together.
             this.owned();
             await this.store.writeModule(meta);
             await this.store.writeQueue(mid, queue);

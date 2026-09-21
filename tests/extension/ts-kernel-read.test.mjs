@@ -411,6 +411,11 @@ test('NPC dossiers and public object views preserve their different secrecy boun
     assert.equal(value.untold.label, undefined);
     assert.match(value.untold.use, /apply person/);
     const {untold, ...legacy} = value;
+    if (legacy.history?.promises) legacy.history = {...legacy.history, promises: legacy.history.promises.map(promise => {
+      assert.equal(promise.authority, 'conversation_report', 'Current promise projections preserve their conversational authority');
+      const {authority, ...historical} = promise;
+      return historical;
+    })};
     return legacy;
   };
   same({entry:dossier(api.npcEntry(graph,world,doctor,ledger,new Map(memories.map(m=>[m.id,m])))),view:dossier(api.npcView(graph,world,doctor,ledger)),

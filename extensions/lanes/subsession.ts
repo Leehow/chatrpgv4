@@ -9,6 +9,7 @@
  * the limits of this road are, is in docs/pi-host-contract.md §3 and §5.
  */
 
+import {boundProviderRequest, independentProviderBudget, type TaskProviderBudget, type ProviderCharge, providerUsage} from "../../runtime/jev/provider-budget.ts";
 import { parseJsonWithRepair } from "@earendil-works/pi-ai";
 import type { ThinkingLevel } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -25,7 +26,7 @@ import { agentHomeOf } from "../ui/hints.ts";
 export type LaneFailureReason = "model_unavailable" | "model_error" | "bad_output" | "timeout";
 
 export type LaneResult<T> =
-	| { ok: true; value: T; ms: number; model: string; raw: string }
+	| { ok: true; value: T; ms: number; model: string; raw: string; usage?: ReturnType<typeof providerUsage> }
 	| { ok: false; reason: LaneFailureReason; detail: string; ms: number; model?: string };
 
 /** `provider/model`. A model id may contain slashes itself, so split on the first one only. */
@@ -303,6 +304,7 @@ function laneCallRows(request: LaneRequest<unknown>) {
 }
 
 export interface LaneRequest<T> {
+	providerBudget?: TaskProviderBudget;
 	ctx: ExtensionContext;
 	/** Name of the environment variable the model comes from: `PI_COC_VERIFIER_MODEL` or `PI_COC_MEMORY_MODEL`. */
 	envName: string;
@@ -337,11 +339,14 @@ export interface LaneRequest<T> {
 
 /** Run one lane: resolve the model, one completion, take the JSON, check the shape. Any step failing returns a failure, never throws. */
 export async function runLane<T>(request: LaneRequest<T>): Promise<LaneResult<T>> {
+	const independent = request.providerBudget ? undefined : independentProviderBudget(`lane:${request.lane}`, request.signal, request.timeoutMs ?? 180000);
+	request = {...request, providerBudget:request.providerBudget ?? independent!.budget};
 	const began = Date.now();
 	let label: string | undefined;
 	// One controller for this round: the caller's signal and the timeout both cut the same completion.
 	const controller = new AbortController();
 	const relay = () => controller.abort();
+	request = {...request, signal:AbortSignal.any([request.providerBudget!.signal, ...(request.signal ? [request.signal] : [])])};
 	if (request.signal) {
 		if (request.signal.aborted) controller.abort();
 		else request.signal.addEventListener("abort", relay, { once: true });
@@ -371,6 +376,7 @@ export async function runLane<T>(request: LaneRequest<T>): Promise<LaneResult<T>
 	} finally {
 		if (timer) clearTimeout(timer);
 		request.signal?.removeEventListener("abort", relay);
+		independent?.close();
 	}
 }
 
@@ -398,7 +404,11 @@ async function runLaneAttempt<T>(
 		const reasoning = laneReasoningOptions(resolved.model, thinking);
 		await rows.start(label, thinking, Object.keys(reasoning).length > 0);
 		let reply: Awaited<ReturnType<ExtensionContext["modelRegistry"]["complete"]>>;
+		const charges:ProviderCharge[]=[];
+		const retainUnknown=()=>{for(const charge of charges)charge.settle();};
+		signal.addEventListener("abort",retainUnknown,{once:true});
 		try {
+			signal.throwIfAborted();
 			const headers = openCodeSessionHeaders(resolved.model, sessionIdOf(request.ctx));
 			reply = await request.ctx.modelRegistry.complete(
 				resolved.model,
@@ -407,12 +417,21 @@ async function runLaneAttempt<T>(
 					messages: [{ role: "user", content: [{ type: "text", text: request.input }] }],
 					// tools omitted: that is what makes this a zero-tool session.
 				},
-				{ signal, ...reasoning, ...rows.options, ...(headers ? { headers } : {}) },
+				{ signal, maxRetries:0, ...reasoning, ...rows.options, ...(headers ? { headers } : {}),
+					onPayload:async(payload:unknown)=>{
+						const prepared=boundProviderRequest(resolved.model,payload);
+						const charge=await request.providerBudget!.reserve(prepared.bound,signal);
+						try{await rows.options.onPayload(prepared.payload);signal.throwIfAborted();}
+						catch(error){charge.release();throw error;}
+						charges.push(charge);return prepared.payload;
+					}},
 			);
 		} catch (error) {
+			for(const charge of charges.splice(0))charge.settle();
 			await rows.end({ ok: false });
 			throw error;
-		}
+		} finally {signal.removeEventListener("abort",retainUnknown);}
+		for(const [index,charge] of charges.entries())charge.settle(index===charges.length-1&&!['error','aborted'].includes(reply.stopReason)?reply.usage:undefined);
 		await rows.end({
 			ok: reply.stopReason !== "error" && reply.stopReason !== "aborted",
 			...(typeof reply.stopReason === "string" ? { stopReason: reply.stopReason } : {}),
@@ -451,7 +470,7 @@ async function runLaneAttempt<T>(
 		if (value === undefined) {
 			return { ok: false, reason: "bad_output", detail: "the JSON is not the shape this lane asked for", ms: Date.now() - began, model: label };
 		}
-		return { ok: true, value, ms: Date.now() - began, model: label, raw };
+		return { ok: true, value, ms: Date.now() - began, model: label, raw, usage:providerUsage(reply.usage) };
 	} catch (error) {
 		return {
 			ok: false,

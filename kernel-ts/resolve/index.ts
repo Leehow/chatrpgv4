@@ -21,6 +21,7 @@ import { resolveResult,markersOf,modResolveEvents } from './projection.js';
 import {actor as selectActor} from '../read/handlers.js';
 import type {ModResolveInput,ModResolveResult} from '../mods/resolve.js';
 import type {FixedFamilies} from './families.js';
+import {trackResolveReceipts} from '../runtime/receipt-advance.js';
 export { CheckArithmetic, rollExpression, resourceDelta } from './arithmetic.js';
 export { SettleContext, continuableCheck, latestCheckReceipt, recordSkillTicks, skillTickEligible } from './context.js';
 export type { ResolveWriter, SettlementExecutor, ExecutionResult } from './context.js';
@@ -187,6 +188,7 @@ export function createResolveRuntime(kernel: KernelContext, writer: ResolveWrite
             });
             if (start.kind === 'replay')
                 return start.result;
+            await trackResolveReceipts(transaction, params._task_read_set, start.callId);
             if (!isJsonObject(action))
                 throw new RpcError('invalid_params', 'params.action must be an object');
             if (!INTENTS.includes(string(action.intent)))

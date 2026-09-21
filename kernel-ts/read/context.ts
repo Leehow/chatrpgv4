@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { jsonDigest, pythonJsonDumps, utf8Bytes } from '../json.js';
 import type { CampaignSnapshot, LoadedModule } from './campaign.js';
 import { array, number, row, string, truth, chars, type Row } from './values.js';
+import {taskViews} from './task-views.js';
 
 export const MEMORY_COVERAGE_BYTES = 4096;
 const RECENT_TURNS = 20;
@@ -81,14 +82,15 @@ async function memoryCoverageKnown(campaign: CampaignSnapshot): Promise<Row> {
     for (const record of records) {
         const turn = number(record.turn), id = extractJobId(campaign.id, turn),
             job = row(await campaign.optional(join('memory/jobs', `${id}.json`))),
-            bound = job.commit === record.commit;
+            bound = job.commit === record.commit || job.protocol === 'memory-reference-v1' && job.record_commit === record.commit
+                && typeof job.commit === 'string' && typeof record.commit === 'string' && job.commit.startsWith(record.commit);
         if (bound && job.status === 'done') {
             completed++;
             continue;
         }
         gaps.push({
             turn,
-            status: bound && (job.status === 'failed' || backlog.has(id)) ? 'failed' : bound && job.status === 'open' ? 'pending' : 'missing'
+            status: bound && (job.status === 'failed' || backlog.has(id)) ? 'failed' : bound && ['open', 'pending'].includes(job.status) ? 'pending' : 'missing'
         });
     }
     const recentFrom = records.length ? number(records[Math.max(0, records.length - RECENT_TURNS)].turn) : null,
@@ -130,37 +132,48 @@ export async function memoryCoverage(campaign: CampaignSnapshot): Promise<Row> {
     }
 }
 
-async function sourceRevision(campaign: CampaignSnapshot, module: LoadedModule, capsule: Row): Promise<Row> {
+export async function sourceRevision(campaign: CampaignSnapshot, module: LoadedModule, capsule: Row): Promise<Row> {
     try {
         const activeLocks = row(row(campaign.world.mods).active),
             active = array(row(capsule.mods).active).map(mod => ({ id: mod.id, ...row(activeLocks[mod.id]) })),
             craftRoot = join(campaign.context.content, 'craft'),
             craft = await Promise.all((await campaign.context.snapshots.sortedChildNames(craftRoot, path => campaign.context.snapshots.isFile(path)))
                 .map(async name => [name, new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(await readFile(join(craftRoot, name)))]));
-        return { source_revision: jsonDigest({
+        const common: Row = {
             module: module.graph.digest,
             generation: module.generation,
-            meta: module.meta,
             active,
             craft,
             register: campaign.meta.register ?? null,
             play_language: campaign.meta.play_language ?? null
-        }) };
+        };
+        const {reading: _readerBookkeeping, updated_at: _bookkeepingClock, ...taskMeta} = module.meta;
+        return { source_revision: jsonDigest({...common, meta: module.meta}), task_source_revision: jsonDigest({...common, meta: taskMeta}) };
     }
     catch (error) {
         return { source_revision: null, unavailable: true, reason: reasonOf(error) };
     }
 }
 
+export function worldRevision(world: Row, party: Row[], receipts: unknown, pendingChoice: unknown): string {
+    const snapshot: Row = { world, party, receipts: array(receipts), pending_choice: pendingChoice ?? null };
+    return jsonDigest(snapshot);
+}
+export function taskWorldRevision(world: Row, party: Row[], receipts: unknown, pendingChoice: unknown): string {
+    return worldRevision(taskViews(world).world, party, receipts, pendingChoice);
+}
 export async function contextBinding(campaign: CampaignSnapshot, module: LoadedModule, capsule: Row): Promise<Row> {
     const worldline = string(campaign.meta.active_worldline || 'main'),
-        source = await sourceRevision(campaign, module, capsule);
+        source = await sourceRevision(campaign, module, capsule), views = taskViews(campaign.world);
     return {
         version: 1,
         campaign: campaign.id,
         worldline,
         loop: number(row(row(campaign.meta.worldlines)[worldline]).loop),
         turn: number(campaign.turn.turn),
+        world_revision: worldRevision(campaign.world, campaign.party, campaign.turn.receipts, campaign.turn.pending_choice),
+        task_world_revision: worldRevision(views.world, campaign.party, campaign.turn.receipts, campaign.turn.pending_choice),
+        task_presentation_revisions: views.presentation,
         ...source,
         memory_coverage: await memoryCoverage(campaign)
     };

@@ -491,6 +491,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 		promptSnippet: "Look back: memory assertions, verbatim transcript, history timeline",
 		parameters: Type.Object({
 			using_skill: UsingSkill,
+			query: Type.Optional(Type.String({minLength: 1, maxLength: 2048, description: "memory only: optional semantic retrieval question when the typed memory host is enabled. It searches retained evidence and canonical context; never combine with read/detail or an unissued listing offset. Without query the existing direct recall behavior is unchanged."})),
 			what: StringEnum(["transcript", "memory", "history"] as const, {
 				description: "which way to look back: past assertions, verbatim text, or the timeline",
 			}),

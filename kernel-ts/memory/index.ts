@@ -14,6 +14,8 @@ import { noteMemory, readNpcLedger } from '../write/contributions.js';
 import { buildJob, correctionJob, committedRecords, defaultJobTurn, fail, logs, openJob, parseJobId, readJob, submit } from './jobs.js';
 import { history, recallMemory, transcript } from './recall.js';
 import {validateRecallRequest} from './pages.js';
+import {referencedJob, referencedSource, submitReferenced} from './referenced.js';
+import {createMemoryEvidenceOwner} from './evidence.js';
 /** The verifier's finding kinds, `play_language_mismatch` among them: the kernel makes no language refusal of its own (contract section 23). */
 const FINDINGS = ['reveal', 'uncommitted_state', 'player_agency', 'play_language_mismatch', 'unmarked_speech', 'investigator_identity_mismatch'];
 /**
@@ -68,11 +70,13 @@ async function warn(loaded: { campaign: CampaignWriter; module: { graph: ModuleG
     return { turn, lane, accepted: accepted.length, dropped, warnings: warnings.map(value => ({ kind: value.kind, quote: value.quote, why: value.why, ...(value.clue ? { clue: value.clue } : {}) })) };
 }
 export function createMemoryHandlers(context: KernelContext, writer: ReturnType<typeof createWriteRuntime>): HandlerGroup {
+    const evidence = createMemoryEvidenceOwner(context, params => writer.campaign(params));
     async function load(params: Row) {
         const campaign = await writer.campaign(params), snapshot = new CampaignSnapshot(context, campaign.id);
         snapshot.meta = await campaign.readCampaign();
         snapshot.jsonFiles.set('campaign.json', snapshot.meta);
-        if (snapshot.meta.status !== 'active')
+        const referencedCompletion = snapshot.meta.status === 'completed' && (params.mode === 'referenced' || params.referenced !== undefined);
+        if (snapshot.meta.status !== 'active' && !referencedCompletion)
             throw new RpcError('campaign_not_ready', `campaign ${repr(campaign.id)} is ${repr(snapshot.meta.status)}`, {
                 ...(snapshot.meta.status === 'setting_up' ? { fix: string(row(await context.snapshots.readJson(context.content + '/setup/steps.json')).table_open_fix).replaceAll('{campaign}', campaign.id) } : {}),
                 details: { status: snapshot.meta.status }
@@ -99,9 +103,15 @@ export function createMemoryHandlers(context: KernelContext, writer: ReturnType<
         return [job, turn];
     }
     return Object.freeze({
+        'memory.evidence': evidence,
+        'memory.source': async (params) => {
+            if (!integer(params.turn) || number(params.turn) < 0) throw new RpcError('invalid_params', 'params.turn must be a committed turn number');
+            return referencedSource(await writer.campaign(params), number(params.turn));
+        },
         'table.warn': async (params) => warn(await load(params), params),
         'memory.job': async (params) => {
             const { campaign, snapshot, module } = await load(params);
+            if (params.mode != null && params.mode !== 'referenced') throw new RpcError('invalid_params', 'Unknown memory job protocol');
             if (params.job_id != null) {
                 parseJobId(campaign, params.job_id);
                 if (!string(params.job_id).startsWith('reconcile:')) throw new RpcError('invalid_params', 'Use turn for an extraction job, or job_id for a retained reconciliation');
@@ -112,7 +122,10 @@ export function createMemoryHandlers(context: KernelContext, writer: ReturnType<
             }
             let turn = params.turn;
             if (turn == null) {
-                turn = await defaultJobTurn(campaign);
+                if (params.exclude_turns !== undefined && (params.mode !== 'referenced' || !Array.isArray(params.exclude_turns)
+                    || params.exclude_turns.length > 128 || params.exclude_turns.some(value => !integer(value) || number(value) < 0)))
+                    throw new RpcError('invalid_params', 'Referenced memory exclusions must be at most 128 turn numbers');
+                turn = await defaultJobTurn(campaign, {referenced: params.mode === 'referenced', exclude: array(params.exclude_turns).map(number)});
                 if (turn == null) {
                     const packet = await correctionJob(campaign, module.graph, await campaign.party());
                     return packet ? openJob(campaign, packet) : { job_id: null, turn: null };
@@ -120,12 +133,22 @@ export function createMemoryHandlers(context: KernelContext, writer: ReturnType<
             }
             else if (!integer(turn) || number(turn) < 0)
                 throw new RpcError('invalid_params', 'params.turn must be a committed turn number');
+            if (params.mode === 'referenced') return referencedJob(campaign, module.graph, await playLanguageOf(context, snapshot.meta), number(turn), await campaign.party(), snapshot.world);
+            const existing = await readJob(campaign, `extract:${campaign.id}:t${turn}`);
+            if (existing?.protocol === 'memory-reference-v1') throw new RpcError('invalid_params', 'This memory job requires the referenced protocol');
             return openJob(campaign, await buildJob(campaign, module.graph, await playLanguageOf(context, snapshot.meta), number(turn), await campaign.party(), snapshot.world));
         },
         'memory.submit': async (params) => {
-            const loaded = await load(params), { campaign, module } = loaded, [job, turn] = await jobFor(loaded, params.job_id);
+            const loaded = await load(params), { campaign, module } = loaded;
+            const turn = parseJobId(campaign, params.job_id);
+            const job = params.referenced !== undefined ? await readJob(campaign, string(params.job_id)) : (await jobFor(loaded, params.job_id))[0];
             if (!job)
                 throw new RpcError('invalid_params', `no extraction job for turn ${turn}`, { fix: 'call memory.job first', details: { job_id: params.job_id ?? null } });
+            if (params.referenced !== undefined) {
+                if (params.candidates !== undefined || params.story !== undefined) throw new RpcError('invalid_params', 'Referenced and legacy submissions cannot be combined');
+                return submitReferenced(campaign, module.graph, await campaign.party(), job, params.referenced);
+            }
+            if (job.protocol === 'memory-reference-v1') throw new RpcError('invalid_params', 'This memory job requires the referenced protocol');
             const [result, replayed] = await submit(campaign, module.graph, await campaign.party(), job, params.candidates, params.story);
             if (replayed)
                 return { ...result, replayed: true };
@@ -150,6 +173,8 @@ export function createMemoryHandlers(context: KernelContext, writer: ReturnType<
         },
         'table.recall': async (params) => {
             validateRecallRequest(params);
+            if (params.query !== undefined) throw new RpcError('needs', 'Semantic memory queries require their typed host owner',
+                {fix: 'Use the configured memory-query host, or omit query and use ordinary direct recall.', details: {reason: 'memory_query_requires_host'}});
             const contextRead = params._context_read === true;
             const { campaign: snapshot, module } = await readCampaign(context, params, false, true, writer.read, contextRead), what = params.what;
             if (!['history', 'memory', 'transcript'].includes(what as string))

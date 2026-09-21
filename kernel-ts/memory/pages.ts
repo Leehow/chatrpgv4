@@ -19,6 +19,9 @@ export function position(value: any, fallback: number, name: string, positive = 
     return number(value);
 }
 export function validateRecallRequest(params: Row): void {
+    if (params.query !== undefined && (params.what !== 'memory' || typeof params.query !== 'string' || !params.query.trim()
+        || params.query.length > 2048 || params.read != null || params.detail != null || number(row(params.page).offset) > 0))
+        throw new RpcError('invalid_params', 'A semantic memory query cannot be combined with direct read/detail or an unissued listing offset');
     const {_snapshot: _binding, campaign: _campaign, ...visible} = params;
     if (recallBytes(visible) > 4096)
         throw new RpcError('invalid_params', 'Recall request metadata is too large', {

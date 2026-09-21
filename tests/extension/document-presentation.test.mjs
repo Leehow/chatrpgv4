@@ -4,17 +4,25 @@ import {mkdtemp,mkdir,readFile,readdir,writeFile,rm} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
-import {presentDocument,documentPresentationStatus,validateDocumentReading} from '../../extensions/mods/document-presentation.ts';
+import {presentDocument,documentPresentationStatus,validateDocumentReading,validateDocumentReference} from '../../extensions/mods/document-presentation.ts';
+import {DOCUMENT_PRESENTATION_REFERENCE_PROTOCOL} from '../../runtime/jev/presentation-references.ts';
 import {waitFor} from './wait.mjs';
+
+const part=(packet,name)=>packet.sources.find(source=>source.alias===packet.parts[name]);
+const operation=(source,value)=>value===source.text?{source:source.alias,action:'keep'}:{source:source.alias,action:'translate',text:value};
+const readingArtifact=(packet,{title=part(packet,'title').text,text=part(packet,'text').text}={})=>({
+  protocol:DOCUMENT_PRESENTATION_REFERENCE_PROTOCOL,
+  texts:[operation(part(packet,'title'),title),operation(part(packet,'text'),text)],
+});
 
 test('reading cache preserves source, edits and reset across languages and changed source', async()=>{
   const home=await mkdtemp(join(tmpdir(),'paper-reading-'));
   const requests=[];
   const runner=async request=>{
     const input=JSON.parse(await readFile(join(request.cwd,'request.json'),'utf8'));requests.push(input);
-    await writeFile(join(request.cwd,'result.json'),JSON.stringify({
-      title:input.play_language==='zh-Hans'?'委托纸条':input.title,
-      text:input.text===''?'':input.play_language==='zh-Hans'?'每天 $20。\n—— Knott':input.text}));
+    await writeFile(join(request.cwd,'result.json'),JSON.stringify(readingArtifact(input,{
+      title:input.play_language==='zh-Hans'?'委托纸条':part(input,'title').text,
+      text:part(input,'text').text===''?'':input.play_language==='zh-Hans'?'每天 $20。\n—— Knott':part(input,'text').text})));
     return {ok:true,code:0,timedOut:false,ms:1,stderr:'',command:[]};
   };
   const source={name:"Knott's slip",text:'$20 per day.\n— Knott',original:'$20 per day.\n— Knott',
@@ -37,6 +45,24 @@ test('reading cache preserves source, edits and reset across languages and chang
     await presentDocument({home,runner},{...source,text:'Changed NPC text'});
     assert.equal(requests.length,4);
   } finally {await rm(home,{recursive:true,force:true});}
+});
+
+test('title and body keep selections remain separate and preserve exact bytes',async t=>{
+  const home=await mkdtemp(join(tmpdir(),'paper-reference-'));t.after(()=>rm(home,{recursive:true,force:true}));
+  const exact='Same\r\nbytes 😀';let rawArtifact;
+  const source={name:exact,text:exact,original:exact,version:'one',player_edited:false,play_language:'en'};
+  const result=await presentDocument({home,runner:async request=>{
+    const packet=JSON.parse(await readFile(join(request.cwd,'request.json'),'utf8'));
+    assert.equal(packet.protocol,DOCUMENT_PRESENTATION_REFERENCE_PROTOCOL);
+    assert.deepEqual(packet.parts,{title:'text:0',text:'text:1'});
+    assert.deepEqual(packet.sources,[{alias:'text:0',text:exact},{alias:'text:1',text:exact}]);
+    rawArtifact=readingArtifact(packet);
+    assert.ok(!JSON.stringify(rawArtifact).includes(exact));
+    await writeFile(join(request.cwd,'result.json'),JSON.stringify(rawArtifact));
+    return {ok:true,code:0,timedOut:false,ms:1,stderr:'',command:[]};
+  }},source);
+  assert.equal(result.display_name,exact);assert.equal(result.text,exact);assert.equal(result.original,exact);
+  assert.deepEqual(rawArtifact.texts,[{source:'text:0',action:'keep'},{source:'text:1',action:'keep'}]);
 });
 
 test('pending polls reuse work and surface a preparation failure for retry',async()=>{
@@ -71,7 +97,8 @@ test('separate owners isolate pending work and poll failures while retaining acc
     };
     const cancel=()=>finish(false);
     jobs.set(request.signal,{async complete(){
-      await writeFile(join(request.cwd,'result.json'),JSON.stringify({title:'Second owner reading',text:'Independent completed text'}));
+      const packet=JSON.parse(await readFile(join(request.cwd,'request.json'),'utf8'));
+      await writeFile(join(request.cwd,'result.json'),JSON.stringify(readingArtifact(packet,{title:'Second owner reading',text:'Independent completed text'})));
       finish(true);
     }});
     request.signal.addEventListener('abort',cancel,{once:true});
@@ -121,6 +148,11 @@ test('the artifact gate rejects invented blank-paper writing and oversized text'
   assert.throws(()=>validateDocumentReading({title:'Paper',text:'Invented letter'},{text:''}));
   assert.throws(()=>validateDocumentReading({title:'Paper',text:'x'.repeat(64001)},{text:'source'}));
   assert.throws(()=>validateDocumentReading({title:'Paper',text:''},{text:'source'}));
+  const request={protocol:DOCUMENT_PRESENTATION_REFERENCE_PROTOCOL,play_language:'en',
+    sources:[{alias:'text:0',text:'Paper'},{alias:'text:1',text:''}],parts:{title:'text:0',text:'text:1'}};
+  assert.doesNotThrow(()=>validateDocumentReference(readingArtifact(request),request));
+  assert.throws(()=>validateDocumentReference({protocol:DOCUMENT_PRESENTATION_REFERENCE_PROTOCOL,
+    texts:[{source:'text:0',action:'keep'},{source:'text:99',action:'keep'}]},request));
 });
 
 const OK={ok:true,code:0,timedOut:false,ms:1,stderr:'',command:[]};
@@ -131,8 +163,10 @@ async function documentFixture(t) {
  const home=await mkdtemp(join(tmpdir(),'document-attempt-'));
  t.after(()=>rm(home,{recursive:true,force:true}));
  const instructions=await readFile(new URL('../../extensions/mods/document-presentation.md',import.meta.url),'utf8');
- const request={title:documentSource.name,text:documentSource.original,play_language:documentSource.play_language};
- const fingerprint=createHash('sha256').update(JSON.stringify([request,instructions])).digest('hex');
+ const source={title:documentSource.name,text:documentSource.original,play_language:documentSource.play_language};
+ const request={protocol:DOCUMENT_PRESENTATION_REFERENCE_PROTOCOL,play_language:source.play_language,
+  sources:[{alias:'text:0',text:source.title},{alias:'text:1',text:source.text}],parts:{title:'text:0',text:'text:1'}};
+ const fingerprint=createHash('sha256').update(JSON.stringify([source,instructions])).digest('hex');
  const directory=join(home,'.coc/document-presentations',fingerprint);
  return {options:{home,owner:{}},request,instructions,directory,accepted:join(directory,'accepted.json')};
 }
@@ -148,7 +182,7 @@ for(const broken of ['malformed','invalid','missing'])for(const repaired of [fal
   assert.strictEqual(request.signal,controller.signal);assert.equal(request.timeoutMs,120000);
   assert.equal(request.eventLog,join(attempt,`events-${calls}.jsonl`));
   assert.ok(request.systemPrompt.endsWith('extensions/mods/document-presentation.md'));
-  assert.match(await readFile(join(attempt,'check.mjs'),'utf8'),/validateDocumentReading/);
+  assert.match(await readFile(join(attempt,'check.mjs'),'utf8'),/validateDocumentReference/);
   assert.deepEqual(await json(join(attempt,'request.json')),packet);
   await assert.rejects(readFile(accepted),{code:'ENOENT'});
   await writeFile(request.eventLog,`round ${calls}\n`);
@@ -158,8 +192,8 @@ for(const broken of ['malformed','invalid','missing'])for(const repaired of [fal
    assert.match((await json(join(attempt,'findings.json'))).error,
     broken==='malformed'?/SyntaxError/:broken==='missing'?/ENOENT/:/Invalid document reading/);
   }
-  if(calls===2&&repaired)await writeFile(join(attempt,'result.json'),JSON.stringify(validReading));
-  else if(broken!=='missing')await writeFile(join(attempt,'result.json'),broken==='malformed'?'not JSON':JSON.stringify({...validReading,extra:'must reject the entire reading'}));
+  if(calls===2&&repaired)await writeFile(join(attempt,'result.json'),JSON.stringify(readingArtifact(packet,validReading)));
+  else if(broken!=='missing')await writeFile(join(attempt,'result.json'),broken==='malformed'?'not JSON':JSON.stringify({...readingArtifact(packet,validReading),extra:'must reject the entire reading'}));
   return OK;
  }},documentSource);
  if(repaired) {
@@ -176,7 +210,8 @@ for(const broken of ['malformed','invalid','missing'])for(const repaired of [fal
   // The same owner may start a fresh attempt after validation exhaustion.
   const retried=await presentDocument({...options,runner:async request=>{
    assert.notEqual(request.cwd,attempt);
-   await writeFile(join(request.cwd,'result.json'),JSON.stringify(validReading));return OK;
+   const packet=await json(join(request.cwd,'request.json'));
+   await writeFile(join(request.cwd,'result.json'),JSON.stringify(readingArtifact(packet,validReading)));return OK;
   }},documentSource);
   assert.equal(retried.text,validReading.text);
  }
@@ -198,7 +233,8 @@ for(const ending of ['provider','timeout','cancel-success','cancel-failure','thr
  await assert.rejects(presentDocument({...options,signal:controller.signal,runner:async request=>{
   calls++;attempt=request.cwd;
   if(ending==='throw')throw expected;
-  await writeFile(join(attempt,'result.json'),JSON.stringify(validReading));
+  const packet=await json(join(attempt,'request.json'));
+  await writeFile(join(attempt,'result.json'),JSON.stringify(readingArtifact(packet,validReading)));
   if(ending.startsWith('cancel'))controller.abort();
   return outcome;
  }},documentSource),error=>{
@@ -217,7 +253,8 @@ for(const ending of ['provider','timeout','cancel-success','cancel-failure','thr
  else assert.deepEqual(await json(join(attempt,'run-1.json')),outcome);
  const result=await presentDocument({...options,runner:async request=>{
   calls++;assert.notEqual(request.cwd,attempt);
-  await writeFile(join(request.cwd,'result.json'),JSON.stringify(validReading));return OK;
+  const packet=await json(join(request.cwd,'request.json'));
+  await writeFile(join(request.cwd,'result.json'),JSON.stringify(readingArtifact(packet,validReading)));return OK;
  }},documentSource);
  assert.equal(result.text,validReading.text);assert.equal(calls,2);
 });
@@ -230,7 +267,8 @@ test('same-owner callers share a single in-flight reading and later owners reuse
  const joined=new Promise(resolve=>{checkedOwner=resolve;});
  const runner=async request=>{
   calls++;started();await gate;
-  await writeFile(join(request.cwd,'result.json'),JSON.stringify(validReading));return OK;
+  const packet=await json(join(request.cwd,'request.json'));
+  await writeFile(join(request.cwd,'result.json'),JSON.stringify(readingArtifact(packet,validReading)));return OK;
  };
  const first=presentDocument({...options,runner},documentSource);
  await running;
@@ -252,7 +290,8 @@ test('document fingerprints include instructions and reject invalid cache entrie
  await writeFile(accepted,JSON.stringify({title:'Partial cached title'}));
  let calls=0;
  const runner=async request=>{
-  calls++;await writeFile(join(request.cwd,'result.json'),JSON.stringify(validReading));return OK;
+  calls++;const packet=await json(join(request.cwd,'request.json'));
+  await writeFile(join(request.cwd,'result.json'),JSON.stringify(readingArtifact(packet,validReading)));return OK;
  };
  const source={...documentSource,text:'Player annotation',player_edited:true};
  const before=structuredClone(source);

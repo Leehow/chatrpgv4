@@ -1,5 +1,8 @@
 # Jev and source references research — 2026-09-19
 
+<!-- unified-jev-research-history -->
+> **Historical research and evolving proposals.** Later sections using “current” describe earlier discussion snapshots. The [unified master design](../specs/jev-unified-runtime-refactor.md) is now authoritative; its [conflict audit](jev-unified-design-audit-20260919.md) reconciles these proposals. All prior evidence is retained below.
+
 ## Historical snapshot notice
 
 The inventory sections below describe the codebase as read on 2026-09-19 and are retained as a historical snapshot.

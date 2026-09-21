@@ -3,6 +3,8 @@ import {createHash,randomUUID} from 'node:crypto';
 import {mkdir,readFile,readdir,writeFile,rename} from 'node:fs/promises';
 import {dirname,join} from 'node:path';
 import {resourceRootFrom,runtimeEntryUrl} from '../../runtime/deployment.mjs';
+import {acceptPresentationReferences,issuePresentationReferences,selectPresentationReferences,
+  type PresentationCatalog,type PresentationSource,validatePresentationReferenceShape} from '../../runtime/jev/presentation-references.ts';
 import {PLAY_LANGUAGE_TAG} from '../../runtime/ui-words.ts';
 import {coded} from '../ui/errors.ts';
 import {reasoned,readerFailureReason} from './reader.ts';
@@ -46,15 +48,20 @@ export function cardTexts(sheet:Row):string[] {
   for(const key of ['cash','assets','spending_level'])add(sheet.finance?.[key]?.currency);
   return [...texts].sort();
 }
-export function validatePresentation(value:unknown,texts:string[]):Record<string,string> {
-  const map=(value as Row)?.texts;
-  if(!map||typeof map!=='object'||Array.isArray(map)||Object.keys(map).length!==texts.length||texts.some(t=>typeof map[t]!=='string'||!map[t].trim()))throw coded('preparation_failed','Incomplete card presentation');
-  return Object.fromEntries(texts.map(t=>[t,map[t]]));
+export function validatePresentation(value:unknown,sources:readonly PresentationSource[]):void {
+  try {validatePresentationReferenceShape(value,sources,['finance_equipment_sources']);}
+  catch {throw coded('preparation_failed','Incomplete card presentation');}
 }
 export function validateFinanceEquipment(value:unknown,equipment:string[]):string[] {
   const excluded=(value as Row)?.finance_equipment;
   if(!Array.isArray(excluded)||new Set(excluded).size!==excluded.length||excluded.some(name=>typeof name!=='string'||!equipment.includes(name)))throw coded('preparation_failed','Invalid financial equipment projection');
   return excluded;
+}
+export function validateFinanceEquipmentReferences(value:unknown,equipmentSources:readonly string[],required:boolean):string[] {
+  const selected=(value as Row)?.finance_equipment_sources;
+  if(!Array.isArray(selected)||new Set(selected).size!==selected.length||selected.some(alias=>typeof alias!=='string'||!equipmentSources.includes(alias))||(!required&&selected.length))
+    throw coded('preparation_failed','Invalid financial equipment projection');
+  return selected;
 }
 export async function creationRuleDetails(sheet:Row,contentRoot=join(root,'content')):Promise<Row> {
   const trace=sheet.creation?.derived||{}, details:Row={};
@@ -159,7 +166,7 @@ export function prepareLanguagePresentation(options:TextOptions&{campaign:string
  * The words a discovered clue puts on the sheet that are not written at the table: the name it is
  * filed under. The name is the Keeper's own play-language word when `apply clue` gave one and
  * otherwise the graph's display name; the row does not say which, so it is asked exactly as a
- * scene's name is, and a word already in the play language comes back as itself.
+ * scene's name is, and a word already in the play language is selected with `keep` for the host.
  *
  * The row's `how` is not asked. Like the journal lane's own prose, the Keeper wrote it at this
  * table in the play language, so it has no leg to travel. The module's `summary` is not here
@@ -381,11 +388,8 @@ function equipmentPath(home: string, language: string, equipment: string[]): str
  * only two rounds, turn a near-miss into a card that never appears. Accepting what validated and
  * re-asking for the remainder costs the model a word, not the sheet.
  */
-export function acceptedTexts(value: unknown, wanted: readonly string[]): Record<string,string> {
-  const map = (value as Row)?.texts;
-  if (!map || typeof map !== 'object' || Array.isArray(map)) return {};
-  return Object.fromEntries(wanted.filter(text => typeof map[text] === 'string' && map[text].trim())
-    .map(text => [text, map[text] as string]));
+export function acceptedTexts(value: unknown, catalog:PresentationCatalog): Record<string,string> {
+  return acceptPresentationReferences(value,catalog,['finance_equipment_sources']).texts;
 }
 async function prepareTexts(options:TextOptions,texts:string[]):Promise<{texts:Record<string,string>;finance_equipment:string[]}> {
   const prompt=join(options.contentRoot ?? join(root,'content'),'setup/character-presentation.md');
@@ -411,31 +415,36 @@ async function prepareTexts(options:TextOptions,texts:string[]):Promise<{texts:R
   const runner=options.runner;
   if(!runner)throw coded('preparation_failed','Character presentation requires its owner runtime');
   const attempt=join(options.home,'.coc/character-presentations/attempts',randomUUID());
+  const catalog=issuePresentationReferences([...new Set([...missing,...(!finance?equipment:[])])]);
+  const equipmentAliases=equipment.map(text=>Object.entries(catalog.bindings).find(([,binding])=>binding.original===text)?.[0]).filter((alias):alias is string=>!!alias);
   let failure:unknown;
   await runPresentationAttempt({
     attempt,outputFile:'presentation.json',outputArtifact:round=>`presentation-round-${round}.json`,
-    checkSource:`import {readFileSync} from 'node:fs';\nimport {validatePresentation,validateFinanceEquipment} from ${JSON.stringify(runtimeEntryUrl('characterPresentation',import.meta.url))};\ntry {const packet=JSON.parse(readFileSync('texts.json','utf8'));const value=JSON.parse(readFileSync('presentation.json','utf8'));validatePresentation(value,packet.texts);if(packet.finance_equipment_required)validateFinanceEquipment(value,packet.equipment);console.log('Presentation valid');}catch(error){console.error(error.message);process.exitCode=1;}\n`,
+    checkSource:`import {readFileSync} from 'node:fs';\nimport {validatePresentation,validateFinanceEquipmentReferences} from ${JSON.stringify(runtimeEntryUrl('characterPresentation',import.meta.url))};\ntry {const packet=JSON.parse(readFileSync('texts.json','utf8'));const value=JSON.parse(readFileSync('presentation.json','utf8'));validatePresentation(value,packet.sources);validateFinanceEquipmentReferences(value,packet.equipment_sources,packet.finance_equipment_required);console.log('Presentation valid');}catch(error){console.error(error.message);process.exitCode=1;}\n`,
     systemPrompt:prompt,model:options.model,thinking:options.thinking,signal:options.signal,runner,
     prepareRound:async round=>{
-      await writeFile(join(attempt,'texts.json'),JSON.stringify({play_language:language,texts:missing,known_labels:known,
-        equipment,finance_equipment_required:wantEquipment&&!finance},null,2));
-      return 'Read texts.json and write the player-facing text projection to presentation.json. Its "texts" object answers exactly the strings texts.json lists, which are the ones not already projected: words it does not list are already settled and must not be added. The file must contain exactly one JSON object, without Markdown or trailing text. Run node check.mjs and correct any error before finishing.'
-        +(missing.length?'':' This request lists no texts: write "texts": {} and only the financial equipment subset.')
-        +(round>1?' Read findings.json and supply exactly the entries it still names; the words already accepted are not asked again.':'');
+      const active=[...new Set([...missing,...(!finance?equipment:[])])],current=selectPresentationReferences(catalog,active);
+      await writeFile(join(attempt,'texts.json'),JSON.stringify({protocol:current.protocol,play_language:language,sources:current.sources,
+        equipment_sources:equipmentAliases.filter(alias=>current.sources.some(source=>source.alias===alias)),finance_equipment_required:wantEquipment&&!finance},null,2));
+      return 'Read texts.json and write one presentation-reference-v1 keep or translate operation for every issued source alias to presentation.json. Keep selects exact source text without copying it; translate contains only newly generated player-language text. Return finance_equipment_sources as issued aliases for ordinary cash, allowances or generic wealth, or an empty array. Never use source strings as output keys, unchanged values or finance selections. The file must contain exactly one JSON object, without Markdown or trailing text. Run node check.mjs and correct any error before finishing.'
+        +(missing.length?'':' This request needs only the financial equipment alias subset; use keep for the issued text operations.')
+        +(round>1?' Read findings.json and supply exactly the source aliases it still names; accepted words are not asked again.':'');
     },
     failure:(outcome,aborted)=>coded(aborted?'presentation_timeout':'preparation_failed',
       reasoned('Card presentation could not be prepared',aborted?undefined:readerFailureReason(outcome))),
     invalidOutput:error=>{
       if(!(error instanceof SyntaxError))throw error;
-      failure=error;return {error:String(error)};
+      failure=error;return {error:String(error),sources:selectPresentationReferences(catalog,[...new Set([...missing,...(!finance?equipment:[])])]).sources.map(source=>source.alias)};
     },
     accept:async value=>{
-      const accepted=acceptedTexts(value,missing);
+      const active=[...new Set([...missing,...(!finance?equipment:[])])],current=selectPresentationReferences(catalog,active);
+      const accepted=Object.fromEntries(Object.entries(acceptedTexts(value,current)).filter(([text])=>missing.includes(text)));
       if(Object.keys(accepted).length)vocabulary=await mergeVocabulary(vocabularyFile,language,accepted);
       missing=missing.filter(text=>!vocabulary[text]);
       if(wantEquipment&&!finance) {
         try {
-          finance=validateFinanceEquipment(value,equipment);
+          const selected=validateFinanceEquipmentReferences(value,equipmentAliases.filter(alias=>current.sources.some(source=>source.alias===alias)),true);
+          finance=selected.map(alias=>current.bindings[alias]?.original).filter((text):text is string=>equipment.includes(text));
           const temp=join(dirname(financeFile),randomUUID()+'.tmp');
           await writeFile(temp,JSON.stringify({play_language:language,equipment,finance_equipment:finance},null,2));
           await rename(temp,financeFile);
@@ -443,7 +452,7 @@ async function prepareTexts(options:TextOptions,texts:string[]):Promise<{texts:R
       }
       if(!missing.length&&finance)return {done:true};
       failure??=coded('preparation_failed','Incomplete card presentation');
-      return {done:false,findings:{error:String(failure),texts:missing,finance_equipment_required:wantEquipment&&!finance}};
+      return {done:false,findings:{error:String(failure),sources:selectPresentationReferences(catalog,[...new Set([...missing,...(!finance?equipment:[])])]).sources.map(source=>source.alias),finance_equipment_required:wantEquipment&&!finance}};
     },
   });
   if(missing.length)throw coded('preparation_failed',`Incomplete card presentation: ${missing.length} text${missing.length===1?'':'s'} were not projected`);

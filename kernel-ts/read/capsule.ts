@@ -5,6 +5,7 @@ import { entries, values, array, row, number, integer, truth, string, normalize,
 import { clueGate, structureType } from "./director.js";
 import { incapacitatedBy } from "../healing/conditions.js";
 import { toldTurn } from "../journal/naming.js";
+import {memoryEvidenceView,withPromiseFulfillment,canonicalMemoryReceipts,memoryOccurrenceKey} from './memory.js';
 export const jsonSize = (value: any): number => Buffer.byteLength(pythonJsonDumps(value), "utf8");
 /**
  * The one name this table uses for a place, by its handle: the campaign label the Keeper gave it,
@@ -300,7 +301,8 @@ function npcHistory(ledger: Row, memories: Map<string, Row>): Row | null {
         const memory = memories.get(string(item.memory_id));
         return memory && memory.status !== "superseded" ? [{
                 statement: memory.statement ?? null,
-                turn: item.turn ?? null
+                turn: item.turn ?? null,
+                ...memoryEvidenceView(memory)
             }] : [];
     });
     if (truth(seen.count)) {
@@ -414,8 +416,14 @@ export function npcEntry(graph: ModuleGraph, world: Row, node: Row, ledger: Row,
     return entry;
 }
 /** `options.voices` true is the capsule's form (contract §40.7): the lines-shaped words leave the rows for `voices`. */
-export function presentSection(graph: ModuleGraph, world: Row, scene: Row, ledger: Row = {}, memory: Row[] = [], across: (node: Row) => Row[] = () => [], options: { voices?: boolean; journal?: Row; records?: Row[] } = {}): Row[] {
-    const memories = new Map(memory.filter(m => truth(m.id)).map(m => [string(m.id), m]));
+export function presentSection(graph: ModuleGraph, world: Row, scene: Row, ledger: Row = {}, memory: Row[] = [], across: (node: Row) => Row[] = () => [], options: { voices?: boolean; journal?: Row; records?: Row[]; currentReceipts?: Row[]; campaign?:string } = {}): Row[] {
+    const projected=withPromiseFulfillment(memory,{campaign:options.campaign,receipts:canonicalMemoryReceipts(options.records??[],options.currentReceipts??[]),world});
+    const memories=new Map<string,Row>();
+    for(const value of projected.filter(m=>truth(m.id))) {
+        const prior=memories.get(string(value.id));
+        memories.set(string(value.id),prior&&memoryOccurrenceKey(prior)!==memoryOccurrenceKey(value)
+            ? {kind:'promise',status:'candidate',statement:null,authority:'conversation_report',fulfillment:{status:'unavailable',terms:[]}} : value);
+    }
     const rank = (entry: Row) => truth(row(entry.history).promises) ? 0 : truth(row(entry.history).met_turns) || truth(entry.toward_party) ? 1 : truth(entry.wants) ? 2 : 3;
     return npcsPresent(graph, world, scene).map(node => npcEntry(graph, world, node, ledger, memories, across, options.voices ? "drop" : "keep", row(options.journal), options.records)).sort((a, b) => rank(a) - rank(b));
 }

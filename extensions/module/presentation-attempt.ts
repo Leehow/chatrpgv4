@@ -6,6 +6,7 @@ import type { ReaderRequest, ReaderOutcome } from "./reader.ts";
 export type PresentationDecision = { done: true } | { done: false; findings: unknown };
 
 export interface PresentationAttemptOptions {
+	providerBudget?: ReaderRequest["providerBudget"];
 	attempt: string;
 	checkSource: string;
 	outputFile: string;
@@ -34,7 +35,7 @@ export async function runPresentationAttempt(options: PresentationAttemptOptions
 	for (let round = 1; round <= 2; round++) {
 		const brief = await options.prepareRound(round);
 		const outcome = await options.runner({
-			cwd: attempt, systemPrompt: options.systemPrompt, model: options.model, thinking: options.thinking,
+			...(options.providerBudget ? {providerBudget: options.providerBudget} : {}), cwd: attempt, systemPrompt: options.systemPrompt, model: options.model, thinking: options.thinking,
 			signal: options.signal, eventLog: join(attempt, `events-${round}.jsonl`), timeoutMs: 120000, brief,
 		});
 		if (options.recordOutcome) await options.recordOutcome(outcome, round);

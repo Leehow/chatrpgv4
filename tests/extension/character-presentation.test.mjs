@@ -5,13 +5,21 @@ import {createHash} from 'node:crypto';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {cardTexts,prepareCharacterPresentation} from '../../extensions/module/character-presentation.ts';
+import {PRESENTATION_REFERENCE_PROTOCOL} from '../../runtime/jev/presentation-references.ts';
+const inputTexts=packet=>packet.sources.map(source=>source.text);
+const presentation=(packet,{drop=[],keep=[],translate=text=>`${packet.play_language}:${text}`,finance=[]}={})=>({
+ protocol:PRESENTATION_REFERENCE_PROTOCOL,
+ texts:packet.sources.filter(source=>!drop.includes(source.text)).map(source=>keep.includes(source.text)
+  ?{source:source.alias,action:'keep'}:{source:source.alias,action:'translate',text:translate(source.text)}),
+ finance_equipment_sources:packet.equipment_sources.filter(alias=>finance.includes(packet.sources.find(source=>source.alias===alias)?.text)),
+});
 const sheet={name:'Helen',occupation:'Lawyer',age:28,era:'1920s',characteristics:{STR:20},derived:{HP:14,DB:'+1D4'},skills:{'Language (Other: Latin)':53},finance:{cash:{amount:60,currency:'USD'}},backstory:{traits:'Evidence first'},equipment:['Camera'],own_language:'English'};
 test('presentation covers all UI and value text, skips numerical values and reuses changes of numbers',async()=>{
  const home=await mkdtemp(join(tmpdir(),'card-presentation-')),dir=join(home,'.coc/campaigns/c1/setup/drafts');await mkdir(dir,{recursive:true});
  const raw=JSON.stringify({play_language:'zh-Hans',sheet});await writeFile(join(dir,'1.json'),raw);
  await writeFile(join(dir,'2.json'),JSON.stringify({play_language:'zh-Hans',sheet:{...sheet,age:32,characteristics:{STR:60},finance:{cash:{amount:90,currency:'USD'}}}}));
  await writeFile(join(dir,'3.json'),JSON.stringify({play_language:'en',sheet}));
- let calls=0;const runner=async r=>{calls++;const input=JSON.parse(await readFile(join(r.cwd,'texts.json'),'utf8'));assert.ok(!input.texts.includes('60'));assert.ok(!input.texts.includes('+1D4'));assert.ok(!input.texts.includes('Helen'));await writeFile(join(r.cwd,'presentation.json'),JSON.stringify({finance_equipment:[],texts:Object.fromEntries(input.texts.map(t=>[t,`${input.play_language}:${t}`]))}));return {ok:true}};
+ let calls=0;const runner=async r=>{calls++;const input=JSON.parse(await readFile(join(r.cwd,'texts.json'),'utf8'));const texts=inputTexts(input);assert.ok(!texts.includes('60'));assert.ok(!texts.includes('+1D4'));assert.ok(!texts.includes('Helen'));await writeFile(join(r.cwd,'presentation.json'),JSON.stringify(presentation(input)));return {ok:true}};
  const options={home,campaign:'c1',revision:1,play_language:'zh-Hans',runner};
  const first=await prepareCharacterPresentation(options);assert.ok(first.texts.Parameter);assert.ok(first.texts.Lawyer);assert.ok(first.texts.USD);assert.ok(first.texts.traits);assert.ok(first.texts['Language (Other: Latin)']);
  assert.deepEqual(await prepareCharacterPresentation({...options,revision:2}),first);assert.equal(calls,1);
@@ -29,7 +37,7 @@ test('malformed presentation is repaired by the agent without changing the card'
  let calls=0;
  const result=await prepareCharacterPresentation({home,campaign:'c1',revision:1,play_language:'en',runner:async r=>{
   calls++;const input=JSON.parse(await readFile(join(r.cwd,'texts.json'),'utf8'));
-  const valid=JSON.stringify({texts:Object.fromEntries(input.texts.map(t=>[t,t])),finance_equipment:[]});
+  const valid=JSON.stringify(presentation(input,{keep:inputTexts(input)}));
   if(calls===2)assert.ok(JSON.parse(await readFile(join(r.cwd,'findings.json'),'utf8')).error);
   await writeFile(join(r.cwd,'presentation.json'),calls===1?valid+'\ntrailing prose':valid);
   return {ok:true};
@@ -43,7 +51,7 @@ test('standing names are localized once, grow with visible people and never incl
  const home=await mkdtemp(join(tmpdir(),'standing-presentation-'));
  const view={play_language:'zh-Hans',scene:{name:'office-id',display_name:"Knott's Office"},present:['Steven Knott'],turn:2,investigators:[sheet],clues:{here:[{name:'Hidden villain'}]}};
  const original=JSON.stringify(view);let calls=0;
- const runner=async r=>{calls++;const input=JSON.parse(await readFile(join(r.cwd,'texts.json'),'utf8'));assert.ok(!input.texts.includes('Hidden villain'));assert.ok(!input.texts.includes('office-id'));assert.ok(!input.texts.includes('2'));await writeFile(join(r.cwd,'presentation.json'),JSON.stringify({finance_equipment:[],texts:Object.fromEntries(input.texts.map(t=>[t,`${input.play_language}:${t}`]))}));return {ok:true}};
+ const runner=async r=>{calls++;const input=JSON.parse(await readFile(join(r.cwd,'texts.json'),'utf8'));const texts=inputTexts(input);assert.ok(!texts.includes('Hidden villain'));assert.ok(!texts.includes('office-id'));assert.ok(!texts.includes('2'));await writeFile(join(r.cwd,'presentation.json'),JSON.stringify(presentation(input)));return {ok:true}};
  const options={home,campaign:'c1',play_language:'zh-Hans',view,runner};
  const first=await prepareStandingPresentation(options);assert.deepEqual(standingTexts(view),["Knott's Office",'Steven Knott']);
  assert.deepEqual(await prepareStandingPresentation({...options,view:{...view,turn:3}}),first);assert.equal(calls,1);
@@ -72,8 +80,9 @@ test('financial exclusions must be an exact equipment subset and are preserved i
  const home=await mkdtemp(join(tmpdir(),'cash-projection-')),dir=join(home,'.coc/campaigns/c1/setup/drafts');await mkdir(dir,{recursive:true});
  const raw=JSON.stringify({play_language:'en',sheet:{...sheet,equipment}});await writeFile(join(dir,'1.json'),raw);
  const options={home,campaign:'c1',revision:1,play_language:'en',runner:async r=>{
-  const input=JSON.parse(await readFile(join(r.cwd,'texts.json'),'utf8'));assert.deepEqual(input.equipment,[...equipment].sort());
-  await writeFile(join(r.cwd,'presentation.json'),JSON.stringify({texts:Object.fromEntries(input.texts.map(t=>[t,t])),finance_equipment:['Some cash']}));return {ok:true};
+  const input=JSON.parse(await readFile(join(r.cwd,'texts.json'),'utf8'));
+  assert.deepEqual(input.equipment_sources.map(alias=>input.sources.find(source=>source.alias===alias).text),[...equipment].sort());
+  await writeFile(join(r.cwd,'presentation.json'),JSON.stringify(presentation(input,{keep:inputTexts(input),finance:['Some cash']})));return {ok:true};
  }};
  const result=await prepareCharacterPresentation(options);assert.deepEqual(result.finance_equipment,['Some cash']);
  assert.deepEqual(await prepareCharacterPresentation({...options,runner:async()=>{throw Error('Unexpected model call')}}),result);
@@ -85,8 +94,8 @@ test('a second investigator only asks for the words the language has never seen'
  const other={...sheet,name:'Marcus',occupation:'Journalist',backstory:{traits:'Never off the record'},equipment:['Camera','Notebook']};
  await writeFile(join(dir,'1.json'),JSON.stringify({play_language:'zh-Hans',sheet}));
  await writeFile(join(dir,'2.json'),JSON.stringify({play_language:'zh-Hans',sheet:other}));
- const asked=[];const runner=async r=>{const input=JSON.parse(await readFile(join(r.cwd,'texts.json'),'utf8'));asked.push(input.texts);
-  await writeFile(join(r.cwd,'presentation.json'),JSON.stringify({finance_equipment:[],texts:Object.fromEntries(input.texts.map(t=>[t,`zh:${t}`]))}));return {ok:true}};
+ const asked=[];const runner=async r=>{const input=JSON.parse(await readFile(join(r.cwd,'texts.json'),'utf8'));asked.push(inputTexts(input));
+  await writeFile(join(r.cwd,'presentation.json'),JSON.stringify(presentation(input,{translate:text=>`zh:${text}`})));return {ok:true}};
  const options={home,campaign:'c1',play_language:'zh-Hans',runner};
  const first=await prepareCharacterPresentation({...options,revision:1});
  const second=await prepareCharacterPresentation({...options,revision:2});
@@ -94,7 +103,8 @@ test('a second investigator only asks for the words the language has never seen'
  assert.ok(asked[0].includes('Parameter')&&asked[0].includes('Lawyer'));
  // The whole card was translated once. The second investigator's card is drawn from the same
  // vocabulary plus their own new words, so the shared chrome is never bought twice.
- assert.deepEqual(asked[1],['Journalist','Never off the record','Notebook']);
+ assert.deepEqual(asked[1],['Journalist','Never off the record','Notebook','Camera'],
+  'the cached Camera translation is not rewritten; its stable alias is present only so finance classification can select it');
  assert.equal(second.texts.Parameter,first.texts.Parameter);
  assert.equal(second.texts.Journalist,'zh:Journalist');
  assert.ok(!('Lawyer' in second.texts),'a card carries only its own strings');
@@ -105,9 +115,8 @@ test('a round that drops a key keeps every word it got right and re-asks only th
  await writeFile(join(dir,'1.json'),JSON.stringify({play_language:'zh-Hans',sheet}));
  const asked=[];let calls=0;
  const result=await prepareCharacterPresentation({home,campaign:'c1',revision:1,play_language:'zh-Hans',runner:async r=>{
-  calls++;const input=JSON.parse(await readFile(join(r.cwd,'texts.json'),'utf8'));asked.push(input.texts);
-  const supplied=calls===1?input.texts.filter(t=>t!=='Camera'):input.texts;
-  await writeFile(join(r.cwd,'presentation.json'),JSON.stringify({finance_equipment:[],texts:Object.fromEntries(supplied.map(t=>[t,`zh:${t}`]))}));
+  calls++;const input=JSON.parse(await readFile(join(r.cwd,'texts.json'),'utf8'));asked.push(inputTexts(input));
+  await writeFile(join(r.cwd,'presentation.json'),JSON.stringify(presentation(input,{drop:calls===1?['Camera']:[],translate:text=>`zh:${text}`})));
   return {ok:true};
  }});
  assert.equal(calls,2);
@@ -124,10 +133,10 @@ test('kernel glossary labels are context for the model, never a question put to 
  const result=await prepareCharacterPresentation({home,campaign:'c1',revision:1,play_language:'zh-Hans',
   known_labels:{STR:'力量','Language (Other: Latin)':'其他语言（拉丁语）',Unrelated:'无关'},
   runner:async r=>{packet=JSON.parse(await readFile(join(r.cwd,'texts.json'),'utf8'));
-   await writeFile(join(r.cwd,'presentation.json'),JSON.stringify({finance_equipment:[],texts:Object.fromEntries(packet.texts.map(t=>[t,`zh:${t}`]))}));return {ok:true}}});
- assert.ok(!packet.texts.includes('STR'));
- assert.ok(!packet.texts.includes('Language (Other: Latin)'));
- assert.deepEqual(packet.known_labels,{STR:'力量','Language (Other: Latin)':'其他语言（拉丁语）'});
+   await writeFile(join(r.cwd,'presentation.json'),JSON.stringify(presentation(packet,{translate:text=>`zh:${text}`})));return {ok:true}}});
+ assert.ok(!inputTexts(packet).includes('STR'));
+ assert.ok(!inputTexts(packet).includes('Language (Other: Latin)'));
+ assert.equal(packet.known_labels,undefined,'settled labels do not enter the model packet');
  assert.equal(result.texts.STR,'力量');
  assert.equal(result.texts['Language (Other: Latin)'],'其他语言（拉丁语）');
 });
@@ -141,8 +150,8 @@ test('possession words are localized once, grow with the kit, and never include 
  const view={play_language:'zh-Hans',turn:2,investigators:[{...sheet,objects:[camera]}]};
  const original=JSON.stringify(view);let calls=0;
  const runner=async r=>{calls++;const input=JSON.parse(await readFile(join(r.cwd,'texts.json'),'utf8'));
-  for(const hidden of ['林岚的相机','一台木壳折叠相机。','林岚的背包','22'])assert.ok(!input.texts.includes(hidden),hidden);
-  await writeFile(join(r.cwd,'presentation.json'),JSON.stringify({finance_equipment:[],texts:Object.fromEntries(input.texts.map(t=>[t,`${input.play_language}:${t}`]))}));return {ok:true}};
+  for(const hidden of ['林岚的相机','一台木壳折叠相机。','林岚的背包','22'])assert.ok(!inputTexts(input).includes(hidden),hidden);
+  await writeFile(join(r.cwd,'presentation.json'),JSON.stringify(presentation(input)));return {ok:true}};
  const options={home,campaign:'c1',play_language:'zh-Hans',view,runner};
  assert.deepEqual(possessionTexts(view),['12 exposures','capacity','cm','condition','intact','length','mahogany, leather bellows','material']);
  const first=await preparePossessionPresentation(options);
@@ -171,8 +180,8 @@ test('journal words are the names and stamped scenes, never the lane\'s own pros
   {name:label,named:false,description:'帽檐压得很低。',exchanges:[{turn:3,scene:'加油站',summary:'他瞥了一眼。'}]}]}};
  const original=JSON.stringify(view);let calls=0;
  const runner=async r=>{calls++;const input=JSON.parse(await readFile(join(r.cwd,'texts.json'),'utf8'));
-  for(const hidden of [description,exchange,'他把钥匙推到桌沿。','邻居。','1','2',label,'帽檐压得很低。','他瞥了一眼。'])assert.ok(!input.texts.includes(hidden),hidden);
-  await writeFile(join(r.cwd,'presentation.json'),JSON.stringify({finance_equipment:[],texts:Object.fromEntries(input.texts.map(t=>[t,t==='科比特宅'?t:`${input.play_language}:${t}`]))}));return {ok:true}};
+  for(const hidden of [description,exchange,'他把钥匙推到桌沿。','邻居。','1','2',label,'帽檐压得很低。','他瞥了一眼。'])assert.ok(!inputTexts(input).includes(hidden),hidden);
+  await writeFile(join(r.cwd,'presentation.json'),JSON.stringify(presentation(input,{keep:['科比特宅']})));return {ok:true}};
  const options={home,campaign:'c1',play_language:'zh-Hans',view,runner};
  assert.deepEqual(journalTexts(view),['Gabriela Macario',"Knott's Office",'Steven Knott','加油站','科比特宅']);
  const first=await prepareJournalPresentation(options);
@@ -203,8 +212,8 @@ test('identity words are the setup model\'s sex, never the player\'s prose, and 
  assert.deepEqual(identityTexts(view),['Female','女']);
  const original=JSON.stringify(view);let calls=0;
  const runner=async r=>{calls++;const input=JSON.parse(await readFile(join(r.cwd,'texts.json'),'utf8'));
-  for(const hidden of ['律师','evidence-first lawyer','25'])assert.ok(!input.texts.includes(hidden),hidden);
-  await writeFile(join(r.cwd,'presentation.json'),JSON.stringify({finance_equipment:[],texts:Object.fromEntries(input.texts.map(t=>[t,t==='女'?t:`${input.play_language}:${t}`]))}));return {ok:true}};
+  for(const hidden of ['律师','evidence-first lawyer','25'])assert.ok(!inputTexts(input).includes(hidden),hidden);
+  await writeFile(join(r.cwd,'presentation.json'),JSON.stringify(presentation(input,{keep:['女']})));return {ok:true}};
  const options={home,campaign:'c1',play_language:'zh-Hans',view,runner};
  const first=await prepareIdentityPresentation(options);
  assert.equal(first.texts.Female,'zh-Hans:Female');assert.equal(first.texts['女'],'女');assert.equal(calls,1);
@@ -231,8 +240,8 @@ test('clue words are the names the table filed, never the book\'s sentence, a ha
   here:[{name:'hidden-villain',summary:'The villain is Corbitt.',discovered:false},{name:'blood-pool-manifest',label:'血泊',discovered:true}]}};
  const original=JSON.stringify(view);let calls=0;
  const runner=async r=>{calls++;const input=JSON.parse(await readFile(join(r.cwd,'texts.json'),'utf8'));
-  for(const hidden of ['blood-pool-manifest','knott-commission','hidden-villain','The villain is Corbitt.',summary,how,'2'])assert.ok(!input.texts.includes(hidden),hidden);
-  await writeFile(join(r.cwd,'presentation.json'),JSON.stringify({finance_equipment:[],texts:Object.fromEntries(input.texts.map(t=>[t,t==='血泊'?t:`${input.play_language}:${t}`]))}));return {ok:true}};
+  for(const hidden of ['blood-pool-manifest','knott-commission','hidden-villain','The villain is Corbitt.',summary,how,'2'])assert.ok(!inputTexts(input).includes(hidden),hidden);
+  await writeFile(join(r.cwd,'presentation.json'),JSON.stringify(presentation(input,{keep:['血泊']})));return {ok:true}};
  const options={home,campaign:'c1',play_language:'zh-Hans',view,runner};
  assert.deepEqual(clueTexts(view),["Knott's commission",'血泊']);
  const first=await prepareCluePresentation(options);
@@ -259,8 +268,8 @@ test('a language name is asked once per language, and only the name is asked',as
   calls++;
   const input=JSON.parse(await readFile(join(r.cwd,'texts.json'),'utf8'));
   // Every name, no number, and no skill that is not a language.
-  assert.deepEqual(input.texts,['Cantonese','English','Latin']);
-  await writeFile(join(r.cwd,'presentation.json'),JSON.stringify({texts:Object.fromEntries(input.texts.map(t=>[t,`${input.play_language}:${t}`]))}));
+  assert.deepEqual(inputTexts(input),['Cantonese','English','Latin']);
+  await writeFile(join(r.cwd,'presentation.json'),JSON.stringify(presentation(input)));
   return {ok:true};
  };
  const options={home,campaign:'c1',play_language:'zh-Hans',view,runner};
@@ -300,8 +309,8 @@ test('a handed-over handout is asked as one document, with the heading the kerne
  assert.deepEqual(handoutTexts({handouts:[{name:null,text:'  '}]}),[]);
 
  let asked=null;
- const runner=async r=>{const input=JSON.parse(await readFile(join(r.cwd,'texts.json'),'utf8'));asked=input.texts;
-  await writeFile(join(r.cwd,'presentation.json'),JSON.stringify({texts:Object.fromEntries(input.texts.map(t=>[t,`zh-Hans:${t}`]))}));return {ok:true}};
+ const runner=async r=>{const input=JSON.parse(await readFile(join(r.cwd,'texts.json'),'utf8'));asked=inputTexts(input);
+  await writeFile(join(r.cwd,'presentation.json'),JSON.stringify(presentation(input)));return {ok:true}};
  const saved=await prepareHandoutPresentation({home,campaign:'c1',play_language:'zh-Hans',runner});
  assert.deepEqual(asked.sort(),[display,text].sort());
  assert.equal(saved.texts[text],`zh-Hans:${text}`);
@@ -364,13 +373,13 @@ for(const ending of ['rejected','provider','cancel']) test(`card round vocabular
   await writeFile(request.eventLog,`round ${calls}\n`);
   const packet=await json(join(attempt,'texts.json'));
   if(calls===1) {
-   await writeFile(join(attempt,'presentation.json'),JSON.stringify({texts:Object.fromEntries(packet.texts.filter(word=>word!=='Camera').map(word=>[word,`kept:${word}`])),finance_equipment:[]}));
+   await writeFile(join(attempt,'presentation.json'),JSON.stringify(presentation(packet,{drop:['Camera'],translate:word=>`kept:${word}`})));
    return OK;
   }
-  assert.deepEqual(packet.texts,['Camera']);assert.equal(packet.finance_equipment_required,false);
+  assert.deepEqual(inputTexts(packet),['Camera']);assert.equal(packet.finance_equipment_required,false);
   assert.equal((await json(vocabulary)).texts.Parameter,'kept:Parameter');
   assert.deepEqual(await json(finance),{play_language:'en',equipment:['Camera'],finance_equipment:[]});
-  assert.deepEqual((await json(join(attempt,'findings.json'))).texts,['Camera']);
+  assert.deepEqual((await json(join(attempt,'findings.json'))).sources,[packet.sources[0].alias]);
   await assert.rejects(readFile(projection),{code:'ENOENT'});
   assert.match(request.brief,/Read findings.json/);
   if(ending==='provider')return {...OK,ok:false,code:1,stderr:'Error: owner unavailable'};
@@ -390,13 +399,13 @@ for(const ending of ['rejected','provider','cancel']) test(`card round vocabular
  assert.equal(calls,2);
  assert.equal((await json(vocabulary)).texts.Camera,undefined);
  await assert.rejects(readFile(projection),{code:'ENOENT'});
- assert.equal((await json(join(attempt,'presentation-round-1.json'))).texts.Parameter,'kept:Parameter');
+ assert.equal((await json(join(attempt,'presentation-round-1.json'))).texts.find(row=>row.source==='text:0').action,'translate');
  if(ending==='rejected')assert.equal(await readFile(join(attempt,'presentation-round-2.json'),'utf8'),'{}');
  else await assert.rejects(readFile(join(attempt,'presentation-round-2.json')),{code:'ENOENT'});
  const fixed=await prepareCharacterPresentation({...options,runner:async request=>{
   const packet=await json(join(request.cwd,'texts.json'));
-  assert.deepEqual(packet.texts,['Camera']);assert.equal(packet.finance_equipment_required,false);
-  await writeFile(join(request.cwd,'presentation.json'),JSON.stringify({texts:{Camera:'repaired'}}));return OK;
+  assert.deepEqual(inputTexts(packet),['Camera']);assert.equal(packet.finance_equipment_required,false);
+  await writeFile(join(request.cwd,'presentation.json'),JSON.stringify(presentation(packet,{translate:()=> 'repaired'})));return OK;
  }});
  assert.equal(fixed.texts.Parameter,'kept:Parameter');assert.equal(fixed.texts.Camera,'repaired');
  assert.deepEqual(await prepareCharacterPresentation(options),fixed,'accepted caches require no runner');
@@ -408,15 +417,17 @@ for(const repaired of [false,true]) test(`financial validation retries independe
  const task=prepareCharacterPresentation({...options,runner:async request=>{
   calls++;const packet=await json(join(request.cwd,'texts.json'));
   if(calls===2) {
-   assert.deepEqual(packet.texts,[]);assert.equal(packet.finance_equipment_required,true);
-   assert.match(request.brief,/only the financial equipment subset/);
+   assert.deepEqual(inputTexts(packet),['Camera']);assert.equal(packet.finance_equipment_required,true);
+   assert.match(request.brief,/only the financial equipment alias subset/);
    assert.ok((await json(vocabulary)).texts.Parameter);
    await assert.rejects(readFile(finance),{code:'ENOENT'});
    const findings=await json(join(request.cwd,'findings.json'));
-   assert.equal(findings.finance_equipment_required,true);assert.deepEqual(findings.texts,[]);
+   assert.equal(findings.finance_equipment_required,true);assert.deepEqual(findings.sources,[packet.sources[0].alias]);
    assert.match(findings.error,/Invalid financial equipment projection/);
   }
-  await writeFile(join(request.cwd,'presentation.json'),JSON.stringify({texts:Object.fromEntries(packet.texts.map(word=>[word,word])),finance_equipment:calls===2&&repaired?[]:['Invented']}));
+  const value=presentation(packet,{keep:inputTexts(packet)});
+  value.finance_equipment_sources=calls===2&&repaired?[]:['text:999'];
+  await writeFile(join(request.cwd,'presentation.json'),JSON.stringify(value));
   return OK;
  }});
  if(repaired)assert.deepEqual((await task).finance_equipment,[]);
@@ -425,8 +436,8 @@ for(const repaired of [false,true]) test(`financial validation retries independe
   await assert.rejects(readFile(finance),{code:'ENOENT'});
   const result=await prepareCharacterPresentation({...options,runner:async request=>{
    const packet=await json(join(request.cwd,'texts.json'));
-   assert.deepEqual(packet.texts,[]);assert.equal(packet.finance_equipment_required,true);
-   await writeFile(join(request.cwd,'presentation.json'),' {"texts":{},"finance_equipment":[]} ');return OK;
+   assert.deepEqual(inputTexts(packet),['Camera']);assert.equal(packet.finance_equipment_required,true);
+   await writeFile(join(request.cwd,'presentation.json'),JSON.stringify(presentation(packet,{keep:inputTexts(packet)})));return OK;
   }});
   assert.deepEqual(result.finance_equipment,[]);
  }

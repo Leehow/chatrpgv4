@@ -5,6 +5,7 @@ import { appendJsonl, cocMode } from "../lanes/host.ts";
 import { isKernelError } from "../kernel/client.ts";
 import { ReadingService } from "./reading-service.ts";
 import type { HostRuntime } from "../../runtime/host.ts";
+import {createFreshSourceNavigator} from '../../runtime/jev/fresh-source-navigator.ts';
 
 type Row = Record<string, any>;
 type Call = (method: string, params: Row) => Promise<any>;
@@ -35,10 +36,12 @@ export default function (pi: ExtensionAPI) {
         retireReader();
         const home = bridge.runtime.home, current = bridge;
         reading = new ReadingService({
+            navigateFresh: createFreshSourceNavigator({runtime: current.runtime, call: (method, params) => current.call(method, params), env: {
+                PI_COC_TASK_RUNTIME: process.env.PI_COC_TASK_RUNTIME, PI_COC_JEV_SOURCE: process.env.PI_COC_JEV_SOURCE, TYPESAFE_API_KEY: process.env.TYPESAFE_API_KEY}}),
             call: async (method, params) => {
                 const result = await current.call(method, params);
                 if (method === 'module.read.finish' && params.outcome === 'completed')
-                    pi.events.emit('coc:source-published', {campaign: params.campaign, module_id: params.module_id});
+                    pi.events.emit('coc:source-published', {campaign: params.campaign, module_id: params.module_id,...(result?._task_source_advance?{advance:result._task_source_advance}:{})});
                 return result;
             }, campaign: () => campaign, runtime: current.runtime, home,
             model: () => {

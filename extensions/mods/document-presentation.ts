@@ -3,6 +3,8 @@ import {createHash, randomUUID} from "node:crypto";
 import {readFile, writeFile, rename} from "node:fs/promises";
 import {join} from "node:path";
 import {resourceRootFrom,runtimeEntryUrl} from "../../runtime/deployment.mjs";
+import {acceptPresentationReferences,DOCUMENT_PRESENTATION_REFERENCE_PROTOCOL,issuePresentationReferences,
+  type PresentationSource,validatePresentationReferenceShape} from "../../runtime/jev/presentation-references.ts";
 import {PLAY_LANGUAGE_TAG} from "../../runtime/ui-words.ts";
 import {coded} from "../ui/errors.ts";
 import {reasoned, readerFailureReason} from "../module/reader.ts";
@@ -55,14 +57,22 @@ export function validateDocumentReading(value:any, source:{text:string}):{title:
   return {title:value.title, text:value.text};
 }
 
+export function validateDocumentReference(value:unknown, request:{protocol:string;sources:PresentationSource[]}):void {
+  try {validatePresentationReferenceShape(value,request.sources,[],DOCUMENT_PRESENTATION_REFERENCE_PROTOCOL);}
+  catch {throw coded("preparation_failed", "Invalid document reading");}
+}
+
 async function reading(options:Options, title:string, text:string, language:string) {
   const prompt = options.resourceRoot ? join(options.resourceRoot, 'extensions/mods/document-presentation.md') : defaultPrompt;
   const instructions = await readFile(prompt, "utf8");
-  const request = {title, text, play_language:language};
-  const fingerprint = createHash("sha256").update(JSON.stringify([request, instructions])).digest("hex");
+  const source = {title, text, play_language:language};
+  const catalog = issuePresentationReferences([title,text],{deduplicate:false,protocol:DOCUMENT_PRESENTATION_REFERENCE_PROTOCOL});
+  const parts={title:catalog.sources[0].alias,text:catalog.sources[1].alias};
+  const request = {protocol:catalog.protocol,play_language:language,sources:catalog.sources,parts};
+  const fingerprint = createHash("sha256").update(JSON.stringify([source, instructions])).digest("hex");
   const directory = join(options.home, ".coc/document-presentations", fingerprint);
   const accepted = join(directory, "accepted.json");
-  try {return validateDocumentReading(JSON.parse(await readFile(accepted, "utf8")), request);}
+  try {return validateDocumentReading(JSON.parse(await readFile(accepted, "utf8")), source);}
   catch { /* Missing or invalid cache entries are regenerated from the same source. */ }
   const key = accepted;
   const {pending} = cacheFor(options);
@@ -76,13 +86,13 @@ async function reading(options:Options, title:string, text:string, language:stri
     await runPresentationAttempt({
       attempt, outputFile:"result.json",
       checkSource:`import {readFileSync} from "node:fs";
-import {validateDocumentReading} from ${JSON.stringify(runtimeEntryUrl('documentPresentation',import.meta.url))};
-validateDocumentReading(JSON.parse(readFileSync("result.json","utf8")),JSON.parse(readFileSync("request.json","utf8")));
+import {validateDocumentReference} from ${JSON.stringify(runtimeEntryUrl('documentPresentation',import.meta.url))};
+validateDocumentReference(JSON.parse(readFileSync("result.json","utf8")),JSON.parse(readFileSync("request.json","utf8")));
 `,
       systemPrompt:prompt, model:options.model, thinking:options.thinking, signal:options.signal, runner,
       prepareRound:async round=>{
         if (round === 1) await writeFile(join(attempt, "request.json"), JSON.stringify(request, null, 2));
-        return "Read request.json and write result.json. Run node check.mjs and repair any error."
+        return "Read request.json and write one document-presentation-reference-v1 keep or translate operation for each issued title/body alias to result.json. Keep selects exact host bytes, including empty text and line breaks; translate contains only newly generated player-language text. Never copy source strings into output keys or unchanged values. Run node check.mjs and repair any error."
           + (round > 1 ? " Read findings.json and repair the retained result." : "");
       },
       recordOutcome:async (outcome, round)=>{
@@ -93,7 +103,10 @@ validateDocumentReading(JSON.parse(readFileSync("result.json","utf8")),JSON.pars
       invalidOutput:error=>{failure=error; return {error:String(error)};},
       accept:value=>{
         try {
-          result = validateDocumentReading(value, request);
+          validateDocumentReference(value,request);
+          const selected=acceptPresentationReferences(value,catalog);
+          if(selected.missing.length||selected.errors.length)throw coded("preparation_failed", "Invalid document reading");
+          result = validateDocumentReading({title:selected.values[parts.title],text:selected.values[parts.text]}, source);
           return {done:true};
         } catch (error) {
           failure=error;

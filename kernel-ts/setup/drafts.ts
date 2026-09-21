@@ -7,6 +7,7 @@
  *  checks that this is the current card. The catalog work — trades, skills, weapons — is the
  *  kernel's (`catalog.ts`), and the flow of points around the pins is `card.ts`. */
 import { join } from 'node:path';
+import {validateSetupInputs,setupInputProvenance,type SetupInputEnvelope,type SetupInputField} from '../../runtime/jev/setup-input-references.ts';
 import { RpcError } from '../errors.js';
 import { isJsonObject, jsonDigest } from '../json.js';
 import { withExclusiveLock } from '../locks.js';
@@ -293,13 +294,22 @@ export class SetupDrafts {
     if (unknown.length) throw new RpcError('invalid_params', `profile contains unknown fields: ${unknown.join(', ')}`, {details: {unknown, fields: [...FIELDS].sort()}});
     return folded;
   }
+  private inputProof(params:Row,campaign:CampaignWriter,field:SetupInputField):SetupInputEnvelope|undefined {
+    if(params.setup_input===undefined) return undefined;
+    const values:Partial<Record<SetupInputField,unknown>>={};
+    if(field==='profile.name'&&Object.hasOwn(row(params.profile),'name')) values[field]=row(params.profile).name;
+    if(field==='pending_action'&&Object.hasOwn(params,'pending_action')) values[field]=params.pending_action;
+    try {return validateSetupInputs(params.setup_input,{campaign:campaign.id,inputKey:params.input_key,values});}
+    catch(error) {throw new RpcError('invalid_params','The setup input selection is not bound to the current user input',
+      {details:{reason:error instanceof Error?error.message:'invalid_setup_input'},fix:'Select a currently issued input source, or omit an unchanged name; only a newly proposed name may use generated authority'});}
+  }
   /** The first card: generate the numbers once. With a card already on the table this is a revision. */
   async draft(params: Row): Promise<Row> {
     return this.locked(params, async campaign => {
       const meta = await campaign.readCampaign(); this.settingUp(meta);
       const previous = await this.load(campaign, meta);
       if (previous) return this.reviseLocked(campaign, meta, previous, params);
-      const language = await playLanguageOf(this.setup.context, meta), patch = this.patchOf(params.profile);
+      const language = await playLanguageOf(this.setup.context, meta), patch = this.patchOf(params.profile),proof=this.inputProof(params,campaign,'profile.name');
       const [profile, resolution] = await this.resolveProfile(patch, language, {...meta, id: campaign.id});
       const {era, authoredEra} = await this.eraFor(profile, {...meta, id: campaign.id});
       const state = meta.setup ??= {};
@@ -314,7 +324,8 @@ export class SetupDrafts {
       const pins = this.pinsFrom(isJsonObject(params.numbers) ? {...params.numbers, characteristics: {}} : null, params.by, characteristicPins, bounds, generated.characteristics, bounds.credit_rating_range, this.setup.chargen.difficultyPolicy(meta.difficulty ?? null), relax, sheetOf);
       const built = await this.assemble({profile, era, authoredEra, seed, generated, pins, previous: null, relax, difficulty: meta.difficulty ?? null, spreadAll: false, language});
       const draft: Row = {revision: 1, play_language: language, seed, profile, sheet: built.sheet, pins, soft: built.soft, budget: built.budget,
-        generation: {method: generated.method, seed}, input_key: params.input_key ?? null, receipt: built.receipt};
+        generation: {method: generated.method, seed}, input_key: params.input_key ?? null, receipt: built.receipt,
+        ...(proof?{name_source:setupInputProvenance(proof,'profile.name')}:{})};
       if (Object.keys(relax).length) draft.limits_override = relax;
       await this.write(campaign, meta, draft);
       return this.result(draft, {applied: Object.keys(patch).sort(), ...resolution});
@@ -352,7 +363,8 @@ export class SetupDrafts {
   /** The one revision path (§98): words merge, numbers pin, limits relax, nothing rolls. */
   private async reviseLocked(campaign: CampaignWriter, meta: Row, previous: Row, params: Row, options: {reroll?: boolean; dryRun?: boolean} = {}): Promise<Row> {
     if (params.revision !== undefined && params.revision !== null && !equal(params.revision, previous.revision)) throw new RpcError('idempotency_conflict', 'The revision does not apply to the current draft', {codeDetail: 'stale_draft'});
-    const language = await playLanguageOf(this.setup.context, meta), patch = this.patchOf(params.profile);
+    const language = await playLanguageOf(this.setup.context, meta), patch = this.patchOf(params.profile),proof=this.inputProof(params,campaign,'profile.name');
+    const nameSource=Object.hasOwn(patch,'name')?(proof?setupInputProvenance(proof,'profile.name'):undefined):previous.name_source;
     // A patch of one backstory category keeps the others (§98): the model that corrects the face
     // sends personal_description alone, and a shallow merge would have wiped the rest.
     const merged: Row = {...row(previous.profile), ...patch};
@@ -400,9 +412,10 @@ export class SetupDrafts {
       occupationSkills: array(row(previous.profile).occupation_skills).map(string), interestSkills: array(row(previous.profile).interest_skills).map(string)},
       relax, difficulty: meta.difficulty ?? null, spreadAll: params.auto_spread === true || options.reroll === true, language});
     const applied = [...Object.keys(patch), ...(params.numbers != null ? ['numbers'] : []), ...(params.limits != null ? ['limits'] : []), ...(params.auto_spread === true ? ['auto_spread'] : []), ...(options.reroll ? ['reroll'] : [])].sort();
-    if (!options.reroll && !options.dryRun && equal(built.sheet, previous.sheet) && equal(profile, previous.profile) && equal(pins, priorPins) && equal(relax, previous.limits_override ?? {})) return this.result(previous, {applied: [], ...resolution});
+    if (!options.reroll && !options.dryRun && equal(built.sheet, previous.sheet) && equal(profile, previous.profile) && equal(pins, priorPins) && equal(relax, previous.limits_override ?? {}) && equal(nameSource??null,previous.name_source??null)) return this.result(previous, {applied: [], ...resolution});
     const draft: Row = {revision: number(previous.revision) + 1, play_language: language, seed, profile, sheet: built.sheet, pins, soft: built.soft, budget: built.budget,
-      generation: {method: generated.method, seed}, input_key: params.input_key ?? null, receipt: built.receipt};
+      generation: {method: generated.method, seed}, input_key: params.input_key ?? null, receipt: built.receipt,
+      ...(nameSource?{name_source:clone(nameSource)}:{})};
     if (Object.keys(relax).length) draft.limits_override = relax;
     if (options.dryRun) { draft.limits = limitsOf(this.setup.chargen, row(draft.sheet), relax); return this.result(draft, {applied, ...resolution, dry_run: true}); }
     await this.write(campaign, meta, draft);
@@ -442,7 +455,7 @@ export class SetupDrafts {
       if (!previous) throw new RpcError('needs', 'There is no card to reroll yet: draft one first', {details: {next: 'setup.draft'}});
       const drop = params.keep_pins === false;
       const base = drop ? {...previous, pins: {...clone(previous.pins ?? emptyPins()), characteristics: {}}} : previous;
-      return this.reviseLocked(campaign, meta, base, {campaign: params.campaign, revision: params.revision, input_key: params.input_key}, {reroll: true});
+      return this.reviseLocked(campaign, meta, base, {campaign: params.campaign, revision: params.revision, input_key: params.input_key,...(params.setup_input!==undefined?{setup_input:params.setup_input}:{})}, {reroll: true});
     });
   }
   /** One gate (§98): this is the current card, and it was not drawn in the same breath as the approval. */
@@ -459,10 +472,11 @@ export class SetupDrafts {
       const issues = completeness(draft.sheet);
       if (issues.length) throw new RpcError('needs', 'This draft is incomplete', {details: {issues}});
       if (await this.setup.context.snapshots.pathExists(campaign.path('party/investigator.json')) && !equal(await campaign.read('party/investigator.json'), draft.sheet)) throw new RpcError('idempotency_conflict', 'A different investigator already occupies this campaign slot');
-      const pending = params.pending_action;
-      if (truth(pending)) {
-        if (typeof pending !== 'string' || !array(params.player_requests).some(request => typeof request === 'string' && request.includes(pending))) throw new RpcError('invalid_params', 'pending_action must quote a real player request');
+      const proof=this.inputProof(params,campaign,'pending_action'),pending=params.pending_action;
+      if (proof ? Object.hasOwn(params,'pending_action') : truth(pending)) {
+        if (!proof && (typeof pending !== 'string' || !array(params.player_requests).some(request => typeof request === 'string' && request.includes(pending)))) throw new RpcError('invalid_params', 'pending_action must quote a real player request');
         state.prologue ??= {}; state.prologue.pending_action = pending;
+        if(proof) state.pending_action_source=setupInputProvenance(proof,'pending_action');else delete state.pending_action_source;
       }
       await this.setup.writer.startSetupWorld(campaign, meta); await campaign.writeSheet(draft.sheet);
       state.confirmed_revision = draft.revision; state.receipts = [...array(state.receipts), draft.receipt];

@@ -4,7 +4,7 @@
  * exactly as `mods.install` and the builtin catalog do.
  */
 import assert from 'node:assert/strict';
-import {mkdtemp, readFile, rm} from 'node:fs/promises';
+import {mkdtemp, readFile, rm, symlink} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
@@ -20,6 +20,7 @@ const PACKAGE = join(ROOT, 'mods/npc-voice');
 async function loader(t) {
   const home = await mkdtemp(join(tmpdir(), 'npc-voice-manifest-'));
   t.after(() => rm(home, {recursive: true, force: true}));
+  await symlink(join(ROOT, 'node_modules'), join(home, 'node_modules'), 'dir');
   await build({
     stdin: {contents: "export {manifestFrom, packageFiles, runtimePackageFiles} from './kernel-ts/read/mods.ts'; export {readerCommand} from './extensions/module/reader.ts';", resolveDir: ROOT, loader: 'ts'},
     outfile: join(home, 'mods.mjs'), bundle: true, packages: 'external', platform: 'node', format: 'esm',

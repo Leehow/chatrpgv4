@@ -2,8 +2,33 @@
 import { isJsonObject, parsePythonJson, compareUnicode } from "../json.js";
 import { CampaignSnapshot } from "./campaign.js";
 import { ModuleGraph, recordOf } from "./module-graph.js";
-import { EntityIndex, kindRank, fromOtherLines } from "./memory.js";
+import { EntityIndex, kindRank, fromOtherLines, memoryEvidenceView, withPromiseFulfillment, canonicalMemoryReceipts, memoryOccurrenceKey } from "./memory.js";
 import { array, row, truth, string, number, sorted, type Row } from "./values.js";
+/** Pinned historical branch receipts in one batch; failed history reads never mean unpaid. */
+export async function lineFulfillmentEvidence(campaign:Pick<CampaignSnapshot,'id'|'context'>,line:string):Promise<{receipts:Row[];world:Row;available:boolean;memory?:Row[]}> {
+    const failed={receipts:[],world:{},available:false};
+    const head=await campaign.context.git.run(campaign.id,['rev-parse','--verify',`wl/${line}^{commit}`]);
+    if(head.code||!/^[a-f0-9]{40,64}$/.test(head.stdout.trim())) return failed;
+    const commit=head.stdout.trim(),listed=await campaign.context.git.run(campaign.id,['ls-tree','-r','--name-only',commit,'--','turns/']);
+    if(listed.code) return failed;
+    const paths=[...listed.stdout.split('\n').filter(path=>/^turns\/[0-9]+\.json$/.test(path)),'turn.json','world.json','memory/candidates.jsonl'];
+    const batch=await campaign.context.git.runInput(campaign.id,['cat-file','--batch'],paths.map(path=>`${commit}:${path}\n`).join(''));
+    if(batch.code) return failed;
+    const bytes=Buffer.from(batch.stdout,'utf8'),records:Row[]=[];let offset=0,world:Row={},memory:Row[]=[];
+    for(const path of paths) {
+        const end=bytes.indexOf(10,offset);if(end<0) return failed;
+        const match=/^[a-f0-9]+ blob ([0-9]+)$/.exec(bytes.subarray(offset,end).toString('ascii'));
+        if(!match) {offset=end+1;if(path!=='world.json'&&path!=='memory/candidates.jsonl') return failed;continue;}
+        const length=Number(match[1]),start=end+1;
+        if(!Number.isSafeInteger(length)||length<0||start+length>=bytes.length) return failed;
+        try {const text=bytes.subarray(start,start+length).toString('utf8');
+            if(path==='memory/candidates.jsonl') {for(const line of text.split(/\r?\n/)) if(line.trim()) {try{const value=parsePythonJson(line);if(isJsonObject(value))memory.push(value);}catch{}}}
+            else {const value=parsePythonJson(text);if(!isJsonObject(value)) return failed;if(path==='world.json') world=value;else records.push(value);}
+        } catch {return failed;}
+        offset=start+length+1;
+    }
+    return {receipts:canonicalMemoryReceipts(records),world,available:true,memory};
+}
 export const activeName = (meta: Row): string => typeof meta.active_worldline === "string" && meta.active_worldline ? meta.active_worldline : "main";
 export const activeLine = (meta: Row): Row => row(meta.worldlines)[activeName(meta)] ?? {
     name: activeName(meta),
@@ -56,9 +81,11 @@ export async function worldlineSection(campaign: CampaignSnapshot, graph: Module
     }
     const rawEchoes = campaign.jsonFiles.get("save/worldlines/echoes.json"),
         echoes = (Array.isArray(rawEchoes) ? rawEchoes : array(row(rawEchoes).echoes)).filter(echo => string(echo.scene || "") === graph.handle(scene) && !array(world.discovered_echoes).map(string).includes(string(echo.id))).sort((a, b) => compareUnicode(string(a.line), string(b.line)) || number(a.turn) - number(b.turn) || compareUnicode(string(a.id), string(b.id)));
-    const previous = loop <= 0 ? [] : (campaign.logs.get("memory/candidates.jsonl") ?? []).filter(value => number(value.loop) === loop - 1 && value.superseded_by == null).sort((a, b) => kindRank(a.kind) - kindRank(b.kind) || number(b.valid_from_turn) - number(a.valid_from_turn) || compareUnicode(string(a.id), string(b.id))).slice(0, 4).map(value => ({
+    const currentMemory=withPromiseFulfillment(campaign.logs.get("memory/candidates.jsonl")??[],{campaign:campaign.id,receipts:canonicalMemoryReceipts(campaign.records,array(campaign.turn.receipts)),world});
+    const previous = loop <= 0 ? [] : currentMemory.filter(value => number(value.loop) === loop - 1 && value.superseded_by == null).sort((a, b) => kindRank(a.kind) - kindRank(b.kind) || number(b.valid_from_turn) - number(a.valid_from_turn) || compareUnicode(string(a.id), string(b.id))).slice(0, 4).map(value => ({
         statement: value.statement ?? null,
-        turn: value.valid_from_turn ?? null
+        turn: value.valid_from_turn ?? null,
+        ...memoryEvidenceView(value)
     }));
     const persisted = sorted(new Set(array(graph.raw.relations).filter(rel => rel.relation_kind === "persists-across-loop").map(rel => string(rel.from_node_id)))).filter(id => graph.nodes.has(id)).map(id => graph.displayName(graph.nodes.get(id)!));
     return {
@@ -93,21 +120,21 @@ export async function crossLineReader(campaign: CampaignSnapshot, graph: ModuleG
     for (const name of sorted(Object.keys(lines))) {
         if (name === active)
             continue;
-        const text = await campaign.context.git.lineBlob(campaign.id, name, "memory/candidates.jsonl");
-        for (const line of (text || "").split(/\r?\n/)) {
-            if (!line.trim())
+        const text = await campaign.context.git.lineBlob(campaign.id, name, "memory/candidates.jsonl"),evidence=await lineFulfillmentEvidence(campaign,name);
+        for (const line of (evidence.memory?evidence.memory.map(value=>value):(text || "").split(/\r?\n/))) {
+            if (typeof line==='string'&&!line.trim())
                 continue;
             try {
-                const value = parsePythonJson(line);
-                if (isJsonObject(value) && !byId.has(string(value.id)))
-                    byId.set(string(value.id), value);
+                const value = typeof line==='string'?parsePythonJson(line):line;
+                if (isJsonObject(value) && !byId.has(memoryOccurrenceKey(value)))
+                    byId.set(memoryOccurrenceKey(value), withPromiseFulfillment([value],{campaign:campaign.id,...evidence})[0]);
             }
             catch { /* A malformed row in another line was not a candidate. */
             }
         }
     }
-    for (const value of campaign.logs.get("memory/candidates.jsonl") ?? [])
-        byId.set(string(value.id), value);
+    for (const value of withPromiseFulfillment(campaign.logs.get("memory/candidates.jsonl")??[],{campaign:campaign.id,receipts:canonicalMemoryReceipts(campaign.records,array(campaign.turn.receipts)),world}))
+        byId.set(memoryOccurrenceKey(value), value);
     const rows = sorted(byId.keys()).map(id => byId.get(id)!),
         index = new EntityIndex(graph, campaign.party, row(world.scene_labels)),
         loop = number(activeLine(campaign.meta).loop);

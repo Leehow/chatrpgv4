@@ -744,3 +744,119 @@ test("a job that keeps reporting is left alone: the heartbeat is what it said, n
 		"a job quiet for less than the window between reports is working, not stalled");
 	assert.equal(finishes.filter(row => row.outcome === "failed").length, 0);
 });
+
+async function freshSkeletonFixture(t, navigation) {
+	const home = await mkdtemp(join(tmpdir(), "coc-fresh-navigation-"));
+	t.after(() => rm(home, { recursive: true, force: true }));
+	const module = join(home, ".coc", "modules", "book"), cwd = join(module, "work", "read-1", "attempt-1"),
+		cache = join(module, "cache", "pages"), source = join(module, "source.pdf");
+	await mkdir(cwd, { recursive: true });
+	await mkdir(cache, { recursive: true });
+	await writeFile(source, "%PDF-fixture");
+	const tasks = [], starts = [], finishes = [], telemetry = [];
+	const runtime = {
+		contentRoot: join(ROOT, "content"),
+		async runTask({ request }) {
+			const task = JSON.parse(await readFile(join(request.cwd, "task.json"), "utf8"));
+			tasks.push(task);
+			if (request.prompt.phase === "read") {
+				starts.push(JSON.parse(await readFile(join(request.cwd, "observations.json"), "utf8")));
+				await writeFile(join(request.cwd, "draft.json"), JSON.stringify({ nodes: [
+					{ node_id: "module-book", node_kind: "module", name: "Book", properties: { entry_scene_ids: ["scene-opening"] }, source_refs: [{ page: 2 }] },
+					{ node_id: "scene-opening", node_kind: "scene", name: "Opening", properties: { is_entrance: true }, source_refs: [{ page: 2 }] },
+				], claims: [], node_refs: [], coverage: {}, dependencies: [], critical: ["/nodes/0", "/nodes/1"], ready_nodes: [] }) + "\n");
+				const image = join(cache, "page-2.png"), call = "author-page-2";
+				await appendFile(join(cache, "requests.jsonl"), JSON.stringify({ file_sha256: "source-sha", path: image, page: 2, box: [0, 0, 1, 1] }) + "\n");
+				request.onEvent?.({ type: "tool_execution_end", toolCallId: call, isError: false,
+					result: { content: [{ type: "image" }], details: { kind: "source_pages", observations: [{ path: image, page: 2 }] } } });
+				await writeFile(request.eventLog + ".images.jsonl", JSON.stringify({ included: [call] }) + "\n");
+				return { ok: true, code: 0, timedOut: false, ms: 1, stderr: "", command: [] };
+			}
+			const pages = task.review_scope_pages?.length ? task.review_scope_pages : [2];
+			await writeFile(join(request.cwd, "review.json"), JSON.stringify({ checked: [{ paths: task.required_review,
+				verdict: "supported", source_refs: pages.map(page => ({ page })), reason: "fixture source support" }], missing: [] }) + "\n");
+			const call = `review-${tasks.length}`;
+			request.onEvent?.({ type: "tool_execution_end", toolCallId: call, isError: false,
+				result: { content: [{ type: "image" }], details: { kind: "source_pages", observations: pages.map(page => ({ path: join(cache, `page-${page}.png`), page })) } } });
+			await writeFile(request.eventLog + ".images.jsonl", JSON.stringify({ included: [call] }) + "\n");
+			return { ok: true, code: 0, timedOut: false, ms: 1, stderr: "", command: [] };
+		},
+		async check() { throw new Error("skeleton author uses the incumbent reviewer and finish, not the answer checker"); },
+	};
+	const service = new ReadingService({ home, runtime, navigateFresh: navigation,
+		model: () => ({ id: "fixture/vision", vision: true, thinking: "off" }), progress() {}, record: row => telemetry.push(structuredClone(row)),
+		async call(method, params) {
+			assert.equal(method, "module.read.finish");
+			finishes.push(structuredClone(params));
+			return { state: params.outcome === "completed" ? "preparing" : params.outcome };
+		} });
+	t.after(() => service.close());
+	const job = { job_id: "read-1", module_id: "book", purpose: "skeleton", focus: "", question: "", foreground: true, lease: "lease-1",
+		work_dir: cwd, source: { path: source, page_count: 4, file_sha256: "source-sha" }, index: [],
+		known_nodes: [{ node_id: "module-book", node_kind: "module", name: "Book", ready: false }],
+		known_claims: [], vocabulary: {}, coverage_domains: [] };
+	await service.runJob(job, new AbortController().signal);
+	return { cwd, source, tasks, starts, finishes, telemetry };
+}
+
+test("fresh skeleton receives semantic navigation hints but only actual author and reviewer pages reach finish", async t => {
+	const secret = "dummy-typesafe-secret", navigatorCalls = [];
+	const artifact = { version: 1, navigation_only: true, source_revision: "private-revision", extraction_version: "private-extractor",
+		page_count: 4, hints: [{ page: 2, pdf_label: "ii", roles: ["contents", "opening"] }],
+		coverage: { classified_pages: [2], uncertain_pages: [], empty_pages: [], error_pages: [], omitted_pages: [1, 3, 4] } };
+	const result = await freshSkeletonFixture(t, async (request, _signal, record) => {
+		navigatorCalls.push(structuredClone(request));
+		record({ status: "complete", secret_should_not_be_here: undefined });
+		return artifact;
+	});
+	assert.deepEqual(navigatorCalls, [{ moduleId: "book", jobId: "read-1",
+		source: { path: result.source, page_count: 4, file_sha256: "source-sha" } }]);
+	const task = result.tasks[0];
+	assert.deepEqual(task.navigation_hints, { version: 1, navigation_only: true, hints: artifact.hints, coverage: artifact.coverage });
+	for (const privateField of ["source_revision", "extraction_version", "file_sha256", "ref", "proof", "ready", secret])
+		assert.equal(JSON.stringify(task.navigation_hints).includes(privateField), false);
+	assert.deepEqual(result.starts[0].read_pages, [], "navigation hints do not fabricate original-page observations");
+	const completed = result.finishes.find(row => row.outcome === "completed");
+	assert.ok(completed, JSON.stringify(result.finishes));
+	const observations = JSON.parse(await readFile(join(result.cwd, "observations.json"), "utf8"));
+	assert.deepEqual(observations.read_pages, [2]);
+	assert.deepEqual(observations.review_pages, [2]);
+	assert.equal(JSON.stringify(completed).includes("navigation_hints"), false, "the existing finish contract is unchanged");
+});
+
+test("unavailable fresh navigation falls back to the same visual author, reviewer, and finish path", async t => {
+	const result = await freshSkeletonFixture(t, async () => undefined);
+	assert.equal(Object.hasOwn(result.tasks[0], "navigation_hints"), false);
+	assert.deepEqual(result.starts[0].read_pages, []);
+	assert.ok(result.finishes.some(row => row.outcome === "completed"));
+	assert.deepEqual(JSON.parse(await readFile(join(result.cwd, "observations.json"), "utf8")).read_pages, [2]);
+});
+
+test("navigation setter is limited to a fresh unscoped one-placeholder skeleton", async t => {
+	const home = await mkdtemp(join(tmpdir(), "coc-navigation-scope-"));
+	t.after(() => rm(home, { recursive: true, force: true }));
+	let navigationCalls = 0;
+	const service = new ReadingService({ home, navigateFresh: async () => { navigationCalls++; return undefined; },
+		model: () => ({ id: "fixture/vision", vision: true }), progress() {}, record() {},
+		runtime: { contentRoot: join(ROOT, "content"), async runTask() { throw new Error("stop after task projection"); } },
+		async call(_method, params) { return { state: params.outcome }; } });
+	t.after(() => service.close());
+	const variants = [
+		{ purpose: "opening", campaign: undefined, known_nodes: [{ node_id: "module-book", node_kind: "module", ready: false }] },
+		{ purpose: "index", campaign: undefined, known_nodes: [{ node_id: "module-book", node_kind: "module", ready: false }] },
+		{ purpose: "skeleton", campaign: "campaign", known_nodes: [{ node_id: "module-book", node_kind: "module", ready: false }] },
+		{ purpose: "skeleton", campaign: undefined, known_nodes: [{ node_id: "module-book", node_kind: "module", ready: true }] },
+		{ purpose: "skeleton", campaign: undefined, known_nodes: [
+			{ node_id: "module-book", node_kind: "module", ready: false }, { node_id: "scene-old", node_kind: "scene", ready: false }] },
+	];
+	for (const [index, variant] of variants.entries()) {
+		const cwd = join(home, `attempt-${index}`), module = join(home, ".coc", "modules", "book"), cache = join(module, "cache", "pages");
+		await mkdir(cwd, { recursive: true }); await mkdir(cache, { recursive: true }); await writeFile(join(module, "source.pdf"), "%PDF");
+		await service.runJob({ job_id: `read-${index}`, module_id: "book", focus: "", question: "", lease: `lease-${index}`,
+			work_dir: cwd, source: { path: join(module, "source.pdf"), page_count: 2, file_sha256: "sha" }, index: [], known_claims: [],
+			vocabulary: {}, coverage_domains: [], foreground: true, ...variant }, new AbortController().signal, variant.campaign);
+		const task = JSON.parse(await readFile(join(cwd, "task.json"), "utf8"));
+		assert.equal(Object.hasOwn(task, "navigation_hints"), false);
+	}
+	assert.equal(navigationCalls, 0);
+});

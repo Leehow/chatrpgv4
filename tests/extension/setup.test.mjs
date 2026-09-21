@@ -58,8 +58,10 @@ test('uncached installed-module guidance uses the bridge owner for both author a
   t.after(() => table.dispose());
   const folder=join(table.workspace,'.coc/modules/the-haunting');
   mkdirSync(folder,{recursive:true});
-  writeFileSync(join(folder,'module.json'),JSON.stringify({id:'the-haunting'}));
-  writeFileSync(join(folder,'module-graph.json'),JSON.stringify({nodes:[{node_id:'module-the-haunting',node_kind:'module',name:'Prepared source',summary:'An opening meeting.'}]}));
+  writeFileSync(join(folder,'module.json'),JSON.stringify({id:'the-haunting',opening:{start_scene:'scene-meeting'}}));
+  writeFileSync(join(folder,'module-graph.json'),JSON.stringify({nodes:[
+    {node_id:'module-the-haunting',node_kind:'module',name:'Prepared source',summary:'An opening meeting.'},
+    {node_id:'scene-meeting',node_kind:'scene',name:'The meeting begins.',summary:'An opening meeting.'}],relations:[]}));
   const guidance={opening:'Who joins the meeting?',advice:'Choose a source-fitting investigator.',scene:'The meeting begins.',guide:'',handoff:'Continue the meeting.'};
   const tasks=[],current=table.runtimeBridges().at(-1);
   table.emit('coc:kernel-bridge',{...current,async call(method,params){
@@ -70,7 +72,8 @@ test('uncached installed-module guidance uses the bridge owner for both author a
   },runtime:{...current.runtime,async runTask(task,signal){
     tasks.push(task);assert.equal(task.kind,'reader');assert.equal(signal.aborted,false);
     const review=task.request.systemPrompt.endsWith('character-guidance-review.md');
-    writeFileSync(join(task.request.cwd,review?'review.json':'guidance.json'),JSON.stringify(review?{approved:true,issues:[]}:guidance));
+    writeFileSync(join(task.request.cwd,review?'review.json':'guidance.json'),JSON.stringify(review?{approved:true,issues:[]}:{
+      protocol:'setup-guidance-reference-v2',opening:guidance.opening,advice:guidance.advice,guide:null,handoff:guidance.handoff}));
     return {ok:true};
   }}});
   await table.session.prompt('Start with this prepared source.');
@@ -96,17 +99,19 @@ for (const advice of [
     t.after(() => table.dispose());
     const folder=join(table.workspace,'.coc/modules/the-haunting');
     mkdirSync(folder,{recursive:true});
-    writeFileSync(join(folder,'module.json'),JSON.stringify({id:'the-haunting'}));
+    writeFileSync(join(folder,'module.json'),JSON.stringify({id:'the-haunting',opening:{start_scene:'scene-meeting'}}));
     writeFileSync(join(folder,'module-graph.json'),JSON.stringify({nodes:[
       {node_id:'module-the-haunting',node_kind:'module',name:'Public setting',summary:'An opening meeting.'},
-    ]}));
+      {node_id:'scene-meeting',node_kind:'scene',name:'The meeting begins.',summary:'An opening meeting.'},
+    ],relations:[]}));
     const guidance={opening:'In West Texas, a station owner asks who you are.',advice,
       scene:'The meeting begins.',guide:'',handoff:'Continue the meeting.'};
     const current=table.runtimeBridges().at(-1);
     table.emit('coc:kernel-bridge',{...current,runtime:{...current.runtime,async runTask(task){
       const review=task.request.systemPrompt.endsWith('character-guidance-review.md');
       writeFileSync(join(task.request.cwd,review?'review.json':'guidance.json'),
-        JSON.stringify(review?{approved:true,issues:[]}:guidance));
+        JSON.stringify(review?{approved:true,issues:[]}:{protocol:'setup-guidance-reference-v2',opening:guidance.opening,
+          advice:guidance.advice,guide:null,handoff:guidance.handoff}));
       return {ok:true};
     }}});
     await table.session.prompt('Start with this source.');
@@ -246,7 +251,7 @@ test("七步表走完：starter 那条路到 complete，交出开桌命令", asy
 		setupCall({ step: "create-campaign", id: "setup-fixture", title: "闹鬼的房子", play_language: "zh-Hans" }),
 		// 第一次不给职业：工具把职业清单交给模型，模型自己挑（契约 §14.7，绝不做关键词表）。
 		setupCall({ step: investigator.id, confirmed: true, name: "托马斯·海耶斯" }),
-		setupCall({ step: investigator.id, profile: {name: "托马斯·海耶斯", occupation: "journalist", concept: "从战场回来的记者"} }),
+		setupCall({ step: investigator.id, profile: {name: {generated:"托马斯·海耶斯"}, occupation: "journalist", concept: "从战场回来的记者"} }),
         setupCall({step:"confirm-investigator",consent:"approved"}),
 		setupCall({ step: last.id }),
 		fauxAssistantMessage("建好了。"),
@@ -292,7 +297,8 @@ test("七步表走完：starter 那条路到 complete，交出开桌命令", asy
 	assert.equal(confirmCall.params.revision, undefined, "revision stays omitted: the kernel defaults it to the campaign's current draft (contract §23.4)");
 	assert.ok(confirmCall.params.input_key, "input_key is still injected");
 	assert.ok("last_exchange" in confirmCall.params, "last_exchange is still injected");
-	assert.ok(Array.isArray(confirmCall.params.player_requests), "player_requests is still injected");
+	assert.equal(confirmCall.params.player_requests, undefined, "target mode carries a pinned input envelope rather than substring-search requests");
+    assert.equal(confirmCall.params.setup_input.protocol, "setup-input-reference-v1");
 
 	assert.equal(finished.ok, true);
 	assert.match(finished.handoff_command, /^bin\/pi-coc --campaign /, "最后一步交出开桌命令（契约 §14.4）");
@@ -365,10 +371,10 @@ test("creation brief: the host computes the move from the package's slots and th
 		capture(setupCall({ step: "create-campaign", id: "brief-fixture", title: "闹鬼的房子", play_language: "zh-Hans" })),
 		capture(fauxAssistantMessage("先说说你是谁。")),
 		// Second run: the model tries to draft before the brief is filled, records notes, then drafts.
-		capture(setupCall({ step: investigator.id, profile: { name: "大牛皮", occupation: "farmer", concept: "屠夫" } })),
+		capture(setupCall({ step: investigator.id, profile: { name: {generated:"大牛皮"}, occupation: "farmer", concept: "屠夫" } })),
 		capture(setupCall({ step: "note", slot: "trade", value: "屠夫，落在 Farmer 一栏" })),
 		capture(setupCall({ step: "note", slot: "built_for", value: "膀子力气", origin: "player" })),
-		capture(setupCall({ step: investigator.id, profile: { name: "大牛皮", occupation: "farmer", concept: "屠夫" } })),
+		capture(setupCall({ step: investigator.id, profile: { name: {generated:"大牛皮"}, occupation: "farmer", concept: "屠夫" } })),
 		capture(fauxAssistantMessage("卡在这里。")),
 	] });
 	t.after(() => table.dispose());
@@ -410,7 +416,7 @@ test('§98 revise changes the card in place: words move no number, numbers pin, 
 		setupCall({ step: first.id, kind: 'starter', module: 'the-haunting' }),
 		setupCall({ step: 'create-campaign', id: 'setup-revise', title: '闹鬼的房子', play_language: 'zh-Hans' }),
 		setupCall({ step: 'revise', numbers: { skills: { Law: 60 } } }),
-		setupCall({ step: 'create-investigator', profile: { name: '托马斯·海耶斯', occupation: 'journalist', concept: '记者' } }),
+		setupCall({ step: 'create-investigator', profile: { name: {generated:'托马斯·海耶斯'}, occupation: 'journalist', concept: '记者' } }),
 		setupCall({ step: 'revise', numbers: { skills: { Law: 60 } } }),
 		setupCall({ step: 'revise', profile: { equipment: ['相机'] } }),
 		setupCall({ step: 'revise', numbers: { skills: { Unlisted: 60 } } }),
@@ -463,7 +469,7 @@ test('§98 a confirmed card is no longer a draft edit', async (t) => {
 	const table = await openSetup([
 		setupCall({ step: first.id, kind: 'starter', module: 'the-haunting' }),
 		setupCall({ step: 'create-campaign', id: 'setup-revise-late', title: '闹鬼的房子', play_language: 'zh-Hans' }),
-		setupCall({ step: 'create-investigator', profile: { name: '托马斯·海耶斯', occupation: 'journalist', concept: '记者' } }),
+		setupCall({ step: 'create-investigator', profile: { name: {generated:'托马斯·海耶斯'}, occupation: 'journalist', concept: '记者' } }),
 		setupCall({ step: 'confirm-investigator', consent: 'approved' }),
 		setupCall({ step: 'revise', numbers: { skills: { Law: 60 } } }),
 		fauxAssistantMessage('已经定卡了。'),
@@ -488,7 +494,7 @@ test('§98 a refused revision leaves the card confirmable', async (t) => {
 	const table = await openSetup([
 		setupCall({ step: first.id, kind: 'starter', module: 'the-haunting' }),
 		setupCall({ step: 'create-campaign', id: 'setup-refused-draft', title: '闹鬼的房子', play_language: 'zh-Hans' }),
-		setupCall({ step: 'create-investigator', profile: { name: '托马斯·海耶斯', occupation: 'journalist', concept: '记者' } }),
+		setupCall({ step: 'create-investigator', profile: { name: {generated:'托马斯·海耶斯'}, occupation: 'journalist', concept: '记者' } }),
 		setupCall({ step: 'revise', numbers: { skills: { Unlisted: 60 } } }),
 		setupCall({ step: 'confirm-investigator', consent: 'approved' }),
 		fauxAssistantMessage('定了。'),
@@ -529,4 +535,32 @@ test('§98 the catalog is given to the setup prompt once a campaign exists', asy
 	const catalogCalls = table.kernelRequests().filter((entry) => entry.method === 'setup.catalog');
 	assert.equal(catalogCalls.length, 1, 'the catalog is fetched once per session');
 	if (prompts) assert.ok(prompts.at(-1).includes('Journalist / 记者') && prompts.at(-1).includes('Law / 法律'), 'the trade and skill labels reach the prompt');
+});
+
+test('setup advertises and binds actual input selections while stale aliases never reach the kernel',async(t)=>{
+    const parseCatalog=context=>JSON.parse(String(context.systemPrompt).split('\n').find(line=>line.startsWith('{"protocol":"setup-input-reference-v1"')));
+    let oldSource,toolSchema;
+    const name='  E\u0301va 👩‍👩‍👧‍👦  ',table=await openSetup([
+        setupCall({step:'choose-source',kind:'starter',module:'the-haunting'}),
+        setupCall({step:'create-campaign',id:'setup-input-fixture',title:'Input references',play_language:'en'}),
+        context=>{const catalog=parseCatalog(context);oldSource=catalog.sources.at(-1).alias;toolSchema=context.tools.find(tool=>tool.name==='setup').parameters;
+            return setupCall({step:'create-investigator',profile:{name:{source:oldSource},occupation:'journalist',concept:'A reporter'}});},
+        fauxAssistantMessage('The card is ready.'),
+    ]);t.after(()=>table.dispose());
+    await table.session.prompt(name);await waitForIdle(table.session);
+    const draft=table.kernelRequests().find(row=>row.method==='setup.draft');assert.equal(draft.params.profile.name,name);
+    assert.equal(draft.params.setup_input.protocol,'setup-input-reference-v1');assert.equal(draft.params.setup_input.epoch,draft.params.input_key);
+    assert.ok(toolSchema.properties.profile.properties.name.anyOf.some(shape=>shape.properties?.source));
+    assert.ok(toolSchema.properties.profile.properties.name.anyOf.some(shape=>shape.properties?.generated));
+    assert.equal(toolSchema.properties.pending_action.type,'object');assert.equal(toolSchema.properties.params.properties.pending_action.type,'object');
+    table.faux.setResponses([setupCall({step:'revise',profile:{name:{source:oldSource}}}),fauxAssistantMessage('The old input selection is unavailable.')]);
+    await table.session.prompt('Try an old alias.');await waitForIdle(table.session);
+    assert.equal(table.kernelRequests().filter(row=>row.method==='setup.revise').length,0);
+    const prefix='Approve and then ',action='Inspect the 🔒 door.\r\n';
+    table.faux.setResponses([context=>{const source=parseCatalog(context).sources.at(-1);return setupCall({step:'confirm-investigator',consent:'approved',
+        pending_action:{source:source.alias,range:{first:source.units[prefix.length].alias,last:source.units.at(-1).alias}}});},fauxAssistantMessage('Confirmed.')]);
+    await table.session.prompt(prefix+action);await waitForIdle(table.session);
+    const confirmed=table.kernelRequests().find(row=>row.method==='setup.confirm');assert.equal(confirmed.params.pending_action,action);
+    assert.equal(confirmed.params.player_requests,undefined);assert.equal(confirmed.params.setup_input.bindings.pending_action.authority,'player_input');
+    assert.notEqual(confirmed.params.input_key,draft.params.input_key);
 });

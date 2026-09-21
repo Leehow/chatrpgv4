@@ -1,32 +1,24 @@
 /**
- * The Director's recovery (contract §40): the one part of the Director section that is not advice.
- *
- * The defect these cover, from campaign game-83177d61 (a real table, reported by the player):
- *   - the beat was RECOVER on 17 turns and CUT on 8, and `adopted` was false on 43 of 52 signals,
- *     because nothing in the system required anything of the Keeper when the Director asked;
- *   - `stalled_turns` reset on any clue, move or session receipt, so the same nailed cupboard —
- *     STR against 40 in the same room, failed on turns 34, 41, 60 and 62, never passed — read as
- *     `stalled_turns = 4, ?, 0, 2` and the Director never saw the obstacle at all;
- *   - `directorAdoption` called RECOVER adopted only on a `healing` or `development` family, which
- *     no rung of the keeper-pacing ladder produces, so a turn that recovered read as declined.
+ * D4 keeps Director obstacle signals and adoption telemetry advisory. Legacy recovery debt in a
+ * retained capsule cannot refuse narration, steer another model round, or require a world effect.
  */
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {readFileSync} from 'node:fs';
 import {join} from 'node:path';
 import {build} from 'esbuild';
-import {openTable, waitForIdle, customMessages} from './harness.mjs';
+import {openTable, waitForIdle} from './harness.mjs';
 import {fauxAssistantMessage, fauxToolCall} from '@earendil-works/pi-ai';
 
 const bundled = await build({
   stdin: {contents: `export {blockedAttempts, obstacleKey, score, signals} from './kernel-ts/read/director.ts';
-export {directorRecovery, RECOVERY_TAKES, RECOVERY_BEATS} from './kernel-ts/read/offer.ts';
-export {directorAdoption} from './kernel-ts/write/text.ts';
-export {DirectorGraph} from './kernel-ts/read/content.ts';
-export {parsePythonJson} from './kernel-ts/json.ts';`, resolveDir: process.cwd()},
+	export {RECOVERY_TAKES} from './kernel-ts/read/offer.ts';
+	export {directorAdoption} from './kernel-ts/write/text.ts';
+	export {DirectorGraph} from './kernel-ts/read/content.ts';
+	export {parsePythonJson} from './kernel-ts/json.ts';`, resolveDir: process.cwd()},
   bundle: true, write: false, platform: 'node', format: 'esm',
 });
-const {blockedAttempts, obstacleKey, score, directorRecovery, RECOVERY_TAKES, directorAdoption, DirectorGraph, parsePythonJson} =
+const {blockedAttempts, obstacleKey, score, RECOVERY_TAKES, directorAdoption, DirectorGraph, parsePythonJson} =
   await import('data:text/javascript;base64,' + Buffer.from(bundled.outputFiles[0].text).toString('base64'));
 
 // The kernel reads its content with `parsePythonJson` so that int/float identity survives (the digest is
@@ -84,7 +76,7 @@ test('another skill and another target are other obstacles', () => {
 });
 
 test('an obstacle in a room the party has left says nothing about the room they are in', () => {
-  // The recovery is owed where the player is standing: a cellar they climbed out of is not this scene.
+  // The advisory obstacle signal is scoped to the current scene; it never follows the party as debt.
   const elsewhere = [played('chapel-cellar', check('STR', 40, false)), played('chapel-cellar', check('STR', 40, false))];
   assert.equal(blockedAttempts(elsewhere, HOUSE), 0);
   assert.equal(blockedAttempts(elsewhere, 'chapel-cellar'), 2);
@@ -116,58 +108,11 @@ test('two failures at one obstacle put RECOVER on the board with no stalled turn
   assert.ok(two.hit_rules.includes('scoring-rule:recover:blocked-attempts'));
 });
 
-// ---- the recovery carries operations, not advice -------------------------
+// ---- adoption remains advisory telemetry ---------------------------------
 
-const sources = (over = {}) => ({
-  present: [], where: {exits: []}, affordances: [], pressures: [], obligations: [], offer: [], previous: null, ...over});
-
-test('no recovery is owed on an ordinary beat with nothing blocking', () => {
-  assert.equal(directorRecovery('REVEAL', 0, sources()), null);
-  assert.equal(directorRecovery('PRESSURE', 0, sources()), null);
+test('recovery receipt kinds remain a telemetry vocabulary, not a delivery debt', () => {
+  assert.deepEqual(RECOVERY_TAKES, ['clue', 'move', 'npc', 'session', 'handout', 'map', 'item']);
 });
-
-test('a recovery beat and a blocked obstacle each owe one', () => {
-  assert.ok(directorRecovery('RECOVER', 0, sources()));
-  assert.ok(directorRecovery('CUT', 0, sources()));
-  // Live turns 60 and 62 scored CUT and REVEAL while the party was on its third and fourth failure at one
-  // cupboard: the beat can be outranked, so the obstacle owes a recovery on its own account.
-  assert.ok(directorRecovery('REVEAL', 2, sources()));
-});
-
-test('the count below the authored threshold reaches this as 0, and owes nothing', () => {
-  // assemble.ts passes `blocked` only once it has reached `threshold:recover-blocked-attempts` (2); one
-  // failed check in a room is play, not a stall, and must not put a gate in front of an ordinary turn.
-  assert.equal(directorRecovery('REVEAL', 0, sources()), null);
-  assert.equal(directorRecovery('PAYOFF', 0, sources()), null);
-});
-
-test('the unanswered push continuation comes back as the operation that answers it', () => {
-  const owed = directorRecovery('RECOVER', 2, sources({
-    obligations: [{kind: 'continuation', name: 'push-luck:pushed-roll', cue: 'needs action.push/stakes/method'},
-                  {kind: 'quest', name: 'End the Corbitt Threat'}]}));
-  const push = owed.steps.find((step) => step.decision === 'push-luck:pushed-roll');
-  assert.ok(push, 'the rules own retry is a step, and it was sitting unanswered on every turn of the live table');
-  assert.equal(push.operation, 'resolve');
-  assert.equal(push.rung, 'consequence');
-  assert.ok(owed.steps.every((step) => typeof step.operation === 'string' && step.operation.length > 0),
-    'every step names the verb that discharges it: a signal with no next operation is a line about itself');
-});
-
-test('a person who can hand a clue, this room, and the way out are the other two rungs', () => {
-  const owed = directorRecovery('RECOVER', 0, sources({
-    offer: [{kind: 'person', who: 'Mr. Dooley', can_hand: ['dooley-macario-madness'], line: 'wants: to sell papers'},
-            {kind: 'route', where: 'chapel-ruins', line: 'the way to chapel-ruins is open'}],
-    affordances: [{id: 'nailed-cupboard', clues: [{clue: 'cellar-stair'}]}]}));
-  const kinds = owed.steps.map((step) => [step.rung, step.operation].join(' '));
-  assert.ok(kinds.includes('person apply clue'));
-  assert.ok(kinds.includes('information apply clue'));
-  assert.ok(kinds.includes('information apply move'));
-  assert.deepEqual(owed.takes, RECOVERY_TAKES);
-  assert.match(owed.note, /narrate is refused once/);
-  assert.match(owed.note, /irreversible choice for the player/, 'the ladder never chooses for the player');
-});
-
-// ---- adoption measures the ladder, not first aid -------------------------
 
 const adoption = (receipts, calls = {}) =>
   directorAdoption({kind: () => [], incoming: new Map(), nodes: new Map()},
@@ -188,67 +133,30 @@ test('the rulebook push is adoption; the same ordinary check again is not', () =
   assert.equal(adoption([{kind: 'definition', id: 'definition:a'}, {kind: 'time', id: 'time:a'}]).adopted, false);
 });
 
-// ---- the host makes it a step -------------------------------------------
+// ---- legacy debt is inert ------------------------------------------------
 
-const OWED = JSON.stringify({beat: 'RECOVER', recovery: {owed: true, blocked: 2, takes: ['clue', 'move'],
+const LEGACY_OWED = JSON.stringify({beat: 'RECOVER', recovery: {owed: true, blocked: 2, takes: ['clue', 'move'],
   steps: [{rung: 'person', operation: 'apply clue', line: 'Mr. Dooley can hand dooley-macario-madness now'}],
   note: 'One of these lands this turn, or the turn first narrate is refused once.'}});
 
-test('导演要求恢复而这一回合什么都没动：第一次 narrate 被拒一次，第二段照常交付', async (t) => {
-  const thin = '柜子纹丝不动。楼上又沉了一下。';
-  const full = '杜利从门口探头进来，把短撬棍递过来：「你撬，我撑。」';
+for (const example of [
+  {name: 'quiet observation', input: 'I stay here and listen.', text: 'The room settles into a long, ordinary silence.'},
+  {name: 'informed refusal', input: 'I refuse the offer and remain where I am.', text: 'Dooley accepts the refusal and turns back to his papers.'},
+]) test(`legacy recovery debt does not block first-attempt ${example.name}`, async (t) => {
   const table = await openTable({
-    env: {FAKE_KERNEL_DIRECTOR: OWED, FAKE_KERNEL_CHECK_FAILS: '1'},
-    responses: [
-      fauxAssistantMessage([fauxToolCall('resolve', {action: {intent: 'investigate', goal: '撬柜子', method: '蛮力', skill: 'STR'}})], {stopReason: 'toolUse'}),
-      fauxAssistantMessage([fauxToolCall('narrate', {text: thin})], {stopReason: 'toolUse'}),
-      fauxAssistantMessage([fauxToolCall('narrate', {text: full})], {stopReason: 'toolUse'}),
-    ],
+    env: {FAKE_KERNEL_DIRECTOR: LEGACY_OWED},
+    responses: [fauxAssistantMessage([fauxToolCall('narrate', {text: example.text})], {stopReason: 'toolUse'})],
   });
   t.after(() => table.dispose());
 
-  await table.session.prompt('再撬一次');
+  await table.session.prompt(example.input);
   await waitForIdle(table.session);
 
-  const narrates = table.kernelRequests().filter((entry) => entry.method === 'table.narrate');
-  assert.deepEqual(narrates.map((entry) => entry.params.text), [full], 'the first draft never reached the kernel');
-  const rows = table.telemetry().filter((row) => row.lane === 'recovery');
-  assert.equal(rows.length, 1, 'the refusal is spent once, so the table can never hang on it');
-  assert.equal(rows[0].blocked, 2);
-});
-
-test('这一回合把线索送到了玩家手里：不拦', async (t) => {
-  const text = '杜利把那句话说完了。';
-  const table = await openTable({
-    env: {FAKE_KERNEL_DIRECTOR: OWED},
-    responses: [
-      fauxAssistantMessage([fauxToolCall('apply', {effects: [{kind: 'clue', clue: 'dooley-macario-madness'}]})], {stopReason: 'toolUse'}),
-      fauxAssistantMessage([fauxToolCall('narrate', {text})], {stopReason: 'toolUse'}),
-    ],
-  });
-  t.after(() => table.dispose());
-
-  await table.session.prompt('问杜利');
-  await waitForIdle(table.session);
-
-  assert.deepEqual(table.kernelRequests().filter((e) => e.method === 'table.narrate').map((e) => e.params.text), [text]);
+  const requests = table.kernelRequests();
+  assert.deepEqual(requests.filter((entry) => entry.method === 'table.narrate').map((entry) => entry.params.text), [example.text]);
+  assert.equal(requests.some((entry) => ['table.resolve', 'table.apply'].includes(entry.method)), false,
+    'legacy debt cannot manufacture a roll, movement, item, clue, or other effect');
+  assert.equal(table.faux.state.callCount, 1, 'the first legal narration is delivered without a recovery steer');
   assert.deepEqual(table.telemetry().filter((row) => row.lane === 'recovery'), []);
-});
-
-test('胶囊没说欠恢复：不拦', async (t) => {
-  const text = '你在门框上摸到一道抓痕。';
-  const table = await openTable({
-    env: {FAKE_KERNEL_CHECK_FAILS: '1'},
-    responses: [
-      fauxAssistantMessage([fauxToolCall('resolve', {action: {intent: 'investigate', goal: '看门框', method: '侦查', skill: 'Spot Hidden'}})], {stopReason: 'toolUse'}),
-      fauxAssistantMessage([fauxToolCall('narrate', {text})], {stopReason: 'toolUse'}),
-    ],
-  });
-  t.after(() => table.dispose());
-
-  await table.session.prompt('我看门框');
-  await waitForIdle(table.session);
-
-  assert.deepEqual(table.kernelRequests().filter((e) => e.method === 'table.narrate').map((e) => e.params.text), [text]);
-  assert.deepEqual(table.telemetry().filter((row) => row.lane === 'recovery'), []);
+  assert.equal(table.committed().length, 1);
 });

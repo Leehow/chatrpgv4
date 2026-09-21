@@ -32,7 +32,8 @@ export function applyCorrectionLinks(rows: Row[]): string[] {
         const keys = new Set(array(correction.corrects).flatMap(id => byId.has(id) ? [referenceKey(byId.get(id)!)] : []));
         const targets = new Set<string>(array(correction.corrects));
         for (const old of rows) {
-            if (number(old.valid_from_turn) >= number(correction.valid_from_turn) || !keys.has(referenceKey(old))) continue;
+            if (number(old.valid_from_turn) >= number(correction.valid_from_turn)
+                || (correction.memory_version === 2 ? !targets.has(string(old.id)) : !keys.has(referenceKey(old)))) continue;
             targets.add(string(old.id));
             if (old.superseded_by != null) continue;
             old.status = 'superseded'; old.superseded_by = correction.id; old.valid_until_turn = correction.valid_from_turn;

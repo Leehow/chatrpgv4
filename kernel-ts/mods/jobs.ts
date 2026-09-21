@@ -21,7 +21,8 @@ import type {ApplyContext} from '../apply/index.js';
 import { claimedEquipment, queuedRegistrations } from './queue.js';
 import type { ModRuntime } from './runtime.js';
 import {SOURCE_AUDIT, auditSourceEvidence, writeAuditSources, verifyAuditSources, validateSourceReview} from './audit-source.js';
-import {CONTINUITY_AUDIT, AUDIT_LIMITS, continuityArtifactErrors} from './audit-result.js';
+import {CONTINUITY_AUDIT, CONTINUITY_AUDIT_V2, AUDIT_LIMITS, continuityArtifactErrors} from './audit-result.js';
+import {buildAuditReferences, materializeAuditReferences, auditReferenceIssues} from './audit-references.js';
 
 export interface ModSources { asset?: (moduleId: string, name: string) => Promise<Row | null>; }
 const field = (value: Row, key: string, fallback: any): any => Object.hasOwn(value, key) ? value[key] : fallback;
@@ -40,7 +41,7 @@ export class ModJobs {
     }
     async reviewStatus(params: Row): Promise<Row> {
         const {campaign, world, turn, meta} = await this.load(params);
-        const enabled = (await this.contributors(world, turn, 'audit')).some(mod => array(mod.requires).includes(CONTINUITY_AUDIT));
+        const enabled = (await this.contributors(world, turn, 'audit')).some(mod => array(mod.requires).some(cap => [CONTINUITY_AUDIT, CONTINUITY_AUDIT_V2].includes(cap)));
         if (!enabled) return {enabled: false, paused: false};
         const path = join(this.reviewScope(campaign.id, meta, turn), 'review-budget.json');
         if (!await this.context.snapshots.pathExists(path)) return {enabled: true, paused: false, turn: turn.turn};
@@ -175,7 +176,8 @@ export class ModJobs {
         const promptField = role === 'create' || role === 'usage' ? 'materializer' : 'auditor', candidates = await this.contributors(world, turn, role);
         if (!candidates.length) return {enabled: false};
         const packageRow = candidates[0], party = preview?.party ?? await campaign.party() as Row[];
-        const continuity = role === 'audit' && candidates.some(mod => array(mod.requires).includes(CONTINUITY_AUDIT));
+        const continuity = role === 'audit' && candidates.some(mod => array(mod.requires).some(cap => [CONTINUITY_AUDIT, CONTINUITY_AUDIT_V2].includes(cap)));
+        const continuityV2 = continuity && candidates.some(mod => array(mod.requires).includes(CONTINUITY_AUDIT_V2));
         const sourceAudit = !continuity && role === 'audit' && candidates.some(mod => array(mod.requires).includes(SOURCE_AUDIT));
         const wait = row(row(params.input).preparation_wait), refused = row(row(params.input).rebinding_refused);
         const evidence = sourceAudit || continuity ? await auditSourceEvidence(this.context, campaign, module, world, turn, party, continuity, wait, refused) : null;
@@ -189,6 +191,9 @@ export class ModJobs {
             request.player_text = turn.player_text ?? null;
         }
         if (evidence) request[continuity ? 'continuity_review' : 'source_review'] = evidence.descriptor;
+        if (continuityV2) request.continuity_review = {...request.continuity_review, schema:2,
+            sources:buildAuditReferences(request,evidence!.files,{owner:'audit',campaign:campaign.id,
+                ...(typeof meta.active_worldline === 'string' ? {worldline:meta.active_worldline} : {}),audience:'keeper'}).sources};
         if (role === 'create' || role === 'usage') request.catalogs = await this.presets(role === 'usage' ? 'weapon' : string(row(params.input).category));
         if (physicalBasis) {
             const item = usageObject(world,string(params.input.object))!;
@@ -230,7 +235,8 @@ export class ModJobs {
         }
         return {enabled: true, job: key, cwd: root, system_prompt: join(root, 'prompt.md'), mod: packageRow.id, digest: packageRow.digest,
             accepted: await this.context.snapshots.pathExists(join(root, 'accepted.json')), role, ...(sourceAudit ? {source_review: true} : {}),
-            ...(continuity ? {continuity_review: true, focus: evidence!.files['context.json'], limits: AUDIT_LIMITS,
+            ...(continuity ? {continuity_review: true, ...(continuityV2 ? {continuity_schema:2} : {}),
+                focus: {...evidence!.files['context.json'], ...(continuityV2 ? {sources:request.continuity_review.sources} : {})}, limits: AUDIT_LIMITS,
                 review_scope: this.reviewScope(campaign.id, meta, turn)} : {})};
     }
     /**
@@ -295,7 +301,7 @@ export class ModJobs {
         if (array(identity.packages).some(mod => active.get(mod.id)?.digest !== mod.digest)) throw new RpcError('invalid_params', 'An audit contributor changed while the job was running');
         const request = row(await this.context.snapshots.readJson(join(root, 'request.json'))), providers = (await this.contributors(world, turn, request.role)).map(mod => ({id: mod.id, digest: mod.digest}));
         if (!equal(providers, identity.packages ?? null)) throw new RpcError('invalid_params', 'The effective Mod provider changed while the job was running');
-        const continuity = request.role === 'audit' && (await this.contributors(world, turn, 'audit')).some(mod => array(mod.requires).includes(CONTINUITY_AUDIT));
+        const continuity = request.role === 'audit' && (await this.contributors(world, turn, 'audit')).some(mod => array(mod.requires).some(cap => [CONTINUITY_AUDIT, CONTINUITY_AUDIT_V2].includes(cap)));
         const sourceAudit = !continuity && request.role === 'audit' && (await this.contributors(world, turn, 'audit')).some(mod => array(mod.requires).includes(SOURCE_AUDIT));
         const keyedRequest = request.role === 'audit' ? request : {input:request.input ?? null,role:request.role};
         if (this.jobKey({...identity,request:keyedRequest}) !== key || identity.usage_request_digest && jsonDigest(request) !== identity.usage_request_digest)
@@ -354,7 +360,15 @@ export class ModJobs {
                 }
                 return prefetch ? finishPrefetch({...accepted,usage}) : {...accepted,usage};
             }
-            if (continuity) this.validateContinuity(accepted, request, evidence!.files);
+            if (continuity) {
+                if (request.continuity_review?.schema === 2) {
+                    const rawPath = join(root,'result.json'), stat = await lstat(rawPath);
+                    if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 512000) throw new RpcError('invalid_params','Raw audit selectors must remain a bounded regular file');
+                    const canonical = this.materializeContinuity(await this.context.snapshots.readJson(rawPath),request,evidence!.files,identity);
+                    if (!equal(canonical,accepted)) throw new RpcError('invalid_params','Accepted audit differs from its pinned raw selectors');
+                }
+                this.validateContinuity(accepted, request, evidence!.files);
+            }
             else if (evidence) validateSourceReview(accepted.source_review, string(row(request.input).text), evidence.files);
             return accepted;
         }
@@ -374,8 +388,8 @@ export class ModJobs {
                 throw new RpcError('invalid_params', 'Weapon profile v2 must explicitly declare adds_damage_bonus from its preset rule');
             result = {definition: value, provenance: {mod: identity.mod, digest: identity.digest, job: key}};
         } else if (continuity) {
-            this.validateContinuity(raw, request, evidence!.files);
-            result = row(raw);
+            result = this.materializeContinuity(raw,request,evidence!.files,identity);
+            this.validateContinuity(result, request, evidence!.files);
         } else {
             if (!isJsonObject(raw) || Object.keys(raw).some(name => !['missing', 'findings', ...(sourceAudit ? ['source_review'] : [])].includes(name)) || !Array.isArray(raw.missing) || raw.missing.length > 16)
                 throw new RpcError('invalid_params', 'Audit must return a bounded missing list');
@@ -396,8 +410,18 @@ export class ModJobs {
         if (prefetch && result.usage !== null) registerUsage(world,string(request.input.object),result.usage,result.physical_basis,result.provenance);
         await writeJsonAtomic(acceptedPath, result); return prefetch ? finishPrefetch(result) : result;
     }
+    private materializeContinuity(raw: unknown, request: Row, files: Row, identity: Row): Row {
+        if (request.continuity_review?.schema !== 2) return row(raw);
+        const catalog = buildAuditReferences(request,files,{owner:'audit',campaign:identity.campaign,
+            ...(typeof identity.worldline === 'string' ? {worldline:identity.worldline} : {}),audience:'keeper'}), result = materializeAuditReferences(raw,catalog);
+        if (result.errors.length) throw new RpcError('invalid_params','The audit artifact needs a targeted format repair',
+            {details:{reason:'audit_artifact_invalid',errors:result.errors}});
+        return result.value!;
+    }
     private validateContinuity(raw: unknown, request: Row, files: Row): void {
-        const errors = continuityArtifactErrors(raw, string(row(request.input).text), files);
+        let errors = continuityArtifactErrors(raw, string(row(request.input).text), files,
+            request.continuity_review?.schema === 2 ? buildAuditReferences(request,files).speechTexts : undefined);
+        if (request.continuity_review?.schema === 2) errors = auditReferenceIssues(errors);
         if (errors.length) throw new RpcError('invalid_params', 'The audit artifact needs a targeted format repair',
             {details: {reason: 'audit_artifact_invalid', errors}});
     }

@@ -247,6 +247,8 @@ function errorText(error: unknown): string {
 export default function (pi: ExtensionAPI) {
 	// The setup process has no turns and so no memory to extract: it registers nothing and subscribes to nothing (contract §14.4).
 	if (cocMode() === "setup") return;
+	let referenced: ((job: LaneJob, signal?: AbortSignal) => Promise<{status: string; turn?: number; job_id?: string; candidates?: number; remainingNeeds?: string[]}>) | undefined;
+	pi.events.on('coc:referenced-memory', value => { referenced = typeof value === 'function' ? value as typeof referenced : undefined; });
 
 	// ---- Telemetry --------------------------------------------------------
 
@@ -314,6 +316,18 @@ export default function (pi: ExtensionAPI) {
 		if (!current || !ctx) {
 			await note({ turn: job.turn, ok: false, reason: "lane_error", detail: "the kernel bridge is gone; the lane cannot run" });
 			return;
+		}
+		if (process.env.PI_COC_JEV_MEMORY === '1') {
+			// The existing queue is still the only scheduler. An unavailable owner leaves this committed job redispatchable.
+			if (!referenced) { await note({turn: job.turn, ok: false, reason: 'lane_error', detail: 'The referenced memory owner is not ready.'}); return; }
+			const result = await referenced(job, scheduler.signal);
+			if (result.status === 'no_job') { if (job.backfill) scheduler.stopBackfill(); return; }
+			if (result.status !== 'legacy') {
+				await note({turn: result.turn ?? job.turn, job_id: result.job_id, ok: result.status === 'complete',
+					ms: Date.now() - began, model: 'typesafe/jev-1.13.0', candidates: result.candidates ?? 0,
+					status: result.status, remaining_needs: result.remainingNeeds ?? []});
+				return;
+			}
 		}
 		// Resolve the model first: if it cannot be resolved, do not take the job away from the kernel, or it lands in the backlog for nothing.
 		const model = resolveLaneModel(ctx, "PI_COC_MEMORY_MODEL");

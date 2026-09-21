@@ -1,7 +1,7 @@
 /** Player-side NPC journal: closed job packets and a deterministic merge; no model calls here. */
 import { join } from 'node:path';
 import { RpcError } from '../errors.js';
-import { isJsonObject, jsonDigest } from '../json.js';
+import { isJsonObject, jsonDigest, compareUnicode } from '../json.js';
 import { appendJsonl } from '../fileio.js';
 import { CampaignWriter, nowIso } from '../write/store.js';
 import { ModuleGraph } from '../read/module-graph.js';
@@ -9,10 +9,15 @@ import { personRecord, sceneLabel } from '../read/capsule.js';
 import { occurs, nameWords, toldTurn } from './naming.js';
 import { array, row, clone, string, number, integer, truth, repr, sorted, length, normalize, type Row } from '../read/values.js';
 import { FAILURE_REASONS, committedRecords, logs, proseOf, writeLines } from '../memory/jobs.js';
+import {issueSourceRef,resolveSourceRef,type SourceSnapshot} from '../../runtime/jev/source-ref.ts';
+import type {SourceRef,ScopeBinding} from '../../runtime/jev/value-contracts.ts';
+export const JOURNAL_REFERENCE_PROTOCOL='journal-reference-v2';
 export const BUDGET = { max_entries: 6, max_description_chars: 300, max_exchange_chars: 200, max_label_chars: 60 };
 const FIELDS = ['name', 'description', 'exchange', 'label', 'named'];
 const MACHINE = ['commit', 'receipt', 'receipts', 'turn', 'id', 'job_id', 'episode_id', 'call_id', 'source'];
 export const jobId = (campaign: string, turn: number) => `journal:${campaign}:t${turn}`;
+const journalTurnBinding=(record:Row)=>jsonDigest({turn:record.turn,commit:record.commit,player_text:record.player_text??null,
+    keeper_text:proseOf(record.rendered_text),speech:array(record.speech),present:array(row(record.world).present),receipts:array(record.receipts)});
 /** The fixed English instruction; entry prose itself is written by the lane in the campaign's play language. */
 const instruction = (language: string) => 'Write an entry only for someone who truly appeared in this turn\'s narrative: they spoke, acted, or were ' +
     'interacted with. Take every name from recordable exactly as given. A description says only what the player can ' +
@@ -104,7 +109,7 @@ function collectNamed(graph: ModuleGraph, record: Row, entries: Row): Array<[str
     }
     return named;
 }
-export async function buildJob(campaign: CampaignWriter, graph: ModuleGraph, language: string, turn: number, party: Row[], world: Row): Promise<Row> {
+export async function buildJob(campaign: CampaignWriter, graph: ModuleGraph, language: string, turn: number, party: Row[], world: Row, options:{referenced?:boolean}={}): Promise<Row> {
     const committed = await committedRecords(campaign), record = committed.get(turn);
     if (!record)
         throw new RpcError('invalid_params', `turn ${turn} has no committed record`, { fix: 'only turns closed by narrate have journal jobs', details: { turn, committed_turns: [...committed.keys()].sort((a, b) => a - b) } });
@@ -135,22 +140,91 @@ export async function buildJob(campaign: CampaignWriter, graph: ModuleGraph, lan
         prior.push({ name, ...(label && !isNamed(id) ? { label } : {}), description: string(stored.description), last_seen_turn: number(stored.last_seen_turn) });
     }
     const present = array(snapshot.present).map(name => npcNode(graph, name)).filter(truth) as Row[];
-    return { job_id: jobId(campaign.id, turn), turn, commit: record.commit ?? null,
+    const packet:Row={ job_id: jobId(campaign.id, turn), turn, commit: record.commit ?? null,
         scene: { name: graph.handle(scene), display_name: display },
         present: present.map(node => graph.displayName(node)),
         investigators: party.map(sheet => ({ id: string(sheet.id), name: string(sheet.name) })),
         player_text: record.player_text ?? null, keeper_text: proseOf(record.rendered_text),
         speech: array(record.speech).flatMap(line => npcNode(graph, row(row(line).who).npc) ? [{ name: string(row(row(line).who).name), text: string(row(line).text) }] : []),
         recordable, unnamed, prior, budget: { ...BUDGET }, instruction: instruction(language), _named: named, _told: told, _words: words };
+    if(!options.referenced) return packet;
+    const meta=await campaign.readCampaign(),worldline=string(meta.active_worldline||'main'),scope:ScopeBinding={owner:`journal:${campaign.id}`,campaign:campaign.id,worldline,
+        loop:number(row(row(meta.worldlines)[worldline]).loop),audience:'keeper'};
+    const distinct=new Map<string,string>();for(const [name,id] of named) if(!distinct.has(id)) distinct.set(id,name);
+    const people=[...distinct].map(([id,name])=>({id,name})).sort((a,b)=>compareUnicode(a.name,b.name)||compareUnicode(a.id,b.id));
+    const source:SourceSnapshot={scope,resource:`${packet.job_id}:people`,revision:jsonDigest({commit:packet.commit,people}),sourceType:'record',record:people,
+        allowedFields:people.flatMap((_,i)=>[[String(i),'name'],[String(i),'id']])};
+    const selectors=people.map((_,i)=>({alias:`person:${i}`,name:issueSourceRef(source,{kind:'field',path:[String(i),'name']}),id:issueSourceRef(source,{kind:'field',path:[String(i),'id']})}));
+    const aliasFor=(id:string)=>selectors[people.findIndex(person=>person.id===id)]?.alias;
+    const priorV2=people.flatMap(person=>{
+        const stored=row(journal.entries[person.id]);if(!isJsonObject(journal.entries[person.id])) return [];
+        const node=graph.nodes.get(person.id),label=string((node?personRecord(world,graph.handle(node)).name:'')||stored.label||'').trim();
+        return [{person:aliasFor(person.id),...(label&&!isNamed(person.id)?{label}:{}),description:string(stored.description),last_seen_turn:number(stored.last_seen_turn)}];
+    });
+    Object.assign(packet,{protocol:JOURNAL_REFERENCE_PROTOCOL,recordable:people.map((person,i)=>({alias:selectors[i].alias,name:person.name})),
+        present:present.map(node=>aliasFor(string(node.node_id))).filter(Boolean),unnamed:people.filter(person=>!isNamed(person.id)).map(person=>aliasFor(person.id)),prior:priorV2,
+        speech:array(record.speech).flatMap(line=>{const node=npcNode(graph,row(row(line).who).npc),person=node&&aliasFor(string(node.node_id));return person?[{person,text:string(row(line).text)}]:[]}),
+        investigators:party.map(sheet=>({name:string(sheet.name)})),
+        instruction:instruction(language).replace('Take every name from recordable exactly as given.','Select each person by the issued recordable alias; never supply an identity name or ID field.')
+            .replace('Names listed under unnamed','Person aliases listed under unnamed'),_people_source:source,_people:selectors,_turn_binding:journalTurnBinding(record)});
+    packet.selection_binding=journalSelectionBinding(packet,source,selectors,packet._turn_binding);
+    return packet;
+}
+function journalSelectionBinding(packet:Row,source:SourceSnapshot,people:Row[],turnBinding:string):string {
+    const publicPacket=Object.fromEntries(Object.entries(packet).filter(([key])=>!key.startsWith('_')&&key!=='selection_binding'));
+    return jsonDigest({packet:publicPacket,source,people,turnBinding} as any);
+}
+async function verifyReferencedJob(campaign:CampaignWriter,job:Row):Promise<void> {
+    const source=job.people_source as SourceSnapshot,people=array(job.people),packet=row(job.packet),meta=await campaign.readCampaign(),worldline=string(meta.active_worldline||'main');
+    if(job.protocol!==JOURNAL_REFERENCE_PROTOCOL||packet.protocol!==JOURNAL_REFERENCE_PROTOCOL||!source||source.sourceType!=='record'
+        ||source.resource!==`${job.job_id}:people`||!Array.isArray(source.record)
+        ||source.scope?.owner!==`journal:${campaign.id}`||source.scope?.campaign!==campaign.id||source.scope?.audience!=='keeper'
+        ||source.scope?.worldline!==worldline||source.scope?.loop!==number(row(row(meta.worldlines)[worldline]).loop)
+        ||source.revision!==jsonDigest({commit:job.commit,people:source.record})
+        ||job.selection_binding!==packet.selection_binding||job.selection_binding!==journalSelectionBinding(packet,source,people,job.turn_binding))
+        throw new RpcError('invalid_params','The pinned journal identity catalog changed or belongs to another scope',{details:{reason:'journal_reference_stale'}});
+    const record=(await committedRecords(campaign)).get(number(job.turn));
+    if(!record||record.commit!==job.commit||job.turn_binding!==journalTurnBinding(record)) throw new RpcError('invalid_params','The journal original changed while its referenced job was pending',{details:{reason:'journal_reference_stale'}});
+}
+export function materializeJournalEntries(job:Row,entries:any):{entries:Row[];ids:string[]} {
+    if(!Array.isArray(entries)||entries.length>BUDGET.max_entries) throw new RpcError('invalid_params','Referenced journal entries must be a bounded list');
+    const source=job.people_source as SourceSnapshot,people=array(job.people),seen=new Set<string>(),ids:string[]=[],result:Row[]=[];
+    if(!source||job.protocol!==JOURNAL_REFERENCE_PROTOCOL) throw new RpcError('invalid_params','The journal job has no pinned reference catalog');
+    const access={scope:source.scope,mode:'active' as const,read:(resource:string,revision:string)=>source.resource===resource&&source.revision===revision?source:undefined,
+        currentRevision:(resource:string)=>resource===source.resource?source.revision:undefined};
+    for(const [i,entry] of entries.entries()) {
+        if(!isJsonObject(entry)||Object.keys(entry).some(key=>!['person','description','exchange','label','named'].includes(key))||typeof entry.person!=='string')
+            reject(i,'A referenced journal entry selects person and contains only generated journal fields','Use person, description, exchange, label and named; do not copy a name or identity',{field:'person'});
+        const selected=people.find(value=>value.alias===entry.person);
+        if(!selected||seen.has(entry.person)) reject(i,'The person alias is unknown, foreign or duplicated','Select each issued recordable person at most once',{field:'person'});
+        let name:unknown,id:unknown;
+        try {name=resolveSourceRef(selected.name as SourceRef,access);id=resolveSourceRef(selected.id as SourceRef,access);}
+        catch {reject(i,'The selected person source is stale or invalid','Request the pinned journal job again',{field:'person'});}
+        if(typeof name!=='string'||typeof id!=='string'||!array(job.named).some(pair=>array(pair)[0]===name&&array(pair)[1]===id)||ids.includes(id))
+            reject(i,'The selected source is not one recordable journal identity','Select one issued recordable person',{field:'person'});
+        seen.add(entry.person);ids.push(id);const {person:_selected,...generated}=entry;result.push({name,...generated});
+    }
+    return {entries:result,ids};
 }
 export async function openJob(campaign: CampaignWriter, packet: Row): Promise<Row> {
-    const named = packet._named, told = packet._told, words = packet._words;
+    const named = packet._named, told = packet._told, words = packet._words,people_source=packet._people_source,people=packet._people,turn_binding=packet._turn_binding;
+    delete packet._people_source;delete packet._people;delete packet._turn_binding;
     delete packet._named;
     delete packet._told;
     delete packet._words;
     const existing = await readJob(campaign, packet.job_id);
+    if(packet.protocol===JOURNAL_REFERENCE_PROTOCOL&&!existing&&await campaign.context.snapshots.pathExists(campaign.path(join('npc-journal/jobs',packet.job_id+'.json'))))
+        throw new RpcError('invalid_params','The retained journal job is unreadable; preserve it for inspection',{details:{reason:'journal_reference_stale'}});
+    if(existing&&(existing.protocol!==undefined&&existing.protocol!==JOURNAL_REFERENCE_PROTOCOL
+        ||row(existing.packet).protocol!==undefined&&row(existing.packet).protocol!==existing.protocol))
+        throw new RpcError('invalid_params','The retained journal job has an unsupported or inconsistent protocol');
+    if(existing&&(packet.protocol===JOURNAL_REFERENCE_PROTOCOL||existing.protocol===JOURNAL_REFERENCE_PROTOCOL)) {
+        if(existing.protocol===JOURNAL_REFERENCE_PROTOCOL) await verifyReferencedJob(campaign,existing);
+        return clone(row(existing.packet));
+    }
     if (!existing || !['done', 'failed'].includes(existing.status))
-        await writeJob(campaign, { job_id: packet.job_id, turn: packet.turn, commit: packet.commit, status: 'open', opened_at: nowIso(), packet, named, told, words });
+        await writeJob(campaign, { job_id: packet.job_id, turn: packet.turn, commit: packet.commit, status: 'open', opened_at: nowIso(), packet, named, told, words,
+            ...(packet.protocol===JOURNAL_REFERENCE_PROTOCOL?{protocol:JOURNAL_REFERENCE_PROTOCOL,selection_binding:packet.selection_binding,people_source,people,turn_binding}:{}) });
     return packet;
 }
 function reject(index: number, message: string, fix: string, details: Row = {}): never {
@@ -158,7 +232,7 @@ function reject(index: number, message: string, fix: string, details: Row = {}):
 }
 type Validated = { id: string; name: string; description: string | null; exchange: string | null; label: string | null; named: boolean };
 /** `stored` is the journal's entries: whether a person already has a row decides whether a label is owed (§103). */
-function validateEntries(job: Row, entries: any, stored: Row): Validated[] {
+function validateEntries(job: Row, entries: any, stored: Row, selectedIds?:string[]): Validated[] {
     if (!Array.isArray(entries))
         throw new RpcError('invalid_params', 'params.entries must be a list');
     if (entries.length > BUDGET.max_entries)
@@ -182,7 +256,8 @@ function validateEntries(job: Row, entries: any, stored: Row): Validated[] {
         const name = typeof entry.name === 'string' ? entry.name.trim() : '';
         if (!name)
             return reject(i, `entries[${i}].name must be a name from recordable`, `use one of: ${recordable.join(', ')}`, { field: 'name' });
-        const ids = [...new Set(named.filter(([candidate]) => candidate === name).map(([, id]) => id))];
+        const ids = selectedIds ? named.some(([candidate,id])=>candidate===name&&id===selectedIds[i])?[selectedIds[i]]:[]
+            : [...new Set(named.filter(([candidate]) => candidate === name).map(([, id]) => id))];
         if (!ids.length)
             return reject(i, `entries[${i}].name ${repr(name)} is not recordable this turn`, `use one of: ${recordable.join(', ')}`, { field: 'name', name, recordable });
         if (ids.length > 1)
@@ -238,16 +313,23 @@ export async function submit(campaign: CampaignWriter, job: Row, entries: any): 
     boolean
 ]> {
     const id = string(job.job_id), turn = number(job.turn);
+    const referenced=job.protocol===JOURNAL_REFERENCE_PROTOCOL;
+    if(job.protocol!==undefined&&!referenced) throw new RpcError('invalid_params','Unsupported journal job protocol');
+    if(referenced) await verifyReferencedJob(campaign,job);
     const digest = jsonDigest(entries ?? null);
     if (job.status === 'done') {
-        if (job.entries_sha256 === digest)
+        if (job.entries_sha256 === digest) {
+            if(referenced&&jsonDigest(materializeJournalEntries(job,entries).entries)!==jsonDigest(job.canonical_submitted??null))
+                throw new RpcError('invalid_params','The cached journal artifact differs from its pinned person selections');
             return [clone(row(job.result)), true];
+        }
         throw new RpcError('idempotency_conflict', `job ${id} already completed with different entries`, { fix: 'a completed job is final; nothing to resubmit', details: { job_id: id } });
     }
     const journal = await readJournal(campaign);
-    let validated: Validated[];
+    let validated: Validated[],canonical:Row[]|undefined;
     try {
-        validated = validateEntries(job, entries, journal.entries);
+        const materialized=referenced?materializeJournalEntries(job,entries):undefined;canonical=materialized?.entries;
+        validated = validateEntries(job, canonical??entries, journal.entries,materialized?.ids);
     }
     catch (error) {
         if (error instanceof RpcError && error.code === 'invalid_params')
@@ -284,7 +366,7 @@ export async function submit(campaign: CampaignWriter, job: Row, entries: any): 
     }
     await campaign.write('npc-journal.json', journal);
     const result = { job_id: id, turn, entries: validated.length };
-    await writeJob(campaign, { ...job, status: 'done', entries_sha256: digest, submitted: entries, result, completed_at: nowIso() });
+    await writeJob(campaign, { ...job, status: 'done', entries_sha256: digest, submitted: entries, ...(referenced?{canonical_submitted:canonical}:{}), result, completed_at: nowIso() });
     await recoverBacklog(campaign, id);
     return [result, false];
 }

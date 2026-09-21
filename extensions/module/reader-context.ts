@@ -1,3 +1,4 @@
+import {installChildProviderBudget} from "../../runtime/jev/provider-budget.ts";
 /** Keep page-image history bounded without changing the recorded reader transcript. */
 import { appendFileSync, lstatSync, readFileSync, realpathSync } from "node:fs";
 import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -201,6 +202,7 @@ export default function readerContext(pi: any, options: { cwd?: string; env?: No
 		if (log) appendFileSync(log, JSON.stringify({at: new Date().toISOString(), provider: ctx.model?.provider,
 			model: event.payload?.model, reasoning_effort: event.payload?.reasoning?.effort ?? event.payload?.reasoning_effort ?? null}) + "\n");
 	});
+	installChildProviderBudget(pi, env.PI_COC_PROVIDER_BUDGET === "ipc-v1");
 	pi.on("context", (event: any) => {
 		const configured=Number(env.PI_COC_READER_IMAGE_HISTORY);
 		const result = boundImages(event.messages, sent, undefined, configured>0?configured:undefined);

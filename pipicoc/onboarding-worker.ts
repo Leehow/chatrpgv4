@@ -10,6 +10,7 @@ import { prepareCharacterPresentation, prepareCluePresentation, prepareJournalPr
 import { playLanguageTag, resolveUiWords } from '../runtime/ui-words.ts';
 import { prepareUiWords } from '../extensions/module/ui-presentation.ts';
 import { presentDocument } from '../extensions/mods/document-presentation.ts';
+import {createFreshSourceNavigator} from '../runtime/jev/fresh-source-navigator.ts';
 
 /**
  * A refusal the preparation overlay can show (contract §23): its code, and English for the log.
@@ -181,6 +182,8 @@ async function main() {
       return await withGuidance({module_id: input.module_id, opening_ready: true});
     }
     reader = new ReadingService({call, campaign: () => input.campaign, runtime:runtime!, home: input.home,
+      navigateFresh: createFreshSourceNavigator({runtime: runtime!, call, env: {
+        PI_COC_TASK_RUNTIME: context.env.PI_COC_TASK_RUNTIME, PI_COC_JEV_SOURCE: context.env.PI_COC_JEV_SOURCE, TYPESAFE_API_KEY: context.env.TYPESAFE_API_KEY}}),
       model: () => ({id: input.model, vision: true, thinking: input.thinking}),
       progress: data => emit('progress', data), record: data => emit('telemetry', data)});
     let retry = input.retry === true;

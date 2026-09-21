@@ -80,21 +80,22 @@ test("the lane's idle timeout separates stalled transport from a productive back
     `${LANE_HTTP_IDLE_TIMEOUT_MS} is not distinct from the ${AUDIT_LIMITS.per_review_ms} ms safety ceiling`);
 });
 
-test("a mod lane child carries its own idle timeout as trusted project settings, and a reader child does not", async t => {
+test("a mod child carries its idle timeout while both child kinds disable hidden provider retries", async t => {
   const { home, agent, context } = await capturing(t);
 
-  const modArgs = await launch(context, "mod", join(home, "mod"));
-  assert.deepEqual(JSON.parse(await readFile(join(home, "mod", ".pi", "settings.json"), "utf8")),
-    { httpIdleTimeoutMs: LANE_HTTP_IDLE_TIMEOUT_MS });
+	const modArgs = await launch(context, "mod", join(home, "mod"));
+	assert.deepEqual(JSON.parse(await readFile(join(home, "mod", ".pi", "settings.json"), "utf8")),
+		{ httpIdleTimeoutMs: LANE_HTTP_IDLE_TIMEOUT_MS, retry: { provider: { maxRetries: 0 } } });
   // The file is read by nobody without this flag: a print-mode child with no UI declines the trust
   // question, and pi then loads the project scope as if it were empty.
   assert.ok(modArgs.includes("--approve"), JSON.stringify(modArgs));
 
-  // A reader round runs for up to an hour; the table's value already fits inside that, and buying it
-  // a shorter one would only mean aborting reads that are answering slowly.
-  const readerArgs = await launch(context, "reader", join(home, "reader"));
-  assert.equal(readerArgs.includes("--approve"), false, JSON.stringify(readerArgs));
-  await assert.rejects(readFile(join(home, "reader", ".pi", "settings.json")), { code: "ENOENT" });
+	// A reader round runs for up to an hour and needs no shorter idle timeout. It still uses the trusted
+	// project scope to disable hidden provider retries outside the host-owned provider budget.
+	const readerArgs = await launch(context, "reader", join(home, "reader"));
+	assert.equal(readerArgs.includes("--approve"), true, JSON.stringify(readerArgs));
+	assert.deepEqual(JSON.parse(await readFile(join(home, "reader", ".pi", "settings.json"), "utf8")),
+		{ retry: { provider: { maxRetries: 0 } } });
 
   // The operator's own value is what the table runs on, and is neither read nor rewritten here.
   assert.deepEqual(JSON.parse(await readFile(join(agent, "settings.json"), "utf8")),
@@ -111,7 +112,8 @@ test("the host is the only writer of the child's project scope, and the operator
   await writeFile(join(cwd, ".pi", "settings.json"), JSON.stringify({ httpIdleTimeoutMs: 600000, packages: ["/tmp/x"] }));
 
   await launch(context, "mod", cwd);
-  assert.deepEqual(JSON.parse(await readFile(join(cwd, ".pi", "settings.json"), "utf8")), { httpIdleTimeoutMs: 9000 });
+	assert.deepEqual(JSON.parse(await readFile(join(cwd, ".pi", "settings.json"), "utf8")),
+		{ httpIdleTimeoutMs: 9000, retry: { provider: { maxRetries: 0 } } });
   await assert.rejects(readFile(join(cwd, ".pi", "APPEND_SYSTEM.md")), { code: "ENOENT" });
   await assert.rejects(readFile(join(cwd, ".pi", "extensions")), { code: "ENOENT" });
 });

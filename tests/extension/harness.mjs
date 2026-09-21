@@ -135,7 +135,7 @@ function withProviderCallbacks(handle) {
 	/** 缺省就是「请求体里没有任何 reasoning 字段」——xai/grok-4.6 的 `thinkingLevelMap.off` 是 null，真实的车道请求就是这个形状。 */
 	let transport = { status: 200, headers: {}, body: undefined };
 	const wrap = (fn) => (model, context, options) => {
-		const body = transport.body ?? { model: model.id, messages: [], stream: true };
+		const body = { model: model.id, system: context.systemPrompt, messages: context.messages, tools:context.tools, stream: true, ...transport.body };
 		// 真适配器是 `await options?.onPayload?.(params, model)` **之后**才发请求，所以 onResponse 一定在它之后；
 		// 这里也必须等它，否则两行遥测的落盘顺序会打架（start → request → response → end 就是这么定的）。
 		const sent = Promise.resolve(options?.onPayload?.(body, model));
@@ -255,10 +255,10 @@ export async function openTable({
 
 	const faux = fauxProvider();
 	faux.setResponses(responses);
-	const verifierFaux = withProviderCallbacks(fauxProvider({ provider: "verifier", models: [{ id: "v1" }] }));
-	const memoryFaux = withProviderCallbacks(fauxProvider({ provider: "memory", models: [{ id: "m1" }] }));
+	const verifierFaux = withProviderCallbacks(fauxProvider({ api: "openai-completions", provider: "verifier", models: [{ id: "v1" }] }));
+	const memoryFaux = withProviderCallbacks(fauxProvider({ api: "openai-completions", provider: "memory", models: [{ id: "m1" }] }));
 	const admissionFaux = withDefaultResponse(
-		withProviderCallbacks(fauxProvider({ provider: "admission", models: [{ id: "a1" }] })),
+		withProviderCallbacks(fauxProvider({ api: "openai-completions", provider: "admission", models: [{ id: "a1" }] })),
 		() => fauxAssistantMessage(JSON.stringify({ verdict: "authorized", grounds: "harness default: the player chose it" })),
 	);
 	// 开桌之前就装好：补抽（#20）在 session_start 里就要模型，晚一步就抓空。

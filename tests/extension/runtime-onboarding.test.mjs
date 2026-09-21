@@ -58,7 +58,8 @@ const home=process.env.PI_COC_HOME;
 createInterface({input:process.stdin}).on('line',line=>{
  const request=JSON.parse(line),p=request.params;
  appendFileSync(join(home,'kernel-events.jsonl'),JSON.stringify({pid:process.pid,method:request.method,params:p,cwd:process.cwd(),
-  home,agentHome:process.env.PI_CODING_AGENT_DIR,campaign:process.env.PI_COC_CAMPAIGN,value:process.env.RUNTIME_CAPTURED,late:process.env.RUNTIME_LATE})+'\\n');
+  home,agentHome:process.env.PI_CODING_AGENT_DIR,campaign:process.env.PI_COC_CAMPAIGN,value:process.env.RUNTIME_CAPTURED,late:process.env.RUNTIME_LATE,
+  taskRuntime:process.env.PI_COC_TASK_RUNTIME,jevSource:process.env.PI_COC_JEV_SOURCE,typesafeConfigured:typeof process.env.TYPESAFE_API_KEY==='string'})+'\\n');
  let result={};
  if(request.method==='module.list')result={modules:[{id:'owned-module',status:'installed',source:'pdf'}]};
  if(request.method==='setup.occupations')result={occupations:[{name:'Journalist'}]};
@@ -250,6 +251,8 @@ test('independent real setup workers retain campaign binding and saved presentat
 
 test('the real opening worker scopes targeted source preparation to its campaign', async t => {
   const f = fixture(t);
+  const secret = 'dummy-typesafe-secret-must-not-be-serialized';
+  Object.assign(f.env, {PI_COC_TASK_RUNTIME: '1', PI_COC_JEV_SOURCE: '1', TYPESAFE_API_KEY: secret});
   bundleRealOnboardingWorker(f);
   const host = createPreparationHost(f.home, f.options);
   const task = host.start('opening', {campaign: 'campaign-scoped', module_id: 'owned-module', start_scene: 'Dock', play_language: 'en'});
@@ -265,6 +268,13 @@ test('the real opening worker scopes targeted source preparation to its campaign
   assert.equal(request.params.purpose, 'opening');
   assert.equal(request.params.focus, 'Dock');
   assert.equal(request.params.foreground, true);
+  assert.equal(request.taskRuntime, '1');
+  assert.equal(request.jevSource, '1');
+  assert.equal(request.typesafeConfigured, true);
+  assert.equal(JSON.stringify({events: output.events, kernel: kernelEvents(f.home)}).includes(secret), false,
+    'feature credentials stay in process configuration and never enter worker events or kernel request telemetry');
+  assert.equal(output.events.some(event => event.data?.event === 'typed_navigation'), false,
+    'targeted opening remains outside the fresh-library skeleton navigator');
 });
 
 test('cancelling a real cold worker awaits kernel exit and permits a fresh owner to retry', async t => {

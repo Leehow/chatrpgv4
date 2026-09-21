@@ -28,7 +28,7 @@ def test_style_carries_the_four_floor_lines_on_every_turn(kernel):
     second = kernel.table("player_input", text="我坐下。")["capsule"]
     assert second["style"]["floor"] == FLOOR_LINES, "the brief turns keep the floor; only the directive list shrinks"
     assert len(second["style"]["directives"]) <= 4 < len(first["style"]["directives"])
-    assert "director.offer" in second["head"] and "style.floor" in second["head"]
+    assert "director.offer" in second["head"] and "Director signals and offers remain advice" in second["head"]
 
 
 # ---- structural signals: empty turn, repeated input, how the last turn closed -------------------
@@ -180,7 +180,7 @@ def test_attacking_a_person_with_no_stat_block_is_refused_toward_a_receipt_not_t
     assert "without dice" not in fix
 
 
-# ---- the recovery the Director is owed (contract §40) -------------------------------------------
+# ---- advisory obstacle signals without recovery debt (contract §122, #99 D4) --------------------
 
 def _fail_the_same_check(client, turn_no, text):
     """One played turn that fails STR against a Keeper-set target, then closes."""
@@ -190,11 +190,11 @@ def _fail_the_same_check(client, turn_no, text):
     return client.table("player_input", text=text)["capsule"]["director"]
 
 
-def test_one_failed_check_owes_no_recovery_and_two_at_one_obstacle_do(seeded_kernel):
+def test_failed_checks_keep_obstacle_signals_without_recovery_debt(seeded_kernel):
     """`blocked_attempts` is the case `stalled_turns` cannot see (campaign game-83177d61 turns 34, 41,
     60 and 62: the same nailed cupboard, STR against 40, four failures, `stalled_turns` at 4, 0 and 2
-    because a clue or a move reset it each time). The first failure is play and owes nothing; the
-    second at the same obstacle owes a recovery whatever the beat scored."""
+    because a clue or a move reset it each time). Both failures remain advisory signals; neither
+    creates a mandatory effect or receipt before delivery."""
     open_turn(seeded_kernel, "我打量那口钉死的柜子。")
     after_one = _fail_the_same_check(seeded_kernel, 1, "再撬一次")
     assert after_one["because"].count("blocked_attempts = 1") == 1, after_one["because"]
@@ -202,24 +202,21 @@ def test_one_failed_check_owes_no_recovery_and_two_at_one_obstacle_do(seeded_ker
 
     after_two = _fail_the_same_check(seeded_kernel, 2, "还是撬不动，我换个角度")
     assert after_two["because"].count("blocked_attempts = 2") == 1, after_two["because"]
-    owed = after_two["recovery"]
-    assert owed["owed"] is True and owed["blocked"] == 2
-    # Every row names the operation that discharges it: a signal with no next operation is a line
-    # about itself, which is what the beat alone was on 43 of that campaign's 52 signals.
-    assert owed["steps"] and all(step.get("operation") for step in owed["steps"])
-    assert set(owed["takes"]) >= {"clue", "move", "npc"}
-    # The rules' own answer to a failed check is the push, and it was sitting unanswered every turn.
-    assert any(step["operation"] == "resolve" and step["decision"].startswith("push-luck:")
-               for step in owed["steps"]), owed["steps"]
+    assert "recovery" not in after_two
+    assert after_two["scores"]["RECOVER"] > 0
+    assert after_two["offer"], "Useful options remain available without making one mandatory"
+    narrate(seeded_kernel, "t3-c1", "你停下手，重新想了想已经知道的事。")
+    assert read_json(campaign_dir(seeded_kernel.workspace) / "turns" / "0003.json")["receipts"] == []
 
 
-def test_passing_the_obstacle_clears_what_it_owes(seeded_kernel):
+def test_passing_the_obstacle_clears_its_advisory_count(seeded_kernel):
     open_turn(seeded_kernel, "我打量那口钉死的柜子。")
     _fail_the_same_check(seeded_kernel, 1, "再撬一次")
     after_two = _fail_the_same_check(seeded_kernel, 2, "还是撬不动")
-    assert "recovery" in after_two
+    assert "blocked_attempts = 2" in after_two["because"] and "recovery" not in after_two
     first_success(seeded_kernel, "t3-c", intent="investigate", goal="撬开钉死的柜门",
                   method="拿铁条一颗一颗撬", skill="STR", target="nailed cupboard")
     narrate(seeded_kernel, "t3-c99", "钉子终于松了。")
     after_pass = seeded_kernel.table("player_input", text="我把柜门拉开")["capsule"]["director"]
     assert after_pass["because"].count("blocked_attempts = 0") == 1, after_pass["because"]
+    assert "recovery" not in after_pass

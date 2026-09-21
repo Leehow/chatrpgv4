@@ -383,10 +383,12 @@ def test_recall_memory_ranks_by_kind_after_overlap_and_before_recency(kernel):
     kernel.table("player_input", text="第 3 回合。")
     capsule = kernel.table("capsule")["memory"]
     assert [h["id"] for h in capsule] == [h["id"] for h in hits][:6]
-    assert all(set(h) == {"id", "kind", "statement", "subject", "turn", "status", "state", "authority"} for h in capsule)
+    fields = {"id", "kind", "statement", "subject", "turn", "status", "state", "authority"}
+    assert all(set(h) == fields | ({"fulfillment"} if h["kind"] == "promise" else set()) for h in capsule)
     assert all(h["authority"] == "conversation_report" and h["status"] == "candidate" for h in capsule)
     assert capsule[0] == {"id": "mem:t2-4", "kind": "promise", "statement": "p2", "subject": KNOTT,
-                          "turn": 2, "status": "candidate", "state": "accurate", "authority": "conversation_report"}
+                          "turn": 2, "status": "candidate", "state": "accurate", "authority": "conversation_report",
+                          "fulfillment": {"status": "open", "terms": []}}
 
 
 def test_prior_in_the_job_packet_follows_the_same_ranking(kernel):

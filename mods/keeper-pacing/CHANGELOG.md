@@ -1,5 +1,9 @@
 # Keeper Pacing
 
+## 1.3.0
+- Carries a still-valid selected goal through routine steps and settled consequences, then returns at goal completion or the next unselected consequential choice.
+- Makes stall, repeat, empty-turn and Director offers advisory inspection only. Quiet delivery needs no new event or receipt, and an exhausted scene no longer authorizes an unselected cut or montage.
+
 ## 1.2.3
 - Adopts the §101 runtime-file allowlist; the engineering changelog is no longer frozen into campaign homes.
 

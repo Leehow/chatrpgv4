@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {after, test} from 'node:test';
-import {mkdir, mkdtemp, readFile, writeFile} from 'node:fs/promises';
+import {mkdir, mkdtemp, readFile, writeFile, cp} from 'node:fs/promises';
 import {join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {build} from 'esbuild';
@@ -319,13 +319,28 @@ await build({stdin: {contents: `export {createKernelContext} from './kernel-ts/c
     outfile: join(directory, 'api.mjs'), bundle: true, packages: 'external', platform: 'node', format: 'esm', logLevel: 'silent'});
 const api = await import(pathToFileURL(join(directory, 'api.mjs')).href), closers = [];
 after(async () => {for (const close of closers) await close();});
+// Keep these retained v1 semantic scenarios independent of the newly shipped selector package.
+async function installLegacyAudit(call, home) {
+    const path = join(home, 'legacy-audit-fixture');
+    await cp(join(root, 'mods/narration-audit'), path, {recursive: true});
+    const manifest = JSON.parse(await readFile(join(path, 'mod.json'), 'utf8'));
+    manifest.id = 'legacy-audit-fixture'; manifest.version = '1.0.0';
+    manifest.requires = manifest.requires.filter(cap => !cap.startsWith('audit.continuity.')).concat('audit.continuity.v1');
+    manifest.default_enabled = true; manifest.contributes.audit_slot = 'narration-audit';
+    await writeFile(join(path, 'mod.json'), JSON.stringify(manifest));
+    await writeFile(join(path, 'auditor.md'), 'Legacy v1 continuity artifact contract fixture. No model is invoked.');
+    await call('mods.install', {path});
+}
+
 test('new jobs expose focused context with full fallback, bind accepted reports, and preserve old versions', async () => {
     const home = await mkdtemp(join(directory, 'kernel-'));
     const context = await api.createKernelContext({workspace: home, content: join(root, 'content'), seed: 'continuity-review', locks: api.nativeAdvisoryLocks(),
         env: {...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1'}});
     const runtime = api.createKernelRuntime(context); closers.push(() => runtime.close());
     const call = (method, params = {}) => runtime.handlers[method]({campaign: 'c1', ...params});
+    await installLegacyAudit(call, home);
     await call('campaign.create', {id: 'c1', module: 'the-haunting', pregen: 'thomas-hayes', play_language: 'en'});
+    await call('mods.configure', {id:'narration-audit', enabled:false});
     await call('table.open');
     await call('table.narrate', {call_id: 't0-c1', text: 'Knott introduces the commission. ' + 'Full retained earlier delivery. '.repeat(120)});
     await call('table.player_input', {text: 'Leave the book with the witness; do not take it.'});
@@ -345,6 +360,7 @@ test('new jobs expose focused context with full fallback, bind accepted reports,
     const job = await call('mods.job', {role: 'audit', input: {text: 'The old register ends before the inheritance.',
         preparation_wait: {kind: 'adaptation', name: 'athens-pension'}}});
     assert.equal(job.continuity_review, true); assert.equal(job.source_review, undefined);
+    assert.equal(job.continuity_schema, undefined, 'the retained semantic fixture uses its explicit v1 package');
     const focused = JSON.parse(await readFile(join(job.cwd, 'context.json'), 'utf8'));
     assert.equal(focused.clock.minutes, 0);
     assert.equal(typeof focused.clock.at, 'string');
@@ -1021,7 +1037,9 @@ test('the real the-haunting reentry defers on the player\'s own line and revises
         env: {...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1'}});
     const runtime = api.createKernelRuntime(context); closers.push(() => runtime.close());
     const call = (method, params = {}) => runtime.handlers[method]({campaign: 'c1', ...params});
+    await installLegacyAudit(call, home);
     await call('campaign.create', {id: 'c1', module: 'the-haunting', pregen: 'thomas-hayes', play_language: 'en'});
+    await call('mods.configure', {id:'narration-audit', enabled:false});
     await call('table.open');
     await call('table.narrate', {call_id: 't0-c1', text: 'Knott hands over the commission.'});
     await call('table.player_input', {text: 'I start with the newspapers and the neighbours.'});

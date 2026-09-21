@@ -1,7 +1,7 @@
 /** Host-owned source bindings for public recall continuations; no opaque cursor reaches the Keeper. */
 import {KernelError} from './client.ts';
 type Params = Record<string, unknown>;
-const FILTERS = new Set(['what', 'turns', 'role', 'about', 'kinds', 'include_superseded', 'limit', 'types', 'diff', 'line', 'lines', 'read', 'detail', 'page']);
+const FILTERS = new Set(['what', 'query', 'turns', 'role', 'about', 'kinds', 'include_superseded', 'limit', 'types', 'diff', 'line', 'lines', 'read', 'detail', 'page']);
 function stable(value: unknown): unknown {
     if (Array.isArray(value)) return value.map(stable);
     if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).filter(([, v]) => v !== undefined).sort(([a], [b]) => a.localeCompare(b)).map(([key, v]) => [key, stable(v)]));

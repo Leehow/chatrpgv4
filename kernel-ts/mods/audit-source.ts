@@ -16,7 +16,8 @@ export async function auditSourceEvidence(context: KernelContext, campaign: Pick
     const source = (loaded: LoadedModule) => ({graph: loaded.graph.raw,
         material: [...loaded.graph.nodes.values()].map(node => ({name: loaded.graph.handle(node), status: loaded.material(node.node_id)}))});
     const snapshot = new CampaignSnapshot(context, campaign.id);
-    const records = (await snapshot.files('turns')).filter(record => record.closed_by === 'narrate' && record.commit);
+    const records = (await snapshot.files('turns')).filter(record => record.closed_by === 'narrate' && record.commit
+        || array(record.receipts).some(receipt => receipt.fulfillment != null));
     const current = {turn: turn.turn, state: turn.state, player_text: turn.player_text ?? null,
         receipts: turn.receipts ?? [], pending_choice: turn.pending_choice ?? null};
     const files: Row = {

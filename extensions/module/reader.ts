@@ -1,4 +1,5 @@
 /** A tool-enabled Pi child for one visual reading or review phase. */
+import {type TaskProviderBudget, type ProviderCharge, providerUsage, providerSpend} from "../../runtime/jev/provider-budget.ts";
 import { spawn } from "node:child_process";
 import { createWriteStream } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
@@ -14,6 +15,8 @@ const STDERR_KEEP = 2000;
 export type ReaderPriority = "foreground" | "background" | (() => "foreground" | "background");
 
 export interface ReaderRequest {
+	/** Explicit host owner; never serialized into a prompt or kernel request. */
+	providerBudget?: TaskProviderBudget;
 	/** Host-only scheduling priority; never sent to the model. */
 	priority?: ReaderPriority;
 	/** The working directory: the claimed attempt directory. */
@@ -58,6 +61,7 @@ export interface ReaderRequest {
 }
 
 export interface ReaderOutcome {
+	usage?: {inputTokens:number;outputTokens:number;costUsd:number;actions:number;unknownCalls:number};
 	ok: boolean;
 	/** The exit code; null when killed by a signal. */
 	code: number | null;
@@ -95,7 +99,7 @@ export function readerCommand(model?: string, systemPrompt?: string, thinking?: 
 		// its own. A provider extension does neither: it is how a model runs at all, and without it
 		// the table's own model is unresolvable here. `--tools` below stays the allowlist.
 		...extensionArgs(readerProviderExtensionPaths(entries)),
-		...(systemPrompt ? ["--extension", entries.readerContext] : []),
+		"--extension", entries.readerContext,
 		"--tools",
 		[tools ?? [pdf ? "read,write,edit,bash,pdf" : "read,write,edit,bash", ...(submission ? ["submit_reading"] : [])].join(","), ...(audit ? ['read_audit_evidence', 'submit_audit'] : []), ...(adaptation ? ['submit_adaptation'] : [])].join(','),
 		...(pdf ? ["--extension", entries.readerPdf] : []),
@@ -126,11 +130,11 @@ export function readerCommand(model?: string, systemPrompt?: string, thinking?: 
  * that left a `SYSTEM.md`, `APPEND_SYSTEM.md`, `extensions` or `skills` behind would be writing the
  * next attempt's startup. Host-owned means the host is the only writer, every time.
  */
-async function writeChildSettings(cwd: string, httpIdleTimeoutMs: number): Promise<void> {
+async function writeChildSettings(cwd: string, httpIdleTimeoutMs: number | undefined, budgeted=false): Promise<void> {
 	const dir = join(cwd, ".pi");
 	await rm(dir, { recursive: true, force: true });
 	await mkdir(dir, { recursive: true });
-	await writeFile(join(dir, "settings.json"), JSON.stringify({ httpIdleTimeoutMs }, null, 2) + "\n");
+	await writeFile(join(dir, "settings.json"), JSON.stringify({ ...(httpIdleTimeoutMs ? {httpIdleTimeoutMs} : {}), ...(budgeted ? {retry:{provider:{maxRetries:0}}} : {}) }, null, 2) + "\n");
 }
 
 /** A lane keeps its own sentence; the child's reason rides along when there is one. */
@@ -196,6 +200,8 @@ export async function acquireReaderSlot(signal?: AbortSignal, priority: ReaderPr
 /** Run one reader round. Failed or cancelled runs retain their evidence. */
 export async function runReader(request: ReaderRequest, context?: RuntimeContext): Promise<ReaderOutcome> {
 	if (!context) throw new Error("Reader execution requires a captured host runtime context");
+	const combined = request.providerBudget ? AbortSignal.any([request.providerBudget.signal, ...(request.signal ? [request.signal] : [])]) : request.signal;
+	request = {...request, signal:combined};
 	const release = await acquireReaderSlot(request.signal,request.priority);
 	if (!release) return {ok:false,code:null,timedOut:false,ms:0,stderr:"",command:[],error:"cancelled"};
 	try { return await runOwnedReader(request, context); } finally { release(); }
@@ -203,11 +209,12 @@ export async function runReader(request: ReaderRequest, context?: RuntimeContext
 
 async function runOwnedReader(request: ReaderRequest, context: RuntimeContext): Promise<ReaderOutcome> {
 	const began = Date.now();
-	const ownSettings = !!request.httpIdleTimeoutMs && !context.env.PI_COC_READER_CMD?.trim();
+	const ownSettings = (!!request.httpIdleTimeoutMs || !!request.providerBudget) && !context.env.PI_COC_READER_CMD?.trim();
 	let command: string[];
 	try {
 		command = readerCommand(request.model, request.systemPrompt, request.thinking, !!request.source, request.submission, context, request.tools, !!request.audit, !!request.adaptation);
-		if (request.eventLog && !context.env.PI_COC_READER_CMD?.trim()) command.splice(command.length - 1, 0, "--mode", "json");
+		if (request.providerBudget && context.env.PI_COC_READER_CMD?.trim()) throw new Error("A budgeted reader requires the host Pi launcher and private provider handshake");
+		if ((request.eventLog || request.providerBudget) && !context.env.PI_COC_READER_CMD?.trim()) command.splice(command.length - 1, 0, "--mode", "json");
 		// Without this the file below is read by nobody: pi loads project settings only for a trusted
 		// project, and a print-mode child with no UI answers the trust question "no".
 		if (ownSettings) command.splice(command.length - 1, 0, "--approve");
@@ -225,6 +232,7 @@ async function runOwnedReader(request: ReaderRequest, context: RuntimeContext): 
 	}
 	const [bin, ...args] = command;
 	const env: NodeJS.ProcessEnv = { ...context.env, PI_CODING_AGENT_DIR: context.agentHome };
+	if(request.providerBudget)env.PI_COC_PROVIDER_BUDGET="ipc-v1";else delete env.PI_COC_PROVIDER_BUDGET;
 	if (request.audit) env.PI_COC_AUDIT_CONTROL = resolvePath(request.cwd, request.audit.control);
 	else delete env.PI_COC_AUDIT_CONTROL;
 	if (request.adaptation) {
@@ -242,7 +250,7 @@ async function runOwnedReader(request: ReaderRequest, context: RuntimeContext): 
 	delete env.PI_COC_MODE;
 	if (request.signal?.aborted) return { ok: false, code: null, timedOut: false, ms: 0, stderr: "", command, error: "cancelled" };
 	if (ownSettings) {
-		try { await writeChildSettings(request.cwd, request.httpIdleTimeoutMs!); }
+		try { await writeChildSettings(request.cwd, request.httpIdleTimeoutMs, !!request.providerBudget); }
 		catch (error) { return { ok: false, code: null, timedOut: false, ms: 0, stderr: "", command,
 			error: `the child settings could not be written: ${error instanceof Error ? error.message : String(error)}` }; }
 	}
@@ -263,17 +271,45 @@ async function runOwnedReader(request: ReaderRequest, context: RuntimeContext): 
 		const log = request.eventLog ? createWriteStream(request.eventLog, { flags: "a" }) : undefined;
 		log?.on("error", error => { eventError = error.message; });
 		const grouped = process.platform !== "win32";
-		const child = spawn(bin, args, { cwd: request.cwd, env, stdio: ["ignore", "pipe", "pipe"], detached: grouped });
+		const child = spawn(bin, args, { cwd: request.cwd, env, stdio: request.providerBudget ? ["ignore", "pipe", "pipe", "ipc"] : ["ignore", "pipe", "pipe"], detached: grouped });
 
+		const charges = new Map<number, ProviderCharge>();
+		const seen = new Set<number>();
+		const channel = new AbortController();
+		const usage = {inputTokens:0,outputTokens:0,costUsd:0,actions:0,unknownCalls:0};
+		if(request.providerBudget)child.on('message',async(message:any)=>{
+			try {
+				if(message?.type==='coc-provider-reserve') {
+					if(!Number.isSafeInteger(message.id)||message.id<1||seen.has(message.id))throw new Error('invalid_provider_request_identity');
+					seen.add(message.id);
+					providerSpend(message.bound);
+					if(request.model && `${message.bound.model.provider}/${message.bound.model.id}`!==request.model)throw new Error('provider_model_changed');
+					const charge=await request.providerBudget!.reserve(message.bound,AbortSignal.any([channel.signal,request.signal!]));
+					if(settled||channel.signal.aborted){charge.release();return;}
+					charges.set(message.id,charge);
+					child.send({type:'coc-provider-grant',id:message.id,ok:true},error=>{if(error){providerError=error.message;kill();}});
+				} else if(message?.type==='coc-provider-failure') {throw new Error(message.error??'provider_budget_failed');
+				} else if(message?.type==='coc-provider-settle') {
+					const charge=charges.get(message.id);if(!charge)throw new Error('unknown_provider_reservation');
+					charges.delete(message.id);
+					const actual=providerUsage(message.usage);
+					if(actual)for(const key of ['inputTokens','outputTokens','costUsd','actions'] as const)usage[key]+=actual[key];
+					else usage.unknownCalls++;
+					charge.settle(message.usage);
+				}
+			}catch(error){providerError=String(error);if(child.connected)child.send({type:'coc-provider-grant',id:message?.id,ok:false,error:'provider_budget_refused'});kill();}
+		});
 		const finish = (outcome: Omit<ReaderOutcome, "ms" | "command" | "stderr">) => {
 			if (settled) return;
 			settled = true;
+			channel.abort();
+			for(const charge of charges.values()){usage.unknownCalls++;try{charge.settle();}catch(error){providerError=String(error);}}charges.clear();
 			clearTimeout(timer);
 			if (hardKill) clearTimeout(hardKill);
 			request.signal?.removeEventListener("abort", onAbort);
 			const done = () => {
 				const error = eventError ?? providerError;
-				resolve({ ...outcome, ...(error ? { ok: false, error } : {}), ms: Date.now() - began, stderr: stderr.slice(-STDERR_KEEP), command });
+				resolve({ ...outcome, ...(request.providerBudget ? {usage} : {}), ...(error ? { ok: false, error } : {}), ms: Date.now() - began, stderr: stderr.slice(-STDERR_KEEP), command });
 			};
 			if (log && !log.destroyed) log.end(done);
 			else done();
@@ -310,7 +346,7 @@ async function runOwnedReader(request: ReaderRequest, context: RuntimeContext): 
 		if (request.signal?.aborted) onAbort();
 
 		// JSON events provide image-use evidence; a final sentence alone never proves a valid graph.
-		if (!request.eventLog) child.stdout?.resume();
+		if (!request.eventLog && !request.providerBudget) child.stdout?.resume();
 		else {
 			let pending = "";
 			child.stdout?.setEncoding("utf8");

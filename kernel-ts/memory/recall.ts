@@ -3,7 +3,8 @@ import { RpcError } from '../errors.js';
 import { isJsonObject, parsePythonJson, sha256Text } from '../json.js';
 import { CampaignWriter, EVENT_TYPES } from '../write/store.js';
 import { ModuleGraph } from '../read/module-graph.js';
-import { EntityIndex, queryCandidates } from '../read/memory.js';
+import { EntityIndex, queryCandidates, withPromiseFulfillment, canonicalMemoryReceipts, memoryOccurrenceKey } from '../read/memory.js';
+import {lineFulfillmentEvidence} from '../read/worldline.js';
 import { npcsPresent } from '../read/capsule.js';
 import { array, row, number, integer, string, truth, sorted, chars, length, words, repr, type Row } from '../read/values.js';
 import { CANDIDATE_KINDS, logs, records, proseOf } from './jobs.js';
@@ -140,11 +141,13 @@ async function lineCandidates(campaign: CampaignWriter, line: string): Promise<R
         }
         catch { /* Unparseable rows in other retained lines remain absent from the view. */ }
     }
-    return result;
+    const evidence=await lineFulfillmentEvidence(campaign,line);
+    return withPromiseFulfillment(evidence.memory??result,{campaign:campaign.id,...evidence});
 }
 export async function candidatesFor(campaign: CampaignWriter, meta: Row, line: any): Promise<Row[]> {
-    if (line == null || line === 'current')
-        return logs(campaign, 'memory/candidates.jsonl');
+    const current=async()=>{const [memory,world,turn,history]=await Promise.all([logs(campaign,'memory/candidates.jsonl'),campaign.readWorld(),campaign.readTurn(),records(campaign)]);
+        return withPromiseFulfillment(memory,{campaign:campaign.id,receipts:canonicalMemoryReceipts([...history.values()],array(turn.receipts)),world});};
+    if (line == null || line === 'current'||line===(meta.active_worldline||'main')) return current();
     const lines = row(meta.worldlines);
     if (line !== 'any') {
         if (typeof line !== 'string' || !Object.hasOwn(lines, line))
@@ -155,10 +158,10 @@ export async function candidatesFor(campaign: CampaignWriter, meta: Row, line: a
     for (const name of sorted(Object.keys(lines)))
         if (name !== active)
             for (const value of await lineCandidates(campaign, name))
-                if (!rows.has(string(value.id)))
-                    rows.set(string(value.id), value);
-    for (const value of await logs(campaign, 'memory/candidates.jsonl'))
-        rows.set(string(value.id), value);
+                if (!rows.has(memoryOccurrenceKey(value)))
+                    rows.set(memoryOccurrenceKey(value), value);
+    for (const value of await current())
+        rows.set(memoryOccurrenceKey(value), value);
     return sorted(rows.keys()).map(key => rows.get(key)!);
 }
 export async function recallMemory(campaign: CampaignWriter, graph: ModuleGraph, world: Row, params: Row): Promise<Row> {

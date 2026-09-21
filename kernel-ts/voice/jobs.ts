@@ -11,14 +11,9 @@ import { readNpcLedger } from '../write/contributions.js';
 import { personRecord, APPEARANCE_CHARS } from '../read/capsule.js';
 import { FAILURE_REASONS, committedRecords } from '../memory/jobs.js';
 import { array, chars, clone, entries, integer, number, repr, row, string, truth, type Row } from '../read/values.js';
-export const MOD = 'npc-voice';
-export const MASK_KEY = 'voice_mask';
-export const EXCHANGES_KEY = 'exchanges';
-/** The two words, in the order the manifest contributes them and the event names them. */
-export const KEYS = [MASK_KEY, EXCHANGES_KEY] as const;
-export const LABELS: Readonly<Record<string, string>> = Object.freeze({ [MASK_KEY]: 'mask', [EXCHANGES_KEY]: 'in exchange' });
+import {MOD, MASK_KEY, EXCHANGES_KEY, KEYS, LEGACY_KEY, LABELS, SILENT_REASON} from './fields.js';
+export {MOD, MASK_KEY, EXCHANGES_KEY, KEYS, LABELS, SILENT_REASON} from './fields.js';
 /** The 1.0.x word; a record of it is deleted the moment the person is re-established under the two words. */
-const LEGACY_KEY = 'sample_lines';
 export const BUDGET = { mask_chars: 200, exchanges: 3, max_chars: 200 };
 const DOCUMENT_BYTES = 4096;
 const TAKEN_MASKS = 12;
@@ -83,7 +78,6 @@ const namespace = (world: Row): Row => row(row(row(row(world.mods).state)[MOD]).
 const established = (world: Row, node: Row): boolean => Object.hasOwn(row(namespace(world)[string(node.node_id)]), EXCHANGES_KEY);
 /** The book's word stands (§28.7): a person whose speech the book prints under either key is never written. */
 const authored = (graph: ModuleGraph, node: Row): boolean => KEYS.some(key => truth(graph.npcProfile(node)[key]));
-export const SILENT_REASON = 'does_not_speak';
 /** A person needs a voice when the package is on, the source gives none and none is established (§40.7). */
 export function needsLines(graph: ModuleGraph, world: Row, node: Row): boolean {
     return !!packageState(world) && !authored(graph, node) && !established(world, node);

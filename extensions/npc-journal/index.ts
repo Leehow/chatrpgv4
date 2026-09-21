@@ -40,7 +40,8 @@ const PANEL_ID = "coc-keeper";
 
 /** One journal entry; the closed fields of `journal.submit` (contract §17.10). No other key is ever sent to the kernel. */
 interface Entry {
-	name: string;
+	name?: string;
+	person?: string;
 	description?: string;
 	exchange?: string;
 	/** §103: how the player would know someone whose name they have not been told; never the name. */
@@ -51,6 +52,8 @@ interface Entry {
 
 /** The job packet from `journal.job`; only the fields it lists are read, and nothing else reaches the prompt. */
 interface JobPacket {
+	protocol?: "journal-reference-v2";
+	selection_binding?: string;
 	job_id?: string | null;
 	turn?: number;
 	commit?: string;
@@ -61,7 +64,8 @@ interface JobPacket {
 	keeper_text?: string;
 	recordable?: unknown[];
 	unnamed?: unknown[];
-	prior?: Array<{ name?: string; label?: string; description?: string; last_seen_turn?: number }>;
+	speech?: Array<{person?:string;name?:string;text?:string}>;
+	prior?: Array<{ person?:string; name?: string; label?: string; description?: string; last_seen_turn?: number }>;
 	budget?: { max_entries?: number; max_description_chars?: number; max_exchange_chars?: number; max_label_chars?: number };
 	instruction?: string;
 }
@@ -81,11 +85,12 @@ function names(rows: unknown): string {
 function priorLines(rows: JobPacket["prior"]): string {
 	if (!Array.isArray(rows) || rows.length === 0) return "(none)";
 	return rows
-		.map((row) => `- ${row.name ?? "?"}${row.label ? ` (label: ${row.label})` : ""}${row.description ? `: ${row.description}` : ""}`)
+		.map((row) => `- ${row.person ?? row.name ?? "?"}${row.label ? ` (label: ${row.label})` : ""}${row.description ? `: ${row.description}` : ""}`)
 		.join("\n");
 }
 
-function systemPrompt(packet: JobPacket): string {
+export function journalSystemPrompt(packet: JobPacket): string {
+	const referenced=packet.protocol==="journal-reference-v2";
 	const maxEntries = packet.budget?.max_entries ?? DEFAULT_MAX_ENTRIES;
 	const maxDescription = packet.budget?.max_description_chars ?? DEFAULT_MAX_DESCRIPTION_CHARS;
 	const maxExchange = packet.budget?.max_exchange_chars ?? DEFAULT_MAX_EXCHANGE_CHARS;
@@ -97,24 +102,25 @@ function systemPrompt(packet: JobPacket): string {
 			"Write an entry only for someone who truly appeared in this turn's narrative, and write it in the campaign's play language.",
 		"",
 		"Answer with one JSON object only, no code fence and no explanation:",
-		'{"entries":[{"name":"...","description":"...","exchange":"...","label":"...","named":true}]}',
+		referenced ? '{"entries":[{"person":"person:0","description":"...","exchange":"...","label":"...","named":true}]}' : '{"entries":[{"name":"...","description":"...","exchange":"...","label":"...","named":true}]}',
 		"Field rules:",
-		"- name must be one of the recordable names below, copied exactly.",
+		referenced ? "- person selects one issued recordable alias. Select each person at most once; do not supply name, ID or source-coordinate fields." : "- name must be one of the recordable names below, copied exactly.",
 		`- description is 1 to ${maxDescription} characters and says only what the player can perceive; omit it to keep the stored one.`,
 		`- exchange is 1 to ${maxExchange} characters, one sentence on what passed between this person and the player this turn; omit it when nothing passed.`,
 		`- label, only for a name listed under not yet named: 1 to ${maxLabel} characters saying how the player would know this person from what was shown, carrying no part of the name; the description and the exchange must not name them either.`,
 		"- named: true, only for a name listed under not yet named, when this turn's prose actually gave the player the name in any spelling; then give no label.",
-		"- write no key other than name, description, exchange, label and named, and in particular no turn number, commit, receipt id or entry id.",
+		`- write no key other than ${referenced ? "person" : "name"}, description, exchange, label and named, and in particular no turn number, commit, receipt id or entry id.`,
 		`- at most ${maxEntries} rows; with nobody new to record, answer {"entries":[]}.`,
 	].join("\n");
 }
 
-function userInput(packet: JobPacket): string {
+export function journalUserInput(packet: JobPacket): string {
+	const referenced=packet.protocol==="journal-reference-v2";
 	return [
 		`[Location] ${packet.scene?.display_name ?? packet.scene?.name ?? "(unknown)"}`,
 		`[Present] ${names(packet.present)}`,
 		`[Investigators] ${names(packet.investigators)}`,
-		`[Recordable names] ${names(packet.recordable)}`,
+		referenced ? `[Recordable people] ${JSON.stringify(packet.recordable ?? [])}` : `[Recordable names] ${names(packet.recordable)}`,
 		`[Not yet named to the player] ${names(packet.unnamed)}`,
 		"",
 		"[What the player said this turn]",
@@ -125,6 +131,7 @@ function userInput(packet: JobPacket): string {
 		"",
 		"[Journal so far: do not restate a description that already holds]",
 		priorLines(packet.prior),
+		...(referenced ? ["[Attributed speech]",JSON.stringify(packet.speech ?? [])] : []),
 	].join("\n");
 }
 
@@ -133,7 +140,7 @@ function userInput(packet: JobPacket): string {
  * Whether a name belongs to this turn (recordable membership, ambiguity, whether a label is owed or
  * carries the name) is the kernel's check.
  */
-function shapeEntries(parsed: unknown, packet: JobPacket): Entry[] | undefined {
+export function shapeJournalEntries(parsed: unknown, packet: JobPacket): Entry[] | undefined {
 	if (!parsed || typeof parsed !== "object") return undefined;
 	const raw = Array.isArray(parsed) ? parsed : (parsed as { entries?: unknown }).entries;
 	if (!Array.isArray(raw)) return undefined;
@@ -141,6 +148,26 @@ function shapeEntries(parsed: unknown, packet: JobPacket): Entry[] | undefined {
 	const maxDescription = packet.budget?.max_description_chars ?? DEFAULT_MAX_DESCRIPTION_CHARS;
 	const maxExchange = packet.budget?.max_exchange_chars ?? DEFAULT_MAX_EXCHANGE_CHARS;
 	const maxLabel = packet.budget?.max_label_chars ?? DEFAULT_MAX_LABEL_CHARS;
+	if(packet.protocol==="journal-reference-v2") {
+        if(!parsed||Array.isArray(parsed)||Object.keys(parsed).some(key=>key!=="entries")||raw.length>limit) return undefined;
+        const allowed=new Set((packet.recordable??[]).flatMap(value=>value&&typeof value==="object"&&typeof (value as any).alias==="string"?[(value as any).alias]:[])),seen=new Set<string>(),entries:Entry[]=[];
+        for(const value of raw) {
+            if(!value||typeof value!=="object"||Array.isArray(value)||Object.keys(value).some(key=>!["person","description","exchange","label","named"].includes(key))) return undefined;
+            const row=value as Record<string,unknown>;
+            if(typeof row.person!=="string"||!allowed.has(row.person)||seen.has(row.person)) return undefined;
+            seen.add(row.person);const entry:Entry={person:row.person};
+            for(const [key,maximum] of [["description",maxDescription],["exchange",maxExchange],["label",maxLabel]] as const) {
+                if(row[key]===undefined||row[key]===null) continue;
+                if(typeof row[key]!=="string"||!(row[key] as string).trim()||(row[key] as string).trim().length>maximum) return undefined;
+                entry[key]=(row[key] as string).trim();
+            }
+            if(row.named!==undefined&&row.named!==null&&row.named!==true) return undefined;
+            if(row.named===true) entry.named=true;
+            if(!entry.description&&!entry.exchange&&!entry.label&&!entry.named) return undefined;
+            entries.push(entry);
+        }
+        return entries;
+    }
 	const entries: Entry[] = [];
 	for (const row of raw) {
 		if (!row || typeof row !== "object") continue;
@@ -217,16 +244,17 @@ export default function (pi: ExtensionAPI) {
 			// telemetry, so a backfill round is marked as one there too.
 			lane: "journal",
 			record: (row) => note({ turn: packet.turn, job_id: jobId, ...row }),
-			systemPrompt: systemPrompt(packet),
-			input: userInput(packet),
+			systemPrompt: journalSystemPrompt(packet),
+			input: journalUserInput(packet),
 			signal: scheduler.signal,
-			shape: (parsed) => shapeEntries(parsed, packet),
+			shape: (parsed) => shapeJournalEntries(parsed, packet),
 		});
 		if (!lane.ok) {
 			return { ok: false, reason: lane.reason === "model_unavailable" ? "lane_error" : "model_error", detail: lane.detail };
 		}
 		try {
-			await call("journal.submit", { campaign, job_id: jobId, entries: lane.value });
+			await call("journal.submit", { campaign, job_id: jobId, entries: lane.value,
+                ...(packet.protocol==="journal-reference-v2"?{protocol:packet.protocol,selection_binding:packet.selection_binding}:{}) });
 			// The panel re-reads `table.view` on this push; it carries no data on purpose.
 			void emitToPanel(PANEL_ID, "sheet-changed");
 			return { ok: true, entries: lane.value.length, model: lane.model };
@@ -262,7 +290,7 @@ export default function (pi: ExtensionAPI) {
 		try {
 			// The default dispatch carries no `turn`: the kernel picks a turn not yet journaled and not in the backlog.
 			packet = ((await current.call("journal.job", {
-				campaign: job.campaign,
+				campaign: job.campaign, mode:"referenced",
 				...(typeof job.turn === "number" ? { turn: job.turn } : {}),
 			})) ?? {}) as JobPacket;
 		} catch (error) {
@@ -311,6 +339,7 @@ export default function (pi: ExtensionAPI) {
 			await current.call("journal.fail", {
 				campaign: job.campaign,
 				job_id: jobId,
+                ...(packet.protocol==="journal-reference-v2"?{protocol:packet.protocol,selection_binding:packet.selection_binding}:{}),
 				reason: failure.reason,
 				detail: failure.detail,
 			});

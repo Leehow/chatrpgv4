@@ -13,8 +13,8 @@
  * authored words, a checker the run can execute itself decides whether it answered, and the answer
  * is cached per tag under the home so a module pays for a tag once. Nothing here reads a table
  * keyed by a language, compares a tag, or guesses which language a label is already in -- the
- * instruction tells the presenter to copy a string that is already in `play_language`, because
- * deciding that is a semantic question and belongs to the model.
+ * presenter selects `keep` when a string is already in `play_language`, and the host restores it,
+ * because deciding that is a semantic question and belongs to the model.
  *
  * The cache is a dictionary rather than a whole-card artifact, and grows: two maps in one module
  * share their level names, and a card that arrives later asks only for the strings no run has
@@ -24,6 +24,10 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { resourceRootFrom, runtimeEntryUrl } from "../../runtime/deployment.mjs";
+import {
+	acceptPresentationReferences, issuePresentationReferences, selectPresentationReferences,
+	type PresentationCatalog, type PresentationSource, validatePresentationReferenceShape,
+} from "../../runtime/jev/presentation-references.ts";
 import { PLAY_LANGUAGE_TAG } from "../../runtime/ui-words.ts";
 import { coded } from "../ui/errors.ts";
 import { reasoned, readerFailureReason } from "./reader.ts";
@@ -129,20 +133,17 @@ export function projectMapCard<T extends MapCardWords>(card: T, words: Record<st
  * All-or-nothing, because that is what the run must repair before it finishes. `prepareMapWords`
  * keeps what validated, so one dropped label costs one more question rather than the whole round.
  */
-export function validateMapPresentation(value: unknown, texts: readonly string[]): Record<string, string> {
-	const map = (value as { texts?: unknown })?.texts as Record<string, unknown> | undefined;
-	if (!map || typeof map !== "object" || Array.isArray(map)
-		|| Object.keys(map).length !== texts.length
-		|| texts.some(text => !caption(map[text])))
-		throw coded("preparation_failed", "Incomplete map word projection");
-	return Object.fromEntries(texts.map(text => [text, map[text] as string]));
+export function validateMapPresentation(value: unknown, sources: readonly PresentationSource[]): void {
+	try {
+		validatePresentationReferenceShape(value, sources);
+		const rows = (value as {texts:Array<Record<string,unknown>>}).texts;
+		if (rows.some(row => row.action === 'translate' && !caption(row.text))) throw new Error('Invalid caption');
+	} catch { throw coded("preparation_failed", "Incomplete map word projection"); }
 }
 
 /** What this round got right, whatever it got wrong. */
-export function acceptedMapTexts(value: unknown, wanted: readonly string[]): Record<string, string> {
-	const map = (value as { texts?: unknown })?.texts as Record<string, unknown> | undefined;
-	if (!map || typeof map !== "object" || Array.isArray(map)) return {};
-	return Object.fromEntries(wanted.filter(text => caption(map[text])).map(text => [text, map[text] as string]));
+export function acceptedMapTexts(value: unknown, catalog: PresentationCatalog): Record<string, string> {
+	return Object.fromEntries(Object.entries(acceptPresentationReferences(value, catalog).texts).filter(([,text]) => caption(text)));
 }
 
 async function digestOf(resourceRoot?: string): Promise<string> {
@@ -221,27 +222,30 @@ export async function prepareMapWords(options: MapWordsOptions, wanted: readonly
 		`import {readFileSync} from 'node:fs';\n` +
 		`import {validateMapPresentation} from ${JSON.stringify(runtimeEntryUrl("mapPresentation", import.meta.url))};\n` +
 		`try {const packet=JSON.parse(readFileSync('texts.json','utf8'));` +
-		`validateMapPresentation(JSON.parse(readFileSync('presentation.json','utf8')),packet.texts);` +
+		`validateMapPresentation(JSON.parse(readFileSync('presentation.json','utf8')),packet.sources);` +
 		`console.log('Presentation valid');}` +
 		`catch(error){console.error(error.message);process.exitCode=1;}\n`;
 
 	const projected: Record<string, string> = {};
+	const catalog = issuePresentationReferences(missing);
 	await runPresentationAttempt({
 		attempt, checkSource, outputFile: "presentation.json", systemPrompt: prompt, runner,
 		model: options.model, thinking: options.thinking, signal: options.signal,
 		prepareRound: async round => {
-			await writeFile(join(attempt, "texts.json"), JSON.stringify({ play_language: tag, texts: missing }, null, 2));
-			return "Read texts.json and write the projected map words to presentation.json. Its \"texts\" object answers exactly the strings texts.json lists, keyed by the source string itself. The file must contain exactly one JSON object, without Markdown or trailing text. Run node check.mjs and correct any error before finishing."
-				+ (round > 1 ? " Read findings.json and supply exactly the strings it still names; the words already accepted are not asked again." : "");
+			const current = selectPresentationReferences(catalog, missing);
+			await writeFile(join(attempt, "texts.json"), JSON.stringify({ protocol:current.protocol, play_language: tag, sources: current.sources }, null, 2));
+			return "Read texts.json and write one presentation-reference-v1 keep or translate operation for every issued source alias to presentation.json. Keep selects the source without copying it; translate contains only newly generated target-language text. Never use source strings as output keys or unchanged values. The file must contain exactly one JSON object, without Markdown or trailing text. Run node check.mjs and correct any error before finishing."
+				+ (round > 1 ? " Read findings.json and supply exactly the source aliases it still names; accepted words are not asked again." : "");
 		},
 		failure: (outcome, aborted) => coded(aborted ? "presentation_timeout" : "preparation_failed",
 			reasoned("The map words could not be projected", aborted ? undefined : readerFailureReason(outcome))),
-		invalidOutput: error => ({ error: String(error), texts: missing }),
+		invalidOutput: error => ({ error: String(error), sources: selectPresentationReferences(catalog, missing).sources.map(source => source.alias) }),
 		accept: value => {
-			Object.assign(projected, acceptedMapTexts(value, missing));
+			Object.assign(projected, acceptedMapTexts(value, selectPresentationReferences(catalog, missing)));
 			missing = missing.filter(text => !projected[text]);
 			return missing.length ? { done: false, findings: {
-				error: "these source strings were not answered with a non-empty label", texts: missing,
+				error: "these source aliases were not answered with a valid keep or short translation",
+				sources: selectPresentationReferences(catalog, missing).sources.map(source => source.alias),
 			} } : { done: true };
 		},
 	});

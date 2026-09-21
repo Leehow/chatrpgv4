@@ -207,7 +207,7 @@ async function requireNoTransition(campaign: CampaignSnapshot, contributions: Re
 async function present(campaign: CampaignSnapshot, module: LoadedModule): Promise<Row[]> {
     const { graph } = module,
         scene = graph.scene(campaign.world.active_scene);
-    return presentSection(graph, campaign.world, scene, row(campaign.jsonFiles.get("npc-ledger.json")), campaign.logs.get("memory/candidates.jsonl") ?? [], () => [], { journal: row(campaign.jsonFiles.get("npc-journal.json")), records: await campaign.files("turns") });
+    return presentSection(graph, campaign.world, scene, row(campaign.jsonFiles.get("npc-ledger.json")), campaign.logs.get("memory/candidates.jsonl") ?? [], () => [], { campaign:campaign.id, currentReceipts:array(campaign.turn.receipts), journal: row(campaign.jsonFiles.get("npc-journal.json")), records: await campaign.files("turns") });
 }
 /** The player's NPC notebook: newest-seen first, at most six exchanges each, newest first. The journal never
  *  stores death; `dead_since_turn` is merged from the ledger, the sole truth, at projection time. */
@@ -420,7 +420,7 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
             await requireNoTransition(campaign, contributions);
             if (kind === 'continuity') {
                 await campaign.preload();
-                return continuityView(graph, world, campaign.records, await campaign.log('memory/candidates.jsonl'), params);
+                return continuityView(graph, world, campaign.records, await campaign.log('memory/candidates.jsonl'), {...params,campaign:campaign.id,currentReceipts:array(campaign.turn.receipts)});
             }
             if (kind === "module") {
                 const query = required(params, "query");

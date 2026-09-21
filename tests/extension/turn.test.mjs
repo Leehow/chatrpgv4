@@ -708,8 +708,10 @@ test("守秘人整回合没碰工具就写散文：宿主先催一次 floor，�
 
 	const steers = customMessages(table.session, "coc-host").filter((message) => message.details?.kind === "floor");
 	assert.equal(steers.length, 1, "one floor steer, no more");
-	assert.match(steers[0].content, /director\.offer/);
-	assert.match(steers[0].content, /hand the move back/);
+	assert.match(steers[0].content, /ordinary narrate/);
+	assert.match(steers[0].content, /quiet exchange/);
+	assert.doesNotMatch(steers[0].content, /what changes in the world, apply|nothing landed|owes.*receipt/);
+	assert.match(steers[0].content, /selected goal/);
 
 	const narrates = table.kernelRequests().filter((entry) => entry.method === "table.narrate");
 	assert.deepEqual(narrates.map((entry) => entry.params.text), [full], "the thin draft never reached the kernel; the second leg did");

@@ -2,6 +2,7 @@ import { computeMove, renderBrief, type SetupSlot, type SetupNotes } from './bri
 /** Setup ordering comes from setup.steps; source preparation uses the shared visual reader. */
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { randomUUID } from 'node:crypto';
+import {buildSetupInputCatalog,setupUserTextFields,materializeSetupInputs,type SetupInputCatalog,type SetupInputField} from '../../runtime/jev/setup-input-references.ts';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { prepareCharacterGuidance, acceptedGuidance, type Guidance } from '../module/character-guidance.ts';
@@ -96,6 +97,8 @@ export default function (pi: ExtensionAPI) {
   let prologueRecorded = false;
   let lastPlayerInput = "";
   let inputKey = "";
+  let inputOrdinal=0;
+  let inputCatalog:SetupInputCatalog|undefined;
   let guidanceBlocked = false;
   let guidancePending: Promise<Guidance | undefined> | undefined;
   // Contract §26 Guided Creation: the package's slots, the kernel's notes and the cap; the move is computed, never remembered.
@@ -405,6 +408,29 @@ export default function (pi: ExtensionAPI) {
 		};
 	}
 
+  function freezeInputSources(prompt:string):void {
+    let branch:any[]=[],all:any[]=[],unavailable=false;
+    try {const value=ctx?.sessionManager.getBranch();if(!Array.isArray(value)) unavailable=true;else branch=value;
+      const entries=(ctx?.sessionManager as any)?.getEntries?.();all=Array.isArray(entries)?entries:branch;
+    } catch {unavailable=true;}
+    inputOrdinal=Math.max(inputOrdinal,...all.filter(entry=>entry.type==='custom'&&entry.customType==='coc-setup-input-epoch')
+      .map(entry=>Number(entry.data?.ordinal)).filter(value=>Number.isSafeInteger(value)&&value>=0))+1;
+    pi.appendEntry('coc-setup-input-epoch',{ordinal:inputOrdinal});
+    const fields=setupUserTextFields(branch,{occurrence:`current:${inputKey}`,text:prompt});
+    inputCatalog=buildSetupInputCatalog({epoch:inputKey,generation:inputOrdinal,branch:`${branch.at(-1)?.id??'root'}:${branch.length}`,fields,
+      unavailable:unavailable||(draftRevision!==undefined&&!branch.some(entry=>entry.type==='message'&&entry.message?.role==='user'))});
+  }
+  function bindInputParams(params:Record<string,unknown>):Record<string,unknown> {
+    if(!inputCatalog) throw new Error('Current setup input sources are unavailable; omit unchanged names and wait for the current player input');
+    const profile=asRecord(params.profile),values:Partial<Record<SetupInputField,unknown>>={};
+    if(Object.hasOwn(profile,'name')) values['profile.name']=profile.name;
+    if(Object.hasOwn(params,'pending_action')) values.pending_action=params.pending_action;
+    const bound=materializeSetupInputs(inputCatalog,{campaign:String(params.campaign??context.campaign??''),inputKey,values});
+    return {...params,input_key:inputKey,setup_input:bound.envelope,
+      ...(Object.hasOwn(profile,'name')?{profile:{...profile,name:bound.values['profile.name']}}:{}),
+      ...(Object.hasOwn(params,'pending_action')?{pending_action:bound.values.pending_action}:{})};
+  }
+
 	// ---- One step ---------------------------------------------------------
 
 	/** Put a new card revision on the table: remember it and append the card (contract §98). Every
@@ -446,7 +472,7 @@ export default function (pi: ExtensionAPI) {
       if(op.method==='setup.draft'||op.method==='setup.confirm')filled.params.input_key=inputKey;
       // setup.confirm's revision stays omitted: the kernel defaults it to the campaign's current
       // draft (contract §23.4), which keeps a UI-driven override confirmable without a re-draft.
-      if(op.method==='setup.confirm') {filled.params.last_exchange=lastPlayerInput;filled.params.player_requests=ctx?.sessionManager.getBranch().filter((e:any)=>e.type==='message'&&e.message?.role==='user').map((e:any)=>Array.isArray(e.message.content)?e.message.content.filter((x:any)=>x.type==='text').map((x:any)=>x.text).join('\n'):typeof e.message.content==='string'?e.message.content:'')||[];}
+      if(op.method==='setup.confirm') filled.params.last_exchange=lastPlayerInput;
 			if (filled.missing.length > 0) {
 				return {
 					ok: false,
@@ -460,6 +486,7 @@ export default function (pi: ExtensionAPI) {
 				};
 			}
 			try {
+                if(op.method==='setup.draft'||op.method==='setup.confirm')filled.params=bindInputParams(filled.params);
 				const result =
 					op.method === "module.prepare"
 						? await (reading ? reading.prepare(filled.params) : Promise.reject(new Error("the reading service is unavailable")))
@@ -553,12 +580,12 @@ export default function (pi: ExtensionAPI) {
 			const args = mergeArgs(raw);
 			try {
 				const result = id === 'reroll'
-					? asRecord(await bridge.call('setup.reroll', {campaign: context.campaign, revision: draftRevision, keep_pins: args.keep_pins !== false, input_key: inputKey}))
-					: asRecord(await bridge.call('setup.revise', {campaign: context.campaign, revision: draftRevision, input_key: inputKey, by: 'model',
+					? asRecord(await bridge.call('setup.reroll', bindInputParams({campaign: context.campaign, revision: draftRevision, keep_pins: args.keep_pins !== false, input_key: inputKey})))
+					: asRecord(await bridge.call('setup.revise', bindInputParams({campaign: context.campaign, revision: draftRevision, input_key: inputKey, by: 'model',
 						...(args.profile !== undefined ? {profile: args.profile} : {}),
 						...(id === 'adjust' ? (args.edits !== undefined ? {numbers: args.edits} : {}) : (args.numbers !== undefined ? {numbers: args.numbers} : {})),
 						...(args.limits !== undefined ? {limits: args.limits} : args.limits_override !== undefined ? {limits: args.limits_override} : {}),
-						...(args.auto_spread === true ? {auto_spread: true} : {})}));
+						...(args.auto_spread === true ? {auto_spread: true} : {})})));
 				if (result.revision !== draftRevision) await presentDraft(bridge, result);
 				return { ok: true, step: id, ...summarize(result) };
 			} catch (error) {
@@ -649,6 +676,10 @@ export default function (pi: ExtensionAPI) {
 
 	// ---- The tool ---------------------------------------------------------
 
+  const inputSelection=Type.Object({source:Type.String({description:'Choose a current issued input alias; never copy source text or offsets'}),
+    range:Type.Optional(Type.Object({first:Type.String({description:'First issued grapheme unit alias, inclusive'}),last:Type.String({description:'Last issued grapheme unit alias, inclusive'})},{additionalProperties:false}))},{additionalProperties:false});
+  const profileSchema=Type.Object({name:Type.Optional(Type.Union([inputSelection,Type.Object({generated:Type.String({minLength:1,description:'A newly proposed name, never claimed as the player wording'})},{additionalProperties:false})],
+    {description:'Select the player-supplied name, or explicitly propose generated. Omit unchanged name on revisions.'}))},{additionalProperties:true,description:'The semantic profile, or only changed fields. Name uses the current setup input source catalog.'});
 	pi.registerTool({
 		name: "setup",
 		label: "Setup",
@@ -670,19 +701,19 @@ export default function (pi: ExtensionAPI) {
 			{
 				step: Type.String({ description: "which step to do this time; step names come from the kernel's setup table, and the previous result's next holds it" }),
 				params: Type.Optional(
-					Type.Object({}, { additionalProperties: true, description: "the parameters this step wants; they may also be spread at the top level" }),
+					Type.Object({profile:Type.Optional(profileSchema),pending_action:Type.Optional(inputSelection)}, { additionalProperties: true, description: "the parameters this step wants; they may also be spread at the top level" }),
 				),
 				slot: Type.Optional(Type.String({ description: "note: the creation-brief slot this answer fills, or stop" })),
 				value: Type.Optional(Type.String({ description: "note: the player's words for that slot" })),
 				origin: Type.Optional(Type.String({ description: "note: player or concept" })),
-				profile: Type.Optional(Type.Object({}, { additionalProperties: true, description: "create-investigator / revise: the semantic profile, or only the changed fields" })),
+				profile: Type.Optional(profileSchema),
 				numbers: Type.Optional(Type.Object({}, { additionalProperties: true, description: "revise: {characteristics?, skills?, credit_rating?} pinned as final values" })),
 				limits: Type.Optional(Type.Object({}, { additionalProperties: true, description: "revise: relaxed bounds {characteristic_min?, characteristic_max?, skill_cap?, occupation_points?, interest_points?}" })),
 				edits: Type.Optional(Type.Object({}, { additionalProperties: true, description: "adjust (older spelling of revise numbers)" })),
 				auto_spread: Type.Optional(Type.Boolean({ description: "revise: spend whatever points are left" })),
 				keep_pins: Type.Optional(Type.Boolean({ description: "reroll: keep the pinned numbers (default true)" })),
 				consent: Type.Optional(Type.String({ description: "confirm-investigator: approved or delegated" })),
-				pending_action: Type.Optional(Type.String({ description: "confirm-investigator: a verbatim adventure request made before setup finished" })),
+				pending_action: Type.Optional(inputSelection),
 				kind: Type.Optional(Type.String({ description: "choose-source: starter, module or pdf" })),
 				module: Type.Optional(Type.String({ description: "choose-source: the starter or module id" })),
 				pdf: Type.Optional(Type.String({ description: "choose-source: the original PDF path" })),
@@ -705,7 +736,8 @@ export default function (pi: ExtensionAPI) {
 	// ---- Lifecycle --------------------------------------------------------
   pi.on('before_agent_start',async(event)=>{
     lastPlayerInput=event.prompt;inputKey=randomUUID();guidanceBlocked=false;
-    await ensureSteps();
+    await ensureSteps();freezeInputSources(event.prompt);
+    const inputPrompt='\n\nSetup input source selection (setup-input-reference-v1): profile.name selects {source,range?:{first,last}} or proposes {generated:newName}. Omit unchanged names when revising. pending_action selects only an actual player request; no generated form or copied string is permitted. This catalog covers user text fields only, not image or attached-file content. Unit aliases are inclusive grapheme endpoints, never character offsets. Coverage omissions mean missing input is unavailable, not absent; preserve an existing draft name and ask for a repeated request when its source is needed. Never copy epochs, digests or message IDs.\n'+JSON.stringify(inputCatalog!.public);
     // The frontend's confirm button commits the draft and completes setup on a cold kernel before
     // it sends its ordinary closing sentence (§98). A fresh setup process therefore resumes with
     // `complete` already booked and no world yet: asking `mods.context` at that point takes the
@@ -770,14 +802,14 @@ export default function (pi: ExtensionAPI) {
           '\nWeapons the tables print (anything else is equipment): '+weapons.join(', ');
       } catch { /* a catalog that cannot be read is not a reason to stop setup; the kernel still resolves names */ }
     }
-    if(!guidance)return setupPackages||catalogText?{systemPrompt:event.systemPrompt+setupPackages+catalogText}:undefined;
+    if(!guidance)return {systemPrompt:event.systemPrompt+setupPackages+catalogText+inputPrompt};
     return {systemPrompt:event.systemPrompt+'\n\nPrepared module prologue ('+(prologueRecorded?'already delivered; continue from the player answer without repeating it':'use on the first setup reply only')+'):\n'+guidance.opening+
       '\n\nModule-specific setup advice:\n'+guidance.advice+
       '\nBefore create-investigator, briefly explain useful or explicitly required languages from this advice or the public opening, and how lacking them can hinder conversation or reading. Distinguish authored requirements from contextual recommendations; do not invent a requirement or expose a secret. The display language is not a character skill. After drafting or a relevant revision, compare the actual own_language and Language skills and mention any material difficulty before inviting confirmation. This is a notice, not an extra question or confirmation gate: preserve chosen limitations and never change language skills merely to remove a warning. Only a player request, accepted suggestion or explicit delegation authorizes changing those choices.'+
       '\nThe rulebook tabulates these finance periods: '+JSON.stringify(context.rulebook_eras||[])+'. The authored setting can be descriptive prose or a year the rulebook never tabulated; never copy it as a table key. Pass profile.era only to name the listed period that reads closest to that setting. Omit it and the table\'s own period stands in. Either way the draft comes back with the period used and the setting it stood in for on sheet.finance, and setup is never blocked on this: say it once to the player in their own words (which setting, which period stood in for it) and carry on.'+
       '\nAs soon as a name and an occupation concept are known, use setup create-investigator once with a complete structured profile in that reply, unless an active setup package below asks for an exchange first. Propose rather than ask whatever you can: the way into the opening, personal ties and the key connection, age, ordinary gear. Do not merely describe a character: the computed card must appear before approval. After that every change the player asks for is one `revise` call with only what changed: words in profile, numbers in numbers. Never call create-investigator again to change something. Use confirm-investigator only after approval or explicit write-now delegation.'+
       '\nBoth skill lists are priority ordered: the points walk each list from the front, so put the abilities the player called defining first. Read the returned card and describe what it holds, never what you hoped it would hold; a number the player wants different is one `revise` with numbers.'+
-      setupPackages+catalogText+
+      setupPackages+catalogText+inputPrompt+
       (process.env.PI_COC_SETUP_AUTOSTART==='1'?'\nThis is the frontend. The card on screen shows the final values, a calculation-details toggle, the point budgets, and a "Confirm and open the table" button the player can press instead of answering; they may also confirm in words. Keep the accompanying prose brief: identity, edition/method, any material language difficulty, and one invitation to confirm or change. Do not automatically repeat calculations or budgets. After complete, close the prologue without a launch command; the host hands off to play.':'')};
   });
 
@@ -790,6 +822,7 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("session_start", async (_event, sessionCtx) => {
 		ctx = sessionCtx;
+        inputCatalog=undefined;inputKey="";lastPlayerInput="";inputOrdinal=0;
 		steps = undefined;
 		completed.clear();
 		opCache.clear();

@@ -2,10 +2,13 @@
 import type { KernelContext } from '../context.js';
 import { join } from 'node:path';
 import { RpcError } from '../errors.js';
+import { jsonDigest } from '../json.js';
 import type { HandlerGroup } from '../handlers.js';
 import type { ModuleGraph } from '../read/module-graph.js';
 import { equal, repr, row, string, truth, type Row } from '../read/values.js';
-import { Reading } from './reading.js';
+import {assertSourcePreparationRequest,type SourcePreparationRequest} from '../../runtime/jev/source-preparation.ts';
+import {assertSourcePublicationAdvance,sourceAdvanceAuthority} from '../../runtime/jev/read-set.ts';
+import { Reading,sourcePreparationSnapshot,sourcePreparationScopeMatches,type OwnedSourcePreparation } from './reading.js';
 import { ModuleStore } from './store.js';
 import { ensureCampaignModule, moduleContext, scopedModuleRoot } from './campaign-scope.js';
 function required(params: Row, key: string): string {
@@ -19,6 +22,16 @@ function required(params: Row, key: string): string {
 function handlersFor(store: ModuleStore, reading: Reading): HandlerGroup {
     return Object.freeze({
         'module.source.bind': params => reading.bind(params),
+        'module.source.answer.peek': params => reading.peekAnswer(params),
+        'module.source.snapshot': async params => {
+            const id = required(params, 'module_id'), meta = await store.module(id), source = row(meta.source_document);
+            if (source.path !== 'source.pdf' || typeof source.file_sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(source.file_sha256)
+                || !Number.isSafeInteger(source.page_count) || source.page_count < 1)
+                throw new RpcError('needs', 'This module has no valid bound original PDF', {details: {reason: 'source_unavailable'}});
+            return { version: 1, module_id: id, generation: meta.generation ?? 0,
+                revision: jsonDigest({source, generation: meta.generation ?? 0, graph_digest: meta.graph_digest ?? null}),
+                pdf: join(store.moduleDir(id), 'source.pdf'), file_sha256: source.file_sha256, page_count: source.page_count };
+        },
         'module.read.request': params => reading.request(params),
         'module.read.ahead': params => reading.queueAheadReading(params),
         'module.read.claim': params => reading.claim(params),
@@ -135,6 +148,34 @@ export function createModuleRuntime(context: KernelContext) {
         if (libraryOnly.has(method) || params.campaign === undefined || typeof params.module_id !== 'string')
             return library.handlers[method](params);
         const id = required(params, 'module_id'), campaign = params.campaign;
+        if(method==='module.read.request'&&params._task_prepare!==undefined) {
+            const request=params._task_prepare as SourcePreparationRequest;assertSourcePreparationRequest(request);
+            const authority=request.authority;
+            const exact=Object.fromEntries(['purpose','focus','question','material','pages'].filter(key=>Object.hasOwn(params,key)).map(key=>[key,params[key]]));
+            if(authority.campaign!==campaign||authority.moduleId!==id||!equal(exact,request.read))throw new RpcError('needs','The owned preparation differs from its pending source request',{details:{reason:'source_preparation_binding_mismatch'}});
+            const priorOwner=await owner(campaign,id),current=await sourcePreparationSnapshot(context,campaign,id);
+            const prior=[...await priorOwner.store.queue(id)].reverse().find(job=>row(row(row(job.task_preparation).request).authority).token===authority.token);
+            if(prior) {
+                const retained=prior.task_preparation as OwnedSourcePreparation;
+                const committed=row(row((await priorOwner.store.module(id)).reading).completed)[prior.job_id],advance=row(committed)._task_source_advance;
+                if(advance!==undefined) {
+                    assertSourcePublicationAdvance(advance);
+                    if(!equal(sourceAdvanceAuthority(advance),authority)||advance.jobId!==prior.job_id||advance.lease!==prior.lease)
+                        throw new RpcError('needs','The durable source completion belongs to another job or request',{details:{reason:'source_preparation_stale'}});
+                }
+                const expected=advance?.to??(prior.state==='completed'?undefined:retained.currentRevision);
+                if(!equal(retained.request,request)||current.revision!==expected||!sourcePreparationScopeMatches(current.scope,authority.scope)||current.turn!==authority.turn)
+                    throw new RpcError('needs','The retained preparation no longer owns the current source',{details:{reason:'source_preparation_stale'}});
+                return priorOwner.reading.request(params,retained);
+            }
+            if(current.status!=='active'||current.revision!==authority.from||!sourcePreparationScopeMatches(current.scope,authority.scope)||current.turn!==authority.turn)
+                throw new RpcError('needs','The pending operation source changed before preparation',{details:{reason:'source_preparation_stale'}});
+            const wasScoped=await scopedModuleRoot(context,campaign,id)!==null;
+            const target=await owner(campaign,id,true),forked=await sourcePreparationSnapshot(context,campaign,id);
+            if(!wasScoped&&forked.forkOriginRevision!==authority.from)throw new RpcError('needs','The library source changed before its owned campaign seed',{details:{reason:'source_preparation_stale'}});
+            if(!sourcePreparationScopeMatches(forked.scope,authority.scope)||forked.turn!==authority.turn)throw new RpcError('needs','The campaign changed during source preparation',{details:{reason:'source_preparation_stale'}});
+            return target.reading.request(params,{request:structuredClone(request),currentRevision:forked.revision});
+        }
         if (claimsOrFinishes.has(method)) {
             const value = scopedRuntime(campaign);
             if (await scopedModuleRoot(context, campaign, id) === null) return library.handlers[method](params);

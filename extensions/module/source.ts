@@ -10,7 +10,17 @@ const require = createRequire(import.meta.url);
 const pdfRoot = dirname(require.resolve("pdfjs-dist/package.json"));
 export const sourceRenderVersion = `pdfjs-${version}:canvas-${require("@napi-rs/canvas/package.json").version}:page-v2`;
 export const sourceOverviewVersion = `${sourceRenderVersion}:overview-v1`;
+export const sourceTextVersion = `pdfjs-${version}:native-text-v1`;
 export type Box = [number, number, number, number];
+export interface SourceTextOptions { pages: number[]; expected_file_sha256?: string }
+export interface SourceTextSnapshot {
+	page: number;
+	pdf_label: string | null;
+	text: string;
+	text_sha256: string;
+	revision: string;
+	availability: "text" | "empty";
+}
 type PdfCanvas = {canvas: Canvas; context: SKRSContext2D};
 interface PdfCanvasFactory {create(width: number, height: number): PdfCanvas; destroy(target: PdfCanvas): void}
 
@@ -35,7 +45,7 @@ async function loadPdf(path: string) {
 	};
 	const task = getDocument(options);
 	try {
-		return { document: await task.promise, sha256, textPages: new Map<number, Promise<string>>(), close: () => task.destroy() };
+		return { document: await task.promise, sha256, textPages: new Map<string, Promise<string>>(), close: () => task.destroy() };
 	} catch (error) {
 		await task.destroy();
 		throw error;
@@ -99,7 +109,7 @@ async function openPdf(path: string) {
 	};
 	try {
 		const value = await owned.loaded;
-		return {document:value.document,sha256:value.sha256,textPages:value.textPages,close};
+		return {document:value.document,sha256:value.sha256,textPages:value.textPages,stamp:owned.stamp,close};
 	} catch (error) {
 		if (documents.get(path) === owned) documents.delete(path);
 		await close(); throw error;
@@ -117,6 +127,112 @@ export async function closeSourceDocuments(): Promise<void> {
 }
 
 const pageRequests = new Map<string,Promise<Record<string,unknown>>>();
+
+/** One source-stamp and extractor-version bound native page extraction, shared by search and exact text reads. */
+function nativePageText(source: Pick<LoadedPdf, "document" | "textPages">, page: number): Promise<string> {
+	const key = `${sourceTextVersion}:${page}`;
+	let pending = source.textPages.get(key);
+	if (!pending) {
+		pending = (async () => {
+			const content = await (await source.document.getPage(page)).getTextContent();
+			return content.items.map(item => "str" in item ? item.str + (item.hasEOL ? "\n" : "") : "").join("");
+		})();
+		source.textPages.set(key, pending);
+		void pending.catch(() => { if (source.textPages.get(key) === pending) source.textPages.delete(key); });
+	}
+	return pending;
+}
+
+function sourceTextCancelled(): Error { return new Error("Source text extraction cancelled"); }
+
+/** Wait for shared extraction without allowing this caller's cancellation to cancel or dispose its owner. */
+function awaitNativeText(pending: Promise<string>, signal: AbortSignal | undefined, detached: (pending: Promise<string>) => void): Promise<string> {
+	if (!signal) return pending;
+	if (signal.aborted) { detached(pending); return Promise.reject(sourceTextCancelled()); }
+	return new Promise((resolve, reject) => {
+		let finished = false;
+		const done = () => { signal.removeEventListener("abort", abort); };
+		const abort = () => {
+			if (finished) return;
+			finished = true; done(); detached(pending); reject(sourceTextCancelled());
+		};
+		signal.addEventListener("abort", abort, { once: true });
+		pending.then(value => {
+			if (finished) return;
+			finished = true; done(); resolve(value);
+		}, error => {
+			if (finished) return;
+			finished = true; done(); reject(error);
+		});
+	});
+}
+
+/** Exact raw PDF.js native text snapshots. This does not issue proof, readiness or image observations. */
+export async function sourceText(pdf: string, options: SourceTextOptions, signal?: AbortSignal): Promise<{
+	file_sha256: string;
+	extraction_version: string;
+	page_count: number;
+	snapshots: SourceTextSnapshot[];
+	errors: Array<{page: number; code: "native_extraction_unavailable"}>;
+}> {
+	if (!options || typeof options !== "object" || Array.isArray(options) || ![null, Object.prototype].includes(Object.getPrototypeOf(options)))
+		throw new Error("source text needs pages and optional expected_file_sha256");
+	const optionDescriptors = Object.getOwnPropertyDescriptors(options);
+	if (Reflect.ownKeys(options).some(key => typeof key !== "string" || !["pages", "expected_file_sha256"].includes(key)
+		|| !optionDescriptors[key]?.enumerable || !Object.hasOwn(optionDescriptors[key]!, "value")))
+		throw new Error("source text needs own enumerable data properties only");
+	const pagesValue = optionDescriptors.pages?.value;
+	if (!Array.isArray(pagesValue) || pagesValue.length < 1 || pagesValue.length > 32)
+		throw new Error("source text pages must be 1-32 unique positive physical page numbers");
+	const pageDescriptors = Object.getOwnPropertyDescriptors(pagesValue), pages = Array.from({length: pagesValue.length}, (_, index) => {
+		const descriptor = pageDescriptors[String(index)];
+		if (!descriptor?.enumerable || !Object.hasOwn(descriptor, "value")) throw new Error("source text pages must contain own enumerable data values");
+		return descriptor.value;
+	});
+	if (Reflect.ownKeys(pagesValue).some(key => typeof key !== "string" || key !== "length" && !/^(0|[1-9][0-9]*)$/.test(key))
+		|| pages.some(page => !Number.isInteger(page) || page < 1)
+		|| new Set(pages).size !== pages.length)
+		throw new Error("source text pages must be 1-32 unique positive physical page numbers");
+	const expectedFileSha = optionDescriptors.expected_file_sha256?.value;
+	if (expectedFileSha !== undefined && (typeof expectedFileSha !== "string" || !/^[a-f0-9]{64}$/.test(expectedFileSha)))
+		throw new Error("expected_file_sha256 must be an exact lower-case SHA-256");
+	if (signal?.aborted) throw sourceTextCancelled();
+	const path = resolve(pdf), source = await openPdf(path);
+	let detached: Promise<string> | undefined;
+	try {
+		if (signal?.aborted) throw sourceTextCancelled();
+		if (expectedFileSha !== undefined && expectedFileSha !== source.sha256)
+			throw new Error("Source PDF does not match expected_file_sha256");
+		if (pages.some(page => page > source.document.numPages))
+			throw new Error(`source text page is outside this PDF (1-${source.document.numPages})`);
+		const labels = await source.document.getPageLabels(), snapshots: SourceTextSnapshot[] = [],
+			errors: Array<{page: number; code: "native_extraction_unavailable"}> = [];
+		for (const page of pages) {
+			if (signal?.aborted) throw sourceTextCancelled();
+			const pending = nativePageText(source, page);
+			try {
+				const text = await awaitNativeText(pending, signal, value => { detached = value; });
+				const text_sha256 = createHash("sha256").update(text, "utf8").digest("hex");
+				const revision = createHash("sha256").update(JSON.stringify([sourceTextVersion, source.sha256, page, text_sha256])).digest("hex");
+				snapshots.push({ page, pdf_label: labels?.[page - 1] ?? null, text, text_sha256, revision,
+					availability: text.length ? "text" : "empty" });
+			} catch (error) {
+				if (signal?.aborted || detached === pending) throw sourceTextCancelled();
+				errors.push({ page, code: "native_extraction_unavailable" });
+			}
+			await new Promise<void>(resolve => setImmediate(resolve));
+		}
+		if (signal?.aborted) throw sourceTextCancelled();
+		if (identity(await sourceStat(path)) !== source.stamp)
+			throw new Error("Source PDF changed during native text extraction; retry its current bytes");
+		return { file_sha256: source.sha256, extraction_version: sourceTextVersion,
+			page_count: source.document.numPages, snapshots, errors };
+	} finally {
+		if (detached) void detached.catch(() => undefined).then(source.close).catch(() => undefined);
+		else await source.close();
+	}
+}
+
 export async function sourceInfo(pdf: string) {
 	const { document, sha256, close } = await openPdf(pdf);
 	try {
@@ -185,16 +301,7 @@ export async function sourceSearch(pdf: string, options: SourceSearchOptions, si
 		const withText: number[] = [], empty: number[] = [], errors: Array<{page: number; error: string}> = [];
 		for (; next <= last && next - searchedFirst < searchPageLimit && matches.length < limit; next++) {
 			cancelled();
-			let pending = textPages.get(next);
-			if (!pending) {
-				const page = next;
-				pending = (async () => {
-					const content = await (await document.getPage(page)).getTextContent();
-					return content.items.map(item => "str" in item ? item.str + (item.hasEOL ? "\n" : "") : "").join("");
-				})();
-				textPages.set(page, pending);
-				void pending.catch(() => { if (textPages.get(page) === pending) textPages.delete(page); });
-			}
+			const pending = nativePageText({document, textPages}, next);
 			try {
 				const original = await pending;
 				cancelled();

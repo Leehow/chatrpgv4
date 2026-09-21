@@ -5,6 +5,7 @@ import type { CampaignWritePort, DomainEvent, TurnTransaction } from '../transac
 import { RpcError } from '../errors.js';
 import { isJsonObject } from '../json.js';
 import { CampaignSnapshot, loadCampaignModule, type LoadedModule } from '../read/campaign.js';
+import { worldRevision, taskWorldRevision } from '../read/context.js';
 import type { ModuleGraph } from '../read/module-graph.js';
 import { actor as selectActor, sceneView, unsupported } from '../read/handlers.js';
 import { array, clone, entries, integer, number, repr, row, string, truth, type Row } from '../read/values.js';
@@ -28,6 +29,7 @@ import {stageItem,stageCash,commitInventorySheets} from './inventory.js';
 import type {createWorldlineRuntime} from '../worldline/index.js';
 import type {createModRuntime} from '../mods/index.js';
 import type {CampaignWriter} from '../write/store.js';
+import {prepareFulfillments, type FulfillmentSelection} from '../memory/fulfillment-receipt.js';
 const KINDS = ['ability', 'adaptation', 'cash', 'clock', 'clue', 'damage', 'define', 'dossier', 'ending', 'flag', 'fork', 'handout', 'item', 'map', 'merge', 'move', 'note', 'npc', 'object', 'person', 'ruling', 'switch', 'threat', 'time', 'usage'];
 export interface ApplyContext {
     readonly kernel: KernelContext;
@@ -83,6 +85,12 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
             const started = await transaction.beginWrite('table.apply', callParams, { allowOpening: opening });
             if (started.kind === 'replay')
                 return started.result;
+            if (params._task_read_set !== undefined && typeof params._task_read_set !== 'boolean')
+                throw new RpcError('invalid_params', '_task_read_set must be boolean');
+            const beforeTaskRevision = params._task_read_set === true
+                ? worldRevision(transaction.world, await campaign.party() as Row[], turn.receipts, turn.pending_choice) : undefined;
+            const beforeTaskCore = params._task_read_set === true
+                ? taskWorldRevision(transaction.world, await campaign.party() as Row[], turn.receipts, turn.pending_choice) : undefined;
             if (!Array.isArray(effects) || !effects.length)
                 throw new RpcError('invalid_params', 'params.effects must be a non-empty list');
             if (effects.some(effect => isJsonObject(effect) && effect.kind === 'usage') && effects.some(effect => !isJsonObject(effect) || !['define','object','usage'].includes(string(effect.kind))))
@@ -95,6 +103,8 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                 if (isJsonObject(effect) && typeof effect.kind === 'string' && KINDS.includes(effect.kind) && !available(effect.kind))
                     throw atIndex(new RpcError('not_implemented', `effect kind ${repr(effect.kind)} has no implementation in this TypeScript kernel yet`), index);
             const module = await loadCampaignModule(kernel, string((await campaign.readCampaign()).module_id), transaction.world, campaign.id), graph = module.graph;
+            const fulfillment = params._fulfillments === undefined ? undefined : await prepareFulfillments({
+                kernel, campaign, world:transaction.world, turn, graph, effects:effects as Row[], bindings:params._fulfillments as unknown as FulfillmentSelection[]});
             const authored: Row = { move: 'to', clue: 'clue', npc: 'name', handout: 'name', map: 'name' };
             const kinds: Record<string, string[]> = { move: ['scene'], clue: ['clue'], npc: ['npc'], handout: ['handout', 'asset'], map: ['handout', 'asset'] };
             const names = effects.filter(isJsonObject).filter(effect => Object.hasOwn(authored, string(effect.kind))).map(effect => {
@@ -123,6 +133,7 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
             }
             const staged: Row = clone(transaction.world), taken = new Set(array(turn.receipts).map(value => string(value.id)));
             const receipts: Row[] = [], events: DomainEvent[] = [], ids: string[] = [];
+            const effectReceipts = new Map<number, Row[]>();
             const stagedSheets=new Map<string,Row>(),stagedNotes:Row[]=[],stagedRulings:Row[]=[],attachments:Row[]=[],mapViews:Row[]=[],already:string[]=[];
             const context: ApplyContext = { kernel, transaction, campaign, world: staged, turn, graph, module, callId: started.callId, ordinal: started.ordinal,
                 mint(base) { let id = base, next = 2; while (taken.has(id))
@@ -223,6 +234,7 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                         event = { type: 'time-advanced', data: { minutes, why, clock: clone(clock) } };
                     }
                     receipts.push(receipt);
+                    effectReceipts.set(index,[receipt]);
                     ids.push(string(receipt.id));
                     taken.add(string(receipt.id));
                     // A pacing tick has no canonical event (12.1 is closed at twenty-four kinds); its receipt carries it.
@@ -266,6 +278,7 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
             }
             if (truth(staged.ending) && (row(staged.ending).scope ?? 'campaign') === 'campaign' && (stagedWorldline||truth(turn.worldline)))
                 throw new RpcError('invalid_params', 'a campaign ending cannot share a turn with a worldline transition');
+            fulfillment?.attach(effectReceipts,staged);
             const recovery = contributions.resources ? await contributions.resources.recovery(context, restMinutes) : { receipts: [], events: [], recovered: [] };
             receipts.push(...recovery.receipts);
             ids.push(...recovery.receipts.map(value => string(value.id)));
@@ -301,6 +314,13 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
             if(mapViews.length)result.map_views=mapViews;
             if(already.length){result.already_discovered=already;if(!receipts.length)result.replayed=true;}
             if(stagedWorldline){turn.worldline=stagedWorldline;result.worldline={operation:stagedWorldline.operation,line:stagedWorldline.line,mode:stagedWorldline.mode??null,loop:number(stagedWorldline.loop),when:"after this turn's narrate commits"};}
+            if (beforeTaskRevision !== undefined) {
+                const meta = await campaign.readCampaign(), worldline = string(meta.active_worldline || 'main');
+                result._task_advance = { campaign: campaign.id, turn: number(turn.turn), worldline,
+                    loop: number(row(row(meta.worldlines)[worldline]).loop), operationId: started.callId, receiptIds: ids,
+                    before: beforeTaskRevision, after: worldRevision(staged, await campaign.party() as Row[], [...array(turn.receipts), ...receipts], turn.pending_choice),
+                    task_before: beforeTaskCore, task_after: taskWorldRevision(staged, await campaign.party() as Row[], [...array(turn.receipts), ...receipts], turn.pending_choice) };
+            }
             await transaction.commitResolve({ callId: started.callId, params: callParams, result, receipts, events });
             return result;
         } };

@@ -14,13 +14,13 @@ export type HandlerGroup = Readonly<Record<string, KernelHandler>>;
 /** The closed TypeScript transport method vocabulary; legacy entries remain for compatibility-shaped refusals. */
 export const KNOWN_METHODS = Object.freeze([
   "kernel.hello", "campaign.list", "campaign.create",
-  "table.open", "table.status", "table.capsule", "table.player_input", "table.release", "table.look",
-  "table.view", "table.maps", "table.graph", "table.lookup", "table.recall", "table.workspace.read", "table.resolve", "table.apply", "table.ask",
-  "table.narrate", "table.warn", "table.branch", "table.switch", "memory.job", "memory.submit", "memory.fail",
+  "table.open", "table.status", "table.call_status", "table.capsule", "table.player_input", "table.release", "table.look",
+  "table.view", "table.maps", "table.graph", "table.lookup", "table.recall", "table.workspace.read", "table.resolve", "table.resolve.options", "table.apply", "table.apply.options", "table.fulfillment.options", "table.fulfillment.prepare", "table.ask",
+  "table.narrate", "table.warn", "table.branch", "table.switch", "memory.source", "memory.evidence", "memory.job", "memory.submit", "memory.fail",
   "journal.job", "journal.submit", "journal.fail", "voice.job", "voice.submit", "voice.fail",
   "setup.steps", "setup.occupations", "setup.investigator", "setup.complete", "setup.prologue",
   "setup.draft", "setup.revise", "setup.reroll", "setup.catalog", "setup.confirm", "setup.override", "setup.note",
-  "module.source.bind", "module.read.ahead", "module.read.request", "module.read.claim", "module.read.finish", "module.read.unwait",
+  "module.source.bind", "module.source.snapshot", "module.source.answer.peek", "module.read.ahead", "module.read.request", "module.read.claim", "module.read.finish", "module.read.unwait",
   "module.list", "module.status", "module.register", "module.opening.choose", "module.asset",
   "investigator.list", "investigator.get", "investigator.save", "investigator.load",
   "mods.list", "mods.configure", "mods.order", "mods.document.view", "mods.document.apply",

@@ -136,7 +136,7 @@ test("mounted NPC lane sends a closed player-safe prompt and payload, then refre
 	}] });
 	table.commit(7);
 	await completed(table);
-	assert.deepEqual(table.calls("journal.job").map(row => row.params), [{ campaign: "camp", turn: 7 }]);
+	assert.deepEqual(table.calls("journal.job").map(row => row.params), [{ campaign: "camp", mode: "referenced", turn: 7 }]);
 	assert.deepEqual(table.calls("journal.submit")[0].params, {
 		campaign: "camp", job_id: "journal:camp:t7", entries: [
 			{ name: "Dooley", description: "The caretaker.", exchange: "Hands over a key." },
@@ -226,7 +226,7 @@ for (const bridgeFirst of [true, false]) {
 		await completed(table, 2);
 		await table.hook("agent_settled");
 		await settle(40);
-		assert.deepEqual(table.calls("journal.job").map(row => row.params), Array(3).fill({ campaign: "camp" }));
+		assert.deepEqual(table.calls("journal.job").map(row => row.params), Array(3).fill({ campaign: "camp", mode: "referenced" }));
 		assert.deepEqual(table.rows().map(row => [row.turn, row.backfill]), [[4, true], [3, true]]);
 		assert.equal(table.calls("journal.fail").length, 0);
 	});
@@ -284,4 +284,22 @@ test("setup mode registers neither background lane", async (t) => {
 	assert.equal(table.calls("journal.job").length, 0);
 	assert.equal(table.calls("memory.job").length, 0);
 	assert.deepEqual(table.rows(), []);
+});
+
+test("mounted referenced journal lane selects aliases without copying names or exposing host bindings",async(t)=>{
+    let seen;
+    const referencePacket={...packet(7),protocol:"journal-reference-v2",selection_binding:"private-selection-binding",
+        recordable:[{alias:"person:0",name:"Dooley"}],present:["person:0"],unnamed:["person:0"],
+        investigators:[{name:"Thomas"}],prior:[{person:"person:0",label:"The caretaker",description:"The caretaker."}],
+        speech:[{person:"person:0",text:"The door stays locked."}]};
+    const table=await openLanes(t,{rpc:async(method,params)=>method==="journal.job"?referencePacket:{},responses:[context=>{
+        seen=context;return answer([{person:"person:0",label:"The caretaker",exchange:"Hands over a key."}]);
+    }]});
+    table.commit(7);await completed(table);
+    assert.equal(table.calls("journal.job")[0].params.mode,"referenced");
+    assert.deepEqual(table.calls("journal.submit")[0].params,{campaign:"camp",job_id:"journal:camp:t7",protocol:"journal-reference-v2",selection_binding:"private-selection-binding",
+        entries:[{person:"person:0",label:"The caretaker",exchange:"Hands over a key."}]});
+    assert.match(seen.systemPrompt,/person selects one issued recordable alias/);assert.ok(!seen.systemPrompt.includes('"name":"..."'));
+    assert.match(inputText(seen),/person:0/);assert.ok(!inputText(seen).includes("private-selection-binding"));assert.ok(!inputText(seen).includes("private-commit-key"));
+    assert.equal(table.calls("journal.submit").length,1);
 });

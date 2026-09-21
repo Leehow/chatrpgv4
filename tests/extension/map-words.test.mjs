@@ -27,10 +27,14 @@ import {
 	AUTHORED_MAP_WORDS, KEEPER_MAP_WORDS, acceptedMapTexts, mapCardTexts, mapWordsCachePath,
 	mapWordsDigest, prepareMapWords, projectMapCard, readMapWords, validateMapPresentation,
 } from "../../extensions/module/map-presentation.ts";
+import { issuePresentationReferences, PRESENTATION_REFERENCE_PROTOCOL } from "../../runtime/jev/presentation-references.ts";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { openTable, waitFor } from "./harness.mjs";
 
 const REPO = resolve(import.meta.dirname, "../..");
+const sourceText = source => source.text;
+const response = (packet, drop = [], translate = text => `<${text}>`) => ({protocol:PRESENTATION_REFERENCE_PROTOCOL,
+	texts:packet.sources.filter(source=>!drop.includes(source.text)).map(source=>({source:source.alias,action:'translate',text:translate(source.text)}))});
 
 /** The kernel halves this seam needs, emitted the way the other kernel-facing suites emit theirs. */
 const kernelBundle = await (async () => {
@@ -135,10 +139,15 @@ test("a card is wholly projected or wholly authored, never half of each", () => 
 });
 
 test("the checker is all-or-nothing, and the lane keeps what validated", () => {
-	assert.deepEqual(validateMapPresentation({ texts: { a: "A", b: "B" } }, ["a", "b"]), { a: "A", b: "B" });
-	for (const bad of [null, {}, { texts: [] }, { texts: { a: "A" } }, { texts: { a: "A", b: "  " } }, { texts: { a: "A", b: "B", c: "C" } }])
-		assert.throws(() => validateMapPresentation(bad, ["a", "b"]), /Incomplete map word projection/, JSON.stringify(bad));
-	assert.deepEqual(acceptedMapTexts({ texts: { a: "A", b: " ", c: "C" } }, ["a", "b"]), { a: "A" },
+	const catalog=issuePresentationReferences(['a','b']);
+	const valid={protocol:PRESENTATION_REFERENCE_PROTOCOL,texts:[{source:'text:0',action:'translate',text:'A'},{source:'text:1',action:'translate',text:'B'}]};
+	assert.doesNotThrow(()=>validateMapPresentation(valid,catalog.sources));
+	for (const bad of [null, {}, {protocol:PRESENTATION_REFERENCE_PROTOCOL,texts:[]},
+		{protocol:PRESENTATION_REFERENCE_PROTOCOL,texts:[{source:'text:0',action:'translate',text:'A'}]},
+		{protocol:PRESENTATION_REFERENCE_PROTOCOL,texts:[{source:'text:0',action:'translate',text:'A'},{source:'text:1',action:'translate',text:' '}]},
+		{protocol:PRESENTATION_REFERENCE_PROTOCOL,texts:[{source:'text:0',action:'translate',text:'A'},{source:'text:1',action:'translate',text:'B'},{source:'text:2',action:'translate',text:'C'}]}])
+		assert.throws(() => validateMapPresentation(bad, catalog.sources), /Incomplete map word projection/, JSON.stringify(bad));
+	assert.deepEqual(acceptedMapTexts({protocol:PRESENTATION_REFERENCE_PROTOCOL,texts:[{source:'text:0',action:'translate',text:'A'}]},catalog), { a: "A" },
 		"what validated is kept; a blank and an unasked word are not");
 });
 
@@ -151,9 +160,7 @@ function runner(options = {}) {
 		async run(request) {
 			const packet = JSON.parse(await readFile(join(request.cwd, "texts.json"), "utf8"));
 			rounds.push(packet);
-			const skip = new Set(rounds.length === 1 ? drop : []);
-			const texts = Object.fromEntries(packet.texts.filter(text => !skip.has(text)).map(text => [text, `<${text}>`]));
-			await writeFile(join(request.cwd, "presentation.json"), JSON.stringify({ texts }));
+			await writeFile(join(request.cwd, "presentation.json"), JSON.stringify(response(packet,rounds.length===1?drop:[])));
 			return { ok: true };
 		},
 	};
@@ -164,7 +171,7 @@ test("the lane projects once per tag, caches it, and afterwards asks only for wh
 	const first = runner();
 	const words = await prepareMapWords({ home, play_language: "cc", runner: first.run }, ["West bedroom", "Upper Story", "West bedroom"]);
 	assert.equal(first.rounds.length, 1);
-	assert.deepEqual(first.rounds[0].texts, ["Upper Story", "West bedroom"], "the distinct captions, asked once each");
+	assert.deepEqual(first.rounds[0].sources.map(sourceText), ["Upper Story", "West bedroom"], "the distinct captions, asked once each");
 	assert.equal(first.rounds[0].play_language, "cc");
 	assert.deepEqual(words, { "Upper Story": "<Upper Story>", "West bedroom": "<West bedroom>" });
 
@@ -179,7 +186,7 @@ test("the lane projects once per tag, caches it, and afterwards asks only for wh
 
 	const third = runner();
 	const grown = await prepareMapWords({ home, play_language: "cc", runner: third.run }, ["West bedroom", "Entry hall"]);
-	assert.deepEqual(third.rounds[0].texts, ["Entry hall"], "a later map pays only for the captions it adds");
+	assert.deepEqual(third.rounds[0].sources.map(sourceText), ["Entry hall"], "a later map pays only for the captions it adds");
 	assert.deepEqual(grown, { "Upper Story": "<Upper Story>", "West bedroom": "<West bedroom>", "Entry hall": "<Entry hall>" },
 		"and the cache grows rather than being replaced");
 
@@ -195,14 +202,14 @@ test("a caption two rounds could not project fails the run rather than being ans
 		async run(request) {
 			const packet = JSON.parse(await readFile(join(request.cwd, "texts.json"), "utf8"));
 			stubborn.rounds.push(packet);
-			await writeFile(join(request.cwd, "presentation.json"), JSON.stringify({ texts: { "Upper Story": "<Upper Story>" } }));
+			await writeFile(join(request.cwd, "presentation.json"), JSON.stringify(response(packet,["West bedroom"])));
 			return { ok: true };
 		},
 	};
 	await assert.rejects(prepareMapWords({ home, play_language: "cc", runner: stubborn.run }, ["Upper Story", "West bedroom"]),
 		/Incomplete map word projection/);
 	assert.equal(stubborn.rounds.length, 2, "a near miss costs one more question");
-	assert.deepEqual(stubborn.rounds[1].texts, ["West bedroom"], "and asks only for what is still missing");
+	assert.deepEqual(stubborn.rounds[1].sources.map(sourceText), ["West bedroom"], "and asks only for what is still missing");
 	assert.deepEqual(await readMapWords({ home, play_language: "cc" }), { "Upper Story": "<Upper Story>" },
 		"what did validate is still cached, so the next card pays only for the rest");
 
@@ -222,19 +229,19 @@ test("invalid map labels are repaired in round two without re-asking accepted wo
 		packets.push(packet);
 		assert.equal(request.eventLog, join(attempt, `events-${packets.length}.jsonl`));
 		await writeFile(request.eventLog, "owner event\n");
-		const texts = Object.fromEntries(packet.texts.map(text => [text, `<${text}>`]));
-		if (packets.length === 1) texts["West bedroom"] = "x".repeat(201);
+		const output=response(packet);
+		if (packets.length === 1) output.texts=output.texts.map(operation=>sourceText(packet.sources.find(source=>source.alias===operation.source))==='West bedroom'?{...operation,text:'x'.repeat(201)}:operation);
 		else {
 			assert.match(request.brief, /Read findings.json/);
 			assert.deepEqual(JSON.parse(await readFile(join(attempt, "findings.json"), "utf8")), {
-				error: "these source strings were not answered with a non-empty label", texts: ["West bedroom"],
+				error: "these source aliases were not answered with a valid keep or short translation", sources: [packet.sources[0].alias],
 			});
 		}
-		await writeFile(join(attempt, "presentation.json"), JSON.stringify({ texts }));
+		await writeFile(join(attempt, "presentation.json"), JSON.stringify(output));
 		return { ok: true };
 	} }, ["Upper Story", "West bedroom"]);
 	assert.equal(packets.length, 2);
-	assert.deepEqual(packets[1].texts, ["West bedroom"]);
+	assert.deepEqual(packets[1].sources.map(sourceText), ["West bedroom"]);
 	assert.deepEqual(result, { "Upper Story": "<Upper Story>", "West bedroom": "<West bedroom>" });
 	assert.deepEqual((await readdir(attempt)).sort(), ["check.mjs", "events-1.jsonl", "events-2.jsonl", "findings.json", "presentation.json", "texts.json"]);
 });
@@ -245,14 +252,14 @@ for (const repair of [true, false]) test(`malformed map JSON is retried without 
 	const result = prepareMapWords({ home, play_language: "cc", runner: async request => {
 		calls++;
 		const packet = JSON.parse(await readFile(join(request.cwd, "texts.json"), "utf8"));
-		assert.deepEqual(packet.texts, ["West bedroom"]);
+		assert.deepEqual(packet.sources.map(sourceText), ["West bedroom"]);
 		if (calls === 2) {
 			const findings = JSON.parse(await readFile(join(request.cwd, "findings.json"), "utf8"));
 			assert.match(findings.error, /SyntaxError/);
-			assert.deepEqual(findings.texts, packet.texts);
+			assert.deepEqual(findings.sources, packet.sources.map(source=>source.alias));
 		}
 		await writeFile(join(request.cwd, "presentation.json"), calls === 2 && repair
-			? JSON.stringify({ texts: { "West bedroom": "<West bedroom>" } }) : "not JSON");
+			? JSON.stringify(response(packet)) : "not JSON");
 		return { ok: true };
 	} }, ["West bedroom"]);
 	if (repair) assert.deepEqual(await result, { "West bedroom": "<West bedroom>" });
@@ -274,10 +281,10 @@ test("a malformed repair still merges accepted map words with earlier and concur
 		calls++;
 		const packet = JSON.parse(await readFile(join(request.cwd, "texts.json"), "utf8"));
 		if (calls === 1) {
-			assert.deepEqual(packet.texts, ["Upper Story", "West bedroom"]);
-			await writeFile(join(request.cwd, "presentation.json"), JSON.stringify({ texts: { "Upper Story": "<Upper Story>" } }));
+			assert.deepEqual(packet.sources.map(sourceText), ["Upper Story", "West bedroom"]);
+			await writeFile(join(request.cwd, "presentation.json"), JSON.stringify(response(packet,["West bedroom"])));
 		} else {
-			assert.deepEqual(packet.texts, ["West bedroom"]);
+			assert.deepEqual(packet.sources.map(sourceText), ["West bedroom"]);
 			assert.deepEqual(await readMapWords({ home, play_language: "cc" }), { "Entry hall": "<Entry hall>" }, "round-one acceptance has not yet committed");
 			await writeFile(path, JSON.stringify({ play_language: "cc", digest, texts: { Kitchen: "<Kitchen>" } }));
 			await writeFile(join(request.cwd, "presentation.json"), "not JSON");
@@ -303,7 +310,8 @@ for (const aborted of [false, true]) for (const failRound of [1, 2])
 				assert.equal(request.thinking, "high");
 				assert.strictEqual(request.signal, controller.signal);
 				assert.equal(request.timeoutMs, 120000);
-				await writeFile(join(request.cwd, "presentation.json"), JSON.stringify({ texts: { "Upper Story": "<Upper Story>" } }));
+				const packet=JSON.parse(await readFile(join(request.cwd,'texts.json'),'utf8'));
+				await writeFile(join(request.cwd, "presentation.json"), JSON.stringify(response(packet,["West bedroom"])));
 				if (calls < failRound) return { ok: true };
 				if (aborted) controller.abort();
 				return { ok: aborted, code: 1, stderr: "Model not found", timedOut: false };
@@ -340,7 +348,7 @@ async function laneChild() {
 	await writeFile(script,
 		"import {readFileSync, writeFileSync} from 'node:fs';\n"
 		+ "const packet = JSON.parse(readFileSync('texts.json', 'utf8'));\n"
-		+ "writeFileSync('presentation.json', JSON.stringify({texts: Object.fromEntries(packet.texts.map(text => [text, '[' + packet.play_language + ']' + text]))}));\n");
+		+ "writeFileSync('presentation.json', JSON.stringify({protocol:'presentation-reference-v1',texts:packet.sources.map(source => ({source:source.alias,action:'translate',text:'[' + packet.play_language + ']' + source.text}))}));\n");
 	return JSON.stringify([process.execPath, script]);
 }
 

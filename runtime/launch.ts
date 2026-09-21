@@ -96,6 +96,10 @@ export function piLaunch(input: string[], options: RuntimeHostOptions = {}) {
 
 export async function launchMain(args: string[]): Promise<number> {
   const launch = piLaunch(args);
+  if (launch.env.PI_COC_JEV_S0 === '1' || launch.env.PI_COC_TASK_RUNTIME === '1' && launch.env.PI_COC_MODE === 'play') {
+    const { startS0Rpc } = await import('./jev/s0-rpc.ts');
+    return startS0Rpc(launch);
+  }
   const grouped = process.platform !== 'win32';
   return new Promise((accept, reject) => {
     const child = spawn(launch.command, launch.args, {...launch, stdio: 'inherit', detached: grouped});

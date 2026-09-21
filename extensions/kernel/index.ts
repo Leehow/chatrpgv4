@@ -5,7 +5,7 @@
  */
 
 import type { ImageContent } from "@earendil-works/pi-ai";
-import type { AgentToolUpdateCallback, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { AgentToolUpdateCallback, ExtensionAPI, ExtensionContext, ToolCallEvent, ToolCallEventResult, ToolResultEvent } from "@earendil-works/pi-coding-agent";
 import { existsSync } from "node:fs";
 import { appendFile, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
@@ -20,6 +20,8 @@ import { progressPartial } from "./progress.ts";
 import { MAP_DOCUMENT_NONE, renderMapView, type MapAttachment } from './map-view.ts';
 import { AUTHORED_MAP_WORDS, KEEPER_MAP_WORDS, mapCardTexts, type MapWordsOptions, prepareMapWords, projectMapCard, readMapWords } from '../module/map-presentation.ts';
 import { COC_TOOLS, COC_TOOL_NAMES, type CocToolSpec, WRITE_TOOLS } from "./tools.ts";
+import type {TaskProviderBudget} from '../../runtime/jev/provider-budget.ts';
+import { createCanonicalOperationDispatcher } from './canonical-operation-dispatcher.ts';
 import { RecallPages } from "./recall-pages.ts";
 import { workspaceSettingsOf } from '../table/workspace/projection.ts';
 import { bindWorkpadPatch, publishWorkpadPatch, takeWorkpadPatch, type WorkpadBinding } from '../table/workspace/workpad.ts';
@@ -232,18 +234,6 @@ interface TableState {
 	blockedAfterExhausted: number;
 	/** The prose the floor steer dropped; if the second leg brings no prose and no narrate, this closes the turn as before. */
 	floorDraft?: string;
-	/**
-	 * The recovery this turn's capsule said the Director is owed (contract §40), or null when none is.
-	 * A Director beat was advice: `directorAdoption` is telemetry and says so, and on campaign
-	 * game-83177d61 the Keeper declined 43 of 52 signals, six consecutive RECOVERs among them, while
-	 * the player was failing the same STR check against the same nailed cupboard for the third time.
-	 * The host is the only layer that can make a signal a step, and this is where it does it.
-	 */
-	recoveryOwed?: { blocked: number; steps: string[] } | null;
-	/** Whether a receipt that discharges the recovery has landed this turn. */
-	recoveryLanded: boolean;
-	/** The recovery refusal is spent once per turn: a second narrate closes the turn whatever it brings. */
-	recoverySteered: boolean;
 	/** A retained *adaptation* preparation owns the rest of this turn until the Keeper briefly yields to the
 	 * player: it is a named job with its own control verb (`lookup kind=adaptation action=status`), so the
 	 * Keeper can always find out where it stands. A source reading has no such verb and is not put here. */
@@ -377,7 +367,7 @@ interface TableState {
 	 * Table F (2026-09-11): twenty-eight refusals of two classes in one turn, the identical-resend guard never
 	 * fired because every retry was reworded, and the turn ran to its 300 s cap.
 	 */
-	refusalClasses: Map<string, { count: number; last: string; round: number }>;
+	refusalClasses: Map<string, { count: number; last: string; round: number | string }>;
 	refusalsThisTurn: number;
 	/** toolCallId to the name of the tool it called, for the class accounting in tool_result. */
 	callTools: Map<string, string>;
@@ -392,7 +382,7 @@ interface TableState {
 	 * turn delivered three NPCs and no mechanics. The rule is "stop banging on the same wall", and
 	 * a batch issued before the first answer arrived is one attempt, whoever it names.
 	 */
-	callRounds: Map<string, number>;
+	callRounds: Map<string, number | string>;
 	/** Tools shut for the rest of the turn by the refusal budget, with the reason read back to the Keeper. */
 	exhausted: Map<string, string>;
 	/** The turn narrate has committed but the verifier lane has not yet started on (contract §12.5: it runs after the delivery replacement). */
@@ -513,11 +503,11 @@ const REFUSAL_CLASS_LIMIT = 3;
  * for a one-line question. The rule is three strikes per class, whoever refused.
  */
 function strikeRefusalClass(
-	state: { refusalClasses: Map<string, { count: number; last: string; round: number }>; exhausted: Map<string, string>; refusalsThisTurn: number; roundTrips: number; callRounds: Map<string, number> },
+	state: { refusalClasses: Map<string, { count: number; last: string; round: number | string }>; exhausted: Map<string, string>; refusalsThisTurn: number; roundTrips: number; callRounds: Map<string, number | string> },
 	tool: string,
 	cls: string,
 	last: string,
-	round: number,
+	round: number | string,
 	/**
 	 * Whether the turn this refusal belongs to has already closed (§77).
 	 *
@@ -587,9 +577,6 @@ function providerNoticeAfterMs(): number {
 const ADAPTATION_HELD = ["pending", "reviewing", "ready"];
 /** Terminal adaptation statuses the table is told about once, by name, and never held for (§60). */
 const ADAPTATION_OVER = ["stale", "failed"];
-/** Receipt kinds that discharge an owed recovery; mirrors `RECOVERY_TAKES` in kernel-ts/read/offer.ts. */
-const RECOVERY_RECEIPT_KINDS = new Set(["clue", "move", "npc", "session", "handout", "map", "item"]);
-
 /**
  * §111.1: the one write shape an in-flight adaptation wait may not take away. It enriches equipment
  * already owned and carries no movement, time, clue, payment, transfer, usage or state mutation.
@@ -610,9 +597,9 @@ function registrationBookkeeping(input: Record<string, unknown>): boolean {
 }
 /** The one host steer of the turn floor (docs/specs/turn-floor.md D4), sent when a turn is about to close on prose alone. */
 const FLOOR_STEER =
-	"This turn used no tool and nothing landed. Read director.offer and the people present: what changes in the world, apply; " +
-	"what is uncertain, resolve. Then take up the player's words from the world's view, let the world answer, give someone " +
-	"present a line in their own voice, and hand the move back to the player. Close with narrate.";
+	"Use the ordinary narrate or mechanics ask delivery path for this response. Complete only the player's already selected goal. " +
+	"A quiet exchange, clarification, informed refusal or completed goal may return without a new effect, event or question. " +
+	"Do not choose a new destination, action, cost or risk for the player.";
 /** The one host steer of §40 (user ruling 2026-09-15): people are on stage and the draft wraps no spoken line. */
 const SPEECH_STEER =
 	"People are present and this draft wraps no spoken line. Every line anyone says aloud goes inside " +
@@ -987,9 +974,22 @@ function readMechanics(result: Record<string, unknown>): Array<Record<string, un
 
 export default function (pi: ExtensionAPI) {
 	let runtime: HostRuntime | undefined;
+	let foregroundProviderBudget: (() => TaskProviderBudget | undefined) | undefined;
+	pi.events.on('coc:task-provider-budget', value => { foregroundProviderBudget = typeof value === 'function' ? value as typeof foregroundProviderBudget : undefined; });
+	let taskDeliveryGuard: ((message?: { provider?: unknown; model?: unknown }, phase?: 'auditing' | 'committing') => void | Promise<void>) | undefined;
+	pi.events.on('coc:task-delivery-guard', value => {
+		taskDeliveryGuard = typeof value === 'function' ? value as typeof taskDeliveryGuard : undefined;
+	});
+	async function guardTaskDelivery(message?: { provider?: unknown; model?: unknown }, phase: 'auditing' | 'committing' = 'auditing'): Promise<void> {
+		try { await taskDeliveryGuard?.(message, phase); }
+		catch (error) {
+			throw new KernelError({ code: 'turn_state', message: error instanceof Error ? error.message : 'The host task cannot deliver',
+				retryable: false, next: 'stop', details: { reason: 'task_delivery_blocked' } });
+		}
+	}
     let adaptations: ReturnType<typeof adaptationService> | undefined;
-  let mods: {prepare(method: string, payload: Record<string, any>, signal?: AbortSignal): Promise<void>;
-    after?(method: string, payload: Record<string, any>, signal?: AbortSignal): Promise<void>} | undefined;
+  let mods: {prepare(method: string, payload: Record<string, any>, signal?: AbortSignal, providerBudget?: TaskProviderBudget): Promise<void>;
+    after?(method: string, payload: Record<string, any>, signal?: AbortSignal, providerBudget?: TaskProviderBudget): Promise<void>} | undefined;
   pi.events.on("coc:mods-bridge", value => { mods = value as typeof mods; });
 	/**
 	 * The Mods extension announces its bridge during extension loading, so on a slow load an opening
@@ -1013,9 +1013,13 @@ export default function (pi: ExtensionAPI) {
 	// A background projection has written this tag's captions (contract §23): drop the authored
 	// words this extension was standing on, so the next line it notifies with is the player's.
 	pi.events.on("coc:ui-words", (data) => { surface.refresh((data as { tag?: unknown } | undefined)?.tag); });
-	let reading: { ensure(moduleId: string, params: Record<string, unknown>, signal?: AbortSignal): Promise<unknown>;
+	let reading: { ensure(moduleId: string, params: Record<string, unknown>, signal?: AbortSignal, options?: {providerBudget?: TaskProviderBudget}): Promise<any>;
 		reading?(moduleId: string, params: Record<string, unknown>): boolean } | undefined;
 	let readingModule: string | undefined;
+	let nativeSource: ((request: {moduleId: string; campaign: string; toolCallId: string; question: string}, signal?: AbortSignal) => Promise<Record<string, any>>) | undefined;
+	pi.events.on('coc:native-source-consult', value => { nativeSource = typeof value === 'function' ? value as typeof nativeSource : undefined; });
+	let memorySearch: ((request: {campaign: string; toolCallId: string; query: string; filters: Record<string, unknown>}, signal?: AbortSignal) => Promise<Record<string, any>>) | undefined;
+	pi.events.on('coc:typed-memory-search', value => { memorySearch = typeof value === 'function' ? value as typeof memorySearch : undefined; });
 	/** Contract §28.9: the build-skew notice is the operator's, once per session, not once per reopen. */
 	let modSkewNotified = false;
 	pi.events.on("coc:reading-bridge", (value) => {
@@ -1143,9 +1147,6 @@ export default function (pi: ExtensionAPI) {
 		table.deliveryTriedThisTurn = false;
 		table.blockedAfterClose = 0;		table.blockedAfterExhausted = 0;
 		table.floorDraft = undefined;
-		table.recoveryOwed = null;
-		table.recoveryLanded = false;
-		table.recoverySteered = false;
 		table.readingWait = false;
 		table.sourceWait = undefined;
 		table.readingRetries.clear();
@@ -1559,20 +1560,6 @@ export default function (pi: ExtensionAPI) {
 			const occupation = asString(sheet?.occupation);
 			state.party.push({ name, ...(occupation ? { occupation } : {}) });
 		}
-		// The one part of the Director section that is not advice (contract §40): when it is present the
-		// player is blocked and the capsule names the operations that unblock them. Read once per capsule.
-		const recovery = (capsule as { director?: { recovery?: unknown } }).director?.recovery as
-			{ blocked?: unknown; steps?: unknown; note?: unknown; takes?: unknown } | undefined;
-		if (recovery && typeof recovery === "object") {
-			const steps = Array.isArray(recovery.steps)
-				? recovery.steps.flatMap((row) => {
-					const step = row as Record<string, unknown> | null;
-					const operation = asString(step?.operation), line = asString(step?.line);
-					return operation || line ? [[operation, line].filter(Boolean).join(" — ")] : [];
-				})
-				: [];
-			state.recoveryOwed = { blocked: typeof recovery.blocked === "number" ? recovery.blocked : 0, steps };
-		}
 		if (Array.isArray(view.recent)) {
 			state.interruptedPlayerText = [...view.recent].reverse().flatMap((row) => {
 				const entry = row as Record<string, unknown> | null;
@@ -1610,27 +1597,6 @@ export default function (pi: ExtensionAPI) {
 			const destination = asString((row as Record<string, unknown> | null)?.scene);
 			if (destination) state.combatSceneMoves.add(destination);
 		}
-	}
-
-	/**
-	 * What discharges a recovery the Director asked for (contract §40), read from receipts alone.
-	 *
-	 * The keeper-pacing ladder in receipt form: information reached the player (`clue`, `handout`, `map`,
-	 * `item`), a present person acted (`npc`), the place changed (`move`), a subsystem opened (`session`).
-	 * Plus the rulebook's own retry: a pushed roll restates the stakes and takes the player's confirmation,
-	 * so it is a step, while the same ordinary check opened fresh again is not — the Keeper Rulebook allows
-	 * one retry of a failed check and only as a push. A check that simply went the player's way discharges
-	 * it too: the obstacle moved, whatever the Director was told a turn earlier.
-	 */
-	function noteRecovery(state: TableState, result: Record<string, unknown>): void {
-		if (state.recoveryLanded) return;
-		const ids = Array.isArray(result.receipts) ? result.receipts.map(String) : [];
-		if (ids.some((id) => RECOVERY_RECEIPT_KINDS.has(id.split(":")[0]))) {
-			state.recoveryLanded = true;
-			return;
-		}
-		const outcome = result.outcome as { passed?: unknown; pushed?: unknown } | undefined;
-		if (outcome?.passed === true || outcome?.pushed === true) state.recoveryLanded = true;
 	}
 
 	/** One line per settled call, for the review's "already settled this turn" list. */
@@ -1684,7 +1650,7 @@ export default function (pi: ExtensionAPI) {
 	 * nothing to review and says so in telemetry. A verdict already given this turn for the same
 	 * proposal is reused, admitting and refusing alike (contract §32.4).
 	 */
-	async function admitAction(state: TableState, tool: "resolve" | "apply", payload: Record<string, unknown>, signal?: AbortSignal): Promise<void> {
+	async function admitAction(state: TableState, tool: "resolve" | "apply", payload: Record<string, unknown>, signal?: AbortSignal, providerBudget?: TaskProviderBudget): Promise<void> {
 		const internalCombatMove = tool === "apply" ? combatSceneMove(state, payload) : undefined;
 		if (internalCombatMove) {
 			await record({ lane: "admission", verb: tool, ok: true, skipped: "combat_scene_required", destination: internalCombatMove });
@@ -1751,7 +1717,7 @@ export default function (pi: ExtensionAPI) {
 			landed: state.landed,
 			refused: state.admissionRefused,
 		};
-		const outcome = await reviewAdmission({ ctx, proposal, context, record: (row) => record({ verb: tool, ...row }), ...(signal ? { signal } : {}) });
+		const outcome = await reviewAdmission({ ctx, proposal, context, providerBudget, record: (row) => record({ verb: tool, ...row }), ...(signal ? { signal } : {}) });
 		if (!outcome.ok) {
 			await record({ lane: "admission", verb: tool, ok: false, reason: outcome.reason, detail: outcome.detail.slice(0, 200), ms: outcome.ms, key: digest, ...(outcome.model ? { model: outcome.model } : {}) });
 			state.admissionOutage += 1;
@@ -1804,12 +1770,10 @@ export default function (pi: ExtensionAPI) {
 				state.state = "acting";
 				noteResolve(state, result as ResolveResult);
 				noteLanded(state, tool, result);
-				noteRecovery(state, result);
 				break;
 			case "apply": {
 				state.state = "acting";
 				noteLanded(state, tool, result);
-				noteRecovery(state, result);
 				if (readingModule && Array.isArray(result.deepen_queued) && result.deepen_queued.length)
 					pi.events.emit("coc:source-work-queued", {campaign:state.campaign,module_id:readingModule});
 				// Handouts (contract §14.8): the kernel mints the receipt, and the attachment itself is the
@@ -2013,6 +1977,7 @@ export default function (pi: ExtensionAPI) {
 
 	async function emitProviderNotice(state: TableState, failure: { ms: number; streak: number }, terminal: boolean,
 		turn: number): Promise<void> {
+		if (table !== state || state.lanes.signal.aborted) return;
 		const seconds = Math.round(failure.ms / 1000);
 		let line = terminal
 			? `This turn could not finish because the connection to the model returned no result. Nothing you did was lost — send anything to continue.`
@@ -2028,8 +1993,11 @@ export default function (pi: ExtensionAPI) {
 		} catch {
 			/* an unreadable content root still owes the player the English line */
 		}
-		pi.sendMessage({ customType: "coc-delivery", content: line, display: true,
-			details: { coc_delivery: true, turn, provider_outage: true, terminal, streak: failure.streak, ms: failure.ms } });
+		if (table !== state || state.lanes.signal.aborted) return;
+		try {
+			pi.sendMessage({ customType: "coc-delivery", content: line, display: true,
+				details: { coc_delivery: true, turn, provider_outage: true, terminal, streak: failure.streak, ms: failure.ms } });
+		} catch { return; /* Pi can revoke its surface before the shutdown hook completes. The outage record already exists. */ }
 		void record({ lane: "delivery", turn, ok: true, reason: "provider_outage_notice",
 			streak: failure.streak, ms: failure.ms, terminal });
 	}
@@ -2516,6 +2484,7 @@ export default function (pi: ExtensionAPI) {
 		signal?: AbortSignal,
 		onUpdate?: AgentToolUpdateCallback<Record<string, unknown>>,
 	): Promise<{ content: Array<{ type: "text"; text: string }>; details: Record<string, unknown>; terminate?: boolean }> {
+		const providerBudget = dispatcher.providerBudget(toolCallId) ?? foregroundProviderBudget?.();
 		const state = table;
 		takeSkillAnnotation(state?.skillRun, params);
 		if (!state) {
@@ -2540,17 +2509,27 @@ export default function (pi: ExtensionAPI) {
 		// Keeper's opening is the one delivery that carries the beginner's "?" fold (opening-guidance §4).
 		const closesOpening = spec.name === "narrate" && state.openingPending;
 		if(spec.name==='ask' && params.kind!=='mechanics')throw new Error('Use narrate for ordinary story questions and await free input; ask only accepts mechanics');
-    const payload: Record<string, unknown> = { campaign: state.campaign, ...params };
+    const payload: Record<string, unknown> = { ...params, campaign: state.campaign };
+        if (dispatcher.tracksMutation(toolCallId)) payload._task_read_set = true;
 		if (WRITE_TOOLS.has(spec.name)) {
 			payload.call_id = takeCallId(state, toolCallId);
+			await dispatcher.bindKernelCallId(toolCallId, payload.call_id);
 		}
 		const startedAt = new Date().toISOString();
 		const began = Date.now();
 		// Progress frames (contract §1) are requested only when the runtime gave us its
 		// update channel; each frame becomes one partial result on the tool status line.
 		const onProgress = onUpdate ? (frame: KernelProgressFrame) => onUpdate(progressPartial(frame)) : undefined;
+		const invokeOperation = async () => {
+			if (spec.name === 'narrate' || spec.name === 'ask') await guardTaskDelivery(undefined, 'committing');
+			await dispatcher.beforeKernelInvoke(toolCallId, spec.method, payload);
+			return state.kernel.call<Record<string, unknown>>(spec.method, payload, onProgress);
+		};
 		try {
 			if (spec.name === "recall") {
+				if (params.query !== undefined && (params.what !== 'memory' || typeof params.query !== 'string' || !params.query.trim()
+					|| params.query.length > 2048 || params.read != null || params.detail != null || Number((params.page as any)?.offset ?? 0) > 0))
+					throw new KernelError({code: 'invalid_params', message: 'A semantic memory query cannot be combined with direct read/detail or an unissued listing offset'});
 				delete payload._snapshot;
 				delete payload._context_read;
 				const {_context_read: _privateRead, ...publicParams} = params;
@@ -2558,26 +2537,15 @@ export default function (pi: ExtensionAPI) {
 			}
 			if (state.reviewUnavailable) throw new KernelError({code: 'needs', message: 'The review is paused until new player input',
 				details: {reason: 'continuity_review_unavailable', cause: state.reviewUnavailable}});
-			// The recovery gate (contract §40). The Director asked for a recovery this turn and nothing that
-			// counts as one has landed, so the first narrate is refused once and the capsule's own operations
-			// come back as the fix. Spent once per turn and never on `ask`: whatever the second leg brings
-			// closes the turn, so a Keeper that cannot find a step cannot hang the table on this.
-			// It is the only thing in the system that makes a Director signal a step instead of a line --
-			// campaign game-83177d61 declined 43 of 52 of them, 17 RECOVERs among them, at no cost.
-			if (spec.name === "narrate" && state.recoveryOwed && !state.recoveryLanded && !state.recoverySteered && !state.steeredThisTurn) {
-				state.recoverySteered = true;
-				await record({ lane: "recovery", turn: state.turn, blocked: state.recoveryOwed.blocked,
-					steps: state.recoveryOwed.steps.length, round_trips: state.roundTrips });
-				throw new KernelError({ code: "needs",
-					message: "This turn owes the player a recovery and nothing that counts as one has landed",
-					fix: "Take one of the Director's recovery steps, then narrate: "
-						+ (state.recoveryOwed.steps.join(" | ") || "hand the player something a present person, this room or a way out already holds")
-						+ ". One receipt of kind clue, move, npc, session, handout, map or item discharges it, and so does a pushed roll or a check the player passes."
-						+ " Do not choose for the player, do not skip a risk the book gates with a check, and do not answer this by describing the same state in new words:"
-						+ " put the way forward within reach and let them take it. Nothing has happened yet; this draft was not delivered.",
-					details: { reason: "recovery_owed", blocked: state.recoveryOwed.blocked, steps: state.recoveryOwed.steps } });
-			}
 			let sourceAnswer: Record<string, unknown> | undefined;
+			let memoryAnswer: Record<string, unknown> | undefined;
+			if (spec.name === 'recall' && params.query !== undefined) {
+				if (!memorySearch) throw new KernelError({code: 'needs', message: 'The typed memory query owner is unavailable',
+					fix: 'Omit query and use ordinary direct recall; all retained originals remain available.', details: {reason: 'memory_query_requires_host'}});
+				dispatcher.requireCapability(toolCallId, 'recall');
+				const filters = Object.fromEntries(['line', 'turns', 'about', 'kinds', 'include_superseded'].filter(key => params[key] !== undefined).map(key => [key, params[key]]));
+				memoryAnswer = await memorySearch({campaign: state.campaign, toolCallId, query: String(params.query), filters}, signal);
+			}
 			if (spec.name === 'lookup' && params.source_mode !== undefined && (params.kind !== 'source' || !['answer', 'prepare'].includes(String(params.source_mode))))
 				throw new KernelError({code:'invalid_params', message:'source_mode is answer or prepare, and only applies to source lookup'});
 			if (spec.name === "lookup" && params.kind === "source") {
@@ -2586,11 +2554,14 @@ export default function (pi: ExtensionAPI) {
 				if (!asString(params.query)?.trim()) throw new KernelError({
 					code: "invalid_params", message: "Source lookup needs a named query; question supplies additional scope",
 					fix: "pass the place or entity as query and describe the unresolved source question" });
-				if (!reading || !readingModule) throw new KernelError({ code: "needs", message: "the source reading service is unavailable",
+				if (!readingModule || !reading && !(answerOnly && nativeSource)) throw new KernelError({ code: "needs", message: "the source reading service is unavailable",
 					fix: "reopen the table with its module reading extension available", details: { reason: "reading_failed" } });
 				const sourceRead = { purpose: answerOnly ? "answer" : "detail", focus: params.query, question: params.question ?? "" };
+				dispatcher.requireCapability(toolCallId, answerOnly ? 'lookup.source.answer' : 'source.prepare');
 				try {
-					const response = await reading.ensure(readingModule, { ...sourceRead, retry: params.retry === true, foreground: true }, signal);
+					const response = answerOnly && nativeSource
+						? await nativeSource({moduleId: readingModule, campaign: state.campaign, toolCallId, question: String(params.question)}, signal)
+						: await reading!.ensure(readingModule, { ...sourceRead, retry: params.retry === true, foreground: true }, signal, {providerBudget});
 					if (answerOnly) {
 						if (!response.source_answer || typeof response.source_answer !== 'object') throw new KernelError({code:'internal', message:'The source consultation returned no checked answer'});
 						sourceAnswer = response.source_answer;
@@ -2603,7 +2574,8 @@ export default function (pi: ExtensionAPI) {
 			let result: Record<string, unknown>;
 			// Action admission (contract §32) runs ahead of every Mod hook and of the kernel: a refused
 			// proposal pays for no definition agent and reaches no transaction.
-			if (spec.name === "resolve" || spec.name === "apply") await admitAction(state, spec.name, payload, signal);
+			if (spec.name === 'narrate' || spec.name === 'ask') await guardTaskDelivery();
+			if (spec.name === "resolve" || spec.name === "apply") await admitAction(state, spec.name, payload, signal, providerBudget);
       if (mods) {
         if (Array.isArray(payload.effects)) payload.effects = payload.effects.map(effect => ({...(effect as Record<string, unknown>)}));
         if (spec.name === 'narrate' && state.preparationWait) payload.preparation_wait = {
@@ -2611,7 +2583,7 @@ export default function (pi: ExtensionAPI) {
         else if (spec.name === 'narrate' && state.sourceWait) payload.preparation_wait = {
           kind: 'source', ...(state.sourceWait.focus ? {name: state.sourceWait.focus} : {})};
         if (spec.name === 'narrate' && state.rebindingRefused) payload.rebinding_refused = {...state.rebindingRefused};
-        const prepared = await mods.prepare(spec.name, payload, signal);
+        const prepared = await mods.prepare(spec.name, payload, signal, providerBudget);
         // §91. Only a delivery carries a continuity review, so only a delivery can report one missing.
         if (spec.name === 'narrate' || spec.name === 'ask') {
           if (prepared?.unreviewed) noteUnreviewedDelivery(state, prepared.unreviewed);
@@ -2619,14 +2591,15 @@ export default function (pi: ExtensionAPI) {
         }
       }
 			try {
-                if (sourceAnswer) result = { source_answer: sourceAnswer };
+                if (memoryAnswer) result = memoryAnswer;
+                else if (sourceAnswer) result = { source_answer: sourceAnswer };
                 else if (spec.name === 'lookup' && params.kind === 'adaptation') {
                     if (!runtime) throw new KernelError({code: 'needs', message: 'The adaptation runtime is unavailable'});
                     adaptations ??= adaptationService(runtime, (method, args) => state.kernel.call(method, args), () => ({
                         name: process.env.PI_COC_ADAPTATION_MODEL || `${sessionCtx?.model?.provider}/${sessionCtx?.model?.id}`, thinking: pi.getThinkingLevel()
                     }));
                     result = await adaptations.lookup(payload, signal);
-                } else result = (await state.kernel.call<Record<string, unknown>>(spec.method, payload, onProgress)) ?? {};
+                } else result = (await invokeOperation()) ?? {};
             }
 			catch (failure) {
 				if (isKernelError(failure) && failure.details?.reason === "material_pending" && state.skillRun) {
@@ -2635,6 +2608,8 @@ export default function (pi: ExtensionAPI) {
 				}
 				if (!(isKernelError(failure)) || failure.details?.reason !== "material_pending" || !reading || !readingModule) throw failure;
 				const read = { ...(failure.details.read as Record<string, unknown>), foreground: true };
+				const ownedPreparation=dispatcher.tracksMutation(toolCallId);
+				if(!ownedPreparation)dispatcher.requireCapability(toolCallId, read.purpose === 'answer' ? 'lookup.source.answer' : 'source.prepare');
 				const readKey = JSON.stringify([read.purpose ?? "", read.material ?? "", read.focus ?? "", read.question ?? "", read.guidance_key ?? ""]);
 				// This exact material already refused this turn: refuse again at once rather than rejoining
 				// the same pending job for another full wait. The Keeper was told not to ask again.
@@ -2645,24 +2620,35 @@ export default function (pi: ExtensionAPI) {
 					if (isKernelError(refusal)) state.readingRefused.set(readKey, refusal);
 					throw refusal;
 				};
-				try {
-					await reading.ensure(readingModule, read, signal);
-				} catch (readFailure) {
-					if (!isKernelError(readFailure) || readFailure.details?.reason !== "reading_failed" || signal?.aborted) refuse(readFailure);
-					if (state.readingRetries.has(readKey)) refuse(readFailure);
-					state.readingRetries.add(readKey);
-					try { await reading.ensure(readingModule, { ...read, retry: true }, signal); }
-					catch (repairFailure) { refuse(repairFailure); }
-				}
-				result = (await state.kernel.call<Record<string, unknown>>(spec.method, payload, onProgress)) ?? {};
+				const ensurePending=async (params:Record<string,unknown>,ownedSignal?:AbortSignal,providerBudget?:TaskProviderBudget):Promise<Record<string,any>>=>{
+					try {return await reading!.ensure(readingModule!,params,ownedSignal,{providerBudget});}
+					catch(readFailure) {
+						if(!isKernelError(readFailure)||readFailure.details?.reason!=="reading_failed"||ownedSignal?.aborted)refuse(readFailure);
+						if(state.readingRetries.has(readKey))refuse(readFailure);
+						state.readingRetries.add(readKey);
+						try{return await reading!.ensure(readingModule!,{...params,retry:true},ownedSignal,{providerBudget});}
+						catch(repairFailure){return refuse(repairFailure);}
+					}
+				};
+				if(ownedPreparation) {
+					const prepare=(dispatcher as typeof dispatcher & {prepareSource?:(id:string,moduleId:string,failure:unknown,ensure:typeof ensurePending)=>Promise<unknown>}).prepareSource;
+					if(!prepare)throw new KernelError({code:'needs',message:'The tracked mutation has no owned source preparation bridge',details:{reason:'source_preparation_not_owned'}});
+					if(await prepare(toolCallId,readingModule,failure,ensurePending)===false)throw new KernelError({code:'needs',message:'The source preparation has no tracked mutation owner',details:{reason:'source_preparation_not_owned'}});
+				} else await ensurePending(read,signal);
+				// Retry the original identity only after the exact source publication; consent and Mod gates run again.
+				if(spec.name==='resolve'||spec.name==='apply')await admitAction(state,spec.name,payload,signal,providerBudget);
+				if(mods)await mods.prepare(spec.name,payload,signal,providerBudget);
+				result = (await invokeOperation()) ?? {};
 			}
 			if (spec.name === "recall") result = state.recallPages.accept(result);
 			// Deferred Mod bookkeeping completes after the verb that opened this turn, never before it.
-			if (mods?.after) await mods.after(spec.name, payload, signal);
+			if (mods?.after) await mods.after(spec.name, payload, signal, providerBudget);
 			if (spec.name === "lookup" && params.kind === "module" && params.question) {
 				result.note = "This is published graph material. Use lookup kind source only if an original-page recheck is needed.";
 			}
 			await prepareMapViews(state,result);
+			if (result._task_advance && dispatcher.tracksMutation(toolCallId))
+                pi.events.emit('coc:task-receipt-advance', result._task_advance);
 			const completedCombatMove = spec.name === "apply" ? combatSceneMove(state, payload) : undefined;
 			applyToolSuccess(state, spec.name, toolCallId, result);
 			if (completedCombatMove) state.combatSceneMoves.delete(completedCombatMove);
@@ -2834,6 +2820,10 @@ export default function (pi: ExtensionAPI) {
 		}
 	}
 
+	const dispatcher = createCanonicalOperationDispatcher({
+		prepare: prepareOperation, execute: runTool, finalize: finalizeOperation,
+		preparedCallId: id => table?.mintedCallIds.get(id),
+	});
 	// The setup process's tool surface is only onboarding's `setup`: not one of the seven verbs is registered (contract §14.4).
 	for (const spec of setupMode ? [] : COC_TOOLS) {
 		pi.registerTool({
@@ -2844,12 +2834,13 @@ export default function (pi: ExtensionAPI) {
 			parameters: spec.parameters,
 			// The actions of a turn are ordered: run them serially, so the calls after narrate in the same batch can be stopped.
 			executionMode: "sequential",
-			execute: async (toolCallId, params, signal, onUpdate) => runTool(spec, toolCallId, params as Record<string, unknown>, signal, onUpdate),
+			execute: async (toolCallId, params, signal, onUpdate) => dispatcher.execute(spec, toolCallId, params as Record<string, unknown>, signal, onUpdate),
 		});
 	}
 
 	// AgentToolResult has no isError field, so the error flag can only be raised in tool_result.
-	pi.on("tool_result", async (event) => {
+	pi.on('tool_result', event => dispatcher.finalize(event));
+	async function finalizeOperation(event: ToolResultEvent) {
 		if (!COC_TOOL_NAMES.includes(event.toolName as never)) return;
 		const details = event.details as { coc_error?: { code?: unknown; message?: unknown } } | undefined;
 		if (!details?.coc_error) return;
@@ -2879,7 +2870,7 @@ export default function (pi: ExtensionAPI) {
 				await record({ lane: "refusals", turn: state.turn, count: state.refusalsThisTurn, reason: "turn_budget", last });
 		}
 		return { isError: true };
-	});
+	}
 
 	// ---- Opening the table ------------------------------------------------
 
@@ -2920,6 +2911,8 @@ export default function (pi: ExtensionAPI) {
 
 	async function shutdownKernel(): Promise<void> {
 		bridgeGate.open = false;
+		taskDeliveryGuard = undefined;
+		pi.events.emit('coc:operation-dispatcher', undefined);
 		const current = table;
 		table = undefined;
 		if (current) {
@@ -3018,9 +3011,6 @@ export default function (pi: ExtensionAPI) {
 				deliveryTriedThisTurn: false,
 				blockedAfterClose: 0,
 				blockedAfterExhausted: 0,
-				recoveryOwed: null,
-				recoveryLanded: false,
-				recoverySteered: false,
 				readingRetries: new Set(),
 				readingRefused: new Map(),
 				roundTrips: 0,
@@ -3074,6 +3064,25 @@ export default function (pi: ExtensionAPI) {
 				record: (row: Record<string, unknown>) => void record(row),
 			});
 			pi.events.emit("coc:table-open", { campaign, open });
+			const operationGate = bridgeGate;
+			pi.events.emit('coc:operation-dispatcher', Object.freeze({
+				bindIncumbentScope: (...args: Parameters<typeof dispatcher.bindIncumbentScope>) => {
+					if (!operationGate.open) throw new KernelError({ code: 'internal', message: 'The operation dispatcher is closed' });
+					return dispatcher.bindIncumbentScope(...args);
+				},
+				bindReadScope: (...args: Parameters<typeof dispatcher.bindReadScope>) => {
+					if (!operationGate.open) throw new KernelError({ code: 'internal', message: 'The operation dispatcher is closed' });
+					return dispatcher.bindReadScope(...args);
+				},
+				registerOwned: (...args: Parameters<typeof dispatcher.registerOwned>) => {
+					if (!operationGate.open) throw new KernelError({ code: 'internal', message: 'The operation dispatcher is closed' });
+					return dispatcher.registerOwned(...args);
+				},
+				dispatch: (...args: Parameters<typeof dispatcher.dispatch>) => {
+					if (!operationGate.open) throw new KernelError({ code: 'internal', message: 'The operation dispatcher is closed' });
+					return dispatcher.dispatch(...args);
+				},
+			}));
 			// Contract §39.2: the module's own map labels, projected into this campaign's play
 			// language before the first arrival can need them.
 			warmMapWords(table, open);
@@ -3202,6 +3211,7 @@ export default function (pi: ExtensionAPI) {
 			return { action: "handled" };
 		}
 		waitingInputs.push({ text: event.text, images: event.images });
+		pi.events.emit('coc:player-input-queued', { text: event.text });
 		return { action: "handled" };
 	});
 	pi.on("agent_settled", async () => {
@@ -3412,9 +3422,6 @@ export default function (pi: ExtensionAPI) {
 			state.deliveryOrderRefused = false;
 			state.refusedEffectUntold = false;
 			state.floorDraft = undefined;
-			state.recoveryOwed = null;
-			state.recoveryLanded = false;
-			state.recoverySteered = false;
 			state.readingWait = false;
 			// §22: an unread page belongs to the turn that reached for it. A new player input is a new
 			// context, so the wait it left behind dies with it rather than outliving the whole session.
@@ -3549,7 +3556,8 @@ export default function (pi: ExtensionAPI) {
 		if (table) table.roundTrips += 1;
 	});
 
-	pi.on("tool_call", async (event, ctx) => {
+	pi.on('tool_call', (event, ctx) => dispatcher.prepare(event, ctx));
+	async function prepareOperation(event: ToolCallEvent, ctx: ExtensionContext): Promise<ToolCallEventResult | undefined> {
 		const name = event.toolName;
 		if (!COC_TOOL_NAMES.includes(name as never)) return;
 		const input = event.input as Record<string, unknown>;
@@ -3564,6 +3572,8 @@ export default function (pi: ExtensionAPI) {
 		if (!state) {
 			return { block: true, reason: startupError ?? "the kernel is not up, so this table has not opened" };
 		}
+		const hostRound = dispatcher.attemptRound(event.toolCallId);
+		if (hostRound !== undefined) state.callRounds.set(event.toolCallId, hostRound);
 		state.toolCallsThisTurn += 1;
 		if (name === "narrate" || name === "ask") state.deliveryTriedThisTurn = true;
 		// Contract §34.17: a delivery written in two halves, refused before either half lands. Both
@@ -3714,7 +3724,7 @@ export default function (pi: ExtensionAPI) {
 		// A Keeper once sent one set of parameters thirteen times and was refused every time; after two
 		// refusals the third is blocked here, with the last error read back to it.
 		state.callTools.set(event.toolCallId, name);
-		state.callRounds.set(event.toolCallId, state.roundTrips);
+		state.callRounds.set(event.toolCallId, hostRound ?? state.roundTrips);
 		const shut = state.exhausted.get(name);
 		if (shut) {
 			// §70: the same escalation §34.16 gives a closed turn, for a turn that never
@@ -3773,8 +3783,8 @@ export default function (pi: ExtensionAPI) {
 			// Contract §11.9: when the Keeper leaves binds out, fill it with the kernel's latest pending choice for the player.
 			input.binds = state.pendingChoice.name;
 		}
-		state.mintedCallIds.set(event.toolCallId, mintCallId(state));
-	});
+		state.mintedCallIds.set(event.toolCallId, dispatcher.fixedCallId(event.toolCallId) ?? mintCallId(state));
+	}
 
 	/** Entity names get whitespace normalisation; case is left to the kernel, which matches the names and aliases on the graph. */
 	function normalizeToolInput(name: string, input: Record<string, unknown>): void {
@@ -4007,10 +4017,12 @@ export default function (pi: ExtensionAPI) {
 							...(state.sourceWait.focus ? {name: state.sourceWait.focus} : {})}} : {}),
 					...(state.rebindingRefused ? {rebinding_refused: {...state.rebindingRefused}} : {}) };
 				state.skillRun?.tool_names.push(tool);
-				const prepared = await mods?.prepare(tool, params, state.lanes.signal);
+				await guardTaskDelivery(event.message);
+				const prepared = await mods?.prepare(tool, params, state.lanes.signal, foregroundProviderBudget?.());
 				// §91: the host's own closing delivery is reviewed on the same terms as an explicit one.
 				if (prepared?.unreviewed) noteUnreviewedDelivery(state, prepared.unreviewed);
 				else noteReviewAnswered(state);
+				await guardTaskDelivery(event.message, 'committing');
 				const result = (await state.kernel.call<Record<string, unknown>>(`table.${tool}`, params)) ?? {};
 				// `applyToolSuccess`'s own `narrate` case already projected the mechanics and noted the
 				// commit. Projecting again here wrote the `coc-mechanics` entry twice for every turn the

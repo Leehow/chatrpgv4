@@ -1,6 +1,9 @@
 # Jev-driven tool tasks, memory lifecycle, and demand-driven preparation
 
-Target status: specified, not implemented, not accepted.
+<!-- unified-jev-supersession -->
+> **Superseded design snapshot.** Do not implement this file independently. The [unified runtime refactor](jev-unified-runtime-refactor.md) is the single current design, tracked in [#101](https://github.com/Leehow/chatrpgv4/issues/101). The original proposal below is retained for traceability.
+
+Historical status: superseded by the unified design; not an independent implementation plan.
 
 ## Problem Statement
 

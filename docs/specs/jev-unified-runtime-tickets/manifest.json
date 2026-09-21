@@ -1,0 +1,440 @@
+{
+  "version": 1,
+  "parent": 101,
+  "historical": [
+    100
+  ],
+  "externalReferences": [
+    92,
+    93,
+    94,
+    95,
+    96,
+    97,
+    98,
+    99
+  ],
+  "canonicalSpec": "docs/specs/jev-unified-runtime-refactor.md",
+  "ledger": "docs/active-plans/jev-unified-runtime.md",
+  "publicationState": "repository-local-published",
+  "operationalConstraints": {
+    "tracker": "repository-local-markdown",
+    "publishLocal": true,
+    "publishRemote": false,
+    "push": false,
+    "package": false,
+    "restart": false,
+    "productionKernel": "kernel-ts",
+    "fakePlayAcceptance": false
+  },
+  "tickets": [
+    {
+      "id": "T01",
+      "stage": [
+        "S0"
+      ],
+      "title": "Freeze unified contracts and compatibility boundaries",
+      "status": "accepted",
+      "executionState": "complete",
+      "dependsOn": [],
+      "model": [
+        "gpt-6-astra"
+      ],
+      "helpers": [
+        {
+          "model": "gpt-5.6-terra",
+          "scope": "contract fixtures and tests only"
+        }
+      ],
+      "body": "01-contract-freeze.md"
+    },
+    {
+      "id": "T02",
+      "stage": [
+        "S0"
+      ],
+      "title": "Prove the public SDK host seam and make the go/no-go decision",
+      "status": "accepted",
+      "executionState": "complete-s0-only",
+      "dependsOn": [
+        "T01"
+      ],
+      "model": [
+        "gpt-6-astra"
+      ],
+      "helpers": [
+        {
+          "model": "gpt-5.6-terra",
+          "scope": "SDK conformance harness and evidence capture only"
+        }
+      ],
+      "acceptanceEvidence": ".coc/playtests/jev-s0-live-20260920/s0-evidence.json",
+      "conformanceCases": 49,
+      "acceptanceBoundary": "bounded source-only S0 probe; no full TaskRuntime, general lookup/PDF, memory, mutation-domain, consumer-migration, or performance claim",
+      "body": "02-public-sdk-gate.md"
+    },
+    {
+      "id": "T03",
+      "stage": [
+        "S1"
+      ],
+      "title": "Implement standalone SourceRef resolver and legacy views",
+      "status": "accepted",
+      "executionState": "complete-standalone",
+      "dependsOn": [
+        "T01"
+      ],
+      "model": [
+        "gpt-6-astra"
+      ],
+      "helpers": [
+        {
+          "model": "gpt-5.6-terra",
+          "scope": "legacy fixtures and resolver tests only"
+        }
+      ],
+      "acceptanceBoundary": "standalone SourceRef and legacy views only; no consumer migration or hybrid-runtime claim",
+      "body": "03-source-ref.md"
+    },
+    {
+      "id": "T04",
+      "stage": [
+        "S1"
+      ],
+      "title": "Add version, read-set, budget, checkpoint and outcome foundations",
+      "status": "accepted",
+      "executionState": "complete-foundations-only",
+      "dependsOn": [
+        "T01",
+        "T02"
+      ],
+      "model": [
+        "gpt-6-astra"
+      ],
+      "helpers": [
+        {
+          "model": "gpt-5.6-terra",
+          "scope": "deterministic lifecycle tests only"
+        }
+      ],
+      "conformanceCases": 10,
+      "combinedValidation": "contracts + SourceRef + foundations 29/29; strict typecheck passed",
+      "acceptanceBoundary": "shared foundation APIs only; no caller/runtime integration until T06; authorizeResume policy remains owner-runtime authority",
+      "body": "04-task-foundations.md"
+    },
+    {
+      "id": "T05",
+      "stage": [
+        "S1",
+        "S2"
+      ],
+      "title": "Extract CanonicalOperationDispatcher",
+      "status": "accepted",
+      "executionState": "complete-dispatcher-foundation",
+      "dependsOn": [
+        "T02",
+        "T04"
+      ],
+      "model": [
+        "gpt-6-astra"
+      ],
+      "helpers": [
+        {
+          "model": "gpt-5.6-sol",
+          "scope": "guard parity tests only"
+        }
+      ],
+      "extensionCases": 11,
+      "kernelRpcCases": 4,
+      "combinedValidation": "35/35 focused; prior normal-turn/split 39/39; runtime build, kernel typecheck, focused strict TypeScript passed",
+      "acceptanceBoundary": "canonical dispatcher foundation only; no production TaskRuntime caller until T06 and no live hybrid mutation/source/memory/product rollout",
+      "body": "05-dispatcher.md"
+    },
+    {
+      "id": "T06",
+      "stage": [
+        "S2"
+      ],
+      "title": "Implement HostSessionAdapter and TaskRuntime lifecycle",
+      "status": "accepted",
+      "executionState": "complete-s2-core-readonly-integration",
+      "dependsOn": [
+        "T02",
+        "T04",
+        "T05"
+      ],
+      "model": [
+        "gpt-6-astra"
+      ],
+      "helpers": [
+        {
+          "model": "gpt-5.6-sol",
+          "reasoning": "high",
+          "scope": "lifecycle and restart tests plus independent review only",
+          "substitutionReason": "Terra capacity unavailable at dispatch"
+        }
+      ],
+      "acceptanceEvidence": ".coc/playtests/jev-s2-live-05-20260920/s2-evidence.json",
+      "acceptanceReview": ".tmp/team-lead/jev-s2-gate-review.md",
+      "acceptanceBoundary": "S2 core lifecycle and bounded read-only table-evidence/2 integration only; no general source/PDF, memory, mutation, cache, broad product, performance, or pacing A/B claim",
+      "body": "06-task-runtime.md"
+    },
+    {
+      "id": "T07",
+      "stage": [
+        "S2"
+      ],
+      "title": "Implement pinned Jev DecisionAdapter and bounded transport",
+      "status": "accepted",
+      "executionState": "complete-s2-core-readonly-integration",
+      "dependsOn": [
+        "T01",
+        "T02",
+        "T04"
+      ],
+      "jointAcceptanceWith": [
+        "T06"
+      ],
+      "model": [
+        "gpt-5.6-sol"
+      ],
+      "reasoning": "high",
+      "focusedCases": 12,
+      "acceptanceEvidence": ".coc/playtests/jev-s2-live-05-20260920/s2-evidence.json",
+      "acceptanceReview": ".tmp/team-lead/jev-s2-gate-review.md",
+      "acceptanceBoundary": "typed adapter plus bounded S2 read-only integration; no cache, general domain, consumer migration, broad product, quality, performance, pacing A/B, or cost-advantage claim",
+      "body": "07-jev-adapter.md"
+    },
+    {
+      "id": "T08",
+      "stage": [
+        "S3"
+      ],
+      "title": "Deliver source lookup and proof vertical",
+      "status": "accepted",
+      "executionState": "complete-bounded-source-vertical",
+      "dependsOn": [
+        "T03",
+        "T05",
+        "T06",
+        "T07"
+      ],
+      "model": [
+        "gpt-6-astra"
+      ],
+      "helpers": [
+        {
+          "model": "gpt-5.6-terra",
+          "scope": "non-kernel source helpers and source vertical tests only"
+        }
+      ],
+      "body": "08-source-vertical.md",
+      "acceptanceEvidence": ".coc/playtests/jev-fresh-live-02-20260920/source-evidence.json",
+      "acceptanceReview": ".tmp/team-lead/jev-t08-final-review.md",
+      "acceptanceBoundary": "Native consultation, fresh navigation assist, original-page author/review/finish readiness; no unsupported text-to-parameters, graph elimination, pacing or performance claim"
+    },
+    {
+      "id": "T09",
+      "stage": [
+        "S4"
+      ],
+      "title": "Implement reference-first memory write and organize lifecycle",
+      "status": "accepted",
+      "executionState": "complete-bounded-memory-write-and-incumbent-readers",
+      "acceptanceEvidence": ".coc/playtests/jev-memory-live-04-20260920/memory-reader-evidence.json",
+      "acceptanceReview": ".tmp/team-lead/jev-t09-core-review.md",
+      "acceptanceBoundary": "referenced write and incumbent reader integration; no adaptive retrieval, reward fulfillment, performance or product claim",
+      "dependsOn": [
+        "T03",
+        "T04",
+        "T06",
+        "T07"
+      ],
+      "model": [
+        "gpt-6-astra"
+      ],
+      "helpers": [
+        {
+          "model": "gpt-5.6-sol",
+          "scope": "non-kernel memory host helper and tests only"
+        }
+      ],
+      "body": "09-memory-write.md"
+    },
+    {
+      "id": "T10",
+      "stage": [
+        "S4"
+      ],
+      "title": "Implement adaptive memory read, recall and bounded context",
+      "status": "accepted",
+      "executionState": "complete-bounded-semantic-memory-read",
+      "dependsOn": [
+        "T03",
+        "T06",
+        "T07",
+        "T09"
+      ],
+      "model": [
+        "gpt-6-astra"
+      ],
+      "helpers": [
+        {
+          "model": "gpt-5.6-sol",
+          "scope": "memory domain, conformance and independent review"
+        }
+      ],
+      "body": "10-memory-read.md",
+      "acceptanceEvidence": ".coc/playtests/jev-memory-read-live-04-20260920/memory-read-evidence.json",
+      "acceptanceReview": ".tmp/team-lead/jev-t10-final-review.md",
+      "acceptanceBoundary": "V5 multi-subquestion retrieval, canonical originals/attribution, raw extraction-gap fallback, bounded partial coverage and clean lifecycle; no reward, complete recall or performance claim"
+    },
+    {
+      "id": "T11",
+      "stage": [
+        "S5"
+      ],
+      "title": "Route ordinary resolve exactly once through the TypeScript kernel",
+      "status": "accepted",
+      "executionState": "complete-bounded-ordinary-resolve",
+      "dependsOn": [
+        "T05",
+        "T06",
+        "T07"
+      ],
+      "conditionalDependsOn": [
+        "T08",
+        "issue-99"
+      ],
+      "model": [
+        "gpt-6-astra"
+      ],
+      "helpers": [
+        {
+          "model": "gpt-5.6-sol",
+          "scope": "domain and public/kernel integration conformance and independent review"
+        }
+      ],
+      "body": "11-resolve.md",
+      "acceptanceEvidence": ".coc/playtests/jev-resolve-live-20260920/resolve-evidence.json",
+      "acceptanceReview": ".tmp/team-lead/jev-t11-final-review.md",
+      "acceptanceBoundary": "One ordinary check through canonical admission/Mod/schema/TS kernel/receipt path, same-call recovery and freshness; no specialized mutation, apply, reward or performance claim"
+    },
+    {
+      "id": "T12",
+      "stage": [
+        "S5"
+      ],
+      "title": "Route atomic apply and canonical effect and fulfillment links",
+      "status": "in-progress",
+      "executionState": "implemented-base-apply-and-finite-fulfillment-live-gates-pending",
+      "dependsOn": [
+        "T05",
+        "T06",
+        "T07"
+      ],
+      "conditionalDependsOn": [
+        "T08",
+        "issue-99"
+      ],
+      "model": [
+        "gpt-6-astra"
+      ],
+      "helpers": [
+        {
+          "model": "gpt-5.6-sol",
+          "scope": "non-kernel apply harness and tests only"
+        }
+      ],
+      "body": "12-apply-effect-link.md"
+    },
+    {
+      "id": "T13",
+      "stage": [
+        "S4",
+        "S5"
+      ],
+      "title": "Prove the memory plus action promise and reward join",
+      "status": "planned",
+      "executionState": "inactive",
+      "dependsOn": [
+        "T09",
+        "T10",
+        "T12"
+      ],
+      "model": [
+        "gpt-5.6-terra"
+      ],
+      "body": "13-promise-join.md"
+    },
+    {
+      "id": "T14",
+      "stage": [
+        "S6"
+      ],
+      "title": "Migrate bounded drafting, audit and presentation families",
+      "status": "in-progress",
+      "executionState": "implemented-family-protocols-semantic-gates-pending",
+      "dependsOn": [
+        "T03",
+        "T05",
+        "T06",
+        "T07"
+      ],
+      "conditionalDependsOn": [
+        "T08",
+        "T09",
+        "T10",
+        "T11",
+        "T12",
+        "issue-99"
+      ],
+      "model": [
+        "gpt-6-astra",
+        "gpt-5.6-sol",
+        "gpt-5.6-luna"
+      ],
+      "body": "14-family-migrations.md",
+      "remainingFamilies": "Full exact-copy inventory closure remains required; later is not a generated-content disposition."
+    },
+    {
+      "id": "T15",
+      "stage": [
+        "S7"
+      ],
+      "title": "Run migration, restart, performance and real-table product acceptance",
+      "status": "in-progress",
+      "executionState": "build-and-integration-passed-product-acceptance-pending",
+      "dependsOn": [
+        "T02",
+        "T03",
+        "T08",
+        "T09",
+        "T10",
+        "T11",
+        "T12",
+        "T13",
+        "T14"
+      ],
+      "conditionalDependsOn": [
+        "issues-92-98",
+        "issue-99"
+      ],
+      "model": [
+        "gpt-5.6-terra",
+        "gpt-6-astra"
+      ],
+      "body": "15-product-acceptance.md"
+    }
+  ],
+  "handoff": "docs/handoff-jev-acceptance-20260920.md",
+  "buildIntegrationCloseout": {
+    "status": "passed",
+    "sourceSha256": "6bf71dfa40333a10fe2fa7643603042a3765239791e74a0b83e7ef635779030d",
+    "extensionPassed": 2209,
+    "kernelControllerPassed": 1608,
+    "kernelCoverage": "segmented-exact-node-id-union",
+    "record": ".tmp/team-lead/jev-closeout-verification.json",
+    "productAccepted": false
+  }
+}

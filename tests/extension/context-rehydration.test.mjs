@@ -189,11 +189,11 @@ test('source binding failures are advisory and keep a conservative null revision
     const t = await table();
     const module = await api.loadModule(t.context, 'the-haunting');
     const badContext = { ...t.context, snapshots: { ...t.context.snapshots, sortedChildNames: async () => { throw new Error('fixture source unavailable'); } } };
-    const binding = await api.contextBinding({
-        id: 'c1', context: badContext,
-        meta: { active_worldline: 'main', worldlines: { main: { loop: 0 } }, register: 'purist', play_language: 'en' },
-        world: { mods: { active: {} } },
-        turn: { turn: 0 }, records: [], log: async () => [], optional: async () => null
+	const binding = await api.contextBinding({
+		id: 'c1', context: badContext,
+		meta: { active_worldline: 'main', worldlines: { main: { loop: 0 } }, register: 'purist', play_language: 'en' },
+		world: { mods: { active: {} } }, party: [],
+		turn: { turn: 0, receipts: [], pending_choice: null }, records: [], log: async () => [], optional: async () => null
     }, module, { mods: { active: [] } });
     assert.equal(binding.source_revision, null);
     assert.equal(binding.unavailable, true);
@@ -225,12 +225,12 @@ test('context identity resets on worldline fork while inherited memory and cover
 test('source_revision changes for effective source and active package locks but not empty dynamic state', async () => {
     const t = await table();
     const module = await api.loadModule(t.context, 'the-haunting');
-    const campaign = (world) => ({
-        id: 'c1', context: t.context,
-        meta: { active_worldline: 'main', worldlines: { main: { loop: 0 } }, register: 'purist', play_language: 'en' },
-        world: { mods: { active: {} }, ...world },
-        turn: { turn: 0 }, records: [], log: async () => [], optional: async () => null
-    });
+	const campaign = (world) => ({
+		id: 'c1', context: t.context,
+		meta: { active_worldline: 'main', worldlines: { main: { loop: 0 } }, register: 'purist', play_language: 'en' },
+		world: { mods: { active: {} }, ...world }, party: [],
+		turn: { turn: 0, receipts: [], pending_choice: null }, records: [], log: async () => [], optional: async () => null
+	});
     const base = await api.contextBinding(campaign({ clock: { minutes: 0 } }), module, { mods: { active: [] } });
     const dynamic = await api.contextBinding(campaign({ clock: { minutes: 99 }, active_scene: 'changed' }), module, { mods: { active: [] } });
     assert.equal(dynamic.source_revision, base.source_revision, 'ordinary world state does not affect source_revision');

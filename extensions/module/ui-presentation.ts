@@ -16,6 +16,10 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { runtimeEntryUrl } from "../../runtime/deployment.mjs";
 import {
+	acceptPresentationReferences, issuePresentationReferences, presentationAlias, selectPresentationReferences,
+	type PresentationCatalog, type PresentationSource, validatePresentationReferenceShape,
+} from "../../runtime/jev/presentation-references.ts";
+import {
 	PLAY_LANGUAGE_TAG, loadPlayLanguages, resolveUiWords, uiWordsCachePath, uiWordsDigest,
 	type UiWordsCache,
 } from "../../runtime/ui-words.ts";
@@ -78,28 +82,16 @@ export function uiSourceTexts(captions: readonly UiCaption[]): string[] {
  * pipeline itself keeps what validated (`acceptedUiTexts`) so one dropped caption costs a word and
  * not the whole round.
  */
-function validCaption(source: string, value: unknown): value is string {
-	if (typeof value !== "string" || !value.trim()) return false;
-	const placeholders = (text: string) => JSON.stringify((text.match(/\{[^{}]+\}/g) ?? []).sort());
-	return placeholders(source) === placeholders(value);
-}
+function validCaption(value: unknown): value is string { return typeof value === "string" && !!value.trim(); }
 
-export function validateUiPresentation(value: unknown, texts: readonly string[]): Record<string, string> {
-	const map = (value as { texts?: unknown })?.texts as Record<string, unknown> | undefined;
-	if (!map || typeof map !== "object" || Array.isArray(map)
-		|| Object.keys(map).length !== texts.length
-		|| texts.some(text => !validCaption(text, map[text])))
-		throw coded("preparation_failed", "Incomplete UI word projection");
-	return Object.fromEntries(texts.map(text => [text, map[text] as string]));
+export function validateUiPresentation(value: unknown, sources: readonly PresentationSource[]): void {
+	try { validatePresentationReferenceShape(value, sources); }
+	catch { throw coded("preparation_failed", "Incomplete UI word projection"); }
 }
 
 /** What this round got right, whatever it got wrong: a near miss costs one more question, not the tag. */
-export function acceptedUiTexts(value: unknown, wanted: readonly string[]): Record<string, string> {
-	const map = (value as { texts?: unknown })?.texts as Record<string, unknown> | undefined;
-	if (!map || typeof map !== "object" || Array.isArray(map)) return {};
-	return Object.fromEntries(wanted
-		.filter(text => validCaption(text, map[text]))
-		.map(text => [text, map[text] as string]));
+export function acceptedUiTexts(value: unknown, catalog: PresentationCatalog): Record<string, string> {
+	return acceptPresentationReferences(value, catalog).texts;
 }
 
 /** The rows put back into `{surface: {key: word}}`, dropping a caption the projection never answered. */
@@ -154,31 +146,38 @@ export async function prepareUiWords(options: UiPresentationOptions): Promise<Ui
 		`import {readFileSync} from 'node:fs';\n` +
 		`import {validateUiPresentation} from ${JSON.stringify(runtimeEntryUrl("uiPresentation", import.meta.url))};\n` +
 		`try {const packet=JSON.parse(readFileSync('texts.json','utf8'));` +
-		`validateUiPresentation(JSON.parse(readFileSync('presentation.json','utf8')),packet.texts);` +
+		`validateUiPresentation(JSON.parse(readFileSync('presentation.json','utf8')),packet.sources);` +
 		`console.log('Presentation valid');}` +
 		`catch(error){console.error(error.message);process.exitCode=1;}\n`;
 
 	let missing = uiSourceTexts(captions);
+	const catalog = issuePresentationReferences(missing, {protectSyntax:true});
 	const projected: Record<string, string> = {};
 	await runPresentationAttempt({
 		attempt, checkSource, outputFile: "presentation.json", systemPrompt: prompt, runner,
 		model: options.model, thinking: options.thinking, signal: options.signal,
 		prepareRound: async round => {
+			const current = selectPresentationReferences(catalog, missing);
 			await writeFile(join(attempt, "texts.json"), JSON.stringify({
+				protocol: current.protocol,
 				play_language: tag,
-				captions: captions.filter(row => missing.includes(row.text)),
-				texts: missing,
+				captions: captions.filter(row => missing.includes(row.text)).map(row => ({
+					surface: row.surface, key: row.key, source: presentationAlias(catalog, row.text),
+				})),
+				sources: current.sources,
 			}, null, 2));
-			return "Read texts.json and write the projected captions to presentation.json. Its \"texts\" object answers exactly the strings texts.json lists, keyed by the source string itself. The file must contain exactly one JSON object, without Markdown or trailing text. Run node check.mjs and correct any error before finishing."
-				+ (round > 1 ? " Read findings.json and supply exactly the strings it still names; the captions already accepted are not asked again." : "");
+			return "Read texts.json and write one presentation-reference-v1 operation for every issued source alias to presentation.json. Choose keep when no translation is needed; otherwise generate translated text. For a protected source, return generated text pieces plus every issued token occurrence alias exactly once, ordered where the target language needs it. Never copy a source string, placeholder, notation, surface key or private coordinate into a selector field. The file must contain exactly one JSON object, without Markdown or trailing text. Run node check.mjs and correct any error before finishing."
+				+ (round > 1 ? " Read findings.json and supply exactly the source aliases it still names; accepted captions are not asked again." : "");
 		},
 		failure: (_outcome, aborted) => coded(aborted ? "presentation_timeout" : "preparation_failed", "The UI words could not be projected"),
-		invalidOutput: error => ({ error: String(error), texts: missing }),
+		invalidOutput: error => ({ error: String(error), sources: selectPresentationReferences(catalog, missing).sources.map(source => source.alias) }),
 		accept: value => {
-			Object.assign(projected, acceptedUiTexts(value, missing));
+			const current = selectPresentationReferences(catalog, missing);
+			Object.assign(projected, acceptedUiTexts(value, current));
 			missing = missing.filter(text => !projected[text]);
 			return missing.length ? { done: false, findings: {
-				error: "these source strings were not answered with a non-empty string", texts: missing,
+				error: "these source aliases were not answered with a valid keep or translation operation",
+				sources: selectPresentationReferences(catalog, missing).sources.map(source => source.alias),
 			} } : { done: true };
 		},
 	});

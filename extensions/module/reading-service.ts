@@ -8,12 +8,15 @@ import { reviewCandidate } from "./reader-review.ts";
 import { sourceAsset, closeSourceDocuments, sourceRenderVersion } from "./source.ts";
 import { publishableAssetNodes, validateMapRegions } from "./map-publication.ts";
 import type { HostRuntime } from "../../runtime/host.ts";
+import type {FreshSourceNavigator} from '../../runtime/jev/fresh-source-navigator.ts';
 
+import type {TaskProviderBudget} from '../../runtime/jev/provider-budget.ts';
+export interface ReadingOptions {providerBudget?:TaskProviderBudget}
 type Row = Record<string, any>;
 type Call = (method: string, params: Row) => Promise<any>;
 export interface ReadingBridge {
 	prepare(params: Row, signal?: AbortSignal): Promise<Row>;
-	ensure(moduleId: string, params: Row, signal?: AbortSignal): Promise<Row>;
+	ensure(moduleId: string, params: Row, signal?: AbortSignal, options?:ReadingOptions): Promise<Row>;
 	/**
 	 * §47. Is the reading the Keeper's foreground wait gave up on *still* running? A
 	 * `reading_timeout` is the host's own patience ending, never the reader's: on campaign
@@ -28,6 +31,7 @@ interface Dependencies {
 	campaign?(): string | undefined;
 	home: string;
 	runtime?: HostRuntime;
+	navigateFresh?: FreshSourceNavigator;
 	model(): { id: string; vision: boolean; thinking?: string };
 	progress(row: Row): void;
 	record(row: Row): void;
@@ -35,6 +39,7 @@ interface Dependencies {
 	status?(row: Row): void;
 }
 interface PendingReading {
+	providerBudget?:TaskProviderBudget;
 	waiters: number;
 	cancelled: boolean;
 	jobId?: string;
@@ -162,6 +167,8 @@ function unsupportedNumberRepairs(draft: Row, unsupported: Row[]): string[] {
 export class ReadingService implements ReadingBridge {
 	private stopped = false;
 	private requests = new Map<string, PendingReading & { task: Promise<Row> }>();
+	private jobBudgets=new Map<string,TaskProviderBudget>();
+	private claimBindings = new Map<string, Promise<void>>();
 	private pumps = new Map<string, Promise<void>>();
 	private pumpWakes = new Map<string, () => void>();
 	private controllers = new Map<string, AbortController>();
@@ -200,6 +207,15 @@ export class ReadingService implements ReadingBridge {
 	private call(method: string, params: Row, campaign: string | undefined): Promise<any> {
 		const { campaign: _scope, ...rest } = params;
 		return this.deps.call(method, { ...rest, ...(campaign !== undefined ? { campaign } : {}) });
+	}
+	/** A queued job must receive its budget before this service can claim it, including a prefetch wake. */
+	private async bindBeforeClaim<T>(mid: string, campaign: string | undefined, action: () => Promise<T>): Promise<T> {
+		const scope = JSON.stringify([campaign, mid]), previous = this.claimBindings.get(scope);
+		let release!: () => void;
+		const binding = new Promise<void>(resolve => { release = resolve; });
+		this.claimBindings.set(scope, binding);
+		try { if (previous) await previous; return await action(); }
+		finally { release(); if (this.claimBindings.get(scope) === binding) this.claimBindings.delete(scope); }
 	}
 	private runtime(): HostRuntime {
 		if (!this.deps.runtime) throw new Error("Source reading requires its owner's runtime");
@@ -329,13 +345,15 @@ export class ReadingService implements ReadingBridge {
 		return false;
 	}
 
-	async ensure(mid: string, params: Row, signal?: AbortSignal): Promise<Row> {
+	async ensure(mid: string, params: Row, signal?: AbortSignal, options:ReadingOptions={}): Promise<Row> {
 		if (signal?.aborted || this.stopped) throw error("reading_failed", "reading was cancelled", "retry the reading when ready");
 		const campaign = this.campaign(params);
-		const key = JSON.stringify([campaign, mid, params.purpose, params.material ?? "", params.focus ?? "", params.question ?? "", params.guidance_key ?? ""]);
+		if (params._task_prepare && !options.providerBudget) throw error('source_preparation_budget_missing', 'Owned source preparation requires its original provider budget', 'Retry through the pending operation owner');
+		const key = JSON.stringify([campaign, mid, params.purpose, params.material ?? "", params.focus ?? "", params.question ?? "", params.guidance_key ?? "", canonical(params._task_prepare ?? null)]);
 		let request = this.requests.get(key);
+		if(request&&request.providerBudget!==options.providerBudget&&(request.providerBudget||options.providerBudget))throw error('reading_failed','This reading already has a different provider budget owner','Wait for its source owner to finish');
 		if (!request) {
-			const pending: PendingReading = { waiters: 0, cancelled: false, foreground: params.foreground === true,
+			const pending: PendingReading = { providerBudget:options.providerBudget,waiters: 0, cancelled: false, foreground: params.foreground === true,
 				of: { campaign, mid, focus: String(params.focus ?? ""), question: String(params.question ?? "") } };
 			const task = this.fulfil(mid, params, pending, campaign).finally(() => this.requests.delete(key));
 			task.catch(() => undefined);
@@ -441,8 +459,17 @@ export class ReadingService implements ReadingBridge {
 		while (!this.stopped && !request.cancelled) {
 			// `request.foreground`, never `params.foreground`: this loop polls every 300 ms, and the
 			// original params would re-promote a job the last waiter has already let go (§61).
-			const response = await this.call("module.read.request", { ...params, foreground: request.foreground, module_id: mid, retry,
-				...(params.purpose === 'answer' && answerGeneration !== undefined ? {context_generation: answerGeneration} : {}) }, campaign);
+			const response = await this.bindBeforeClaim(mid, campaign, async () => {
+				const response = await this.call("module.read.request", { ...params, foreground: request.foreground, module_id: mid, retry,
+					...(params.purpose === 'answer' && answerGeneration !== undefined ? {context_generation: answerGeneration} : {}) }, campaign);
+				if(request.providerBudget&&response.job_id&&['queued','reading'].includes(response.state)) {
+					const jobKey=JSON.stringify([campaign,mid,response.job_id]),previous=this.jobBudgets.get(jobKey);
+					if((previous||this.jobs.has(jobKey)||response.state==='reading')&&previous!==request.providerBudget)
+						throw error('source_preparation_foreign_job','The claimed source job has another provider budget owner','Wait for the existing source owner');
+					this.jobBudgets.set(jobKey,request.providerBudget);
+				}
+				return response;
+			});
 			if (params.purpose === 'answer' && answerGeneration === undefined) {
 				if (!Number.isSafeInteger(response.generation) || response.generation < 0) throw error('reading_failed', 'the source consultation returned no context generation', 'retry the same source consultation explicitly');
 				answerGeneration = response.generation;
@@ -488,7 +515,7 @@ export class ReadingService implements ReadingBridge {
 					wakeRequested = false;
 					const wake = new Promise<void>(resolve => this.pumpWakes.set(scope, () => {wakeRequested = true; resolve();}));
 					while (active.size < capacity && !this.stopped) {
-						const job = await this.call("module.read.claim", { module_id: mid, owner: `host-${process.pid}` }, campaign);
+						const job = await this.bindBeforeClaim(mid, campaign, () => this.call("module.read.claim", { module_id: mid, owner: `host-${process.pid}` }, campaign));
 						// A wake does not choose a job; the claim does. The row that names the job names the wake it answered,
 						// and a wake that found nothing queued says so instead of leaving no trace (#65).
 						const wake = this.wakes.get(scope);
@@ -508,7 +535,7 @@ export class ReadingService implements ReadingBridge {
 						const work = (async () => {
 							try {
 								if (controller.signal.aborted) throw new Error("reading was cancelled");
-								await this.runJob(job, controller.signal, campaign);
+								await this.runJob(job, controller.signal, campaign,this.jobBudgets.get(key));
 							}
 							catch (failure) {
 								try {
@@ -516,7 +543,7 @@ export class ReadingService implements ReadingBridge {
 										...this.jobOutcome(key, controller.signal.aborted, String(failure)) }, campaign);
 								} catch { /* a closed kernel releases its leases; retained attempts remain reclaimable */ }
 							}
-							finally { this.controllers.delete(key); this.jobs.delete(key); this.cancelledJobs.delete(key); this.heartbeats.delete(key); this.stalled.delete(key); }
+							finally { this.controllers.delete(key); this.jobs.delete(key); this.jobBudgets.delete(key); this.cancelledJobs.delete(key); this.heartbeats.delete(key); this.stalled.delete(key); }
 						})();
 						const tracked = work.finally(() => active.delete(tracked));
 						active.add(tracked);
@@ -533,7 +560,7 @@ export class ReadingService implements ReadingBridge {
 		return task;
 	}
 
-	private async runJob(job: Row, signal: AbortSignal, campaign?: string) {
+	private async runJob(job: Row, signal: AbortSignal, campaign?: string, providerBudget?: import("../../runtime/jev/provider-budget.ts").TaskProviderBudget) {
 		const model = this.deps.model();
 		const cwd = job.work_dir;
 		const key = JSON.stringify([campaign, job.module_id, job.job_id]);
@@ -552,6 +579,18 @@ export class ReadingService implements ReadingBridge {
 					.filter(key => key in claim).map(key => [key, claim[key]]))),
 			vocabulary: job.vocabulary, coverage_domains: job.coverage_domains, commands };
 		if (job.purpose === "index") { delete task.index; delete task.known_nodes; delete task.known_claims; delete task.vocabulary; delete task.coverage_domains; delete task.commands.check; }
+		const freshSkeleton = !campaign && job.purpose === 'skeleton' && Array.isArray(job.known_nodes)
+			&& job.known_nodes.length === 1 && job.known_nodes[0].node_kind === 'module' && job.known_nodes[0].ready === false;
+		if (freshSkeleton && this.deps.navigateFresh) {
+			try {
+				const navigation = await this.deps.navigateFresh({moduleId: job.module_id, jobId: job.job_id,
+					source: job.source}, signal, row => this.deps.record(row));
+				if (navigation) task.navigation_hints = {version: navigation.version, navigation_only: true,
+					hints: navigation.hints, coverage: navigation.coverage};
+			} catch {
+				this.deps.record({lane: 'reading', event: 'typed_navigation', module_id: job.module_id, job_id: job.job_id, status: 'unavailable'});
+			}
+		}
 		if (job.purpose === "guidance") {
 			const { labels, bookmarks } = await this.runtime().sourceInfo({ pdf: job.source.path, cache }, signal);
 			task.source = { ...task.source, labels, bookmarks };
@@ -652,7 +691,7 @@ export class ReadingService implements ReadingBridge {
 								model, source: { pdf: job.source.path, cache, file_sha256:job.source.file_sha256 }, signal,
 								cacheRoot:join(cache,'..','reviews'),
 								reviewVersion:sha(Buffer.concat([Buffer.from(sourceRenderVersion),await readFile(join(this.runtime().contentRoot,'setup',job.purpose === 'answer' ? 'source-answer.md' : job.purpose === 'guidance' ? 'visual-guidance.md' : 'visual-reader.md'))])),
-								run: ({systemPrompt: _instructions, ...request}) => this.runtime().runTask({ kind: "reader", request: { ...request,
+								run: ({systemPrompt: _instructions, ...request}) => this.runtime().runTask({ kind: "reader", request: { ...request, providerBudget,
 									priority: () => job.foreground === false ? "background" : "foreground",
 									prompt: { phase: "verify", guidance: job.purpose === "guidance", answer: job.purpose === "answer" } } }, request.signal),
 								// Every verify row names the job and round it belongs to (#65); the reviewer adds unit and attempt.
@@ -667,7 +706,7 @@ export class ReadingService implements ReadingBridge {
 						const sourcePages = new Set<number>();
 
 						const reads = new Map<string, string>();
-						const run = await this.runtime().runTask({ kind: "reader", request: { cwd, model: model.id, thinking: model.thinking,
+						const run = await this.runtime().runTask({ kind: "reader", request: { providerBudget, cwd, model: model.id, thinking: model.thinking,
 							...(["guidance", "answer"].includes(job.purpose) ? {imageHistory:4} : {}),
 							submission:["guidance","opening","detail","answer"].includes(job.purpose),
 							priority: () => job.foreground === false ? "background" : "foreground",

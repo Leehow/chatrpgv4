@@ -9,6 +9,7 @@ import type {ReaderRequest, ReaderOutcome} from './reader.ts';
 
 const root = resourceRootFrom(import.meta.url);
 type Row = Record<string, any>;
+export const SETUP_GUIDANCE_REFERENCE_PROTOCOL='setup-guidance-reference-v2' as const;
 /**
  * The play language is open (contract section 23): a tag is accepted by shape alone, the same
  * BCP-47 shape the kernel's `validSourceLanguage` checks, and never looked up in a list.
@@ -37,20 +38,32 @@ function openingNode(graph:Row, meta:Row, selected?:string):Row|undefined {
       .some(alias=>typeof alias==='string' && normalize(alias)===normalize(value));
   });
 }
+const recordOf=(node:Row):Row=>node.properties?.runtime_projection?.record || node.properties || {};
+const identities=(node:Row):string[]=>[node.node_id,node.name,recordOf(node).npc_id,recordOf(node).handle]
+  .filter((value):value is string=>typeof value==='string');
+function openingGuideNodes(graph:Row, scene:Row|undefined):Row[] {
+  if(!scene)return [];
+  const ids=new Set<string>();
+  for(const relation of Array.isArray(graph.relations)?graph.relations:[])if(relation?.relation_kind==='present-in'&&relation.to_node_id===scene.node_id&&typeof relation.from_node_id==='string')ids.add(relation.from_node_id);
+  for(const id of Array.isArray(recordOf(scene).npc_ids)?recordOf(scene).npc_ids:[])if(typeof id==='string')ids.add(id);
+  return (Array.isArray(graph.nodes)?graph.nodes:[]).filter((node:Row)=>node.node_kind==='npc'&&typeof node.name==='string'&&node.name.trim()&&identities(node).some(id=>ids.has(id)));
+}
+type GuideSource={alias:string;name:string;summary?:string};
+function guideSources(graph:Row,scene:Row|undefined):GuideSource[] {
+  return openingGuideNodes(graph,scene).map((node,index)=>({alias:`guide:${index}`,name:node.name,
+    ...(typeof node.summary==='string'&&node.summary.trim()?{summary:node.summary}:{})}));
+}
 export async function guidanceFingerprint(options:Options):Promise<string> {
   const content = options.contentRoot ?? join(root, 'content');
   const folder=resolve(options.home,'.coc/modules',options.module_id);
   const meta=JSON.parse(await readFile(join(folder,'module.json'),'utf8'));
   const prompts=await Promise.all([join(content,'setup/character-guidance.md'),join(content,'setup/character-guidance-review.md'),...(meta.file_sha256?[join(content,'setup/visual-guidance.md')]:[])].map(path=>readFile(path,'utf8')));
-  let source=meta.file_sha256;
-  let opening=options.opening || '';
-  if(!source) {
-    const bytes=await readFile(join(folder,meta.graph_file||'module-graph.json'),'utf8');
-    const graph=JSON.parse(bytes);
-    source=digest(bytes);
-    opening=openingNode(graph,meta,options.opening)?.node_id || opening;
-  }
-  return digest(JSON.stringify([source,opening,options.play_language,options.occupations,prompts]));
+  const bytes=await readFile(join(folder,meta.graph_file||'module-graph.json'),'utf8');
+  const graph=JSON.parse(bytes),scene=openingNode(graph,meta,options.opening);
+  const source=meta.file_sha256 || digest(bytes);
+  const binding={protocol:SETUP_GUIDANCE_REFERENCE_PROTOCOL,scene:scene?{node:scene.node_id,name:scene.name}:null,
+    guides:openingGuideNodes(graph,scene).map(node=>({node:node.node_id,name:node.name}))};
+  return digest(JSON.stringify([source,binding,options.play_language,options.occupations,prompts]));
 }
 export async function acceptedGuidance(home:string,moduleId:string,key:string):Promise<Guidance> {
   if(!/^[a-f0-9]{64}$/.test(key))throw coded('invalid_params','Invalid guidance reference');
@@ -68,6 +81,16 @@ function text(value:unknown, empty=false):string {
 export function validateGuidance(value:Row, _occupations?:Options['occupations']):Guidance {
   if(!value || typeof value!=='object')throw coded('guidance_unavailable','Invalid character guidance');
   return {opening:text(value.opening),advice:text(value.advice),scene:text(value.scene),guide:text(value.guide,true),handoff:text(value.handoff)};
+}
+export function validateGuidanceReference(value:Row,scene:string,guides:GuideSource[]):Guidance {
+  if(!value||typeof value!=='object'||Array.isArray(value)||value.protocol!==SETUP_GUIDANCE_REFERENCE_PROTOCOL||
+    Object.keys(value).sort().join(',')!=='advice,guide,handoff,opening,protocol')throw coded('guidance_unavailable','Invalid character guidance');
+  const selected=value.guide;
+  if(selected!==null&&typeof selected!=='string')throw coded('guidance_unavailable','Invalid character guidance guide selection');
+  if(guides.length ? !guides.some(guide=>guide.alias===selected) : selected!==null)
+    throw coded('guidance_unavailable','Invalid character guidance guide selection');
+  return {opening:text(value.opening),advice:text(value.advice),scene:text(scene),
+    guide:selected===null?'':guides.find(guide=>guide.alias===selected)!.name,handoff:text(value.handoff)};
 }
 async function json(path:string) {
   const raw=await readFile(path,'utf8');
@@ -108,14 +131,16 @@ export async function prepareCharacterGuidance(options:Options):Promise<Guidance
   // Only semantic names and prose enter the model packet; opaque graph keys stay host-side.
   const nodes=(graph.nodes||[]).map((node:Row)=>({name:node.name,kind:node.node_kind,
     visibility:node.visibility,summary:node.summary}));
-  const opening=openingNode(graph,meta,selectedOpening)?.name;
+  const selectedScene=openingNode(graph,meta,selectedOpening);
+  if(!selectedScene||typeof selectedScene.name!=='string'||!selectedScene.name.trim())throw coded('preparation_failed','The selected opening scene is unavailable for character guidance');
+  const opening=selectedScene.name,guides=guideSources(graph,selectedScene);
   const publicFields=['era','place','player_safe_summary','investigator_hook','investigator_constraints'];
   const publicSetup=(graph.nodes||[]).filter((node:Row)=>node.node_kind==='module').flatMap((node:Row)=>{
     const authored=[node.properties||{},...(node.properties?.runtime_projection?.documents||[])
       .filter((doc:Row)=>doc.filename==='module-meta.json').map((doc:Row)=>doc.root)];
     return authored.map((record:Row)=>Object.fromEntries(publicFields.filter(key=>typeof record[key]==='string').map(key=>[key,record[key]])));
   });
-  const packet={public_setup:publicSetup,play_language:options.play_language,opening:opening||null,nodes,
+  const packet={protocol:SETUP_GUIDANCE_REFERENCE_PROTOCOL,public_setup:publicSetup,play_language:options.play_language,opening,guides,nodes,
     occupations:options.occupations.map(row=>({name:row.name}))};
   await writeFile(join(attempt,'packet.json'),JSON.stringify(packet,null,2));
   await writeFile(join(attempt,'author-prompt.md'),prompt);
@@ -123,7 +148,7 @@ export async function prepareCharacterGuidance(options:Options):Promise<Guidance
   const runner=options.runner;
   if(!runner)throw coded('preparation_failed','Character guidance requires its owner runtime');
   const request={cwd:attempt,model:options.model,thinking:options.thinking,signal:options.signal};
-  let guidance: Guidance | undefined;
+  let guidance: Guidance | undefined,rawGuidance:Row|undefined;
   let review: Row = {approved:false,issues:[]};
   for(let round=1;round<=2;round++) {
     await writeFile(join(attempt,'packet.json'),JSON.stringify(packet,null,2));
@@ -132,16 +157,17 @@ export async function prepareCharacterGuidance(options:Options):Promise<Guidance
         'Revise guidance.json using the independent review findings in review.json. Preserve source facts and obey the original instructions.'});
     if(!authored.ok||options.signal?.aborted)throw coded(options.signal?.aborted?'interrupted':'preparation_failed',
       reasoned('Character guidance could not be prepared. Retry preparation.',options.signal?.aborted?undefined:readerFailureReason(authored)));
-    guidance=validateGuidance(await json(join(attempt,'guidance.json')),options.occupations);
-    await writeFile(join(attempt,'guidance.json'),JSON.stringify(guidance,null,2));
-    await writeFile(join(attempt,`guidance-round-${round}.json`),JSON.stringify(guidance,null,2));
+    rawGuidance=await json(join(attempt,'guidance.json'));
+    guidance=validateGuidanceReference(rawGuidance,opening,guides);
+    await writeFile(join(attempt,'guidance.json'),JSON.stringify(rawGuidance,null,2));
+    await writeFile(join(attempt,`guidance-round-${round}.json`),JSON.stringify(rawGuidance,null,2));
     await writeFile(join(attempt,'packet.json'),JSON.stringify(packet,null,2));
     const reviewed=await runner({...request,systemPrompt:reviewPath,eventLog:join(attempt,'reviewer.jsonl'),
       brief:'Independently review packet.json and guidance.json. Write review.json.'});
     if(!reviewed.ok||options.signal?.aborted)throw coded(options.signal?.aborted?'interrupted':'preparation_failed','Character guidance review interrupted. Retry preparation.');
     review=await json(join(attempt,'review.json'));
     await writeFile(join(attempt,`review-round-${round}.json`),JSON.stringify(review,null,2));
-    if(JSON.stringify(validateGuidance(await json(join(attempt,'guidance.json')),options.occupations))!==JSON.stringify(guidance))throw coded('preparation_failed','Character guidance changed during review');
+    if(JSON.stringify(await json(join(attempt,'guidance.json')))!==JSON.stringify(rawGuidance))throw coded('preparation_failed','Character guidance changed during review');
     if(review.approved===true && Array.isArray(review.issues) && !review.issues.length)break;
   }
   if(review.approved!==true||!Array.isArray(review.issues)||review.issues.length)throw coded('preparation_failed','Character guidance needs revision. Retry preparation.');

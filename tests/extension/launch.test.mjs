@@ -86,6 +86,10 @@ function fakeRepo() {
 		copyFileSync(join(REPO, "extensions", entry.name, "pipiui-extension.json"), join(root, "extensions", entry.name, "pipiui-extension.json"));
 	}
 	mkdirSync(join(root, "node_modules", ".bin"), { recursive: true });
+	// The emitted launcher intentionally keeps runtime packages external. The fixture owns an isolated
+	// dependency view while its fake `.bin/pi` remains local to this tree.
+	symlinkSync(join(REPO, "node_modules", "typebox"), join(root, "node_modules", "typebox"), "dir");
+	symlinkSync(join(REPO, "node_modules", "@earendil-works"), join(root, "node_modules", "@earendil-works"), "dir");
 	copyFileSync(join(REPO, "bin", "pi-coc"), join(root, "bin", "pi-coc"));
 	chmodSync(join(root, "bin", "pi-coc"), 0o755);
 	writeFileSync(join(root, "prompts", "keeper.md"), "# 守秘人\n");

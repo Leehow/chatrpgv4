@@ -68,13 +68,15 @@ export async function readJob(campaign: CampaignWriter, id: string): Promise<Row
         return null;
     }
 }
-const writeJob = (campaign: CampaignWriter, value: Row) => campaign.write(join('memory/jobs', value.job_id + '.json'), value);
-export async function defaultJobTurn(campaign: CampaignWriter): Promise<number | null> {
+export const writeJob = (campaign: CampaignWriter, value: Row) => campaign.write(join('memory/jobs', value.job_id + '.json'), value);
+export async function defaultJobTurn(campaign: CampaignWriter, options: {referenced?: boolean; exclude?: number[]} = {}): Promise<number | null> {
     const skip = new Set((await logs(campaign, 'memory/backlog.jsonl')).filter(value => value.status === 'pending' && (integer(value.turn) || typeof value.turn === 'boolean')).map(value => number(value.turn)));
     for (const turn of [...(await committedRecords(campaign)).keys()].sort((a, b) => b - a)) {
-        if (skip.has(turn))
+        if (options.exclude?.includes(turn)) continue;
+        const existing = await readJob(campaign, jobId(campaign.id, turn));
+        if (skip.has(turn) && !(options.referenced && existing?.protocol === 'memory-reference-v1'))
             continue;
-        if ((await readJob(campaign, jobId(campaign.id, turn)))?.status === 'done')
+        if (existing?.status === 'done')
             continue;
         return turn;
     }
@@ -134,7 +136,7 @@ export async function buildJob(campaign: CampaignWriter, graph: ModuleGraph, lan
 }
 
 const detailsOfStory = (story: Row): Row => ({status: story.status, thread: story.thread, bridge_delivered: story.bridge_delivered});
-function validateStory(job: Row, value: unknown): Row | null {
+export function validateStory(job: Row, value: unknown, referenced = false): Row | null {
     const context = row(row(job.packet).story_context), threads = array(context.threads);
     // Older bundled hosts can finish an already-open extraction without inventing an assessment.
     // The current extension requires story whenever the packet supplies threads.
@@ -155,14 +157,14 @@ function validateStory(job: Row, value: unknown): Row | null {
     if (value.status === 'aligned' && selected && !selectedEvidence)
         throw new RpcError('invalid_params', 'An aligned story assessment requires acquired causal evidence on the selected thread; an unsupported correct guess remains uncertain');
     const player = string(row(job.packet).player_text || '');
-    if (unclear ? value.frame !== null : typeof value.frame !== 'string' || !value.frame.trim() || value.frame.length > 500 || !player.includes(value.frame))
+    if (unclear ? value.frame !== null : typeof value.frame !== 'string' || !value.frame.trim() || value.frame.length > (referenced ? 800 : 500) || !player.includes(value.frame))
         throw new RpcError('invalid_params', unclear ? 'An unclear story assessment uses frame null' : 'params.story.frame must be an exact bounded excerpt from player_text');
     if (typeof value.bridge_delivered !== 'boolean')
         throw new RpcError('invalid_params', 'params.story.bridge_delivered must be boolean');
     if (value.bridge_delivered && !selectedEvidence)
         throw new RpcError('invalid_params', 'A delivered causal bridge requires acquired supporting or contradicting evidence on the selected thread; atmosphere alone is not delivery');
     const keeper = string(row(job.packet).keeper_text || '');
-    if (value.bridge_delivered ? typeof value.delivery_quote !== 'string' || !value.delivery_quote.trim() || value.delivery_quote.length > 700 || !keeper.includes(value.delivery_quote) : value.delivery_quote !== null)
+    if (value.bridge_delivered ? typeof value.delivery_quote !== 'string' || !value.delivery_quote.trim() || value.delivery_quote.length > (referenced ? 800 : 700) || !keeper.includes(value.delivery_quote) : value.delivery_quote !== null)
         throw new RpcError('invalid_params', value.bridge_delivered ? 'params.story.delivery_quote must be an exact bounded excerpt from keeper_text' : 'A story assessment without a delivered bridge uses delivery_quote null');
     return clone(value);
 }
@@ -217,7 +219,7 @@ function resolveName(index: EntityIndex, position: number, field: string, name: 
     const described = found.map(key => index.describe(key));
     return reject(position, `candidates[${position}].${field}: ${repr(name)} names ${found.length} entities`, 'say which one by id: ' + described.map(value => `${value.id} (${value.kind} ${value.name})`).join(', '), { field, name, candidates: described });
 }
-export function validateCandidates(index: EntityIndex, candidates: any): Row[] {
+export function validateCandidates(index: EntityIndex, candidates: any, referenced = false): Row[] {
     if (!Array.isArray(candidates))
         throw new RpcError('invalid_params', 'params.candidates must be a list');
     if (candidates.length > 12)
@@ -233,7 +235,7 @@ export function validateCandidates(index: EntityIndex, candidates: any): Row[] {
         const kind = candidate.kind, statement = candidate.statement;
         if (!CANDIDATE_KINDS.includes(kind as string))
             return reject(i, `candidates[${i}].kind ${repr(kind)} is not a kind`, `one of: ${CANDIDATE_KINDS.join(', ')}`);
-        if (typeof statement !== 'string' || length(statement.trim()) < 1 || length(statement.trim()) > 400)
+        if (typeof statement !== 'string' || length(statement.trim()) < 1 || length(statement.trim()) > (referenced ? 800 : 400))
             return reject(i, `candidates[${i}].statement must be 1–400 characters`, 'shorten or split the statement');
         if (Object.hasOwn(candidate, 'corrects') && kind !== 'keeper_correction')
             return reject(i, 'Only keeper_correction may withdraw earlier assertions', 'remove corrects or use keeper_correction for an explicit correction');
@@ -246,7 +248,8 @@ export function validateCandidates(index: EntityIndex, candidates: any): Row[] {
             return reject(i, `candidates[${i}].knowers must be a list of names`, 'list investigators, NPCs, party, keeper or player');
         if (!Array.isArray(entities))
             return reject(i, `candidates[${i}].entities must be a list of names`, 'list the names the statement is about');
-        const knowerKeys = knowers.map(name => resolveName(index, i, 'knowers', name, { reserved: ['party', 'keeper', 'player'], kinds: ['npc'] }));
+        const resolvedKnowers = knowers.map(name => resolveName(index, i, 'knowers', name, { reserved: ['party', 'keeper', 'player'], kinds: ['npc'] }));
+        const knowerKeys = referenced ? [...new Set(resolvedKnowers)] : resolvedKnowers;
         // Where an entity link is an index into the graph rather than part of the fact, one invented
         // name -- a scene the Keeper never labelled (`admission-e2e-4` turn 11 invented one) -- used to
         // reject the whole submit and lose every candidate of that turn with it. Such a name is dropped
@@ -261,7 +264,8 @@ export function validateCandidates(index: EntityIndex, candidates: any): Row[] {
                 droppedEntities.push(name.trim());
                 continue;
             }
-            entityKeys.push(resolveName(index, i, 'entities', name, { reserved: [] }));
+            const key = resolveName(index, i, 'entities', name, { reserved: [] });
+            if (!referenced || !entityKeys.includes(key)) entityKeys.push(key);
         }
         if (kind === 'relationship' && entityKeys.length !== 1)
             return reject(i, `candidates[${i}]: a relationship names exactly one entity, got ${entityKeys.length}`, 'put the other party of the relationship, alone, in entities');
@@ -272,7 +276,7 @@ export function validateCandidates(index: EntityIndex, candidates: any): Row[] {
             return reject(i, `candidates[${i}].state ${repr(state)}`, `one of: ${STATES.join(', ')}`);
         if (confidence !== null && (!numeric(confidence) || number(confidence) < 0 || number(confidence) > 1 || !Number.isFinite(number(confidence))))
             return reject(i, `candidates[${i}].confidence must be a number from 0 to 1`, 'omit it or give 0–1');
-        return { kind, subject: index.canonicalName(subject), knowers: knowerKeys.map(key => index.canonicalName(key)), entities: entityKeys.map(key => index.canonicalName(key)), statement: statement.trim(), privacy, state, confidence, _keys: { subject, entities: sorted(entityKeys) }, ...(corrects !== undefined ? {corrects} : {}), ...(droppedEntities.length ? { _dropped: droppedEntities } : {}) };
+        return { kind, subject: index.canonicalName(subject), knowers: knowerKeys.map(key => index.canonicalName(key)), entities: entityKeys.map(key => index.canonicalName(key)), statement: referenced ? statement : statement.trim(), privacy, state, confidence, _keys: { subject, entities: sorted(entityKeys) }, ...(corrects !== undefined ? {corrects} : {}), ...(droppedEntities.length ? { _dropped: droppedEntities } : {}) };
     });
 }
 export async function appendBacklog(campaign: CampaignWriter, id: string, turn: number, reason: string, detail: any): Promise<Row> {
@@ -280,7 +284,7 @@ export async function appendBacklog(campaign: CampaignWriter, id: string, turn: 
     await appendJsonl(campaign.path('memory/backlog.jsonl'), value);
     return value;
 }
-async function recoverBacklog(campaign: CampaignWriter, id: string): Promise<void> {
+export async function recoverBacklog(campaign: CampaignWriter, id: string): Promise<void> {
     const rows = await logs(campaign, 'memory/backlog.jsonl');
     let changed = false;
     for (const value of rows)

@@ -747,7 +747,7 @@ def test_only_a_declared_person_carries_what_another_circuit_knew(tmp_path):
         capsule = declared.table("player_input", text="诺特还在吗。")["capsule"]
         knott = next(entry for entry in capsule["present"] if entry["name"] == "Steven Knott")
         assert knott["from_other_lines"] == [{"statement": "Knott watched them leave on the first circuit.",
-                                              "line": "main", "loop": 0, "turn": 1}]
+                                              "line": "main", "loop": 0, "turn": 1, "authority": "conversation_report"}]
         assert capsule["worldlines"]["remembers"] == ["Steven Knott"]
         # The same projection through `lookup secret scope=scene`.
         secrets = declared.table("lookup", kind="secret", scope="scene")["npc_secrets"]
@@ -777,7 +777,8 @@ def test_the_capsule_carries_the_previous_circuit(tmp_path):
         narrate(client, "t2-c2", "你眼前一黑，又回到了诺特的办公室。")
         section = client.table("player_input", text="我看看四周。")["capsule"]["worldlines"]
         assert section["loop"] == 1
-        assert section["previous_loop"] == [{"statement": "他们在第一圈问过钥匙的事。", "turn": 1}]
+        assert section["previous_loop"] == [{"statement": "他们在第一圈问过钥匙的事。", "turn": 1,
+                                             "authority": "conversation_report"}]
     finally:
         client.close()
 

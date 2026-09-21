@@ -23,7 +23,7 @@ const evidence = join(root, '.coc/playtests/adapted-scene-exits');
 await mkdir(evidence, {recursive: true});
 const directory = await mkdtemp(join(evidence, 'suite-'));
 await writeFile(join(directory, 'classification.json'), JSON.stringify({kind: 'contract-fixture', live_play: false, model_calls: 0}));
-await build({stdin: {contents: `export {createKernelContext} from './kernel-ts/context.ts'; export {nativeAdvisoryLocks} from './kernel-ts/native-locks.ts'; export {createKernelRuntime} from './kernel-ts/registry.ts'; export {ModuleGraph} from './kernel-ts/read/module-graph.ts'; export {normalizeChanges,adaptedGraph} from './kernel-ts/adaptation/graph.ts'; export {directorOffer,directorRecovery} from './kernel-ts/read/offer.ts';`, resolveDir: root, sourcefile: 'test-api.ts'},
+await build({stdin: {contents: `export {createKernelContext} from './kernel-ts/context.ts'; export {nativeAdvisoryLocks} from './kernel-ts/native-locks.ts'; export {createKernelRuntime} from './kernel-ts/registry.ts'; export {ModuleGraph} from './kernel-ts/read/module-graph.ts'; export {normalizeChanges,adaptedGraph} from './kernel-ts/adaptation/graph.ts'; export {directorOffer} from './kernel-ts/read/offer.ts';`, resolveDir: root, sourcefile: 'test-api.ts'},
     outfile: join(directory, 'api.mjs'), bundle: true, packages: 'external', platform: 'node', format: 'esm', logLevel: 'silent'});
 const api = await import(pathToFileURL(join(directory, 'api.mjs')).href);
 const closers = []; after(async () => {for (const close of closers) await close();});
@@ -125,15 +125,13 @@ test('an exit the source material has not read yet is named in the offer instead
     assert.deepEqual(ordinary.filter(entry => entry.kind === 'route').map(entry => entry.where), ['dunwich-1287']);
 });
 
-test('a locked sole exit says what closes it, and the recovery does not send the party through it', () => {
+test('a locked sole exit stays blocked and says what condition opens it', () => {
     const where = {exits: [{to: 'basement-rites', unlock_when: {condition: 'clue_discovered: cellar-key', met: false}}], back: []};
     const rows = api.directorOffer('CUT', {present: [], where, pressures: [], previous: null});
     const route = rows.find(entry => entry.kind === 'route');
     assert.ok(route, 'a locked sole exit is still named');
     assert.equal(route.blocked, 'locked');
     assert.match(route.line, /cellar-key/, 'the row carries the condition that opens it');
-    const recovery = api.directorRecovery('CUT', 0, {present: [], where, pressures: [], previous: null, affordances: [], offer: rows});
-    assert.ok(!recovery.steps.some(step => step.operation === 'apply move'), 'a closed door is information, never the step the recovery owes');
 });
 
 test('a scene with no exit at all offers the way the party came in', () => {
@@ -143,6 +141,4 @@ test('a scene with no exit at all offers the way the party came in', () => {
     assert.ok(route, 'the retrace `apply move` already accepts is offered when nothing else leaves');
     assert.equal(route.where, 'commission-briefing');
     assert.equal(route.from, 'where.back');
-    const recovery = api.directorRecovery('CUT', 0, {present: [], where, pressures: [], previous: null, affordances: [], offer: rows});
-    assert.ok(recovery.steps.some(step => step.operation === 'apply move' && step.where === 'commission-briefing'));
 });

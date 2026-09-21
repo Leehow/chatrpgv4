@@ -1,5 +1,9 @@
 # Narration Craft
 
+## 1.3.0
+- Replaces the mandatory new-event and multiple-options handoff with the player's selected-goal boundary: complete routine selected action, then return at goal completion or the next unselected consequential choice.
+- Allows quiet answers, refusals, silence and natural closure without forcing a person to act, a Director offer, or a trailing question.
+
 ## 1.2.2
 - Adopts the §101 runtime-file allowlist; the engineering changelog is no longer frozen into campaign homes.
 

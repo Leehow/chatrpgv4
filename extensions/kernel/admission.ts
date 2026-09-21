@@ -362,6 +362,7 @@ export type AdmissionOutcome =
 	| { ok: false; reason: string; detail: string; ms: number; model?: string };
 
 export interface AdmissionReviewOptions {
+	providerBudget?: import('../../runtime/jev/provider-budget.ts').TaskProviderBudget;
 	ctx: ExtensionContext;
 	proposal: AdmissionProposal;
 	context: AdmissionContext;
@@ -373,6 +374,7 @@ export interface AdmissionReviewOptions {
 /** One review round through the shared lane runner (contract §12.5's pattern, §32's remit). Never throws. */
 export async function reviewAdmission(options: AdmissionReviewOptions): Promise<AdmissionOutcome> {
 	const lane = await runLane<AdmissionVerdict>({
+		providerBudget: options.providerBudget,
 		ctx: options.ctx,
 		envName: "PI_COC_ADMISSION_MODEL",
 		lane: "admission",

@@ -93,7 +93,7 @@ described (at most one strong and one weak). Numbers the dossier actually writes
 down -- "DEX 90", "Dodge 85" -- go into `numbers` as pins. Never ask a player who
 gave you all of this to answer questions the dossier already answers.
 
-**The profile.** name, occupation (a catalog entry by id or by its label in the
+**The profile.** `name` selects a player-supplied input with `{source, range?:{first,last}}`, using issued grapheme-unit aliases for a range, or proposes a new name with `{generated:newName}`. Never return a copied name string. On revisions omit an unchanged name; the kernel retains its exact value and provenance. The remaining profile fields are occupation (a catalog entry by id or by its label in the
 play language), occupation_stated (the player's own words for the trade when they
 differ from or refine the entry), age, sex (required free text in the play
 language: the player's words or your best reading; it shows on the card where the
@@ -195,8 +195,7 @@ explicit approval in a later message than the one the card was drawn in, or when
 they press the card's button (then the host has already confirmed; your call is
 answered as already committed). Use consent=delegated only when the player
 explicitly orders immediate creation, never for a mere name or concept. If the
-player requested an adventure action before setup finished, include pending_action
-as a verbatim quote. After confirming, call complete. Never claim the card exists
+player requested an adventure action before setup finished, include `pending_action` as a selection from the current input-source catalog, optionally bounded by issued first/last grapheme aliases. Never copy the request text or generate a pending action. An unavailable earlier request must be repeated or omitted; do not reconstruct it from a draft or summary. After confirming, call complete. Never claim the card exists
 before its tool succeeds, and never say a card is the one the player approved
 unless it is the same revision.
 

@@ -16,6 +16,7 @@ import { test } from "node:test";
 import {
 	acceptedUiTexts, assembleUiWords, prepareUiWords, uiCaptions, uiSourceTexts, validateUiPresentation,
 } from "../../extensions/module/ui-presentation.ts";
+import { issuePresentationReferences, PRESENTATION_REFERENCE_PROTOCOL } from "../../runtime/jev/presentation-references.ts";
 import { resolveUiWords, uiWordsCachePath, uiWordsDigest } from "../../runtime/ui-words.ts";
 
 /** Two invented tags: `aa` is authored, `bb` ships a seed, and `cc` has to be projected. */
@@ -34,6 +35,15 @@ async function fixture() {
 	return { contentRoot, home };
 }
 
+const sourceText = source => "text" in source ? source.text : source.pieces.map(piece => "text" in piece ? piece.text : piece.value).join("");
+const translated = source => "text" in source
+	? { source: source.alias, action: "translate", text: `<${source.text}>` }
+	: { source: source.alias, action: "translate", pieces: [
+		{ text: "<" }, ...source.pieces.map(piece => "text" in piece ? { text: piece.text } : { token: piece.token }), { text: ">" },
+	] };
+const response = (packet, drop = []) => ({ protocol: PRESENTATION_REFERENCE_PROTOCOL,
+	texts: packet.sources.filter(source => !drop.includes(sourceText(source))).map(translated) });
+
 /**
  * A runner that answers `texts.json` the way the presenter would, minus whatever `drop` names in
  * that round. It records what it was asked for, so a re-ask can be told from a repeat.
@@ -46,9 +56,7 @@ function runner(options = {}) {
 		async run(request) {
 			const packet = JSON.parse(await readFile(join(request.cwd, "texts.json"), "utf8"));
 			rounds.push(packet);
-			const skip = new Set(rounds.length === 1 ? drop : []);
-			const texts = Object.fromEntries(packet.texts.filter(text => !skip.has(text)).map(text => [text, `<${text}>`]));
-			await writeFile(join(request.cwd, "presentation.json"), JSON.stringify({ texts }));
+			await writeFile(join(request.cwd, "presentation.json"), JSON.stringify(response(packet, rounds.length === 1 ? drop : [])));
 			return { ok: true };
 		},
 	};
@@ -67,10 +75,15 @@ test("the captions are rows, one per place a word appears, and the questions are
 });
 
 test("the checker is all-or-nothing, and the pipeline keeps what validated", () => {
-	assert.deepEqual(validateUiPresentation({ texts: { a: "A", b: "B" } }, ["a", "b"]), { a: "A", b: "B" });
-	for (const bad of [null, {}, { texts: [] }, { texts: { a: "A" } }, { texts: { a: "A", b: "  " } }, { texts: { a: "A", b: "B", c: "C" } }])
-		assert.throws(() => validateUiPresentation(bad, ["a", "b"]), /Incomplete UI word projection/, JSON.stringify(bad));
-	assert.deepEqual(acceptedUiTexts({ texts: { a: "A", b: " ", c: "C" } }, ["a", "b"]), { a: "A" },
+	const catalog = issuePresentationReferences(["a", "b"], {protectSyntax:true});
+	const valid = {protocol:PRESENTATION_REFERENCE_PROTOCOL,texts:[{source:"text:0",action:"translate",text:"A"},{source:"text:1",action:"translate",text:"B"}]};
+	assert.doesNotThrow(() => validateUiPresentation(valid, catalog.sources));
+	for (const bad of [null, {}, {protocol:PRESENTATION_REFERENCE_PROTOCOL,texts:[]},
+		{protocol:PRESENTATION_REFERENCE_PROTOCOL,texts:[{source:"text:0",action:"translate",text:"A"}]},
+		{protocol:PRESENTATION_REFERENCE_PROTOCOL,texts:[{source:"text:0",action:"translate",text:" "},{source:"text:1",action:"translate",text:"B"}]},
+		{protocol:PRESENTATION_REFERENCE_PROTOCOL,texts:[{source:"text:0",action:"translate",text:"A"},{source:"text:1",action:"translate",text:"B"},{source:"text:2",action:"translate",text:"C"}]}])
+		assert.throws(() => validateUiPresentation(bad, catalog.sources), /Incomplete UI word projection/, JSON.stringify(bad));
+	assert.deepEqual(acceptedUiTexts({protocol:PRESENTATION_REFERENCE_PROTOCOL,texts:[{source:"text:0",action:"translate",text:"A"}]},catalog), { a: "A" },
 		"what validated is kept; a blank and an unasked word are not");
 });
 
@@ -80,10 +93,11 @@ test("a tag with nothing to read is projected once and cached in the shape the l
 	const result = await prepareUiWords({ home, contentRoot, play_language: "cc", runner: fake.run });
 
 	assert.equal(fake.rounds.length, 1, "one round is enough when the answer is complete");
-	assert.deepEqual(fake.rounds[0].texts, ["Clues", "Name", "Refresh", "Something went wrong"],
+	assert.deepEqual(fake.rounds[0].sources.map(sourceText), ["Clues", "Name", "Refresh", "Something went wrong"],
 		"the distinct authored strings, asked once each");
-	assert.deepEqual(fake.rounds[0].captions.filter(row => row.text === "Clues"),
-		[{ surface: "errors", key: "stale", text: "Clues" }, { surface: "sheet", key: "clues", text: "Clues" }],
+	const cluesAlias = fake.rounds[0].sources.find(source => sourceText(source) === "Clues").alias;
+	assert.deepEqual(fake.rounds[0].captions.filter(row => row.source === cluesAlias),
+		[{ surface: "errors", key: "stale", source: cluesAlias }, { surface: "sheet", key: "clues", source: cluesAlias }],
 		"each row says where its caption appears, so a short word can be told apart");
 	assert.equal(fake.rounds[0].play_language, "cc");
 
@@ -113,12 +127,12 @@ test("one dropped caption is asked once more, and the words already accepted are
 	const fake = runner({ drop: ["Refresh"] });
 	const result = await prepareUiWords({ home, contentRoot, play_language: "cc", runner: fake.run });
 	assert.equal(fake.rounds.length, 2, "a near miss costs one more question");
-	assert.deepEqual(fake.rounds[1].texts, ["Refresh"], "only the caption that was dropped");
-	assert.deepEqual(fake.rounds[1].captions, [{ surface: "sheet", key: "refresh", text: "Refresh" }]);
+	assert.deepEqual(fake.rounds[1].sources.map(sourceText), ["Refresh"], "only the caption that was dropped");
+	assert.deepEqual(fake.rounds[1].captions, [{ surface: "sheet", key: "refresh", source: fake.rounds[1].sources[0].alias }]);
 	assert.equal(result.texts.sheet.refresh, "<Refresh>");
 	assert.equal(result.texts.sheet.clues, "<Clues>", "the first round's words survived the miss");
 	const findings = JSON.parse(await readFile(join((await attemptDir(home)), "findings.json"), "utf8"));
-	assert.deepEqual(findings.texts, ["Refresh"], "the round is told exactly what it still owes");
+	assert.deepEqual(findings.sources, [fake.rounds[1].sources[0].alias], "the round is told exactly what it still owes");
 });
 
 test("a caption the second round still drops fails the projection, and nothing is cached", async () => {
@@ -128,8 +142,7 @@ test("a caption the second round still drops fails the projection, and nothing i
 		async run(request) {
 			const packet = JSON.parse(await readFile(join(request.cwd, "texts.json"), "utf8"));
 			stubborn.rounds.push(packet);
-			await writeFile(join(request.cwd, "presentation.json"),
-				JSON.stringify({ texts: Object.fromEntries(packet.texts.filter(text => text !== "Refresh").map(text => [text, `<${text}>`])) }));
+			await writeFile(join(request.cwd, "presentation.json"), JSON.stringify(response(packet,["Refresh"])));
 			return { ok: true };
 		},
 	};
@@ -183,9 +196,9 @@ test('partial seeds project from the authored source and fill newly added captio
  const fake=runner();
  await prepareUiWords({home,contentRoot,play_language:'bb',runner:fake.run});
  assert.equal(fake.rounds.length,1);
- assert.ok(fake.rounds[0].texts.includes('Refresh'));
- assert.ok(fake.rounds[0].texts.includes('Clues'));
- assert.ok(!fake.rounds[0].texts.includes('bb Clues'));
+	 assert.ok(fake.rounds[0].sources.map(sourceText).includes('Refresh'));
+	 assert.ok(fake.rounds[0].sources.map(sourceText).includes('Clues'));
+	 assert.ok(!fake.rounds[0].sources.map(sourceText).includes('bb Clues'));
  const complete=await resolveUiWords({home,contentRoot,tag:'bb'});
  assert.equal(complete.projected,true);
  assert.equal(complete.words.sheet.clues,'bb Clues');
@@ -193,9 +206,17 @@ test('partial seeds project from the authored source and fill newly added captio
 });
 
 test('a projected caption must preserve every placeholder including repetition',()=>{
- for(const value of ['Turn','Turn {other}','Turn {n} {n}'])
-  assert.throws(()=>validateUiPresentation({texts:{'Turn {n}':value}},['Turn {n}']));
- assert.deepEqual(acceptedUiTexts({texts:{'Turn {n}':'Turn','Line {name}':'<{name}>'}},['Turn {n}','Line {name}']),{'Line {name}':'<{name}>'});
+ const catalog=issuePresentationReferences(['Turn {n}','Line {name}'],{protectSyntax:true});
+ const [turn,line]=catalog.sources;
+ for(const operation of [
+  {source:turn.alias,action:'translate',text:'Turn'},
+  {source:turn.alias,action:'translate',pieces:[{text:'Turn '},{token:'token:999'}]},
+  {source:turn.alias,action:'translate',pieces:[{text:'Turn '},{token:turn.pieces.find(piece=>'token' in piece).token},{token:turn.pieces.find(piece=>'token' in piece).token}]},
+ ]) assert.throws(()=>validateUiPresentation({protocol:PRESENTATION_REFERENCE_PROTOCOL,texts:[operation]},[turn]));
+ const value={protocol:PRESENTATION_REFERENCE_PROTOCOL,texts:[
+  {source:turn.alias,action:'translate',text:'Turn'},translated(line),
+ ]};
+ assert.deepEqual(acceptedUiTexts(value,catalog),{'Line {name}':'<Line {name}>'});
 });
 
 for (const repair of [true, false]) test(`malformed UI output is retried, with complete-only caching (repair=${repair})`, async () => {
@@ -216,10 +237,10 @@ for (const repair of [true, false]) test(`malformed UI output is retried, with c
 			assert.match(request.brief, /Read findings.json/);
 			const findings = JSON.parse(await readFile(join(attempt, "findings.json"), "utf8"));
 			assert.match(findings.error, /SyntaxError/);
-			assert.deepEqual(findings.texts, packet.texts);
+			assert.deepEqual(findings.sources, packet.sources.map(source=>source.alias));
 		}
 		await writeFile(join(attempt, "presentation.json"), packets.length === 2 && repair
-			? JSON.stringify({ texts: Object.fromEntries(packet.texts.map(text => [text, `<${text}>`])) }) : "not JSON");
+			? JSON.stringify(response(packet)) : "not JSON");
 		return { ok: true };
 	};
 	const result = prepareUiWords({ home, contentRoot, play_language: "cc", runner: run });
@@ -241,17 +262,20 @@ test("a UI caption that loses a placeholder is repaired without re-asking accept
 	const result = await prepareUiWords({ home, contentRoot, play_language: "cc", runner: async request => {
 		const packet = JSON.parse(await readFile(join(request.cwd, "texts.json"), "utf8"));
 		packets.push(packet);
-		const texts = Object.fromEntries(packet.texts.map(text => [text, `<${text}>`]));
-		if (packets.length === 1) texts["Turn {n}"] = "Turn";
+		const output=response(packet);
+		if (packets.length === 1) {
+			const turn=packet.sources.find(source=>sourceText(source)==='Turn {n}');
+			output.texts=output.texts.map(operation=>operation.source===turn.alias?{source:turn.alias,action:'translate',pieces:[{text:'Turn'}]}:operation);
+		}
 		else {
 			const findings = JSON.parse(await readFile(join(request.cwd, "findings.json"), "utf8"));
-			assert.deepEqual(findings, { error: "these source strings were not answered with a non-empty string", texts: ["Turn {n}"] });
+			assert.deepEqual(findings, { error: "these source aliases were not answered with a valid keep or translation operation", sources: [packet.sources[0].alias] });
 		}
-		await writeFile(join(request.cwd, "presentation.json"), JSON.stringify({ texts }));
+		await writeFile(join(request.cwd, "presentation.json"), JSON.stringify(output));
 		return { ok: true };
 	} });
 	assert.equal(packets.length, 2);
-	assert.deepEqual(packets[1].texts, ["Turn {n}"]);
+	assert.deepEqual(packets[1].sources.map(sourceText), ["Turn {n}"]);
 	assert.equal(result.texts.sheet.turn, "<Turn {n}>");
 	assert.equal(result.texts.sheet.refresh, "<Refresh>");
 });
@@ -268,7 +292,9 @@ for (const aborted of [false, true]) for (const failRound of [1, 2])
 				assert.equal(request.thinking, "high");
 				assert.strictEqual(request.signal, controller.signal);
 				assert.equal(request.timeoutMs, 120000);
-				await writeFile(join(request.cwd, "presentation.json"), JSON.stringify({ texts: { Clues: "<Clues>" } }));
+				const packet=JSON.parse(await readFile(join(request.cwd,'texts.json'),'utf8'));
+				const source=packet.sources.find(source=>sourceText(source)==='Clues')??packet.sources[0];
+				await writeFile(join(request.cwd, "presentation.json"), JSON.stringify({protocol:PRESENTATION_REFERENCE_PROTOCOL,texts:[translated(source)]}));
 				if (calls < failRound) return { ok: true };
 				if (aborted) controller.abort();
 				return { ok: aborted, code: 1, stderr: "Model not found", timedOut: false };

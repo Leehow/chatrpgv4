@@ -1,5 +1,6 @@
 /** Shared artifact validation; semantic judgment belongs to the private reviewer. */
 export const CONTINUITY_AUDIT = 'audit.continuity.v1';
+export const CONTINUITY_AUDIT_V2 = 'audit.continuity.v2';
 /**
  * A continuity review is a tool-enabled background task, so elapsed wall time is not a semantic budget.
  * These are hour-scale process safety ceilings (contract §110), while request/rewrite/repair counts remain
@@ -54,7 +55,7 @@ export function normalizeContinuityArtifact(value: any, files: Record<string, un
     return review === value.continuity_review ? value : {...value, continuity_review: review};
 }
 
-export function continuityArtifactErrors(value: any, candidate: string, files: Record<string, unknown>): AuditIssue[] {
+export function continuityArtifactErrors(value: any, candidate: string, files: Record<string, unknown>, canonicalSpeech?: readonly string[]): AuditIssue[] {
     const errors: AuditIssue[] = [];
     const add = (path: string, message: string, extra = {}) => { errors.push({path, message, ...extra}); };
     const keys = (v: any, names: string[], path: string) => {
@@ -87,7 +88,7 @@ export function continuityArtifactErrors(value: any, candidate: string, files: R
     const causalReentry = object(context.causal_reentry) ? context.causal_reentry : null;
     const intelligibility = object(context.intelligibility_review) && context.intelligibility_review.requires_review === true;
     const playerAddress = object(context.player_address_review) && context.player_address_review.requires_review === true;
-    const spokenLines = spokenTexts(candidate);
+    const spokenLines = canonicalSpeech ?? spokenTexts(candidate);
     const speechReview = spokenLines.length > 0;
     const review = value.continuity_review;
     if (!keys(review, ['verdict', 'summary', 'conflicts', ...(intelligibility && review?.verdict !== 'unavailable' ? ['intelligibility_review'] : []), ...(playerAddress && review?.verdict !== 'unavailable' ? ['player_address_review'] : []), ...(speechReview && review?.verdict !== 'unavailable' ? ['speech_review'] : []), ...(locationAuthority ? ['location_review'] : []), ...(sceneCommitment ? ['locus_review'] : []),
@@ -244,7 +245,7 @@ export function continuityArtifactErrors(value: any, candidate: string, files: R
             if (!['bridge_receipt', 'bridge_offer', 'acquired_clarification', 'player_discharge', 'preparation_wait', 'authority_unavailable', 'chosen_action', 'none'].includes(reentry.basis))
                 add(`${path}/basis`, 'Expected bridge_receipt, bridge_offer, acquired_clarification, player_discharge, preparation_wait, authority_unavailable, chosen_action or none');
             const bridge = row(causalReentry.bridge), bridgeClue = bridge.clue, known = array(causalReentry.known).map(value => row(value).name);
-            const knownRow = array(causalReentry.known).map(row).find(value => value.name === reentry.clue);
+            const knownRow = array(causalReentry.known).map(row).find(value => value.name === reentry.clue && (canonicalSpeech === undefined || value.relation === reentry.relation));
             const mode = causalReentry.mode ?? (bridgeClue ? 'introduce_evidence' : 'clarify_known');
             if (!['clarify_known', 'introduce_evidence'].includes(mode)) add(`${path}/basis`, 'causal_reentry.mode is invalid');
             const receipts = array(context.receipts), handouts = array(bridge.source_handouts);

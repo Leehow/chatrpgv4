@@ -245,7 +245,7 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
         }
         return objectTransferReceipt({world, id: mint(`item:${callId}`), callId, name: item.name, owner, source, quantity, item, definition, why: effect.why ?? null,
             ...(ground ? {ground} : {}), ...(disposition ? {offer: disposition} : {}),
-            ...(division ? {divided: {from: string(prior!.name), remaining: prior!.quantity}} : {})});
+            ...(division ? {divided: {from: string(prior!.name), fromInstance:string(prior!.id), remaining: prior!.quantity}} : {})});
     }
     if (kind === 'ability') {
         const owner = await objectOwner(campaign, graph, world, effect.to);

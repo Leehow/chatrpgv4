@@ -1,6 +1,6 @@
 /**
  * The verifier lane (contract §12.5). It runs after the delivery replacement is done: a
- * zero-tool subsession reads the delivered prose and the two fact lists, reports four kinds
+ * zero-tool subsession reads the delivered prose and the fact lists, reports six kinds
  * of finding, and hands the result to `table.warn`.
  *
  * Three boundaries written down straight from the contract: everything is advisory (it changes
@@ -11,19 +11,30 @@
  * 2026-09-09). The kernel used to refuse a delivery whose player-facing fields carried none of the
  * campaign's script, which is a character-class detector and an open set has no table to look in.
  * Whether the prose is written in the player's language is a reading, so it is this lane's reading,
- * and it is advisory like the other three: a warning on the turn, never a refused delivery.
+ * and it is advisory like the other findings: a warning on the turn, never a refused delivery.
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { playLanguageTag } from "../../runtime/ui-words.ts";
-import { runLane } from "../lanes/subsession.ts";
+import { modelLabel, resolveLaneModel, runLane } from "../lanes/subsession.ts";
 import { extensionContentRoot } from "../ui/words.ts";
+import { createDecisionAdapter } from "../../runtime/jev/decision-adapter.ts";
+import { TaskLease } from "../../runtime/jev/task-context.ts";
+import {
+	POST_DELIVERY_VERIFIER_FAMILY,
+	POST_DELIVERY_FINDING_KINDS,
+	POST_DELIVERY_MAX_FINDINGS,
+	POST_DELIVERY_VERIFIER_MODEL,
+	postDeliveryVerifierFallbackBindings,
+	postDeliveryVerifierBindings,
+	runPostDeliveryVerifier,
+} from "../../runtime/jev/post-delivery-verifier-domain.ts";
 
 /** The closed set of finding kinds; a row of any other kind is dropped whole. */
-const FINDING_KINDS: ReadonlySet<string> = new Set(["reveal", "uncommitted_state", "player_agency", "play_language_mismatch", "unmarked_speech", "investigator_identity_mismatch"]);
+const FINDING_KINDS: ReadonlySet<string> = new Set(POST_DELIVERY_FINDING_KINDS);
 
 /** The kernel takes at most 10 (§12.5), so trim here rather than have the whole batch judged invalid_params. */
-const MAX_FINDINGS = 10;
+const MAX_FINDINGS = POST_DELIVERY_MAX_FINDINGS;
 
 /** Cap on one verifier round, `PI_COC_LANE_TIMEOUT_MS`. Read per call: one process loads this several times. */
 const DEFAULT_LANE_TIMEOUT_MS = 120_000;
@@ -152,6 +163,83 @@ export interface VerifierLaneOptions {
 	signal?: AbortSignal;
 }
 
+export interface VerifierFallbackAccounting {
+	calls: number;
+	inputTokens: number;
+	outputTokens: number;
+	costUsd: number;
+}
+
+/** Bind this verifier's incumbent completion to the same TaskLease without changing the shared lane runner. */
+export function budgetedVerifierContext(ctx: ExtensionContext, lease: TaskLease, accounting: VerifierFallbackAccounting): ExtensionContext {
+	const original = ctx.modelRegistry;
+	const complete = async (model: NonNullable<ExtensionContext["model"]>, context: unknown, options: Record<string, unknown> = {}) => {
+		lease.assertActive();
+		const incumbent = lease.context.readSet.find(binding => binding.kind === "model"
+			&& binding.resource === `${POST_DELIVERY_VERIFIER_FAMILY}:incumbent`);
+		if (!incumbent || incumbent.revision !== modelLabel(model)) throw new Error("verifier_incumbent_model_changed");
+		const inputTokens = Buffer.byteLength(JSON.stringify({ model: model.id, context }), "utf8");
+		const requested = Number(options.maxTokens ?? model.maxTokens);
+		const outputTokens = Math.min(requested, 8192);
+		if (!Number.isSafeInteger(outputTokens) || outputTokens < 1) throw new Error("verifier_output_bound_unavailable");
+		const rates = [model.cost, ...(model.cost.tiers ?? [])];
+		const inputRate = Math.max(...rates.flatMap(rate => [rate.input, rate.cacheRead, rate.cacheWrite]));
+		const outputRate = Math.max(...rates.map(rate => rate.output));
+		if (![inputRate, outputRate].every(rate => Number.isFinite(rate) && rate >= 0)) throw new Error("verifier_cost_bound_unavailable");
+		const costUsd = (inputTokens * inputRate + outputTokens * outputRate) / 1_000_000;
+		const reservation = lease.reserve({ inputTokens, outputTokens, costUsd, actions: 1 });
+		accounting.calls++;
+		let settled = false;
+		const settle = (actual?: {inputTokens: number; outputTokens: number; costUsd: number; actions: number}) => {
+			settled = true;
+			if (actual) {
+				accounting.inputTokens += actual.inputTokens;
+				accounting.outputTokens += actual.outputTokens;
+				accounting.costUsd += actual.costUsd;
+				reservation.settle(actual);
+			} else {
+				accounting.inputTokens += inputTokens;
+				accounting.outputTokens += outputTokens;
+				accounting.costUsd += costUsd;
+				reservation.settle();
+			}
+		};
+		try {
+			const reply = await original.complete(model, context as any, { ...options, maxTokens: outputTokens } as any);
+			const usageKnown = [reply.usage.input, reply.usage.output, reply.usage.cacheRead, reply.usage.cacheWrite,
+				reply.usage.totalTokens, reply.usage.cost.total].some(value => Number.isFinite(value) && value > 0);
+			if (["error", "aborted"].includes(reply.stopReason) || !usageKnown) settle();
+			else settle({ inputTokens: reply.usage.input + reply.usage.cacheRead + reply.usage.cacheWrite,
+				outputTokens: reply.usage.output, costUsd: reply.usage.cost.total, actions: 1 });
+			return reply;
+		} catch (error) {
+			if (!settled) settle();
+			throw error;
+		}
+	};
+	const registry = new Proxy(original, { get(target, property) {
+		if (property === "complete") return complete;
+		const value = Reflect.get(target, property, target);
+		return typeof value === "function" ? value.bind(target) : value;
+	} });
+	return new Proxy(ctx, { get(target, property) {
+		return property === "modelRegistry" ? registry : Reflect.get(target, property, target);
+	} });
+}
+
+function createVerifierLease(bindings: ReturnType<typeof postDeliveryVerifierBindings>, deadlineAt: number, signal?: AbortSignal): TaskLease {
+	return new TaskLease({
+		owner: POST_DELIVERY_VERIFIER_FAMILY,
+		goal: "Classify delivered prose against the closed advisory verifier families.",
+		scope: bindings.scope,
+		capabilities: ["decision"],
+		readSet: bindings.readSet,
+		signal,
+		budget: { deadlineAt, remainingInputTokens: 1_000_000, remainingOutputTokens: 100_000,
+			remainingCostUsd: 1, remainingActions: 32 },
+	});
+}
+
 /**
  * Run the verifier lane once. It never throws: any failure writes one
  * `lane: "verifier", ok: false` telemetry row and stops there.
@@ -165,59 +253,140 @@ export interface VerifierLaneOptions {
  * only place that knows a turn was closed by narrate at all (ticket #28).
  */
 export async function runVerifierLane(options: VerifierLaneOptions): Promise<void> {
-	const { ctx, payload, call, record } = options;
-	const began = Date.now();
+	if (process.env.PI_COC_JEV_VERIFIER !== "1") {
+		await runIncumbentVerifier(options, laneTimeoutMs());
+		return;
+	}
+	const began = Date.now(), timeoutMs = laneTimeoutMs(), deadlineAt = began + timeoutMs;
+	let lease: TaskLease | undefined;
+	try {
+		const playLanguage = await playLanguageTag(extensionContentRoot(), options.playLanguage);
+		const incumbentModel = resolveLaneModel(options.ctx, "PI_COC_VERIFIER_MODEL");
+		const input = {
+			campaign: options.payload.campaign,
+			turn: options.payload.turn,
+			...(typeof options.payload.commit === "string" && options.payload.commit.trim() ? { commit: options.payload.commit.trim() } : {}),
+			renderedText: options.payload.rendered_text,
+			playLanguage,
+			incumbentModel: incumbentModel.ok ? modelLabel(incumbentModel.model) : "unavailable",
+			...(options.payload.facts ? { facts: options.payload.facts } : {}),
+			...(options.payload.speech ? { speech: options.payload.speech } : {}),
+		};
+		if (!input.commit) {
+			const bindings = postDeliveryVerifierFallbackBindings(input);
+			lease = createVerifierLease(bindings, deadlineAt, options.signal);
+			await runIncumbentVerifier(options, deadlineAt - Date.now(), lease.signal, { route: "incumbent", fallback: true,
+				fallback_reason: "missing_commit", jev_model: POST_DELIVERY_VERIFIER_MODEL, jev_calls: 0,
+				jev_input_tokens: 0, jev_output_tokens: 0, jev_cost_usd: 0, jev_ms: 0 }, began, lease);
+			return;
+		}
+		const bindings = postDeliveryVerifierBindings(input);
+		// This is an independent advisory root with no foreground TaskRuntime, plan, operation, or delivery authority.
+		// The lease supplies one deadline and budget to every Jev round and the one permitted incumbent fallback.
+		lease = createVerifierLease(bindings, deadlineAt, options.signal);
+		const typed = await runPostDeliveryVerifier(input, createDecisionAdapter({
+			apiKey: process.env.TYPESAFE_API_KEY,
+			retryPolicies: { [POST_DELIVERY_VERIFIER_FAMILY]: {
+				maxRetries: 0, backoffInitialMs: 100, backoffMaxMs: 1_000,
+			} },
+		}), lease);
+		const typedMeta = { jev_model: POST_DELIVERY_VERIFIER_MODEL, jev_calls: typed.calls,
+			jev_input_tokens: typed.usage.inputTokens, jev_output_tokens: typed.usage.outputTokens,
+			jev_cost_usd: typed.usage.costUsd, jev_ms: typed.elapsedMs };
+		if (typed.status === "complete") {
+			await publishFindings(options, typed.findings, began, { route: "jev", model: POST_DELIVERY_VERIFIER_MODEL, ...typedMeta });
+			return;
+		}
+
+		const remaining = deadlineAt - Date.now();
+		if (remaining <= 0 || lease.signal.aborted) {
+			await options.record({ lane: "verifier", turn: options.payload.turn, ok: false, ms: Date.now() - began,
+				reason: remaining <= 0 ? "timeout" : "model_error",
+				detail: remaining <= 0 ? `Jev did not complete and left no time for the incumbent verifier (${typed.reason})`
+					: `The bounded verifier attempt was cancelled before incumbent fallback (${typed.reason})`,
+				route: "jev", fallback: false, fallback_reason: typed.reason, ...typedMeta });
+			return;
+		}
+		await runIncumbentVerifier(options, remaining, lease.signal, { route: "incumbent", fallback: true,
+			fallback_reason: typed.reason, ...typedMeta }, began, lease);
+	} catch (error) {
+		await options.record({ lane: "verifier", turn: options.payload.turn, ok: false, ms: Date.now() - began,
+			reason: Date.now() >= deadlineAt ? "timeout" : "model_error",
+			detail: "The bounded verifier attempt failed before it could publish an advisory result",
+			route: "jev", fallback: false, failure: error instanceof Error ? error.name : "unknown" });
+	} finally {
+		lease?.close();
+	}
+}
+
+async function incumbent(options: VerifierLaneOptions, timeoutMs: number, signal = options.signal, lease?: TaskLease) {
+	const accounting: VerifierFallbackAccounting = { calls: 0, inputTokens: 0, outputTokens: 0, costUsd: 0 };
 	const lane = await runLane<Finding[]>({
-		ctx,
+		ctx: lease ? budgetedVerifierContext(options.ctx, lease, accounting) : options.ctx,
 		envName: "PI_COC_VERIFIER_MODEL",
 		// The four `lane: "lane-call"` rows this round leaves (contract §12.8.1) go to the same
 		// telemetry the one `lane: "verifier"` row does, carrying this turn like it.
 		lane: "verifier",
-		record: (row) => record({ turn: payload.turn, ...row }),
+		record: (row) => options.record({ turn: options.payload.turn, ...row }),
 		systemPrompt: await verifierSystemPrompt(options.playLanguage),
-		input: buildVerifierInput(payload),
-		...(options.signal ? { signal: options.signal } : {}),
-		timeoutMs: laneTimeoutMs(),
+		input: buildVerifierInput(options.payload),
+		...(signal ? { signal } : {}),
+		timeoutMs,
 		shape: shapeFindings,
 	});
+	return { lane, accounting };
+}
+
+async function runIncumbentVerifier(options: VerifierLaneOptions, timeoutMs: number, signal = options.signal,
+	meta: Record<string, unknown> = { route: "incumbent", fallback: false }, began = Date.now(), lease?: TaskLease): Promise<void> {
+	const attempt = await incumbent(options, Math.max(1, timeoutMs), signal, lease), lane = attempt.lane;
+	const incumbentMeta = lease ? { incumbent_calls: attempt.accounting.calls, incumbent_input_tokens: attempt.accounting.inputTokens,
+		incumbent_output_tokens: attempt.accounting.outputTokens, incumbent_cost_usd: attempt.accounting.costUsd } : {};
 	if (!lane.ok) {
-		await record({
+		await options.record({
 			lane: "verifier",
-			turn: payload.turn,
+			turn: options.payload.turn,
 			ok: false,
-			ms: lane.ms,
+			ms: Date.now() - began,
 			reason: lane.reason,
 			detail: lane.detail.slice(0, 200),
 			...(lane.model ? { model: lane.model } : {}),
+			...meta,
+			...incumbentMeta,
 		});
 		return;
 	}
+	await publishFindings(options, lane.value, began, { model: lane.model, ...meta, ...incumbentMeta });
+}
+
+async function publishFindings(options: VerifierLaneOptions, findings: Finding[], began: number,
+	meta: Record<string, unknown>): Promise<void> {
 	try {
-		const result = (await call("table.warn", {
-			campaign: payload.campaign,
-			turn: payload.turn,
+		const result = (await options.call("table.warn", {
+			campaign: options.payload.campaign,
+			turn: options.payload.turn,
 			lane: "verifier",
-			findings: lane.value,
+			findings,
 		})) as { recorded?: number; dropped?: number } | undefined;
-		await record({
+		await options.record({
 			lane: "verifier",
-			turn: payload.turn,
+			turn: options.payload.turn,
 			ok: true,
 			ms: Date.now() - began,
-			model: lane.model,
-			findings: lane.value.length,
+			findings: findings.length,
 			...(typeof result?.recorded === "number" ? { recorded: result.recorded } : {}),
 			...(typeof result?.dropped === "number" ? { dropped: result.dropped } : {}),
+			...meta,
 		});
 	} catch (error) {
-		await record({
+		await options.record({
 			lane: "verifier",
-			turn: payload.turn,
+			turn: options.payload.turn,
 			ok: false,
 			ms: Date.now() - began,
-			model: lane.model,
 			reason: "warn_failed",
 			detail: (error instanceof Error ? error.message : String(error)).slice(0, 200),
+			...meta,
 		});
 	}
 }

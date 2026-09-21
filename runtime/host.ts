@@ -32,9 +32,13 @@ export type RuntimeTask = { kind: "reader" | "mod"; request: Omit<ReaderRequest,
 export type RuntimeCheck = { kind: "source-draft"; packet: string; draft: string }
 	| { kind: "mod-definition" | "object-usage"; draft: string };
 export type RuntimeSource = { pdf: string; cache: string };
+export type RuntimeSourceSearch = { pdf: string } & import('../extensions/module/source.ts').SourceSearchOptions;
+export type RuntimeSourceText = { pdf: string } & import('../extensions/module/source.ts').SourceTextOptions;
 export type RuntimePage = RuntimeSource & { page: number; box?: number[]; pixels?: number; format?: "png" | "jpeg" };
 type SourceInfo = Awaited<ReturnType<typeof import("../extensions/module/source.ts").sourceInfo>>;
 type SourcePage = Awaited<ReturnType<typeof import("../extensions/module/source.ts").sourcePage>>;
+type SourceSearch = Awaited<ReturnType<typeof import('../extensions/module/source.ts').sourceSearch>>;
+type SourceText = Awaited<ReturnType<typeof import('../extensions/module/source.ts').sourceText>>;
 
 /** Captured deployment inputs are visible only to the host's fixed capability adapters. */
 export interface RuntimeContext {
@@ -54,6 +58,8 @@ export interface RuntimeCapabilities {
 	check?(context: RuntimeContext, request: RuntimeCheck, signal: AbortSignal): Promise<{ ok: boolean; [key: string]: unknown }>;
 	sourceInfo?(context: RuntimeContext, source: RuntimeSource, signal: AbortSignal): Promise<SourceInfo>;
 	sourcePage?(context: RuntimeContext, page: RuntimePage, signal: AbortSignal): Promise<SourcePage>;
+	sourceSearch?(context: RuntimeContext, request: RuntimeSourceSearch, signal: AbortSignal): Promise<SourceSearch>;
+	sourceText?(context: RuntimeContext, request: RuntimeSourceText, signal: AbortSignal): Promise<SourceText>;
 }
 
 type ConnectionOptions = Pick<KernelClientOptions, "timeoutMs" | "onDiagnostic" | "onRestart">;
@@ -71,6 +77,8 @@ export interface HostRuntime {
 	check(request: RuntimeCheck, signal?: AbortSignal): Promise<{ ok: boolean; [key: string]: unknown }>;
 	sourceInfo(source: RuntimeSource, signal?: AbortSignal): Promise<SourceInfo>;
 	sourcePage(page: RuntimePage, signal?: AbortSignal): Promise<SourcePage>;
+	sourceSearch(request: RuntimeSourceSearch, signal?: AbortSignal): Promise<SourceSearch>;
+	sourceText(request: RuntimeSourceText, signal?: AbortSignal): Promise<SourceText>;
 	close(): Promise<void>;
 }
 
@@ -234,6 +242,8 @@ export function createRuntime(binding: RuntimeBinding, host: RuntimeHostOptions 
 		check: (request, cancellation) => operation("check", capabilities.check && (s => capabilities.check!(context, request, s)), cancellation),
 		sourceInfo: (source, cancellation) => operation("sourceInfo", capabilities.sourceInfo && (s => capabilities.sourceInfo!(context, source, s)), cancellation),
 		sourcePage: (page, cancellation) => operation("sourcePage", capabilities.sourcePage && (s => capabilities.sourcePage!(context, page, s)), cancellation),
+		sourceSearch: (request, cancellation) => operation('sourceSearch', capabilities.sourceSearch && (s => capabilities.sourceSearch!(context, request, s)), cancellation),
+		sourceText: (request, cancellation) => operation('sourceText', capabilities.sourceText && (s => capabilities.sourceText!(context, request, s)), cancellation),
 		close,
 	} satisfies HostRuntime);
 }

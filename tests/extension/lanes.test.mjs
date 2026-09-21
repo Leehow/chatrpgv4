@@ -277,6 +277,45 @@ test("校验车道：读正文与两份事实清单，发现交给 table.warn", 
 	assert.equal(row.model, "verifier/v1");
 });
 
+test("Jev 校验显式开启但未配置时，在同一次截止时间内只回退一次既有校验车道", async (t) => {
+	const table = await openTable({
+		responses: keeperTurn(),
+		env: { PI_COC_JEV_VERIFIER: "1", TYPESAFE_API_KEY: undefined },
+		laneResponses: {
+			memory: [noCandidates()],
+			verifier: [fauxAssistantMessage(JSON.stringify({ findings: [
+				{ kind: "uncommitted_state", quote: RENDERED, why: "The incumbent found an unsupported change." },
+			] }))],
+		},
+	});
+	t.after(() => table.dispose());
+
+	await table.session.prompt("我检查地窖门的门框");
+	await waitFor(() => calls(table, "table.warn").length > 0, { label: "Jev incumbent fallback table.warn" });
+	const rows = await waitFor(() => {
+		const complete = laneRows(table, "verifier").filter(row => row.ok !== undefined);
+		return complete.length ? complete : undefined;
+	}, {
+		label: "Jev incumbent fallback telemetry",
+	});
+
+	assert.equal(calls(table, "table.warn").length, 1, "only the incumbent route publishes warnings");
+	assert.deepEqual(calls(table, "table.warn")[0].params.findings, [
+		{ kind: "uncommitted_state", quote: RENDERED, why: "The incumbent found an unsupported change." },
+	]);
+	assert.equal(table.lanes.verifier.getPendingResponseCount(), 0, "the incumbent model was called exactly once");
+	assert.equal(rows.length, 1, "the family attempt still writes exactly one terminal verifier row");
+	assert.equal(rows[0].route, "incumbent");
+	assert.equal(rows[0].fallback, true);
+	assert.equal(rows[0].fallback_reason, "unconfigured");
+	assert.equal(rows[0].jev_calls, 1);
+	assert.equal(rows[0].jev_input_tokens, 0);
+	assert.equal(rows[0].incumbent_calls, 1);
+	assert.ok(rows[0].incumbent_input_tokens > 0, "unknown incumbent usage keeps its conservative UTF-8 input bound");
+	assert.equal(rows[0].incumbent_output_tokens, 30, "unknown incumbent usage keeps the faux model's full output bound below the public ceiling");
+	assert.equal(rows[0].model, "verifier/v1");
+});
+
 test("提交载荷上总线：campaign、turn、commit、job_id、facts、rendered_text 一个不少", async (t) => {
 	const table = await openTable({ responses: keeperTurn() });
 	t.after(() => table.dispose());

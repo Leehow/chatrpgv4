@@ -332,7 +332,7 @@ test("character guidance refuses with invalid_params and reports readiness with 
 	const folder = join(home, ".coc/modules/story");
 	await mkdir(folder, { recursive: true });
 	await writeFile(join(folder, "module.json"), JSON.stringify({ id: "story" }));
-	await writeFile(join(folder, "module-graph.json"), JSON.stringify({ nodes: [] }));
+	await writeFile(join(folder, "module-graph.json"), JSON.stringify({ nodes: [{node_id:'scene-opening',node_kind:'scene',name:'Opening'}], relations: [] }));
 	const options = { home, module_id: "story", play_language: "en", occupations: [], runner: async () => ({ ok: true }) };
 	await assert.rejects(prepareCharacterGuidance({ ...options, module_id: "Not An Id" }), (error) => error.code === "invalid_params");
 	await assert.rejects(acceptedGuidance(home, "story", "not-a-fingerprint"), (error) => error.code === "invalid_params");
@@ -348,7 +348,7 @@ test("character guidance reports readiness with guidance_not_ready only for a st
 	const home = await mkdtemp(join(tmpdir(), "guidance-ready-"));
 	const folder = join(home, ".coc/modules/story");
 	await mkdir(folder, { recursive: true });
-	await writeFile(join(folder, "module-graph.json"), JSON.stringify({ nodes: [] }));
+	await writeFile(join(folder, "module-graph.json"), JSON.stringify({ nodes: [{node_id:'scene-opening',node_kind:'scene',name:'Opening'}], relations: [] }));
 	// A content root of our own, so a bundle can be shipped for the starter under test.
 	const content = await mkdtemp(join(tmpdir(), "guidance-content-"));
 	await mkdir(join(content, "setup"), { recursive: true });
@@ -358,7 +358,7 @@ test("character guidance reports readiness with guidance_not_ready only for a st
 	const options = { home, module_id: "story", play_language: "en", occupations: [], contentRoot: content,
 		runner: async () => { runs += 1; return { ok: false }; } };
 	await assert.rejects(prepareCharacterGuidance({ ...options, play_language: "ZZZZ" }), (error) => error.code === "invalid_params");
-	await writeFile(join(folder, "module.json"), JSON.stringify({ id: "story", bundled_guidance_required: true }));
+	await writeFile(join(folder, "module.json"), JSON.stringify({ id: "story", bundled_guidance_required: true, opening:{start_scene:'scene-opening'} }));
 	// No bundle for `en`: the generation path runs (and fails here only because the fake runner declines).
 	await assert.rejects(prepareCharacterGuidance(options), (error) => error.code === "preparation_failed");
 	assert.equal(runs, 1, "a starter without a bundle for the tag generates its guidance");
@@ -382,7 +382,7 @@ test("the card and the document refuse with invalid_params and fail preparation 
 		(error) => error.code === "invalid_params");
 	await assert.rejects(prepareStandingPresentation({ ...card, play_language: "en", view: { play_language: "pt-BR" } }),
 		(error) => error.code === "invalid_params");
-	assert.equal(errorCodeOf(rejectionOf(() => validatePresentation({ texts: {} }, ["one"]))), "preparation_failed");
+	assert.equal(errorCodeOf(rejectionOf(() => validatePresentation(null, []))), "preparation_failed");
 	assert.equal(errorCodeOf(rejectionOf(() => validateFinanceEquipment({ finance_equipment: ["nothing"] }, []))), "preparation_failed");
 	await assert.rejects(presentDocument({ home }, { play_language: "ZZZZ", name: "a", text: "", original: "" }),
 		(error) => error.code === "invalid_params");

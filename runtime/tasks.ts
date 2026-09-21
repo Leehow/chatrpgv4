@@ -1,3 +1,4 @@
+import {independentProviderBudget} from "./jev/provider-budget.ts";
 /** Fixed host adapters; checking never opens a kernel or publishes an artifact. */
 import { accessSync, constants, statSync } from "node:fs";
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
@@ -295,7 +296,11 @@ export const runtimeCapabilities: RuntimeCapabilities = Object.freeze({
       command[0] = taskExecutable(context, command[0]);
       captured = { ...context, env: { ...context.env, PI_COC_READER_CMD: JSON.stringify(command) } };
     }
-    return runReader(request, await readerContext(captured, request, signal));
+    const independent = !request.providerBudget && !context.env.PI_COC_READER_CMD?.trim()
+      ? independentProviderBudget(`standalone-${task.kind}`, signal, request.timeoutMs ?? 3600000) : undefined;
+    request.providerBudget ??= independent?.budget;
+    try { return await runReader(request, await readerContext(captured, request, signal)); }
+    finally { independent?.close(); }
   },
   check: runCheck,
   async sourceInfo(context, source, signal) {
@@ -306,9 +311,17 @@ export const runtimeCapabilities: RuntimeCapabilities = Object.freeze({
     ensureActive(signal);
     return sourceOperation(context, "page", {...page, pdf: resolve(context.home, page.pdf), cache: resolve(context.home, page.cache)}, signal);
   },
+  async sourceSearch(context, request, signal) {
+    ensureActive(signal);
+    return sourceOperation(context, 'search', {...request, pdf: resolve(context.home, request.pdf)}, signal);
+  },
+  async sourceText(context, request, signal) {
+    ensureActive(signal);
+    return sourceOperation(context, 'text', {...request, pdf: resolve(context.home, request.pdf)}, signal);
+  },
 });
 
-async function sourceOperation(context: RuntimeContext, kind: "info" | "page", request: object, signal: AbortSignal) {
+async function sourceOperation(context: RuntimeContext, kind: "info" | "page" | 'search' | 'text', request: object, signal: AbortSignal) {
   const output = await runHostProcess([context.nodeExecutable, context.entrypoints.sourceWorker, kind, JSON.stringify(request)], {
     cwd: context.resourceRoot, env: {...context.env}, signal, outputLimit: 32 * 1024 * 1024,
   });

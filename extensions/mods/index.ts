@@ -1,3 +1,4 @@
+import type {TaskProviderBudget} from "../../runtime/jev/provider-budget.ts";
 /** A host adapter for portable Mod Agent tasks; it adds no Keeper tools. */
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { join } from "node:path";
@@ -49,7 +50,7 @@ export interface ModBridge {
    * reads as unreviewed, so a store written before §91 never strands a recovered turn on its own.
    */
   reviewStatus?(campaign: string): Promise<{paused?: boolean; reason?: string; service?: boolean; reviewed?: boolean}>;
-  prepare(method: string, payload: Record<string, any>, signal?: AbortSignal): Promise<{unreviewed?: Unreviewed} | void>;
+  prepare(method: string, payload: Record<string, any>, signal?: AbortSignal, providerBudget?: TaskProviderBudget): Promise<{unreviewed?: Unreviewed} | void>;
   /** After the verb landed, so deferred registration can complete in a turn the Keeper never writes in. */
   after(method: string, payload: Record<string, any>, signal?: AbortSignal): Promise<void>;
 }
@@ -60,6 +61,8 @@ export default function modsExtension(pi: ExtensionAPI): void {
   let mintCallId: (() => string | undefined) | undefined;
   let context: ExtensionContext | undefined;
   let inputToken: string | undefined;
+  let trackTaskReceipts = false;
+  pi.events.on('coc:task-receipt-tracking', value => { trackTaskReceipts = value === true; });
   let language: unknown;
   pi.events.on("coc:table-open", value => { language = (value as any)?.open?.campaign?.play_language; });
   pi.events.on("coc:session-bound", value => { language = (value as any)?.play_language; });
@@ -187,10 +190,10 @@ export default function modsExtension(pi: ExtensionAPI): void {
     return at >= 0 && typeof command[at + 1] === 'string' ? command[at + 1] : undefined;
   }
 
-  async function continuityTask(campaign: string, job: any, input: any, began: number, signal?: AbortSignal) {
+  async function continuityTask(campaign: string, job: any, input: any, began: number, signal?: AbortSignal, providerBudget?: TaskProviderBudget) {
     const telemetry: Record<string, unknown> = {job: job?.job ?? null};
     try {
-      const result = await runContinuityReview(campaign, job, input, began, signal, telemetry);
+      const result = await runContinuityReview(campaign, job, input, began, signal, telemetry, providerBudget);
       note({...telemetry, ok: true, ms: Date.now() - began, verdict: result?.continuity_review?.verdict ?? null});
       return result;
     } catch (error) {
@@ -212,7 +215,7 @@ export default function modsExtension(pi: ExtensionAPI): void {
   }
 
   async function runContinuityReview(campaign: string, job: any, input: any, began: number, signal: AbortSignal | undefined,
-    telemetry: Record<string, unknown>) {
+    telemetry: Record<string, unknown>, providerBudget?: TaskProviderBudget) {
     if (!call || !runtime) throw reviewUnavailable('The review runtime is unavailable');
     const current = call, owner = runtime, budget = new AuditBudget(job.review_scope, inputToken, job.limits);
     let reserved = false, requests = 0, artifactRepairs = 0;
@@ -232,7 +235,7 @@ export default function modsExtension(pi: ExtensionAPI): void {
       await writeFile(join(job.cwd, control), JSON.stringify({...limits, status_file: statusFile}), {flag: 'wx', mode: 0o400});
       let submitted = false, outcome: any;
       try {
-        outcome = await owner.runTask({kind: 'mod', request: {cwd: job.cwd, systemPrompt: job.system_prompt,
+        outcome = await owner.runTask({kind: 'mod', request: {providerBudget, cwd: job.cwd, systemPrompt: job.system_prompt,
           model: context?.model ? `${context.model.provider}/${context.model.id}` : undefined,
           // No `thinking`: a lane's reasoning effort is not the table's, and the runtime decides it
           // (contract §37.11). Handing the Keeper's own chip down here made reviews inherit unrelated
@@ -249,7 +252,10 @@ export default function modsExtension(pi: ExtensionAPI): void {
               if (typeof details?.artifact_repairs === 'number') artifactRepairs = Math.max(artifactRepairs, details.artifact_repairs);
             }
           },
-          brief: `Review this one candidate using the focused context below. You have at most ${limits.max_requests} model calls including submission and any format repair; aim to submit within the first three. Do not reread request.json or enumerate files. Cite context.json for exact excerpts already visible here. For a specific missing fact, use read_audit_evidence with kind objects/history/memory/source and semantic names or turn numbers; it handles the file structure for you. Do not write JSON query scripts or inspect schema keys. Full files and node remain available only for detail the focused tool explicitly omits. history.json uses rendered_text, current.json contains party, and world.json stores objects rather than graph nodes. Compatible new fiction needs no literal book quote. continuity_review must contain intelligibility_review exactly as {verdict: pass|revise, quote: exact malformed candidate excerpt|null}; pass uses null, revise needs one exact quote and an actionable finding that rewrites the whole candidate without changing facts. It must also contain player_address_review exactly as {verdict: pass|revise, quote: exact narrator-side third-person player reference|null}; pass uses null, revise needs one exact quote and an actionable finding that rewrites the whole candidate in second person without changing facts. When the candidate contains say tokens, it must also contain speech_review exactly as {verdict: pass|revise, lines:[{quote: complete spoken span text, verdict: pass|revise, reason: brief grammatical judgment}]}; copy every spoken line exactly and in order, then explain why its subject/action/object or idiomatic omission is naturally clear, or which relation is missing. Any revised line needs aggregate speech revise plus an actionable whole-candidate natural-language rewrite finding. When context has scene_commitment, continuity_review must contain locus_review exactly as {verdict: pass|revise, mode: same_locus|transition|new_locus, locus: string|null, claim: exact candidate excerpt|null, basis: active_scene|move_receipt|none}; never use location_review or its fields. When context has outcome_commitments, continuity_review must contain outcome_review exactly as {verdict: pass|revise, basis: failed_rolls_respected|unsupported_positive_result, claims: exact candidate excerpts[]}. When context has causal_reentry, continuity_review must also contain reentry_review exactly as {verdict: pass|revise|defer, basis: bridge_receipt|bridge_offer|acquired_clarification|player_discharge|preparation_wait|authority_unavailable|chosen_action|none, quote: exact candidate or current_input excerpt|null, clue: string|null, relation: supports|contradicts|null}. Before submitting, reread the candidate for intelligibility and player address in the play language. Do not submit pass while any sentence requires the reader to restore omitted grammatical relations: an unnamed body-part list, one person's name attached directly to another person's body part, a bed/body-state phrase standing in for the person and action, or clipped status fragments are revise findings even when the intended facts can be guessed from context. Do not pass a quoted spoken line such as "Pulse present. Breath shallow. Eyes no." merely because its intended status facts can be guessed; terse or archaic character speech is not an exemption. Do not submit pass when the narrator calls a player-controlled investigator by character name or a third-person pronoun instead of addressing the player in second person; natural subject omission is allowed, and NPC dialogue or reported speech may refer to them as the fiction requires. Submit directly with submit_audit; no essay, validator script or closing reply. If decisive evidence is unavailable, submit unavailable rather than guessing.\n` +
+          brief: job.continuity_schema === 2 ?
+            `Review this one candidate using the focused context below. You have at most ${limits.max_requests} model calls including submission and any format repair; aim to submit within the first three. Do not reread request.json, enumerate files, inspect schema keys, or copy source text into selector fields. context.sources contains the host-issued aliases. For a specific missing fact, use read_audit_evidence with kind objects/history/memory/source and semantic names or turn numbers, then select its sources[].alias. Compatible new fiction needs no literal book source. Submit schema 2 exactly as {schema:2,missing:[{subject:object_alias,category,reason}],findings:[{reason,fix}],continuity_review:{verdict,summary,conflicts:[{claim_source:draft_alias,reason,evidence_sources:[evidence_alias]}]}} plus only the required subreviews. Generated summary, reasons and fixes are ordinary English; every source-bearing field is an alias and must never contain copied prose, names, paths or private coordinates. intelligibility_review and player_address_review are {verdict,source:draft_alias|null}; pass uses null, revise selects one draft source and needs an actionable whole-candidate finding. When context.sources.speech is nonempty, speech_review is {verdict,lines:[{source:speech_alias,verdict,reason}]}; include every speech alias exactly once in its original order. Any revised line needs aggregate speech revise plus an actionable whole-candidate finding. location_review is {verdict,basis,current_scene_source:scene_alias,asserted_elsewhere_sources:[draft_alias]}. locus_review is {verdict,mode,basis,locus_source:scene_alias|null,claim_source:draft_alias|null}; use it instead of location_review when scene_commitment requires it. outcome_review is {verdict,basis,claim_sources:[draft_alias]}. reentry_review is {verdict,basis,source:draft_alias|current_input_alias|null,evidence_source:reentry_alias|null}; player_discharge selects current_input and other source-bearing bases select draft. Before submitting, reread the candidate for intelligibility and player address in the play language. Do not submit pass while any sentence requires the reader to restore omitted grammatical relations: an unnamed body-part list, one person's name attached directly to another person's body part, a bed/body-state phrase standing in for the person and action, or clipped status fragments are revise findings even when the intended facts can be guessed from context. Terse or archaic character speech is not an exemption. Do not submit pass when the narrator calls a player-controlled investigator by character name or a third-person pronoun instead of addressing the player in second person; natural subject omission is allowed, and NPC dialogue or reported speech may refer to them as the fiction requires. Submit directly with submit_audit; no essay, validator script or closing reply. If decisive evidence is unavailable, submit unavailable rather than guessing.\n` +
+            JSON.stringify({candidate: input.text, context: job.focus}) :
+            `Review this one candidate using the focused context below. You have at most ${limits.max_requests} model calls including submission and any format repair; aim to submit within the first three. Do not reread request.json or enumerate files. Cite context.json for exact excerpts already visible here. For a specific missing fact, use read_audit_evidence with kind objects/history/memory/source and semantic names or turn numbers; it handles the file structure for you. Do not write JSON query scripts or inspect schema keys. Full files and node remain available only for detail the focused tool explicitly omits. history.json uses rendered_text, current.json contains party, and world.json stores objects rather than graph nodes. Compatible new fiction needs no literal book quote. continuity_review must contain intelligibility_review exactly as {verdict: pass|revise, quote: exact malformed candidate excerpt|null}; pass uses null, revise needs one exact quote and an actionable finding that rewrites the whole candidate without changing facts. It must also contain player_address_review exactly as {verdict: pass|revise, quote: exact narrator-side third-person player reference|null}; pass uses null, revise needs one exact quote and an actionable finding that rewrites the whole candidate in second person without changing facts. When the candidate contains say tokens, it must also contain speech_review exactly as {verdict: pass|revise, lines:[{quote: complete spoken span text, verdict: pass|revise, reason: brief grammatical judgment}]}; copy every spoken line exactly and in order, then explain why its subject/action/object or idiomatic omission is naturally clear, or which relation is missing. Any revised line needs aggregate speech revise plus an actionable whole-candidate natural-language rewrite finding. When context has scene_commitment, continuity_review must contain locus_review exactly as {verdict: pass|revise, mode: same_locus|transition|new_locus, locus: string|null, claim: exact candidate excerpt|null, basis: active_scene|move_receipt|none}; never use location_review or its fields. When context has outcome_commitments, continuity_review must contain outcome_review exactly as {verdict: pass|revise, basis: failed_rolls_respected|unsupported_positive_result, claims: exact candidate excerpts[]}. When context has causal_reentry, continuity_review must also contain reentry_review exactly as {verdict: pass|revise|defer, basis: bridge_receipt|bridge_offer|acquired_clarification|player_discharge|preparation_wait|authority_unavailable|chosen_action|none, quote: exact candidate or current_input excerpt|null, clue: string|null, relation: supports|contradicts|null}. Before submitting, reread the candidate for intelligibility and player address in the play language. Do not submit pass while any sentence requires the reader to restore omitted grammatical relations: an unnamed body-part list, one person's name attached directly to another person's body part, a bed/body-state phrase standing in for the person and action, or clipped status fragments are revise findings even when the intended facts can be guessed from context. Do not pass a quoted spoken line such as "Pulse present. Breath shallow. Eyes no." merely because its intended status facts can be guessed; terse or archaic character speech is not an exemption. Do not submit pass when the narrator calls a player-controlled investigator by character name or a third-person pronoun instead of addressing the player in second person; natural subject omission is allowed, and NPC dialogue or reported speech may refer to them as the fiction requires. Submit directly with submit_audit; no essay, validator script or closing reply. If decisive evidence is unavailable, submit unavailable rather than guessing.\n` +
             JSON.stringify({candidate: input.text, context: job.focus})}}, signal);
       } catch (error) { outcome = {ok: false, error: errorText(error)}; }
       let status: any = {};
@@ -294,7 +300,7 @@ export default function modsExtension(pi: ExtensionAPI): void {
     } finally { budget.close(); }
   }
 
-  async function task(campaign: string, role: "create" | "usage" | "audit", input: unknown, signal?: AbortSignal, preview?: Record<string, any>[], guard?: () => Promise<void>): Promise<any> {
+  async function task(campaign: string, role: "create" | "usage" | "audit", input: unknown, signal?: AbortSignal, preview?: Record<string, any>[], guard?: () => Promise<void>, providerBudget?: TaskProviderBudget): Promise<any> {
     if (!call) throw new KernelError({code:"needs",message:"Mod kernel bridge is unavailable"});
     const current = call, owner = runtime, began = Date.now();
     const proposal = role === 'usage' && (input as any)?.propose === true;
@@ -303,7 +309,7 @@ export default function modsExtension(pi: ExtensionAPI): void {
     const job = await current("mods.job", preview === undefined ? {campaign, role, input} : {campaign, role, input, preview});
     if (role === "usage") signal?.throwIfAborted();
     if (!job.enabled) return null;
-    if (job.continuity_review) return continuityTask(campaign, job, input, began, signal);
+    if (job.continuity_review) return continuityTask(campaign, job, input, began, signal, providerBudget);
     if (job.accepted) {
       await guard?.();
       const result = await current(acceptMethod, {campaign, job:job.job});
@@ -328,7 +334,7 @@ export default function modsExtension(pi: ExtensionAPI): void {
       // either way, and then the original failure continues on its way.
       try {
         await guard?.();
-        outcome = await owner.runTask({kind:"mod", request:{cwd:job.cwd, systemPrompt:job.system_prompt, model:modelName,
+        outcome = await owner.runTask({kind:"mod", request:{providerBudget, cwd:job.cwd, systemPrompt:job.system_prompt, model:modelName,
           tools:job.source_review || role === "usage" ? "read,write,edit,bash" : "read,write,edit",
           eventLog:join(job.cwd, `agent-${attempt}.jsonl`), brief:base + repair}}, signal);
       }
@@ -408,7 +414,7 @@ export default function modsExtension(pi: ExtensionAPI): void {
    * each definition that lands is retained as an accepted job, so the retry the Keeper is told to
    * make resumes from what is already done instead of paying for it twice.
    */
-  async function materialize(campaign: string, defines: Record<string, any>[], signal?: AbortSignal, previews: (Record<string, any>[] | undefined)[] = []): Promise<void> {
+  async function materialize(campaign: string, defines: Record<string, any>[], signal?: AbortSignal, previews: (Record<string, any>[] | undefined)[] = [], providerBudget?: TaskProviderBudget): Promise<void> {
     // The kernel keys a job by its request, so two identical defines in one batch are one job directory.
     // Serially the second used to find the first already accepted; together they would race over the same
     // `result.json`, so they are folded here and share the one run. Usage jobs include the private staged
@@ -425,7 +431,7 @@ export default function modsExtension(pi: ExtensionAPI): void {
     const worker = async (): Promise<void> => {
       for (let slot = next++; slot < total; slot = next++) {
         const index = jobs[slot];
-        try { results[index] = await task(campaign, defines[index].kind === "usage" ? "usage" : "create", inputs[index], signal, previews[index]); }
+        try { results[index] = await task(campaign, defines[index].kind === "usage" ? "usage" : "create", inputs[index], signal, previews[index], undefined, providerBudget); }
         catch (error) { failures[index] = error; }
         announce(campaign, ++done, total, jobs.map(index => defines[index]));
       }
@@ -510,7 +516,7 @@ export default function modsExtension(pi: ExtensionAPI): void {
    * apply. One turn late is late; silently unregistered forever is a hole, so an entry whose parameters
    * never arrived is generated here rather than left behind a marker that hides its row from the audit.
    */
-  async function resume(campaign: string, signal?: AbortSignal): Promise<void> {
+  async function resume(campaign: string, signal?: AbortSignal, providerBudget?: TaskProviderBudget): Promise<void> {
     if (!call) return;
     const current = call;
     // Still generating beside the turn: there is nothing to complete yet, and waiting here would drag the
@@ -519,7 +525,7 @@ export default function modsExtension(pi: ExtensionAPI): void {
     let queued = await current("mods.queued", {campaign});
     const unfinished: any[] = Array.isArray(queued?.unfinished) ? queued.unfinished : [];
     if (unfinished.length) {
-      for (const input of unfinished) await task(campaign, "create", input, signal).catch(() => undefined);
+      for (const input of unfinished) await task(campaign, "create", input, signal, undefined, undefined, providerBudget).catch(() => undefined);
       queued = await current("mods.queued", {campaign});
     }
     const effects: any[] = Array.isArray(queued?.effects) ? queued.effects : [];
@@ -528,7 +534,11 @@ export default function modsExtension(pi: ExtensionAPI): void {
     // every write verb for the rest of the session, because this runs ahead of all of them.
     const callId = mintCallId?.();
     if (!callId) throw new KernelError({code:"needs", message:"The table cannot mint a call id for deferred registration"});
-    try { await current("table.apply", {campaign, call_id: callId, effects}); warm(campaign, carriers(effects)); }
+    try {
+      const result = await current("table.apply", {campaign, call_id: callId, effects, ...(trackTaskReceipts ? {_task_read_set: true} : {})});
+      if (result?._task_advance) pi.events.emit('coc:task-receipt-advance', result._task_advance);
+      warm(campaign, carriers(effects));
+    }
     catch (error) {
       // Bookkeeping must never cost the player their turn. The markers go, the gear reads as unregistered
       // again, and the Keeper registers it the ordinary blocking way on the turn after this one.
@@ -600,10 +610,10 @@ export default function modsExtension(pi: ExtensionAPI): void {
       try { await resume(payload.campaign, signal); }
       catch (error) { void emitToPanel("coc-keeper", "mods-progress", {campaign: payload.campaign, done: 0, total: 0, deferred_failed: errorText(error)}); }
     },
-    async prepare(method, payload, signal) {
+    async prepare(method, payload, signal, providerBudget) {
       cancelPrefetch();
       if (["apply", "resolve", "narrate", "ask"].includes(method) && typeof payload.campaign === "string")
-        await resume(payload.campaign, signal);
+        await resume(payload.campaign, signal, providerBudget);
       if (method === "apply") {
         const effects: Record<string, any>[] = payload.effects ?? [];
         if (effects.some((effect: Record<string, any>) => effect?.kind === "usage")) {
@@ -612,21 +622,21 @@ export default function modsExtension(pi: ExtensionAPI): void {
             fix:"Split unrelated world changes into a separate apply before or after the object preparation batch",
             details:{reason:"usage_batch_scope", unsupported}});
           const definitions = effects.filter((effect: Record<string, any>) => effect?.kind === "define");
-          await materialize(payload.campaign, definitions, signal);
+          await materialize(payload.campaign, definitions, signal, [], providerBudget);
           const usageEntries = effects.map((effect, index) => ({effect, index})).filter(entry => entry.effect?.kind === "usage");
           const usages = usageEntries.map(entry => entry.effect);
           const previews = usageEntries.map(entry => usagePreview(effects, entry.index));
-          await materialize(payload.campaign, usages, signal, previews);
+          await materialize(payload.campaign, usages, signal, previews, providerBudget);
         } else {
           const defines = effects.filter((effect: Record<string, any>) => effect?.kind === "define");
           if (defines.length && !(registrationOnly(effects) && await defer(payload.campaign, defines, signal)))
-            await materialize(payload.campaign, defines, signal);
+            await materialize(payload.campaign, defines, signal, [], providerBudget);
         }
       }
       if ((method === "narrate" || method === "ask") && payload.text) {
         let result: any;
         try {
-          result = await task(payload.campaign, "audit", {text:payload.text}, signal);
+          result = await task(payload.campaign, "audit", {text:payload.text}, signal, undefined, undefined, providerBudget);
         }
         catch (error) {
           // Contract §91. The continuity review is the same gate, and the same rule reaches it here:

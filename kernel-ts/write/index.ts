@@ -22,7 +22,7 @@ import { tableSnapshot, playerGlossary, unsupported, type ReadContributions } fr
 import { playLanguages, playLanguageOf } from '../read/languages.js';
 import { modContext, kernelGaps, readModCatalog } from '../read/mods.js';
 import { array, entries, values, row, clone, number, string, truth, repr, chars, words, equal, type Row } from '../read/values.js';
-import { CampaignWriter, freshTurn, nowIso, required, missingContribution, createTurnTransaction, rememberCall, turnStateError } from './store.js';
+import { CampaignWriter, freshTurn, nowIso, required, missingContribution, createTurnTransaction, rememberCall, turnStateError, parseCallId } from './store.js';
 import { checked, commit, CommitFailed } from './history.js';
 import { registerStarter } from './source.js';
 import { validateDifficulty } from '../setup/difficulty.js';
@@ -177,6 +177,23 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             if (!await context.snapshots.pathExists(value.path(name)))
                 throw new RpcError('campaign_not_ready', `campaign ${repr(id)} is missing ${name}`);
         return value;
+    }
+    /** Read-only reconciliation of one host operation; no transaction, repair, or RNG. */
+    async function callStatus(params: Row): Promise<Row> {
+        const campaign = await openCampaign(params);
+        const [callTurn, ordinal] = parseCallId(params.call_id);
+        if (!Number.isSafeInteger(callTurn) || !Number.isSafeInteger(ordinal) || !isJsonObject(params.request)
+            || params.request.campaign !== params.campaign || params.request.call_id !== params.call_id)
+            throw new RpcError('invalid_params', 'request must be the exact campaign and call_id-bound kernel request');
+        const meta = await campaign.readCampaign(), turn = await campaign.readTurn();
+        const worldline = string(meta.active_worldline || 'main'), loop = number(row(row(meta.worldlines)[worldline]).loop);
+        if (params.scope !== undefined && (!isJsonObject(params.scope)
+            || Object.keys(params.scope).some(key => !['worldline', 'loop'].includes(key))
+            || params.scope.worldline !== worldline || params.scope.loop !== loop))
+            throw new RpcError('turn_state', 'The operation belongs to a different active worldline or loop', { details: { reason: 'operation_scope_stale' } });
+        const result = await campaign.replay(turn, string(params.call_id), params.request);
+        return { status: result ? 'settled' : 'absent', call_id: params.call_id, call_turn: callTurn,
+            active_turn: turn.turn, scope: { worldline, loop }, ...(result ? { result } : {}) };
     }
     async function startSetupWorld(value: CampaignWriter, meta: Row): Promise<boolean> {
         if (await context.snapshots.pathExists(value.path('world.json')) && truth(meta.opening_scene))
@@ -1057,6 +1074,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             'table.open': open,
             'table.player_input': playerInput,
             'table.release': release,
+            'table.call_status': callStatus,
             'table.ask': ask,
             'table.narrate': narrate
         }),

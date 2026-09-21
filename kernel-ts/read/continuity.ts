@@ -3,7 +3,7 @@ import { RpcError } from '../errors.js';
 import { pythonJsonDumps } from '../json.js';
 import { ModuleGraph, recordOf } from './module-graph.js';
 import { resolveReference } from './references.js';
-import {EntityIndex, queryCandidates} from './memory.js';
+import {EntityIndex, queryCandidates, memoryEvidenceView,withPromiseFulfillment,canonicalMemoryReceipts} from './memory.js';
 import { array, chars, row, string, type Row } from './values.js';
 
 /** A handout is a causal carrier only through the graph's closed evidence roles. */
@@ -38,6 +38,7 @@ export function evidenceAcquired(graph: ModuleGraph, world: Row, node: Row, reco
 const COMPACT_EVIDENCE = 4;
 
 export function continuityView(graph: ModuleGraph, world: Row, records: Row[] = [], candidates: Row[] = [], options: Row = {}): Row {
+    candidates=withPromiseFulfillment(candidates,{campaign:options.campaign,receipts:canonicalMemoryReceipts(records,array(options.currentReceipts)),world});
     const limit = options.limit ?? 6;
     if (!Number.isInteger(limit) || limit < 1 || limit > 12)
         throw new RpcError('invalid_params', 'Continuity limit must be an integer from 1 to 12');
@@ -98,10 +99,12 @@ export function continuityView(graph: ModuleGraph, world: Row, records: Row[] = 
     const names = new Set(anchorNodes.flatMap(node => graph.nameKeys(node)));
     const hypotheses = candidates.filter(c => c.superseded_by == null && ['belief', 'player_assertion', 'player_preference'].includes(c.kind) &&
         ([c.subject, ...array(c.entities)].some(name => names.has(name)) || c.subject === 'player')).slice(-6)
-        .map(c => ({kind: c.kind, statement: c.statement, state: c.state ?? null, confidence: c.confidence ?? null, turn: c.valid_from_turn ?? c.turn ?? null, superseded: c.superseded_by != null, origin: 'memory_candidate'}));
+        .map(c => ({kind: c.kind, statement: c.statement, state: c.state ?? null, confidence: c.confidence ?? null, turn: c.valid_from_turn ?? c.turn ?? null, superseded: c.superseded_by != null, origin: 'memory_candidate', ...memoryEvidenceView(c)}));
     const corrections = queryCandidates(candidates, new EntityIndex(graph, [], row(world.scene_labels)), anchorNodes.map(node => graph.displayName(node)),
-        {narrow: true, kinds: ['keeper_correction'], limit: 3}).map(hit => ({statement: hit.statement, turn: hit.turn, status: hit.status, authority: hit.authority}));
-    const result: Row = {anchors: anchorNodes.map(node => graph.handle(node)), connections: connections.slice(0, limit), hypotheses, corrections,
+        {narrow: true, kinds: ['keeper_correction'], limit: 3}).map(hit => ({statement: hit.statement, turn: hit.turn, status: hit.status, ...memoryEvidenceView(hit)}));
+    const promises=queryCandidates(candidates,new EntityIndex(graph,[],row(world.scene_labels)),anchorNodes.map(node=>graph.displayName(node)),
+        {narrow:true,kinds:['promise'],limit:4}).map(value=>({kind:'promise',subject:value.subject,statement:value.statement,turn:value.turn,...memoryEvidenceView(value)}));
+    const result: Row = {promises,anchors: anchorNodes.map(node => graph.handle(node)), connections: connections.slice(0, limit), hypotheses, corrections,
         truncated: connections.length > limit,
         guidance: 'Acquired evidence is not proof of understanding. Clarify public connections freely; new disclosures still need their ordinary authority and receipts. Use recall for complete prior delivery, and source lookup for missing evidence. Hypotheses and possible developments are not settled facts.'};
     if (options.compact) {

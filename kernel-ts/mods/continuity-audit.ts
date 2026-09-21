@@ -3,14 +3,15 @@ import type {ModuleGraph} from '../read/module-graph.js';
 import {recordOf} from '../read/module-graph.js';
 import {clockSection} from '../read/capsule.js';
 import {continuityView} from '../read/continuity.js';
-import {EntityIndex, queryCandidates} from '../read/memory.js';
+import {EntityIndex, queryCandidates, memoryEvidenceView, withPromiseFulfillment, canonicalMemoryReceipts} from '../read/memory.js';
 import {objectContext, unregisteredEquipment} from '../read/mods.js';
 import {claimedEquipment} from './queue.js';
 import {array, chars, row, string, truth, type Row} from '../read/values.js';
 
 const pick = (value: Row, names: string[]): Row => Object.fromEntries(names.filter(name => Object.hasOwn(value, name)).map(name => [name, value[name]]));
 export function continuityAuditContext(graph: ModuleGraph, world: Row, turn: Row, party: Row[], files: Row): Row {
-    const records = array(files['history.json']), candidates = array(files['memory.json']);
+    const records = array(files['history.json']), candidates = withPromiseFulfillment(array(files['memory.json']),
+        {receipts:canonicalMemoryReceipts(records,array(turn.receipts)),world});
     const scene = graph.scene(world.active_scene), index = new EntityIndex(graph, party, row(world.scene_labels));
     const anchors = [graph.handle(scene), ...array(world.discovered_clues).slice(-4), ...party.map(person => string(person.name))];
     const memory = queryCandidates(candidates, index, anchors, {limit: 6});
@@ -53,8 +54,8 @@ export function continuityAuditContext(graph: ModuleGraph, world: Row, turn: Row
                 document: value.document ? {presentation: value.document.presentation, text: chars(value.document.text, 220),
                     truncated: string(value.document.text).length > 220 || value.document.truncated === true} : null}))},
         equipment_without_instances: unregisteredEquipment(party, claimedEquipment(world)),
-        corrections: corrections.slice(-6).map(value => ({statement: value.statement ?? '', turn: value.valid_from_turn ?? value.turn ?? null, source: 'retained correction'})),
-        memory: memory.map(value => pick(value, ['kind', 'subject', 'statement', 'turn', 'state', 'status', 'authority'])),
+        corrections: corrections.slice(-6).map(value => ({statement: value.statement ?? '', turn: value.valid_from_turn ?? value.turn ?? null, source: 'retained correction', ...memoryEvidenceView(value)})),
+        memory: memory.map(value => ({...pick(value, ['kind', 'subject', 'statement', 'turn', 'state', 'status']), ...memoryEvidenceView(value)})),
         recent_history: records.slice(-3).map(value => ({turn: value.turn, player_text: chars(string(value.player_text ?? ''), 800),
             input_truncated: string(value.player_text).length > 800,
             text: chars(value.rendered_text, 1200), truncated: string(value.rendered_text).length > 1200})),

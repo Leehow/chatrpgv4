@@ -3,6 +3,7 @@ import {readFileSync, writeFileSync, renameSync} from 'node:fs';
 import {join, basename} from 'node:path';
 import {Type} from 'typebox';
 import {continuityArtifactErrors, normalizeContinuityArtifact} from '../../kernel-ts/mods/audit-result.ts';
+import {auditReferenceIssues, buildAuditReferences, materializeAuditReferences} from '../../kernel-ts/mods/audit-references.ts';
 import {auditEvidenceView} from './audit-evidence.ts';
 
 export default function auditSubmit(pi: any) {
@@ -10,6 +11,7 @@ export default function auditSubmit(pi: any) {
     if (!controlPath) throw new Error('Audit submission needs a host control file');
     const control = JSON.parse(readFileSync(controlPath, 'utf8')), cwd = process.cwd();
     const request = JSON.parse(readFileSync(join(cwd, 'request.json'), 'utf8'));
+    const schema = request.continuity_review?.schema === 2 ? 2 : 1;
     const evidenceFiles = () => Object.fromEntries(request.continuity_review.files.map((name: string) => {
         if (!['context.json', 'original.json', 'effective.json', 'world.json', 'current.json', 'history.json', 'handouts.json', 'notes.json', 'memory.json'].includes(name)) throw new Error('Invalid evidence file index');
         return [name, JSON.parse(readFileSync(join(cwd, name), 'utf8'))];
@@ -49,26 +51,47 @@ export default function auditSubmit(pi: any) {
     });
     pi.registerTool({
         name: 'read_audit_evidence', label: 'Read pinned review evidence', executionMode: 'sequential',
-        description: 'Read a focused view without writing JSON query scripts. Choose objects for complete object/weapon lookup, history for specific turn numbers (or the latest six), memory for attributed records and corrections, or source for exact named graph entries. Use names copied from the context; no opaque IDs. Full evidence remains available when the view is truncated.',
+        description: schema === 2
+            ? 'Read a focused view without writing JSON query scripts. Choose objects for complete object/weapon lookup, history for specific turn numbers (or the latest six), memory for attributed records and corrections, or source for exact named graph entries. Select the returned sources[].alias in the review artifact; never copy source text, paths, or opaque IDs. Full evidence remains available when the view is truncated.'
+            : 'Read a focused view without writing JSON query scripts. Choose objects for complete object/weapon lookup, history for specific turn numbers (or the latest six), memory for attributed records and corrections, or source for exact named graph entries. Use names copied from the context; no opaque IDs. Full evidence remains available when the view is truncated.',
         parameters: Type.Object({kind: Type.Union(['objects', 'history', 'memory', 'source'].map(v => Type.Literal(v))),
             names: Type.Optional(Type.Array(Type.String(), {maxItems: 12})), turns: Type.Optional(Type.Array(Type.Integer(), {maxItems: 12}))}),
         async execute(_id: string, params: any) {
-            const result = auditEvidenceView(params.kind, evidenceFiles(), params.names, params.turns);
+            const result = auditEvidenceView(params.kind, evidenceFiles(), params.names, params.turns, schema);
             return {content: [{type: 'text', text: JSON.stringify(result)}], details: {kind: 'audit_evidence', ...result}};
         }
     });
     pi.registerTool({
         name: 'submit_audit', label: 'Submit continuity review', executionMode: 'sequential',
         description: 'Submit the review directly as result, or omit it to validate result.json. Successful validation ends this audit immediately. Invalid fields are returned together for one targeted repair; do not rewrite the Keeper candidate or recheck unrelated evidence.',
-        parameters: Type.Object({result: Type.Optional(Type.Any({description: 'Review object: {missing:[], findings:[], continuity_review:{verdict:"pass"|"revise"|"unavailable",summary:string,conflicts:[]}} plus the exact required intelligibility_review, player_address_review, candidate-dependent speech_review and conditional locus_review, outcome_review and reentry_review objects. Only material conflicts need {claim,reason,evidence:[{file,quote}]}. Pass needs empty issue lists.'}))}),
+        parameters: Type.Object({result: Type.Optional(Type.Any({description: schema === 2
+            ? 'Schema 2 review object. Use only issued aliases for subject, claim_source, evidence_sources, source, claim_sources, scene sources and reentry evidence_source. Generated summary, reasons and fixes remain ordinary English.'
+            : 'Review object: {missing:[], findings:[], continuity_review:{verdict:"pass"|"revise"|"unavailable",summary:string,conflicts:[]}} plus the exact required intelligibility_review, player_address_review, candidate-dependent speech_review and conditional locus_review, outcome_review and reentry_review objects. Only material conflicts need {claim,reason,evidence:[{file,quote}]}. Pass needs empty issue lists.'}))}),
         async execute(_id: string, params: any) {
-            let result: any, files: Record<string, unknown> = {};
+            let result: any, files: Record<string, any> = {};
             try {
                 files = evidenceFiles();
-                result = normalizeContinuityArtifact(params.result ?? JSON.parse(readFileSync(join(cwd, 'result.json'), 'utf8')), files);
+                result = params.result ?? JSON.parse(readFileSync(join(cwd, 'result.json'), 'utf8'));
                 if (Buffer.byteLength(JSON.stringify(result)) > 512000) return unavailable('The audit artifact exceeds its size bound');
             } catch (error) { return unavailable(`The retained audit input or artifact could not be read: ${error instanceof Error ? error.message : String(error)}`); }
-            const errors = continuityArtifactErrors(result, request.input.text, files);
+            if (schema === 1) result = normalizeContinuityArtifact(result, files);
+            const catalog = schema === 2 ? buildAuditReferences(request, files) : undefined;
+            let checked = result, errors: any[] = [];
+            if (catalog) {
+                let materialized = materializeAuditReferences(result, catalog);
+                errors.push(...materialized.errors);
+                if (materialized.value) {
+                    const normalized = normalizeContinuityArtifact(materialized.value, files);
+                    if (normalized.continuity_review?.verdict !== materialized.value.continuity_review?.verdict) {
+                        result = {...result, continuity_review: {...result.continuity_review, verdict: normalized.continuity_review.verdict}};
+                        materialized = materializeAuditReferences(result, catalog);
+                        errors.push(...materialized.errors);
+                    }
+                    checked = materialized.value ?? normalized;
+                    if (!materialized.errors.length)
+                        errors.push(...auditReferenceIssues(continuityArtifactErrors(checked, request.input.text, files, catalog.speechTexts)));
+                }
+            } else errors = continuityArtifactErrors(checked, request.input.text, files);
             if (errors.length) {
                 writeFileSync(join(cwd, `rejected-artifact-${basename(control.status_file)}-${repairs}.json`), JSON.stringify(result));
                 if (repairs >= control.max_artifact_repairs) return unavailable('The audit artifact still has invalid fields after its targeted repair');
