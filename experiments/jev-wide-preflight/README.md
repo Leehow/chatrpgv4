@@ -21,14 +21,14 @@ Reuse the original 111-page native-text corpus at `.pi/prototypes/jev-pdf-routin
 5. Compare the packets with hidden page-level requirements. Report coverage, omissions, packet bytes, request latency, full material-ready latency, failures, and estimated Jev cost.
 6. For actual sufficiency, use the predeclared cases `clinic_zh`, `heat_water_rules`, and `unsupported_mri`, repeat 1, concurrency 16, top-10 packets. Run matched cold **tool-enabled Pi readers** using `grok-build/grok-4.6`: packet-plus-catalog versus catalog-only. Let each reader obtain more source text when necessary. Count actual supplementary reads from tool traces, not self-reports. Missing cases/arms are explicitly skipped, never replaced by a better result. The runner deliberately leaves `writer_evaluated: false` until this separate step occurs.
 
-The final reader retains judgment: it may reject a suggestion, acknowledge missing evidence, or supplement it. Gold, evaluation notes, other arms, and metrics must not enter its context. New source selection never constitutes permission to disclose Keeper-private information to a player.
+The preflight packet is injected into the reader's **first model request**, alongside the same source index the baseline receives. There is no mandatory initial packet-read tool call. Each arm is a separate cold Pi process with the same model, low thinking setting, tools and system prompt, a fresh scratch cwd, no session/context files/skills, and only the Grok provider extension. TypeSafe credentials are removed from the reader environment. The final reader retains judgment: it may reject a suggestion, acknowledge missing evidence, or supplement it. Gold, evaluation notes, other arms, and metrics must not enter its context. New source selection never constitutes permission to disclose Keeper-private information to a player.
 
 ## Run
 
 From the repository root, no key or network is required for mechanical checks and request inventory:
 
 ```sh
-node --test experiments/jev-wide-preflight/core.test.mjs experiments/jev-wide-preflight/cli.test.mjs experiments/jev-wide-preflight/cases.test.mjs
+node --test experiments/jev-wide-preflight/core.test.mjs experiments/jev-wide-preflight/cli.test.mjs experiments/jev-wide-preflight/cases.test.mjs experiments/jev-wide-preflight/reader-probe.test.mjs
 node experiments/jev-wide-preflight/run.mjs --describe
 ```
 
@@ -39,7 +39,17 @@ node experiments/jev-wide-preflight/run.mjs --case clinic_zh --concurrency 1,4,1
 node experiments/jev-wide-preflight/run.mjs --concurrency 1,4,16 --repeat 1
 ```
 
-Optional paths: `--corpus`, `--cases`, `--out`. `JEV_PREFLIGHT_CORPUS` can select the original corpus when running in an isolated worktree. `--describe` prints the exact number of planned requests without sending them. No old evidence is overwritten. Every live run creates a new directory under `.pi/prototypes/jev-wide-preflight-20260921/runs/` with immutable inputs, actual requests/responses, material packets, and metrics. Credentials are used only in the request header and never persisted.
+Run the fixed, paired tool-enabled reader probes against an actual live-run directory:
+
+```sh
+node experiments/jev-wide-preflight/reader-probe.mjs /absolute/path/to/live-run
+```
+
+The probe retains actual Pi JSONL (`tool_execution_start/end`, final `message_end` usage), stderr, prompts, answers and metrics in a new `readers-*` directory. `--one` is only a startup diagnostic, not the paired comparison. Both arms receive the same full source index; only the preflight arm additionally receives the material packet. Reader order alternates by case. The reported workflow time is reader-process wall time plus the measured Jev preflight for that arm; shared pre-existing native extraction/index preparation is excluded for both. Source access through bash or outside the scratch cwd invalidates the automatic read count. Rereading a page already in the initial packet is counted separately from obtaining a new page. A zero-read answer still requires independent source-quality review.
+
+Recorded findings: [RESULTS-20260921.md](RESULTS-20260921.md).
+
+Optional preflight-runner paths: `--corpus`, `--cases`, `--out`. `JEV_PREFLIGHT_CORPUS` can select the original corpus when running in an isolated worktree. `--describe` prints the exact number of planned requests without sending them. No old evidence is overwritten. Every live run creates a new directory under `.pi/prototypes/jev-wide-preflight-20260921/runs/` with immutable inputs, actual requests/responses, material packets, and metrics. Credentials are used only in the request header and never persisted.
 
 No local decision cache or automatic retry is used. Provider-internal caching is unknown. Every request has a 30-second timeout; all concurrency arms receive the same `(group count + 1) * 30 seconds` overall allowance, so a 120-second ceiling cannot systematically censor the serial arm. HTTP failures and missing judgments remain visible. A malformed provider schema marks the arm invalid and stops later arms; transport-partial runs exit unsuccessfully too. Neither is a semantic failure verdict. Attempt latency (including failures) and successful-request latency are separate. Top-10 material-ready time includes request/response evidence recording but excludes material-packet and evaluation-output writes. Visual-only requirements are reported separately from native-text retrieval misses.
 
