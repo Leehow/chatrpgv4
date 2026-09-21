@@ -55,6 +55,20 @@ No local decision cache or automatic retry is used. Provider-internal caching is
 
 The price basis is the official Models page checked on 2026-09-21: USD 0.042 per million input tokens, free output. Reported input and output usage are retained. Missing usage makes the total cost estimate null; a known-usage subtotal remains available. These are **estimates**, not billing receipts.
 
+## Context-aware incremental follow-up
+
+The second experiment asks whether already supplied material is sufficient and, if not, selects only candidate pages judged to add necessary missing evidence. It does **not** apply a fixed top-K. The host subtracts exact existing source ranges and projects the combined source in original page/offset order.
+
+```sh
+node --test experiments/jev-wide-preflight/incremental-core.test.mjs experiments/jev-wide-preflight/incremental-cases.test.mjs
+node experiments/jev-wide-preflight/incremental-run.mjs --describe
+node experiments/jev-wide-preflight/incremental-run.mjs --repeat 2 --concurrency 16
+```
+
+The live command requires the already mounted TypeSafe credential. It writes a new directory under `.pi/prototypes/jev-incremental-preflight-20260921/runs/`. Six source questions each have none/partial/full/summary/stale/conflict conditions. V2 uses matched agreeing/disagreeing notes and separate raw-model versus host-error counters. Old wide-retrieval cases and both incremental runs remain unchanged. Whole-page and exact-range deduplication are host guarantees, not model semantic scores. Unsupported source details and question-extraneous contradictions must be distinguished from missing material.
+
+Results, including failures: [INCREMENTAL-RESULTS-20260921.md](INCREMENTAL-RESULTS-20260921.md). The recorded prototype does not yet reliably achieve minimal supplementation; a completed experiment is not a model-quality pass or a production rollout.
+
 ## What settles the hypothesis
 
 - Primary: all separately labeled required facts/procedures have a supporting original in the selected packet, at a stated packet size.

@@ -1,0 +1,310 @@
+{
+  "version": 2,
+  "source_sha256": "9cc71c34dd62462f0f3c7bf765defc4bc49667f1f9fee3f0ac172a32464da50c",
+  "corpus_sha256": "e0df90d0714574daf9b037d44ac749b93f03dd645397ce3ccbafc0ad2570d773",
+  "cases": [
+    {
+      "id": "clinic_hours",
+      "query": "布伦纳医生家门上的牌子写着星期几接诊、几点到几点？紧急情况要打哪个电话号码？",
+      "context": "Static source lookup about Dr. Brunner's door sign: identify the posted working days, hours, and emergency contact.",
+      "origin": "existing-diagnostic",
+      "requirements": [
+        {
+          "id": "posted-days-and-hours",
+          "description": "Identify Dr. Brunner's premises and the posted schedule: Monday through Thursday, 09:00 to 17:00.",
+          "anyOfPages": [32],
+          "evidence": [
+            { "page": 32, "quote": "3M.   罗伯特 ·L· 布伦纳医生的家" },
+            { "page": 32, "quote": "门上的标志显示他的工作时间是 星期 \n一至星期四上午 9 \n点至下午 5 \n点 。" }
+          ]
+        },
+        {
+          "id": "emergency-phone",
+          "description": "The sign lists EM6-4128 as the emergency telephone number.",
+          "anyOfPages": [32],
+          "evidence": [
+            { "page": 32, "quote": "下面写着 紧急情况 \n请致电： EM6-4128 \n。" }
+          ]
+        }
+      ],
+      "topicSummary": "The doctor's door sign describes his regular availability and an emergency contact.",
+      "consistentNote": "Dr. Brunner's door sign lists regular hours from 09:00 to 17:00 on Monday through Thursday.",
+      "conflictingNote": "Dr. Brunner's door sign lists regular hours from 10:00 to 18:00 on Monday through Thursday.",
+      "refinementNotes": [
+        "Derived from clinic_zh/clinic_en, but the new query is deliberately narrowed to the posted schedule and emergency number. The prior diagnostic files remain frozen. This is an authored diagnostic, not an observed player query or production holdout.",
+        "The new emergency-phone requirement is explicit in this query. The first requirement contains only the premises identity and schedule, not the phone number, so its exact spans alone do not answer the whole query.",
+        "Street address, directions, appointment availability, treatment eligibility, and whether anyone answers the telephone remain outside this query; the sign does not establish them.",
+        "topicSummary is an authored topic-only paraphrase that omits the required days, hours, and telephone number. conflictingNote is an unverified synthetic test-fixture assertion, never a source or campaign fact; it deliberately disagrees with the source hours. These explanations are evaluation metadata, not model input."
+      ]
+    },
+    {
+      "id": "injection_rules",
+      "query": "有人拿一支兽医用的注射器攻击我们。这种针筒怎样命中，中了以后用什么检定抵抗，效果持续多久？",
+      "context": "Static rule lookup for a hypothetical attack with a veterinary syringe: identify the attack procedure, resistance check, effects, and stated durations.",
+      "origin": "existing-diagnostic",
+      "requirements": [
+        {
+          "id": "syringe-maneuver-and-dose",
+          "description": "Using the syringe in combat is a combat maneuver; a successful maneuver injects one dose of sedative.",
+          "anyOfPages": [84],
+          "evidence": [
+            { "page": 84, "quote": "如果在战斗中使用，用注 \n射器进行攻击视为战技。 \n一个成功的战技可以给目标扎上一剂镇静剂，" }
+          ]
+        },
+        {
+          "id": "resistance-and-conscious-effect",
+          "description": "The target makes a hard CON check. Success leaves the target sedated but conscious, with two penalty dice on all actions and checks.",
+          "anyOfPages": [84],
+          "evidence": [
+            { "page": 84, "quote": "对方必须进行一次困难 等级 的 体质 检定。成功意味 \n着他们被麻醉但有意识，所有行动和检定都获得 2 \n个惩罚骰。" }
+          ]
+        },
+        {
+          "id": "unconscious-durations",
+          "description": "Failure causes immediate unconsciousness for 4D4 hours; the text gives 6D4 hours and inability to wake the target after a second injection.",
+          "anyOfPages": [84],
+          "evidence": [
+            { "page": 84, "quote": "失败意味着立即陷入昏迷，持续 4D4 小 \n时，第二次被注射则昏迷 6D4 小时，无法被唤醒。" }
+          ]
+        }
+      ],
+      "topicSummary": "Veterinary syringes deliver a sedative in combat, with resistance, conscious impairment, and unconsciousness outcomes.",
+      "consistentNote": "Resisting the injected sedative requires a hard CON success rather than an extreme CON success.",
+      "conflictingNote": "Resisting the injected sedative requires an extreme CON success rather than a hard CON success.",
+      "refinementNotes": [
+        "The prior query is retained. The attack evidence now includes the successful maneuver delivering a dose, not merely the maneuver label; resistance and both stated unconsciousness durations remain separate requirements.",
+        "The source does not state how long the conscious two-penalty-dice outcome lasts. Do not borrow the unconsciousness duration for it. This entry identifies a combat maneuver but does not supply a new attack percentage or reproduce the general combat-maneuver rules.",
+        "topicSummary is an authored topic-only paraphrase without check difficulty, penalty count, or durations. conflictingNote is an unverified synthetic test-fixture assertion, never a source or campaign fact; it changes the required resistance difficulty. These explanations are evaluation metadata, not model input."
+      ]
+    },
+    {
+      "id": "heat_water_rules",
+      "query": "我们准备穿过沙漠。如果高温下喝不到水，中暑和脱水具体怎样结算、多久发生、有什么惩罚？",
+      "context": "Static rule lookup for proposed desert travel without adequate water: identify the heat-exhaustion, heatstroke, dehydration, and fatigue rules, including timing and consequences.",
+      "origin": "existing-diagnostic",
+      "requirements": [
+        {
+          "id": "heat-exhaustion-timing-and-modifiers",
+          "description": "After two hours in high heat, even with enough water, a CON failure adds one fatigue level. Checks require hard success at four hours and extreme success at six hours. Heavy loads or heavy/restrictive clothing impose one penalty die; desert-acclimatized people receive one bonus die.",
+          "anyOfPages": [92],
+          "evidence": [
+            { "page": 92, "quote": "热衰竭： 任何人暴露在高温下 2 小时，即使有足够 \n的水，也必须进行成功的体质检定，失败就会 增 \n加 1 级疲惫。 4 小时需要困难 等级 的体质检定， 6 小 \n时则必须极难成功，以避免疲惫进一步累积。携 \n带重物或穿着厚重的、限制性衣物的人，他们的 \n检定将会 追加 一个惩罚骰。" },
+            { "page": 92, "quote": "在沙漠气候中生活的人能够适应这种高温，所以 \n他们的检定会有一个奖励骰。" }
+          ]
+        },
+        {
+          "id": "heatstroke-onset-checks-and-modifiers",
+          "description": "More than twelve hours without water together with more than one hour of desert heat creates heatstroke risk. Each hour in sunlight requires a CON check; failure loses five points from STR, DEX, or INT at random. Difficulty rises to hard in the third hour and extreme in the sixth. Heavy/restrictive clothing imposes one penalty die and acclimatization gives one bonus die.",
+          "anyOfPages": [92],
+          "evidence": [
+            { "page": 92, "quote": "一旦超过 12 个小时没有喝水，并且暴露在沙漠的 \n高温下超过一个小时，此人就有患热射病的危险。 \n每在阳光下度过一小时，必须进行一次体质检定， \n否则就会失去 5 点力量、敏捷或智力（随机决定）。 \n到第三个小时难度上升到困难 等级 ，到第六个小 \n时上升到极难。" },
+            { "page": 92, "quote": "那些穿着厚重的、限制性衣服的人在检定中会附 \n带一个惩罚骰。任何适应了这种热度的人都会在 \n检定中享有一个奖励骰。" }
+          ]
+        },
+        {
+          "id": "heatstroke-thresholds-and-untreated-progression",
+          "description": "At STR 20 MOV becomes zero; DEX 20 causes staggering and inability to care for oneself; INT 20 causes confusion, disorientation, and hallucinations. Any affected attribute below 15 causes unconsciousness. Untreated progression is seizures after thirty minutes, coma after one hour, and severe neurological damage even if awakened; the text then states death in three hours if still untreated, without specifying a combined deadline.",
+          "anyOfPages": [92],
+          "evidence": [
+            { "page": 92, "quote": "当力量下降到 20 时， MOV 就会下降到 0 。当敏捷下 \n降到 20 时，就会开始跌跌撞撞、步履蹒跚 、 无法 \n自理。当智力下降到 20 时，会变得神志不清、迷 \n失方向，并开始产生幻觉。" },
+            { "page": 92, "quote": "当任意一项属性跌破 15 时，该角色就会失去意识。 \n如果不进行治疗，他会在 30 分钟后开始癫痫发作， \n一小时后陷入昏迷。一旦发生这种情况，即使苏 \n醒过来他的神经也会严重受损，如果再不加以治 \n疗就将在 3 小时后死亡。" }
+          ]
+        },
+        {
+          "id": "heatstroke-treated-outcome",
+          "description": "Before coma, escaping heat and rehydrating allows self-recovery. After coma, cooling and rehydration allow awakening in 3D6 days with permanent INT loss of 1D4 times five, while STR and DEX recover normally.",
+          "anyOfPages": [92],
+          "evidence": [
+            { "page": 92, "quote": "在陷入昏迷前，可以随时通过避暑和补水来自我 \n恢复。然而，一旦陷入昏迷，情况就变得相当严 \n峻了。使病人远离高温环境并补充水分，可以让 \n他们在 3D6 天内苏醒。然而，醒来后他们的智力将 \n永久性地减少 1D4*5 点。力量和敏捷将恢复正常。" }
+          ]
+        },
+        {
+          "id": "fatigue-effects-and-rest",
+          "description": "Fatigue effects stack with lower levels: one gives a skill penalty die, two halves speed, three penalizes attacks and stunts, four requires extreme STR success, five prevents walking and automatically fails STR, and six causes unconsciousness. A full night's sleep removes one level only with sufficient food and water.",
+          "anyOfPages": [90],
+          "evidence": [
+            { "page": 90, "quote": "PC 会受到他们当前以及所有更低等级的疲惫效 \n果影响。" },
+            { "page": 90, "quote": "等级   效果 1   技能检定惩罚骰 \n2   速度减半 \n3   攻击和特技检定惩罚骰 \n4   力量检定需要极难成功 \n5   无法走动，力量检定自动失败 \n6   陷入昏迷" },
+            { "page": 90, "quote": "一整晚的充足睡眠可以使 疲惫 等级降低 1 ，前 \n提是食物和水也同样充足。" }
+          ]
+        },
+        {
+          "id": "water-baseline-half-ration-and-experience",
+          "description": "The daily water requirement is two gallons. Half that amount requires CON success to avoid one fatigue level at day's end. The adjacent dehydration exception says desert-experienced people can go a number of days equal to ten percent of CON without adverse effects; do not extend this exception to heatstroke.",
+          "anyOfPages": [93],
+          "evidence": [
+            { "page": 93, "quote": "食物和水： 一个人每天需要补充 2 加仑水" },
+            { "page": 93, "quote": "首先发挥影响的是脱水。只喝了所需水量一半的 \n人必须在体质检定中获得成功，否则在一天结束 \n时疲惫等级将上升 1 。有沙漠生存经验的人可以在 \n脱水的情况下维持数天不受负面影响，天数相当 \n于他们体质的 10% 。" }
+          ]
+        },
+        {
+          "id": "no-water-fatigue-and-rehydration-gate",
+          "description": "No water causes rapid dehydration and two fatigue levels per day; dehydration fatigue cannot be removed before rehydration.",
+          "anyOfPages": [93],
+          "evidence": [
+            { "page": 93, "quote": "在没有水的情况下角色很快会脱水，并每天获得 2 \n级疲惫。 \n缺水造成的疲惫在补充水分之前是无法消除的。" }
+          ]
+        }
+      ],
+      "topicSummary": "Desert travel can produce heat exhaustion, heatstroke, dehydration, and fatigue, with worsening effects and recovery considerations.",
+      "consistentNote": "After two hours in high heat, a traveler who has enough water makes a heat-exhaustion Constitution check.",
+      "conflictingNote": "After two hours in high heat, a traveler who has enough water makes no heat-exhaustion Constitution check.",
+      "refinementNotes": [
+        "The query is unchanged. This round explicitly corrects an incomplete prior annotation: pages 90 and 93 alone omit page 92's heat-exhaustion and heatstroke onset conditions, escalating checks, attribute consequences, and treatment-dependent outcome. Only this new case is refined; old gold and reported results are not altered.",
+        "The fatigue evidence now includes every level and cumulative effects, not just selected rows. The water evidence includes the daily baseline and the printed desert-experience exception as well as half-ration and zero-water outcomes.",
+        "Separate exhaustion, heatstroke, and dehydration clocks must remain distinct. The source does not specify a numeric temperature threshold, partial-hour rounding, or a precise timing interpretation for the desert-experience exception; do not invent these. Preserve the printed untreated-progression wording rather than deriving a new combined death deadline.",
+        "Treatment-dependent recovery is retained to distinguish temporary impairment from permanent INT loss. Glare, sunburn, starvation, night cold, unrelated desert hazards, and campaign-specific exposure or dice outcomes are not required by this query.",
+        "topicSummary is an authored topic-only paraphrase without trigger times, checks, modifiers, or loss amounts. conflictingNote is an unverified synthetic test-fixture assertion, never a source or campaign fact; it contradicts the explicitly water-independent heat-exhaustion trigger. These explanations are evaluation metadata, not model input."
+      ]
+    },
+    {
+      "id": "chase_hunt_settlement",
+      "query": "沙漠地痞在路上围堵我们，眼看要开追逐战了。他们会有哪些人和车参加？追逐轮里怎么决定行动顺序？如果他们开车撞我们，伤害怎么算？",
+      "context": "Static source lookup for the described road hunt: identify the default pursuers and vehicles, chase initiative, and the collision-damage branches relevant to people or their vehicle.",
+      "origin": "fresh-authored-diagnostic",
+      "requirements": [
+        {
+          "id": "hunt-participants-and-vehicles",
+          "description": "The default hunt has nine pursuers: two in each of two cars, Seth with two others in the pickup, and two motorcycle riders. The source permits Keeper adjustment rather than fixing a campaign roster.",
+          "anyOfPages": [81],
+          "evidence": [
+            { "page": 81, "quote": "沙漠地痞： 通常会有九个沙痞参加狩猎，每辆车上 \n两个，塞斯的皮卡上有三个，还有两个骑摩托车的， \n守密人可以根据自己的喜好或 PC 的能力进行调整。" },
+            { "page": 81, "quote": "PC 的车一旦 驶 入红路，两辆汽车就会紧随其后，" },
+            { "page": 81, "quote": "与此同时，赛斯和另外两个沙痞在皮卡上伺机 \n而动，其中一人还蹲在卡车的车斗上操作鱼叉弓。" }
+          ]
+        },
+        {
+          "id": "chase-initiative-including-passengers",
+          "description": "DEX determines chase action order just as in a combat round, including passenger actions.",
+          "anyOfPages": [82],
+          "evidence": [
+            { "page": 82, "quote": "3.   敏捷决定行动顺序： 像战斗轮一样，行动顺序由 \n敏捷 决定。乘客的行动也将被纳入行动顺序中。" }
+          ]
+        },
+        {
+          "id": "car-hits-person-damage",
+          "description": "A car traveling at twenty mph or faster deals 4D10 damage to a person, plus 1D10 for each point of vehicle build above six.",
+          "anyOfPages": [83],
+          "evidence": [
+            { "page": 83, "quote": "如果一个人被超速行驶的汽车（ 20 英里 / 小时 \n或更快）撞到，他们会受到 4D10 点的伤害，体格超 \n过 6 点的车辆每超过 1 点就会增加 1D10 伤害 。" }
+          ]
+        },
+        {
+          "id": "vehicle-target-damage",
+          "description": "For a collision with another vehicle, each ten damage removes one build, rounded down; damage below ten is ignored. Whether vehicle damage affects occupants is left to the Keeper, not a specified automatic passenger-damage value.",
+          "anyOfPages": [83],
+          "evidence": [
+            { "page": 83, "quote": "当撞上另一辆车时，每 10 点的伤害会使该车的 \n体格减少 1 点（向下取整）；低于 10 点的伤害会被 \n忽略。守密人可以决定车辆受到的伤害是否会影响 \n到里面的人。" }
+          ]
+        },
+        {
+          "id": "motorcycle-collision-damage",
+          "description": "A motorcycle collision deals 2D10 damage to a pedestrian; the rider needs a successful Drive check to avoid overturning, and overturning deals the rider 1D10 damage.",
+          "anyOfPages": [83],
+          "evidence": [
+            { "page": 83, "quote": "摩托车的冲撞将对行人造成 2D10 点的伤害。骑 \n手也需要进行成功的驾驶检定以避免摩托车侧翻。 \n如果真的翻车了，骑手将受到 1D10 点的伤害。" }
+          ]
+        }
+      ],
+      "topicSummary": "The road hunt describes pursuing crews and vehicles, chase initiative, and different collision consequences.",
+      "consistentNote": "A car traveling at twenty mph or faster deals 4D10 damage when it hits a pedestrian.",
+      "conflictingNote": "A car traveling at twenty mph or faster deals 2D6 damage when it hits a pedestrian.",
+      "refinementNotes": [
+        "The query remains a fresh-authored diagnostic from the prior round, not a player observation or production holdout. New evidence identifies both cars and Seth's pickup, and the initiative span now includes passengers.",
+        "The query leaves open whether the pursuers hit people or their vehicle and names a hunt that includes motorcycles, so the new requirements retain those distinct damage branches instead of treating the car-versus-pedestrian paragraph as the whole answer.",
+        "The prior mandatory four-action catalogue is not retained: it was not asked for. Full chase procedure, individual NPC sheets, vehicle specifications, harpoon rules, and the crash-result table are likewise not required.",
+        "No campaign roster, speed, build, target choice, collision roll, or occupant injury has actually been established. The source leaves occupant effects to the Keeper and gives no low-speed pedestrian damage formula in the quoted branch; those remain unresolved rather than invented.",
+        "topicSummary is an authored topic-only paraphrase without counts, initiative attribute, speed threshold, or damage values. conflictingNote is an unverified synthetic test-fixture assertion, never a source or campaign fact; it contradicts car-versus-pedestrian damage. These explanations are evaluation metadata, not model input."
+      ]
+    },
+    {
+      "id": "cult_spells_eye",
+      "query": "我想提前弄清楚邪教徒手里有什么法术。致盲之血肉施法要消耗什么、怎么生效？伊格之眼能监视多远、持续多久、消耗多少魔法值？",
+      "context": "Static source lookup for the named spell and item: identify the cost and operation of Blinding of Flesh, and the Eye of Yig's monitoring range, duration, and magic-point cost.",
+      "origin": "fresh-authored-diagnostic",
+      "requirements": [
+        {
+          "id": "blinding-flesh-casting-cost-and-time",
+          "description": "The named spell costs two magic points and 1D3 Sanity, with instantaneous casting time.",
+          "anyOfPages": [104],
+          "evidence": [
+            { "page": 104, "quote": "致盲之血肉 \n•   消耗 ： 2 点魔法值； 1D3 点理智值 \n•   施法时间 ：瞬时" }
+          ]
+        },
+        {
+          "id": "blinding-flesh-activation-and-effect",
+          "description": "The caster must be within ten yards and win an opposed POW check. On success, flesh covers the victim's eyes completely within ten seconds, causing total blindness.",
+          "anyOfPages": [104],
+          "evidence": [
+            { "page": 104, "quote": "这个咒语旨在以最恐怖的方式使目标失明。为 \n了使咒语生效，施法者必须在目标的 10 码范围内， \n并在与 目标 的 意志 对抗 检定中胜出。如果成功，受 \n害者眼睛周围 的 肉 会 开始 迅速蔓延到他们的眼窝上， \n在 10 秒内完全覆盖眼睛。这将使受害者完全失明。" }
+          ]
+        },
+        {
+          "id": "blinding-flesh-immediate-sanity-effect",
+          "description": "The painful transformation requires the victim and witnesses to make a Sanity check for 1/1D6 loss. The text describes a failed check as likely to make the victim drop held items and grope at their face, not an additional fixed duration.",
+          "anyOfPages": [104],
+          "evidence": [
+            { "page": 104, "quote": "整个过程是极其痛苦的 。 受 害 者 和 任何 目击者 \n都需要 进行 理智检定（ 1/1D6 ）。检定失败意味着 \n受害者很可能会丢掉手里的东西，无助地摸索自己 \n没有眼睛的脸 。" }
+          ]
+        },
+        {
+          "id": "eye-of-yig-monitoring",
+          "description": "The Eye of Yig monitors a known person or place within six miles for twelve minutes at a cost of three magic points.",
+          "anyOfPages": [105],
+          "evidence": [
+            { "page": 105, "quote": "戴上伊格之眼，可以远程监控六英里以内的某 \n个已 知人物或地点，持续 12 分钟并消耗 3 点魔法值。" }
+          ]
+        }
+      ],
+      "topicSummary": "The named spell can blind a target, and the Eye of Yig provides remote observation of a known subject.",
+      "consistentNote": "The Eye of Yig monitors a known person or place within six miles for twelve minutes at a cost of three magic points.",
+      "conflictingNote": "The Eye of Yig monitors a known person or place within six miles for twelve minutes at a cost of six magic points.",
+      "refinementNotes": [
+        "The prior query is retained. New spell spans actually support the casting time, range, opposed check, complete blindness and its onset, and immediate victim/witness Sanity effects. The old quotes did not cover all of those facts.",
+        "The introductory question is scoped by its two named follow-ups, not treated as a request for every cultist's complete spell list. Surgical reversal, modern surgery outcomes, the item's non-serpent wearer costs, and the target's surveillance-detection rules are not new mandatory requirements.",
+        "Instantaneous casting and the ten-second physical transformation are distinct facts. Do not infer a spell duration or a particular caster's available resources from either entry.",
+        "topicSummary is an authored topic-only paraphrase without costs, check parameters, range, onset, or monitoring duration. conflictingNote is an unverified synthetic test-fixture assertion, never a source or campaign fact; it changes the monitoring magic-point cost. These explanations are evaluation metadata, not model input."
+      ]
+    },
+    {
+      "id": "mine_radiation_rules",
+      "query": "我们准备进维兰德老矿。矿井入口能看出什么辐射迹象？人物接触放射性物质之后用什么检定、会损失什么？",
+      "context": "Static source lookup for a proposed visit to the old mine: identify the visible entrance warning signs and the rules for radioactive exposure and its consequences.",
+      "origin": "fresh-authored-diagnostic",
+      "requirements": [
+        {
+          "id": "visible-entrance-warning",
+          "description": "The entrance fence carries faded radiation warning signs and the immediate area shows no vegetation, insects, or other signs of life. These are described clues, not a quantified exposure measurement.",
+          "anyOfPages": [62],
+          "evidence": [
+            { "page": 62, "quote": "穿过破碎的大门，倾斜的铁丝网上钉着褪色的 \n辐射警告标志，昭示着这是个不毛之地 —— 没有植 \n物、昆虫或其他任何生命的迹象。" }
+          ]
+        },
+        {
+          "id": "radiation-check-loss-and-repetition",
+          "description": "Contact with radioactive material requires CON; a failed check loses 1D4 CON. Repeat the check hourly until decontamination, with one penalty die if exposure continues.",
+          "anyOfPages": [105],
+          "evidence": [
+            { "page": 105, "quote": "任何接触到放射物的人都 必须 进行 体质 检定 ，失败 \n将 失去 1D4 点 体质 。在进行去污染之前，必须每小 \n时重复进行一次检定，如果期间持续接触放射物， \n追加一个惩罚骰。" }
+          ]
+        },
+        {
+          "id": "radiation-consequences-at-thresholds",
+          "description": "At half of initial CON radiation-poisoning symptoms begin; at zero CON the victim dies.",
+          "anyOfPages": [105],
+          "evidence": [
+            { "page": 105, "quote": "在体质减少到初始的 1/2 时，受害 \n者开始出现辐射中毒的症状，减少到零时则会死亡。" }
+          ]
+        }
+      ],
+      "topicSummary": "The old mine has environmental warning signs, and contact with radioactive material has a recurring resistance-and-harm procedure.",
+      "consistentNote": "A failed Constitution check after contact with radioactive material costs 1D4 Constitution.",
+      "conflictingNote": "A failed Constitution check after contact with radioactive material costs 1D4 HP.",
+      "refinementNotes": [
+        "The prior query is retained. The new entrance quote includes the actual absence of vegetation and insects. Exposure evidence includes the failure condition, hourly repetition, continued-exposure penalty die, and the CON thresholds, rather than implying automatic loss on any check.",
+        "The old mandatory Geiger-counter range is not retained: the query does not ask about an instrument. A measured radiation dose, a campaign exposure event, a specific character's losses, decontamination technique, and a recovery rate are not asserted or required.",
+        "topicSummary is an authored topic-only paraphrase without check attribute, interval, modifier, loss amount, or thresholds. conflictingNote is an unverified synthetic test-fixture assertion, never a source or campaign fact; it substitutes HP loss for CON loss. These explanations are evaluation metadata, not model input."
+      ]
+    }
+  ]
+}
