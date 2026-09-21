@@ -95,3 +95,23 @@ node experiments/jev-context-case-bank/live-run.mjs --repeat 2 --concurrency 4
 ```
 
 每次创建独立运行目录，保存请求、响应、代码与输入指纹；不覆盖旧证据。调用前的attempt记录只证明开始尝试，不证明服务端收到了请求；中断后有attempt无响应者结果与费用未知。完整来源／gold仅在评估文件，不进请求。实测报告没有把事后诊断替换为正式分数，也没有端到端收益或真桌结论。
+
+## 隔离已有上下文门的后续实测
+
+[ISOLATED-RESULTS-20260921.md](ISOLATED-RESULTS-20260921.md) 对照单批联合请求、同响应宿主停止、隔离gate后按需选择。只重测11个选择臂各两遍，正式60次API；两阶段来源判断更好，但新增字节没变、延迟增加。报告另外单列零新增API的事后来源下限检查，不把它冒充正式或盲测成绩。
+
+- `isolated-core.mjs` / `isolated-run.mjs`：投影、控制流、真实调用与配对统计。
+- `isolated-analysis.mjs`：已有响应离线重算，以及明确标注的事后source-absence floor。
+- `isolated-core.test.mjs`：无网络守卫；不代表模型成绩。
+
+```bash
+# No API calls.
+node --test experiments/jev-context-case-bank/isolated-core.test.mjs
+node experiments/jev-context-case-bank/isolated-run.mjs --describe
+
+# Real API calls; frozen source bindings and securely mounted key required.
+node experiments/jev-context-case-bank/isolated-run.mjs --repeat 2 --concurrency 4
+
+# Offline only; preserves formal responses and scores.
+node experiments/jev-context-case-bank/isolated-analysis.mjs <run-directory>
+```

@@ -1,0 +1,367 @@
+{
+  "version": 1,
+  "kind": "real-jev-isolated-gate-development-set-experiment",
+  "base_commit": "d56394ba0",
+  "model": "jev-1.13.0",
+  "evidence_directory": ".pi/prototypes/jev-isolated-gate/runs/2026-09-21T14-52-06.474Z-comparison-QSeM0j",
+  "scope": {
+    "cases": 3,
+    "arms": 11,
+    "repeats": 2,
+    "all_from_pdf": true,
+    "blind_holdout": false,
+    "production_changed": false,
+    "live_play": false
+  },
+  "dataset_hashes": {
+    "builtin-source-grounded-contrasts": "825d8df690d8f4a43af224b6d36213209a49908bcf5040b0f779fb014416c103",
+    "pdf-context-contrasts": "f2216b544fd36983606aaa5b9a99cba1ffe3452c731b432edecc72e0f0e45be3"
+  },
+  "pre_run_code_hashes": {
+    "bank.mjs": "f2ef6a176ebe680ab63d510ea7992affe86b0db57c2754cca2b4dd2536e4bdd8",
+    "live-core.mjs": "f80be61fe0c1feda84a7e9b1fc9055aa786812b967fdd06c2b3c4843cd0534a1",
+    "isolated-core.mjs": "db926d1c5f6b6f4d5f1da739443add01513c5191ff28e119f9d157ed4a6e7487",
+    "isolated-run.mjs": "eb6385fd53522f0af55b51ac3d6ec12c3a013e19762985d1784e802124434044"
+  },
+  "execution": {
+    "attempted_calls": 60,
+    "completed_calls": 60,
+    "usage": {
+      "input_tokens": 74948,
+      "output_tokens": 10396
+    },
+    "wall_ms": 5858,
+    "stopped": false,
+    "completed_policy_tasks": 44,
+    "planned_policy_tasks": 44,
+    "unattempted_packet_ids": [
+      "010-selection",
+      "016-selection",
+      "018-selection",
+      "027-selection",
+      "029-selection",
+      "035-selection"
+    ],
+    "warning": "Unattempted selectors can be intentional host skips. Prewritten packet files do not prove a call. Attempts without responses have unknown outcome and cost."
+  },
+  "formal": {
+    "planned_pairs": 22,
+    "valid_pairs": 22,
+    "unavailable_pairs": [],
+    "policies": {
+      "mixed": {
+        "requests": 22,
+        "available": 22,
+        "unavailable": 0,
+        "all_correct": 17,
+        "fields_total": 34,
+        "fields_correct": 32,
+        "selection_records": 22,
+        "selection_exact": 19,
+        "selection_evidence_covered": 22,
+        "uncertain_selections": 0,
+        "selection_added_text_bytes": 4240,
+        "selection_raw_unit_bytes": 5349,
+        "latency_p50_ms": 330,
+        "latency_p95_ms": 651,
+        "selection_latency_p50_ms": 330,
+        "reported_input_tokens": 36818,
+        "usage_complete": true,
+        "reported_output_tokens": 5922,
+        "estimated_input_cost_usd": 0.001546356,
+        "policy_decisions": 22,
+        "provider_calls": 22,
+        "false_ready": 0,
+        "false_missing": 0,
+        "host_stops": 0,
+        "derived_from_mixed": false
+      },
+      "mixed-host-stop": {
+        "requests": 22,
+        "available": 22,
+        "unavailable": 0,
+        "all_correct": 18,
+        "fields_total": 34,
+        "fields_correct": 32,
+        "selection_records": 22,
+        "selection_exact": 20,
+        "selection_evidence_covered": 22,
+        "uncertain_selections": 0,
+        "selection_added_text_bytes": 4240,
+        "selection_raw_unit_bytes": 4886,
+        "latency_p50_ms": 330,
+        "latency_p95_ms": 651,
+        "selection_latency_p50_ms": 330,
+        "reported_input_tokens": 36818,
+        "usage_complete": true,
+        "reported_output_tokens": 5922,
+        "estimated_input_cost_usd": 0.001546356,
+        "policy_decisions": 22,
+        "provider_calls": 22,
+        "false_ready": 0,
+        "false_missing": 0,
+        "host_stops": 6,
+        "derived_from_mixed": true
+      },
+      "isolated": {
+        "requests": 22,
+        "available": 22,
+        "unavailable": 0,
+        "all_correct": 20,
+        "fields_total": 34,
+        "fields_correct": 34,
+        "selection_records": 22,
+        "selection_exact": 20,
+        "selection_evidence_covered": 22,
+        "uncertain_selections": 0,
+        "selection_added_text_bytes": 4240,
+        "selection_raw_unit_bytes": 4886,
+        "latency_p50_ms": 691,
+        "latency_p95_ms": 977,
+        "selection_latency_p50_ms": 691,
+        "reported_input_tokens": 38130,
+        "usage_complete": true,
+        "reported_output_tokens": 4474,
+        "estimated_input_cost_usd": 0.00160146,
+        "policy_decisions": 22,
+        "provider_calls": 38,
+        "false_ready": 0,
+        "false_missing": 0,
+        "host_stops": 6,
+        "derived_from_mixed": false
+      }
+    },
+    "costs_note": "Mixed-host-stop reuses mixed calls: its costs are alternative policy costs, never additional actual API calls. Latency is the sum of observed sequential provider round trips, excluding evidence-file I/O.",
+    "limits": "Fixed-pool, source-unit containment only. No post-selection coverage recheck, downstream reader, full-book search or live game."
+  },
+  "failures": [
+    {
+      "policy": "mixed",
+      "case_id": "beetle-joint-supplement",
+      "arm_id": "place-present",
+      "repeat": 1,
+      "fields_wrong": [],
+      "selected": [
+        "beetle-place",
+        "beetle-fire"
+      ],
+      "selection_exact": false,
+      "added_bytes": 140
+    },
+    {
+      "policy": "mixed-host-stop",
+      "case_id": "beetle-joint-supplement",
+      "arm_id": "place-present",
+      "repeat": 1,
+      "fields_wrong": [],
+      "selected": [
+        "beetle-place",
+        "beetle-fire"
+      ],
+      "selection_exact": false,
+      "added_bytes": 140
+    },
+    {
+      "policy": "isolated",
+      "case_id": "beetle-joint-supplement",
+      "arm_id": "place-present",
+      "repeat": 1,
+      "fields_wrong": [],
+      "selected": [
+        "beetle-place",
+        "beetle-fire"
+      ],
+      "selection_exact": false,
+      "added_bytes": 140
+    },
+    {
+      "policy": "mixed",
+      "case_id": "idol-context-fidelity",
+      "arm_id": "faithful",
+      "repeat": 1,
+      "fields_wrong": [
+        "source_support"
+      ],
+      "selected": [],
+      "selection_exact": true,
+      "added_bytes": 0
+    },
+    {
+      "policy": "mixed-host-stop",
+      "case_id": "idol-context-fidelity",
+      "arm_id": "faithful",
+      "repeat": 1,
+      "fields_wrong": [
+        "source_support"
+      ],
+      "selected": [],
+      "selection_exact": true,
+      "added_bytes": 0
+    },
+    {
+      "policy": "mixed",
+      "case_id": "idol-context-fidelity",
+      "arm_id": "faithful",
+      "repeat": 2,
+      "fields_wrong": [
+        "source_support"
+      ],
+      "selected": [],
+      "selection_exact": true,
+      "added_bytes": 0
+    },
+    {
+      "policy": "mixed-host-stop",
+      "case_id": "idol-context-fidelity",
+      "arm_id": "faithful",
+      "repeat": 2,
+      "fields_wrong": [
+        "source_support"
+      ],
+      "selected": [],
+      "selection_exact": true,
+      "added_bytes": 0
+    },
+    {
+      "policy": "mixed",
+      "case_id": "beetle-joint-supplement",
+      "arm_id": "both-present",
+      "repeat": 2,
+      "fields_wrong": [],
+      "selected": [
+        "beetle-place",
+        "beetle-fire"
+      ],
+      "selection_exact": false,
+      "added_bytes": 0
+    },
+    {
+      "policy": "isolated",
+      "case_id": "beetle-joint-supplement",
+      "arm_id": "place-present",
+      "repeat": 2,
+      "fields_wrong": [],
+      "selected": [
+        "beetle-place",
+        "beetle-fire"
+      ],
+      "selection_exact": false,
+      "added_bytes": 140
+    },
+    {
+      "policy": "mixed",
+      "case_id": "beetle-joint-supplement",
+      "arm_id": "place-present",
+      "repeat": 2,
+      "fields_wrong": [],
+      "selected": [
+        "beetle-place",
+        "beetle-fire"
+      ],
+      "selection_exact": false,
+      "added_bytes": 140
+    },
+    {
+      "policy": "mixed-host-stop",
+      "case_id": "beetle-joint-supplement",
+      "arm_id": "place-present",
+      "repeat": 2,
+      "fields_wrong": [],
+      "selected": [
+        "beetle-place",
+        "beetle-fire"
+      ],
+      "selection_exact": false,
+      "added_bytes": 140
+    }
+  ],
+  "posthoc": {
+    "preregistered": false,
+    "new_provider_calls": 0,
+    "raw_responses_and_scores_unchanged": true,
+    "rule": "Apply mixed host-stop, and reject source_support=complete only when trusted existing_material has zero source_excerpt entries. Presence of any excerpt never proves full semantic support.",
+    "limits": "Evaluated on the same development set after seeing errors, not a fresh blind win. Reported costs reuse actual mixed requests, not a new paid run. No claim about unseen questions or full-book retrieval.",
+    "applicable": 8,
+    "changed": 2,
+    "policies": {
+      "posthoc-source-floor": {
+        "requests": 22,
+        "available": 22,
+        "unavailable": 0,
+        "all_correct": 20,
+        "fields_total": 34,
+        "fields_correct": 34,
+        "selection_records": 22,
+        "selection_exact": 20,
+        "selection_evidence_covered": 22,
+        "uncertain_selections": 0,
+        "selection_added_text_bytes": 4240,
+        "selection_raw_unit_bytes": 4886,
+        "latency_p50_ms": 330,
+        "latency_p95_ms": 651,
+        "selection_latency_p50_ms": 330,
+        "reported_input_tokens": 36818,
+        "usage_complete": true,
+        "reported_output_tokens": 5922,
+        "estimated_input_cost_usd": 0.001546356
+      }
+    }
+  },
+  "same_payload_prior_batch_changes": [
+    {
+      "case": "beetle-joint-supplement",
+      "arm": "both-present",
+      "repeat": 1,
+      "fields": [
+        "selection"
+      ],
+      "old": {
+        "content": "complete",
+        "selection": "set_9"
+      },
+      "current": {
+        "content": "complete",
+        "selection": "set_0"
+      }
+    },
+    {
+      "case": "idol-context-fidelity",
+      "arm": "original-full",
+      "repeat": 2,
+      "fields": [
+        "source_support"
+      ],
+      "old": {
+        "content": "complete",
+        "source_support": "incomplete",
+        "selection": "set_0"
+      },
+      "current": {
+        "content": "complete",
+        "source_support": "complete",
+        "selection": "set_0"
+      }
+    }
+  ],
+  "provenance": {
+    "snapshotted_after_run": true,
+    "source_commit": "d56394ba0",
+    "code_hashes": {
+      "core.mjs": "1f45232a3acffb554d3f3852a5a19e0978ac12306d658b678bd8162cac965879",
+      "incremental-core.mjs": "3ffc5c3241b1dc4d925252e01eb65fa5dfa9008988aeabbbc53cf7f41b65e875"
+    },
+    "verification": "Both dependency files are tracked, unchanged from the clean start/HEAD; scoped structured git diff returned no diff. They were omitted from the pre-run four-file snapshot. No API rerun.",
+    "dataset_hashes_match_prior_run": true,
+    "mixed_payload_hashes_match_prior_run": 22
+  },
+  "replay": {
+    "policy_records": 66,
+    "hashes_and_grades_unchanged": true,
+    "new_api_calls": 0
+  },
+  "limits": [
+    "Gate and selection question scope, candidate visibility and the candidate-availability policy sentence change together: not a single-variable causal proof.",
+    "Host-derived scores do not replace raw model answers. Source-absence floor is post-hoc and has not had a new blinded run.",
+    "Same source-unit added bytes, not demonstrated downstream savings. No Masks or full-book retrieval, no post-selection semantic recheck."
+  ]
+}
