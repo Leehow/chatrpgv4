@@ -1,0 +1,415 @@
+{
+  "version": 1,
+  "source_sha256": "9cc71c34dd62462f0f3c7bf765defc4bc49667f1f9fee3f0ac172a32464da50c",
+  "corpus_sha256": "e0df90d0714574daf9b037d44ac749b93f03dd645397ce3ccbafc0ad2570d773",
+  "cases": [
+    {
+      "id": "clinic_zh",
+      "query": "我们刚到加油站，有个同伴受伤了。镇上有诊所可以看病吗？在哪里，通常几点接诊？",
+      "context": "The investigators have just arrived at the Esso gas station in Abattoir. They have not visited the town center. No later location, character, or rule has been loaded into a ModuleGraph for this experiment.",
+      "origin": "existing-diagnostic",
+      "requirements": [
+        {
+          "id": "medical-premises-exists",
+          "description": "A place in town where an injured person can receive medical care is described in native text (Dr. Robert L. Brunner's home, who can treat simple illnesses, sutures, and fractures).",
+          "anyOfPages": [32],
+          "evidence": [
+            { "page": 32, "quote": "3M.   罗伯特 ·L· 布伦纳医生的家" },
+            { "page": 32, "quote": "他有能力处理简单的疾病、缝合、" }
+          ]
+        },
+        {
+          "id": "opening-hours",
+          "description": "The medical premises' operating hours are stated in native text (Monday to Thursday, 9am to 5pm, per the door sign).",
+          "anyOfPages": [32],
+          "evidence": [
+            { "page": 32, "quote": "门上的标志显示他的工作时间是 星期" },
+            { "page": 32, "quote": "一至星期四上午 9 \n点至下午 5 \n点 。" }
+          ]
+        }
+      ],
+      "expectedStatus": "supported",
+      "visualGapPages": [],
+      "answerNotes": [
+        "Street-level directions and a precise address are NOT supported by the native text; page 32 gives only the door sign, the hours, and the emergency phone number EM6-4128. The answer must not invent an address.",
+        "The premises are named as a doctor's home; a literal search for the Chinese word for clinic finds no page."
+      ],
+      "unresolvedRequirements": [
+        "street-level directions / precise address to the medical premises"
+      ]
+    },
+    {
+      "id": "clinic_en",
+      "query": "We have just arrived at the gas station. Where in town could an injured traveler get medical care, and what are the opening hours?",
+      "context": "The investigators have just arrived at the Esso gas station in Abattoir. They have not visited the town center. No later location, character, or rule has been loaded into a ModuleGraph for this experiment.",
+      "origin": "existing-diagnostic",
+      "requirements": [
+        {
+          "id": "medical-premises-exists",
+          "description": "A place in town where an injured person can receive medical care is described in native text (Dr. Robert L. Brunner's home, who can treat simple illnesses, sutures, and fractures).",
+          "anyOfPages": [32],
+          "evidence": [
+            { "page": 32, "quote": "3M.   罗伯特 ·L· 布伦纳医生的家" },
+            { "page": 32, "quote": "他有能力处理简单的疾病、缝合、" }
+          ]
+        },
+        {
+          "id": "opening-hours",
+          "description": "The medical premises' operating hours are stated in native text (Monday to Thursday, 9am to 5pm, per the door sign).",
+          "anyOfPages": [32],
+          "evidence": [
+            { "page": 32, "quote": "门上的标志显示他的工作时间是 星期" },
+            { "page": 32, "quote": "一至星期四上午 9 \n点至下午 5 \n点 。" }
+          ]
+        }
+      ],
+      "expectedStatus": "supported",
+      "visualGapPages": [],
+      "answerNotes": [
+        "Street-level directions and a precise address are NOT supported by the native text; page 32 gives only the door sign, the hours, and the emergency phone number EM6-4128. The answer must not invent an address.",
+        "The premises are named as a doctor's home; a literal search for the English word 'clinic' finds no page."
+      ],
+      "unresolvedRequirements": [
+        "street-level directions / precise address to the medical premises"
+      ]
+    },
+    {
+      "id": "doctor_parameters",
+      "query": "我要准备镇上那位乡村医生的数值资料，供真正发生对抗时结算。他的属性、生命值、攻击、闪避和技能具体是多少？",
+      "context": "The Keeper is preparing NPC parameters for a real contested exchange. Only the module book's native text is available; no character graph has been loaded.",
+      "origin": "existing-diagnostic",
+      "requirements": [
+        {
+          "id": "hp-and-attributes",
+          "description": "The doctor's HP and all attribute values are stated as numbers in a stat block.",
+          "anyOfPages": [97],
+          "evidence": [
+            { "page": 97, "quote": "HP ： 11" },
+            { "page": 97, "quote": "STR   55   DEX   45" },
+            { "page": 97, "quote": "CON   50   INT   80" },
+            { "page": 97, "quote": "SIZ   65   POW   45" }
+          ]
+        },
+        {
+          "id": "attacks-and-dodge",
+          "description": "Fighting, firearm attack percentages, and dodge are stated as numbers.",
+          "anyOfPages": [97],
+          "evidence": [
+            { "page": 97, "quote": "攻击 ：斗殴 30% ；射击（手枪） 35% 。射击（步枪 \n/ 霰弹枪） 45% ；闪避： 25%" }
+          ]
+        },
+        {
+          "id": "skills",
+          "description": "The doctor's skill percentages are stated as numbers.",
+          "anyOfPages": [97],
+          "evidence": [
+            { "page": 97, "quote": "技能 ：取悦 45% ，克苏鲁神话 15% ，恐吓 55% ，话 \n术 55% ，急救 55% ，医学（人类） 35% ，医学（兽 \n医） 45% ，心理学 50% ，侦查 45%" }
+          ]
+        }
+      ],
+      "expectedStatus": "supported",
+      "visualGapPages": [],
+      "answerNotes": [
+        "Page 97 carries the full stat block; page 32 carries only narrative description without numbers, so a top-k that stops at page 32 does not satisfy this case."
+      ]
+    },
+    {
+      "id": "injection_rules",
+      "query": "有人拿一支兽医用的注射器攻击我们。这种针筒怎样命中，中了以后用什么检定抵抗，效果持续多久？",
+      "context": "An attacker has just threatened the party with a veterinary syringe; the specific mechanic text is needed before settlement. Only the module book's native text is available.",
+      "origin": "existing-diagnostic",
+      "requirements": [
+        {
+          "id": "attack-as-maneuver",
+          "description": "Attacking with the syringe in combat is resolved as a combat maneuver (战技).",
+          "anyOfPages": [84],
+          "evidence": [
+            { "page": 84, "quote": "如果在战斗中使用，用注 \n射器进行攻击视为战技。" }
+          ]
+        },
+        {
+          "id": "resistance-check",
+          "description": "A successful maneuver injects a sedative dose and the target resists with a hard Constitution check; success means drugged but conscious with two penalty dice on all actions and checks.",
+          "anyOfPages": [84],
+          "evidence": [
+            { "page": 84, "quote": "对方必须进行一次困难 等级 的 体质 检定。成功意味 \n着他们被麻醉但有意识，所有行动和检定都获得 2 \n个惩罚骰。" }
+          ]
+        },
+        {
+          "id": "unconscious-duration",
+          "description": "Failure means immediate unconsciousness for 4D4 hours; a second injection means 6D4 hours and the target cannot be woken.",
+          "anyOfPages": [84],
+          "evidence": [
+            { "page": 84, "quote": "失败意味着立即陷入昏迷，持续 4D4 小 \n时，第二次被注射则昏迷 6D4 小时，无法被唤醒。" }
+          ]
+        }
+      ],
+      "expectedStatus": "supported",
+      "visualGapPages": [],
+      "answerNotes": []
+    },
+    {
+      "id": "heat_water_rules",
+      "query": "我们准备穿过沙漠。如果高温下喝不到水，中暑和脱水具体怎样结算、多久发生、有什么惩罚？",
+      "context": "The party is preparing to cross the desert and asks for the settlement rules before traveling. Only the module book's native text is available; no rule graph has been loaded.",
+      "origin": "existing-diagnostic",
+      "requirements": [
+        {
+          "id": "heatstroke-description",
+          "description": "Heatstroke symptoms (headache, hallucination, death) and that its severity depends on access to water.",
+          "anyOfPages": [90],
+          "evidence": [
+            { "page": 90, "quote": "体温升高，可能引起头痛、幻觉，乃至 死亡。" },
+            { "page": 90, "quote": "中暑的严重程度取决于是否能喝到水。" }
+          ]
+        },
+        {
+          "id": "fatigue-levels",
+          "description": "Fatigue is a six-level condition with a defined effect per level.",
+          "anyOfPages": [90],
+          "evidence": [
+            { "page": 90, "quote": "疲惫   分为六个等级。" },
+            { "page": 90, "quote": "2   速度减半 \n3   攻击和特技检定惩罚骰" },
+            { "page": 90, "quote": "6   陷入昏迷" }
+          ]
+        },
+        {
+          "id": "dehydration-half-ration",
+          "description": "Drinking only half the required water forces a Constitution check; failure raises fatigue by one level at the end of the day.",
+          "anyOfPages": [93],
+          "evidence": [
+            { "page": 93, "quote": "首先发挥影响的是脱水。只喝了所需水量一半的 \n人必须在体质检定中获得成功，否则在一天结束 \n时疲惫等级将上升 1 。" }
+          ]
+        },
+        {
+          "id": "no-water-per-day",
+          "description": "Without water a character dehydrates quickly and gains two fatigue levels per day, and that fatigue cannot be removed until the character rehydrates.",
+          "anyOfPages": [93],
+          "evidence": [
+            { "page": 93, "quote": "在没有水的情况下角色很快会脱水，并每天获得 2 \n级疲惫。" },
+            { "page": 93, "quote": "缺水造成的疲惫在补充水分之前是无法消除的。" }
+          ]
+        }
+      ],
+      "expectedStatus": "supported",
+      "visualGapPages": [],
+      "answerNotes": [
+        "The answer spans two chapters: the fatigue/heatstroke condition table on page 90 and the desert water rules on page 93. A top-k that keeps only one of the two pages covers only half the ask."
+      ]
+    },
+    {
+      "id": "unsupported_mri",
+      "query": "镇上诊所的核磁共振扫描仪型号、扫描预约流程和收费标准是什么？请找实际记载这些信息的段落。",
+      "context": "The investigators have just arrived at the Esso gas station in Abattoir. They have not visited the town center. No later location, character, or rule has been loaded into a ModuleGraph for this experiment.",
+      "origin": "existing-diagnostic",
+      "requirements": [],
+      "expectedStatus": "unsupported",
+      "visualGapPages": [],
+      "answerNotes": [
+        "No native-text page supports an MRI machine model, a booking process, or fees; the module's medical premises are a 1970s rural doctor's home.",
+        "This status is scoped to native text: it is not proof of absence from image-only pages."
+      ]
+    },
+    {
+      "id": "town_map",
+      "query": "我要看阿巴托尔镇中心的完整平面地图，确认街道和建筑的相对位置。需要实际地图而不是目录中的地图标题。",
+      "context": "The investigators have not visited the town center and no visual channel is available in this prototype. Only the module book's native text is available.",
+      "origin": "existing-diagnostic",
+      "requirements": [],
+      "expectedStatus": "native_gap",
+      "visualGapPages": [19],
+      "answerNotes": [
+        "Page 19 is the town-center map page but belongs to the explicit sparse-native-text gap set; native-text semantic search cannot surface it.",
+        "Automatic visual-map discovery is not implemented in this prototype; the correct behavior is an explicit visual gap, not an answer assembled from the contents page or other text."
+      ]
+    },
+    {
+      "id": "chase_hunt_settlement",
+      "query": "沙漠地痞在路上围堵我们，眼看要开追逐战了。他们会有哪些人和车参加？追逐轮里怎么决定行动顺序？如果他们开车撞我们，伤害怎么算？",
+      "context": "The hunt has just begun on the red road outside Abattoir and the party asks for chase settlement material mid-scene. Only the module book's native text is available; no rule or scene graph has been loaded.",
+      "origin": "fresh-authored-diagnostic",
+      "requirements": [
+        {
+          "id": "hunt-participants",
+          "description": "Which and how many attackers and vehicles take part in the hunt (nine desert pits by default, three on Seth's pickup, two on motorcycles).",
+          "anyOfPages": [81],
+          "evidence": [
+            { "page": 81, "quote": "通常会有九个沙痞参加狩猎，每辆车上 \n两个，塞斯的皮卡上有三个，还有两个骑摩托车的，" }
+          ]
+        },
+        {
+          "id": "chase-turn-order",
+          "description": "How the chase round order is decided (by DEX, passengers included) and the four basic chase actions.",
+          "anyOfPages": [82],
+          "evidence": [
+            { "page": 82, "quote": "3.   敏捷决定行动顺序： 像战斗轮一样，行动顺序由 \n敏捷 决定。" },
+            { "page": 82, "quote": "4.   行动点： 基础的行动有四项：向前移动，发起攻 \n击，执行其他行动，或乘客协助。" }
+          ]
+        },
+        {
+          "id": "vehicle-ram-damage",
+          "description": "Damage dealt when a speeding vehicle (20 mph or faster) hits a person, plus the per-size-build damage increase.",
+          "anyOfPages": [83],
+          "evidence": [
+            { "page": 83, "quote": "如果一个人被超速行驶的汽车（ 20 英里 / 小时 \n或更快）撞到，他们会受到 4D10 点的伤害，体格超 \n过 6 点的车辆每超过 1 点就会增加 1D10 伤害 。" }
+          ]
+        }
+      ],
+      "expectedStatus": "supported",
+      "visualGapPages": [],
+      "answerNotes": [
+        "The chase material spans three consecutive pages: hunt composition on 81, chase-round order and actions on 82, and collision damage on 83. A single-page answer cannot cover the whole ask."
+      ]
+    },
+    {
+      "id": "cult_spells_eye",
+      "query": "我想提前弄清楚邪教徒手里有什么法术。致盲之血肉施法要消耗什么、怎么生效？伊格之眼能监视多远、持续多久、消耗多少魔法值？",
+      "context": "The Keeper is preparing the cult's supernatural capabilities before a confrontation. Only the module book's native text is available; no spell or item graph has been loaded.",
+      "origin": "fresh-authored-diagnostic",
+      "requirements": [
+        {
+          "id": "blinding-flesh-cost-effect",
+          "description": "The Blinding of Flesh spell costs 2 MP and 1D3 SAN, is instantaneous, and requires the caster to be within 10 yards and win an opposed POW (意志) roll.",
+          "anyOfPages": [104],
+          "evidence": [
+            { "page": 104, "quote": "•   消耗 ： 2 点魔法值； 1D3 点理智值" },
+            { "page": 104, "quote": "并在与 目标 的 意志 对抗 检定中胜出。" }
+          ]
+        },
+        {
+          "id": "eye-of-yig-monitoring",
+          "description": "The Eye of Yig can remotely monitor a known person or place within six miles for 12 minutes at a cost of 3 MP.",
+          "anyOfPages": [105],
+          "evidence": [
+            { "page": 105, "quote": "戴上伊格之眼，可以远程监控六英里以内的某 \n个已 知人物或地点，持续 12 分钟并消耗 3 点魔法值。" }
+          ]
+        }
+      ],
+      "expectedStatus": "supported",
+      "visualGapPages": [],
+      "answerNotes": [
+        "The spell entry sits on page 104 and the item entry on page 105 of the same appendix; both pages must be retrieved for the ask to count as fully covered."
+      ]
+    },
+    {
+      "id": "austin_parameters",
+      "query": "镇上真正的幕后人物是奥斯庭牧师。要跟他正面冲突的话，他的真实身份是什么？HP、闪避、护甲和属性值分别是多少？",
+      "context": "The Keeper is preparing the town's hidden leader for a real contested exchange. Only the module book's native text is available; no character graph has been loaded.",
+      "origin": "fresh-authored-diagnostic",
+      "requirements": [
+        {
+          "id": "true-identity",
+          "description": "The pastor's true identity: leader of the desert pits, half serpent-person, true name Tylarissh, born 1936.",
+          "anyOfPages": [96],
+          "evidence": [
+            { "page": 96, "quote": "莫德凯 · 奥斯庭牧师是沙漠地痞的领袖，是半个 \n蛇人。他的真名 是泰拉里 什 （ Tylarissh ），生于 \n1936 年" }
+          ]
+        },
+        {
+          "id": "stat-block",
+          "description": "HP, dodge, armor, and attribute values are stated as numbers in a stat block.",
+          "anyOfPages": [96],
+          "evidence": [
+            { "page": 96, "quote": "HP ： 12" },
+            { "page": 96, "quote": "护甲 ： 1   硬化皮肤" },
+            { "page": 96, "quote": "闪避： 35%" },
+            { "page": 96, "quote": "STR   45   DEX   50" }
+          ]
+        }
+      ],
+      "expectedStatus": "supported",
+      "visualGapPages": [],
+      "answerNotes": [
+        "Page 96 interleaves two text columns in extraction order; the identity narrative and the stat block are both present but not adjacent, which stresses wide candidate coverage rather than one contiguous window."
+      ]
+    },
+    {
+      "id": "seth_parameters",
+      "query": "追猎时冲在最前面的家伙叫赛斯。我要结算跟他交手：他的斗殴、斧头和闪避各是多少？他的护甲是怎么回事？看到他折磨人要掉多少理智？",
+      "context": "Seth is leading the hunt against the party and a fight is imminent. Only the module book's native text is available; no character graph has been loaded.",
+      "origin": "fresh-authored-diagnostic",
+      "requirements": [
+        {
+          "id": "combat-values",
+          "description": "Seth's HP, damage bonus, and fighting (brawl), axe, and dodge percentages are stated as numbers.",
+          "anyOfPages": [98],
+          "evidence": [
+            { "page": 98, "quote": "HP ： 13" },
+            { "page": 98, "quote": "攻击 ：斗殴 50% ；斧 55% ；闪避 50%" }
+          ]
+        },
+        {
+          "id": "armor-and-san-loss",
+          "description": "His armor is 1 point of hardened skin, and witnessing his torture costs 0/1D4 Sanity.",
+          "anyOfPages": [98],
+          "evidence": [
+            { "page": 98, "quote": "护甲 ： 1   硬化皮肤" },
+            { "page": 98, "quote": "理智丧失 ：如果被他折磨，会丧失 0/1D4 理智。" }
+          ]
+        }
+      ],
+      "expectedStatus": "supported",
+      "visualGapPages": [],
+      "answerNotes": []
+    },
+    {
+      "id": "mine_radiation_rules",
+      "query": "我们准备进维兰德老矿。矿井入口能看出什么辐射迹象？人物接触放射性物质之后用什么检定、会损失什么？",
+      "context": "The party is at the old mine entrances preparing to enter. Only the module book's native text is available; no location or rule graph has been loaded.",
+      "origin": "fresh-authored-diagnostic",
+      "requirements": [
+        {
+          "id": "entrance-warning-signs",
+          "description": "The mine entrance shows faded radiation warning signs on the fence and lifeless, contaminated ground.",
+          "anyOfPages": [62],
+          "evidence": [
+            { "page": 62, "quote": "穿过破碎的大门，倾斜的铁丝网上钉着褪色的 \n辐射警告标志，昭示着这是个不毛之地" }
+          ]
+        },
+        {
+          "id": "radiation-contact-settlement",
+          "description": "A Geiger counter detects radioactive matter within 30 feet; contact forces a Constitution check losing 1D4 CON, repeated hourly until decontamination.",
+          "anyOfPages": [105],
+          "evidence": [
+            { "page": 105, "quote": "盖革计数器可以探测到 30 英尺内的放射性物质。" },
+            { "page": 105, "quote": "任何接触到放射物的人都 必须 进行 体质 检定 ，失败 \n将 失去 1D4 点 体质 。" },
+            { "page": 105, "quote": "在进行去污染之前，必须每小 \n时重复进行一次检定" }
+          ]
+        }
+      ],
+      "expectedStatus": "supported",
+      "visualGapPages": [],
+      "answerNotes": [
+        "The scene evidence (entrance description, page 62) and the settlement rule (new-rules appendix, page 105) sit far apart in the book; both are needed for the scene and mechanics halves of the ask."
+      ]
+    },
+    {
+      "id": "beetle_swarm_monster",
+      "query": "矿道深处涌来一群金属甲虫。这种虫群的护甲和免疫是什么？怎么把它们打掉？它们怎么攻击？",
+      "context": "A metal beetle swarm blocks a tunnel inside the old mine. Only the module book's native text is available; no creature graph has been loaded.",
+      "origin": "fresh-authored-diagnostic",
+      "requirements": [
+        {
+          "id": "swarm-destruction",
+          "description": "The swarm has 10 HP as a group of ten beetles, and each successful attack destroys 1D3 beetles, lowering their hit chance.",
+          "anyOfPages": [103],
+          "evidence": [
+            { "page": 103, "quote": "HP ： 10 （每个金属 甲虫 群由 10 只金属 甲虫 组成。 \n任何形式的成功攻击都会摧毁 1D3 只甲虫，使它 \n们的命中率降低。）" }
+          ]
+        },
+        {
+          "id": "attack-armor-immunity",
+          "description": "The swarm bites at 30% for 1D3 damage with 30% dodge, counts as unarmored, and is immune to fire.",
+          "anyOfPages": [103],
+          "evidence": [
+            { "page": 103, "quote": "攻击 ：撕咬 30% （伤害 1D3 ）；闪避： 30%" },
+            { "page": 103, "quote": "视作没有护甲。它们对火免疫。" }
+          ]
+        }
+      ],
+      "expectedStatus": "supported",
+      "visualGapPages": [],
+      "answerNotes": []
+    }
+  ]
+}
