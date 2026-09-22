@@ -385,7 +385,7 @@ test("every provider extension in the tree is discovered, and registers the id i
       registerTool: () => {}, registerCommand: () => {}, on: () => {}, emit: () => {},
       getThinkingLevel: () => "low", settings: { get: () => undefined, set: () => {} },
     }, { get: (target, key) => key in target ? target[key] : () => {} });
-    (await import(join(ROOT, "extensions", name, manifest.agent.extension))).default(pi);
+    await (await import(join(ROOT, "extensions", name, manifest.agent.extension))).default(pi);
     assert.deepEqual(registered, [...providers], `${name} registers ${JSON.stringify(registered)}`);
   }
   // An extension with no provider (image-gen registers tools) must not be mounted into lanes.
