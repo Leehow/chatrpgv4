@@ -39,7 +39,7 @@ import {
 	admissionUnavailable,
 	keyDigest,
 	registeredDestination,
-	reviewAdmission,
+	reviewAdmissionPrimary,
 } from "./admission.ts";
 
 type TurnState = "awaiting_player" | "open" | "acting" | "asked" | "committed";
@@ -1682,7 +1682,7 @@ export default function (pi: ExtensionAPI) {
 			await record({ lane: "admission", verb: tool, ok: true, skipped: "no_player_text", key: digest });
 			return;
 		}
-		const settle = async (verdict: AdmissionVerdict, reused: boolean, ms: number, model?: string): Promise<void> => {
+		const settle = async (verdict: AdmissionVerdict, reused: boolean, ms: number, model?: string, meta: Record<string, unknown> = {}): Promise<void> => {
 			state.admission.set(proposal.key, verdict);
 			const admitted = ADMITTING_VERDICTS.has(verdict.verdict);
 			// A refusal costs the player the whole batch, and until now the row said only which verdict
@@ -1693,7 +1693,9 @@ export default function (pi: ExtensionAPI) {
 			// where a player asked in plain words for the keys and the address he had just been
 			// promised and the batch was refused whole. The grounds and the proposed effects are
 			// what decide between those two readings, so a refusal now carries them.
+			// §32.10: which reviewer decided, and the typed route's own cost, so tables can be compared.
 			await record({ lane: "admission", verb: tool, ok: true, verdict: verdict.verdict, admitted, reused, ms, key: digest, ...(model ? { model } : {}),
+				...(verdict.reviewer ? { reviewer: verdict.reviewer } : {}), ...meta,
 				...(admitted ? {} : { grounds: verdict.grounds.slice(0, 200), ...(verdict.missing ? { missing: verdict.missing.slice(0, 160) } : {}), proposed: proposal.lines }) });
 			if (admitted) return;
 			state.admissionRefused.push(`${proposal.lines.join(" | ")} -> ${verdict.verdict}${verdict.missing ? `: ${verdict.missing}` : ""}`);
@@ -1720,9 +1722,11 @@ export default function (pi: ExtensionAPI) {
 			landed: state.landed,
 			refused: state.admissionRefused,
 		};
-		const outcome = await reviewAdmission({ ctx, proposal, context, providerBudget, record: (row) => record({ verb: tool, ...row }), ...(signal ? { signal } : {}) });
+		const outcome = await reviewAdmissionPrimary({ campaign: state.campaign, ctx, proposal, context, providerBudget,
+			record: (row) => record({ verb: tool, ...row }), ...(signal ? { signal } : {}) });
 		if (!outcome.ok) {
-			await record({ lane: "admission", verb: tool, ok: false, reason: outcome.reason, detail: outcome.detail.slice(0, 200), ms: outcome.ms, key: digest, ...(outcome.model ? { model: outcome.model } : {}) });
+			await record({ lane: "admission", verb: tool, ok: false, reason: outcome.reason, detail: outcome.detail.slice(0, 200), ms: outcome.ms, key: digest, ...(outcome.model ? { model: outcome.model } : {}),
+				...(outcome.reviewer ? { reviewer: outcome.reviewer } : {}), ...outcome.meta });
 			state.admissionOutage += 1;
 			const streak = state.admissionOutage;
 			if (streak >= 2 && !state.admissionOutageNotified) {
@@ -1750,7 +1754,7 @@ export default function (pi: ExtensionAPI) {
 		// A live verdict, admitting or refusing, proves the review is back: the outage streak ends.
 		state.admissionOutage = 0;
 		state.admissionOutageNotified = false;
-		await settle(outcome.verdict, false, outcome.ms, outcome.model);
+		await settle(outcome.verdict, false, outcome.ms, outcome.model, outcome.meta);
 	}
 
 	function applyToolSuccess(state: TableState, tool: string, toolCallId: string, result: Record<string, unknown>): void {
