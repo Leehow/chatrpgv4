@@ -23,6 +23,7 @@ function handlersFor(store: ModuleStore, reading: Reading): HandlerGroup {
     return Object.freeze({
         'module.source.bind': params => reading.bind(params),
         'module.source.answer.peek': params => reading.peekAnswer(params),
+        'module.source.materials.snapshot': params => reading.materialSnapshot(params),
         'module.source.snapshot': async params => {
             const id = required(params, 'module_id'), meta = await store.module(id), source = row(meta.source_document);
             if (source.path !== 'source.pdf' || typeof source.file_sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(source.file_sha256)

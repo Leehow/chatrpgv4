@@ -1,8 +1,9 @@
 /** Source owner bindings for the canonical dispatcher; graph publication remains with ReadingService. */
 import { ContractError, isPlainRecord, type Json, type ObservationPacket, type SourceProof } from './contracts.ts';
 import { issueSourceRef, resolveSourceRef } from './source-ref.ts';
-import { nativeSourceState, nativeConsultationSelection, SOURCE_CONSULT_CAPABILITY } from './native-source-domain.ts';
-import type { NativeTextBundle } from './native-source-catalog.ts';
+import {nativeSourceState,nativeSourceParts,nativeConsultationApproval,SOURCE_CONSULT_CAPABILITY,
+  type NativeConsultationApproval as NativeApproval,type SourceBinding} from './native-source-domain.ts';
+import {nativeSourceCatalog,type NativeTextBundle,type NativeSourceCatalog} from './native-source-catalog.ts';
 import type { OwnedOperation } from '../../extensions/kernel/canonical-operation-dispatcher.ts';
 import type { TaskRuntime, TaskView } from './task-runtime.ts';
 
@@ -14,6 +15,46 @@ export interface SourceOwnerPort {
   sourceInfo(pdf: string, signal: AbortSignal): Promise<{file_sha256: string; page_count: number}>;
   sourceText(pdf: string, pages: number[], expectedSha: string, signal: AbortSignal): Promise<NativeTextBundle>;
   visual(moduleId: string, question: string, signal: AbortSignal, taskId: string): Promise<Record<string, any>>;
+}
+export interface NativeConsultationMaterializerPort {
+  call(method:string,params:Record<string,unknown>):Promise<Record<string,any>>;
+  sourceInfo(pdf:string,signal:AbortSignal):Promise<{file_sha256:string;page_count:number}>;
+  sourceText(pdf:string,pages:number[],expectedSha:string,signal:AbortSignal):Promise<NativeTextBundle>;
+}
+export async function materializeNativeConsultation(input:{port:NativeConsultationMaterializerPort;moduleId:string;campaign?:string;
+  scope:Parameters<typeof nativeSourceCatalog>[0];question:string;binding:SourceBinding;catalog:NativeSourceCatalog;
+  approval:NativeApproval;signal:AbortSignal}):Promise<{sourceAnswer:Record<string,Json>;proof:Extract<SourceProof,{kind:'native_consultation'}>}> {
+  const selected=input.approval.verdict.selected,ownerParts=nativeSourceParts(input.catalog),partsByAlias=new Map(ownerParts.map(part=>[part.alias,part]));
+  if(!input.question||input.approval.question!==input.question||!selected.length||new Set(selected.map(part=>part.alias)).size!==selected.length)
+    throw new ContractError('native_consultation_not_supported');
+  if(JSON.stringify(input.approval.coverage)!==JSON.stringify(input.catalog.coverage)||selected.some(part=>JSON.stringify(partsByAlias.get(part.alias))!==JSON.stringify(part)))
+    throw new ContractError('native_consultation_not_supported');
+  const current=await input.port.call('module.source.snapshot',{module_id:input.moduleId,...(input.campaign?{campaign:input.campaign}:{})});
+  if(current.revision!==input.binding.revision||current.file_sha256!==input.binding.file_sha256||current.page_count!==input.binding.page_count
+    ||current.pdf!==input.binding.pdf)throw new ContractError('source_binding_stale');
+  const actual=await input.port.sourceInfo(current.pdf,input.signal);
+  input.signal.throwIfAborted();
+  if(actual.file_sha256!==input.binding.file_sha256||actual.page_count!==input.binding.page_count)throw new ContractError('source_binding_stale');
+  const pages=[...new Set(selected.map(part=>part.page))].sort((a,b)=>a-b);
+  const bundle=await input.port.sourceText(current.pdf,pages,input.binding.file_sha256,input.signal);
+  if(bundle.page_count!==input.binding.page_count||bundle.extraction_version!==input.catalog.extractionVersion)
+    throw new ContractError('source_binding_stale');
+  const fresh=nativeSourceCatalog(input.scope,bundle,input.binding.file_sha256),snapshots=new Map(fresh.snapshots.map(snapshot=>[snapshot.resource,snapshot]));
+  const excerpts=selected.map(part=>({alias:part.alias,page:part.page,text:resolveSourceRef(part.ref,{
+    scope:input.scope,mode:'active',read:resource=>snapshots.get(resource),currentRevision:resource=>snapshots.get(resource)?.revision})}));
+  input.signal.throwIfAborted();
+  const settled=await input.port.call('module.source.snapshot',{module_id:input.moduleId,...(input.campaign?{campaign:input.campaign}:{})});
+  input.signal.throwIfAborted();
+  if(settled.revision!==input.binding.revision||settled.file_sha256!==input.binding.file_sha256||settled.page_count!==input.binding.page_count
+    ||settled.pdf!==input.binding.pdf)throw new ContractError('source_binding_stale');
+  const proof:Extract<SourceProof,{kind:'native_consultation'}>={kind:'native_consultation',refs:selected.map(part=>part.ref),coverage:{
+    used:selected.map(part=>part.alias),omitted:[...input.catalog.coverage.omittedPages.map(page=>`page:${page}`),
+      ...ownerParts.filter(part=>input.approval.classifications[part.alias]==='irrelevant').map(part=>`part:${part.alias}`)],
+    unknown:[...input.catalog.coverage.emptyPages,...input.catalog.coverage.errorPages].map(page=>`page:${page}`).concat(
+      ownerParts.filter(part=>['uncertain','unknown'].includes(input.approval.classifications[part.alias]??'unknown')).map(part=>`part:${part.alias}`))}};
+  return{sourceAnswer:{status:'answered',authority:proof.kind,supported:true,prepared:false,source_layer:'authored_pdf',question:input.question,excerpts,
+    source_refs:selected.map(part=>({source_id:`pdf:${input.moduleId}`,pdf_index:part.page-1})),
+    limitations:['Exact authored native excerpts; no image/layout proof, playable material, world change, or claim of scanned absence.']},proof};
 }
 function args(value: Record<string, Json>, keys: string[]): Record<string, Json> {
   if (!isPlainRecord(value) || Object.keys(value).some(key => !keys.includes(key))) throw new ContractError('invalid_source_arguments');
@@ -72,29 +113,12 @@ export function registerSourceOperations(port: SourceOwnerPort): () => void {
     const currentView = view(context.task.context.id), state = nativeSourceState(currentView);
     if (!state?.catalog || !Array.isArray(proposal.args.aliases) || !proposal.args.aliases.length
       || new Set(proposal.args.aliases).size !== proposal.args.aliases.length) throw new ContractError('invalid_source_arguments');
-    const eligible = nativeConsultationSelection(currentView);
-    if (!eligible || proposal.args.question !== currentView.plan.goal
+    const approval=nativeConsultationApproval(currentView),eligible=approval?.verdict.selected;
+    if (!approval||!eligible||proposal.args.question !== currentView.plan.goal
       || JSON.stringify(proposal.args.aliases) !== JSON.stringify(eligible.map(part => part.alias))) throw new ContractError('native_consultation_not_supported');
-    const selected = proposal.args.aliases.map(alias => {
-      const part = state.parts.find(part => part.alias === alias);
-      if (!part) throw new ContractError('unknown_source_alias'); return part;
-    });
-    const current = await port.call('module.source.snapshot', { module_id: port.moduleId(), campaign: context.task.context.scope.campaign });
-    if (current.revision !== state.binding.revision) throw new ContractError('source_binding_stale');
-    const actual = await port.sourceInfo(current.pdf, context.task.signal);
-    if (actual.file_sha256 !== state.binding.file_sha256) throw new ContractError('source_binding_stale');
-    const snapshots = new Map(state.catalog.snapshots.map(snapshot => [snapshot.resource, snapshot]));
-    const excerpts = selected.map(part => ({ alias: part.alias, page: part.page, text: resolveSourceRef(part.ref, {
-      scope: context.task.context.scope, mode: 'active', read: resource => snapshots.get(resource),
-      currentRevision: resource => snapshots.get(resource)?.revision,
-    }) }));
-    const proof: SourceProof = { kind: 'native_consultation', refs: selected.map(part => part.ref),
-      coverage: { used: selected.map(part => part.alias), omitted: state.catalog.coverage.omittedPages.map(page => `page:${page}`),
-        unknown: [...state.catalog.coverage.emptyPages, ...state.catalog.coverage.errorPages].map(page => `page:${page}`) } };
-    const result = packet(proposal.id, context, { source_answer: { status: 'answered', authority: proof.kind, prepared: false,
-      source_layer: 'authored_pdf', excerpts, source_refs: selected.map(part => ({source_id: `pdf:${port.moduleId()}`, pdf_index: part.page - 1})),
-      limitations: ['Exact authored native excerpts; no image/layout proof, playable material, world change, or claim of scanned absence.'],
-    } } as Json, proof);
+    const materialized=await materializeNativeConsultation({port,moduleId:port.moduleId(),campaign:context.task.context.scope.campaign,
+      scope:context.task.context.scope,question:currentView.plan.goal,binding:state.binding,catalog:state.catalog,approval,signal:context.task.signal});
+    const result=packet(proposal.id,context,{source_answer:materialized.sourceAnswer} as Json,materialized.proof);
     cache.set(cacheKey(currentView, currentView.plan.goal), structuredClone(result));
     if (cache.size > 32) cache.delete(cache.keys().next().value!);
     return result;

@@ -199,8 +199,9 @@ test("conformance: host and ordinary look share the public hook/executor/result 
 test("conformance: capability derivation cannot promote source answer to prepare, escalate tools, or deliver as the host", async (t) => {
 	assert.equal(operationCapability("lookup", { kind: "source", source_mode: "answer" }), "lookup.source.answer");
 	assert.equal(operationCapability("lookup", { kind: "source" }), "source.prepare");
+	assert.equal(operationCapability("lookup", {kind:"support"}),"lookup.support");
 	const { table, control } = await openDispatchTable(t, {
-		responses: [dispatchCall(), dispatchCall(), dispatchCall(), dispatchCall(), ...closeTurn()],
+		responses: [dispatchCall(), dispatchCall(), dispatchCall(), dispatchCall(), dispatchCall(), ...closeTurn()],
 	});
 	const answerOwner = task("dispatcher-test", ["lookup.source.answer"]);
 	const lookOwner = task("dispatcher-test", ["look"]);
@@ -211,6 +212,7 @@ test("conformance: capability derivation cannot promote source answer to prepare
 		{ owner: lookOwner, value: { id: "host-op-escalation", operation: "apply", args: { effects: [{ kind: "time", minutes: 5, why: "not authorized" }] }, capability: "apply" } },
 		{ owner: narrateOwner, value: { id: "host-op-narrate", operation: "narrate", args: { text: "forbidden" }, capability: "narrate" } },
 		{ owner: askOwner, value: { id: "host-op-ask", operation: "ask", args: { kind: "mechanics", options: ["accept", "flee"] }, capability: "ask" } },
+		{ owner: lookOwner, value: {id:"host-op-support-escalation",operation:"lookup",args:{kind:"support",query:"Missing evidence"},capability:"lookup.support"}},
 	]) control.scenarios.push({ proposal: proposal(scenario.owner, scenario.value), context: hostContext(control, scenario.owner) });
 	await play(table);
 
@@ -219,6 +221,7 @@ test("conformance: capability derivation cannot promote source answer to prepare
 		["host-op-escalation", "failed", "operation_capability_out_of_scope"],
 		["host-op-narrate", "failed", "delivery_requires_writer_message"],
 		["host-op-ask", "failed", "delivery_requires_writer_message"],
+		["host-op-support-escalation","failed","operation_capability_out_of_scope"],
 	]);
 	assert.deepEqual(control.hooks, []);
 	assert.equal(table.kernelRequests().some((row) => ["table.lookup", "table.apply", "table.ask"].includes(row.method)), false);

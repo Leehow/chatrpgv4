@@ -15,8 +15,8 @@ def prepared(kernel, tmp_path):
     return mid, root
 
 
-def answer_job(kernel, mid, **scope):
-    params = dict(module_id=mid, purpose='answer', focus='Lena', question='What does the source say about her work?', foreground=True, **scope)
+def answer_job(kernel, mid, question='What does the source say about her work?', **scope):
+    params = dict(module_id=mid, purpose='answer', focus='Lena', question=question, foreground=True, **scope)
     queued = kernel.ok('module.read.request', params)
     job = kernel.ok('module.read.claim', dict(module_id=mid, owner='answer-test', **scope))
     assert job['job_id'] == queued['job_id'] and job['purpose'] == 'answer'
@@ -93,10 +93,16 @@ def test_unresolved_answer_stays_non_authoritative_and_rejects_graph_fields(kern
 def test_campaign_answer_caches_and_attempt_leases_are_isolated(kernel, tmp_path):
     mid, root = prepared(kernel, tmp_path)
     library_params, library_job, _, _ = answer_job(kernel, mid)
-    finish(kernel, library_job)
+    library_result = finish(kernel, library_job)
     library_before = (root/'module.json').read_bytes()
-    params_a, job_a, _, _ = answer_job(kernel, mid, campaign='answer-a')
-    params_b, job_b, _, _ = answer_job(kernel, mid, campaign='answer-b')
+    for campaign in ['answer-a', 'answer-b']:
+        reused = kernel.ok('module.read.request', {**library_params, 'campaign': campaign})
+        assert reused['state'] == 'ready'
+        assert reused['source_answer'] == library_result['source_answer']
+        assert kernel.ok('module.read.claim', dict(module_id=mid, owner='answer-test', campaign=campaign))['job_id'] is None
+    independent_question = 'Which organization employs Lena at the harbor?'
+    params_a, job_a, _, _ = answer_job(kernel, mid, question=independent_question, campaign='answer-a')
+    params_b, job_b, _, _ = answer_job(kernel, mid, question=independent_question, campaign='answer-b')
     assert job_a['lease'] != job_b['lease']
     assert 'answer-a' in job_a['work_dir'] and 'answer-b' in job_b['work_dir']
     assert kernel.ok('module.read.request', params_b)['state'] == 'reading'

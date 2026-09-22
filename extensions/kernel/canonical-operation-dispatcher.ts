@@ -123,7 +123,7 @@ export function createCanonicalOperationDispatcher(stages?: Stages) {
     },
     async bindReadScope(toolCallId: string, proposal: OperationProposal, context: HostOperationContext): Promise<() => void> {
       const capability = operationCapability(proposal.operation, proposal.args), task = context.task.context;
-      if (!['look', 'recall', 'lookup.module', 'lookup.rule', 'lookup.catalog', 'lookup.secret', 'lookup.continuity', 'lookup.source.answer'].includes(capability)
+      if (!['look', 'recall', 'lookup.module', 'lookup.rule', 'lookup.catalog', 'lookup.secret', 'lookup.continuity', 'lookup.source.answer', 'lookup.support'].includes(capability)
         || proposal.taskId !== task.id || proposal.capability !== capability || !task.capabilities.includes(capability)
         || signature(proposal.scope) !== signature(task.scope) || frames.has(toolCallId)) throw new ContractError('operation_capability_out_of_scope');
       await context.validateCurrent(structuredClone(proposal)); context.task.assertActive();

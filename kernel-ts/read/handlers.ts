@@ -348,13 +348,14 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
             return { ...view, _context: await contextBinding(campaign, module, view) };
         },
         "table.look": async (params) => {
-            const { campaign, module } = await readCampaign(context, params, false, true, contributions),
+            const contextRead = params._context_read === true;
+            const { campaign, module } = await readCampaign(context, params, false, true, contributions, contextRead),
                 { graph } = module,
                 { world } = campaign,
                 focus = params.focus || "scene";
             if (typeof focus !== "string" || !LOOK_FOCUS.includes(focus))
                 unsupported("focus", focus, LOOK_FOCUS, `unknown focus ${repr(focus)}`);
-            await requireNoTransition(campaign, contributions);
+            if (!contextRead) await requireNoTransition(campaign, contributions);
             const scene = graph.scene(world.active_scene);
             if (focus === "object")
                 return objectLook(world, params.name);
@@ -410,14 +411,15 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
             return { clock: truth(world.clock) ? world.clock : { minutes: 0 } };
         },
         "table.lookup": async (params): Promise<KernelResult> => {
-            const { campaign, module: activeModule } = await readCampaign(context, params, false, true, contributions),
+            const contextRead = params._context_read === true;
+            const { campaign, module: activeModule } = await readCampaign(context, params, false, true, contributions, contextRead),
                 module = params.canonical_source === true ? await loadModule(context, campaign.meta.module_id, campaign.id) : activeModule,
                 { graph } = module,
                 { world } = campaign,
                 kind = params.kind;
             if (typeof kind !== "string" || !LOOKUP_KINDS.includes(kind))
                 unsupported("kind", kind, LOOKUP_KINDS, `unknown lookup kind ${repr(kind)}`);
-            await requireNoTransition(campaign, contributions);
+            if (!contextRead) await requireNoTransition(campaign, contributions);
             if (kind === 'continuity') {
                 await campaign.preload();
                 return continuityView(graph, world, campaign.records, await campaign.log('memory/candidates.jsonl'), {...params,campaign:campaign.id,currentReceipts:array(campaign.turn.receipts)});

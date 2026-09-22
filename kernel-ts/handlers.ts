@@ -22,7 +22,7 @@ export const KNOWN_METHODS = Object.freeze([
   "npc.responses.job", "npc.responses.submit",
   "setup.steps", "setup.occupations", "setup.investigator", "setup.complete", "setup.prologue",
   "setup.draft", "setup.revise", "setup.reroll", "setup.catalog", "setup.confirm", "setup.override", "setup.note",
-  "module.source.bind", "module.source.snapshot", "module.source.answer.peek", "module.read.ahead", "module.read.request", "module.read.claim", "module.read.finish", "module.read.unwait",
+  "module.source.bind", "module.source.snapshot", "module.source.materials.snapshot", "module.source.answer.peek", "module.read.ahead", "module.read.request", "module.read.claim", "module.read.finish", "module.read.unwait",
   "module.list", "module.status", "module.register", "module.opening.choose", "module.asset",
   "investigator.list", "investigator.get", "investigator.save", "investigator.load",
   "mods.list", "mods.configure", "mods.order", "mods.document.view", "mods.document.apply",

@@ -41,6 +41,16 @@ bin/pi-coc setup                      # 建卡：选 starter 或资料包，建�
 bin/pi-coc --campaign <id>            # 开桌
 ```
 
+可选的 Jev 资料预选器在 **设置 → Jev** 中显式开启，默认关闭；保存密钥不会自动启用。
+密钥保存在 App 加密凭据库，所有 Jev 调用共用这一入口。源码 CLI 可用
+`PI_COC_JEV_PRESELECT=1 bin/pi-coc --campaign <id>` 覆盖开关，`TYPESAFE_API_KEY` 仍由同一读取器兼容。
+预选器按实际保留的请求上下文补充模组正文、规则与依赖、原文和有效来源答案、记忆及逐字记录、
+人物、物品目录和当前状态；不裁核心胶囊，也不决定行动授权。原生 PDF 文字只有通过既有来源资格与
+覆盖判断后，才能支持对应的纯文字咨询；视觉核查、实体准备及图谱发布仍走原路径。
+同一输入共用一次有界预算；部分批次超时可以保留最终版本校验通过的材料，其余缺口明确报告。
+`prepared`、`context.prescreen_injected` 与转换后 provider payload 的 `prescreen.delivered` 分别表示准备、
+消息投影和出站观测；它们都不自动证明 KP 使用了材料或等待变短。当前内核 RPC 桥仍串行。
+
 要用 `deepseek-extended` provider：先做一次鉴权（`/login deepseek-extended` 写进 `.pi/coc-agent` 的 auth.json），
 或在设置里填 `ext.deepseek.apiKey`。它与 `.pi/coc-agent/models.json` 里保留的 `deepseek` provider 是两家，互不动。
 

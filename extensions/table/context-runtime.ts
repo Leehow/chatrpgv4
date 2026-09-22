@@ -1,3 +1,8 @@
+import {createDecisionAdapter} from '../../runtime/jev/decision-adapter.ts';
+import {readJevApiKey} from '../jev/agent/config.js';
+import {preparationBudget} from '../../runtime/jev/preparation-budget.ts';
+import type {DecisionPort} from '../../runtime/jev/decision-port.ts';
+import type {TaskProviderBudget} from '../../runtime/jev/provider-budget.ts';
 /** Request and persistence adapters for the one bounded play-context policy. */
 import {createHash} from 'node:crypto';
 import {dirname, join} from 'node:path';
@@ -8,14 +13,21 @@ import {createWorkpadStore, type WorkpadView} from './workspace/workpad-store.ts
 import {selectWorkspace, workspaceBudgetOf, workspaceModeOf, workspaceSettingsOf, workspaceCandidates, type WorkspaceMode} from './workspace/projection.ts';
 import {reuseEvidence, dormantEvidence} from './workspace/evidence.ts';
 import {rankWorkspaceCandidates} from './workspace/reranker.ts';
+import {preparePrescreen,prescreenEnabled,reusePrescreen} from './prescreen.ts';
+import type {PrescreenSourceRuntime} from '../../runtime/jev/prescreen-source-provider.ts';
 import {bindingOf, customMessage, epochOf, sourceOf, historyView, metadata, quoteView, briefForTurn, projectedMessages, foldPlan,
-    boundedTail, requestBudget, BYTES_PER_TOKEN, HISTORY_BYTES, POLICY_VERSION, DIAGNOSTIC_TYPE, WORKSPACE_TYPE, entryMessage, object, sizeOf,
+    boundedTail, requestBudget, BYTES_PER_TOKEN, HISTORY_BYTES, POLICY_VERSION, DIAGNOSTIC_TYPE, WORKSPACE_TYPE, PRESCREEN_TYPE, entryMessage, object, sizeOf, requestSize,
     type ContextBinding, type Quote, type Row} from './context-policy.ts';
 
 type KernelCall = (method: string, params: Row) => Promise<unknown>;
 type Prepared = {binding: ContextBinding; capsule: Row; history: Row; brief: Row; key: string; answering?: string[];
     workspace?: Row; workspaceMode: WorkspaceMode};
 const fingerprint = (value: unknown): string => createHash('sha256').update(JSON.stringify(value)).digest('hex');
+function payloadContains(value:unknown,content:string,seen=new Set<object>()):boolean {
+    if(typeof value==='string')return value===content||value.includes(content);
+    if(!value||typeof value!=='object'||seen.has(value as object))return false;seen.add(value as object);
+    return (Array.isArray(value)?value:Object.values(value as Row)).some(child=>payloadContains(child,content,seen));
+}
 
 export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row) => void,
     workpadRoot?: () => string | undefined): void {
@@ -23,10 +35,23 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     const record = (row: Row): void => writeTelemetry({...(observedTurn === undefined ? {} : {turn: observedTurn}), ...row});
     let failedGeneration: number | undefined, inputPending = false;
     let call: KernelCall | undefined, campaign: string | undefined, capsule: Row | undefined, rawBinding: unknown;
+    let sourceRuntime:PrescreenSourceRuntime|undefined,moduleId:string|undefined;
     let answering: string[] | undefined, inputEpoch: string | undefined, generation = 0, prepared: Prepared | undefined;
     let preparing: Promise<Prepared | undefined> | undefined, brief: Row | undefined, briefKey: string | undefined;
     let lastFold: string | undefined, lastAttempt: string | undefined, lastDegraded: string | undefined;
     let lastReason = 'context_unavailable';
+    let prescreenDeadlineAt=0,prescreenMemo:{key:string;message?:Row}|undefined,reusablePrescreen:Row|undefined;
+    let prescreenProviderBudget={actions:8,inputTokens:400_000,outputTokens:40_000,costUsd:.04};
+    let providerSequence=0,pendingProvider:{requestId:string;prepared?:Row;outgoingDigest:string}|undefined;
+    let sessionEnv={...process.env},sharedAdapter:DecisionPort|undefined,sharedBudget:ReturnType<typeof preparationBudget>|undefined;
+    let inputLifetime=new AbortController(),foregroundBudget:(()=>TaskProviderBudget|undefined)|undefined;
+    const decision=()=>{
+        if(!readJevApiKey(sessionEnv))return undefined;
+        const capacity=Number(sessionEnv.PI_COC_JEV_CONCURRENCY??16);
+        return sharedAdapter??=createDecisionAdapter({env:sessionEnv,maxConcurrency:Number.isInteger(capacity)&&capacity>0?Math.min(capacity,16):16});
+    };
+    const resetPreparation=()=>{inputLifetime.abort();inputLifetime=new AbortController();sharedBudget?.close();sharedBudget=undefined;};
+    pi.events.on('coc:task-provider-budget',value=>{foregroundBudget=typeof value==='function'?value as typeof foregroundBudget:undefined;});
     let optionalWork = new AbortController();
     // Invalidating a snapshot must not disable its event subscriptions while rehydration waits.
     let observedWorkspaceMode: WorkspaceMode = 'off';
@@ -43,26 +68,33 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         const key = `${generation}:${reason}`;
         if (key !== lastDegraded) {lastDegraded = key; record({lane: 'context', event: 'degraded', reason});}
     };
-    pi.on('input', async () => {inputPending = true; invalidate();});
+    pi.on('input', async () => {inputPending=true;invalidate();});
     pi.events.on('coc:kernel-bridge', data => {
         const value = object(data), nextCall = typeof value.call === 'function' ? value.call : undefined;
         const nextCampaign = typeof value.campaign === 'string' ? value.campaign : undefined;
         const changed = call !== nextCall || campaign !== nextCampaign;
         call = nextCall; campaign = nextCampaign;
+        const runtime=object(value.runtime);
+        sourceRuntime=typeof runtime.home==='string'&&typeof runtime.sourceInfo==='function'&&typeof runtime.sourceText==='function'
+            ?runtime as unknown as PrescreenSourceRuntime:undefined;
         if (changed) {observedWorkspaceMode = 'off'; invalidate();}
     });
     pi.events.on('coc:table-open', data => {
-        const turn = object(object(object(data).open).turn).number;
+        const opened=object(object(data).open),turn=object(opened.turn).number,campaignView=object(opened.campaign);
         if (Number.isSafeInteger(turn)) observedTurn = turn;
+        moduleId=typeof campaignView.module_id==='string'?campaignView.module_id:typeof opened.module_id==='string'?opened.module_id:moduleId;
     });
     pi.events.on('coc:capsule', data => {
         const value = object(data);
+        const previousEpoch=inputEpoch,nextEpoch=typeof value.epoch==='string'?value.epoch:undefined;
         inputPending = false;
         capsule = value.capsule ? structuredClone(value.capsule) : undefined;
         observedWorkspaceMode = workspaceModeOf(capsule);
         if (Number.isSafeInteger(object(capsule?.turn).number)) observedTurn = object(capsule?.turn).number;
         rawBinding = value.context;
-        inputEpoch = typeof value.epoch === 'string' ? value.epoch : undefined;
+        inputEpoch = nextEpoch;
+        if(previousEpoch!==nextEpoch){resetPreparation();prescreenDeadlineAt=0;prescreenProviderBudget={actions:8,inputTokens:400_000,outputTokens:40_000,costUsd:.04};
+            prescreenMemo=undefined;reusablePrescreen=undefined;}
         answering = Array.isArray(value.answering) ? value.answering.filter((entry: unknown) => typeof entry === 'string') : undefined;
         sourceCalls.clear(); invalidate();
     });
@@ -72,8 +104,8 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     // every request until the next accepted input runs degraded on `player_input_not_accepted`.
     pi.events.on('coc:input-refused', () => {inputPending = false; invalidate();});
     pi.events.on('coc:source-published', data => {
-        if (observedWorkspaceMode === 'off' || object(data).campaign && object(data).campaign !== campaign) return;
-        capsule = undefined; rawBinding = undefined; brief = undefined; briefKey = undefined; invalidate();
+        if (observedWorkspaceMode === 'off' && !prescreenEnabled() || object(data).campaign && object(data).campaign !== campaign) return;
+        capsule = undefined; rawBinding = undefined; brief = undefined; briefKey = undefined; prescreenMemo=undefined;reusablePrescreen=undefined; invalidate();
     });
     pi.on('tool_call', async event => {
         const input = object(event.input);
@@ -89,7 +121,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     pi.on('tool_result', async event => {
         const read = reads.get(event.toolCallId); reads.delete(event.toolCallId);
         let captured = false;
-        if (read && !event.isError && observedWorkspaceMode !== 'off') {
+        if (read && !event.isError && (observedWorkspaceMode !== 'off' || prescreenEnabled())) {
             const result = object(event.details);
             const remember = (set: Set<string>, name: unknown) => {
                 if (typeof name !== 'string' || !name || name.length > 200) return;
@@ -104,11 +136,15 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         const sourceChanged = sourceCalls.delete(event.toolCallId);
         // A failed transport can hide a committed mutation. Re-read the actual kernel state;
         // never infer arrival or settlement from the requested effect or an error flag.
-        if (!sourceChanged && !captured && !(stateChanged && observedWorkspaceMode !== 'off')) return;
+        if (!sourceChanged && !captured && !(stateChanged && (observedWorkspaceMode !== 'off' || prescreenEnabled()))) return;
         capsule = undefined; rawBinding = undefined; brief = undefined; briefKey = undefined; invalidate();
     });
-    pi.on('session_start', async () => {invalidate(); observedWorkspaceMode = 'off'; inputPending = false; brief = undefined; briefKey = undefined; lastFold = undefined; lastAttempt = undefined; sourceCalls.clear(); stateCalls.clear();});
-    pi.on('session_shutdown', async () => {call = undefined; capsule = undefined; rawBinding = undefined; observedWorkspaceMode = 'off'; invalidate();});
+    pi.on('session_start', async () => {resetPreparation();sessionEnv={...process.env};sharedAdapter=undefined;invalidate(); observedWorkspaceMode = 'off'; inputPending = false; brief = undefined; briefKey = undefined; lastFold = undefined;
+        lastAttempt = undefined; sourceCalls.clear(); stateCalls.clear();prescreenDeadlineAt=0;prescreenMemo=undefined;reusablePrescreen=undefined;
+        prescreenProviderBudget={actions:8,inputTokens:400_000,outputTokens:40_000,costUsd:.04};});
+    pi.on('session_shutdown', async () => {resetPreparation();sharedAdapter=undefined;call=undefined;capsule=undefined;rawBinding=undefined;sourceRuntime=undefined;moduleId=undefined;observedWorkspaceMode='off';
+        prescreenMemo=undefined;reusablePrescreen=undefined;pendingProvider=undefined;prescreenDeadlineAt=0;
+        prescreenProviderBudget={actions:0,inputTokens:0,outputTokens:0,costUsd:0};invalidate();});
 
     async function prepare(): Promise<Prepared | undefined> {
         if (inputPending) {failedGeneration = generation; degraded('player_input_not_accepted'); return undefined;}
@@ -210,7 +246,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
                 const workspaceMode = workspaceModeOf(current), workspaceBudget = workspaceBudgetOf(current);
                 observedWorkspaceMode = workspaceMode;
                 let workspace: Row | undefined;
-                if (workspaceMode !== 'off') {
+                if (workspaceMode !== 'off' && !prescreenEnabled()) {
                     const began = Date.now();
                     try {
                         const settings = workspaceSettingsOf(current);
@@ -253,8 +289,8 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
                         if (ticket !== generation || signal.aborted) return undefined;
                         if (rerank.status !== 'skipped') record({lane: 'workspace-rerank', event: rerank.status,
                             reason: rerank.status === 'fallback' ? rerank.reason : undefined, candidates: rerank.candidates,
-                            ms: rerank.ms, ...(rerank.provider ? {provider: rerank.provider} : {}),
-                            ...(rerank.model ? {model: rerank.model} : {})});
+                            ms: rerank.ms, ...('provider' in rerank && rerank.provider ? {provider: rerank.provider} : {}),
+                            ...('model' in rerank && rerank.model ? {model: rerank.model} : {})});
                         else record({lane: 'workspace-rerank', event: 'skipped', reason: rerank.reason});
                         // KIC-04: the Keeper's own published workpad joins the same selection. Any
                         // failure here — root, store, corrupt file — is a miss on the optional layer,
@@ -324,6 +360,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     });
     pi.on('context', async (event, ctx) => {
         const ticket = generation;
+        const requestMessages=event.messages;
         let snapshot = await prepare();
         // A concurrent input may replace a generation while its optional work is awaiting I/O.
         // Try the current accepted binding once; an unaccepted input uses the normal fallback.
@@ -343,18 +380,18 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         if (!snapshot) {
             // No capsule means no projection, never an unbounded request: a long campaign's whole
             // stored branch is exactly what must not reach the provider on a degraded turn.
-            const rest = (event.messages as unknown as Row[]).filter(message => !(message.role === 'custom' && message.customType === DIAGNOSTIC_TYPE));
+            const rest = (requestMessages as unknown as Row[]).filter(message => !(message.role === 'custom' && [DIAGNOSTIC_TYPE, PRESCREEN_TYPE].includes(message.customType)));
             const notice = diagnostic(lastReason);
-            const cut = boundedTail(rest, Math.max(0, budget - sizeOf([notice])));
+            const cut = boundedTail(rest, Math.max(0, budget - requestSize([notice])));
             const outgoing = [notice, ...cut.messages];
             record({lane: 'context', event: 'request', version: POLICY_VERSION, reason: lastReason,
-                request_bytes: sizeOf(outgoing) + systemBytes, system_bytes: systemBytes,
-                local_token_estimate: Math.ceil((sizeOf(outgoing) + systemBytes) / BYTES_PER_TOKEN),
+                request_bytes: requestSize(outgoing) + systemBytes, system_bytes: systemBytes,
+                local_token_estimate: Math.ceil((requestSize(outgoing) + systemBytes) / BYTES_PER_TOKEN),
                 ceiling_bytes: ceiling, dropped_tail: cut.dropped, context_window: ctx.model?.contextWindow ?? null,
                 ...(cut.over ? {capacity: 'request_ceiling_exceeded'} : {})});
-            return {messages: outgoing as typeof event.messages};
+            return {messages: outgoing as typeof requestMessages};
         }
-        const messages = event.messages as unknown as Row[];
+        const messages = requestMessages as unknown as Row[];
         let seen = false;
         const view = structuredClone(snapshot.capsule);
         // The immutable full briefing already has these fields; retain the turn-specific craft selection.
@@ -369,45 +406,105 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         })
             // The workspace is transport-only: at most one current message, injected below for this
             // request. A persisted copy from anywhere is dropped here, not projected onward.
-            .filter(message => !(message.role === 'custom' && message.customType === WORKSPACE_TYPE));
+            .filter(message => !(message.role === 'custom' && [WORKSPACE_TYPE, PRESCREEN_TYPE].includes(message.customType)));
         if (!seen && !messages.some(message => message.role === 'custom' && message.customType === 'coc-capsule')) {
             // A new opening/recovery may have only a host prompt; this ephemeral capsule is not persisted.
             selected.push({...customMessage('coc-capsule', view), details: {coc_host: true, turn: snapshot.binding.turn, context: snapshot.binding}});
         }
-        let workspace = snapshot.workspaceMode === 'on' ? snapshot.workspace : undefined;
-        // The context event contains messages only. Optional evidence must also leave room for
-        // the actual system prompt, tool schemas and output reservation in the provider request.
-        if (workspace) {
-            try {
-                const baseline = projectedMessages({messages: selected, binding: snapshot.binding, history: snapshot.history,
-                    brief: briefForTurn(snapshot.brief, view), answering: snapshot.answering, budget});
-                const reserve = Math.min(16384, Math.floor((ctx.model?.contextWindow ?? 65536) / 4)) * BYTES_PER_TOKEN;
-                const totalLimit = Math.min(ceiling, (ctx.model?.contextWindow ?? Infinity) * BYTES_PER_TOKEN - reserve);
-                if (sizeOf(baseline.messages) + sizeOf(workspace) + systemBytes > totalLimit) workspace = undefined;
-            } catch {workspace = undefined;}
+        let workspace=snapshot.workspaceMode==='on'?snapshot.workspace:undefined,prescreen:Row|undefined;
+        let messageBudget=budget,baseline=projectedMessages({messages:selected,binding:snapshot.binding,history:snapshot.history,
+            brief:briefForTurn(snapshot.brief,view),answering:snapshot.answering,budget,workspace});
+        // Compute the actual baseline only after system/tool/output reserves are known. Material
+        // missing from this projection is not "already supplied" to the Keeper.
+        try {
+            const reserve=Math.min(16384,Math.floor((ctx.model?.contextWindow??65536)/4))*BYTES_PER_TOKEN;
+            const totalLimit=Math.min(ceiling,(ctx.model?.contextWindow??Infinity)*BYTES_PER_TOKEN-reserve);
+            messageBudget=Math.max(0,Math.min(budget,totalLimit-systemBytes));
+            baseline=projectedMessages({messages:selected,binding:snapshot.binding,history:snapshot.history,
+                brief:briefForTurn(snapshot.brief,view),answering:snapshot.answering,budget:messageBudget,workspace});
+            if(!baseline.workspaceKept)workspace=undefined;
+        } catch {
+            workspace=undefined;
+            baseline=projectedMessages({messages:selected,binding:snapshot.binding,history:snapshot.history,
+                brief:briefForTurn(snapshot.brief,view),answering:snapshot.answering,budget:messageBudget});
         }
-        let result = projectedMessages({messages: selected, binding: snapshot.binding, history: snapshot.history,
-            brief: briefForTurn(snapshot.brief, view), answering: snapshot.answering, budget, workspace});
+        const supplementBudget=Math.max(0,messageBudget-requestSize(baseline.messages));
+        const preparationSignal=optionalWork.signal,preparationCall=call,preparationCampaign=campaign;
+        const port=decision();
+        if(prescreenEnabled()&&supplementBudget>=512&&port&&preparationCall&&preparationCampaign&&inputEpoch&&!prescreenDeadlineAt){
+            const parent=foregroundBudget?.();prescreenDeadlineAt=Math.min(Date.now()+6000,parent?.deadlineAt??Infinity);
+            sharedBudget=preparationBudget({decision:port,campaign:preparationCampaign,deadlineAt:prescreenDeadlineAt,signal:inputLifetime.signal,parent});
+            record({lane:'prescreen',owner:'keeper-preparation',event:'allowance_started',allowance_ms:6000});
+        }
+
+        if(prescreenEnabled()&&supplementBudget>=512&&preparationCall&&preparationCampaign&&inputEpoch){
+            if(!prescreenDeadlineAt){prescreenDeadlineAt=Date.now()+6000;record({lane:'prescreen',event:'allowance_started',allowance_ms:6000});}
+            const memoKey=fingerprint([generation,snapshot.key,baseline.messages,supplementBudget]);
+            const query=String(object(snapshot.capsule.turn).player_text??'');
+            try{prescreen=await reusePrescreen({call:preparationCall,campaign:preparationCampaign,binding:snapshot.binding,query,
+                    message:prescreenMemo?.key===memoKey?prescreenMemo.message:reusablePrescreen,
+                    suppliedMessages:baseline.messages,byteBudget:supplementBudget,signal:preparationSignal,
+                    ...(sourceRuntime&&moduleId?{source:{moduleId,runtime:sourceRuntime}}:{})});}catch{prescreen=undefined;}
+            const reused=prescreen,needsReassessment=object(object(reused?.details).prescreen).needs_reassessment===true;
+            if(!prescreen||needsReassessment&&prescreenProviderBudget.actions>0&&Date.now()<prescreenDeadlineAt){
+                let refreshOutcome='unknown';
+                if(preparationSignal.aborted||ticket!==generation)return {messages:baseline.messages as typeof requestMessages};
+                const refreshed=await preparePrescreen({call:preparationCall,campaign:preparationCampaign,binding:snapshot.binding,capsule:snapshot.capsule,
+                    signal:preparationSignal,record:event=>{record(event);if(event.event==='prepared')refreshOutcome='prepared';
+                        else if(event.event==='fallback')refreshOutcome='fallback';else if(event.event==='skipped')refreshOutcome=String(event.reason??'skipped');},
+                    suppliedMessages:baseline.messages,byteBudget:supplementBudget,
+                    deadlineAt:prescreenDeadlineAt,decision:sharedBudget?.decision,names:[...evidenceNames],rules:[...ruleNames],
+                    providerBudget:prescreenProviderBudget,...(sourceRuntime&&moduleId?{source:{moduleId,runtime:sourceRuntime}}:{})});
+                prescreen=refreshed??(needsReassessment&&['prepared','empty_catalog'].includes(refreshOutcome)?undefined:reused);
+            }
+            if(ticket!==generation||preparationSignal.aborted)return {messages:baseline.messages as typeof requestMessages};
+            prescreenMemo={key:memoKey,message:prescreen};
+            if(prescreen)reusablePrescreen=prescreen;
+        }
+        if(ticket!==generation||preparationSignal.aborted)return {messages:baseline.messages as typeof requestMessages};
+        let result=prescreen?projectedMessages({messages:selected,binding:snapshot.binding,history:snapshot.history,
+            brief:briefForTurn(snapshot.brief,view),answering:snapshot.answering,budget:messageBudget,workspace,prescreen}):baseline;
         const window = ctx.model?.contextWindow, available = typeof window === 'number' ? window - Math.min(16384, Math.floor(window / 4)) : Infinity;
-        const reason = result.degraded ?? (Math.ceil((sizeOf(result.messages) + systemBytes) / BYTES_PER_TOKEN) > available ? 'request_window_estimate' : undefined);
+        const reason = result.degraded ?? (Math.ceil((requestSize(result.messages) + systemBytes) / BYTES_PER_TOKEN) > available ? 'request_window_estimate' : undefined);
         // Reserve a diagnostic only when one is needed. An optional workspace must not be
         // displaced by a hypothetical notice on an otherwise healthy, within-budget request.
-        if (reason) result = projectedMessages({messages: selected, binding: snapshot.binding, history: snapshot.history,
-            brief: briefForTurn(snapshot.brief, view), answering: snapshot.answering,
-            budget: Math.max(0, budget - sizeOf([diagnostic(reason)])), workspace});
+        if (reason) result = projectedMessages({messages:selected,binding:snapshot.binding,history:snapshot.history,
+            brief:briefForTurn(snapshot.brief,view),answering:snapshot.answering,
+            budget:Math.max(0,messageBudget-requestSize([diagnostic(reason)])),workspace,prescreen});
         const outgoing = reason ? [diagnostic(reason), ...result.messages.filter(message => !(message.role === 'custom' && message.customType === DIAGNOSTIC_TYPE))] : result.messages;
-        const bytes = sizeOf(outgoing) + systemBytes, estimatedTokens = Math.ceil(bytes / BYTES_PER_TOKEN);
-        record({lane: 'context', event: 'request', version: POLICY_VERSION, turn: snapshot.binding.turn,
+        const bytes = requestSize(outgoing) + systemBytes, estimatedTokens = Math.ceil(bytes / BYTES_PER_TOKEN);
+        const requestId=`prescreen:${snapshot.binding.turn}:${++providerSequence}`;
+        pendingProvider=prescreen?{requestId,prepared:prescreen,outgoingDigest:fingerprint(outgoing)}:undefined;
+        record({lane: 'context', event: 'request', version: POLICY_VERSION, turn: snapshot.binding.turn,request_id:requestId,
             history_bytes: sizeOf(snapshot.history), protected_bytes: result.protectedBytes, unknown_bytes: result.unknownBytes,
             request_bytes: bytes, system_bytes: systemBytes, local_token_estimate: estimatedTokens, context_window: window ?? null, ceiling_bytes: ceiling,
-            ...(result.workspaceKept && workspace ? {workspace_bytes: sizeOf(workspace)} : {}),
+            ...(result.prescreenKept && prescreen ? {prescreen_bytes: requestSize([prescreen]), prescreen_injected: true} : {}),
+            ...(result.workspaceKept && workspace ? {workspace_bytes: requestSize([workspace])} : {}),
             ...(result.workspaceKept && workspace ? {workspace_evidence_injected: JSON.parse(String(workspace.content)).evidence.length} : {}),
             ...(result.droppedTail ? {dropped_tail: result.droppedTail} : {}),
             ...(result.droppedUnknown ? {dropped_unknown: result.droppedUnknown} : {}),
             ...(result.degraded ? {reason: result.degraded} : {}),
             ...(result.overCeiling ? {capacity: 'request_ceiling_exceeded'}
                 : estimatedTokens > available ? {capacity: 'request_window_estimate'} : {})});
-        return {messages: outgoing as typeof event.messages};
+        return {messages: outgoing as typeof requestMessages};
+    });
+    // Public Pi seam after provider conversion. Observe only whether the exact prepared packet
+    // survived serialization; never record headers, secrets or the private payload.
+    pi.on('before_provider_request', event => {
+        const pending=pendingProvider;pendingProvider=undefined;if(!pending)return;
+        if(!pending.prepared)return;
+        const prepared=object(pending.prepared),meta=object(object(prepared.details).prescreen);
+        if(!prepared.content){record({lane:'prescreen',event:'delivered',request_id:pending.requestId,delivered:false,reason:'not_prepared'});return;}
+        let retained=false;
+        try{retained=payloadContains((event as unknown as Row).payload,String(prepared.content));}catch{/* Unserializable payload is unconfirmed. */}
+        let content:Row={};try{content=object(JSON.parse(String(prepared.content)));}catch{/* malformed prepared content is unconfirmed */}
+        const materials=Array.isArray(content.materials)?content.materials:[],keys=Array.isArray(meta.material_keys)?meta.material_keys:[];
+        const retainedMaterials=retained?materials.map((material:Row,index:number)=>({key:keys[index]??`material:${index}`,
+            digest:fingerprint(material.content??null),bytes:sizeOf(material.content??null),coverage:structuredClone(object(material.coverage))})):[];
+        const omitted=retained?[]:keys.map((key:string)=>({key,reason:'provider_payload_mismatch'}));
+        record({lane:'prescreen',event:'delivered',request_id:pending.requestId,prepared_digest:meta.prepared_digest??null,
+            outgoing_digest:pending.outgoingDigest,delivered:retained,retained:retainedMaterials,omitted,
+            coverage:structuredClone(object(content.coverage)),...(retained?{bytes:requestSize([prepared])}:{reason:'provider_payload_mismatch'})});
     });
 
     pi.on('session_before_compact', async event => {

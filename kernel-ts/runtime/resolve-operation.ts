@@ -10,7 +10,7 @@ import {taskWorldRevision} from '../read/context.js';
 import {RuleTables} from '../rules/tables.js';
 import {SkillResolver} from '../rules/skills.js';
 import {RuleGraph} from '../rules/graph.js';
-import {array, row, string, type Row} from '../read/values.js';
+import {array, row, string, number, type Row} from '../read/values.js';
 
 export function ordinaryResolveHandlers(context: KernelContext): HandlerGroup {
     return {'table.resolve.options': async params => {
@@ -35,7 +35,9 @@ export function ordinaryResolveHandlers(context: KernelContext): HandlerGroup {
             description: node.name ?? null, capability: rules.capabilityOf(node.node_id)}));
         return {version: 1, profiles, decisions, revision: jsonDigest({profiles, graph: rules.graphGeneration}),
             world_revision: taskWorldRevision(campaign.world, campaign.party, campaign.turn.receipts, campaign.turn.pending_choice),
-            context: {scene: module.graph.displayName(module.graph.scene(campaign.world.active_scene)),
+            context: {_binding:{campaign:campaign.id,worldline:string(campaign.meta.active_worldline||'main'),
+                    loop:number(row(row(campaign.meta.worldlines)[string(campaign.meta.active_worldline||'main')]).loop),turn:campaign.turn.turn},
+                scene: module.graph.displayName(module.graph.scene(campaign.world.active_scene)),
                 pending_choice: sessions.pendingChoice() || campaign.turn.pending_choice || null,
                 session: sessions.activeSession(), conditions: campaign.party.map(sheet => ({actor: sheet.name, conditions: array(sheet.conditions)})),
                 current_receipts: array(campaign.turn.receipts).map(receipt => ({kind: receipt.kind, actor: receipt.actor_label ?? null,

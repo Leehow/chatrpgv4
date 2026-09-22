@@ -1,13 +1,15 @@
 /** A reusable library publication seeds one independently writable campaign source. */
 import { constants } from 'node:fs';
-import { copyFile, mkdir, rename, rm } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, rename, rm } from 'node:fs/promises';
 import { dirname, join, relative } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { KernelContext } from '../context.js';
 import { RpcError } from '../errors.js';
-import { writeJsonAtomic } from '../fileio.js';
+import { sha256File, writeJsonAtomic } from '../fileio.js';
+import { jsonDigest, parsePythonJson } from '../json.js';
 import { withOptionalExclusiveLock } from '../locks.js';
-import { array, clone, repr, row } from '../read/values.js';
+import { array, clone, normalize, number, repr, row, type Row } from '../read/values.js';
+import { SOURCE_ANSWER_PROTOCOL, checkSourceAnswer, sourceAnswerResult } from './source-answer.js';
 import { ModuleStore, validateModuleId } from './store.js';
 import { childPath, inside, resolvedPath } from './paths.js';
 
@@ -122,10 +124,51 @@ export async function ensureCampaignModule(context: KernelContext, campaign: str
                 // Accepted guidance is keyed by source/scene/language, not by a running reader lease.
                 for (const key of Object.keys(row(meta.character_guidance)))
                     await copy(join('character-guidance', key, 'accepted.json'));
+                const acceptedAnswers: Row = {}, answerQueue = await library.queue(id);
+                let invalidAnswers = 0;
+                for (const cacheKey of Object.keys(row(row(meta.reading).answers)).sort()) {
+                    const accepted = row(row(row(meta.reading).answers)[cacheKey]);
+                    let focus: string, question: string, draftPath: string, reviewPath: string, answerDraft: Row;
+                    try {
+                        if (accepted.protocol !== SOURCE_ANSWER_PROTOCOL || accepted.source_sha256 !== row(meta.source_document).file_sha256
+                            || accepted.context_generation !== (meta.generation ?? 0) || typeof accepted.draft !== 'string' || typeof accepted.review !== 'string'
+                            || typeof accepted.draft_sha256 !== 'string' || typeof accepted.review_sha256 !== 'string') throw new Error('answer binding');
+                        focus = typeof accepted.focus === 'string' && accepted.focus.trim() ? accepted.focus : '';
+                        question = typeof accepted.question === 'string' && accepted.question.trim() ? accepted.question : '';
+                        if (!focus || !question) {
+                            const historical = answerQueue.filter(job => job.key === cacheKey && job.purpose === 'answer' && job.state === 'completed');
+                            if (historical.length !== 1 || typeof historical[0].focus !== 'string' || !historical[0].focus.trim()
+                                || typeof historical[0].question !== 'string' || !historical[0].question.trim()) throw new Error('answer attribution');
+                            focus = historical[0].focus; question = historical[0].question;
+                        }
+                        const expectedKey = jsonDigest([row(meta.source_document).file_sha256, 'answer', '', normalize(focus), question, [],
+                            SOURCE_ANSWER_PROTOCOL, meta.generation ?? 0]);
+                        if (expectedKey !== cacheKey) throw new Error('answer identity');
+                        draftPath = childPath(source, accepted.draft); reviewPath = childPath(source, accepted.review);
+                        if (!inside(await resolvedPath(source), await resolvedPath(draftPath)) || !inside(await resolvedPath(source), await resolvedPath(reviewPath))
+                            || !await context.snapshots.isFile(draftPath) || !await context.snapshots.isFile(reviewPath)
+                            || await sha256File(draftPath) !== accepted.draft_sha256 || await sha256File(reviewPath) !== accepted.review_sha256)
+                            throw new Error('answer integrity');
+                        answerDraft = checkSourceAnswer(row(parsePythonJson(new TextDecoder('utf-8', {fatal:true,ignoreBOM:true}).decode(await readFile(draftPath)))),
+                            {source:{page_count:number(row(meta.source_document).page_count)}});
+                    } catch { invalidAnswers++; continue; }
+                    const targetRoot=join('source-answers',cacheKey),targetDraft=join(targetRoot,'draft.json'),targetReview=join(targetRoot,'review.json');
+                    const copyExact=async(from:string,to:string,expected:string)=>{
+                        const destination=childPath(temporary,to);await mkdir(dirname(destination),{recursive:true});
+                        await copyFile(from,destination,constants.COPYFILE_FICLONE);
+                        if(await sha256File(destination)!==expected)throw new RpcError('campaign_not_ready','A copied accepted source answer changed during campaign seed',
+                            {details:{reason:'source_answer_copy_integrity'}});
+                    };
+                    await copyExact(draftPath,targetDraft,accepted.draft_sha256);await copyExact(reviewPath,targetReview,accepted.review_sha256);
+                    acceptedAnswers[cacheKey]={protocol:SOURCE_ANSWER_PROTOCOL,source_sha256:accepted.source_sha256,
+                        context_generation:accepted.context_generation,focus,question,draft:targetDraft,review:targetReview,
+                        draft_sha256:accepted.draft_sha256,review_sha256:accepted.review_sha256,result:sourceAnswerResult(answerDraft,id)};
+                }
                 const privateMeta = clone(meta);
                 if (privateMeta.reading) {
                     privateMeta.reading.completed = {};
-                    privateMeta.reading.answers = {};
+                    privateMeta.reading.answers = acceptedAnswers;
+                    privateMeta.reading.answer_seed = {copied:Object.keys(acceptedAnswers).length,invalid:invalidAnswers};
                 }
                 // A missing index may not keep claiming a complete one: the campaign could not
                 // resolve its sections, and only a real index publication can say otherwise.

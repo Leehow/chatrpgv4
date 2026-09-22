@@ -1,5 +1,5 @@
 /** One deterministic policy for request-local history and persisted COC folds. */
-import {buildSessionProjection, type SessionEntry} from '@earendil-works/pi-coding-agent';
+import {buildSessionProjection, convertToLlm, type SessionEntry} from '@earendil-works/pi-coding-agent';
 export const HISTORY_BYTES = 32 * 1024;
 export const HISTORY_METADATA_BYTES = 4096;
 /**
@@ -18,6 +18,7 @@ export const BRIEF_TYPE = 'coc-context-brief';
 export const DIAGNOSTIC_TYPE = 'coc-context-status';
 /** Transport-only KIC workspace (contract §19.2): injected per request, never persisted. */
 export const WORKSPACE_TYPE = 'coc-workspace';
+export const PRESCREEN_TYPE = 'coc-prescreen';
 export const POLICY_VERSION = 2;
 export type Row = Record<string, any>;
 export interface ContextBinding {
@@ -39,6 +40,11 @@ export interface Quote {
     verified: boolean;
 }
 export const sizeOf = (value: unknown): number => Buffer.byteLength(JSON.stringify(value), 'utf8');
+/** Estimate model messages through the public Pi projection, excluding private tool metadata. */
+export function requestSize(messages:readonly Row[]):number {
+    const projected=convertToLlm(messages as unknown as Parameters<typeof convertToLlm>[0]);
+    return sizeOf(projected.map(message=>{const {details: _private,...visible}=message as unknown as Row;return visible;}));
+}
 /** Read on each call. A positive integer of bytes; anything else falls back to the default. */
 export function requestBudget(contextWindow?: number | null): number {
     const raw = process.env.PI_COC_REQUEST_BYTES?.trim();
@@ -178,7 +184,7 @@ function closedNoise(message: Row): boolean {
     if (message.role !== 'custom') return false;
     // A coc-workspace from an older binding is regenerated for the current request or omitted;
     // keeping one would let stale evidence ride every later turn as unclassified material.
-    if (['coc-capsule', HISTORY_TYPE, BRIEF_TYPE, DIAGNOSTIC_TYPE, WORKSPACE_TYPE].includes(message.customType)) return true;
+    if (['coc-capsule', HISTORY_TYPE, BRIEF_TYPE, DIAGNOSTIC_TYPE, WORKSPACE_TYPE, PRESCREEN_TYPE].includes(message.customType)) return true;
     const details = object(message.details);
     if (message.customType === 'coc-delivery' && details.coc_delivery === true && Number.isSafeInteger(details.turn)) return true;
     return message.customType === 'coc-host' && (details.kind === 'compacted'
@@ -187,7 +193,7 @@ function closedNoise(message: Row): boolean {
 }
 export interface Projection {
     messages: Row[]; start: number; protectedBytes: number; unknownBytes: number;
-    degraded?: string; droppedTail?: number; droppedUnknown?: number; overCeiling?: boolean; workspaceKept?: boolean;
+    degraded?: string; droppedTail?: number; droppedUnknown?: number; overCeiling?: boolean; workspaceKept?: boolean; prescreenKept?: boolean;
 }
 /**
  * The one request projection, and the one place the ceiling is enforced. Every exit fits
@@ -196,12 +202,12 @@ export interface Projection {
  */
 export function projectedMessages(input: {
     messages: Row[]; binding: ContextBinding; history: Row; brief?: Row; answering?: string[]; budget?: number;
-    workspace?: Row;
+    workspace?: Row; prescreen?: Row;
 }): Projection {
     const {messages, binding} = input, budget = input.budget ?? requestBudget();
     const fallback = (degraded: string): Projection => {
         const cut = boundedTail(messages, budget);
-        return {messages: cut.messages, start: -1, protectedBytes: sizeOf(cut.messages), unknownBytes: 0,
+        return {messages: cut.messages, start: -1, protectedBytes: requestSize(cut.messages), unknownBytes: 0,
             degraded, ...(cut.dropped ? {droppedTail: cut.dropped} : {}), ...(cut.over ? {overCeiling: true} : {})};
     };
     let start = currentStart(messages, binding);
@@ -221,24 +227,30 @@ export function projectedMessages(input: {
     // Retained pre-boundary material is unclassified, not authoritative: the ceiling takes it first.
     let droppedUnknown = 0;
     const fixed = (extra: Row[]): Row[] => [...unknown, ...brief, history, ...opening, ...extra];
-    const room = (extra: Row[]): number => Math.max(0, budget - sizeOf(fixed(extra)));
-    while (unknown.length && sizeOf(unknown) > Math.min(UNCLASSIFIED_BYTES, budget)) {unknown = unknown.slice(1); droppedUnknown++;}
+    const room = (extra: Row[]): number => Math.max(0, budget - requestSize(fixed(extra)));
+    while (unknown.length && requestSize(unknown) > Math.min(UNCLASSIFIED_BYTES, budget)) {unknown = unknown.slice(1); droppedUnknown++;}
     let cut = boundedTail(working, room([]));
     // The optional workspace joins only when it displaces no current material: if this turn's own
     // traffic is already being cut, or would have to be cut to fit it, the workspace is omitted.
     // Current capsule, the player's words, pending context, tool pairing and the ceiling all
     // precede it (contract §19.2); a missing workspace is a miss, never a degraded request.
-    const optional = input.workspace ? [input.workspace] : [];
-    let workspaceKept = false;
-    if (optional.length && !cut.over && !cut.dropped) {
-        const widened = boundedTail(working, room(optional));
-        if (!widened.over && !widened.dropped) {cut = widened; workspaceKept = true;}
+    const optional: Row[] = [];
+    let workspaceKept = false, prescreenKept = false;
+    // Preselection may have excluded bodies supplied by the workspace. Reserve that dependency
+    // first, so adding the supplement never removes evidence the ordinary request would retain.
+    for (const [kind, message] of [['workspace', input.workspace], ['prescreen', input.prescreen]] as const) {
+        if (!message || cut.over || cut.dropped) continue;
+        const widened = boundedTail(working, room([...optional, message]));
+        if (!widened.over && !widened.dropped) {
+            cut = widened; optional.push(message);
+            if (kind === 'prescreen') prescreenKept = true; else workspaceKept = true;
+        }
     }
-    while (unknown.length && cut.over) {unknown = unknown.slice(1); droppedUnknown++; cut = boundedTail(working, room(workspaceKept ? optional : []));}
-    const projected = [...fixed(workspaceKept ? optional : []), ...cut.messages];
-    const over = cut.over || sizeOf(projected) > budget;
-    return {messages: projected, start, ...(workspaceKept ? {workspaceKept} : {}),
-        protectedBytes: sizeOf(opening) + sizeOf(cut.messages) + (brief.length ? sizeOf(brief) : 0), unknownBytes: unknown.length ? sizeOf(unknown) : 0,
+    while (unknown.length && cut.over) {unknown = unknown.slice(1); droppedUnknown++; cut = boundedTail(working, room(optional));}
+    const projected = [...fixed(optional), ...cut.messages];
+    const over = cut.over || requestSize(projected) > budget;
+    return {messages: projected, start, ...(workspaceKept ? {workspaceKept} : {}), ...(prescreenKept ? {prescreenKept} : {}),
+        protectedBytes: requestSize(opening) + requestSize(cut.messages) + (brief.length ? requestSize(brief) : 0), unknownBytes: unknown.length ? requestSize(unknown) : 0,
         ...(cut.dropped ? {droppedTail: cut.dropped} : {}), ...(droppedUnknown ? {droppedUnknown} : {}),
         ...(over ? {overCeiling: true} : {}),
         ...(unknown.length ? {degraded: 'unclassified_messages_retained'}
@@ -269,7 +281,7 @@ export function safeCutPoints(messages: Row[]): boolean[] {
 export function boundedTail(messages: Row[], budget: number): {messages: Row[]; dropped: number; over: boolean} {
     const safe = safeCutPoints(messages);
     for (let cut = 0; cut <= messages.length; cut++)
-        if (safe[cut] && sizeOf(messages.slice(cut)) <= budget) return {messages: messages.slice(cut), dropped: cut, over: false};
+        if (safe[cut] && requestSize(messages.slice(cut)) <= budget) return {messages: messages.slice(cut), dropped: cut, over: false};
     // Only reachable when the budget cannot hold even an empty list; say so instead of pretending.
     return {messages: [], dropped: messages.length, over: true};
 }

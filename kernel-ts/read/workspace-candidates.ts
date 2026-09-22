@@ -1,7 +1,8 @@
 /** Static source projections and bounded retrieval; no world mutation or semantic inference. */
-import {jsonDigest} from '../json.js';
+import {jsonDigest, pythonJsonDumps} from '../json.js';
 import {ModuleGraph, recordOf} from './module-graph.js';
 import {array, row, string, type Row} from './values.js';
+import {boundedMaterialBody, completeMaterialBody, materialKey, semanticGraphValue, sourceRefsOf} from './prescreen-materials.js';
 
 export const WORKSPACE_ADAPTER = 'static-evidence-v2';
 const SOURCE_FIELDS = ['prose', 'description', 'summary', 'agenda', 'fear', 'secret', 'voice',
@@ -106,8 +107,56 @@ export function sourceReference(graph: ModuleGraph, node: Row, scope: Row, revis
     }
     return {locator, kind, scope, source_revision: revision, audience: 'keeper_only', adapter: WORKSPACE_ADAPTER,
         identity: jsonDigest({revision, locator}), authority: node.campaign_origin ? 'campaign_adaptation' : 'module_source',
-        body: ready ? projected.body : undefined, text: ready ? projected.body : '',
+        ...(ready ? {body: projected.body} : {}), text: ready ? projected.body : '',
         coverage: ready ? projected.coverage : 'unavailable',
         scene_refs: [...sceneRefs].slice(0, 16), entity_refs: [graph.handle(node)],
         thread_refs: [...new Set([...threadRefs, ...array(row(node.properties).thread_refs).filter(value => typeof value === 'string')])].slice(0, 16)};
+}
+
+/** A v2 graph candidate carries structured authored material with semantic handles, never raw node ids. */
+export function graphMaterialCandidate(graph: ModuleGraph, node: Row, scope: Row, revision: string, ready: boolean): Row {
+    const handle = graph.handle(node), locator = `${string(node.node_kind || 'module')}:${handle}`;
+    const names = new Map([...graph.nodes.values()].map(value => [string(value.node_id), graph.handle(value)]));
+    const read = {tool: 'lookup', kind: 'module', query: handle};
+    const raw = JSON.parse(pythonJsonDumps({entity: graph.entityView(node), authored: recordOf(node), relations: graph.relationsOf(node)}));
+    const projected = semanticGraphValue(raw, names);
+    const material = ready ? boundedMaterialBody(projected, read) : {coverage: {status: 'unavailable', omitted: ['material_not_ready']}, read};
+    return {key: materialKey('graph', {revision, locator}), kind: 'graph_entity', label: graph.displayName(node),
+        summary: string(node.summary || node.name || handle), authority: node.campaign_origin ? 'campaign_adaptation' : 'module_source',
+        locator, scope, source_revision: revision, ...material, refs: sourceRefsOf(node)};
+}
+
+const GRAPH_UNIT_BYTES = 4096;
+function unitGroups(entries:readonly [string,unknown][],stub:Row,key:string):Array<{name:string;value:Row}> {
+    const groups:Array<{name:string;value:Row}>=[];let fields:Row={},names:string[]=[];
+    const flush=()=>{if(names.length){groups.push({name:names.join(','),value:{entity:stub,[key]:fields}});fields={};names=[];}};
+    for(const [name,value] of entries){const next={...fields,[name]:value};
+        if(names.length&&Buffer.byteLength(pythonJsonDumps({entity:stub,[key]:next}),'utf8')>GRAPH_UNIT_BYTES)flush();
+        fields[name]=value;names.push(name);
+        if(Buffer.byteLength(pythonJsonDumps({entity:stub,[key]:fields}),'utf8')>GRAPH_UNIT_BYTES)flush();
+    }
+    flush();return groups;
+}
+
+/** Complete source-owned graph units, interleaved by the caller across entities before later units of one large entity. */
+export function graphMaterialCandidates(graph:ModuleGraph,node:Row,scope:Row,revision:string,ready:boolean):Row[] {
+    const handle=graph.handle(node),kind=string(node.node_kind||'module'),locator=`${kind}:${handle}`,label=graph.displayName(node),
+        read={tool:'lookup',kind:'module',query:handle},refs=sourceRefsOf(node),stub={name:handle,display_name:label,kind,
+            summary:string(node.summary??''),visibility:string(node.visibility??'keeper-only')},coreKey=materialKey('graph-unit',{revision,locator,unit:'identity'});
+    if(!ready)return[{key:coreKey,kind:'graph_entity',label,summary:string(node.summary||node.name||handle),authority:node.campaign_origin?'campaign_adaptation':'module_source',
+        locator,scope,source_revision:revision,coverage:{status:'unavailable',projection:'graph_source_unit',unit:{kind:'identity'},entity_complete:false,
+            omitted:['material_not_ready']},read,refs}];
+    const common={kind:'graph_entity',summary:string(node.summary||node.name||handle),authority:node.campaign_origin?'campaign_adaptation':'module_source',
+        locator,scope,source_revision:revision,read,refs},result:Row[]=[];
+    const add=(unit:string,unitLabel:string,value:Row,dependencies:string[]=[])=>{const key=materialKey('graph-unit',{revision,locator,unit});
+        result.push({...common,key,label:unitLabel,...completeMaterialBody(value,read,{projection:'graph_source_unit',unit:{kind:unit},entity_complete:false,
+            required_context:dependencies.length?dependencies:[],dependencies},GRAPH_UNIT_BYTES)});};
+    add('identity',label,{entity:stub});
+    const names=new Map([...graph.nodes.values()].map(value=>[string(value.node_id),graph.handle(value)])),authored=row(semanticGraphValue(recordOf(node),names));
+    for(const [index,group] of unitGroups(Object.entries(authored).sort(([left],[right])=>left.localeCompare(right)),stub,'authored').entries())
+        add(`authored:${index}`,`${label} — ${group.name}`,group.value,[coreKey]);
+    const relations=array(semanticGraphValue(graph.relationsOf(node),names));
+    for(const [index,group] of unitGroups(relations.map((value,ordinal)=>[String(ordinal),value]),stub,'relations').entries())
+        add(`relations:${index}`,`${label} — relationships ${index+1}`,group.value,[coreKey]);
+    return result;
 }

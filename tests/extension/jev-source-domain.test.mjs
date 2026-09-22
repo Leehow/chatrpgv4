@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -161,7 +162,11 @@ async function fixture(t, options = {}) {
 				signal.addEventListener("abort", abort, { once: true });
 				options.releaseText.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
 			});
-			return sourceRuntime.sourceText({ pdf, pages, expected_file_sha256: expected }, signal);
+			const bundle=await sourceRuntime.sourceText({ pdf, pages, expected_file_sha256: expected }, signal);
+			if(options.changeExtractionOnProof&&textCalls>1){const extraction_version=bundle.extraction_version+":changed";
+				return{...bundle,extraction_version,snapshots:bundle.snapshots.map(snapshot=>({...snapshot,revision:createHash("sha256")
+					.update(JSON.stringify([extraction_version,bundle.file_sha256,snapshot.page,snapshot.text_sha256])).digest("hex")}))};}
+			return bundle;
 		},
 		async visual(_module, question) {
 			visualCalls++;
@@ -202,7 +207,8 @@ test("root consultation completes through a child, actual extraction, independen
 	assert.equal(sourceAnswer.excerpts.length, 1);
 	assert.equal(first.result.refs.length, 1);
 	assert.equal(first.result.receipts.length, 0);
-	assert.deepEqual(first.result.coverage, { used: ["p1_0"], omitted: [], unknown: [] });
+	assert.deepEqual(first.result.coverage.used,["p1_0"]);assert.deepEqual(first.result.coverage.unknown,[]);
+	assert.deepEqual(first.result.coverage.omitted,[...Array.from({length:11},(_,index)=>`part:p${index+2}_0`)]);
 	assert.ok(table.decisions.filter(batch => batch.family === "source-consultation" && batch.questions.some(row => row.key.startsWith("p"))).length >= 2,
 		"the large source corpus is classified in independent bounded batches");
 	assert.ok(table.decisions.some(batch => batch.questions.some(row => row.key === "coverage")));
@@ -241,6 +247,12 @@ test("visual and unavailable review paths never acquire native proof or source r
 	assert.equal(result.record.observations[0].packet.result.source_answer.prepared, false);
 	assert.equal(JSON.stringify(result.record).includes("native_consultation"), false);
 	assert.equal(table.calls.some(row => row.method.includes("read") || row.method.includes("finish")), false);
+});
+
+test("source-owned proof refuses an extraction version changed after semantic approval",async t=>{
+	const table=await fixture(t,{changeExtractionOnProof:true}),result=await runRoot(table,"What hours does the clinic keep?");
+	assert.equal(result.result.status,"partial");assert.deepEqual(result.result.refs,[]);assert.equal(table.counts().text,2);
+	assert.equal(JSON.stringify(result.record).includes('"authority":"native_consultation"'),false);
 });
 
 test("bad source bindings fail stale and cancellation propagates across the parent-child task tree", async t => {

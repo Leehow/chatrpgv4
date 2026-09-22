@@ -23,6 +23,7 @@ import { COC_TOOLS, COC_TOOL_NAMES, type CocToolSpec, WRITE_TOOLS } from "./tool
 import type {TaskProviderBudget} from '../../runtime/jev/provider-budget.ts';
 import { createCanonicalOperationDispatcher } from './canonical-operation-dispatcher.ts';
 import { RecallPages } from "./recall-pages.ts";
+import {lookupKeeperSupport} from '../table/keeper-support-lookup.ts';
 import { workspaceSettingsOf } from '../table/workspace/projection.ts';
 import { bindWorkpadPatch, publishWorkpadPatch, takeWorkpadPatch, type WorkpadBinding } from '../table/workspace/workpad.ts';
 import { workpadStoreRoot } from '../table/workspace/workpad-store.ts';
@@ -2496,6 +2497,8 @@ export default function (pi: ExtensionAPI) {
 		// before the payload exists, so Mod hooks, admission and the kernel never see it. What
 		// survives here is a binding to the call-start snapshot or nothing; either way the delivery
 		// below is byte-identical and no model round is ever spent on a dropped draft.
+		// Read-ahead snapshot mode belongs to the host, never to a Keeper tool argument.
+		if (["look", "lookup", "recall"].includes(spec.name)) delete params._context_read;
 		const evaluateResponses=spec.name==='look'&&params.evaluate_responses===true;
 		if(evaluateResponses&&params.focus!=='npc')throw new KernelError({code:'invalid_params',message:'evaluate_responses requires focus npc'});
 		delete params.evaluate_responses;
@@ -2544,6 +2547,14 @@ export default function (pi: ExtensionAPI) {
 				details: {reason: 'continuity_review_unavailable', cause: state.reviewUnavailable}});
 			let sourceAnswer: Record<string, unknown> | undefined;
 			let memoryAnswer: Record<string, unknown> | undefined;
+			let supportAnswer: Record<string, unknown> | undefined;
+			if(spec.name==='lookup'&&params.kind==='support'){
+				if(Object.keys(params).some(key=>!['kind','query'].includes(key)))throw new KernelError({code:'invalid_params',message:'Support lookup accepts only kind and query'});
+				dispatcher.requireCapability(toolCallId,'lookup.support');
+				supportAnswer=await lookupKeeperSupport({campaign:state.campaign,query:params.query as string,
+					call:(method,args)=>state.kernel.call(method,args),signal,record:event=>{void record(event);},parent:providerBudget,
+					...(runtime&&readingModule?{source:{moduleId:readingModule,runtime}}:{})});
+			}
 			if (spec.name === 'recall' && params.query !== undefined) {
 				if (!memorySearch) throw new KernelError({code: 'needs', message: 'The typed memory query owner is unavailable',
 					fix: 'Omit query and use ordinary direct recall; all retained originals remain available.', details: {reason: 'memory_query_requires_host'}});
@@ -2596,7 +2607,8 @@ export default function (pi: ExtensionAPI) {
         }
       }
 			try {
-                if (memoryAnswer) result = memoryAnswer;
+                if (supportAnswer) result = supportAnswer;
+                else if (memoryAnswer) result = memoryAnswer;
                 else if (sourceAnswer) result = { source_answer: sourceAnswer };
                 else if (spec.name === 'lookup' && params.kind === 'adaptation') {
                     if (!runtime) throw new KernelError({code: 'needs', message: 'The adaptation runtime is unavailable'});

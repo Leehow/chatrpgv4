@@ -350,6 +350,72 @@ export class Reading {
             derived: true, record: draft, source_sha256: source.file_sha256,
         }};
     }
+    /** Host-only bounded catalogue of accepted source answers plus the bound original source. */
+    async materialSnapshot(params: Row): Promise<Row> {
+        if (Object.keys(params).some(key => !['campaign', 'module_id', 'answer_limit', 'answer_cursor'].includes(key)))
+            throw new RpcError('invalid_params', 'Source material snapshot accepts campaign, module_id, answer_limit and answer_cursor');
+        const mid = validateModuleId(params.module_id), limit = params.answer_limit ?? 16, cursor = params.answer_cursor ?? 0;
+        if (!Number.isSafeInteger(limit) || limit < 1 || limit > 64 || !Number.isSafeInteger(cursor) || cursor < 0)
+            throw new RpcError('invalid_params', 'answer_limit must be 1-64 and answer_cursor a nonnegative integer');
+        const meta = await this.store.module(mid), source = row(meta.source_document);
+        if (source.path !== 'source.pdf' || typeof source.file_sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(source.file_sha256)
+            || !Number.isSafeInteger(source.page_count) || source.page_count < 1)
+            throw new RpcError('needs', 'This module has no valid bound original PDF', {details: {reason: 'source_unavailable'}});
+        const snapshotRevision = jsonDigest({source, generation: meta.generation ?? 0, graph_digest: meta.graph_digest ?? null});
+        const queue = await this.store.queue(mid), accepted = row(row(meta.reading).answers), acceptedDigest = jsonDigest(accepted),
+            seedDigest = jsonDigest(row(row(meta.reading).answer_seed)),
+            answerJobs = (rows:Row[]) => rows.filter(job => job.purpose === 'answer').map(job => Object.fromEntries(
+                ['job_id', 'key', 'purpose', 'focus', 'question', 'state'].map(key => [key, job[key] ?? null]))),
+            queueDigest = jsonDigest(answerJobs(queue)), checked: Row[] = [], revisionRows: Row[] = [];
+        let invalid = number(row(meta.reading).answer_seed?.invalid);
+        for (const cacheKey of Object.keys(accepted).sort(compareUnicode)) {
+            const record = row(accepted[cacheKey]), base = {key: cacheKey, source_sha256: record.source_sha256 ?? null,
+                context_generation: record.context_generation ?? null, draft_sha256: record.draft_sha256 ?? null, review_sha256: record.review_sha256 ?? null};
+            let draftActual = 'unavailable', reviewActual = 'unavailable', resolvedFocus: string | null = null,
+                resolvedQuestion: string | null = null, valid = false;
+            try {
+                if (record.source_sha256 !== source.file_sha256 || !equal(record.context_generation, meta.generation ?? 0)
+                    || typeof record.draft !== 'string' || typeof record.review !== 'string'
+                    || typeof record.draft_sha256 !== 'string' || typeof record.review_sha256 !== 'string') throw new Error('invalid binding');
+                const draftPath = await this.contained(this.store.moduleDir(mid), join(this.store.moduleDir(mid), record.draft));
+                const reviewPath = await this.contained(this.store.moduleDir(mid), join(this.store.moduleDir(mid), record.review));
+                draftActual = await sha256File(draftPath); reviewActual = await sha256File(reviewPath);
+                if (draftActual !== record.draft_sha256 || reviewActual !== record.review_sha256) throw new Error('integrity');
+                let focus = typeof record.focus === 'string' && record.focus.trim() ? record.focus : undefined;
+                let question = typeof record.question === 'string' && record.question.trim() ? record.question : undefined;
+                if (!focus || !question) {
+                    const historical = queue.filter(job => job.key === cacheKey && job.purpose === 'answer' && job.state === 'completed');
+                    if (historical.length !== 1 || typeof historical[0].focus !== 'string' || !historical[0].focus.trim()
+                        || typeof historical[0].question !== 'string' || !historical[0].question.trim()) throw new Error('unattributed');
+                    focus = historical[0].focus; question = historical[0].question;
+                }
+                const expectedKey = jsonDigest([source.file_sha256, 'answer', '', normalize(focus), question, [], SOURCE_ANSWER_PROTOCOL, meta.generation ?? 0]);
+                if (expectedKey !== cacheKey) throw new Error('answer identity mismatch');
+                resolvedFocus = focus; resolvedQuestion = question;
+                const draft = checkSourceAnswer(row(parsePythonJson(new TextDecoder('utf-8', {fatal: true, ignoreBOM: true}).decode(await readFile(draftPath)))),
+                    {source: {page_count: source.page_count}});
+                const answer = sourceAnswerResult(draft, mid);
+                checked.push({key: cacheKey, focus, question, ...answer, evidence: {resource: `source-answer:${mid}:${cacheKey}`,
+                    revision: record.draft_sha256, accepted_revision: record.draft_sha256, derived: true, record: draft,
+                    source_sha256: source.file_sha256}});
+                valid = true;
+            } catch { invalid++; }
+            revisionRows.push({...base, draft_actual: draftActual, review_actual: reviewActual, valid,
+                focus: resolvedFocus, question: resolvedQuestion});
+        }
+        const current = await this.store.module(mid), currentSource = row(current.source_document), currentQueue = await this.store.queue(mid);
+        if (jsonDigest({source: currentSource, generation: current.generation ?? 0, graph_digest: current.graph_digest ?? null}) !== snapshotRevision
+            || jsonDigest(row(row(current.reading).answers)) !== acceptedDigest || jsonDigest(row(row(current.reading).answer_seed)) !== seedDigest
+            || jsonDigest(answerJobs(currentQueue)) !== queueDigest)
+            throw new RpcError('needs', 'Source changed during material snapshot', {details: {reason: 'source_context_changed'}});
+        const answerRevision = jsonDigest({source_sha256: source.file_sha256, generation: meta.generation ?? 0, seed_invalid: number(row(meta.reading).answer_seed?.invalid), answers: revisionRows});
+        const page = checked.slice(cursor, cursor + limit), next = cursor + page.length < checked.length ? cursor + page.length : null;
+        return {version: 1, module_id: mid, generation: meta.generation ?? 0,
+            revision: snapshotRevision,
+            pdf: join(this.store.moduleDir(mid), 'source.pdf'), file_sha256: source.file_sha256, page_count: source.page_count,
+            answers_revision: answerRevision, checked_answers: page, checked_answers_omitted: checked.length - page.length,
+            checked_answers_invalid: invalid, next};
+    }
     async request(params: Row, preparation?:OwnedSourcePreparation): Promise<Row> {
         const mid = validateModuleId(params.module_id), purpose = params.purpose;
         if (!PURPOSES.includes(purpose))
@@ -704,6 +770,7 @@ export class Reading {
                 const result = { state: 'ready', generation: meta.generation ?? 0, source_answer: sourceAnswerResult(answer, mid) };
                 meta.reading.answers ??= {};
                 meta.reading.answers[job.key] = { protocol: SOURCE_ANSWER_PROTOCOL, source_sha256: source.file_sha256, context_generation: meta.generation ?? 0,
+                    focus: job.focus, question: job.question,
                     draft: relative(this.store.moduleDir(mid), draftPath), review: relative(this.store.moduleDir(mid), reviewPath),
                     draft_sha256: draftDigest, review_sha256: await sha256File(reviewPath), result: result.source_answer };
                 meta.reading.completed ??= {};

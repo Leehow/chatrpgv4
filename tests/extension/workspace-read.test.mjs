@@ -14,6 +14,9 @@ export {createKernelContext} from './kernel-ts/context.ts';
 export {nativeAdvisoryLocks} from './kernel-ts/native-locks.ts';
 export {createKernelRuntime} from './kernel-ts/registry.ts';
 export {EvidenceStore, evidenceStoreRoot} from './kernel-ts/read/workspace-store.ts';
+export {sourceReference} from './kernel-ts/read/workspace-candidates.ts';
+export {ModuleGraph} from './kernel-ts/read/module-graph.ts';
+export {pythonJsonDumps} from './kernel-ts/json.ts';
 `, resolveDir: root, sourcefile: 'workspace-read-api.ts'}, outfile: join(temporary, 'api.mjs'),
   bundle: true, packages: 'external', platform: 'node', format: 'esm', target: 'node22', logLevel: 'silent'});
 const api = await import(pathToFileURL(join(temporary, 'api.mjs')).href);
@@ -74,6 +77,25 @@ test('workspace read returns one bound snapshot without changing formal campaign
   const changed = await table.call('table.workspace.read');
   assert.notEqual(changed.binding.stateStamp, first.binding.stateStamp, 'dynamic state invalidates independently of source identity');
   assert.equal(changed.binding.source_revision, first.binding.source_revision);
+});
+
+test('unprepared source references omit bodies and survive the strict RPC JSON encoder', () => {
+  const node = {node_id: 'npc-unprepared', node_kind: 'npc', name: 'Unprepared witness',
+    properties: {description: 'Source detail that is not prepared for reading.'}};
+  const graph = new api.ModuleGraph('fixture', {nodes: [node], relations: []}, 'fixture', {});
+  const scope = {campaign: 'fixture', worldline: 'main', loop: 0};
+  const unprepared = api.sourceReference(graph, node, scope, 'revision', 'scene', false);
+  const response = {candidates: {static: [unprepared]}, manifest: {version: 1, static: [unprepared]}};
+  assert.doesNotThrow(() => api.pythonJsonDumps({id: 'test', ok: true, result: response}));
+  assert.equal(Object.hasOwn(unprepared, 'body'), false, 'absent body must not become an undefined JSON value');
+  assert.equal(unprepared.text, '');
+  assert.equal(unprepared.coverage, 'unavailable');
+  assert.equal(unprepared.locator, 'npc:unprepared');
+  assert.deepEqual(unprepared.entity_refs, ['unprepared']);
+  const prepared = api.sourceReference(graph, node, scope, 'revision', 'scene', true);
+  assert.equal(prepared.coverage.status, 'complete');
+  assert.equal(typeof prepared.body, 'string');
+  assert.doesNotThrow(() => api.pythonJsonDumps(prepared));
 });
 
 test('committed narrate records reach the manifest and cannot be crowded out by statics', async t => {
@@ -143,6 +165,7 @@ test('stateStamp covers party state before any dynamic view binds to it', async 
 test('rules carry an independent version and an oversized dependency group is never a complete body', async t => {
   const table = await openTable(t);
   const snapshot = await table.call('table.workspace.read', {rules: ['rule:coc7:chase:barriers'], candidate_limit: 16});
+  assert.doesNotThrow(() => api.pythonJsonDumps({id: 'test', ok: true, result: snapshot}));
   assert.match(snapshot.binding.rules_revision, /^[a-f0-9]{64}$/);
   assert.notEqual(snapshot.binding.rules_revision, snapshot.binding.source_revision);
   assert.ok(snapshot.inspected <= 16);
@@ -155,7 +178,8 @@ test('rules carry an independent version and an oversized dependency group is ne
     assert.ok(Buffer.byteLength(rule.body, 'utf8') <= 8192);
   } else {
     assert.equal(rule.coverage.status, 'partial');
-    assert.equal(rule.body, undefined);
+    assert.equal(Object.hasOwn(rule, 'body'), false);
+    assert.deepEqual(rule.coverage.read, {kind: 'rule', query: 'rule:coc7:chase:barriers'});
     assert.ok(rule.coverage.omitted.includes('rule_dependency_group'));
   }
 });

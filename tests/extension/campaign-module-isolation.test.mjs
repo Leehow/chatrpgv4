@@ -150,6 +150,18 @@ test('two kernel processes isolate one source module per campaign in the same ho
     return call(owner, 'module.read.finish', campaign, { job_id: job.job_id, lease: job.lease, outcome: 'completed',
       draft_path: join(job.work_dir, 'draft.json'), review_path: join(job.work_dir, 'review.json'), assets });
   }
+  async function finishAnswer(owner, campaign, job, answer) {
+    const draftPath = join(job.work_dir, 'draft.json'), reviewPath = join(job.work_dir, 'review.json');
+    await save(draftPath, answer);
+    await save(reviewPath, { draft_sha256: sha(await readFile(draftPath)), checked: [{
+      paths: ['/status', '/answer', '/source_refs', '/limitations'], verdict: 'supported', source_refs: answer.source_refs,
+      reason: 'The original page supports the answer and limitation.',
+    }], missing: [] });
+    await save(join(job.work_dir, 'observations.json'), { file_sha256: job.source.file_sha256,
+      read_pages: [1], full_pages: [], review_pages: [1] });
+    return call(owner, 'module.read.finish', campaign, { job_id: job.job_id, lease: job.lease, outcome: 'completed',
+      draft_path: draftPath, review_path: reviewPath });
+  }
   async function claim(owner, campaign, params) {
     const requested = await call(owner, 'module.read.request', campaign, params);
     assert.equal(requested.state, 'queued');
@@ -169,6 +181,15 @@ test('two kernel processes isolate one source module per campaign in the same ho
   await finish(first, undefined, initial, shard([scene('Dock', true), scene('Tower', true), scene('Cellar'),
     { node_id: 'handout-receipt', node_kind: 'handout', name: 'Receipt', visibility: 'player-safe', source_refs: refs, properties: { image_sources: refs } }],
     ['scene-dock', 'scene-tower', 'handout-receipt'], [route('dock'), route('tower')]), [{ node_id: 'handout-receipt', path: image, sha256: sha(png) }]);
+  const acceptedAnswerJob = await claim(first, undefined, { purpose: 'answer', focus: 'Entrances', question: 'Where do both entrances lead?', foreground: true });
+  await finishAnswer(first, undefined, acceptedAnswerJob, { status: 'answered', answer: 'Both entrances lead to the Cellar.',
+    source_refs: refs, limitations: 'Only the cited route is established.' });
+  const seededLibraryMetaPath = join(store(), 'module.json'), seededLibraryMeta = JSON.parse(await readFile(seededLibraryMetaPath));
+  const seededAnswer = Object.values(seededLibraryMeta.reading.answers)[0];
+  Object.assign(seededAnswer, { lease: 'foreign-answer-lease', owner: 'foreign-reader', publication_receipt: { token: 'foreign-publication' } });
+  await save(seededLibraryMetaPath, seededLibraryMeta);
+  const libraryAnswers = await call(first, 'module.source.materials.snapshot', undefined, { answer_limit: 8 });
+  assert.equal(libraryAnswers.checked_answers.length, 1);
   // A table's prefetch is not enqueued into the shared library on this campaign's behalf.
   assert.deepEqual(await call(first, 'inspect.adjacent', A, { name: 'Dock' }), []);
   await assert.rejects(readdir(store(A)), { code: 'ENOENT' });
@@ -216,19 +237,43 @@ test('two kernel processes isolate one source module per campaign in the same ho
   assert.equal((await queue()).find(job => job.job_id === claimedShared.job_id).state, 'cancelled');
   await save(join(store(A), 'deepen-queue.json'), (await queue(A)).filter(job => job.key !== collision.key));
   assert.equal((await inspect(second, A)).sourceCampaign, A);
+  const copiedAnswer = await call(second, 'module.source.materials.snapshot', A, { answer_limit: 8 });
+  assert.equal(copiedAnswer.checked_answers.length, 1);assert.equal(copiedAnswer.checked_answers[0].answer, 'Both entrances lead to the Cellar.');
+  assert.equal((await queue(A)).some(job => job.purpose === 'answer'), false, 'accepted evidence copies without answer jobs or leases');
+  const privateMetaA = (await inspect(second, A)).meta, privateAccepted = Object.values(privateMetaA.reading.answers)[0];
+  assert.deepEqual(privateMetaA.reading.completed, {}, 'publication completion receipts never seed a campaign');
+  assert.equal(Object.hasOwn(privateAccepted, 'lease')||Object.hasOwn(privateAccepted, 'owner')||Object.hasOwn(privateAccepted, 'publication_receipt'),false,
+    'only accepted answer evidence fields cross the campaign boundary');
   rootBytes = await treeDigest(store());
 
-  const [dock, tower] = await Promise.all([call(first, 'module.opening.choose', A, { scene: 'Dock' }), call(second, 'module.opening.choose', B, { scene: 'Tower' })]);
+  const libraryMetaPath = join(store(), 'module.json'), libraryMetaBytes = await readFile(libraryMetaPath);
+  const libraryMeta = JSON.parse(libraryMetaBytes), answerKey = Object.keys(libraryMeta.reading.answers)[0], accepted = libraryMeta.reading.answers[answerKey];
+  const acceptedDraftPath = join(store(), accepted.draft), acceptedDraftBytes = await readFile(acceptedDraftPath);
+  libraryMeta.reading.answers.foreign = { ...accepted, source_sha256: 'e'.repeat(64) };
+  libraryMeta.reading.answers.stale = { ...accepted, source_sha256: libraryMeta.source_document.file_sha256, context_generation: libraryMeta.generation + 1 };
+  await save(libraryMetaPath, libraryMeta);await writeFile(acceptedDraftPath, Buffer.from('corrupted accepted answer'));
+  let dock, tower;
+  try {
+    const isolatedA = await call(second, 'module.source.materials.snapshot', A, { answer_limit: 8 });
+    assert.equal(isolatedA.checked_answers.length, 1, 'the campaign copy is independent from later library artifact corruption');
+    [dock, tower] = await Promise.all([call(first, 'module.opening.choose', A, { scene: 'Dock' }), call(second, 'module.opening.choose', B, { scene: 'Tower' })]);
+  } finally {
+    await Promise.all([writeFile(libraryMetaPath, libraryMetaBytes), writeFile(acceptedDraftPath, acceptedDraftBytes)]);
+  }
   assert.equal(dock.start_scene, 'scene-dock'); assert.equal(tower.start_scene, 'scene-tower');
   assert.equal(dock.generation, root.meta.generation + 1); assert.equal(tower.generation, dock.generation);
   // The fork copied the published generation without any of the library's in-flight work.
   for (const campaign of [A, B]) {
     assert.ok(await readFile(join(store(campaign), 'module.json')));
     const copied = await treeDigest(store(campaign));
-    assert.ok(!Object.keys(copied).some(path => /(?:packet|observations|draft|review)\.json$/.test(path)));
+    assert.ok(!Object.keys(copied).some(path => /(?:packet|observations)\.json$/.test(path)
+      || /(?:draft|review)\.json$/.test(path) && !path.startsWith('source-answers/')),JSON.stringify(Object.keys(copied)));
     for (const name of [root.meta.graph_file, root.meta.source_document.path, root.meta.index_file])
       assert.equal(sha(await readFile(join(store(campaign), name))), sha(await readFile(join(store(), name))));
   }
+  const omittedB = await call(second, 'module.source.materials.snapshot', B, { answer_limit: 8 });
+  assert.equal(omittedB.checked_answers.length, 0);assert.equal(omittedB.checked_answers_invalid, 3);
+  assert.equal((await queue(B)).some(job => job.purpose === 'answer'), false);
   const privateReceipt = await call(second, 'module.asset', A, { name: 'Receipt' });
   assert.ok(privateReceipt.asset.path.startsWith(store(A) + '/'));
   assert.equal(sha(await readFile(privateReceipt.asset.path)), sha(png));

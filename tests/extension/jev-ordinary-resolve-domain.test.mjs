@@ -78,12 +78,14 @@ test('no-roll, incumbent specialization, missing consent, and unknown routing ne
     ['unselected method',{route:'ordinary',consent:'unselected'},'needs_player'],
     ['unknown consent',{route:'ordinary',consent:undefined},'partial'],
 		['unknown family',{route:undefined},'partial'],
+		['explicitly unknown family',{route:'unknown'},'partial'],
   ];
   for (const [name,answers,status] of cases) await t.test(name,async()=>{
     const app=await run({select:q=>Object.hasOwn(answers,q.key)?answers[q.key]:defaultSelection(q)});
 		assert.equal(app.result.status,status);assert.equal(app.calls.filter(call=>call.operation==='resolve').length,0);
 		if(name==='First Aid remains incumbent')assert.deepEqual(app.result.handoff,{verbs:['resolve']});
 		if(name==='unknown family'){assert.equal(app.record.phase,'composing');assert.equal(app.record.replans,0,"a missing model answer is not a semantic replan verdict");}
+		if(name==='explicitly unknown family'){assert.equal(app.record.phase,'planning');assert.equal(app.record.replans,1);}
   });
 });
 

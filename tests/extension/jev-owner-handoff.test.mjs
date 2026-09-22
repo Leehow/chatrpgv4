@@ -186,6 +186,7 @@ test("ordinary resolve hands off only a closed incumbent family",async t=>{
 		const id=await app.begin(),result=await app.runtime.submit(id,plan(["resolve"]));
 		if(expected==="handoff")assert.deepEqual(result.handoff,{verbs:["resolve"]});
 		else {assert.equal(result.handoff,undefined);assert.equal(expected==="needs_player"?result.status:app.runtime.snapshot(id).phase,expected==="needs_player"?"needs_player":"planning");}
+		assert.equal(app.calls.filter(call=>call.operation==="resolve").length,0,"unknown or pending routing never dispatches settlement");
 	});
 });
 
