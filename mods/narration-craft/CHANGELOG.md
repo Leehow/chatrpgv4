@@ -1,5 +1,8 @@
 # Narration Craft
 
+## 1.3.1
+- Re-issues the selected-goal handoff under a fresh number. 1.3.0 was already taken by the unmerged delivery-typography branch (2026-09-12), whose bytes are frozen in existing campaign homes; reusing it made `mods.list` fail with "Conflicting bytes for narration-craft 1.3.0". No text changes from the 1.3.0 below.
+
 ## 1.3.0
 - Replaces the mandatory new-event and multiple-options handoff with the player's selected-goal boundary: complete routine selected action, then return at goal completion or the next unselected consequential choice.
 - Allows quiet answers, refusals, silence and natural closure without forcing a person to act, a Director offer, or a trailing question.
