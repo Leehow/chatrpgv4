@@ -890,7 +890,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             binds,
             kind
         };
-        const rendered = delivery.rendered_text, projected = mechanics(receipts, placed, await snapshot.handoutTexts(receipts)), labels = await playerGlossary(context, language);
+        const rendered = delivery.rendered_text, projected = mechanics(receipts, placed, await snapshot.handoutTexts(receipts), snapshot.world), labels = await playerGlossary(context, language);
         const standing = standingStates(snapshot.party, receipts);
         const result: Row = {
             pending_choice: pending,
@@ -949,7 +949,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         // are in the play language is the verifier lane's finding, not a refusal (section 23).
         await stanceTable(context);
         report?.('validate');
-        const projected = mechanics(receipts, placed, await snapshot.handoutTexts(receipts)), n = number(turn.turn), receipt = `turn:${n}`, world = tableSnapshot(snapshot, module.graph);
+        const projected = mechanics(receipts, placed, await snapshot.handoutTexts(receipts), snapshot.world), n = number(turn.turn), receipt = `turn:${n}`, world = tableSnapshot(snapshot, module.graph);
         // The public record the verifier reads beside the Keeper-only list (contract §32.6): the two deliveries before this one.
         const earlier = (await Promise.all([number(turn.turn) - 1, number(turn.turn) - 2].filter(t => t >= 0).map(t => campaign.readTurnRecord(t)))).flatMap(r => r ? [r] : []);
         const factLists = facts(module.graph, snapshot.world, snapshot.party, receipts, world, turn.player_text,

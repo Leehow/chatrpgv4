@@ -2,7 +2,7 @@ import { CocOnboardingHost, CocOnboardingRegistry, type CocOnboardingOptions } f
 import { timelineAnchors, transcriptPrefix } from './coc-timeline.js';
 export { CocOnboardingRegistry } from './coc-onboarding.js';
 import { readCocBinding, readColdSheet, callColdKernel, mechanicsEntry, draftPresentations, currentDraft, laneWords, laneProjection, laneLabels,
-  laneLabelsLoaded, reloadLaneLabels, deliveryWords,
+  laneLabelsLoaded, reloadLaneLabels, deliveryWords, objectDetailsOf, pendingObjectNames, type CocObjectDetails,
   cocContentRoot, cocForgetUiWords, cocPlayLanguage, cocUiWords, cocUiWordsLoaded, SHEET_LANES, type SheetLane, type CocBinding,
   type CocHistoryWords, type CocUiWords } from "./coc-view.js";
 import { ChildProcessWithoutNullStreams, execFile, spawn } from "node:child_process";
@@ -875,6 +875,10 @@ type Live = {
   toolNames: Map<string, string>;
   /** Dedupe for authoritative presentation entries, shared by every reading of the transcript. */
   projectedPresentationIds: Set<string>;
+  /** §129: what `coc-object-details` has said so far in this run, by definition name. */
+  cocObjectDetails?: Map<string, Record<string, unknown>>;
+  /** §129: cards drawn in this run that still wait on an object's details, by entry id. */
+  cocPendingCards?: Map<string, any>;
   /** Byte the presentation projection has already read this transcript to; undefined off a table. */
   presentationReadTo?: number;
   /** Turn epoch of the idle-fold nudge's own short turn. Only a
@@ -1514,8 +1518,8 @@ function redactHistoryEntry(entry: HistoryEntry | undefined, secrets: RevealedSe
 type CocHostPaths = {repo: string; contentRoot: string; home: string};
 function visibleHistoryEntry(entry: any, secrets: RevealedSecret[] = [], language?:string,
   presentations?: ReadonlyMap<number, Record<string, unknown>>, words: CocHistoryWords = {},
-  current?: Record<string, unknown>): HistoryEntry | undefined {
-  const mechanics = mechanicsEntry(entry, language, presentations, words, current);
+  current?: Record<string, unknown>, details?: CocObjectDetails): HistoryEntry | undefined {
+  const mechanics = mechanicsEntry(entry, language, presentations, words, current, details);
   if (mechanics) return mechanics;
   if (entry?.type === "message") return redactHistoryEntry(historyEntryFromMessage(entry), secrets);
   if (isVisibleCustomMessage(entry)) {
@@ -1664,6 +1668,11 @@ async function readHistoryFallback(
     input: jsonlSnapshotStream(path, byteEnd),
     crlfDelay: Infinity,
   });
+  // §129: what the host said about an object's details can land anywhere after the card that named
+  // them pending -- on the next page, or long after this one -- so every such word in the file is
+  // gathered first and the page is drawn after, the same card a live redraw would have drawn.
+  const cocDetails = new Map<string, Record<string, unknown>>();
+  const wantedRows: any[] = [];
   for await (const line of lines) {
     let entry: any;
     try {
@@ -1671,9 +1680,12 @@ async function readHistoryFallback(
     } catch {
       continue;
     }
-    if (!wanted.has(entry?.id)) continue;
+    for (const [name, value] of objectDetailsOf(entry, cocBinding?.campaign)) cocDetails.set(name, value);
+    if (wanted.has(entry?.id)) wantedRows.push(entry);
+  }
+  for (const entry of wantedRows) {
     const secrets = vaultDir && sessionId ? revealRedactionSecrets(vaultDir, sessionId) : [];
-    const mapped = visibleHistoryEntry(entry, secrets, cocBinding?.play_language, cocPresentations, cocWords, cocDraft);
+    const mapped = visibleHistoryEntry(entry, secrets, cocBinding?.play_language, cocPresentations, cocWords, cocDraft, cocDetails);
     if (!mapped) continue;
     mappedById.set(mapped.id, mapped);
   }
@@ -6159,7 +6171,7 @@ export class PiHostBackend implements HostBackend {
    * the held answer. The lanes run one after another rather than together — a turn that both
    * reveals a clue and hands over a document is rare, and they share the vocabulary file.
    */
-  private startDeliveryPresentation(sessionId: string, raw: any): void {
+  private startDeliveryPresentation(sessionId: string, raw: any, live?: Live): void {
     const wanted = deliveryWords(raw);
     if (!Object.keys(wanted).length || !this.managedNodeModulesRoot) return;
     void (async () => {
@@ -6196,9 +6208,33 @@ export class PiHostBackend implements HostBackend {
       // The history page is cached against the transcript's own size and mtime, which a
       // projection landing beside it does not change.
       this.historyCache.delete(path);
-      const entry = mechanicsEntry(raw, binding.play_language, undefined, this.cocLiveWords(sessionId));
+      // §129: a card whose object details landed meanwhile keeps them in this redraw.
+      const entry = mechanicsEntry(raw, binding.play_language, undefined, this.cocLiveWords(sessionId), undefined, (live ?? this.live.get(sessionId))?.cocObjectDetails);
       if (entry) this.stream({type: "presentation", sessionId, entry});
     })().catch(() => undefined);
+  }
+  /**
+   * Contract §129. An object's details landed after the card that named it was drawn: the card was
+   * drawn at once with a waiting mark, and is drawn again under the same entry id now, which the
+   * transcript applies as a replacement where it sits (`applyStreamEvent`). Only cards this run drew
+   * are redrawn -- a card the player has not loaded is read back from the file with the same words
+   * (`readHistoryFallback` gathers them), and streaming it here would append it at the bottom.
+   */
+  private redrawObjectDetails(live: Live, raw: any): void {
+    const binding = this.cocSessionBindings.get(live.session.id);
+    const landed = objectDetailsOf(raw, binding?.campaign);
+    if (!landed.length) return;
+    const details = live.cocObjectDetails ??= new Map();
+    for (const [name, value] of landed) details.set(name, value);
+    // A page cached before this word would serve the card back still waiting.
+    this.historyCache.delete(live.path);
+    for (const [id, card] of live.cocPendingCards ?? []) {
+      const names = pendingObjectNames(card);
+      if (!names.some(name => landed.some(([done]) => done === name))) continue;
+      if (names.every(name => details.has(name))) live.cocPendingCards!.delete(id);
+      const entry = mechanicsEntry(card, binding?.play_language, undefined, this.cocLiveWords(live.session.id), undefined, details);
+      if (entry) this.stream({type: "presentation", sessionId: live.session.id, entry});
+    }
   }
   private lines(live: Live, chunk: string) {
     if (this.projectionDebugEnabled()) this.projectionDebugLine(`[stream-debug] stdout session=${this.projectionDebugSessionTag(live.session.id)} t=${Date.now()} bytes=${chunk.length}`, "log");
@@ -6224,10 +6260,14 @@ export class PiHostBackend implements HostBackend {
       if (e.entry?.customType === "coc-delivery") this.cocWatchdogPresentationOffsets.delete(live.path);
       if(e.entry?.customType==='coc-setup-exit')live.cocSetupHandoffPending=true;
       if(e.entry?.customType==='coc-character-draft'&&e.entry?.data?.sheet)this.startDraftPresentation(live.session.id,e.entry.data);
-      if(e.entry?.customType==='coc-mechanics')this.startDeliveryPresentation(live.session.id,e.entry);
+      if(e.entry?.customType==='coc-mechanics')this.startDeliveryPresentation(live.session.id,e.entry,live);
+      if(e.entry?.customType==='coc-object-details')this.redrawObjectDetails(live,e.entry);
+      else if(e.entry?.customType==='coc-mechanics'&&typeof e.entry?.id==='string'
+        &&pendingObjectNames(e.entry).some(name=>!live.cocObjectDetails?.has(name)))
+        (live.cocPendingCards ??= new Map()).set(e.entry.id,e.entry);
       const entry = isHostDeliveredCustomMessage(e.entry)
         ? visibleHistoryEntry(e.entry,this.sessionSecrets(live.session.id))
-        : mechanicsEntry(e.entry, this.cocSessionBindings.get(live.session.id)?.play_language, undefined, this.cocLiveWords(live.session.id));
+        : mechanicsEntry(e.entry, this.cocSessionBindings.get(live.session.id)?.play_language, undefined, this.cocLiveWords(live.session.id), undefined, live.cocObjectDetails);
       if (entry) {
         const presentationId = typeof e.entry?.id === "string" ? e.entry.id : undefined;
         const projected = live.projectedPresentationIds ??= new Set<string>();

@@ -201,8 +201,13 @@ export class ModJobs {
             if (preview) request.preview = clone(params.preview);
             request.usage_object = {name:item.name,quantity:item.quantity,state:clone(item.state),definition:clone(row(row(world.objects).definitions)[item.definition])};
         }
+        // §129: a definition request for a registration that is still queued is that marker's own job, whichever
+        // turn asks. Minted under the asking turn it was a different job: its result landed where the marker
+        // never looks, so an unfinished registration was generated again at every later turn and never written.
+        const waiting = role === 'create' ? queuedRegistrations(world).find(entry => typeof entry.job === 'string'
+            && equal(Object.fromEntries(entries(row(entry.define)).filter(([name]) => name !== 'kind')), params.input)) : undefined;
         const identity: Row = prefetch ? this.proposalIdentity(campaign.id,meta.active_worldline ?? null,candidates,params.input,physicalBasis!)
-            : {campaign: campaign.id, turn:turn.turn, worldline: meta.active_worldline ?? null, mod: packageRow.id, digest: packageRow.digest,
+            : {campaign: campaign.id, turn:waiting ? waiting.turn : turn.turn, worldline: meta.active_worldline ?? null, mod: packageRow.id, digest: packageRow.digest,
             packages: candidates.map(mod => ({id: mod.id, digest: mod.digest})), request: role === 'audit' ? request : {input: params.input ?? null, role},
             ...(physicalBasis ? {physical_basis:physicalBasis,usage_request_digest:jsonDigest(request)} : {}),
             ...(evidence ? {source_binding: evidence.binding} : {})};
@@ -270,7 +275,8 @@ export class ModJobs {
             }
             const value = row(await this.context.snapshots.readJson(accepted));
             effects.push({...define, _definition: value.definition, _provenance: value.provenance});
-            if (truth(entry.object)) effects.push(clone(row(entry.object)));
+            // §129: host-private like every `_` field; the adopt receipt it produces says it is a replay.
+            if (truth(entry.object)) effects.push({...clone(row(entry.object)), _resumed: true});
         }
         return {effects, unfinished};
     }

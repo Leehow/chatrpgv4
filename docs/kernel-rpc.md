@@ -1385,7 +1385,7 @@ submit the chosen dispositions without guessing IDs or repeating the failed call
 | `scene` | `from`, `to`, `minutes`, `via`? |
 | `clue` | `clue`, `label`?, `summary`? |
 | `time` | `minutes` |
-| `item` | `name`, `quantity`, `to`, `weapon`? |
+| `item` | `name`, `quantity`, `to`, `weapon`?, `adopted`?, `definition`? (`ready` with `object`, `pending` with `definition_name`, `none`; §129) |
 | `cash` | `subject`, `before`, `after` |
 | `session` | `family`, `transition`, `round`?, `outcome`? |
 | `choice` | `option` |
@@ -4758,6 +4758,9 @@ ui-words surfaces (`content/ui/en/mods.json`, keys `progress.define` and
 `progress.usage`, with `{objects}`, `{done}`, `{total}` placeholders) and are
 projected per play language through the presenter lane: code carries no
 per-language table or branch. Long object lists are clipped to two names.
+
+The card never waits on this preparation: an object whose deferred definition is still being
+generated is drawn with its name and a waiting mark, and opens when its details land (§129).
 
 #### Receipts, events and tests
 
@@ -15224,3 +15227,54 @@ pair counts nesting; an unclosed mark reports nothing; mechanics markers are ign
 Tests: `tests/extension/unwrapped-speech.test.mjs` (the real turn-1 text, learned pairs, straight/curly/
 guillemet marks, nesting, unclosed, excerpts), `tests/extension/turn.test.mjs` (partial draft steered once,
 marks-free spans not steered, pairs learned from an earlier delivery, the opening).
+
+## 129. An object's details never hold the card (2026-09-22, amends §16.2 and §26 "Preparation progress")
+
+User direction, 2026-09-22 (verbatim): 如果需要展示物品参数之类的话也不需要阻塞，直接显示文字加个正在加载的转圈圈小图标，等好了自动变成可以展开的就行，不要阻塞玩家看主要内容显示.
+
+Retained evidence: campaign `game-21ac44b7-5f91-41a5-8ea7-9faf5b801a29`, turn 0. The opening registered three belongings in one define/adopt batch; `apply` returned in 2.4 s with `definition:queued-*` receipts (§26 "Same-turn prepare": bookkeeping is deferred), and the Mod creator children ran 16–20 s each after the delivery. Those receipts were keeper-only, so the card named none of the three, and nothing ever told a card that an object's parameters had arrived.
+
+**127.1 The row.** An `item` row (§16.2) may carry `definition`, three states in the manner of §59's `document`, plus absence:
+
+| `definition` | the row also carries | the card draws |
+| --- | --- | --- |
+| `ready` | `object: {category, description, traits, parameters}` | a fold that opens into the object |
+| `pending` | `definition_name` | the name at once, a small waiting mark captioned `mechanics.preparing`, nothing to open |
+| `none` | — | a line; the preparation was dropped |
+| absent | — | a line, as before |
+
+`object` is the definition's `player_view` exactly as the sheet's possessions box reads it: one pure implementation, `kernel-ts/mods/public-definition.ts` `publicDefinition`, used by `publicItems` and by the card. The definition's `basis`, the traits its view does not name and every parameter it does not list stay Keeper material.
+
+Which receipts give a row:
+
+- An `item` receipt (placement, transfer, offer) is projected as before; when its `instance` has an accepted definition in the world the projection reads, the row is `ready` with `object`.
+- An adoption is projected as an `item` row with `adopted: <sheet row>` and no `to`/`to_label` (nobody handed over what the investigator already carries): `definition:queued-adopt-*` is `pending` and carries `definition_name` — the definition its job is producing, which the kernel now records on that receipt; an immediate `definition:adopt-*` is `ready`.
+- The adoption the next turn's resume replays is not projected again. `mods.queued` marks the replayed object effect `_resumed` (host-private, stripped from the call identity like every `_` field) and the adopt receipt says `resumed: true`; the card that named it pending is the one that opens.
+- A `definition` receipt without an adoption stays keeper-only and projects nothing.
+
+The world is passed to `mechanics()` by `narrate`, `ask` and `table.status`. `mechanicsOf` is unchanged, so the Keeper-facing readers (`untoldReceipts`, `markersFor`) gain no bookkeeping rows and no adoption can be marked in the prose.
+
+`definition_name` is the card's identity for the redraw: definition names are unique within a campaign (`defineObject` refuses a second definition under the same name), and the session binding supplies the campaign.
+
+**127.2 The word that opens it: `coc-object-details`.** A session entry (dash, not a `coc:` bus event), written by the Mod host (`extensions/mods/index.ts`), read by the Electron backend (`Electron/packages/pi-backend/src/coc-view.ts` `objectDetailsOf`, `pendingObjectNames`; `index.ts` `redrawObjectDetails` and the history page):
+
+```
+{campaign, objects: [{name, definition: "ready", object} | {name, definition: "none"}]}
+```
+
+- *Writer.* When a deferred batch's background generation has its accepted drafts, one entry names every definition that landed, with `object = publicDefinition(accepted draft)`. A batch with a failed member still attaches nothing (unchanged); its accepted siblings are written, and announced, by the next resume. A resume that applies a queued definition this process has not announced yet (a restart between acceptance and announcement) announces it then; nothing is announced twice by one process. A resume that discards the markers announces `none` for every name it drops.
+- *Reader, live.* The stream reader keeps what landed during this run, draws a card that arrives after its details open the first time, and redraws every card this run drew that was waiting on a landed name, under the same entry id; the transcript replaces a presentation row in place (`applyStreamEvent`). A card this run did not draw is not streamed (it would be appended at the bottom); the re-read draws it open. No UI polling was added.
+- *Reader, re-read.* The history page gathers every `coc-object-details` for the binding's campaign anywhere in the file and draws the page with them, so a card re-read after its details landed opens, whatever page the word fell on.
+
+The card opens when the job's accepted draft is in hand — before the next turn's resume writes the definition into the world, which is unchanged (deferral still means not this turn). If that resume cannot land and discards, the `none` word closes the fold again.
+
+**127.3 What still waits, and why.**
+
+- *`usage` batches stay in-turn.* The `resolve` that consumes a usage cannot settle without it, which is §26's "a usage the current action depends on must not [defer]". The host has no structural fact that separates a usage the current action needs from one it does not: a usage preparation batch exists because an action needs it (the combat refusal names `apply usage`), and a usage nobody needs yet is already the independent background prefetch path. Deferring one would mean inferring intent. The wait keeps §26's `mods-progress` `role: "usage"` line; no card exists to hold yet, because the card is drawn at `narrate`, after the usage was accepted.
+- *A `define` beside a placement stays in-turn.* Only define/adopt bookkeeping is deferred. A batch that places or hands over a new object needs its definition to mint the instance (`initial_ammo`/`magazine`, `charges`, the one-instance weapon rule), and the object must exist for the next verb of the same turn. Deferring it would mean queueing the placement as well and leaving the object absent from the world until the next turn — a change of what the world holds, not of how a card is drawn, and not made here.
+- *Changed: an unfinished registration no longer blocks the next turn.* A queued registration whose job has no accepted result at the next resume (the session died between the marker and its parameters, or its background generation failed) used to be generated inside the first verb of that turn, on the foreground budget. It is now started beside the turn exactly like the original deferral — tracked as the one outstanding batch, no foreground budget — and announced when it lands; the next resume writes it. Entries already accepted still land in that same resume.
+- *Fixed on the way: the regeneration never landed.* `mods.job` keyed a `create` job by the asking turn, so a registration regenerated in a later turn was accepted under a new job while its marker kept naming the old one; `mods.queued` looked only at the marker's job, reported it unfinished again, and every later turn paid for the same child once more (inside the verb, before this section). A `create` request whose input equals a queued registration's `define` is now minted under that registration's turn, which is the marker's own job, so the result lands where the marker looks. A request after the marker is gone (discarded) is minted as before and its acceptance refuses as another turn's job, so a generation still in flight when its markers are discarded cannot reopen the card.
+
+The zh-Hans seed's `mechanics.preparing` is the lane's own output, projected from this one gap (a content root holding only that caption, `xai/grok-4.6`) and harvested into the seed; nothing else in the seed moved.
+
+Tests: `Electron/packages/ui/src/coc-object-details.test.tsx` (pending row draws a waiting mark and nothing to open; the in-place redraw opens it), `Electron/packages/pi-backend/test/coc-object-details.test.ts` (live redraw under the same id; re-read merge; a lane-word redraw keeps landed details), `tests/extension/object-details-pairing.test.mjs` (real kernel row → host word → backend projection; the replayed adoption is not a second row; an unfinished registration is regenerated beside the turn under its own marker and then written; discard closes the fold; a generation in flight at discard does not reopen it), `tests/kernel/test_mods.py::test_registration_can_be_queued_past_delivery_and_completed_afterwards` and `::test_a_handed_over_object_opens_into_its_player_view_on_the_card`.

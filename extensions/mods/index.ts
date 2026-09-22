@@ -11,6 +11,7 @@ import type { HostRuntime } from "../../runtime/host.ts";
 import {AuditBudget, reviewUnavailable} from './audit-budget.ts';
 import {resolveUiWordsSync} from '../../runtime/ui-words.ts';
 import {extensionContentRoot, extensionHome, fill} from '../ui/words.ts';
+import {publicDefinition} from '../../kernel-ts/mods/public-definition.ts';
 
 type Call = (method: string, params: Record<string, unknown>) => Promise<any>;
 
@@ -500,36 +501,71 @@ export default function modsExtension(pi: ExtensionAPI): void {
       defines[index]._queued = job.job;
       defines[index]._provenance = {mod: job.mod, digest: job.digest};
     }
-    const work = inputs.map(input => ({...input}));
+    beside(campaign, inputs);
+    return true;
+  }
+
+  /**
+   * Generate queued definitions beside the turn, as the one outstanding batch, and announce each one
+   * that lands. The signal belongs to whichever tool call started this and is about to return, so the
+   * work does not take it; nor does it take that call's provider budget. A failure is not lost: it is
+   * what `mods.queued` reports as unfinished at the next resume, which starts it here again.
+   */
+  function beside(campaign: string, inputs: Record<string, any>[]): void {
+    const batch = inputs.map(input => ({kind:"define", ...input}));
     const prior = outstanding;
     outstanding = (async () => {
       if (prior) await prior.catch(() => undefined);
-      // The signal belongs to the tool call that is about to return, so this work does not take it: a
-      // failure here is not lost, it is what `mods.queued` reports as unfinished on the next turn.
-      await materialize(campaign, work.map(input => ({kind:"define", ...input})), undefined).catch(() => undefined);
+      // A batch with a failed member attaches nothing; its landed siblings are written, and announced, by
+      // the next resume, which finds their jobs accepted.
+      await materialize(campaign, batch, undefined).catch(() => undefined);
+      announceDetails(campaign, batch.filter(effect => effect._definition)
+        .map(effect => ({name: String(effect.name), definition: "ready", object: publicDefinition(effect._definition)})));
     })().finally(() => { outstanding = undefined; });
-    return true;
+  }
+
+  /** Names this process has already announced as ready, so a later resume does not say it twice. */
+  const announced = new Set<string>();
+  /**
+   * Contract §129. A card that named an object while its parameters were being prepared drew the name
+   * with a waiting mark and nothing to open; this session entry is the word that opens it. The Electron
+   * backend reads it (`coc-view.ts` `objectDetailsOf`): the live transcript redraws the waiting card in
+   * place, and every re-read of the transcript draws that card open. `object` is the definition's player
+   * view by the same function the sheet uses, so the card never shows what the sheet would not.
+   */
+  function announceDetails(campaign: string, objects: {name: string; definition: "ready" | "none"; object?: Record<string, unknown>}[]): void {
+    const fresh = objects.filter(entry => entry.definition === "none" || !announced.has(JSON.stringify([campaign, entry.name])));
+    if (!fresh.length) return;
+    for (const entry of fresh) {
+      const key = JSON.stringify([campaign, entry.name]);
+      if (entry.definition === "ready") announced.add(key); else announced.delete(key);
+    }
+    try { (pi as ExtensionAPI & {appendEntry?: ExtensionAPI["appendEntry"]}).appendEntry?.("coc-object-details", {campaign, objects: fresh}); }
+    catch { /* a card that cannot be told keeps its waiting mark until a re-read; the turn is not the cost */ }
   }
 
   /**
    * Complete deferred registrations at the top of the next turn, while it is open, through an ordinary
    * apply. One turn late is late; silently unregistered forever is a hole, so an entry whose parameters
-   * never arrived is generated here rather than left behind a marker that hides its row from the audit.
+   * never arrived is started again from here rather than left behind a marker that hides its row from the
+   * audit. Nothing here waits on a model: the signal and budget of the verb that opened the turn are not
+   * this work's to spend (§129).
    */
-  async function resume(campaign: string, signal?: AbortSignal, providerBudget?: TaskProviderBudget): Promise<void> {
+  async function resume(campaign: string, _signal?: AbortSignal, _providerBudget?: TaskProviderBudget): Promise<void> {
     if (!call) return;
     const current = call;
     // Still generating beside the turn: there is nothing to complete yet, and waiting here would drag the
     // cost back onto the player's critical path, which is the whole reason the batch was deferred.
     if (outstanding) return;
-    let queued = await current("mods.queued", {campaign});
+    const queued = await current("mods.queued", {campaign});
     const unfinished: any[] = Array.isArray(queued?.unfinished) ? queued.unfinished : [];
-    if (unfinished.length) {
-      for (const input of unfinished) await task(campaign, "create", input, signal, undefined, undefined, providerBudget).catch(() => undefined);
-      queued = await current("mods.queued", {campaign});
-    }
+    // §129: an entry whose parameters never arrived used to be generated right here, inside the first verb
+    // of the turn and on its budget -- the very wait the deferral exists to keep off the player's path. It
+    // is started beside the turn instead, exactly like the original deferral, and the next resume writes it.
+    if (unfinished.length) beside(campaign, unfinished);
     const effects: any[] = Array.isArray(queued?.effects) ? queued.effects : [];
     if (!effects.length) return;
+    const landed = effects.filter(effect => effect?.kind === "define" && effect._definition && typeof effect.name === "string");
     // The kernel extension owns the call ordinal, so the id is minted there. Inventing one here failed
     // every write verb for the rest of the session, because this runs ahead of all of them.
     const callId = mintCallId?.();
@@ -538,12 +574,17 @@ export default function modsExtension(pi: ExtensionAPI): void {
       const result = await current("table.apply", {campaign, call_id: callId, effects, ...(trackTaskReceipts ? {_task_read_set: true} : {})});
       if (result?._task_advance) pi.events.emit('coc:task-receipt-advance', result._task_advance);
       warm(campaign, carriers(effects));
+      // A restart between acceptance and the announcement would leave the card waiting for good.
+      announceDetails(campaign, landed.map(effect => ({name: String(effect.name), definition: "ready", object: publicDefinition(effect._definition)})));
     }
     catch (error) {
       // Bookkeeping must never cost the player their turn. The markers go, the gear reads as unregistered
       // again, and the Keeper registers it the ordinary blocking way on the turn after this one.
       await current("mods.queued", {campaign, discard: true}).catch(() => undefined);
       void emitToPanel("coc-keeper", "mods-progress", {campaign, done: 0, total: 0, deferred_failed: errorText(error)});
+      // §129: every card still waiting on one of these stops waiting, and one already opened closes again.
+      announceDetails(campaign, [...new Set([...landed, ...unfinished].map(entry => entry?.name)
+        .filter((name): name is string => typeof name === "string" && !!name))].map(name => ({name, definition: "none" as const})));
     }
   }
 
