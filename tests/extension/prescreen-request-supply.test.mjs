@@ -401,6 +401,7 @@ test('outer deadline still blocks publication when final owner validation cannot
 });
 
 test('real committed memory owner reaches provider payload without private refs or commit hashes',async t=>{
+  await mkdir(join(root,'.coc'),{recursive:true});
   const home=await mkdtemp(join(root,'.coc/prescreen-memory-owner-')),kernel=await api.createKernelContext({workspace:home,content:join(root,'content'),
     seed:'prescreen-memory-owner',locks:api.nativeAdvisoryLocks(),env:{...process.env,GIT_CONFIG_GLOBAL:'/dev/null',GIT_CONFIG_NOSYSTEM:'1'}}),runtime=api.createKernelRuntime(kernel);
   t.after(async()=>{await runtime.close();await rm(home,{recursive:true,force:true});});
