@@ -23,7 +23,8 @@ describe("generic extension auth provider registration", () => {
     await writeFile(
       join(dir, "agent", "dist", "provider.js"),
       `export const AUTH_PROVIDER_ID = ${JSON.stringify(id)};
-export function createAuthProvider() {
+export async function createAuthProvider(options) {
+  await Promise.resolve();
   return { name: "Acme", api: "openai-completions", baseUrl: "https://api.example.com/v1", models: [{ id: "acme-fast", name: "Fast" }] };
 }
 `,

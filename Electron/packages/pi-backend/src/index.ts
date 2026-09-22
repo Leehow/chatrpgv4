@@ -10331,7 +10331,10 @@ export class PiHostBackend implements HostBackend {
         await this.registerExtensionAuthProviders(real);
         return {
           getProviders: () => real.getProviders(),
-          getAvailable: () => real.getAvailable(),
+          getAvailable: async () => {
+            await this.registerExtensionAuthProviders(real, true);
+            return real.getAvailable();
+          },
           login: (p: any, t: any, i: any) => real.login(p, t, i),
           logout: (p: any) => real.logout(p),
         };
@@ -10348,9 +10351,11 @@ export class PiHostBackend implements HostBackend {
   private async registerExtensionAuthProviders(real: {
     registerProvider?(id: string, config: unknown): void;
     getProvider?(id: string): unknown;
-  }): Promise<void> {
+  }, refreshExisting = false): Promise<void> {
     await registerExtensionAuthProviders({
       runtime: real,
+      authPath: join(this.agentDir, "auth.json"),
+      refreshExisting,
       claims: this.extensionLoader.contributionClaims(),
       directoryOf: (id) => this.extensionLoader.directoryOf(id),
     });
