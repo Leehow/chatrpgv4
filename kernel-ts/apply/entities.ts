@@ -16,6 +16,8 @@ import {VALID_CONDITIONS} from '../combat/engine.js';
 import {incapacitatedBy} from '../healing/conditions.js';
 import {npcProfileOf} from '../resolve/context.js';
 import type {ApplyContext} from './index.js';
+import {CampaignSnapshot} from '../read/campaign.js';
+import {acceptReunion} from '../npc/reunion.js';
 export async function stageClue(context:ApplyContext,effect:Row):Promise<StagedEffect>{
     const name=required(effect,'clue')!,{world,graph}=context,turn=context.turn.turn;
     const label=typeof effect.label==='string'&&effect.label.trim()?effect.label:null,how=typeof effect.how==='string'?effect.how:null;
@@ -77,7 +79,7 @@ function personOfEffect(context:ApplyContext,effect:Row,name:string,why:string|n
     catch(error){
         // A pin, an ambiguity, or a name the book has something to say about: the graph's own answer
         // stands, with the candidates it minted. Only a name it is silent on reaches the table.
-        if(effect.skill!=null||effect.archetype!=null||effect.conditions!=null||graph.candidates(name,['npc']).length)throw error;
+        if(effect.skill!=null||effect.archetype!=null||effect.conditions!=null||effect.reunion!=null||graph.candidates(name,['npc']).length)throw error;
     }
     const trimmed=name.trim(),people=array(world.table_people??=[]);
     const node=graph.addTablePerson(tablePersonId(trimmed),trimmed,{reason:why,turn:context.turn.turn});
@@ -90,6 +92,17 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
     const why=typeof effect.why==='string'&&effect.why.trim()?effect.why:null;
     const {node,established}=personOfEffect(context,effect,string(required(effect,'name')),why);
     const handle=graph.handle(node),{to,stance,dead}=effect;
+    if(effect.reunion!=null){
+        if(['to','stance','dead','skill','archetype','conditions'].some(key=>effect[key]!=null))
+            throw new RpcError('invalid_params','Reunion continuity is separate from mechanical or positional NPC effects');
+        const meta=await context.campaign.readCampaign(),worldline=string(meta.active_worldline||'main');
+        const scope={worldline,loop:number(row(row(meta.worldlines)[worldline]).loop)};
+        const snapshot=new CampaignSnapshot(context.kernel,context.campaign.id);
+        const reunion=acceptReunion(graph,world,node,await snapshot.files('turns'),scope,effect.reunion,number(context.turn.turn));
+        return {receipt:{id:effectId(context,'npc',handle),kind:'npc',call_id:context.callId,npc:node.node_id,handle,
+            name:graph.displayName(node),reunion,why,visibility:'keeper',at:nowIso()},
+            event:reunion.reused?null:{type:'npc-changed',data:{npc:handle,reunion}}};
+    }
     if(effect.conditions!=null){
         const combined=['to','stance','dead','skill','archetype'].filter(key=>effect[key]!=null);
         if(combined.length)throw new RpcError('invalid_params','npc.conditions is its own state-changing effect',{fix:'put the condition change and the other npc change in two effects in the same atomic batch',details:{field:'npc.conditions',conflicts:combined}});

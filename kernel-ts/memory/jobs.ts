@@ -29,6 +29,10 @@ const instruction = (language: string) => 'Write only what is new this turn: fac
     'no numbers or dice; do not repeat what prior already holds. Each candidate has kind (one of world_event, ' +
     'knowledge, belief, relationship, player_assertion, player_preference, keeper_correction, promise), subject and ' +
     "statement; a world_event's subject must be world; a relationship names exactly one entity in entities. " +
+    'A relationship is directed: subject is the person whose view of the other person changed, and entities ' +
+    'contains that other person alone. Preserve the concrete shared event or explicit statement that supports ' +
+    'trust, distrust, gratitude, resentment or changed cooperation. Do not infer a lasting change from courtesy ' +
+    'alone, turn a promise into its fulfillment, or invent the reverse person\'s feelings. ' +
     'When someone promised something with a deadline or a condition, write a promise: subject is the one who ' +
     'promised, entities the one promised to and what it concerns, statement the condition or deadline. ' +
     'When an NPC learned something, took a position or gave their word this turn, say so with them in it: a ' +

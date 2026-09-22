@@ -6,6 +6,9 @@ import { clueGate, structureType } from "./director.js";
 import { incapacitatedBy } from "../healing/conditions.js";
 import { toldTurn } from "../journal/naming.js";
 import {memoryEvidenceView,withPromiseFulfillment,canonicalMemoryReceipts,memoryOccurrenceKey} from './memory.js';
+import {personalityView} from '../npc/material.js';
+import {npcRelationships,npcRecentSpeech,npcCommitments} from '../npc/perspective.js';
+import {reunionView} from '../npc/reunion.js';
 export const jsonSize = (value: any): number => Buffer.byteLength(pythonJsonDumps(value), "utf8");
 /**
  * The one name this table uses for a place, by its handle: the campaign label the Keeper gave it,
@@ -355,7 +358,7 @@ function npcState(graph: ModuleGraph, world: Row, node: Row): Row | null {
             : `${who} is ${state} and takes no action of their own -- no answer, no help, no lie. Say the state in the fiction, and say what is being done about it. CoC 7e ends ${state === "unconscious" ? "it" : "unconsciousness"} when a hit point comes back: someone present succeeding at First Aid or Medicine on them -- resolve with the rescuer as actor and ${who} as target${conditions.includes("major_wound") ? ". Rest returns no hit point while the major wound is ticked; the weekly recovery roll is the next one the rules run themselves" : " -- or rest, apply time, until natural healing returns one"}. First Aid stabilizes a dying one first.`,
     };
 }
-export function npcEntry(graph: ModuleGraph, world: Row, node: Row, ledger: Row, memories: Map<string, Row>, across: (node: Row) => Row[] = () => [], seat: LinesSeat = "keep", journal: Row = {}, records: Row[] = []): Row {
+export function npcEntry(graph: ModuleGraph, world: Row, node: Row, ledger: Row, memories: Map<string, Row>, across: (node: Row) => Row[] = () => [], seat: LinesSeat = "keep", journal: Row = {}, records: Row[] = [], scope:Row = {}): Row {
     const state = npcState(graph, world, node), untold = untoldBlock(graph, world, journal, node, records);
     const entry: Row = {
         name: graph.displayName(node),
@@ -370,7 +373,8 @@ export function npcEntry(graph: ModuleGraph, world: Row, node: Row, ledger: Row,
         // Before the dossier, not after it: what his body is doing decides whether any of the rest
         // of it can happen this turn, and present[] is budgeted from the top.
         ...(state ? {state} : {}),
-        ...dossier(graph, world, node, seat)
+        ...dossier(graph, world, node, seat),
+        ...(personalityView(graph, world, node) ? {personality: personalityView(graph, world, node)} : {})
     },
         discovered = new Set(array(world.discovered_clues));
     const knows = graph.npcKnows(node).map(item => ({
@@ -410,13 +414,23 @@ export function npcEntry(graph: ModuleGraph, world: Row, node: Row, ledger: Row,
     const history = npcHistory(saved, memories);
     if (history)
         entry.history = history;
+    const relationships=npcRelationships(graph,node,[...memories.values()],scope),recent=npcRecentSpeech(graph,node,records,scope);
+    if(relationships.length)entry.relationships=relationships;
+    if(recent.length)entry.recent_speech=recent;
+    // The same owned promise already occupies history.promises. Do not duplicate its bytes and
+    // crowd an earlier canonical occurrence out of the capsule; the full NPC read retains all rows.
+    const shownPromises=new Set(array(saved.promises).slice(-3).map(item=>string(item.memory_id)));
+    const commitments=npcCommitments(graph,node,[...memories.values()].filter(value=>!shownPromises.has(string(value.id))),scope);
+    if(commitments.length)entry.commitments=commitments.slice(0,4);
+    const reunion=reunionView(graph,world,node,records,scope);
+    if(reunion)entry.reunion=reunion;
     const elsewhere = across(node);
     if (elsewhere.length)
         entry.from_other_lines = elsewhere;
     return entry;
 }
 /** `options.voices` true is the capsule's form (contract §40.7): the lines-shaped words leave the rows for `voices`. */
-export function presentSection(graph: ModuleGraph, world: Row, scene: Row, ledger: Row = {}, memory: Row[] = [], across: (node: Row) => Row[] = () => [], options: { voices?: boolean; journal?: Row; records?: Row[]; currentReceipts?: Row[]; campaign?:string } = {}): Row[] {
+export function presentSection(graph: ModuleGraph, world: Row, scene: Row, ledger: Row = {}, memory: Row[] = [], across: (node: Row) => Row[] = () => [], options: { voices?: boolean; journal?: Row; records?: Row[]; currentReceipts?: Row[]; campaign?:string; scope?:Row } = {}): Row[] {
     const projected=withPromiseFulfillment(memory,{campaign:options.campaign,receipts:canonicalMemoryReceipts(options.records??[],options.currentReceipts??[]),world});
     const memories=new Map<string,Row>();
     for(const value of projected.filter(m=>truth(m.id))) {
@@ -425,9 +439,9 @@ export function presentSection(graph: ModuleGraph, world: Row, scene: Row, ledge
             ? {kind:'promise',status:'candidate',statement:null,authority:'conversation_report',fulfillment:{status:'unavailable',terms:[]}} : value);
     }
     const rank = (entry: Row) => truth(row(entry.history).promises) ? 0 : truth(row(entry.history).met_turns) || truth(entry.toward_party) ? 1 : truth(entry.wants) ? 2 : 3;
-    return npcsPresent(graph, world, scene).map(node => npcEntry(graph, world, node, ledger, memories, across, options.voices ? "drop" : "keep", row(options.journal), options.records)).sort((a, b) => rank(a) - rank(b));
+    return npcsPresent(graph, world, scene).map(node => npcEntry(graph, world, node, ledger, memories, across, options.voices ? "drop" : "keep", row(options.journal), options.records,options.scope)).sort((a, b) => rank(a) - rank(b));
 }
-export function npcView(graph: ModuleGraph, world: Row, node: Row, ledger: Row = {}, journal: Row = {}, records: Row[] = []): Row {
+export function npcView(graph: ModuleGraph, world: Row, node: Row, ledger: Row = {}, journal: Row = {}, records: Row[] = [], memory:Row[] = [], scope:Row = {}): Row {
     const untold = untoldBlock(graph, world, journal, node, records), handle = graph.handle(node),
         view: Row = {
         kind: "npc",
@@ -441,7 +455,8 @@ export function npcView(graph: ModuleGraph, world: Row, node: Row, ledger: Row =
         summary: node.summary ?? null,
         visibility: node.visibility ?? null,
         ...(npcState(graph, world, node) ? {state: npcState(graph, world, node)} : {}),
-        ...dossier(graph, world, node)
+        ...dossier(graph, world, node),
+        ...(personalityView(graph, world, node) ? {personality: personalityView(graph, world, node)} : {})
     };
     const knows = graph.npcKnows(node).map(entry => ({
         clue: entry.handle,
@@ -475,6 +490,13 @@ export function npcView(graph: ModuleGraph, world: Row, node: Row, ledger: Row =
     const authored = graph.entityView(node).properties;
     if (truth(authored))
         view.properties = authored;
+    const relationships=npcRelationships(graph,node,memory,scope),recent=npcRecentSpeech(graph,node,records,scope);
+    if(relationships.length)view.relationships=relationships;
+    if(recent.length)view.recent_speech=recent;
+    const commitments=npcCommitments(graph,node,memory,scope);
+    if(commitments.length)view.commitments=commitments;
+    const reunion=reunionView(graph,world,node,records,scope);
+    if(reunion)view.reunion=reunion;
     return view;
 }
 export function investigatorView(sheet: Row): Row {

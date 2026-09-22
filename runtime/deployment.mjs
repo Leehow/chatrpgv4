@@ -23,7 +23,7 @@ export const COMPILED_ENTRIES = Object.freeze({
   uiPresentation: 'build/extensions/module/ui-presentation.mjs',
   mapPresentation: 'build/extensions/module/map-presentation.mjs',
 });
-export const COC_EXTENSIONS = Object.freeze(['kernel', 'mods', 'onboarding', 'module', 'memory', 'table', 'npc-journal', 'npc-voice']);
+export const COC_EXTENSIONS = Object.freeze(['kernel', 'mods', 'onboarding', 'module', 'memory', 'npc', 'table', 'npc-journal', 'npc-voice']);
 /**
  * The extensions that register a model provider, read from the manifests that already declare it.
  *

@@ -218,6 +218,12 @@ const RulingEffect = Type.Object({
 const NpcEffect = Type.Object({
 	kind: StringEnum(["npc"] as const, { description: "move someone on or off the stage, set where they stand with the party, record a rules condition, or record that they died" }),
 	name: Type.String({ description: "what you are calling this person. A name from the book, or -- for someone the book never had -- whatever you are already calling them, a description like \"the clerk at the archive window\" included; the table establishes them under that word on this call, and apply person is what decides the word the player sees. Reuse the exact word you used before: two spellings make two people, and a refusal lists the ones this table already has" }),
+	reunion: Type.Optional(Type.Object({
+		background:Type.Optional(Type.Array(Type.String(),{maxItems:4})),
+		reports:Type.Optional(Type.Array(Type.String(),{maxItems:4})),
+		open_threads:Type.Optional(Type.Array(Type.String(),{maxItems:4})),
+		extend:Type.Optional(Type.Boolean()),
+	},{description:"At a real return encounter offered by the NPC view, establish a modest compatible offstage continuation without simulating it. Write English Keeper-facing background, this NPC's attributed reports and optional open threads, at most four lines of 600 characters each. Empty arrays establish a quiet interval. Preserve personality, prior facts and player decisions. This changes no location, item, money, skill, condition or promise fulfillment; use the proper effects for those. Same-interval history cannot be replaced; extend true appends only genuinely new compatible detail without copying old lines. Use this alone in its NPC effect, then narrate naturally in play_language."})),
 	to: Type.Optional(Type.String({ description: "where they are now: a scene name, `here` for this scene, or `away` to take them off stage" })),
 	stance: Type.Optional(StringEnum(["hostile", "wary", "neutral", "warm"] as const, {
 		description: "your own reading of where they stand with the party; the kernel keeps the settled checks' account on its own, so set this only when you decide something the dice did not",
@@ -450,6 +456,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 				}),
 			),
 			name: Type.Optional(Type.String({ description: "the entity name to look at when focus is npc, object, or map" })),
+			evaluate_responses: Type.Optional(Type.Boolean({description:"With focus npc, optionally weigh prepared response intentions against the current player input, personality and relationships. Use a name for one NPC or omit it for those present. No authoring is awaited and no action is executed; ordinary direct conversation need not call this."})),
 		}),
 	},
 	{

@@ -19,6 +19,7 @@ import { playLanguageOf } from "./languages.js";
 import { RpcError } from "../errors.js";
 import { array, row, number, string, truth, chars, clone, normalize, type Row } from "./values.js";
 import type { ModuleGraph } from "./module-graph.js";
+import {responseBankFor,responseHint} from '../npc/responses.js';
 export const HEAD = "Everything at the start of this turn: the clock, the undiscovered clues here and their gates, the secrets " +
     "and agendas of those present, the way back and the exits, pressures and obligations, the rule-layer " +
     "situations, the Director's suggested beat, related memory and the style contract. Do not look/lookup " +
@@ -38,6 +39,13 @@ export const HEAD = "Everything at the start of this turn: the clock, the undisc
     "you narrate this turn. director.offer is what can move this turn, in your hand — a person with a want, " +
     "a way that is open, a pressure, a consequence still owed — take it, change it or leave it. A quiet " +
     "exchange or clarification needs no new receipt. Director signals and offers remain advice. " +
+    "A present person's personality describes stable tradeoffs, not a compulsory response or catchphrase. " +
+    "Let their actual knowledge, current situation and shared history shape what they offer or refuse; " +
+    "do not wait for optional character preparation to answer an ordinary question. " +
+    "Their relationships retain specific people and evidence; recent_speech is what that person actually said, " +
+    "available even before memory extraction finishes. Reports are attributed, not new world truth. " +
+    "For a genuine NPC response tradeoff, response_options offers optional typed comparison through its next read; " +
+    "direct answers and natural closure need no comparison, and unavailable advice never stops play. " +
     "Return at a genuine unselected decision or the completion of the selected goal; never choose " +
     "the next goal for the player. voices gives each person's flexible register, not a required marker " +
     "on every line or a topic for every reply. Answer the player's words first; preserve source secrets and " +
@@ -316,9 +324,16 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
     const director = directorSection(dg, ontology, graph, world, scene, sig, memory, present),
         full = options.styleFull ?? true;
     const warningRecord = [...campaign.records].sort((a, b) => number(b.turn) - number(a.turn)).find(record => number(record.turn) < number(turn.turn) && record.closed_by === "narrate");
+    const npcScope={worldline:campaign.meta.active_worldline??'main',loop:number(row(row(campaign.meta.worldlines)[string(campaign.meta.active_worldline||'main')]).loop)};
+    const responseHints=new Map<string,Row>();
+    await Promise.all(present.map(async node=>{
+        try{const bank=await responseBankFor({graph,world,scope:npcScope},node,file=>campaign.optional(file));
+            if(bank.length)responseHints.set(graph.displayName(node),responseHint(graph.displayName(node),bank.length));}
+        catch{/* Optional preparation cannot block the ordinary capsule. */}
+    }));
     const sections: Row = clone({
         where,
-        present: presentSection(graph, world, scene, row(campaign.jsonFiles.get("npc-ledger.json")), memory, across, { voices: true, campaign:campaign.id, currentReceipts:array(turn.receipts), journal: row(campaign.jsonFiles.get("npc-journal.json")), records: campaign.records }),
+        present: presentSection(graph, world, scene, row(campaign.jsonFiles.get("npc-ledger.json")), memory, across, { voices: true, campaign:campaign.id, currentReceipts:array(turn.receipts), journal: row(campaign.jsonFiles.get("npc-journal.json")), records: campaign.records, scope:npcScope }).map(person=>responseHints.has(person.name)?{...person,response_options:responseHints.get(person.name)}:person),
         voices: voicesSection(graph, world, scene),
         known: knownSection(graph, world, scene, party, campaign.records),
         // The body that cannot act goes first: `fitBudget(..., "last")` trims this section from the

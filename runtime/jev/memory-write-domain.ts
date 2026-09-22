@@ -9,7 +9,7 @@ export const MEMORY_WRITE_CAPABILITY = 'memory.write';
 export const MEMORY_WRITE_KINDS = ['world_event', 'knowledge', 'belief', 'relationship', 'player_assertion',
   'player_preference', 'keeper_correction', 'promise'] as const;
 export const MEMORY_RELATIONS = ['duplicate', 'reinforcement', 'independent', 'correction', 'contradiction', 'temporal_change'] as const;
-export const MEMORY_WRITE_POLICY_VERSION = '3';
+export const MEMORY_WRITE_POLICY_VERSION = '4';
 const MAX_DECISION_BYTES = 30_000;
 
 type Kind = typeof MEMORY_WRITE_KINDS[number];
@@ -37,7 +37,7 @@ const KIND_DEFINITIONS: Record<Kind, string> = {
   world_event: 'A durable event or changed condition in the shared fiction; not a speaker\'s knowledge, belief, preference, correction, or promise.',
   knowledge: 'A durable proposition known in fiction by one or more issued knowers; attribution to a knower is required.',
   belief: 'An attributed in-fiction epistemic stance that may be accurate, uncertain, or distorted; an out-of-character preference or instruction is not a belief.',
-  relationship: 'A durable in-fiction relationship state between the subject and exactly one issued entity.',
+  relationship: 'A durable directed in-fiction relationship: the subject is the person whose view or cooperation toward exactly one other issued person is established or changed. Preserve the specific shared event or explicit stance; courtesy alone is insufficient, a promise is not its fulfillment, and the reverse person\'s feelings are not implied.',
   player_assertion: 'A durable player claim about the fiction, character, or campaign state; an out-of-character play or style preference is not an additional assertion merely because the player stated it.',
   player_preference: 'An explicit out-of-character preference about play style, pacing, boundaries, or how the Keeper should interact.',
   keeper_correction: 'An explicit Keeper correction or retraction of a prior durable claim, linked only to the occurrence it corrects.',
@@ -243,7 +243,7 @@ function kindBatch(packet: Packet, segment: Segment, index: number): Omit<Decisi
 function annotationQuestions(packet: Packet, segment: Segment, index: number, kind: Kind, kindIndex: number): DecisionBatch['questions'] {
   const subjects = subjectCatalog(packet, kind), knowers = knowerCatalog(packet), entities = entityCatalog(packet);
   const questions: DecisionBatch['questions'] = [
-    q(`subject_${index}_${kindIndex}`, `${segment.alias} ${kind} subject`, 'Select the issued semantic name that owns this annotation. Choose uncertainty when the exact source does not support attribution.',
+    q(`subject_${index}_${kindIndex}`, `${segment.alias} ${kind} subject`, 'Select the issued semantic name that owns this annotation. For relationship, choose the person whose view of the other person is described, not automatically the person who performed an action. Choose uncertainty when the exact source does not support attribution.',
       {...Object.fromEntries(subjects.map(row => [row.alias, {name: row.name, kind: row.kind}])),
         [UNCERTAIN_ATTRIBUTION]: 'The exact source does not support assigning an issued subject safely.'}),
     q(`privacy_${index}_${kindIndex}`, `${segment.alias} ${kind} audience`, 'Classify the minimum safe audience.',

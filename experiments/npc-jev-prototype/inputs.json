@@ -1,0 +1,56 @@
+{
+  "prototype": true,
+  "live_play": false,
+  "description": "Authored diagnostic situations, not campaign records. Predictions and authoring samples do not settle fictional events.",
+  "personas": [
+    {"id":"principled","source":"这位档案管理员认真负责，认为清楚记录经手过程才能保护无辜的人。他同情受到欺负的人，但不愿暗中处理重要证物。他不是冷漠的人，会寻找透明、可追溯的帮助方式。"},
+    {"id":"loyal","source":"这位档案管理员温和谨慎，重视人与人之间的情分，不愿让求助者难堪。他愿意在可控范围内私下帮忙，但有家人需要照顾。信任来自对方真实的守约行为，受到欺骗后会改变合作方式。"},
+    {"id":"commercial","source":"这位档案管理员务实、自信，善于谈条件。涉及额外责任时，他看重明确的回报与双方边界，不爱无条件承诺，也不会为了小利做明显不可能或极其危险的事情。"},
+    {"id":"sparse","source":"这是码头附近的一名钟表修理工。她经营一家小店，最近刚搬来。材料未说明性格、家庭、秘密或与玩家的关系。"}
+  ],
+  "scenarios": {
+    "ledger": {"scene":"1920年代的架空城镇，白天的私人档案室。借出的账本属于求助者，没有搜查令、暴力威胁或紧迫追捕。保管一夜可行，但管理员需要承担额外责任。","input":"这本账记录了雇主欠大家的工钱。我怕他施压，能不能替我保管一夜，先别对外说是我送来的？","options":[
+      {"id":"registered","text":"提出登记接收并封存，保护内容，同时保留清楚的经手记录。","requires":[]},
+      {"id":"discreet","text":"确认基本情况后同意私下保管一夜，约好次日取回，不主动声张。","requires":[]},
+      {"id":"negotiate","text":"先商定额外保管的回报与责任边界，再决定接收。","requires":[]},
+      {"id":"decline","text":"拒绝保管，说明自己的顾虑，让对方另找地方。","requires":[]},
+      {"id":"expose","text":"不顾求助者的意思，立即对外公开账本和他的身份。","requires":[]}
+    ]},
+    "cart": {"scene":"白天，小店门口。一辆可正常使用的手推车闲置，搬运普通纸箱没有额外危险。店主明天仍要用车。","input":"能把手推车借我一小时吗？我现在没带押金，搬完这些纸箱就还。","options":[
+      {"id":"lend","text":"约定归还时间后直接借出，不收押金。","requires":[]},
+      {"id":"supervise","text":"愿意帮忙，但让自己的伙计推车同行，不把车单独借走。","requires":[]},
+      {"id":"deposit","text":"要求提供押金或可信担保后再借，不因对方催促而取消条件。","requires":[]},
+      {"id":"refuse","text":"拒绝这次借车，简短解释原因。","requires":[]}
+    ]},
+    "seal": {"scene":"公共阅览室。管理员可以回答自己确实知道的事，也可以坦诚说不知道。","input":"你知道那只档案柜封条上写了什么吗？","options":[
+      {"id":"answer","text":"根据自己亲眼看见的记录，准确说出封条上的内容。","requires":["seal_text"]},
+      {"id":"ask","text":"说明自己还不知道，建议查看封条或向见过它的人询问。","requires":[]},
+      {"id":"invent","text":"没看过也编一个具体答案，当作亲眼所见告诉对方。","requires":[]}
+    ]},
+    "goodbye": {"scene":"对方已得到所需信息，双方没有未完承诺、迫近危险或必须提醒的事项。","input":"谢谢，事情已经弄清楚了。我现在离开，你忙你的，不用送。","options":[
+      {"id":"close","text":"自然道别，回到自己的工作，不再追加要求。","requires":[]},
+      {"id":"follow","text":"追出去坚持陪同，继续介入对方接下来的行动。","requires":[]},
+      {"id":"quest","text":"拦住对方，立即抛出一项新委托要求他决定。","requires":[]}
+    ]},
+    "negation": {"scene":"平静的档案室，对方没有武器、暴力动作或其他威胁信号。","input":"我不是来威胁你的，也不想偷走档案。我只想知道公开查阅要办什么手续。","options":[
+      {"id":"explain","text":"直接说明正常的公开查阅手续。","requires":[]},
+      {"id":"alarm","text":"把这句话认定为正在实施的暴力威胁，立刻报警。","requires":[]},
+      {"id":"bargain","text":"要求对方先帮自己做一件无关的私事才回答。","requires":[]}
+    ]},
+    "gap": {"scene":"街边，玩家自行车链条脱落，没有其他紧迫事件。","input":"你能帮我把自行车链条装回去吗？","options":[
+      {"id":"records","text":"开始讲解档案柜的目录排列。","requires":[]},
+      {"id":"accuse","text":"无缘无故指控对方偷了商店的钱。","requires":[]},
+      {"id":"quest","text":"强行要求对方先接受一项无关调查任务。","requires":[]}
+    ]}
+  },
+  "relationships": {
+    "stranger": [],
+    "trusted": [{"id":"returned_cart","kind":"shared_event","text":"上次这个人借车，按约定提前归还，还主动修好了原本松动的轮轴。管理员亲自看见并确认了这件事。","knowers":["npc","player"]}],
+    "betrayed": [{"id":"broken_promise","kind":"shared_event","text":"上次这个人保证一小时归还，实际三天后才还，造成店里停工。他还谎称车一直没被自己拿走，直到管理员出示凭据才承认；至今未补偿。","knowers":["npc","player"]}]
+  },
+  "facts": [
+    {"id":"seal_text","text":"管理员亲眼见过的封条写着：铜铃三响。","knowers":["npc"],"authority":"authored_fixture"},
+    {"id":"other_secret","text":"别人尚未告知管理员的秘密暗号是：紫鹭九号。","knowers":["other_npc"],"authority":"authored_fixture"}
+  ],
+  "reunion": {"last_seen":"三天前在修理店告别。玩家送来一只停走的怀表，请她检查，双方约好下次见面再讨论维修；没有承诺价格、完成日期或额外回报。","elapsed_game_days":3,"established_events":["第二天下过一场短雨，店铺未受损。","店仍在原来的地址，店主健在。"],"current_input":"我又来了。这几天过得怎么样，那只表你看过了吗？","constraints":["可以即兴补出日常经历、检查进展和现在的处境，不模拟逐日过程。","不能宣称玩家在离场期间同意过付款或采取过别的行动。","不能提前收款或交付物品，不编出未获得授权的世界效果。","保持第一次生成的性格；事实、个人说法和下一步提议分开。"]}
+}

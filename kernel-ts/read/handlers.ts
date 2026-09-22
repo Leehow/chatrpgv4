@@ -207,7 +207,7 @@ async function requireNoTransition(campaign: CampaignSnapshot, contributions: Re
 async function present(campaign: CampaignSnapshot, module: LoadedModule): Promise<Row[]> {
     const { graph } = module,
         scene = graph.scene(campaign.world.active_scene);
-    return presentSection(graph, campaign.world, scene, row(campaign.jsonFiles.get("npc-ledger.json")), campaign.logs.get("memory/candidates.jsonl") ?? [], () => [], { campaign:campaign.id, currentReceipts:array(campaign.turn.receipts), journal: row(campaign.jsonFiles.get("npc-journal.json")), records: await campaign.files("turns") });
+    return presentSection(graph, campaign.world, scene, row(campaign.jsonFiles.get("npc-ledger.json")), campaign.logs.get("memory/candidates.jsonl") ?? [], () => [], { campaign:campaign.id, currentReceipts:array(campaign.turn.receipts), journal: row(campaign.jsonFiles.get("npc-journal.json")), records: await campaign.files("turns"), scope:{worldline:campaign.meta.active_worldline??'main',loop:number(row(row(campaign.meta.worldlines)[string(campaign.meta.active_worldline||'main')]).loop)} });
 }
 /** The player's NPC notebook: newest-seen first, at most six exchanges each, newest first. The journal never
  *  stores death; `dead_since_turn` is merged from the ledger, the sole truth, at projection time. */
@@ -378,7 +378,7 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
                 }
                 catch { /* A derived cache that cannot be read says nothing about what the player was told. */
                 }
-                return npcView(graph, world, graph.npc(required(params, "name")), ledger, journal, await campaign.files("turns"));
+                return npcView(graph, world, graph.npc(required(params, "name")), ledger, journal, await campaign.files("turns"), await campaign.log("memory/candidates.jsonl"), {worldline:campaign.meta.active_worldline??'main',loop:number(row(row(campaign.meta.worldlines)[string(campaign.meta.active_worldline||'main')]).loop)});
             }
             if (focus === "investigator") {
                 campaign.party = await campaign.files("party");

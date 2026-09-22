@@ -47,6 +47,7 @@ test("the public vocabulary and error frames match the locked Python reference",
   assert.equal(reference.python, "3.14.6");
   const currentOnly = new Set(["table.release", "table.switch", "table.workspace.read", "table.maps", "setup.override", "mods.queued", "mods.review.status", "setup.note", "journal.job", "journal.submit", "journal.fail",
     "voice.job", "voice.submit", "voice.fail",
+    "npc.job", "npc.submit", "npc.fail", "npc.perspective", "npc.perspectives", "npc.responses.job", "npc.responses.submit",
     "adaptation.prepare", "adaptation.status", "adaptation.draft", "adaptation.review", "adaptation.fail", "adaptation.cancel",
     "mods.prefetch.accept", "mods.prefetch.targets", "module.read.unwait",
     "memory.evidence", "memory.source", "module.source.answer.peek", "module.source.snapshot", "table.apply.options",

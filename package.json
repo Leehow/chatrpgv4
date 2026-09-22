@@ -16,6 +16,7 @@
       "./extensions/onboarding",
       "./extensions/module",
       "./extensions/memory",
+      "./extensions/npc",
       "./extensions/table",
       "./extensions/npc-journal",
       "./extensions/npc-voice",

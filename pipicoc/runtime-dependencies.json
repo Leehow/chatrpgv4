@@ -86,6 +86,7 @@
     "build/extensions/table/index.mjs",
     "build/extensions/npc-journal/index.mjs",
     "build/extensions/npc-voice/index.mjs",
+    "build/extensions/npc/index.mjs",
     "build/extensions/deepseek/agent/index.mjs",
     "build/extensions/image-gen/agent/index.mjs",
     "build/extensions/grok-build-oauth/agent/index.mjs",

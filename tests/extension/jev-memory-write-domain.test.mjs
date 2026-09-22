@@ -173,13 +173,13 @@ test("reference-first domain publishes two occurrence-specific promises without 
 	assert.deepEqual(run.record.decisions.map(row => row.result.status), ["complete", "complete", "complete", "complete", "complete"]);
 });
 
-test("v3 issues attribution, the complete semantic name catalog, and exact kind and occurrence-relation policy", async () => {
+test("v4 issues directed relationship attribution, the complete semantic name catalog, and exact kind and occurrence-relation policy", async () => {
 	const ooc = segment("player:0", "player", "Please remember my play preference: ask clearly before accepting a commission, and do not prompt my next action.");
 	const issued = packet({ segments: [ooc], step: { key: "ooc-policy", sequence: 0, total: 1, remaining: 1, segments: [ooc] } });
 	const run = await runDomain({ packets: [issued] });
 	assert.equal(createMemoryWriteDomain().version, MEMORY_WRITE_POLICY_VERSION);
-	assert.equal(MEMORY_WRITE_POLICY_VERSION, "3");
-	assert.ok(run.calls.every(call => call.familyVersion === "3"));
+	assert.equal(MEMORY_WRITE_POLICY_VERSION, "4");
+	assert.ok(run.calls.every(call => call.familyVersion === "4"));
 
 	const kinds = run.calls.find(call => call.family === "memory-write-kinds");
 	assert.ok(kinds);
@@ -191,7 +191,7 @@ test("v3 issues attribution, the complete semantic name catalog, and exact kind 
 		world_event: "A durable event or changed condition in the shared fiction; not a speaker's knowledge, belief, preference, correction, or promise.",
 		knowledge: "A durable proposition known in fiction by one or more issued knowers; attribution to a knower is required.",
 		belief: "An attributed in-fiction epistemic stance that may be accurate, uncertain, or distorted; an out-of-character preference or instruction is not a belief.",
-		relationship: "A durable in-fiction relationship state between the subject and exactly one issued entity.",
+		relationship: "A durable directed in-fiction relationship: the subject is the person whose view or cooperation toward exactly one other issued person is established or changed. Preserve the specific shared event or explicit stance; courtesy alone is insufficient, a promise is not its fulfillment, and the reverse person's feelings are not implied.",
 		player_assertion: "A durable player claim about the fiction, character, or campaign state; an out-of-character play or style preference is not an additional assertion merely because the player stated it.",
 		player_preference: "An explicit out-of-character preference about play style, pacing, boundaries, or how the Keeper should interact.",
 		keeper_correction: "An explicit Keeper correction or retraction of a prior durable claim, linked only to the occurrence it corrects.",

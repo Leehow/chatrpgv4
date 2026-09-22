@@ -1020,6 +1020,8 @@ export default function (pi: ExtensionAPI) {
 	pi.events.on('coc:native-source-consult', value => { nativeSource = typeof value === 'function' ? value as typeof nativeSource : undefined; });
 	let memorySearch: ((request: {campaign: string; toolCallId: string; query: string; filters: Record<string, unknown>}, signal?: AbortSignal) => Promise<Record<string, any>>) | undefined;
 	pi.events.on('coc:typed-memory-search', value => { memorySearch = typeof value === 'function' ? value as typeof memorySearch : undefined; });
+	let npcAdvice: {evaluate(request:{campaign:string;name?:string;signal?:AbortSignal;providerBudget?:TaskProviderBudget}):Promise<Record<string,unknown>>}|undefined;
+	pi.events.on('coc:npc-bridge',value=>{npcAdvice=value&&typeof (value as any).evaluate==='function'?value as typeof npcAdvice:undefined;});
 	/** Contract §28.9: the build-skew notice is the operator's, once per session, not once per reopen. */
 	let modSkewNotified = false;
 	pi.events.on("coc:reading-bridge", (value) => {
@@ -2494,6 +2496,9 @@ export default function (pi: ExtensionAPI) {
 		// before the payload exists, so Mod hooks, admission and the kernel never see it. What
 		// survives here is a binding to the call-start snapshot or nothing; either way the delivery
 		// below is byte-identical and no model round is ever spent on a dropped draft.
+		const evaluateResponses=spec.name==='look'&&params.evaluate_responses===true;
+		if(evaluateResponses&&params.focus!=='npc')throw new KernelError({code:'invalid_params',message:'evaluate_responses requires focus npc'});
+		delete params.evaluate_responses;
 		const workpadRaw = takeWorkpadPatch(spec.name, params);
 		let workpad: WorkpadBinding | undefined;
 		if (workpadRaw !== undefined) {
@@ -2685,6 +2690,10 @@ export default function (pi: ExtensionAPI) {
 			}
 			// A call that came back is proof the history store answered: the commit streak ends here
 			// (contract §38.11), not at a turn boundary.
+			if(evaluateResponses){
+				try{result.response_advice=npcAdvice?await npcAdvice.evaluate({campaign:state.campaign,...(typeof params.name==='string'?{name:params.name}:{}),signal,providerBudget}):{status:'unavailable',reason:'npc_host_unavailable'};}
+				catch{result.response_advice={status:'unavailable',reason:'npc_decision_unavailable'};}
+			}
 			state.commitOutage = undefined;
 			state.commitOutageNotified = false;
 			await record({
