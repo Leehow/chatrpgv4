@@ -7,6 +7,8 @@ import {join} from 'node:path';
 import modsExtension from '../../extensions/mods/index.ts';
 import {registerModsPanel} from '../../pipicoc/mods.ts';
 import {readerCommand} from '../../extensions/module/reader.ts';
+// These cases pin the pre-delivery gate (§36.14, §26.1, §91), which §130 keeps whole as the `pre` mode.
+process.env.PI_COC_CONTINUITY_GATE = 'pre';
 
 function piSurface() {
   const hooks = new Map();

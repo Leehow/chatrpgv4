@@ -135,6 +135,13 @@ export class AuditBudget {
         }
         this.state.reviewed_jobs[job] = verdict; this.save();
     }
+    /**
+     * Contract §130.6: a post-delivery verdict is recorded and nothing more. There is no Keeper rewrite
+     * chain behind it for `max_rewrites` to bound, and no delivery left for a latched verdict to hold.
+     */
+    record(job: string, verdict: string) {
+        this.state.reviewed_jobs[job] = verdict; this.save();
+    }
     fail(cause: string, service = true, reviewed = false): never {
         this.state.blocked = cause; this.state.blocked_service = service; this.state.blocked_reviewed = reviewed; this.save();
         throw reviewUnavailable(cause, service, reviewed);
