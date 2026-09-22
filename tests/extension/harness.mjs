@@ -231,6 +231,14 @@ export async function openTable({
 	 * `session.emit` from a test runs long after the table is open.
 	 */
 	extraExtensions = [],
+	/** The session's own system prompt, as `--system-prompt` gives it (prompts/keeper.md in the product). */
+	systemPrompt,
+	/**
+	 * A preamble the transcript already recorded before this process opened it -- the setup guide's,
+	 * when setup and play share one session file (contract §128.1). Seeded as the persisted system
+	 * checkpoint Pi 0.87 writes, so the session resumes on it exactly as the installed App does.
+	 */
+	priorSystemPrompt,
 } = {}) {
 	const workspace = mkdtempSync(join(retainAt ?? tmpdir(), "pi-coc-ext-"));
 	const requestLog = join(workspace, "kernel-requests.jsonl");
@@ -301,10 +309,15 @@ export async function openTable({
 	});
 	// 会话条目由 sessionManager 保管：测试从这里读 `coc-mechanics`（契约 §16.2）。
 	const sessionManager = SessionManager.inMemory();
+	if (priorSystemPrompt !== undefined) {
+		sessionManager.appendMessage({ role: "system", content: "",
+			sections: { preamble: priorSystemPrompt, cwd: `<cwd>\n${workspace}\n</cwd>` }, timestamp: Date.now() });
+	}
 	const resourceLoader = new DefaultResourceLoader({
 		cwd: workspace,
 		agentDir: join(workspace, "agent"),
 		settingsManager,
+		...(systemPrompt !== undefined ? { systemPrompt } : {}),
 		additionalExtensionPaths: [
 			join(REPO, "extensions", "kernel"),
 			join(REPO, "extensions", "onboarding"),

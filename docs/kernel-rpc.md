@@ -8031,7 +8031,7 @@ Nothing semantic is checked in code: no "generic" detector, no language detector
 
 **The voice guard (2026-09-15).** When the packet carries the book's `voice`, the lane makes a second zero-tool call that reads the two lines against that one-line description — register only: manner, temper, volume — and answers `{honours, why}`. `false` sends the lines back to the writing call once with the objection; whatever the rewrite brings is filed. One bounce, never a gate, and a judge that cannot answer waives. Telemetry `voice_check: passed | rewritten | rewrite_failed | waived` on the person's row. The lane instruction (`content/setup/npc-voice.md`) also changed the same day: the strained line is the person's own way of handling strain, decided by `fears`/`hides`/`voice` and their station rather than one fixed situation, an exclamation mark is not a register, and no other person's name may appear in a line (the packet's names are the book's, in the book's language).
 
-**The host speech steer (§40, 2026-09-15).** On an implicit delivery with people in the capsule's `present[]` and no `{{say:` in the draft, the host drops the draft once and asks for the same turn with its lines wrapped (`coc-host` kind `speech`, telemetry `{lane: "speech", steered: true, present}`); the second leg is honoured however it comes and a second leg that brings nothing falls back to the dropped draft, exactly as the turn-floor steer of §34. The opening is exempt, and `PI_COC_SPEECH_STEER=0` disables the steer for an experiment's control arm. Nothing reads the prose: a machine token is searched for. Reason: on `deepseek-flash` the Keeper wrapped 29% of lines and closed 17 of 20 turns implicitly; the token was a suggestion it forgot after the opening.
+**The host speech steer (§40, 2026-09-15).** On an implicit delivery with people in the capsule's `present[]` and no `{{say:` in the draft, the host drops the draft once and asks for the same turn with its lines wrapped (`coc-host` kind `speech`, telemetry `{lane: "speech", steered: true, present}`); the second leg is honoured however it comes and a second leg that brings nothing falls back to the dropped draft, exactly as the turn-floor steer of §34. The opening is exempt (§128.2 adds a second form, not exempt at the opening: a draft that wraps some lines and leaves passages in the same quotation marks outside every token), and `PI_COC_SPEECH_STEER=0` disables the steer for an experiment's control arm. Nothing reads the prose: a machine token is searched for. Reason: on `deepseek-flash` the Keeper wrapped 29% of lines and closed 17 of 20 turns implicitly; the token was a suggestion it forgot after the opening.
 
 ### 40.6 Prompt bytes
 
@@ -15166,3 +15166,61 @@ The module owner already records where a module came from (`module.json` `source
 The reason travels unchanged through the extension's source refusal rewrite (which only rewrites `reading_failed`/`reading_timeout`) and the tool projection, so the Keeper reads `no_source_document` and its fix, never the bind instruction. The tool description states this as a conditional ("a module without an original document answers no_source_document"), not as an untimed claim that source reading is unavailable.
 
 Out of scope: whether the Keeper should have looked anything up at all when Jev preload had already delivered the same entity is an adoption question (§31 third end), not a lookup defect.
+## 128. A spoken line reaches the Keeper's rule and the Keeper's rule reaches the line (2026-09-22, amends §40.5)
+
+Evidence: installed App, KP `grok-build/grok-4.7-build-fast` low, starter `the-haunting`, `zh-Hans`, campaign
+`game-21ac44b7-5f91-41a5-8ea7-9faf5b801a29`. Turn 0 (the opening) placed no say token and Steven Knott's two
+lines reached the player as narration; turn 1 wrapped the investigator's line and left Knott's reply about the
+Macario family in the same 「」 outside any token; turn 2 wrapped Knott. The verifier reported `unmarked_speech`
+on turns 0 and 1 after they were delivered (§40.3), which is a warning for the next turn, not a repair of this one.
+
+### 128.1 A host-started run reads the session's prompt from its first request
+
+Root cause of turn 0. Pi 0.87 keeps the system prompt in the transcript as system messages with named
+`sections`, and a request replays them. `prompt()` re-diffs the sections before its first request and the
+next-turn refresh re-diffs them before every later one, but a run started by `pi.sendMessage(…, {triggerTurn:
+true})` reaches its first request with neither. PipiCOC runs setup and play in one session file: the setup
+process records `prompts/setup.md` as the preamble, and the play process that opens the file with
+`prompts/keeper.md` starts the opening (and a recovery) with a `coc-host` message. The opening's first request
+therefore carried the setup guide's preamble -- no four laws, no say rule -- while the tool descriptions were
+already the Keeper's; the session log shows the preamble changing to the Keeper prompt only after that
+request's `look`/`resolve` (`system_bytes` 71754 → 88825 between `prescreen:0:1` and `prescreen:0:2`).
+
+The kernel extension (play mode only) handles `context_with_system`, the public hook that owns one request's
+system messages. When the prompt the transcript replays differs from the event context's `getSystemPrompt()`,
+the request is sent in the shape Pi uses for a forced prompt: one leading system message holding the current
+prompt and the replayed tool declarations, later system messages folded into it. Nothing is persisted; Pi's own
+refresh writes the durable section patch on the next request of the run. Telemetry `{lane: "prompt", event:
+"stale_prompt_replaced", requests}` per patched request. No Pi source is patched or forked
+(`docs/pi-host-contract.md`). Test: `tests/extension/host-run-prompt.test.mjs` seeds the setup-era checkpoint
+and reads the prompt the provider received.
+
+### 128.2 A wrapped draft that leaves lines in the same marks outside is steered once
+
+Root cause of turn 1: §40.5's steer looks for the absence of `{{say:`, so a draft that wraps one line and leaves
+the rest was never steered. The steer now also fires when a passage in quotation marks this table writes
+speech with lies outside every say span of the draft. "The same marks" is structural and learned, never
+listed: §40.1 keeps the play language's marks inside the token, so the first and last characters of a wrapped
+line, when both have Unicode's `Quotation_Mark` property, are a pair this table writes speech with. Pairs come
+from the draft's own spans and from `speech[].text` of the deliveries this session already made. A pair whose
+two characters are the same (a straight `"`) pairs consecutive occurrences within a paragraph; a directional
+pair counts nesting; an unclosed mark reports nothing; mechanics markers are ignored. Implementation:
+`extensions/kernel/unwrapped-speech.ts`.
+
+- Nothing decides who speaks, whether a passage is speech, or what language it is. A quoted word, title or
+  sign in the same marks is reported too, so the steer names the passages (≤ 4 excerpts of ≤ 40 characters),
+  restates the §40.1 rule, and says a quoted word, name, title, sign or document text is not a line and stays
+  as it is.
+- Same budget and shape as §40.5: once per turn, implicit deliveries only, the second leg honoured however it
+  comes, `PI_COC_SPEECH_STEER=0` disables both. Telemetry adds `reason: "no_token" | "unwrapped_quote"` and,
+  for the latter, `unwrapped` (the passage count).
+- **The opening is no longer exempt from this form.** The host has no capsule for the opening, so `present[]`
+  is unknown and the no-token form stays exempt there; a draft that wraps a line shows by itself that someone
+  speaks.
+- Not changed: an explicit `narrate` is not steered or refused for speech (§40.1 ruling: mandatory marking is
+  enforced by the prompt, the verifier finding and telemetry, never by refusal). Its lines are covered by
+  §128.1 and by the verifier's `unmarked_speech`. The kernel's token repair (§40.1) is unchanged.
+
+Tests: `tests/extension/unwrapped-speech.test.mjs` (the real turn-1 text, learned pairs, straight/curly/
+guillemet marks, nesting, unclosed, excerpts), `tests/extension/turn.test.mjs` (partial draft steered once,
+marks-free spans not steered, pairs learned from an earlier delivery, the opening).

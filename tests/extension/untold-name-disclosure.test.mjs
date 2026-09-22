@@ -30,7 +30,7 @@ test('the base Keeper prompt keeps untold speaker titles in the player perspecti
   assert.ok(prompt.includes('establish a stable epithet with `apply person`'));
   assert.ok(prompt.includes('until the fiction introduces their name'));
   const host = await readFile(new URL('../../extensions/kernel/index.ts', import.meta.url), 'utf8');
-  const steer = host.slice(host.indexOf('const SPEECH_STEER ='), host.indexOf('let table: TableState'));
+  const steer = host.slice(host.indexOf('const SPEECH_RULE ='), host.indexOf('let table: TableState'));
   assert.ok(steer.includes('present[].name or called.name'));
   assert.ok(steer.includes('For an untold person'));
   assert.ok(steer.includes('apply person'));
