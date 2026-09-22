@@ -5,6 +5,12 @@ export const API_KEY_ENV = 'EXT_JEV_APIKEY';
 export const SETTINGS_ENV = 'PIPIUI_EXT_SETTINGS_JEV';
 export const PRESELECT_KEY = 'ext.jev.preselectEnabled';
 export const PRESELECT_CLI_ENV = 'PI_COC_JEV_PRESELECT';
+export const PRESELECT_ALLOWANCE_KEY = 'ext.jev.preselectAllowanceMs';
+export const PRESELECT_ALLOWANCE_CLI_ENV = 'PI_COC_JEV_PRESELECT_ALLOWANCE_MS';
+/** One per-input optional preparation allowance (contract §124.10); measured, never a player-facing SLA. */
+export const PRESELECT_ALLOWANCE_DEFAULT_MS = 12000;
+export const PRESELECT_ALLOWANCE_MIN_MS = 2000;
+export const PRESELECT_ALLOWANCE_MAX_MS = 30000;
 
 const text = value => typeof value === 'string' && value.trim() ? value.trim() : undefined;
 const managed = env => env.PIPIUI_SPAWN_CONTRACT !== undefined || env.PIPIUI_HOST_PROTOCOL !== undefined;
@@ -33,6 +39,14 @@ export function readJevPreselectEnabled(env = process.env) {
   if (env[PRESELECT_CLI_ENV] === '1') return true;
   if (env[PRESELECT_CLI_ENV] === '0') return false;
   return settings(env)[PRESELECT_KEY] === true;
+}
+
+/** Managed sessions obey their mounted settings; only source CLI accepts the explicit development override. */
+export function readJevPreselectAllowanceMs(env = process.env) {
+  const configured = managed(env) ? settings(env)[PRESELECT_ALLOWANCE_KEY]
+    : env[PRESELECT_ALLOWANCE_CLI_ENV] !== undefined ? Number(env[PRESELECT_ALLOWANCE_CLI_ENV]) : settings(env)[PRESELECT_ALLOWANCE_KEY];
+  if (typeof configured !== 'number' || !Number.isFinite(configured)) return PRESELECT_ALLOWANCE_DEFAULT_MS;
+  return Math.min(PRESELECT_ALLOWANCE_MAX_MS, Math.max(PRESELECT_ALLOWANCE_MIN_MS, Math.round(configured)));
 }
 
 /** Safe for status/UI output: never returns the secret or its fragments. */

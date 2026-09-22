@@ -23,6 +23,14 @@
             "default": false,
             "title": "Enable Jev context preselection",
             "description": "Supply selected private context before Keeper requests. Requires a configured TypeSafe API key."
+          },
+          "ext.jev.preselectAllowanceMs": {
+            "type": "integer",
+            "default": 12000,
+            "minimum": 2000,
+            "maximum": 30000,
+            "title": "Jev preselection time budget (ms)",
+            "description": "Optional preparation time per player input, shared by locating, reading and checking material. It adds to the player's wait and is recorded in telemetry."
           }
         }
       }

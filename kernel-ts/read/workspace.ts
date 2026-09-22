@@ -9,7 +9,7 @@ import type { CampaignSnapshot } from "./campaign.js";
 import { contextBinding } from "./context.js";
 import { readCampaign } from "./handlers.js";
 import { array, number, row, string, type Row } from "./values.js";
-import {graphMaterialCandidates, sourceReference, workspaceNodes, WORKSPACE_ADAPTER} from './workspace-candidates.js';
+import {entityIndex, graphMaterialCandidates, PRIORITY_LIMIT, sourceReference, workspaceNodes, WORKSPACE_ADAPTER} from './workspace-candidates.js';
 import {RuleObservations} from './rule-facts.js';
 import {prescreenCatalog} from './prescreen-catalog.js';
 import {Catalog, moduleSpellRecords} from '../rules/catalog.js';
@@ -181,16 +181,19 @@ function recordReferences(records: readonly Row[], scope: Row, source: string, m
 
 function v2Request(value: unknown): Row | null {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-    const request = row(value), allowed = ['version', 'mode', 'keys', 'cursor', 'limit', 'entity'];
+    const request = row(value), allowed = ['version', 'mode', 'keys', 'cursor', 'limit', 'entity', 'priority'];
     if (Object.keys(request).some(key => !allowed.includes(key)) || number(request.version) !== MATERIAL_VIEW_VERSION
-        || !['catalog', 'read', 'check'].includes(string(request.mode)))
-        throw new RpcError('invalid_params', 'preselect v2 requires mode catalog, read or check and only supported fields');
+        || !['catalog', 'read', 'check', 'index'].includes(string(request.mode)))
+        throw new RpcError('invalid_params', 'preselect v2 requires mode catalog, read, check or index and only supported fields');
     if (request.keys !== undefined && (!Array.isArray(request.keys) || request.keys.some(key => typeof key !== 'string' || !key)))
         throw new RpcError('invalid_params', 'preselect v2 keys must be nonempty strings');
     if (request.mode === 'read' && !array(request.keys).length)
         throw new RpcError('invalid_params', 'preselect v2 read requires at least one issued key');
     if (request.entity !== undefined && (request.mode !== 'catalog' || typeof request.entity !== 'string' || !request.entity.trim()))
         throw new RpcError('invalid_params', 'preselect entity requires a nonempty semantic handle in catalog mode');
+    if (request.priority !== undefined && (!['catalog', 'read'].includes(string(request.mode)) || !Array.isArray(request.priority) || request.priority.length > PRIORITY_LIMIT
+        || request.priority.some(name => typeof name !== 'string' || !name.trim())))
+        throw new RpcError('invalid_params', `preselect priority requires at most ${PRIORITY_LIMIT} nonempty semantic handles in catalog or read mode`);
     return request;
 }
 
@@ -232,7 +235,9 @@ export async function workspaceRead(context: KernelContext, params: Row): Promis
         ok: true, kinds: [], candidates: [], truncated: false, unresolved_family_parameters: []};
     let dependencyUnavailable: string | null = null;
     const query = string(params.query || campaign.turn.player_text);
-    if (materialRequest) {
+    // The index is query-independent graph/rule navigation; it reads no memory, ledger or catalog owner.
+    const indexOnly = materialRequest?.mode === 'index';
+    if (materialRequest && !indexOnly) {
         try {
             [memoryRows, npcLedger, npcJournal] = await Promise.all([
                 campaign.log('memory/candidates.jsonl'), campaign.optional('npc-ledger.json').then(row), campaign.optional('npc-journal.json').then(row),
@@ -267,7 +272,7 @@ export async function workspaceRead(context: KernelContext, params: Row): Promis
         .map(record => ({turn: record.turn, commit: record.commit ?? null, id: record.id ?? null, player: record.player_text ?? null, keeper: record.rendered_text ?? null})));
     const actual: Binding = { campaign: campaign.id, worldline, loop, turn: number(campaign.turn.turn), source_revision: source,
         stateStamp: dynamic, generation: module.generation, scene, rules_revision: rulesRevision, adapter: WORKSPACE_ADAPTER,
-        ...(materialRequest ? {memory_revision: jsonDigest(memoryRows), npc_revision: jsonDigest({ledger: npcLedger, journal: npcJournal}),
+        ...(materialRequest && !indexOnly ? {memory_revision: jsonDigest(memoryRows), npc_revision: jsonDigest({ledger: npcLedger, journal: npcJournal}),
             records_revision: recordsRevision, catalog_revision: jsonDigest(catalogSnapshot)} : {}) };
     if (!source || !dynamic) return unavailable("source or state binding is unavailable");
     const expected = expectedBinding(params), changes = materialRequest
@@ -290,13 +295,33 @@ export async function workspaceRead(context: KernelContext, params: Row): Promis
             materials: {version: MATERIAL_VIEW_VERSION, candidates: [], coverage: {},
                 check: {status: 'current', changed: [], keys: array(materialRequest.keys), dependencies: [...materialDependencies(array(materialRequest.keys))]}}};
     }
+    if (materialRequest?.mode === 'index') {
+        // Query-independent closed index for a semantic locate (contract §124.10). No candidates are built.
+        const entities = entityIndex(module.graph), ruleCards: Row[] = [];let rulesTotal = 0;
+        if (rules) for (const node of rules.nodes.values()) {
+            if (node.node_kind !== 'rule') continue;
+            rulesTotal++;
+            if (ruleCards.length < 512) ruleCards.push({name: string(node.node_id), label: string(node.name || node.node_id),
+                family: string(row(node.properties).family_id || '')});
+        }
+        return {version: 1, status: 'valid', binding: actual,
+            source: {available: true, revision: source, authority: 'module_source', generation: module.generation},
+            authority: {checked: true, allowed: [...AUTHORITIES], scope},
+            materials: {version: MATERIAL_VIEW_VERSION, candidates: [], coverage: {}, index: {entities: entities.entities,
+                rules: ruleCards, entities_total: entities.total, rules_total: rulesTotal,
+                omitted: {entities: entities.omitted, rules: Math.max(0, rulesTotal - ruleCards.length)},
+                rules_available: Boolean(rules && rulesRevision)}}};
+    }
     const names = array(params.names).filter(value => typeof value === 'string').slice(0, 16);
     const ruleNames = array(params.rules).filter(value => typeof value === 'string').slice(0, Math.min(8, Math.floor(limit / 4)));
     const ruleRefs = rules && rulesRevision ? ruleNames.map(name => ruleReference(rules!, name, scope, source, rulesRevision!)).filter((ref): ref is Row => Boolean(ref)) : [];
     const records = recordReferences(campaign.records, scope, source).slice(-Math.min(RECORD_SLOTS, Math.floor(limit / 4)));
     const discoveryLimit=materialRequest?MAX_MATERIAL_DISCOVERY:limit;
+    const priority = materialRequest && Array.isArray(materialRequest.priority) ? materialRequest.priority.map(string) : [];
+    // The v2 material view never ranks graph discovery by the raw query string (contract §124.10).
     const pool = workspaceNodes(module.graph, {revision: source, scene, query: string(params.query || campaign.turn.player_text), names,
-        present: array(capsule.present).map(person => string(row(person).name)), limit: Math.max(0, discoveryLimit - records.length - ruleRefs.length)});
+        present: array(capsule.present).map(person => string(row(person).name)), limit: Math.max(0, discoveryLimit - records.length - ruleRefs.length),
+        priority, lexical: !materialRequest});
     const statics = [...ruleRefs, ...pool.nodes.map(node => sourceReference(module.graph, node, scope, source, scene,
         module.material(module.graph.handle(node)) === 'ready'))];
     const
@@ -336,7 +361,10 @@ export async function workspaceRead(context: KernelContext, params: Row): Promis
     if (!materialRequest) return result;
     const graphMaterials = coherentGraphMaterials(pool.nodes.map(node => graphMaterialCandidates(module.graph,node,scope,source,
         module.material(module.graph.handle(node))==='ready')));
-    const ruleMaterials = rules && rulesRevision ? lookupRules(rules, query, 8).flatMap(hit => {
+    // Rules the host names (semantic locate or prior Keeper reads) lead the rule owner's own query lookup.
+    const ruleHits = rules && rulesRevision ? [...ruleNames.map(name => ({name})), ...lookupRules(rules, query, 8)]
+        .filter((hit, index, all) => all.findIndex(other => string(other.name) === string(hit.name)) === index).slice(0, 12) : [];
+    const ruleMaterials = rules && rulesRevision ? ruleHits.flatMap(hit => {
         const name = string(hit.name), value = ruleReference(rules!, name, scope, source, rulesRevision!);
         if (!value) return [];
         const clause = rules!.nodes.get(name), body = value.body ?? pythonJsonDumps({rule: name,
@@ -401,6 +429,7 @@ export async function workspaceRead(context: KernelContext, params: Row): Promis
             memory: dynamicMaterials.filter(value => value.kind === 'memory').length, session: dynamicMaterials.filter(value => value.kind === 'session').length,
             catalog_record: array(catalogResult.candidates).length}), next: page.next};
     result.materials.coverage.graph_entity={...row(result.materials.coverage.graph_entity),entities_inspected:pool.inspected,
-        entities_addressable:pool.nodes.length,discovery_limit:MAX_MATERIAL_DISCOVERY};
+        entities_addressable:pool.nodes.length,discovery_limit:MAX_MATERIAL_DISCOVERY,
+        ranking:pool.priority.resolved?'semantic_locate':'structural',priority:pool.priority};
     return result;
 }

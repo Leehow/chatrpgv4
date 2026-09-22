@@ -2,19 +2,27 @@
 import {TaskLease} from './task-context.ts';
 import {createTaskProviderBudget,type TaskProviderBudget} from './provider-budget.ts';
 import type {DecisionPort} from './decision-port.ts';
-import {packDecisionBatch,JEV_MODEL} from './question-packing.ts';
+import {packDecisionBatch,JEV_MODEL,JEV_REQUEST_TOKEN_LIMIT} from './question-packing.ts';
 import {JEV_INPUT_USD_PER_MILLION} from './decision-adapter.ts';
+
+/**
+ * Per-input decision allowance shared by every optional preparation lane (contract §124.10). Token and cost
+ * figures bound reservations made from byte upper bounds; they are settled with provider-reported usage.
+ */
+export const PREPARATION_DECISION_BUDGET=Object.freeze({actions:24,inputTokens:1_200_000,outputTokens:80_000,costUsd:.08});
+export const preparationProviderBudget=():{actions:number;inputTokens:number;outputTokens:number;costUsd:number}=>({...PREPARATION_DECISION_BUDGET});
 
 export function preparationBudget(options:{decision:DecisionPort;campaign:string;deadlineAt:number;signal:AbortSignal;parent?:TaskProviderBudget}) {
     const signal=options.parent?AbortSignal.any([options.signal,options.parent.signal]):options.signal;
     const lease=new TaskLease({owner:'keeper-preparation',goal:'Prepare evidence and NPC intentions for one player input',
         scope:{owner:'keeper-preparation',campaign:options.campaign,audience:'keeper'},capabilities:['decision'],readSet:[],signal,
-        budget:{deadlineAt:Math.min(options.deadlineAt,options.parent?.deadlineAt??Infinity),remainingActions:8,
-            remainingInputTokens:400_000,remainingOutputTokens:40_000,remainingCostUsd:.04}});
+        budget:{deadlineAt:Math.min(options.deadlineAt,options.parent?.deadlineAt??Infinity),remainingActions:PREPARATION_DECISION_BUDGET.actions,
+            remainingInputTokens:PREPARATION_DECISION_BUDGET.inputTokens,remainingOutputTokens:PREPARATION_DECISION_BUDGET.outputTokens,
+            remainingCostUsd:PREPARATION_DECISION_BUDGET.costUsd}});
     const budget=createTaskProviderBudget(lease);
     const decision:DecisionPort={async decide(batch,child){
         const {estimate}=packDecisionBatch(batch),bound={model:{provider:'typesafe',id:JEV_MODEL,api:'typesafe-systemone',maxTokens:estimate.responseUpperBound,
-            contextWindow:32768,cost:{input:JEV_INPUT_USD_PER_MILLION,output:0,cacheRead:JEV_INPUT_USD_PER_MILLION,cacheWrite:JEV_INPUT_USD_PER_MILLION}},
+            contextWindow:JEV_REQUEST_TOKEN_LIMIT,cost:{input:JEV_INPUT_USD_PER_MILLION,output:0,cacheRead:JEV_INPUT_USD_PER_MILLION,cacheWrite:JEV_INPUT_USD_PER_MILLION}},
             inputTokens:estimate.totalUpperBound,outputTokens:estimate.responseUpperBound};
         const local=await budget.reserve(bound,child.signal);
         let parent:Awaited<ReturnType<TaskProviderBudget['reserve']>>|undefined;

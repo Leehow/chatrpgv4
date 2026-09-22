@@ -148,8 +148,12 @@ export async function runEvidenceAgent(input:EvidenceAgentOptions):Promise<Evide
             ||consistency?.status!=='answered'||consistency.type!=='choice'||!['clear','conflict','uncertain'].includes(consistency.choice))return finish('invalid_decision');
         assessment={coverage:coverage.choice as NonNullable<typeof assessment>['coverage'],
             consistency:consistency.choice as NonNullable<typeof assessment>['consistency']};
-        if(operation.choice==='finish')return finish(assessment.coverage==='sufficient'?'sufficient':'finish_partial');
         const selected=offered.find((_,index)=>operation.choice===`operation_${index+1}`);
+        // Every decision is observable, including finish, so "sufficient" and "gave up" stay distinguishable.
+        input.record?.({event:'loop_decision',round:rounds,choice:operation.choice==='finish'?'finish':selected?.label??'invalid',
+            tool:operation.choice==='finish'?'finish':selected?.tool??null,coverage:assessment.coverage,consistency:assessment.consistency,
+            offered:offered.length,omitted:Math.max(0,frontier.length-offered.length)});
+        if(operation.choice==='finish')return finish(assessment.coverage==='sufficient'?'sufficient':'finish_partial');
         if(!selected)return finish('invalid_decision');
         if(selected!==navigation)frontierOffset=0;
         const execution=[selected],resources=new Set(selected.concurrencyKey?[selected.concurrencyKey]:[]);

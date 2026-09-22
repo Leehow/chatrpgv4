@@ -57,8 +57,16 @@ function indexFor(graph: ModuleGraph, revision: string) {
     return index;
 }
 
+export const PRIORITY_LIMIT = 64;
+/**
+ * Ordered graph discovery. `priority` is a host-issued ordering from a semantic judgment over the closed
+ * entity index (contract §124.10); it only orders exact handles and never filters or widens scope. The
+ * character-pair query channel survives only for the legacy ordinary workspace projection (`lexical`);
+ * the v2 material view never ranks by it.
+ */
 export function workspaceNodes(graph: ModuleGraph, input: {revision: string; scene: string; query: string;
-    names: string[]; limit: number; present: string[]}): {nodes: Row[]; inspected: number} {
+    names: string[]; limit: number; present: string[]; priority?: readonly string[]; lexical?: boolean}):
+    {nodes: Row[]; inspected: number; priority: {requested: number; resolved: number}} {
     const index = indexFor(graph, input.revision), pending: string[] = [], inspected = new Set<string>();
     const exact = (name: string) => index.exact.get(name.normalize('NFKC').toLocaleLowerCase()) ?? [];
     const add = (id: string) => {
@@ -66,20 +74,31 @@ export function workspaceNodes(graph: ModuleGraph, input: {revision: string; sce
         inspected.add(id);
         if (pending.length < input.limit && !pending.includes(id)) pending.push(id);
     };
-    // Current scene and established identities lead; a separate lexical query channel follows.
+    const priority = (input.priority ?? []).slice(0, PRIORITY_LIMIT);
+    let resolved = 0;
+    for (const name of priority) {
+        // A priority entry is an issued handle compared exactly (no normalization); every node carrying that
+        // handle (a scene and its beat may share one) is ordered, and an unknown name orders nothing.
+        const ids = exact(name).filter(id => {const node = graph.nodes.get(id); return Boolean(node) && graph.handle(node!) === name;}).slice(0, 4);
+        if (ids.length) resolved++;
+        for (const id of ids) add(id);
+    }
+    // Current scene and established identities follow any semantic priority.
     for (const name of [input.scene, ...input.names.slice(0, 16), ...input.present.slice(0, 16)])
         for (const id of exact(name)) add(id);
     const tableLimit = Math.min(pending.length + 12, input.limit);
     for (const id of graph.tableNames.keys()) {if (pending.length >= tableLimit) break; add(id);}
-    const scores = new Map<string, number>();
-    const queryLimit = inspected.size + Math.floor((input.limit - inspected.size) / 2);
-    for (const term of terms(input.query).slice(0, 64))
-        for (const id of index.postings.get(term) ?? []) {
-            if (!inspected.has(id) && inspected.size >= queryLimit) continue;
-            inspected.add(id);
-            scores.set(id, (scores.get(id) ?? 0) + 1);
-        }
-    for (const [id] of [...scores].sort((a, b) => b[1] - a[1]).slice(0, Math.floor(input.limit / 2))) add(id);
+    if (input.lexical !== false) {
+        const scores = new Map<string, number>();
+        const queryLimit = inspected.size + Math.floor((input.limit - inspected.size) / 2);
+        for (const term of terms(input.query).slice(0, 64))
+            for (const id of index.postings.get(term) ?? []) {
+                if (!inspected.has(id) && inspected.size >= queryLimit) continue;
+                inspected.add(id);
+                scores.set(id, (scores.get(id) ?? 0) + 1);
+            }
+        for (const [id] of [...scores].sort((a, b) => b[1] - a[1]).slice(0, Math.floor(input.limit / 2))) add(id);
+    }
     for (let i = 0; i < pending.length && i < input.limit; i++) {
         const id = pending[i];
         for (const relation of [...(graph.out.get(id) ?? []).slice(0, input.limit), ...(graph.incoming.get(id) ?? []).slice(0, input.limit)]) {
@@ -90,7 +109,25 @@ export function workspaceNodes(graph: ModuleGraph, input: {revision: string; sce
     // Very young/empty scenes retain a bounded published-source fallback, not a sorted full scan.
     for (const node of graph.nodes.values()) {if (pending.length >= input.limit) break; add(string(node.node_id));}
     const nodes = pending.map(id => graph.nodes.get(id)).filter((node): node is Row => Boolean(node));
-    return {nodes, inspected: inspected.size};
+    return {nodes, inspected: inspected.size, priority: {requested: priority.length, resolved}};
+}
+
+const INDEX_SUMMARY_CHARS = 320;
+export const ENTITY_INDEX_LIMIT = 2048;
+/** The closed, query-independent entity index a semantic locate judges (contract §124.10). */
+export function entityIndex(graph: ModuleGraph, limit = ENTITY_INDEX_LIMIT): {entities: Row[]; total: number; omitted: number} {
+    const entities: Row[] = [], squash = (value: string) => value.normalize('NFKC').toLocaleLowerCase().replace(/[\s_-]+/gu, '');
+    for (const node of graph.nodes.values()) {
+        if (entities.length >= limit) break;
+        const handle = graph.handle(node), label = graph.displayName(node), kind = string(node.node_kind || 'module'), record = recordOf(node);
+        // A summary that only restates the name carries no content; the first authored description stands in for it.
+        let summary = string(node.summary ?? '');
+        if (!summary.trim() || [label, handle, `${kind}${handle}`].some(name => squash(name) === squash(summary)))
+            summary = [graph.prose(node), record.description, record.dramatic_question, record.agenda, record.keeper_note]
+                .find((value): value is string => typeof value === 'string' && Boolean(value.trim())) ?? summary;
+        entities.push({handle, label, kind, summary: Array.from(summary).slice(0, INDEX_SUMMARY_CHARS).join('')});
+    }
+    return {entities, total: graph.nodes.size, omitted: Math.max(0, graph.nodes.size - entities.length)};
 }
 
 export function sourceReference(graph: ModuleGraph, node: Row, scope: Row, revision: string, scene: string, ready: boolean): Row {

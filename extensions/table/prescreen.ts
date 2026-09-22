@@ -3,8 +3,10 @@ import {createDecisionAdapter} from '../../runtime/jev/decision-adapter.ts';
 import {readJevApiKey,readJevPreselectEnabled} from '../jev/agent/config.js';
 import type {DecisionPort} from '../../runtime/jev/decision-port.ts';
 import {TaskLease} from '../../runtime/jev/task-context.ts';
-import {JEV_MODEL} from '../../runtime/jev/question-packing.ts';
-import type {DecisionBatch,Json,ReadSet} from '../../runtime/jev/contracts.ts';
+import {JEV_MODEL,packDecisionBatch} from '../../runtime/jev/question-packing.ts';
+import {locateCards,locatedSelection,LOCATE_FAMILY,type LocateCard,type LocateResult} from '../../runtime/jev/semantic-locate.ts';
+import {preparationProviderBudget} from '../../runtime/jev/preparation-budget.ts';
+import type {DecisionBatch,DecisionResult,Json,ReadSet} from '../../runtime/jev/contracts.ts';
 import {workspaceCandidates} from './workspace/projection.ts';
 import {customMessage,object,sizeOf,requestSize,PRESCREEN_TYPE,type ContextBinding,type Row} from './context-policy.ts';
 import {candidateOf,digest,publicCoverage,publicMaterial,suppliedContext,suppliedPreview,type PrescreenCandidate,type PrescreenGap} from './prescreen-types.ts';
@@ -15,7 +17,9 @@ import {prepareCheckPreflight,recheckPreflight,type CheckPreflightResult,type Ch
 import {checkPrescreenSourceCheckpoint,preparePrescreenSources,type PrescreenSourceCheckpoint,type PrescreenSourceRuntime,type PrescreenSourceResult,type PrescreenSourceSnapshot} from '../../runtime/jev/prescreen-source-provider.ts';
 
 const FAMILY='keeper-support-agent', LIMIT=64, READ_LIMIT=12, MESSAGE_BYTES=16*1024;
-const FINALIZATION_RESERVE_MAX_MS=1000,FINALIZATION_RESERVE_MIN_MS=100;
+// Final owner validation measured 0.76-1.1 s on a real table; the reserve scales with the configured allowance.
+const FINALIZATION_RESERVE_MAX_MS=2000,FINALIZATION_RESERVE_MIN_MS=100;
+const PREVIEW_CHARS=320,PREVIEW_OPERATIONS=16,SEED_SHARE=.6,LOCATE_SHARE=.35,LOCATE_MIN_MS=1000,LOOP_TRACE_LIMIT=48,FOLLOW_UNITS=3;
 const METHODS=new Set(['table.look','table.lookup','table.recall']);
 const KINDS=new Set(['investigator','npc','object','catalog','rule','memory','session']);
 export const prescreenEnabled=(env:NodeJS.ProcessEnv=process.env):boolean=>readJevPreselectEnabled(env)&&Boolean(readJevApiKey(env));
@@ -109,6 +113,31 @@ function overview(capsule:Row):Row {
     }
     return {...out,...(omitted.length?{overview_omitted:omitted}: {})};
 }
+/** Bounded context a locate needs to resolve "here", "him" or "that room"; never the whole capsule. */
+function locateContext(capsule:Row,messages:readonly Row[],turn:number):Row {
+    const out:Row={},where=capsule.where;
+    if(where!==undefined&&sizeOf(where)<=1500)out.where=where;
+    const present=(Array.isArray(capsule.present)?capsule.present:[]).map((value:unknown)=>typeof value==='string'?value:object(value).name)
+        .filter((value:unknown):value is string=>typeof value==='string'&&Boolean(value)).slice(0,16);
+    if(present.length)out.present=present;
+    const recent=publicCheckContext(messages,turn).slice(-2).map(quote=>({role:quote.role,text:clip(quote.text,400)}));
+    if(recent.length)out.recent=recent;
+    return out;
+}
+/** A unit preview without the entity stub every graph unit repeats; the label already names the entity. */
+function previewOf(candidate:PrescreenCandidate):string {
+    if(typeof candidate.body==='string'&&candidate.kind==='graph_entity'){
+        try{const parsed=object(JSON.parse(candidate.body)),{entity,...rest}=parsed;
+            return clip(JSON.stringify(Object.keys(rest).length?rest:{summary:object(entity).summary??candidate.summary}),PREVIEW_CHARS);}
+        catch{/* An unparsable body keeps the plain clipped preview. */}
+    }
+    return clip(candidate.body??JSON.stringify(candidate.data??''),PREVIEW_CHARS);
+}
+const locateCache=new Map<string,LocateResult>();
+/** The entity/rule index is query-independent: one owner read per campaign source revision, never per turn. */
+const indexCache=new Map<string,Row>();
+const remember=<T>(cache:Map<string,T>,key:string,value:T,limit:number):void=>{
+    cache.delete(key);cache.set(key,value);while(cache.size>limit)cache.delete(cache.keys().next().value!);};
 type MemorySession={snapshot:string;aliases:string[];candidateKeys:string[]};
 async function expandMemoryCandidates(pool:PrescreenCandidate[],rpc:(method:string,params:Row)=>Promise<Row>):Promise<{pool:PrescreenCandidate[];sessions:MemorySession[];gaps:PrescreenGap[]}> {
     const expanded:PrescreenCandidate[]=[],sessions:MemorySession[]=[],gaps:PrescreenGap[]=[];
@@ -240,14 +269,16 @@ export async function prepareKeeperSupport(input:KeeperSupportInput&{request?:Su
         semanticSignal.throwIfAborted();
         return object(await abortable(input.call(method,{...params,campaign:input.campaign}),semanticSignal));
     };
-    let lease:TaskLease|undefined,calls=0,batches=0,inputTokens=0,outputTokens=0,charged=false,
+    let lease:TaskLease|undefined,calls=0,batches=0,inputTokens=0,outputTokens=0,inputUpperBound=0,charged=false,
         discoveryMs=0,decisionMs=0,readMs=0,validationMs=0,decisionGroupsCompleted=0,decisionGroupsTimedOut=0,decisionGroupsUnavailable=0,
         optionalDecisionTimeouts=0,optionalDecisionUnavailable=0,catalogCandidates=0,sourceCandidateCount=0,qualificationStatus='not_requested';
     const timing=()=>({discovery_ms:discoveryMs,decision_ms:decisionMs,read_ms:readMs,validation_ms:validationMs,
         finalization_reserve_ms:finalizationReserve,decision_groups_completed:decisionGroupsCompleted,
         decision_groups_timed_out:decisionGroupsTimedOut,decision_groups_unavailable:decisionGroupsUnavailable,
         optional_decision_timeouts:optionalDecisionTimeouts,optional_decision_unavailable:optionalDecisionUnavailable,qualification_status:qualificationStatus,
-        catalog_candidates:catalogCandidates,source_candidates:sourceCandidateCount});
+        catalog_candidates:catalogCandidates,source_candidates:sourceCandidateCount,allowance_ms:remaining,
+        allowance_remaining_ms:Math.max(0,deadlineAt-Date.now())});
+    let locateSummary:Row={status:'not_run'},retrievalOutcome:Row|undefined;
     const charge=()=>{if(charged||!input.providerBudget)return;charged=true;const remaining=lease?.context.budget;
         if(!remaining)return;input.providerBudget.actions=Math.min(Math.max(0,input.providerBudget.actions-batches),remaining.remainingActions);
         input.providerBudget.inputTokens=Math.min(Math.max(0,input.providerBudget.inputTokens-inputTokens),remaining.remainingInputTokens);
@@ -260,14 +291,85 @@ export async function prepareKeeperSupport(input:KeeperSupportInput&{request?:Su
         const supplied=suppliedContext(input.suppliedMessages??[]);
         for(const locator of input.alreadySupplied??[])supplied.locators.add(locator);
         const discoveryBegan=Date.now();
-        let snapshot=input.initialSnapshot?structuredClone(input.initialSnapshot):await discoveryRpc('table.workspace.read',{preselect:{version:2,mode:'catalog',cursor:0,limit:48},query,
-            names:input.names??[],rules:input.rules??[],candidate_limit:48});
-        if(snapshot.materials===undefined&&!snapshot.read_catalog)snapshot=await discoveryRpc('table.workspace.read',{preselect:true,query,names:input.names??[],rules:input.rules??[],candidate_limit:48});
+        const scope={owner:`campaign:${input.campaign}`,campaign:input.campaign,worldline:input.binding.worldline,loop:input.binding.loop,audience:'keeper' as const};
+        const adapter=input.decision??createDecisionAdapter({env,maxConcurrency:4});
+        const providerBudget=input.providerBudget??preparationProviderBudget();
+        let leaseBudget={remainingInputTokens:providerBudget.inputTokens,remainingOutputTokens:providerBudget.outputTokens,
+            remainingCostUsd:providerBudget.costUsd,remainingActions:providerBudget.actions};
+        const optionalDecision=async(batch:DecisionBatch,options:{lease?:TaskLease;partial?:boolean}={}):Promise<{result?:DecisionResult;reason?:'timeout'|'unavailable'}>=>{
+            const owner=options.lease??lease;
+            if(!owner||semanticSignal.aborted||owner.signal.aborted||Date.now()>=semanticDeadlineAt){optionalDecisionTimeouts++;return {reason:'timeout'};}
+            if(batches>=providerBudget.actions)return{reason:'unavailable'};
+            const started=Date.now();batches++;
+            // The upper bound is what budgets reserve; provider-reported usage is what was spent. Both are kept.
+            try{inputUpperBound+=packDecisionBatch(batch).estimate.totalUpperBound;}catch{/* The adapter reports the packing failure. */}
+            try{
+                const result=await abortable(adapter.decide(batch,owner),semanticSignal);calls+=result.attempts??0;
+                if(result.usage){inputTokens+=result.usage.inputTokens;outputTokens+=result.usage.outputTokens;}
+                decisionMs+=Date.now()-started;
+                if(result.status!=='complete'&&!(options.partial&&result.status==='incomplete')){
+                    const reason=['timeout','cancelled'].includes(String(result.failure?.code))?'timeout':'unavailable';
+                    if(reason==='timeout')optionalDecisionTimeouts++;else optionalDecisionUnavailable++;return {reason};}
+                return {result};
+            }catch{decisionMs+=Date.now()-started;const reason=semanticSignal.aborted?'timeout':'unavailable';
+                if(reason==='timeout')optionalDecisionTimeouts++;else optionalDecisionUnavailable++;return {reason};}
+        };
+        // Semantic locate (contract §124.10): Jev judges the whole closed entity/rule index before discovery.
+        let selection:ReturnType<typeof locatedSelection>={priority:[],rules:[],seed:[]};
+        if(!input.initialSnapshot){
+            const locateBegan=Date.now();
+            try{
+                const indexKey=digest([input.campaign,input.binding.source_revision]);let index=indexCache.get(indexKey),current=Boolean(index);
+                if(!index){
+                    const indexView=await discoveryRpc('table.workspace.read',{preselect:{version:2,mode:'index'},query,candidate_limit:1});
+                    const indexBinding=object(indexView.binding);index=object(object(indexView.materials).index);
+                    current=indexView.status==='valid'&&Array.isArray(index.entities)
+                        &&(['campaign','worldline','loop','turn','source_revision'] as const).every(key=>indexBinding[key]===input.binding[key]);
+                    if(current)remember(indexCache,indexKey,index,4);
+                }
+                const cards:LocateCard[]=current&&index?[
+                    ...(Array.isArray(index.entities)?index.entities:[]).map(object).filter(card=>typeof card.handle==='string'&&card.handle&&typeof card.label==='string')
+                        .map(card=>({family:'entity' as const,handle:card.handle,label:card.label,kind:String(card.kind??''),summary:String(card.summary??'')})),
+                    ...(Array.isArray(index.rules)?index.rules:[]).map(object).filter(card=>typeof card.name==='string'&&card.name&&typeof card.label==='string')
+                        .map(card=>({family:'rule' as const,handle:card.name,label:card.label,kind:String(card.family??'')})),
+                ]:[];
+                if(!current)locateSummary={status:'index_unavailable'};
+                else if(!cards.length)locateSummary={status:'empty_index'};
+                else{
+                    const context=locateContext(input.capsule,input.suppliedMessages??[],input.binding.turn),
+                        cacheKey=digest([input.campaign,input.binding.source_revision,request,context,cards]);
+                    let located=locateCache.get(cacheKey);const reused=Boolean(located);
+                    if(!located){
+                        const locateReadSet:ReadSet=[{kind:'world',resource:input.campaign,revision:digest([input.binding.worldline,input.binding.loop,input.binding.turn])},
+                            {kind:'source',resource:input.campaign,revision:String(input.binding.source_revision)},
+                            {kind:'model',resource:'decision',revision:JEV_MODEL},{kind:'family',resource:LOCATE_FAMILY,revision:'1'}];
+                        const locateLease=new TaskLease({owner:LOCATE_FAMILY,goal:query,scope,capabilities:['decision'],readSet:locateReadSet,signal:input.signal,
+                            budget:{deadlineAt:Math.min(semanticDeadlineAt,Date.now()+Math.max(LOCATE_MIN_MS,Math.floor(semanticRemaining*LOCATE_SHARE))),...leaseBudget}});
+                        try{located=await locateCards({request,context:context as Json,cards,scope,readSet:locateReadSet,
+                            decide:batch=>optionalDecision(batch,{lease:locateLease,partial:true}),record:note});}
+                        finally{const left=locateLease.context.budget;leaseBudget={remainingInputTokens:left.remainingInputTokens,
+                            remainingOutputTokens:left.remainingOutputTokens,remainingCostUsd:left.remainingCostUsd,remainingActions:left.remainingActions};
+                            locateLease.close();}
+                        if(located.judged)remember(locateCache,cacheKey,located,8);
+                    }
+                    selection=locatedSelection(located);
+                    locateSummary={status:located.judged?'judged':'unjudged',reused,cards:cards.length,batches:reused?0:located.batches,
+                        failed_batches:reused?0:located.failedBatches,judged:located.judged,unjudged:located.unjudged,
+                        located:selection.priority.length,located_rules:selection.rules.length,seed:selection.seed.length,
+                        top:located.judgments.slice(0,6).map(value=>({family:value.family,handle:clip(value.handle,120),noul:value.noul}))};
+                }
+            }catch(error){if(signal.aborted)throw error;locateSummary={status:'failed',reason:error instanceof Error?error.message.slice(0,160):'locate_unavailable'};}
+            locateSummary.ms=Date.now()-locateBegan;
+        }
+        const catalogPriority=selection.priority,catalogRules=[...new Set([...selection.rules,...(input.rules??[])])].slice(0,8),
+            priorityParam=catalogPriority.length?{priority:catalogPriority}:{};
+        let snapshot=input.initialSnapshot?structuredClone(input.initialSnapshot):await discoveryRpc('table.workspace.read',{preselect:{version:2,mode:'catalog',cursor:0,limit:48,...priorityParam},query,
+            names:input.names??[],rules:catalogRules,candidate_limit:48});
+        if(snapshot.materials===undefined&&!snapshot.read_catalog)snapshot=await discoveryRpc('table.workspace.read',{preselect:true,query,names:input.names??[],rules:catalogRules,candidate_limit:48});
         const bound=object(snapshot.binding);
         if(snapshot.status!=='valid'||object(snapshot.authority).checked!==true||!bound.stateStamp
             ||bound.campaign!==input.binding.campaign||bound.worldline!==input.binding.worldline||bound.loop!==input.binding.loop
             ||bound.turn!==input.binding.turn||bound.source_revision!==input.binding.source_revision)throw new Error('binding_unavailable');
-        const scope={owner:`campaign:${input.campaign}`,campaign:input.campaign,worldline:input.binding.worldline,loop:input.binding.loop,audience:'keeper' as const};
         let sourceResult:PrescreenSourceResult|undefined,sourceFailure:string|undefined,sourcePdf:string|undefined;
         if(input.source)try{
             const sourceSnapshot=object(await discoveryRpc('module.source.materials.snapshot',{module_id:input.source.moduleId,answer_limit:24,answer_cursor:0})) as PrescreenSourceSnapshot;
@@ -289,12 +391,10 @@ export async function prepareKeeperSupport(input:KeeperSupportInput&{request?:Su
             ...(sourceResult?.readSet??[]),{kind:'model',resource:'decision',revision:JEV_MODEL},{kind:'family',resource:FAMILY,revision:'3'}];
         const readSet:ReadSet=combinedReadSet
             .filter((binding,index,all)=>all.findIndex(other=>other.kind===binding.kind&&other.resource===binding.resource)===index);
-        const adapter=input.decision??createDecisionAdapter({env,maxConcurrency:4}),current={capsule:overview(input.capsule),
-            supplied:suppliedPreview(input.suppliedMessages??[],4096)};
-        const providerBudget=input.providerBudget??{actions:8,inputTokens:200_000,outputTokens:20_000,costUsd:.02};
+        // The capsule travels once, as the overview; the supplied-context preview does not repeat it.
+        const current={capsule:overview(input.capsule),supplied:suppliedPreview(input.suppliedMessages??[],4096,['coc-capsule'])};
         lease=new TaskLease({owner:FAMILY,goal:query,scope,capabilities:['decision'],readSet,signal:input.signal,
-            budget:{deadlineAt:semanticDeadlineAt,remainingInputTokens:providerBudget.inputTokens,remainingOutputTokens:providerBudget.outputTokens,
-                remainingCostUsd:providerBudget.costUsd,remainingActions:providerBudget.actions}});
+            budget:{deadlineAt:semanticDeadlineAt,...leaseBudget}});
         const sourceKeys=new Set(sourceCandidates.map(candidate=>candidate.key)),materialized:PrescreenCandidate[]=[],
             gaps:PrescreenGap[]=[...expandedMemory.gaps],memoryKeys=new Set(expandedMemory.sessions.flatMap(session=>session.candidateKeys)),
             memoryFinalizers:Row[]=[],selectionTrace:Row[]=[];
@@ -306,21 +406,6 @@ export async function prepareKeeperSupport(input:KeeperSupportInput&{request?:Su
                 unsearched:sourceResult?.coverage.native.unsearched_ranges??[],continuation:sourceResult?.coverage.native.next??null,
                 catalog:{pages:catalogPages,candidates:catalogCandidates,continuation:catalogNext},families:structuredClone(base.coverage),
                 ...(sourceResult?{source:structuredClone(sourceResult.coverage)}:{}),...(sourceFailure?{source_unavailable:sourceFailure}:{})}};
-        type DecisionResult=Awaited<ReturnType<DecisionPort['decide']>>;
-        const optionalDecision=async(batch:DecisionBatch):Promise<{result?:DecisionResult;reason?:'timeout'|'unavailable'}>=>{
-            if(semanticSignal.aborted||lease!.signal.aborted||Date.now()>=semanticDeadlineAt){optionalDecisionTimeouts++;return {reason:'timeout'};}
-            if(batches>=providerBudget.actions)return{reason:'unavailable'};
-            const started=Date.now();batches++;
-            try{
-                const result=await abortable(adapter.decide(batch,lease!),semanticSignal);calls+=result.attempts??0;
-                if(result.usage){inputTokens+=result.usage.inputTokens;outputTokens+=result.usage.outputTokens;}
-                decisionMs+=Date.now()-started;
-                if(result.status!=='complete'){const reason=['timeout','cancelled'].includes(String(result.failure?.code))?'timeout':'unavailable';
-                    if(reason==='timeout')optionalDecisionTimeouts++;else optionalDecisionUnavailable++;return {reason};}
-                return {result};
-            }catch{decisionMs+=Date.now()-started;const reason=semanticSignal.aborted?'timeout':'unavailable';
-                if(reason==='timeout')optionalDecisionTimeouts++;else optionalDecisionUnavailable++;return {reason};}
-        };
         const checkContext=publicCheckContext(input.suppliedMessages??[],input.binding.turn);
         const checkWork:Promise<CheckPreflightResult>=!playerText.trim()||closed?Promise.resolve({advice:unknownCheck('no_active_player_action'),decisionCalls:0,
             check:async()=>({status:'unavailable',reason:'no_active_player_action'})}):prepareCheckPreflight({campaign:input.campaign,turn:input.binding.turn,rawInput:playerText,scope,readSet,
@@ -331,8 +416,8 @@ export async function prepareKeeperSupport(input:KeeperSupportInput&{request?:Su
             }}});
         let assessment:Row|undefined;
         const loopTrace:Row[]=[],attempted=new Set<string>(),followed=new Set<string>(),qualifiedAttempts=new Set<string>(),
-            openedGroups=new Set<string>(),directCandidates=new Set<string>();
-        const originalCatalog={query,names:input.names??[],rules:input.rules??[]},catalogContexts=new Map(pool.map(candidate=>[candidate.key,originalCatalog]));
+            directCandidates=new Set<string>();
+        const originalCatalog={query,names:input.names??[],rules:catalogRules},catalogContexts=new Map(pool.map(candidate=>[candidate.key,originalCatalog]));
         const assertSnapshot=(value:Row):void=>{
             if(value.status!=='valid'||object(value.authority).checked!==true||object(object(value.materials).check).status==='stale'
                 ||['campaign','worldline','loop','turn','source_revision','stateStamp','rules_revision','scene','adapter','memory_revision','npc_revision','records_revision','catalog_revision']
@@ -344,7 +429,7 @@ export async function prepareKeeperSupport(input:KeeperSupportInput&{request?:Su
                 ...(publicRead(candidate)?{read:publicRead(candidate)}:{})});
         };
         const discover=async(target?:string):Promise<void>=>{
-            const started=Date.now(),context=target?{query,names:[target],rules:input.rules??[]}:originalCatalog;
+            const started=Date.now(),context=target?{query,names:[target],rules:catalogRules}:originalCatalog;
             let cursor=target?0:catalogNext;
             if(cursor===null)return;
             if(target)followed.add(target);
@@ -352,7 +437,7 @@ export async function prepareKeeperSupport(input:KeeperSupportInput&{request?:Su
             for(let pageNumber=0;cursor!==null&&pageNumber<1&&reads<READ_LIMIT;pageNumber++){
                 reads++;
                 const page=await discoveryRpc('table.workspace.read',{binding:bound,...context,candidate_limit:48,
-                    preselect:{version:2,mode:'catalog',cursor,limit:target?128:48,...(target?{entity:target}:{})}});
+                    preselect:{version:2,mode:'catalog',cursor,limit:target?128:48,...priorityParam,...(target?{entity:target}:{})}});
                 assertSnapshot(page);
                 const pageBase=poolOf(page,input.binding,supplied),wanted=target?pageBase.pool.filter(candidate=>
                     object(candidate.read).query===target||object(candidate.params).name===target):pageBase.pool;
@@ -378,7 +463,7 @@ export async function prepareKeeperSupport(input:KeeperSupportInput&{request?:Su
             if(version===2&&!sourceKeys.has(candidate.key)&&!memoryKeys.has(candidate.key)&&!completeCatalogMaterial(candidate)&&!issuedRead){
                 if(reads>=READ_LIMIT)return ()=>loopGap(candidate,'read_budget');
                 reads++;const owner=await discoveryRpc('table.workspace.read',{binding:bound,...(catalogContexts.get(candidate.key)??originalCatalog),
-                    preselect:{version:2,mode:'read',keys:[candidate.key],limit:1}});assertSnapshot(owner);
+                    preselect:{version:2,mode:'read',keys:[candidate.key],limit:1,...priorityParam}});assertSnapshot(owner);
                 const rows:unknown[]=Array.isArray(object(owner.materials).candidates)?owner.materials.candidates:[];
                 const actual=rows.map(candidateOf).find(value=>value?.key===candidate.key);
                 if(!actual)return ()=>loopGap(candidate,'material_not_materialized');hydrated=actual;
@@ -410,6 +495,17 @@ export async function prepareKeeperSupport(input:KeeperSupportInput&{request?:Su
                 content.materials.push(visible);materialized.push(hydrated);
                 trace(candidate,'loop_delivery','retained');
             };
+        };
+        // One bounded hop: the linked entity's complete leading units are read in the same step, so a follow whose
+        // target is already known still delivers it instead of ending the loop as "no progress".
+        const followRelation=async(target:string):Promise<void|(()=>void)>=>{
+            await discover(target);
+            const publishes:Array<()=>void>=[];
+            for(const candidate of pool.filter(value=>value.kind==='graph_entity'&&object(value.read).query===target
+                &&!attempted.has(value.key)&&completeCatalogMaterial(value)).slice(0,FOLLOW_UNITS)){
+                const publish=await readCandidate(candidate);if(typeof publish==='function')publishes.push(publish);
+            }
+            return publishes.length?()=>{for(const publish of publishes)publish();}:undefined;
         };
         const discoverPages=async(pages:number[]):Promise<void>=>{
             if(!sourceResult?.readNativePages||reads>=READ_LIMIT)return;reads++;const started=Date.now();
@@ -445,6 +541,19 @@ export async function prepareKeeperSupport(input:KeeperSupportInput&{request?:Su
                 materialized.splice(0,materialized.length,...originals);sourceKeys.add(candidate.key);
             };
         };
+        // Exact reads of what the locate found (noul >= FOUND): the host copies owner units through the same
+        // staged publication and byte trial as any loop read, leaving room for what the loop discovers next.
+        let seeded=0;
+        for(const handle of selection.seed){
+            for(const candidate of pool.filter(value=>value.kind==='graph_entity'&&object(value.read).query===handle&&!attempted.has(value.key))){
+                if(semanticSignal.aborted||requestSize([supportMessage(content)])>availableBytes*SEED_SHARE)break;
+                const publish=await readCandidate(candidate);
+                if(typeof publish==='function'){const before=content.materials.length;publish();if(content.materials.length>before){seeded++;trace(candidate,'locate_seed','located');}}
+            }
+        }
+        if(locateSummary.status!=='not_run')locateSummary.seeded=seeded;
+        const traceEvent=(event:Row):void=>{if(loopTrace.length>=LOOP_TRACE_LIMIT)return;
+            loopTrace.push(Object.fromEntries(Object.entries(event).map(([key,value])=>[key,typeof value==='string'?clip(value,160):value])));};
         if(assessment?.coverage!=='sufficient'){
             const retrieval=await runEvidenceAgent({request,current,scope,readSet,signal:semanticSignal,
                 assessWhenEmpty:true,
@@ -452,7 +561,7 @@ export async function prepareKeeperSupport(input:KeeperSupportInput&{request?:Su
                 decide:optionalDecision,record:event=>{if(event.event==='loop_cycle'&&event.tool==='read')readMs+=Number(event.ms??0);
                     if(event.event==='loop_operation_incomplete'){const candidate=pool.find(candidate=>`read:${candidate.key}`===event.key);
                         if(candidate)loopGap(candidate,'loop_timeout');}
-                    if(loopTrace.length<32)loopTrace.push(event);note(event);},
+                    traceEvent(event);note(event);},
                 snapshot:()=>{
                     const operations:EvidenceOperation[]=[];
                     const nativeKeys=materialized.filter(candidate=>candidate.authority==='native_text'&&sourceKeys.has(candidate.key)).map(candidate=>candidate.key),
@@ -476,32 +585,24 @@ export async function prepareKeeperSupport(input:KeeperSupportInput&{request?:Su
                     }
                     if(version===2&&reads<READ_LIMIT)for(const link of prescreenFollowTargets(content.materials))if(!followed.has(link.target))operations.push({
                         key:`follow:${digest(link.target)}`,tool:'follow',label:link.target,
-                        description:'Discover additional source units for this explicitly linked entity; this does not change the world.',
-                        basis:{from:link.from,relation:link.relation,target:link.target},execute:async()=>discover(link.target)});
-                    const grouped=new Map<string,PrescreenCandidate[]>(),readable=new Set(directCandidates);
-                    for(const candidate of pool){const group=grouped.get(candidate.kind)??[];group.push(candidate);grouped.set(candidate.kind,group);}
-                    const indexes:EvidenceOperation[]=[];
-                    for(const [kind,values] of grouped)for(let offset=0;offset<values.length;offset+=4){
-                        const members=values.slice(offset,offset+4),key=`index:${digest(members.map(candidate=>candidate.key))}`;
-                        if(pool.length<=16||values.length<=2||openedGroups.has(key)){for(const candidate of members)readable.add(candidate.key);continue;}
-                        if(members.every(candidate=>attempted.has(candidate.key)||directCandidates.has(candidate.key)))continue;
-                        indexes.push({key,tool:'discover',label:`${kind} index ${offset+1}-${offset+members.length}`,
-                            description:'Inspect these indexed candidates before selecting exact material reads.',
-                            basis:{kind,candidates:members.map(candidate=>({kind:candidate.kind,label:clip(candidate.label,160)}))},
-                            execute:async()=>{openedGroups.add(key);}});
-                    }
-                    for(const candidate of pool)if(readable.has(candidate.key)&&!attempted.has(candidate.key)&&(reads<READ_LIMIT||completeCatalogMaterial(candidate)))operations.push({key:`read:${candidate.key}`,tool:'read',label:candidate.label,
+                        description:'Follow this explicit relation: discover the linked entity\'s source units and read its complete leading units; this does not change the world.',
+                        basis:{from:link.from,relation:link.relation,target:link.target},execute:async()=>followRelation(link.target)});
+                    // Reads are offered in discovery order (semantic locate first), paged by the agent's frontier;
+                    // no decision is spent opening fixed-size index groups. The leading reads carry a content preview,
+                    // the rest their label and kind, so one page stays small without hiding any candidate.
+                    let previewed=0;
+                    for(const candidate of pool)if(!attempted.has(candidate.key)&&(reads<READ_LIMIT||completeCatalogMaterial(candidate)))operations.push({key:`read:${candidate.key}`,tool:'read',label:candidate.label,
                         description:`Read actual ${candidate.kind} material.`,
-                        basis:{kind:candidate.kind,authority:candidate.authority,preview:clip(candidate.body??JSON.stringify(candidate.data??''),512)},
+                        basis:{kind:candidate.kind,authority:candidate.authority,...(previewed++<PREVIEW_OPERATIONS?{preview:previewOf(candidate)}:{})},
                         concurrencyKey:memoryKeys.has(candidate.key)?`memory:${String(object(candidate.params).snapshot)}`:candidate.key,
                         execute:async()=>readCandidate(candidate)});
-                    operations.push(...indexes);
                     if(version===2&&catalogNext!==null&&reads<READ_LIMIT)operations.unshift({key:`discover:${catalogNext}`,tool:'discover',label:'More campaign material',
                         description:'Continue the current owner catalog to discover further source, rule, history, memory or current-state candidates.',
                         execute:async()=>discover()});
                     return {materials:content.materials,gaps:gaps.slice(0,12).map(({kind,label,reason})=>({kind,label,reason})),
                         omittedGaps:Math.max(0,gaps.length-12),operations};
                 }});
+            retrievalOutcome={status:retrieval.status,stop_reason:retrieval.stop_reason,steps:retrieval.steps,rounds:retrieval.rounds};
             if(retrieval.assessment)assessment=retrieval.assessment;else if(retrieval.steps)assessment=undefined;
             if(retrieval.stop_reason!=='frontier_exhausted'||retrieval.steps){
                 const {assessment:ignored,...summary}=retrieval;content.retrieval=summary;
@@ -578,18 +679,26 @@ export async function prepareKeeperSupport(input:KeeperSupportInput&{request?:Su
             refs:Object.fromEntries(materialized.filter(candidate=>candidate.refs?.length).map(candidate=>[candidate.key,candidate.refs])),
             binding:structuredClone(bound),coverage:structuredClone(content.coverage),gap_details:structuredClone(gaps),selection_trace:selectionTrace,loop_trace:loopTrace,
             ...(retrievalSummary?{retrieval:retrievalSummary}:{})}};
+        const decisionChoices=loopTrace.filter(event=>event.event==='loop_decision').slice(0,16)
+            .map(({round,choice,tool,coverage,consistency})=>({round,choice,tool,coverage,consistency}));
+        // Why the loop ended, what it judged and what it chose: "sufficient" and "gave up" stay distinguishable.
+        const outcome={stop_reason:retrievalOutcome?.stop_reason??'not_run',retrieval:retrievalOutcome??null,
+            assessment:content.assessment??null,choices:decisionChoices,locate:locateSummary};
         Object.assign(message.details.prescreen,{decision_batches:batches,jev_calls:calls,qualification_calls:qualificationCalls,
-            jev_input_tokens:inputTokens,jev_output_tokens:outputTokens,...timing()});
+            jev_input_tokens:inputTokens,jev_output_tokens:outputTokens,jev_input_upper_bound:inputUpperBound,...outcome,...timing()});
         note({event:'prepared',candidates:pool.length,selected:attempted.size,supplemented:0,
             uncertain:assessment?.coverage==='uncertain'?materialized.length:0,
             reads,failed,supplied:materialized.length,follow_up:gaps.length,omitted,bytes:requestSize([message]),ms:Date.now()-began,
             supplied_sources:materialized.map(({kind,label,authority})=>({kind,label,authority})),
             pending_reads:gaps.map(({kind,label,reason})=>({kind,label,reason})),prepared_digest:preparedDigest,supplied_context_digest:supplied.digest,
             decision_batches:batches,jev_calls:calls,qualification_calls:qualificationCalls,jev_input_tokens:inputTokens,jev_output_tokens:outputTokens,
+            jev_input_upper_bound:inputUpperBound,...outcome,loop_trace:loopTrace,
             selection_trace:selectionTrace,usage_complete:decisionGroupsTimedOut===0&&decisionGroupsUnavailable===0&&optionalDecisionTimeouts===0&&optionalDecisionUnavailable===0
                 &&qualificationStatus!=='unavailable',...timing()});
         charge();return message;
     }catch(error){charge();note({event:'fallback',reason:signal.aborted?'cancelled_or_timeout':error instanceof Error?error.message:'unavailable',
-        ms:Date.now()-began,decision_batches:batches,jev_calls:calls,jev_input_tokens:inputTokens,jev_output_tokens:outputTokens,usage_complete:false,...timing()});return undefined;}
+        ms:Date.now()-began,decision_batches:batches,jev_calls:calls,jev_input_tokens:inputTokens,jev_output_tokens:outputTokens,
+        jev_input_upper_bound:inputUpperBound,stop_reason:retrievalOutcome?.stop_reason??'not_run',retrieval:retrievalOutcome??null,locate:locateSummary,
+        usage_complete:false,...timing()});return undefined;}
     finally{lease?.close();}
 }
