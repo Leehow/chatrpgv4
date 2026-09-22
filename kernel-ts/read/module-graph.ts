@@ -729,6 +729,31 @@ export class ModuleGraph {
         names.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
         return [...exact, ...names.map(n => n[2]), ...summaries].sort((a, b) => Number(a.node_kind === "investigator-template") - Number(b.node_kind === "investigator-template")).slice(0, limit);
     }
+    /**
+     * Contract §127.1: a query that is two or more words, each exactly a node's handle or node id,
+     * names those nodes in the order given. The Keeper holds these handles from its capsule and
+     * receipts (`knott-macario-summary knott-keys`); `search` reads the whole string as one name and
+     * finds nothing. Identifier grammar only: one word that is not an exact handle makes the whole
+     * query ordinary search text (null), never a partial list.
+     */
+    handleList(query: string): Row[] | null {
+        const words = query.split(/[\s,]+/).filter(Boolean);
+        if (words.length < 2)
+            return null;
+        const nodes: Row[] = [];
+        for (const word of words) {
+            const key = normalize(word),
+                matches = [...this.nodes.values()].filter(node => [node.node_id, this.handle(node)].some(value => normalize(value) === key));
+            if (!matches.length)
+                return null;
+            // A handle two nodes share (`knott-commission` is a clue and a quest) answers with both,
+            // exactly as `search` does when that handle is the whole query.
+            for (const node of matches)
+                if (!nodes.includes(node))
+                    nodes.push(node);
+        }
+        return nodes;
+    }
     prose(node: Row): string {
         for (const key of ["prose", "description", "note", "summary"])
             if (typeof recordOf(node)[key] === "string")

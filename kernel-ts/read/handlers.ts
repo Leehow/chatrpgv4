@@ -430,7 +430,10 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
                 const expectedKinds = ['scene', 'npc', 'clue', 'object', 'handout'];
                 if (expected != null && (typeof expected !== 'string' || !expectedKinds.includes(expected)))
                     unsupported('expected_kind', expected, expectedKinds, 'unknown expected module entity kind');
-                const entities = graph.search(query, expected ? 64 : 8).filter(node => !expected || node.node_kind === expected).slice(0, 8).map(node => graph.entityView(node));
+                // §127.1: the whole query first, as always; only when it matches nothing is it read as a list
+                // of exact handles the Keeper already holds.
+                const searched = graph.search(query, expected ? 64 : 8);
+                const entities = (searched.length ? searched : graph.handleList(query) ?? []).filter(node => !expected || node.node_kind === expected).slice(0, 8).map(node => graph.entityView(node));
                 const scene = !entities.length && typeof world.active_scene === 'string' ? graph.find(world.active_scene, ['scene']) : null;
                 const sourceNodes = array(row(scene?.campaign_origin).sources).map(id => graph.nodes.get(id)).filter((node): node is Row => node !== undefined);
                 const missingScene = !entities.length && expected === 'scene';
