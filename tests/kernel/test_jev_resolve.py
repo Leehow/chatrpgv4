@@ -39,6 +39,10 @@ def test_options_is_read_only_and_uses_canonical_sheet_and_rule_vocabulary(kerne
     assert snapshot["version"] == 1
     assert before == after, "the resolve-options snapshot cannot touch campaign state or Git"
     assert snapshot["revision"] and snapshot["world_revision"]
+    # `_binding` names the campaign/worldline/loop/turn the snapshot was read at (contract §124, 28fe5d0c0):
+    # the host's check-preflight and the ordinary resolve domain read it to bind a decision to this
+    # state; every other reader strips it. It is not vocabulary and never reaches a model.
+    assert snapshot["context"].pop("_binding") == {"campaign": "c1", "worldline": "main", "loop": 0, "turn": 1}
     assert snapshot["context"] == {
         "scene": "Knott's Office",
         "pending_choice": None,
