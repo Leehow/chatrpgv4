@@ -306,7 +306,7 @@ result：见第 6 节的 `where`、`present`、`known`，按 focus 取子集；`
 
 ### table.lookup（切片 0：module、secret；rule、catalog 已实现，见 §58.5）
 params：`{"kind": "module"|"secret"|"rule"|"catalog", "query": "<名字或问题>", "kinds"?: [...], "scope"?: "scene"|"module"}`。
-- `module`：在模组图节点名、别名、摘要上做归一化子串匹配，返回最多 8 个实体：`{"name", "kind", "summary", "visibility", "relations": [{"kind", "to"}]}`。
+- `module`：在模组图节点名、别名、摘要上做归一化子串匹配，返回最多 8 个实体：`{"name", "kind", "summary", "visibility", "relations": [{"kind", "to"}]}`。`query` 若是由空白或逗号分开的若干词、且每一个词都**精确**等于某个图节点的句柄（或 node id），则按给出的顺序返回这些实体（去重、最多 8 个，`expected_kind` 照样过滤）；只要有一个词不是句柄，整句仍按普通检索文本处理，不拆词猜句柄（§127）。
 - `secret`：`scope` 缺省 `scene`。返回当前场景的守秘人专属简报：`{"scene": {...dramatic_question, pressure_moves, keeper_notes}, "undiscovered_clues": [{"name", "summary", "delivery_kind"}], "npc_secrets": [{"name", "secret", "agenda"}], "module_secrets": [{"name", "summary"}]}`。`scope: "module"` 给整模组的 `secret` 与 `conclusion` 节点。
 - `rule`：在规则索引上搜索规则节点。
 - `catalog`：搜索规则书自己的印刷记录（装备与物价表、武器、法术、生物、技能……），每行带印刷金额、货币与页面出处；用 `kinds` 收窄（`item` 就是物价表），返回的 `price_id` 直接交给 `apply cash`。**这一行历史上写着「报 `not_implemented`」，而实现从来都在；工具描述照抄了这句，守秘人因此一次都没去取过物价。见 §58.5。**
@@ -15015,3 +15015,19 @@ When material preselection is enabled, the first eligible preparation for an acc
 The result distinguishes `ordinary`, `no_roll`, `incumbent`, `needs_player` and `unknown`. An ordinary suggestion names only an issued current actor/profile/decision and bounded difficulty/modifier choices. The raw player declaration and established public context own action selection; a private clue, predicted NPC response or optional plan never grants authorization. Unsupported specialized families, missing profiles, NPC executors, pending choices and uncertain parameters retain their existing owner or remain unknown. A suggested future check is not a rolled result.
 
 The host does not execute the suggested resolve. The Keeper may use or correct it and invokes the ordinary canonical tool; admission, Mod validation, arithmetic and transaction receipts remain in that existing path. No numerical result is predicted. Check advice carries private input/world/rules/profile bindings, is checked after parallel preparation and dropped if obsolete. It shares the existing preparation adapter, parent accounting, deadline and final request budget with evidence and NPC support. Optional check failure does not erase independently valid evidence. The public projection shows current semantic choices and unresolved needs, never private hashes, provider metadata or an assertion that a check already happened.
+
+## 127. Lookup is honest about a module without an original document (2026-09-22)
+
+Real table 2026-09-22 (installed App, built-in starter `the-haunting`, turn 1). The Keeper held four clue handles from the capsule (`knott-macario-summary`, `knott-keys`, …), passed them together as one `lookup kind=module` query and read `not_found`; it then asked `lookup kind=source source_mode=answer` and was refused with `fix: bind the matching original PDF with module.source.bind`. A built-in starter has no original document by construction, the Keeper cannot call `module.source.bind`, and an error's fix is executed literally.
+
+### 127.1 Exact handles resolve, several at once
+
+`table.lookup kind=module` first tries its whole `query` as it always did. When that query splits on whitespace or commas into two or more words and **every** word is exactly the handle or node id of a graph node (the same normalisation `search` already uses for exact keys), the result is those entities in the order given, deduplicated, at most 8 — a handle two nodes share (`knott-commission` is a clue and a quest) yields both, as it does when it is the whole query — filtered by `expected_kind` when supplied. This is identifier grammar, not semantic splitting: a query with any word that is not a handle is ordinary search text and is not partially matched, so free text is never cut into guessed handles.
+
+### 127.2 A module without an original document refuses source reading with the working road
+
+The module owner already records where a module came from (`module.json` `source`: `pdf` or `starter`). When a source read (`module.read.request`, and through it `lookup kind=source` in either mode) reaches a module whose `source` is not `pdf` and which has no bound `source_document`, the kernel refuses with `needs`, `details.reason: "no_source_document"`, and a fix that names what does work: the authored graph is this module's whole source, read by `lookup kind=module` with a name or the exact handles already in the capsule, and by `look` (`focus=npc name=…`, `focus=scene`, `focus=clues`). A PDF module whose original is missing keeps `needs_source` and its bind fix: there the host can bind it.
+
+The reason travels unchanged through the extension's source refusal rewrite (which only rewrites `reading_failed`/`reading_timeout`) and the tool projection, so the Keeper reads `no_source_document` and its fix, never the bind instruction. The tool description states this as a conditional ("a module without an original document answers no_source_document"), not as an untimed claim that source reading is unavailable.
+
+Out of scope: whether the Keeper should have looked anything up at all when Jev preload had already delivered the same entity is an adoption question (§31 third end), not a lookup defect.
