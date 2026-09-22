@@ -878,17 +878,24 @@ export function createComponent(React) {
     // panel raised itself stays in the language the player was reading a moment ago.
     const [lastUi, setLastUi] = useState(null);
 
-    const load = useCallback(async (retryProjection = false) => {
+    // `running` is the request in flight (0 when none); `again` is one push that arrived meanwhile.
+    const running = useRef(0), again = useRef(false), latest = useRef(null);
+    // Only the player's own click shows the busy word and asks for a failed lane run again. Every
+    // other read -- mount, a saved document, and the pushes of a turn in progress -- runs behind
+    // the drawn sheet: one turn pushes dozens of events, and a button that flipped to the busy
+    // word on each one flickered for the whole turn.
+    const load = useCallback(async (byPlayer = false) => {
       const request = ++generation.current;
       if (!api.invoke) {
         setAnswer({ view: null, campaign: null, status: "error",
           error: { code: "pack_unreachable", message: "this host cannot reach the pack" } });
         return;
       }
-      setBusy(true);
+      running.current = request;
+      if (byPlayer) setBusy(true);
       try {
         const result = await api.invoke("sheet", {
-          ...(retryProjection ? {retry_projection:true} : {}),
+          ...(byPlayer ? {retry_projection:true} : {}),
           ...(!identityArt.current ? {include_identity_art:true} : {}),
         });
         if(request !== generation.current) return;
@@ -906,9 +913,14 @@ export function createComponent(React) {
         setAnswer({ view: null, campaign: null, status: "error",
           error: { code: "", message: error instanceof Error ? error.message : String(error) } });
       } finally {
-        if(request === generation.current) setBusy(false);
+        if(request === generation.current) {
+          running.current = 0;
+          setBusy(false);
+          if (again.current) { again.current = false; void latest.current?.(); }
+        }
       }
     }, [api]);
+    latest.current = load;
 
     useEffect(() => { void load(); }, [load]);
 
@@ -924,9 +936,13 @@ export function createComponent(React) {
 
     // The agent half pushes on every committed turn; any event from this pack means re-read.
     // The push carries no payload, so a shape change upstream can never desynchronise the panel.
+    // A burst of pushes while a read is in flight folds into one read after it.
     useEffect(() => {
       if (!api.subscribeExt) return undefined;
-      const unsubscribe = api.subscribeExt(() => { void load(); });
+      const unsubscribe = api.subscribeExt(() => {
+        if (running.current) { again.current = true; return; }
+        void load();
+      });
       return typeof unsubscribe === "function" ? unsubscribe : undefined;
     }, [api, load]);
 
