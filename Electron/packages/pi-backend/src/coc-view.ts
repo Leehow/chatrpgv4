@@ -44,6 +44,32 @@ export type CocUiWords={tag:string; words:Record<string,Record<string,string>>;
 /** What a card reads besides the kernel's answer: the chrome's words, and the campaign's own. */
 export type CocHistoryWords={ui?:CocUiWords; lanes?:Record<string,string>};
 /**
+ * Contract §127: what the host has said about an object's details since a card named them pending,
+ * by definition name. `definition: 'ready'` carries the player view the card opens into; `'none'`
+ * says the preparation was dropped and the row should stop waiting. A later word wins.
+ */
+export type CocObjectDetails=ReadonlyMap<string,Record<string,unknown>>;
+const isDetailsRecord=(value:unknown):value is Record<string,any>=>!!value&&typeof value==='object'&&!Array.isArray(value);
+/** The `coc-object-details` entries a row carries, for one campaign; empty for every other row. */
+export function objectDetailsOf(row:any, campaign?:string):[string,Record<string,unknown>][] {
+  if(row?.type!=='custom'||row.customType!=='coc-object-details'||!Array.isArray(row.data?.objects))return [];
+  if(campaign&&typeof row.data.campaign==='string'&&row.data.campaign!==campaign)return [];
+  return row.data.objects.filter((item:any)=>isDetailsRecord(item)&&typeof item.name==='string'&&item.name
+    &&(item.definition==='ready'&&isDetailsRecord(item.object)||item.definition==='none'))
+    .map((item:any)=>[item.name,item.definition==='ready'?{definition:'ready',object:item.object}:{definition:'none'}]);
+}
+/** The definition names a card is still waiting on; a card that waits on nothing returns none. */
+export function pendingObjectNames(row:any):string[] {
+  if(row?.type!=='custom'||row.customType!=='coc-mechanics'||!Array.isArray(row.data?.mechanics))return [];
+  return row.data.mechanics.filter((item:any)=>isDetailsRecord(item)&&item.kind==='item'&&item.definition==='pending'
+    &&typeof item.definition_name==='string'&&item.definition_name).map((item:any)=>item.definition_name as string);
+}
+function withObjectDetails(row:any, details?:CocObjectDetails):any {
+  if(!details||row?.kind!=='item'||row.definition!=='pending'||typeof row.definition_name!=='string')return row;
+  const found=details.get(row.definition_name);
+  return found?{...row,...found}:row;
+}
+/**
  * The content root a host reads its data from, resolved exactly as `runtime/host.ts` resolves it
  * for the kernel, so a packaged build and a source checkout read the same `languages.json`.
  */
@@ -281,7 +307,7 @@ function wordTable(value:unknown):Record<string,string> {
  *  grammar of §16.6 does not see it. No `g` flag — `test` here must not carry a `lastIndex`. */
 const SAY_TOKEN=/\{\{say:[^{}\n]{1,60}\}\}/;
 export function mechanicsEntry(row:any, language?:string, presentations?:ReadonlyMap<number,Record<string,unknown>>,
-  words:CocHistoryWords={}, current?:Record<string,unknown>): HistoryEntry | undefined {
+  words:CocHistoryWords={}, current?:Record<string,unknown>, details?:CocObjectDetails): HistoryEntry | undefined {
   const lanes=wordTable(words.lanes), chrome=words.ui?{ui:words.ui}:{};
   if(row?.type==='custom'&&row.customType==='coc-character-draft'&&row.data?.sheet) {
     // Contract §23.4: the card draws the campaign's current draft, not the revision that appended
@@ -300,7 +326,10 @@ export function mechanicsEntry(row:any, language?:string, presentations?:Readonl
       presentation:{renderer:'coc-choice',details:{...row.data,labels:{...lanes,...wordTable(row.data.labels)},...chrome}}};
   }
   if(row?.type!=='custom'||row.customType!=='coc-mechanics'||!Array.isArray(row.data?.mechanics))return;
-  const mechanics=row.data.mechanics.filter((x:any)=>x&&typeof x==='object'&&x.visibility!=='keeper').map(concealFigures);
+  // §127: a row recorded while its object's details were still being prepared is drawn with what the
+  // host has said since, so the live redraw and every re-read of the transcript open the same card.
+  const mechanics=row.data.mechanics.filter((x:any)=>x&&typeof x==='object'&&x.visibility!=='keeper').map(concealFigures)
+    .map((x:any)=>withObjectDetails(x,details));
   // §16.6: the delivery with its markers still in it, when the Keeper placed any. It rides with the
   // rows because one component has to own both to draw a row where the sentence is.
   const markedText=typeof row.data.marked_text==='string'?row.data.marked_text:'';

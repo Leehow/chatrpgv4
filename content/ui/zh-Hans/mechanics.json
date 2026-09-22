@@ -76,6 +76,7 @@
   "outcome.stalemate": "僵持",
   "pass": "通过",
   "penalty": "惩罚骰 ×{n}",
+  "preparing": "正在准备细节…",
   "pushed": "孤注一掷",
   "removedFrom": "从{name}的物品中移除",
   "resource.condition": "状态",

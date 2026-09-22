@@ -778,16 +778,40 @@ def test_registration_can_be_queued_past_delivery_and_completed_afterwards(kerne
     # Deferral means not this turn: completing here would put the wait back one tool call later.
     assert kernel.ok("mods.queued", {"campaign":CAMPAIGN}) == {"effects":[], "unfinished":[]}
 
-    narrate(kernel, "t1-c3", "诺特把条件说完，等你开口。")
+    delivered = narrate(kernel, "t1-c3", "诺特把条件说完，等你开口。")
+    # Contract §127: the card names the belonging at once and says what it waits on, rather than dropping
+    # the row as bookkeeping or holding the delivery for its parameters.
+    waiting = [row for row in delivered["mechanics"] if row.get("adopted") == target]
+    assert waiting == [{"kind":"item", "receipt":waiting[0]["receipt"], "name":draft["name"], "adopted":target,
+                        "definition":"pending", "definition_name":draft["name"], "call":"t1-c1"}]
     kernel.table("player_input", text="我接下这单。")
     ready = kernel.ok("mods.queued", {"campaign":CAMPAIGN})
     assert [effect["kind"] for effect in ready["effects"]] == ["define", "object"] and ready["unfinished"] == []
     kernel.table("apply", call_id="t2-c1", effects=ready["effects"])
+    # The replayed adoption is the same belonging; the card that named it pending is the one that opens.
+    assert not [row for row in kernel.table("status")["mechanics"] if row.get("adopted")]
 
     assert kernel.table("look", focus="object", name=draft["name"])["definition"]["name"] == draft["name"]
     # The marker stops standing in for a definition that is now real, and the row stays out of the gap list.
     assert kernel.ok("mods.queued", {"campaign":CAMPAIGN}) == {"effects":[], "unfinished":[]}
     assert target not in [e["name"] for e in kernel.ok("mods.context", {"campaign":CAMPAIGN})["unregistered_equipment"]]
+
+
+def test_a_handed_over_object_opens_into_its_player_view_on_the_card(kernel):
+    open_turn(kernel)
+    draft = {**weapon("Card launcher"), "traits":[{"name":"length", "value":91, "unit":"cm", "basis":"Fixture."},
+                                                 {"name":"serial", "value":"X-7", "basis":"Keeper-only fixture."}]}
+    draft["player_view"] = {**draft["player_view"], "traits":["length"]}
+    kernel.table("apply", call_id="t1-c1", effects=[prepared(kernel, draft),
+        {"kind":"object", "name":"Handed launcher", "definition":"Card launcher", "to":"Thomas Hayes", "from":"Steven Knott", "handover":"given", "why":"Knott hands it over"}])
+    delivered = narrate(kernel, "t1-c2", "诺特把它推过桌面。")
+    row = next(row for row in delivered["mechanics"] if row["kind"] == "item")
+    # Contract §127: the definition is in hand, so the row opens at once -- into the player view only.
+    assert row["definition"] == "ready"
+    assert row["object"] == {"category":"weapon", "description":"An improvised launcher.",
+                             "traits":[{"name":"length", "value":91, "unit":"cm", "basis":"Fixture."}],
+                             "parameters":{"damage":"1D6", "magazine":1}}
+    assert "Fixture: a single-shot" not in json.dumps(row) and "X-7" not in json.dumps(row)
 
 
 def test_a_placement_that_omits_its_definition_is_offered_the_names_on_hand(kernel):

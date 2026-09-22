@@ -328,7 +328,7 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
                 turn: turn.turn,
                 state: turn.state,
                 receipts,
-                mechanics: mechanics(receipts, {}, await campaign.handoutTexts(receipts)),
+                mechanics: mechanics(receipts, {}, await campaign.handoutTexts(receipts), campaign.world),
                 // §50: the same glossary a delivery hands its card (§16.2). A turn that could not be
                 // delivered is read back from here, and without the words it would be the one card in
                 // the campaign drawn in the system language.

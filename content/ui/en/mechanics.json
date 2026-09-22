@@ -76,6 +76,7 @@
   "outcome.stalemate": "stalemate",
   "pass": "pass",
   "penalty": "penalty die ×{n}",
+  "preparing": "Preparing details…",
   "pushed": "pushed",
   "removedFrom": "removed from {name}'s inventory",
   "resource.condition": "condition",
