@@ -283,7 +283,7 @@ export function mechanicsOf(receipt: Row, texts: ReadonlyMap<string, string> = n
     return null;
 }
 /**
- * Contract §127: an object a card names opens into what it is, and the card never waits for that.
+ * Contract §129: an object a card names opens into what it is, and the card never waits for that.
  * `definition` is three states in the manner of `document` (§59): `ready` carries `object`, the
  * definition's player view; `pending` says its parameters are still being prepared beside the
  * delivery and names the definition they will arrive under; absent says nothing.

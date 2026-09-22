@@ -739,7 +739,7 @@ export function publicItems(world: Row, ownerId: string, includeContainedDocumen
             state.ammo = item.state.ammo ?? null;
         if (publicView.fields.includes("charges"))
             state.charges = item.state.charges ?? null;
-        // Contract §127: the card's item row opens into this same view, from the same function.
+        // Contract §129: the card's item row opens into this same view, from the same function.
         const shown = publicDefinition(definition);
         items.push({
             name: item.name,

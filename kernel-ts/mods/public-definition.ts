@@ -1,6 +1,6 @@
 /**
  * What a player may read of one accepted definition: its `player_view`, and nothing else (contract
- * §127). The sheet's possessions box (`publicItems`) and the delivery card's item row both draw from
+ * §129). The sheet's possessions box (`publicItems`) and the delivery card's item row both draw from
  * here, so the two surfaces cannot come to disagree about what an object is. The basis, the hidden
  * traits and every parameter the view does not name stay Keeper material.
  *

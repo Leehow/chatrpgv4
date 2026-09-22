@@ -166,7 +166,7 @@ const CSS = `
 .coc-mech-fold-head::after{content:"▸";flex:none;color:var(--subtle);font-size:11px;
   transition:transform .12s ease}
 .coc-mech-fold[open]>.coc-mech-fold-head::after{transform:rotate(90deg)}
-/* An object the card names while its details are still being prepared (§127): the name now, a small
+/* An object the card names while its details are still being prepared (§129): the name now, a small
    turning mark beside it, and nothing to open until the details land and the row becomes a fold. */
 .coc-mech-wait{flex:none;width:11px;height:11px;border-radius:50%;box-sizing:border-box;
   border:2px solid color-mix(in oklab, var(--muted) 30%, transparent);border-top-color:var(--accent);
@@ -619,13 +619,13 @@ export function createComponent(React) {
       h("div", { className: bodyClass ? `coc-mech-fold-body ${bodyClass}` : "coc-mech-fold-body" }, body));
   }
 
-  /** The waiting mark: the row is real now, only what it opens into is not in hand yet (§127). */
+  /** The waiting mark: the row is real now, only what it opens into is not in hand yet (§129). */
   function Waiting(props) {
     return h("span", { className: "coc-mech-wait", role: "status", "aria-label": props.label, title: props.label });
   }
 
   /**
-   * What an object is, as its player view says (§127): the description, then each public trait and
+   * What an object is, as its player view says (§129): the description, then each public trait and
    * field under the sheet's own caption, so the card and the possessions box name a field the same way.
    * Nothing is computed; a value is printed as the definition carries it. Returns null when the view
    * holds nothing to read, and the row then stays a line.
@@ -887,7 +887,7 @@ export function createComponent(React) {
           owner ? h("span", { className: "coc-mech-delta", "data-down": lost ? "1" : "0", key: "owner" },
             lost ? fill(t("removedFrom"), { name: owner }) : `${t("to")} ${owner}`) : null,
         ];
-        // §127: the card never waits for an object's details. Pending draws the name now with a waiting
+        // §129: the card never waits for an object's details. Pending draws the name now with a waiting
         // mark and nothing to open; the host redraws this card when they land, and the row opens.
         if (row.definition === "pending")
           return h(Row, { key, kindKey: "item", kindLabel, family }, ...head, h(Waiting, { key: "wait", label: t("preparing") }));
@@ -1107,7 +1107,7 @@ export function createComponent(React) {
     const glossary = isRecord(details.labels) ? details.labels : {};
     const term = (name) => (typeof glossary[name] === "string" && glossary[name]) || name;
     const t = (key, fallback) => word(details.ui, "mechanics", key, fallback);
-    // An object's fields are named as the possessions box names them (§127), from the sheet's words.
+    // An object's fields are named as the possessions box names them (§129), from the sheet's words.
     const sheet = (key, fallback) => word(details.ui, "sheet", key, fallback);
 
     /**

@@ -44,7 +44,7 @@ export type CocUiWords={tag:string; words:Record<string,Record<string,string>>;
 /** What a card reads besides the kernel's answer: the chrome's words, and the campaign's own. */
 export type CocHistoryWords={ui?:CocUiWords; lanes?:Record<string,string>};
 /**
- * Contract §127: what the host has said about an object's details since a card named them pending,
+ * Contract §129: what the host has said about an object's details since a card named them pending,
  * by definition name. `definition: 'ready'` carries the player view the card opens into; `'none'`
  * says the preparation was dropped and the row should stop waiting. A later word wins.
  */
@@ -326,7 +326,7 @@ export function mechanicsEntry(row:any, language?:string, presentations?:Readonl
       presentation:{renderer:'coc-choice',details:{...row.data,labels:{...lanes,...wordTable(row.data.labels)},...chrome}}};
   }
   if(row?.type!=='custom'||row.customType!=='coc-mechanics'||!Array.isArray(row.data?.mechanics))return;
-  // §127: a row recorded while its object's details were still being prepared is drawn with what the
+  // §129: a row recorded while its object's details were still being prepared is drawn with what the
   // host has said since, so the live redraw and every re-read of the transcript open the same card.
   const mechanics=row.data.mechanics.filter((x:any)=>x&&typeof x==='object'&&x.visibility!=='keeper').map(concealFigures)
     .map((x:any)=>withObjectDetails(x,details));

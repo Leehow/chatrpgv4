@@ -1385,7 +1385,7 @@ submit the chosen dispositions without guessing IDs or repeating the failed call
 | `scene` | `from`, `to`, `minutes`, `via`? |
 | `clue` | `clue`, `label`?, `summary`? |
 | `time` | `minutes` |
-| `item` | `name`, `quantity`, `to`, `weapon`?, `adopted`?, `definition`? (`ready` with `object`, `pending` with `definition_name`, `none`; §127) |
+| `item` | `name`, `quantity`, `to`, `weapon`?, `adopted`?, `definition`? (`ready` with `object`, `pending` with `definition_name`, `none`; §129) |
 | `cash` | `subject`, `before`, `after` |
 | `session` | `family`, `transition`, `round`?, `outcome`? |
 | `choice` | `option` |
@@ -4760,7 +4760,7 @@ projected per play language through the presenter lane: code carries no
 per-language table or branch. Long object lists are clipped to two names.
 
 The card never waits on this preparation: an object whose deferred definition is still being
-generated is drawn with its name and a waiting mark, and opens when its details land (§127).
+generated is drawn with its name and a waiting mark, and opens when its details land (§129).
 
 #### Receipts, events and tests
 
@@ -15019,7 +15019,7 @@ The result distinguishes `ordinary`, `no_roll`, `incumbent`, `needs_player` and 
 
 The host does not execute the suggested resolve. The Keeper may use or correct it and invokes the ordinary canonical tool; admission, Mod validation, arithmetic and transaction receipts remain in that existing path. No numerical result is predicted. Check advice carries private input/world/rules/profile bindings, is checked after parallel preparation and dropped if obsolete. It shares the existing preparation adapter, parent accounting, deadline and final request budget with evidence and NPC support. Optional check failure does not erase independently valid evidence. The public projection shows current semantic choices and unresolved needs, never private hashes, provider metadata or an assertion that a check already happened.
 
-## 127. An object's details never hold the card (2026-09-22, amends §16.2 and §26 "Preparation progress")
+## 129. An object's details never hold the card (2026-09-22, amends §16.2 and §26 "Preparation progress")
 
 User direction, 2026-09-22 (verbatim): 如果需要展示物品参数之类的话也不需要阻塞，直接显示文字加个正在加载的转圈圈小图标，等好了自动变成可以展开的就行，不要阻塞玩家看主要内容显示.
 

@@ -179,7 +179,7 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
                     throw new RpcError('invalid_params', 'Adopt needs an existing investigator equipment name, without from or an existing instance');
                 if (!queueAdoption(world, string(waiting.name), string(waiting.category), {...effect}))
                     throw new RpcError('invalid_params', 'The queued definition for this adoption is no longer registered');
-                // §127: the definition its job is producing is what the card waiting on this row is opened by.
+                // §129: the definition its job is producing is what the card waiting on this row is opened by.
                 return {receipt: {id: mint(`definition:queued-adopt-${callId}`), kind: 'definition', name, category: waiting.category,
                     queued: true, adopted: effect.adopt, definition_name: string(waiting.name), subject: owner.id, visibility: 'keeper', call_id: callId},
                     event: {type: 'definition-queued', data: {name: string(waiting.name), category: string(waiting.category)}}};
@@ -232,7 +232,7 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
                 if (value !== null && (!integer(value) || value < 0)) throw new RpcError('invalid_params', 'Recorded ammunition and charges must be nonnegative integers or null');
                 item.state[key] = value;
             }
-            // §127: a resume replaying an adoption a card already named pending says so, so the card is not drawn twice.
+            // §129: a resume replaying an adoption a card already named pending says so, so the card is not drawn twice.
             return {receipt: {id: mint(`definition:adopt-${callId}`), kind: 'definition', name, category: definition.category, definition: definition.id,
                 instance: item.id, adopted: effect.adopt, subject: owner.id, visibility: 'keeper', call_id: callId, ...(effect._resumed === true ? {resumed: true} : {})},
                 event: {type: 'resource-changed', data: {resource: 'equipment_representation', subject: owner.id, item: name}}};

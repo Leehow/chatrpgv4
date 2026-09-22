@@ -779,7 +779,7 @@ def test_registration_can_be_queued_past_delivery_and_completed_afterwards(kerne
     assert kernel.ok("mods.queued", {"campaign":CAMPAIGN}) == {"effects":[], "unfinished":[]}
 
     delivered = narrate(kernel, "t1-c3", "诺特把条件说完，等你开口。")
-    # Contract §127: the card names the belonging at once and says what it waits on, rather than dropping
+    # Contract §129: the card names the belonging at once and says what it waits on, rather than dropping
     # the row as bookkeeping or holding the delivery for its parameters.
     waiting = [row for row in delivered["mechanics"] if row.get("adopted") == target]
     assert waiting == [{"kind":"item", "receipt":waiting[0]["receipt"], "name":draft["name"], "adopted":target,
@@ -806,7 +806,7 @@ def test_a_handed_over_object_opens_into_its_player_view_on_the_card(kernel):
         {"kind":"object", "name":"Handed launcher", "definition":"Card launcher", "to":"Thomas Hayes", "from":"Steven Knott", "handover":"given", "why":"Knott hands it over"}])
     delivered = narrate(kernel, "t1-c2", "诺特把它推过桌面。")
     row = next(row for row in delivered["mechanics"] if row["kind"] == "item")
-    # Contract §127: the definition is in hand, so the row opens at once -- into the player view only.
+    # Contract §129: the definition is in hand, so the row opens at once -- into the player view only.
     assert row["definition"] == "ready"
     assert row["object"] == {"category":"weapon", "description":"An improvised launcher.",
                              "traits":[{"name":"length", "value":91, "unit":"cm", "basis":"Fixture."}],

@@ -1,5 +1,5 @@
 /**
- * Contract §127: a card that named an object while its details were still being prepared opens
+ * Contract §129: a card that named an object while its details were still being prepared opens
  * once they land -- on the live transcript and on every re-read of it.
  *
  * The writer is the Mod host (`extensions/mods/index.ts`), which appends one `coc-object-details`

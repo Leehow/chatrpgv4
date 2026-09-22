@@ -201,7 +201,7 @@ export class ModJobs {
             if (preview) request.preview = clone(params.preview);
             request.usage_object = {name:item.name,quantity:item.quantity,state:clone(item.state),definition:clone(row(row(world.objects).definitions)[item.definition])};
         }
-        // §127: a definition request for a registration that is still queued is that marker's own job, whichever
+        // §129: a definition request for a registration that is still queued is that marker's own job, whichever
         // turn asks. Minted under the asking turn it was a different job: its result landed where the marker
         // never looks, so an unfinished registration was generated again at every later turn and never written.
         const waiting = role === 'create' ? queuedRegistrations(world).find(entry => typeof entry.job === 'string'
@@ -275,7 +275,7 @@ export class ModJobs {
             }
             const value = row(await this.context.snapshots.readJson(accepted));
             effects.push({...define, _definition: value.definition, _provenance: value.provenance});
-            // §127: host-private like every `_` field; the adopt receipt it produces says it is a replay.
+            // §129: host-private like every `_` field; the adopt receipt it produces says it is a replay.
             if (truth(entry.object)) effects.push({...clone(row(entry.object)), _resumed: true});
         }
         return {effects, unfinished};

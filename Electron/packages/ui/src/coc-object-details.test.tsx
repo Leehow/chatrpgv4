@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * Contract §127: an object's details never hold the delivery card.
+ * Contract §129: an object's details never hold the delivery card.
  *
  * The belongings an opening registers are prepared beside the turn, not inside it (§26 "Same-turn
  * prepare"), so the card that names them is drawn before their parameters exist. It draws the name

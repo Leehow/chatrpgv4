@@ -875,9 +875,9 @@ type Live = {
   toolNames: Map<string, string>;
   /** Dedupe for authoritative presentation entries, shared by every reading of the transcript. */
   projectedPresentationIds: Set<string>;
-  /** §127: what `coc-object-details` has said so far in this run, by definition name. */
+  /** §129: what `coc-object-details` has said so far in this run, by definition name. */
   cocObjectDetails?: Map<string, Record<string, unknown>>;
-  /** §127: cards drawn in this run that still wait on an object's details, by entry id. */
+  /** §129: cards drawn in this run that still wait on an object's details, by entry id. */
   cocPendingCards?: Map<string, any>;
   /** Byte the presentation projection has already read this transcript to; undefined off a table. */
   presentationReadTo?: number;
@@ -1668,7 +1668,7 @@ async function readHistoryFallback(
     input: jsonlSnapshotStream(path, byteEnd),
     crlfDelay: Infinity,
   });
-  // §127: what the host said about an object's details can land anywhere after the card that named
+  // §129: what the host said about an object's details can land anywhere after the card that named
   // them pending -- on the next page, or long after this one -- so every such word in the file is
   // gathered first and the page is drawn after, the same card a live redraw would have drawn.
   const cocDetails = new Map<string, Record<string, unknown>>();
@@ -6208,13 +6208,13 @@ export class PiHostBackend implements HostBackend {
       // The history page is cached against the transcript's own size and mtime, which a
       // projection landing beside it does not change.
       this.historyCache.delete(path);
-      // §127: a card whose object details landed meanwhile keeps them in this redraw.
+      // §129: a card whose object details landed meanwhile keeps them in this redraw.
       const entry = mechanicsEntry(raw, binding.play_language, undefined, this.cocLiveWords(sessionId), undefined, (live ?? this.live.get(sessionId))?.cocObjectDetails);
       if (entry) this.stream({type: "presentation", sessionId, entry});
     })().catch(() => undefined);
   }
   /**
-   * Contract §127. An object's details landed after the card that named it was drawn: the card was
+   * Contract §129. An object's details landed after the card that named it was drawn: the card was
    * drawn at once with a waiting mark, and is drawn again under the same entry id now, which the
    * transcript applies as a replacement where it sits (`applyStreamEvent`). Only cards this run drew
    * are redrawn -- a card the player has not loaded is read back from the file with the same words

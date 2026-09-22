@@ -527,7 +527,7 @@ export default function modsExtension(pi: ExtensionAPI): void {
   /** Names this process has already announced as ready, so a later resume does not say it twice. */
   const announced = new Set<string>();
   /**
-   * Contract §127. A card that named an object while its parameters were being prepared drew the name
+   * Contract §129. A card that named an object while its parameters were being prepared drew the name
    * with a waiting mark and nothing to open; this session entry is the word that opens it. The Electron
    * backend reads it (`coc-view.ts` `objectDetailsOf`): the live transcript redraws the waiting card in
    * place, and every re-read of the transcript draws that card open. `object` is the definition's player
@@ -549,7 +549,7 @@ export default function modsExtension(pi: ExtensionAPI): void {
    * apply. One turn late is late; silently unregistered forever is a hole, so an entry whose parameters
    * never arrived is started again from here rather than left behind a marker that hides its row from the
    * audit. Nothing here waits on a model: the signal and budget of the verb that opened the turn are not
-   * this work's to spend (§127).
+   * this work's to spend (§129).
    */
   async function resume(campaign: string, _signal?: AbortSignal, _providerBudget?: TaskProviderBudget): Promise<void> {
     if (!call) return;
@@ -559,7 +559,7 @@ export default function modsExtension(pi: ExtensionAPI): void {
     if (outstanding) return;
     const queued = await current("mods.queued", {campaign});
     const unfinished: any[] = Array.isArray(queued?.unfinished) ? queued.unfinished : [];
-    // §127: an entry whose parameters never arrived used to be generated right here, inside the first verb
+    // §129: an entry whose parameters never arrived used to be generated right here, inside the first verb
     // of the turn and on its budget -- the very wait the deferral exists to keep off the player's path. It
     // is started beside the turn instead, exactly like the original deferral, and the next resume writes it.
     if (unfinished.length) beside(campaign, unfinished);
@@ -582,7 +582,7 @@ export default function modsExtension(pi: ExtensionAPI): void {
       // again, and the Keeper registers it the ordinary blocking way on the turn after this one.
       await current("mods.queued", {campaign, discard: true}).catch(() => undefined);
       void emitToPanel("coc-keeper", "mods-progress", {campaign, done: 0, total: 0, deferred_failed: errorText(error)});
-      // §127: every card still waiting on one of these stops waiting, and one already opened closes again.
+      // §129: every card still waiting on one of these stops waiting, and one already opened closes again.
       announceDetails(campaign, [...new Set([...landed, ...unfinished].map(entry => entry?.name)
         .filter((name): name is string => typeof name === "string" && !!name))].map(name => ({name, definition: "none" as const})));
     }

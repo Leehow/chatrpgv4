@@ -1,5 +1,5 @@
 /**
- * Contract §127: the word that opens a waiting card has a writer and a reader, and they agree.
+ * Contract §129: the word that opens a waiting card has a writer and a reader, and they agree.
  *
  * Three ends, all real here except the Mod child itself:
  *
