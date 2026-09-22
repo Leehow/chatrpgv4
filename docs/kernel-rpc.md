@@ -6380,6 +6380,128 @@ Keeper takes the `missing` line into the fiction rather than into a menu are all
 canonical continuous regression of Agents.md, with the admission rows read turn by turn. The
 uninformed-human UI gate (#79) has not run. Nothing here claims the novice experience solved.
 
+### 32.10 A typed primary reviewer, the lane behind it (2026-09-22, amends §32.2, §32.7; a T12 guard, §122)
+
+**Why.** Real table 2026-09-22 (zh-Hans, Keeper `grok-build/grok-4.7-build-fast`, reviewer `xai/grok-4.6`,
+campaign `game-21ac44b7`): turn 1's `apply` waited 13.0 s for a correct `not_authorized` (the Keeper tried to land
+keys, cash and research leads beyond the player's ask), its corrected retry 4.5 s, turn 2's `apply` 11.2 s. The
+retained bank below puts `xai/grok-4.6` reviews at 39 s median and 81 s p90. The semantics of §32.2 are not in
+question; the foreground wait on every `resolve`/`apply` is. Jev calls in this repository answer in about 0.65 s
+(prescreen telemetry, 4 calls in 2.6 s `decision_ms`). The gate stays where it is and refuses what it refused;
+only who answers first changes.
+
+**Setting.** `PI_COC_ADMISSION_REVIEWER=jev|lane`, read per review. **Default `lane`**: the §32.2 completion,
+unchanged. `jev` puts the typed family `action-admission` v1 (`runtime/jev/admission-domain.ts`) first through the
+shared decision adapter (§122 T06/T07, pinned `jev-1.13.0`, credential through the Jev extension's resolver), and
+runs the lane for every answer that is not a verdict. The default does not change until live agreement exists (the
+evidence paragraph below says why it does not yet). `PI_COC_ADMISSION_JEV_TIMEOUT_MS` (default 4 000 ms) caps the
+typed attempt; `PI_COC_ADMISSION_JEV_MIN_CONFIDENCE` (default 0.9) is the family's minimum verdict confidence.
+
+**The batch.** The typed reviewer reads exactly §32.3's input and nothing else: the player's exact words, the
+unfinished declaration when there is one, the investigators, the scene's player-facing name and who is on stage, the
+last four deliveries (each Keeper delivery clipped to the lane's 1 500 units and the player's line then to 400),
+what this turn already settled and refused, and the proposal lines as `admissionRequest` renders them for the lane.
+The Keeper's rationale does not travel, just as it does not to the lane. State carries it as host-issued passages:
+`splitSourceText` (§122 T09's closed segmentation) cuts every text into sentence passages with aliases (`said:<n>`,
+`unfinished:<n>`, `told:<k>:player:<n>`, `told:<k>:keeper:<n>`), and a `rules` list condensing the §32.2 reviewer
+rules in English. Per proposed line *i* the batch asks three independent Choice questions over that one state:
+
+- `verdict_i`: the five §32.2 verdicts, each option's descriptor the §32.2 definition;
+- `missing_i`: a closed missing-choice kind, `none | destination | method | target | cost_or_commitment |
+  offered_route | interest_only | other`, following §32.2's own list of what `not_authorized` is;
+- `basis_i`: one issued passage alias, or `none`: the words that decide whether the player chose line *i*.
+
+Lines are split into same-state batches of at most two lines, dispatched together; no question reads a peer's answer
+(§122 T09's same-state fan-out). A proposal of more than eight lines goes to the lane. The shape follows the TypeSafe
+documentation: questions are independent over one state and are batched because extra questions barely move latency,
+a complex judgement is split into separate questions that host code combines, instructions name the state field they
+judge by path, and an incomplete list carries a `none` option ([primitives](https://docs.typesafe.ai/primitives));
+classification is kept apart from policy so thresholds can be re-applied to stored answers without new calls
+([classifying RAG passages](https://docs.typesafe.ai/cookbooks/classifying_rag_passages)). The jev-1.13 jaggedness notes
+say numbers are read as text and unrelated state is a distractor
+([jev-1.13](https://docs.typesafe.ai/model-jaggedness/jev-1.13)); so a batch carrying a `cash` effect, the kind whose
+line carries a figure §32.2's explicit limits and undisclosed prices compare, goes to the lane with no typed call
+(`jev_fallback: numeric_commitment`), and the context windows are the lane's, not wider. The routing reads the
+closed effect kind, never the prose.
+
+**Mapping.** The batch verdict is host arithmetic over the line verdicts: any `not_authorized` refuses as
+`not_authorized`; otherwise any `uncertain` refuses as `uncertain`; otherwise it admits as `authorized` if any line
+is, else `entailed` if any line is, else `not_player_action`. A batch is admitted only when every line admits, which
+is §32.1's "reviewed whole and refused whole". The review confidence is the minimum verdict confidence over the lines;
+under the family minimum the answer is not a verdict. That minimum is a family policy, not a calibrated accuracy
+claim (§122: no universal cutoff, no confidence-as-truth).
+
+**What a typed refusal tells the Keeper.** The refusal is the §32.2 refusal, same `code`, `message`, `fix` and
+`details`, with `details.reviewer: "jev"`. Jev generates no text, so both strings are host-derived from typed answers:
+
+- `missing` = the host's English rendering of line *k*'s missing kind, then `: ` and line *k* itself (clipped to
+  100 units), where *k* is the first line whose verdict is the batch verdict. `uncertain` renders as
+  "whether the player chose this is not clear from their words". `none` or `other` on a refusing line renders the
+  generic "the player has not chosen this action".
+- `grounds` = `Decided by <where>: "<the exact passage>"` for line *k*'s selected basis, extracted by the host from
+  its own passage, or `No player-visible passage chooses it`, followed by `typed review judged line k <verdict> (<line>)`.
+
+This is thinner than the lane's prose grounds: it names which line went beyond the ask, the closed kind of the
+missing choice and the exact player-visible words relied on, and it cannot paraphrase what the choice would be.
+That is the honest cost of a typed reviewer, and the reason the Keeper's `fix` already tells it to take up what the
+player actually said.
+
+**Fallback, unchanged semantics.** Every typed non-verdict — reviewer disabled or unconfigured, timeout, cancellation,
+rate limit, service or schema error, packing limit, an incomplete or invalid answer (an unissued alias), a binding
+mismatch, confidence under the minimum, `numeric_commitment`, more than eight lines — runs `reviewAdmission` exactly
+as `lane` does: same prompt, same `PI_COC_ADMISSION_MODEL`, same cap, same provider budget, same shape check. Its
+failure is §32.2's `admission_unavailable` refusal; **the typed route never admits on a failure**. §32.4 reuse is
+unchanged (the verdict map does not care which reviewer filled it; a reused row carries the original `reviewer`).
+The outage streak counts final outcomes, so a typed fallback that the lane then answers is a live verdict and resets
+it. Cancellation: the typed lease inherits the tool call's signal and the foreground provider budget's signal and
+deadline; its Jev reservations go through `preparationBudget` onto the same foreground provider-budget port (§122 T15),
+so a typed review is charged to the task like the lane's completion.
+
+**Telemetry (amends §32.7).** The `lane: "admission"` row gains `reviewer` (`jev` | `lane`) on every review, and `ms`
+is the whole review (typed attempt plus any lane fallback). A typed verdict adds `model: "jev-1.13.0"`, `confidence`,
+`line_verdicts`, `jev_ms`, `jev_calls`, `jev_input_tokens`. A fallback adds `jev_fallback` (the reason above), `lane_ms`,
+and `jev_confidence`/`line_verdicts` when a typed answer existed; `model` is then the lane's. `kpi.py`'s `admission`
+section adds `by_reviewer` (reviews, unavailable, fallbacks by reason, ms) only when rows name a reviewer, so older
+runs read as before.
+
+**Three ends (§31).** Writer: the typed family's decision, or the lane, through `reviewAdmissionPrimary`
+(`extensions/kernel/admission.ts`). Reader: `admitAction` (`extensions/kernel/index.ts`), which is still the only place a
+verdict admits or refuses, ahead of Mod hooks and the kernel. Actor: the Keeper, through the unchanged refusal; the
+operator, through `by_reviewer` and the fallback reasons. Nothing reaches the next capsule.
+
+**T12 fit.** §122's shared-contract table names admission a reader of IntentBinding and the dispatcher's guard for
+`apply`/`resolve`; its failure row says fail closed. This section changes neither where the guard runs nor what it
+refuses: T11/T12 host-issued operations pass the same `admitAction` through the canonical dispatcher and get the same
+reviewer. It is the master design's `admission | typed verdict and ground selections | fail closed` row, not a
+parallel admission path, and it claims no T12 acceptance.
+
+**Evidence (offline, 2026-09-22).** `experiments/admission-jev-bank/build.mjs` reconstructs cases from retained,
+read-only evidence: every `lane: "admission"` review row, paired with the exact tool arguments that produced it
+(driver `turn-N.json`, or a Pi session JSONL where the row sits between the tool call and its result), re-projected
+through the product's `admissionRequest`, with the §32.3 context rebuilt from committed `turns/NNNN.json`. Retained
+review rows: 5 878 across 236 campaigns; paired cases: 5 179 (by exact key digest 2 081, by adjacency 3, by order
+3 095 where an older key format no longer matches but the per-turn counts do). Lane labels: authorized 3 484,
+entailed 666, not_player_action 151, not_authorized 711, uncertain 2, lane unavailable 165. Sources: persona-bench
+driver runs 4 785, other driver tables 391, App sessions 3 — the bench dominates and is not a human table.
+Reconstruction gaps, carried per case: the setup prologue is omitted, `registered_destination` is missing from
+re-projected move lines (1 048 cases), and the `ask` options a pending answer settled are unknown. Routing and packing
+over every case (`replay.mjs --port shape`): typed 4 779 (92.3%), lane-only `cash` 375 (7.2%), packing limit 21,
+more than eight lines 4; the largest batch is 32 555 bytes, p50 16 652, p90 23 985 (one batch for 3 844 typed
+cases, two for 745, three or four for 190). A controlled echo port (each line answers the lane's own verdict) maps
+all 4 637 labelled typed cases back to their label; that proves the transport and mapping only. **Agreement with the
+lane was not measured: no live Jev credential was available to the implementer.** `replay.mjs --port live
+--per-class N` measures it, with per-class agreement, false admits and false refusals at each confidence threshold
+from one set of stored answers. Until that run exists the default stays `lane`.
+
+**Verified at the seam** (`tests/extension/admission-jev.test.mjs`, the real `apply`/`resolve` tools, the real
+admission seam and decision adapter, a controlled typed endpoint): a confident typed admission settles with no lane
+call and records `reviewer: "jev"`; a typed service failure and a low-confidence answer each run the lane, whose
+verdict stands; a confident typed refusal refuses the whole batch with host-derived `grounds` and `missing` and no lane
+call; with both reviewers failing the review refuses as unavailable and escalates on the second failure; the route is
+opt-in; a `cash` batch makes no typed call; a typed verdict is reused within the turn. Family policy is pinned in
+`tests/extension/admission-jev-domain.test.mjs`. **Not verified:** live agreement, live latency and tail at the table,
+whether a Keeper handles the thinner typed `missing` as well as the lane's prose, and CJK accuracy on the typed model.
+
 ## 33. Creation difficulty: an extension setting scaled into chargen (2026-09-11)
 
 A difficulty setting for character creation, owned by the COC Keeper extension's

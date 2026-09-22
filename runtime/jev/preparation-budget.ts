@@ -5,10 +5,12 @@ import type {DecisionPort} from './decision-port.ts';
 import {packDecisionBatch,JEV_MODEL} from './question-packing.ts';
 import {JEV_INPUT_USD_PER_MILLION} from './decision-adapter.ts';
 
-export function preparationBudget(options:{decision:DecisionPort;campaign:string;deadlineAt:number;signal:AbortSignal;parent?:TaskProviderBudget}) {
+export function preparationBudget(options:{decision:DecisionPort;campaign:string;deadlineAt:number;signal:AbortSignal;parent?:TaskProviderBudget;
+    owner?:string;goal?:string}) {
     const signal=options.parent?AbortSignal.any([options.signal,options.parent.signal]):options.signal;
-    const lease=new TaskLease({owner:'keeper-preparation',goal:'Prepare evidence and NPC intentions for one player input',
-        scope:{owner:'keeper-preparation',campaign:options.campaign,audience:'keeper'},capabilities:['decision'],readSet:[],signal,
+    const owner=options.owner??'keeper-preparation';
+    const lease=new TaskLease({owner,goal:options.goal??'Prepare evidence and NPC intentions for one player input',
+        scope:{owner,campaign:options.campaign,audience:'keeper'},capabilities:['decision'],readSet:[],signal,
         budget:{deadlineAt:Math.min(options.deadlineAt,options.parent?.deadlineAt??Infinity),remainingActions:8,
             remainingInputTokens:400_000,remainingOutputTokens:40_000,remainingCostUsd:.04}});
     const budget=createTaskProviderBudget(lease);
