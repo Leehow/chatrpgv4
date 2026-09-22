@@ -129,6 +129,51 @@ export function unrecordedClues(graph: ModuleGraph, world: Row, scene: Row, reco
     return rows;
 }
 /**
+ * The findings the Keeper has not been shown yet (contract §12.5, amended by §130.5).
+ *
+ * The last narrated turn's rows, as before, and two additions. Rows on `ask` records after it: an asked
+ * turn is a delivery the player read, and a review may have read it too. And rows the previous capsule
+ * was responsible for but never carried: both post-delivery lanes finish on their own clock, and a
+ * player who answered first used to lose them for good, because the next capsule read only the newest
+ * record. What the previous capsule carried is not guessed from timestamps -- it is on disk, in the
+ * last record's own `capsule` -- so a row of the records it covered that is not in it rides now, once,
+ * marked `late`. The continuity review's rows lead: a reviewer's verdict stands behind them, and the
+ * section is trimmed from the end.
+ */
+const CONTINUITY_KINDS: ReadonlySet<string> = new Set(["continuity_conflict", "unsettled_object", "continuity_finding", "source_conflict"]);
+const warningKey = (turn: unknown, warning: Row): string => JSON.stringify([turn, warning.kind ?? null, warning.quote ?? null, warning.why ?? null]);
+export function capsuleWarnings(records: Row[], last: Row | undefined, turn: number): Row[] {
+    if (!last)
+        return [];
+    const since = number(last.turn);
+    const ordered = [...records].filter(record => number(record.turn) < turn).sort((a, b) => number(a.turn) - number(b.turn));
+    // The records the last capsule was assembled to cover: from the narrated turn before it up to it.
+    const floor = number(ordered.filter(record => number(record.turn) < since && record.closed_by === "narrate").at(-1)?.turn ?? -1);
+    const shown = new Set(array(row(last.capsule).warnings).map(warning => warningKey(warning.turn, warning)));
+    const rows: Row[] = [];
+    const project = (record: Row, warning: Row, late: boolean): Row => ({
+        turn: record.turn,
+        kind: warning.kind ?? null,
+        quote: warning.quote ?? null,
+        why: warning.why ?? null,
+        ...(warning.clue ? { clue: warning.clue } : {}),
+        ...(warning.fix ? { fix: warning.fix } : {}),
+        ...(late ? { late: true } : {})
+    });
+    for (const record of ordered) {
+        const at = number(record.turn), delivered = ["narrate", "ask"].includes(string(record.closed_by));
+        const current = record === last || (at > since && record.closed_by === "ask");
+        const covered = !current && delivered && at >= floor && at < since;
+        if (!current && !covered)
+            continue;
+        for (const warning of array(record.warnings))
+            if (current || !shown.has(warningKey(record.turn, warning)))
+                rows.push(project(record, warning, !current));
+    }
+    const lead = (row: Row) => (CONTINUITY_KINDS.has(string(row.kind)) ? 0 : 1);
+    return rows.map((row, index) => ({ row, index })).sort((a, b) => lead(a.row) - lead(b.row) || a.index - b.index).map(entry => entry.row);
+}
+/**
  * People the prose put in this room while the ledger puts them somewhere else (contract §51.4,
  * second kind).
  *
@@ -355,13 +400,7 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
                 ? { closed: "stranded", receipts: array(record.receipts).length }
                 : record.closed_how ? { closed: record.closed_how, receipts: array(record.receipts).length } : {})
         })),
-        warnings: array(warningRecord?.warnings).map(warning => ({
-            turn: warningRecord!.turn,
-            kind: warning.kind ?? null,
-            quote: warning.quote ?? null,
-            why: warning.why ?? null,
-            ...(warning.clue ? { clue: warning.clue } : {})
-        })),
+        warnings: capsuleWarnings(campaign.records, warningRecord, number(turn.turn)),
         // Clues first: a row that is still findable in this room outranks a person the player heard
         // in it, and the section is trimmed from the end.
         unrecorded: [...unrecordedClues(graph, world, scene, campaign.records, number(turn.turn)),

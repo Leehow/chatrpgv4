@@ -14,6 +14,8 @@ import {EventEmitter} from 'node:events';
 import {fauxAssistantMessage, fauxToolCall} from '@earendil-works/pi-ai';
 import {openTable, assistantTexts, customMessages, waitForIdle} from './harness.mjs';
 import {extensionWords} from '../../extensions/ui/words.ts';
+// These cases pin the pre-delivery gate (§36.14, §26.1, §91), which §130 keeps whole as the `pre` mode.
+process.env.PI_COC_CONTINUITY_GATE = 'pre';
 
 const root = resolve(import.meta.dirname, '../..'), base = join(root, '.coc/playtests/continuity-audit-contracts');
 await mkdir(base, {recursive: true});

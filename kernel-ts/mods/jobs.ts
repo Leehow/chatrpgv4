@@ -289,12 +289,17 @@ export class ModJobs {
         if ((identity.prefetch === true) !== prefetch) throw new RpcError('invalid_params',
             identity.prefetch === true ? 'Proposal jobs require mods.prefetch.accept' : 'Action jobs require mods.accept',
             {details:{reason:identity.prefetch === true ? 'prefetch_accept_required' : 'action_accept_required'}});
-        const loaded = await this.load(params), {campaign,graph,module,world,turn,meta} = loaded;
+        const loaded = await this.load(params), {campaign,graph,module,world,meta} = loaded;
         // A deferred registration is accepted after delivery, and narrate has already moved the turn on, so
         // the turn is not what pins this job -- the marker the kernel itself wrote is. Campaign, worldline
         // and the package digests below still have to match.
         const deferred = queuedRegistrations(world).some(entry => entry.job === key);
-        if (identity.campaign !== campaign.id || (!prefetch && !deferred && !equal(identity.turn, turn.turn)) || !equal(identity.worldline, meta.active_worldline ?? null))
+        // Contract §130.3: a continuity review read after its delivery closed. The live cursor has moved
+        // on, so the pin is the delivered record itself, and its receipts stand in for the turn's.
+        const afterDelivery = !prefetch && truth(params.after_delivery);
+        const delivered = afterDelivery && Number.isInteger(identity.turn) ? await campaign.readTurnRecord(identity.turn) : null;
+        const turn: Row = delivered ? {...loaded.turn, receipts: array(delivered.receipts)} : loaded.turn;
+        if (identity.campaign !== campaign.id || (!prefetch && !deferred && !afterDelivery && !equal(identity.turn, turn.turn)) || !equal(identity.worldline, meta.active_worldline ?? null))
             throw new RpcError('invalid_params', 'Mod job belongs to another turn or worldline');
         const active = new Map((await this.runtime.active(world)).map(mod => [mod.id, mod]));
         if (!active.has(identity.mod) || active.get(identity.mod)!.digest !== identity.digest) throw new RpcError('invalid_params', 'Mod changed while the job was running');
@@ -308,9 +313,16 @@ export class ModJobs {
             throw new RpcError('needs',request.role === 'audit' ? 'The retained source-audit request changed' : 'The retained Mod preparation request changed',
                 {details:{reason:request.role === 'audit' ? 'mod_audit_evidence' : 'usage_request_changed',file:'request.json'},
                  fix:'Keep this draft unaccepted; inspect the retained preparation request'});
+        if (afterDelivery) {
+            if (request.role !== 'audit') throw new RpcError('invalid_params', 'Only an audit job can be accepted after delivery');
+            if (!delivered || !['narrate', 'ask'].includes(string(delivered.closed_by)) || string(delivered.text) !== string(row(request.input).text))
+                throw new RpcError('needs', 'This review did not read the delivery that turn published', {details: {reason: 'delivery_mismatch', turn: identity.turn ?? null},
+                    fix: 'Record the delivered turn as unreviewed; the published words stand'});
+        }
         const wait = row(row(request.input).preparation_wait), refused = row(row(request.input).rebinding_refused);
-        const evidence = sourceAudit || continuity ? await auditSourceEvidence(this.context, campaign, module, world, turn, await campaign.party() as Row[], continuity, wait, refused) : null;
-        if (evidence) {
+        const evidence = !(sourceAudit || continuity) ? null : afterDelivery ? await this.retainedEvidence(root, request, continuity, identity)
+            : await auditSourceEvidence(this.context, campaign, module, world, turn, await campaign.party() as Row[], continuity, wait, refused);
+        if (evidence && !afterDelivery) {
             if (evidence.binding !== identity.source_binding) throw new RpcError('needs', 'Source audit no longer matches the current campaign evidence',
                 {details: {reason: 'mod_audit_stale'}, fix: 'Retry the same narration to prepare a current source audit; do not reroll settled actions'});
             await verifyAuditSources(root, evidence.files);
@@ -409,6 +421,26 @@ export class ModJobs {
         // proposal accepted on disk if those same guards would refuse its ordinary apply path.
         if (prefetch && result.usage !== null) registerUsage(world,string(request.input.object),result.usage,result.physical_basis,result.provenance);
         await writeJsonAtomic(acceptedPath, result); return prefetch ? finishPrefetch(result) : result;
+    }
+    /**
+     * Contract §130.3: the evidence a post-delivery review judged is the evidence the job pinned, read
+     * back from the job directory. Recomputing it would compare the draft with a campaign that already
+     * contains its own delivery; the binding digest proves these are the files the job was bound to.
+     */
+    private async retainedEvidence(root: string, request: Row, continuity: boolean, identity: Row): Promise<{files: Row; binding: string}> {
+        const names = array(row(request[continuity ? 'continuity_review' : 'source_review']).files).map(string).filter(Boolean);
+        const files: Row = {};
+        const refuse = (file: string | null) => new RpcError('needs', 'The retained source-audit evidence changed or is unavailable',
+            {details: {reason: 'mod_audit_evidence', file}, fix: 'Record the delivered turn as unreviewed; the published words stand'});
+        for (const name of names) {
+            try { files[name] = await this.context.snapshots.readJson(join(root, name)) as Row; }
+            catch { throw refuse(name); }
+        }
+        const current = row(files['current.json']);
+        const binding = jsonDigest({files, current: current.turn ?? null, party: current.party ?? null} as any);
+        if (!names.length || binding !== identity.source_binding) throw refuse(null);
+        await verifyAuditSources(root, files);
+        return {files, binding};
     }
     private materializeContinuity(raw: unknown, request: Row, files: Row, identity: Row): Row {
         if (request.continuity_review?.schema !== 2) return row(raw);

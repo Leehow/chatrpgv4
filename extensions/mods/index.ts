@@ -43,6 +43,32 @@ function modPoolSize(): number {
  * Absent means the gate answered: either it approved this draft, or there was no review to run.
  */
 export type Unreviewed = {cause: string; service: boolean};
+/**
+ * Contract §130: when the continuity review reads a delivery. `post` (the default) publishes first and
+ * reviews the published words; `pre` is the §36.14/§91 gate, kept whole. Read at every delivery.
+ */
+export type ReviewMode = 'pre' | 'post';
+export function continuityGateMode(): ReviewMode {
+  return process.env.PI_COC_CONTINUITY_GATE?.trim().toLowerCase() === 'pre' ? 'pre' : 'post';
+}
+/** What a review came to, for the delivered turn's record (§130.4). */
+export type ReviewOutcome = {mode: ReviewMode; job?: string; verdict?: string; unreviewed?: Unreviewed};
+/**
+ * §130: a review whose evidence was pinned before the commit and whose reading waits until the
+ * delivery has closed. `run` never throws: a review that cannot answer comes back `unreviewed`.
+ */
+export interface DeferredReview {
+  mode: 'post';
+  job: string;
+  /** The foreground cost that stayed: `mods.job`, the deterministic evidence pin. */
+  jobMs: number;
+  run(options: {turn: number; closedAt: number; signal?: AbortSignal}): Promise<ReviewOutcome>;
+}
+/**
+ * `unreviewed`: nobody judged this draft (§91), with the `mode` it happened under. `reviewed`: the gate
+ * approved it before delivery (pre only). `deferred`: the review runs after the delivery (post only).
+ */
+export type Prepared = {unreviewed?: Unreviewed; mode?: ReviewMode; reviewed?: ReviewOutcome; deferred?: DeferredReview};
 export interface ModBridge {
   /**
    * `service` is §38.9's kind, replayed from the retained accounting; absent reads as a service pause.
@@ -50,7 +76,7 @@ export interface ModBridge {
    * reads as unreviewed, so a store written before §91 never strands a recovered turn on its own.
    */
   reviewStatus?(campaign: string): Promise<{paused?: boolean; reason?: string; service?: boolean; reviewed?: boolean}>;
-  prepare(method: string, payload: Record<string, any>, signal?: AbortSignal, providerBudget?: TaskProviderBudget): Promise<{unreviewed?: Unreviewed} | void>;
+  prepare(method: string, payload: Record<string, any>, signal?: AbortSignal, providerBudget?: TaskProviderBudget): Promise<Prepared | void>;
   /** After the verb landed, so deferred registration can complete in a turn the Keeper never writes in. */
   after(method: string, payload: Record<string, any>, signal?: AbortSignal): Promise<void>;
 }
@@ -164,6 +190,7 @@ export default function modsExtension(pi: ExtensionAPI): void {
    * at the 40 s `per_review_ms` cap. A lane whose only failure signal is somebody else's missing row is
    * not observable.
    */
+  type PostReview = {turn: number; jobMs: number; closedAt: number; token: string | undefined};
   function note(row: Record<string, unknown>): void {
     try { record?.({lane: 'continuity-review', ...row}); }
     catch { /* telemetry must never break a review */ }
@@ -190,11 +217,15 @@ export default function modsExtension(pi: ExtensionAPI): void {
     return at >= 0 && typeof command[at + 1] === 'string' ? command[at + 1] : undefined;
   }
 
-  async function continuityTask(campaign: string, job: any, input: any, began: number, signal?: AbortSignal, providerBudget?: TaskProviderBudget) {
-    const telemetry: Record<string, unknown> = {job: job?.job ?? null};
+  async function continuityTask(campaign: string, job: any, input: any, began: number, signal?: AbortSignal, providerBudget?: TaskProviderBudget, post?: PostReview) {
+    // §130.6: every row says which mode it ran under; a post row names the turn it read, because by the
+    // time it is written the table has usually moved on.
+    const telemetry: Record<string, unknown> = {job: job?.job ?? null, mode: post ? 'post' : 'pre',
+      ...(post ? {turn: post.turn, delivered: true, job_ms: post.jobMs} : {})};
     try {
-      const result = await runContinuityReview(campaign, job, input, began, signal, telemetry, providerBudget);
-      note({...telemetry, ok: true, ms: Date.now() - began, verdict: result?.continuity_review?.verdict ?? null});
+      const result = await runContinuityReview(campaign, job, input, began, signal, telemetry, providerBudget, post);
+      note({...telemetry, ok: true, ms: Date.now() - began, verdict: result?.continuity_review?.verdict ?? null,
+        ...(post ? {after_close_ms: Date.now() - post.closedAt} : {})});
       return result;
     } catch (error) {
       const details = isKernelError(error) ? error.details : undefined;
@@ -209,21 +240,25 @@ export default function modsExtension(pi: ExtensionAPI): void {
       note({...telemetry, ok: false, ms: Date.now() - began,
         ...(isKernelError(error) ? {code: error.code} : {}),
         ...(reason ? {reason: String(reason)} : {}),
+        ...(post ? {after_close_ms: Date.now() - post.closedAt} : {}),
         cause});
       throw error;
     }
   }
 
   async function runContinuityReview(campaign: string, job: any, input: any, began: number, signal: AbortSignal | undefined,
-    telemetry: Record<string, unknown>, providerBudget?: TaskProviderBudget) {
+    telemetry: Record<string, unknown>, providerBudget?: TaskProviderBudget, post?: PostReview) {
     if (!call || !runtime) throw reviewUnavailable('The review runtime is unavailable');
-    const current = call, owner = runtime, budget = new AuditBudget(job.review_scope, inputToken, job.limits);
+    const current = call, owner = runtime, budget = new AuditBudget(job.review_scope, post ? post.token : inputToken, job.limits);
+    // §130.3: after delivery the kernel pins the review to the delivered record, not the live cursor.
+    const acceptParams = {campaign, job: job.job, ...(post ? {after_delivery: true} : {})};
+    const conclude = (verdict: string) => post ? budget.record(job.job, verdict) : budget.verdict(job.job, verdict);
     let reserved = false, requests = 0, artifactRepairs = 0;
     const finish = () => { if (reserved) { reserved = false; budget.finish(requests, artifactRepairs); } };
     try {
       if (job.accepted) {
-        const result = await current('mods.accept', {campaign, job: job.job});
-        budget.verdict(job.job, result.continuity_review.verdict); return result;
+        const result = await current('mods.accept', acceptParams);
+        conclude(result.continuity_review.verdict); return result;
       }
       // §73: `began` is the host's own clock since `mods.job` was issued; it is not review time and is not
       // charged. It stays the telemetry row's `ms`, which is what a stall is actually visible in.
@@ -269,9 +304,9 @@ export default function modsExtension(pi: ExtensionAPI): void {
       if (model) telemetry.model = model;
       try {
         if (!outcome.ok || !submitted || status.unavailable) budget.fail(status.unavailable || outcome.error || 'The private reviewer ended without a checked submission');
-        const result = await current('mods.accept', {campaign, job: job.job});
+        const result = await current('mods.accept', acceptParams);
         finish();
-        budget.verdict(job.job, result.continuity_review.verdict);
+        conclude(result.continuity_review.verdict);
         return result;
       } finally {
         try { finish(); } finally {
@@ -300,19 +335,26 @@ export default function modsExtension(pi: ExtensionAPI): void {
     } finally { budget.close(); }
   }
 
-  async function task(campaign: string, role: "create" | "usage" | "audit", input: unknown, signal?: AbortSignal, preview?: Record<string, any>[], guard?: () => Promise<void>, providerBudget?: TaskProviderBudget): Promise<any> {
+  /**
+   * `options.job` is a job already prepared by the caller; `options.onJob` reports the one prepared here;
+   * `options.post` runs an audit after its delivery closed (§130).
+   */
+  async function task(campaign: string, role: "create" | "usage" | "audit", input: unknown, signal?: AbortSignal, preview?: Record<string, any>[], guard?: () => Promise<void>, providerBudget?: TaskProviderBudget,
+    options: {job?: any; onJob?: (job: any) => void; post?: PostReview} = {}): Promise<any> {
     if (!call) throw new KernelError({code:"needs",message:"Mod kernel bridge is unavailable"});
     const current = call, owner = runtime, began = Date.now();
     const proposal = role === 'usage' && (input as any)?.propose === true;
     const acceptMethod = proposal ? 'mods.prefetch.accept' : 'mods.accept';
+    const afterDelivery = options.post ? {after_delivery: true} : {};
     if (role === "usage") signal?.throwIfAborted();
-    const job = await current("mods.job", preview === undefined ? {campaign, role, input} : {campaign, role, input, preview});
+    const job = options.job ?? await current("mods.job", preview === undefined ? {campaign, role, input} : {campaign, role, input, preview});
     if (role === "usage") signal?.throwIfAborted();
     if (!job.enabled) return null;
-    if (job.continuity_review) return continuityTask(campaign, job, input, began, signal, providerBudget);
+    options.onJob?.(job);
+    if (job.continuity_review) return continuityTask(campaign, job, input, began, signal, providerBudget, options.post);
     if (job.accepted) {
       await guard?.();
-      const result = await current(acceptMethod, {campaign, job:job.job});
+      const result = await current(acceptMethod, {campaign, job:job.job, ...afterDelivery});
       if (role === "usage") signal?.throwIfAborted();
       return result;
     }
@@ -366,7 +408,7 @@ export default function modsExtension(pi: ExtensionAPI): void {
         }
         await guard?.();
         if (role === "usage") signal?.throwIfAborted();
-        const result = await current(acceptMethod, {campaign, job:job.job});
+        const result = await current(acceptMethod, {campaign, job:job.job, ...afterDelivery});
         if (role === "usage") signal?.throwIfAborted();
         return result;
       }
@@ -590,6 +632,52 @@ export default function modsExtension(pi: ExtensionAPI): void {
     })().finally(() => { warming = undefined; });
   }
 
+  /** The verdict a report carries; a report without a continuity verdict is judged by what it found. */
+  function verdictOf(result: any): string {
+    if (typeof result?.continuity_review?.verdict === 'string') return result.continuity_review.verdict;
+    return result?.missing?.length || result?.findings?.length || (result?.source_review && result.source_review.verdict !== 'supported') ? 'revise' : 'pass';
+  }
+
+  /**
+   * Contract §130. The player reads first: only the deterministic evidence pin (`mods.job`) stays in
+   * front of the commit, because the evidence a review judges is the campaign as it stood when the
+   * draft was written -- after `narrate` the cursor moves on and the delivery joins its own history.
+   * Everything a model does -- the reviewer child, its acceptance, every subreview -- runs once the
+   * delivery has closed, and nothing it concludes can hold, refuse or reopen the turn.
+   *
+   * Retained live baseline (2026-09-22, `game-21ac44b7`): the gate held `narrate` for 14.3 s, 20.1 s and
+   * 15.3 s on turns 0-2, all three `pass`; the player saw no prose for 14.7 s on the opening.
+   */
+  async function deferReview(campaign: string, input: {text: string}): Promise<Prepared | void> {
+    const began = Date.now(), token = inputToken;
+    let job: any;
+    try {
+      if (!call) throw new Error('Mod kernel bridge is unavailable');
+      job = await call('mods.job', {campaign, role: 'audit', input});
+    } catch (error) {
+      // Nothing can be read later without a pin, and nothing about this draft was judged: the delivery
+      // goes out and is recorded as unreviewed (§91.3), never refused.
+      const cause = `The review could not be prepared: ${errorText(error)}`;
+      note({campaign, mode: 'post', ok: false, stage: 'job', unreviewed: true, delivered: true, cause, ms: Date.now() - began});
+      return {mode: 'post', unreviewed: {cause, service: true}};
+    }
+    if (!job?.enabled) return;
+    const jobMs = Date.now() - began;
+    return {mode: 'post', deferred: {mode: 'post', job: job.job, jobMs, async run({turn, closedAt, signal}) {
+      try {
+        const result = await task(campaign, 'audit', input, signal, undefined, undefined, undefined, {job, post: {turn, jobMs, closedAt, token}});
+        return {mode: 'post', job: job.job, verdict: verdictOf(result)};
+      } catch (error) {
+        const details = isKernelError(error) ? error.details as any : undefined;
+        const cause = typeof details?.cause === 'string' && details.cause ? details.cause : errorText(error);
+        // The legacy audit path has no continuity row of its own; this one says what happened to it.
+        if (!job.continuity_review) note({campaign, job: job.job, mode: 'post', turn, delivered: true, ok: false, cause,
+          ...(details?.reason ? {reason: String(details.reason)} : {}), after_close_ms: Date.now() - closedAt});
+        return {mode: 'post', job: job.job, unreviewed: {cause, service: details?.service !== false}};
+      }
+    }}};
+  }
+
   const bridge: ModBridge = {
     async reviewStatus(campaign) {
       if (!call) throw reviewUnavailable('The review status bridge is unavailable');
@@ -634,9 +722,10 @@ export default function modsExtension(pi: ExtensionAPI): void {
         }
       }
       if ((method === "narrate" || method === "ask") && payload.text) {
-        let result: any;
+        if (continuityGateMode() === 'post') return deferReview(payload.campaign, {text: payload.text});
+        let result: any, jobId: string | undefined;
         try {
-          result = await task(payload.campaign, "audit", {text:payload.text}, signal, undefined, undefined, providerBudget);
+          result = await task(payload.campaign, "audit", {text:payload.text}, signal, undefined, undefined, providerBudget, {onJob: job => { jobId = job.job; }});
         }
         catch (error) {
           // Contract §91. The continuity review is the same gate, and the same rule reaches it here:
@@ -653,8 +742,8 @@ export default function modsExtension(pi: ExtensionAPI): void {
               && (error.details as any)?.reviewed !== true) {
             const cause = String((error.details as any)?.cause ?? error.message);
             const service = (error.details as any)?.service !== false;
-            note({campaign: payload.campaign, ok: true, unreviewed: true, delivered: true, cause, service});
-            return {unreviewed: {cause, service}};
+            note({campaign: payload.campaign, mode: 'pre', ok: true, unreviewed: true, delivered: true, cause, service});
+            return {mode: 'pre', unreviewed: {cause, service}};
           }
           // Contract 26.1: a gate that cannot reach a verdict says nothing about the delivery, and
           // refusing sent the Keeper to rewrite words it had no finding against -- three deadlines
@@ -676,6 +765,8 @@ export default function modsExtension(pi: ExtensionAPI): void {
             : "Address the missing objects or narrative findings, then retry the narration without rerolling settled actions",
           details:{reason:"mod_narrative_repair", missing:result.missing, findings:result.findings,
             ...(result.continuity_review ? {continuity_review: result.continuity_review} : {}), ...(result.source_review ? {source_review:result.source_review} : {})}});
+        // §130.4: the gate approved it; the delivered record says so once the commit has landed.
+        if (result && jobId) return {mode: 'pre', reviewed: {mode: 'pre', job: jobId, verdict: verdictOf(result)}};
       }
     },
   };

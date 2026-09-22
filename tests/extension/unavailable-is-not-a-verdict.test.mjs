@@ -32,6 +32,8 @@ import {fauxAssistantMessage, fauxToolCall} from '@earendil-works/pi-ai';
 import {AUDIT_LIMITS} from '../../kernel-ts/mods/audit-result.ts';
 import modsExtension from '../../extensions/mods/index.ts';
 import {customMessages, openTable, waitForIdle} from './harness.mjs';
+// These cases pin the pre-delivery gate (§36.14, §26.1, §91), which §130 keeps whole as the `pre` mode.
+process.env.PI_COC_CONTINUITY_GATE = 'pre';
 
 const root = resolve(import.meta.dirname, '../..');
 const base = join(root, '.coc/playtests/unavailable-is-not-a-verdict');

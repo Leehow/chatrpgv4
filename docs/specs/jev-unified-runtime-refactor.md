@@ -167,7 +167,7 @@ Phases: Intake, optional Grounding, Planning, Deciding, Composing, Auditing, Com
 - New player data, a player choice, or a resume re-binds the task before continuing.
 - Source wait resume -> revalidate -> Deciding, never a blind read restart.
 - Cancel or timeout may occur from any active phase, not only Deciding; a global composite state or explanatory transitions are acceptable.
-- Delivery happens only after the existing audit and commit gate; semantic draft repair returns to the LLM with settled receipts and never re-rolls.
+- Delivery happens only after the existing audit and commit gate; semantic draft repair returns to the LLM with settled receipts and never re-rolls. *Amended 2026-09-22 (kernel contract §130):* the continuity review is no longer part of that gate by default. Delivery waits only for the deterministic evidence pin and the kernel commit; the review reads the published text afterwards and its verdict reaches the next Keeper request as a forward-looking warning, never a re-draft. `PI_COC_CONTINUITY_GATE=pre` restores the gate described here.
 - Delivering -> terminal Delivered; the next player input starts a new root task.
 - A new player input cancels an obsolete foreground plan but not a valid committed-memory backfill; scheduling foreground priority is not cancellation.
 - Session shutdown aborts owned work and retains backlog. An already owned source job may continue when the awaiter YIELDS, but not when the owner itself CANCELS; awaiter lifetime and job lifetime are distinct.
@@ -193,7 +193,7 @@ Failure behavior is per-domain, not uniform. The **SOURCE MATERIAL PUBLICATION/R
 | Domain | Failure behavior |
 | --- | --- |
 | SOURCE MATERIAL PUBLICATION/READINESS | Own outage contract; error or review-unavailable stays not ready; no promotion or scanned-absence claim |
-| Narrative continuity review | A no-verdict service failure may deliver explicitly unreviewed only under the incumbent contract; valid reviewed-unavailable, revise, or unsupported source findings still refuse |
+| Narrative continuity review | Default `post` (§130): never a delivery gate; revise, reviewed-unavailable and unsupported source findings are recorded verdicts and capsule warnings on the delivered turn, and a no-verdict failure is recorded unreviewed. `pre` mode: a no-verdict service failure may deliver explicitly unreviewed only under the incumbent contract; valid reviewed-unavailable, revise, or unsupported source findings still refuse |
 | Post-delivery verifier | Advisory; never a delivery gate |
 | Workspace rerank (KIC) | Original order within the existing 500 ms ceiling; existing shadow mode sends no remote request |
 | Admission | Fail closed |

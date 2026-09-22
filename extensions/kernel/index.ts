@@ -21,6 +21,7 @@ import { MAP_DOCUMENT_NONE, renderMapView, type MapAttachment } from './map-view
 import { AUTHORED_MAP_WORDS, KEEPER_MAP_WORDS, mapCardTexts, type MapWordsOptions, prepareMapWords, projectMapCard, readMapWords } from '../module/map-presentation.ts';
 import { COC_TOOLS, COC_TOOL_NAMES, type CocToolSpec, WRITE_TOOLS } from "./tools.ts";
 import type {TaskProviderBudget} from '../../runtime/jev/provider-budget.ts';
+import type {Prepared as ReviewPrepared, ReviewMode} from '../mods/index.ts';
 import { createCanonicalOperationDispatcher } from './canonical-operation-dispatcher.ts';
 import { RecallPages } from "./recall-pages.ts";
 import {lookupKeeperSupport} from '../table/keeper-support-lookup.ts';
@@ -989,7 +990,7 @@ export default function (pi: ExtensionAPI) {
 		}
 	}
     let adaptations: ReturnType<typeof adaptationService> | undefined;
-  let mods: {prepare(method: string, payload: Record<string, any>, signal?: AbortSignal, providerBudget?: TaskProviderBudget): Promise<void>;
+  let mods: {prepare(method: string, payload: Record<string, any>, signal?: AbortSignal, providerBudget?: TaskProviderBudget): Promise<ReviewPrepared | void>;
     after?(method: string, payload: Record<string, any>, signal?: AbortSignal, providerBudget?: TaskProviderBudget): Promise<void>} | undefined;
   pi.events.on("coc:mods-bridge", value => { mods = value as typeof mods; });
 	/**
@@ -1861,16 +1862,19 @@ export default function (pi: ExtensionAPI) {
 	 * erase itself on the very turn it was meant to count. What zeroes this one is a review that
 	 * answered: the next `narrate` or `ask` whose `prepare` returns without an unreviewed report.
 	 */
-	function noteUnreviewedDelivery(state: TableState, unreviewed: {cause: string; service: boolean}): void {
+	function noteUnreviewedDelivery(state: TableState, unreviewed: {cause: string; service: boolean},
+		at: {mode?: ReviewMode; turn?: number} = {}): void {
 		const streak = (state.unreviewedStreak += 1);
-		void record({ lane: "continuity-review", turn: state.turn, ok: true, reason: "delivered_unreviewed",
-			cause: unreviewed.cause, service: unreviewed.service, streak });
+		// §130.6: a post-delivery review learns this after the table has moved on, so it names its own turn.
+		const turn = at.turn ?? state.turn;
+		void record({ lane: "continuity-review", turn, ok: true, reason: "delivered_unreviewed",
+			mode: at.mode ?? "pre", cause: unreviewed.cause, service: unreviewed.service, streak });
 		if (streak < 2 || state.unreviewedNotified) return;
 		state.unreviewedNotified = true;
 		// The operator surface of §38.5 and §56, with the one lever that is real: the lane model is
 		// read when the lane runs (§37.10), so a change reaches the next review without a restart.
 		// The player is told nothing: their turn arrived, and a table that plays is not a notice.
-		const status = { campaign: state.campaign, turn: state.turn, status: "unreviewed", streak,
+		const status = { campaign: state.campaign, turn, status: "unreviewed", streak,
 			cause: unreviewed.cause, service: unreviewed.service,
 			fix: `The continuity review has not judged the last ${streak} deliveries (${unreviewed.cause}), so those turns`
 				+ " were published without it. Play is unaffected. To get the review back, choose a quicker model under"
@@ -1884,6 +1888,57 @@ export default function (pi: ExtensionAPI) {
 	function noteReviewAnswered(state: TableState): void {
 		state.unreviewedStreak = 0;
 		state.unreviewedNotified = false;
+	}
+
+	/**
+	 * What `mods.prepare` said about the review, at the moment the tool call learns it (before the
+	 * commit). The pre-delivery gate's answer is final here; a post-delivery review has not run yet, so
+	 * nothing is counted until it answers (§130.6).
+	 */
+	function notePrepared(state: TableState, prepared: ReviewPrepared | void): void {
+		if (prepared?.unreviewed) noteUnreviewedDelivery(state, prepared.unreviewed, { mode: prepared.mode });
+		else if (!prepared?.deferred) noteReviewAnswered(state);
+	}
+
+	/**
+	 * Contract §130: what a delivery's review owes once the delivery has committed. The player already
+	 * has the turn; this only reads, records and warns. A deferred review starts on a zero-delay timer
+	 * the tool call never awaits, so no model work sits between the commit and the published prose,
+	 * and its verdict reaches the delivered turn's record through `table.warn` -- the
+	 * verifier's channel (§12.5) -- where the next capsule carries it forward (§130.5).
+	 */
+	function afterDeliveryReview(state: TableState, prepared: ReviewPrepared | void, turn: number): void {
+		if (!prepared) return;
+		const kernel = state.kernel, campaign = state.campaign, signal = state.lanes.signal;
+		const warn = async (params: Record<string, unknown>): Promise<void> => {
+			if (signal.aborted) return;
+			try {
+				const result = await kernel.call<Record<string, unknown>>("table.warn", { campaign, turn, lane: "continuity-review", ...params });
+				await record({ lane: "continuity-review", turn, event: "recorded", ok: true, mode: params.mode,
+					...(typeof result?.accepted === "number" ? { warnings: result.accepted } : {}) });
+			} catch (error) {
+				await record({ lane: "continuity-review", turn, event: "recorded", ok: false, mode: params.mode, reason: "warn_failed",
+					detail: (error instanceof Error ? error.message : String(error)).slice(0, 200) });
+			}
+		};
+		const deferred = prepared.deferred;
+		if (deferred) {
+			const closedAt = Date.now();
+			const timer = setTimeout(() => {
+				void (async () => {
+					const outcome = await deferred.run({ turn, closedAt, signal });
+					if (signal.aborted) return;
+					if (outcome.unreviewed) noteUnreviewedDelivery(state, outcome.unreviewed, { mode: "post", turn });
+					else noteReviewAnswered(state);
+					await warn(outcome.unreviewed ? { mode: "post", unreviewed: outcome.unreviewed } : { mode: "post", job: outcome.job });
+				})().catch((error) => void record({ lane: "continuity-review", turn, mode: "post", ok: false, reason: "lane_crashed",
+					detail: (error instanceof Error ? error.message : String(error)).slice(0, 200) }));
+			}, 0);
+			timer.unref?.();
+			return;
+		}
+		if (prepared.unreviewed) void warn({ mode: prepared.mode ?? "pre", unreviewed: prepared.unreviewed });
+		else if (prepared.reviewed?.job) void warn({ mode: "pre", job: prepared.reviewed.job });
 	}
 
 	function pauseReview(state: TableState, error: unknown): void {
@@ -2588,6 +2643,7 @@ export default function (pi: ExtensionAPI) {
 				if (!answerOnly) { payload.kind = "module"; payload.canonical_source = true; }
 			}
 			let result: Record<string, unknown>;
+			let prepared: ReviewPrepared | void = undefined;
 			// Action admission (contract §32) runs ahead of every Mod hook and of the kernel: a refused
 			// proposal pays for no definition agent and reaches no transaction.
 			if (spec.name === 'narrate' || spec.name === 'ask') await guardTaskDelivery();
@@ -2599,12 +2655,9 @@ export default function (pi: ExtensionAPI) {
         else if (spec.name === 'narrate' && state.sourceWait) payload.preparation_wait = {
           kind: 'source', ...(state.sourceWait.focus ? {name: state.sourceWait.focus} : {})};
         if (spec.name === 'narrate' && state.rebindingRefused) payload.rebinding_refused = {...state.rebindingRefused};
-        const prepared = await mods.prepare(spec.name, payload, signal, providerBudget);
+        prepared = await mods.prepare(spec.name, payload, signal, providerBudget);
         // §91. Only a delivery carries a continuity review, so only a delivery can report one missing.
-        if (spec.name === 'narrate' || spec.name === 'ask') {
-          if (prepared?.unreviewed) noteUnreviewedDelivery(state, prepared.unreviewed);
-          else noteReviewAnswered(state);
-        }
+        if (spec.name === 'narrate' || spec.name === 'ask') notePrepared(state, prepared);
       }
 			try {
                 if (supportAnswer) result = supportAnswer;
@@ -2654,7 +2707,10 @@ export default function (pi: ExtensionAPI) {
 				} else await ensurePending(read,signal);
 				// Retry the original identity only after the exact source publication; consent and Mod gates run again.
 				if(spec.name==='resolve'||spec.name==='apply')await admitAction(state,spec.name,payload,signal,providerBudget);
-				if(mods)await mods.prepare(spec.name,payload,signal,providerBudget);
+				if(mods){
+					const again=await mods.prepare(spec.name,payload,signal,providerBudget);
+					if(spec.name==='narrate'||spec.name==='ask'){prepared=again;notePrepared(state,again);}
+				}
 				result = (await invokeOperation()) ?? {};
 			}
 			if (spec.name === "recall") result = state.recallPages.accept(result);
@@ -2727,6 +2783,7 @@ export default function (pi: ExtensionAPI) {
 					ok: true,
 					...(state.session?.kind ? { session_kind: state.session.kind } : {}),
 				});
+				afterDeliveryReview(state, prepared, typeof result.turn === "number" ? result.turn : state.turn);
 			}
 			// The delivery truly landed: the kernel returned and the bookkeeping above ran. Only now is
 			// the bound patch published; every failure mode — abort, refusal, split delivery, revision
@@ -4046,8 +4103,7 @@ export default function (pi: ExtensionAPI) {
 				await guardTaskDelivery(event.message);
 				const prepared = await mods?.prepare(tool, params, state.lanes.signal, foregroundProviderBudget?.());
 				// §91: the host's own closing delivery is reviewed on the same terms as an explicit one.
-				if (prepared?.unreviewed) noteUnreviewedDelivery(state, prepared.unreviewed);
-				else noteReviewAnswered(state);
+				notePrepared(state, prepared);
 				await guardTaskDelivery(event.message, 'committing');
 				const result = (await state.kernel.call<Record<string, unknown>>(`table.${tool}`, params)) ?? {};
 				// `applyToolSuccess`'s own `narrate` case already projected the mechanics and noted the
@@ -4059,6 +4115,7 @@ export default function (pi: ExtensionAPI) {
 				applyToolSuccess(state, tool, "implicit", result);
 				await record({ tool, call_id: callId, started_at: startedAt, ms: Date.now() - began, ok: true, implicit: true });
 				await record({ tool, event: "turn-closed", round_trips: state.roundTrips, ok: true, implicit: true });
+				afterDeliveryReview(state, prepared, typeof result.turn === "number" ? result.turn : state.turn);
 				rendered = asString(result.rendered_text);
 			} catch (error) {
 				const detail = refusalDetail(error);

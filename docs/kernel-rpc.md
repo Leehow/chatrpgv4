@@ -790,7 +790,7 @@ anchors amend the historical default below; current authority fields remain thos
 
 ### 12.8 扩展侧职责（切片 2）
 
-- kernel 扩展：`narrate` 成功后在总线上发 `coc:turn-committed {campaign, turn, commit, job_id, facts, rendered_text}`；交付替换完成后自己跑校验车道并 `table.warn`。车道出错只写遥测（`lane: verifier, ok: false`），不催守秘人，不阻塞。
+- kernel 扩展：`narrate` 成功后在总线上发 `coc:turn-committed {campaign, turn, commit, job_id, facts, rendered_text}`；交付替换完成后自己跑校验车道并 `table.warn`。车道出错只写遥测（`lane: verifier, ok: false`），不催守秘人，不阻塞。**§130（2026-09-22）**：连续性复核缺省同样改在交付之后跑，结论经 `table.warn`（`lane: "continuity-review"`）落到该回合记录并进下一回合胶囊。
 - memory 扩展（`extensions/memory`）：订阅 `coc:turn-committed`，`memory.job` → 零工具子会话（模型 `PI_COC_MEMORY_MODEL`，缺省与桌子同模型）→ `memory.submit`；失败一次重试，再失败 `memory.fail`。同一时刻只跑一个任务，后来的排队；进程退出时未完成的任务留给下次 `memory.job` 缺省派发。
 - 两条车道的 RPC（`memory.job`、`memory.submit`、`memory.fail`、`table.warn`）不带 `call_id`、不看回合状态；结果按 `turn` 落到对应回合记录，晚到也收。memory 扩展派任务时给显式 `turn`（刚提交的那一回合）；`memory.job` 的缺省派发只在重开进程后补漏时用。
 - 补抽（#20）：memory 扩展在 `session_start`（桥就位后）用 `memory.job` 的缺省派发补抽尚未完成任务且不在 backlog 里的回合，每次会话至多 `PI_COC_MEMORY_BACKFILL`（缺省 5）个，仍是一次一个、不阻塞回合、先让位给刚提交的回合；遥测行带 `backfill: true`；缺省派发回 `job_id: null` 时不写遥测行（那是常态，不是事件）。
@@ -6742,6 +6742,8 @@ Prior turns 17/18 cannot be judged incoherent solely from missing source provena
 
 ### 36.14 Continuity audit v1 implementation contract (implemented; live validation in progress)
 
+> **Amended by §130 (2026-09-22).** The gate described here is now the `pre` mode of `PI_COC_CONTINUITY_GATE`. The default, `post`, publishes the delivery first and runs this same review on the published text; its verdict reaches the Keeper as `table.warn` rows and never refuses, reopens or rewrites the turn.
+
 The new capability is `audit.continuity.v1`, contributed by `narration-audit` 1.2.1 with the protocol-aligned `enhanced-items` 1.1.9. The current Mod version is `narration-audit` 1.2.16 (§37 records the causal-reentry pre-delivery enforcement, bridge authority, the two-stage `bridge_offer`, the deterministic reentry modes and the checked `relation` it refines; the placement/offer and acquisition/delivery stages are separated unambiguously, `mode: clarify_known`/`introduce_evidence` closes which bases may pass, and each reentry basis now carries the evidence's `relation`; the host passes `context.preparation_wait` only from its actual retained background state, and 1.2.9–1.2.15 retain live use and their historical meanings). Legacy `audit.source.v1` validators, retained verdicts and locked versions remain unchanged. The new audit uses the same Mod job/accept bridge, seven Keeper verbs and immutable evidence binding.
 
 The result is `{missing, findings, continuity_review:{verdict:"pass"|"revise"|"unavailable",summary,conflicts:[{claim,reason,evidence:[{file,quote}]}]}}`. Existing missing/findings shapes remain. Pass requires no conflicts, missing objects or findings; revise requires an actionable conflict/missing/finding. Unavailable is not approval. Conflicts contain an exact candidate excerpt and at least one exact excerpt from a named retained evidence file; compatible new fiction does not need a source quote. There is no exhaustive list of positive proofs. Bounds remain 16 missing entries, 10 findings, 10 conflicts and 3 excerpts per conflict; summaries/reasons/claims are at most 2000 characters and evidence excerpts at most 1000.
@@ -12647,6 +12649,8 @@ exits, so that table read nothing ahead. Two rules:
 
 ## 91. A review that never judged the draft does not refuse it (2026-09-17, amends §36.14 and §38.9, extends §26.1)
 
+> **Amended by §130 (2026-09-22).** Everything below governs the `pre` mode unchanged. In the default `post` mode no verdict holds a delivery; the `reviewed`/`service` accounting, the unreviewed streak and its operator escalation are kept and applied when the review answers, after the turn closed (§130.6).
+
 The continuity review of §36.14 is a gate before publication, and that is the point: the player never
 reads a delivery whose consequences the package found incomplete. What was never decided is what that
 gate does when nobody read the draft at all — and until this section the answer was that it refused
@@ -15015,3 +15019,144 @@ When material preselection is enabled, the first eligible preparation for an acc
 The result distinguishes `ordinary`, `no_roll`, `incumbent`, `needs_player` and `unknown`. An ordinary suggestion names only an issued current actor/profile/decision and bounded difficulty/modifier choices. The raw player declaration and established public context own action selection; a private clue, predicted NPC response or optional plan never grants authorization. Unsupported specialized families, missing profiles, NPC executors, pending choices and uncertain parameters retain their existing owner or remain unknown. A suggested future check is not a rolled result.
 
 The host does not execute the suggested resolve. The Keeper may use or correct it and invokes the ordinary canonical tool; admission, Mod validation, arithmetic and transaction receipts remain in that existing path. No numerical result is predicted. Check advice carries private input/world/rules/profile bindings, is checked after parallel preparation and dropped if obsolete. It shares the existing preparation adapter, parent accounting, deadline and final request budget with evidence and NPC support. Optional check failure does not erase independently valid evidence. The public projection shows current semantic choices and unresolved needs, never private hashes, provider metadata or an assertion that a check already happened.
+
+## 130. The player reads first; the continuity review reads after (2026-09-22, amends §12.8, §36.14 and §91)
+
+The continuity review of §36.14 has been a gate before publication: `narrate` and `ask` waited inside
+the tool call while a tool-enabled Mod child read the draft, and a `revise` sent the Keeper back to write
+the turn again. On the 2026-09-22 GUI table (`game-21ac44b7-5f91-41a5-8ea7-9faf5b801a29`, `xai/grok-4.6`
+reviewer) that wait was the single largest fixed cost between the Keeper finishing its words and the
+player being allowed to read them:
+
+| turn | `narrate` | review row `ms` | review child | everything else in the call |
+| --- | --- | --- | --- | --- |
+| 0 (explicit) | 14 680 ms | 14 333 ms | 12 789 ms | 347 ms |
+| 1 (implicit) | 20 887 ms | 20 147 ms | 17 776 ms | 740 ms |
+| 2 (implicit) | 15 774 ms | 15 276 ms | 13 866 ms | 498 ms |
+
+All three reviews passed. A `revise` costs a whole Keeper rewrite on top (10–30 s more), and §91.4
+already counted what the gate catches when it does refuse: 41 of 63 retained `revise` artifacts are
+`findings`, 14 are `missing` (a narrated object change that never reached its instance), 5 are
+`locus_review`, and only 5 are a continuity `conflict` at all. The user's ruling: *apply should run in
+the background as far as possible, not block the foreground; do not block the player from seeing the
+main content*, and on tolerance: *tolerate some problems; let the model round out its own logic later*.
+
+### 130.1 The mode
+
+`PI_COC_CONTINUITY_GATE` selects it, read at every delivery:
+
+- **`post`** (the default): the delivery publishes at once and the review reads the **published** text.
+- **`pre`**: the §36.14/§91 gate, unchanged in every branch (verdict refusal, §26.1 deadline pass,
+  §91 unreviewed delivery, §38 pause and cold-recovery strand). It is kept, not deleted.
+
+Any other value reads as `post`.
+
+### 130.2 What stays on the critical path, and why
+
+The review never writes gameplay state: its only power was to hold prose back. Everything that protects
+*state* is the kernel's and is untouched — admission (§32) before `resolve`/`apply`, receipts, marker
+binding (§34.14), the transaction and the Git commit. So the cut is state vs. prose:
+
+- **Stays in the foreground:** deferred-registration completion (`mods.prepare`'s `resume`, which is a
+  kernel `apply` of already-accepted definitions), and `mods.job` for the review — the deterministic
+  evidence pin. The job is prepared *before* the commit because the evidence a review judges is the
+  campaign as it stood when the draft was written: after `narrate` the turn cursor moves on, the
+  delivery joins `history.json`, and the memory lane starts appending candidates.
+- **Moves after `turn-closed`:** the review child, `mods.accept`, and every subreview it carries
+  (intelligibility, player address, speech, locus, outcome, reentry, co-auditor `missing`), the legacy
+  `audit.source.v1` source review included. None of them is state; a source review of a PDF module is a
+  judgement of prose against the book, and disclosure of Keeper-only material was already the
+  post-delivery verifier's `reveal` (§12.5). `mod_audit_stale` has no meaning after delivery: the
+  evidence is pinned, not live.
+
+### 130.3 `mods.accept` with `after_delivery: true`
+
+An audit job may be accepted after the turn it reviewed has closed. The kernel replaces the two live
+comparisons that cannot hold any more with pinned ones:
+
+- *turn*: instead of `identity.turn === turn.turn`, the record `turns/<identity.turn>` must exist,
+  be closed by `narrate` or `ask`, and its `text` must equal the job's candidate — the review is of the
+  words the player read, byte for byte. Otherwise `needs`, `reason: "delivery_mismatch"`.
+- *evidence*: instead of recomputing the live binding, the retained evidence files are read back from
+  the job directory and their digest must equal `identity.source_binding`. Otherwise `needs`,
+  `reason: "mod_audit_evidence"`.
+
+Campaign, worldline and package digests are checked exactly as before. Contributors are recomputed
+against the delivered record's receipts, not the fresh turn's empty list, so an `audit_on_decisions`
+package is not mistaken for a changed provider. Validation of the artifact is identical.
+
+### 130.4 The verdict reaches the Keeper through `table.warn`
+
+`table.warn` gains a second lane, `lane: "continuity-review"`, with params
+`{campaign, turn, lane, mode: "pre"|"post", job}` **or** `{…, unreviewed: {cause, service}}`. The host
+sends no finding text: the kernel reads the accepted report from the job itself (identity, request and
+`accepted.json`), checks that the job belongs to this campaign and turn and reviewed this record's
+`text`, and derives the rows:
+
+| from the report | `kind` | `quote` | `why` |
+| --- | --- | --- | --- |
+| `continuity_review.conflicts[]` | `continuity_conflict` | the claim, when it is a substring of `rendered_text`; else `null` | `reason` |
+| `missing[]` | `unsettled_object` | `null` | `<name> (<category>): <reason>` |
+| `findings[]` | `continuity_finding` | `null` | `reason` |
+| `source_review.claims[]` not `supported` | `source_conflict` | the claim quote when in `rendered_text` | `reason` |
+
+At most 10 rows, `why` ≤ 200 characters, each carrying a kernel-authored `fix` that points forward:
+the turn is delivered and read, it is not rewritten or retracted, and the discrepancy is carried in the
+fiction from here on (for `unsettled_object`, registered with an ordinary `apply` if it still stands).
+The reviewer's own `fix` is **not** forwarded: it was written for an unpublished draft ("rewrite the
+whole candidate") and a fix text is executed literally (§34.7).
+
+The record gains `continuity_review: {mode, reviewed, verdict?, job?, cause?, service?, warnings, at}`.
+So a reader of `turns/NNNN.json` tells the three apart: *reviewed later, verdict X*
+(`mode: "post", reviewed: true`), *delivered unreviewed* (`reviewed: false` with the cause), and the
+gate's own pass (`mode: "pre", reviewed: true, verdict: "pass"`). A second call for the same job is a
+no-op, and an `unreviewed` report never overwrites a record a review already answered (a replayed
+delivery prepares a second pin that can only come back stale); `table.warn` still takes no `call_id`
+and looks at no turn state (§12.8).
+
+### 130.5 The capsule carries what no earlier capsule carried
+
+`capsule.warnings` (§12.5) now lists the continuity rows first (they are fewer and a reviewer's verdict
+stands behind them), carries each row's `fix`, and includes warnings of **ask** records after the last
+narrate record. It also closes the race both post-delivery lanes share: a warning that landed after the
+next turn's capsule was assembled was never shown, because the capsule after that read only the newest
+record. What the previous capsule carried is not guessed from timestamps; it is on disk in the last
+record's own `capsule`. A row of the records that capsule covered (from the narrated turn before it up
+to it) that is not in it rides the current capsule, once, marked `late: true`. Nothing becomes an
+obligation (§13.7).
+
+### 130.6 Accounting and telemetry
+
+Every `lane: "continuity-review"` row carries `mode: "pre"|"post"`; post rows carry the delivered
+`turn` explicitly (the table has usually moved on), `delivered: true`, `job_ms` (the foreground pin) and
+`after_close_ms`. In post mode:
+
+- A review that answers — any verdict — is `reviewed` and clears §91's unreviewed streak.
+- A review that cannot answer (child killed, no checked submission, exhausted allowance, stale binding,
+  `mods.job` itself failing) is recorded as delivered unreviewed exactly as §91.3 records it — same row
+  reason, same streak, same operator escalation at 2 — only later. The player is told nothing.
+- Nothing pauses: no `reviewUnavailable`, no §38 strand, no service notice. A reviewer's `unavailable`
+  verdict and a second `revise` in one scope are recorded, not latched: there is no Keeper rewrite
+  chain for `max_rewrites` to bound. Service failures still latch in their own turn's scope, which no
+  later turn and no cold recovery reads (§36.14's `mods.review.status` reads the open turn's scope, and
+  a post review never starts before delivery).
+
+### 130.7 The three ends (§31)
+
+*Who writes it:* `mods.accept {after_delivery}` (`kernel-ts/mods/jobs.ts`) binds the report;
+`table.warn {lane: "continuity-review"}` (`kernel-ts/memory/index.ts`) projects it onto the record.
+*Who reads it:* the capsule's `warnings` (`kernel-ts/read/assemble.ts`). *Who acts on it:* the Keeper,
+on its next request, in the fiction — measured the way §12.5's rows are, by reading the next turn.
+
+What the player waits for, before → after: `narrate` = deferred-registration completion + `mods.job` +
+**review child + `mods.accept`** + kernel commit → deferred-registration completion + `mods.job` +
+kernel commit. Everything model-driven that was already after the commit (verifier, memory, journal,
+NPC voice, usage prefetch, document warming) is unchanged. The host writes one more row per review,
+`{lane: "continuity-review", event: "recorded", mode, warnings}` (or `ok: false, reason: "warn_failed"`),
+and the kernel one `{lane: "continuity-review", event: "recorded", turn, mode, reviewed, verdict, warnings}`.
+
+Two costs are named rather than hidden. The kernel answers one request at a time, so the post review's
+`mods.accept` (which re-reads the pinned evidence) can queue briefly beside the next turn's first calls.
+And deferred-registration completion stays in front of `narrate` because it writes state; it is a kernel
+`apply` of definitions already accepted, except in the rare case an earlier session died before a queued
+definition's creator finished, when `resume` runs that creator in the foreground (§36 fallback, unchanged).
