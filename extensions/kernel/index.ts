@@ -3293,7 +3293,12 @@ export default function (pi: ExtensionAPI) {
 			void record({ lane: "turn", event: undelivered ? "resend_released" : "resend_folded", turn: held.turn, ok: true });
 		}
 		const next = waitingInputs.shift();
-		if (next) pi.sendUserMessage([{ type: "text", text: next.text }, ...(next.images ?? [])]);
+		if (next) {
+			// Pi 0.87 defers this run until all settled handlers finish. Reserve the foreground
+			// before lane handlers run; agent_start takes over after asynchronous preflight.
+			pi.events.emit("coc:foreground-pending", {});
+			pi.sendUserMessage([{ type: "text", text: next.text }, ...(next.images ?? [])]);
+		}
 		// Contract §73. Nothing is waiting to speak, so nothing else is going to close this turn. §38 left
 		// the close welded to the next `table.player_input`, which made the declaration a promise held in
 		// this process's memory: the turn stayed `acting` on disk, a restart found it `acting`, and only

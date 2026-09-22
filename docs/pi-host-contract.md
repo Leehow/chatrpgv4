@@ -12,7 +12,7 @@ PDF 视觉阅读已按 [visual-pdf-reader.md](specs/visual-pdf-reader.md) 与 [�
 
 我们不 fork Pi，也不打补丁。这份文件写清 pi-coc 依赖 Pi 的哪些接口与行为、我们在哪里绕过了它的限制、想请上游改什么，以及 Pi 升版时怎么核对。Pi 升级 = 改一个版本号，然后按第 7 节走一遍。
 
-当前依据版本：`@earendil-works/pi-coding-agent` 0.85.1。`package.json` 用 `devDependencies` 钉死版本供启动器执行，用 `peerDependencies: "*"` 声明扩展导入的 Pi 核心包，遵循 Pi 的包规范。
+Current target: `@earendil-works/pi-coding-agent` 0.87.0. The root `dependencies` and lockfile pin the production runtime; `peerDependencies: "*"` declare the extension-facing Pi packages. The production manifest, Electron backend dependency/lockfile, and managed-runtime version must agree. The 2026-09-22 source upgrade passed the checks recorded in section 7. The installed App remains on its previously packaged version until a separately requested package/install.
 
 ## 1. 启动契约
 
@@ -358,17 +358,29 @@ must be explicitly cancelled by task 3.
 
 ## 7. 升版流程
 
-1. 改 `package.json` 的 `devDependencies` 版本，`npm install`。
+1. Update the root production dependency and lockfile, `pipicoc/runtime-dependencies.json`, the Electron backend dependency/lockfile, and `MANAGED_RUNTIME_PACKAGE_VERSIONS` together. Install the pinned dependency graphs without changing unrelated dependencies.
 2. 读新版 `CHANGELOG.md` 里涉及 system prompt 构建、`tool_call`/`tool_result`/`message_end` 语义、RPC 事件、SDK 会话生命周期的条目。
 3. `npm run test:ext`，`uv run --frozen python -m pytest tests/play -q`。
 4. 起一张真桌打一回合，看交付里没有过程话、正文就是守秘人写的那段（没有被插入机制行），`coc-mechanics` 条目里每条收据都在。另起 `bin/pi-coc setup` 走一步，确认工具面只有 `setup`；跑一次真读者（一段 section），确认 `pi -p` 的参数与退出码没变（第 3.2 节）。
 5. 在下面的版本日志里加一行；第 4 节或第 5 节有变的先改本文件。
+
+### Pi 0.87 compatibility decisions (2026-09-22)
+
+- Preserve the existing CLI/RPC entrypoints, seven Keeper tools, reader `terminate`, and OpenCode lane attribution headers. Do not fork or patch Pi.
+- Seed `cacheWarming: "off"` in the product-owned Pi profile when the setting is absent, for both new and existing profiles. Preserve an operator's explicit setting. The upstream 0.86+ default is `streaming`; adopting extra cache-refresh requests is not an implicit part of a dependency upgrade.
+- `agent_settled` now defers runs requested by handlers until the notification finishes. The kernel synchronously emits `coc:foreground-pending` before releasing queued player input with `sendUserMessage`; shared lane queues reserve foreground until `agent_start` takes over, or session cleanup clears it. A handled/rejected preflight without `agent_start` conservatively keeps backfill paused until a later start or session cleanup. Committed-turn jobs retain FIFO priority. Real SDK regressions cover asynchronous input and before-agent-start preflight: `isIdle()` and `hasPendingMessages()` alone do not expose the deferred reservation.
+- `SessionManager` is canonical for future provider context. Use its supported context/history APIs in tests and integrations rather than assigning `agent.state.messages`. Custom test providers must read normalized transcript system/tools through the Pi helpers.
+- Persisted `context_edit` omissions and replacements must be respected by the Keeper's context/fold projection. Raw history remains append-only evidence; a fold must not reintroduce a message that Pi omitted from model context. Persisted system checkpoints are not unclassified story history. The request budget reserves Pi's canonical restored system/tool checkpoint on normal and degraded exits; request telemetry reports `system_bytes` as part of `request_bytes`, while raw-history pressure excludes system metadata.
+- Check the source runtime with extension and driver regressions plus real Keeper, setup, and reader smoke runs. Deterministic tests are not live-table acceptance. Packaging and installing the App are separate from this source upgrade.
 
 ## 版本日志
 
 | Pi 版本 | 日期 | 结果 |
 | --- | --- | --- |
 | 0.85.1 | 2026-09-05 | 首版契约；三项旧补丁全部不再需要 |
+| 0.87.0 | 2026-09-22 | Source upgrade: 2,305 extension tests and 141 driver tests passed; runtime build and kernel typecheck passed. Seven targeted Electron runtime/delivery tests passed. Full Electron suite still reports eight pre-existing packaging-staging path failures; its baseline was not edited. Real Grok Build 4.7 fast/low setup and play smoke plus a tool-enabled text-reader subprocess passed. This is not a new PDF acceptance or installed-App upgrade. |
+
+Upgrade evidence: `.pi/upgrade/pi087-ext-verified.log`, `pi087-play-tests.log`, `pi087-build-final.log`, and `pi087-electron-selected.log`; retained live runs are `.coc/playtests/pi087-setup-smoke`, `pi087-play-smoke`, and `pi087-reader-smoke`. Source-suite execution removes inherited `PIPIUI_HOST_PROTOCOL` / `PIPIUI_SPAWN_CONTRACT` flags so the surrounding coding host cannot falsely turn fixture profiles into managed sessions. No credentials or explicit operator settings were replaced.
 
 ## 8. PipiCOC frontend
 

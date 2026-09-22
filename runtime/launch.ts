@@ -60,8 +60,8 @@ export function piLaunch(input: string[], options: RuntimeHostOptions = {}) {
   const path = join(context.agentHome, 'settings.json');
   if (!existsSync(path)) {
     writeFileSync(path, JSON.stringify(context.layout === 'source'
-      ? {packages: [context.resourceRoot], quietStartup: true, httpIdleTimeoutMs: HTTP_IDLE_TIMEOUT_MS}
-      : {quietStartup: true, httpIdleTimeoutMs: HTTP_IDLE_TIMEOUT_MS}, null, 2) + '\n');
+      ? {packages: [context.resourceRoot], quietStartup: true, httpIdleTimeoutMs: HTTP_IDLE_TIMEOUT_MS, cacheWarming: 'off'}
+      : {quietStartup: true, httpIdleTimeoutMs: HTTP_IDLE_TIMEOUT_MS, cacheWarming: 'off'}, null, 2) + '\n');
   } else {
     const settings = JSON.parse(readFileSync(path, 'utf8'));
     if (!settings || typeof settings !== 'object' || Array.isArray(settings)) throw new Error(`${path} must contain an object`);
@@ -77,6 +77,12 @@ export function piLaunch(input: string[], options: RuntimeHostOptions = {}) {
     // ("disabled"), is theirs and this must not walk over it on the next launch.
     if (!(HTTP_IDLE_TIMEOUT_SETTING in settings)) {
       settings[HTTP_IDLE_TIMEOUT_SETTING] = HTTP_IDLE_TIMEOUT_MS;
+      changed = true;
+    }
+    // Pi 0.86+ defaults to paid cache-refresh requests. Preserve the product's previous
+    // request behavior unless the operator has explicitly selected a warming policy.
+    if (!('cacheWarming' in settings)) {
+      settings.cacheWarming = 'off';
       changed = true;
     }
     if (changed) writeFileSync(path, JSON.stringify(settings, null, 2) + '\n');

@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 import { setTimeout as settle } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
-import { fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai";
+import { fauxAssistantMessage, fauxProvider, getCurrentSystemPrompt } from "@earendil-works/pi-ai";
 import { createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { waitFor } from "./harness.mjs";
 
@@ -16,7 +16,8 @@ const voiceOf = (...args) => args.length === 1 && args[0] && typeof args[0] === 
 const answer = (...args) => fauxAssistantMessage(JSON.stringify({ voice: voiceOf(...args) }));
 const silence = () => fauxAssistantMessage(JSON.stringify({ voice: null, reason: "does_not_speak" }));
 const verdict = (honours, why = "") => fauxAssistantMessage(JSON.stringify({ honours, why }));
-const inputText = context => context.messages.flatMap(message => message.content).map(block => block.text ?? "").join("\n");
+/** Review completions are TranscriptContexts. Writer fakes still put the prompt on `systemPrompt` and conversational blocks in `messages`. */
+const inputText = context => context.messages.filter(message => message.role !== "system").flatMap(message => message.content).map(block => block.text ?? "").join("\n");
 
 /** The §40.5 packet: exactly the closed fields, and a job id the model must never see. */
 function packet(handle) {
@@ -321,7 +322,7 @@ test("a person the book says does not speak is filed as silent only after affirm
 	assert.equal(table.rows()[0].voice_check, "passed");
 	assert.match(inputText(judged), /Does not speak; communicates through knocks/);
 	assert.match(inputText(judged), /"voice":null/);
-	assert.match(judged.systemPrompt, /explicitly says.*does not speak/);
+	assert.match(getCurrentSystemPrompt(judged.messages), /explicitly says.*does not speak/);
 });
 
 for (const unavailable of [false, true]) {
@@ -390,8 +391,8 @@ test("the voice guard reads the lines against the book's voice and bounces them 
 	});
 	table.commit(1);
 	await completed(table);
-	assert.match(judge.systemPrompt, /natural connected speech/);
-	assert.match(judge.systemPrompt, /listener/);
+	assert.match(getCurrentSystemPrompt(judge.messages), /natural connected speech/);
+	assert.match(getCurrentSystemPrompt(judge.messages), /listener/);
 	assert.match(inputText(judge), /\[Voice the book gives them\] clipped, defensive/);
 	assert.match(inputText(judge), /\[Mask\] 自称俺，句尾带「呗」。/);
 	assert.match(inputText(judge), /3\. 滚！！/);

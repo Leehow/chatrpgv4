@@ -179,7 +179,7 @@ test("bin/pi-coc：写 settings.json、导出战役、拼出 pi 的命令行", (
 	]);
 
 	const settings = JSON.parse(readFileSync(join(root, ".pi", "coc-agent", "settings.json"), "utf8"));
-	assert.deepEqual(settings, { packages: [root], quietStartup: true, httpIdleTimeoutMs: 60000 });
+	assert.deepEqual(settings, { packages: [root], quietStartup: true, httpIdleTimeoutMs: 60000, cacheWarming: "off" });
 });
 
 test("bin/pi-coc：已有 settings.json 只补 packages，不动别的键", (t) => {
@@ -199,6 +199,23 @@ test("bin/pi-coc：已有 settings.json 只补 packages，不动别的键", (t) 
 	// 中止是 aborted、永远不重试，于是静默的连接吃掉整个回合（2026-09-15 的 turn 2/7/10）。
 	// 放在看门狗下面，同一场静默变成 timeout 错误，pi 现成的重试路径就能接住它。
 	assert.equal(settings.httpIdleTimeoutMs, 60000, "静默的连接要在看门狗之前失败，才轮得到重试");
+});
+
+test("cache warming defaults off for an existing profile and preserves an explicit policy", (t) => {
+	const root = fakeRepo();
+	t.after(() => rmSync(root, { recursive: true, force: true }));
+	const path = join(root, ".pi", "coc-agent", "settings.json");
+	mkdirSync(dirname(path), { recursive: true });
+	writeFileSync(path, JSON.stringify({ packages: [root], defaultModel: "keep-me" }));
+	runLauncher(root, ["--campaign", "cache-policy"]);
+	assert.equal(JSON.parse(readFileSync(path, "utf8")).cacheWarming, "off");
+	for (const cacheWarming of ["streaming", "idle", "off"]) {
+		writeFileSync(path, JSON.stringify({ packages: [root], cacheWarming, defaultModel: "keep-me" }));
+		runLauncher(root, ["--campaign", "cache-policy"]);
+		const settings = JSON.parse(readFileSync(path, "utf8"));
+		assert.equal(settings.cacheWarming, cacheWarming);
+		assert.equal(settings.defaultModel, "keep-me");
+	}
 });
 
 test("bin/pi-coc：运营者自己定的空闲超时不被下一次启动覆盖", (t) => {

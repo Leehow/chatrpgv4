@@ -1,4 +1,5 @@
 /** One deterministic policy for request-local history and persisted COC folds. */
+import {buildSessionProjection, type SessionEntry} from '@earendil-works/pi-coding-agent';
 export const HISTORY_BYTES = 32 * 1024;
 export const HISTORY_METADATA_BYTES = 4096;
 /**
@@ -291,13 +292,18 @@ export function entryMessage(entry: Row): Row | undefined {
  * Folded-away messages this policy cannot classify. The fold hook takes one cut point and no
  * exception list, so their own text rides in the summary; nothing is dropped without a record.
  */
-export function carriedUnclassified(older: Row[]): Row | undefined {
+export function carriedUnclassified(older: Row[], previous?: Row): Row | undefined {
     const unknown = older.filter(message => !closedNoise(message));
-    if (!unknown.length) return undefined;
+    const retained = Array.isArray(previous?.entries) ? previous.entries
+        .filter((entry: Row) => typeof entry?.customType === 'string' && typeof entry?.text === 'string')
+        .map((entry: Row) => ({customType: entry.customType, text: entry.text})) : [];
+    const count = Number.isSafeInteger(previous?.count) && previous!.count >= retained.length ? previous!.count : retained.length;
+    if (!unknown.length && !count) return undefined;
     const text = (message: Row): string => typeof message.content === 'string' ? message.content
         : Array.isArray(message.content) ? message.content.filter((block: Row) => typeof block?.text === 'string').map((block: Row) => block.text).join('\n') : '';
-    const result: Row = {count: unknown.length, note: 'Host notices folded with the older turns; recordings, not module truth.',
-        entries: unknown.map(message => ({customType: message.customType ?? message.role, text: text(message)}))};
+    const result: Row = {count: count + unknown.length, note: 'Host notices folded with the older turns; recordings, not module truth.',
+        entries: [...retained, ...unknown.map(message => ({customType: message.customType ?? message.role, text: text(message)}))],
+        ...(previous?.truncated === true ? {truncated: true} : {})};
     while (sizeOf(result) > UNCLASSIFIED_BYTES && Array.isArray(result.entries) && result.entries.length) {
         result.entries.shift(); result.truncated = true;
     }
@@ -305,24 +311,46 @@ export function carriedUnclassified(older: Row[]): Row | undefined {
 }
 /** Safe single-cut storage adapter; the outbound adapter remains authoritative for request size. */
 export function foldPlan(entries: Row[], binding: ContextBinding, history: Row, answering?: string[]): Row | undefined {
-    const records = entries.map((entry, index) => ({entry, index, message: entryMessage(entry)})).filter(record => record.message);
-    const messages = records.map(record => record.message!);
+    // Pi owns branch-local edits and compaction selection. Keep raw provenance for the cut,
+    // but never read omitted or replaced content back from those source entries. Pi carries
+    // system prompts and tools in its own compaction checkpoint, not historical quotations.
+    const indices = new Map(entries.map((entry, index) => [entry.id, index]));
+    const projection = buildSessionProjection(entries as SessionEntry[]);
+    const checkpoint = projection.entries.find(({sourceEntry, messages}) => sourceEntry.type === 'compaction'
+        && messages.some(message => message.role === 'compactionSummary'));
+    const previous = checkpoint?.sourceEntry as Row | undefined;
+    const previousSummary = checkpoint?.messages.find(message => message.role === 'compactionSummary');
+    const priorFold = object(previous?.details).coc_fold?.version === POLICY_VERSION;
+    let retained: Row | undefined;
+    if (priorFold && previousSummary?.role === 'compactionSummary') {
+        try {retained = object(JSON.parse(previousSummary.summary)).retained_unclassified;}
+        catch { /* An unreadable checkpoint cannot supply carried notices. */ }
+    }
+    const records = projection.entries.flatMap(({sourceEntry: entry, messages}) =>
+        entry.type === 'message' || entry.type === 'custom_message'
+            ? messages.filter(message => message.role !== 'system')
+                .map(message => ({entry, index: indices.get(entry.id)!, message: message as Row})) : []);
+    const messages = records.map(record => record.message);
     let start = currentStart(messages, binding);
     if (start >= 0 && answering?.length) start = olderAskStart(messages, start, binding);
     if (start < 0) {
         // before_agent_start has not appended its new input yet: keep the latest complete user group.
         for (let index = messages.length - 1; index >= 0; index--) if (messages[index].role === 'user') {start = index; break;}
     }
-    if (start <= 0 || !pairedTools(messages.slice(start))) return undefined;
+    if (start < 0 || !pairedTools(messages.slice(start))) return undefined;
     const kept = records[start];
     if (!kept?.entry.id) return undefined;
     // An entry this policy does not recognise is carried into the summary, not left as a permanent
     // veto on every future cut: one unclassified message at the head used to pin the whole branch.
-    const carried = carriedUnclassified(messages.slice(0, start));
+    const carried = carriedUnclassified(messages.slice(0, start), retained);
     const summary = carried ? {...history, retained_unclassified: carried} : history;
-    return {summary: JSON.stringify(summary), firstKeptEntryId: kept.entry.id,
+    const serialized = JSON.stringify(summary);
+    // A protected group at zero cannot be folded again. Return only the identical prior plan
+    // so the runtime's persisted plan_key check reports no_progress instead of no_safe_cut.
+    if (start === 0 && (!priorFold || previous?.firstKeptEntryId !== kept.entry.id || previous.summary !== serialized)) return undefined;
+    return {summary: serialized, firstKeptEntryId: kept.entry.id,
         details: {coc_fold: {version: POLICY_VERSION, source: {campaign: binding.campaign, worldline: binding.worldline, loop: binding.loop, turn: binding.turn},
             retained_from: kept.entry.id, history_bytes: sizeOf(summary), earlier_than: history.earlier_than,
             ...(carried ? {unclassified: carried.count} : {})}},
-        folded: kept.index};
+        folded: start === 0 ? 0 : kept.index};
 }

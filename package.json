@@ -51,6 +51,6 @@
     "pdfjs-dist": "6.3.289",
     "seek-bzip": "2.0.0",
     "yauzl": "3.4.0",
-    "@earendil-works/pi-coding-agent": "0.85.1"
+    "@earendil-works/pi-coding-agent": "0.87.0"
   }
 }

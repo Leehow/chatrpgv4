@@ -170,9 +170,9 @@ describe("a notice the host places reaches the screen when it is placed", () => 
 
   it("pins the arrival shape to the installed Pi, so this fixture cannot drift back into fiction", async () => {
     // The previous fixture for this path fabricated `entry_appended` carrying a `custom_message`
-    // entry. Pi emits no such event: `entry_appended` is emitted from one place, the `appendEntry`
-    // runtime member, and the entry it carries is the `type: "custom"` kind. Read the dependency
-    // rather than trusting a hand-written fixture; an upgrade that changes this must fail here and
+    // entry. Ordinary host delivery is announced through message events, while appendEntry writes
+    // a `type: "custom"` row. Pi 0.87 also announces boundary drafts, context edits and cache usage
+    // through entry_appended. Read the delivery path rather than counting unrelated emitters; a change must fail here and
     // be re-checked, not be discovered on a table.
     // Two copies of Pi are installed: the one `bin/pi-coc` runs, at the repository root, and the
     // one this package resolves. They are different versions, so both are checked -- whichever the
@@ -191,11 +191,13 @@ describe("a notice the host places reaches the screen when it is placed", () => 
       // message, with the role the host's projection branches on.
       expect(source, dist).toContain("appendCustomMessageEntry");
       expect(source, dist).toContain('role: "custom"');
-      // ...and `entry_appended` is emitted from exactly one place, the `appendEntry` runtime
-      // member, which writes the other kind of entry. Nothing a host delivers travels it.
-      expect(source.match(/entry_appended/g) ?? [], dist).toHaveLength(1);
-      expect(source.slice(Math.max(0, source.indexOf("entry_appended") - 400), source.indexOf("entry_appended")), dist)
-        .toContain("appendEntry:");
+      const appendEntry = source.slice(source.indexOf("appendEntry:"), source.indexOf("setSessionName:", source.indexOf("appendEntry:")));
+      expect(appendEntry, dist).toContain("appendCustomEntry");
+      expect(appendEntry, dist).toContain('type: "entry_appended"');
+      const delivery = source.slice(source.indexOf("async sendCustomMessage("), source.indexOf("async sendUserMessage("));
+      expect(delivery, dist).toContain("appendCustomMessageEntry");
+      expect(delivery, dist).toContain('type: "message_end"');
+      expect(delivery, dist).not.toContain('type: "entry_appended"');
     }
     expect(checked, "at least one installed Pi was read").toBeGreaterThan(0);
   });

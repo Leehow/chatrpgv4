@@ -119,9 +119,23 @@ test("bounded fold: closed capsules and tool round trips leave the window, the l
 	assert.doesNotMatch(serialized, /不交付的收尾/, "the replaced Keeper tail is not a recording");
 	assert.doesNotMatch(serialized, /toolCall|toolResult/, "no old tool exchange is copied into the view");
 
-	// The active window: the current whole player group stays, the folded region is gone.
+	// The active window: the system checkpoint leads, then the bounded view. Dialogue is found by content, not by a fixed index.
+	const messages = table.session.messages;
+	const checkpoint = messages[0];
+	const savedCheckpoint = entry.systemMessage;
+	assert.equal(checkpoint?.role, "system", "the system checkpoint heads the window");
+	assert.ok(savedCheckpoint, "the compaction entry preserves the system checkpoint");
+	assert.equal(checkpoint.content, savedCheckpoint.content, "the window keeps the checkpoint prompt");
+	assert.deepEqual(checkpoint.sections ?? null, savedCheckpoint.sections ?? null, "the window keeps the checkpoint sections");
+	assert.deepEqual(
+		(checkpoint.toolsAdded ?? []).map((tool) => tool.name),
+		(savedCheckpoint.toolsAdded ?? []).map((tool) => tool.name),
+		"the window keeps the checkpoint tool declarations",
+	);
 	const shape = contextShape(table);
-	assert.equal(shape[0], "compactionSummary", "the bounded view heads the window");
+	const summaryAt = messages.findIndex((message) => message.role === "compactionSummary");
+	assert.ok(summaryAt > 0, "the bounded view follows the checkpoint");
+	assert.equal(messages[summaryAt].summary, entry.summary, "the window quotes the persisted bounded view");
 	assert.equal(shape.filter((row) => row === "user").length, 1, "only the current player utterance remains");
 	assert.equal(shape.filter((row) => row === "custom:coc-capsule").length, 1, "only the current turn's capsule remains");
 	assert.ok(table.session.messages.some((message) => message.role === "user" && JSON.stringify(message.content).includes("第 3 句")), "the current player group is retained verbatim");

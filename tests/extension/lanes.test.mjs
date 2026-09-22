@@ -8,7 +8,7 @@
 
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
+import { fauxAssistantMessage, fauxToolCall, getCurrentSystemPrompt, getCurrentTools } from "@earendil-works/pi-ai";
 import { assistantTexts, customMessages, openTable, waitFor } from "./harness.mjs";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -16,6 +16,14 @@ import { join } from "node:path";
 
 /** 交付就是守秘人的正文原样（契约 §16.1）：内核不再往里插机制行。 */
 const RENDERED = "门框上有一道深深的抓痕。";
+
+/** Current prompt after replaying every system message in a TranscriptContext. */
+const promptOf = (context) => getCurrentSystemPrompt(context.messages);
+/** Conversational text only. System messages carry a string, not content blocks. */
+const conversationalText = (messages) => messages
+	.filter((message) => message.role !== "system")
+	.map((message) => message.content.map((block) => block.text).join(""))
+	.join("\n");
 
 function keeperTurn(text = "门框上有一道深深的抓痕。") {
 	return [
@@ -130,7 +138,7 @@ test("记忆车道：narrate 之后 memory.job 取任务包，抽出的候选原
 	const [submit] = calls(table, "memory.submit");
 	assert.equal(submit.params.job_id, "extract:test-camp:t1");
 	assert.equal(submit.params.candidates.length, 2, "形状不对的那条在提交前就被丢掉");
-	assert.ok(seen.systemPrompt.includes("promise"), "字段规则里要列出 promise，否则模型根本不知道可以写");
+	assert.ok(promptOf(seen).includes("promise"), "字段规则里要列出 promise，否则模型根本不知道可以写");
 	const promise = submit.params.candidates.find((row) => row.kind === "promise");
 	assert.ok(promise, "承诺必须能过车道自己的白名单");
 	assert.equal(promise.statement, "洗清宅子的名声就再付三十美元。");
@@ -145,9 +153,9 @@ test("记忆车道：narrate 之后 memory.job 取任务包，抽出的候选原
 	}, "闭合字段之外的机器键不往内核送");
 
 	assert.ok(seen, "记忆车道确实起了一次子会话");
-	assert.equal(seen.tools, undefined, "零工具会话：不给模型任何工具");
-	assert.match(seen.systemPrompt, /只写这一回合新出现的事实/, "系统提示用的是任务包里内核写的那段指令");
-	const input = seen.messages.map((message) => message.content.map((block) => block.text).join("")).join("\n");
+	assert.deepEqual(getCurrentTools(seen.messages), [], "零工具会话：不给模型任何工具");
+	assert.match(promptOf(seen), /只写这一回合新出现的事实/, "系统提示用的是任务包里内核写的那段指令");
+	const input = conversationalText(seen.messages);
 	assert.match(input, /门框上有一道深深的抓痕。/, "守秘人交付的正文进了任务包");
 	assert.match(input, /Available names/, "名字清单进了任务包");
 	assert.ok(!input.includes("abc1234"), "commit 只回填遥测，不进模型提示");
@@ -176,8 +184,8 @@ test("the existing memory lane submits one bounded story assessment when the ker
 	const submit = calls(table, "memory.submit")[0];
 	assert.deepEqual(submit.params.story, {status: "misframed", thread: "house-haunting", frame: "我检查地窖门的门框",
 		bridge_delivered: false, delivery_quote: null});
-	assert.match(seen.systemPrompt, /refusing a commission.*never aligned/);
-	const input = seen.messages.map(message => message.content.map(block => block.text).join("")).join("\n");
+	assert.match(promptOf(seen), /refusing a commission.*never aligned/);
+	const input = conversationalText(seen.messages);
 	assert.match(input, /Keeper-only story context/);
 	await waitFor(() => laneRows(table, "memory").some(row => row.story_status === "misframed"), {label: "story assessment telemetry"});
 });
@@ -206,7 +214,7 @@ test("a malformed first story object gives its parse failure to the one existing
 	await table.session.prompt("我检查地窖门的门框");
 	await waitFor(() => calls(table, "memory.submit").length > 0, {label: "repaired story submission"});
 	assert.deepEqual(calls(table, "memory.submit")[0].params.story, valid.story);
-	const input = repairedContext.messages.map(message => message.content.map(block => block.text).join("")).join("\n");
+	const input = conversationalText(repairedContext.messages);
 	assert.match(input, /Previous attempt failed/);
 	assert.match(input, /no JSON object/);
 });
@@ -263,8 +271,8 @@ test("校验车道：读正文与两份事实清单，发现交给 table.warn", 
 	]);
 
 	assert.ok(seen, "校验车道确实起了一次子会话");
-	assert.equal(seen.tools, undefined, "零工具会话");
-	const input = seen.messages.map((message) => message.content.map((block) => block.text).join("")).join("\n");
+	assert.deepEqual(getCurrentTools(seen.messages), [], "零工具会话");
+	const input = conversationalText(seen.messages);
 	assert.match(input, /门框上有一道深深的抓痕。/, "读的是交付的正文");
 	assert.ok(!input.includes("Spot Hidden"), "机制投影不进车道：车道读的是正文加两份事实清单（契约 §12.5）");
 	assert.match(input, /托马斯·海耶斯用侦查看门框，通过。/, "已提交事实清单在输入里");
@@ -553,12 +561,13 @@ test("车道模型来自环境变量：认 provider/model，认不出就只落�
 });
 
 test("不点名模型时两条车道都跟桌子同模型", async (t) => {
-	// 队列里的每一步都按 systemPrompt 判断是谁在问，所以三方谁先要都拿得到对的回答。
+	// Each queued step is identified from the replayed system prompt, so whichever party asks first still gets its answer.
 	const responder = (context) => {
-		if (/after-the-fact verification/.test(context.systemPrompt ?? "")) {
+		const prompt = promptOf(context);
+		if (/after-the-fact verification/.test(prompt)) {
 			return fauxAssistantMessage(JSON.stringify({ findings: [] }));
 		}
-		if (/candidates/.test(context.systemPrompt ?? "")) {
+		if (/candidates/.test(prompt)) {
 			return fauxAssistantMessage(JSON.stringify({ candidates: [] }));
 		}
 		return fauxAssistantMessage("守秘人在 narrate 之后又写的正文，应该被换掉");

@@ -2,6 +2,7 @@
 import {createHash} from 'node:crypto';
 import {dirname, join} from 'node:path';
 import type {ExtensionAPI, ExtensionContext} from '@earendil-works/pi-coding-agent';
+import {getCurrentSystemMessage} from '@earendil-works/pi-ai';
 import {compactAt} from './fold.ts';
 import {createWorkpadStore, type WorkpadView} from './workspace/workpad-store.ts';
 import {selectWorkspace, workspaceBudgetOf, workspaceModeOf, workspaceSettingsOf, workspaceCandidates, type WorkspaceMode} from './workspace/projection.ts';
@@ -327,17 +328,28 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         // A concurrent input may replace a generation while its optional work is awaiting I/O.
         // Try the current accepted binding once; an unaccepted input uses the normal fallback.
         if (!snapshot && ticket !== generation && !inputPending) snapshot = await prepare();
-        // The host notice can be prepended on any exit, so the ceiling reserves room for it.
-        const ceiling = requestBudget(ctx.model?.contextWindow), budget = Math.max(0, ceiling - sizeOf([diagnostic('reserve')]));
+        // Pi 0.87 restores the canonical system/tool checkpoint after this hook. Reserve its
+        // serialized size on every exit, including degraded turns, without treating it as history.
+        let systemBytes = 0;
+        if (typeof ctx.sessionManager?.buildSessionProjection === 'function') {
+            const system = getCurrentSystemMessage(ctx.sessionManager.buildSessionProjection().messages);
+            systemBytes = system ? sizeOf(system) + 1 : 0;
+        } else {
+            const active = typeof pi.getActiveTools === 'function' ? new Set(pi.getActiveTools()) : undefined;
+            const tools = typeof pi.getAllTools === 'function' ? pi.getAllTools().filter(tool => !active || active.has(tool.name)) : [];
+            systemBytes = sizeOf({system: typeof ctx.getSystemPrompt === 'function' ? ctx.getSystemPrompt() : '', tools});
+        }
+        const ceiling = requestBudget(ctx.model?.contextWindow), budget = Math.max(0, ceiling - systemBytes);
         if (!snapshot) {
             // No capsule means no projection, never an unbounded request: a long campaign's whole
             // stored branch is exactly what must not reach the provider on a degraded turn.
             const rest = (event.messages as unknown as Row[]).filter(message => !(message.role === 'custom' && message.customType === DIAGNOSTIC_TYPE));
             const notice = diagnostic(lastReason);
-            const cut = boundedTail(rest, budget);
+            const cut = boundedTail(rest, Math.max(0, budget - sizeOf([notice])));
             const outgoing = [notice, ...cut.messages];
             record({lane: 'context', event: 'request', version: POLICY_VERSION, reason: lastReason,
-                request_bytes: sizeOf(outgoing), local_token_estimate: Math.ceil(sizeOf(outgoing) / BYTES_PER_TOKEN),
+                request_bytes: sizeOf(outgoing) + systemBytes, system_bytes: systemBytes,
+                local_token_estimate: Math.ceil((sizeOf(outgoing) + systemBytes) / BYTES_PER_TOKEN),
                 ceiling_bytes: ceiling, dropped_tail: cut.dropped, context_window: ctx.model?.contextWindow ?? null,
                 ...(cut.over ? {capacity: 'request_ceiling_exceeded'} : {})});
             return {messages: outgoing as typeof event.messages};
@@ -367,25 +379,27 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         // the actual system prompt, tool schemas and output reservation in the provider request.
         if (workspace) {
             try {
-                const active = typeof pi.getActiveTools === 'function' ? new Set(pi.getActiveTools()) : undefined;
-                const tools = typeof pi.getAllTools === 'function' ? pi.getAllTools().filter(tool => !active || active.has(tool.name)) : [];
-                const overhead = sizeOf({system: typeof ctx.getSystemPrompt === 'function' ? ctx.getSystemPrompt() : '', tools});
                 const baseline = projectedMessages({messages: selected, binding: snapshot.binding, history: snapshot.history,
                     brief: briefForTurn(snapshot.brief, view), answering: snapshot.answering, budget});
                 const reserve = Math.min(16384, Math.floor((ctx.model?.contextWindow ?? 65536) / 4)) * BYTES_PER_TOKEN;
                 const totalLimit = Math.min(ceiling, (ctx.model?.contextWindow ?? Infinity) * BYTES_PER_TOKEN - reserve);
-                if (sizeOf(baseline.messages) + sizeOf(workspace) + overhead > totalLimit) workspace = undefined;
+                if (sizeOf(baseline.messages) + sizeOf(workspace) + systemBytes > totalLimit) workspace = undefined;
             } catch {workspace = undefined;}
         }
-        const result = projectedMessages({messages: selected, binding: snapshot.binding, history: snapshot.history,
+        let result = projectedMessages({messages: selected, binding: snapshot.binding, history: snapshot.history,
             brief: briefForTurn(snapshot.brief, view), answering: snapshot.answering, budget, workspace});
         const window = ctx.model?.contextWindow, available = typeof window === 'number' ? window - Math.min(16384, Math.floor(window / 4)) : Infinity;
-        const reason = result.degraded ?? (Math.ceil(sizeOf(result.messages) / BYTES_PER_TOKEN) > available ? 'request_window_estimate' : undefined);
+        const reason = result.degraded ?? (Math.ceil((sizeOf(result.messages) + systemBytes) / BYTES_PER_TOKEN) > available ? 'request_window_estimate' : undefined);
+        // Reserve a diagnostic only when one is needed. An optional workspace must not be
+        // displaced by a hypothetical notice on an otherwise healthy, within-budget request.
+        if (reason) result = projectedMessages({messages: selected, binding: snapshot.binding, history: snapshot.history,
+            brief: briefForTurn(snapshot.brief, view), answering: snapshot.answering,
+            budget: Math.max(0, budget - sizeOf([diagnostic(reason)])), workspace});
         const outgoing = reason ? [diagnostic(reason), ...result.messages.filter(message => !(message.role === 'custom' && message.customType === DIAGNOSTIC_TYPE))] : result.messages;
-        const bytes = sizeOf(outgoing), estimatedTokens = Math.ceil(bytes / BYTES_PER_TOKEN);
+        const bytes = sizeOf(outgoing) + systemBytes, estimatedTokens = Math.ceil(bytes / BYTES_PER_TOKEN);
         record({lane: 'context', event: 'request', version: POLICY_VERSION, turn: snapshot.binding.turn,
             history_bytes: sizeOf(snapshot.history), protected_bytes: result.protectedBytes, unknown_bytes: result.unknownBytes,
-            request_bytes: bytes, local_token_estimate: estimatedTokens, context_window: window ?? null, ceiling_bytes: ceiling,
+            request_bytes: bytes, system_bytes: systemBytes, local_token_estimate: estimatedTokens, context_window: window ?? null, ceiling_bytes: ceiling,
             ...(result.workspaceKept && workspace ? {workspace_bytes: sizeOf(workspace)} : {}),
             ...(result.workspaceKept && workspace ? {workspace_evidence_injected: JSON.parse(String(workspace.content)).evidence.length} : {}),
             ...(result.droppedTail ? {dropped_tail: result.droppedTail} : {}),
@@ -434,7 +448,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         const boundary = previous ? branch.findIndex(entry => entry.id === previous.firstKeptEntryId) : 0;
         const retained = branch.slice(Math.max(0, boundary)).flatMap(entry => {
             const message = entryMessage(entry);
-            return message ? [message] : [];
+            return message && message.role !== 'system' ? [message] : [];
         });
         const retainedBytes = sizeOf(retained) + (previous ? Buffer.byteLength(String(previous.summary), 'utf8') : 0);
         // Raw retained bytes are diagnostic only. Current capsules, audit context and tool results

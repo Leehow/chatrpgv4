@@ -15,7 +15,7 @@ import {mkdir, mkdtemp, readFile, writeFile} from 'node:fs/promises';
 import {join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {build} from 'esbuild';
-import {fauxAssistantMessage, fauxToolCall} from '@earendil-works/pi-ai';
+import {fauxAssistantMessage, fauxToolCall, getCurrentTools} from '@earendil-works/pi-ai';
 import {openTable, waitFor, waitForIdle} from './harness.mjs';
 
 const root = resolve(import.meta.dirname, '../..'), evidence = join(root, '.coc/playtests/long-campaign-context');
@@ -47,7 +47,9 @@ const outbound = table => {
 };
 
 test('campaign length never reaches the provider: the branch outgrows the ceiling while every request stays under it', async t => {
-    const ceiling = 160 * 1024, turns = 6;
+    // Pi 0.87's transcript includes the ~83 KiB system/tool checkpoint. Keep this test's
+    // ceiling above the measured incompressible floor, while the stored branch still exceeds it.
+    const ceiling = 192 * 1024, turns = 6;
     const table = await openTable({realKernel: true, campaign: 'long-campaign-ceiling', retainAt: directory,
         env: {PI_COC_COMPACT_AT: '100', PI_COC_REQUEST_BYTES: String(ceiling)}, settings: {compaction: {enabled: false}},
         responses: [...keeperTurn(long(0)), ...Array.from({length: turns}, (_, turn) => keeperTurn(long(turn + 1))).flat()]});
@@ -116,7 +118,9 @@ test('a turn the policy cannot prepare is bounded, not answered with the whole s
     const projected = await table.session._extensionRunner.emitContext(messages);
     assert.ok(api.sizeOf(projected) <= ceiling, `a degraded request is still under the ceiling: ${api.sizeOf(projected)} <= ${ceiling}`);
     assert.ok(api.sizeOf(projected) < stored, 'the degraded request is smaller than the branch it came from');
-    assert.equal(projected[0].customType, api.DIAGNOSTIC_TYPE, 'the Keeper is told the context was reduced');
+    assert.equal(projected[0].role, 'system', 'Pi retains the prompt and tool checkpoint');
+    assert.ok(getCurrentTools(projected).some(tool => tool.name === 'look'), 'context reduction preserves Keeper tools');
+    assert.equal(projected.find(message => message.role !== 'system').customType, api.DIAGNOSTIC_TYPE, 'the Keeper is told the context was reduced');
     assert.ok(api.pairedTools(projected), 'the bounded fallback keeps its tool pairs');
     // `record` appends its JSONL line without awaiting, so wait for the row rather than race it.
     await waitFor(() => table.telemetry().some(entry => entry.lane === 'context' && entry.reason === 'kernel_bridge_unavailable'),
@@ -131,7 +135,7 @@ test('a turn the policy cannot prepare is bounded, not answered with the whole s
 test('a turn with more tool traffic than the ceiling allows keeps the newest evidence and drops the oldest', async t => {
     // Well above the incompressible floor (the book briefing, the bounded history and this turn's
     // own input) so the squeeze can only land on the tool traffic the turn keeps accumulating.
-    const ceiling = 160 * 1024;
+    const ceiling = 192 * 1024;
     const table = await openTable({realKernel: true, campaign: 'long-campaign-squeeze', retainAt: directory,
         env: {PI_COC_COMPACT_AT: '100', PI_COC_REQUEST_BYTES: String(ceiling)}, settings: {compaction: {enabled: false}},
         responses: [...keeperTurn(long(0)), ...Array.from({length: 3}, (_, turn) => busyTurn(long(turn + 1), 14)).flat()]});
@@ -194,8 +198,8 @@ test('an unclassified entry at the head of a real branch no longer vetoes every 
         await table.session.prompt(`玩家第 ${turn} 次行动。`);
         await waitForIdle(table.session, {timeoutMs: 60000});
     }
-    const entries = table.rawEntries().filter(entry => api.entryMessage(entry));
-    const messages = entries.map(entry => api.entryMessage(entry));
+    const entries = table.rawEntries(), before = structuredClone(entries);
+    const messages = entries.map(entry => api.entryMessage(entry)).filter(Boolean);
     let binding;
     for (let index = messages.length - 1; index >= 0 && !binding; index--) {
         const message = messages[index];
@@ -206,9 +210,11 @@ test('an unclassified entry at the head of a real branch no longer vetoes every 
     assert.ok(api.foldPlan(entries, binding, history), 'a real branch can be folded');
     // `extensions/onboarding` opens every campaign with exactly this entry, and no release of the
     // policy has ever classified it. While it vetoed the cut, no fold could ever run again.
-    const opening = {type: 'custom_message', id: 'setup-opening-entry', customType: 'coc-setup-opening',
-        content: '秋日的波士顿，一间租务办公室里纸张堆得老高。', details: {kind: 'setup-opening'}};
-    const plan = api.foldPlan([opening, ...entries], binding, history);
+    const opening = {type: 'custom_message', id: 'setup-opening-entry', parentId: null, timestamp: entries[0].timestamp,
+        customType: 'coc-setup-opening', content: '秋日的波士顿，一间租务办公室里纸张堆得老高。', details: {kind: 'setup-opening'}};
+    const withOpening = [opening, {...entries[0], parentId: opening.id}, ...entries.slice(1)];
+    const plan = api.foldPlan(withOpening, binding, history);
+    assert.deepEqual(table.rawEntries(), before, 'the fixture insertion must not rewrite product history');
     assert.ok(plan, 'an unclassified opening does not veto the cut');
     assert.ok(plan.folded > 1, 'the fold still cuts the older turns');
     assert.equal(plan.details.coc_fold.unclassified, 1);

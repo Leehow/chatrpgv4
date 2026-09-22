@@ -775,6 +775,8 @@ anchors amend the historical default below; current authority fields remain thos
 
 ### 12.9 内核的决定（已实现）
 
+**Pi 0.87 host compatibility (2026-09-22).** The Pi dependency upgrade does not change kernel RPC shapes. Backfill remains lower priority than a queued foreground continuation even when Pi defers that continuation until all `agent_settled` handlers finish; foreground preflight must not open a backfill window. Current-turn lane jobs keep FIFO priority and shutdown cancels lane scheduling. The host-owned Pi profile seeds `cacheWarming: "off"` only when absent, preserving explicit operator choices. Context and fold projections respect Pi's append-only `context_edit` omissions/replacements without modifying the raw evidence. Implementation and verification outcomes are recorded in `docs/pi-host-contract.md` section 7.
+
 Historical decisions below retain their evidence. The approved §12.4 amendment supersedes their
 30-hit/200-event caps and unpaged full-hit returns; new recall/rehydration implementation and live
 acceptance remain pending until their dedicated checks are recorded.

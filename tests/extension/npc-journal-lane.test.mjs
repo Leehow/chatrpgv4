@@ -6,13 +6,15 @@ import { dirname, join } from "node:path";
 import { setTimeout as settle } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
-import { fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai";
+import { fauxAssistantMessage, fauxProvider, getCurrentSystemPrompt, getCurrentTools } from "@earendil-works/pi-ai";
 import { createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { waitFor } from "./harness.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const answer = (entries = []) => fauxAssistantMessage(JSON.stringify({ entries }));
-const inputText = context => context.messages.flatMap(message => message.content).map(block => block.text ?? "").join("\n");
+const promptOf = context => getCurrentSystemPrompt(context.messages);
+/** Drop system messages before reading conversational blocks. Their content is a string. */
+const inputText = context => context.messages.filter(message => message.role !== "system").flatMap(message => message.content).map(block => block.text ?? "").join("\n");
 
 function packet(turn, lane = "journal") {
 	if (turn === undefined) return { job_id: null };
@@ -145,11 +147,11 @@ test("mounted NPC lane sends a closed player-safe prompt and payload, then refre
 			{ name: "Dooley", label: "The man with the keys", named: true },
 		],
 	});
-	assert.equal(seen.tools, undefined);
-	assert.match(seen.systemPrompt, /Record only people who appeared/);
-	assert.match(seen.systemPrompt, /at most 3 rows/);
-	assert.match(seen.systemPrompt, /label, only for a name listed under not yet named: 1 to 30 characters/);
-	assert.match(seen.systemPrompt, /named: true, only for a name listed under not yet named/);
+	assert.deepEqual(getCurrentTools(seen.messages), []);
+	assert.match(promptOf(seen), /Record only people who appeared/);
+	assert.match(promptOf(seen), /at most 3 rows/);
+	assert.match(promptOf(seen), /label, only for a name listed under not yet named: 1 to 30 characters/);
+	assert.match(promptOf(seen), /named: true, only for a name listed under not yet named/);
 	assert.match(inputText(seen), /\[Recordable names\] Dooley/);
 	assert.match(inputText(seen), /\[Not yet named to the player\] Dooley/);
 	assert.match(inputText(seen), /- Dooley \(label: The caretaker\): The caretaker\./);
@@ -299,7 +301,7 @@ test("mounted referenced journal lane selects aliases without copying names or e
     assert.equal(table.calls("journal.job")[0].params.mode,"referenced");
     assert.deepEqual(table.calls("journal.submit")[0].params,{campaign:"camp",job_id:"journal:camp:t7",protocol:"journal-reference-v2",selection_binding:"private-selection-binding",
         entries:[{person:"person:0",label:"The caretaker",exchange:"Hands over a key."}]});
-    assert.match(seen.systemPrompt,/person selects one issued recordable alias/);assert.ok(!seen.systemPrompt.includes('"name":"..."'));
+    assert.match(promptOf(seen),/person selects one issued recordable alias/);assert.ok(!promptOf(seen).includes('"name":"..."'));
     assert.match(inputText(seen),/person:0/);assert.ok(!inputText(seen).includes("private-selection-binding"));assert.ok(!inputText(seen).includes("private-commit-key"));
     assert.equal(table.calls("journal.submit").length,1);
 });

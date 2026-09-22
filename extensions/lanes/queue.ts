@@ -38,12 +38,13 @@ export function createLaneQueue(pi: ExtensionAPI, options: QueueOptions) {
 	let backfillLeft = 0;
 	let backfillDone = false;
 	let agentRunning = false;
+	let foregroundPending = false;
 
 	function nextJob(): LaneJob | undefined {
 		// Committed turns are FIFO and always precede backfill, even after the agent has settled.
 		const queued = queue.shift();
 		if (queued) return queued;
-		if (stopped || backfillDone || agentRunning || backfillLeft <= 0 || !bridge || !ctx) return undefined;
+		if (stopped || backfillDone || agentRunning || foregroundPending || backfillLeft <= 0 || !bridge || !ctx) return undefined;
 		backfillLeft -= 1;
 		return { campaign: bridge.campaign, backfill: true };
 	}
@@ -87,7 +88,13 @@ export function createLaneQueue(pi: ExtensionAPI, options: QueueOptions) {
 		wake();
 	});
 
+	// Pi defers settled-handler prompts and reports idle during their async preflight.
+	// The sender reserves foreground synchronously, before calling sendUserMessage.
+	pi.events.on("coc:foreground-pending", () => {
+		if (!stopped) foregroundPending = true;
+	});
 	pi.on("agent_start", async () => {
+		foregroundPending = false;
 		agentRunning = true;
 	});
 	// agent_end can schedule recovery/steering runs; only agent_settled closes the whole run.
@@ -100,6 +107,7 @@ export function createLaneQueue(pi: ExtensionAPI, options: QueueOptions) {
 		ctx = sessionCtx;
 		stopped = false;
 		agentRunning = false;
+		foregroundPending = false;
 		lanes = new AbortController();
 		queue.length = 0;
 		backfillLeft = backfillBudget(options.backfillEnv, options.backfillDefault);
@@ -111,6 +119,7 @@ export function createLaneQueue(pi: ExtensionAPI, options: QueueOptions) {
 	pi.on("session_shutdown", async () => {
 		// Never await the model or fail an unfinished job: the kernel can dispatch it next session.
 		stopped = true;
+		foregroundPending = false;
 		queue.length = 0;
 		backfillLeft = 0;
 		backfillDone = true;

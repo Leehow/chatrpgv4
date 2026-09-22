@@ -30,8 +30,9 @@ function group(turn, text = `Player ${turn}`, line = 'main') {
 }
 function entries(messages) {
     return messages.map((message, i) => message.role === 'custom'
-        ? {type: 'custom_message', id: `entry-${i}`, customType: message.customType, content: message.content, details: message.details}
-        : {type: 'message', id: `entry-${i}`, message});
+        ? {type: 'custom_message', id: `entry-${i}`, parentId: i ? `entry-${i - 1}` : null, timestamp: new Date(i).toISOString(),
+            customType: message.customType, content: message.content, details: message.details}
+        : {type: 'message', id: `entry-${i}`, parentId: i ? `entry-${i - 1}` : null, timestamp: new Date(i).toISOString(), message});
 }
 function payloads(context, kind) {
     return context.messages.flatMap(message => (Array.isArray(message.content) ? message.content : []).flatMap(block => {
@@ -150,7 +151,9 @@ test('an arbitrarily large current input is protected, not relabeled as compress
 
 test('v2 folding keeps safe user boundaries without copying v1 line archives', () => {
     const raw = entries([...group(1), ...group(2), ...group(3)]);
-    raw.splice(4, 0, {type: 'compaction', id: 'old-fold', firstKeptEntryId: 'entry-0', summary: 'Old summary', details: {coc_fold: {version: 1, lines: [{who: 'keeper', text: 'old'.repeat(100000)}]}}});
+    raw.splice(4, 0, {type: 'compaction', id: 'old-fold', parentId: 'entry-3', timestamp: new Date(4).toISOString(),
+        firstKeptEntryId: 'entry-0', summary: 'Old summary', details: {coc_fold: {version: 1, lines: [{who: 'keeper', text: 'old'.repeat(100000)}]}}});
+    raw[5].parentId = 'old-fold';
     const before = structuredClone(raw), view = api.historyView(binding(3), [quote(2, 'keeper', 'Known evidence.')]);
     const plan = api.foldPlan(raw, binding(3), view);
     assert.equal(plan.firstKeptEntryId, 'entry-8');

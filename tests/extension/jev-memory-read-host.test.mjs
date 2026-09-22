@@ -311,7 +311,9 @@ test("cancelling a running semantic decision aborts the shared query and prevent
 	});
 	const running = host.session.prompt("What did Knott promise?", { source: "rpc" }).catch(() => undefined);
 	await started.promise;
-	await host.session._extensionRunner.emit({ type: "input", text: "Cancel that and inspect the room.", source: "rpc" });
+	// Use the public cancellation path. Fabricating an input event also queues a new
+	// player turn, which Pi 0.87 now runs before the previous prompt promise resolves.
+	await host.session.abort();
 	await Promise.race([running, settle(5_000).then(() => { throw new Error("cancelled query did not settle"); })]);
 	const requests = await host.requests(), status = host.adapter.status();
 	assert.equal(requests.some(row => row.method === "table.narrate"), false);

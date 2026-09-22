@@ -10,7 +10,7 @@ import { strict as assert } from "node:assert";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
-import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
+import { fauxAssistantMessage, fauxToolCall, getCurrentSystemPrompt, getCurrentTools } from "@earendil-works/pi-ai";
 import { extensionWords } from "../../extensions/ui/words.ts";
 import { openTable, waitForIdle } from "./harness.mjs";
 
@@ -118,7 +118,7 @@ for (const advice of [
     await waitForIdle(table.session);
     assert.deepEqual(setupResults(table.session).find(row=>row.step==='create-campaign').character_guidance,guidance);
     let prompt;
-    table.faux.setResponses([context=>{prompt=context.systemPrompt;return fauxAssistantMessage('A short setup reply.');}]);
+    table.faux.setResponses([context=>{prompt=getCurrentSystemPrompt(context.messages);return fauxAssistantMessage('A short setup reply.');}]);
     await table.session.prompt('My investigator knows very little of the local language.');
     await waitForIdle(table.session);
     assert.ok(prompt.includes(guidance.opening) && prompt.includes(advice));
@@ -335,7 +335,7 @@ test("setup packages: the campaign's enabled Mods reach the setup prompt through
 	const first = firstStep();
 	const investigator = stepById("create-investigator");
 	const prompts = [];
-	const capture = (message) => (context) => { prompts.push(context.systemPrompt ?? ""); return message; };
+	const capture = (message) => (context) => { prompts.push(getCurrentSystemPrompt(context.messages)); return message; };
 	const table = await openSetup([
 		capture(setupCall({ step: first.id, kind: "starter", module: "the-haunting" })),
 		capture(setupCall({ step: "create-campaign", id: "setup-fixture", title: "闹鬼的房子", play_language: "zh-Hans" })),
@@ -365,7 +365,7 @@ test("creation brief: the host computes the move from the package's slots and th
 	const first = firstStep();
 	const investigator = stepById("create-investigator");
 	const prompts = [];
-	const capture = (message) => (context) => { prompts.push(context.systemPrompt ?? ""); return message; };
+	const capture = (message) => (context) => { prompts.push(getCurrentSystemPrompt(context.messages)); return message; };
 	const table = await openTable({ mode: "setup", campaign: null, env: { FAKE_SETUP_SLOTS: "1" }, responses: [
 		capture(setupCall({ step: first.id, kind: "starter", module: "the-haunting" })),
 		capture(setupCall({ step: "create-campaign", id: "brief-fixture", title: "闹鬼的房子", play_language: "zh-Hans" })),
@@ -538,12 +538,12 @@ test('§98 the catalog is given to the setup prompt once a campaign exists', asy
 });
 
 test('setup advertises and binds actual input selections while stale aliases never reach the kernel',async(t)=>{
-    const parseCatalog=context=>JSON.parse(String(context.systemPrompt).split('\n').find(line=>line.startsWith('{"protocol":"setup-input-reference-v1"')));
+    const parseCatalog=context=>JSON.parse(String(getCurrentSystemPrompt(context.messages)).split('\n').find(line=>line.startsWith('{"protocol":"setup-input-reference-v1"')));
     let oldSource,toolSchema;
     const name='  E\u0301va 👩‍👩‍👧‍👦  ',table=await openSetup([
         setupCall({step:'choose-source',kind:'starter',module:'the-haunting'}),
         setupCall({step:'create-campaign',id:'setup-input-fixture',title:'Input references',play_language:'en'}),
-        context=>{const catalog=parseCatalog(context);oldSource=catalog.sources.at(-1).alias;toolSchema=context.tools.find(tool=>tool.name==='setup').parameters;
+        context=>{const catalog=parseCatalog(context);oldSource=catalog.sources.at(-1).alias;toolSchema=getCurrentTools(context.messages).find(tool=>tool.name==='setup').parameters;
             return setupCall({step:'create-investigator',profile:{name:{source:oldSource},occupation:'journalist',concept:'A reporter'}});},
         fauxAssistantMessage('The card is ready.'),
     ]);t.after(()=>table.dispose());

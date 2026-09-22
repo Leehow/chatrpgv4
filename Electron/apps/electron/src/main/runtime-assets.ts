@@ -24,7 +24,7 @@ export interface ResolvedAssets extends RuntimeAssets {
 }
 export const EMBEDDED_NODE_VERSION = '24.19.0'
 export const PI_RUNTIME_PACKAGE = '@earendil-works/pi-coding-agent' as const
-export const MANAGED_RUNTIME_PACKAGE_VERSIONS = { [PI_RUNTIME_PACKAGE]: '0.85.1' } as const
+export const MANAGED_RUNTIME_PACKAGE_VERSIONS = { [PI_RUNTIME_PACKAGE]: '0.87.0' } as const
 export const UPDATE_CENTER_RUNTIME_PACKAGE_VERSIONS = MANAGED_RUNTIME_PACKAGE_VERSIONS
 
 function sourceNode(env: NodeJS.ProcessEnv): string {

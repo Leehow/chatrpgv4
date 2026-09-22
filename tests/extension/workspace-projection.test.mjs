@@ -70,8 +70,9 @@ function group(turn, text = `Player ${turn}`, line = 'main') {
 }
 function entries(messages) {
   return messages.map((message, i) => message.role === 'custom'
-    ? {type: 'custom_message', id: `entry-${i}`, customType: message.customType, content: message.content, details: message.details}
-    : {type: 'message', id: `entry-${i}`, message});
+    ? {type: 'custom_message', id: `entry-${i}`, parentId: i ? `entry-${i - 1}` : null, timestamp: new Date(i).toISOString(),
+      customType: message.customType, content: message.content, details: message.details}
+    : {type: 'message', id: `entry-${i}`, parentId: i ? `entry-${i - 1}` : null, timestamp: new Date(i).toISOString(), message});
 }
 
 test('the mode gate reads the package settings the capsule already holds and defaults to off', () => {

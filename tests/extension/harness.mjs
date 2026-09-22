@@ -20,7 +20,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai";
+import { fauxAssistantMessage, fauxProvider, getCurrentSystemPrompt, getCurrentTools } from "@earendil-works/pi-ai";
 import {
 	createAgentSession,
 	DefaultResourceLoader,
@@ -135,7 +135,16 @@ function withProviderCallbacks(handle) {
 	/** 缺省就是「请求体里没有任何 reasoning 字段」——xai/grok-4.6 的 `thinkingLevelMap.off` 是 null，真实的车道请求就是这个形状。 */
 	let transport = { status: 200, headers: {}, body: undefined };
 	const wrap = (fn) => (model, context, options) => {
-		const body = { model: model.id, system: context.systemPrompt, messages: context.messages, tools:context.tools, stream: true, ...transport.body };
+		// Pi 0.87 hands providers a TranscriptContext: the prompt and tool declarations live in
+		// system messages. Read them back through the public helpers; do not rebuild a legacy Context.
+		const body = {
+			model: model.id,
+			system: getCurrentSystemPrompt(context.messages),
+			messages: context.messages,
+			tools: getCurrentTools(context.messages),
+			stream: true,
+			...transport.body,
+		};
 		// 真适配器是 `await options?.onPayload?.(params, model)` **之后**才发请求，所以 onResponse 一定在它之后；
 		// 这里也必须等它，否则两行遥测的落盘顺序会打架（start → request → response → end 就是这么定的）。
 		const sent = Promise.resolve(options?.onPayload?.(body, model));

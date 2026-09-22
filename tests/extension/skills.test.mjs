@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { projectSkillCards } from "../../extensions/kernel/index.ts";
 import { COC_TOOLS } from "../../extensions/kernel/tools.ts";
-import { customMessages, openTable } from "./harness.mjs";
+import { customMessages, openTable, waitFor } from "./harness.mjs";
 
 const cards = JSON.parse(readFileSync(new URL("../../content/skills/draft.json", import.meta.url), "utf8"));
 const names = ["ordinary-check-with-consequence", "direct-authorized-change", "repair-named-gap"];
@@ -335,5 +335,9 @@ test("a selected skill with an aborted provider has no delivery and falls back",
 	assert.equal(rows(table)[0].delivered, false);
 	assert.equal(rows(table)[0].fallback, true);
 	assert.deepEqual(rows(table)[0].tool_names, ["look"]);
+	// The host publishes the unfinished-turn notice asynchronously after settlement.
+	// Observe delivery before disposing the SDK session, rather than racing its stale-ctx guard.
+	await waitFor(() => customMessages(table.session, "coc-delivery").some(message => message.details?.turn_unfinished),
+		{ label: "aborted turn notice" });
 	assert.deepEqual(table.extensionErrors, []);
 });
