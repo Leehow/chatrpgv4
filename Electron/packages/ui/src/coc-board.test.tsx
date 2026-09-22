@@ -167,6 +167,11 @@ describe('the people section is the legend for the spoken lines', () => {
     expect(rows[1].querySelector('.coc-npc-dead')).toBeTruthy();
     // The scene stamped on an exchange goes through the glossary; the journal's own prose does not.
     expect(rows[0].querySelector('.coc-npc-exchange-scene')?.textContent).toBe('The office');
+    // The place is a caption on its own line, not a run glued to the sentence after it (real table
+    // 2026-09-22 read `Knott's Office他用指节…`). No separator character: that is the language's.
+    const scene = rows[0].querySelector('.coc-npc-exchange-scene') as HTMLElement;
+    expect(getComputedStyle(scene).display).toBe('block');
+    expect(scene.parentElement?.textContent).toBe('The officeAsked about the expedition.');
     expect(rows[0].textContent).toContain('An author of the expedition.');
     expect(rows[0].textContent).toContain('Asked about the expedition.');
   });

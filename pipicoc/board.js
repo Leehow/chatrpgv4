@@ -85,6 +85,13 @@ const CSS = `
   font-size:10px;transition:transform .12s ease}
 .coc-clue-fold[open]>summary::after{transform:rotate(90deg)}
 .coc-clue-body{padding:0 0 8px;color:var(--muted);line-height:1.6;overflow-wrap:anywhere}
+/* One exchange with a person: where it happened, as a caption on its own line, then what passed
+   between them. The place is a separate element because it is a separate word -- run inline, the
+   scene's name and the lane's sentence read as one run with nothing between them. No separator
+   character: which punctuation divides two phrases belongs to the play language. */
+.coc-npc-exchange{padding:4px 0}
+.coc-npc-exchange+.coc-npc-exchange{border-top:1px dashed var(--border)}
+.coc-npc-exchange-scene{display:block;color:var(--subtle);font-size:11px;font-weight:600;letter-spacing:.02em}
 `;
 
 /* >>> speaker colour: shared verbatim between pipicoc/mechanics.js and pipicoc/board.js <<<
@@ -424,7 +431,8 @@ export function createComponent(React) {
    * written in the play language, and are drawn as they arrive. The name and the scene stamped on
    * an exchange are not: the lane must copy a recordable name exactly and the kernel stamps the
    * scene's display name at the turn it happened, so both are the module graph's words and both go
-   * through the glossary, where the journal lane has projected them. Turn numbers are machine
+   * through the glossary, where the journal lane has projected them -- the host merges that lane
+   * under `view.labels` on every board read, live or cold, as it does for the sheet. Turn numbers are machine
    * context and stay off the page. A dead mark rests next to the name when the ledger closed.
    *
    * The swatch in front of each name is the legend for the delivery card's spoken lines (§40.4):

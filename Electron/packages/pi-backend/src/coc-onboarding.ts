@@ -579,10 +579,27 @@ export class CocOnboardingHost {
     if(job.error){this.presentations.delete(this.presentationKey(data));throw job.error;}
     return job.result||{pending:true};
   }
-  /** The growing lanes: each is its own job, and a finished one is not kept, so the next word starts a fresh run. */
-  private static readonly GROWING_LANES=['standing','possessions','clues','languages'] as const;
+  /**
+   * Which lane a request asks for: every flag it sets to `true`, by name.
+   *
+   * The key was once built from a hand-kept list of four lanes, and every lane added after it --
+   * `journal`, `identity`, `rules`, `handouts` -- read as "no lane" and so shared one key per
+   * campaign and language. The first of them to run answered all the others for the life of the
+   * process, and because the same list decided which finished jobs are dropped, that answer was
+   * never let go: a campaign whose `identity` lane ran first never projected its journal, and the
+   * case board drew the scene an exchange happened in in the book's language. The request names its
+   * own lane; nothing here keeps a second list of them.
+   */
+  private static laneFlags(data:Row):string[] {
+    return Object.keys(data).filter(key=>data[key]===true).sort();
+  }
+  /** A campaign's growing lane: each is its own job, and a finished one is not kept, so the next word starts a fresh run.
+   *  The product's own captions (`ui`) are the same for every table in the home and are kept once paid for. */
+  private static growingLane(data:Row):boolean {
+    return CocOnboardingHost.laneFlags(data).some(lane=>lane!=='ui');
+  }
   private presentationKey(data:Row) {
-    return JSON.stringify([data.campaign,data.revision,data.play_language,...CocOnboardingHost.GROWING_LANES.map(lane=>data[lane]===true)]);
+    return JSON.stringify([data.campaign,data.revision,data.play_language,CocOnboardingHost.laneFlags(data)]);
   }
   private presentationJob(data:Row) {
     const key=this.presentationKey(data);
@@ -590,7 +607,7 @@ export class CocOnboardingHost {
       const job:{task:Promise<Row>;result?:Row;error?:unknown}={task:Promise.resolve({})};
       this.presentations.set(key,job);
       job.task=this.runPresentation(data).then(result=>{job.result=result;return result;},error=>{job.error=error;throw error;})
-        .finally(()=>{if(CocOnboardingHost.GROWING_LANES.some(lane=>data[lane]))this.presentations.delete(key);});
+        .finally(()=>{if(CocOnboardingHost.growingLane(data))this.presentations.delete(key);});
       void job.task.catch(()=>undefined);
     }
     return this.presentations.get(key)!;

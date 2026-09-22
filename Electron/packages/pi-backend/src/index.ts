@@ -9866,28 +9866,7 @@ export class PiHostBackend implements HostBackend {
             // traits and the kernel's own condition words, a discovered clue's name and what the
             // book says it is -- are projected by the presenter that projects the card, one lane
             // each, in the background, and merged under the glossary. The read is never held.
-            for(const lane of Object.keys(SHEET_LANES) as SheetLane[]) {
-              try {
-                const repo=resolve(this.managedNodeModulesRoot,'..');
-                const saved=await laneProjection(context,lane,await laneWords(repo,lane,liveView));
-                if(saved.missing.length) {
-                  const key=JSON.stringify([context.home,context.campaign,context.play_language,lane,saved.missing]);
-                  if(isRecord(params)&&params.retry_projection===true)for(const [old,job] of this.cocLaneJobs)if(job.status==='failed')this.cocLaneJobs.delete(old);
-                  if(!this.cocLaneJobs.has(key)) {
-                    this.cocLaneJobs.set(key,{status:'pending'});
-                    this.cocOnboarding = this.cocOnboardingRegistry.get({...this.cocRuntime,repo,home:context.home,agentDir:this.sharedProfileDir,env:this.env});
-                    const refresh=()=>emitFrame(this.listeners,{protocolVersion:PIPI_HOST_PROTOCOL_VERSION,channel:'ext.coc-keeper',event:{type:'sheet_changed',payload:{campaign:context.campaign}}});
-                    void this.getModelState(sessionId).then(state=>this.cocOnboarding!.presentation({campaign:context.campaign,play_language:context.play_language,[lane]:true,model:`${state.model.provider}/${state.model.id}`,thinking:state.thinkingLevel})).then(()=>{
-                      // The live reader answers from a held copy of these lanes, so a lane that
-                      // lands here must replace it too, or the next delivery draws the words this
-                      // run has just finished replacing.
-                      this.cocLaneJobs.delete(key);void reloadLaneLabels(context).then(refresh,refresh);
-                    },()=>{this.cocLaneJobs.set(key,{status:'failed'});});
-                  }
-                }
-                liveView.labels={...saved.texts,...(isRecord(liveView.labels)?liveView.labels:{})};
-              } catch { /* The sheet reads without that lane's words; the panel falls back to the canonical ones. */ }
-            }
+            await this.cocMergeSheetLanes(sessionId,context,liveView,isRecord(params)&&params.retry_projection===true);
             return {ok:true,data:{status:"ready",view,campaign:context.campaign,...words}};
           } catch(error) {return {ok:true,data:{status:"error",view:null,campaign:context.campaign,
             code:this.cocCode(error),reason:error instanceof Error?error.message:String(error),...words}};}
@@ -9901,8 +9880,16 @@ export class PiHostBackend implements HostBackend {
       // host hop the kernel has no part in (§39 -- the kernel holds no pixels), and the live pack is
       // the leg that already runs that hop for a delivery. So a live session is forwarded there first.
       const live = this.live.get(sessionId);
+      const retry = isRecord(params) && params.retry_projection === true;
       if (live && this.liveProcessUsable(live) && this.extensions.isMounted(sessionId, id)) {
-        return this.enqueueExtInvoke(sessionId, id, method, params);
+        // The pack answers with `table.view` verbatim; the campaign's projected words are the
+        // host's, merged here exactly as a sheet read merges them, so both legs draw one glossary.
+        const answered = await this.enqueueExtInvoke(sessionId, id, method, params);
+        const binding = this.cocSessionBindings.get(sessionId)
+          ?? await this.locate(sessionId).then(found => readCocBinding(found.path)).catch(() => undefined);
+        if (binding && answered.ok && isRecord(answered.data) && answered.data.status === "ready")
+          await this.cocMergeSheetLanes(sessionId, binding, answered.data.view, retry);
+        return answered;
       }
       // Cold -- a restored session with no agent yet. The board still opens: it reads the same
       // player-safe `table.view` the sheet reads, and the map rows without their layers, so a map
@@ -9916,6 +9903,7 @@ export class PiHostBackend implements HostBackend {
         if (!this.managedNodeModulesRoot) throw this.cocRefusal("runtime_unavailable", "Canonical runtime is unavailable");
         const repo = resolve(this.managedNodeModulesRoot, "..");
         const view = await callColdKernel(repo, context.home, "table.view", {campaign:context.campaign}, this.env, this.cocRuntime);
+        await this.cocMergeSheetLanes(sessionId, context, view, retry);
         const rows = await callColdKernel(repo, context.home, "table.maps", {campaign:context.campaign}, this.env, this.cocRuntime)
           .catch(() => ({maps:[]}));
         const maps = (isRecord(rows) && Array.isArray(rows.maps) ? rows.maps : []).filter(isRecord).map(row => ({
@@ -9947,6 +9935,44 @@ export class PiHostBackend implements HostBackend {
       return this.cocDenied("capability_denied", "extension not mounted on session");
     }
     return this.enqueueExtInvoke(sessionId, id, method, params);
+  }
+
+  /**
+   * Merge every `SHEET_LANES` projection this campaign has saved under a `table.view`'s kernel
+   * glossary, and start one background run for each lane whose words the view shows and its file
+   * still lacks (contract §23, §39.3).
+   *
+   * One definition for every panel that draws `table.view`. The case board took the sheet's clue
+   * and people sections over and drew them through `term()` against `view.labels`, but the merge
+   * stayed behind in the sheet read, so the board looked words up in the kernel's rules glossary
+   * alone: a journal exchange's scene -- the kernel's stamp of the book's display name -- reached a
+   * zh-Hans player as `Knott's Office` while the sheet beside it read the same place in Chinese.
+   * The kernel glossary wins every collision, as it does on a mechanics card.
+   */
+  private async cocMergeSheetLanes(sessionId:string, context:CocBinding, view:any, retry:boolean):Promise<void> {
+    if(!this.managedNodeModulesRoot||!isRecord(view))return;
+    const repo=resolve(this.managedNodeModulesRoot,'..');
+    for(const lane of Object.keys(SHEET_LANES) as SheetLane[]) {
+      try {
+        const saved=await laneProjection(context,lane,await laneWords(repo,lane,view));
+        if(saved.missing.length) {
+          const key=JSON.stringify([context.home,context.campaign,context.play_language,lane,saved.missing]);
+          if(retry)for(const [old,job] of this.cocLaneJobs)if(job.status==='failed')this.cocLaneJobs.delete(old);
+          if(!this.cocLaneJobs.has(key)) {
+            this.cocLaneJobs.set(key,{status:'pending'});
+            this.cocOnboarding = this.cocOnboardingRegistry.get({...this.cocRuntime,repo,home:context.home,agentDir:this.sharedProfileDir,env:this.env});
+            const refresh=()=>emitFrame(this.listeners,{protocolVersion:PIPI_HOST_PROTOCOL_VERSION,channel:'ext.coc-keeper',event:{type:'sheet_changed',payload:{campaign:context.campaign}}});
+            void this.getModelState(sessionId).then(state=>this.cocOnboarding!.presentation({campaign:context.campaign,play_language:context.play_language,[lane]:true,model:`${state.model.provider}/${state.model.id}`,thinking:state.thinkingLevel})).then(()=>{
+              // The live reader answers from a held copy of these lanes, so a lane that
+              // lands here must replace it too, or the next delivery draws the words this
+              // run has just finished replacing.
+              this.cocLaneJobs.delete(key);void reloadLaneLabels(context).then(refresh,refresh);
+            },()=>{this.cocLaneJobs.set(key,{status:'failed'});});
+          }
+        }
+        view.labels={...saved.texts,...(isRecord(view.labels)?view.labels:{})};
+      } catch { /* The panel reads without that lane's words; it falls back to the canonical ones. */ }
+    }
   }
 
   /**
