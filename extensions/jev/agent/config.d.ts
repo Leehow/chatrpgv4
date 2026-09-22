@@ -1,0 +1,10 @@
+export const EXTENSION_ID: 'jev';
+export const API_KEY_KEY: 'ext.jev.apiKey';
+export const API_KEY_ENV: 'EXT_JEV_APIKEY';
+export const SETTINGS_ENV: 'PIPIUI_EXT_SETTINGS_JEV';
+export const PRESELECT_KEY: 'ext.jev.preselectEnabled';
+export const PRESELECT_CLI_ENV: 'PI_COC_JEV_PRESELECT';
+export function readJevApiKey(env?: Readonly<Record<string, string | undefined>>): string | undefined;
+export function readJevPreselectEnabled(env?: Readonly<Record<string, string | undefined>>): boolean;
+export function describeJevConfig(env?: Readonly<Record<string, string | undefined>>): { configured: boolean };
+export function describePrescreenConfig(env?: Readonly<Record<string, string | undefined>>): { configured: boolean; enabled: boolean; active: boolean };

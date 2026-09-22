@@ -1,5 +1,6 @@
 // Opt-in real API comparison. Frozen inputs; optional selectors run only after a missing gate.
 import fs from 'node:fs/promises';
+import {readJevApiKey} from '../../extensions/jev/agent/config.js';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {validateDataset,validateBindings} from './bank.mjs';
@@ -50,8 +51,8 @@ const manifest = {version:1,experiment:'isolated-existing-context-gate',model:MO
   price_basis:{input_usd_per_million:.042,scope:'Previously checked input-only estimate, not a bill.'},
   evaluation_labels_sent:false,production_modified:false,live_play:false,node:process.version};
 if (opts['--describe']) {console.log(JSON.stringify({...manifest,provider_calls:0},null,2));process.exit(0);}
-const key = process.env.TYPESAFE_API_KEY;
-if (!key) throw new Error('TYPESAFE_API_KEY must be mounted; no request sent');
+const key = readJevApiKey();
+if (!key) throw new Error('Shared Jev credentials must be mounted; no request sent');
 const out = path.resolve(opts['--out'] ?? path.join(root,'.pi/prototypes/jev-isolated-gate/runs'));
 await fs.mkdir(out,{recursive:true});
 const dir = await fs.mkdtemp(path.join(out,`${new Date().toISOString().replaceAll(':','-')}-comparison-`));

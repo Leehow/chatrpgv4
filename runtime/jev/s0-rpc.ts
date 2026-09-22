@@ -5,6 +5,7 @@ import { createS0HostAdapter } from './host-session-adapter.ts';
 import { createS0Decider } from './s0-decision.ts';
 import { createTaskHostAdapter, taskDeadlineMs } from './task-host-session.ts';
 import { createDecisionAdapter } from './decision-adapter.ts';
+import { readJevApiKey } from '../../extensions/jev/agent/config.js';
 
 interface S0Launch { cwd: string; args: string[]; env: Record<string, string | undefined> }
 export async function startS0Rpc(launch: S0Launch): Promise<never> {
@@ -38,7 +39,7 @@ export async function startS0Rpc(launch: S0Launch): Promise<never> {
   for (const key of ['PI_COC_HOME', 'PI_CODING_AGENT_DIR', 'PI_COC_CAMPAIGN', 'PI_COC_MODE', 'PI_GROK_BUILD_IMAGE_TOOLS', 'PI_COC_JEV_MEMORY']) {
     if (launch.env[key] !== undefined) process.env[key] = launch.env[key];
   }
-  const decide = createS0Decider(launch.env.TYPESAFE_API_KEY ?? '');
+  const decide = createS0Decider(readJevApiKey(launch.env) ?? '');
   const taskMode = launch.env.PI_COC_TASK_RUNTIME === '1';
   const fixedPrompt = readFileSync(promptFile, 'utf8');
   const canonicalCwd = realpathSync(launch.cwd);
@@ -54,7 +55,7 @@ export async function startS0Rpc(launch: S0Launch): Promise<never> {
     if (realpathSync(cwd) !== canonicalCwd) throw new Error('S0 cannot rebind outside its captured source workspace');
     let session: AgentSession;
     let decisionTrace: (event: unknown) => void = () => {};
-    const adapter = taskMode ? createTaskHostAdapter(() => session, createDecisionAdapter({ apiKey: launch.env.TYPESAFE_API_KEY,
+    const adapter = taskMode ? createTaskHostAdapter(() => session, createDecisionAdapter({ env: launch.env,
       retryPolicies: Object.fromEntries(['table-evidence', 'ordinary-resolve', 'ordinary-apply', 'promise-fulfillment', 'source-consultation', 'memory-read', 'memory-write-retain', 'memory-write-kinds', 'memory-write-annotations', 'memory-write-story'].map(family => [family, { maxRetries: 1, backoffInitialMs: 100, backoffMaxMs: 1_000, attemptTimeoutMs: 10_000 }])),
       trace: event => decisionTrace(event),
     }), {deadlineMs: taskDeadlineMs(launch.env.PI_COC_TASK_DEADLINE_MS), sourceEnabled: launch.env.PI_COC_JEV_SOURCE === '1', memoryEnabled: launch.env.PI_COC_JEV_MEMORY === '1', memoryReadEnabled: launch.env.PI_COC_JEV_MEMORY_READ === '1', resolveEnabled: launch.env.PI_COC_JEV_RESOLVE === '1', applyEnabled: launch.env.PI_COC_JEV_APPLY === '1'}) : createS0HostAdapter(() => session, decide);

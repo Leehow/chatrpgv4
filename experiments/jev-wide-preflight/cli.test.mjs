@@ -17,6 +17,7 @@ async function fixture(t) {
   await fs.writeFile(path.join(home, 'cases.json'), JSON.stringify(cases));
   const env = {...process.env};
   delete env.TYPESAFE_API_KEY;
+  delete env.EXT_JEV_APIKEY;
   return {home, run: extra => spawnSync(process.execPath, [runner, '--corpus', path.join(home, 'corpus.json'), '--cases', path.join(home, 'cases.json'), '--out', path.join(home, 'results'), ...extra], {encoding: 'utf8', env})};
 }
 
@@ -35,7 +36,7 @@ test('missing credential refuses before creating a live evidence directory', asy
   const {home, run} = await fixture(t);
   const result = run([]);
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /Live measurement requires TYPESAFE_API_KEY/);
+  assert.match(result.stderr, /Live measurement requires shared Jev credentials/);
   await assert.rejects(fs.stat(path.join(home, 'results')), {code: 'ENOENT'});
 });
 

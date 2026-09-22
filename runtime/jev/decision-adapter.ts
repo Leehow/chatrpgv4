@@ -3,6 +3,7 @@ import { ContractError, bindDecisionAnswers, isPlainRecord, probabilityMassValid
 import type { DecisionPort } from './decision-port.ts';
 import type { TaskLease } from './task-context.ts';
 import { JEV_MODEL, PackingError, packDecisionBatch, type PackingEstimate } from './question-packing.ts';
+import { readJevApiKey } from '../../extensions/jev/agent/config.js';
 
 export const JEV_ENDPOINT = 'https://api.typesafe.ai/v1/systemone';
 /** Official Jev 1.13 listing checked 2026-09-20: $0.042/M input tokens; output tokens free. */
@@ -40,6 +41,8 @@ export type AdapterTrace =
   | { kind: 'failure'; batchId: string; attempts: number; code: NonNullable<DecisionResult['failure']>['code'];
       cost: { kind: 'reserved_bound_actual_unknown'; usd: number } };
 export interface DecisionAdapterOptions {
+  env?: Readonly<NodeJS.ProcessEnv>;
+  /** Explicit injection for isolated transport tests; production callers pass their captured env. */
   apiKey?: string;
   enabled?: boolean;
   fetcher?: typeof fetch;
@@ -207,6 +210,7 @@ function answerSchemaDiagnostics(batch: DecisionBatch, raw: Record<string, unkno
 }
 
 export function createDecisionAdapter(options: DecisionAdapterOptions = {}): DecisionPort {
+  const apiKey = options.apiKey === undefined ? readJevApiKey(options.env) : options.apiKey.trim();
   const enabled = options.enabled !== false;
   const fetcher = options.fetcher ?? fetch;
   const concurrency = options.maxConcurrency ?? 4;
@@ -221,7 +225,7 @@ export function createDecisionAdapter(options: DecisionAdapterOptions = {}): Dec
     async decide(batch, lease) {
       const began = now();
       if (!enabled) return unavailable(batch, 'disabled', false);
-      if (!options.apiKey) return unavailable(batch, 'unconfigured', false);
+      if (!apiKey) return unavailable(batch, 'unconfigured', false);
       let packed;
       try {
         const context = lease.context;
@@ -276,7 +280,7 @@ export function createDecisionAdapter(options: DecisionAdapterOptions = {}): Dec
           try {
             attempted = attempt;
             response = await fetcher(JEV_ENDPOINT, { method: 'POST', redirect: 'error', signal: attemptSignal,
-              headers: { Authorization: `Bearer ${options.apiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify(packed.request) });
+              headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify(packed.request) });
           } catch (error) {
             if (lease.signal.aborted) return settleUnknown(now() >= lease.context.budget.deadlineAt ? 'timeout' : 'cancelled', false, attempt);
             const timedOut = attemptSignal.aborted;

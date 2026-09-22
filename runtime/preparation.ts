@@ -22,14 +22,14 @@ export function createPreparationHost(home: string, options: RuntimeHostOptions 
     kernelEntrypoint: context.entrypoints.kernel});
 
   return Object.freeze({home: context.home,
-    start(action: string, input: Record<string, unknown>, signal?: AbortSignal): PreparationProcess {
+    start(action: string, input: Record<string, unknown>, signal?: AbortSignal, env?: NodeJS.ProcessEnv): PreparationProcess {
       if (signal?.aborted) throw new KernelError({code: 'internal', message: 'Preparation was cancelled',
         details: {reason: 'runtime_cancelled'}});
       const grouped = process.platform !== 'win32';
       const child = spawn(context.nodeExecutable, [entrypoint, action,
         JSON.stringify({...input, home: context.home}), configuration], {
         cwd: context.resourceRoot, detached: grouped,
-        env: {...context.env, PI_COC_CAMPAIGN: typeof input.campaign === 'string' ? input.campaign : undefined,
+        env: {...context.env, ...env, PI_COC_CAMPAIGN: typeof input.campaign === 'string' ? input.campaign : undefined,
           ...(context.layout === 'source' ? {ELECTRON_RUN_AS_NODE: '1', PYTHONDONTWRITEBYTECODE: '1'} : {})}, stdio: ['ignore', 'pipe', 'pipe'],
       });
       let ended = false, stopping = false;

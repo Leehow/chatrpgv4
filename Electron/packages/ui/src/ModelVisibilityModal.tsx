@@ -27,6 +27,7 @@ const SETTINGS_NAV_HINTS: Record<string, string> = {
   'coc-difficulty': '角色创建与倍率',
   'coc-lane-model': '后台车道与审查',
   rerank: '供应商与模型',
+  jev: 'Shared authentication',
 }
 
 export { SETTINGS_NAV_HINTS }

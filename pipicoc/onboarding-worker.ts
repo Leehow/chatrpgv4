@@ -182,8 +182,7 @@ async function main() {
       return await withGuidance({module_id: input.module_id, opening_ready: true});
     }
     reader = new ReadingService({call, campaign: () => input.campaign, runtime:runtime!, home: input.home,
-      navigateFresh: createFreshSourceNavigator({runtime: runtime!, call, env: {
-        PI_COC_TASK_RUNTIME: context.env.PI_COC_TASK_RUNTIME, PI_COC_JEV_SOURCE: context.env.PI_COC_JEV_SOURCE, TYPESAFE_API_KEY: context.env.TYPESAFE_API_KEY}}),
+      navigateFresh: createFreshSourceNavigator({runtime: runtime!, call, env: context.env}),
       model: () => ({id: input.model, vision: true, thinking: input.thinking}),
       progress: data => emit('progress', data), record: data => emit('telemetry', data)});
     let retry = input.retry === true;

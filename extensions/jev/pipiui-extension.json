@@ -1,0 +1,43 @@
+{
+  "id": "jev",
+  "name": "Jev",
+  "version": "0.1.0",
+  "category": "integration",
+  "description": "One TypeSafe API key shared by every Jev capability in PipiCOC.",
+  "capabilities": ["settings.read", "settings.write"],
+  "agent": { "extension": "agent/index.js" },
+  "app": {
+    "settings": {
+      "scope": "app",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "ext.jev.apiKey": {
+            "type": "string",
+            "format": "secret",
+            "title": "TypeSafe API key",
+            "description": "Stored in the app vault and shared by all Jev features. Existing sessions refresh at their next idle restart boundary."
+          },
+          "ext.jev.preselectEnabled": {
+            "type": "boolean",
+            "default": false,
+            "title": "Enable Jev context preselection",
+            "description": "Supply selected private context before Keeper requests. Requires a configured TypeSafe API key."
+          }
+        }
+      }
+    },
+    "ui": {
+      "settingsSections": [{
+        "id": "jev",
+        "title": "Jev",
+        "description": "Shared TypeSafe authentication",
+        "entry": "app/settings-jev.js"
+      }]
+    }
+  },
+  "settingsVersion": 1,
+  "migrations": [],
+  "lifecycle": { "onDisable": "dispose-app-immediate; unmount-agent-on-next-session" },
+  "defaultEnabled": true
+}

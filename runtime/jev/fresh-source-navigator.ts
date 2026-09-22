@@ -6,6 +6,7 @@ import {createCanonicalOperationDispatcher} from '../../extensions/kernel/canoni
 import {nativeSourceCatalog, type NativeTextBundle} from './native-source-catalog.ts';
 import {ContractError, isPlainRecord, type IntentBinding, type Json, type ObservationPacket, type ReadSet} from './contracts.ts';
 import {createDecisionAdapter} from './decision-adapter.ts';
+import {readJevApiKey} from '../../extensions/jev/agent/config.js';
 import type {DecisionPort} from './decision-port.ts';
 import {createFreshSourceNavigationDomain, materializeNavigation, FRESH_SOURCE_NAVIGATION_CAPABILITY, FRESH_SOURCE_ROLES, FRESH_SOURCE_NAVIGATION_VERSION,
     type FreshSourceNavigationArtifact} from './fresh-source-navigation-domain.ts';
@@ -68,8 +69,7 @@ function artifactValid(value: any, revision: string, pageCount: number): value i
 
 export function createFreshSourceNavigator(options: Options): FreshSourceNavigator | undefined {
     if (options.env.PI_COC_TASK_RUNTIME !== '1' || options.env.PI_COC_JEV_SOURCE !== '1'
-        || !options.decision && !options.env.TYPESAFE_API_KEY) return undefined;
-    const key = options.env.TYPESAFE_API_KEY;
+        || !options.decision && !readJevApiKey(options.env)) return undefined;
     return async (request, signal, recordEvent) => {
         const note = (event: Record<string, unknown>) => {
             try { (recordEvent ?? options.record)?.({lane: 'reading', event: 'typed_navigation', module_id: request.moduleId, job_id: request.jobId, ...event}); } catch { /* Advisory telemetry. */ }
@@ -116,7 +116,7 @@ export function createFreshSourceNavigator(options: Options): FreshSourceNavigat
             const intent: IntentBinding = {id: randomUUID(), rawInput, scope, turn: 0, inputRevision: rawInput.revision, limits: ['navigation_only']};
             const readSet: ReadSet = [{kind: 'source', resource: request.moduleId, revision: binding.revision},
                 {kind: 'model', resource: 'decision', revision: JEV_MODEL}, {kind: 'family', resource: 'fresh-source-navigation', revision: FRESH_SOURCE_NAVIGATION_VERSION}];
-            const decision = options.decision ?? createDecisionAdapter({apiKey: key,
+            const decision = options.decision ?? createDecisionAdapter({env: options.env,
                 retryPolicies: {'fresh-source-navigation': {maxRetries: 1, backoffInitialMs: 100, backoffMaxMs: 1000, attemptTimeoutMs: 10_000}},
                 trace: event => note({kind: 'decision', trace: event})});
             const packet = (proposal: any, result: unknown): ObservationPacket => ({operationId: proposal.id, status: 'succeeded',

@@ -285,7 +285,7 @@ export async function runVerifierLane(options: VerifierLaneOptions): Promise<voi
 		// The lease supplies one deadline and budget to every Jev round and the one permitted incumbent fallback.
 		lease = createVerifierLease(bindings, deadlineAt, options.signal);
 		const typed = await runPostDeliveryVerifier(input, createDecisionAdapter({
-			apiKey: process.env.TYPESAFE_API_KEY,
+			env: process.env,
 			retryPolicies: { [POST_DELIVERY_VERIFIER_FAMILY]: {
 				maxRetries: 0, backoffInitialMs: 100, backoffMaxMs: 1_000,
 			} },

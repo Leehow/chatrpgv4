@@ -15,6 +15,7 @@ export const COMPILED_ENTRIES = Object.freeze({
   imageGen: 'build/extensions/image-gen/agent/index.mjs',
   grokBuild: 'build/extensions/grok-build-oauth/agent/index.mjs',
   rerank: 'build/extensions/rerank/agent/index.mjs',
+  jev: 'build/extensions/jev/agent/index.mjs',
   characterGuidance: 'build/extensions/module/character-guidance.mjs',
   characterPresentation: 'build/extensions/module/character-presentation.mjs',
   documentPresentation: 'build/extensions/mods/document-presentation.mjs',
@@ -79,7 +80,7 @@ export const HOST_MOUNTS = Object.freeze({
   'prompt-observer': 'kernel/pipiui-prompt-observer.mjs',
 });
 
-const sessionExtensionGroups = entrypoints => [entrypoints.extensions, entrypoints.providerExtensions, [entrypoints.imageGen], [entrypoints.rerank]];
+const sessionExtensionGroups = entrypoints => [entrypoints.extensions, entrypoints.providerExtensions, [entrypoints.imageGen], [entrypoints.rerank], [entrypoints.jev]];
 export function sessionExtensionPaths(entrypoints) { return Object.freeze(sessionExtensionGroups(entrypoints).flat()); }
 export function desktopSessionExtensionPaths(entrypoints) {
   // Everything after the first two groups is a single-entrypoint capability mount (image

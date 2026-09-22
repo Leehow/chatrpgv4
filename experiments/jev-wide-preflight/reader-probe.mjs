@@ -107,7 +107,7 @@ async function main() {
       await fs.writeFile(path.join(armDir, 'prompt.txt'), prompt);
       const command = ['-p', '--no-session', '--no-context-files', '--no-extensions', '--no-skills', '--no-prompt-templates', '--approve', '-e', provider, '--tools', 'read,write,edit,bash', '--model', probe.model, '--thinking', 'low', '--mode', 'json', '--system-prompt', path.join(armDir, 'system.md'), '--', prompt];
       const env = {...process.env, PI_CODING_AGENT_DIR: path.join(ROOT, '.pi/coc-agent'), PI_GROK_BUILD_IMAGE_TOOLS: '0'};
-      for (const key of ['TYPESAFE_API_KEY', 'TYPESAFE_ENDPOINT', 'PI_COC_CAMPAIGN', 'PI_COC_MODE']) delete env[key];
+      for (const key of ['EXT_JEV_APIKEY', 'TYPESAFE_API_KEY', 'TYPESAFE_ENDPOINT', 'PI_COC_CAMPAIGN', 'PI_COC_MODE']) delete env[key];
       const stdout = createWriteStream(path.join(armDir, 'events.jsonl'));
       const stderr = createWriteStream(path.join(armDir, 'stderr.log'));
       const began = performance.now();

@@ -1,5 +1,6 @@
 /** PROTOTYPE: real Jev decisions over controlled current-context conditions. */
 import fs from 'node:fs/promises';
+import {readJevApiKey} from '../../extensions/jev/agent/config.js';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {MODEL, sha256, bytes} from './core.mjs';
@@ -39,7 +40,8 @@ const manifest = {
   inventory,
 };
 if (opts['--describe']) {console.log(JSON.stringify({...manifest, provider_calls: 0}, null, 2)); process.exit(0);}
-if (!process.env.TYPESAFE_API_KEY) throw new Error('TYPESAFE_API_KEY must be securely mounted; no request was sent');
+const apiKey = readJevApiKey();
+if (!apiKey) throw new Error('Shared Jev credentials must be securely mounted; no request was sent');
 const outputRoot = path.resolve(opts['--out'] ?? path.join(ROOT, '.pi/prototypes/jev-incremental-preflight-20260921/runs'));
 await fs.mkdir(outputRoot, {recursive: true});
 const dir = await fs.mkdtemp(path.join(outputRoot, `${new Date().toISOString().replaceAll(':', '-')}-`));
@@ -61,10 +63,10 @@ experiments: for (let repeat = 0; repeat < repeats; repeat++) {
         const began = performance.now(); let result;
         try {
           const response = await fetch('https://api.typesafe.ai/v1/systemone', {method: 'POST',
-            headers: {Authorization: `Bearer ${process.env.TYPESAFE_API_KEY}`, 'Content-Type': 'application/json'},
+            headers: {Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json'},
             body: JSON.stringify(request), signal: AbortSignal.timeout(30_000)});
           result = response.ok ? {ok: true, status: response.status, body: await response.json()}
-            : {ok: false, status: response.status, retry_after: response.headers.get('retry-after'), error_body: (await response.text()).replaceAll(process.env.TYPESAFE_API_KEY, '[redacted]').slice(0, 4096)};
+            : {ok: false, status: response.status, retry_after: response.headers.get('retry-after'), error_body: (await response.text()).replaceAll(apiKey, '[redacted]').slice(0, 4096)};
           if (result.ok) {const issue = validateChoices(request, result.body); if (issue) result = {...result, ok: false, protocol_error: issue};}
         } catch (error) {result = {ok: false, error: error.name, ...(error instanceof SyntaxError ? {protocol_error: 'invalid_json'} : {})};}
         result.ms = Math.round(performance.now() - began);

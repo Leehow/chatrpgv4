@@ -14531,6 +14531,33 @@ Unknown journal shapes are rejected. Currentness is revalidated after durable bi
 
 ### T06/T07 decision port and API encoding
 
+#### Shared Jev credentials (2026-09-21)
+
+`extensions/jev` owns the single Jev credential setting, `ext.jev.apiKey`.
+The PipiCOC settings section writes it through the existing `format: "secret"`
+vault path; settings snapshots contain presence only. The host delivers
+`EXT_JEV_APIKEY` privately when the enabled extension mounts. No credential is
+written to campaign state, task checkpoints, argv, telemetry, or package assets.
+
+All Jev consumers use this extension's `readJevApiKey(env)` resolver: the shared
+decision adapter, source navigation, preselection, post-delivery verification,
+S0 and local measurement tools. Source CLI runs may retain `TYPESAFE_API_KEY`
+as a compatibility input to that resolver only. A managed App session never
+falls back to an inherited CLI key when its extension is disabled, cleared, or
+unconfigured. Explicit adapter keys remain available for isolated transport tests.
+
+The settings UI is the writer, the shared resolver is the reader, and existing
+decision callers are the actors. Saving a key does not enable any Jev domain or
+change its existing fallback, deadline, budget, or gameplay authority. Existing
+session restart boundaries refresh credentials. Preparation workers resolve the
+same enabled extension's vault secret immediately before each spawn, so a cold
+onboarding host also receives updates without serializing a key in its request.
+
+The adapter keeps the pinned model and endpoint. The [TypeSafe API](https://docs.typesafe.ai/api)
+requires Bearer authentication; [VS Code secret storage](https://code.visualstudio.com/api/extension-capabilities/common-capabilities)
+confirms separating extension secrets from ordinary settings. Here the existing
+PipiCOC vault remains the storage owner; no new credential store is introduced.
+
 The runtime consumes `DecisionPort.decide(batch, lease) -> DecisionResult`. The adapter owns request packing, concurrency, retry policy and request usage reservations against that lease; the runtime must not debit the same API usage again. This interface is frozen before the two S2 modules are integrated. Transport implementation may proceed alongside TaskRuntime once T01/T02/T04 are accepted, but neither enables a new domain by itself and combined real-workflow acceptance remains required.
 
 The official Score primitive uses 2–10 ordered `criteria` descriptors, not min/max request parameters. Its numeric range is 0 through criteria.length - 1, and its full legend/probability map must match those issued levels. The shared type now follows that encoding. Noul has a truth probability without a separate confidence field. Choice retains the offered-key map. Optional Noul true/false descriptors and structured criterion descriptors are preserved as JSON data. Raw telemetry never becomes a game statistic. Source: [official primitives](https://docs.typesafe.ai/primitives/score). Production packing retains the master design's conservative policy rather than claiming a byte cap is a tokenizer count.

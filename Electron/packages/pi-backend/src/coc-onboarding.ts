@@ -128,8 +128,9 @@ function forgetUiWords(repo: string, contentRoot: string, home: string, tag: unk
 export type CocOnboardingOptions = {repo:string; home:string; agentDir:string; env:NodeJS.ProcessEnv;
   layout?:'source'|'compiled';
   contentRoot?:string; nodeExecutable?:string; backend?:'typescript'; kernelEntrypoint?:string;
-  preparationEntrypoint?:string};
-type PreparationHost = {home:string; start(action:string,input:Row,signal?:AbortSignal):{
+  preparationEntrypoint?:string;
+  preparationEnv?:(projectRoot:string)=>Promise<NodeJS.ProcessEnv>};
+type PreparationHost = {home:string; start(action:string,input:Row,signal?:AbortSignal,env?:NodeJS.ProcessEnv):{
   child:ChildProcessByStdio<null,Readable,Readable>; closed:Promise<void>; close():Promise<void>}};
 export class CocOnboardingHost {
   private presentations = new Map<string,{task:Promise<Row>;result?:Row;error?:unknown}>();
@@ -322,7 +323,8 @@ export class CocOnboardingHost {
     const signal=AbortSignal.any([this.lifetime.signal,controller.signal]);
     const task=(async()=>{
       const host=await this.preparation;
-      const process=host.start(action,data,signal);
+      const env=await this.options.preparationEnv?.(this.options.repo);
+      const process=host.start(action,data,signal,env);
       const child=process.child;
       const output=new Promise((resolve, reject) => {
         let pending = '', tail = '', result: any, failure: any;

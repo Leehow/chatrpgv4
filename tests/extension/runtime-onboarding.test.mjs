@@ -334,16 +334,39 @@ else if(action==='catalog'){
 }
 `;
 
-function trackedHost(f) {
+function trackedHost(f, extra = {}) {
   const entrypoint = join(f.resourceRoot, 'build/runtime/preparation.mjs');
   mkdirSync(dirname(entrypoint), {recursive: true});
   buildSync({entryPoints: [join(root, 'runtime/preparation.ts')], outfile: entrypoint,
     bundle: true, platform: 'node', format: 'esm', target: 'node22', packages: 'external', logLevel: 'silent'});
   const host = new CocOnboardingHost({repo: f.resourceRoot, home: f.home, agentDir: f.agentHome,
-    contentRoot: f.contentRoot, nodeExecutable: f.nodeExecutable, env: f.env});
+    contentRoot: f.contentRoot, nodeExecutable: f.nodeExecutable, env: f.env, ...extra});
   f.active.push(host);
   return host;
 }
+
+test('cold preparation refreshes shared Jev credentials at each spawn without putting them in argv', async t => {
+  const configUrl = new URL('../../extensions/jev/agent/config.js', import.meta.url).href;
+  const f = fixture(t, `
+import {readJevApiKey} from ${JSON.stringify(configUrl)};
+const key=readJevApiKey();
+process.stdout.write(JSON.stringify({type:'result',data:{configured:!!key,rotated:key==='rotated-jev-test',
+ argvClean:!process.argv.join(' ').includes('jev-test')}})+'\\n');
+`);
+  let current = 'initial-jev-test', reads = 0;
+  f.env.TYPESAFE_API_KEY = 'inherited-cli-test';
+  f.env.EXT_JEV_APIKEY = 'inherited-vault-test';
+  const host = trackedHost(f, {preparationEnv: async repo => {
+    assert.equal(repo, f.resourceRoot); reads++;
+    return {PIPIUI_EXT_SETTINGS_JEV: '{}', EXT_JEV_APIKEY: current};
+  }});
+  assert.deepEqual(await host.run('credential-probe', {}), {configured: true, rotated: false, argvClean: true});
+  current = 'rotated-jev-test';
+  assert.deepEqual(await host.run('credential-probe', {}), {configured: true, rotated: true, argvClean: true});
+  current = '';
+  assert.deepEqual(await host.run('credential-probe', {}), {configured: false, rotated: false, argvClean: true});
+  assert.equal(reads, 3);
+});
 
 test('tracked onboarding retains uploads and progress across pause, host restart and campaign binding', async t => {
   const f = fixture(t, phaseWorker);

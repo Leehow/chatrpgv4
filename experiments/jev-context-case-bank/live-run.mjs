@@ -1,5 +1,6 @@
 // Opt-in real Jev experiment. Writes immutable per-request evidence, never game state.
 import fs from 'node:fs/promises';
+import {readJevApiKey} from '../../extensions/jev/agent/config.js';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {validateDataset, validateBindings} from './bank.mjs';
@@ -44,8 +45,8 @@ const manifest = {version: 1, experiment: 'eight-family-frozen-pool', model: MOD
   inventory: preparedTasks.map(({task, bytes, request_sha256}) => ({...task, request_bytes: bytes, request_sha256})),
 };
 if (opts['--describe']) {console.log(JSON.stringify({...manifest, provider_calls: 0}, null, 2)); process.exit(0);}
-const key = process.env.TYPESAFE_API_KEY;
-if (!key) throw new Error('TYPESAFE_API_KEY must be mounted; no request sent');
+const key = readJevApiKey();
+if (!key) throw new Error('Shared Jev credentials must be mounted; no request sent');
 const out = path.resolve(opts['--out'] ?? path.join(root, '.pi/prototypes/jev-eight-family-live/runs'));
 await fs.mkdir(out, {recursive: true});
 const dir = await fs.mkdtemp(path.join(out, `${new Date().toISOString().replaceAll(':', '-')}-${opts['--probe'] ? 'menu-probe' : 'comparison'}-`));

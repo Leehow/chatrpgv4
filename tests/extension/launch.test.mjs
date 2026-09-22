@@ -128,7 +128,8 @@ function defaultMounts(root) {
 	return ['--no-extensions', ...['kernel', 'mods', 'onboarding', 'module', 'memory', 'npc', 'table', 'npc-journal', 'npc-voice'].flatMap(name => ['-e', join(root, 'build/extensions', name, 'index.mjs')]),
 		...providers.flatMap(entry => ['-e', entry.entry]),
 		'-e', join(root, 'build/extensions/image-gen/agent/index.mjs'),
-		'-e', join(root, 'build/extensions/rerank/agent/index.mjs')];
+		'-e', join(root, 'build/extensions/rerank/agent/index.mjs'),
+		'-e', join(root, 'build/extensions/jev/agent/index.mjs')];
 }
 
 test("shared extension mount helpers preserve consumer boundaries in source and compiled layouts", () => {
@@ -144,10 +145,12 @@ test("shared extension mount helpers preserve consumer boundaries in source and 
 			...entrypoints.providerExtensions,
 			entrypoints.imageGen,
 			entrypoints.rerank,
+			entrypoints.jev,
 		]);
 		assert.deepEqual(readerProviderExtensionPaths(entrypoints), entrypoints.providerExtensions);
 		assert.equal(readerProviderExtensionPaths(entrypoints).includes(entrypoints.imageGen), false);
 		assert.equal(readerProviderExtensionPaths(entrypoints).includes(entrypoints.agent), false);
+		assert.equal(readerProviderExtensionPaths(entrypoints).includes(entrypoints.jev), false);
 		for (const path of entrypoints.extensions) assert.equal(readerProviderExtensionPaths(entrypoints).includes(path), false);
 	}
 });

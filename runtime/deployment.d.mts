@@ -6,6 +6,7 @@ export interface RuntimeEntrypoints {
   readonly readerPdf: string; readonly readerSubmit: string; readonly deepseek: string; readonly imageGen: string; readonly grokBuild: string;
   readonly characterGuidance: string; readonly characterPresentation: string; readonly documentPresentation: string;
   readonly uiPresentation: string;
+  readonly jev: string;
   readonly extensions: readonly string[];
   /** The provider-registering extensions, mounted by the session launcher and by every lane child. */
   readonly providerExtensions: readonly string[];

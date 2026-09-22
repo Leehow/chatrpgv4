@@ -36,8 +36,7 @@ export default function (pi: ExtensionAPI) {
         retireReader();
         const home = bridge.runtime.home, current = bridge;
         reading = new ReadingService({
-            navigateFresh: createFreshSourceNavigator({runtime: current.runtime, call: (method, params) => current.call(method, params), env: {
-                PI_COC_TASK_RUNTIME: process.env.PI_COC_TASK_RUNTIME, PI_COC_JEV_SOURCE: process.env.PI_COC_JEV_SOURCE, TYPESAFE_API_KEY: process.env.TYPESAFE_API_KEY}}),
+            navigateFresh: createFreshSourceNavigator({runtime: current.runtime, call: (method, params) => current.call(method, params), env: {...process.env}}),
             call: async (method, params) => {
                 const result = await current.call(method, params);
                 if (method === 'module.read.finish' && params.outcome === 'completed')

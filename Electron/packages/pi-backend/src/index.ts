@@ -2402,7 +2402,7 @@ export class PiHostBackend implements HostBackend {
   private piCommand: PiCommand;
   private runtimeRoot: string;
   private managedNodeModulesRoot?: string;
-  private readonly cocRuntime: PiBackendOptions['cocRuntime'];
+  private readonly cocRuntime: PiBackendOptions['cocRuntime'] & Pick<CocOnboardingOptions, 'preparationEnv'>;
   private runtimeAssets?: RuntimeAssets;
   private agentDir: string;
   private vaultDir: string;
@@ -2560,6 +2560,13 @@ export class PiHostBackend implements HostBackend {
     this.structuredOutputsEnabledFn = options.structuredOutputsEnabled;
     this.managedNodeModulesRoot = options.managedNodeModulesRoot;
     this.cocRuntime = Object.freeze({...options.cocRuntime,
+      preparationEnv: async (projectRoot: string) => {
+        // Cold source preparation uses the same enabled package and vault as table sessions.
+        // Empty managed settings prevent inherited CLI keys from reviving a cleared credential.
+        const pkg = (await this.registeredExtensionsForSpawn(projectRoot)).find(pkg => pkg.id === 'jev' && pkg.enabled && pkg.extensionPath);
+        return {PIPIUI_EXT_SETTINGS_JEV: JSON.stringify(pkg?.settings ?? {}),
+          EXT_JEV_APIKEY: pkg?.secretEnv?.EXT_JEV_APIKEY ?? ''};
+      },
       nodeExecutable: options.cocRuntime?.nodeExecutable ?? options.authNodePath
         ?? (this.piCommand.prefixArgs?.length ? this.piCommand.executable : undefined)});
     this.runtimeAssets = options.runtimeAssets;
