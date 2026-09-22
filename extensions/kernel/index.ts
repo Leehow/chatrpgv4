@@ -29,6 +29,8 @@ import { bindWorkpadPatch, publishWorkpadPatch, takeWorkpadPatch, type WorkpadBi
 import { workpadStoreRoot } from '../table/workspace/workpad-store.ts';
 import { randomUUID } from "node:crypto";
 import { type CommitPayload, runVerifierLane } from "./verifier.ts";
+import { currentPromptHead } from "./prompt-checkpoint.ts";
+import { learnSpeechMarks, type SpeechMarks, unwrappedQuotes } from "./unwrapped-speech.ts";
 import {
 	type AdmissionContext,
 	type AdmissionDestination,
@@ -429,6 +431,8 @@ interface TableState {
 	/** The scene underfoot as the player knows it; a `move` to it is a rename and is not reviewed. */
 	scene?: { handle?: string; label?: string };
 	present: string[];
+	/** The quotation-mark pairs this session's delivered lines were written in (§127.2), learned from `speech[]`. */
+	speechMarks: SpeechMarks;
 	prologue?: string;
 	/**
 	 * Earlier deliveries as the player saw them (the last four), the review's player-visible
@@ -601,14 +605,29 @@ const FLOOR_STEER =
 	"Use the ordinary narrate or mechanics ask delivery path for this response. Complete only the player's already selected goal. " +
 	"A quiet exchange, clarification, informed refusal or completed goal may return without a new effect, event or question. " +
 	"Do not choose a new destination, action, cost or risk for the player.";
-/** The one host steer of §40 (user ruling 2026-09-15): people are on stage and the draft wraps no spoken line. */
-const SPEECH_STEER =
-	"People are present and this draft wraps no spoken line. Every line anyone says aloud goes inside " +
-	"{{say:Name}}\u2026{{/say}}, Name exactly as present[].name or called.name gives it (the investigator too, when you render " +
+/** The rule both §40 speech steers restate: how a line is wrapped and whose name it carries. */
+const SPEECH_RULE =
+	"Every line anyone says aloud goes inside {{say:Name}}\u2026{{/say}}, with the quotation marks it is written in kept " +
+	"inside the token, Name exactly as present[].name or called.name gives it (the investigator too, when you render " +
 	"the player's words as theirs). For an untold person, first establish an appearance-based epithet with apply person " +
 	"if called.name is absent, and use that epithet until the fiction introduces the name; never reveal the book's name " +
-	"through a speaker title. A person not in present[] takes the label the prose uses for them. Rewrite " +
+	"through a speaker title. A person not in present[] takes the label the prose uses for them.";
+/** The one host steer of §40 (user ruling 2026-09-15): people are on stage and the draft wraps no spoken line. */
+const SPEECH_STEER =
+	`People are present and this draft wraps no spoken line. ${SPEECH_RULE} Rewrite ` +
 	"the same turn with every spoken line wrapped, and close with narrate. The braces never reach the player.";
+/**
+ * §127.2: the draft wraps lines, and passages in the same quotation marks sit outside every token. The
+ * passages are quoted back so the Keeper can find them; whether each one is a spoken line is theirs.
+ */
+function unwrappedSpeechSteer(passages: string[]): string {
+	const shown = passages.slice(0, 4).map((text) => JSON.stringify(text)).join(", ");
+	const more = passages.length > 4 ? ` and ${passages.length - 4} more` : "";
+	return `This draft leaves ${passages.length} passage${passages.length === 1 ? "" : "s"} in the quotation marks its spoken ` +
+		`lines are written in outside every say token: ${shown}${more}. ${SPEECH_RULE} A quoted word, name, title, sign or ` +
+		"document text is not a line: leave it as it is. Rewrite the same turn with every spoken line wrapped and nothing " +
+		"else changed, and close with narrate. The braces never reach the player.";
+}
 
 let table: TableState | undefined;
 /** In setup mode there is no table, so the kernel subprocess hangs here on its own (contract §14.4). */
@@ -1634,6 +1653,7 @@ export default function (pi: ExtensionAPI) {
 			if (asString(speaker.npc) || asString(speaker.investigator)) resolved += 1;
 			else if (asString(speaker.label)) unresolved += 1;
 		}
+		learnSpeechMarks(state.speechMarks, result.speech);
 		void record({ lane: "speech", turn, lines: result.speech.length, resolved, unresolved, present: state.present.length });
 	}
 
@@ -3050,6 +3070,7 @@ export default function (pi: ExtensionAPI) {
 				lanes: new AbortController(),
 				party: [],
 				present: [],
+				speechMarks: new Set(),
 				delivered: [],
 				recent: [],
 				admission: new Map(),
@@ -3583,6 +3604,18 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on('tool_call', (event, ctx) => dispatcher.prepare(event, ctx));
+
+	// §127.1: a run the host starts with a message reads the prompt the transcript last recorded on its
+	// first request -- after setup that is the setup guide's. That one request is sent on this session's
+	// own prompt instead; Pi's next-turn refresh persists the durable section patch.
+	let patchedRequests = 0;
+	if (!setupMode) pi.on('context_with_system', (event, ctx) => {
+		const messages = currentPromptHead(event.messages as never, ctx.getSystemPrompt());
+		if (!messages) return;
+		patchedRequests += 1;
+		void record({ lane: 'prompt', event: 'stale_prompt_replaced', requests: patchedRequests });
+		return { messages: messages as never };
+	});
 	async function prepareOperation(event: ToolCallEvent, ctx: ExtensionContext): Promise<ToolCallEventResult | undefined> {
 		const name = event.toolName;
 		if (!COC_TOOL_NAMES.includes(name as never)) return;
@@ -4025,10 +4058,19 @@ export default function (pi: ExtensionAPI) {
 			// PI_COC_SPEECH_STEER=0 turns the steer off for an experiment (a control arm); the product default is on.
 			// A fix already pending (an explicit delivery this turn was refused and its repair steer waits) wins:
 			// the draft goes through the audit like any other, one concern per steer.
-			if (process.env.PI_COC_SPEECH_STEER?.trim() !== "0" && !state.deliveryFix && !state.deliveryTriedThisTurn && state.present.length > 0 && !opening && !state.steeredThisTurn && !/\{\{say:/.test(prose)) {
+			// §127.2 widens it: a draft that wraps some lines but leaves passages in the same quotation marks
+			// outside every token is steered the same way, once. The marks are the ones the Keeper's own
+			// spans are written in (§40.1 keeps them inside the token), so no table of marks or languages is
+			// read, and nothing decides who speaks. This one is not exempt at the opening: the draft itself
+			// shows that someone speaks, where present[] is not yet known to the host.
+			const speechSteerOn = process.env.PI_COC_SPEECH_STEER?.trim() !== "0" && !state.deliveryFix && !state.deliveryTriedThisTurn && !state.steeredThisTurn;
+			const bareOfTokens = state.present.length > 0 && !opening && !/\{\{say:/.test(prose);
+			const unwrapped = speechSteerOn && !bareOfTokens ? unwrappedQuotes(prose, state.speechMarks) : [];
+			if (speechSteerOn && (bareOfTokens || unwrapped.length > 0)) {
 				state.floorDraft = prose;
-				state.deliveryFix = { kind: "speech", text: SPEECH_STEER };
-				await record({ lane: "speech", turn: state.turn, steered: true, present: state.present.length });
+				state.deliveryFix = { kind: "speech", text: bareOfTokens ? SPEECH_STEER : unwrappedSpeechSteer(unwrapped) };
+				await record({ lane: "speech", turn: state.turn, steered: true, present: state.present.length,
+					reason: bareOfTokens ? "no_token" : "unwrapped_quote", ...(bareOfTokens ? {} : { unwrapped: unwrapped.length }) });
 				return { message: { ...event.message, content: blocks.filter((block) => block.type !== "text") } };
 			}
 			const tool = "narrate";
