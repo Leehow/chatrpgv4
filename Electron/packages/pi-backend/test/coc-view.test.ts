@@ -531,6 +531,61 @@ it('a bound sheet read merges every lane\'s saved words under the kernel glossar
     expect(failed.data.ui.tag).toBe('en');
   } finally {await backend.close();}
 },40000);
+/**
+ * Real table 2026-09-22 (game-21ac44b7, zh-Hans, the-haunting): the case board drew every journal
+ * exchange as `Knott's Office他用指节…` -- the kernel stamps an exchange with the scene's display
+ * name, the journal lane projects it, and only the sheet read merged the lanes under `view.labels`.
+ * The board, which is where the journal is drawn, looked the word up in the rules glossary alone.
+ * Both legs of the board -- the cold kernel read and the live pack's answer -- go through here.
+ */
+it('the case board merges the journal lane under the kernel glossary on the cold and the live leg, and tops up what it lacks',async()=>{
+  const {cp}=await import('node:fs/promises');
+  const {createPiHostBackend}=await import('../src/index.js');
+  const repo=resolve(import.meta.dirname,'../../../..'),root=await mkdtemp(join(tmpdir(),'coc-board-host-'));
+  const client=new KernelClient({command:[process.execPath,join(repo,'build/kernel/rpc.mjs'),'--workspace',root,'--content',join(repo,'content')],cwd:repo,env:{}});
+  try {await client.call('campaign.create',{id:'boarded',module:'the-haunting',pregen:'thomas-hayes',play_language:'zh-Hans'});}finally{await client.close();}
+  const campaign=join(root,'.coc/campaigns/boarded');
+  // The journal is a derived cache the lane writes (§17.10); its shape is the one on the real table.
+  await writeFile(join(campaign,'npc-journal.json'),JSON.stringify({schema:1,entries:{'npc-steven-knott':{name:'Steven Knott',
+    description:'房东看了你一眼。',first_seen_turn:0,last_seen_turn:1,seen_count:2,named_at:0,
+    exchanges:[{turn:0,scene:"Knott's Office",summary:'他向你提出按天雇你调查空宅。'},{turn:1,scene:"Knott's Office",summary:'他点头确认接活。'}]}}}));
+  const folder=join(campaign,'setup/presentations');await mkdir(folder,{recursive:true});
+  await writeFile(join(folder,'journal-zh-Hans.json'),JSON.stringify({play_language:'zh-Hans',texts:{"Knott's Office":'诺特的办公室'}}));
+  const profile=join(root,'profile'),pack=join(profile,'extensions/coc-keeper');await mkdir(pack,{recursive:true});
+  await cp(join(repo,'pipiui-extension.json'),join(pack,'pipiui-extension.json'));await cp(join(repo,'pipicoc'),join(pack,'pipicoc'),{recursive:true});
+  const lanes:any[]=[];
+  const registry={get:()=>({presentation:(data:any)=>{lanes.push(data);return new Promise(()=>{});}}),dispose(){},close:async()=>{}};
+  const backend=createPiHostBackend({agentDir:profile,sessionsRoot:join(root,'sessions'),runtimeRoot:join(root,'runtime'),defaultPack:'coc-keeper',managedNodeModulesRoot:join(repo,'node_modules'),cocOnboardingRegistry:registry as any,env:{...process.env,PI_COC_HOME:root},piCommand:{executable:join(repo,'pipicoc/rpc'),env:{PATH:process.env.PATH!}},spawn:()=>{throw new Error('Pi must remain asleep');}});
+  vi.spyOn(backend as any,'getModelState').mockResolvedValue({model:{provider:'unknown',id:'fixture'},thinkingLevel:'low'});
+  vi.spyOn(backend as any,'ensure').mockResolvedValue({});
+  try {
+    await backend.handle('addProject',[root]);const projects=await backend.handle('listProjects',[]) as any[];
+    const session=await backend.handle('newSession',[projects[0].id]) as any;
+    const located=await (backend as any).locate(session.id);
+    await writeFile(located.path+'.coc.json',JSON.stringify({campaign:'boarded',home:root,play_language:'zh-Hans'}));
+    const cold=await backend.handle('invokeExtension',['coc-keeper','board',{}, {sessionId:session.id}]) as any;
+    expect(cold.data.status).toBe('ready');
+    const journal=cold.data.view.npcs.journal;
+    expect(journal[0].exchanges[0].scene).toBe("Knott's Office");
+    expect(cold.data.view.labels["Knott's Office"]).toBe('诺特的办公室');
+    // The glossary still wins every collision, and the name the file lacks is asked of the lane once.
+    expect(cold.data.view.labels['Spot Hidden']).toBe('侦查');
+    await new Promise(r=>setTimeout(r,20));
+    expect(lanes.filter(data=>data.journal===true)).toHaveLength(1);
+    expect(lanes.find(data=>data.journal===true)).toMatchObject({campaign:'boarded',play_language:'zh-Hans'});
+    // The live leg: the pack answers `table.view` verbatim, and the host merges the same lanes.
+    const kernelView=JSON.parse(JSON.stringify(cold.data.view));
+    delete kernelView.labels["Knott's Office"];
+    (backend as any).live.set(session.id,{});
+    vi.spyOn(backend as any,'liveProcessUsable').mockReturnValue(true);
+    vi.spyOn((backend as any).extensions,'isMounted').mockReturnValue(true);
+    const forwarded=vi.spyOn(backend as any,'enqueueExtInvoke').mockResolvedValue({ok:true,data:{status:'ready',campaign:'boarded',view:kernelView,maps:[]}});
+    const live=await backend.handle('invokeExtension',['coc-keeper','board',{}, {sessionId:session.id}]) as any;
+    expect(forwarded).toHaveBeenCalledTimes(1);
+    expect(live.data.view.labels["Knott's Office"]).toBe('诺特的办公室');
+    (backend as any).live.delete(session.id);
+  } finally {await backend.close();}
+},40000);
 it('the timeline cold path maps the panel invoke names to the kernel methods (contract §29)',async()=>{
   const {cp}=await import('node:fs/promises');
   const {createPiHostBackend}=await import('../src/index.js');

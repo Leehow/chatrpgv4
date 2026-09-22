@@ -288,6 +288,24 @@ it('the possession and clue projections are their own jobs beside the standing o
  expect(run).toHaveBeenCalledTimes(5);
 });
 
+it('every campaign lane is its own job, so a journal projection is never answered by the identity one',async()=>{
+ // Real table 2026-09-22 (game-21ac44b7): the identity lane ran first and answered every later
+ // journal, rules and handout request for the life of the process, so the journal file was never
+ // written and the case board drew an exchange's scene in the book's language.
+ const {host}=await service();
+ const run=vi.spyOn(host as any,'run').mockImplementation((_action:any,data:any)=>Promise.resolve({play_language:'zh-Hans',
+   texts:data.journal?{"Knott's Office":'诺特的办公室'}:data.identity?{male:'男'}:data.rules?{Dodge:'闪避'}:data.handouts?{Clipping:'剪报'}:{}}));
+ const base={campaign:'c1',play_language:'zh-Hans'};
+ expect((await host.presentation({...base,identity:true})).texts).toEqual({male:'男'});
+ expect((await host.presentation({...base,journal:true})).texts).toEqual({"Knott's Office":'诺特的办公室'});
+ expect((await host.presentation({...base,rules:true})).texts).toEqual({Dodge:'闪避'});
+ expect((await host.presentation({...base,handouts:true})).texts).toEqual({Clipping:'剪报'});
+ expect(run).toHaveBeenCalledTimes(4);
+ // Answered lane jobs are not kept: the next word the journal gains starts a fresh run.
+ await host.presentation({...base,journal:true});
+ expect(run).toHaveBeenCalledTimes(5);
+});
+
 it('keeps a failed UI projection rejected until the player explicitly retries',async()=>{
  const {host}=await service();
  const presentation=vi.spyOn(host,'presentation').mockRejectedValue(new Error('projection failed'));

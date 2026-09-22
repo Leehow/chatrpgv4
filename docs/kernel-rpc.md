@@ -7854,6 +7854,8 @@ This read therefore invents no new authorization. It is the union of two acts th
 
 Each row is `{map, name, label, words, regions:[{id,label,level}], levels, render:{layers}}`. `label`, `regions[].label` and the level names are the words §39.2 already distinguishes: the Keeper's own when `world.map_labels[map]` holds them, otherwise the module's authored ones -- and `words` says which leg wrote the whole row, answering `play_language` only when every selected label came from stored labels. The host reads the same cached projection the delivery hop reads (`.coc/map-words/<tag>-<digest>.json`, warmed when the table opened) and substitutes the authored words before the panel draws them; a row whose words are still authored draws in the module's language and is never half-projected, exactly as §39.2 requires of a card.
 
+**The board draws `table.view` with the sheet's glossary (2026-09-22).** The board took the sheet's clue and people sections over and looks their graph words up through `term()` against `view.labels`, but the §23 lane merge (`labels = {...lane.texts, ...labels}` for every `SHEET_LANES` file, the kernel glossary winning, and one background run per lane and missing set) stayed in the sheet read. The board therefore looked a journal exchange's `scene` -- the kernel's stamp of the book's display name (§17.10) -- up in the rules glossary alone, and a zh-Hans table read `Knott's Office他用指节…` in the people section while the sheet beside it named the same place in Chinese (real table `game-21ac44b7`). The host now runs the one merge (`cocMergeSheetLanes`) on every board answer, on both legs: the cold kernel read, and the live pack's answer, which carries `table.view` verbatim and is merged after it is forwarded. The pack never reads a presentation file. The renderer draws an exchange's scene as a caption on its own line above the lane's sentence, with no separator character between them, since which punctuation divides two phrases belongs to the play language.
+
 **The three ends (§31).** *Writer:* `apply map` and the arrival hop of §39.2, unchanged -- this read adds no writer of its own. *Reader:* the host's board hop, which composes pixels and keeps `render.layers` to itself. *Actor:* the player, who opens the board and reads what the table already established; refreshing the panel is a host read and starts no turn, exactly as §23 requires of the sheet.
 
 ## 40. NPC speech: the say token, speaker colour, and the `npc-voice` lane (2026-09-15)
@@ -10730,6 +10732,17 @@ deletes the key, and the card draws that error with a ↻ the player can press.
 So a caller that retried by calling `presentation()` again got the job it had
 already failed, re-awaited the same settled rejection, and reported four attempts
 having run the model once. Measured: three calls, one `run`.
+
+"Lane flags" means every flag the request sets to `true`, by name (2026-09-22). The
+key was built from a hand-kept list of four lanes (`standing`, `possessions`,
+`clues`, `languages`), and the same list decided which answered jobs are dropped.
+Every lane added after it -- `journal`, `identity`, `rules`, `handouts` -- read as
+"no lane", so all four shared one key per campaign and language, the first to run
+answered the rest, and that answer was kept for the life of the process: on
+`game-21ac44b7` the identity lane ran first and the journal file was never
+written. The key now names whatever lane the request names, and every lane but
+the product's own captions (`ui`) is dropped once answered, so the next missing
+word starts a fresh run. No second list of lanes is kept.
 
 There is a second reason it belongs inside. The mailbox is read by a poll that
 runs every 1500ms. A retry outside the job cannot stop that poll from reading a
