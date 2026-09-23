@@ -2528,6 +2528,8 @@ The host-private PDF tool has four mutually exclusive navigation/page operations
 
 结构门继续检查语义 id、闭合词表、引用目标、作者/玩家可见性和玩法关系。局部就绪判定只要求本次可玩范围及其依赖成立；全书未细读页不导致全图失败，也不被标为 absent。跨向未准备区域的名字可以留在索引，但不能因为有一个名字就执行该处的作者规则。
 
+**Mechanical shapes (2026-09-23, §136.26).** The reader writes a stated mechanic as a typed shape in `properties.mechanics` of the node that states it (the closed catalog of §136.1), never as an ad-hoc prose key; the draft check runs the shared validator with no legacy allowance and adds every leaf of every shape, strings included, to `required_review`; an actor's loose characteristic numbers on an `npc` or `creature` node are refused.
+
 ### 22.4 七动词与等待
 
 Keeper 工具总数仍是七个。`lookup {kind: "module", query}` 查现有图；`lookup {kind: "source", query, question?, retry?: boolean}` 明确请求核对原 PDF。source 由扩展编排阅读服务，完成后转为内核的 module 查询；Python RPC 不阻塞等待模型。普通查询误带 question 不启动读者，并明确说明返回的是图谱资料。这个区分来自真桌中普通行军问题意外启动原文阅读的反馈。
@@ -17594,3 +17596,116 @@ ledger's `stated:` rows and `kpi.py`'s count. `tests/extension/stated-operations
 the fake kernel. Every shipped starter's capsule, `table.apply.options`, `table.resolve.options`, module and scene
 lookups and `look focus=scene`, walked scene by scene, are byte-identical to the parent commit `172b80065`, and again after 0.9.5a
 (SL-08) was merged in, to `e1b4176d3`.
+
+### 136.26 The visual reader writes shapes; the draft check refuses a malformed one (RD-05, spec D7)
+
+A PDF book states its mechanics the way a starter does (§136.1–§136.6), through the same reader and the same
+independent review as every other statement (§22), and the same validator (§136.8) with `starter: false`: a
+reader draft gets **no legacy allowance** (RD-01 ruling A). No code reads rule prose into a shape: the reader (a
+model) writes shapes from the page, the reviewer (a model) checks them against the image, and the checker
+checks form and references only. There is no count gate (a book may state none) and no backfill (§22: an
+existing module gains a shape only through a detail request that asks for it, reviewed additively; an
+already-ready node receives `mechanics` as a delta under `mergeValue`). The committed twin
+`the-haunting-rulebook` is not rebuilt; it stays the "PDF build without shapes" control.
+
+**The reader's instruction** (`content/setup/visual-reader.md`, Read phase, after §134.16's obligation
+paragraph; English, no book- or language-specific wording): one paragraph for the container (the keys and the
+node kinds of §136.1, one shape of each name per node, the two laws below, `book`, skill names), then one
+paragraph per shape — `check`, `hazard` (with the embedded `gate`), `damage`, `sanity_loss`, `time_cost`,
+`resource_cost`, `weapon`, the actor's `profile` with `weapons`, `armor`, `spells` and `sanity_loss`, the
+registered `combat` seats on an `npc` or `creature` (`defense`, `action`, `disposition`, §11.5.2–§11.5.3, only what the page states), `spell`, `tome`, `reward` — each
+with its keys and one worked example. The two laws: *accounting* — a needed value the page leaves out is
+`<slot>_unstated: true`, never a value from habit, the core rules or what usually happens; *dice* — a dice slot
+holds the bare expression (`1D4+2`), never words or units (`1D4+2 hit points`) and never the damage bonus
+(`adds_damage_bonus: true` on a weapon). The reader writes no ad-hoc mechanical key; the checker does not
+enforce that (it would have to read prose), the instruction and the review do. The threat clock's
+`advances_on` is not taught to the reader: the reader writes no threat clocks today.
+
+**The review instruction** (same file, Verify phase, one paragraph): every field under a node's `mechanics`, and
+every field of an actor's `combat`, is a mechanical statement to check against the page image — the value digit for
+digit, that it sits on the node that states it, each step's order and effects, and that a slot recorded
+`_unstated` really is not printed. A value filled in where the page prints none is contradicted; so is an
+`_unstated` flag where the page prints the value.
+
+**The draft check** (`checkDraft`, `kernel-ts/modules/visual.ts`, behind both the offline `coc-read-check` —
+`checkSourceDraft`, `kernel-ts/check.ts` — and publication in `kernel-ts/modules/reading.ts`):
+
+1. *An actor's numbers outside the seat* (`actorNumbersLaw`, per draft node of kind `npc` **or `creature`**,
+   before the source laws). A standalone `stats`/`skills`/`characteristics`/`derived` dictionary beside no
+   `mechanics.profile` is refused at `/nodes/<i>/properties` (the check that stood since §22, now also on
+   creatures), and a flat property whose key is one of the ruleset's characteristic names (`contract.rules.characteristics`,
+   the keys of `characteristic-dice.json`, normalised-name match) holding a number — the twin's `STR: 90` — is
+   refused at `/nodes/<i>/properties/<key>`, whether or not a profile is present. The dictionary refusal keeps
+   its bytes (no `rule`, the generic fix); the loose number carries `details.rule: "profile_outside_seat"` and a
+   fix that says to move the printed numbers into `mechanics.profile` without recalculating them.
+2. *The source law first, per node that states a shape* (`statesMechanics`: its record view carries
+   `mechanics` or `combat`), before the generic reference law so the refusal carries its path and rule: no
+   non-empty `source_refs` list is `mechanics_unsourced` at `/nodes/<i>/source_refs`; a reference to a physical
+   page this reader did not view is `mechanics_unsourced` at `/nodes/<i>/source_refs/<j>` (spec D5's PDF half of
+   the rule). The viewed-page half runs where the generic law runs — at publication, which knows the host's page
+   observations; the offline check has none, and `submit_reading` enforces the same law through
+   `required_view_pages`, as §134.16 step 1.
+3. *Then the one validator* — `mechanicsRefusals(view, rules, {starter: false})` — after the obligation check,
+   whenever the view carries a shape (`carriesMechanics`). `view` is the graph the draft would publish into, built
+   as §134.16 builds it except that a drafted node is merged over its known node all the way down, as publication's
+   `mergeValue` merges (so a delta adding one slot to a known shape is checked as the shape it makes). `rules` are
+   loaded with the module contract by the function starter registration uses (`mechanicsRules`,
+   `kernel-ts/modules/mechanics-shape.ts`): skill keys, specialization groups, characteristic keys, `weapons.json`
+   ids and damage-bonus values. **Only the refusals the draft introduces refuse it:** the same validator over the
+   known graph alone gives the refusals already published (a module built before this section, whose known node
+   may carry a key the catalog refuses), and a refusal with the same node, rule and path is not the draft's — the
+   draft cannot remove a published key. Every refusal on a draft node, and every one a draft claim causes on a
+   known node (a `calls-for-check` onto a known rule's `mechanics.check`, `shape_duplicate`), is the draft's.
+4. *A refusal* is `invalid_params` with `details: {reason: "reading_failed", path, rule, refusals}` exactly as
+   §134.16 step 3 (`refusals` every `{node, rule, path, message}`, `path` a JSON pointer into the draft for a draft
+   node, the validator's dotted path turned into pointer tokens; draft nodes first). A `shape_unknown_skill`
+   refusal also carries `details.ruleset: {skills, characteristics, specialization_groups}` (the group keys; §136.4
+   says how a specialization is written). The `fix` is executed literally (§34.7), so it is assembled from the rules
+   refused and says only: correct the shape against the page it cites; cite only viewed pages that print it (when
+   `mechanics_unsourced`); record an unstated value as `<slot>_unstated: true`, never guess one; name skills as
+   `details.ruleset` spells them (when it is present); write dice as the bare expression with words in `book` and a
+   damage bonus as `adds_damage_bonus` (when `shape_dice`); put each shape under its own key on a node kind §136.1
+   admits (when `mechanics_wrong_kind` or `mechanics_unknown_shape`); if the page states no such mechanic, delete
+   that shape.
+5. *Required review.* Every leaf of every drafted node's shape seats — the record view's `mechanics` and `combat` —
+   is added to `required_review`, strings, booleans and `_unstated` flags included, whether or not the reader
+   listed it in `critical`; an empty object or list is named whole. Numbers keep entering through `numericPaths`;
+   the two sets are unioned. The pointers come from one import-free function, `shapeReviewPaths(node, base)`
+   (`kernel-ts/modules/shape-review.ts`), which the extension's `reviewUnits` (`extensions/module/reader-review.ts`)
+   also calls, so the reviewer units and the publication gate cannot disagree. A review that leaves any of them
+   unsupported fails publication (`checkReview`); a repair has §74's choice — cite a page that prints the value,
+   or delete it — or, for a shape, mark the slot `_unstated`.
+
+A draft whose nodes state no shape, over known nodes that state none, returns byte for byte what it returned
+before RD-05, unless an `npc` or `creature` node carries a loose characteristic number (step 1, the intended
+change). A draft whose only shape is an NPC profile of numbers (the reader's output before RD-05) is checked and
+reviewed as before: every leaf of it was already a `numericPaths` pointer.
+
+*Three ends (§31):* writer — the reader under independent review; reader — publication carries `mechanics` into
+the module graph unchanged (`assembleVisual`), where `ModuleGraph.mechanicsOf` (§136.10) and every reader of
+§136.11–§136.18 read it; actor — the Keeper through the `mech` line and the engine paths, as §136.19.
+
+### 136.27 Tests (RD-05)
+
+`tests/extension/mechanics-reader.test.mjs`, through the real entries only — `checkDraft` with the contract
+`loadModuleContract` loads from the shipped content root and the host's viewed pages, `checkSourceDraft` (the
+offline check) over files on disk, and `checkReview` (publication's review gate) — with each draft written as
+the JSON a reader would write: a `"1D4+2 hit points"` damage slot (`shape_dice`), a shape citing an unviewed
+page (`mechanics_unsourced`), an unknown skill in a hazard step (`shape_unknown_skill`, with
+`details.ruleset`), a value beside its `_unstated` flag (`shape_unstated`), a shape on the wrong node kind
+(`mechanics_wrong_kind`), a starter-only legacy key in a draft profile (no allowance), and a flat `STR: 90` on an
+`npc` and a `creature` (`profile_outside_seat`) — each refused with its pointer and rule; a valid draft carrying
+every shape whose leaves are not in `critical` gets all of them in `required_review`, dice strings included, and
+`reviewUnits` assigns every one; a review missing one dice string does not publish; a known node's published
+refusal does not refuse a draft. `tests/extension/fixtures/mechanics-reader-parent.json`, recorded on
+`172b80065` in a throwaway detached worktree, holds drafts without shapes (and one NPC profile of numbers) through
+`checkDraft` and the offline check: the branch returns the same bytes. Each rule is shown to go green when it is
+removed, the review paths dropped fails the required-review case, and `reviewUnits` ignoring shapes fails the
+units-match case (the mutation record is in the RD-05 report). `tests/kernel/test_mechanics_reader.py` publishes a
+stated hazard through `module.read.finish` on the emitted kernel only when every shape leaf is reviewed, and refuses
+a worded dice string and an unviewed citation there with their paths and rules. The frozen-oracle suite
+`tests/extension/ts-kernel-modules.test.mjs` now checks drafts with the contract `loadModuleContract` returns (the
+one publication loads; its hand-built contract carried no ruleset names) and asserts one post-freeze change without
+touching the oracle's bytes: a profile integer beyond the largest exact integer is `shape_prose`. `tests/kernel/test_npc_layer.py`'s
+legacy-fixture walk no longer carries that fixture's book-language skill names into a drafted profile: a reader's
+profile names skills as the ruleset does, and that test walks dossier claims, not numbers.
