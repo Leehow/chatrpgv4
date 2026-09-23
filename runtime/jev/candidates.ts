@@ -61,6 +61,10 @@ const DEFENSE_OPTIONS: Readonly<Record<string, string>> = Object.freeze({
   none: 'No defence: the attack is rolled unopposed.',
 });
 
+/** The standing action words and bases the kernel issues (§11.5.3): closed contract enums, never read from prose. */
+const STANDING_ACTIONS: readonly string[] = ['attack', 'hold', 'flee'];
+const STANDING_BASES: readonly string[] = ['authored', 'rule-default', 'keeper'];
+
 /**
  * Candidates of the active combat or chase session, from the kernel's own session view (`turn_of`, `actions[]`,
  * `pending_defense`; kernel-ts/read/session-view.ts). The "parameters-only steps never go to the LLM" ruling: a
@@ -72,7 +76,9 @@ const DEFENSE_OPTIONS: Readonly<Record<string, string>> = Object.freeze({
  * Three shapes. An NPC's pending defence is forced (the kernel accepts nothing else next) and its option is the
  * standing defence the kernel issues with it (§11.5.2), so it runs directly; only a pending defence without a
  * standing falls back to a Jev bind over the options. An NPC's own turn is forced too -- the initiative order says
- * it acts now -- and which of its issued actions it takes is a closed Jev bind over those actions (`variants`); a Jev "unknown" hands the choice to the Keeper. The
+ * it acts now -- and which of its issued actions it takes is its standing action when the kernel issues one (§11.5.3:
+ * `attack` binds the attack, `hold`/`flee` leave the turn to the Keeper), otherwise a closed Jev bind over those
+ * actions (`variants`); a Jev "unknown" hands the choice to the Keeper. The
  * investigator's turn offers each issued action to the route question, keyed without the round, so the action the
  * player declared is carried out once per turn.
  */
@@ -155,6 +161,18 @@ function sessionCandidates(session: Row, rawInput: string, answering: readonly s
     }
   }
   if (investigator(actor) || !own.length) return own;
+  // SL-08 (§11.5.3): the NPC's standing action, issued by the kernel on its own turn. `attack` makes the attack the
+  // forced step, bound as far as the kernel's lists allow (one target and one weapon: direct; several: a closed Jev
+  // bind over the kernel's own `targets` / `weapons`); `hold` and `flee` issue nothing, so the turn is the Keeper's.
+  // A standing the builder cannot trust (an unknown word or basis, or an attack the kernel did not issue) keeps the
+  // previous route.
+  const standing = object(session.standing_action), word = text(standing.action), standingBasis = text(standing.basis);
+  if (STANDING_ACTIONS.includes(word) && STANDING_BASES.includes(standingBasis)) {
+    const named = {action: word, basis: standingBasis, ...(standing.disposition ? {disposition: standing.disposition as Json} : {})} as Json;
+    if (word !== 'attack') return [];
+    const attack = own.find(candidate => candidate.bound.decision === 'combat:attack');
+    if (attack) return [{...attack, forced: true, basis: {...object(attack.basis), standing: named} as Json}];
+  }
   // An NPC's turn: the initiative order says it acts now, so the step is forced. One issued action is direct; among
   // several, which one it takes is a closed Jev bind whose options are those actions (each variant keeps its own
   // parameters: a closed one is bound next, an open one goes to the LLM). Jev's "unknown" leaves it to the Keeper.

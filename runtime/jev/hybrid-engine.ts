@@ -137,11 +137,15 @@ interface RunState {
   intent?: IntentBinding;
   answering?: string[];
   located: Array<{handle: string; label: string; kind: string}>;
+  /** The kernel's session view from the latest read (§11.9), for the Keeper's note on an NPC's held or fled turn. */
+  fight?: Row;
   clerkDid: ClerkStep[];
   projected: number;
   batch?: {message: unknown; fell?: string; fellAt?: string};
   identities: Map<string, OperationIdentity>;
   lease?: TaskLease;
+  /** The NPC turn whose held or fled standing the Keeper was last told (`<npc>:r<round>`). */
+  noted?: string;
 }
 
 /**
@@ -167,6 +171,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
   async function tableReads(run: RunState): Promise<{capsule: Row; status: Row; table: ReturnType<typeof readTable>; candidates: () => Candidate[]}> {
     const [capsule, status, applyOptions, resolveOptions] = await Promise.all([call('table.capsule'), call('table.status'), quiet('table.apply.options'), quiet('table.resolve.options')]);
     const table = readTable(capsule, status);
+    run.fight = object(object(resolveOptions.context).session ?? object(capsule.where).session);
     // The pending choice this input answers is the one open when the run began (§135.2); one opened later is the Keeper's.
     run.answering ??= [text(object(object(resolveOptions.context).pending_choice).name), text(object(object(capsule.turn).pending_choice).name)].filter(Boolean);
     return {capsule, status, table,
@@ -364,6 +369,15 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     if (fresh.length) Object.assign(content, {clerk_did: fresh,
       note: 'The host (the clerk) settled these this turn before asking you, from the kernel\'s own options. They are committed, not pending: '
         + 'narrate what happened, do not redo them, and undo one only with a real operation of your own (its own receipt and time cost).'});
+    // §11.5.3: an NPC whose standing action is `hold` or `flee` issued no step, so its turn is the Keeper's; the note
+    // says so with the standing and its disposition, once per NPC turn (the kernel's own view, never re-worded).
+    const fight = object(run.fight), held = object(fight.standing_action), turnKey = `${text(fight.turn_of)}:r${String(fight.round ?? '')}`;
+    if (fight.status === 'active' && ['hold', 'flee'].includes(text(held.action)) && run.noted !== turnKey) {
+      run.noted = turnKey;
+      Object.assign(content, {npc_turn: {npc: text(fight.turn_of), round: fight.round ?? null, standing_action: held},
+        npc_turn_note: 'It is this NPC\'s turn and its standing action is not an attack, so the clerk did not act for it: '
+          + 'narrate the holding back, yielding or flight, or write apply npc action/disposition if the fiction says otherwise.'});
+    }
     const request = object(step.request), operation = request.operation;
     // The operation Jev chose and the LLM is asked to complete keeps its kernel row on record beside the model's call.
     if (step.purpose === 'bind' && request.candidate)
