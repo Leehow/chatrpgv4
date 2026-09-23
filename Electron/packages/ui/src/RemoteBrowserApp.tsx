@@ -188,6 +188,14 @@ export function RemoteBrowserApp(options: RemoteBrowserAppOptions = {}) {
      * so two tabs switched in turn kept knocking each other off.
      */
     let halted = false
+    /**
+     * One connect at a time. The browser fires `pageshow` on an ordinary first
+     * load, while the claim is still out and no socket exists yet; treating that
+     * as "came back to the tab" started a second claim whose socket retired the
+     * first mid-handshake, and every request already sent on the first failed
+     * with "transport disconnected" (the 「加载项目失败」 banner on every load).
+     */
+    let connecting = false
     let controlListener: ((raw: unknown) => void) | undefined
 
     const applyClose = (kind: ReturnType<typeof classifyRemoteClose>) => {
@@ -311,7 +319,16 @@ export function RemoteBrowserApp(options: RemoteBrowserAppOptions = {}) {
     }
 
     const connect = async (mode: 'connecting' | 'reconnecting') => {
-      if (stopRef.current) return
+      if (stopRef.current || connecting) return
+      connecting = true
+      try {
+        await connectOnce(mode)
+      } finally {
+        connecting = false
+      }
+    }
+
+    const connectOnce = async (mode: 'connecting' | 'reconnecting') => {
       setPhase(mode)
       setError(null)
       const pair = parsePairLocation(location.pathname, location.hash)
@@ -403,7 +420,7 @@ export function RemoteBrowserApp(options: RemoteBrowserAppOptions = {}) {
         return
       }
       hidden = false
-      if (stopRef.current || halted) return
+      if (stopRef.current || halted || connecting) return
       const open = activeSocket && (activeSocket.readyState === 0 || activeSocket.readyState === 1)
       if (open) return
       scheduleReconnect(true)

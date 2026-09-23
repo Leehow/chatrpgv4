@@ -270,6 +270,51 @@ describe('RemoteBrowserApp', () => {
     expect(screen.getByRole('button', { name: '重新接管' })).toBeTruthy()
   })
 
+  it('a pageshow while the first claim is in flight does not start a second connection', async () => {
+    const sockets: FakeSocket[] = []
+    let claims = 0
+    let releaseClaim: () => void = () => undefined
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes('/claim')) {
+        claims += 1
+        await new Promise<void>(resolve => { releaseClaim = resolve })
+        return new Response(null, { status: 204 })
+      }
+      if (url.includes(`/pair/${pairID}`)) return new Response('', { status: 200 })
+      throw new Error(url)
+    })
+    render(
+      <RemoteBrowserApp
+        location={{ protocol: 'http:', host: 'relay.test', pathname: `/pair/${pairID}`, hash: `#${secret}` }}
+        historyReplace={vi.fn()}
+        fetch={fetchImpl as unknown as typeof fetch}
+        socket={() => {
+          const socket = new FakeSocket()
+          sockets.push(socket)
+          return socket as any
+        }}
+        schedule={(fn) => window.setTimeout(fn, 0)}
+        cancel={(id) => window.clearTimeout(id)}
+      />,
+    )
+    await waitFor(() => expect(claims).toBe(1))
+    // The browser fires pageshow on an ordinary first load, while the claim is
+    // still out and no socket exists yet. It used to start a second connect
+    // whose socket retired the first one mid-handshake.
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
+    window.dispatchEvent(new Event('pageshow'))
+    await new Promise(resolve => setTimeout(resolve, 20))
+    releaseClaim()
+    await waitFor(() => expect(sockets.length).toBe(1))
+    sockets[0].emit('open')
+    await waitFor(() => expect(document.querySelector('.pipiui-shell')).toBeTruthy())
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(claims).toBe(1)
+    expect(sockets.length).toBe(1)
+    expect(sockets[0].close).not.toHaveBeenCalled()
+  })
+
   it('shows expired copy when reclaim returns 404', async () => {
     render(
       <RemoteBrowserApp
