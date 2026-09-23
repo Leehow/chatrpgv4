@@ -37,8 +37,14 @@ function setEnv(values: Record<string, string | undefined>): () => void {
 
 const effectKey = (effect: Row): string | undefined => effect.kind === 'move' ? `apply:move:${effect.to}` : effect.kind === 'person' ? `apply:person:${effect.who}`
   : effect.kind === 'clue' ? `apply:clue:${effect.clue}` : effect.kind === 'handout' ? `apply:handout:${effect.name}` : undefined;
-/** A resolve's structural identity: the decision (or skill) and who it is against, the way the replay compares them. */
-const resolveKey = (action: Row): string => `resolve:${action.decision ?? `skill:${action.skill ?? ''}`}:${String(action.target ?? '').toLowerCase().replace(/\s+/g, '-')}`;
+/**
+ * A resolve's structural identity: the decision (or skill) and who it is against, the way the replay compares them.
+ * A defence is identified by who defends (`actor`): the kernel resolves it against the pending attack and reads no
+ * `target` on it (SL-07: the clerk's defence carries none, the live Keeper's carried the attacker).
+ */
+const who = (value: unknown): string => String(value ?? '').toLowerCase().replace(/\s+/g, '-');
+const resolveKey = (action: Row): string => action.decision === 'combat:defend' ? `resolve:combat:defend:${who(action.actor)}`
+  : `resolve:${action.decision ?? `skill:${action.skill ?? ''}`}:${who(action.target)}`;
 
 /** The live calls in order, each with whether the live kernel took it (paired with the live tool rows by order). */
 function liveCalls(baseline: Row): Array<{message: number; name: string; arguments: Row; ok: boolean}> {
@@ -102,6 +108,12 @@ function keeperReplay(baseline: Row, delivered: string | undefined, state: Repla
   };
   const delivery = (): Row => {
     const recorded = [...calls].reverse().find(call => (call.name === 'narrate' || call.name === 'ask') && call.ok);
+    // §11.5.1 (2026-09-23): a combat defence is no longer an ask -- the host settles the investigator's defence by
+    // the campaign preference and refuses a defence ask as stale_choice. A recorded defence ask (every option a
+    // §11.9 defence word) is replayed as the narrate of the same text, which is what the Keeper is told to send.
+    const defenceAsk = recorded?.name === 'ask' && array(recorded.arguments.options).length > 0
+      && array(recorded.arguments.options).every((option: unknown) => ['dodge', 'fight_back', 'none'].includes(String(option)));
+    if (recorded && defenceAsk) return answer([{name: 'narrate', arguments: {text: String(recorded.arguments.text ?? delivered ?? '')}}], 'compose:recorded_defence_ask_as_narrate');
     if (recorded) return answer([recorded], 'compose:recorded_delivery');
     log({replay: 'compose:delivered_text'});
     return fauxAssistantMessage(delivered ?? '', {stopReason: 'stop'});
@@ -174,9 +186,11 @@ function matchBaseline(baseline: Row, calls: Row[]): Row[] {
     }
     if (action.verb === 'resolve') {
       const target = String(action.target ?? '').toLowerCase().replace(/\s+/g, '-');
+      // A defence answers the one pending attack: its `target` is not read by the kernel, so it matches by decision.
       const found = actions.find(value => (action.decision ? value.decision === action.decision : value.skill === action.skill)
-        && String(value.target ?? '').toLowerCase().replace(/\s+/g, '-') === target);
-      return {baseline: `resolve ${action.decision ?? action.skill} vs ${action.target}`, ...origin(found)};
+        && (action.decision === 'combat:defend' || String(value.target ?? '').toLowerCase().replace(/\s+/g, '-') === target));
+      return {baseline: `resolve ${action.decision ?? action.skill} vs ${action.target}`, ...origin(found),
+        ...(found && action.decision === 'combat:defend' ? {defense: found.defense ?? null} : {})};
     }
     if (action.verb === 'narrate' || action.verb === 'ask') return {baseline: action.verb, ...origin(deliveries.at(-1) ?? (action.implicit ? {origin: 'implicit'} : undefined))};
     return {baseline: action.verb, matched: null};

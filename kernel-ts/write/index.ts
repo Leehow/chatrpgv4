@@ -893,7 +893,9 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         const options = params.options;
         if (!Array.isArray(options) || !options.length || options.some(option => typeof option !== 'string' || !option.trim()))
             throw new RpcError('invalid_params', 'params.options must be a non-empty list of strings');
-        if (kind === 'mechanics' && options.some(option => !['push', 'spend_luck', 'accept', 'dodge', 'fight_back', 'flee'].includes(option)))
+        // `none` is the player's own "no defence" (contract §11.5, §11.11 "none is legal everywhere"; §11.5.2): the
+        // kernel offers it in `pending_defense.options`, so the choice that hands it to the player takes it too.
+        if (kind === 'mechanics' && options.some(option => !['push', 'spend_luck', 'accept', 'dodge', 'fight_back', 'none', 'flee'].includes(option)))
             throw new RpcError('invalid_params', 'unknown mechanics choice option');
         const binds = required(params, 'binds', true), text = required(params, 'text', true), ending = row(snapshot.world.ending);
         if (truth(ending) && ((ending.scope || 'campaign') === 'campaign' && snapshot.meta.status !== 'completed' || ending.scope === 'chapter' && snapshot.meta.status === 'completed'))

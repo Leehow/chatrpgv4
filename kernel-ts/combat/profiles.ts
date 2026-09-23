@@ -83,6 +83,24 @@ export function profileHitPoints(profile: Row): number {
     const characteristics = intMap(profile.characteristics);
     return Math.max(1, number(row(profile.derived).HP ?? Math.floor((characteristics.CON + characteristics.SIZ) / 10)));
 }
+/**
+ * The two numbers an NPC's defence is rolled with: `combat_skill`, the Fighting value the engine rolls a
+ * fight-back with, and `dodge_skill`. One definition, read by the combat participant below and by the NPC card's
+ * standing defence (contract §11.5.2), so the default the card shows is the one the dice will use.
+ */
+export function npcDefenceSkills(profile: Row): { combat_skill: number; dodge_skill: number } {
+    const characteristics = intMap(profile.characteristics), skills = intMap(profile.skills);
+    return { combat_skill: number(skills['Fighting (Brawl)'] ?? skills.Brawl ?? skills.Fighting ?? 25),
+        dodge_skill: number(skills.Dodge ?? Math.max(1, Math.floor(number(characteristics.DEX ?? 0) / 2))) };
+}
+/**
+ * The rules default of an NPC's standing defence (contract §11.5.2, the spec ruling "An NPC's defence is data"):
+ * fight back when the Fighting value the engine rolls a fight-back with is at least the NPC's Dodge, otherwise
+ * dodge. A firearm attack maps it the way the engine already does (see `standingDefense`).
+ */
+export function defaultDefense(combatSkill: number, dodgeSkill: number): 'fight_back' | 'dodge' {
+    return combatSkill >= dodgeSkill ? 'fight_back' : 'dodge';
+}
 export async function npcCombatParticipant(tables: RuleTables, handle: string, profile: Row, side = 'npc'): Promise<Row> {
     const characteristics = intMap(profile.characteristics), missing = ['STR', 'SIZ', 'DEX', 'CON'].filter(key => !Object.hasOwn(characteristics, key));
     if (missing.length)
@@ -92,8 +110,7 @@ export async function npcCombatParticipant(tables: RuleTables, handle: string, p
     let weapons = array(profile.weapons).map(weapon => isJsonObject(weapon) ? clone(weapon) : { weapon_id: string(weapon) });
     if (!weapons.length)
         weapons = [{ weapon_id: 'unarmed' }];
-    return { actor_id: handle, side, characteristics, dex: characteristics.DEX, combat_skill: number(skills['Fighting (Brawl)'] ?? skills.Brawl ?? skills.Fighting ?? 25),
-        dodge_skill: number(skills.Dodge ?? Math.max(1, Math.floor(characteristics.DEX / 2))),
+    return { actor_id: handle, side, characteristics, dex: characteristics.DEX, ...npcDefenceSkills(profile),
         firearms_skill: Math.max(0, ...entries(skills).filter(([key]) => key.startsWith('Firearms')).map(([, value]) => number(value))),
         has_ready_firearm: truth(profile.has_ready_firearm), build: number(derived.Build ?? damage.build), damage_bonus: string(derived.DB ?? damage.damage_bonus),
         hp_max: Math.max(1, hp), hp_current: Math.max(1, number(profile.hp_current ?? hp)), con: characteristics.CON,

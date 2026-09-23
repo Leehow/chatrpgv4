@@ -216,7 +216,7 @@ const RulingEffect = Type.Object({
 
 /** A person moved on or off the stage, or where you read them as standing (contract §17.3). */
 const NpcEffect = Type.Object({
-	kind: StringEnum(["npc"] as const, { description: "move someone on or off the stage, set where they stand with the party, record a rules condition, or record that they died" }),
+	kind: StringEnum(["npc"] as const, { description: "move someone on or off the stage, set where they stand with the party, record a rules condition, record that they died, or change how they defend" }),
 	name: Type.String({ description: "what you are calling this person. A name from the book, or -- for someone the book never had -- whatever you are already calling them, a description like \"the clerk at the archive window\" included; the table establishes them under that word on this call, and apply person is what decides the word the player sees. Reuse the exact word you used before: two spellings make two people, and a refusal lists the ones this table already has" }),
 	reunion: Type.Optional(Type.Object({
 		background:Type.Optional(Type.Array(Type.String(),{maxItems:4})),
@@ -246,7 +246,10 @@ const NpcEffect = Type.Object({
 	}, {
 		description: "an explicit non-damage condition change, such as unconscious from poison or roused after its cause ends. Use the condition names the rules and current state expose. This variant stands alone in one npc effect; combine it with movement using two effects in the same batch. Death still uses dead: true",
 	})),
-	why: Type.Optional(Type.String({ description: "one sentence: why they moved, why they now stand there, or how they died" })),
+	defense: Type.Optional(StringEnum(["dodge", "fight_back", "none"] as const, {
+		description: "how this person now defends when attacked, from here on: the fiction changed their tactic (cornered, protecting someone, too hurt to swing back). Without it they defend as the book says, or by the rules default (fight back when their Fighting is at least their Dodge, otherwise dodge); each pending defence shows it as standing. This variant stands alone in one npc effect and needs why",
+	})),
+	why: Type.Optional(Type.String({ description: "one sentence: why they moved, why they now stand there, how they died, or what changed how they defend" })),
 });
 
 /**
@@ -387,7 +390,7 @@ const ResolveAction = Type.Object({
 	defense: Type.Optional(
 		StringEnum(["dodge", "fight_back", "none"] as const, {
 			description:
-				"with an attack target and weapon, none resolves a non-resisting target in the same call; otherwise answers the pending defence from the previous result: dodge, fight back, or give up the defence; the host automatically resolves a live investigator defense using the campaign standing preference, so never ask the player for or repeat that defense; decide an NPC's defense yourself together with actor",
+				"with an attack target and weapon, none resolves a non-resisting target in the same call; otherwise answers the pending defence from the previous result: dodge, fight back, or give up the defence; the host automatically resolves a live investigator defense using the campaign standing preference, so never ask the player for or repeat that defense; an NPC's defense is its pending_defense.standing, given together with actor, unless the fiction changed their tactic (then write apply npc defense)",
 		}),
 	),
 	push: Type.Optional(
@@ -633,7 +636,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 		label: "Ask",
 		method: "table.ask",
 		description:
-			"Close with a structured interaction only for a required mechanical decision. Ordinary story questions belong in narrate prose and await free input. kind mechanics forbids a prompt and uses only closed action identifiers: push, spend_luck, accept, flee. Investigator combat defense is automatic under the campaign standing preference, never an ask; NPC defense is the Keeper's resolve decision. Never automatically ask how to handle a failed check; normally narrate its fictional consequence. Questions and options are JSON for frontend controls, never part of rendered prose. text contains fiction only, and takes the same {{marker}} placement and {{say:Name}}…{{/say}} wrapping of spoken lines narrate does. After the call write no more prose.",
+			"Close with a structured interaction only for a required mechanical decision. Ordinary story questions belong in narrate prose and await free input. kind mechanics forbids a prompt and uses only closed action identifiers: push, spend_luck, accept, flee. Investigator combat defense is automatic under the campaign standing preference, never an ask; an NPC's defense is a resolve with its pending_defense.standing. Never automatically ask how to handle a failed check; normally narrate its fictional consequence. Questions and options are JSON for frontend controls, never part of rendered prose. text contains fiction only, and takes the same {{marker}} placement and {{say:Name}}…{{/say}} wrapping of spoken lines narrate does. After the call write no more prose.",
 		promptSnippet: "Hand one choice back to the player, and close the turn with it",
 		parameters: Type.Object({
 			using_skill: UsingSkill,
@@ -645,7 +648,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 			),
 			kind: Type.Literal("mechanics"),
 
-			options: Type.Array(Type.String(), { minItems: 2, description: "Mechanics: only push, spend_luck, accept, flee. Never ask for combat defense: the host uses the investigator's standing preference, and the Keeper resolves NPC defenses. Never automatically ask after a failed roll." }),
+			options: Type.Array(Type.String(), { minItems: 2, description: "Mechanics: only push, spend_luck, accept, flee. Never ask for combat defense: the host uses the investigator's standing preference, and an NPC defends by its pending_defense.standing. Never automatically ask after a failed roll." }),
 			binds: Type.Optional(Type.String({ description: "the name of the pending choice this binds to" })),
 			workpad_patch: WorkpadPatch,
 		}),

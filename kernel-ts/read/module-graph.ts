@@ -512,7 +512,8 @@ export class ModuleGraph {
     sceneNpcIds(scene: Row): string[] {
         return [...new Set([...(this.incoming.get(scene.node_id) ?? []).filter(r => r.relation_kind === "present-in").map(r => r.from_node_id), ...array(recordOf(scene).npc_ids)].filter(id => this.nodes.get(id)?.node_kind === "npc"))];
     }
-    sceneAssets(scene: Row): Row[] {
+    /** The scene's assets; a handout already handed over says so (`shown`, from the world's `handouts_shown`; §135.2). */
+    sceneAssets(scene: Row, shown: readonly unknown[] = []): Row[] {
         const links = [...(this.incoming.get(scene.node_id) ?? [])],
             seen = new Set<string>(),
             result: Row[] = [];
@@ -526,7 +527,8 @@ export class ModuleGraph {
             seen.add(node.node_id);
             result.push({
                 name: this.displayName(node),
-                kind: node.node_kind
+                kind: node.node_kind,
+                ...(node.node_kind === "handout" && shown.includes(this.handle(node)) ? { shown: true } : {})
             });
         }
         return result;
