@@ -555,8 +555,9 @@ Keeper override replaces either:
 
 1. **Authored** (`basis: "authored"`): the NPC record's combat tactic, `combat.defense`, one of the §11.9
    defence words (`dodge`, `fight_back`, `none`), on the starter's or module's NPC record (the `recordOf` record
-   the kernel already reads for `mechanics.profile`). A word outside those three is not a tactic, and the reading
-   falls through to the rules default. A Mod's declaration for one NPC would reach the same field; no Mod
+   the kernel already reads for `mechanics.profile`). A word outside those three is refused when the module registers
+   (§136.6 item 11: `combat.defense` is the `tactic` shape's registered seat, checked by the §136 validator); the
+   reading still falls through to the rules default for state written before §136, so a reader never trusts a word. A Mod's declaration for one NPC would reach the same field; no Mod
    contribution kind carries a closed defence word today (§28 accepts `actor_profile_keys`, free text asked of a
    book), so this source is the book's alone until one is contracted.
 2. **Rules default** (`basis: "rule-default"`): computed from the combat participant the profile builder already
