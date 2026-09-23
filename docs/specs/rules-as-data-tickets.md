@@ -23,8 +23,8 @@ RD-02 and RD-05 can run in parallel after RD-01 (RD-05 also waits for SO-03 to m
 
 ## RD-01 — The catalog's contract and its one validator
 
-Status: needs-triage
-Depends on: SO-01 (landed: `kernel-ts/modules/obligation-shape.ts`); the owner's acceptance of the spec.
+Status: ready-for-agent
+Depends on: SO-01 (landed: `kernel-ts/modules/obligation-shape.ts`); the spec is accepted (Owner rulings, 2026-09-23).
 
 **What.** Write the contract section for spec D4 (container, registered seats, `_unstated` convention, the dice grammar, the effect vocabulary, the fifteen shapes) and D5 (refusal rules). Implement `kernel-ts/modules/mechanics-shape.ts` with `mechanicsRefusals(graph, rules, {starter})`; extend `checkDeclarationRefusals` with the owner `rule` (selection `{maximum, approach}`, scope `{actor, actor-target, opposed}`, result entry `{effects?, book?}`, any subset of the six levels). Call it from starter registration (`registerStarter`, after `obligationRefusals`) and keep the Mod manifest check on the shared form. Dice slots validate with `definitionExpression` (`kernel-ts/mods/definition.ts:30-47`), sanity halves also with `validateSanLossExpression`. The `stat_block` closure accepts, on starters only, a listed legacy allowance (`attacks`, `attacks_per_round`, `san_loss_to_see`) that shrinks as starters migrate; the reader's drafts get no allowance (RD-05). No reader, no data.
 
@@ -56,7 +56,7 @@ Depends on: RD-01.
 ## RD-03 — Operations name a shape: `action.rule`, `action.step`, `stated`
 
 Status: needs-triage
-Depends on: RD-02; SO-02 (landed: `kernel-ts/resolve/obligation.ts`, reused, not copied); Q1 answered.
+Depends on: RD-02; SO-02 (landed: `kernel-ts/resolve/obligation.ts`, reused, not copied); Q1 ruled (spec Owner rulings).
 
 **What.** Spec D6.3–D6.4: `resolve` accepts `action.rule` (and `action.step` for a hazard), binds through the obligation binder's validation, runs the decision the check maps to (ordinary, opposed, Luck), returns `stated: {rule, step?, level, effects, next_step?, book?}`, writes nothing beyond the roll's receipts, and stamps `basis: {rule}`; the refusal table of D6.3. `apply damage|time|threat|flag|cash` accept `stated: <handle>` with `stated_conflict` and `stated_ambiguous`; without it `basis: keeper`. `sanity:check` with `action.rule` builds `san_loss` from the shape. The offer ledger registers `stated:<handle>` and `kpi.py` counts it. The `resolve` and `apply` tool descriptions gain the optional fields; the base Keeper prompt gains one English sentence (stated mechanics are the book's numbers; name them with `action.rule`/`stated`, or use your own amount). The fake kernel (`tests/extension/fixtures/fake-kernel.mjs`) learns the fields.
 
@@ -72,7 +72,7 @@ Depends on: RD-02; SO-02 (landed: `kernel-ts/resolve/obligation.ts`, reused, not
 ## RD-04 — The haunting migrates to shapes
 
 Status: needs-triage
-Depends on: RD-03; Q3 and Q4 answered.
+Depends on: RD-03; Q3 and Q4 ruled (spec Owner rulings).
 
 **What.** Spec D9, every row except the ruleset side table's weapons: `rule-bed-attack` (hazard + witnesses' `sanity_loss`), Corbitt's typed `profile.sanity_loss`, the deleted `on_enter.danger_attacks` and `attack_profiles`, the clock's `advances_on`, `rule-chapel-floor-collapse`, `tome-liber-ivonis.mechanics.tome`, the library/records `time_cost` per Q3/Q4, `rule-victory-rewards.reward`, the profile's weapon shapes under one id, and the deletion of the affordance `skills[]`/`skill_minimums`/`clues[].affordance`/`sets_flags` only where an existing owner holds the check (the police and Hall of Records rows stay SO-05's). Every new node cites the pages the starter's neighbouring nodes cite (`source_refs` + `evidence_span_ids`). Shrink RD-01's legacy allowance by the keys the haunting no longer carries. Re-stamp the starter's character-guidance bundles if the graph digest moves (as §134.6 did).
 
@@ -105,7 +105,7 @@ Depends on: RD-01; SO-03 merged (its `contract.rules`, `checkObligations` overla
 ## RD-06 — Jev binds what the book fixed, and never routes a consequence
 
 Status: needs-triage
-Depends on: SL-02 merged (`runtime/jev/candidates.ts`, §135); SO-04; RD-02; Q2 answered.
+Depends on: SL-02 merged (`runtime/jev/candidates.ts`, §135); SO-04; RD-02; Q2 ruled (spec Owner rulings).
 
 **What.** Spec D8: a `statedCheckBinding(reads)` seam beside `buildCandidates`' ordinary-check candidate — a declared check that reaches a clue gate or a non-hazard rule/tome `check` stating one skill and a difficulty arrives with them bound and `basis` naming the node; several approaches → closed `decide(bind)`; an unstated slot → `infer(bind)`; an unmet `minimum` withholds it. The builder produces no candidate for `hazard`, `damage`, `sanity_loss`, `time_cost`, `resource_cost`, `reward` or `clock`. Labels per §135.2 (no page, no kernel tags). The clerk authority list is not changed.
 
