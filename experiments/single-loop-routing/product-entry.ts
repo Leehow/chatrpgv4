@@ -73,9 +73,15 @@ function latestNote(context: Row): Row {
   return {};
 }
 
-/** The Keeper's provider as a replay of the live Keeper. */
-function keeperReplay(baseline: Row, delivered: string | undefined, state: ReplayState, log: (row: Row) => void) {
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, Math.max(0, ms)));
+
+/**
+ * The Keeper's provider as a replay of the live Keeper. With `latency` (SL-10, `--latency live`) each answer waits the
+ * live provider time of the recorded message it replays, so the run's time budget meets the live table's clock.
+ */
+function keeperReplay(baseline: Row, delivered: string | undefined, state: ReplayState, log: (row: Row) => void, latency = false) {
   const calls = liveCalls(baseline);
+  const providerMs = (message: number | undefined): number => latency && message !== undefined ? Number(array(baseline.calls)[message]?.provider_ms ?? 0) : 0;
   const byMessage = new Map<number, typeof calls>();
   for (const call of calls) byMessage.set(call.message, [...(byMessage.get(call.message) ?? []), call]);
   const toolMessages = [...byMessage.keys()].sort((a, b) => a - b);
@@ -89,8 +95,10 @@ function keeperReplay(baseline: Row, delivered: string | undefined, state: Repla
     }
     return done;
   };
-  const answer = (items: Array<{name: string; arguments: Row}>, reason: string): Row => {
-    log({replay: reason, calls: items.map(item => item.name)});
+  const answer = async (items: Array<{name: string; arguments: Row}>, reason: string, message?: number): Promise<Row> => {
+    const wait = providerMs(message);
+    log({replay: reason, calls: items.map(item => item.name), ...(latency ? {provider_ms: wait} : {})});
+    await sleep(wait);
     return fauxAssistantMessage(items.map(item => fauxToolCall(item.name, item.arguments)), {stopReason: 'toolUse'});
   };
   const remaining = (done: Set<string>, call: {name: string; arguments: Row; ok: boolean}): {name: string; arguments: Row} | undefined => {
@@ -106,19 +114,24 @@ function keeperReplay(baseline: Row, delivered: string | undefined, state: Repla
     if (item.name === 'apply') for (const effect of array(item.arguments.effects)) { const key = effectKey(effect); if (key) state.done.add(key); }
     if (item.name === 'resolve') state.done.add(resolveKey(object(item.arguments.action)));
   };
-  const delivery = (): Row => {
+  const delivery = async (): Promise<Row> => {
     const recorded = [...calls].reverse().find(call => (call.name === 'narrate' || call.name === 'ask') && call.ok);
+    const last = array(baseline.calls).length - 1;
     // §11.5.1 (2026-09-23): a combat defence is no longer an ask -- the host settles the investigator's defence by
     // the campaign preference and refuses a defence ask as stale_choice. A recorded defence ask (every option a
     // §11.9 defence word) is replayed as the narrate of the same text, which is what the Keeper is told to send.
     const defenceAsk = recorded?.name === 'ask' && array(recorded.arguments.options).length > 0
       && array(recorded.arguments.options).every((option: unknown) => ['dodge', 'fight_back', 'none'].includes(String(option)));
-    if (recorded && defenceAsk) return answer([{name: 'narrate', arguments: {text: String(recorded.arguments.text ?? delivered ?? '')}}], 'compose:recorded_defence_ask_as_narrate');
-    if (recorded) return answer([recorded], 'compose:recorded_delivery');
+    if (recorded && defenceAsk) return answer([{name: 'narrate', arguments: {text: String(recorded.arguments.text ?? delivered ?? '')}}], 'compose:recorded_defence_ask_as_narrate', recorded.message);
+    if (recorded) return answer([recorded], 'compose:recorded_delivery', recorded.message);
     log({replay: 'compose:delivered_text'});
+    await sleep(providerMs(last));
     return fauxAssistantMessage(delivered ?? '', {stopReason: 'stop'});
   };
-  return (context: Row): Row => {
+  return async (context: Row): Promise<Row> => {
+    // SL-10: a compose the run's time budget chose is the Keeper's close; the replay answers it with the delivery, not
+    // with the live Keeper's remaining bookkeeping (which the budget left for the next turn).
+    if (latestNote(context).reason === 'run_budget') return delivery();
     const done = doneFrom(context), purpose = state.purpose;
     if (purpose === 'bind') {
       // The operation the clerk chose, from the run's own note to the Keeper.
@@ -128,13 +141,13 @@ function keeperReplay(baseline: Row, delivered: string | undefined, state: Repla
         if (!call.ok) continue;
         if (operation.verb === 'apply' && call.name === 'apply') {
           const effect = array(call.arguments.effects).find((value: Row) => effectKey(value) === key);
-          if (effect && !done.has(key!)) { const item = {name: 'apply', arguments: {effects: [effect]}}; record(item); return answer([item], 'bind'); }
+          if (effect && !done.has(key!)) { const item = {name: 'apply', arguments: {effects: [effect]}}; record(item); return answer([item], 'bind', call.message); }
         }
         // A resolve binds by its decision and who acts or is acted on (a defence names its actor, an attack its target).
         const action = object(call.arguments.action), norm = (value: unknown) => String(value ?? '').toLowerCase().replace(/\s+/g, '-');
         if (operation.verb === 'resolve' && call.name === 'resolve' && action.decision === bound.decision
           && (norm(action.actor) === norm(bound.actor) && !!bound.actor || norm(action.target) === norm(bound.target) && !!bound.target)
-          && !done.has(resolveKey(action))) { record(call); return answer([call], 'bind'); }
+          && !done.has(resolveKey(action))) { record(call); return answer([call], 'bind', call.message); }
       }
       log({replay: 'bind:not_recorded', key});
     }
@@ -146,28 +159,43 @@ function keeperReplay(baseline: Row, delivered: string | undefined, state: Repla
       if (!effects.length) continue;
       for (const item of effects) record(item);
       state.messages.push(index);
-      return answer(effects, `${purpose ?? 'infer'}:message_${index}`);
+      return answer(effects, `${purpose ?? 'infer'}:message_${index}`, index);
     }
     return delivery();
   };
 }
 
-/** The admission lane as a replay of the live table's verdicts, per verb, in order. */
-function admissionReplay(baseline: Row, log: (row: Row) => void) {
+/**
+ * The admission lane as a replay of the live table's verdicts, per verb, in order. An `apply` review is paired with the
+ * recorded review of the live batch whose effect kinds match the proposal's lines (SL-10: when the typed fast path
+ * settles the clerk's move, the Keeper's later batch must not take the move's recorded verdict and time). With
+ * `latency` (SL-10) each answer waits the live review's recorded time.
+ */
+function admissionReplay(baseline: Row, log: (row: Row) => void, latency = false) {
   const queue: Record<string, Row[]> = {apply: [], resolve: []};
   for (const row of array(baseline.admissions)) if (queue[row.verb]) queue[row.verb].push(row);
-  return (context: Row): Row => {
+  // The live reviewed applies in order: those carrying a §32.1 triggering kind (admission.ts's TRIGGER_KINDS).
+  const trigger = new Set(['move', 'clue', 'time', 'cash', 'item', 'handout', 'map', 'object', 'usage']);
+  const reviewedKinds = liveCalls(baseline).filter(call => call.name === 'apply' && call.ok && array(call.arguments.effects).some((effect: Row) => trigger.has(effect.kind)))
+    .map(call => [...new Set(array(call.arguments.effects).map((effect: Row) => String(effect.kind)))].sort().join('+'));
+  queue.apply.forEach((row, index) => { row.kinds = reviewedKinds[index] ?? null; });
+  return async (context: Row): Promise<Row> => {
     const request = JSON.stringify(context.messages ?? []);
     const verb = request.includes('resolve (roll the dice') ? 'resolve' : 'apply';
-    const next = queue[verb].shift();
-    log({admission_replay: verb, verdict: next?.verdict ?? null, live_ms: next?.ms ?? null});
+    // The proposal lines are the host's own machine lines ("- apply <kind>: ..."), so their kinds are read off them.
+    const proposed = request.slice(request.lastIndexOf('[The Keeper now proposes]'));
+    const kinds = [...new Set([...proposed.matchAll(/- apply ([a-z_]+):/g)].map(match => match[1]))].sort().join('+');
+    const at = verb === 'apply' ? Math.max(0, queue.apply.findIndex(row => row.kinds === kinds)) : 0;
+    const next = queue[verb].splice(at, 1)[0];
+    log({admission_replay: verb, kinds: verb === 'apply' ? kinds : undefined, verdict: next?.verdict ?? null, live_ms: next?.ms ?? null});
+    if (latency) await sleep(Number(next?.ms ?? 0));
     if (!next) return fauxAssistantMessage('no recorded verdict for this review');
     return fauxAssistantMessage(JSON.stringify({verdict: next.verdict, grounds: `replayed live verdict (${next.ms} ms live)`}));
   };
 }
 
 export interface ProductRunSummary {
-  run: number; fixture: string; admission: string; wall_ms: number; status: string | null; reason: string | null;
+  run: number; fixture: string; admission: string; arm: string; latency: boolean; wall_ms: number; status: string | null; reason: string | null; budget: Row | null;
   steps: Record<string, number>; llm_steps: number; llm_purposes: string[]; jev_calls: number; route_rows: number;
   calls: Row[]; match: Row[]; admissions: Row[]; clerk: Row[]; misses: Row[];
 }
@@ -197,7 +225,11 @@ function matchBaseline(baseline: Row, calls: Row[]): Row[] {
   });
 }
 
-export async function productReplayOnce(name: string, run: number, outDir: string, admission: 'lane' | 'jev'): Promise<ProductRunSummary> {
+/**
+ * SL-10 arms: `after` is the branch as it stands; `before` turns off what SL-10 added (the time budget set out of
+ * reach, the bookkeeping fast path off), which is the behaviour of the branch's parent.
+ */
+export async function productReplayOnce(name: string, run: number, outDir: string, admission: 'lane' | 'jev', arm: 'before' | 'after' = 'after', latency = false): Promise<ProductRunSummary> {
   const {turn: fixture, baseline} = readFixture(name);
   const workspace = materialize(name), campaign = fixture.campaign as string;
   const gitDir = join(workspace, '.coc/repos', `${campaign}.git`), workTree = join(workspace, '.coc/campaigns', campaign);
@@ -216,16 +248,17 @@ export async function productReplayOnce(name: string, run: number, outDir: strin
     PI_COC_MODE: 'play', PI_OFFLINE: '1', PI_COC_LOOP_ENGINE: 'hybrid-v1', PI_COC_MEMORY_BACKFILL: '0',
     PI_COC_VERIFIER_MODEL: 'verifier/v1', PI_COC_MEMORY_MODEL: 'memory/m1', PI_COC_ADMISSION_MODEL: 'admission/a1',
     PI_COC_ADMISSION_REVIEWER: admission, PI_COC_JEV_PRESELECT: '1',
+    PI_COC_TURN_BUDGET_MS: arm === 'before' ? '3600000' : undefined, PI_COC_ADMISSION_FAST_MIN_CONFIDENCE: arm === 'before' ? 'off' : undefined,
   });
   const trace: Row[] = [], log = (row: Row) => trace.push({at: new Date().toISOString(), ...row});
   const calls: Row[] = [];
   const state: ReplayState = {done: new Set(), messages: [], cursor: 0, executed: calls};
   const keeper = fauxProvider();
-  const replay = keeperReplay(baseline, delivered, state, log);
+  const replay = keeperReplay(baseline, delivered, state, log, latency);
   keeper.setResponses(Array.from({length: 24}, () => replay) as any);
   const lane = (provider: string, id: string) => fauxProvider({api: 'openai-completions', provider, models: [{id}]});
   const verifier = lane('verifier', 'v1'), memory = lane('memory', 'm1'), admissionLane = lane('admission', 'a1');
-  const judge = admissionReplay(baseline, log);
+  const judge = admissionReplay(baseline, log, latency);
   admissionLane.setResponses(Array.from({length: 24}, () => judge) as any);
   const began = Date.now();
   let session: any, runner: any;
@@ -277,10 +310,12 @@ export async function productReplayOnce(name: string, run: number, outDir: strin
   const end = events.find(event => event.type === 'run_end');
   const admissions = own.filter(row => row.lane === 'admission').map(row => ({verb: row.verb, origin: row.origin ?? 'model', clerk: row.clerk ?? null,
     verdict: row.verdict ?? null, ok: row.ok, skipped: row.skipped ?? null, reviewer: row.reviewer ?? null, ms: row.ms ?? null, jev_ms: row.jev_ms ?? null,
-    confidence: row.confidence ?? null, jev_fallback: row.jev_fallback ?? null, basis: row.basis ?? null}));
+    confidence: row.confidence ?? null, jev_fallback: row.jev_fallback ?? null, basis: row.basis ?? null,
+    path: row.path ?? null, fast_path: row.fast_path ?? null, jev_confidence: row.jev_confidence ?? null, line_verdicts: row.line_verdicts ?? null, lane_ms: row.lane_ms ?? null}));
+  const budgetRow = own.filter(row => row.lane === 'run' && row.event === 'budget' && row.decision === 'summary').at(-1) ?? null;
   const clerk = own.filter(row => row.origin === 'policy' && row.tool).map(row => ({tool: row.tool, call_id: row.call_id, ok: row.ok, ms: row.ms, clerk: row.clerk, basis: row.basis}));
   const misses = routeRows.filter(row => ['low_confidence', 'jev_unavailable', 'jev_no_answer', 'repeated_question'].includes(String(row.reason)));
-  const summary: ProductRunSummary = {run, fixture: name, admission, wall_ms: wall, status: end?.status ?? null, reason: end?.reason ?? null,
+  const summary: ProductRunSummary = {run, fixture: name, admission, arm, latency, wall_ms: wall, status: end?.status ?? null, reason: end?.reason ?? null, budget: budgetRow,
     steps: stepCounts, llm_steps: llmPurposes.length, llm_purposes: llmPurposes, jev_calls: jevCalls, route_rows: routeRows.length,
     calls: calls.map(call => ({tool: call.tool, origin: call.origin, ok: call.ok, error: call.error, input: call.input})), match: matchBaseline(baseline, calls),
     admissions, clerk, misses};
@@ -293,16 +328,18 @@ export async function productReplayOnce(name: string, run: number, outDir: strin
 export async function main(argv: string[]): Promise<void> {
   const arg = (name: string, fallback: string) => { const index = argv.indexOf(name); return index >= 0 ? argv[index + 1] : fallback; };
   const name = arg('--fixture', 'turn3'), runs = Number(arg('--runs', '1')), admission = arg('--admission', 'lane') as 'lane' | 'jev';
+  const arm = arg('--arm', 'after') as 'before' | 'after', latency = arg('--latency', 'none') === 'live';
   const outDir = arg('--out', join(REPO, 'experiments/single-loop-routing/results', `${new Date().toISOString().replace(/[:.]/g, '-')}-product-${name}-${admission}`));
   const summaries: ProductRunSummary[] = [];
   for (let run = 1; run <= runs; run++) {
-    const summary = await productReplayOnce(name, run, outDir, admission);
+    const summary = await productReplayOnce(name, run, outDir, admission, arm, latency);
     summaries.push(summary);
-    console.log(JSON.stringify({run, fixture: name, admission, wall_ms: summary.wall_ms, status: summary.status, reason: summary.reason, steps: summary.steps,
+    console.log(JSON.stringify({run, fixture: name, admission, arm, latency, wall_ms: summary.wall_ms,
+      budget: summary.budget ? {elapsed_at_compose: summary.budget.elapsed_at_compose, over: summary.budget.over_budget, deferred: array(summary.budget.deferred_by_budget).map((value: Row) => value.key)} : null, status: summary.status, reason: summary.reason, steps: summary.steps,
       llm_steps: summary.llm_steps, llm_purposes: summary.llm_purposes, jev_calls: summary.jev_calls, route_rows: summary.route_rows,
       executed: summary.calls.map(call => `${call.origin === 'policy' ? 'H' : 'M'}:${call.tool}${call.ok ? '' : `!${call.error}`}`),
       match: summary.match.map(row => `${row.baseline}: ${row.matched === null ? 'n/a' : row.matched ? `yes(${row.origin})` : 'NO'}`),
-      admissions: summary.admissions.map(row => `${row.origin}/${row.verb}:${row.skipped ?? row.verdict}${row.reviewer ? `@${row.reviewer}` : ''}${row.ms !== null ? ` ${row.ms}ms` : ''}`)}));
+      admissions: summary.admissions.map(row => `${row.origin}/${row.verb}:${row.skipped ?? row.verdict}${row.path ? `@${row.path}` : row.reviewer ? `@${row.reviewer}` : ''}${row.ms !== null ? ` ${row.ms}ms` : ''}${row.jev_confidence ?? row.confidence ? ` c=${row.jev_confidence ?? row.confidence}` : ''}`)}));
   }
   writeFileSync(join(outDir, 'summaries.json'), JSON.stringify(summaries, null, 1) + '\n');
   console.log(`results: ${outDir}`);

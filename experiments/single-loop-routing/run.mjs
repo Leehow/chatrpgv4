@@ -2,6 +2,8 @@
  * Replay a fixture turn through the single-loop routing.
  *
  *   node experiments/single-loop-routing/run.mjs --fixture turn3 --runs 3 --llm replay [--admission lane|jev] [--out <dir>]
+ *     [--arm after|before] [--latency none|live]   (SL-10: `before` sets the time budget out of reach and the bookkeeping
+ *     admission fast path off; `live` makes the replayed Keeper and admission lane wait their recorded live times)
  *   node experiments/single-loop-routing/run.mjs --fixture turn3 --runs 3 [--llm none] [--driver prototype]
  *
  * `--llm replay` runs the PRODUCT driver (SL-02): a real Pi session with PI_COC_LOOP_ENGINE=hybrid-v1, the
