@@ -17,7 +17,7 @@
   "tickets": [
     {"id": "SL-00", "file": "00-inventory.md", "status": "ready-for-agent"},
     {"id": "SL-01", "file": "01-run-driver.md", "status": "ready-for-human"},
-    {"id": "SL-02", "file": "02-domain-policy.md", "status": "needs-triage"},
+    {"id": "SL-02", "file": "02-domain-policy.md", "status": "ready-for-human"},
     {"id": "SL-03", "file": "03-operations-and-delivery.md", "status": "needs-triage"},
     {"id": "SL-04", "file": "04-session-events-recovery.md", "status": "needs-triage"},
     {"id": "SL-05", "file": "05-performance-and-product.md", "status": "needs-triage"},

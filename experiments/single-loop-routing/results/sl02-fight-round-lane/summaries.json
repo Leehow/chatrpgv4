@@ -1,0 +1,572 @@
+[
+ {
+  "run": 1,
+  "fixture": "fight-round",
+  "admission": "lane",
+  "wall_ms": 6576,
+  "status": "awaiting_player",
+  "reason": "pending_choice",
+  "steps": {
+   "operate": 5,
+   "decide": 4,
+   "infer": 2,
+   "finish": 1
+  },
+  "llm_steps": 2,
+  "llm_purposes": [
+   "bind",
+   "adjudicate"
+  ],
+  "jev_calls": 10,
+  "route_rows": 4,
+  "calls": [
+   {
+    "tool": "resolve",
+    "origin": "policy",
+    "ok": true,
+    "error": null,
+    "input": {
+     "action": {
+      "intent": "combat",
+      "weapon": "unarmed",
+      "decision": "combat:attack",
+      "target": "steven-knott",
+      "goal": "继续揍他",
+      "method": "继续揍他"
+     }
+    }
+   },
+   {
+    "tool": "resolve",
+    "origin": "model",
+    "ok": true,
+    "error": null,
+    "input": {
+     "action": {
+      "intent": "combat",
+      "goal": "诺特挥拳还击，不让自己再挨打",
+      "method": "近身还手",
+      "target": "investigator",
+      "actor": "Steven Knott",
+      "weapon": "unarmed",
+      "defense": "fight_back",
+      "decision": "combat:defend"
+     }
+    }
+   },
+   {
+    "tool": "resolve",
+    "origin": "policy",
+    "ok": true,
+    "error": null,
+    "input": {
+     "action": {
+      "intent": "combat",
+      "weapon": "unarmed",
+      "decision": "combat:attack",
+      "actor": "steven-knott",
+      "target": "investigator",
+      "goal": "combat:attack",
+      "method": "combat:attack"
+     }
+    }
+   },
+   {
+    "tool": "ask",
+    "origin": "model",
+    "ok": true,
+    "error": null,
+    "input": {
+     "kind": "mechanics",
+     "options": [
+      "dodge",
+      "fight_back"
+     ],
+     "binds": "defense:steven-knott-r4",
+     "text": "拳头挥出去，肩头却先撞上桌沿。这一下完全落空，手掌拍在桌面上，椅子往后一滑。{{check:fighting-brawl}}\n\n诺特跟着还了一拳，也没打中。{{check:fighting}}他喘着气，血还挂在下巴上，攥钥匙的那只手仍缩在胸前。另一只拳头已经抬起来，朝你脸上砸过来。\n\n{{say:史蒂文·诺特}}「别再碰我。」{{/say}}"
+    }
+   }
+  ],
+  "match": [
+   {
+    "baseline": "resolve combat:attack vs Steven Knott",
+    "matched": true,
+    "origin": "policy"
+   },
+   {
+    "baseline": "resolve combat:defend vs investigator",
+    "matched": true,
+    "origin": "model"
+   },
+   {
+    "baseline": "resolve combat:attack vs investigator",
+    "matched": true,
+    "origin": "policy"
+   },
+   {
+    "baseline": "ask",
+    "matched": true,
+    "origin": "model"
+   },
+   {
+    "baseline": "ask",
+    "matched": true,
+    "origin": "model"
+   }
+  ],
+  "admissions": [
+   {
+    "verb": "resolve",
+    "origin": "policy",
+    "clerk": "session_step",
+    "verdict": "authorized",
+    "ok": true,
+    "skipped": null,
+    "reviewer": "lane",
+    "ms": 2,
+    "jev_ms": null,
+    "confidence": null,
+    "jev_fallback": null,
+    "basis": {
+     "read": "table.resolve.options",
+     "path": "context.session.actions[0]",
+     "row": {
+      "decision": "combat:attack",
+      "actor": "investigator",
+      "targets": [
+       "steven-knott"
+      ],
+      "weapons": [
+       "unarmed"
+      ]
+     }
+    }
+   }
+  ],
+  "clerk": [
+   {
+    "tool": "resolve",
+    "call_id": "t6-c1",
+    "ok": true,
+    "ms": 174,
+    "clerk": "session_step",
+    "basis": {
+     "read": "table.resolve.options",
+     "path": "context.session.actions[0]",
+     "row": {
+      "decision": "combat:attack",
+      "actor": "investigator",
+      "targets": [
+       "steven-knott"
+      ],
+      "weapons": [
+       "unarmed"
+      ]
+     }
+    }
+   },
+   {
+    "tool": "resolve",
+    "call_id": "t6-c3",
+    "ok": true,
+    "ms": 162,
+    "clerk": "session_step",
+    "basis": {
+     "read": "table.resolve.options",
+     "path": "context.session.actions[0]",
+     "row": {
+      "decision": "combat:attack",
+      "actor": "steven-knott",
+      "targets": [
+       "investigator"
+      ],
+      "weapons": [
+       "unarmed"
+      ]
+     }
+    }
+   }
+  ],
+  "misses": []
+ },
+ {
+  "run": 2,
+  "fixture": "fight-round",
+  "admission": "lane",
+  "wall_ms": 4863,
+  "status": "awaiting_player",
+  "reason": "pending_choice",
+  "steps": {
+   "operate": 5,
+   "decide": 4,
+   "infer": 2,
+   "finish": 1
+  },
+  "llm_steps": 2,
+  "llm_purposes": [
+   "bind",
+   "adjudicate"
+  ],
+  "jev_calls": 5,
+  "route_rows": 4,
+  "calls": [
+   {
+    "tool": "resolve",
+    "origin": "policy",
+    "ok": true,
+    "error": null,
+    "input": {
+     "action": {
+      "intent": "combat",
+      "weapon": "unarmed",
+      "decision": "combat:attack",
+      "target": "steven-knott",
+      "goal": "继续揍他",
+      "method": "继续揍他"
+     }
+    }
+   },
+   {
+    "tool": "resolve",
+    "origin": "model",
+    "ok": true,
+    "error": null,
+    "input": {
+     "action": {
+      "intent": "combat",
+      "goal": "诺特挥拳还击，不让自己再挨打",
+      "method": "近身还手",
+      "target": "investigator",
+      "actor": "Steven Knott",
+      "weapon": "unarmed",
+      "defense": "fight_back",
+      "decision": "combat:defend"
+     }
+    }
+   },
+   {
+    "tool": "resolve",
+    "origin": "policy",
+    "ok": true,
+    "error": null,
+    "input": {
+     "action": {
+      "intent": "combat",
+      "weapon": "unarmed",
+      "decision": "combat:attack",
+      "actor": "steven-knott",
+      "target": "investigator",
+      "goal": "combat:attack",
+      "method": "combat:attack"
+     }
+    }
+   },
+   {
+    "tool": "ask",
+    "origin": "model",
+    "ok": true,
+    "error": null,
+    "input": {
+     "kind": "mechanics",
+     "options": [
+      "dodge",
+      "fight_back"
+     ],
+     "binds": "defense:steven-knott-r4",
+     "text": "拳头挥出去，肩头却先撞上桌沿。这一下完全落空，手掌拍在桌面上，椅子往后一滑。{{check:fighting-brawl}}\n\n诺特跟着还了一拳，也没打中。{{check:fighting}}他喘着气，血还挂在下巴上，攥钥匙的那只手仍缩在胸前。另一只拳头已经抬起来，朝你脸上砸过来。\n\n{{say:史蒂文·诺特}}「别再碰我。」{{/say}}"
+    }
+   }
+  ],
+  "match": [
+   {
+    "baseline": "resolve combat:attack vs Steven Knott",
+    "matched": true,
+    "origin": "policy"
+   },
+   {
+    "baseline": "resolve combat:defend vs investigator",
+    "matched": true,
+    "origin": "model"
+   },
+   {
+    "baseline": "resolve combat:attack vs investigator",
+    "matched": true,
+    "origin": "policy"
+   },
+   {
+    "baseline": "ask",
+    "matched": true,
+    "origin": "model"
+   },
+   {
+    "baseline": "ask",
+    "matched": true,
+    "origin": "model"
+   }
+  ],
+  "admissions": [
+   {
+    "verb": "resolve",
+    "origin": "policy",
+    "clerk": "session_step",
+    "verdict": "authorized",
+    "ok": true,
+    "skipped": null,
+    "reviewer": "lane",
+    "ms": 1,
+    "jev_ms": null,
+    "confidence": null,
+    "jev_fallback": null,
+    "basis": {
+     "read": "table.resolve.options",
+     "path": "context.session.actions[0]",
+     "row": {
+      "decision": "combat:attack",
+      "actor": "investigator",
+      "targets": [
+       "steven-knott"
+      ],
+      "weapons": [
+       "unarmed"
+      ]
+     }
+    }
+   }
+  ],
+  "clerk": [
+   {
+    "tool": "resolve",
+    "call_id": "t6-c1",
+    "ok": true,
+    "ms": 160,
+    "clerk": "session_step",
+    "basis": {
+     "read": "table.resolve.options",
+     "path": "context.session.actions[0]",
+     "row": {
+      "decision": "combat:attack",
+      "actor": "investigator",
+      "targets": [
+       "steven-knott"
+      ],
+      "weapons": [
+       "unarmed"
+      ]
+     }
+    }
+   },
+   {
+    "tool": "resolve",
+    "call_id": "t6-c3",
+    "ok": true,
+    "ms": 144,
+    "clerk": "session_step",
+    "basis": {
+     "read": "table.resolve.options",
+     "path": "context.session.actions[0]",
+     "row": {
+      "decision": "combat:attack",
+      "actor": "steven-knott",
+      "targets": [
+       "investigator"
+      ],
+      "weapons": [
+       "unarmed"
+      ]
+     }
+    }
+   }
+  ],
+  "misses": []
+ },
+ {
+  "run": 3,
+  "fixture": "fight-round",
+  "admission": "lane",
+  "wall_ms": 4587,
+  "status": "awaiting_player",
+  "reason": "pending_choice",
+  "steps": {
+   "operate": 5,
+   "decide": 4,
+   "infer": 2,
+   "finish": 1
+  },
+  "llm_steps": 2,
+  "llm_purposes": [
+   "bind",
+   "adjudicate"
+  ],
+  "jev_calls": 5,
+  "route_rows": 4,
+  "calls": [
+   {
+    "tool": "resolve",
+    "origin": "policy",
+    "ok": true,
+    "error": null,
+    "input": {
+     "action": {
+      "intent": "combat",
+      "weapon": "unarmed",
+      "decision": "combat:attack",
+      "target": "steven-knott",
+      "goal": "继续揍他",
+      "method": "继续揍他"
+     }
+    }
+   },
+   {
+    "tool": "resolve",
+    "origin": "model",
+    "ok": true,
+    "error": null,
+    "input": {
+     "action": {
+      "intent": "combat",
+      "goal": "诺特挥拳还击，不让自己再挨打",
+      "method": "近身还手",
+      "target": "investigator",
+      "actor": "Steven Knott",
+      "weapon": "unarmed",
+      "defense": "fight_back",
+      "decision": "combat:defend"
+     }
+    }
+   },
+   {
+    "tool": "resolve",
+    "origin": "policy",
+    "ok": true,
+    "error": null,
+    "input": {
+     "action": {
+      "intent": "combat",
+      "weapon": "unarmed",
+      "decision": "combat:attack",
+      "actor": "steven-knott",
+      "target": "investigator",
+      "goal": "combat:attack",
+      "method": "combat:attack"
+     }
+    }
+   },
+   {
+    "tool": "ask",
+    "origin": "model",
+    "ok": true,
+    "error": null,
+    "input": {
+     "kind": "mechanics",
+     "options": [
+      "dodge",
+      "fight_back"
+     ],
+     "binds": "defense:steven-knott-r4",
+     "text": "拳头挥出去，肩头却先撞上桌沿。这一下完全落空，手掌拍在桌面上，椅子往后一滑。{{check:fighting-brawl}}\n\n诺特跟着还了一拳，也没打中。{{check:fighting}}他喘着气，血还挂在下巴上，攥钥匙的那只手仍缩在胸前。另一只拳头已经抬起来，朝你脸上砸过来。\n\n{{say:史蒂文·诺特}}「别再碰我。」{{/say}}"
+    }
+   }
+  ],
+  "match": [
+   {
+    "baseline": "resolve combat:attack vs Steven Knott",
+    "matched": true,
+    "origin": "policy"
+   },
+   {
+    "baseline": "resolve combat:defend vs investigator",
+    "matched": true,
+    "origin": "model"
+   },
+   {
+    "baseline": "resolve combat:attack vs investigator",
+    "matched": true,
+    "origin": "policy"
+   },
+   {
+    "baseline": "ask",
+    "matched": true,
+    "origin": "model"
+   },
+   {
+    "baseline": "ask",
+    "matched": true,
+    "origin": "model"
+   }
+  ],
+  "admissions": [
+   {
+    "verb": "resolve",
+    "origin": "policy",
+    "clerk": "session_step",
+    "verdict": "authorized",
+    "ok": true,
+    "skipped": null,
+    "reviewer": "lane",
+    "ms": 1,
+    "jev_ms": null,
+    "confidence": null,
+    "jev_fallback": null,
+    "basis": {
+     "read": "table.resolve.options",
+     "path": "context.session.actions[0]",
+     "row": {
+      "decision": "combat:attack",
+      "actor": "investigator",
+      "targets": [
+       "steven-knott"
+      ],
+      "weapons": [
+       "unarmed"
+      ]
+     }
+    }
+   }
+  ],
+  "clerk": [
+   {
+    "tool": "resolve",
+    "call_id": "t6-c1",
+    "ok": true,
+    "ms": 166,
+    "clerk": "session_step",
+    "basis": {
+     "read": "table.resolve.options",
+     "path": "context.session.actions[0]",
+     "row": {
+      "decision": "combat:attack",
+      "actor": "investigator",
+      "targets": [
+       "steven-knott"
+      ],
+      "weapons": [
+       "unarmed"
+      ]
+     }
+    }
+   },
+   {
+    "tool": "resolve",
+    "call_id": "t6-c3",
+    "ok": true,
+    "ms": 168,
+    "clerk": "session_step",
+    "basis": {
+     "read": "table.resolve.options",
+     "path": "context.session.actions[0]",
+     "row": {
+      "decision": "combat:attack",
+      "actor": "steven-knott",
+      "targets": [
+       "investigator"
+      ],
+      "weapons": [
+       "unarmed"
+      ]
+     }
+    }
+   }
+  ],
+  "misses": []
+ }
+]

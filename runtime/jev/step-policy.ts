@@ -18,7 +18,7 @@
  */
 import {createHash} from 'node:crypto';
 import type {ObservationView, OperationProposal, RunPolicy, RunView as DriverView, StepRequest as DriverStepRequest} from '@earendil-works/pi-agent-core';
-import type {DecisionBatch, DecisionResult, ReadSet, ScopeBinding} from './contracts.ts';
+import type {DecisionBatch, DecisionResult, IntentBinding, ReadSet, ScopeBinding} from './contracts.ts';
 import {JEV_MODEL, packDecisionBatch, PackingError} from './question-packing.ts';
 import {PREPARATION_DECISION_BUDGET} from './preparation-budget.ts';
 import {PRESELECT_ALLOWANCE_DEFAULT_MS} from '../../extensions/jev/agent/config.js';
@@ -29,7 +29,24 @@ const digest = (value: unknown): string => createHash('sha256').update(JSON.stri
 const bytes = (value: unknown): number => Buffer.byteLength(JSON.stringify(value), 'utf8');
 
 /** closed: the host can issue the complete vocabulary; open: only a language model can produce the value. */
-export interface Unbound {name: string; required: boolean; vocabulary: 'closed' | 'open'; options?: string[]; binder?: 'ordinary-resolve'}
+export interface Unbound {name: string; required: boolean; vocabulary: 'closed' | 'open'; options?: string[]; binder?: 'ordinary-resolve';
+  /** What each closed option means, from the contract or the kernel row that issued it (the bind's criteria). */
+  descriptions?: Record<string, string>}
+/** One shape a candidate takes once its `decision` is bound: the chosen action with its own parameters. */
+export interface CandidateVariant {label: string; bound: Record<string, Json>; unbound: Unbound[]; basis?: Json}
+/**
+ * The clerk's authority to run a candidate without asking the Keeper (spec Rulings, "The clerk's authority";
+ * contract §135.3). A closed contract enum over where the candidate came from, never over its words:
+ * - `declared_bookkeeping` (a): a move to an available exit, a located or issued clue, a scene handout, a
+ *   person on the roster under the table's own label;
+ * - `mod_contact` (b): a contact check an active Mod declares;
+ * - `declared_check` (c): the ordinary check, bound by the host's closed route/profile binder;
+ * - `session_step`: a combat or chase step whose every parameter the kernel's session view issues (the
+ *   "parameters-only steps never go to the LLM" ruling).
+ * Fetching data (d) is the read step itself, not a candidate. Everything else is the Keeper's.
+ */
+export const CLERK_AUTHORITY = ['declared_bookkeeping', 'mod_contact', 'declared_check', 'session_step'] as const;
+export type ClerkAuthority = typeof CLERK_AUTHORITY[number];
 /** A host-issued step candidate (design §5.1): what the host can perform now, and what it still needs. */
 export interface Candidate {
   /** Host identity, stable while the state it came from is unchanged. Never sent to the model. */
@@ -43,6 +60,14 @@ export interface Candidate {
   bound: Record<string, Json>;
   unbound: Unbound[];
   detail?: Json;
+  /** The clerk authority that lets the host run it (internal: never shown to Jev or the model). */
+  clerk?: ClerkAuthority;
+  /** The kernel's issued row it was built from, carried by every step it causes (internal: never shown to Jev). */
+  basis?: Json;
+  /** The kernel restricts the next operation to this one (a pending NPC defence): structure selects it, not a route. */
+  forced?: boolean;
+  /** A closed choice among issued actions (an NPC's turn): the bound `decision` selects the variant that then runs. */
+  variants?: Record<string, CandidateVariant>;
 }
 export type Binding = 'none' | 'closed' | 'open';
 export function bindingOf(candidate: Candidate): Binding {
@@ -83,6 +108,15 @@ export interface Observation {
   summary?: Json;
 }
 export interface TurnContext {scene: string; clock: Json; present: string[]; receipts: string[]}
+/**
+ * The Keeper's batch as an artifact of the run (spec Rulings, "Batches"; contract §135.5): the calls of one model
+ * response in their order, each with one success branch (the next step) and one failure branch (back to the
+ * Keeper). The driver's operate step is the only executor; the plan never runs anything itself.
+ */
+export interface PlanStep {index: number; operation: string; onSuccess: 'next'; onFailure: 'return_to_keeper'; status: 'pending' | 'ok' | 'fell' | 'skipped'; reason?: string}
+export interface PlanArtifact {origin: 'keeper'; step: number; steps: PlanStep[]}
+/** What the run still owes beyond its pending steps (the driver's boundary requirements); optional. */
+export interface Requirements {pending: string[]}
 export interface Budget {jevCalls: number; jevMs: number; steps: number; maxJevCalls: number; maxJevMs: number; maxSteps: number}
 export interface RunView {
   runId: string;
@@ -98,6 +132,8 @@ export interface RunView {
   consumed: string[];
   budget: Budget;
   stopped?: {reason: string; purpose?: string};
+  /** The Keeper batch in execution, if any (optional: a simple turn has none). */
+  plan?: PlanArtifact;
 }
 export type StepRequest =
   | {kind: 'direct'; item: PendingItem}
@@ -184,12 +220,7 @@ export function interpretRoute(view: RunView, offered: Candidate[], result: Deci
   const keys = selected.map(entry => entry.candidate.key);
   if (selected.length) {
     const pending: PendingItem[] = [];
-    for (const {candidate} of selected) {
-      const binding = bindingOf(candidate);
-      if (binding === 'none') pending.push({kind: 'direct', purpose: 'execute', candidate});
-      else if (binding === 'closed') pending.push({kind: 'decide', purpose: 'bind', candidate});
-      else pending.push({kind: 'infer', purpose: 'bind', candidate, reason: 'open_parameters'}, {kind: 'direct', purpose: 'llm_proposal', candidate});
-    }
+    for (const {candidate} of selected) pending.push(...itemsFor(candidate));
     return {pending, choice: keys.join(' + '), confidence, reason: `selected_${selected.length}`, selected: keys, exit: exit.choice};
   }
   if (!exit.choice) return {pending: [{kind: 'infer', purpose: 'adjudicate', reason: 'jev_no_answer'}], reason: 'jev_no_answer', selected: [], exit: undefined};
@@ -261,8 +292,10 @@ export function bindBatch(view: RunView, candidate: Candidate, scope: ScopeBindi
     chosen: candidateView(candidate), policy: ROUTE_POLICY} as Json;
   return {id: digest([BIND_FAMILY, view.runId, view.observations.length, state]), model: JEV_MODEL, family: BIND_FAMILY, familyVersion: '1',
     scope, readSet, state, questions: closed.map(value => ({key: value.name, target: `${value.name} of the chosen operation`, type: 'choice' as const,
-      instructions: `Select the ${value.name} that the chosen operation implements for the player's declared action. Choose unknown when it cannot be told.`,
-      criteria: {...Object.fromEntries(value.options!.map(option => [option, option])), unknown: 'Cannot be determined from the supplied state.'}}))};
+      instructions: `Select the ${value.name} of the chosen operation. When the player's input declares it, select that. When it is the own choice of `
+        + `the person acting in the chosen operation (an NPC's defence or action), select the option that fits that person in the current situation `
+        + `shown in the chosen operation's detail. Choose unknown when it cannot be told.`,
+      criteria: {...Object.fromEntries(value.options!.map(option => [option, value.descriptions?.[option] ?? option])), unknown: 'Cannot be determined from the supplied state.'}}))};
 }
 
 /** Closed binding answers become bound values, or an LLM bind when any answer is unknown or unconfident. */
@@ -277,6 +310,13 @@ export function interpretBind(candidate: Candidate, batch: DecisionBatch, result
     if (!choice || choice === 'unknown') return llm('unknown_binding');
     if (confidence !== undefined && confidence < gate) return {...llm('low_confidence'), confidence};
     extra[question.key] = choice;lowest = Math.min(lowest, confidence ?? 1);
+  }
+  // A closed choice among issued actions: the chosen variant replaces the choice and carries its own parameters on.
+  const variant = candidate.variants?.[String(extra.decision)];
+  if (variant) {
+    const chosen: Candidate = {...candidate, label: variant.label, bound: {...variant.bound}, unbound: variant.unbound,
+      ...(variant.basis !== undefined ? {basis: variant.basis} : {}), variants: undefined};
+    return {pending: itemsFor(chosen), extra, confidence: lowest, reason: 'bound_variant'};
   }
   return {pending: [{kind: 'direct', purpose: 'execute', candidate, extra}], extra, confidence: lowest, reason: 'bound'};
 }
@@ -393,9 +433,25 @@ export function settleLlmProposal(view: RunView, step: number, item: PendingItem
   return {step, kind: 'direct', purpose: 'llm_proposal', choice: item.candidate!.key, confidence: null, ms, jev_calls: 0, detail: summary};
 }
 
-/** Fresh reads after a step. Candidates already consumed this turn are never offered again, whoever read them. */
+/** The items that carry one candidate: direct when bound, a Jev bind when closed, an LLM bind when open. */
+export function itemsFor(candidate: Candidate, reason?: string): PendingItem[] {
+  const binding = bindingOf(candidate);
+  return binding === 'none' ? [{kind: 'direct', purpose: 'execute', candidate, ...(reason ? {reason} : {})}]
+    : binding === 'closed' ? [{kind: 'decide', purpose: 'bind', candidate, ...(reason ? {reason} : {})}]
+      : [{kind: 'infer', purpose: 'bind', candidate, reason: 'open_parameters'}, {kind: 'direct', purpose: 'llm_proposal', candidate}];
+}
+/**
+ * Fresh reads after a step. Candidates already consumed this turn are never offered again, whoever read them.
+ * A candidate the kernel forces (the only operation it accepts next, e.g. an NPC's pending defence) goes to
+ * the front of the run at once: that step is determined by structure, so it is never a route question.
+ */
 function applyFresh(view: RunView, fresh: Fresh): void {
   view.context = fresh.context;view.candidates = fresh.candidates.filter(candidate => !view.consumed.includes(candidate.key));view.stateVersion++;
+  // A forced step the state no longer forces (the Keeper's own batch settled it first) is not owed any more.
+  const live = new Set(view.candidates.map(candidate => candidate.key));
+  view.pending = view.pending.filter(item => !item.candidate?.forced || live.has(item.candidate.key));
+  for (const candidate of view.candidates) if (candidate.forced && !view.pending.some(item => item.candidate?.key === candidate.key))
+    view.pending.unshift(...itemsFor(candidate, 'forced'));
 }
 
 export interface ReadResult {materials: Material[]; located?: unknown; summary: Json; calls?: number; ms?: number}
@@ -455,9 +511,13 @@ export type StepArtifact =
   | {kind: 'bind'; result: DecisionResult}
   | {kind: 'bind-ordinary'; bound: OrdinaryBinding}
   | {kind: 'locate'; calls: number; ms: number; summary: Json}
-  /** A read may also bind the Jev scope of the run (the table's worldline, loop and source revision). */
-  | {kind: 'read'; read: ReadResult; fresh: Fresh; binding?: {scope: ScopeBinding; readSet: ReadSet}}
-  | {kind: 'execute'; executed: {ok: boolean; summary: Json}; fresh?: Fresh};
+  /** A read binds the Jev scope of the run (the table's worldline, loop and source revision) and the run's IntentBinding. */
+  | {kind: 'read'; read: ReadResult; fresh: Fresh; binding?: {scope: ScopeBinding; readSet: ReadSet; intent?: IntentBinding}}
+  /**
+   * An executed operation. `fell` marks a Keeper batch step whose failure branch returns to the Keeper (refused, or
+   * a check the kernel reports failed); `skipped` a later step of that batch the host did not run.
+   */
+  | {kind: 'execute'; executed: {ok: boolean; summary: Json}; fresh?: Fresh; fell?: string; skipped?: boolean};
 
 export interface StepPolicyOptions {
   /** Jev scope of the run when known up front; otherwise the first read step binds it. */
@@ -470,7 +530,11 @@ export interface StepPolicyOptions {
   /** Read before the first route (default true): the loop's first step is the read. */
   readFirst?: boolean;
 }
-export interface StepPolicyState {view: RunView; gate: number; scope?: ScopeBinding; readSet?: ReadSet}
+/**
+ * The policy's state. `intent` is required before any policy-origin write (the read binds it); `requirements`
+ * and the Keeper batch (`view.plan`) are optional.
+ */
+export interface StepPolicyState {view: RunView; gate: number; scope?: ScopeBinding; readSet?: ReadSet; intent?: IntentBinding; requirements?: Requirements}
 
 const unavailable = (reason: string): DecisionResult => ({batchId: '', status: 'unavailable', answers: {}, coverage: {required: [], answered: [], unknown: []}, issues: [], failure: {code: reason, retryable: false}} as unknown as DecisionResult);
 const decisionOf = (observation: ObservationView): DecisionResult => {
@@ -478,6 +542,12 @@ const decisionOf = (observation: ObservationView): DecisionResult => {
   return observation.status === 'ok' && artifact && (artifact.kind === 'route' || artifact.kind === 'bind') ? artifact.result
     : unavailable(observation.status === 'ok' ? 'no_answer' : observation.status);
 };
+/** What a model-visible infer request says about the operation the LLM is asked to complete (never its host key). */
+function operationView(candidate: Candidate): Json {
+  const {goal, method, ...bound} = candidate.bound as Row;
+  return {verb: candidate.verb, family: candidate.family, label: candidate.label, bound: bound as Json,
+    needs: candidate.unbound.filter(value => value.required).map(value => value.options?.length ? {name: value.name, options: value.options} : {name: value.name}) as Json};
+}
 
 /**
  * This policy as a Pi `RunPolicy`. `next` maps the prototype's step onto a driver step; `reduce` recomputes
@@ -495,7 +565,7 @@ export function createStepPolicy(options: StepPolicyOptions): RunPolicy<StepPoli
   const unbound = {batch: undefined, reason: 'no_scope_binding'};
   return {
     name: 'coc-step-policy',
-    version: '1',
+    version: '2',
     initial: input => ({gate, view: initialView({runId: input.runId, rawInput: input.rawInput, context: options.context,
       candidates: options.candidates ?? [], budget: options.budget, readFirst: options.readFirst})}),
     next(driver: DriverView<StepPolicyState>): DriverStepRequest {
@@ -505,11 +575,14 @@ export function createStepPolicy(options: StepPolicyOptions): RunPolicy<StepPoli
       const state = driver.policyState.view, request = next(state), binding = bindingFor(driver.policyState);
       if (request.kind === 'finish') return {kind: 'finish', outcome: 'delivered', reason: request.reason};
       if (request.kind === 'infer') return {kind: 'infer', purpose: request.purpose, reason: request.reason,
-        ...(request.item?.candidate ? {request: {candidate: request.item.candidate.key}} : {})};
+        request: {purpose: request.purpose, reason: request.reason,
+          ...(request.item?.candidate ? {candidate: request.item.candidate.key, operation: operationView(request.item.candidate),
+            // Host-only: the kernel row the chosen operation came from, recorded with the step; never put in front of the model.
+            ...(request.item.candidate.basis !== undefined ? {basis: request.item.candidate.basis} : {})} : {})}};
       if (request.kind === 'decide' && request.purpose === 'route') {
         if (!binding) return {kind: 'decide', purpose: 'route', question: unbound};
         const {batch, offered} = routeBatch(state, binding.scope, binding.readSet);
-        return {kind: 'decide', purpose: 'route', question: {batch, offered: offered.map(candidate => candidate.key)}};
+        return {kind: 'decide', purpose: 'route', question: {batch, offered, located: state.located, gate: driver.policyState.gate}};
       }
       if (request.kind === 'decide' && request.purpose === 'locate') return {kind: 'decide', purpose: 'locate', question: {rawInput: state.rawInput}};
       if (request.kind === 'decide') {
@@ -521,32 +594,45 @@ export function createStepPolicy(options: StepPolicyOptions): RunPolicy<StepPoli
       const item = request.item;
       const proposal: OperationProposal = item.purpose === 'read' ? {origin: 'policy', operation: 'read', readOnly: true, label: 'read the table state'}
         : item.purpose === 'llm_proposal' ? {origin: 'policy', operation: 'llm_proposal', readOnly: true, params: {candidate: item.candidate?.key}}
-          : {origin: 'policy', operation: 'execute', readOnly: false, label: item.candidate?.label, params: {candidate: item.candidate, extra: item.extra ?? {}}};
+          : {origin: 'policy', operation: 'execute', readOnly: false, label: item.candidate?.label,
+            params: {candidate: item.candidate, extra: item.extra ?? {}, intent: driver.policyState.intent ?? null}};
       return {kind: 'operate', proposals: [proposal]};
     },
     reduce(policyState, observation, driver) {
       const view = structuredClone(policyState.view);
+      const requirements = driver.pendingRequirements.length ? {requirements: {pending: [...driver.pendingRequirements]}} : {};
       if (observation.kind === 'operate' && observation.origin === 'model') {
         // The model's own calls: the prototype's direct model-origin execute, one per call, with the arguments the
-        // model sent (read back from the infer that proposed them).
+        // model sent (read back from the infer that proposed them). The calls of one response are the Keeper's
+        // batch: in order, success goes on, failure returns to the Keeper.
         const proposed = new Map(driver.observations.flatMap(value => value.proposals ?? []).map(proposal => [proposal.toolCall?.id, proposal]));
+        const plan: PlanArtifact = {origin: 'keeper', step: observation.sequence, steps: []};
+        let fell: string | undefined;
         for (const [index, toolResult] of (observation.toolResults ?? []).entries()) {
           const outcome = observation.outcomes?.[index], proposal = proposed.get(toolResult.toolCallId);
           const artifact = outcome?.artifact as StepArtifact | undefined;
+          const executed = artifact?.kind === 'execute' ? artifact : undefined;
           const ok = outcome?.status === 'ok' && !toolResult.isError;
+          plan.steps.push({index, operation: toolResult.toolName, onSuccess: 'next', onFailure: 'return_to_keeper',
+            status: executed?.skipped ? 'skipped' : executed?.fell ? 'fell' : ok ? 'ok' : 'fell',
+            ...(executed?.fell ? {reason: executed.fell} : executed?.skipped ? {reason: 'earlier_step_fell'} : {})});
+          if (!fell && (executed?.fell || !ok)) fell = executed?.fell ?? `${toolResult.toolName}_refused`;
           settleExecute(view, ++view.budget.steps, {kind: 'direct', purpose: 'execute',
             call: {method: toolResult.toolName, params: (proposal?.params ?? {}) as Record<string, Json>, label: toolResult.toolName}},
-          {ok, summary: {tool: toolResult.toolName, call: toolResult.toolCallId, status: outcome?.status ?? 'refused'} as Json},
-          artifact?.kind === 'execute' ? artifact.fresh : undefined, observation.ms);
+          {ok, summary: {tool: toolResult.toolName, call: toolResult.toolCallId, status: outcome?.status ?? 'refused', ...(executed?.summary && typeof executed.summary === 'object' ? {result: executed.summary} : {})} as Json},
+          executed?.fresh, observation.ms);
         }
-        return {...policyState, view};
+        if (plan.steps.length > 1 || fell) view.plan = plan;
+        // A fallen branch returns to the Keeper at once: the Keeper decides what failure means, not a route.
+        if (fell && !view.stopped && observation.delivery === undefined) view.pending.unshift({kind: 'infer', purpose: 'adjudicate', reason: 'batch_fallen'});
+        return {...policyState, ...requirements, view};
       }
       const request = next(view), binding = bindingFor(policyState);
       if (request.kind === 'finish') return policyState;
       const step = startStep(view, request);
       // A policy operate carries one proposal; its outcome's artifact is the step's.
       const artifact = (observation.kind === 'operate' ? observation.outcomes?.[0]?.artifact : observation.artifact) as StepArtifact | undefined;
-      let bound: Pick<StepPolicyState, 'scope' | 'readSet'> = {};
+      let bound: Pick<StepPolicyState, 'scope' | 'readSet' | 'intent'> = {};
       if (request.kind === 'decide' && request.purpose === 'route') {
         const {batch, offered} = binding ? routeBatch(policyState.view, binding.scope, binding.readSet)
           : {batch: {state: null} as unknown as DecisionBatch, offered: policyState.view.candidates};
@@ -572,14 +658,15 @@ export function createStepPolicy(options: StepPolicyOptions): RunPolicy<StepPoli
       } else if (request.item.purpose === 'read') {
         const read = artifact?.kind === 'read' ? artifact : {read: {materials: [], summary: {status: observation.status} as Json}, fresh: {context: view.context, candidates: view.candidates}};
         settleRead(view, step, read.read, read.fresh, observation.ms);
-        if (artifact?.kind === 'read' && artifact.binding) bound = {scope: artifact.binding.scope, readSet: artifact.binding.readSet};
+        if (artifact?.kind === 'read' && artifact.binding) bound = {scope: artifact.binding.scope, readSet: artifact.binding.readSet,
+          ...(artifact.binding.intent ? {intent: artifact.binding.intent} : {})};
       } else if (request.item.purpose === 'llm_proposal') {
         settleLlmProposal(view, step, request.item, observation.ms);
       } else {
         const executed = artifact?.kind === 'execute' ? artifact : {executed: {ok: false, summary: {status: observation.status} as Json}, fresh: undefined};
         settleExecute(view, step, request.item, executed.executed, executed.fresh, observation.ms);
       }
-      return {...policyState, ...bound, view};
+      return {...policyState, ...requirements, ...bound, view};
     },
   };
 }
