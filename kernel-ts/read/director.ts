@@ -1,4 +1,5 @@
 /** The existing Director signal and scoring tables, with no write or settlement side. */
+import { clueGuards } from "./obligations.js";
 import { DirectorGraph, Ontology } from "./content.js";
 import { semanticName } from "./rule-facts.js";
 import { ModuleGraph, recordOf, moduleDeclaration, conditionMet, describeCondition } from "./module-graph.js";
@@ -278,7 +279,7 @@ export function score(dg: DirectorGraph, sig: Row, scene: Row, options: {
 /** Project the recorded delivery and check, followed by any unlock conditions (§30.12).
  *  Missing check metadata says nothing about whether the source requires or waives a roll.
  *  The Keeper can consult the existing source/rule material without treating this gap as a new gate. */
-export function clueGate(graph: ModuleGraph, node: Row): string {
+export function clueGate(graph: ModuleGraph, node: Row, world?: Row): string {
     const profile = graph.clueProfile(node),
         delivery = string(profile.delivery_kind || "unknown"),
         conditions: string[] = [];
@@ -289,6 +290,10 @@ export function clueGate(graph: ModuleGraph, node: Row): string {
         if (truth(condition))
             conditions.push(describeCondition(condition));
     }
+    // Contract §134.10: a stated obligation of the active scene that guards the clue and is not settled
+    // is part of "how is this obtained", so it joins the one gate string every reader shares.
+    for (const handle of clueGuards(graph, world, node))
+        conditions.push(`guarded by obligation ${handle}`);
     const check = authored || (delivery === "skill_check" ? "check required (skill unspecified)" : "check unspecified");
     return `${delivery}: ${check}` + (conditions.length ? "; " + conditions.join("; ") : "");
 }
@@ -312,7 +317,7 @@ export function directorSection(dg: DirectorGraph, ontology: Ontology, graph: Mo
     if (scored.beat === "REVEAL")
         section.reveal = graph.sceneClueIds(scene).map(id => graph.nodes.get(id)!).filter(node => !array(world.discovered_clues).includes(graph.handle(node))).slice(0, 5).map(node => ({
             clue: graph.handle(node),
-            gate: clueGate(graph, node)
+            gate: clueGate(graph, node, world)
         }));
     return section;
 }

@@ -11,7 +11,8 @@ import { incapacitationClocks } from "./incapacitation.js";
 import { evidenceAcquired, evidenceDeliveryRecords } from "./continuity.js";
 import { worldlineSection, crossLineReader, loopObligation, worldlineSignals } from "./worldline.js";
 import { offerObligations } from "../mods/object-offer.js";
-import { modContext } from "./mods.js";
+import { modContext, activeMods } from "./mods.js";
+import { obligationNodes, sceneObligations, capsuleRow } from "./obligations.js";
 import { mechanicsOf } from "./mechanics.js";
 import { directorOffer } from "./offer.js";
 import { pythonJsonDumps, utf8Bytes } from "../json.js";
@@ -347,7 +348,13 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
     const presentNames = [...present.map(n => graph.displayName(n)), ...present.map(n => graph.handle(n))],
         here = [graph.handle(scene), sceneLabel(graph, world, scene)],
         memoryAnchors = [...presentNames, ...party.map(sheet => string(sheet.name)), graph.handle(scene), ...evidenceAnchors(graph, world, campaign.records)];
-    const obligations = [...choiceObligation(turn.pending_choice), ...sessionObligation(session), ...continuationRows(continuations), ...questObligations(graph, world), ...promiseObligations(memory), ...noteObligations(campaign.logs.get("notes.jsonl") ?? [], presentNames, here), ...loopObligation(worldlines), ...offerObligations(world)];
+    // Contract §134.10: the scene's stated obligations, from the same projection the options read issues,
+    // after the continuations and before the quests so a scene row outlives a quest row at the budget.
+    const sceneRows = obligationNodes(graph, scene).length ? sceneObligations(graph, world, scene, {
+        receipts: [...campaign.records.flatMap(record => array(record.receipts)), ...array(turn.receipts)],
+        modChecks: (await activeMods(context, world)).flatMap(mod => array(mod.contributes.checks).map(check => ({ mod: string(mod.id), check })))
+    }).map(capsuleRow) : [];
+    const obligations = [...choiceObligation(turn.pending_choice), ...sessionObligation(session), ...continuationRows(continuations), ...sceneRows, ...questObligations(graph, world), ...promiseObligations(memory), ...noteObligations(campaign.logs.get("notes.jsonl") ?? [], presentNames, here), ...loopObligation(worldlines), ...offerObligations(world)];
     const sig = signals({
         graph,
         world,
