@@ -11,7 +11,8 @@ import type { HostRuntime } from "../../runtime/host.ts";
 import {AuditBudget, reviewUnavailable} from './audit-budget.ts';
 import {resolveUiWordsSync} from '../../runtime/ui-words.ts';
 import {extensionContentRoot, extensionHome, fill} from '../ui/words.ts';
-import {publicDefinition} from '../../kernel-ts/mods/public-definition.ts';
+import {publicDefinition, publicUsage} from '../../kernel-ts/mods/public-definition.ts';
+import {patchCard} from '../table/card-patch.ts';
 
 type Call = (method: string, params: Record<string, unknown>) => Promise<any>;
 
@@ -163,6 +164,14 @@ export default function modsExtension(pi: ExtensionAPI): void {
             note({lane: 'usage-prefetch', campaign, turn, object: target.name, prefetched: true,
               ok: true, enabled: result !== null, negative: result?.usage === null,
               job: result?.provenance?.job ?? null, ms: Date.now() - began});
+            // §132: the card that named this object shows what the sheet now shows for it. The scan lists
+            // instances, not the receipts that named them, so the card is found by the object's name. Only
+            // an object an investigator holds has a usage line on the sheet, so only it gets one here.
+            if (result?.usage && target.owner?.kind === 'investigator') {
+              const shown = publicUsage(result.usage);
+              if (typeof shown.name === 'string' && shown.name)
+                patchCard(pi, {campaign, card: {}, patch: {objects: {[target.name]: {usages: {[shown.name]: shown}}}}, source: 'usage-prefetch'});
+            }
           } catch (error) {
             note({lane: 'usage-prefetch', campaign, turn, object: target.name, prefetched: true,
               ok: false, cancelled: controller.signal.aborted, cause: errorText(error), ms: Date.now() - began,
@@ -570,10 +579,12 @@ export default function modsExtension(pi: ExtensionAPI): void {
   const announced = new Set<string>();
   /**
    * Contract §129. A card that named an object while its parameters were being prepared drew the name
-   * with a waiting mark and nothing to open; this session entry is the word that opens it. The Electron
-   * backend reads it (`coc-view.ts` `objectDetailsOf`): the live transcript redraws the waiting card in
-   * place, and every re-read of the transcript draws that card open. `object` is the definition's player
-   * view by the same function the sheet uses, so the card never shows what the sheet would not.
+   * with a waiting mark and nothing to open; this word opens it. Since §132 it is a card patch naming the
+   * definition (this lane cannot know which card named it): the Electron backend (`coc-view.ts`
+   * `CocCardLedger`) redraws the waiting card in place on the live transcript, and every re-read draws it
+   * open. `object` is the definition's player view by the same function the sheet uses, so the card never
+   * shows what the sheet would not; a dropped preparation deletes it again (`object: null`). The §129
+   * `coc-object-details` entry is still appended beside it for one release, for a reader that predates §132.
    */
   function announceDetails(campaign: string, objects: {name: string; definition: "ready" | "none"; object?: Record<string, unknown>}[]): void {
     const fresh = objects.filter(entry => entry.definition === "none" || !announced.has(JSON.stringify([campaign, entry.name])));
@@ -582,8 +593,11 @@ export default function modsExtension(pi: ExtensionAPI): void {
       const key = JSON.stringify([campaign, entry.name]);
       if (entry.definition === "ready") announced.add(key); else announced.delete(key);
     }
+    // A card that cannot be told keeps its waiting mark until a re-read; the turn is not the cost.
+    patchCard(pi, {campaign, card: {}, source: 'object-details', patch: {definitions: Object.fromEntries(fresh.map(entry =>
+      [entry.name, entry.definition === 'ready' ? {definition: 'ready', object: entry.object} : {definition: 'none', object: null}]))}});
     try { (pi as ExtensionAPI & {appendEntry?: ExtensionAPI["appendEntry"]}).appendEntry?.("coc-object-details", {campaign, objects: fresh}); }
-    catch { /* a card that cannot be told keeps its waiting mark until a re-read; the turn is not the cost */ }
+    catch { /* the legacy word is a courtesy to an older reader */ }
   }
 
   /**

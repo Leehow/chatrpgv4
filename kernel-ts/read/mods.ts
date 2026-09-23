@@ -11,7 +11,7 @@ import { threadSection } from "./thread.js";
 import { pacingSection } from "./pacing.js";
 import { entries, values, array, row, truth, string, number, integer, numeric, normalize, sorted, chars, length, clone, pick, repr, type Row } from "./values.js";
 import { claimedEquipment, queuedDefinition, queuedRegistrations } from "../mods/queue.js";
-import { publicDefinition } from "../mods/public-definition.js";
+import { publicDefinition, publicUsage } from "../mods/public-definition.js";
 import {CONTINUITY_AUDIT, CONTINUITY_AUDIT_V2} from '../mods/audit-result.js';
 import {USAGE_CAPABILITY, usageViews} from '../mods/usages.js';
 import {publicOffer} from '../mods/object-offer.js';
@@ -767,13 +767,13 @@ function publicUsageWeapon(world: Row, weapon: Row, known: Row | undefined): Row
         instance = row(row(row(world.objects).instances)[string(weapon.object_id)]);
     if (!known || !truth(usage.id) || usage.object_id !== weapon.object_id)
         return identity;
-    const parameters = row(usage.parameters),
-        fields = array(row(usage.player_view).fields),
+    // Contract §132: the card's usage line reads this same view, from the same function.
+    const shown = publicUsage(usage),
         state = row(instance.state);
     return {
         ...identity,
         usage: usage.name,
-        ...Object.fromEntries(fields.filter(key => typeof key === "string" && Object.hasOwn(parameters, key)).map(key => [key, parameters[key]])),
+        ...shown.parameters,
         ...(Object.hasOwn(state, "ammo") ? { ammo: state.ammo ?? null } : {})
     };
 }
