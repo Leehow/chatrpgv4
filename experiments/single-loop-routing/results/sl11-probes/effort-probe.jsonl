@@ -1,0 +1,18 @@
+{"rep":1,"effort":"omitted","status":200,"ms":3558,"accepted":true,"echoed_effort":"high","output_tokens":174,"reasoning_tokens":173,"answer":"18","error":null}
+{"rep":1,"effort":"none","status":400,"ms":266,"accepted":false,"echoed_effort":null,"output_tokens":null,"reasoning_tokens":null,"answer":"","error":"This model does not support `reasoning_effort` value `none`."}
+{"rep":1,"effort":"off","status":400,"ms":522,"accepted":false,"echoed_effort":null,"output_tokens":null,"reasoning_tokens":null,"answer":"","error":"Invalid reasoning effort."}
+{"rep":1,"effort":"minimal","status":200,"ms":1810,"accepted":true,"echoed_effort":"low","output_tokens":160,"reasoning_tokens":159,"answer":"18","error":null}
+{"rep":1,"effort":"low","status":200,"ms":1799,"accepted":true,"echoed_effort":"low","output_tokens":130,"reasoning_tokens":129,"answer":"18","error":null}
+{"rep":1,"effort":"medium","status":200,"ms":1485,"accepted":true,"echoed_effort":"medium","output_tokens":114,"reasoning_tokens":113,"answer":"18","error":null}
+{"rep":1,"effort":"high","status":200,"ms":2192,"accepted":true,"echoed_effort":"high","output_tokens":196,"reasoning_tokens":195,"answer":"18","error":null}
+{"rep":1,"effort":"xhigh","status":200,"ms":2090,"accepted":true,"echoed_effort":"xhigh","output_tokens":180,"reasoning_tokens":179,"answer":"18","error":null}
+{"rep":1,"effort":"max","status":400,"ms":270,"accepted":false,"echoed_effort":null,"output_tokens":null,"reasoning_tokens":null,"answer":"","error":"Invalid reasoning effort."}
+{"rep":2,"effort":"omitted","status":200,"ms":1906,"accepted":true,"echoed_effort":"high","output_tokens":134,"reasoning_tokens":133,"answer":"18","error":null}
+{"rep":2,"effort":"none","status":400,"ms":729,"accepted":false,"echoed_effort":null,"output_tokens":null,"reasoning_tokens":null,"answer":"","error":"This model does not support `reasoning_effort` value `none`."}
+{"rep":2,"effort":"off","status":400,"ms":257,"accepted":false,"echoed_effort":null,"output_tokens":null,"reasoning_tokens":null,"answer":"","error":"Invalid reasoning effort."}
+{"rep":2,"effort":"minimal","status":200,"ms":1792,"accepted":true,"echoed_effort":"low","output_tokens":151,"reasoning_tokens":150,"answer":"18","error":null}
+{"rep":2,"effort":"low","status":200,"ms":1641,"accepted":true,"echoed_effort":"low","output_tokens":126,"reasoning_tokens":125,"answer":"18","error":null}
+{"rep":2,"effort":"medium","status":200,"ms":1714,"accepted":true,"echoed_effort":"medium","output_tokens":135,"reasoning_tokens":134,"answer":"18","error":null}
+{"rep":2,"effort":"high","status":200,"ms":2450,"accepted":true,"echoed_effort":"high","output_tokens":225,"reasoning_tokens":224,"answer":"18","error":null}
+{"rep":2,"effort":"xhigh","status":200,"ms":1910,"accepted":true,"echoed_effort":"xhigh","output_tokens":165,"reasoning_tokens":164,"answer":"18","error":null}
+{"rep":2,"effort":"max","status":400,"ms":285,"accepted":false,"echoed_effort":null,"output_tokens":null,"reasoning_tokens":null,"answer":"","error":"Invalid reasoning effort."}

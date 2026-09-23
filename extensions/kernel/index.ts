@@ -21,7 +21,7 @@ import { type KernelClient, KernelError, type KernelProgressFrame, isKernelError
 import { progressPartial } from "./progress.ts";
 import { MAP_DOCUMENT_NONE, renderMapView, type MapAttachment } from './map-view.ts';
 import { AUTHORED_MAP_WORDS, KEEPER_MAP_WORDS, mapCardTexts, type MapWordsOptions, prepareMapWords, projectMapCard, readMapWords } from '../module/map-presentation.ts';
-import { COC_TOOLS, COC_TOOL_NAMES, type CocToolSpec, WRITE_TOOLS } from "./tools.ts";
+import { argumentLimitRefusal, COC_TOOLS, COC_TOOL_NAMES, type CocToolSpec, WRITE_TOOLS } from "./tools.ts";
 import type {TaskProviderBudget} from '../../runtime/jev/provider-budget.ts';
 import type {Prepared as ReviewPrepared, ReviewMode} from '../mods/index.ts';
 import { createCanonicalOperationDispatcher } from './canonical-operation-dispatcher.ts';
@@ -232,6 +232,8 @@ interface TableState {
 	pendingChoice: PendingChoice | null;
 	/** Whether this agent run has already closed the turn with narrate/ask. */
 	closedThisRun: boolean;
+	/** §135.11: the implicit narrate that closed this run, so a driven run's `turn_close` can cite its call. */
+	implicitClose?: { call_id: string; turn: number };
 	/**
 	 * The turn a `narrate` or `ask` actually delivered (§86). Unlike `closedThisRun` this is a fact
 	 * about the *turn*, so it survives the `agent_start` of a continuation run. It is what separates
@@ -1096,6 +1098,12 @@ export default function (pi: ExtensionAPI) {
 	pi.events.on('coc:npc-bridge',value=>{npcAdvice=value&&typeof (value as any).evaluate==='function'?value as typeof npcAdvice:undefined;});
 	/** Contract §28.9: the build-skew notice is the operator's, once per session, not once per reopen. */
 	let modSkewNotified = false;
+	/** §135.11: the session's runs are driven (`PI_COC_LOOP_ENGINE=hybrid-v1`), so the run, not `agent_end`, takes the turn-close steer. */
+	let drivenEngine = false;
+	pi.events.on("coc:loop-engine", (value) => {
+		const engine = value && typeof value === "object" ? (value as { engine?: unknown }).engine : undefined;
+		drivenEngine = typeof engine === "string" && engine !== "legacy";
+	});
 	pi.events.on("coc:reading-bridge", (value) => {
 		reading = value && typeof (value as any).ensure === "function" ? value as any : undefined;
 	});
@@ -1133,11 +1141,77 @@ export default function (pi: ExtensionAPI) {
 	// ---- Host messages ----------------------------------------------------
 
 	/** A message the host sends itself is marked as such: it is not player input and does not go to table.player_input. */
+	/** The host's own note to the Keeper for this turn: what `sendHost` sends, and what a driven run's `turn_close` prepends (§135.11). */
+	function hostSteerMessage(content: string, kind: string) {
+		return { customType: "coc-host", content, display: false as const,
+			details: { coc_host: true, kind, scope: "turn", campaign: table?.campaign, turn: table?.turn } };
+	}
+
 	function sendHost(content: string, kind: string): void {
-		pi.sendMessage(
-			{ customType: "coc-host", content, display: false, details: { coc_host: true, kind, scope: "turn", campaign: table?.campaign, turn: table?.turn } },
-			{ triggerTurn: true },
-		);
+		pi.sendMessage(hostSteerMessage(content, kind), { triggerTurn: true });
+	}
+
+	/**
+	 * The turn-close steer the host owes the Keeper now, or why none is owed (§135.11). Taking one spends it:
+	 * `steeredThisTurn` is set and a pending delivery fix is consumed, so the bound is once per turn whoever
+	 * takes it -- legacy's `agent_end`, or a driven run's `turn_close` operation. The order is legacy's.
+	 */
+	function takeTurnCloseSteer(state: TableState): { kind: string; text: string } | { none: string } {
+		if (state.closedThisRun || state.renderedText) return { none: "delivered" };
+		if (state.reviewUnavailable) return { none: "review_unavailable" };
+		if (state.runAbandoned) return { none: "run_abandoned" };
+		if (state.steeredThisTurn) return { none: "steer_spent" };
+		if (state.preparationWait) {
+			state.steeredThisTurn = true;
+			return { kind: `${state.preparationWait.kind}-wait`, text: preparationWaitInstruction(state, state.preparationWait) };
+		}
+		// A source wait does not own the turn, so it only speaks when the turn is still owed a delivery
+		// and the kernel has left no fix of its own: say which material is unread, and let the Keeper close.
+		if (state.sourceWait && !state.deliveryFix && (state.state === "open" || state.state === "acting")) {
+			state.steeredThisTurn = true;
+			return { kind: "reading-wait", text: sourceWaitInstruction(state, state.sourceWait) };
+		}
+		// The kernel refused the implicit delivery: hand its own fix back, once.
+		const deliveryFix = state.deliveryFix;
+		state.deliveryFix = undefined;
+		if (deliveryFix) {
+			state.steeredThisTurn = true;
+			return { kind: deliveryFix.kind, text: deliveryFix.text };
+		}
+		if (state.state !== "open" && state.state !== "acting") return { none: "turn_not_open" };
+		state.steeredThisTurn = true;
+		// When a session has left a pending choice for the player (a defence in combat), the turn owes an ask, not a narrate.
+		const pending = state.pendingChoice;
+		if (pending?.for === "player") {
+			return { kind: "steer", text:
+				`The kernel is waiting for the player to choose: ${pending.prompt ?? pending.name ?? "the pending choice from the last adjudication"}. ` +
+					`Use ask kind=mechanics with the available option identifiers and no prompt. The frontend renders the controls.` };
+		}
+		return { kind: "steer", text: "This turn is not closed yet: deliver it to the player with one narrate, or hand the choice back with one ask." };
+	}
+
+	/**
+	 * §135.11: what the turn close did, for a driven run that has no delivery evidence of its own. A delivery this
+	 * run committed (the implicit narrate of a prose-only reply among them) is the evidence; otherwise the steer
+	 * legacy would send now, which the run prepends to one more model step; otherwise why nothing is owed.
+	 */
+	function turnCloseVerdict(): Record<string, unknown> {
+		const state = table;
+		if (!state) return { status: "none", reason: "no_table" };
+		let verdict: Record<string, unknown>;
+		if (state.closedThisRun) {
+			verdict = { status: "delivered", delivery: state.state === "asked" ? "awaiting_player" : "accepted",
+				turn: state.implicitClose?.turn ?? state.deliveredTurn ?? state.turn, implicit: state.implicitClose !== undefined,
+				call_id: state.implicitClose?.call_id ?? null };
+		} else {
+			const steer = takeTurnCloseSteer(state);
+			verdict = "none" in steer ? { status: "none", reason: steer.none }
+				: { status: "steer", kind: steer.kind, text: steer.text, message: hostSteerMessage(steer.text, steer.kind) };
+		}
+		void record({ lane: "turn", event: "turn_close", turn: state.turn, status: verdict.status,
+			...(verdict.kind ? { kind: verdict.kind } : {}), ...(verdict.reason ? { reason: verdict.reason } : {}),
+			...(verdict.implicit ? { implicit: true, call_id: verdict.call_id } : {}) });
+		return verdict;
 	}
 
 	// ---- Turn mirror ------------------------------------------------------
@@ -3206,6 +3280,13 @@ export default function (pi: ExtensionAPI) {
 			description: spec.description,
 			promptSnippet: spec.promptSnippet,
 			parameters: spec.parameters,
+			// Contract §135.21: a `how`/`why` longer than one sentence is refused before Pi's schema check, with the
+			// kernel-shaped refusal whose fix says to shorten it (the schema's own maxLength message carries no fix).
+			prepareArguments: (args: unknown) => {
+				const refusal = argumentLimitRefusal(spec.name, args);
+				if (refusal) throw new Error(new KernelError(refusal).toToolText());
+				return args as never;
+			},
 			// The actions of a turn are ordered: run them serially, so the calls after narrate in the same batch can be stopped.
 			executionMode: "sequential",
 			execute: async (toolCallId, params, signal, onUpdate) => dispatcher.execute(spec, toolCallId, params as Record<string, unknown>, signal, onUpdate),
@@ -3287,6 +3368,7 @@ export default function (pi: ExtensionAPI) {
 		bridgeGate.open = false;
 		taskDeliveryGuard = undefined;
 		pi.events.emit('coc:operation-dispatcher', undefined);
+		pi.events.emit('coc:turn-close', undefined);
 		const current = table;
 		table = undefined;
 		if (current) {
@@ -3461,6 +3543,11 @@ export default function (pi: ExtensionAPI) {
 					if (!operationGate.open) throw new KernelError({ code: 'internal', message: 'The operation dispatcher is closed' });
 					return dispatcher.dispatch(...args);
 				},
+			}));
+			// §135.11: a driven run asks the turn close what it did, through this port, when it has no delivery evidence.
+			pi.events.emit('coc:turn-close', Object.freeze({
+				campaign,
+				verdict: () => operationGate.open ? turnCloseVerdict() : { status: 'none', reason: 'no_table' },
 			}));
 			// Contract §39.2: the module's own map labels, projected into this campaign's play
 			// language before the first arrival can need them.
@@ -3926,6 +4013,7 @@ export default function (pi: ExtensionAPI) {
 			// Host-only openings skip before_agent_start; continuations must keep the same ledger.
 			table.skillRun ??= newSkillRun();
 			table.closedThisRun = false;
+			table.implicitClose = undefined;
 			table.runCut = false;
 			// §86: `blockedAfterClose` is NOT reset here any more. pi starts a continuation run for any
 			// message queued from `agent_end` (`runAgentLoopContinue` re-emits `agent_start`), and this
@@ -4450,6 +4538,7 @@ export default function (pi: ExtensionAPI) {
 				// identical bytes against one row in the turn record). An explicit `narrate` went through
 				// one path and was never affected, which is why only some cards doubled.
 				applyToolSuccess(state, tool, "implicit", result);
+				state.implicitClose = { call_id: callId, turn: typeof result.turn === "number" ? result.turn : state.turn };
 				await record({ tool, call_id: callId, started_at: startedAt, ms: Date.now() - began, ok: true, implicit: true });
 				await record({ tool, event: "turn-closed", round_trips: state.roundTrips, ok: true, implicit: true });
 				afterDeliveryReview(state, prepared, typeof result.turn === "number" ? result.turn : state.turn);
@@ -4697,39 +4786,11 @@ export default function (pi: ExtensionAPI) {
 			void record({ lane: "turn", event: "abandoned_not_steered", turn: state.turn, ok: true });
 			return;
 		}
-		if (state.steeredThisTurn) return;
-		if (state.preparationWait) {
-			state.steeredThisTurn = true;
-			sendHost(preparationWaitInstruction(state, state.preparationWait), `${state.preparationWait.kind}-wait`);
-			return;
-		}
-		// A source wait does not own the turn, so it only speaks when the turn is still owed a delivery
-		// and the kernel has left no fix of its own: say which material is unread, and let the Keeper close.
-		if (state.sourceWait && !state.deliveryFix && (state.state === "open" || state.state === "acting")) {
-			state.steeredThisTurn = true;
-			sendHost(sourceWaitInstruction(state, state.sourceWait), "reading-wait");
-			return;
-		}
-		// The kernel refused the implicit delivery: hand its own fix back, once.
-		const deliveryFix = state.deliveryFix;
-		state.deliveryFix = undefined;
-		if (deliveryFix) {
-			state.steeredThisTurn = true;
-			sendHost(deliveryFix.text, deliveryFix.kind);
-			return;
-		}
-		if (state.state !== "open" && state.state !== "acting") return;
-		state.steeredThisTurn = true;
-		// When a session has left a pending choice for the player (a defence in combat), the turn owes an ask, not a narrate.
-		const pending = state.pendingChoice;
-		if (pending?.for === "player") {
-			sendHost(
-				`The kernel is waiting for the player to choose: ${pending.prompt ?? pending.name ?? "the pending choice from the last adjudication"}. ` +
-					`Use ask kind=mechanics with the available option identifiers and no prompt. The frontend renders the controls.`,
-				"steer",
-			);
-			return;
-		}
-		sendHost("This turn is not closed yet: deliver it to the player with one narrate, or hand the choice back with one ask.", "steer");
+		// §135.11: a driven run takes its turn-close steer itself, as one more model step inside the run. By the
+		// time this fires the run has ended, so a steer sent from here would only reach the next input's first
+		// model step as a stale nudge.
+		if (drivenEngine) return;
+		const steer = takeTurnCloseSteer(state);
+		if ("text" in steer) sendHost(steer.text, steer.kind);
 	});
 }
