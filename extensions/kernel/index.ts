@@ -1833,10 +1833,13 @@ export default function (pi: ExtensionAPI) {
 	 * nothing to review and says so in telemetry. A verdict already given this turn for the same
 	 * proposal is reused, admitting and refusing alike (contract §32.4).
 	 */
-	async function admitAction(state: TableState, tool: "resolve" | "apply", payload: Record<string, unknown>, signal?: AbortSignal, providerBudget?: TaskProviderBudget): Promise<void> {
+	async function admitAction(state: TableState, tool: "resolve" | "apply", payload: Record<string, unknown>, signal?: AbortSignal, providerBudget?: TaskProviderBudget,
+		// §135.7: a policy-origin call of the single-loop run names its origin and the kernel row it came from on
+		// every admission row, so the §32 research can be read off telemetry. Absent for the model's own calls.
+		origin: Record<string, unknown> = {}): Promise<void> {
 		const internalCombatMove = tool === "apply" ? combatSceneMove(state, payload) : undefined;
 		if (internalCombatMove) {
-			await record({ lane: "admission", verb: tool, ok: true, skipped: "combat_scene_required", destination: internalCombatMove });
+			await record({ lane: "admission", verb: tool, ok: true, skipped: "combat_scene_required", destination: internalCombatMove, ...origin });
 			return;
 		}
 		const destinations: AdmissionDestination[] = [];
@@ -1859,7 +1862,7 @@ export default function (pi: ExtensionAPI) {
 		// Lane rows name the verb as `verb`: `tool` is the tool-call row's own column, and readers
 		// (kpi.py, the tests) find a verb's call row by it.
 		if (!state.playerText) {
-			await record({ lane: "admission", verb: tool, ok: true, skipped: "no_player_text", key: digest });
+			await record({ lane: "admission", verb: tool, ok: true, skipped: "no_player_text", key: digest, ...origin });
 			return;
 		}
 		const settle = async (verdict: AdmissionVerdict, reused: boolean, ms: number, model?: string, meta: Record<string, unknown> = {}): Promise<void> => {
@@ -1875,7 +1878,7 @@ export default function (pi: ExtensionAPI) {
 			// what decide between those two readings, so a refusal now carries them.
 			// §32.10: which reviewer decided, and the typed route's own cost, so tables can be compared.
 			await record({ lane: "admission", verb: tool, ok: true, verdict: verdict.verdict, admitted, reused, ms, key: digest, ...(model ? { model } : {}),
-				...(verdict.reviewer ? { reviewer: verdict.reviewer } : {}), ...meta,
+				...(verdict.reviewer ? { reviewer: verdict.reviewer } : {}), ...meta, ...origin,
 				...(admitted ? {} : { grounds: verdict.grounds.slice(0, 200), ...(verdict.missing ? { missing: verdict.missing.slice(0, 160) } : {}), proposed: proposal.lines }) });
 			if (admitted) return;
 			state.admissionRefused.push(`${proposal.lines.join(" | ")} -> ${verdict.verdict}${verdict.missing ? `: ${verdict.missing}` : ""}`);
@@ -1885,7 +1888,7 @@ export default function (pi: ExtensionAPI) {
 		if (remembered) return settle(remembered, true, 0);
 		const ctx = sessionCtx;
 		if (!ctx) {
-			await record({ lane: "admission", verb: tool, ok: false, reason: "session_gone", key: digest });
+			await record({ lane: "admission", verb: tool, ok: false, reason: "session_gone", key: digest, ...origin });
 			throw admissionUnavailable(proposal, "session_gone", "the session was gone before the review could start");
 		}
 		const context: AdmissionContext = {
@@ -1903,10 +1906,10 @@ export default function (pi: ExtensionAPI) {
 			refused: state.admissionRefused,
 		};
 		const outcome = await reviewAdmissionPrimary({ campaign: state.campaign, ctx, proposal, context, providerBudget,
-			record: (row) => record({ verb: tool, ...row }), ...(signal ? { signal } : {}) });
+			record: (row) => record({ verb: tool, ...row, ...origin }), ...(signal ? { signal } : {}) });
 		if (!outcome.ok) {
 			await record({ lane: "admission", verb: tool, ok: false, reason: outcome.reason, detail: outcome.detail.slice(0, 200), ms: outcome.ms, key: digest, ...(outcome.model ? { model: outcome.model } : {}),
-				...(outcome.reviewer ? { reviewer: outcome.reviewer } : {}), ...outcome.meta });
+				...(outcome.reviewer ? { reviewer: outcome.reviewer } : {}), ...outcome.meta, ...origin });
 			state.admissionOutage += 1;
 			const streak = state.admissionOutage;
 			if (streak >= 2 && !state.admissionOutageNotified) {
@@ -2779,6 +2782,10 @@ export default function (pi: ExtensionAPI) {
 		const providerBudget = dispatcher.providerBudget(toolCallId) ?? foregroundProviderBudget?.();
 		delete params._standing_defense;
 		const state = table;
+		// §135.4/§135.7: a single-loop policy-origin call (the clerk's) says so on its rows; the model's own calls carry nothing new.
+		const host = dispatcher.hostOrigin(toolCallId);
+		const origin: Record<string, unknown> = host ? { origin: host.origin, run: host.run, step: host.step,
+			...(host.clerk ? { clerk: host.clerk } : {}), ...(host.basis !== undefined ? { basis: host.basis } : {}) } : {};
 		takeSkillAnnotation(state?.skillRun, params);
 		if (!state) {
 			throw new Error(startupError ?? "the kernel is not up, so this table cannot open");
@@ -2894,7 +2901,7 @@ export default function (pi: ExtensionAPI) {
 			// Action admission (contract §32) runs ahead of every Mod hook and of the kernel: a refused
 			// proposal pays for no definition agent and reaches no transaction.
 			if (spec.name === 'narrate' || spec.name === 'ask') await guardTaskDelivery();
-			if (spec.name === "resolve" || spec.name === "apply") await admitAction(state, spec.name, payload, signal, providerBudget);
+			if (spec.name === "resolve" || spec.name === "apply") await admitAction(state, spec.name, payload, signal, providerBudget, origin);
 			// Contract §128.3. An explicit narrate is never steered for speech (§128.2), so attribution is
 			// the only leg its unwrapped passages get; it runs before the Mod hooks so the continuity review
 			// reads the text the kernel will commit. An ask carries no attribution of its own.
@@ -2963,7 +2970,7 @@ export default function (pi: ExtensionAPI) {
 					if(await prepare(toolCallId,readingModule,failure,ensurePending)===false)throw new KernelError({code:'needs',message:'The source preparation has no tracked mutation owner',details:{reason:'source_preparation_not_owned'}});
 				} else await ensurePending(read,signal);
 				// Retry the original identity only after the exact source publication; consent and Mod gates run again.
-				if(spec.name==='resolve'||spec.name==='apply')await admitAction(state,spec.name,payload,signal,providerBudget);
+				if(spec.name==='resolve'||spec.name==='apply')await admitAction(state,spec.name,payload,signal,providerBudget,origin);
 				if(mods){
 					const again=await mods.prepare(spec.name,payload,signal,providerBudget);
 					if(spec.name==='narrate'||spec.name==='ask'){prepared=again;notePrepared(state,again);}
@@ -3046,6 +3053,7 @@ export default function (pi: ExtensionAPI) {
 				started_at: startedAt,
 				ms: Date.now() - began,
 				ok: true,
+				...origin,
 				...(spec.name === "resolve" ? resolveTelemetry(result as ResolveResult) : {}),
 				...readTelemetry(spec.name, params),
 				...(spec.name === "recall" ? {response_bytes: Buffer.byteLength(JSON.stringify(result), "utf8")} : {}),
@@ -3152,6 +3160,7 @@ export default function (pi: ExtensionAPI) {
 				started_at: startedAt,
 				ms: Date.now() - began,
 				ok: false,
+				...origin,
 				code,
 				...(reason ? { reason } : {}),
 				...(detail ? { code_detail: detail } : {}),

@@ -52,6 +52,12 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     let prescreenDeadlineAt=0,prescreenMemo:{key:string;message?:Row}|undefined,reusablePrescreen:Row|undefined;
     let prescreenProviderBudget=preparationProviderBudget();
     let providerSequence=0,pendingProvider:{requestId:string;prepared?:Row;npc?:Row;outgoingDigest:string}|undefined;
+    // Contract §135.6: on the single-loop engine the run's own read step is the prescreen. It announces itself, and
+    // hands over the packet it prepared for the current turn; this hook then injects that packet and runs none of its own.
+    let runOwnsPrescreen=false,runPrescreen:{campaign:string;turn:number;message:Row}|undefined;
+    pi.events.on('coc:loop-engine',value=>{runOwnsPrescreen=object(value).prescreen==='run';});
+    pi.events.on('coc:run-prescreen',value=>{const packet=object(value);
+        runPrescreen=typeof packet.campaign==='string'&&Number.isSafeInteger(packet.turn)&&packet.message?{campaign:packet.campaign,turn:packet.turn,message:object(packet.message)}:undefined;});
     let npcBridge:NpcPreparationBridge|undefined,npcMemo:{key:string;prepared:PreparedNpcAdvice}|undefined;
     let sessionEnv={...process.env},sharedAdapter:DecisionPort|undefined,sharedBudget:ReturnType<typeof preparationBudget>|undefined;
     let inputLifetime=new AbortController(),foregroundBudget:(()=>TaskProviderBudget|undefined)|undefined;
@@ -442,7 +448,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         }
         const supplementBudget=Math.max(0,messageBudget-requestSize(baseline.messages));
         const preparationSignal=optionalWork.signal,preparationCall=call,preparationCampaign=campaign,npcOwner=npcBridge;
-        const npcWait=npcBridge?.automaticWaitMs()??0,materialEnabled=prescreenEnabled()&&supplementBudget>=512;
+        const npcWait=npcBridge?.automaticWaitMs()??0,materialEnabled=!runOwnsPrescreen&&prescreenEnabled()&&supplementBudget>=512;
         const port=decision();let npcWork:Promise<PreparedNpcAdvice|undefined>|undefined,npcMessage:Row|undefined;
         const npcKey=fingerprint([generation,snapshot.key,snapshot.binding]);
         let sharedSnapshot:Promise<Row|undefined>|undefined;
@@ -469,7 +475,9 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
             }
         }
 
-        if(prescreenEnabled()&&supplementBudget>=512&&preparationCall&&preparationCampaign&&inputEpoch){
+        if(runOwnsPrescreen){
+            if(runPrescreen&&runPrescreen.campaign===campaign&&runPrescreen.turn===snapshot.binding.turn)prescreen=runPrescreen.message;
+        }else if(prescreenEnabled()&&supplementBudget>=512&&preparationCall&&preparationCampaign&&inputEpoch){
             if(!prescreenDeadlineAt){const allowance=readJevPreselectAllowanceMs(sessionEnv);prescreenDeadlineAt=Date.now()+allowance;
                 record({lane:'prescreen',event:'allowance_started',allowance_ms:allowance});}
             const memoKey=fingerprint([generation,snapshot.key,baseline.messages,supplementBudget]);

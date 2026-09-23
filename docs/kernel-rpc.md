@@ -910,6 +910,7 @@ acceptance remain pending until their dedicated checks are recorded.
 | obligations | `quest` | 模组图 `quest` 节点：`state` 由其 `supports`/`may-lead-to` 关系指向的线索发现情况推出（未开始/进行中/可结束） |
 | obligations | `promise` | 记忆候选里 `kind: promise` 且未关闭的（13.5 新增种类） |
 | obligations | `note` | `apply note` 里未关闭的连续性欠账（§18.2 写着，13.2 的来源表此前漏了） |
+| obligations | `scene` | 当前场景的 stated obligation（模组图 `requirement` 节点，§134）：`sceneObligations` 投影的每一行，`{kind, name: <handle>, who?, state, cue}`，排在 `continuation` 之后、`quest` 之前（§134.10） |
 
 ### 13.3 Director：三层打分，图是唯一的数
 
@@ -4290,6 +4291,11 @@ The first implementation supports declarative percentile decisions (a maximum of
 named actor values, target-scoped reuse and result mappings), generated weapon,
 spell and item definitions, and typed world effects. Unknown required capabilities
 are rejected; descriptive text never stands in for an executable mechanic.
+The check declaration form a package ships in `contributes.checks[]` is shared with a
+module's stated obligations, and one validator checks both (§134.2–§134.3): a Mod check's
+`trigger` is now validated as the closed enum `{contact}` and is required; `selection:
+approach` and `values[].minimum` belong to the shared form but are refused for a Mod
+until the Mod resolver reads them (§134.3).
 
 Current implementation decisions: `definition-created` and `ability-acquired` join
 the closed event set. Natural NPC checks may run during the opening after a real
@@ -6281,6 +6287,10 @@ Three ends (§31): the producer is the scene record's `grants_clue_ids`/`clue_id
 `whereSection` and `cluesHere` in `kernel-ts/read/capsule.ts`; the adoption end is the offer ledger,
 which now registers `affordance:<id>` for every row that names its clues, taken when one of them lands.
 `kpi.py` counts it under its own kind. It counts and never nags (§31.2).
+
+Since §134.10 (2026-09-23) the gate string also names a stated obligation of the active scene that
+guards the clue and is neither settled nor waived (`; guarded by obligation <handle>`), so every reader
+of "how is this obtained" agrees; it is still one string from one function.
 
 One authored writer was seen and left alone: `on_enter.clock_ticks` on a scene record names a threat
 clock the book means to advance on entry, and nothing reads it — §30.9's Keeper-run tick is the only
@@ -16104,3 +16114,606 @@ document.
 the shipped starter: `apply handout`, then the recorded receipt through `mechanics`, then
 `handoutInput`, then `table.view`. It fails if the lane's input goes back to the whole file.
 `coc-board.test.tsx` pins the board row.
+
+## 134. A scene obligation the book states is a requirement node (2026-09-23, SO-01 of `docs/specs/scene-obligations-as-candidates.md`; amends §26's check declaration)
+
+A **stated obligation** is a demand the module's own text attaches to a scene: before the
+investigators get something there (access, a way onward, a person's help), the book says they
+must meet someone and/or pass a stated check. This section fixes its data shape, the flag it
+settles, the Mod check declaration form it shares, and the one validator that refuses a
+malformed one. SO-01 (§134.1–§134.8) wrote the shape and the validator and no reader; SO-02
+(2026-09-23) adds the kernel behaviour as §134.9–§134.15: issuance by `sceneObligations`, the
+`table.apply.options` key, the capsule row, the gate string, `action.obligation` on `resolve`, waiving
+through `apply flag`, the Mod-recipe identity and the offer ledger. A module that states no obligation
+reads byte for byte what it read before SO-02 (§134.15). SO-03 (2026-09-23) adds §134.16: the visual
+reader writes obligations from a PDF book, and the draft check runs the validator on them.
+
+### 134.1 The node
+
+One `requirement` node per obligation (a node kind the graph contract v3 already had and nothing
+used), linked from its scene by exactly one `has-requirement` claim (an existing relation kind;
+its relation is filled from the claim as for every claim). The node carries the ordinary node keys;
+`source_refs` and, on a starter, `evidence_span_ids` are required and name the page(s) that state
+the demand. The obligation is `properties.obligation`, a closed object (an unknown key is refused):
+
+```
+{
+  scene: <scene node_id>,                         // the scene whose has-requirement claim links this node
+  trigger: {kind: "attempt", guards: {clues?: [clue node_id], exits?: [scene node_id], people?: [npc node_id]}}
+         | {kind: "after", obligation: <requirement node_id>},
+  who?: <npc node_id>,                            // the gatekeeper or the person to be met; seated in `scene`
+  reaction?: "preordained",                       // §134.5
+  demand: [step, ...],                            // ordered, at least one
+  settles: {kind: "flag_set", flag_id: <semantic id>}   // §134.4
+}
+
+step = {kind: "meet", npc: <npc node_id seated in scene>}
+     | {kind: "check", ...the check declaration of §134.2}
+     | {kind: "cost", book: <one Keeper-only line>}      // a stated cost is never applied by the kernel
+```
+
+- `attempt` guards graph nodes the investigators try to reach — clues, exits named by their
+  destination scene, people — never affordance ids (a PDF book has no affordances). At least one
+  guarded id. `after` names another obligation of the same module; the `after` graph has no cycle.
+- "Seated" is `ModuleGraph.sceneNpcIds`: a `present-in` claim to the scene or the scene record's
+  `npc_ids`. An obligation cannot stage someone the book does not put there.
+- `who`, `reaction` and every step key are data only in this section; what the kernel and the clerk
+  do with them is SO-02/SO-04.
+
+### 134.2 The check declaration form (shared with §26 `contributes.checks[]`)
+
+A check step and a Mod's contributed check are one declaration form:
+
+| key | Mod check (§26) | obligation check step |
+| --- | --- | --- |
+| `scope` | `actor-target` | `actor-target` (needs `target`, an npc node) or `actor` (no `target`) |
+| `values` | non-empty list of `{path, label}` | the same, each may carry `minimum`; absent only with `approaches_unstated: true` |
+| `values[].path` | `characteristics.<X>` or `skills.<name>` | the same, and `<X>`/`<name>` must resolve in the ruleset's characteristic and skill tables by normalised-name match (`normalize`, the one name matching the repo allows) |
+| `values[].minimum` | refused (§134.3) | an integer 1–100: the rating the book states as a threshold (Credit Rating 75) |
+| `selection` | `maximum` | `maximum` or `approach` (the actor takes one of `values`; which one is bound by the host or the Keeper, never picked by the clerk — SO-04); absent only with `approaches_unstated` |
+| `difficulty` | `regular` / `hard` / `extreme` | the same; absent only with `difficulty_unstated: true` |
+| `results` | exactly the six levels `critical, extreme, hard, regular, failure, fumble`, each a mapping the Mod defines | exactly the six levels, each `{settles: boolean, book?: string}` |
+| `push` | — | optional `{allowed: boolean, book?: string}` |
+| `trigger` | on the check: the string `contact`, required | on the obligation (§134.1), not on the step |
+
+**Accounting, not content.** A page that states no difficulty is recorded as
+`difficulty_unstated: true` instead of a guessed `regular`; a page that states no skill as
+`approaches_unstated: true` instead of a list. The flag and the value are never both present.
+Such a step is the Keeper's, never the clerk's (SO-04).
+
+`book` lines are the book's consequence in one English line for the Keeper (§16's system language).
+The kernel applies no consequence from them: ejection, route closure, damage and costs are the
+Keeper's to realise. The starter's old typed consequence (`effect: {kind: "route_closed", route_id}`)
+is therefore not carried over; its line is.
+
+### 134.3 One validator, and what it says to a Mod
+
+`kernel-ts/modules/obligation-shape.ts` holds the validator. `checkDeclarationRefusals(check,
+owner)` is the one function for the shared form; it is called by the Mod manifest check
+(`manifestFrom` in `kernel-ts/read/mods.ts`, the `contributes.checks` loop) with owner `mod`, and
+by `obligationRefusals(graph, rules)` for every check step with owner `obligation`.
+`obligationRefusals` is called by starter registration (`registerStarter` in
+`kernel-ts/write/source.ts`) before a new generation's bytes are written; SO-03 adds the visual
+reader's draft check as its third caller. Each refusal names the node (or Mod check), the JSON path
+and a stable `rule`:
+
+| rule | refused |
+| --- | --- |
+| `obligation_unsourced` | no non-empty `source_refs`, or (starter) no non-empty `evidence_span_ids` |
+| `obligation_unknown_key` | `properties.obligation` not an object, or a key outside §134.1's object, its trigger, its guards, a step's closed key set or (obligation) a value's `{path, label, minimum}` |
+| `obligation_unresolved` | `scene`, `who`, `meet.npc`, `target`, a `guards` list or id, or `after` that is not a node of the right kind (scene, npc, npc, npc, clue/scene/npc, a requirement node stating an obligation) |
+| `obligation_unlinked` | the node is not linked by exactly one `has-requirement` claim, from `scene` |
+| `obligation_not_seated` | `who` or a `meet.npc` not seated in `scene` |
+| `obligation_empty_demand` | `demand` not a non-empty list, a step kind outside `{meet, check, cost}`, or a `cost` step without its one `book` line |
+| `obligation_empty_guards` | an `attempt` with no guarded id |
+| `obligation_after_cycle` | the `after` chain returns to an obligation already on it |
+| `obligation_reaction` | `reaction` present with any value but `preordained` |
+| `obligation_settles` | `settles` not `{kind: "flag_set", flag_id}` with a semantic id (`^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$`) |
+| `obligation_flag_reused` | a flag id another obligation of the module already settles |
+| `obligation_repeats_clue_gate` | a check step with one value whose skill and difficulty equal a guarded clue's own gate (`clueProfile(clue).skill`/`.difficulty`, the data `clueGate` prints): one check, one owner |
+| `check_trigger` | Mod: `trigger` absent or not `contact`; obligation: `trigger.kind` not `attempt`/`after` |
+| `check_selection` | `selection` outside the owner's set (Mod `{maximum}`, obligation `{maximum, approach}`), or absent without `approaches_unstated` |
+| `check_difficulty` | `difficulty` outside `{regular, hard, extreme}`, absent without `difficulty_unstated`, or both present |
+| `check_values` | `values` not a non-empty list of `{path, label}` objects (a prose string in the slot included), a path outside `characteristics.`/`skills.`, or `minimum` not an integer 1–100 |
+| `check_unknown_skill` | (obligation) a characteristic or skill name that does not resolve in the ruleset's tables |
+| `check_results` | `results` without exactly the six levels, or (obligation) a level that is not `{settles: boolean, book?: string}` or a `push` that is not `{allowed: boolean, book?: string}` |
+| `check_scope` | `scope` outside the owner's set, or `target` present/absent against it |
+
+A Mod keeps its other keys (`name`, `reusable`, `legacy`, `rule_refs`, its own result mappings)
+exactly as §26 reads them, and its refusal is the manifest's `invalid_params` naming the package,
+the check and the rule. **`selection: approach` and `values[].minimum` are refused for a Mod in this
+build**: the Mod resolver (`kernel-ts/mods/resolve.ts`) takes the maximum over every value and reads
+no threshold, so accepting either would run a different check than the one declared. A Mod gains them
+when that resolver reads them. A package is not bound to a ruleset, so a Mod's skill names are not
+resolved at install; they are read at settlement as §28.1 door 3 says.
+
+Not in this validator: the visual reader's "a PDF source ref to a page the reader did not view" law
+(it has no page-view record at starter registration; SO-03 runs it in the draft check), and any
+parsing of rule prose into approaches — a rule node's `"skills": "Charm (friendliness), …"` is never
+read as data.
+
+`natural-npc` 1.4.2 declares `trigger: "contact"`, `selection: maximum` and a six-level result map; it
+loads unchanged at its version and digest (Mod bytes are frozen per version).
+
+### 134.4 Settlement is a flag (data convention; the kernel behaviour is SO-02)
+
+`settles: {kind: "flag_set", flag_id}` is the condition shape exits already read (§18.7,
+`conditionStatus`). The flag id is a semantic id because world flags are stored under their kebab
+form (`stageFlag`, `conditionFlag`): a dotted id such as the spec's example
+`newspaper-morgue.clippings-access` would be written under `newspaper-morgue-clippings-access` and
+read back under a key nobody wrote, so the validator requires the stored form. One flag has one
+owner obligation. An obligation is settled when its flag is true; the Keeper waives or reopens it
+with an ordinary `apply flag` and its receipt. No new world key and no new `apply` kind exist for it.
+
+### 134.5 `reaction: "preordained"`
+
+When the book states that the person's reaction roll is not used, the obligation says so. Its only
+value is `preordained`; absent means an active Mod's contact check for that pair runs as today.
+What the clerk does with it (does not settle the Mod's contact check for that pair; the Keeper
+still may) is SO-02/SO-04. The Mod's declaration is not changed by it.
+
+### 134.6 The haunting's first authored pair (owner ruling Q7) and the migration
+
+`content/starters/the-haunting/module-graph.json` carries two obligations at `scene-newspaper-morgue`:
+
+- `requirement-globe-clippings-access` — `attempt`, guards `clue-globe-unpublished-story` and
+  `clue-macario-tragedy`; `who` Arty Wilmot with `reaction: "preordained"`; demand `meet` Arty, then
+  `check` `actor-target` Arty, `selection: approach` over Persuade, Intimidate, Charm and Fast Talk,
+  `regular`, the four success levels settle, failure and fumble carry the book's lines, `push`
+  allowed with its line; settles `newspaper-morgue-clippings-access`.
+- `requirement-globe-archivist` — `after` the first; `who` Ruth Blake; demand `meet` Ruth; settles
+  `newspaper-morgue-archivist`.
+
+Cited as the neighbouring nodes cite the same pages: the gate to pdf index 447 (book page 436,
+anchor "Arty Wilmot", spans `span-page-447-anchor-1`/`-2`), the archivist to pdf index 448 (book
+page 437, anchor "Ruth Blake", spans `span-page-447-anchor-2`, `span-page-448-anchor-5`). The
+starter ships no page images, so these are the curated starter's existing citations, not a fresh
+reading of the page.
+
+Migration in the same change, so no second dead copy of the gate ships: `persuade-arty.roll_gate`
+moved into the first node and deleted; `requires_completed_route_ids` on `search-clippings` and
+`befriend-ruth` and the scene's `npc_presence_requirements` removed (the guards and `after` state
+them); `befriend-ruth.roll_gate` removed (ruling Q3: Ruth's record and the book state no roll). All
+four had zero consumers. The affordances themselves, their cues and `clue-police-raid-chapel`'s `Law`
+gate are unchanged; `mystery-house`, `voice-bench` and `the-haunting-rulebook` are untouched.
+The starter's shipped character-guidance bundles are re-stamped to the new graph digest and their
+recomputed fingerprints (the guidance text is unchanged: the opening scene and its guides did not
+move), as the 2026-09-13 map change did.
+
+### 134.7 The three ends (§31)
+
+*Who writes it:* the starter author, and (SO-03) the visual reader under independent review.
+*Who reads it:* nobody in this section — SO-02's `sceneObligations` is the first reader. *Who acts
+on it:* the clerk and the Keeper (SO-04). A writer without a reader is the defect §31 names; it is
+accepted here for one scheduled ticket only, and SO-02 is where behaviour moves. (SO-02 closed it: the
+three ends of the kernel behaviour are §134.14.)
+
+### 134.8 Tests
+
+`tests/extension/obligation-shape.test.mjs`, through the real entries (`module.register` over a
+content root whose haunting graph carries the case; `mods.install` of a package derived from
+`natural-npc`): every refusal of §134.3 by its `rule`, each also shown to go green when its rule is
+removed from the validator (the mutation record is in the SO-01 report); the minimal valid node, a
+`difficulty_unstated` node, an `approaches_unstated` node and `reaction: "preordained"` accepted;
+the shipped haunting registering; `natural-npc` loading at its version. The capsule,
+`table.apply.options` and `table.resolve.options` of every starter were compared with the parent
+commit and are unchanged.
+
+### 134.9 Issuance: `sceneObligations` (SO-02)
+
+`sceneObligations(graph, world, scene, reads)` in `kernel-ts/read/obligations.ts` (beside
+`whereSection`) projects every stated obligation of `scene`, in graph order, from the module graph and
+world state only — never from the player's words or the Keeper's prose. `reads` carries what the world
+alone cannot say: the receipts of the campaign so far (committed turn records, then the open turn's)
+and the active Mods' check declarations. One row:
+
+```
+{handle, name, who?, state: "open" | "blocked" | "settled" | "waived",
+ trigger: {kind: "attempt", guards: {clues?: [clue handle], exits?: [scene handle], people?: [person name]}}
+        | {kind: "after", after: <obligation handle>},
+ next?: {kind: "meet", person: <name>}
+      | {kind: "check", target?: <name>, selection?, approaches?: [{skill, minimum?}], approaches_unstated?: true,
+         difficulty?, difficulty_unstated?: true, served_by?: {mod, check}},
+ reaction?: "preordained", mod_contact?: [{mod, check, clerk: false}],
+ book?: {failure?, fumble?, push?, cost?: [line]},          // Keeper-only lines
+ source: [{page, anchor?}]}                                   // audit; the loop never shows it to Jev
+```
+
+- `handle` is the requirement node's graph handle (`requirement-globe-clippings-access` →
+  `globe-clippings-access`); it is what `action.obligation` names. `name` is the node's name, `who`
+  and `person`/`target` are display names, `skill` is the name after the value path's group
+  (`skills.Fast Talk` → `Fast Talk`, `characteristics.APP` → `APP`). `page` is the 1-based PDF page
+  (`pdf_index + 1`, the convention of `modules/reading.ts` and the visual reader), `anchor` the
+  `grep_anchor` when the ref has one.
+- **State.** The obligation's flag (§134.4) set — `conditionStatus` of `{kind: "flag_set", flag_id}`
+  is true — makes it `settled`, or `waived` when the last receipt that wrote the flag is an `apply
+  flag` receipt with a `why` (a Keeper leaving the book on the record); a flag set by the obligation's
+  own check (§134.11) or by an `apply flag` without a reason is `settled`. With the flag unset: an
+  `after` obligation whose predecessor is neither settled nor waived is `blocked`; an obligation whose
+  demand has no `check` step and whose every `meet` step is met is `settled` without its flag (below);
+  anything else is `open`.
+- **A `meet` step is met** when the person is seated in the obligation's scene in `world.npc_presence`
+  and this table has introduced them: `world.person_labels[<handle>]` holds a record, which is what
+  `apply person` writes (§79) and what the capsule's `present[].called` reads. Nothing is written for
+  it. **An obligation made only of meetings** (the archivist) has no operation that could claim it —
+  `action.obligation` names a check — so its meetings are its settlement: it reads `settled` once they
+  are met, and its flag stays the Keeper's to waive with. This is the one state not read from the flag;
+  the spec left the case open and this is the decision (2026-09-23).
+- **`next`** is given on an `open` row only: the first `meet` step not met, else the first `check`
+  step. A `cost` step is never a next step; its line is in `book.cost` (owner ruling Q4: the kernel
+  applies no cost). A check whose page states no difficulty or no skill carries
+  `difficulty_unstated`/`approaches_unstated` in place of the value (§134.2) — the Keeper's, never the
+  clerk's.
+- `book` gathers the check step's `failure`/`fumble` result lines, its `push.book` and every `cost`
+  line. The kernel applies none of them (owner rulings: consequences boss-only; Q4).
+- `reaction: "preordained"` (§134.5) is carried as declared; with it, `mod_contact` lists every active
+  Mod's `contact` check of scope `actor-target` as `clerk: false` — the clerk does not settle that Mod
+  check for the `who` pair (owner ruling Q2). The Mod's declaration and the capsule's
+  `mods.pending_contacts` are unchanged, and the Keeper may still resolve it.
+- `served_by` is §134.13.
+
+### 134.10 The seats: options, capsule, gate string
+
+One projection feeds every seat, so the clerk's view and the Keeper's cannot disagree.
+
+- **`table.apply.options.obligations`**: the complete, untruncated rows of the active scene, a sibling of
+  `candidates`, bound to the same `revision` (its digest covers the rows) and `world_revision`. The key
+  is present only when the active scene states at least one obligation, so a module without
+  obligations reads byte for byte as before.
+- **`guarded_by: <handle>`** on a `table.apply.options` candidate row (beside `alias`, `effect`,
+  `description`) whose clue is in `guards.clues`, or whose move destination is in `guards.exits`, of an
+  obligation of the active scene that is neither settled nor waived (`open` or `blocked`: a blocked
+  obligation's guards hold too). The row stays; the loop withholds it (SO-04).
+- **The capsule's `obligations` section gains `kind: "scene"` rows** `{kind: "scene", name: <handle>,
+  who?, state, cue}` — every row of the active scene, after the `continuation` rows and before the
+  `quest` rows, inside the section's existing 1 KB budget (trimmed from the end, so a scene row outlives
+  a quest row). `cue` is one line derived from the same row: the next step (with "resolve with
+  action.obligation" on a check), what it guards, the page; for a blocked row what it waits on; for a
+  settled or waived one how `apply flag` reopens it; "the book skips <who>'s reaction roll" with
+  `reaction: "preordained"`. §13.2's source table gains the row.
+- **The gate string.** `clueGate(graph, node, world)` (§32.5; behind `where.affordances[].clues[].gate`,
+  `known.clues_here[].gate`, `director.reveal` and the thread's `here` rows, and so the options'
+  clue descriptions) appends `; guarded by obligation <handle>` for each obligation of the active scene
+  that is neither settled nor waived and guards the clue. There is still one gate string, and it clears
+  itself when the flag is set.
+
+### 134.11 Settlement through `resolve`: `action.obligation`
+
+`resolve` accepts an optional `action.obligation: <handle>`. The kernel validates, in order, and refuses
+with a stable `details.reason` (code in brackets):
+
+| reason | refused |
+| --- | --- |
+| `obligation_unknown` (`unknown_entity`) | the handle names no stated obligation of the module; `details.candidates` lists the active scene's |
+| `obligation_not_here` (`not_here`) | the obligation belongs to another scene than the active one |
+| `obligation_intent` (`invalid_params`) | `intent` is `idle`, `meta`, `stuck` or `ambiguous` (nothing would roll) |
+| `obligation_not_open` (`invalid_params`) | its state is not `open` (`details.state`); a blocked one names what it waits on |
+| `obligation_step` (`invalid_params`) | its next step is a `meet` (the `fix` names the `apply person` call) or it has no check |
+| `obligation_decision` (`invalid_params`) | `action.decision` is present and is neither the ordinary check nor the serving Mod check |
+| `obligation_target` (`not_here`/`invalid_params`) | the step's target is not present in the active scene, or `action.target` names someone else |
+| `obligation_difficulty` (`invalid_params`) | `action.modifiers.difficulty` differs from the stated difficulty |
+| `obligation_skill` (`needs`/`invalid_params`) | `selection: approach` without `action.skill` (`needs`, options = the approaches), or a skill that is not one of the approaches |
+| `obligation_minimum` (`invalid_params`) | the actor's rating is below the chosen approach's `minimum`, or no approach meets its minimum |
+
+Then the kernel runs the **ordinary check** (`core-check:ordinary-check`) with the bound skill — the
+named approach (`selection: approach`), or the actor's highest value among the approaches that meet
+their minimums (`selection: maximum`; ties go to the first declared, as the Mod path's), the step's
+target when `action.target` is absent, and the stated difficulty (the Keeper's own when it is
+unstated; a non-regular stated difficulty on a social intent carries `modifiers.reason` "stated by
+the module" when the Keeper gave none). The Keeper's bonus and penalty dice pass through as on any
+ordinary check. The stored call parameters are the Keeper's own; only the settlement reads the bound
+action.
+
+- **A settling level sets the flag in the same call.** When the result level's `settles` is true, the
+  resolve writes `world.flags[<flag>] = true` before it commits (the world file, then the turn with the
+  receipts), emits a `flag-set` event on the roll receipt, and the roll receipt and the result carry
+  `obligation: {handle, settled: true}`. Otherwise the result carries `obligation: {handle, settled:
+  false, book: "<the level's book line>"}` (the push line rides as `push` when the step allows a push
+  and the roll can be pushed), the receipt `obligation: {handle, settled: false}`, and nothing else is
+  written.
+- **No consequence and no cost.** Route closure, ejection, damage and time are the Keeper's to realise
+  from the book line (owner rulings: consequences boss-only; Q4).
+- **Push and Luck continue the claim.** A `push` or a `luck` spend continues the latest check receipt of
+  the actor (§11, unchanged). When that receipt carries `obligation`, the continuation carries the same
+  claim, with or without `action.obligation` repeated (a repeated one must name the same handle, else
+  `obligation_decision`); a passing push or a Luck spend that reaches a settling level sets the flag as
+  above. A push of a check that claimed nothing claims nothing. The continuation is the claiming
+  operation itself, not an inference from a similar receipt.
+- **A `resolve` without `action.obligation` settles nothing**, even the same skill against the same
+  person (D4).
+- **Crossing is information, never a refusal (owner ruling Q5).** The kernel never refuses `apply
+  move`, `apply clue`, `apply person`/`npc` or `resolve` because an obligation is open. A `resolve`
+  without a claim whose target is a guarded person of an obligation of the active scene that is neither
+  settled nor waived carries `obligation_open: <handle>` on its result; `apply` is §134.12.
+
+### 134.12 Waiving, reopening and crossing with `apply`
+
+- `apply flag {name: <flag>, value: true, why}` waives an obligation (state `waived`), `value: false`
+  reopens one the clerk or the Keeper settled. Both are the ordinary flag receipts of §18 with their own
+  time cost (none unless the Keeper adds `time`); no new `apply` kind and no new world key exist for
+  them.
+- An `apply` batch whose `clue` receipt names a guarded clue, whose `move` receipt leaves for a guarded
+  exit, or whose `person`/`npc` receipt names a guarded person, of an obligation of the scene the batch
+  started in that is neither settled nor waived after the batch, lands as always; that receipt carries
+  `obligation_open: <handle>`, and so does the result (the first one crossed). A batch that waives and
+  crosses in the same call crosses nothing.
+
+### 134.13 The Mod-recipe identity (spec D9)
+
+A `check` step whose recipe is structurally identical to an active Mod check's — both `actor-target`,
+the same set of value paths, the same `selection` and the same `difficulty` (labels are not compared,
+nothing is read semantically) — is served by that Mod check: its `next` carries `served_by: {mod,
+check}` and the clerk issues no obligation candidate of its own (SO-04). `resolve` with
+`action.obligation` naming such a step runs the Mod check for the actor–target pair instead of the
+ordinary check — the frozen result when the pair already has one (§26), a new roll otherwise — and the
+settlement of §134.11 reads that result's level. The haunting states no such step yet (Dooley is SO-05);
+the identity is covered by a derived content root (§134.15).
+
+### 134.14 Three ends (§31) and the offer ledger
+
+*Who writes it:* the obligation-bound `resolve` (§134.11) and `apply flag` (§134.12); the meeting
+receipts (`apply person`) for a meeting-only obligation. *Who reads it:* `sceneObligations` into
+`table.apply.options`, the capsule row and the gate string. *Who acts on it:* the Keeper through the
+capsule row and `action.obligation`, and the clerk through the options (SO-04). The offer ledger
+(§31.2) registers `obligation:<handle>` for every `open` scene row of the turn's capsule and marks it
+taken when the obligation is settled or waived in the world the turn closed on; `kpi.py` counts it
+under its own kind. It counts and never nags: nothing of it reaches the next capsule.
+
+The `resolve` tool's `action` gains the optional `obligation` field, and the base Keeper prompt one
+sentence: scene obligations are what the book states this place demands; a step the clerk settled
+followed the book; to improvise instead, waive or reopen it with `apply flag`. The capsule's
+"clerk did" list, which would show a crossing beside the clerk's steps (Q5), belongs to the loop
+(SO-04); the kernel's half is the `obligation_open` key on the result and the receipt.
+
+### 134.15 Tests (SO-02)
+
+`tests/kernel/test_scene_obligations.py`, over the emitted kernel on a fresh haunting campaign (seeded):
+at the morgue the options list the clippings gate `open` with `next: meet Arty Wilmot` and the archivist
+`blocked`; after `apply person` Arty, `next` is the check with four approaches; the two clippings clue
+candidates carry `guarded_by` and their gate string names the obligation; a claimed Persuade on a passing
+seed sets the flag in that call (world, receipt, result, event), the archivist becomes `open`, the guards
+clear; a claimed Persuade on a failing seed leaves it `open`, carries the failure line and writes no
+flag, receipt or time beyond the roll; a claimed push that passes settles it; the same Persuade without
+the claim settles nothing; `apply flag` waives and reopens with receipts; `apply clue` on a guarded clue
+while open lands and carries `obligation_open`; the capsule rows and the options rows agree; every
+refusal of §134.11 by its reason; the offer ledger's `obligation:` rows. `tests/extension/
+scene-obligations.test.mjs` covers the Mod-recipe identity and `reaction: "preordained"` over a derived
+content root. The capsule, `table.apply.options` and `table.resolve.options` of `mystery-house`,
+`voice-bench` and `the-haunting-rulebook`, walked scene by scene, are byte-identical to goldens recorded
+on the parent commit `64f486601`; on the haunting only the morgue changes.
+
+### 134.16 The visual reader writes obligations; the draft check refuses a malformed one (SO-03)
+
+A PDF book states its obligations the way a starter does (§134.1), through the same reader and the same
+independent review as every other mechanical statement (§22). Nothing here reads rule prose: a rule
+node's `"skills": "Charm (friendliness), …"` stays prose for the Keeper, and an obligation exists only
+because the reader wrote one from the page. There is no count gate (a book may state none) and no
+backfill (§22: an existing module gains an obligation only through a detail request that asks for it,
+additively reviewed). The committed twin `the-haunting-rulebook` is not rebuilt; it stays the "PDF-built
+module with no obligations" control of §134.15.
+
+**The reader's instruction** (`content/setup/visual-reader.md`, Read phase, one paragraph, English and
+book-neutral): when a page states that a place demands a meeting or a check before the investigators get
+something there, the reader also writes a `requirement` node in the §134.1 shape, a `has-requirement`
+claim from the scene, and a `calls-for-check` claim from the requirement to the rule node that keeps the
+book's wording; it lists every obligation field in `critical`; it records `difficulty_unstated` /
+`approaches_unstated` instead of filling a value; it writes `reaction: "preordained"` only when the page
+states that the person's reaction roll is not used. Value paths name the ruleset's own skill and
+characteristic names (§134.2), not the page's translation of them.
+
+**The draft check** (`checkDraft` in `kernel-ts/modules/visual.ts`, behind both the offline
+`coc-read-check` the reader runs and publication in `modules/reading.ts`) runs only when the draft
+defines at least one `requirement` node carrying `properties.obligation`; a draft that defines none
+returns byte for byte what it returned before SO-03.
+
+1. *The source law first, per obligation node, before the generic reference law.* No non-empty
+   `source_refs` list is `obligation_unsourced` at `/nodes/<i>/source_refs`; a reference to a physical
+   page this reader did not view is `obligation_unviewed_page` at `/nodes/<i>/source_refs/<j>`. The
+   viewed-page half runs where the generic law runs — at publication, which knows the host's page
+   observations; the offline check has none and the reader's `submit_reading` enforces the same law
+   through `required_view_pages`. Removing either rule leaves the generic law refusing the same draft,
+   without the node's path or a rule.
+2. *Then the one validator* (§134.3) — `obligationRefusals(view, rules, {starter: false})` — over a view
+   of the graph the draft would publish into: `packet.known_nodes` overlaid by the draft's nodes (a
+   draft node's `properties` over the known node's), `packet.known_claims` overlaid by the draft's
+   claims by `claim_id`, and one relation per claim, as `assembleVisual` derives them. `rules` are the
+   ruleset's skill and characteristic names, loaded with the module contract (`loadModuleContract`
+   reads `skills.json` `skills` and `characteristic-dice.json` `characteristics`, the tables starter
+   registration reads). A starter's `evidence_span_ids` are not required of a PDF book.
+3. *A refusal* is `invalid_params` with `details: {reason: "reading_failed", path, rule, refusals}`:
+   `refusals` lists every `{node, rule, path, message}`, `path` a JSON pointer into the draft when the
+   node is the draft's (the validator's dotted path turned into pointer tokens), else the validator's
+   path on the known node; the top-level `path` and `rule` are the first refusal's, draft nodes first.
+   A `check_unknown_skill` refusal also carries `details.ruleset: {skills, characteristics}` — the
+   names the check resolves against, so the reader can name the rule the page means without a
+   hand-written mapping (the precedent is §34.15's `details.weapons`). A `fix` is executed literally
+   (§34.7), so it says only: correct
+   the requirement node against the page it cites; record an unstated value as unstated, never guess
+   one; if the page states no such demand, delete the node and its claims.
+4. *Required review.* Every field of every draft obligation is added to `required_review`, whether or
+   not the reader listed it in `critical`: each key of `properties.obligation` other than `demand`
+   (`/nodes/<i>/properties/obligation/<key>`), and each key other than `kind` of each demand step
+   (`…/demand/<k>/<key>`). Numbers (`minimum`) keep entering through `numericPaths`. The pointers come
+   from one function, `obligationReviewPaths` (`kernel-ts/modules/obligation-review.ts`), which the
+   extension's `reviewUnits` (`extensions/module/reader-review.ts`) also calls, so the reviewer units
+   and the publication gate cannot disagree about what must be supported.
+
+**The review prompt** (`content/setup/visual-reader.md`, Verify phase) names obligation fields as
+mechanical statements to check against the page image: where the demand stands and what it guards, who
+imposes it, each step, the skills and any minimum, the selection, the difficulty or its recorded
+absence, each result level's `settles` and `book`, the push, every cost, a preordained reaction, and
+what `settles` grants. An unstated value recorded as unstated is supported; a filled one is
+contradicted.
+
+*Three ends (§31):* writer — the reader under independent review; reader — publication carries the node
+and its claims unchanged into the module graph (`assembleVisual`), where `sceneObligations` (§134.9)
+reads them; actor — the Keeper and the clerk as §134.14 says.
+
+*Tests* (`tests/extension/obligation-reader.test.mjs`, through `checkDraft` with the loaded contract and
+through `checkSourceDraft`, the offline entry): an obligation without `source_refs`, citing an unviewed
+page, with a prose skill string, or with a person not seated in the scene is refused with its path and
+rule; a valid obligation whose fields are not in `critical` gets them in `required_review`, and
+`reviewUnits` assigns the same pointers; a draft with no obligation returns the same bytes as the parent
+commit. Each refusal is shown to go away when its rule is removed (the mutation record is in the SO-03
+report).
+
+## 135. The single-loop run settles the player's declared bookkeeping itself: candidates, clerk authority, one tool catalog (2026-09-23, SL-02 of `docs/specs/pi-native-single-loop.md`)
+
+§133 is taken on this branch and §134 on another; this section is §135, and §-numbers are stable ids (§133's
+rule), so it keeps the number whatever lands in between. It applies only to `PI_COC_LOOP_ENGINE=hybrid-v1`
+(SL-01's switch); the legacy engine does not read any of it and behaves byte for byte as before.
+
+### 135.1 What the run does now
+
+SL-01 gave Pi a RunDriver whose route question carried only its exit. SL-02 gives that question host-issued
+candidates, lets the host carry out the ones the player declared, and keeps everything else with the Keeper.
+The spec's Rulings (2026-09-23) bind every paragraph below: the Keeper is the boss, Jev and the host are the
+clerk; the clerk does bookkeeping, fetching and execution, and every word the player reads is the Keeper's.
+
+### 135.2 Candidates come from real state (`runtime/jev/candidates.ts`)
+
+The builder moved from `experiments/single-loop-routing/candidates.ts` into the product; the prototype re-exports
+it. It reads `table.capsule`, `table.apply.options`, `table.resolve.options` and the entities the run's read
+located, and nothing else. It never classifies text.
+
+- `apply.options` moves whose `unlock_when.met` is not `false`, and its scene clues;
+- the scene's handout assets (`capsule.where.assets`, `kind: "handout"`);
+- people in `capsule.present` without `called`, staged under the capsule's own `untold.label`. Without a label
+  the name is an open parameter, and only the LLM fills it. Anyone off the roster is never a candidate;
+- the active Mods' `pending_contacts`;
+- the ordinary check (`core-check:ordinary-check`) with its closed route/profile binder (`check-preflight`),
+  offered only outside a running session;
+- the running combat or chase session's own steps, read from the kernel's session view (`turn_of`, `actions[]`,
+  `pending_defense`; §11.5, `kernel-ts/read/session-view.ts`). This is the "parameters-only steps never go to
+  the LLM" ruling. A parameter the view issues with one value is bound. A parameter it issues as a list (targets,
+  weapons, the defence options) is a closed Jev bind. A parameter it does not issue (a manoeuvre's kind, an
+  ending's outcome) is open, for the LLM. An NPC's pending defence is `forced`: the kernel accepts nothing else
+  next (§32.1 pipeline `restrict`), so it runs as soon as it appears and is never a route question. The
+  player's own pending defence is a candidate only when this input answers a choice that was already open when
+  the run began. A choice opened during the run is handed back with the Keeper's `ask`. Damage and the
+  initiative advance are consequences of the resolve that causes them, so they are never candidates. A sanity
+  bout issues nothing: it is a consequence, and consequences are the Keeper's;
+- located clue and handout entities.
+
+While a combat or chase session runs, scene moves are not offered: leaving is the session's own `combat:flee`
+or chase step. Each candidate carries two internal fields that are never shown to Jev or the model. `clerk`
+(§135.3) names the authority that lets the host run it. `basis` is the kernel row it was built from: the read,
+the path and the row itself. The kernel's own tags, such as `authority: available_route_not_player_choice`,
+appear only inside `basis`. A key consumed this turn, whether the host or the Keeper carried it out, is never
+offered again.
+
+**SO-04 seam.** `obligationCandidates(reads)` returns nothing. The scene obligations of
+`docs/specs/scene-obligations-as-candidates.md` (clerk authority (e), `obligation_check` precedence, `guarded_by`
+withheld, `reaction: "preordained"`) join there in SO-04, not in SL-02.
+
+### 135.3 The clerk's authority is a closed list; everything else is the Keeper's
+
+`CLERK_AUTHORITY` (`runtime/jev/step-policy.ts`) is a closed contract enum:
+
+- `declared_bookkeeping` (Ruling a): a move to an available exit, an issued or located clue, a scene handout,
+  a person on the roster under the table's own label;
+- `mod_contact` (b): a contact check an active Mod declares;
+- `declared_check` (c): the ordinary check, when the binder settles its route and profile. An ambiguous
+  action ("I look around this place") comes back `unknown` from the binder and goes to the Keeper;
+- `session_step`: a session step whose parameters the kernel issued (the parameters-only ruling).
+
+Ruling (d), fetching data, is the read step itself. The run executes a policy-origin write only for a candidate
+whose `clerk` is in this list. Anything else is refused with `not_clerk_authority` before it reaches the kernel.
+The following are **boss only**, and the builder produces no candidate for them: anyone off the roster, any check
+the player did not declare, consequences (damage, sanity, cash beyond what was declared), pending decisions, and
+prose. `needs_player` from the binder never becomes an `ask`: it becomes a Keeper compose step. The clerk never
+calls `narrate` or `ask`. The canonical gateway already refuses both from a host (`delivery_requires_writer_message`).
+
+Clerk steps commit at once. There is no "pending confirmation" receipt. A clerk mistake is reconciled by the
+Keeper in the fiction, or reversed with a real operation of its own (its own receipt, its own time cost).
+
+### 135.4 One tool catalog; a policy-origin write is the Keeper's verb through the canonical gateway
+
+A candidate becomes the same Keeper verb, with the same arguments, the model would call (`keeperCall`: `apply
+{effects}` or `resolve {action}`). The run hands it to the kernel extension's canonical operation gateway
+(`coc:operation-dispatcher` → `dispatch`), so every stage runs exactly once and exactly as for the model: the
+`tool_call` gates (including the closed-turn door, §86), argument validation against the tool's closed schema,
+the call id minted from the kernel extension's one ordinal (`t<turn>-c<n>`, shared with the model's own
+calls), action admission (§32), Mod preparation, the kernel transaction, and the `tool_result` hooks. The
+`HostOperationContext` of such a call carries `origin: {origin: "policy", run, step, clerk, basis}`. That field is
+tracing only: it grants nothing. Its operation journal is in memory for the run. The durable operation
+service, suspension and recovery are SL-03's.
+
+**`IntentBinding` is required.** The run's first read binds it: the raw input as a `SourceRef` of the turn, the
+scope, the turn and the input revision. No policy-origin write runs before it exists (`intent_unbound`).
+`validateCurrent` checks before every stage that the table is still on the run's turn and that the turn is
+still open (`run_input_stale`).
+
+**Jev's own tools.** Jev has three tools of its own: read more (the read step), locate (folded into the read,
+§135.6) and closed bind (`single-loop-bind`, and the ordinary-check binder). When Jev chose an operation that
+has an open parameter, the run asks the LLM to fill it (`infer(bind)`). The projection names the operation, its
+bound values and what is missing. The LLM's answer is one call of that verb, executed as a model-origin call.
+
+### 135.5 Keeper batches; the plan is an artifact, never a second executor
+
+The calls of one model response are the Keeper's batch. They run in their order. Each step has one success
+branch (the next step) and one failure branch (back to the Keeper). A step fails when it is refused or when it
+is a `resolve` whose check the kernel reports failed (`outcome.success === false`, a closed field). The steps
+after a failed step are answered as not executed. The run's next step is then an `infer(adjudicate)` with reason
+`batch_fallen`, and no route question comes before it. There are no richer conditions. The batch is recorded
+as a `PlanArtifact` in the run view (`view.plan`: the steps, each with `onSuccess: "next"`,
+`onFailure: "return_to_keeper"` and its status). The driver's operate step is the only executor. `Requirements`
+(the driver's boundary requirements) is optional state.
+
+`submit_plan_packet` is not in the hybrid tool set. The hybrid engine removes it from the active tools at
+session start and before every run. `bin/pi-coc` also refuses to start the S0/TaskRuntime private roles
+(`PI_COC_JEV_S0=1`, or `PI_COC_TASK_RUNTIME=1` in play) together with `PI_COC_LOOP_ENGINE=hybrid-v1`, instead
+of starting them on the legacy loop under a hybrid startup record.
+
+### 135.6 Read first, re-read after a scene change; the prescreen is the run's read
+
+The first step of every run, and the step after every scene change, is the read. It runs the kernel reads above
+and then the product prescreen (`prepareKeeperSupport`: semantic locate over the closed entity/rule index, then
+bounded reads) as a policy-origin read inside the run. Its materials go in front of the route question, and the
+clues and handouts it located become candidates. The prescreen's per-input allowance
+(`readJevPreselectAllowanceMs`, §124.10) is the run's Jev budget. The run's `maxJevMs` is that allowance, and
+the prescreen's own calls and time count against it. A re-read gets what the earlier steps left. The read
+publishes nothing.
+
+The context hook (`extensions/table/context-runtime.ts`) runs no prescreen on this engine. The engine announces
+itself on `coc:loop-engine` (`{prescreen: "run"}`), and the read hands its packet over on `coc:run-prescreen`
+(`{campaign, turn, run, message}`). The hook injects that packet, for the same campaign and turn, into the
+prescreen slot of the Keeper's request, under the same byte rules and the same `delivered` telemetry as before.
+NPC advice preparation is unchanged.
+
+### 135.7 Telemetry
+
+- `lane: "route"`, one row per Jev answer. It carries `purpose` (`route`, `bind` or `bind-ordinary`), `run`,
+  `step`, `status` and `ms`. A route row adds the offered keys, `selected`, `exit`, `reason`, and every
+  question's `choice`, `confidence` and `probabilities`. A bind-ordinary row adds `disposition` and `unresolved`.
+- `lane: "run"` gains `event: "read"` (candidates, prescreen outcome, ms) and `event: "operation_stage"` (the
+  gateway's stages for a clerk write).
+- The tool-call row and every `lane: "admission"` row of a policy-origin call carry `origin: "policy"`, `run`,
+  `step`, `clerk` and `basis`. A model-origin call's rows are unchanged. This is the instrument of the §32
+  research item (§135.10).
+
+### 135.8 What the Keeper is told: one `coc-clerk` message per model step
+
+Before each model step the run prepends at most one `coc-clerk` custom message (`display: false`, persisted
+like any message; `CLERK_TYPE`). It says what the clerk did since the last one: operation, label, clerk
+authority, call id, status, receipts, the kernel row it came from and the settled action, with the note that
+these are committed and how to undo one. It also says what this step asks: the operation to complete for an
+`infer(bind)`, or the batch that returned for `batch_fallen`. With nothing new to say, no message is sent. A
+`coc-clerk` message from an earlier turn is closed noise to the context projection (§19.2), like a stale
+capsule. It is never an unclassified retained message.
+
+### 135.9 What SL-02 leaves to later stages
+
+SL-03 owns the operation service both origins use: suspension with a continuation, a durable operation journal
+and recovery by `call_status` across a restart, scope frames, and delivery evidence for the kernel extension's
+implicit narrate. On the hybrid engine a prose-only compose still ends the run `undelivered` in the run events,
+although the table delivered. The compose step's raw-prose streaming with in-place card replacement is SL-03's
+and the UI's. SO-04 owns the obligation candidates (§135.2), and with them the rule that clerk-origin refusals
+stay off the Keeper's refusal budget (§67). Until then a clerk refusal is struck like any other.
+
+### 135.10 The §32 research item (decided by measurement, not by ruling)
+
+Whether a fully-bound, kernel-issued, Jev-selected operation still needs §32 admission, or whether §32.10's
+typed admission (or none) is enough for policy-origin operations. The rows of §135.7 carry the measurement. The
+numbers from the SL-02 replays are recorded in `docs/specs/pi-native-single-loop-tickets/02-domain-policy.md`
+under Comments. Until the owner decides, a policy-origin write passes §32 exactly as a model-origin one does.

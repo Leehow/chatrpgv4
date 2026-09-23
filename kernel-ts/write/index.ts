@@ -31,6 +31,7 @@ import { resolveStartScene } from '../modules/visual.js';
 import { loadModuleContract, validSourceLanguage } from '../modules/contract.js';
 import { defaultModPlan, preflightCampaign as validateContributions, rebuildNpcLedger, updateNpcLedger, stanceTable, writeEpisode } from './contributions.js';
 import { asciiSlug, facts, publicContext, directorAdoption, offerLedger } from './text.js';
+import { obligationByHandle, obligationState } from '../read/obligations.js';
 import { deliveryText, deliveryRecord } from './delivery.js';
 import { speakerResolver, repeatedLine, repeatedLines } from './speech.js';
 import { readableTurn, rebuildTurn, syncCheckpoint, resumeView, checkpointFromRecord, writeCheckpoint } from './continuation.js';
@@ -851,7 +852,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             _context: await contextBinding(snapshot, module, view)
         };
     }
-    async function adoption(campaign: CampaignWriter, module: LoadedModule, turn: Row, snapshot: Row, closedBy: string): Promise<Row | null> {
+    async function adoption(campaign: CampaignWriter, module: LoadedModule, turn: Row, snapshot: Row, closedBy: string, world: Row = {}): Promise<Row | null> {
         const value = directorAdoption(module.graph, turn, snapshot, closedBy);
         if (value)
             await campaign.telemetry({
@@ -860,7 +861,11 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
                 closed_by: closedBy,
                 ...value
             });
-        const offers = offerLedger(turn);
+        // §134.14: an obligation offer is taken when the world the turn closed on has it settled or waived.
+        const offers = offerLedger(turn, handle => {
+            const node = obligationByHandle(module.graph, handle);
+            return node !== null && ['settled', 'waived'].includes(obligationState(module.graph, world, node));
+        });
         if (offers)
             await campaign.telemetry({
                 lane: 'offers',
@@ -928,7 +933,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             ...deliveryRecord(turn, text, receipts, result, world),
             closed_by: 'ask',
             closed_how: 'explicit',
-            director_adoption: await adoption(campaign, module, turn, world, 'ask')
+            director_adoption: await adoption(campaign, module, turn, world, 'ask', snapshot.world)
         };
         await campaign.writeTurnRecord(record);
         await updateNpcLedger(campaign, module.graph, record);
@@ -998,7 +1003,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             closed_by: 'narrate',
             closed_how: truth(params.implicit) ? 'implicit' : 'explicit',
             facts: factLists,
-            director_adoption: await adoption(campaign, module, turn, world, 'narrate'),
+            director_adoption: await adoption(campaign, module, turn, world, 'narrate', snapshot.world),
             worldline: turn.worldline ?? null,
             // §128.3: a repeat inside a line the host wrapped is a finding on the delivery, the same
             // `warnings` rows the verifier's `unmarked_speech` lands in, never a refusal.

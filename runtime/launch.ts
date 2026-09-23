@@ -107,6 +107,11 @@ export function piLaunch(input: string[], options: RuntimeHostOptions = {}) {
 export async function launchMain(args: string[]): Promise<number> {
   const launch = piLaunch(args);
   if (launch.env.PI_COC_JEV_S0 === '1' || launch.env.PI_COC_TASK_RUNTIME === '1' && launch.env.PI_COC_MODE === 'play') {
+    // Contract §135.5: the S0/TaskRuntime private roles (their `submit_plan_packet`) run on the legacy loop only. On
+    // hybrid-v1 the plan is an artifact inside the run, so the combination is refused rather than started as legacy
+    // under a startup record that says hybrid.
+    if (launch.env.PI_COC_LOOP_ENGINE === 'hybrid-v1')
+      throw new Error('PI_COC_LOOP_ENGINE=hybrid-v1 does not run the S0/TaskRuntime private roles (PI_COC_JEV_S0, PI_COC_TASK_RUNTIME): the plan is an artifact inside the run');
     const { startS0Rpc } = await import('./jev/s0-rpc.ts');
     return startS0Rpc(launch);
   }

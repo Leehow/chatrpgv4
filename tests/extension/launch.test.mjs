@@ -366,3 +366,14 @@ test("PI_COC_LOOP_ENGINE: setup always runs legacy, and an unknown engine is ref
 	assert.equal(setup.value("engine"), "legacy");
 	assert.throws(() => runLauncher(root, ["--campaign", "camp-f"], { PI_COC_LOOP_ENGINE: "hybrid-v2" }), /PI_COC_LOOP_ENGINE must be one of legacy, hybrid-v1/);
 });
+
+test("PI_COC_LOOP_ENGINE: hybrid-v1 refuses the S0/TaskRuntime private roles and their plan tool (contract §135.5)", (t) => {
+	const root = withHybridEntry(fakeRepo());
+	t.after(() => rmSync(root, { recursive: true, force: true }));
+	for (const flag of [{ PI_COC_JEV_S0: "1" }, { PI_COC_TASK_RUNTIME: "1" }])
+		assert.throws(() => runLauncher(root, ["--campaign", "camp-g"], { PI_COC_LOOP_ENGINE: "hybrid-v1", ...flag }),
+			/does not run the S0\/TaskRuntime private roles/);
+	// The refusal is tied to those flags: without them the same hybrid launch starts as before.
+	const hybrid = runLauncher(root, ["--campaign", "camp-g"], { PI_COC_LOOP_ENGINE: "hybrid-v1" });
+	assert.equal(hybrid.value("entry"), "pi-hybrid");
+});

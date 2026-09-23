@@ -2,18 +2,38 @@
 import { join } from 'node:path';
 import type { KernelContext } from '../context.js';
 import { array, row, sorted, string, type Row } from '../read/values.js';
+import { RuleTables } from '../rules/tables.js';
 export const VISUAL_CONTRACT_ID = 'coc.module-graph-shard.v4';
 export const SHARD_KEYS = ['contract_id', 'nodes', 'claims', 'node_refs', 'coverage', 'dependencies', 'critical', 'ready_nodes'];
 export const NODE_KEYS = ['node_id', 'node_kind', 'name', 'aliases', 'summary', 'properties', 'visibility', 'source_refs'];
 export const CLAIM_KEYS = ['claim_id', 'subject_id', 'predicate', 'object', 'truth_status', 'visibility', 'source_refs', 'reason', 'known_by_ids', 'asserted_by_ids', 'validity'];
+/** The ruleset's own skill and characteristic names: what an obligation's value path must resolve in (§134.2). */
+export interface RulesetNames {
+    readonly skills: readonly string[];
+    readonly characteristics: readonly string[];
+}
 export interface ModuleContract {
     readonly graph: Row;
     readonly template: Row;
+    /** Absent only when the content root carries no ruleset tables; a draft stating an obligation then cannot be checked (§134.16). */
+    readonly rules?: RulesetNames;
 }
 export async function loadModuleContract(context: Pick<KernelContext, 'content' | 'snapshots'>): Promise<ModuleContract> {
     const graph = row(await context.snapshots.readJson(join(context.content, 'modules', 'module-graph-contract-v3.json')));
     const template = row(await context.snapshots.readJson(join(context.content, 'modules', 'module-graph-template-v1.json')));
-    return Object.freeze({ graph, template });
+    const rules = await rulesetNames(context);
+    return Object.freeze({ graph, template, ...(rules ? { rules } : {}) });
+}
+/** §134.16: the tables starter registration reads, through the same `RuleTables`, for the reader's draft check. */
+async function rulesetNames(context: Pick<KernelContext, 'content' | 'snapshots'>): Promise<RulesetNames | null> {
+    // `RuleTables` reads only `content` and `snapshots`; the offline checker has no whole kernel context.
+    const tables = new RuleTables(context as KernelContext);
+    if (!await tables.exists('skills') || !await tables.exists('characteristic-dice'))
+        return null;
+    return Object.freeze({
+        skills: Object.freeze(Object.keys(await tables.skillsTable())),
+        characteristics: Object.freeze(Object.keys(await tables.characteristicTable())),
+    });
 }
 export const validSemanticId = (value: unknown): value is string => typeof value === 'string' && value.length <= 160 && /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(value) && !value.endsWith('\n');
 /**

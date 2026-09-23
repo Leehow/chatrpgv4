@@ -438,6 +438,12 @@ const ResolveAction = Type.Object({
 		}),
 	),
 	decision: Type.Optional(Type.String({ description: "when the kernel reports needs_choice, the name of the candidate you pick" })),
+	obligation: Type.Optional(
+		Type.String({
+			description:
+				"the handle of a scene obligation (the capsule's obligations of kind scene, their name) whose check this roll is: the kernel checks it is open here and its next step is a check, binds the skill among its approaches, its stated difficulty and its person, rolls the ordinary check, and on a settling level sets its flag in the same call; otherwise the result carries the book's line for you to realise or not. The kernel applies no consequence and no cost. A roll without it settles no obligation, even the same skill against the same person; a push or Luck spend continues whatever the check it continues claimed",
+		}),
+	),
 });
 
 export const COC_TOOLS: readonly CocToolSpec[] = [

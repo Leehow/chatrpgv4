@@ -245,6 +245,11 @@ export async function openTable({
 	 * session runs the legacy model-first loop, as every other test here does.
 	 */
 	runDriver,
+	/**
+	 * Real-kernel tables only: runs on the workspace after the campaign is created and before the session opens it,
+	 * so a test can put the table in a state through the kernel's own RPC (never by writing its files).
+	 */
+	prepareWorkspace,
 } = {}) {
 	const workspace = mkdtempSync(join(retainAt ?? tmpdir(), "pi-coc-ext-"));
 	const requestLog = join(workspace, "kernel-requests.jsonl");
@@ -275,6 +280,7 @@ export async function openTable({
 	});
 
 	if (realKernel) createRealCampaign(workspace, campaign);
+	if (realKernel && prepareWorkspace) await prepareWorkspace(workspace);
 
 	const faux = fauxProvider();
 	faux.setResponses(responses);

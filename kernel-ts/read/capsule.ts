@@ -161,7 +161,7 @@ export function whereSection(graph: ModuleGraph, world: Row, scene: Row, materia
             entry.clue = graph.handle(granted[0]);
             entry.clues = granted.map(node => ({
                 clue: graph.handle(node),
-                gate: clueGate(graph, node),
+                gate: clueGate(graph, node, world),
                 discovered: array(world.discovered_clues).includes(graph.handle(node))
             }));
         }
@@ -233,7 +233,7 @@ export function cluesHere(graph: ModuleGraph, world: Row, scene: Row): Row[] {
         // string the Director's reveal rows and the thread's `here` rows carry.
         return {
             ...view,
-            gate: clueGate(graph, node),
+            gate: clueGate(graph, node, world),
             discovered: array(world.discovered_clues).includes(view.name)
         };
     });

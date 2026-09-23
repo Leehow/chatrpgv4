@@ -20,6 +20,8 @@ export const DIAGNOSTIC_TYPE = 'coc-context-status';
 export const WORKSPACE_TYPE = 'coc-workspace';
 export const PRESCREEN_TYPE = 'coc-prescreen';
 export const NPC_ADVICE_TYPE = 'coc-npc-advice';
+/** The single-loop run's own note to the Keeper (contract §135.8): the clerk's steps of this turn and what it asks. */
+export const CLERK_TYPE = 'coc-clerk';
 export const POLICY_VERSION = 2;
 export type Row = Record<string, any>;
 export interface ContextBinding {
@@ -185,7 +187,7 @@ function closedNoise(message: Row): boolean {
     if (message.role !== 'custom') return false;
     // A coc-workspace from an older binding is regenerated for the current request or omitted;
     // keeping one would let stale evidence ride every later turn as unclassified material.
-    if (['coc-capsule', HISTORY_TYPE, BRIEF_TYPE, DIAGNOSTIC_TYPE, WORKSPACE_TYPE, PRESCREEN_TYPE, NPC_ADVICE_TYPE].includes(message.customType)) return true;
+    if (['coc-capsule', HISTORY_TYPE, BRIEF_TYPE, DIAGNOSTIC_TYPE, WORKSPACE_TYPE, PRESCREEN_TYPE, NPC_ADVICE_TYPE, CLERK_TYPE].includes(message.customType)) return true;
     const details = object(message.details);
     if (message.customType === 'coc-delivery' && details.coc_delivery === true && Number.isSafeInteger(details.turn)) return true;
     return message.customType === 'coc-host' && (details.kind === 'compacted'

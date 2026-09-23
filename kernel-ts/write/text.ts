@@ -232,7 +232,7 @@ function clockOfferId(kind: "clock" | "pressure", target: Row): string {
 function tickedClockTargets(receipts: Row[]): Set<string | null> {
     return new Set(receipts.filter(receipt => receipt.kind === "threat").map(clockTargetKey).filter(Boolean));
 }
-export function offerLedger(turn: Row): Row | null {
+export function offerLedger(turn: Row, obligationSettled: (handle: string) => boolean = () => false): Row | null {
     const capsule = row(turn.capsule), receipts = array(turn.receipts);
     if (!Object.keys(capsule).length)
         return null;
@@ -259,6 +259,11 @@ export function offerLedger(turn: Row): Row | null {
     for (const entry of array(row(mods.pacing).threat_clocks))
         if (truth(row(entry).next))
             offer(clockOfferId("clock", row(entry)), ticked.has(clockTargetKey(row(entry))));
+    // Contract §134.14: an open stated obligation is an offer, taken when its flag is set (or it is waived)
+    // by the time the turn closes. Counted only; it never reaches the next capsule.
+    for (const entry of array(capsule.obligations))
+        if (row(entry).kind === "scene" && row(entry).state === "open" && truth(row(entry).name))
+            offer(`obligation:${string(row(entry).name)}`, obligationSettled(string(row(entry).name)));
     const connectionOffers = array(row(mods.thread).connections).map(connection => string(connection.name));
     if (!offers.length && !connectionOffers.length)
         return null;

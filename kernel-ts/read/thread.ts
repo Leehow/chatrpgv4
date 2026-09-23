@@ -74,7 +74,7 @@ export function threadSection(graph: ModuleGraph, world: Row, scene: Row, presen
             importance: string(record.importance || "unknown"),
             missing: missing.length,
             of: clues.length,
-            here: hereRows.slice(0, 5).map(node => ({ clue: graph.handle(node), gate: clueGate(graph, node), ...(deliveryOf(node) ? { line: deliveryOf(node) } : {}) })),
+            here: hereRows.slice(0, 5).map(node => ({ clue: graph.handle(node), gate: clueGate(graph, node, world), ...(deliveryOf(node) ? { line: deliveryOf(node) } : {}) })),
             next: next.sort((a, b) => Number(b.clues) - Number(a.clues)).slice(0, 4),
             beyond: missing.filter(node => !placed.has(node.node_id)).length
         };

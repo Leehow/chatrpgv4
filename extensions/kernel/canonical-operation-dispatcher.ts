@@ -34,6 +34,11 @@ export interface HostOperationContext {
   onUpdate?: AgentToolUpdateCallback<unknown>;
   persist?(): Promise<void>;
   providerTrace?(event: Record<string, unknown>): void;
+  /**
+   * A policy-origin operation of the single-loop run (contract §135.4): who proposed it and the kernel row it was
+   * built from. Tracing only -- it grants nothing; admission, Mod hooks and the kernel run exactly as for the model.
+   */
+  origin?: { origin: 'policy'; run: string; step: string; clerk?: string; basis?: Json };
 }
 interface Stages {
   prepare(event: ToolCallEvent, context: ExtensionContext): Promise<ToolCallEventResult | undefined>;
@@ -166,6 +171,8 @@ export function createCanonicalOperationDispatcher(stages?: Stages) {
       };
     },
     fixedCallId(toolCallId: string): string | undefined { return frames.get(toolCallId)?.identity.callId; },
+    /** The host origin of a dispatched call (§135.4), for its telemetry rows; undefined for the model's own calls. */
+    hostOrigin(toolCallId: string): HostOperationContext['origin'] { return frames.get(toolCallId)?.context.origin; },
     async bindKernelCallId(toolCallId: string, callId: unknown): Promise<void> {
       const frame = frames.get(toolCallId);
       if (!frame || !['resolve', 'apply'].includes(frame.proposal.operation)) return;
