@@ -43,6 +43,11 @@ export interface StateReads {
    * closed option of theirs is the clerk's to bind. A choice that opens during the run is the Keeper's to hand back.
    */
   answering?: string[];
+  /**
+   * `table.look focus=npc` of the NPC whose turn it is, read only when that turn has no standing action (§11.5.3): a
+   * card without a combat disposition carries the closed words and the person's own parameters to infer one from.
+   */
+  fighter?: Row;
 }
 
 /** A closed parameter: bound when the kernel issued exactly one value, a closed unbound otherwise. */
@@ -61,6 +66,10 @@ const DEFENSE_OPTIONS: Readonly<Record<string, string>> = Object.freeze({
   none: 'No defence: the attack is rolled unopposed.',
 });
 
+/** The standing action words and bases the kernel issues (§11.5.3): closed contract enums, never read from prose. */
+const STANDING_ACTIONS: readonly string[] = ['attack', 'hold', 'flee'];
+const STANDING_BASES: readonly string[] = ['authored', 'rule-default', 'keeper'];
+
 /**
  * Candidates of the active combat or chase session, from the kernel's own session view (`turn_of`, `actions[]`,
  * `pending_defense`; kernel-ts/read/session-view.ts). The "parameters-only steps never go to the LLM" ruling: a
@@ -72,11 +81,13 @@ const DEFENSE_OPTIONS: Readonly<Record<string, string>> = Object.freeze({
  * Three shapes. An NPC's pending defence is forced (the kernel accepts nothing else next) and its option is the
  * standing defence the kernel issues with it (§11.5.2), so it runs directly; only a pending defence without a
  * standing falls back to a Jev bind over the options. An NPC's own turn is forced too -- the initiative order says
- * it acts now -- and which of its issued actions it takes is a closed Jev bind over those actions (`variants`); a Jev "unknown" hands the choice to the Keeper. The
+ * it acts now -- and which of its issued actions it takes is its standing action when the kernel issues one (§11.5.3:
+ * `attack` binds the attack, `hold`/`flee` leave the turn to the Keeper), otherwise a closed Jev bind over those
+ * actions (`variants`); a Jev "unknown" hands the choice to the Keeper. The
  * investigator's turn offers each issued action to the route question, keyed without the round, so the action the
  * player declared is carried out once per turn.
  */
-function sessionCandidates(session: Row, rawInput: string, answering: readonly string[], pendingChoice: Row): Candidate[] {
+function sessionCandidates(session: Row, rawInput: string, answering: readonly string[], pendingChoice: Row, fighter: Row = {}, relationships: Row[] = []): Candidate[] {
   const kind = text(session.kind);
   if ((kind !== 'combat' && kind !== 'chase') || session.status !== 'active') return [];
   const participants = array(session.participants).map(object);
@@ -155,6 +166,23 @@ function sessionCandidates(session: Row, rawInput: string, answering: readonly s
     }
   }
   if (investigator(actor) || !own.length) return own;
+  // SL-08 (§11.5.3): the NPC's standing action, issued by the kernel on its own turn. `attack` makes the attack the
+  // forced step, bound as far as the kernel's lists allow (one target and one weapon: direct; several: a closed Jev
+  // bind over the kernel's own `targets` / `weapons`); `hold` and `flee` issue nothing, so the turn is the Keeper's.
+  // A standing the builder cannot trust (an unknown word or basis, or an attack the kernel did not issue) keeps the
+  // previous route.
+  const standing = object(session.standing_action), word = text(standing.action), standingBasis = text(standing.basis);
+  if (STANDING_ACTIONS.includes(word) && STANDING_BASES.includes(standingBasis)) {
+    const named = {action: word, basis: standingBasis, ...(standing.disposition ? {disposition: standing.disposition as Json} : {})} as Json;
+    if (word !== 'attack') return [];
+    const attack = own.find(candidate => candidate.bound.decision === 'combat:attack');
+    if (attack) return [{...attack, forced: true, basis: {...object(attack.basis), standing: named} as Json}];
+  }
+  // No standing because the NPC has no combat disposition yet (§11.5.3 source 2): its card, read for this turn, carries
+  // the four closed words and its own parameters. Inferring one is a forced closed bind (Jev), written once for the
+  // campaign by the clerk; below the gate the Keeper completes the same write. The next read issues the standing.
+  const inference = dispositionInference(actor, label(actor), fighter, relationships, situation);
+  if (inference) return [inference];
   // An NPC's turn: the initiative order says it acts now, so the step is forced. One issued action is direct; among
   // several, which one it takes is a closed Jev bind whose options are those actions (each variant keeps its own
   // parameters: a closed one is bound next, an open one goes to the LLM). Jev's "unknown" leaves it to the Keeper.
@@ -167,6 +195,33 @@ function sessionCandidates(session: Row, rawInput: string, answering: readonly s
     variants: Object.fromEntries(own.map(candidate => [String(candidate.bound.decision), {label: candidate.label, bound: candidate.bound, unbound: candidate.unbound, basis: candidate.basis}])),
     detail: situation, clerk: 'session_step', forced: true,
     basis: {read: 'table.resolve.options', path: 'context.session.actions', row: actions as Json}}];
+}
+
+/**
+ * The forced inference of an NPC's combat disposition (§11.5.3 source 2; the SL-08 extension ruling), or none. Issued
+ * only when the NPC's own card says it has no disposition and no action word, and names the closed words: the builder
+ * reads the kernel's card, never a list of its own. The material is the person's own text parameters, under the keys
+ * the card issued them, plus the first impression an active Mod settled for them (matched by the table's name for
+ * them); the parameters read go on the write as its `why` and on the basis.
+ */
+function dispositionInference(actor: string, name: string, fighter: Row, relationships: Row[], situation: Json): Candidate | undefined {
+  const disposition = object(fighter.combat_disposition), action = object(fighter.combat_standing);
+  const options = object(disposition.options), words = Object.keys(options);
+  if (text(fighter.id) !== actor || disposition.disposition !== null || action.action !== null || !words.length) return undefined;
+  const material: Record<string, Json> = {...object(disposition.material)} as Record<string, Json>;
+  const impressions = relationships.filter(value => text(value.target) === text(fighter.name) && value.impression != null).map(value => value.impression as Json);
+  if (impressions.length) material.first_impression = impressions.length === 1 ? impressions[0] : impressions;
+  const read = Object.keys(material);
+  if (!read.length) return undefined;
+  return {key: `apply:npc-disposition:${actor}`, verb: 'apply', family: 'npc', source: 'table.look',
+    label: `How ${name} behaves in this fight, from their own parameters`,
+    bound: {kind: 'npc', name: actor, why: `Inferred once for this campaign from ${name}'s own parameters: ${read.join(', ')}.`},
+    unbound: [{name: 'disposition', required: true, vocabulary: 'closed', options: words, descriptions: Object.fromEntries(words.map(word => [word, text(options[word]) || word])),
+      instruction: `Select how ${name} behaves in a fight, judged only from their own parameters in the chosen operation's detail (person): what they `
+        + 'want, fear and hide, their role toward the investigators, their voice, and any first impression. The fight shown there is where it will be '
+        + 'used, not evidence of their character. Choose unknown when those parameters do not tell.'}],
+    detail: {person: material, fight: situation} as Json, clerk: 'disposition_inference', forced: true,
+    basis: {read: 'table.look', path: 'combat_disposition', row: {npc: actor, read} as Json}};
 }
 
 /**
@@ -201,7 +256,8 @@ export function buildCandidates(reads: StateReads, rawInput: string, consumed: R
     ? {bound: {actor: actors[0]}, unbound: []}
     : {bound: {}, unbound: [{name: 'actor', required: true, vocabulary: 'closed', options: actors}]};
   // A structurally determined step goes first: its candidate is the only thing the kernel accepts next.
-  for (const candidate of sessionCandidates(session, rawInput, reads.answering ?? [], object(resolveContext.pending_choice)))
+  const relationships = array(object(capsule.mods).relationships).map(object);
+  for (const candidate of sessionCandidates(session, rawInput, reads.answering ?? [], object(resolveContext.pending_choice), object(reads.fighter), relationships))
     if (candidate.forced) push(candidate);
   // Effects the kernel issues for the current state.
   for (const [index, row] of array(object(reads.applyOptions).candidates).map(object).entries()) {
@@ -268,7 +324,7 @@ export function buildCandidates(reads: StateReads, rawInput: string, consumed: R
       unbound: [...actor.unbound, {name: 'profile, difficulty and modifiers', required: true, vocabulary: 'closed' as const, binder: 'ordinary-resolve' as const}],
       clerk: 'declared_check', basis: {read: 'table.resolve.options', path: 'decisions', row: {name, family: text(decision.family) || null} as Json}});
   }
-  for (const candidate of sessionCandidates(session, rawInput, reads.answering ?? [], object(resolveContext.pending_choice)))
+  for (const candidate of sessionCandidates(session, rawInput, reads.answering ?? [], object(resolveContext.pending_choice), object(reads.fighter), relationships))
     if (!candidate.forced) push(candidate);
   // Located entities the host can apply directly by handle.
   for (const entity of reads.located ?? []) {

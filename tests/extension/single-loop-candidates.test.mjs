@@ -249,3 +249,135 @@ test("the player's answer to a choice that was already open settles that choice;
 	const { args } = keeperCall(answer, { defense: "dodge" });
 	assert.deepEqual(args.action.choice, { pending: "defense:knott-r4", option: "dodge" });
 });
+
+/** Knott's own turn after his dodge, with a Keeper-written disposition (or none): the state SL-08 reads. */
+async function knottsTurn(call, disposition) {
+	const turn = await fight(call);
+	let n = 3;
+	if (disposition) await call("table.apply", { call_id: `t${turn}-c${n++}`, effects: [{ kind: "npc", name: "Steven Knott", disposition, why: "test fixture" }] });
+	await call("table.resolve", { call_id: `t${turn}-c${n++}`, action: { intent: "combat", decision: "combat:defend", goal: "combat:defend", method: "combat:defend", actor: "steven-knott", defense: "dodge" } });
+	return { turn, n };
+}
+const withSession = (state, change) => ({ ...state, resolveOptions: { ...state.resolveOptions, context: { ...state.resolveOptions.context,
+	session: change(structuredClone(state.resolveOptions.context.session)) } } });
+
+test("SL-08: an NPC's standing attack with one target and one weapon is its forced, fully bound turn -- direct, no Jev, no LLM", async (t) => {
+	const { call } = kernel(t);
+	await knottsTurn(call, "fights_to_the_end");
+	const state = await reads(call);
+	const session = state.resolveOptions.context.session;
+	assert.equal(session.turn_of, "steven-knott");
+	assert.deepEqual(session.standing_action, { action: "attack", basis: "rule-default", disposition: { disposition: "fights_to_the_end", basis: "keeper" },
+		read: { hp_fraction: session.standing_action.read.hp_fraction, outnumbered: false, stance: "hostile" } });
+	const candidates = buildCandidates(state, "我揍他");
+	const forced = candidates.filter((candidate) => candidate.forced);
+	assert.equal(forced.length, 1);
+	const [attack] = forced;
+	assert.equal(attack.key, `resolve:combat:attack:steven-knott:r${session.round}`);
+	assert.deepEqual([attack.bound.decision, attack.bound.actor, attack.bound.target, attack.bound.weapon], ["combat:attack", "steven-knott", "thomas-hayes", "unarmed"]);
+	assert.equal(bindingOf(attack), "none");
+	assert.equal(attack.clerk, "session_step");
+	// The clerk basis names the kernel row and the standing, with its basis and disposition.
+	assert.equal(attack.basis.path, "context.session.actions[0]");
+	assert.deepEqual(attack.basis.standing, { action: "attack", basis: "rule-default", disposition: { disposition: "fights_to_the_end", basis: "keeper" } });
+	assert.equal(candidates.filter((candidate) => candidate.family === "combat").length, 1, "no closed bind over his actions: the standing decided");
+	const view = initialView({ runId: "r", rawInput: "我揍他", context, candidates: [], readFirst: false });
+	settleRead(view, 1, { materials: [], summary: {} }, { context, candidates }, 0);
+	assert.deepEqual([view.pending[0].kind, view.pending[0].purpose, view.pending[0].candidate.key], ["direct", "execute", attack.key]);
+	assert.equal(next(view).kind, "direct");
+	const { tool, args } = keeperCall(attack);
+	assert.equal(tool, "resolve");
+	assert.deepEqual([args.action.intent, args.action.decision, args.action.actor, args.action.target, args.action.weapon], ["combat", "combat:attack", "steven-knott", "thomas-hayes", "unarmed"]);
+});
+
+test("SL-08: several weapons or targets under a standing attack are a Jev bind over the kernel's own lists, and the attack is still decided", async (t) => {
+	const { call } = kernel(t);
+	await knottsTurn(call, "fights_to_the_end");
+	const live = await reads(call);
+	const state = withSession(live, (session) => { session.actions[0].weapons = ["unarmed", "knife_medium"]; session.actions[0].targets = ["thomas-hayes", "ruth"]; return session; });
+	const [attack] = buildCandidates(state, "我揍他").filter((candidate) => candidate.forced);
+	assert.equal(attack.bound.decision, "combat:attack");
+	assert.deepEqual(attack.unbound.map((value) => [value.name, value.vocabulary, value.options]),
+		[["target", "closed", ["thomas-hayes", "ruth"]], ["weapon", "closed", ["unarmed", "knife_medium"]]]);
+	const view = initialView({ runId: "r", rawInput: "我揍他", context, candidates: [], readFirst: false });
+	settleRead(view, 1, { materials: [], summary: {} }, { context, candidates: [attack] }, 0);
+	assert.deepEqual([view.pending[0].kind, view.pending[0].purpose], ["decide", "bind"]);
+	const batch = bindBatch(view, attack, scope, []);
+	assert.deepEqual(batch.questions.map((question) => question.key), ["target", "weapon"], "Jev binds the parameters, not the action");
+	const answer = { batchId: batch.id, status: "complete", issues: [], coverage: { required: ["target", "weapon"], answered: ["target", "weapon"], unknown: [] },
+		answers: { target: { status: "answered", type: "choice", choice: "ruth", confidence: 0.8 }, weapon: { status: "answered", type: "choice", choice: "knife_medium", confidence: 0.8 } } };
+	assert.deepEqual(interpretBind(attack, batch, answer, 0.6).pending.map((item) => [item.kind, item.purpose, item.extra?.target, item.extra?.weapon]),
+		[["direct", "execute", "ruth", "knife_medium"]]);
+});
+
+test("SL-08: hold and flee issue no attack and no other step for the NPC: the turn is the Keeper's; no standing keeps the previous route", async (t) => {
+	const { call } = kernel(t);
+	const { turn, n } = await knottsTurn(call, "fights_to_the_end");
+	await call("table.apply", { call_id: `t${turn}-c${n}`, effects: [{ kind: "npc", name: "Steven Knott", action: "hold", why: "He hesitates." }] });
+	const held = await reads(call);
+	assert.deepEqual(held.resolveOptions.context.session.standing_action, { action: "hold", basis: "keeper", disposition: { disposition: "fights_to_the_end", basis: "keeper" } });
+	const none = (state) => buildCandidates(state, "我揍他").filter((candidate) => candidate.family === "combat");
+	assert.deepEqual(none(held), [], "a hold: no attack candidate, and no closed bind over his other actions");
+	const fled = withSession(held, (session) => ({ ...session, standing_action: { action: "flee", basis: "rule-default", disposition: { disposition: "fights_then_flees", basis: "authored" } } }));
+	assert.deepEqual(none(fled), [], "a flight: the same");
+	// No standing (a kernel that predates §11.5.3, or an NPC with no disposition): Jev's closed bind over the issued actions.
+	const unstanding = withSession(held, ({ standing_action: _standing, ...session }) => session);
+	const [turnCandidate] = buildCandidates(unstanding, "我揍他").filter((candidate) => candidate.forced);
+	assert.equal(turnCandidate.key, `resolve:combat:turn:steven-knott:r${held.resolveOptions.context.session.round}`);
+	assert.deepEqual(turnCandidate.unbound[0].options, ["combat:attack", "combat:maneuver", "combat:end"]);
+	// A standing the builder cannot trust (a basis outside the contract's) keeps the previous route too.
+	const odd = withSession(held, (session) => ({ ...session, standing_action: { action: "attack", basis: "guess" } }));
+	assert.equal(buildCandidates(odd, "我揍他").find((candidate) => candidate.forced).key, turnCandidate.key);
+});
+
+test("SL-08: an NPC's turn without a disposition is a forced closed bind that infers one from his own parameters, once, as the clerk's write", async (t) => {
+	const { call } = kernel(t);
+	const { turn, n } = await knottsTurn(call, null);
+	const state = await reads(call);
+	const session = state.resolveOptions.context.session;
+	assert.equal(session.standing_action, undefined, "no disposition, no standing");
+	const fighter = await call("table.look", { focus: "npc", name: session.turn_of });
+	assert.equal(fighter.combat_disposition.disposition, null);
+	const candidates = buildCandidates({ ...state, fighter }, "我揍他");
+	const forced = candidates.filter((candidate) => candidate.forced);
+	assert.equal(forced.length, 1, "the inference comes before any bind over his actions");
+	const [inference] = forced;
+	assert.equal(inference.key, "apply:npc-disposition:steven-knott");
+	assert.equal(inference.clerk, "disposition_inference");
+	assert.equal(bindingOf(inference), "closed");
+	assert.deepEqual(inference.unbound[0].options, ["fights_to_the_end", "fights_then_flees", "avoids_fighting", "surrenders"]);
+	assert.deepEqual(inference.unbound[0].descriptions, fighter.combat_disposition.options, "the criteria are the kernel's table descriptions");
+	// The material is his own parameters as the card issued them, and the basis names which were read.
+	assert.deepEqual(inference.detail.person, fighter.combat_disposition.material);
+	assert.deepEqual(inference.basis.row.read, Object.keys(fighter.combat_disposition.material));
+	const view = initialView({ runId: "r", rawInput: "我揍他", context, candidates: [], readFirst: false });
+	settleRead(view, 1, { materials: [], summary: {} }, { context, candidates }, 0);
+	assert.deepEqual([view.pending[0].kind, view.pending[0].purpose, view.pending[0].candidate.key], ["decide", "bind", inference.key]);
+	const batch = bindBatch(view, inference, scope, []);
+	assert.deepEqual(batch.questions.map((question) => question.key), ["disposition"]);
+	assert.match(batch.questions[0].instructions, /own parameters/);
+	assert.ok(allText(batch.state).includes(Object.values(fighter.combat_disposition.material)[0].slice(0, 20)), "Jev reads the material");
+	const answer = (choice, confidence) => ({ batchId: batch.id, status: "complete", issues: [], coverage: { required: ["disposition"], answered: ["disposition"], unknown: [] },
+		answers: { disposition: { status: "answered", type: "choice", choice, confidence } } });
+	const confident = interpretBind(inference, batch, answer("fights_then_flees", 0.8), 0.6).pending;
+	assert.deepEqual(confident.map((item) => [item.kind, item.purpose, item.extra?.disposition]), [["direct", "execute", "fights_then_flees"]]);
+	const { tool, args } = keeperCall(inference, confident[0].extra);
+	assert.equal(tool, "apply");
+	assert.deepEqual(Object.keys(args.effects[0]).sort(), ["disposition", "kind", "name", "why"], "the model-visible shape: the host-only marker is added by the kernel extension, not here");
+	// Below the gate the Keeper completes the same write (the operation-completion path).
+	assert.deepEqual(interpretBind(inference, batch, answer("fights_then_flees", 0.4), 0.6).pending.map((item) => [item.kind, item.purpose]), [["infer", "bind"], ["direct", "llm_proposal"]]);
+	// Once written, the card has it and nothing is inferred again: the next read issues the standing instead.
+	await call("table.apply", { call_id: `t${turn}-c${n}`, effects: [{ ...args.effects[0], _inferred: { read: inference.basis.row.read } }] });
+	const after = await reads(call);
+	const card = await call("table.look", { focus: "npc", name: "steven-knott" });
+	assert.deepEqual(card.combat_disposition, { disposition: "fights_then_flees", basis: "inferred" });
+	assert.equal(after.resolveOptions.context.session.standing_action.basis, "rule-default");
+	assert.ok(!buildCandidates({ ...after, fighter: card }, "我揍他").some((candidate) => candidate.clerk === "disposition_inference"));
+	// A first impression an active Mod settled for him is material too, matched by the table's name for him.
+	const impression = { reaction: "wary", disposition: "unfriendly" };
+	const withImpression = buildCandidates({ ...state, fighter, capsule: { ...state.capsule, mods: { ...state.capsule.mods,
+		relationships: [{ actor: "Thomas Hayes", target: fighter.name, decision: "npc-first-impression", impression }] } } }, "我揍他");
+	const inferred = withImpression.find((candidate) => candidate.clerk === "disposition_inference");
+	assert.deepEqual(inferred.detail.person.first_impression, impression);
+	assert.ok(inferred.basis.row.read.includes("first_impression"));
+});

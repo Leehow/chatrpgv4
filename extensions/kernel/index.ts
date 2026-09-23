@@ -2786,6 +2786,17 @@ export default function (pi: ExtensionAPI) {
 		const host = dispatcher.hostOrigin(toolCallId);
 		const origin: Record<string, unknown> = host ? { origin: host.origin, run: host.run, step: host.step,
 			...(host.clerk ? { clerk: host.clerk } : {}), ...(host.basis !== undefined ? { basis: host.basis } : {}) } : {};
+		// §11.5.3: `_inferred` marks the combat disposition Jev inferred for the clerk (authority disposition_inference),
+		// with the parameters read from the candidate's own basis. Host-only: no other call ever carries it.
+		if (spec.name === "apply" && Array.isArray(params.effects)) {
+			const basisRow = host?.clerk === "disposition_inference" ? (host.basis as { row?: { read?: unknown } } | undefined)?.row : undefined;
+			const read = Array.isArray(basisRow?.read) ? basisRow.read.filter((value): value is string => typeof value === "string") : [];
+			for (const effect of params.effects as Array<Record<string, unknown>>) {
+				if (!effect || typeof effect !== "object") continue;
+				delete effect._inferred;
+				if (read.length && effect.kind === "npc" && effect.disposition != null) effect._inferred = { read };
+			}
+		}
 		takeSkillAnnotation(state?.skillRun, params);
 		if (!state) {
 			throw new Error(startupError ?? "the kernel is not up, so this table cannot open");

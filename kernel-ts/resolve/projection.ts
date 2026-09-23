@@ -185,8 +185,12 @@ export function shapeSettlement(context: SettleContext, runtime: RuleGraph, chos
 }
 export function tagNpcReceipts(context: SettleContext, family: string, npc: Row | null, outcome: Row): void {
     let against = npc ? context.graph.handle(npc) : null;
-    if (!against && typeof outcome.npc === 'string') {
-        const node = context.graph.find(outcome.npc, ['npc']);
+    // A combat defence names no `target` on its action: the attack it settles is against the defender, whom the combat
+    // outcome names as `target`. Without it the roll against an NPC defender carried no `npc`, and §17.3's "any combat
+    // settled against him makes him hostile" never folded for a fight whose defence is its own resolve (§11.5).
+    const subject = typeof outcome.npc === 'string' ? outcome.npc : family === 'combat' && typeof outcome.target === 'string' ? outcome.target : null;
+    if (!against && subject) {
+        const node = context.graph.find(subject, ['npc']);
         if (node)
             against = context.graph.handle(node);
     }
