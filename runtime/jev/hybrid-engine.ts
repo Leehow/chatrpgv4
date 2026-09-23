@@ -228,12 +228,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       operations: {
         async execute(proposal, invocation) {
           if (proposal.origin === 'model' && invocation.executeModelTool) return modelStep(run, proposal, invocation.executeModelTool);
-          if (proposal.operation === 'llm_proposal') {
-            // The operation Jev chose and the LLM completed: its kernel row stays on record beside the model's call.
-            const params = object(proposal.params);
-            record({lane: 'run', event: 'llm_bound', run: run.runId, step: invocation.stepId, candidate: params.candidate ?? null, basis: params.basis ?? null});
-            return {status: 'ok', artifact: {kind: 'execute', executed: {ok: true, summary: {slot: 'llm_proposal'}}}};
-          }
+          if (proposal.operation === 'llm_proposal') return {status: 'ok', artifact: {kind: 'execute', executed: {ok: true, summary: {slot: 'llm_proposal'}}}};
           if (proposal.operation === 'execute') return clerkStep(run, object(proposal.params), invocation);
           return {status: 'refused', reason: 'unknown_policy_operation', artifact: {kind: 'execute', executed: {ok: false, summary: {refused: 'unknown_policy_operation'}}}};
         },
@@ -369,7 +364,10 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     if (fresh.length) Object.assign(content, {clerk_did: fresh,
       note: 'The host (the clerk) settled these this turn before asking you, from the kernel\'s own options. They are committed, not pending: '
         + 'narrate what happened, do not redo them, and undo one only with a real operation of your own (its own receipt and time cost).'});
-    const operation = object(step.request).operation;
+    const request = object(step.request), operation = request.operation;
+    // The operation Jev chose and the LLM is asked to complete keeps its kernel row on record beside the model's call.
+    if (step.purpose === 'bind' && request.candidate)
+      record({lane: 'run', event: 'llm_bound', run: run.runId, step: stepId, candidate: request.candidate, basis: request.basis ?? null});
     if (step.purpose === 'bind' && operation) Object.assign(content, {complete: operation,
       instruction: 'The clerk chose this operation from the player\'s declared action. Call its verb once, with the bound values as given and '
         + 'the needed parameters filled in; decide nothing else in this response.'});

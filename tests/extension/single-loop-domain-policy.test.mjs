@@ -208,7 +208,8 @@ test("the clerk writes nothing before a read binds the run's IntentBinding, nor 
 	const handlers = new Map();
 	const bus = { on: (name, handler) => handlers.set(name, handler), emit: (name, value) => handlers.get(name)?.(value) };
 	const pi = { events: bus, on: () => {}, getActiveTools: () => [], setActiveTools: () => {} };
-	const engine = createHybridEngine({ env: {}, decision: null, record: () => {} });
+	const rows = [];
+	const engine = createHybridEngine({ env: {}, decision: null, record: (row) => rows.push(row) });
 	engine.extension(pi);
 	const source = "a".repeat(64), kernelCalls = [];
 	bus.emit("coc:kernel-bridge", { campaign: "c", call: async (method) => { kernelCalls.push(method);
@@ -226,6 +227,14 @@ test("the clerk writes nothing before a read binds the run's IntentBinding, nor 
 	assert.equal((await plan.ports.operations.execute({ origin: "policy", operation: "execute", params: { candidate: { ...candidate, clerk: "declared_bookkeeping" } } }, invocation("s5"))).reason,
 		"operation_gateway_unavailable", "with authority and an intent it goes to the gateway, which this bus does not carry");
 	assert.ok(!kernelCalls.some((method) => ["table.apply", "table.resolve"].includes(method)), "the kernel received no write");
+	// An operation Jev chose and the LLM completes: the Keeper is asked for its parameters without the host's kernel row,
+	// and the row stays on record beside the step.
+	const [note] = plan.ports.projection.project({ view: { policyState: { view: {} } }, stepId: "s6",
+		step: { kind: "infer", purpose: "bind", reason: "open_parameters", request: { candidate: "apply:person:A",
+			operation: { verb: "apply", label: "Stage A", bound: { kind: "person", who: "A" }, needs: [{ name: "name" }] }, basis: { read: "table.capsule", path: "present[0]" } } } });
+	assert.equal(JSON.parse(note.content).complete.label, "Stage A");
+	assert.ok(!note.content.includes("present[0]"), "the kernel row is not shown to the model");
+	assert.deepEqual(rows.find((row) => row.event === "llm_bound")?.basis, { read: "table.capsule", path: "present[0]" });
 });
 
 test("on the hybrid engine the context hook injects the run's own prescreen packet and runs no prescreen of its own", async (t) => {

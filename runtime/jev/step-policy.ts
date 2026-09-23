@@ -576,7 +576,9 @@ export function createStepPolicy(options: StepPolicyOptions): RunPolicy<StepPoli
       if (request.kind === 'finish') return {kind: 'finish', outcome: 'delivered', reason: request.reason};
       if (request.kind === 'infer') return {kind: 'infer', purpose: request.purpose, reason: request.reason,
         request: {purpose: request.purpose, reason: request.reason,
-          ...(request.item?.candidate ? {candidate: request.item.candidate.key, operation: operationView(request.item.candidate)} : {})}};
+          ...(request.item?.candidate ? {candidate: request.item.candidate.key, operation: operationView(request.item.candidate),
+            // Host-only: the kernel row the chosen operation came from, recorded with the step; never put in front of the model.
+            ...(request.item.candidate.basis !== undefined ? {basis: request.item.candidate.basis} : {})} : {})}};
       if (request.kind === 'decide' && request.purpose === 'route') {
         if (!binding) return {kind: 'decide', purpose: 'route', question: unbound};
         const {batch, offered} = routeBatch(state, binding.scope, binding.readSet);
@@ -591,8 +593,7 @@ export function createStepPolicy(options: StepPolicyOptions): RunPolicy<StepPoli
       }
       const item = request.item;
       const proposal: OperationProposal = item.purpose === 'read' ? {origin: 'policy', operation: 'read', readOnly: true, label: 'read the table state'}
-        : item.purpose === 'llm_proposal' ? {origin: 'policy', operation: 'llm_proposal', readOnly: true,
-          params: {candidate: item.candidate?.key, ...(item.candidate?.basis !== undefined ? {basis: item.candidate.basis} : {})}}
+        : item.purpose === 'llm_proposal' ? {origin: 'policy', operation: 'llm_proposal', readOnly: true, params: {candidate: item.candidate?.key}}
           : {origin: 'policy', operation: 'execute', readOnly: false, label: item.candidate?.label,
             params: {candidate: item.candidate, extra: item.extra ?? {}, intent: driver.policyState.intent ?? null}};
       return {kind: 'operate', proposals: [proposal]};
