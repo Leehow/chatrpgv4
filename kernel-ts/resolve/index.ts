@@ -8,7 +8,7 @@ import type { ModuleGraph } from '../read/module-graph.js';
 import { RuleObservations } from '../read/rule-facts.js';
 import { activeMods } from '../read/mods.js';
 import { SessionView } from '../read/session-view.js';
-import { array, clone, integer, normalize, number, repr, string, truth, type Row } from '../read/values.js';
+import { array, clone, integer, normalize, number, repr, row, string, truth, type Row } from '../read/values.js';
 import { RuleTables } from '../rules/tables.js';
 import { SkillResolver } from '../rules/skills.js';
 import { nowIso } from '../write/store.js';
@@ -22,6 +22,8 @@ import {actor as selectActor} from '../read/handlers.js';
 import type {ModResolveInput,ModResolveResult} from '../mods/resolve.js';
 import type {FixedFamilies} from './families.js';
 import {trackResolveReceipts} from '../runtime/receipt-advance.js';
+import { bindObligation, continuedClaim, crossedByTarget, settleClaim, type ObligationClaim } from './obligation.js';
+import { latestCheckReceipt as latestCheck } from './context.js';
 export { CheckArithmetic, rollExpression, resourceDelta } from './arithmetic.js';
 export { SettleContext, continuableCheck, latestCheckReceipt, recordSkillTicks, skillTickEligible } from './context.js';
 export type { ResolveWriter, SettlementExecutor, ExecutionResult } from './context.js';
@@ -181,7 +183,7 @@ export function createResolveRuntime(kernel: KernelContext, writer: ResolveWrite
             snapshot.turn = transaction.turn;
             const module = await loadCampaignModule(kernel, string(snapshot.meta.module_id), snapshot.world, transaction.campaign.id);
             const graph = module.graph;
-            const action = params.action;
+            let action: any = params.action;
             const contributed = isJsonObject(action) && (await activeMods(kernel, transaction.world)).some(mod => array(mod.contributes.checks).some(check => check.name === action.decision));
             const start = await transaction.beginWrite('table.resolve', params, {
                 allowOpening: contributed
@@ -194,6 +196,12 @@ export function createResolveRuntime(kernel: KernelContext, writer: ResolveWrite
             if (!INTENTS.includes(string(action.intent)))
                 unsupportedValue('intent', action.intent, INTENTS, `unknown intent ${repr(action.intent)}`);
             const intent = string(action.intent);
+            // Contract §134.11: a claimed obligation is validated and bound before anything reads the action;
+            // the stored call parameters stay the Keeper's own.
+            let claim: ObligationClaim | null = null;
+            if (action.obligation != null) {
+                ({ claim, action } = await bindObligation({ kernel, tables, graph, world: transaction.world, transaction, action, intent }));
+            }
             if (!NONE_INTENTS.has(intent)) {
                 if (contributions.requireMaterial)
                     await contributions.requireMaterial(graph, [transaction.world.active_scene, action.actor, action.target]);
@@ -260,7 +268,16 @@ export function createResolveRuntime(kernel: KernelContext, writer: ResolveWrite
                     const state=new CampaignSnapshot(kernel,transaction.campaign.id);state.meta=await transaction.campaign.readCampaign();state.world=await transaction.campaign.readWorld();state.turn=transaction.turn;await state.preload('view');
                     const view=new SessionView(state,graph,state.party,state.world),result=modified.result;
                     result.session=view.activeSession();result.pending_choice=view.pendingChoice()||transaction.turn.pending_choice||null;result.markers=markersOf(transaction.turn,modified.receipts);
-                    await transaction.commitResolve({callId:start.callId,params,result,receipts:[...choices,...modified.receipts],events:modResolveEvents(action,result,modified.receipts)});
+                    const events=modResolveEvents(action,result,modified.receipts);
+                    // §134.13: a step a Mod check serves settles on that check's result, frozen or new.
+                    if(claim){
+                        const flagged=await settleClaim({graph,transaction,claim,level:row(result.outcome).level,receipts:modified.receipts,result,pushable:false});
+                        if(flagged)events.push(flagged.receipt?flagged:{...flagged,receipt:string(result.receipt)});
+                    }else{
+                        const crossed=crossedByTarget(graph,transaction.world,action.target);
+                        if(crossed)result.obligation_open=crossed;
+                    }
+                    await transaction.commitResolve({callId:start.callId,params,result,receipts:[...choices,...modified.receipts],events});
                     return result;
                 }
             }
@@ -286,11 +303,27 @@ export function createResolveRuntime(kernel: KernelContext, writer: ResolveWrite
             if (healing && typeof action.target === 'string' && action.target.trim())
                 subject = target ?? npcPatient(graph, transaction.world, action.target) ?? subject;
             const context = new SettleContext(kernel, transaction, snapshot, module, tables, arithmetic, observations, start.callId, start.ordinal, actor.actor, subject, action, actor.actingId);
+            // §134.11: a push or a Luck spend continues the claim of the check receipt it continues, and only that.
+            if (truth(action.push) || action.luck != null) {
+                const source = latestCheck(context);
+                claim = continuedClaim(graph, claim, source ? [...context.allReceipts()].find(receipt => receipt.id === source[0]) ?? null : null);
+            }
             const pipeline = new ResolvePipeline(context, resolver, rollModifiers, actor.npcInSession, contributions);
             const settled = await pipeline.run(beforeExecute);
             if (settled.kind === 'none')
                 return noneResult(settled.note);
+            const level = row(settled.outcome).level, pushed = truth(row(settled.outcome).pushed) || truth(action.push);
             const { result, events } = resolveResult(context, settled);
+            if (claim) {
+                const flagged = await settleClaim({ graph, transaction, claim, level, receipts: context.receipts, result, pushable: level === 'failure' && !pushed && action.luck == null });
+                if (flagged)
+                    events.push(flagged);
+            }
+            else {
+                const crossed = crossedByTarget(graph, transaction.world, action.target);
+                if (crossed)
+                    result.obligation_open = crossed;
+            }
             await transaction.commitResolve({
                 callId: start.callId,
                 params,

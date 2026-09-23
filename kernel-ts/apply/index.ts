@@ -30,6 +30,7 @@ import type {createWorldlineRuntime} from '../worldline/index.js';
 import type {createModRuntime} from '../mods/index.js';
 import type {CampaignWriter} from '../write/store.js';
 import {prepareFulfillments, type FulfillmentSelection} from '../memory/fulfillment-receipt.js';
+import {activeScene, openGuards} from '../read/obligations.js';
 const KINDS = ['ability', 'adaptation', 'cash', 'clock', 'clue', 'damage', 'define', 'dossier', 'ending', 'flag', 'fork', 'handout', 'item', 'map', 'merge', 'move', 'note', 'npc', 'object', 'person', 'ruling', 'switch', 'threat', 'time', 'usage'];
 export interface ApplyContext {
     readonly kernel: KernelContext;
@@ -291,6 +292,19 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                 await contributions.mods!.projectInventory(campaign as CampaignWriter,staged);
             for(const note of stagedNotes)await appendJsonl(join(campaign.directory,'notes.jsonl'),note);
             for(const ruling of stagedRulings)await appendJsonl(join(campaign.directory,'rulings.jsonl'),ruling);
+            // Contract §134.12: crossing an unsettled stated obligation's guard is information on the receipt
+            // and the result, never a refusal (owner ruling Q5). The guards are the scene the batch started in.
+            const guards = openGuards(graph, staged, activeScene(graph, transaction.world));
+            let crossed: string | null = null;
+            for (const receipt of receipts) {
+                const [map, name, kinds] = receipt.kind === 'clue' ? [guards.clues, receipt.clue, ['clue']] : receipt.kind === 'move' && !receipt.renamed ? [guards.exits, receipt.to, ['scene']]
+                    : receipt.kind === 'person' && receipt.is_investigator !== true ? [guards.people, receipt.who, ['npc']] : receipt.kind === 'npc' ? [guards.people, receipt.handle, ['npc']] : [null, null, []];
+                const node = map && map.size && typeof name === 'string' ? graph.find(name, kinds) : null, guard = node ? map!.get(string(node.node_id)) : undefined;
+                if (guard) {
+                    receipt.obligation_open = guard;
+                    crossed ??= guard;
+                }
+            }
             const material = module.material(graph.scene(staged.active_scene).node_id);
             const result: Row = { receipts: ids, markers: markersOf({ ...turn, receipts: [...array(turn.receipts), ...receipts] }, receipts), world: { active_scene: staged.active_scene, clock: staged.clock }, material_ready: material === 'ready', material };
             if (receipts.some(receipt => receipt.kind === 'move' && receipt.renamed) && !receipts.some(receipt => receipt.kind === 'move' && !receipt.renamed))
@@ -304,6 +318,8 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                 Object.assign(result, await sceneView(snapshot, module));
                 result.deepen_queued = contributions.queueAdjacentReading ? await contributions.queueAdjacentReading(graph, graph.scene(staged.active_scene)) : [];
             }
+            if (crossed)
+                result.obligation_open = crossed;
             if (recovery.recovered.length)
                 result.recovered = recovery.recovered;
             if (days)
