@@ -15908,9 +15908,12 @@ reader, and §130.6 tells the player nothing about a post-delivery review; it st
 
 `pipicoc/mechanics.js` already draws a replaced entry in place and already opens a `definition: "ready"`
 row, so the definition lane needs nothing new there. An `item` row may now carry
-`usages: {<usage name>: {name, parameters}}`; until the card draws it (one line per usage under the
-item row: the usage name, then its parameters as the possessions box draws a weapon's), a usage patch
-reaches the card's data and is not yet visible.
+`usages: {<usage name>: {name, parameters}}`, and the card draws it (2026-09-23): one line per usage under
+the item row -- the usage name, then the fields the possessions box draws for a weapon, in the sheet's order
+and under the sheet's captions, so the card never shows more than the sheet. The field list is one block
+shared word for word between `pipicoc/panel.js` and `pipicoc/mechanics.js` (a test pins the two copies
+equal). A patch that lands while the row's fold is closed stays in the fold; the lines show once it is
+opened. Test: `tests/extension/mechanics-usage-lines.test.mjs`.
 
 ### 132.6 The three ends (§31)
 
