@@ -1,0 +1,281 @@
+{
+ "run": 2,
+ "fixture": "turn3",
+ "admission": "lane",
+ "keeper": "live grok-build/grok-4.7-build-fast",
+ "thinking": "low",
+ "wall_ms": 37513,
+ "status": "delivered",
+ "reason": "delivery_accepted",
+ "model_calls": [
+  {
+   "step": 1,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": 13125,
+   "ttfb_ms": 1247,
+   "input": 46821,
+   "cache_read": 0,
+   "cache_write": 0,
+   "output": 1056,
+   "reasoning": 534,
+   "tools": [
+    "apply",
+    "resolve"
+   ],
+   "stop": "toolUse",
+   "effort": "low"
+  },
+  {
+   "step": 2,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": 11486,
+   "ttfb_ms": 850,
+   "input": 50374,
+   "cache_read": 1152,
+   "cache_write": 0,
+   "output": 866,
+   "reasoning": 554,
+   "tools": [
+    "apply",
+    "narrate"
+   ],
+   "stop": "toolUse",
+   "effort": "low"
+  }
+ ],
+ "steps": {
+  "operate": 5,
+  "decide": 3,
+  "infer": 2,
+  "finish": 1
+ },
+ "llm_steps": 2,
+ "llm_purposes": [
+  "adjudicate",
+  "adjudicate"
+ ],
+ "jev_calls": 7,
+ "route_rows": 3,
+ "calls": [
+  {
+   "tool": "apply",
+   "origin": "policy",
+   "ok": true,
+   "error": null,
+   "input": {
+    "effects": [
+     {
+      "kind": "move",
+      "to": "newspaper-morgue"
+     }
+    ]
+   }
+  },
+  {
+   "tool": "apply",
+   "origin": "model",
+   "ok": true,
+   "error": null,
+   "input": {
+    "effects": [
+     {
+      "kind": "person",
+      "who": "Arty Wilmot",
+      "name": "阿蒂·威尔莫特",
+      "why": "剪报室门口的编辑第一次露面，桌上名牌写着他的名字。"
+     }
+    ]
+   }
+  },
+  {
+   "tool": "resolve",
+   "origin": "model",
+   "ok": true,
+   "error": null,
+   "input": {
+    "action": {
+     "intent": "social",
+     "goal": "沈默第一次走进《环球报》剪报室门口，请求查科比特宅的旧报道，看阿蒂·威尔莫特对他的第一印象",
+     "method": "以记者身份直接上前打招呼，说要找老同行翻剪报",
+     "target": "Arty Wilmot",
+     "actor": "沈默",
+     "decision": "natural-npc:first-impression"
+    }
+   }
+  },
+  {
+   "tool": "apply",
+   "origin": "model",
+   "ok": true,
+   "error": null,
+   "input": {
+    "effects": [
+     {
+      "kind": "time",
+      "minutes": 20,
+      "why": "从诺特的办公室走到华盛顿街的《环球报》馆。"
+     }
+    ]
+   }
+  },
+  {
+   "tool": "narrate",
+   "origin": "model",
+   "ok": true,
+   "error": null,
+   "input": {
+    "text": "你戴上帽子，出了诺特的办公室，沿街走到《环球报》馆。{{time:t3-c4}}编辑室里打字机响成一片，热气混着油墨味。通往地下室剪报室的门半开着，门边坐着一个穿背心的中年人，桌牌上写着阿蒂·威尔莫特。他抬眼打量你这一身记者打扮，笔在指间转了一圈，居然没有立刻赶人。{{check:appearance}}\\n\\n你说要找认识的老同行，帮忙翻科比特宅这些年的旧报道。威尔莫特朝屋里扫了一眼，摇摇头。{{say:阿蒂·威尔莫特}}「剪报室没有你的老同行在值班。底下那些匣子归我管。外人——哪怕是同行——也不能自己下楼翻。」{{/say}}\\n\\n他把笔搁下，身子往后一靠，语气仍旧硬，眼神却肯听你把话说完。{{say:阿蒂·威尔莫特}}「你要查哪一处房子、查哪几年，说清楚。说得动我，我才派人带你下去。」{{/say}}"
+   }
+  }
+ ],
+ "match": [
+  {
+   "baseline": "move newspaper-morgue",
+   "matched": true,
+   "origin": "policy"
+  },
+  {
+   "baseline": "person Arty Wilmot",
+   "matched": true,
+   "origin": "model"
+  },
+  {
+   "baseline": "resolve natural-npc:first-impression vs Arty Wilmot",
+   "matched": true,
+   "origin": "model"
+  },
+  {
+   "baseline": "resolve Persuade vs Arty Wilmot",
+   "matched": false
+  },
+  {
+   "baseline": "person Ruth Blake",
+   "matched": false
+  },
+  {
+   "baseline": "resolve natural-npc:first-impression vs Ruth Blake",
+   "matched": false
+  },
+  {
+   "baseline": "clue globe-unpublished-story",
+   "matched": false
+  },
+  {
+   "baseline": "clue macario-tragedy",
+   "matched": false
+  },
+  {
+   "baseline": "handout Boston Globe City Desk Copy — Held from Print (1918)",
+   "matched": false
+  },
+  {
+   "baseline": "time 40",
+   "matched": true,
+   "origin": "model"
+  },
+  {
+   "baseline": "narrate",
+   "matched": true,
+   "origin": "model"
+  }
+ ],
+ "admissions": [
+  {
+   "verb": "apply",
+   "origin": "policy",
+   "clerk": "declared_bookkeeping",
+   "verdict": "authorized",
+   "ok": true,
+   "skipped": null,
+   "reviewer": "lane",
+   "ms": 11,
+   "jev_ms": null,
+   "confidence": null,
+   "jev_fallback": null,
+   "basis": {
+    "read": "table.apply.options",
+    "path": "candidates[1]",
+    "row": {
+     "alias": "effect:1",
+     "effect": {
+      "kind": "move",
+      "to": "newspaper-morgue"
+     },
+     "description": {
+      "kind": "move",
+      "to": "newspaper-morgue",
+      "display_name": "Boston Globe offices",
+      "unlock_when": {
+       "condition": "clue_discovered: knott-research-leads",
+       "met": true
+      },
+      "material": "ready",
+      "authority": "available_route_not_player_choice"
+     }
+    }
+   }
+  },
+  {
+   "verb": "resolve",
+   "origin": "model",
+   "clerk": null,
+   "verdict": "entailed",
+   "ok": true,
+   "skipped": null,
+   "reviewer": "lane",
+   "ms": 14,
+   "jev_ms": null,
+   "confidence": null,
+   "jev_fallback": null,
+   "basis": null
+  },
+  {
+   "verb": "apply",
+   "origin": "model",
+   "clerk": null,
+   "verdict": "entailed",
+   "ok": true,
+   "skipped": null,
+   "reviewer": "lane",
+   "ms": 6,
+   "jev_ms": null,
+   "confidence": null,
+   "jev_fallback": null,
+   "basis": null
+  }
+ ],
+ "clerk": [
+  {
+   "tool": "apply",
+   "call_id": "t3-c1",
+   "ok": true,
+   "ms": 132,
+   "clerk": "declared_bookkeeping",
+   "basis": {
+    "read": "table.apply.options",
+    "path": "candidates[1]",
+    "row": {
+     "alias": "effect:1",
+     "effect": {
+      "kind": "move",
+      "to": "newspaper-morgue"
+     },
+     "description": {
+      "kind": "move",
+      "to": "newspaper-morgue",
+      "display_name": "Boston Globe offices",
+      "unlock_when": {
+       "condition": "clue_discovered: knott-research-leads",
+       "met": true
+      },
+      "material": "ready",
+      "authority": "available_route_not_player_choice"
+     }
+    }
+   }
+  }
+ ],
+ "misses": []
+}

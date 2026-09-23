@@ -1,0 +1,584 @@
+{
+ "run": 1,
+ "fixture": "turn3",
+ "admission": "lane",
+ "keeper": "live grok-build/grok-4.7-build-fast",
+ "thinking": "low",
+ "wall_ms": 76377,
+ "status": "undelivered",
+ "reason": "prose:no_delivered_evidence",
+ "model_calls": [
+  {
+   "step": 1,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": 17833,
+   "ttfb_ms": 1771,
+   "input": 46821,
+   "cache_read": 0,
+   "cache_write": 0,
+   "output": 1629,
+   "reasoning": 1089,
+   "tools": [
+    "resolve",
+    "apply"
+   ],
+   "stop": "toolUse",
+   "effort": "low"
+  },
+  {
+   "step": 2,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": 9905,
+   "ttfb_ms": 686,
+   "input": 5983,
+   "cache_read": 46720,
+   "cache_write": 0,
+   "output": 839,
+   "reasoning": 690,
+   "tools": [
+    "resolve"
+   ],
+   "stop": "toolUse",
+   "effort": "low"
+  },
+  {
+   "step": 3,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": 9148,
+   "ttfb_ms": 910,
+   "input": 7053,
+   "cache_read": 46720,
+   "cache_write": 0,
+   "output": 706,
+   "reasoning": 632,
+   "tools": [
+    "resolve"
+   ],
+   "stop": "toolUse",
+   "effort": "low"
+  },
+  {
+   "step": 4,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": 7177,
+   "ttfb_ms": 758,
+   "input": 6416,
+   "cache_read": 48384,
+   "cache_write": 0,
+   "output": 649,
+   "reasoning": 364,
+   "tools": [
+    "apply"
+   ],
+   "stop": "toolUse",
+   "effort": "low"
+  },
+  {
+   "step": 5,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": 4569,
+   "ttfb_ms": 1125,
+   "input": 8407,
+   "cache_read": 48384,
+   "cache_write": 0,
+   "output": 326,
+   "reasoning": 307,
+   "tools": [
+    "look"
+   ],
+   "stop": "toolUse",
+   "effort": "low"
+  },
+  {
+   "step": 6,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": 10918,
+   "ttfb_ms": 940,
+   "input": 6812,
+   "cache_read": 50432,
+   "cache_write": 0,
+   "output": 1155,
+   "reasoning": 769,
+   "tools": [],
+   "stop": "stop",
+   "effort": "low"
+  }
+ ],
+ "steps": {
+  "operate": 8,
+  "decide": 5,
+  "infer": 6,
+  "finish": 1
+ },
+ "llm_steps": 6,
+ "llm_purposes": [
+  "adjudicate",
+  "adjudicate",
+  "adjudicate",
+  "adjudicate",
+  "adjudicate",
+  "adjudicate"
+ ],
+ "jev_calls": 19,
+ "route_rows": 5,
+ "calls": [
+  {
+   "tool": "apply",
+   "origin": "policy",
+   "ok": true,
+   "error": null,
+   "input": {
+    "effects": [
+     {
+      "kind": "move",
+      "to": "newspaper-morgue"
+     }
+    ]
+   }
+  },
+  {
+   "tool": "resolve",
+   "origin": "model",
+   "ok": true,
+   "error": null,
+   "input": {
+    "action": {
+     "intent": "social",
+     "goal": "沈默走进《环球报》剪报室门口，和把着门的编辑打第一个照面",
+     "method": "抠着帽子、以波士顿记者的身份直接上前打招呼",
+     "target": "Arty Wilmot",
+     "actor": "沈默",
+     "decision": "natural-npc:first-impression"
+    }
+   }
+  },
+  {
+   "tool": "apply",
+   "origin": "model",
+   "ok": true,
+   "error": null,
+   "input": {
+    "effects": [
+     {
+      "kind": "person",
+      "who": "Arty Wilmot",
+      "name": "阿蒂·威尔莫特",
+      "why": "沈默走进《环球报》编辑部，对面的编辑自报姓名。"
+     },
+     {
+      "kind": "time",
+      "minutes": 25,
+      "why": "从诺特办公室步行到《环球报》社。"
+     }
+    ]
+   }
+  },
+  {
+   "tool": "resolve",
+   "origin": "model",
+   "ok": true,
+   "error": null,
+   "input": {
+    "action": {
+     "intent": "social",
+     "goal": "获准进入剪报室，按科比特宅的地址翻近年旧闻",
+     "method": "以波士顿小报记者的身份说明要查一处房子的意外、生病和寻短见，请编辑放行",
+     "target": "Arty Wilmot",
+     "actor": "沈默",
+     "skill": "Persuade",
+     "motive": {
+      "direction": "support",
+      "intensity": 1
+     },
+     "modifiers": {
+      "bonus_dice": 1,
+      "reason": "他是来查具体地址的同行，不是闲逛的外人，而且第一眼就让人好说话"
+     },
+     "stakes": "阿蒂拒绝放人进剪报室"
+    }
+   }
+  },
+  {
+   "tool": "resolve",
+   "origin": "model",
+   "ok": true,
+   "error": null,
+   "input": {
+    "action": {
+     "intent": "social",
+     "goal": "沈默跟着剪报室的人下到地下室，和她打第一个照面",
+     "method": "跟着她下楼，把地址说给她听",
+     "target": "Ruth Blake",
+     "actor": "沈默",
+     "decision": "natural-npc:first-impression"
+    }
+   }
+  },
+  {
+   "tool": "apply",
+   "origin": "model",
+   "ok": true,
+   "error": null,
+   "input": {
+    "effects": [
+     {
+      "kind": "person",
+      "who": "Ruth Blake",
+      "name": "露丝·布莱克",
+      "why": "剪报室的人带沈默下楼时自报了姓名。"
+     },
+     {
+      "kind": "clue",
+      "clue": "globe-unpublished-story",
+      "how": "露丝按地址抽出一九一八年压下未发的城市版底稿。",
+      "from": "Ruth Blake",
+      "label": "一九一八年未刊特稿"
+     },
+     {
+      "kind": "clue",
+      "clue": "macario-tragedy",
+      "how": "同一份底稿写明马卡里奥一家一九一八年租住后几乎立刻离开，并牵到罗克斯伯里疗养院。",
+      "from": "Ruth Blake",
+      "label": "马卡里奥一家的遭遇"
+     },
+     {
+      "kind": "handout",
+      "name": "Boston Globe City Desk Copy — Held from Print (1918)",
+      "label": "《波士顿环球报》城市版底稿（一九一八年，未付印）"
+     },
+     {
+      "kind": "time",
+      "minutes": 40,
+      "why": "在剪报室按地址翻找科比特宅的旧稿。"
+     },
+     {
+      "kind": "flag",
+      "name": "persuade-arty",
+      "value": "true",
+      "why": "阿蒂放沈默进了剪报室。"
+     }
+    ]
+   }
+  },
+  {
+   "tool": "look",
+   "origin": "model",
+   "ok": false,
+   "error": "unknown_entity",
+   "input": {
+    "focus": "object",
+    "name": "globe-unpublished-1918"
+   }
+  }
+ ],
+ "match": [
+  {
+   "baseline": "move newspaper-morgue",
+   "matched": true,
+   "origin": "policy"
+  },
+  {
+   "baseline": "person Arty Wilmot",
+   "matched": true,
+   "origin": "model"
+  },
+  {
+   "baseline": "resolve natural-npc:first-impression vs Arty Wilmot",
+   "matched": true,
+   "origin": "model"
+  },
+  {
+   "baseline": "resolve Persuade vs Arty Wilmot",
+   "matched": true,
+   "origin": "model"
+  },
+  {
+   "baseline": "person Ruth Blake",
+   "matched": true,
+   "origin": "model"
+  },
+  {
+   "baseline": "resolve natural-npc:first-impression vs Ruth Blake",
+   "matched": true,
+   "origin": "model"
+  },
+  {
+   "baseline": "clue globe-unpublished-story",
+   "matched": true,
+   "origin": "model"
+  },
+  {
+   "baseline": "clue macario-tragedy",
+   "matched": true,
+   "origin": "model"
+  },
+  {
+   "baseline": "handout Boston Globe City Desk Copy — Held from Print (1918)",
+   "matched": true,
+   "origin": "model"
+  },
+  {
+   "baseline": "time 40",
+   "matched": true,
+   "origin": "model"
+  },
+  {
+   "baseline": "narrate",
+   "matched": true,
+   "origin": "implicit"
+  }
+ ],
+ "admissions": [
+  {
+   "verb": "apply",
+   "origin": "policy",
+   "clerk": "declared_bookkeeping",
+   "verdict": "authorized",
+   "ok": true,
+   "skipped": null,
+   "reviewer": "lane",
+   "ms": 9,
+   "jev_ms": null,
+   "confidence": null,
+   "jev_fallback": null,
+   "basis": {
+    "read": "table.apply.options",
+    "path": "candidates[1]",
+    "row": {
+     "alias": "effect:1",
+     "effect": {
+      "kind": "move",
+      "to": "newspaper-morgue"
+     },
+     "description": {
+      "kind": "move",
+      "to": "newspaper-morgue",
+      "display_name": "Boston Globe offices",
+      "unlock_when": {
+       "condition": "clue_discovered: knott-research-leads",
+       "met": true
+      },
+      "material": "ready",
+      "authority": "available_route_not_player_choice"
+     }
+    }
+   }
+  },
+  {
+   "verb": "resolve",
+   "origin": "model",
+   "clerk": null,
+   "verdict": "entailed",
+   "ok": true,
+   "skipped": null,
+   "reviewer": "lane",
+   "ms": 7,
+   "jev_ms": null,
+   "confidence": null,
+   "jev_fallback": null,
+   "basis": null
+  },
+  {
+   "verb": "apply",
+   "origin": "model",
+   "clerk": null,
+   "verdict": "entailed",
+   "ok": true,
+   "skipped": null,
+   "reviewer": "lane",
+   "ms": 2,
+   "jev_ms": null,
+   "confidence": null,
+   "jev_fallback": null,
+   "basis": null
+  },
+  {
+   "verb": "resolve",
+   "origin": "model",
+   "clerk": null,
+   "verdict": "authorized",
+   "ok": true,
+   "skipped": null,
+   "reviewer": "lane",
+   "ms": 2,
+   "jev_ms": null,
+   "confidence": null,
+   "jev_fallback": null,
+   "basis": null
+  },
+  {
+   "verb": "resolve",
+   "origin": "model",
+   "clerk": null,
+   "verdict": "entailed",
+   "ok": true,
+   "skipped": null,
+   "reviewer": "lane",
+   "ms": 13,
+   "jev_ms": null,
+   "confidence": null,
+   "jev_fallback": null,
+   "basis": null
+  },
+  {
+   "verb": "apply",
+   "origin": "model",
+   "clerk": null,
+   "verdict": "authorized",
+   "ok": true,
+   "skipped": null,
+   "reviewer": "lane",
+   "ms": 3,
+   "jev_ms": null,
+   "confidence": null,
+   "jev_fallback": null,
+   "basis": null
+  }
+ ],
+ "clerk": [
+  {
+   "tool": "apply",
+   "call_id": "t3-c1",
+   "ok": true,
+   "ms": 95,
+   "clerk": "declared_bookkeeping",
+   "basis": {
+    "read": "table.apply.options",
+    "path": "candidates[1]",
+    "row": {
+     "alias": "effect:1",
+     "effect": {
+      "kind": "move",
+      "to": "newspaper-morgue"
+     },
+     "description": {
+      "kind": "move",
+      "to": "newspaper-morgue",
+      "display_name": "Boston Globe offices",
+      "unlock_when": {
+       "condition": "clue_discovered: knott-research-leads",
+       "met": true
+      },
+      "material": "ready",
+      "authority": "available_route_not_player_choice"
+     }
+    }
+   }
+  }
+ ],
+ "misses": [
+  {
+   "turn": 3,
+   "lane": "route",
+   "purpose": "route",
+   "run": "run-01a0cedb-e4dc-7520-bf95-0205eba0de7f",
+   "step": "run-01a0cedb-e4dc-7520-bf95-0205eba0de7f:s16",
+   "status": "complete",
+   "ms": 609,
+   "offered": [
+    "apply:clue:globe-fire-cutoff",
+    "apply:move:central-library",
+    "apply:move:hall-of-records",
+    "apply:move:neighborhood-gossip",
+    "apply:move:previous-tenants",
+    "apply:move:corbitt-house-ground",
+    "apply:move:commission-briefing",
+    "resolve:core-check:ordinary-check"
+   ],
+   "selected": [],
+   "exit": "finish",
+   "reason": "low_confidence",
+   "answers": {
+    "need_1": {
+     "choice": "later",
+     "confidence": 0.89,
+     "probabilities": {
+      "unknown": 0.01,
+      "later": 0.93,
+      "now": 0.06
+     }
+    },
+    "need_2": {
+     "choice": "later",
+     "confidence": 0.99,
+     "probabilities": {
+      "unknown": 0,
+      "later": 1,
+      "now": 0
+     }
+    },
+    "need_3": {
+     "choice": "later",
+     "confidence": 0.99,
+     "probabilities": {
+      "unknown": 0,
+      "later": 1,
+      "now": 0
+     }
+    },
+    "need_4": {
+     "choice": "later",
+     "confidence": 0.99,
+     "probabilities": {
+      "unknown": 0,
+      "later": 1,
+      "now": 0
+     }
+    },
+    "need_5": {
+     "choice": "later",
+     "confidence": 0.99,
+     "probabilities": {
+      "unknown": 0,
+      "later": 0.99,
+      "now": 0.01
+     }
+    },
+    "need_6": {
+     "choice": "later",
+     "confidence": 0.99,
+     "probabilities": {
+      "unknown": 0,
+      "later": 0.99,
+      "now": 0.01
+     }
+    },
+    "need_7": {
+     "choice": "later",
+     "confidence": 0.98,
+     "probabilities": {
+      "unknown": 0,
+      "later": 0.99,
+      "now": 0.01
+     }
+    },
+    "need_8": {
+     "choice": "later",
+     "confidence": 0.73,
+     "probabilities": {
+      "unknown": 0.02,
+      "later": 0.82,
+      "now": 0.16
+     }
+    },
+    "exit": {
+     "choice": "finish",
+     "confidence": 0.17,
+     "probabilities": {
+      "finish": 0.38,
+      "ask_llm": 0.25,
+      "read_more": 0.07,
+      "continue": 0.3
+     }
+    }
+   },
+   "run_id": "3567ab6a-82c6-4d86-b55e-d323db3f39af"
+  }
+ ]
+}
