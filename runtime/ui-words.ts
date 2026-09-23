@@ -134,6 +134,14 @@ async function readSurfaces(contentRoot: string, tag: string): Promise<Record<st
 	return words;
 }
 
+/**
+ * The words a build ships for `tag` (`content/ui/<tag>/`), complete or not: what that tag's players
+ * already read. The presenter lane is shown them so a re-projection keeps them (contract §23.2).
+ */
+export function shippedUiWords(contentRoot: string, tag: string): Promise<Record<string, Record<string, string>>> {
+	return readSurfaces(contentRoot, tag);
+}
+
 function readSurfacesSync(contentRoot: string, tag: string): Record<string, Record<string, string>> {
 	const folder = join(contentRoot, UI, tag);
 	let names: string[];
