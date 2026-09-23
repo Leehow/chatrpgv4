@@ -31,6 +31,7 @@ import type {createModRuntime} from '../mods/index.js';
 import type {CampaignWriter} from '../write/store.js';
 import {prepareFulfillments, type FulfillmentSelection} from '../memory/fulfillment-receipt.js';
 import {activeScene, openGuards} from '../read/obligations.js';
+import {bindStated, stampBasis, type StatedEffect} from './stated.js';
 const KINDS = ['ability', 'adaptation', 'cash', 'clock', 'clue', 'damage', 'define', 'dossier', 'ending', 'flag', 'fork', 'handout', 'item', 'map', 'merge', 'move', 'note', 'npc', 'object', 'person', 'ruling', 'switch', 'threat', 'time', 'usage'];
 export interface ApplyContext {
     readonly kernel: KernelContext;
@@ -159,19 +160,23 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
             let timeEffects = 0, restMinutes = 0;
             const refused: { index: number; error: RpcError }[] = [];
             let stagedWorldline:Row|null=null;
-            for (const [index, effect] of effects.entries()) {
+            for (const [index, given] of effects.entries()) {
                 try {
-                    if (!isJsonObject(effect) || typeof effect.kind !== 'string')
+                    if (!isJsonObject(given) || typeof given.kind !== 'string')
                         throw new RpcError('invalid_params', 'each effect needs a string kind');
-                    const kind = effect.kind;
+                    const kind = given.kind;
                     if (!KINDS.includes(kind))
                         unsupported('kind', kind, KINDS, `unknown effect kind ${repr(kind)}`);
+                    // Contract §136.22: `stated` takes the amount from the book; without it the amount is the Keeper's.
+                    const bound: StatedEffect = bindStated(context, given), effect = bound.effect, amounts = ['damage', 'time', 'threat', 'flag', 'cash'].includes(kind);
                     if(['fork','switch','merge'].includes(kind)){
                         const moved=await contributions.worldlines!.stage(campaign,graph,staged,effect,turn,index,effects.length,context.mint,started.callId);
                         receipts.push(moved.receipt);ids.push(moved.receipt.id);taken.add(moved.receipt.id);stagedWorldline=moved.plan;continue;
                     }
                     if (kind === 'damage') {
                         const result = await contributions.resources!.damage(context, effect);
+                        for (const minted of result.receipts)
+                            stampBasis(minted, bound);
                         receipts.push(...result.receipts);
                         ids.push(...result.receipts.map(value => string(value.id)));
                         events.push({ ...result.event, receipt: result.receipts.at(-1)?.id });
@@ -234,6 +239,8 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                         receipt = { id: `time:t${turn.turn}-c${started.ordinal}` + (timeEffects > 1 ? `-${timeEffects}` : ''), kind: 'time', call_id: started.callId, minutes, why, clock_before: before, clock_after: after, at: nowIso() };
                         event = { type: 'time-advanced', data: { minutes, why, clock: clone(clock) } };
                     }
+                    if (amounts)
+                        stampBasis(receipt, bound);
                     receipts.push(receipt);
                     effectReceipts.set(index,[receipt]);
                     ids.push(string(receipt.id));

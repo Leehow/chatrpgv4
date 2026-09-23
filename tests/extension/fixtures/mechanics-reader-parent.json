@@ -1,0 +1,970 @@
+{
+ "recorded_on": "172b80065",
+ "cases": [
+  {
+   "name": "an opening draft with an NPC profile of numbers",
+   "op": "draft",
+   "draft": {
+    "nodes": [
+     {
+      "node_id": "scene-pier",
+      "node_kind": "scene",
+      "name": "Pier",
+      "properties": {
+       "is_entrance": true
+      },
+      "source_refs": [
+       {
+        "page": 1
+       }
+      ]
+     },
+     {
+      "node_id": "npc-harbourmaster",
+      "node_kind": "npc",
+      "name": "Harbourmaster",
+      "source_refs": [
+       {
+        "page": 1
+       }
+      ],
+      "properties": {
+       "mechanics": {
+        "profile": {
+         "characteristics": {
+          "STR": 60,
+          "CON": 55,
+          "DEX": 40,
+          "POW": 50
+         },
+         "derived": {
+          "HP": 11,
+          "MP": 10,
+          "MOV": 7
+         },
+         "skills": {
+          "Spot Hidden": 60,
+          "Listen": 45
+         }
+        }
+       },
+       "knowledge": [
+        "He saw the boat leave."
+       ]
+      }
+     }
+    ],
+    "claims": [
+     {
+      "subject_id": "npc-harbourmaster",
+      "predicate": "present-in",
+      "object": {
+       "node_id": "scene-pier"
+      },
+      "truth_status": "authored-fact",
+      "source_refs": [
+       {
+        "page": 1
+       }
+      ]
+     }
+    ],
+    "node_refs": [],
+    "coverage": {},
+    "critical": [],
+    "dependencies": [],
+    "ready_nodes": [
+     "scene-pier",
+     "npc-harbourmaster"
+    ]
+   },
+   "packet": {
+    "module_id": "book-2",
+    "purpose": "opening",
+    "focus": "Pier",
+    "question": "",
+    "source": {
+     "page_count": 10
+    },
+    "known_nodes": [
+     {
+      "node_id": "module-book-2",
+      "node_kind": "module",
+      "name": "Book",
+      "ready": false
+     }
+    ],
+    "known_claims": []
+   },
+   "seen": [
+    1,
+    2
+   ],
+   "result": "{\"value\": {\"nodes\": [{\"node_id\": \"scene-pier\", \"node_kind\": \"scene\", \"name\": \"Pier\", \"properties\": {\"is_entrance\": true}, \"source_refs\": [{\"page\": 1}], \"visibility\": \"keeper-only\"}, {\"node_id\": \"npc-harbourmaster\", \"node_kind\": \"npc\", \"name\": \"Harbourmaster\", \"source_refs\": [{\"page\": 1}], \"properties\": {\"mechanics\": {\"profile\": {\"characteristics\": {\"STR\": 60, \"CON\": 55, \"DEX\": 40, \"POW\": 50}, \"derived\": {\"HP\": 11, \"MP\": 10, \"MOV\": 7}, \"skills\": {\"Spot Hidden\": 60, \"Listen\": 45}}}, \"knowledge\": [\"He saw the boat leave.\"]}, \"visibility\": \"keeper-only\"}], \"claims\": [{\"subject_id\": \"npc-harbourmaster\", \"predicate\": \"present-in\", \"object\": {\"node_id\": \"scene-pier\"}, \"truth_status\": \"authored-fact\", \"source_refs\": [{\"page\": 1}], \"claim_id\": \"claim-npc-harbourmaster-present-in-scene-pier\", \"visibility\": \"keeper-only\", \"known_by_ids\": [], \"asserted_by_ids\": [], \"validity\": null}], \"node_refs\": [], \"coverage\": {}, \"critical\": [], \"dependencies\": [], \"ready_nodes\": [\"scene-pier\", \"npc-harbourmaster\"], \"required_review\": [\"/claims/0\", \"/coverage\", \"/nodes/0\", \"/nodes/1\", \"/nodes/1/properties/mechanics/profile/characteristics/CON\", \"/nodes/1/properties/mechanics/profile/characteristics/DEX\", \"/nodes/1/properties/mechanics/profile/characteristics/POW\", \"/nodes/1/properties/mechanics/profile/characteristics/STR\", \"/nodes/1/properties/mechanics/profile/derived/HP\", \"/nodes/1/properties/mechanics/profile/derived/MOV\", \"/nodes/1/properties/mechanics/profile/derived/MP\", \"/nodes/1/properties/mechanics/profile/skills/Listen\", \"/nodes/1/properties/mechanics/profile/skills/Spot Hidden\"]}}"
+  },
+  {
+   "name": "a detail delta keeping mechanics as prose under chosen keys",
+   "op": "draft",
+   "draft": {
+    "nodes": [
+     {
+      "node_id": "rule-cellar-stairs",
+      "node_kind": "rule",
+      "name": "Cellar stairs",
+      "summary": "The stairs give way.",
+      "source_refs": [
+       {
+        "page": 4
+       }
+      ],
+      "properties": {
+       "roll": "Combined DEX or Climb",
+       "pushed_fail_damage": "1D4+2 hit points",
+       "sanity_loss": "SAN 1/1D4 to witness it"
+      }
+     },
+     {
+      "node_id": "hazard-cellar-pit",
+      "node_kind": "hazard",
+      "name": "Cellar pit",
+      "summary": "A pit.",
+      "source_refs": [
+       {
+        "page": 4
+       }
+      ],
+      "properties": {
+       "damage": "1D6",
+       "depth_feet": 10
+      }
+     },
+     {
+      "node_id": "creature-rats",
+      "node_kind": "creature",
+      "name": "Rats",
+      "summary": "A swarm.",
+      "source_refs": [
+       {
+        "page": 4
+       }
+      ],
+      "properties": {
+       "attacks": "Bite 40%, damage 1D3",
+       "sanity_loss": "0/1D3"
+      }
+     },
+     {
+      "node_id": "npc-caretaker",
+      "node_kind": "npc",
+      "name": "Caretaker",
+      "summary": "The old caretaker.",
+      "source_refs": [
+       {
+        "page": 4
+       }
+      ],
+      "properties": {
+       "stats": {
+        "STR": 45,
+        "CON": 50
+       },
+       "mechanics": {
+        "profile": {
+         "characteristics": {
+          "STR": 45,
+          "CON": 50
+         }
+        }
+       }
+      }
+     }
+    ],
+    "claims": [
+     {
+      "subject_id": "scene-old-chapel",
+      "predicate": "uses-rule",
+      "object": {
+       "node_id": "rule-cellar-stairs"
+      },
+      "truth_status": "authored-fact",
+      "source_refs": [
+       {
+        "page": 4
+       }
+      ]
+     },
+     {
+      "subject_id": "creature-rats",
+      "predicate": "present-in",
+      "object": {
+       "node_id": "scene-old-chapel"
+      },
+      "truth_status": "authored-fact",
+      "source_refs": [
+       {
+        "page": 4
+       }
+      ]
+     }
+    ],
+    "node_refs": [
+     "scene-old-chapel"
+    ],
+    "coverage": {},
+    "critical": [
+     "/nodes/0/properties/pushed_fail_damage"
+    ],
+    "dependencies": [],
+    "ready_nodes": [
+     "rule-cellar-stairs",
+     "hazard-cellar-pit",
+     "creature-rats",
+     "npc-caretaker"
+    ]
+   },
+   "packet": {
+    "module_id": "book-2",
+    "purpose": "detail",
+    "focus": "Old chapel",
+    "question": "",
+    "source": {
+     "page_count": 10
+    },
+    "known_nodes": [
+     {
+      "node_id": "module-book-2",
+      "node_kind": "module",
+      "name": "Book",
+      "ready": false
+     },
+     {
+      "node_id": "scene-old-chapel",
+      "node_kind": "scene",
+      "name": "Old chapel",
+      "summary": "A ruined chapel.",
+      "properties": {},
+      "visibility": "keeper-only",
+      "source_refs": [
+       {
+        "page": 3
+       }
+      ],
+      "ready": true
+     }
+    ],
+    "known_claims": []
+   },
+   "seen": [
+    3,
+    4
+   ],
+   "result": "{\"value\": {\"nodes\": [{\"node_id\": \"rule-cellar-stairs\", \"node_kind\": \"rule\", \"name\": \"Cellar stairs\", \"summary\": \"The stairs give way.\", \"source_refs\": [{\"page\": 4}], \"properties\": {\"roll\": \"Combined DEX or Climb\", \"pushed_fail_damage\": \"1D4+2 hit points\", \"sanity_loss\": \"SAN 1/1D4 to witness it\"}, \"visibility\": \"keeper-only\"}, {\"node_id\": \"hazard-cellar-pit\", \"node_kind\": \"hazard\", \"name\": \"Cellar pit\", \"summary\": \"A pit.\", \"source_refs\": [{\"page\": 4}], \"properties\": {\"damage\": \"1D6\", \"depth_feet\": 10}, \"visibility\": \"keeper-only\"}, {\"node_id\": \"creature-rats\", \"node_kind\": \"creature\", \"name\": \"Rats\", \"summary\": \"A swarm.\", \"source_refs\": [{\"page\": 4}], \"properties\": {\"attacks\": \"Bite 40%, damage 1D3\", \"sanity_loss\": \"0/1D3\"}, \"visibility\": \"keeper-only\"}, {\"node_id\": \"npc-caretaker\", \"node_kind\": \"npc\", \"name\": \"Caretaker\", \"summary\": \"The old caretaker.\", \"source_refs\": [{\"page\": 4}], \"properties\": {\"stats\": {\"STR\": 45, \"CON\": 50}, \"mechanics\": {\"profile\": {\"characteristics\": {\"STR\": 45, \"CON\": 50}}}}, \"visibility\": \"keeper-only\"}], \"claims\": [{\"subject_id\": \"scene-old-chapel\", \"predicate\": \"uses-rule\", \"object\": {\"node_id\": \"rule-cellar-stairs\"}, \"truth_status\": \"authored-fact\", \"source_refs\": [{\"page\": 4}], \"claim_id\": \"claim-scene-old-chapel-uses-rule-rule-cellar-stairs\", \"visibility\": \"keeper-only\", \"known_by_ids\": [], \"asserted_by_ids\": [], \"validity\": null}, {\"subject_id\": \"creature-rats\", \"predicate\": \"present-in\", \"object\": {\"node_id\": \"scene-old-chapel\"}, \"truth_status\": \"authored-fact\", \"source_refs\": [{\"page\": 4}], \"claim_id\": \"claim-creature-rats-present-in-scene-old-chapel\", \"visibility\": \"keeper-only\", \"known_by_ids\": [], \"asserted_by_ids\": [], \"validity\": null}], \"node_refs\": [\"scene-old-chapel\"], \"coverage\": {}, \"critical\": [\"/nodes/0/properties/pushed_fail_damage\"], \"dependencies\": [], \"ready_nodes\": [\"rule-cellar-stairs\", \"hazard-cellar-pit\", \"creature-rats\", \"npc-caretaker\"], \"required_review\": [\"/claims/0\", \"/claims/1\", \"/coverage\", \"/nodes/0\", \"/nodes/0/properties/pushed_fail_damage\", \"/nodes/1\", \"/nodes/1/properties/depth_feet\", \"/nodes/2\", \"/nodes/3\", \"/nodes/3/properties/mechanics/profile/characteristics/CON\", \"/nodes/3/properties/mechanics/profile/characteristics/STR\", \"/nodes/3/properties/stats/CON\", \"/nodes/3/properties/stats/STR\"]}}"
+  },
+  {
+   "name": "the same delta without viewed pages (the offline form)",
+   "op": "draft",
+   "draft": {
+    "nodes": [
+     {
+      "node_id": "rule-cellar-stairs",
+      "node_kind": "rule",
+      "name": "Cellar stairs",
+      "summary": "The stairs give way.",
+      "source_refs": [
+       {
+        "page": 4
+       }
+      ],
+      "properties": {
+       "roll": "Combined DEX or Climb",
+       "pushed_fail_damage": "1D4+2 hit points",
+       "sanity_loss": "SAN 1/1D4 to witness it"
+      }
+     },
+     {
+      "node_id": "hazard-cellar-pit",
+      "node_kind": "hazard",
+      "name": "Cellar pit",
+      "summary": "A pit.",
+      "source_refs": [
+       {
+        "page": 4
+       }
+      ],
+      "properties": {
+       "damage": "1D6",
+       "depth_feet": 10
+      }
+     },
+     {
+      "node_id": "creature-rats",
+      "node_kind": "creature",
+      "name": "Rats",
+      "summary": "A swarm.",
+      "source_refs": [
+       {
+        "page": 4
+       }
+      ],
+      "properties": {
+       "attacks": "Bite 40%, damage 1D3",
+       "sanity_loss": "0/1D3"
+      }
+     },
+     {
+      "node_id": "npc-caretaker",
+      "node_kind": "npc",
+      "name": "Caretaker",
+      "summary": "The old caretaker.",
+      "source_refs": [
+       {
+        "page": 4
+       }
+      ],
+      "properties": {
+       "stats": {
+        "STR": 45,
+        "CON": 50
+       },
+       "mechanics": {
+        "profile": {
+         "characteristics": {
+          "STR": 45,
+          "CON": 50
+         }
+        }
+       }
+      }
+     }
+    ],
+    "claims": [
+     {
+      "subject_id": "scene-old-chapel",
+      "predicate": "uses-rule",
+      "object": {
+       "node_id": "rule-cellar-stairs"
+      },
+      "truth_status": "authored-fact",
+      "source_refs": [
+       {
+        "page": 4
+       }
+      ]
+     },
+     {
+      "subject_id": "creature-rats",
+      "predicate": "present-in",
+      "object": {
+       "node_id": "scene-old-chapel"
+      },
+      "truth_status": "authored-fact",
+      "source_refs": [
+       {
+        "page": 4
+       }
+      ]
+     }
+    ],
+    "node_refs": [
+     "scene-old-chapel"
+    ],
+    "coverage": {},
+    "critical": [
+     "/nodes/0/properties/pushed_fail_damage"
+    ],
+    "dependencies": [],
+    "ready_nodes": [
+     "rule-cellar-stairs",
+     "hazard-cellar-pit",
+     "creature-rats",
+     "npc-caretaker"
+    ]
+   },
+   "packet": {
+    "module_id": "book-2",
+    "purpose": "detail",
+    "focus": "Old chapel",
+    "question": "",
+    "source": {
+     "page_count": 10
+    },
+    "known_nodes": [
+     {
+      "node_id": "module-book-2",
+      "node_kind": "module",
+      "name": "Book",
+      "ready": false
+     },
+     {
+      "node_id": "scene-old-chapel",
+      "node_kind": "scene",
+      "name": "Old chapel",
+      "summary": "A ruined chapel.",
+      "properties": {},
+      "visibility": "keeper-only",
+      "source_refs": [
+       {
+        "page": 3
+       }
+      ],
+      "ready": true
+     }
+    ],
+    "known_claims": []
+   },
+   "result": "{\"value\": {\"nodes\": [{\"node_id\": \"rule-cellar-stairs\", \"node_kind\": \"rule\", \"name\": \"Cellar stairs\", \"summary\": \"The stairs give way.\", \"source_refs\": [{\"page\": 4}], \"properties\": {\"roll\": \"Combined DEX or Climb\", \"pushed_fail_damage\": \"1D4+2 hit points\", \"sanity_loss\": \"SAN 1/1D4 to witness it\"}, \"visibility\": \"keeper-only\"}, {\"node_id\": \"hazard-cellar-pit\", \"node_kind\": \"hazard\", \"name\": \"Cellar pit\", \"summary\": \"A pit.\", \"source_refs\": [{\"page\": 4}], \"properties\": {\"damage\": \"1D6\", \"depth_feet\": 10}, \"visibility\": \"keeper-only\"}, {\"node_id\": \"creature-rats\", \"node_kind\": \"creature\", \"name\": \"Rats\", \"summary\": \"A swarm.\", \"source_refs\": [{\"page\": 4}], \"properties\": {\"attacks\": \"Bite 40%, damage 1D3\", \"sanity_loss\": \"0/1D3\"}, \"visibility\": \"keeper-only\"}, {\"node_id\": \"npc-caretaker\", \"node_kind\": \"npc\", \"name\": \"Caretaker\", \"summary\": \"The old caretaker.\", \"source_refs\": [{\"page\": 4}], \"properties\": {\"stats\": {\"STR\": 45, \"CON\": 50}, \"mechanics\": {\"profile\": {\"characteristics\": {\"STR\": 45, \"CON\": 50}}}}, \"visibility\": \"keeper-only\"}], \"claims\": [{\"subject_id\": \"scene-old-chapel\", \"predicate\": \"uses-rule\", \"object\": {\"node_id\": \"rule-cellar-stairs\"}, \"truth_status\": \"authored-fact\", \"source_refs\": [{\"page\": 4}], \"claim_id\": \"claim-scene-old-chapel-uses-rule-rule-cellar-stairs\", \"visibility\": \"keeper-only\", \"known_by_ids\": [], \"asserted_by_ids\": [], \"validity\": null}, {\"subject_id\": \"creature-rats\", \"predicate\": \"present-in\", \"object\": {\"node_id\": \"scene-old-chapel\"}, \"truth_status\": \"authored-fact\", \"source_refs\": [{\"page\": 4}], \"claim_id\": \"claim-creature-rats-present-in-scene-old-chapel\", \"visibility\": \"keeper-only\", \"known_by_ids\": [], \"asserted_by_ids\": [], \"validity\": null}], \"node_refs\": [\"scene-old-chapel\"], \"coverage\": {}, \"critical\": [\"/nodes/0/properties/pushed_fail_damage\"], \"dependencies\": [], \"ready_nodes\": [\"rule-cellar-stairs\", \"hazard-cellar-pit\", \"creature-rats\", \"npc-caretaker\"], \"required_review\": [\"/claims/0\", \"/claims/1\", \"/coverage\", \"/nodes/0\", \"/nodes/0/properties/pushed_fail_damage\", \"/nodes/1\", \"/nodes/1/properties/depth_feet\", \"/nodes/2\", \"/nodes/3\", \"/nodes/3/properties/mechanics/profile/characteristics/CON\", \"/nodes/3/properties/mechanics/profile/characteristics/STR\", \"/nodes/3/properties/stats/CON\", \"/nodes/3/properties/stats/STR\"]}}"
+  },
+  {
+   "name": "a prose delta citing a page this reader did not view",
+   "op": "draft",
+   "draft": {
+    "nodes": [
+     {
+      "node_id": "rule-cellar-stairs",
+      "node_kind": "rule",
+      "name": "Cellar stairs",
+      "summary": "The stairs give way.",
+      "source_refs": [
+       {
+        "page": 4
+       }
+      ],
+      "properties": {
+       "roll": "Combined DEX or Climb",
+       "pushed_fail_damage": "1D4+2 hit points",
+       "sanity_loss": "SAN 1/1D4 to witness it"
+      }
+     },
+     {
+      "node_id": "hazard-cellar-pit",
+      "node_kind": "hazard",
+      "name": "Cellar pit",
+      "summary": "A pit.",
+      "source_refs": [
+       {
+        "page": 4
+       },
+       {
+        "page": 9
+       }
+      ],
+      "properties": {
+       "damage": "1D6",
+       "depth_feet": 10
+      }
+     },
+     {
+      "node_id": "creature-rats",
+      "node_kind": "creature",
+      "name": "Rats",
+      "summary": "A swarm.",
+      "source_refs": [
+       {
+        "page": 4
+       }
+      ],
+      "properties": {
+       "attacks": "Bite 40%, damage 1D3",
+       "sanity_loss": "0/1D3"
+      }
+     },
+     {
+      "node_id": "npc-caretaker",
+      "node_kind": "npc",
+      "name": "Caretaker",
+      "summary": "The old caretaker.",
+      "source_refs": [
+       {
+        "page": 4
+       }
+      ],
+      "properties": {
+       "stats": {
+        "STR": 45,
+        "CON": 50
+       },
+       "mechanics": {
+        "profile": {
+         "characteristics": {
+          "STR": 45,
+          "CON": 50
+         }
+        }
+       }
+      }
+     }
+    ],
+    "claims": [
+     {
+      "subject_id": "scene-old-chapel",
+      "predicate": "uses-rule",
+      "object": {
+       "node_id": "rule-cellar-stairs"
+      },
+      "truth_status": "authored-fact",
+      "source_refs": [
+       {
+        "page": 4
+       }
+      ]
+     },
+     {
+      "subject_id": "creature-rats",
+      "predicate": "present-in",
+      "object": {
+       "node_id": "scene-old-chapel"
+      },
+      "truth_status": "authored-fact",
+      "source_refs": [
+       {
+        "page": 4
+       }
+      ]
+     }
+    ],
+    "node_refs": [
+     "scene-old-chapel"
+    ],
+    "coverage": {},
+    "critical": [
+     "/nodes/0/properties/pushed_fail_damage"
+    ],
+    "dependencies": [],
+    "ready_nodes": [
+     "rule-cellar-stairs",
+     "hazard-cellar-pit",
+     "creature-rats",
+     "npc-caretaker"
+    ]
+   },
+   "packet": {
+    "module_id": "book-2",
+    "purpose": "detail",
+    "focus": "Old chapel",
+    "question": "",
+    "source": {
+     "page_count": 10
+    },
+    "known_nodes": [
+     {
+      "node_id": "module-book-2",
+      "node_kind": "module",
+      "name": "Book",
+      "ready": false
+     },
+     {
+      "node_id": "scene-old-chapel",
+      "node_kind": "scene",
+      "name": "Old chapel",
+      "summary": "A ruined chapel.",
+      "properties": {},
+      "visibility": "keeper-only",
+      "source_refs": [
+       {
+        "page": 3
+       }
+      ],
+      "ready": true
+     }
+    ],
+    "known_claims": []
+   },
+   "seen": [
+    3,
+    4
+   ],
+   "result": "{\"error\": {\"code\": \"invalid_params\", \"message\": \"physical page 9 was not actually viewed by this reader\", \"retryable\": false, \"next\": \"change_input\", \"fix\": \"correct the draft using the original pages and submit again\", \"details\": {\"reason\": \"reading_failed\", \"path\": \"/\"}}}"
+  },
+  {
+   "name": "a delta beside a published profile that carries a refused key",
+   "op": "draft",
+   "draft": {
+    "nodes": [
+     {
+      "node_id": "npc-sexton",
+      "node_kind": "npc",
+      "name": "Sexton",
+      "source_refs": [
+       {
+        "page": 4
+       }
+      ],
+      "properties": {
+       "knowledge": [
+        "He buried the stranger."
+       ]
+      }
+     }
+    ],
+    "claims": [],
+    "node_refs": [],
+    "coverage": {},
+    "critical": [],
+    "dependencies": [],
+    "ready_nodes": [
+     "npc-sexton"
+    ]
+   },
+   "packet": {
+    "module_id": "book-2",
+    "purpose": "detail",
+    "focus": "Old chapel",
+    "question": "",
+    "source": {
+     "page_count": 10
+    },
+    "known_nodes": [
+     {
+      "node_id": "module-book-2",
+      "node_kind": "module",
+      "name": "Book",
+      "ready": false
+     },
+     {
+      "node_id": "scene-old-chapel",
+      "node_kind": "scene",
+      "name": "Old chapel",
+      "summary": "A ruined chapel.",
+      "properties": {},
+      "visibility": "keeper-only",
+      "source_refs": [
+       {
+        "page": 3
+       }
+      ],
+      "ready": true
+     },
+     {
+      "node_id": "npc-sexton",
+      "node_kind": "npc",
+      "name": "Sexton",
+      "summary": "The sexton.",
+      "visibility": "keeper-only",
+      "source_refs": [
+       {
+        "page": 3
+       }
+      ],
+      "ready": true,
+      "properties": {
+       "mechanics": {
+        "profile": {
+         "characteristics": {
+          "STR": 70
+         },
+         "attacks": "Shovel 40%, 1D8"
+        }
+       }
+      }
+     }
+    ],
+    "known_claims": []
+   },
+   "seen": [
+    3,
+    4
+   ],
+   "result": "{\"value\": {\"nodes\": [{\"node_id\": \"npc-sexton\", \"node_kind\": \"npc\", \"name\": \"Sexton\", \"source_refs\": [{\"page\": 4}], \"properties\": {\"knowledge\": [\"He buried the stranger.\"]}, \"visibility\": \"keeper-only\"}], \"claims\": [], \"node_refs\": [], \"coverage\": {}, \"critical\": [], \"dependencies\": [], \"ready_nodes\": [\"npc-sexton\"], \"required_review\": [\"/coverage\", \"/nodes/0\"]}}"
+  },
+  {
+   "name": "a skeleton",
+   "op": "draft",
+   "draft": {
+    "nodes": [
+     {
+      "node_id": "scene-pier",
+      "node_kind": "scene",
+      "name": "Pier",
+      "properties": {
+       "is_entrance": true
+      },
+      "source_refs": [
+       {
+        "page": 1
+       }
+      ]
+     }
+    ],
+    "claims": [],
+    "node_refs": [],
+    "coverage": {},
+    "critical": [],
+    "dependencies": [],
+    "ready_nodes": []
+   },
+   "packet": {
+    "module_id": "book-2",
+    "purpose": "skeleton",
+    "focus": "Pier",
+    "question": "",
+    "source": {
+     "page_count": 10
+    },
+    "known_nodes": [
+     {
+      "node_id": "module-book-2",
+      "node_kind": "module",
+      "name": "Book",
+      "ready": false
+     }
+    ],
+    "known_claims": []
+   },
+   "seen": [
+    1
+   ],
+   "result": "{\"value\": {\"nodes\": [{\"node_id\": \"scene-pier\", \"node_kind\": \"scene\", \"name\": \"Pier\", \"properties\": {\"is_entrance\": true}, \"source_refs\": [{\"page\": 1}], \"visibility\": \"keeper-only\"}], \"claims\": [], \"node_refs\": [], \"coverage\": {}, \"critical\": [], \"dependencies\": [], \"ready_nodes\": [], \"required_review\": []}}"
+  },
+  {
+   "name": "the offline check of the prose delta",
+   "op": "offline",
+   "draft": {
+    "nodes": [
+     {
+      "node_id": "rule-cellar-stairs",
+      "node_kind": "rule",
+      "name": "Cellar stairs",
+      "summary": "The stairs give way.",
+      "source_refs": [
+       {
+        "page": 4
+       }
+      ],
+      "properties": {
+       "roll": "Combined DEX or Climb",
+       "pushed_fail_damage": "1D4+2 hit points",
+       "sanity_loss": "SAN 1/1D4 to witness it"
+      }
+     },
+     {
+      "node_id": "hazard-cellar-pit",
+      "node_kind": "hazard",
+      "name": "Cellar pit",
+      "summary": "A pit.",
+      "source_refs": [
+       {
+        "page": 4
+       }
+      ],
+      "properties": {
+       "damage": "1D6",
+       "depth_feet": 10
+      }
+     },
+     {
+      "node_id": "creature-rats",
+      "node_kind": "creature",
+      "name": "Rats",
+      "summary": "A swarm.",
+      "source_refs": [
+       {
+        "page": 4
+       }
+      ],
+      "properties": {
+       "attacks": "Bite 40%, damage 1D3",
+       "sanity_loss": "0/1D3"
+      }
+     },
+     {
+      "node_id": "npc-caretaker",
+      "node_kind": "npc",
+      "name": "Caretaker",
+      "summary": "The old caretaker.",
+      "source_refs": [
+       {
+        "page": 4
+       }
+      ],
+      "properties": {
+       "stats": {
+        "STR": 45,
+        "CON": 50
+       },
+       "mechanics": {
+        "profile": {
+         "characteristics": {
+          "STR": 45,
+          "CON": 50
+         }
+        }
+       }
+      }
+     }
+    ],
+    "claims": [
+     {
+      "subject_id": "scene-old-chapel",
+      "predicate": "uses-rule",
+      "object": {
+       "node_id": "rule-cellar-stairs"
+      },
+      "truth_status": "authored-fact",
+      "source_refs": [
+       {
+        "page": 4
+       }
+      ]
+     },
+     {
+      "subject_id": "creature-rats",
+      "predicate": "present-in",
+      "object": {
+       "node_id": "scene-old-chapel"
+      },
+      "truth_status": "authored-fact",
+      "source_refs": [
+       {
+        "page": 4
+       }
+      ]
+     }
+    ],
+    "node_refs": [
+     "scene-old-chapel"
+    ],
+    "coverage": {},
+    "critical": [
+     "/nodes/0/properties/pushed_fail_damage"
+    ],
+    "dependencies": [],
+    "ready_nodes": [
+     "rule-cellar-stairs",
+     "hazard-cellar-pit",
+     "creature-rats",
+     "npc-caretaker"
+    ]
+   },
+   "packet": {
+    "module_id": "book-2",
+    "purpose": "detail",
+    "focus": "Old chapel",
+    "question": "",
+    "source": {
+     "page_count": 10
+    },
+    "known_nodes": [
+     {
+      "node_id": "module-book-2",
+      "node_kind": "module",
+      "name": "Book",
+      "ready": false
+     },
+     {
+      "node_id": "scene-old-chapel",
+      "node_kind": "scene",
+      "name": "Old chapel",
+      "summary": "A ruined chapel.",
+      "properties": {},
+      "visibility": "keeper-only",
+      "source_refs": [
+       {
+        "page": 3
+       }
+      ],
+      "ready": true
+     }
+    ],
+    "known_claims": []
+   },
+   "result": "{\"ok\": true, \"required_review\": [\"/claims/0\", \"/claims/1\", \"/coverage\", \"/nodes/0\", \"/nodes/0/properties/pushed_fail_damage\", \"/nodes/1\", \"/nodes/1/properties/depth_feet\", \"/nodes/2\", \"/nodes/3\", \"/nodes/3/properties/mechanics/profile/characteristics/CON\", \"/nodes/3/properties/mechanics/profile/characteristics/STR\", \"/nodes/3/properties/stats/CON\", \"/nodes/3/properties/stats/STR\"], \"required_view_pages\": [4]}"
+  },
+  {
+   "name": "the offline check of the opening",
+   "op": "offline",
+   "draft": {
+    "nodes": [
+     {
+      "node_id": "scene-pier",
+      "node_kind": "scene",
+      "name": "Pier",
+      "properties": {
+       "is_entrance": true
+      },
+      "source_refs": [
+       {
+        "page": 1
+       }
+      ]
+     },
+     {
+      "node_id": "npc-harbourmaster",
+      "node_kind": "npc",
+      "name": "Harbourmaster",
+      "source_refs": [
+       {
+        "page": 1
+       }
+      ],
+      "properties": {
+       "mechanics": {
+        "profile": {
+         "characteristics": {
+          "STR": 60,
+          "CON": 55,
+          "DEX": 40,
+          "POW": 50
+         },
+         "derived": {
+          "HP": 11,
+          "MP": 10,
+          "MOV": 7
+         },
+         "skills": {
+          "Spot Hidden": 60,
+          "Listen": 45
+         }
+        }
+       },
+       "knowledge": [
+        "He saw the boat leave."
+       ]
+      }
+     }
+    ],
+    "claims": [
+     {
+      "subject_id": "npc-harbourmaster",
+      "predicate": "present-in",
+      "object": {
+       "node_id": "scene-pier"
+      },
+      "truth_status": "authored-fact",
+      "source_refs": [
+       {
+        "page": 1
+       }
+      ]
+     }
+    ],
+    "node_refs": [],
+    "coverage": {},
+    "critical": [],
+    "dependencies": [],
+    "ready_nodes": [
+     "scene-pier",
+     "npc-harbourmaster"
+    ]
+   },
+   "packet": {
+    "module_id": "book-2",
+    "purpose": "opening",
+    "focus": "Pier",
+    "question": "",
+    "source": {
+     "page_count": 10
+    },
+    "known_nodes": [
+     {
+      "node_id": "module-book-2",
+      "node_kind": "module",
+      "name": "Book",
+      "ready": false
+     }
+    ],
+    "known_claims": []
+   },
+   "result": "{\"ok\": true, \"required_review\": [\"/claims/0\", \"/coverage\", \"/nodes/0\", \"/nodes/1\", \"/nodes/1/properties/mechanics/profile/characteristics/CON\", \"/nodes/1/properties/mechanics/profile/characteristics/DEX\", \"/nodes/1/properties/mechanics/profile/characteristics/POW\", \"/nodes/1/properties/mechanics/profile/characteristics/STR\", \"/nodes/1/properties/mechanics/profile/derived/HP\", \"/nodes/1/properties/mechanics/profile/derived/MOV\", \"/nodes/1/properties/mechanics/profile/derived/MP\", \"/nodes/1/properties/mechanics/profile/skills/Listen\", \"/nodes/1/properties/mechanics/profile/skills/Spot Hidden\"], \"required_view_pages\": [1]}"
+  }
+ ]
+}

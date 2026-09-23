@@ -357,6 +357,7 @@ params：`{"call_id": "...", "effects": [{"kind": "move", "to": "<场景名>", "
 - `time`：推进世界时钟，写 `time-advanced` 事件。**时间过去了，伤就该好。**本批 `time` 效果的分钟数相加（同一批两个四小时就是一夜；`move` 的行程分钟不算——赶路不是休息）：≥360 分钟走治疗引擎的休整入口（`handle_time_trigger`：六小时以上算一天，没有重伤则每天回 1 点生命，规则书 p.121；不到这个数一次都不调，因为同一个函数还会清掉当天的急救次数，十分钟不是新的一天），≥60 分钟走魔法点的每小时回复（规则书的单位是小时，引擎的下限会给任何一次推进至少 1 点）。每个真正变动的资源写一条 `delta` 收据与一条 `resource-changed` 事件，result 另给 `recovered: [{investigator, resource, before, after}]`，好让守秘人在写这一夜之前就知道这一夜的人还站不站得起来（数字本身不进正文，§16.3）。**这条规则一直在规则图上**（`rule:coc7:healing:regular-damage-recovery`），两个引擎的入口也一直写着、测着，只是内核从来没有调用过：真桌上 55 个游戏内小时、三夜睡眠、两次看医生，生命值一整局卡在 5/11。
 - `item`（#19）：`{"kind": "item", "name": "<物品名>", "to"?: "<调查员>", "from"?: "<NPC 名>", "weapon"?: "<规则表武器 id 或 profile 名>", "quantity"?: int, "label"?: "<玩家语言短名>", "why"?}`。叙述里到手的东西由此进调查员表：写 `party/<id>.json` 的 `equipment[]`（名字、数量、来源回合），`weapon` 给了就同时写 `weapons[]`（从 `rules-json/weapons.json` 的武器 profile 取伤害、射程、弹容、技能（`equipment.json` 只是价目表），取不到报 `needs`，`details.needs.options` 列可用 id），之后 `resolve` 的 `weapon` 能解析它、战斗开局按它排弹药。收据 `item:<slug>-t<turn>-c<n>`，渲染 `【变化】物品：<人> 得到 <label 或名>`，事件 `item-transferred`（`{name, to, from?, weapon?, quantity}`）。`quantity` 为负是失去（消耗、交出、被夺），表上没有就报 `invalid_params`。
 - `cash`（#19，§58）：`{"kind": "cash", "subject"?: "<调查员>", "delta": <整数，货币单位随时代>, "source": "price"|"quote"|"found", "settlement"?: "cash"|"spending_level", "price_id"?: "<印刷记录 id，source=price 必填>", "currency"?: "<这笔钱的单位>", "with"?: "<NPC 名>", "why"?}`；**`source` 必填**：钱的数额必须说明来源，`price` 由内核到规则书印刷物价表里解析 `price_id`（解析不到就拒），`quote` 要 `with`（场上谁开的价），`found` 是不涉及价格的进出。`settlement` 缺省 `cash`；`spending_level` 只用于不超过调查员消费等级的负向 `price`/`quote`，记录购买但不改现金。`currency` 与余额单位不一致直接拒——内核没有汇率表，不替任何人换算。玩家说的自己兜里有多少是余额不是价格；余额与本局已成交的价在胶囊 `known.investigator.cash` 与 `known.prices_paid` 里。全文见 §58；`with` 是钱的另一头（付给谁、从谁那儿来），落进那个人的账本 `exchanged`（§17.3）与机制投影；不写就只是钱数变了，没有对方。普通结算写表上 `finance.cash`；消费等级结算保留余额（没有 finance 块的时代都先按 `rules-json/cash-assets.json` 建一个），收据均为 `cash:t<turn>-c<n>`，事件分别是 `resource-changed` 与 `purchase-settled`。
+- `damage`、`time`、`threat`、`flag`、`cash` 另收 `stated: <名字>`（2026-09-23，RD-03）：数额取自书上写明的形状，不与守秘人自己的数额并给（`stated_conflict`）；不带 `stated` 时照旧，收据记 `basis: "keeper"`。见 §136.22。
 - 其余种类报 `not_implemented`。
 result：`{"receipts": ["move:hall-of-records-t3-c2", ...], "world": {"active_scene", "clock"}, "material_ready": true, "recovered"?: [{"investigator", "resource", "before", "after"}]}`。切片 0 `material_ready` 恒为 true；`recovered` 只在这一批的休整真的还了资源时出现。
 
@@ -475,7 +476,7 @@ recovery path it was pointed at.
 
 ### 11.1 输入补充
 
-`action` 在切片 0 的字段之外接受（扩展的工具表必须逐一声明，否则模型无处可填）：`san_loss`（理智检定的成功/失败损失表达式，如 `0/1D6`）、`involuntary`（理智失败时的失控行为，`faint`、`flee`、`scream`、`freeze`、`attack` 之一）、`outcome`（结束战斗时的结果）、`skills` 与 `mode`（合并检定）、`motive`（`{direction: support|neutral|oppose, intensity: 0..2}`，工具表与内核用同一套词）与 `support`（社交判定里 NPC 倾向与玩家实证）、`interrupted`（施法）、`rest`（每周恢复条件）、`ending`（结束会话的结局种类）；以及：`weapon`（武器名，攻击时用；`unarmed` 表示徒手）、`spell`（法术名）、`defense`（`dodge` 或 `fight_back`，回应待决防御时用）、`push: true`（对上一次失败检定推骰，`stakes` 必填，是宣告的后果）、`luck: <点数>`（花幸运补上一次检定）。`actor` 可以是 NPC 名：守秘人替 NPC 行动时用——战斗或追逐里轮到他，**或者他在战斗之外用自己的本事替队伍做一件事**（医生缝合、锁匠开锁、向导认路）。后一种以前被拒（「只能在他参与的战斗或追逐里行动」），于是求医、雇向导这类调查跑团的日常表达不了；更糟的是治疗族把施救者写死成当前调查员，医生给伤员缝手掷的是**伤员自己**的医药基础值（真桌上是 4），必然失败还看着像一次正常判定。详见 §17.9。
+`action` 在切片 0 的字段之外接受（扩展的工具表必须逐一声明，否则模型无处可填）：`san_loss`（理智检定的成功/失败损失表达式，如 `0/1D6`）、`involuntary`（理智失败时的失控行为，`faint`、`flee`、`scream`、`freeze`、`attack` 之一）、`outcome`（结束战斗时的结果）、`skills` 与 `mode`（合并检定）、`motive`（`{direction: support|neutral|oppose, intensity: 0..2}`，工具表与内核用同一套词）与 `support`（社交判定里 NPC 倾向与玩家实证）、`interrupted`（施法）、`rest`（每周恢复条件）、`ending`（结束会话的结局种类）；以及：`weapon`（武器名，攻击时用；`unarmed` 表示徒手）、`spell`（法术名）、`defense`（`dodge` 或 `fight_back`，回应待决防御时用）、`push: true`（对上一次失败检定推骰，`stakes` 必填，是宣告的后果）、`luck: <点数>`（花幸运补上一次检定）。`actor` 可以是 NPC 名：守秘人替 NPC 行动时用——战斗或追逐里轮到他，**或者他在战斗之外用自己的本事替队伍做一件事**（医生缝合、锁匠开锁、向导认路）。后一种以前被拒（「只能在他参与的战斗或追逐里行动」），于是求医、雇向导这类调查跑团的日常表达不了；更糟的是治疗族把施救者写死成当前调查员，医生给伤员缝手掷的是**伤员自己**的医药基础值（真桌上是 4），必然失败还看着像一次正常判定。详见 §17.9。另有 `rule` 与 `step`（2026-09-23，RD-03）：点名一条书上写明的规则、危险（及其步骤）或典籍，内核按书上的检定绑定并掷骰，结果带 `stated`，什么都不施加，见 §136.20–§136.21；与 `decision: sanity:check` 同用时从该节点取 `san_loss`，见 §136.23。
 
 ### 11.2 事实
 
@@ -2526,6 +2527,8 @@ The host-private PDF tool has four mutually exclusive navigation/page operations
 `module.read.finish` 是唯一发布入口：核对来源引用、结构、复核报告与依赖，合并进当前模组图，更新素材就绪信息，最后原子切换 generation。图、就绪信息与 generation 属于同一次发布；写入中断保留上一有效代。重放同一已完成 job 返回原结果，不再发布或再次收费。`base_generation` 过时须重新合并检查，冲突返回 `needs_choice`，不能覆盖当前代。
 
 结构门继续检查语义 id、闭合词表、引用目标、作者/玩家可见性和玩法关系。局部就绪判定只要求本次可玩范围及其依赖成立；全书未细读页不导致全图失败，也不被标为 absent。跨向未准备区域的名字可以留在索引，但不能因为有一个名字就执行该处的作者规则。
+
+**Mechanical shapes (2026-09-23, §136.26).** The reader writes a stated mechanic as a typed shape in `properties.mechanics` of the node that states it (the closed catalog of §136.1), never as an ad-hoc prose key; the draft check runs the shared validator with no legacy allowance and adds every leaf of every shape, strings included, to `required_review`; an actor's loose characteristic numbers on an `npc` or `creature` node are refused.
 
 ### 22.4 七动词与等待
 
@@ -6279,7 +6282,7 @@ already runs, at `narrate` and at `ask`, and writes one telemetry row per turn:
 {"lane": "offers", "turn": n, "closed_by": "narrate"|"ask", "offered": [ids], "taken": [ids]}
 ```
 
-An id is `<kind>:<handle>`; taken is decided by the turn's own receipts — a `clue` receipt for that clue, a
+(§134.14 adds `obligation:` and §136.24 `stated:`, a rule row with a `mech` line.) An id is `<kind>:<handle>`; taken is decided by the turn's own receipts — a `clue` receipt for that clue, a
 `move` to that scene, a `threat` tick of that clock. `tests/play/kpi.py` aggregates a run into offered, taken and
 `never_taken` per kind.
 
@@ -14056,6 +14059,29 @@ model follows it:
   and `custom_skills`; a changed trade without a new `occupation_skills` list rebuilds the list from
   the trade's printed entries around nothing (the old list's skills keep their interest points).
 - `setup.catalog` reaches the host as `draft-catalog`, so the edit control can offer every trade.
+### §98 addendum 3 — the button's completion reaches a setup process that is still running (2026-09-23)
+
+The Host paragraph above has the host confirm and complete cold and then send one sentence "so the
+setup model closes the prologue and the launcher moves to play". A setup process that is restarted
+reads `complete` from `setup.steps` at session start (302e2dd31). One that is still running does
+not: it keeps the steps it booked itself, so on the installed build `e1b4176d3` it treated the
+sentence as a setup turn, asked `mods.context` (which refuses a `ready_for_table` campaign that has
+no world yet with `campaign_not_ready`), took that refusal as the setup block, answered the Keeper's
+`confirm-investigator` with "Guidance review did not pass", and ended the run with no handoff; the
+child never exited, so play was never launched and the App sat on its loading line. No guidance
+review ran on that turn: the block was the package-context read failing.
+
+The rule: **once a card exists, the setup process reads `setup.steps` again before each turn and books
+whatever the kernel reports done** (it only adds; nothing is un-booked). With `complete` booked the
+turn takes the existing already-complete path: the handoff is finished, the model is told not to call
+`setup`, and `agent_end` exits so the wrapper launches play. A snapshot that cannot be read leaves the
+turn as it was.
+
+Case: `tests/extension/setup.test.mjs` "a live setup process learns the card button's cold completion
+from the kernel and hands off (§98)", on the real kernel: the live process revises the card, a cold
+kernel confirms and completes it, and the button's sentence must end in `coc-setup-exit` with no
+guidance refusal. It dies when `before_agent_start` stops calling `refreshCompleted`.
+
 ## 99. A divided document says what each half contains (2026-09-17, amends §97.3)
 
 §97 was built from M-MAIN turn 109 but its fixture omitted the one property the live object had:
@@ -17062,8 +17088,8 @@ whether*. The curated starters, the visual PDF reader (RD-05) and, where a Mod s
 declarations use the same shapes and the same validator. This section is the catalog (spec D4) and the
 refusal rules (spec D5) with the implementation rulings A–D of 2026-09-23 (spec, Comments). **RD-01 adds
 no reader:** no capsule row, option, lookup or engine path reads a shape yet (RD-02 is the first reader,
-RD-03 the operations `action.rule` and `stated`). **RD-02 adds the readers** (§136.10–§136.19); the sentences of this preamble describe RD-01's state and
-are kept as its record. A writer without a reader is the §31 defect; it is
+RD-03 the operations `action.rule` and `stated`). **RD-02 adds the readers** (§136.10–§136.19) and **RD-03 the operations** (§136.20–§136.25); the sentences of this
+preamble describe RD-01's state and are kept as its record. A writer without a reader is the §31 defect; it is
 accepted here for one scheduled ticket, as §134.7 was. No shipped starter authors a shape yet, so every
 read of every starter is unchanged.
 
@@ -17494,3 +17520,265 @@ kernel, fights a creature with a stat block, rolls a typed `sanity_loss` without
 casts a module spell priced by `mechanics.spell` from a tome that names it in `mechanics.tome.spells`. Every
 shipped starter's capsule, `table.apply.options`, `table.resolve.options`, module and scene lookups and `look
 focus=scene`, walked scene by scene, are byte-identical to the parent commit `fb4ddbb50`.
+
+### 136.20 `resolve` names a stated check: `action.rule`, `action.step` (RD-03, spec D6.3, owner ruling Q1)
+
+`resolve` accepts two optional action fields: `rule: <name>` — a `rule`, `hazard` or `tome` node (or, with
+`decision: sanity:check`, an `object` or `artifact`; §136.23) that states a shape, named by handle, node id or name
+as `graph.find` resolves it — and, for a hazard, `step: <n>` (an integer from 0). The kernel validates, in order,
+and refuses with a stable `details.reason` (`details.field: "action.rule"`; code in brackets). The table mirrors
+§134.11's; `rule_intent` and `rule_decision` are the mirrors of `obligation_intent` and `obligation_decision`.
+
+| reason | refused |
+| --- | --- |
+| `rule_unknown` (`unknown_entity`) | the name finds no rule, hazard, tome, object or artifact node that states a shape; `details.candidates` lists the active scene's `uses-rule` nodes that state a check or a hazard |
+| `rule_not_here` (`not_here`) | the node is not linked from the active scene by `uses-rule`; a tome, object or artifact is also here when it is among the scene's assets (the `where.assets` links) or a party sheet holds it (an `equipment` entry whose name finds the node) |
+| `rule_intent` (`invalid_params`) | `intent` is `idle`, `meta`, `stuck` or `ambiguous` |
+| `rule_decision` (`invalid_params`) | `action.obligation` is present too (one roll has one owner); `action.decision` is present and is neither the decision the check maps to nor `sanity:check`; a push or Luck spend names another rule than the roll it continues |
+| `rule_step` (`invalid_params`) | `action.step` is not an integer ≥ 0, or names no step of the node's hazard |
+| `rule_no_check` (`invalid_params`) | the node states no check to roll (`details.shapes` lists what it does state) |
+| `rule_target` (`not_here`/`invalid_params`/`needs`) | the check's stated target is not present, or `action.target` names someone else; an opposed check with no opponent named, or whose opponent's profile carries none of `opposing.values` |
+| `rule_difficulty` (`invalid_params`) | `action.modifiers.difficulty` differs from the stated difficulty |
+| `rule_skill` (`needs`/`invalid_params`) | `selection: approach` without `action.skill` (`needs`, options = the approaches), or a skill that is not one of them |
+| `rule_minimum` (`invalid_params`) | the actor's rating is below the chosen approach's `minimum`, or no approach meets its minimum |
+
+**Which check.** With `action.step`, that step of the node's `hazard`; without it, the node's `check`, else a tome's
+`read_check`, else its hazard's first step (step 0). A hazard is rolled only when the Keeper names it this way —
+never on entry, on a timer or by the clerk (owner ruling Q1) — and a later step is rolled only when the Keeper names
+it too: a result's `next_step` says which step the book says follows, and the Keeper decides whether it does. The
+kernel does not require the steps in order (the module is reference, spec P8).
+
+**The binding** is §134.11's, the same function (`bindCheckStep`, `kernel-ts/resolve/obligation.ts`; an obligation's
+check and a rule's are bound by one binder, reason prefix `obligation_` or `rule_`): the step's `target` present in
+the active scene, the stated difficulty (the Keeper's own when it is `difficulty_unstated`; a non-regular stated
+difficulty on a social intent carries `modifiers.reason` "stated by the module"), the named approach for `approach`
+or the actor's highest value among those meeting their minimums for `maximum`, the Keeper's own skill when
+`approaches_unstated`. The Keeper's bonus and penalty dice pass through. The stored call parameters stay the
+Keeper's own; only the settlement reads the bound action.
+
+**The decision it maps to.** A check whose only value is `characteristics.Luck` runs `push-luck:luck-roll`; a check of
+scope `opposed` runs `core-check:opposed-check` — the actor's bound value against the opponent's highest value among
+`opposing.values` that its profile carries (the stated target, else `action.target`, which must be a present person
+with a profile); any other check runs `core-check:ordinary-check`.
+
+`push-luck:luck-roll` had never settled in this kernel: the action slots named the Luck characteristic as a skill
+slot, which the decision does not declare (its characteristic is a payload constant and its target host-locked), so
+every Luck roll was refused as an undeclared input. The slot is now left to the decision, for any caller; this is the
+one behaviour RD-03 changes outside `action.rule`, and it was found by the chapel floor's Luck step.
+
+`action.step` without `action.rule` is refused (`invalid_params`, `details: {field: "action.step", reason:
+"rule_step"}`): a step belongs to the hazard it names.
+
+### 136.21 The stated result and the receipt's `basis`
+
+The result carries
+
+```
+stated: {rule: <handle>, step?: <n>, level, effects: [<bound effect>], next_step?: <n>, book?: <line>,
+         push?: {allowed: true, book?: <line>}}
+```
+
+- `level` is the level the check reached. For an opposed check it is the actor's own level when the actor won, and
+  `failure` when the actor lost with a success (a fumble or failure stays what it was): the book's result levels are
+  the actor's side of the contest.
+- `effects` are the level's stated effects (§136.5) as the arguments of the verbs that execute them — `{kind: "damage",
+  dice}`, `{kind: "sanity_loss", san_loss: "S/F"}`, `{kind: "time", minutes}` (or `{kind: "time", amount, unit}` for a
+  dice amount or combat rounds), `{kind: "threat", name, clock, segments}`, `{kind: "flag", name, value}`, `{kind:
+  "cost", resource, amount | chosen, per?}`, `{kind: "book", line}`; an unstated amount keeps its `_unstated` twin.
+  A pushed roll that failed adds the push's own effects. `next_step` is the step the level's `next_step` effect names.
+  `book` is the level's line; `push` is given on a failed roll that can still be pushed when the book allows it.
+- **Nothing is applied.** The roll writes its own receipts and nothing else: no hit point, clock, flag or Sanity
+  moves because a level states it (owner rulings; spec P6). The Keeper applies what it chooses with `apply … {stated}`
+  (§136.22) or `sanity:check` (§136.23), or improvises its own.
+- The roll receipt (the first `roll` receipt of the call) carries `basis: {rule: <handle>, step?: <n>, level, pushed?:
+  true}`. `basis` is Keeper-side: the §16.2 projection does not carry it.
+- **Push and Luck continue the rule.** A push or a Luck spend continues the latest check receipt of the actor (§11);
+  when that receipt carries `basis.rule`, the continuation is rolled on the same rule and step and carries its own
+  `stated` and `basis` for the level it reached. An explicit `action.rule` on it must name the same one. A push of a
+  roll that named no rule names none.
+- **A resolve without `action.rule` is exactly today's.** A stated shape in the scene never refuses, narrows or
+  annotates any other `resolve` or `apply` (spec P8, the §134.11 "crossing is information" rule generalised; there
+  is no crossing annotation for a shape, because a shape guards nothing).
+
+### 136.22 `apply … {stated}` (spec D6.3)
+
+`apply damage`, `time`, `threat`, `flag` and `cash` accept `stated: <name>`: a node `graph.find` resolves among the
+rule, hazard, tome, object and artifact nodes that state a shape, or a threat one of whose clocks carries
+`advances_on`. The amount comes from, in order:
+
+1. the effects of this kind (`damage`, `time`, the `clock` effect for `threat`, `flag`) the latest `action.rule` roll of
+   this turn on that node reached (the turn's receipts, by `basis.rule`; a pushed failure adds the push's effects);
+2. else the node's own shape of that kind: `damage`; `time_cost`; for `threat` the clocks of a threat node that carry
+   `advances_on` (one segment each); for `cash` the `reward.cash` (with its `currency`, and `source: "quote"` unless the
+   Keeper gives a source: the book's figure is the quote, §58); and, for every kind, the no-roll `effects` of the
+   node's hazard.
+
+| reason | refused (`details.field: "stated"`) |
+| --- | --- |
+| `stated_unknown` (`unknown_entity`) | the name finds no such node |
+| `stated_conflict` (`invalid_params`) | the effect also gives a field the binding supplies — `dice`; `minutes`; `name`, `clock`, `segments`; `name`, `value`; `delta`, `currency` (`details.fields`) |
+| `stated_ambiguous` (`invalid_params`) | more than one candidate amount (`details.choices`, each a bound effect) |
+| `stated_none` (`invalid_params`) | no candidate of that kind; a stated time counted in combat rounds; `stated` on any other effect kind |
+| `stated_unstated` (`invalid_params`) | the one candidate records its amount `_unstated`: the amount is the Keeper's |
+
+A time amount that is a dice string is rolled by the kernel (`rollExpression`) and multiplied by its unit's minutes
+(1, 60, 1440, 10080); the time receipt carries `stated_roll: {expression, unit, total}`.
+
+**Whose number it was.** Every receipt an effect of these five kinds mints carries `basis`: `"stated"` with `stated:
+<handle>` when the amount was bound, `"keeper"` otherwise (a damage effect's `roll` and `delta` receipts both). An
+`apply` without `stated` is exactly today's apply (spec P8): the Keeper's own amount lands with `basis: "keeper"`.
+
+### 136.23 `sanity:check` with `action.rule` (spec D6.3)
+
+`resolve` with `decision: sanity:check` and `action.rule` takes `san_loss` from the node: the `sanity_loss` effect this
+turn's latest roll on it reached, else its own `sanity_loss` shape (a rule, hazard, object or artifact), a tome's
+`sanity_cost`, or its hazard's no-roll `sanity_loss` effect — the pair `"<success>/<failure>"`, built from the two
+strings, never searched for in a sentence. The node is validated as §136.20 says (`rule_unknown`, `rule_not_here`,
+`rule_intent`); `action.san_loss` given as well is `stated_conflict`; none is `stated_none`, two are
+`stated_ambiguous`, a half recorded `_unstated` is `stated_unstated` (the Keeper's own `san_loss` completes it). The
+result carries `stated: {rule, san_loss}` and the SAN roll receipt `basis: {rule}`. The involuntary behaviour stays the
+Keeper's pick.
+
+### 136.24 Three ends, the offer ledger, the tools and the prompt (spec D6.4)
+
+*Writer:* the starter author and (RD-05) the reader under review; never the kernel and never a lane. *Reader:*
+§136.10–§136.18 and the operations of §136.20–§136.23. *Actor:* the Keeper, through the `mech` line and
+`action.rule`/`stated`; the clerk only where spec D8 says (RD-06), never for a hazard or a consequence.
+
+The offer ledger (§31.2) registers `stated:<handle>` for every `where.rules` row of the turn's capsule that carries a
+`mech` line (the row's name resolved to its node's handle), and marks it taken when a receipt of the turn carries
+`basis.rule` or `stated` naming that handle. `tests/play/kpi.py` counts it under its own kind `stated` (its `offers`
+aggregation reads the kind from the id's prefix). It counts and never nags: nothing of it reaches the next capsule.
+
+The `resolve` tool's `action` gains `rule` and `step`; the `damage`, `time`, `threat`, `flag` and `cash` effects gain
+`stated` (their amount fields become optional in the schema, and the kernel refuses a missing amount exactly as
+before when `stated` is absent). The base Keeper prompt gains one sentence: stated mechanics are the book's numbers;
+name them with `action.rule` or `stated`, or use your own amount. The fake kernel (`tests/extension/fixtures/fake-kernel.mjs`)
+answers `action.rule` with a `stated` object and refuses `stated` beside an amount as `stated_conflict`.
+
+### 136.25 Tests (RD-03)
+
+`tests/kernel/test_stated_operations.py`, over the emitted kernel on a derived haunting content root (seeded; a
+"forced" level is a recorded seed for exactly that call sequence): a hazard's steps rolled through `action.rule` and
+`action.step` with `next_step` and the bound damage and no hit point written; `apply damage {stated}` rolling the stated
+dice with `basis: "stated"`; `stated` beside `dice` refused `stated_conflict`; `apply damage {dice}` alone landing with
+`basis: "keeper"`; every refusal of §136.20 and §136.22 by its reason with no roll written; the opposed and Luck
+decisions; a push continuing the rule; `sanity:check` with `action.rule`; `time`, `threat`, `flag` and `cash` bound;
+a stated hazard in the scene crossed by an unrelated `resolve` and `apply` that land exactly as without it; the offer
+ledger's `stated:` rows and `kpi.py`'s count. `tests/extension/stated-operations.test.mjs` covers the tool schema and
+the fake kernel. Every shipped starter's capsule, `table.apply.options`, `table.resolve.options`, module and scene
+lookups and `look focus=scene`, walked scene by scene, are byte-identical to the parent commit `172b80065`, and again after 0.9.5a
+(SL-08) was merged in, to `e1b4176d3`.
+
+### 136.26 The visual reader writes shapes; the draft check refuses a malformed one (RD-05, spec D7)
+
+A PDF book states its mechanics the way a starter does (§136.1–§136.6), through the same reader and the same
+independent review as every other statement (§22), and the same validator (§136.8) with `starter: false`: a
+reader draft gets **no legacy allowance** (RD-01 ruling A). No code reads rule prose into a shape: the reader (a
+model) writes shapes from the page, the reviewer (a model) checks them against the image, and the checker
+checks form and references only. There is no count gate (a book may state none) and no backfill (§22: an
+existing module gains a shape only through a detail request that asks for it, reviewed additively; an
+already-ready node receives `mechanics` as a delta under `mergeValue`). The committed twin
+`the-haunting-rulebook` is not rebuilt; it stays the "PDF build without shapes" control.
+
+**The reader's instruction** (`content/setup/visual-reader.md`, Read phase, after §134.16's obligation
+paragraph; English, no book- or language-specific wording): one paragraph for the container (the keys and the
+node kinds of §136.1, one shape of each name per node, the two laws below, `book`, skill names), then one
+paragraph per shape — `check`, `hazard` (with the embedded `gate`), `damage`, `sanity_loss`, `time_cost`,
+`resource_cost`, `weapon`, the actor's `profile` with `weapons`, `armor`, `spells` and `sanity_loss`, the
+registered `combat` seats on an `npc` or `creature` (`defense`, `action`, `disposition`, §11.5.2–§11.5.3, only what the page states), `spell`, `tome`, `reward` — each
+with its keys and one worked example. The two laws: *accounting* — a needed value the page leaves out is
+`<slot>_unstated: true`, never a value from habit, the core rules or what usually happens; *dice* — a dice slot
+holds the bare expression (`1D4+2`), never words or units (`1D4+2 hit points`) and never the damage bonus
+(`adds_damage_bonus: true` on a weapon). The reader writes no ad-hoc mechanical key; the checker does not
+enforce that (it would have to read prose), the instruction and the review do. The threat clock's
+`advances_on` is not taught to the reader: the reader writes no threat clocks today.
+
+**The review instruction** (same file, Verify phase, one paragraph): every field under a node's `mechanics`, and
+every field of an actor's `combat`, is a mechanical statement to check against the page image — the value digit for
+digit, that it sits on the node that states it, each step's order and effects, and that a slot recorded
+`_unstated` really is not printed. A value filled in where the page prints none is contradicted; so is an
+`_unstated` flag where the page prints the value.
+
+**The draft check** (`checkDraft`, `kernel-ts/modules/visual.ts`, behind both the offline `coc-read-check` —
+`checkSourceDraft`, `kernel-ts/check.ts` — and publication in `kernel-ts/modules/reading.ts`):
+
+1. *An actor's numbers outside the seat* (`actorNumbersLaw`, per draft node of kind `npc` **or `creature`**,
+   before the source laws). A standalone `stats`/`skills`/`characteristics`/`derived` dictionary beside no
+   `mechanics.profile` is refused at `/nodes/<i>/properties` (the check that stood since §22, now also on
+   creatures), and a flat property whose key is one of the ruleset's characteristic names (`contract.rules.characteristics`,
+   the keys of `characteristic-dice.json`, normalised-name match) holding a number — the twin's `STR: 90` — is
+   refused at `/nodes/<i>/properties/<key>`, whether or not a profile is present. The dictionary refusal keeps
+   its bytes (no `rule`, the generic fix); the loose number carries `details.rule: "profile_outside_seat"` and a
+   fix that says to move the printed numbers into `mechanics.profile` without recalculating them.
+2. *The source law first, per node that states a shape* (`statesMechanics`: its record view carries
+   `mechanics` or `combat`), before the generic reference law so the refusal carries its path and rule: no
+   non-empty `source_refs` list is `mechanics_unsourced` at `/nodes/<i>/source_refs`; a reference to a physical
+   page this reader did not view is `mechanics_unsourced` at `/nodes/<i>/source_refs/<j>` (spec D5's PDF half of
+   the rule). The viewed-page half runs where the generic law runs — at publication, which knows the host's page
+   observations; the offline check has none, and `submit_reading` enforces the same law through
+   `required_view_pages`, as §134.16 step 1.
+3. *Then the one validator* — `mechanicsRefusals(view, rules, {starter: false})` — after the obligation check,
+   whenever the view carries a shape (`carriesMechanics`). `view` is the graph the draft would publish into, built
+   as §134.16 builds it except that a drafted node is merged over its known node all the way down, as publication's
+   `mergeValue` merges (so a delta adding one slot to a known shape is checked as the shape it makes). `rules` are
+   loaded with the module contract by the function starter registration uses (`mechanicsRules`,
+   `kernel-ts/modules/mechanics-shape.ts`): skill keys, specialization groups, characteristic keys, `weapons.json`
+   ids and damage-bonus values. **Only the refusals the draft introduces refuse it:** the same validator over the
+   known graph alone gives the refusals already published (a module built before this section, whose known node
+   may carry a key the catalog refuses), and a refusal with the same node, rule and path is not the draft's — the
+   draft cannot remove a published key. Every refusal on a draft node, and every one a draft claim causes on a
+   known node (a `calls-for-check` onto a known rule's `mechanics.check`, `shape_duplicate`), is the draft's.
+4. *A refusal* is `invalid_params` with `details: {reason: "reading_failed", path, rule, refusals}` exactly as
+   §134.16 step 3 (`refusals` every `{node, rule, path, message}`, `path` a JSON pointer into the draft for a draft
+   node, the validator's dotted path turned into pointer tokens; draft nodes first). A `shape_unknown_skill`
+   refusal also carries `details.ruleset: {skills, characteristics, specialization_groups}` (the group keys; §136.4
+   says how a specialization is written). The `fix` is executed literally (§34.7), so it is assembled from the rules
+   refused and says only: correct the shape against the page it cites; cite only viewed pages that print it (when
+   `mechanics_unsourced`); record an unstated value as `<slot>_unstated: true`, never guess one; name skills as
+   `details.ruleset` spells them (when it is present); write dice as the bare expression with words in `book` and a
+   damage bonus as `adds_damage_bonus` (when `shape_dice`); put each shape under its own key on a node kind §136.1
+   admits (when `mechanics_wrong_kind` or `mechanics_unknown_shape`); if the page states no such mechanic, delete
+   that shape.
+5. *Required review.* Every leaf of every drafted node's shape seats — the record view's `mechanics` and `combat` —
+   is added to `required_review`, strings, booleans and `_unstated` flags included, whether or not the reader
+   listed it in `critical`; an empty object or list is named whole. Numbers keep entering through `numericPaths`;
+   the two sets are unioned. The pointers come from one import-free function, `shapeReviewPaths(node, base)`
+   (`kernel-ts/modules/shape-review.ts`), which the extension's `reviewUnits` (`extensions/module/reader-review.ts`)
+   also calls, so the reviewer units and the publication gate cannot disagree. A review that leaves any of them
+   unsupported fails publication (`checkReview`); a repair has §74's choice — cite a page that prints the value,
+   or delete it — or, for a shape, mark the slot `_unstated`.
+
+A draft whose nodes state no shape, over known nodes that state none, returns byte for byte what it returned
+before RD-05, unless an `npc` or `creature` node carries a loose characteristic number (step 1, the intended
+change). A draft whose only shape is an NPC profile of numbers (the reader's output before RD-05) is checked and
+reviewed as before: every leaf of it was already a `numericPaths` pointer.
+
+*Three ends (§31):* writer — the reader under independent review; reader — publication carries `mechanics` into
+the module graph unchanged (`assembleVisual`), where `ModuleGraph.mechanicsOf` (§136.10) and every reader of
+§136.11–§136.18 read it; actor — the Keeper through the `mech` line and the engine paths, as §136.19.
+
+### 136.27 Tests (RD-05)
+
+`tests/extension/mechanics-reader.test.mjs`, through the real entries only — `checkDraft` with the contract
+`loadModuleContract` loads from the shipped content root and the host's viewed pages, `checkSourceDraft` (the
+offline check) over files on disk, and `checkReview` (publication's review gate) — with each draft written as
+the JSON a reader would write: a `"1D4+2 hit points"` damage slot (`shape_dice`), a shape citing an unviewed
+page (`mechanics_unsourced`), an unknown skill in a hazard step (`shape_unknown_skill`, with
+`details.ruleset`), a value beside its `_unstated` flag (`shape_unstated`), a shape on the wrong node kind
+(`mechanics_wrong_kind`), a starter-only legacy key in a draft profile (no allowance), and a flat `STR: 90` on an
+`npc` and a `creature` (`profile_outside_seat`) — each refused with its pointer and rule; a valid draft carrying
+every shape whose leaves are not in `critical` gets all of them in `required_review`, dice strings included, and
+`reviewUnits` assigns every one; a review missing one dice string does not publish; a known node's published
+refusal does not refuse a draft. `tests/extension/fixtures/mechanics-reader-parent.json`, recorded on
+`172b80065` in a throwaway detached worktree, holds drafts without shapes (and one NPC profile of numbers) through
+`checkDraft` and the offline check: the branch returns the same bytes. Each rule is shown to go green when it is
+removed, the review paths dropped fails the required-review case, and `reviewUnits` ignoring shapes fails the
+units-match case (the mutation record is in the RD-05 report). `tests/kernel/test_mechanics_reader.py` publishes a
+stated hazard through `module.read.finish` on the emitted kernel only when every shape leaf is reviewed, and refuses
+a worded dice string and an unviewed citation there with their paths and rules. The frozen-oracle suite
+`tests/extension/ts-kernel-modules.test.mjs` now checks drafts with the contract `loadModuleContract` returns (the
+one publication loads; its hand-built contract carried no ruleset names) and asserts one post-freeze change without
+touching the oracle's bytes: a profile integer beyond the largest exact integer is `shape_prose`. `tests/kernel/test_npc_layer.py`'s
+legacy-fixture walk no longer carries that fixture's book-language skill names into a drafted profile: a reader's
+profile names skills as the ruleset does, and that test walks dossier claims, not numbers.

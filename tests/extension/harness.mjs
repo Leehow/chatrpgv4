@@ -250,6 +250,11 @@ export async function openTable({
 	 * so a test can put the table in a state through the kernel's own RPC (never by writing its files).
 	 */
 	prepareWorkspace,
+	/**
+	 * Real-kernel tables only: false skips the ready pregen campaign, so `prepareWorkspace` can put a
+	 * campaign in any state first (a setup table still `setting_up`, say) through the kernel's own RPC.
+	 */
+	seedCampaign = true,
 } = {}) {
 	const workspace = mkdtempSync(join(retainAt ?? tmpdir(), "pi-coc-ext-"));
 	const requestLog = join(workspace, "kernel-requests.jsonl");
@@ -279,7 +284,7 @@ export async function openTable({
 		...env,
 	});
 
-	if (realKernel) createRealCampaign(workspace, campaign);
+	if (realKernel && seedCampaign) createRealCampaign(workspace, campaign);
 	if (realKernel && prepareWorkspace) await prepareWorkspace(workspace);
 
 	const faux = fauxProvider();

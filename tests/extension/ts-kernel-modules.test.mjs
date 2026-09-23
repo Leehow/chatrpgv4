@@ -25,13 +25,16 @@ const exports = [
   ['modules/reading', ['Reading']],
   ['context', ['createKernelContext']],
   ['locks', ['createAdvisoryLocks']],
+  ['modules/contract', ['loadModuleContract']],
+  ['snapshots', ['snapshots']],
 ];
 await build({ stdin: { contents: exports.map(([path, names]) => `export {${names.join(',')}} from ${JSON.stringify(join(ROOT, 'kernel-ts', path + '.ts'))};`).join('\n'),
   resolveDir: ROOT, sourcefile: 'source-oracle-api.ts', loader: 'ts' }, outfile: join(evidence, 'api.mjs'), bundle: true, platform: 'node', format: 'esm', target: 'node22', logLevel: 'silent' });
 const api = await import(pathToFileURL(join(evidence, 'api.mjs')).href);
 const json = async path => api.parsePythonJson(await readFile(path, 'utf8'));
 const clone = value => api.parsePythonJson(api.pythonJsonDumps(value));
-const contract = { graph: await json(join(ROOT, 'content/modules/module-graph-contract-v3.json')), template: await json(join(ROOT, 'content/modules/module-graph-template-v1.json')) };
+// The contract publication loads (§134.16, §136.26): the graph vocabulary and the ruleset names a drafted shape resolves against.
+const contract = await api.loadModuleContract({ content: join(ROOT, 'content'), snapshots: api.snapshots });
 const refs = [{ page: 1 }];
 const base = { nodes: [
   { node_id: 'scene-dock', node_kind: 'scene', name: 'Dock', properties: { is_entrance: true }, source_refs: refs },
@@ -101,6 +104,15 @@ async function compare(name, cases, t) {
   await writeFile(join(evidence, name + '-captured.json'), captured);
   await writeFile(join(evidence, name + '-typescript.json'), api.pythonJsonDumps(actual));
   for (const [i, item] of cases.entries()) await t.test(item.name ?? String(i), () => {
+    // Contract §136.26 also post-dates the frozen oracle: a reader's profile is now a mechanical shape held to
+    // §136.6, whose integer slots stop at the largest exact integer. Assert that refusal here; the oracle's
+    // bytes are never touched, and no other case carries a shape the catalog refuses.
+    if (item.name === 'large authored number retains identity') {
+      assert.equal(actual[i].error?.details?.rule, 'shape_prose', `Evidence: ${evidence}`);
+      assert.equal(actual[i].error.details.path, '/nodes/1/properties/mechanics/profile/characteristics/STR');
+      assert.ok(expected[i].value, 'the oracle published it: this is the post-freeze change');
+      return;
+    }
     // Contract §90 also post-dates the frozen oracle: `way_on` is a readiness entry the historical
     // implementation had no concept of. Assert the new requirement here -- it is carried exactly
     // when the produced graph's start scene publishes no way out and the book does not end there --
