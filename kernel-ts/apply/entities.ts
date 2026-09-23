@@ -14,7 +14,7 @@ import {required,nowIso} from '../write/store.js';
 import {effectId,type StagedEffect} from './bookkeeping.js';
 import {archetypeIds,rollArchetypeProfile} from './archetype.js';
 import {VALID_CONDITIONS} from '../combat/engine.js';
-import {DEFENSE_WORDS} from '../combat/standing.js';
+import {DEFENSE_WORDS,DISPOSITION_WORDS,OVERRIDE_ACTION_WORDS,authoredDisposition} from '../combat/standing.js';
 import {incapacitatedBy} from '../healing/conditions.js';
 import {npcProfileOf} from '../resolve/context.js';
 import type {ApplyContext} from './index.js';
@@ -98,7 +98,7 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
     const {node,established}=personOfEffect(context,effect,string(required(effect,'name')),why);
     const handle=graph.handle(node),{to,stance,dead}=effect;
     if(effect.reunion!=null){
-        if(['to','stance','dead','skill','archetype','conditions','defense'].some(key=>effect[key]!=null))
+        if(['to','stance','dead','skill','archetype','conditions','defense','action','disposition'].some(key=>effect[key]!=null))
             throw new RpcError('invalid_params','Reunion continuity is separate from mechanical or positional NPC effects');
         const meta=await context.campaign.readCampaign(),worldline=string(meta.active_worldline||'main');
         const scope={worldline,loop:number(row(row(meta.worldlines)[worldline]).loop)};
@@ -111,7 +111,7 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
     // §11.5.2: the Keeper's override of this person's standing defence. Its own variant, like conditions: one
     // closed word and the reason, an ordinary keeper-side receipt, and the world key the session view reads.
     if(effect.defense!=null){
-        const combined=['to','stance','dead','skill','archetype','conditions'].filter(key=>effect[key]!=null);
+        const combined=['to','stance','dead','skill','archetype','conditions','action','disposition'].filter(key=>effect[key]!=null);
         if(combined.length)throw new RpcError('invalid_params','npc.defense is its own state-changing effect',{fix:'put the standing defence and the other npc change in two effects in the same atomic batch',details:{field:'npc.defense',conflicts:combined}});
         if(typeof effect.defense!=='string'||!DEFENSE_WORDS.includes(effect.defense))unsupported('npc.defense',effect.defense,[...DEFENSE_WORDS],`npc.defense ${repr(effect.defense)} is not a defence`);
         if(!why)throw new RpcError('invalid_params','npc.defense needs a why',{fix:'say in one sentence what in the fiction changed how this person defends',details:{field:'npc.why'}});
@@ -119,6 +119,40 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
         tactics[handle]={defense:effect.defense,why,turn:number(context.turn.turn)};
         const receipt={id:effectId(context,'npc',handle),kind:'npc',call_id:context.callId,npc:node.node_id,handle,name:graph.displayName(node),label:personLabel(world,handle,graph.displayName(node)),defense:effect.defense,previous,...(established?{established:'table'}:{}),why,visibility:'keeper',at:nowIso()};
         return {receipt,event:{type:'npc-changed',data:{npc:handle,defense:effect.defense,why}}};
+    }
+    // §11.5.3: the Keeper's override of this person's standing action in a fight, and of their combat disposition.
+    // Each its own variant, like `defense`: one closed word and the reason, an ordinary keeper-side receipt, and the
+    // world key the session view reads. A `hold` holds for the round it is written in, so it names that fight and round.
+    if(effect.action!=null||effect.disposition!=null){
+        const field=effect.action!=null?'action':'disposition',words=field==='action'?OVERRIDE_ACTION_WORDS:DISPOSITION_WORDS;
+        const combined=['to','stance','dead','skill','archetype','conditions','defense',field==='action'?'disposition':'action'].filter(key=>effect[key]!=null);
+        if(combined.length)throw new RpcError('invalid_params',`npc.${field} is its own state-changing effect`,{fix:`put the ${field} and the other npc change in two effects in the same atomic batch`,details:{field:`npc.${field}`,conflicts:combined}});
+        const word=effect[field];
+        if(typeof word!=='string'||!words.includes(word))unsupported(`npc.${field}`,word,[...words],`npc.${field} ${repr(word)} is not one of the closed words`);
+        if(!why)throw new RpcError('invalid_params',`npc.${field} needs a why`,{fix:field==='action'?'say in one sentence what in the fiction makes this person attack, or hold back this round':'say in one sentence what about this person makes them fight that way',details:{field:'npc.why'}});
+        const written=field==='action'?world.npc_action??={}:world.npc_disposition??={};
+        const previous=typeof row(written[handle])[field]==='string'?row(written[handle])[field]:null;
+        let scope:Row={};
+        // §11.5.3 source 2: a disposition Jev inferred for the clerk arrives with the host-only `_inferred` marker (the
+        // extension strips it from every model call). It names the parameters read, and it is written once: never over
+        // a disposition this campaign or the book already has.
+        if(effect._inferred!=null){
+            const read=array(row(effect._inferred).read);
+            if(field!=='disposition'||!read.length||read.some(value=>typeof value!=='string'||!value))
+                throw new RpcError('invalid_params','an inferred write is a disposition with the parameters it was read from',{details:{field:'npc._inferred'}});
+            if(previous!==null||authoredDisposition(graph,handle)!==null)
+                throw new RpcError('invalid_params',`${graph.displayName(node)} already has a combat disposition; it is inferred once`,{fix:'read it from the NPC card; only the Keeper rewrites it',details:{field:'npc.disposition',reason:'disposition_already_set'}});
+            scope={basis:'inferred',read:[...read]};
+        }else if(field==='disposition')scope={basis:'keeper'};
+        if(word==='hold'){
+            const combat=row(await context.campaign.readSave('combat.json'));
+            if(combat.status!=='active')throw new RpcError('invalid_params','npc.action hold holds back for this round of a fight, and no fight is running',{fix:'write hold on the round the person holds back; outside a fight, just narrate it',details:{field:'npc.action'}});
+            if(!array(combat.participants).some(participant=>string(row(participant).actor_id)===handle))throw new RpcError('invalid_params',`${graph.displayName(node)} is not in this fight`,{fix:'write hold for a participant of the running fight',details:{field:'npc.name',actor:handle}});
+            scope={combat_id:string(combat.combat_id),round:number(combat.current_round)};
+        }
+        written[handle]={[field]:word,why,turn:number(context.turn.turn),...scope};
+        const receipt={id:effectId(context,'npc',handle),kind:'npc',call_id:context.callId,npc:node.node_id,handle,name:graph.displayName(node),label:personLabel(world,handle,graph.displayName(node)),[field]:word,previous,...scope,...(established?{established:'table'}:{}),why,visibility:'keeper',at:nowIso()};
+        return {receipt,event:{type:'npc-changed',data:{npc:handle,[field]:word,why}}};
     }
     if(effect.conditions!=null){
         const combined=['to','stance','dead','skill','archetype'].filter(key=>effect[key]!=null);

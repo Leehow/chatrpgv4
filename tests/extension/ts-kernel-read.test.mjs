@@ -512,7 +512,11 @@ test('NPC dossiers and public object views preserve their different secrecy boun
     // §11.5.2 (SL-07) gave the Keeper's card of one person its standing defence; the oracle predates it. This doctor
     // has no numbers, so the rule has nothing to compare and the card names no word.
     if (Object.hasOwn(value, 'combat_tactic')) assert.deepEqual(value.combat_tactic, {defense: null, basis: 'rule-default'});
-    const {untold, combat_tactic, ...legacy} = value;
+    // §11.5.3 (SL-08) added the card's disposition and standing action; without the disposition table (this call passes
+    // none) the card states no inference input, and without an override or an authored word it names no action.
+    if (Object.hasOwn(value, 'combat_disposition')) assert.deepEqual(value.combat_disposition, {disposition: null, basis: null});
+    if (Object.hasOwn(value, 'combat_standing')) assert.deepEqual(value.combat_standing, {action: null, basis: 'rule-default'});
+    const {untold, combat_tactic, combat_disposition, combat_standing, ...legacy} = value;
     if (legacy.history?.promises) legacy.history = {...legacy.history, promises: legacy.history.promises.map(promise => {
       assert.equal(promise.authority, 'conversation_report', 'Current promise projections preserve their conversational authority');
       const {authority, ...historical} = promise;
