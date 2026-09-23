@@ -31,7 +31,7 @@ import { workpadStoreRoot } from '../table/workspace/workpad-store.ts';
 import { randomUUID } from "node:crypto";
 import { type CommitPayload, runVerifierLane } from "./verifier.ts";
 import { currentPromptHead } from "./prompt-checkpoint.ts";
-import { learnSpeechMarks, sayableName, type SpeechMarks, surroundingSentences, unwrappedPassages, unwrappedQuotes, wrapPassages } from "./unwrapped-speech.ts";
+import { learnSpeechMarks, sayableName, type SpeechMarks, surroundingSentences, unwrappedPassages, unwrappedQuotes, wrapPassages, wrappedOrdinals } from "./unwrapped-speech.ts";
 import { createDecisionAdapter } from "../../runtime/jev/decision-adapter.ts";
 import { preparationBudget } from "../../runtime/jev/preparation-budget.ts";
 import { TaskLease } from "../../runtime/jev/task-context.ts";
@@ -1720,7 +1720,10 @@ export default function (pi: ExtensionAPI) {
 		// §128.3: what the host attributed in this delivery before the kernel read it rides on the same row.
 		const attributed = state.speechAttribution;
 		state.speechAttribution = undefined;
-		void record({ lane: "speech", turn, lines: result.speech.length, resolved, unresolved, present: state.present.length, ...(attributed ?? {}) });
+		// A host-wrapped line that repeats the same person is delivered and counted here, never refused (§128.3).
+		const repeated = (result.repeated_lines as { lines?: unknown[] } | undefined)?.lines?.length ?? 0;
+		void record({ lane: "speech", turn, lines: result.speech.length, resolved, unresolved, present: state.present.length,
+			...(attributed ?? {}), ...(repeated ? { repeated } : {}) });
 	}
 
 	/**
@@ -1731,21 +1734,24 @@ export default function (pi: ExtensionAPI) {
 	 * in their say token, the words untouched, so the kernel's own speech path takes it from there.
 	 * Everything else stays exactly as written: low confidence, not_speech, someone_else, a failure, a
 	 * timeout, the switch `PI_COC_SPEECH_ATTRIBUTE=0`. Never a refusal, never a new word. Returns the
-	 * text the delivery carries, which is the input itself unless something was wrapped.
+	 * text the delivery carries, which is the input itself unless something was wrapped, and the
+	 * `speech[]` ordinals the host wrapped (`host_attributed`), which the kernel never refuses as a
+	 * repeat (§113 D) but records as a finding.
 	 */
 	async function attributeUnwrappedSpeech(state: TableState, text: string, signal: AbortSignal | undefined,
-		parent: TaskProviderBudget | undefined): Promise<string> {
+		parent: TaskProviderBudget | undefined): Promise<{ text: string; hostAttributed?: number[] }> {
+		const unchanged = { text };
 		state.speechAttribution = undefined;
-		if (process.env.PI_COC_SPEECH_ATTRIBUTE?.trim() === "0") return text;
+		if (process.env.PI_COC_SPEECH_ATTRIBUTE?.trim() === "0") return unchanged;
 		const found = unwrappedPassages(text, state.speechMarks);
-		if (!found.passages.length) return text;
+		if (!found.passages.length) return unchanged;
 		const began = Date.now(), counts = { attributed: 0, not_speech: 0, undecided: 0 };
 		const note = (extra: Record<string, unknown> = {}) => {
 			state.speechAttribution = { ...counts, undecided: found.passages.length - counts.attributed - counts.not_speech,
 				jev_ms: Date.now() - began, ...extra };
 		};
 		const env = process.env;
-		if (!readJevApiKey(env)) { note({ attribute_failure: "unconfigured" }); return text; }
+		if (!readJevApiKey(env)) { note({ attribute_failure: "unconfigured" }); return unchanged; }
 		const sent = found.passages.slice(0, SPEECH_ATTRIBUTION_MAX_PASSAGES);
 		// The token carries the name the kernel resolves to the same person (§40.1): the table's own name
 		// first (§79), and for a person the player has not been told about, only the table's epithet --
@@ -1787,7 +1793,7 @@ export default function (pi: ExtensionAPI) {
 		}
 		if (!typed || typed.status !== "decided") {
 			note({ attribute_failure: typed?.reason ?? "speech_attribution_owner_error", ...(typed ? { jev_calls: typed.calls } : {}) });
-			return text;
+			return unchanged;
 		}
 		const options = speakerOptions(input), wraps: Array<{ start: number; end: number; name: string }> = [];
 		for (const line of typed.lines) {
@@ -1800,7 +1806,7 @@ export default function (pi: ExtensionAPI) {
 		}
 		counts.attributed = wraps.length;
 		note({ jev_calls: typed.calls });
-		return wraps.length ? wrapPassages(found.text, wraps) : text;
+		return wraps.length ? { text: wrapPassages(found.text, wraps), hostAttributed: wrappedOrdinals(found.text, wraps) } : unchanged;
 	}
 
 	/** A delivery joins the player-visible window the next review reads. */
@@ -2820,9 +2826,14 @@ export default function (pi: ExtensionAPI) {
 			// Contract §128.3. An explicit narrate is never steered for speech (§128.2), so attribution is
 			// the only leg its unwrapped passages get; it runs before the Mod hooks so the continuity review
 			// reads the text the kernel will commit. An ask carries no attribution of its own.
+			// `host_attributed` is the host's word about its own wraps; the Keeper never supplies it.
+			delete payload.host_attributed;
 			if (spec.name === "ask") state.speechAttribution = undefined;
-			if (spec.name === "narrate" && typeof payload.text === "string")
-				payload.text = await attributeUnwrappedSpeech(state, payload.text, signal, providerBudget);
+			if (spec.name === "narrate" && typeof payload.text === "string") {
+				const attributed = await attributeUnwrappedSpeech(state, payload.text, signal, providerBudget);
+				payload.text = attributed.text;
+				if (attributed.hostAttributed?.length) payload.host_attributed = attributed.hostAttributed;
+			}
       if (mods) {
         if (Array.isArray(payload.effects)) payload.effects = payload.effects.map(effect => ({...(effect as Record<string, unknown>)}));
         if (spec.name === 'narrate' && state.preparationWait) payload.preparation_wait = {
@@ -4290,13 +4301,14 @@ export default function (pi: ExtensionAPI) {
 			// §128.3: past this point the steer is spent, switched off, or had nothing to ask about. Passages
 			// still left outside every token go to the attribution family; the delivery waits at most its cap
 			// and, whatever it answers, goes out with the Keeper's words unchanged.
-			const delivered = await attributeUnwrappedSpeech(state, prose, state.lanes.signal, foregroundProviderBudget?.());
+			const attributed = await attributeUnwrappedSpeech(state, prose, state.lanes.signal, foregroundProviderBudget?.());
 			const tool = "narrate";
 			const callId = mintCallId(state);
 			const startedAt = new Date().toISOString();
 			const began = Date.now();
 			try {
-				const params: Record<string, unknown> = { campaign: state.campaign, call_id: callId, text: delivered, implicit: true,
+				const params: Record<string, unknown> = { campaign: state.campaign, call_id: callId, text: attributed.text, implicit: true,
+					...(attributed.hostAttributed?.length ? { host_attributed: attributed.hostAttributed } : {}),
 					...(state.preparationWait ? {preparation_wait: {kind: state.preparationWait.kind,
 						...(state.preparationWait.name ? {name: state.preparationWait.name} : {})}}
 						: state.sourceWait ? {preparation_wait: {kind: 'source',

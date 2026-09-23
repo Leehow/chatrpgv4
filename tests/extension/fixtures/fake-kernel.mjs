@@ -43,7 +43,8 @@
  */
 
 import { appendFileSync } from "node:fs";
-import { SAY_TOKENS, speechPass } from "../../../kernel-ts/write/speech-pass.ts";
+// Loaded only when a test asks for the say pass, so every other table starts exactly as fast as before.
+const SAY = process.env.FAKE_KERNEL_SAY_PASS ? await import("../../../kernel-ts/write/speech-pass.ts") : null;
 import { createHash } from "node:crypto";
 import { dirname, join } from 'node:path';
 import { SETUP_STEPS, SETUP_TABLE } from "./setup-steps.mjs";
@@ -494,10 +495,10 @@ function resolve(params) {
  */
 function speechRows(text) {
 	const speakers = process.env.FAKE_KERNEL_SAY_PASS;
-	if (speakers && typeof text === "string") {
+	if (speakers && SAY && typeof text === "string") {
 		const known = JSON.parse(speakers);
-		const spoken = speechPass(text, (name) => known[name] ?? { label: name });
-		return { speech: spoken.speech, marked_text: spoken.text, rendered_text: spoken.text.replace(SAY_TOKENS, "") };
+		const spoken = SAY.speechPass(text, (name) => known[name] ?? { label: name });
+		return { speech: spoken.speech, marked_text: spoken.text, rendered_text: spoken.text.replace(SAY.SAY_TOKENS, "") };
 	}
 	const raw = process.env.FAKE_KERNEL_SPEECH;
 	if (!raw) return {};

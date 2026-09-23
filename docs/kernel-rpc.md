@@ -15323,26 +15323,39 @@ each passage aloud:
   when the table has one, else `present[].name` -- except for a person the player has not been told about
   (§103), who is wrapped only under `untold.label`, and left as written when there is none (the token's name
   reaches the card's title). An investigator is wrapped under the sheet's name. The kernel then repairs,
-  resolves, colours and records the line exactly as if the Keeper had written the token (§40.1–§40.4); §113's
-  repeat rule reads it like any other line.
+  resolves, colours and records the line exactly as if the Keeper had written the token (§40.1–§40.4), with
+  one exception below.
+- **A host-wrapped line is never refused as a repeat** (coordinator ruling 2026-09-23: no refusal for speech;
+  attribution exists to reduce blocking, not to open a refusal path). `narrate` takes a host-only parameter
+  `host_attributed: [int…]`, the ordinals in the delivery's `speech[]` (text order, one row per open token of
+  the repaired draft) of the spans the host wrapped; the host strips any value the Keeper supplies, and the
+  kernel ignores entries that are not distinct in-range integers. The §113 D repeat check still refuses a line
+  the Keeper wrapped. A host-wrapped line that repeats the same person is delivered, and each such repeat is
+  (a) a row on the turn record's `warnings` -- `{lane: "speech", kind: "repeated_line", quote, why, fix, at}`, the
+  rows the verifier's `unmarked_speech` lands in, so the next capsule's `warnings` shows it to the Keeper with a
+  forward-only `fix` -- and (b) `repeated_lines: {lines: [{name, line, earlier_turn}], note}` on the delivery
+  result, counted as `repeated` on the §40.3 speech row. The `speech[]` rows keep their closed `{who, text}`
+  shape; provenance travels beside them, not in them.
 - **Bounds.** One batch per delivery through the shared decision adapter (no retry) inside a
   `preparationBudget` owner under the foreground provider budget; the delivery waits at most
   `PI_COC_SPEECH_ATTRIBUTE_TIMEOUT_MS` (2500 ms). On any failure, timeout, missing Jev credential or
   `PI_COC_SPEECH_ATTRIBUTE=0` (the control arm) the delivery goes out byte for byte as it would have.
 - **Never** a refusal, a steer, a new word, a changed word, a speaker the host did not issue, or a table of marks,
   names or languages. The steer remains the first leg wherever it runs.
-- **Telemetry** joins the delivery's §40.3 row: `attributed`, `not_speech`, `undecided`, `jev_ms`, `jev_calls`, and
-  `attribute_failure` (`unconfigured`, the adapter's failure code, or the domain's fallback reason) when no
-  decision was read. A row without these fields is a delivery with nothing left outside a token, or the control
+- **Telemetry** joins the delivery's §40.3 row: `attributed`, `not_speech`, `undecided`, `jev_ms`, `jev_calls`,
+  `repeated` (host-wrapped repeats delivered as findings) and `attribute_failure` (`unconfigured`, the adapter's
+  failure code, or the domain's fallback reason) when no decision was read. A row without these fields is a delivery with nothing left outside a token, or the control
   arm.
 
 Tests: `tests/extension/speech-attribution.test.mjs` (the live turn-2 text after the steer, both lines wrapped
 and resolved to `steven-knott` with the rendered words unchanged; a nested title never asked about on its own
 and a standalone title left by `not_speech`; low confidence; `someone_else`; an unavailable and a throwing
 transport; no credential; the control arm; an untold person; the steer still first on an implicit draft; the
-steer switched off), `tests/extension/jev-speech-attribution-domain.test.mjs` (closed set, state, packing, typed
+steer switched off; against the real kernel, a host-wrapped repeat of the same NPC published with its
+`repeated_line` finding, and the Keeper's own repeat still refused with a Keeper-supplied `host_attributed`
+stripped), `tests/extension/jev-speech-attribution-domain.test.mjs` (closed set, state, packing, typed
 outcomes, fallbacks, bounds), `tests/extension/unwrapped-speech.test.mjs` (offsets into the repair, wrapping,
-surrounding sentences).
+surrounding sentences, span ordinals).
 
 ## 129. An object's details never hold the card (2026-09-22, amends §16.2 and §26 "Preparation progress")
 

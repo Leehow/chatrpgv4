@@ -10,6 +10,8 @@
  * never change.
  */
 import { strict as assert } from "node:assert";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { customMessages, openTable, waitFor, waitForIdle } from "./harness.mjs";
@@ -248,4 +250,65 @@ test("with the steer switched off, an implicit draft goes straight to attributio
 	assert.deepEqual(customMessages(table.session, "coc-host").filter((message) => message.details?.kind === "speech"), []);
 	assert.equal(requests.length, 1);
 	assert.deepEqual(narrateTexts(table), [partial.replace("他看了看表。「坐吧。」", `他看了看表。{{say:${KNOTT}}}「坐吧。」{{/say}}`)]);
+});
+
+/**
+ * §128.3 against the real kernel. §113 D refuses a line the Keeper wrapped when it repeats the same
+ * person; a line the HOST wrapped is never refused for it. The delivery is published formatted and the
+ * repeat lands as a `repeated_line` finding on the turn record's `warnings` -- the rows the verifier's
+ * `unmarked_speech` lands in, which the next capsule shows the Keeper.
+ */
+test("real kernel: a host-attributed line that repeats the same NPC is published, and the repeat is a finding, not a refusal", async (t) => {
+	const line = "「这房子的事，你得先去报社和档案厅查清楚，别在我这儿耗着。」";
+	const campaign = "attribute-repeat";
+	const requests = installJev(t, knott);
+	const table = await openTable({ realKernel: true, campaign, env: { EXT_JEV_APIKEY: "test-jev-key" }, responses: [
+		// The opening: the Keeper wraps Knott's line itself, which names him to the player and teaches 「」.
+		fauxAssistantMessage([fauxToolCall("look", {})], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("narrate", { text: `诺特把钥匙推过来。{{say:Steven Knott}}${line}{{/say}}` })], { stopReason: "toolUse" }),
+		// The player's turn: the same words again, outside any token, in an explicit narrate.
+		fauxAssistantMessage([fauxToolCall("narrate", { text: `诺特又敲了敲桌面。${line}他没再抬头。` })], { stopReason: "toolUse" }),
+	] });
+	t.after(() => table.dispose());
+	await waitForIdle(table.session, { timeoutMs: 60_000 });
+	await table.session.prompt("那我先去哪儿？");
+	await waitForIdle(table.session, { timeoutMs: 60_000 });
+
+	assert.equal(requests.length, 1, "one attribution batch, for the player's turn");
+	const narrateRows = table.telemetry().filter((row) => row.tool === "narrate" && row.call_id);
+	assert.deepEqual(narrateRows.map((row) => row.ok), [true, true], "the attributed delivery landed first time, no refusal, no repair");
+	const result = narrateResults(table).at(-1);
+	assert.equal(result.rendered_text, `诺特又敲了敲桌面。${line}他没再抬头。`, "published, words untouched");
+	assert.deepEqual(result.speech.map((row) => [row.who.npc, row.text]), [["steven-knott", line]]);
+	assert.deepEqual(result.repeated_lines.lines.map((row) => [row.line, row.earlier_turn]), [[line, 0]]);
+
+	const record = JSON.parse(readFileSync(join(table.workspace, `.coc/campaigns/${campaign}/turns/0001.json`), "utf8"));
+	assert.equal(record.closed_by, "narrate");
+	assert.equal(record.text, `诺特又敲了敲桌面。{{say:Steven Knott}}${line}{{/say}}他没再抬头。`, "the host's wrap is what the kernel committed");
+	const finding = (record.warnings ?? []).find((row) => row.kind === "repeated_line");
+	assert.ok(finding, "the repeat is recorded on the delivery as a finding");
+	assert.equal(finding.lane, "speech");
+	assert.equal(finding.quote, line);
+	assert.ok(!table.telemetry().some((row) => row.tool === "narrate" && row.ok === false), "no refused narrate");
+	const row = speechRows(table).at(-1);
+	assert.deepEqual([row.attributed, row.repeated], [1, 1]);
+});
+
+test("real kernel: the Keeper's own repeated line is still §113 D's, and a Keeper-supplied host_attributed is ignored", async (t) => {
+	const line = "「这房子的事，你得先去报社和档案厅查清楚，别在我这儿耗着。」";
+	const campaign = "keeper-repeat";
+	installJev(t, knott);
+	const table = await openTable({ realKernel: true, campaign, env: { EXT_JEV_APIKEY: "test-jev-key" }, responses: [
+		fauxAssistantMessage([fauxToolCall("look", {})], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("narrate", { text: `诺特把钥匙推过来。{{say:Steven Knott}}${line}{{/say}}` })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("narrate", { text: `诺特又说。{{say:Steven Knott}}${line}{{/say}}`, host_attributed: [0] })], { stopReason: "toolUse" }),
+		fauxAssistantMessage("诺特摆摆手，不再多说。"),
+	] });
+	t.after(() => table.dispose());
+	await waitForIdle(table.session, { timeoutMs: 60_000 });
+	await table.session.prompt("那我先去哪儿？");
+	await waitForIdle(table.session, { timeoutMs: 60_000 });
+	// Had the Keeper's `host_attributed` reached the kernel, this repeat would have been exempt and delivered.
+	assert.ok(table.telemetry().some((row) => row.tool === "narrate" && row.ok === false && row.code === "needs"),
+		"the Keeper's own repeat is refused as before, so the host stripped the Keeper's claim to the exemption");
 });

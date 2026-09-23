@@ -5,7 +5,7 @@
  */
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { learnSpeechMarks, marksOf, surroundingSentences, unwrappedPassages, unwrappedQuotes, wrapPassages } from "../../extensions/kernel/unwrapped-speech.ts";
+import { learnSpeechMarks, marksOf, surroundingSentences, unwrappedPassages, unwrappedQuotes, wrapPassages, wrappedOrdinals } from "../../extensions/kernel/unwrapped-speech.ts";
 
 test("the real turn: the investigator's line was wrapped, Knott's two replies were not", () => {
 	// game-21ac44b7-5f91-41a5-8ea7-9faf5b801a29 turn 1, abridged; the quoted word 「接」 is reported
@@ -74,4 +74,14 @@ test("§128.3: the sentences around a passage, tokens stripped, the last two bef
 	const around = surroundingSentences(text, { start, end: start + "「你好。」".length });
 	assert.equal(around.before, "第二句。第三句。");
 	assert.equal(around.after, "「嗯。」他走了。");
+});
+
+test("§128.3: a wrap's ordinal is its row in the kernel's speech[], counting the Keeper's spans before it", () => {
+	const draft = "「甲」他说。{{say:甲}}「是。」{{/say}}\n\n「乙」{{say:乙}}「嗯。」{{/say}}「丙」";
+	const { text, passages } = unwrappedPassages(draft);
+	assert.deepEqual(passages.map((row) => row.text), ["「甲」", "「乙」", "「丙」"]);
+	const wraps = passages.map((row) => ({ ...row, name: "丁" }));
+	// Rows in text order: 甲-wrap 0, Keeper 1, 乙-wrap 2, Keeper 3, 丙-wrap 4.
+	assert.deepEqual(wrappedOrdinals(text, wraps), [0, 2, 4]);
+	assert.deepEqual(wrappedOrdinals(text, [{ ...wraps[1], name: "a}}b" }]), [], "a wrap that is never written has no row");
 });
