@@ -2528,6 +2528,8 @@ The host-private PDF tool has four mutually exclusive navigation/page operations
 
 结构门继续检查语义 id、闭合词表、引用目标、作者/玩家可见性和玩法关系。局部就绪判定只要求本次可玩范围及其依赖成立；全书未细读页不导致全图失败，也不被标为 absent。跨向未准备区域的名字可以留在索引，但不能因为有一个名字就执行该处的作者规则。
 
+**Mechanical shapes (2026-09-23, §136.26).** The reader writes a stated mechanic as a typed shape in `properties.mechanics` of the node that states it (the closed catalog of §136.1), never as an ad-hoc prose key; the draft check runs the shared validator with no legacy allowance and adds every leaf of every shape, strings included, to `required_review`; an actor's loose characteristic numbers on an `npc` or `creature` node are refused.
+
 ### 22.4 七动词与等待
 
 Keeper 工具总数仍是七个。`lookup {kind: "module", query}` 查现有图；`lookup {kind: "source", query, question?, retry?: boolean}` 明确请求核对原 PDF。source 由扩展编排阅读服务，完成后转为内核的 module 查询；Python RPC 不阻塞等待模型。普通查询误带 question 不启动读者，并明确说明返回的是图谱资料。这个区分来自真桌中普通行军问题意外启动原文阅读的反馈。
@@ -9666,7 +9668,7 @@ A group whose own key carries a parenthesis (`Language (Other)`) keeps the neste
 (`Language (Other: Latin)`), and contract §136.4 also admits the literal `Language (Other) (Latin)` in a
 module's stated check. Cards do not write either: the haunting's `eleanor-reed` carries
 `"Language (Latin)": 40`, which is how the rulebook's sheet prints a language the investigator took. Neither
-nested spelling resolved to that row, so a book's stated Latin check (the Liber Ivonis, §136.26) was refused as
+nested spelling resolved to that row, so a book's stated Latin check (the Liber Ivonis, §136.28) was refused as
 an unknown skill against an investigator who reads Latin at 40.
 
 `SkillResolver.resolveExplicit` therefore tries one more reading after the three of 52.1, at settlement, against
@@ -14075,6 +14077,65 @@ model follows it:
   and `custom_skills`; a changed trade without a new `occupation_skills` list rebuilds the list from
   the trade's printed entries around nothing (the old list's skills keep their interest points).
 - `setup.catalog` reaches the host as `draft-catalog`, so the edit control can offer every trade.
+### §98 addendum 3 — the button's completion reaches a setup process that is still running (2026-09-23)
+
+The Host paragraph above has the host confirm and complete cold and then send one sentence "so the
+setup model closes the prologue and the launcher moves to play". A setup process that is restarted
+reads `complete` from `setup.steps` at session start (302e2dd31). One that is still running does
+not: it keeps the steps it booked itself, so on the installed build `e1b4176d3` it treated the
+sentence as a setup turn, asked `mods.context` (which refuses a `ready_for_table` campaign that has
+no world yet with `campaign_not_ready`), took that refusal as the setup block, answered the Keeper's
+`confirm-investigator` with "Guidance review did not pass", and ended the run with no handoff; the
+child never exited, so play was never launched and the App sat on its loading line. No guidance
+review ran on that turn: the block was the package-context read failing.
+
+The rule: **once a card exists, the setup process reads `setup.steps` again before each turn and books
+whatever the kernel reports done** (it only adds; nothing is un-booked). With `complete` booked the
+turn takes the existing already-complete path: the handoff is finished, the model is told not to call
+`setup`, and `agent_end` exits so the wrapper launches play. A snapshot that cannot be read leaves the
+turn as it was.
+
+Case: `tests/extension/setup.test.mjs` "a live setup process learns the card button's cold completion
+from the kernel and hands off (§98)", on the real kernel: the live process revises the card, a cold
+kernel confirms and completes it, and the button's sentence must end in `coc-setup-exit` with no
+guidance refusal. It dies when `before_agent_start` stops calling `refreshCompleted`.
+
+### §98 addendum 4 — a blocked setup turn carries its cause (2026-09-23)
+
+Three failures block a setup turn, and until now one boolean stood for all of them: a guidance
+preparation that failed inside `create-campaign`, one that failed at the start of a later turn, and
+a `mods.context` read that failed at the start of a turn (§26). Every `setup` call then got
+"Guidance review did not pass", and `message_end` dropped the Keeper's text whichever it was, so a
+broken Mod package was reported to the player as a failed review and the Keeper could not even say
+what had happened (addendum 3's table was that case).
+
+The rule: **the block is a cause, not a flag.** The onboarding extension keeps
+`{kind, code?, detail, noticed}` with `kind ∈ {guidance_at_create_campaign, guidance_at_turn_start,
+package_context}`, and each consumer reads the kind, never a sentence:
+
+- **The refusal names the cause and its fix.** `setup` answers `{ok: false, code: "setup_blocked",
+  blocked_by: <kind>, cause?: <the preparer's or the kernel's code>, error}`. A guidance cause says
+  where it failed (when `create-campaign` ran, or at the start of this turn), the code and detail,
+  and that a new player input retries the preparation — except `guidance_not_ready`, where it says
+  a retry will not repair a stale starter bundle and only the offline builder replaces it (§22.9).
+  The package cause names the `mods.context` read and the kernel's message, and says to fix or
+  disable the package the error names in the Mods panel before a new player input reads the
+  context again. Both keep the standing order: no invented scene, no card, no core policy alone.
+- **Only a guidance failure hides the Keeper's text.** §23.4 has a failed review "block setup and
+  suppress invented fallback prose", so the two guidance kinds drop the assistant's text blocks at
+  `message_end`. §26 has a failed `mods.context` "block the turn with a notice rather than silently
+  running the core policy": the notice is the host's, and the Keeper's own explanation of it stays.
+- **One notice per failure, in its own words.** A turn-start cause is announced as it blocks
+  (`setup_guidance_failed` or `setup_packages_failed` with the detail) and `agent_end` does not
+  repeat it. The `create-campaign` cause is announced once at `agent_end`: `setup_guidance_review_failed`
+  when the code is `preparation_failed` (a review that needs another preparation), otherwise
+  `setup_guidance_failed` with the detail. The package cause is never called a guidance review.
+
+Cases: `tests/extension/setup.test.mjs`, one per kind. Each dies when the cause is ignored: the
+generic sentence returns the three refusals to one text, an always-on text filter hides the
+explanation §26 lets the Keeper give, and a cause-blind `agent_end` reports the package read as a
+failed review.
+
 ## 99. A divided document says what each half contains (2026-09-17, amends §97.3)
 
 §97 was built from M-MAIN turn 109 but its fixture omitted the one property the live object had:
@@ -17008,7 +17069,7 @@ whether*. The curated starters, the visual PDF reader (RD-05) and, where a Mod s
 declarations use the same shapes and the same validator. This section is the catalog (spec D4) and the
 refusal rules (spec D5) with the implementation rulings A–D of 2026-09-23 (spec, Comments). **RD-01 adds
 no reader:** no capsule row, option, lookup or engine path reads a shape yet (RD-02 is the first reader,
-RD-03 the operations `action.rule` and `stated`). **RD-02 adds the readers** (§136.10–§136.19), **RD-03 the operations** (§136.20–§136.25) and **RD-04 migrates the haunting** (§136.26–§136.28); the sentences of this
+RD-03 the operations `action.rule` and `stated`). **RD-02 adds the readers** (§136.10–§136.19), **RD-03 the operations** (§136.20–§136.25), **RD-05 the reader's shapes** (§136.26–§136.27) and **RD-04 migrates the haunting** (§136.28–§136.30); the sentences of this
 preamble describe RD-01's state and are kept as its record. A writer without a reader is the §31 defect; it is
 accepted here for one scheduled ticket, as §134.7 was. No shipped starter authors a shape yet, so every
 read of every starter is unchanged.
@@ -17054,7 +17115,7 @@ unknown shape. RD-09 only confirms the registration once SL-07 lands.
 (registration through `registerStarter`) the validator tolerates exactly the keys listed **for that starter**
 (the registered module id), which carry no shape and are read by nothing; each migration removes a starter's
 row in the same change. A starter without a row, and a reader draft (RD-05), get no allowance. RD-04
-(2026-09-23, §136.26) migrated the haunting and removed its row; after it the table is:
+(2026-09-23, §136.28) migrated the haunting and removed its row; after it the table is:
 
 | starter | where | keys |
 | --- | --- | --- |
@@ -17062,7 +17123,7 @@ row in the same change. A starter without a row, and a reader draft (RD-05), get
 | `mystery-house` | `profile` (`stat_block`) | `attacks`, `attacks_per_round`, `san_loss_to_see` |
 | `mystery-house` | a `weapon` (in `profile.weapons[]` or `mechanics.weapon`) | `note` |
 
-`the-haunting` has no row: every one of those keys is gone from it (§136.26), so any of them written back is
+`the-haunting` has no row: every one of those keys is gone from it (§136.28), so any of them written back is
 refused (`mechanics_unknown_shape` in the container, `shape_unknown_key` in a stat block or a weapon). RD-08
 removes `mystery-house`'s row, and the table is then empty.
 
@@ -17070,7 +17131,7 @@ While a starter's row stands, its registered `profile` seat is not held to `mech
 curated starters cite their stat blocks inside the container's legacy `source_refs`, which is itself on the
 allowance, and `mystery-house`'s two carriers (`npc-calvin-crowe`, `npc-rat-swarm`) have no node-level
 citation at all. The migration that removes the legacy `source_refs` moves the citation to the node (the
-haunting's did: §136.26). A starter without a row is held to the rule in full, its stat blocks included.
+haunting's did: §136.28). A starter without a row is held to the rule in full, its stat blocks included.
 
 ### 136.2 Accounting, not content: `_unstated`
 
@@ -17425,7 +17486,7 @@ scene's row (a scene with a `conclusion_contract`, as before) gains `rewards` wh
 that links a reward gets its own row `{ending: <handle>, rewards}`. A row without rewards is exactly as before;
 the contract's own `sanity_reward` stays where it is until RD-04 migrates it. The development binder reading the
 ending's reward, and `apply cash` with `stated`, are RD-03/RD-04's (RD-03 landed `apply cash`; RD-04 migrated the
-haunting's `sanity_reward` and added the development binder, §136.27).
+haunting's `sanity_reward` and added the development binder, §136.29).
 
 ### 136.18 `clock.advances_on`: the threat pressure row (spec D4.5 shape 15, D6.2)
 
@@ -17602,7 +17663,119 @@ the fake kernel. Every shipped starter's capsule, `table.apply.options`, `table.
 lookups and `look focus=scene`, walked scene by scene, are byte-identical to the parent commit `172b80065`, and again after 0.9.5a
 (SL-08) was merged in, to `e1b4176d3`.
 
-### 136.26 The haunting migrates to shapes (RD-04, spec D9, owner rulings Q3 and Q4)
+### 136.26 The visual reader writes shapes; the draft check refuses a malformed one (RD-05, spec D7)
+
+A PDF book states its mechanics the way a starter does (§136.1–§136.6), through the same reader and the same
+independent review as every other statement (§22), and the same validator (§136.8) with `starter: false`: a
+reader draft gets **no legacy allowance** (RD-01 ruling A). No code reads rule prose into a shape: the reader (a
+model) writes shapes from the page, the reviewer (a model) checks them against the image, and the checker
+checks form and references only. There is no count gate (a book may state none) and no backfill (§22: an
+existing module gains a shape only through a detail request that asks for it, reviewed additively; an
+already-ready node receives `mechanics` as a delta under `mergeValue`). The committed twin
+`the-haunting-rulebook` is not rebuilt; it stays the "PDF build without shapes" control.
+
+**The reader's instruction** (`content/setup/visual-reader.md`, Read phase, after §134.16's obligation
+paragraph; English, no book- or language-specific wording): one paragraph for the container (the keys and the
+node kinds of §136.1, one shape of each name per node, the two laws below, `book`, skill names), then one
+paragraph per shape — `check`, `hazard` (with the embedded `gate`), `damage`, `sanity_loss`, `time_cost`,
+`resource_cost`, `weapon`, the actor's `profile` with `weapons`, `armor`, `spells` and `sanity_loss`, the
+registered `combat` seats on an `npc` or `creature` (`defense`, `action`, `disposition`, §11.5.2–§11.5.3, only what the page states), `spell`, `tome`, `reward` — each
+with its keys and one worked example. The two laws: *accounting* — a needed value the page leaves out is
+`<slot>_unstated: true`, never a value from habit, the core rules or what usually happens; *dice* — a dice slot
+holds the bare expression (`1D4+2`), never words or units (`1D4+2 hit points`) and never the damage bonus
+(`adds_damage_bonus: true` on a weapon). The reader writes no ad-hoc mechanical key; the checker does not
+enforce that (it would have to read prose), the instruction and the review do. The threat clock's
+`advances_on` is not taught to the reader: the reader writes no threat clocks today.
+
+**The review instruction** (same file, Verify phase, one paragraph): every field under a node's `mechanics`, and
+every field of an actor's `combat`, is a mechanical statement to check against the page image — the value digit for
+digit, that it sits on the node that states it, each step's order and effects, and that a slot recorded
+`_unstated` really is not printed. A value filled in where the page prints none is contradicted; so is an
+`_unstated` flag where the page prints the value.
+
+**The draft check** (`checkDraft`, `kernel-ts/modules/visual.ts`, behind both the offline `coc-read-check` —
+`checkSourceDraft`, `kernel-ts/check.ts` — and publication in `kernel-ts/modules/reading.ts`):
+
+1. *An actor's numbers outside the seat* (`actorNumbersLaw`, per draft node of kind `npc` **or `creature`**,
+   before the source laws). A standalone `stats`/`skills`/`characteristics`/`derived` dictionary beside no
+   `mechanics.profile` is refused at `/nodes/<i>/properties` (the check that stood since §22, now also on
+   creatures), and a flat property whose key is one of the ruleset's characteristic names (`contract.rules.characteristics`,
+   the keys of `characteristic-dice.json`, normalised-name match) holding a number — the twin's `STR: 90` — is
+   refused at `/nodes/<i>/properties/<key>`, whether or not a profile is present. The dictionary refusal keeps
+   its bytes (no `rule`, the generic fix); the loose number carries `details.rule: "profile_outside_seat"` and a
+   fix that says to move the printed numbers into `mechanics.profile` without recalculating them.
+2. *The source law first, per node that states a shape* (`statesMechanics`: its record view carries
+   `mechanics` or `combat`), before the generic reference law so the refusal carries its path and rule: no
+   non-empty `source_refs` list is `mechanics_unsourced` at `/nodes/<i>/source_refs`; a reference to a physical
+   page this reader did not view is `mechanics_unsourced` at `/nodes/<i>/source_refs/<j>` (spec D5's PDF half of
+   the rule). The viewed-page half runs where the generic law runs — at publication, which knows the host's page
+   observations; the offline check has none, and `submit_reading` enforces the same law through
+   `required_view_pages`, as §134.16 step 1.
+3. *Then the one validator* — `mechanicsRefusals(view, rules, {starter: false})` — after the obligation check,
+   whenever the view carries a shape (`carriesMechanics`). `view` is the graph the draft would publish into, built
+   as §134.16 builds it except that a drafted node is merged over its known node all the way down, as publication's
+   `mergeValue` merges (so a delta adding one slot to a known shape is checked as the shape it makes). `rules` are
+   loaded with the module contract by the function starter registration uses (`mechanicsRules`,
+   `kernel-ts/modules/mechanics-shape.ts`): skill keys, specialization groups, characteristic keys, `weapons.json`
+   ids and damage-bonus values. **Only the refusals the draft introduces refuse it:** the same validator over the
+   known graph alone gives the refusals already published (a module built before this section, whose known node
+   may carry a key the catalog refuses), and a refusal with the same node, rule and path is not the draft's — the
+   draft cannot remove a published key. Every refusal on a draft node, and every one a draft claim causes on a
+   known node (a `calls-for-check` onto a known rule's `mechanics.check`, `shape_duplicate`), is the draft's.
+4. *A refusal* is `invalid_params` with `details: {reason: "reading_failed", path, rule, refusals}` exactly as
+   §134.16 step 3 (`refusals` every `{node, rule, path, message}`, `path` a JSON pointer into the draft for a draft
+   node, the validator's dotted path turned into pointer tokens; draft nodes first). A `shape_unknown_skill`
+   refusal also carries `details.ruleset: {skills, characteristics, specialization_groups}` (the group keys; §136.4
+   says how a specialization is written). The `fix` is executed literally (§34.7), so it is assembled from the rules
+   refused and says only: correct the shape against the page it cites; cite only viewed pages that print it (when
+   `mechanics_unsourced`); record an unstated value as `<slot>_unstated: true`, never guess one; name skills as
+   `details.ruleset` spells them (when it is present); write dice as the bare expression with words in `book` and a
+   damage bonus as `adds_damage_bonus` (when `shape_dice`); put each shape under its own key on a node kind §136.1
+   admits (when `mechanics_wrong_kind` or `mechanics_unknown_shape`); if the page states no such mechanic, delete
+   that shape.
+5. *Required review.* Every leaf of every drafted node's shape seats — the record view's `mechanics` and `combat` —
+   is added to `required_review`, strings, booleans and `_unstated` flags included, whether or not the reader
+   listed it in `critical`; an empty object or list is named whole. Numbers keep entering through `numericPaths`;
+   the two sets are unioned. The pointers come from one import-free function, `shapeReviewPaths(node, base)`
+   (`kernel-ts/modules/shape-review.ts`), which the extension's `reviewUnits` (`extensions/module/reader-review.ts`)
+   also calls, so the reviewer units and the publication gate cannot disagree. A review that leaves any of them
+   unsupported fails publication (`checkReview`); a repair has §74's choice — cite a page that prints the value,
+   or delete it — or, for a shape, mark the slot `_unstated`.
+
+A draft whose nodes state no shape, over known nodes that state none, returns byte for byte what it returned
+before RD-05, unless an `npc` or `creature` node carries a loose characteristic number (step 1, the intended
+change). A draft whose only shape is an NPC profile of numbers (the reader's output before RD-05) is checked and
+reviewed as before: every leaf of it was already a `numericPaths` pointer.
+
+*Three ends (§31):* writer — the reader under independent review; reader — publication carries `mechanics` into
+the module graph unchanged (`assembleVisual`), where `ModuleGraph.mechanicsOf` (§136.10) and every reader of
+§136.11–§136.18 read it; actor — the Keeper through the `mech` line and the engine paths, as §136.19.
+
+### 136.27 Tests (RD-05)
+
+`tests/extension/mechanics-reader.test.mjs`, through the real entries only — `checkDraft` with the contract
+`loadModuleContract` loads from the shipped content root and the host's viewed pages, `checkSourceDraft` (the
+offline check) over files on disk, and `checkReview` (publication's review gate) — with each draft written as
+the JSON a reader would write: a `"1D4+2 hit points"` damage slot (`shape_dice`), a shape citing an unviewed
+page (`mechanics_unsourced`), an unknown skill in a hazard step (`shape_unknown_skill`, with
+`details.ruleset`), a value beside its `_unstated` flag (`shape_unstated`), a shape on the wrong node kind
+(`mechanics_wrong_kind`), a starter-only legacy key in a draft profile (no allowance), and a flat `STR: 90` on an
+`npc` and a `creature` (`profile_outside_seat`) — each refused with its pointer and rule; a valid draft carrying
+every shape whose leaves are not in `critical` gets all of them in `required_review`, dice strings included, and
+`reviewUnits` assigns every one; a review missing one dice string does not publish; a known node's published
+refusal does not refuse a draft. `tests/extension/fixtures/mechanics-reader-parent.json`, recorded on
+`172b80065` in a throwaway detached worktree, holds drafts without shapes (and one NPC profile of numbers) through
+`checkDraft` and the offline check: the branch returns the same bytes. Each rule is shown to go green when it is
+removed, the review paths dropped fails the required-review case, and `reviewUnits` ignoring shapes fails the
+units-match case (the mutation record is in the RD-05 report). `tests/kernel/test_mechanics_reader.py` publishes a
+stated hazard through `module.read.finish` on the emitted kernel only when every shape leaf is reviewed, and refuses
+a worded dice string and an unviewed citation there with their paths and rules. The frozen-oracle suite
+`tests/extension/ts-kernel-modules.test.mjs` now checks drafts with the contract `loadModuleContract` returns (the
+one publication loads; its hand-built contract carried no ruleset names) and asserts one post-freeze change without
+touching the oracle's bytes: a profile integer beyond the largest exact integer is `shape_prose`. `tests/kernel/test_npc_layer.py`'s
+legacy-fixture walk no longer carries that fixture's book-language skill names into a drafted profile: a reader's
+profile names skills as the ruleset does, and that test walks dossier claims, not numbers.
+### 136.28 The haunting migrates to shapes (RD-04, spec D9, owner rulings Q3 and Q4)
 
 `content/starters/the-haunting/module-graph.json` states its mechanics as shapes (§136.6) on the nodes that
 state them, and the typed-but-unread fields that held them are deleted. Every new or changed node cites the
@@ -17619,7 +17792,7 @@ fresh reading of the page (the §134.6 precedent). No page is added that the sta
 | chapel `rec.optional_rules.weakened_floor` (`push_runtime_status` included) and the affordance `descend-ruined-chapel-cellar.authored_operation` (`environmental_hazard`) | `hazard` {keeper; step 0 Luck, failure or fumble → step 1; step 1 Jump, failure or fumble → `damage 1D6`, push allowed with its `book` line (a failed push loses or breaks a possession); the ten-foot fall as `book`} | new `rule-chapel-floor-collapse`, `uses-rule` from the chapel | 451 "Call for Luck rolls" (the `optional_rules` citation, page 440), `span-page-451-anchor-4` (the chapel's) | `mech` line; `action.rule`/`action.step`; `stated` |
 | chapel `rec.optional_rules.liber_ivonis_initial_read`, the affordance `study-liber-ivonis.authored_operation` (`mythos_tome_study`) and its `skills [Read Latin]` | `tome` {`language: skills.Language (Other: Latin)`, `read_check` Language (Other: Latin) with `difficulty_unstated`, `read_without_roll_at: 50`, `initial_reading {3 hour, minimum}`, `cthulhu_mythos_initial: 2`, `max_sanity_reduction: 2`} | `tome-liber-ivonis` (`properties.mechanics`) | 451 (its own) and 451 "minimum of three hours" (the `optional_rules` citation), `span-page-451-anchor-2` (the clue `clue-liber-ivonis-tome`, which states the tome) | entity view; `action.rule` naming the tome (here through its `discoverable-at` link to the chapel) |
 | central library ×4 and Hall of Records ×1 affordance `time_profile {elapsed, library_research, delta_minutes: 240}` | `time_cost {amount 240, unit minute}` with "each attempt takes half a day" as `book` (Q4: the starter's number stands; Q3 would have made a bare "half a day" `amount_unstated`) | new `rule-library-research`, `uses-rule` from both scenes | 448 "The Central Library", `span-page-448-anchor-6`; 449 "Hall of Records", `span-page-449-anchor-2` (the two scenes') | `mech` line; `apply time {stated}` |
-| `scene-corbitt-confrontation.rec.conclusion_contract.sanity_reward {die 1D6, rule_ref}` and the side table's `conclusion_sanity_reward` | `reward {sanity "1D6"}` with the book's condition as `book`; the contract keeps `conclusion_id`, `requires_combat_outcome`, `player_visible_outcome` and `session_ending` (read) | new `rule-victory-rewards`, `uses-rule` from the confrontation | 456 "Corbitt's Hiding Place", `span-page-456-anchor-1` (the confrontation's) | module lookup `endings[].rewards` (§136.17); `development:end-session` (§136.27) |
+| `scene-corbitt-confrontation.rec.conclusion_contract.sanity_reward {die 1D6, rule_ref}` and the side table's `conclusion_sanity_reward` | `reward {sanity "1D6"}` with the book's condition as `book`; the contract keeps `conclusion_id`, `requires_combat_outcome`, `player_visible_outcome` and `session_ending` (read) | new `rule-victory-rewards`, `uses-rule` from the confrontation | 456 "Corbitt's Hiding Place", `span-page-456-anchor-1` (the confrontation's) | module lookup `endings[].rewards` (§136.17); `development:end-session` (§136.29) |
 | Corbitt's profile `attacks[]`, `attacks_per_round`, weapon `note`; `floating-dagger` (profile) vs `floating-knife` (the combat operation and the side table) | weapon shapes under one id: `claws` {extends `claws`, `damage 1D3`, 1/round, `adds_damage_bonus`}, `floating-knife` {extends `knife_medium`, `damage 1D4+2`, 1/round, no damage bonus}; the prose as each weapon's `book` | `npc-walter-corbitt` | as above, plus 456 "Using a Fighting Maneuver to Grab the Knife" (moved from the container) | combat (the engine's catalog row plus the profile's overrides, §136.12) |
 | the rat pack's `attacks[]`, `attacks_per_round` | weapon shapes: `claws` {extends `claws`, `damage 1D3`, 1/round}; `overwhelm` {skill Fighting, `damage 2D6`, 1/round, `impale_unstated`, the bonus die as `book`} | `npc-rat-pack` | 457 "RAT PACK" (moved from the container's legacy `source_refs`), `span-page-455-anchor-2` — **the neighbours' span**: no span of the starter is on page 457, so the node cites the span its neighbours `creature-rat-pack` and `asset-rat-pack` cite for the basement where the pack nests | combat |
 | the container's `status`, `subject_kind`, `source_refs`, `provenance`, `fields_observed`, `fields_extracted`, `fields_not_authored` on both stat blocks | deleted; the citations moved to the nodes (above) | `npc-walter-corbitt`, `npc-rat-pack` | — | — |
@@ -17650,7 +17823,7 @@ input. So the prose rides as each weapon's `book` line (§136.6 shape 10 admits 
 the new digest and to the fingerprints `guidanceFingerprint` recomputes (their text is unchanged: the opening scene
 and its guides did not move), as §134.6 did.
 
-### 136.27 `development:end-session` binds the stated reward (RD-04, spec D4.5 shape 14)
+### 136.29 `development:end-session` binds the stated reward (RD-04, spec D4.5 shape 14)
 
 `resolve` with `decision: development:end-session` and no `action.scenario_san_reward_expr` takes the expression from
 the book when the ending is a `conclusion` (`action.ending` absent or `conclusion`; §11.1's `ending` is the ending's
@@ -17663,7 +17836,7 @@ expression wins (spec P8); a `tpk`, `retreat` or `cliffhanger` ending, a scene w
 Whether the investigators earned the ending stays the Keeper's call: the reward's `book` line carries the book's
 condition ("if Corbitt is conquered and destroyed"), and the contract's `requires_combat_outcome` is unchanged.
 
-### 136.28 Tests (RD-04)
+### 136.30 Tests (RD-04)
 
 `tests/kernel/test_haunting_shapes.py`, over the emitted kernel on a fresh campaign of the shipped haunting (seeded
 per sequence): the chapel's `where.rules` row carries its `mech` line; `resolve` with `action.rule:
@@ -17673,7 +17846,7 @@ the bound `damage 1D6` and writes no hit point; `apply damage {stated: chapel-fl
 `development:end-session` without an expression at the confrontation settles with `1D6` and `stated`, and with a
 `retreat` ending binds nothing; the Liber Ivonis read check (`eleanor-reed`) binds `Language (Latin)` at 40 through
 §52.6, and a phrase whose group part is no group key is refused as before.
-`tests/extension/haunting-shapes.test.mjs`, through `module.register`: the shipped graph walked for every key §136.26
+`tests/extension/haunting-shapes.test.mjs`, through `module.register`: the shipped graph walked for every key §136.28
 removed (none remains anywhere; the affordance and clue keys only at the SO-05 rows); every migrated node's exact
 citations; the haunting refused when a removed key is written back (the allowance is `mystery-house`'s only) or a
 migrated node's page ref is dropped; `mystery-house` still registering with its allowance.

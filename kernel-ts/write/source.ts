@@ -15,7 +15,7 @@ import { nowIso } from './store.js';
 import { validSourceLanguage } from '../modules/contract.js';
 import { childPath, inside, resolvedPath } from '../modules/paths.js';
 import { obligationRefusals, statedObligations } from '../modules/obligation-shape.js';
-import { carriesMechanics, mechanicsRefusals } from '../modules/mechanics-shape.js';
+import { carriesMechanics, mechanicsRefusals, mechanicsRules } from '../modules/mechanics-shape.js';
 import { RuleTables } from '../rules/tables.js';
 export function nodePages(node: Row): number[] {
     const pages = new Set<number>();
@@ -498,10 +498,7 @@ async function registerStarterLocked(context: KernelContext, id: string): Promis
         }
         // Contract §136.8: a stated mechanical shape is refused before any byte of the generation is written.
         if (carriesMechanics(view)) {
-            const tables = new RuleTables(context), damageBonuses = array(await tables.load('damage-bonus-build'))
-                .filter(entry => row(entry).extrapolation == null).map(entry => string(row(entry).damage_bonus));
-            const refusals = mechanicsRefusals(view, {skills: Object.keys(await tables.skillsTable()), groups: await tables.skillSpecializationGroups(),
-                characteristics: Object.keys(await tables.characteristicTable()), weapons: Object.keys(await tables.weaponsTable()), damageBonuses}, {starter: true});
+            const refusals = mechanicsRefusals(view, await mechanicsRules(new RuleTables(context)), {starter: true});
             if (refusals.length)
                 throw new RpcError('invalid_params', `starter ${repr(id)} states a mechanic this kernel refuses: ${refusals[0].node} ${refusals[0].path}: ${refusals[0].message}`, {
                     fix: 'repair the shape in the starter graph (contract §136); every refusal is in details.refusals',

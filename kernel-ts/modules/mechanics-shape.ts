@@ -22,6 +22,7 @@ import { validateSanLossExpression } from "../sanity/expression.js";
 import { checkDeclarationRefusals, type CheckOwner, type Refusal } from "./obligation-shape.js";
 import { AUTHORED_ACTION_WORDS, DISPOSITION_WORDS } from "../combat/standing-words.js";
 import { SHAPE_KINDS } from "./mechanics-catalog.js";
+import type { RuleTables } from "../rules/tables.js";
 
 /** The ruleset's closed tables a shape's names and references resolve against. */
 export type MechanicsRules = {
@@ -34,6 +35,20 @@ export type MechanicsRules = {
     /** `damage-bonus-build.json`: the `damage_bonus` of every row that is not an extrapolation. */
     damageBonuses: readonly string[];
 };
+
+/**
+ * The ruleset tables a shape resolves against, read once for every caller: starter registration and the
+ * reader's draft check (§136.26, through `loadModuleContract`) hold a shape to the same names.
+ */
+export async function mechanicsRules(tables: RuleTables): Promise<MechanicsRules> {
+    const damageBonuses = array(await tables.load("damage-bonus-build"))
+        .filter(entry => row(entry).extrapolation == null).map(entry => string(row(entry).damage_bonus));
+    return Object.freeze({
+        skills: Object.freeze(Object.keys(await tables.skillsTable())), groups: await tables.skillSpecializationGroups(),
+        characteristics: Object.freeze(Object.keys(await tables.characteristicTable())),
+        weapons: Object.freeze(Object.keys(await tables.weaponsTable())), damageBonuses: Object.freeze(damageBonuses),
+    });
+}
 
 /** One starter's legacy allowance: the keys tolerated in the container, a stat block and a weapon. */
 export type LegacyAllowance = { readonly container: readonly string[]; readonly profile: readonly string[]; readonly weapon: readonly string[] };
