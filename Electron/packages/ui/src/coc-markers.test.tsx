@@ -49,11 +49,15 @@ describe('the card draws a marked delivery', () => {
     }]}} />);
     expect(container.textContent).toContain(`${label} 结束`);
   });
+  // The zh-Hans direction words are the shipped seed's, read from it: the seed is the lane's projection
+  // and is regenerated whole, so a literal copied from one projection pins the test to that run.
+  const removedFrom = say('zh-Hans', 'mechanics', 'removedFrom').replace('{name}', '林远')
+  const handedTo = `${say('zh-Hans', 'mechanics', 'to')} 林远`
   it.each([
-    ['zh-Hans', -1, '从林远的物品中移除'],
-    ['zh-Hans', -2, '从林远的物品中移除'],
+    ['zh-Hans', -1, removedFrom],
+    ['zh-Hans', -2, removedFrom],
     ['en', -2, "removed from 林远's inventory"],
-    ['zh-Hans', 1, '给 林远'],
+    ['zh-Hans', 1, handedTo],
     ['en', 2, 'to 林远'],
   ])('shows signed inventory direction (%s, quantity=%s)', (play_language, quantity, direction) => {
     const {container} = render(<Delivery details={{play_language, turn:57, mechanics:[{
@@ -61,7 +65,7 @@ describe('the card draws a marked delivery', () => {
       quantity, to:'lin-yuan', to_label:'林远',
     }]}} />);
     expect(container.textContent).toContain(`金嵌板${Math.abs(Number(quantity)) > 1 ? ' ×2' : ''} ${direction}`);
-    if (Number(quantity) < 0) expect(container.textContent).not.toContain('给 林远');
+    if (Number(quantity) < 0) expect(container.textContent).not.toContain(handedTo);
   });
 
   it.each([false, undefined])('keeps NPC and legacy names off visible mechanics (identity=%s)', identity => {

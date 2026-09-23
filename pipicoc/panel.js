@@ -395,6 +395,23 @@ function languageRows(sheet) {
     || numberOr(b.value, -1) - numberOr(a.value, -1) || a.name.localeCompare(b.name));
 }
 
+/* >>> weapon fields: shared verbatim between pipicoc/panel.js and pipicoc/mechanics.js <<<
+ * The fields a weapon's use shows, in the order it shows them: each is drawn under the first of its
+ * aliases the row carries, under the sheet's own `item.<key>` caption, and nothing else is drawn. The
+ * possessions box and the delivery card's usage lines (the `coc-card-patch` usage patch) both read this, so the card
+ * never shows a field the sheet would not. The renderers cannot import each other, so it is copied,
+ * and tests/extension/mechanics-usage-lines.test.mjs pins the two copies byte for byte. */
+const WEAPON_FIELDS = [["damage_die","damage"],["base_range_yards","range"],["uses_per_round","attacks"],["magazine"],["ammo"],["malfunction"],["skill"],["adds_damage_bonus"],["special"],["description"]];
+function weaponDetails(item) {
+  const details = [];
+  for (const aliases of WEAPON_FIELDS) {
+    const key = aliases.find(key => item[key] !== undefined && item[key] !== null && item[key] !== "");
+    if (key) details.push({key,value:item[key],wide:["skill","special","description"].includes(key)});
+  }
+  return details;
+}
+/* >>> end weapon fields <<< */
+
 /**
  * Project supplied item and weapon fields into read-only name, quantity and detail rows.
  */
@@ -403,12 +420,7 @@ function itemLine(item, term = value => value) {
   const rawTitle = text(item.label || item.display_name || item.name || item.id);
   const usage = text(item.usage);
   const title = usage && usage !== rawTitle ? `${term(rawTitle)} · ${term(usage)}` : term(rawTitle);
-  const details = [];
-  for (const aliases of [["damage_die","damage"],["base_range_yards","range"],["uses_per_round","attacks"],["magazine"],["ammo"],["malfunction"],["skill"],["adds_damage_bonus"],["special"],["description"]]) {
-    const key = aliases.find(key => item[key] !== undefined && item[key] !== null && item[key] !== "");
-    if (key) details.push({key,value:item[key],wide:["skill","special","description"].includes(key)});
-  }
-  return {title, quantity:numberOr(item.quantity,undefined), details};
+  return {title, quantity:numberOr(item.quantity,undefined), details:weaponDetails(item)};
 }
 
 /**

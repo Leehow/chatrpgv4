@@ -18,6 +18,7 @@ import {registerToolRenderer, disposeToolRenderers} from './ui-registries'
 import {applyStreamEvent, type ChatMessage} from './transcript-model'
 import {ui} from './fixtures/coc-ui-words'
 import enMechanics from '../../../../content/ui/en/mechanics.json'
+import enSheet from '../../../../content/ui/en/sheet.json'
 
 const Card = createComponent(React)
 const EXT = 'coc-mechanics-fold-test'
@@ -86,6 +87,34 @@ describe('the trailing mechanics slip', () => {
     const clues = container.querySelector(`[id="${ids[1]}"]`) as HTMLElement
     expect([...clues.querySelectorAll('[data-kind]')].map(row => row.getAttribute('data-kind'))).toEqual(['clue'])
     expect((container.querySelector(`[id="${ids[0]}"]`) as HTMLElement).hidden).toBe(true)
+  })
+
+  it('draws a patched row\'s uses under it, one line each with the sheet\'s fields, without opening the fold', () => {
+    const CHAIR = {kind: 'item', receipt: 'item:t4-c6', name: 'Chair', label: 'Chair', quantity: 1, to: 'investigator', to_label: 'Shen', call: 't4-c6'}
+    const USES = {swing: {name: 'Swing', parameters: {skill: 'Fighting (Brawl)', damage: '1D6', mode: 'melee'}},
+      throw: {name: 'Throw', parameters: {damage: '1D4', adds_damage_bonus: false}}}
+    let messages: ChatMessage[] = [delivery([ROLL, CHAIR, NOTEBOOK])]
+    const view = render(draw(messages[0]))
+    messages = applyStreamEvent(messages, {type: 'presentation', entry: delivery([ROLL, {...CHAIR, usages: USES}, NOTEBOOK], 2)} as any)
+    view.rerender(draw(messages[0]))
+    const toggle = view.container.querySelector('.coc-mech-list button') as HTMLButtonElement
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    expect(view.container.querySelectorAll('.coc-mech-usage').length).toBe(0)
+
+    fireEvent.click(toggle)
+    const lines = [...view.container.querySelectorAll('.coc-mech-usage')]
+    expect(lines.length).toBe(2)
+    const read = (line: Element) => [line.querySelector('.coc-mech-usage-name')!.textContent,
+      [...line.querySelectorAll('[data-field]')].map(field => [field.getAttribute('data-field'), field.querySelector('.coc-mech-usage-cap')!.textContent])]
+    expect(read(lines[0])).toEqual(['Swing', [['damage', enSheet['item.damage']], ['skill', enSheet['item.skill']]]])
+    expect(read(lines[1])).toEqual(['Throw', [['damage', enSheet['item.damage']], ['adds_damage_bonus', enSheet['item.adds_damage_bonus']]]])
+    expect(lines[1].textContent).toContain(enSheet.itemNo)
+    expect(lines[0].textContent).not.toContain('melee')
+    // The lines belong to the chair; the notebook beside it has none.
+    const rows = [...view.container.querySelectorAll('.coc-mech-list [data-kind="item"]')]
+    expect(rows.length).toBe(2)
+    expect(rows[1].nextElementSibling?.classList.contains('coc-mech-usages') ?? false).toBe(false)
+    expect(rows[0].nextElementSibling?.classList.contains('coc-mech-usages')).toBe(true)
   })
 
   it('stays open across the redraw that lands an object\'s details, and the row then opens as before', () => {
