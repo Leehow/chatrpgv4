@@ -40,7 +40,7 @@ RULES = {
               push={"allowed": True, "book": PUSH_LINE}),
     ]}},
     # A stated loss on seeing it, and a hazard beside it.
-    "bed-attack": {"hazard": {"trigger": {"kind": "enter"}, "steps": [
+    "bed-flung": {"hazard": {"trigger": {"kind": "enter"}, "steps": [
         check("skills.Spot Hidden", results={"failure": {"effects": [{"kind": "next_step", "step": 1}]}}),
         check("skills.Dodge", results={"failure": {"effects": [{"kind": "damage", "dice": "1D6+2"}]}}),
     ]}, "sanity_loss": {"success": "1", "failure": "1D4"}},
@@ -220,7 +220,7 @@ def test_a_push_continues_the_rule_it_pushes(table):
     # The push is not pushed again; an explicit rule on it must be the one it continues.
     other = table(JUMP_FAILS_PUSH)
     ok(resolve(other, "t1-c1", rule="chapel-floor", step=1))
-    assert refusal(resolve(other, "t1-c2", push=True, stakes="x", method="y", rule="bed-attack")) == ("invalid_params", "rule_decision")
+    assert refusal(resolve(other, "t1-c2", push=True, stakes="x", method="y", rule="bed-flung")) == ("invalid_params", "rule_decision")
 
 
 def test_the_check_binds_its_approach_difficulty_and_person(table):
@@ -319,12 +319,12 @@ def test_time_threat_and_cash_take_the_nodes_own_amounts(table):
 def test_a_sanity_check_takes_its_pair_from_the_rule(table):
     client = table(HAGGLE_PASSES)
     look = {"intent": "investigate", "goal": "the bed rears up", "method": "watches", "decision": "sanity:check", "involuntary": "flee"}
-    result = ok(resolve(client, "t1-c1", rule="bed-attack", **look))
-    assert result["decision"] == "sanity:check" and result["stated"] == {"rule": "bed-attack", "san_loss": "1/1D4"}
+    result = ok(resolve(client, "t1-c1", rule="bed-flung", **look))
+    assert result["decision"] == "sanity:check" and result["stated"] == {"rule": "bed-flung", "san_loss": "1/1D4"}
     loss = result["outcome"]["san_loss"]
     assert (loss == 1) if result["outcome"]["passed"] else (1 <= loss <= 4)
-    assert next(row for row in receipts(client) if row["kind"] == "roll")["basis"] == {"rule": "bed-attack"}
-    assert refusal(resolve(client, "t1-c2", rule="bed-attack", san_loss="0/1D6", **look)) == ("invalid_params", "stated_conflict")
+    assert next(row for row in receipts(client) if row["kind"] == "roll")["basis"] == {"rule": "bed-flung"}
+    assert refusal(resolve(client, "t1-c2", rule="bed-flung", san_loss="0/1D6", **look)) == ("invalid_params", "stated_conflict")
     assert refusal(resolve(client, "t1-c3", rule="chapel-floor", **look)) == ("invalid_params", "stated_none")
 
 
