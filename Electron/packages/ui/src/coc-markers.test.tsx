@@ -15,6 +15,7 @@ import { afterEach, describe, it, expect } from 'vitest'
 import { createComponent } from '../../../../pipicoc/mechanics.js'
 import { foldMarkedDeliveries, liveDraftMessageId, withoutMechanicsMarkers, type ChatMessage } from './transcript-model'
 import { say, ui } from './fixtures/coc-ui-words'
+import { OpenedSlip } from './fixtures/opened-mechanics-slip'
 
 const Card = createComponent(React)
 
@@ -26,7 +27,7 @@ const Card = createComponent(React)
  * a language with a gap in it -- passes its own `ui` and this leaves it alone.
  */
 const Delivery = ({details}: {details: Record<string, unknown>}) =>
-  <Card details={{ui: ui(String(details.play_language ?? 'zh-Hans')), ...details}} />
+  <OpenedSlip><Card details={{ui: ui(String(details.play_language ?? 'zh-Hans')), ...details}} /></OpenedSlip>
 
 afterEach(cleanup)
 
@@ -207,11 +208,12 @@ describe('the card draws a marked delivery', () => {
     expect(rendered.getAttribute('title')).toContain('a crow on the sill')
   })
 
-  it('captions the mechanics slip from the delivery, and shows the key for a language that lacks it', () => {
+  it('captions a trailing fold from the delivery, and shows the key for a language that lacks it', () => {
     const {container} = render(<Delivery details={{play_language:'zh-Hans', turn:13,
-      ui: ui('zh-Hans', {mechanics: {mechanics: undefined}}), mechanics:[CLUE]}} />)
-    expect(container.querySelector('.coc-mech-cap')?.textContent).toBe('mechanics')
-    expect(container.textContent).not.toContain(say('en', 'mechanics', 'mechanics'))
+      ui: ui('zh-Hans', {mechanics: {'fold.clue': undefined}}), mechanics:[CLUE]}} />)
+    // The caption word alone: the toggle beside it also counts the rows, which is chrome, not a word.
+    expect(container.querySelector('.coc-mech-cap .coc-mech-list-name')?.textContent).toBe('fold.clue')
+    expect(container.textContent).not.toContain(say('en', 'mechanics', 'fold.clue'))
   })
 
   it('keeps the prose in order and puts each placed receipt at its point', () => {
@@ -383,8 +385,8 @@ describe('a roll says what its difficulty demanded', () => {
     // The numbers are the test; the word is the gloss. A difficulty added to the rules data
     // before a caption exists must not take the figure down with it.
     const { container } = render(
-      <Card details={{ ui: ui('zh-Hans', { mechanics: { 'difficulty.hard': undefined } }), play_language: 'zh-Hans',
-        turn: 12, mechanics: [HARD] }} />,
+      <OpenedSlip><Card details={{ ui: ui('zh-Hans', { mechanics: { 'difficulty.hard': undefined } }), play_language: 'zh-Hans',
+        turn: 12, mechanics: [HARD] }} /></OpenedSlip>,
     )
     expect(container.querySelector('.coc-mech-need')?.textContent).toContain('7')
     expect(container.querySelector('.coc-mech-need')?.textContent).toContain('hard')

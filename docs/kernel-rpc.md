@@ -15265,6 +15265,8 @@ Retained evidence: campaign `game-21ac44b7-5f91-41a5-8ea7-9faf5b801a29`, turn 0.
 | `none` | — | a line; the preparation was dropped |
 | absent | — | a line, as before |
 
+The rows the Keeper did not place sit under the prose in folds that start shut (owner at the live table, 2026-09-22: the fold says what its rows are, "items gained" rather than "this turn's mechanics"). There is one fold per kind of row, keyed on fields the kernel wrote: a row with a settlement `family` (§16.2) folds under that family's word (`mechanics.family.<family>`), and a row with none under its kind's fold word (`mechanics.fold.<kind>`; belongings use `fold.itemsGained` unless a row in the fold took one away, then `fold.items`). There is no generic caption. Each fold's caption is a toggle carrying its row count, and while a row in it is `pending` the same waiting mark rides on that caption, so a shut fold still says details are coming. Placed rows are unaffected, and an opened fold draws each row exactly as this table says. Each fold's open state is the card's own and survives the redraw below.
+
 `object` is the definition's `player_view` exactly as the sheet's possessions box reads it: one pure implementation, `kernel-ts/mods/public-definition.ts` `publicDefinition`, used by `publicItems` and by the card. The definition's `basis`, the traits its view does not name and every parameter it does not list stay Keeper material.
 
 Which receipts give a row:

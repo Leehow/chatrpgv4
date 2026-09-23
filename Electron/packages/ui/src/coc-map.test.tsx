@@ -4,7 +4,10 @@ import {cleanup,fireEvent,render,screen} from '@testing-library/react'
 import * as React from 'react'
 import {createComponent} from '../../../../pipicoc/mechanics.js'
 
-const Delivery=createComponent(React)
+import {OpenedSlip} from './fixtures/opened-mechanics-slip'
+
+const Card=createComponent(React)
+const Delivery=(props:{details:Record<string,unknown>})=><OpenedSlip><Card {...props}/></OpenedSlip>
 afterEach(cleanup)
 
 it('opens an authorized map image and zooms locally',()=>{

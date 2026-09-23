@@ -41,6 +41,20 @@ const CSS = `
 .coc-mech-help{margin:8px 0 2px;display:flex;flex-direction:column;align-items:flex-start;gap:8px}
 .coc-mech-help-toggle{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0;border:1px solid var(--border-strong);border-radius:50%;color:var(--muted);background:var(--surface-raised);font-size:14px;font-weight:600;line-height:1;cursor:pointer}
 .coc-mech-help-toggle:hover,.coc-mech-help-toggle[aria-expanded="true"]{color:var(--text-strong);border-color:var(--accent);background:color-mix(in srgb,var(--accent) 14%,var(--surface-raised))}
+/* Each trailing fold's caption is its own toggle (folds start shut): what the rows are, how many, and
+   the waiting mark while any of them is still preparing its details (§129). A family's fold wears its
+   tone on the chevron, the way a settlement group wears it on its rail. */
+.coc-mech-list-toggle{display:flex;align-items:center;gap:6px;width:100%;margin:0;padding:2px 4px;border:0;border-radius:6px;background:transparent;color:inherit;font:inherit;letter-spacing:inherit;text-transform:inherit;text-align:left;cursor:pointer}
+.coc-mech-list-toggle::before{content:"▸";flex:none;color:var(--fold-tone,var(--muted));font-size:11px;letter-spacing:0;transition:transform .12s ease}
+.coc-mech-list-toggle[aria-expanded="true"]::before{transform:rotate(90deg)}
+.coc-mech-list-toggle:hover,.coc-mech-list-toggle[aria-expanded="true"]{color:var(--text-strong)}
+.coc-mech-list-toggle:hover{background:color-mix(in srgb,var(--accent) 8%,var(--surface-raised))}
+.coc-mech-list-toggle:hover::before{color:var(--accent)}
+.coc-mech-list-toggle:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.coc-mech-list-count{color:var(--muted);font-variant-numeric:tabular-nums}
+.coc-mech-list[data-open="0"]{padding-bottom:8px}
+.coc-mech-list + .coc-mech-list{margin-top:8px}
+.coc-mech-list[data-open="0"] .coc-mech-cap{padding-bottom:0}
 .coc-mech-help-fold{width:100%;max-width:560px;padding:12px 14px;border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:10px;background:var(--surface-raised);color:var(--text);font-size:13px;line-height:1.7}
 .coc-mech-help-fold h4{margin:0 0 6px;font-size:13px;font-weight:650;color:var(--text-strong)}
 .coc-mech-help-fold p{margin:0 0 4px}
@@ -79,7 +93,7 @@ const CSS = `
 .coc-mech-row{display:flex;align-items:center;gap:10px;padding:6px 2px;
   border-top:1px solid color-mix(in oklab, var(--border) 60%, transparent);
   font-size:12.5px;line-height:1.5}
-.coc-mech-cap + .coc-mech-row,.coc-mech-fam + .coc-mech-row{border-top:0}
+.coc-mech-list-body>.coc-mech-row:first-child,.coc-mech-fam + .coc-mech-row{border-top:0}
 .coc-mech-ico{flex:none;width:24px;height:24px;border-radius:8px;display:grid;place-items:center;
   color:var(--muted);background:color-mix(in oklab, var(--muted) 12%, transparent)}
 .coc-mech-ico>svg{width:13.5px;height:13.5px;display:block}
@@ -556,6 +570,27 @@ function groupRows(rows) {
     else groups.push({ call, family, rows: [row] });
   }
   return groups;
+}
+
+/**
+ * The trailing rows split into what they are, one fold each (owner at the live table, 2026-09-22: the
+ * fold says what its rows are, not "this turn's mechanics").
+ *
+ * A row that settled a rule is what its family is -- a combat bout's rolls, damage and states are one
+ * combat fold -- and a bookkeeping row with no family (§16.2: apply settled no rule) is what its kind
+ * is: the belongings, the clues, the cash. Both are fields the kernel wrote; nothing is inferred. The
+ * folds keep the order their first rows arrived in, and each keeps its rows in receipt order.
+ */
+function foldsOf(rows) {
+  const folds = new Map();
+  for (const row of rows) {
+    const family = text(row.family);
+    const kind = text(row.kind);
+    const key = family ? `family:${family}` : `kind:${kind}`;
+    if (!folds.has(key)) folds.set(key, { key, family, kind: family ? "" : kind, rows: [] });
+    folds.get(key).rows.push(row);
+  }
+  return [...folds.values()];
 }
 
 /** The family's word, plus "opposed" when the settlement rolled two sides against each other. */
@@ -1089,6 +1124,31 @@ export function createComponent(React) {
             help.lines.map((line, index) => h("p", { key: index }, line)))
         : null);
   }
+  /**
+   * One fold of the trailing slip (`foldsOf`), shut until the player opens it (the owner at the live
+   * table, 2026-09-22). Only the rows the Keeper did not place fold; a row placed at its sentence
+   * (`coc-mech-here`) is drawn there as always. Shut, the caption still says what is there: what the
+   * rows are, how many, and the waiting mark while any of them is still preparing its details (§129)
+   * -- once opened, each row draws and opens exactly as it did before. The state is each fold's own:
+   * nothing is stored, and a host redraw of the same card keeps it.
+   */
+  let listSeq = 0;
+  const useBodyId = typeof React.useId === "function" ? React.useId : () => useOpenState(`coc-mech-list-${++listSeq}`)[0];
+  function MechList({ caption, count, waiting, tone, children }) {
+    const [open, setOpen] = useOpenState(false);
+    const bodyId = useBodyId();
+    return h("section", { className: "coc-mech-list", "aria-label": caption, "data-open": open ? "1" : "0",
+      ...(tone ? { style: { "--fold-tone": tone } } : {}) },
+      h("h2", { className: "coc-mech-cap" },
+        h("button", { type: "button", className: "coc-mech-list-toggle", "aria-expanded": open, "aria-controls": bodyId, onClick: () => setOpen(!open) },
+          h("span", { className: "coc-mech-list-name" }, caption),
+          h("span", { className: "coc-mech-list-count" }, ` · ${count}`),
+          !open && waiting ? h(Waiting, { label: waiting }) : null)),
+      h("div", { className: "coc-mech-list-body", id: bodyId, hidden: !open }, open ? children : null));
+  }
+  /** A row still preparing its details (§129) is the one the folded caption must not hide. */
+  const preparing = (rows) => rows.some(row => row.kind === "item" && row.definition === "pending");
+
   const helpOf = (details) => {
     const help = isRecord(details.help) ? details.help : null;
     if (!help || typeof help.title !== "string" || !help.title.trim() || !Array.isArray(help.lines)) return null;
@@ -1109,6 +1169,16 @@ export function createComponent(React) {
     const t = (key, fallback) => word(details.ui, "mechanics", key, fallback);
     // An object's fields are named as the possessions box names them (§129), from the sheet's words.
     const sheet = (key, fallback) => word(details.ui, "sheet", key, fallback);
+    /** A fold's caption: its family's word, or a heading for its kind. Belongings that only arrived
+     *  (no row took anything away) are the ones gained; a fold that lost one is plain belongings. */
+    const foldCaption = (fold) => fold.family ? t(`family.${fold.family}`, term(fold.family))
+      : fold.kind === "item" ? t(fold.rows.some(row => (num(row.quantity) ?? 0) < 0) ? "fold.items" : "fold.itemsGained")
+      : t(`fold.${fold.kind}`);
+    /** The trailing folds, each drawing its rows with `draw` once opened. */
+    const folds = (rows, draw) => foldsOf(rows).map(fold => h(MechList, {
+      key: fold.key, caption: foldCaption(fold), count: fold.rows.length,
+      waiting: preparing(fold.rows) ? t("preparing") : "", tone: fold.family ? FAMILY_TONE[fold.family] : "",
+    }, draw(fold.rows, fold.key)));
 
     /**
      * Who a span belongs to, and what colour that makes it (§40.4).
@@ -1143,11 +1213,7 @@ export function createComponent(React) {
         parts.map((part, index) => part.row
           ? h("div", { className: "coc-mech-here", key: `row:${index}` }, renderRow(part.row, t, term, index, sheet))
           : proseBlocks(part.text, `text:${index}`, state, speaker)),
-        unplaced.length
-          ? h("section", { className: "coc-mech-list", "aria-label": t("mechanics") },
-              h("h2", { className: "coc-mech-cap" }, t("mechanics")),
-              unplaced.map((row, i) => renderRow(row, t, term, `rest:${i}`, sheet)))
-          : null,
+        folds(unplaced, (rows, key) => rows.map((row, i) => renderRow(row, t, term, `${key}:${i}`, sheet))),
         help ? h(HelpFold, { help }) : null);
     }
 
@@ -1158,19 +1224,16 @@ export function createComponent(React) {
     return h("div", { className: "coc-mech" },
       prose ? h("div", { className: "coc-mech-prose" }, prose) : null,
       help ? h(HelpFold, { help }) : null,
-      rows.length
-        ? h("section", { className: "coc-mech-list", "aria-label": t("mechanics") },
-            h("h2", { className: "coc-mech-cap" }, t("mechanics")),
-            groupRows(rows).map((group, index) => group.call && group.rows.length > 1
+      folds(rows, (foldRows, key) =>
+            groupRows(foldRows).map((group, index) => group.call && group.rows.length > 1
               // A settlement of one row needs no group chrome: the disc already wears the tone.
               ? h("div", {
-                  key: `${group.call}:${index}`,
+                  key: `${key}:${group.call}:${index}`,
                   className: "coc-mech-settle",
                   style: { "--tone": FAMILY_TONE[group.family] || "var(--muted)" },
                 },
                 h("div", { className: "coc-mech-fam" }, familyLabel(group, t, term)),
                 group.rows.map((row, i) => renderRow(row, t, term, i, sheet)))
-              : group.rows.map((row, i) => renderRow(row, t, term, `${index}:${i}`, sheet))))
-        : null);
+              : group.rows.map((row, i) => renderRow(row, t, term, `${key}:${index}:${i}`, sheet)))));
   };
 }

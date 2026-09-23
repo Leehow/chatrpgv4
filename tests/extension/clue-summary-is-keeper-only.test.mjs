@@ -171,9 +171,36 @@ function drawn(node) {
 	return [...(node.children ?? []), ...(node.props?.children ? [node.props.children] : [])].map(drawn).join('');
 }
 
-/** The delivery card, drawn by the shipped renderer with the captions this build ships. */
-const Card = createCard({ createElement: (type, props, ...children) => ({ type, props: props || {}, children }) });
-const cardText = (mechanics) => drawn(Card({ details: { ui: { tag: UI.tag, words: { mechanics: UI.words.mechanics } }, mechanics } }));
+/**
+ * The delivery card, drawn by the shipped renderer with the captions this build ships, and read the
+ * way the player reads it: the turn's trailing mechanics folds start shut, so each is opened by its own
+ * toggle first. A card read shut would pass the "never draws the book's sentence" checks by drawing nothing.
+ */
+function cardText(mechanics) {
+	const states = [];
+	let slot = 0;
+	const Card = createCard({
+		createElement: (type, props, ...children) => typeof type === 'function'
+			? type({ ...(props || {}), children }) : { type, props: props || {}, children },
+		useState(initial) {
+			const index = slot++;
+			if (!(index in states)) states[index] = initial;
+			return [states[index], (value) => { states[index] = value; }];
+		},
+	});
+	const draw = () => { slot = 0; return Card({ details: { ui: { tag: UI.tag, words: { mechanics: UI.words.mechanics } }, mechanics } }); };
+	const toggles = [];
+	const walk = (node) => {
+		if (Array.isArray(node)) return node.forEach(walk);
+		if (!node || typeof node !== 'object') return;
+		if (node.type === 'button' && node.props?.['aria-expanded'] === false && node.props?.['aria-controls']) toggles.push(node);
+		[...(node.children ?? []), node.props?.children].forEach(walk);
+	};
+	walk(draw());
+	assert.ok(toggles.length > 0, 'the card has a shut mechanics fold to open');
+	for (const toggle of toggles) toggle.props.onClick();
+	return drawn(draw());
+}
 
 test("the book's own sentence about a clue reaches no player surface, and what the table earned does", async (t) => {
 	const game = await table(t);
