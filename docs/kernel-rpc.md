@@ -3101,6 +3101,40 @@ starter guidance is built for the `suggested` tags; a starter opened in a tag
 with no bundle generates its guidance per campaign as a PDF module does, never
 `guidance_not_ready`.
 
+### 23.1 A presentation run outside a session follows the lane setting (2026-09-22)
+
+The preparation worker (`pipicoc/onboarding-worker.ts`) runs every presentation lane outside a
+session: the UI-words projection above, the sheet's presenter lanes, and `document-presentation`.
+It used to run each on whatever `model`/`thinking` its caller put in the input, so an operator
+filling a seed gap by hand chose the model by hand, and the App's own UI-words projection (which
+names no model) ran on the agent home's default. It now resolves both the way the host's cold path
+does (`cocLaneModel`/`cocLaneThinking` in `Electron/packages/pi-backend/src/index.ts`), through one
+shared reader, `presentationLaneChoice` in `runtime/tasks.ts` over `laneChoiceOf`:
+
+1. `PI_COC_MOD_MODEL` / `PI_COC_MOD_THINKING` in the worker's environment, the operator's override;
+2. the lane setting read at run time from `<agentHome>/pipiui-settings.json`
+   (`ext.coc-keeper.laneModel`, `ext.coc-keeper.laneThinking`);
+3. the caller's `model` / `thinking`, which is the table's own and only the fallback when nothing
+   above is set.
+
+A caller's model never outranks the setting. An offline run to fill a seed gap therefore names no
+model:
+
+```
+node build/pipicoc/onboarding-worker.mjs presentation \
+  '{"ui":true,"play_language":"<tag>","home":"<scratch home>"}' \
+  '{"layout":"source","backend":"typescript","resourceRoot":"<worktree>","contentRoot":"<content root>",
+    "agentHome":"<agent home holding pipiui-settings.json>","nodeExecutable":"<node>"}'
+```
+
+The content root it is given should hold the whole surface being filled, not only the missing keys,
+so the lane projects a new caption beside its siblings; only the missing keys are harvested into the
+seed, and every existing seed line stays byte-identical.
+
+Test: `tests/extension/onboarding-worker-model.test.mjs` (the real worker bundle, an argv-recording
+child: the setting with no model named, the setting over a caller's model, the caller's model when
+nothing is set, and the environment override over the setting).
+
 ### Host decision: the identity card is a passport-style page (2026-09-11)
 
 The right sidebar keeps the investigator's identity as live HTML text on a paper

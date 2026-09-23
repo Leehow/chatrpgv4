@@ -236,6 +236,24 @@ export function laneChoiceOf(document: unknown): { model?: string; thinking?: st
 }
 
 /**
+ * The model and effort a presentation lane runs on when it runs outside any session (contract §23.1).
+ *
+ * The same order as the host's cold path (`cocLaneModel`/`cocLaneThinking` in the Electron backend):
+ * the operator's environment override, then the lane setting read now from the agent home's settings
+ * document, and only then whatever the caller named -- the table's own model, which is the fallback
+ * that predates the setting. A caller never outranks the setting, so an offline run of the
+ * preparation worker takes the model the App's lanes take, not one picked by hand.
+ */
+export async function presentationLaneChoice(context: Pick<RuntimeContext, "agentHome" | "env">,
+  requested: { model?: unknown; thinking?: unknown }): Promise<{ model?: string; thinking?: string }> {
+  const chosen = await laneChoice(context.agentHome);
+  const own = (value: unknown) => typeof value === "string" && value.trim() ? value.trim() : undefined;
+  const model = own(context.env.PI_COC_MOD_MODEL) || chosen.model || own(requested.model);
+  const thinking = own(context.env.PI_COC_MOD_THINKING) || chosen.thinking || own(requested.thinking);
+  return { ...(model ? { model } : {}), ...(thinking ? { thinking } : {}) };
+}
+
+/**
  * Refuse a lane model the child could not resolve, instead of letting it die unexplained.
  *
  * The child mounts the provider extensions (`providerExtensions`) and reads the agent home's
