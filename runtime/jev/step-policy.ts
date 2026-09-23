@@ -87,8 +87,10 @@ export const EXITS = ['ask_llm', 'read_more', 'finish', 'none_of_above'] as cons
 export type Exit = typeof EXITS[number];
 /** Starting gate (fixed until SL-05's paired runs calibrate it); every confidence is recorded so other gates can be read off. */
 export const DEFAULT_CONFIDENCE_GATE = 0.6;
+/** The run's wall-time budget from its start (contract §135.11, `PI_COC_TURN_BUDGET_MS`): past it the next model step is the compose. */
+export const DEFAULT_TURN_BUDGET_MS = 45_000;
 /** The product's per-input preparation allowance (contract §124.10), reused as the per-run Jev budget. */
-export const DEFAULT_BUDGET = {maxJevCalls: PREPARATION_DECISION_BUDGET.actions, maxJevMs: PRESELECT_ALLOWANCE_DEFAULT_MS, maxSteps: 40};
+export const DEFAULT_BUDGET = {maxJevCalls: PREPARATION_DECISION_BUDGET.actions, maxJevMs: PRESELECT_ALLOWANCE_DEFAULT_MS, maxSteps: 40, maxRunMs: DEFAULT_TURN_BUDGET_MS};
 
 export interface Material {key: string; label: string; kind: string; preview: string}
 export interface PendingItem {
@@ -121,7 +123,10 @@ export interface PlanStep {index: number; operation: string; onSuccess: 'next'; 
 export interface PlanArtifact {origin: 'keeper'; step: number; steps: PlanStep[]}
 /** What the run still owes beyond its pending steps (the driver's boundary requirements); optional. */
 export interface Requirements {pending: string[]}
-export interface Budget {jevCalls: number; jevMs: number; steps: number; maxJevCalls: number; maxJevMs: number; maxSteps: number}
+/** `runMs` is the run's elapsed wall time as of the last folded step (stamped by the driver's clock, §135.11). */
+export interface Budget {jevCalls: number; jevMs: number; steps: number; runMs: number; maxJevCalls: number; maxJevMs: number; maxSteps: number; maxRunMs: number}
+/** A clerk step still pending when the run's time budget was spent: listed, never executed (§135.11). */
+export interface DeferredStep {key: string; label: string; family: string; clerk: string | null; stage: string}
 export interface RunView {
   runId: string;
   rawInput: string;
@@ -143,11 +148,25 @@ export type StepRequest =
   | {kind: 'direct'; item: PendingItem}
   | {kind: 'decide'; purpose: 'route'; digest: string}
   | {kind: 'decide'; purpose: 'bind' | 'locate'; item: PendingItem}
-  | {kind: 'infer'; purpose: 'bind' | 'adjudicate' | 'compose'; reason: string; item?: PendingItem}
+  | {kind: 'infer'; purpose: 'bind' | 'adjudicate' | 'compose'; reason: string; item?: PendingItem; deferred?: DeferredStep[]}
   | {kind: 'finish'; reason: string};
 
 export const exhausted = (budget: Budget): boolean =>
   budget.jevCalls >= budget.maxJevCalls || budget.jevMs >= budget.maxJevMs || budget.steps >= budget.maxSteps;
+/** The run's time budget is spent (§135.11). */
+export const overRun = (budget: Budget): boolean => budget.runMs >= budget.maxRunMs;
+/** A step the kernel forces that needs no model: it still runs past the budget, because the kernel accepts nothing else next. */
+const forcedWithoutModel = (item: PendingItem | undefined): boolean => item?.candidate?.forced === true && item.kind !== 'infer';
+/** The clerk steps the budget leaves unexecuted: every pending item carrying a host candidate, once per candidate. */
+export function deferredByBudget(view: Pick<RunView, 'pending'>): DeferredStep[] {
+  const out: DeferredStep[] = [];
+  for (const item of view.pending) {
+    const candidate = item.candidate;
+    if (!candidate || out.some(value => value.key === candidate.key)) continue;
+    out.push({key: candidate.key, label: candidate.label, family: candidate.family, clerk: candidate.clerk ?? null, stage: `${item.kind}:${item.purpose}`});
+  }
+  return out;
+}
 
 /** Same question, same candidates, same materials, same settled world: the dedupe identity of a route question. */
 export function routeDigest(view: Pick<RunView, 'rawInput' | 'candidates' | 'materials' | 'context'>): string {
@@ -160,6 +179,13 @@ export function next(view: RunView): StepRequest {
   const last = view.observations.at(-1), head = view.pending[0];
   // Guard 2: an LLM result is followed by direct execution or completion, never a Jev re-review.
   if (last?.kind === 'infer') return head?.kind === 'direct' ? {kind: 'direct', item: head} : {kind: 'finish', reason: `after_infer_${last.purpose}`};
+  // The run's time budget (§135.11): past it the next model step is the compose, whatever the route said. The model's
+  // own pending proposals were already run by the driver (a batch is never cut), a running step was never interrupted
+  // (this is read only between steps), and a step the kernel forces still runs when it needs no model.
+  if (overRun(view.budget) && !forcedWithoutModel(head)) {
+    const item = head?.kind === 'infer' && !head.candidate ? head : undefined;
+    return {kind: 'infer', purpose: 'compose', reason: 'run_budget', ...(item ? {item} : {}), deferred: deferredByBudget(view)};
+  }
   if (head?.kind === 'direct') return {kind: 'direct', item: head};
   if (head?.kind === 'infer') return {kind: 'infer', purpose: head.purpose as 'bind' | 'adjudicate' | 'compose', reason: head.reason ?? head.purpose, item: head};
   // Guard 3: a spent Jev budget hands the rest of the run to the LLM.
@@ -336,7 +362,7 @@ export function initialView(input: {runId: string; rawInput: string; context: Tu
   // prototype routed on an empty material list and sat at 0.52-0.58 for the declared move.
   return {runId: input.runId, rawInput: input.rawInput, stateVersion: 0, context: input.context, candidates: input.candidates, materials: [],
     located: false, observations: [], pending: input.readFirst === false ? [] : [{kind: 'direct', purpose: 'read'}], asked: [], consumed: [],
-    budget: {jevCalls: 0, jevMs: 0, steps: 0, ...DEFAULT_BUDGET, ...(input.budget ?? {})}};
+    budget: {jevCalls: 0, jevMs: 0, steps: 0, runMs: 0, ...DEFAULT_BUDGET, ...(input.budget ?? {})}};
 }
 
 export {bytes as jsonBytes};
@@ -533,12 +559,18 @@ export interface StepPolicyOptions {
   gate?: number;
   /** Read before the first route (default true): the loop's first step is the read. */
   readFirst?: boolean;
+  /** The run's clock (§135.11). With it, each folded step stamps `budget.runMs` from `startedAt`; without it the time budget never runs out. */
+  clock?: () => number;
+  /** When the run started on `clock` (default: the clock's reading at `initial`). */
+  startedAt?: number;
 }
 /**
  * The policy's state. `intent` is required before any policy-origin write (the read binds it); `requirements`
  * and the Keeper batch (`view.plan`) are optional.
  */
-export interface StepPolicyState {view: RunView; gate: number; scope?: ScopeBinding; readSet?: ReadSet; intent?: IntentBinding; requirements?: Requirements}
+export interface StepPolicyState {view: RunView; gate: number; scope?: ScopeBinding; readSet?: ReadSet; intent?: IntentBinding; requirements?: Requirements;
+  /** The run's start on the policy's clock (§135.11). */
+  startedAt?: number}
 
 const unavailable = (reason: string): DecisionResult => ({batchId: '', status: 'unavailable', answers: {}, coverage: {required: [], answered: [], unknown: []}, issues: [], failure: {code: reason, retryable: false}} as unknown as DecisionResult);
 const decisionOf = (observation: ObservationView): DecisionResult => {
@@ -567,11 +599,20 @@ export function createStepPolicy(options: StepPolicyOptions): RunPolicy<StepPoli
     return scope ? {scope, readSet: state.readSet ?? options.readSet?.(state.view) ?? []} : undefined;
   };
   const unbound = {batch: undefined, reason: 'no_scope_binding'};
+  /** Stamp the elapsed run time after a step is folded, so `next` and `reduce`'s recomputation of it read the same value. */
+  const stamp = (view: RunView, startedAt: number | undefined): void => {
+    if (options.clock && startedAt !== undefined) view.budget.runMs = Math.max(0, options.clock() - startedAt);
+  };
   return {
     name: 'coc-step-policy',
     version: '2',
-    initial: input => ({gate, view: initialView({runId: input.runId, rawInput: input.rawInput, context: options.context,
-      candidates: options.candidates ?? [], budget: options.budget, readFirst: options.readFirst})}),
+    initial: input => {
+      const startedAt = options.clock ? options.startedAt ?? options.clock() : undefined;
+      const view = initialView({runId: input.runId, rawInput: input.rawInput, context: options.context,
+        candidates: options.candidates ?? [], budget: options.budget, readFirst: options.readFirst});
+      stamp(view, startedAt);
+      return {gate, view, ...(startedAt !== undefined ? {startedAt} : {})};
+    },
     next(driver: DriverView<StepPolicyState>): DriverStepRequest {
       if (driver.pendingProposals.length) return {kind: 'operate', proposals: driver.pendingProposals, reason: 'model_proposals'};
       if (driver.delivery === 'accepted') return {kind: 'finish', outcome: 'delivered', reason: 'delivery_accepted'};
@@ -580,6 +621,9 @@ export function createStepPolicy(options: StepPolicyOptions): RunPolicy<StepPoli
       if (request.kind === 'finish') return {kind: 'finish', outcome: 'delivered', reason: request.reason};
       if (request.kind === 'infer') return {kind: 'infer', purpose: request.purpose, reason: request.reason,
         request: {purpose: request.purpose, reason: request.reason,
+          // §135.11: a compose the budget chose says what it deferred and whether it replaced a fallen batch's return.
+          ...(request.deferred ? {budget: {budget_ms: state.budget.maxRunMs, elapsed_ms: state.budget.runMs, deferred_by_budget: request.deferred as unknown as Json,
+            ...(request.item?.reason === 'batch_fallen' ? {batch_fallen: true} : {})}} : {}),
           ...(request.item?.candidate ? {candidate: request.item.candidate.key, operation: operationView(request.item.candidate),
             // Host-only: the kernel row the chosen operation came from, recorded with the step; never put in front of the model.
             ...(request.item.candidate.basis !== undefined ? {basis: request.item.candidate.basis} : {})} : {})}};
@@ -629,6 +673,7 @@ export function createStepPolicy(options: StepPolicyOptions): RunPolicy<StepPoli
         if (plan.steps.length > 1 || fell) view.plan = plan;
         // A fallen branch returns to the Keeper at once: the Keeper decides what failure means, not a route.
         if (fell && !view.stopped && observation.delivery === undefined) view.pending.unshift({kind: 'infer', purpose: 'adjudicate', reason: 'batch_fallen'});
+        stamp(view, policyState.startedAt);
         return {...policyState, ...requirements, view};
       }
       const request = next(view), binding = bindingFor(policyState);
@@ -670,6 +715,7 @@ export function createStepPolicy(options: StepPolicyOptions): RunPolicy<StepPoli
         const executed = artifact?.kind === 'execute' ? artifact : {executed: {ok: false, summary: {status: observation.status} as Json}, fresh: undefined};
         settleExecute(view, step, request.item, executed.executed, executed.fresh, observation.ms);
       }
+      stamp(view, policyState.startedAt);
       return {...policyState, ...requirements, ...bound, view};
     },
   };
