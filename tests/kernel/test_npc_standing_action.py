@@ -49,17 +49,18 @@ def client_with(tmp_path, combat=None):
 
 def corbitts_turn(client, stance=None):
     """Swing at Corbitt, let him dodge, and hand back the call number after: it is now his turn, no attack pending.
-    `stance`, when given, is a Keeper stance write between the swing and the dodge (folded with the open turn)."""
+    The rolls of the dodge are the combat settled against him, so the open turn makes him hostile (§17.3). `stance`,
+    when given, is a Keeper stance write after that, folded with the open turn in order."""
     open_turn(client, "I hit him.")
     n = walk_to_confrontation(client)
     resolve(client, f"t1-c{n}", intent="combat", goal="hit him", method="fists", target="Walter Corbitt", weapon="unarmed")
-    n += 1
+    defended = resolve(client, f"t1-c{n + 1}", intent="combat", goal="combat:defend", method="combat:defend", actor="Walter Corbitt", defense="dodge")
+    assert defended["session"]["turn_of"] == CORBITT and defended["session"]["pending_defense"] is None
+    n += 2
     if stance is not None:
         client.table("apply", call_id=f"t1-c{n}", effects=[{"kind": "npc", "name": "Walter Corbitt", "stance": stance, "why": "test"}])
         n += 1
-    defended = resolve(client, f"t1-c{n}", intent="combat", goal="combat:defend", method="combat:defend", actor="Walter Corbitt", defense="dodge")
-    assert defended["session"]["turn_of"] == CORBITT and defended["session"]["pending_defense"] is None
-    return n + 1
+    return n
 
 
 def edit_fight(client, *, hp_fraction=None, ally=False, investigator=None, corbitt=None, round_delta=0):
@@ -95,15 +96,15 @@ def test_no_disposition_no_authored_word_and_no_override_is_no_standing(tmp_path
         assert standing(client) is None, "hostile and able, but nothing says how he fights: the Keeper decides"
         card = client.table("look", focus="npc", name="Walter Corbitt")
         assert card["combat_disposition"]["disposition"] is None and card["combat_disposition"]["basis"] is None
-        assert card["combat_action"] == {"action": None, "basis": "rule-default"}
+        assert card["combat_standing"] == {"action": None, "basis": "rule-default"}
     finally:
         client.close()
 
 
 # ---- the table, row by row --------------------------------------------------------------------
 
-# (disposition, hp fraction, outnumbered, stance written after the swing, expected action). The stance is `hostile`
-# unless a row names another: the swing made him a combat target this turn, folded from the open turn's receipts.
+# (disposition, hp fraction, outnumbered, stance the Keeper writes on his turn, expected action). The stance is
+# `hostile` unless a row names another: the swing made him a combat target this turn, folded from the open turn.
 TABLE_ROWS = [
     ("fights_to_the_end", 1.0, False, None, "attack"),
     ("fights_to_the_end", 0.25, True, None, "attack"),
@@ -191,7 +192,7 @@ def test_an_authored_attack_is_issued_with_basis_authored(tmp_path):
     try:
         corbitts_turn(client, stance="warm")
         assert standing(client) == {"action": "attack", "basis": "authored"}, "the book says he always attacks; no disposition is read"
-        assert client.table("look", focus="npc", name="Walter Corbitt")["combat_action"] == {"action": "attack", "basis": "authored"}
+        assert client.table("look", focus="npc", name="Walter Corbitt")["combat_standing"] == {"action": "attack", "basis": "authored"}
     finally:
         client.close()
 
@@ -232,7 +233,7 @@ def test_a_keeper_hold_is_a_receipt_survives_a_restart_and_lapses_with_its_round
         assert world["npc_action"][CORBITT] == {"action": "hold", "why": why, "turn": 1, "combat_id": "corbitt-final-combat-t1", "round": 1}
         resumed.table("player_input", text="I wait.")
         assert standing(resumed)["basis"] == "keeper", "same fight, same round: the hold stands after a restart"
-        assert resumed.table("look", focus="npc", name="Walter Corbitt")["combat_action"] == {"action": "hold", "basis": "keeper"}
+        assert resumed.table("look", focus="npc", name="Walter Corbitt")["combat_standing"] == {"action": "hold", "basis": "keeper"}
         edit_fight(resumed, round_delta=1)
         assert standing(resumed)["basis"] == "rule-default", "a hold holds for its round; the next round reads the table again"
     finally:
@@ -254,7 +255,7 @@ def test_a_keeper_attack_stands_and_a_disposition_override_replaces_the_book(tmp
         assert standing(client)["basis"] == "keeper"
         card = client.table("look", focus="npc", name="Walter Corbitt")
         assert card["combat_disposition"] == {"disposition": "fights_to_the_end", "basis": "keeper"}
-        assert card["combat_action"] == {"action": "attack", "basis": "keeper"}
+        assert card["combat_standing"] == {"action": "attack", "basis": "keeper"}
     finally:
         client.close()
 
@@ -295,7 +296,7 @@ def test_the_standing_action_and_disposition_are_keeper_only(tmp_path):
         assert standing(client)["action"] == "hold"
         delivered = narrate(client, f"t1-c{n + 1}", "Corbitt draws back.")
         shown = json.dumps(delivered, ensure_ascii=False) + json.dumps(client.ok("table.view", {"campaign": "c1"}), ensure_ascii=False)
-        for word in ("standing_action", "combat_action", "combat_disposition", "npc_disposition", "avoids_fighting", why):
+        for word in ("standing_action", "combat_standing", "combat_disposition", "npc_disposition", "avoids_fighting", why):
             assert word not in shown
         assert not any(row.get("kind") == "npc" for row in delivered["mechanics"])
     finally:

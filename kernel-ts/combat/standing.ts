@@ -197,11 +197,11 @@ export function standingAction(graph: ModuleGraph, world: Row, handle: string, c
  * The NPC card's two lines (Keeper-only, §11.5.3): the disposition with its basis, and the standing action a card can
  * state without a fight -- the live override or the authored word; otherwise the table decides in the fight.
  */
-export function cardAction(graph: ModuleGraph, world: Row, node: Row, combat: Row | null, table: Row | null = null): { combat_disposition: Row; combat_action: Row } {
+export function cardAction(graph: ModuleGraph, world: Row, node: Row, combat: Row | null, table: Row | null = null): { combat_disposition: Row; combat_standing: Row } {
     const handle = graph.handle(node), disposition = dispositionOf(graph, world, handle);
     const keeper = keeperAction(world, handle, combat), authored = keeper ? null : authoredAction(graph, handle);
     return { combat_disposition: disposition ? { ...disposition } : { disposition: null, basis: null, ...(table ? inferenceInput(graph, node, table) : {}) },
-        combat_action: keeper ? { action: keeper, basis: 'keeper' } : authored ? { action: authored, basis: 'authored' } : { action: null, basis: 'rule-default' } };
+        combat_standing: keeper ? { action: keeper, basis: 'keeper' } : authored ? { action: authored, basis: 'authored' } : { action: null, basis: 'rule-default' } };
 }
 /**
  * What a disposition is inferred from (§11.5.3 source 2): the closed words with the table's own descriptions, and the

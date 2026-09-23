@@ -205,7 +205,7 @@ function sessionCandidates(session: Row, rawInput: string, answering: readonly s
  * them); the parameters read go on the write as its `why` and on the basis.
  */
 function dispositionInference(actor: string, name: string, fighter: Row, relationships: Row[], situation: Json): Candidate | undefined {
-  const disposition = object(fighter.combat_disposition), action = object(fighter.combat_action);
+  const disposition = object(fighter.combat_disposition), action = object(fighter.combat_standing);
   const options = object(disposition.options), words = Object.keys(options);
   if (text(fighter.id) !== actor || disposition.disposition !== null || action.action !== null || !words.length) return undefined;
   const material: Record<string, Json> = {...object(disposition.material)} as Record<string, Json>;

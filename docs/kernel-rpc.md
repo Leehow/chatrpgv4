@@ -713,8 +713,8 @@ still not stamped). Found while writing this section; fixed with it, because the
 it.
 
 **The NPC card.** `look focus=npc` carries, beside §11.5.2's `combat_tactic`, `combat_disposition: {disposition,
-basis}` and `combat_action: {action, basis}`. Without a disposition, `combat_disposition` is `{disposition: null,
-basis: null, options, material}`: the inference's input (below). `combat_action` is the live Keeper
+basis}` and `combat_standing: {action, basis}`. Without a disposition, `combat_disposition` is `{disposition: null,
+basis: null, options, material}`: the inference's input (below). `combat_standing` is the live Keeper
 override or the authored word, otherwise `{action: null, basis: "rule-default"}`, because the table reads the
 fight's state and the card is not a fight. Both are Keeper-only, like `combat_tactic`: no player projection
 carries them, and the overrides' receipts are `visibility: "keeper"`.
@@ -733,7 +733,7 @@ session view and acts on it unless the fiction says otherwise, which it then wri
 **The inference.** The ruling's second disposition source, run by the single-loop clerk under its own authority
 (`disposition_inference`, §135.3). When an NPC's turn comes without a standing action, the run reads that NPC's
 card (`look focus=npc`, the one card read the run makes). A card whose `combat_disposition.disposition` and
-`combat_action.action` are both `null` carries the inference's input: `options`, the four words with the table's
+`combat_standing.action` are both `null` carries the inference's input: `options`, the four words with the table's
 own `description` of each, and `material`, the person's own text parameters under the contract's actor-dossier
 profile keys (`module-graph-contract-v3.json` `actor_dossier.profile_keys`: `agenda`, `fear`, `secret`, `voice`,
 `relationship_to_investigators`), those the book states. The candidate builder adds the first impression an active
