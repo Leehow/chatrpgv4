@@ -517,7 +517,7 @@ RuleGraph 的每个决策声明输入槽位与归属。宿主锁定槽位由内�
 执行走移植进内核的引擎：百分骰与对抗、社交难度、心理观察、急救医学与濒死钟、推骰与幸运、施法与学法、成长结算，以及三个会话引擎 CombatSession、ChaseSession、SanitySession。旧仓库的 subsystem executor 不移植；会话层是内核自己的一层薄状态机，持有会话快照与待决。
 
 - 引擎快照持久化在战役目录 `save/` 下，文件名沿用引擎（`combat.json`、`chase.json`、`sanity-state/<inv>.json`、`healing-state/…`、`mp-state/…`），随每次 `narrate` 一起提交。
-- 战斗：`intent: combat` 加 `target` 开局或接续；引擎按 DEX 排序，回合由内核推进。攻击声明后、攻击骰结算前建立 `pending_attack`；防御结算同时掷攻击与防御骰，所以前一张失败骰卡不能判断当前攻击是否命中。NPC 守方由守秘人下一次 `resolve` 用 `actor: <npc>` 与 `defense` 决定，`pending_defense.standing` 给出他的常备防御（§11.5.2）。调查员守方改由 §11.5 的常驻防御偏好自动结算真实待决攻击，不再 `ask` 每轮的 dodge/fight_back/none；`combat:flee` 成功即按 `continues-as` 直接进入 `chase:start`，结果里 `continuations` 与 `session` 同时给出。
+- 战斗：`intent: combat` 加 `target` 开局或接续；引擎按 DEX 排序，回合由内核推进。攻击声明后、攻击骰结算前建立 `pending_attack`；防御结算同时掷攻击与防御骰，所以前一张失败骰卡不能判断当前攻击是否命中。NPC 守方由守秘人下一次 `resolve` 用 `actor: <npc>` 与 `defense` 决定，`pending_defense.standing` 给出他的常备防御（§11.5.2）。NPC 自己的回合由 `standing_action` 给出他的常备行动（§11.5.3）。调查员守方改由 §11.5 的常驻防御偏好自动结算真实待决攻击，不再 `ask` 每轮的 dodge/fight_back/none；`combat:flee` 成功即按 `continues-as` 直接进入 `chase:start`，结果里 `continuations` 与 `session` 同时给出。
 
 #### 11.5.1 The investigator's standing combat defense (2026-09-23)
 
@@ -608,6 +608,134 @@ player defences. No caption is added here.
 Tests: `tests/kernel/test_npc_standing_defense.py` (emitted kernel), `tests/extension/single-loop-candidates.test.mjs`,
 `tests/extension/single-loop-domain-policy.test.mjs`.
 
+#### 11.5.3 An NPC's standing action and combat disposition (2026-09-23, SL-08 of `docs/specs/pi-native-single-loop.md`)
+
+The spec's rulings "An NPC's action in a fight is data too" and "An NPC's fight behaviour follows the NPC's own
+parameters" (owner, 2026-09-23). With §11.5.2 settling the NPC's defence, SL-07's merged fight-round replay spent
+its last non-prose LLM step on the NPC's own action: on Knott's turn Jev chose `combat:attack` at 0.57–0.60
+against the 0.6 gate, because nothing stated what he does. That is now a standing on the NPC, issued by the kernel
+beside the standing defence, and it follows the person, not a flat "hostile attacks": a closed **combat
+disposition** says how this person behaves in a fight, and a ruleset table turns the disposition and the fight's
+state into the action. Manoeuvre, aim and reload stay the Keeper's craft, and so does how a flight or a surrender
+plays out: a standing says `attack`, `hold` or `flee`, and only `attack` is carried out by the clerk.
+
+**What is issued.** The combat session view (§11.9) carries `standing_action: {action, basis, disposition?,
+read?}` when the fight is active, `turn_of` is an NPC, no attack is pending (§11.5: while `pending_attack` awaits
+its defence the NPC's action is already taken, and the next step is the defence), and a standing exists. `action`
+is `"attack"`, `"hold"` (does not attack this round: holds back, hesitates, yields) or `"flee"` (tries to get away;
+the engine has no NPC flee action, so the flight is narrated); `basis` is `"authored"`, `"rule-default"` or
+`"keeper"`. `disposition` is `{disposition, basis}` whenever the NPC has one (the line the Keeper narrates by);
+`read` is `{hp_fraction, outnumbered, stance}`, the fight's state the table read, on a `rule-default` standing.
+When no source gives a standing the field is absent and the Keeper decides the NPC's action as before.
+`actions[]` stays exactly as issued: the standing narrows nothing, and the Keeper may still resolve any issued
+action. The field rides only on the session view (the capsule's `where.session`, `resolve` results, `look
+focus=session`, `table.resolve.options.context.session`), which only the Keeper and the host read; `table.view`
+carries no session actions.
+
+**What every standing needs.** The NPC can act: its participant in the saved combat snapshot has `hp_current > 0`
+and none of the rules layer's `OUT_OF_FIGHT_CONDITIONS` (§42.1); an NPC that cannot act has no standing at all. An
+`attack` from any source also needs a legal target: the `targets` list of its issued `combat:attack` action (an
+opposing participant who can still fight; the same list, computed once). An `attack` without one is not issued.
+
+**The action's three sources, in the ruling's order.** A Keeper override replaces the book's word, which replaces
+the table:
+
+1. **Authored** (`basis: "authored"`): the NPC record's `combat.action` (the record `combat` of §11.5.2, §136.1),
+   enum `{attack}` only: a book may state that a creature always attacks; nothing else is authored as a standing
+   action. The §136 validator refuses any other word where the book is registered; a pre-§136 record carrying one
+   is read as no word.
+2. **Rules default** (`basis: "rule-default"`): the ruleset table
+   `content/rulesets/coc7/rules-json/npc-combat-disposition.json` over the NPC's combat disposition and the
+   fight's state. Without a disposition there is no rules default, so no standing: the Keeper decides.
+3. **Keeper override** (`basis: "keeper"`): `apply npc {name, action, why}` with `action` `attack` or `hold`
+   (§17.3's effect, its own variant beside `defense`; `why` required). `attack` stands until the Keeper writes
+   again. `hold` holds for **this round**: it is scoped to the combat round it is written in (`combat_id` and
+   `current_round` of the active fight, stored with it) and lapses when the round or the fight changes, so the next
+   round reads the book or the table again. A `hold` written when no fight is active, or for a person who is not a
+   participant of it, is refused as `invalid_params` before anything is written. A flight is the table's reading or
+   the Keeper's prose, never an override word.
+
+**The combat disposition.** A closed enum on the NPC: `fights_to_the_end`, `fights_then_flees`,
+`avoids_fighting`, `surrenders`. Its sources, a later one replacing an earlier one:
+
+1. **Authored** (`basis: "authored"`): the record's `combat.disposition`, when the book states how the person
+   fights. Validated by §136 like `combat.defense`.
+2. **Inferred** (`basis: "inferred"`): once per campaign by Jev, from the NPC's own text parameters. **Not in
+   SL-08:** SL-09 carries it (see "The inference seam" below). Until then an NPC without an authored or Keeper
+   disposition has none, so no rules-default standing: the Keeper decides its action, as before this section.
+3. **Keeper override** (`basis: "keeper"`): `apply npc {name, disposition, why}` (its own variant; `why`
+   required). It stands until the Keeper writes again.
+
+Both overrides write world state beside §11.5.2's: `world.npc_action[<handle>] = {action, why, turn}` (plus
+`combat_id` and `round` for `hold`) and `world.npc_disposition[<handle>] = {disposition, why, turn}`, and each
+mints the ordinary `npc` receipt (`npc:<slug>-t<n>-c<k>`) with the word, `previous` (the word it replaced, or
+`null`), `why`, the `hold`'s `combat_id`/`round`, and `visibility: "keeper"`; the event is `npc-changed` with
+`{npc, action | disposition, why}`. Each stands alone in its effect: combining it with `to`, `stance`, `dead`,
+`skill`, `archetype`, `conditions`, `defense`, `reunion` or the other of the two is refused as `invalid_params`
+(two effects in one batch). An `npc` batch is bookkeeping to §32.1. The overrides are world state: they commit
+with the turn and survive a restart and a resume.
+
+**The table.** `coc.npc-combat-disposition.v1`: for each disposition an ordered list of rules; the first rule
+whose every `when` condition holds gives the action, and the last rule of each disposition has no `when`, so every
+disposition gives an action. The conditions are a closed schema: `hp_fraction_at_most` (the participant's
+`hp_current / hp_max` in the saved snapshot is at most this), `outnumbered` (true: more opposing participants who
+can still fight than participants on the NPC's own side who can, the NPC included), `stance_in` (the NPC's stance
+is one of these words). Every threshold lives in the table; the kernel holds no literal of its own, and a table
+that lists other dispositions, another condition key, another action word, or a disposition whose rules do not end
+in an unconditional one, is refused as `campaign_not_ready` when a view is read. The shipped rows:
+
+| disposition | rules, in order |
+| --- | --- |
+| `fights_to_the_end` | `attack` |
+| `fights_then_flees` | hp ≤ 0.5 → `flee`; hp ≤ 0.75 and outnumbered → `flee`; stance wary/neutral/warm → `hold`; `attack` |
+| `avoids_fighting` | outnumbered → `flee`; hp ≤ 0.75 → `flee`; `hold` |
+| `surrenders` | hp ≤ 0.75 → `hold`; outnumbered → `hold`; stance wary/neutral/warm → `hold`; `attack` |
+
+**The stance the table reads** is the ledger's word (§17.3, `stance.value`), never read from prose. The ledger
+folds a turn only when the turn closes, and a fight usually starts inside one turn, so the stance read here is the
+committed `npc-ledger.json` with the open turn's receipts folded onto a copy by the same fold and the same table
+(`npc-stance.json`): the investigator's attack on him earlier in this turn already makes him `hostile`
+(`combat_target_score`), as it will in the ledger when the turn closes. Receipts of a turn that has closed
+(`asked`, `awaiting_player`) are already in the committed ledger and are not folded twice. A person without a
+ledger row stands at the table's `initial_score`. Nothing is written: this is a read.
+
+**The combat defence names who was attacked.** §17.8's "the receipts say who" stamps a roll receipt's `npc` from
+the action's `target`. A combat defence (§11.5) is its own `resolve` whose action names the defender as `actor`
+and no `target`, so the investigator's attack roll settled there never named the NPC it was against, and §17.3's
+"any combat settled against him makes him hostile" never folded for such a fight. The roll receipts of a combat
+settlement now take `npc` from the combat outcome's `target` when the action names no NPC (the NPC's own rolls are
+still not stamped). Found while writing this section; fixed with it, because the table's stance reading depends on
+it.
+
+**The NPC card.** `look focus=npc` carries, beside §11.5.2's `combat_tactic`, `combat_disposition: {disposition,
+basis}` (`{disposition: null, basis: null}` without one) and `combat_action: {action, basis}`: the live Keeper
+override or the authored word, otherwise `{action: null, basis: "rule-default"}`, because the table reads the
+fight's state and the card is not a fight. Both are Keeper-only, like `combat_tactic`: no player projection
+carries them, and the overrides' receipts are `visibility: "keeper"`.
+
+**Who acts on it.** The single-loop clerk (§135.2), on an NPC's own turn: with `standing_action.action = attack`
+the `combat:attack` step is `forced` and bound, `direct` when the kernel issues exactly one legal target and one
+weapon, a Jev `decide(bind)` over the kernel's closed `targets` / `weapons` lists when it issues several (Jev
+binds the parameters, never the action). `hold` and `flee` issue no attack candidate and no other step for that
+NPC; the turn is the Keeper's, and the run's note to the Keeper (`coc-clerk`) carries `npc_turn: {npc, round,
+standing_action}` once per NPC turn so it narrates by the disposition. No standing keeps the previous route (Jev's
+closed bind over the issued actions). The candidate's `basis` adds `standing: {action, basis, disposition?}`,
+which the tool and admission rows of §135.7 carry. On the legacy engine the Keeper reads the standing on the
+session view and acts on it unless the fiction says otherwise, which it then writes as an override.
+
+**The inference seam (SL-09).** The ruling's second disposition source: when an NPC's turn comes and it has no
+authored or Keeper disposition, Jev is asked once per campaign, through the run's decision port, one closed-choice
+question: the four dispositions (each with its table `description`) plus `unknown`, over the NPC's own text
+parameters as material (`agenda`, `fear`, `secret`, `relationship_to_investigators`, `voice`, and natural-npc's
+first-impression disposition when one was settled). An answer at or above the gate is written to
+`world.npc_disposition[handle]` with a receipt, `basis: "inferred"` and the list of parameters read, through a
+host-only marker the extension strips from model calls; below the gate the Keeper is asked once, through the
+operation-completion path (`infer(bind)`), and writes it as an override. An NPC is never inferred twice. SL-08
+issues none of this: without it, `basis: "inferred"` never appears.
+
+Tests: `tests/kernel/test_npc_standing_action.py` (emitted kernel), `tests/extension/mechanics-shape.test.mjs`,
+`tests/extension/single-loop-candidates.test.mjs`, `tests/extension/single-loop-domain-policy.test.mjs`.
+
 ### 11.6 结果与收据
 
 `outcome.kind` 取 `check`、`opposed`、`combined`、`social`、`psychology`、`healing`、`push`、`luck`、`magic`、`development`、`combat`、`chase`、`sanity`、`none`。每种至少有 `level` 或 `status`、涉及的骰面与目标值、`effects`。`effects` 每条 `{kind: hp|san|mp|luck|condition|ammo|position, subject, before, after}`。
@@ -627,7 +755,7 @@ Tests: `tests/kernel/test_npc_standing_defense.py` (emitted kernel), `tests/exte
 ### 11.9 边界澄清（扩展 worker 提出，已定）
 
 - `needs` 与 `needs_choice` 的候选与选项放在 `error.details` 里（`details.needs = {field, options}`、`details.candidates = [{name, when}]`、`details.exits`），`message` 与 `fix` 不重复列举；Pi 只把工具结果的文本交给模型，所以由扩展把这些 `details` 渲染进结果文本。
-- `session` 的形状：`{kind: combat|chase|sanity_bout, status: active|ended, round, turn_of: <在场者名>, actions: [...], pending_defense: null | {for: player|npc, actor, options, standing?}, participants: [{name, side, hp?}]}`。NPC 守方的 `pending_defense` 另带 `standing: {defense, basis}`（§11.5.2）。会话进行期间每个 `resolve` 结果都回显它，不因本次判定与会话无关而返回 null；会话结束那一次返回 `status: ended`，之后返回 null。
+- `session` 的形状：`{kind: combat|chase|sanity_bout, status: active|ended, round, turn_of: <在场者名>, actions: [...], pending_defense: null | {for: player|npc, actor, options, standing?}, participants: [{name, side, hp?}]}`。NPC 守方的 `pending_defense` 另带 `standing: {defense, basis}`（§11.5.2）。NPC 自己的回合（无待决攻击）另带 `standing_action: {action, basis, disposition?, read?}`（§11.5.3），没有来源时缺席。会话进行期间每个 `resolve` 结果都回显它，不因本次判定与会话无关而返回 null；会话结束那一次返回 `status: ended`，之后返回 null。
 - `pending_choice` 的形状：`{name, for: player|keeper, prompt, options}`。`for: player` 的待决由守秘人用 `ask` 交回玩家，`ask.binds` 填它的 `name`；守秘人漏填时扩展在 `tool_call` 里用最近一条 `for: player` 的待决名补上。`for: keeper` 的待决由守秘人下一次 `resolve` 的 `decision` 或 `defense` 回答。
 - `defense` 取 `dodge`、`fight_back`、`none`；`none` 表示放弃防御。
 - 遥测行是扁平的：`outcome_kind`、`session_kind`。
@@ -1723,7 +1851,7 @@ contract one.
 - **`knows` 有两个来源，同一个出口。** `npc_knows` 合并以该 NPC 为主语的 `knows` claim 与 starter 记录里的 `facts[].clue_id`，按图上顺序去重。`npc_claim_lines` 取对象节点的 summary/name，再退到 claim 的 `statement`，只复制不改写。`npcs_knowing` 按 `knows` claim 反算 `known_by_ids`，不改图上已授权的那份。
 - **`min_trust` 丢弃。** starter 的 `facts[].min_trust` 没有任何消费者，投影时不带；没有规则读的数字不是事实。
 - **关系不新增。** `npc_ties` 只读 §17.2 列的十种关系，两个方向都读，按 `(种类, 对端)` 去重；`present` 里按「在场者 → 派系/组织 → 其余」排序后裁到 6 条。
-- **`apply npc` 的形状。** `{kind: "npc", name, to?, stance?, conditions?, defense?, why?}`（`defense` 是守秘人改写这个人的常备防御，独立一条 effect、必带 `why`，见 §11.5.2），`to` 取场景名、`here`（当前场景）或 `away`（下场），`stance` 取账本四词；`conditions` 是 `{gained?: [...], lost?: [...]}`，只在叙事、毒物、法术或别的非伤害裁定真正改变这个人的规则状态时使用，词来自规则引擎的闭合 condition 表。死亡仍用既有 `dead: true`，不能借 condition 移除；同一个 npc effect 若带 `conditions` 就不兼带 `to`/`stance`/`dead`/`skill`/`archetype`，需要同时移动与改变状态时，把两条 effect 放在同一个原子 batch。全缺、两边都空、同一状态同时 gained/lost、未知状态或互斥字段报 `invalid_params`，不写任何世界状态。普通变体收据仍是 `npc:<slug>-t<n>-c<k>`（句柄无拉丁 slug 时退到 `npc:t<n>-c<k>`，与 `item`/`cash` 同一条），事件 **`npc-changed`**（事件枚举因此从十八类变十九类）。condition 变体写现有 `world.npc_resources[handle].conditions`，铸造与治疗/伤害同形的 `condition` 收据（`before/after/gained/lost/incapacitated/subject_label`，玩家可见）；它不是第二套 NPC 状态。`to` 写 `world.npc_presence`——位置的唯一真相仍在世界里，账本只引用。
+- **`apply npc` 的形状。** `{kind: "npc", name, to?, stance?, conditions?, defense?, action?, disposition?, why?}`（`defense` 是守秘人改写这个人的常备防御，独立一条 effect、必带 `why`，见 §11.5.2；`action`（`attack`/`hold`）与 `disposition`（四词）是守秘人改写他在战斗中的常备行动与战斗倾向，各自独立一条 effect、必带 `why`，见 §11.5.3），`to` 取场景名、`here`（当前场景）或 `away`（下场），`stance` 取账本四词；`conditions` 是 `{gained?: [...], lost?: [...]}`，只在叙事、毒物、法术或别的非伤害裁定真正改变这个人的规则状态时使用，词来自规则引擎的闭合 condition 表。死亡仍用既有 `dead: true`，不能借 condition 移除；同一个 npc effect 若带 `conditions` 就不兼带 `to`/`stance`/`dead`/`skill`/`archetype`，需要同时移动与改变状态时，把两条 effect 放在同一个原子 batch。全缺、两边都空、同一状态同时 gained/lost、未知状态或互斥字段报 `invalid_params`，不写任何世界状态。普通变体收据仍是 `npc:<slug>-t<n>-c<k>`（句柄无拉丁 slug 时退到 `npc:t<n>-c<k>`，与 `item`/`cash` 同一条），事件 **`npc-changed`**（事件枚举因此从十八类变十九类）。condition 变体写现有 `world.npc_resources[handle].conditions`，铸造与治疗/伤害同形的 `condition` 收据（`before/after/gained/lost/incapacitated/subject_label`，玩家可见）；它不是第二套 NPC 状态。`to` 写 `world.npc_presence`——位置的唯一真相仍在世界里，账本只引用。
 - **账本是收据的折叠，别的什么都不是。** `npc.apply_receipts` 只认四种收据：`roll`（互动与 stance）、`clue`（`from` → `disclosed`）、`npc`（守秘人显式改写）、`delta`（NPC 的 HP ≤ 0 → `dead`）。因此 `_rebuild_ledger` 重放 `turns/*.json` 与 `memory/candidates.jsonl` 就能重建整份账本——崩溃恢复、世界线切换、以及本切片之前的老战役第一次 `table.open`，走的是同一条路。只在文件不存在时重建：磁盘上的账本就是状态。
 - **收据自己说清是谁。** `resolve` 结算后给本次调用的 roll 收据补 `family`、`npc`（本次判定针对的在场 NPC，NPC 自己掷的那条不补）与 `approach`。这是让账本能只读收据的前提；守秘人从不被问这件事。
 - **stance 的数全在表里。** `content/rulesets/coc7/rules-json/npc-stance.json`：初值 0、区间 −5..5、四档阈值（≤ −3 hostile、≤ −1 wary、≤ 1 neutral、其余 warm）、`social[approach][level]` 的增减、`pushed_failure_delta`、`combat_target_score`。代码里没有一个字面量；表里没写的 approach 或 level 一律动 0——沉默是零，不是猜。显式 `apply npc stance` 把分数置为该档下界。
@@ -16687,7 +16815,12 @@ located, and nothing else. It never classifies text.
   pending defence that carries a `standing` whose word is one of its issued `options` is bound to that word, so
   it is a `direct` step, never a Jev `decide` and never an LLM `infer`; its `basis` adds `standing: {defense,
   basis}`, which the tool and admission rows of §135.7 carry. Only a pending defence without a standing (a kernel
-  that predates §11.5.2) keeps the closed Jev bind over its options;
+  that predates §11.5.2) keeps the closed Jev bind over its options. **SL-08 (§11.5.3):** on an NPC's own turn a
+  `standing_action` of `attack` makes the issued `combat:attack` the forced step, bound to the one target and the
+  one weapon (`direct`) or a Jev bind over the kernel's `targets` / `weapons` when there are several; `hold` and
+  `flee` issue no step for that NPC, and the run's note to the Keeper carries `npc_turn`; a standing the builder
+  cannot trust, or none, keeps the closed Jev bind over the issued actions. Its `basis` adds `standing: {action,
+  basis, disposition?}`;
 - located clue and handout entities.
 
 While a combat or chase session runs, scene moves are not offered: leaving is the session's own `combat:flee`
@@ -16855,6 +16988,7 @@ row:
 | `gate` | a route's `when` (and the legacy `unlock_when`/`conditions` the exit reader accepts) | not validated on routes (landed data, some of it legacy); validated wherever a container shape embeds one (`hazard.when`, `reward.when`) |
 | `clock` | a `threat` record's `clocks[]` (`clock_id`, `segments`, `on_tick_visible`, `on_full`, as read today) | only the new optional key `advances_on` |
 | `tactic` | an `npc` or `creature` record's `combat.defense` (ruling D) | its closed enum |
+| standing action, combat disposition | the same record's `combat.action` and `combat.disposition` (§11.5.3, SL-08) | their closed enums |
 
 **`tactic` has one seat (ruling D).** It is SL-07's key: the record's `combat.defense`, one of `dodge`,
 `fight_back`, `none` (branch `claude/sl07-npc-standing-defense-20260923`, §11.5.2 there, which owns the reader
@@ -17008,8 +17142,11 @@ non-empty line, system language), numbers are numbers, enums are closed, dice pe
     boolean, `base_range_yards` a number 0–100000, `magazine` an integer 1–1000, `malfunction` an integer
     1–100, as `validateDefinition` has them. Seats: `stat_block.weapons[]`, `mechanics.weapon` of an object or
     artifact.
-11. **`tactic`** — registered at `combat.defense` (§136.1): `{defense: "dodge" | "fight_back" | "none"}`; the
-    record's `combat` carries only `defense`.
+11. **`tactic`** — registered at `combat.defense` (§136.1): `{defense: "dodge" | "fight_back" | "none"}`. Since
+    SL-08 the record's `combat` also seats the NPC's authored standing action and combat disposition (§11.5.3):
+    `{defense?, action?: "attack", disposition?: "fights_to_the_end" | "fights_then_flees" | "avoids_fighting" |
+    "surrenders"}`, at least one of the three, nothing else; each word outside its enum is `shape_prose`, another
+    key `shape_unknown_key`.
 12. **`spell`** — `{cost_mp: int | DICE | cost_mp_unstated: true | cost_mp_chosen: true, cost_sanity: int |
     DICE | cost_sanity_unstated: true, cost_pow?: int | DICE (twin admitted), casting_time: time_cost,
     duration?: time_cost, effects?: [{kind: "hp" | "san" | "mp", amount: int | DICE, direction: "gain" |
@@ -17060,8 +17197,8 @@ rule, never the wording.
 | rule | refused |
 | --- | --- |
 | `mechanics_unknown_shape` | a key under `mechanics` outside §136.1 (on a starter, outside §136.1 and its container allowance), `mechanics.tactic` included; `mechanics` not an object |
-| `mechanics_wrong_kind` | a shape on a node kind outside its §136.1 row; `combat.defense` on a kind other than `npc`/`creature`; `advances_on` on a record that is not a `threat`'s clock |
-| `mechanics_unsourced` | a node carrying a shape (a container shape, `combat.defense`, `advances_on`) without a non-empty `source_refs` list of objects, or on a starter without a non-empty `evidence_span_ids` list of strings; except a starter's lone registered `profile` while the allowance stands (§136.1). The reader's "a ref to a page the reader did not view" law is RD-05's |
+| `mechanics_wrong_kind` | a shape on a node kind outside its §136.1 row; `combat` (`defense`, `action`, `disposition`) on a kind other than `npc`/`creature`; `advances_on` on a record that is not a `threat`'s clock |
+| `mechanics_unsourced` | a node carrying a shape (a container shape, `combat`, `advances_on`) without a non-empty `source_refs` list of objects, or on a starter without a non-empty `evidence_span_ids` list of strings; except a starter's lone registered `profile` while the allowance stands (§136.1). The reader's "a ref to a page the reader did not view" law is RD-05's |
 | `shape_unknown_key` | a key outside the shape's closed set (the starter allowance aside), in a shape, a weapon, a check (owner `rule`) or its value, an effect, a trigger, a gate, a guard map |
 | `shape_prose` | a value of the wrong type where the shape needs a number, an integer, a boolean, an enum value or an id: a string in a number slot, a word outside a closed enum, a non-kebab `weapon_id`, a twin that is not `true` |
 | `shape_dice` | a dice slot outside §136.3, or a Sanity half outside its rule |
