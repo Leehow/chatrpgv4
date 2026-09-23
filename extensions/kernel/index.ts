@@ -10,7 +10,8 @@ import { existsSync } from "node:fs";
 import { appendFile, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { createRuntime, type HostRuntime } from "../../runtime/host.ts";
-import { adaptationService } from './adaptation.ts';
+import { adaptationModel, adaptationService } from './adaptation.ts';
+import { fastLaneChoice } from '../lanes/subsession.ts';
 export { kernelCommand } from "../../runtime/host.ts";
 import { cocHome, cocMode } from "../lanes/host.ts";
 import { agentHomeOf, openingHelp } from "../ui/hints.ts";
@@ -1459,9 +1460,10 @@ export default function (pi: ExtensionAPI) {
 		for (const text of wanted) state.mapWordsAsked.add(text);
 		let model: string | undefined, thinking: string | undefined;
 		try {
+			// The runtime resolves a `mod` child's model itself (§37.10); resolving it here through the same
+			// reader is what lets the telemetry row name the model that actually ran, not the table's.
 			const chosen = sessionCtx?.model;
-			model = chosen ? `${chosen.provider}/${chosen.id}` : undefined;
-			thinking = pi.getThinkingLevel?.();
+			({ model, thinking } = fastLaneChoice(sessionCtx, "PI_COC_MOD_MODEL", chosen ? `${chosen.provider}/${chosen.id}` : undefined));
 		} catch { /* the session is gone; the lane still runs on the host's own defaults */ }
 		const began = Date.now();
 		const options: MapWordsOptions = { home: owner.home, resourceRoot: owner.resourceRoot, play_language: tag, model, thinking,
@@ -1912,7 +1914,7 @@ export default function (pi: ExtensionAPI) {
 					cause: outcome.reason,
 					detail: outcome.detail.slice(0, 200),
 					...(outcome.model ? { model: outcome.model } : {}),
-					fix: "The action review keeps failing, so player actions keep being refused. Switch the table to another model, or set PI_COC_ADMISSION_MODEL to a healthy provider/model and start a new session.",
+					fix: "The action review keeps failing, so player actions keep being refused. Choose a healthy model under Fast model in settings (the review reads it each time it runs), or set PI_COC_ADMISSION_MODEL to a healthy provider/model and start a new session.",
 				};
 				try {
 					pi.appendEntry("coc-admission-status", status);
@@ -2053,7 +2055,7 @@ export default function (pi: ExtensionAPI) {
 			cause: unreviewed.cause, service: unreviewed.service,
 			fix: `The continuity review has not judged the last ${streak} deliveries (${unreviewed.cause}), so those turns`
 				+ " were published without it. Play is unaffected. To get the review back, choose a quicker model under"
-				+ " Lane model in settings: the lane reads that choice each time it runs, so a change reaches this table"
+				+ " Fast model in settings: the lane reads that choice each time it runs, so a change reaches this table"
 				+ " on its next review. PI_COC_MOD_MODEL still overrides the setting for the life of a session." };
 		pi.appendEntry("coc-review-status", status);
 		pi.events.emit("coc:review-status", status);
@@ -2148,7 +2150,7 @@ export default function (pi: ExtensionAPI) {
 		// again. Telling an operator to restart a table they could have kept is its own lost turn.
 		const status = {campaign: state.campaign, turn: state.turn, status: escalate ? 'down' : 'unavailable', streak, cause, service,
 			...(escalate ? {fix: 'The continuity review keeps failing, so finished turns cannot be published. ' +
-				'Choose a faster review model in the Lane model setting: the lane reads that choice each time it runs, ' +
+				'Choose a faster model in the Fast model setting: the lane reads that choice each time it runs, ' +
 				'so a change reaches this table on its next review. ' +
 				'PI_COC_MOD_MODEL still overrides the setting, but an environment variable is fixed for the life of a session.'} : {})};
 		pi.appendEntry('coc-review-status', status);
@@ -2851,9 +2853,8 @@ export default function (pi: ExtensionAPI) {
                 else if (sourceAnswer) result = { source_answer: sourceAnswer };
                 else if (spec.name === 'lookup' && params.kind === 'adaptation') {
                     if (!runtime) throw new KernelError({code: 'needs', message: 'The adaptation runtime is unavailable'});
-                    adaptations ??= adaptationService(runtime, (method, args) => state.kernel.call(method, args), () => ({
-                        name: process.env.PI_COC_ADAPTATION_MODEL || `${sessionCtx?.model?.provider}/${sessionCtx?.model?.id}`, thinking: pi.getThinkingLevel()
-                    }));
+                    // Contract §37.10.1: the fast model, read each time a creator or reviewer starts.
+                    adaptations ??= adaptationService(runtime, (method, args) => state.kernel.call(method, args), () => adaptationModel(sessionCtx));
                     result = await adaptations.lookup(payload, signal);
                 } else result = (await invokeOperation()) ?? {};
             }

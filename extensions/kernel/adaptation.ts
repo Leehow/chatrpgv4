@@ -4,13 +4,29 @@ import { readFile, writeFile } from 'node:fs/promises';
 import type { HostRuntime } from '../../runtime/host.ts';
 import { KernelError, isKernelError } from './client.ts';
 import { readerInput } from '../module/reader.ts';
+import { fastLaneChoice } from '../lanes/subsession.ts';
+import type { ExtensionContext } from '@earendil-works/pi-coding-agent';
 
 const FOREGROUND_WAIT_MS = 12_000;
 const TASK_TIMEOUT_MS = 30_000;
 const TASK_MAX_REQUESTS = 6;
 
 type Call = (method: string, params: Record<string, any>) => Promise<any>;
-export function adaptationService(runtime: HostRuntime, call: Call, model: () => {name: string; thinking?: any}) {
+
+/**
+ * What an adaptation creator or reviewer runs on (contract §37.10.1): `PI_COC_ADAPTATION_MODEL`, then
+ * the fast-model setting, then the table's own model; its effort is the setting's or the lane's own
+ * level, never the table's. Both tasks run under a 30 s cap and six model calls while the player sits
+ * on a preparation wait, and nothing either writes is the Keeper's prose -- the reviewed proposal is
+ * campaign data the Keeper then plays from -- so it is a lane that has to be quick. Read each time a
+ * task starts, so a change under a running table reaches the next creator or reviewer.
+ */
+export function adaptationModel(ctx: ExtensionContext | undefined): {name?: string; thinking: string} {
+    const table = ctx?.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
+    const chosen = fastLaneChoice(ctx, 'PI_COC_ADAPTATION_MODEL', table);
+    return {...(chosen.model ? {name: chosen.model} : {}), thinking: chosen.thinking};
+}
+export function adaptationService(runtime: HostRuntime, call: Call, model: () => {name?: string; thinking?: any}) {
     const tasks = new Map<string, {campaign: string; name: string; run: Promise<void>; controller: AbortController}>();
     async function waitFor(task: {run: Promise<void>; controller: AbortController}, signal?: AbortSignal) {
         const configured = Number(process.env.PI_COC_ADAPTATION_WAIT_MS);

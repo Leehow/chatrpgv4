@@ -252,7 +252,7 @@ export default function (pi: ExtensionAPI) {
 
 	// The shared writer, which also escalates a streak of failures to the operator (contract §56).
 	const telemetry = createLaneTelemetry(pi, {
-		lane: "voice", modelEnv: "PI_COC_NPCVOICE_MODEL", cwd: () => scheduler.ctx?.cwd,
+		lane: "voice", modelEnv: "PI_COC_VOICE_MODEL", cwd: () => scheduler.ctx?.cwd,
 	});
 	const record = (campaign: string, row: Record<string, unknown>) => telemetry.record(campaign, row);
 
@@ -289,7 +289,7 @@ export default function (pi: ExtensionAPI) {
 		if (!model.ok) return { ok: false, reason: "lane_error", detail: model.detail };
 		const signal = scheduler.signal;
 		const write = (objection?: string, previous?: Lines) => writeVoice<Lines>({
-			runtime: owner, jobId, model: `${model.model.provider}/${model.model.id}`,
+			runtime: owner, jobId, model: `${model.model.provider}/${model.model.id}`, pinned: model.source === "operator",
 			systemPrompt: systemPrompt(packet),
 			input: userInput(packet, objection) + (previous ? `\n[Candidate to repair]\n${JSON.stringify("voice" in previous ? previous : { voice: null, reason: SILENT_REASON })}` : ""),
 			signal, shape: parsed => shapeLines(parsed, packet),

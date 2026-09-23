@@ -8,6 +8,7 @@ import { KernelError } from "../extensions/kernel/client.ts";
 import { runReader, type ReaderRequest } from "../extensions/module/reader.ts";
 import type { RuntimeCapabilities, RuntimeCheck, RuntimeContext } from "./host.ts";
 import { runHostProcess } from "./process.ts";
+import { FAST_MODEL_SETTINGS_FILE, fastModelChoiceOf, readFastModelChoice, resolveFastModel, resolveFastThinking } from "./fast-model.ts";
 
 const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
 const cancelled = () => new KernelError({ code: "internal", message: "Runtime operation was cancelled", details: { reason: "runtime_cancelled" } });
@@ -138,7 +139,7 @@ async function childCatalog(agentHome: string): Promise<ReadonlyMap<string, Read
 }
 
 /**
- * The lane model and reasoning effort the operator has chosen **right now**.
+ * The fast model and reasoning effort the operator has chosen **right now**.
  *
  * Read at task time, from the same directory `childCatalog` already reads its registries from,
  * because a process environment cannot change and this choice must. The host used to hand the
@@ -157,29 +158,16 @@ async function childCatalog(agentHome: string): Promise<ReadonlyMap<string, Read
  * from it. Every failure to read it — absent file, half-written JSON, another product's shape, a
  * deployment with no such host at all (the CLI table) — is one source fewer and never an error: the
  * lane then runs on whatever the caller asked for, which is the behaviour that predates the setting.
+ *
+ * Since the 2026-09-23 ruling this is the *fast model* (§37.10.1), and its reader lives in
+ * `runtime/fast-model.ts` so any host process can take it without this module's task machinery;
+ * these two names stay for callers that already import them from here.
  */
-export const LANE_SETTINGS_FILE = "pipiui-settings.json";
-const LANE_EXTENSION = "coc-keeper";
+export const LANE_SETTINGS_FILE = FAST_MODEL_SETTINGS_FILE;
+export const laneChoiceOf = fastModelChoiceOf;
 
-/**
- * The reasoning effort a `mod` lane child runs at when nobody has chosen one (contract §37.11).
- *
- * Not the table's. The table's reasoning effort is a Keeper-quality choice with no relation to a
- * background review. Before §110 the reviewer had a 40 s wall-clock allowance, so `high` could spend
- * the entire allowance inside one unfinished thinking stream; two campaigns died of exactly this on
- * 2026-09-14 (§37.11). §110 removed that interactive deadline in favour of an hour-scale process safety
- * ceiling, but the efforts remain separate: changing Keeper quality must not silently change review
- * latency and cost.
- *
- * `low` rather than `off` or `minimal`, on the authorized lane models' own thinking maps rather
- * than on taste: `grok-build/grok-4.6` maps `off` to null, so pi's `clampThinkingLevel` moves a
- * requested `off` *up* to `minimal`; the DeepSeek family maps `minimal` to null and moves that up
- * to `low`. `low` is the one level both support as written, so it is the only one whose meaning
- * does not change when the lane model does -- and a default that means different things on
- * different models is the same wrong coupling in another costume. It is also what the second
- * campaign was recovered with: set to `low`, the next turn settled in 40 s with `narrate` in 20.6 s.
- */
-const LANE_THINKING_DEFAULT = "low";
+// What a `mod` lane child runs at when nobody has chosen an effort is `LANE_THINKING_DEFAULT`, never
+// the table's level (contract §37.11); the value and its evidence live in `runtime/fast-model.ts`.
 
 /**
  * How long a lane child's provider connection may say nothing before its transport gives up
@@ -209,31 +197,6 @@ const LANE_THINKING_DEFAULT = "low";
  * liveness only; a productive stream may take as long as its work requires.
  */
 export const LANE_HTTP_IDLE_TIMEOUT_MS = 25_000;
-
-async function laneChoice(agentHome: string): Promise<{ model?: string; thinking?: string }> {
-  let document: unknown;
-  try { document = JSON.parse(await readFile(join(agentHome, LANE_SETTINGS_FILE), "utf8")); }
-  catch { /* no host settings document, or an unreadable one: the caller's own choice stands */ }
-  return laneChoiceOf(document);
-}
-
-/**
- * The lane choice held in a parsed host settings document, or nothing for any shape that is not one.
- * Shared with the zero-tool lanes (`extensions/lanes/subsession.ts`, contract §107.3), which read the
- * same document at the moment they run: one setting, one store, every lane.
- */
-export function laneChoiceOf(document: unknown): { model?: string; thinking?: string } {
-  const slot = (document as { extensions?: Record<string, { settings?: unknown }> } | undefined)?.extensions?.[LANE_EXTENSION];
-  const stored = slot && typeof slot === "object" ? slot.settings : undefined;
-  const pick = (key: string, field: string): string | undefined => {
-    const value = (stored as Record<string, unknown> | undefined)?.[key] as Record<string, unknown> | undefined;
-    const chosen = value && typeof value === "object" ? value[field] : undefined;
-    return typeof chosen === "string" && chosen.trim() ? chosen.trim() : undefined;
-  };
-  const model = pick("ext.coc-keeper.laneModel", "model");
-  const thinking = pick("ext.coc-keeper.laneThinking", "level");
-  return { ...(model ? { model } : {}), ...(thinking ? { thinking } : {}) };
-}
 
 /**
  * The model and effort a presentation lane runs on when it runs outside any session (contract §23.1).
@@ -294,9 +257,13 @@ export const runtimeCapabilities: RuntimeCapabilities = Object.freeze({
     // The choice is read now rather than inherited from the session's environment, so a change under
     // a running table reaches the next lane child instead of the next session.
     if (task.kind === "mod") {
-      const chosen = await laneChoice(context.agentHome);
-      request.model = context.env.PI_COC_MOD_MODEL?.trim() || chosen.model || request.model;
-      request.thinking = context.env.PI_COC_MOD_THINKING?.trim() || chosen.thinking || LANE_THINKING_DEFAULT;
+      // A caller whose model is already an operator's per-lane override (`PI_COC_NPC_MODEL`,
+      // `PI_COC_VOICE_MODEL`) says so, and neither the setting nor the general `PI_COC_MOD_MODEL`
+      // outranks it: the more specific operator choice wins (§37.10.1).
+      const chosen = await readFastModelChoice(context.agentHome);
+      if (!(request.pinnedModel && request.model))
+        request.model = resolveFastModel({ override: context.env.PI_COC_MOD_MODEL, choice: chosen, table: request.model }).model;
+      request.thinking = resolveFastThinking({ override: context.env.PI_COC_MOD_THINKING, choice: chosen });
       // Same shape as the budget knob below: the host's own environment is the operator's override.
       const idle = Number(context.env.PI_COC_MOD_HTTP_IDLE_TIMEOUT_MS);
       request.httpIdleTimeoutMs ??= idle > 0 ? idle : LANE_HTTP_IDLE_TIMEOUT_MS;

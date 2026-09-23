@@ -25,6 +25,12 @@ export interface ReaderRequest {
 	brief: string;
 	/** `provider/model`; without one, pi's own default model is used. */
 	model?: string;
+	/**
+	 * `model` is an operator's per-lane override (its own environment variable, e.g.
+	 * `PI_COC_VOICE_MODEL`), so a `mod` task keeps it: neither the fast-model setting nor the general
+	 * `PI_COC_MOD_MODEL` outranks the more specific operator choice (contract §37.10.1).
+	 */
+	pinnedModel?: boolean;
 	thinking?: string;
 	signal?: AbortSignal;
 	timeoutMs?: number;
