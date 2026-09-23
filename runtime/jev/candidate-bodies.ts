@@ -94,8 +94,11 @@ function graphRow(entity: Row): Row {
  * the book's consequence lines are not in it.
  */
 function obligationBody(row: Row, candidate: Candidate): Row {
-  const next = object(row.next), guards = array(object(candidate.detail).guards);
+  // A meeting the check carries (§135.26) is named first; the step shown is the check.
+  const carried = object(row.next).kind === 'meet' && object(row.then).kind === 'check';
+  const next = carried ? object(row.then) : object(row.next), guards = array(object(candidate.detail).guards);
   return {demand: text(row.name), ...(text(row.who) ? {who: text(row.who)} : {}), state: text(row.state),
+    ...(carried ? {first: `meet ${text(object(row.next).person)}`} : {}),
     next: {kind: text(next.kind), ...(text(next.target) ? {target: text(next.target)} : {}), ...(next.selection ? {selection: next.selection} : {}),
       ...(Array.isArray(next.approaches) ? {approaches: next.approaches} : {}), ...(next.difficulty ? {difficulty: next.difficulty} : {})},
     ...(guards.length ? {guards} : {}), ...(row.reaction === 'preordained' && text(row.who) ? {reaction: `the book skips ${text(row.who)}'s reaction roll`} : {})};

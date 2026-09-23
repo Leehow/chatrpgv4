@@ -84,28 +84,40 @@ function variant(state, change) {
 	return { ...state, applyOptions };
 }
 
-test("at the morgue the stated meeting replaces the roster candidate, the archivist issues nothing, the guarded clues and Arty's Mod check are withheld", async (t) => {
+test("at the morgue the gate's check carries its meeting in place of the roster candidate, the archivist issues nothing, the guarded clues and Arty's Mod check are withheld", async (t) => {
 	const { call } = kernel(t);
 	await atMorgue(call);
 	const state = await reads(call);
 	assert.deepEqual(state.applyOptions.obligations.map((row) => [row.handle, row.state]), [[ACCESS, "open"], [ARCHIVIST, "blocked"]]);
+	const gate = state.applyOptions.obligations[0];
+	assert.deepEqual(gate.next, { kind: "meet", person: "Arty Wilmot" });
+	assert.deepEqual([gate.then.kind, gate.then.target, gate.then.approaches.map((value) => value.skill)], ["check", "Arty Wilmot", APPROACHES],
+		"the kernel names the check the meeting leads to");
 	const candidates = buildCandidates(state, INPUT);
 
-	// The meeting: one person candidate for Arty, the stated one, under the roster candidate's key.
-	const arty = candidates.filter((candidate) => candidate.family === "person" && candidate.bound.who === "Arty Wilmot");
-	assert.equal(arty.length, 1, "the stated meeting replaces the roster candidate, never a second one");
-	assert.equal(arty[0].key, "apply:person:Arty Wilmot");
-	assert.equal(arty[0].clerk, "stated_obligation");
+	// No routed candidate for Arty: the check carries his meeting (owner ruling 2026-09-23), so neither the roster
+	// candidate nor a separate stated meeting is offered.
+	assert.deepEqual(candidates.filter((candidate) => candidate.family === "person" && candidate.bound.who === "Arty Wilmot"), [],
+		"the meeting is carried by the check, never a second candidate and never the roster one");
+	const [check, ...others] = candidates.filter((candidate) => candidate.family === "obligation_check");
+	assert.equal(others.length, 0);
+	assert.equal(check.key, `resolve:obligation:${ACCESS}`);
+	assert.match(check.label, /^The book's price of "Access to the Globe clippings": meet Arty Wilmot first, then a regular Persuade, Intimidate, Charm or Fast Talk check against Arty Wilmot before anyone gets clue globe-unpublished-story or clue macario-tragedy$/);
+	const arty = check.before;
+	assert.equal(arty.key, "apply:person:Arty Wilmot");
+	assert.equal(arty.clerk, "stated_obligation");
 	assert.ok(CLERK_AUTHORITY.includes("stated_obligation"));
-	assert.deepEqual([arty[0].basis.read, arty[0].basis.path, arty[0].basis.obligation, arty[0].basis.step], ["table.apply.options", "obligations[0]", ACCESS, "meet"]);
-	assert.match(arty[0].label, /^The book puts Arty Wilmot \(gatekeeper\) here in the way of "Access to the Globe clippings": whoever is after clue globe-unpublished-story or clue macario-tragedy meets Arty Wilmot first; /);
-	// Its name binds as the roster's: without the table's own label, only the LLM can write it.
-	assert.equal(bindingOf(arty[0]), "open");
-	assert.deepEqual(arty[0].detail.guards.map((guard) => guard.clue), ["globe-unpublished-story", "macario-tragedy"]);
-	assert.ok(arty[0].detail.guards.every((guard) => guard.summary), "Jev reads what the gate guards");
-
-	// The check is not issued before its meeting; the blocked archivist issues nothing.
-	assert.equal(candidates.filter((candidate) => candidate.family === "obligation_check").length, 0);
+	assert.deepEqual([arty.basis.read, arty.basis.path, arty.basis.obligation, arty.basis.step], ["table.apply.options", "obligations[0]", ACCESS, "meet"]);
+	assert.match(arty.label, /^The book puts Arty Wilmot \(gatekeeper\) here in the way of "Access to the Globe clippings": whoever is after clue globe-unpublished-story or clue macario-tragedy meets Arty Wilmot first; /);
+	// A stated meeting is data: without the table's own label it is staged under the book's name, with no LLM step.
+	assert.equal(arty.bound.name, "Arty Wilmot");
+	assert.equal(bindingOf(arty), "none");
+	assert.deepEqual(arty.detail.guards.map((guard) => guard.clue), ["globe-unpublished-story", "macario-tragedy"]);
+	assert.ok(arty.detail.guards.every((guard) => guard.summary), "Jev reads what the gate guards");
+	// The table's own label, when the kernel issued one, is the name instead.
+	const labelled = buildCandidates({ ...state, capsule: { ...state.capsule, present: state.capsule.present.map((person) =>
+		person.name === "Arty Wilmot" ? { ...person, untold: { ...person.untold, label: "城市版编辑" } } : person) } }, INPUT);
+	assert.equal(labelled.find((candidate) => candidate.family === "obligation_check").before.bound.name, "城市版编辑");
 	assert.deepEqual(ofObligation(candidates, ARCHIVIST), [], "a blocked obligation issues nothing");
 	// Ruth is on the roster: her plain roster candidate stays, unmarked.
 	assert.equal(candidates.find((candidate) => candidate.key === "apply:person:Ruth Blake")?.clerk, "declared_bookkeeping");
@@ -128,8 +140,43 @@ test("at the morgue the stated meeting replaces the roster candidate, the archiv
 	// Nothing the kernel keeps for audit reaches Jev: no page, no guard tag, no Mod bookkeeping, no authority string.
 	const { batch } = routeBatch(initialView({ runId: "r", rawInput: INPUT, context, candidates, readFirst: false }), scope, []);
 	const shown = allText(batch.state) + allText(batch.questions);
-	for (const hidden of ["pdf", "448", "guarded_by", "mod_contact", "preordained", "authority", '"basis"', "stated_obligation", '"source"'])
+	for (const hidden of ["pdf", "448", "guarded_by", "mod_contact", "preordained", "authority", '"basis"', "stated_obligation", '"source"', '"before"'])
 		assert.ok(!shown.includes(hidden), `Jev never sees ${hidden}`);
+});
+
+test("now on the gate's check carries its meeting directly first, under the book's name and with no LLM step, then binds and rolls the check", async (t) => {
+	const { call } = kernel(t);
+	const turn = await atMorgue(call);
+	const state = await reads(call);
+	const candidates = buildCandidates(state, INPUT);
+	const check = candidates.find((candidate) => candidate.family === "obligation_check");
+	const view = initialView({ runId: "r", rawInput: INPUT, context, candidates: [], readFirst: false });
+	settleRead(view, 1, { materials: [], summary: {} }, { context, candidates }, 0);
+	const offered = view.candidates, index = offered.findIndex((candidate) => candidate.key === check.key);
+	const now = { status: "answered", type: "choice", choice: "now", confidence: 0.8 }, later = { ...now, choice: "later" };
+	const result = { batchId: "b", status: "complete", issues: [], coverage: { required: [], answered: [], unknown: [] },
+		answers: { ...Object.fromEntries(offered.map((_, i) => [`need_${i + 1}`, i === index ? now : later])), exit: { ...now, choice: "continue" } } };
+	const routed = interpretRoute(view, offered, result, 0.6);
+	assert.deepEqual(routed.selected, [check.key], "one Jev question answered now: the check");
+	// The meeting runs first, directly: no Jev question for it and no LLM step for its name.
+	assert.deepEqual(routed.pending.map((item) => [item.kind, item.purpose, item.candidate.key]), [["direct", "execute", "apply:person:Arty Wilmot"]]);
+	const meeting = routed.pending[0].candidate;
+	assert.equal(meeting.then, check.key);
+	const { tool, args } = keeperCall(meeting);
+	assert.equal(tool, "apply");
+	assert.deepEqual(args.effects, [{ kind: "person", who: "Arty Wilmot", name: "Arty Wilmot" }], "the book's name, no open parameter");
+	view.pending.push(...routed.pending);
+	assert.equal(next(view).kind, "direct");
+	const staged = await call("table.apply", { call_id: `t${turn}-c2`, effects: args.effects });
+	assert.ok(staged.receipts.length);
+	// The fresh read issues the check without its meeting; the policy binds it next (the several approaches: Jev).
+	const after = buildCandidates(await reads(call), INPUT);
+	const item = view.pending.shift();
+	settleExecute(view, 2, item, { ok: true, summary: {} }, { context, candidates: after }, 0);
+	assert.deepEqual(view.pending.map((value) => [value.kind, value.purpose, value.candidate?.key]), [["decide", "bind", check.key]]);
+	assert.equal(view.pending[0].candidate.before, undefined, "the fresh check carries nothing: the meeting is met");
+	assert.ok(view.consumed.includes("apply:person:Arty Wilmot"));
+	assert.ok(!view.observations.some((value) => value.kind === "infer"), "no LLM step on the way");
 });
 
 test("after the meeting the gatekeeper's check is an obligation_check with the closed approach binder; a pass releases the clues and issues the archivist", async (t) => {
@@ -197,6 +244,7 @@ test("after the meeting the gatekeeper's check is an obligation_check with the c
 	const ruth = after.filter((candidate) => candidate.family === "person" && candidate.bound.who === "Ruth Blake");
 	assert.equal(ruth.length, 1);
 	assert.deepEqual([ruth[0].clerk, ruth[0].basis.obligation, ruth[0].basis.step], ["stated_obligation", ARCHIVIST, "meet"], "the archivist, open now, states her meeting");
+	assert.deepEqual([ruth[0].bound.name, bindingOf(ruth[0])], ["Ruth Blake", "none"], "a meeting-only obligation is routed, under the book's name");
 	assert.match(ruth[0].label, /^The book puts Ruth Blake \(helpful_staff\) here for "The Globe archivist" once "Access to the Globe clippings" is settled: Ruth Blake is met next; /);
 });
 

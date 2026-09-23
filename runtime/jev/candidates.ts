@@ -244,6 +244,8 @@ export function buildCandidates(reads: StateReads, rawInput: string, consumed: R
   // contact checks a preordained one takes off the clerk's hands.
   const stated = obligationCandidates(reads, rawInput), guards = guardsOf(reads), preordained = preordainedContacts(reads);
   const meetings = new Map(stated.filter(candidate => candidate.family === 'person').map(candidate => [String(candidate.bound.who), candidate]));
+  // A meeting a stated check carries is not routed on its own: `now` on the check runs it (§135.26).
+  const carried = new Set(stated.flatMap(candidate => candidate.before ? [String(candidate.before.bound.who)] : []));
   const push = (candidate: Candidate) => {
     if (seen.has(candidate.key) || consumed.has(candidate.key)) return;
     seen.add(candidate.key); out.push(candidate);
@@ -296,6 +298,7 @@ export function buildCandidates(reads: StateReads, rawInput: string, consumed: R
   for (const [index, person] of array(capsule.present).map(object).entries()) {
     if (!text(person.name) || text(object(person.called).name) || guards.people.has(text(person.name))) continue;
     // The person the book puts here as an obligation's meeting: the stated candidate replaces this one (§135.26).
+    if (carried.has(text(person.name))) continue;
     const meeting = meetings.get(text(person.name));
     if (meeting) { push(meeting); continue; }
     const label = text(object(person.untold).label);

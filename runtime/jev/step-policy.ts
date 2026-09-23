@@ -74,6 +74,13 @@ export interface Candidate {
   forced?: boolean;
   /** A closed choice among issued actions (an NPC's turn): the bound `decision` selects the variant that then runs. */
   variants?: Record<string, CandidateVariant>;
+  /**
+   * A step the kernel requires first that this candidate carries (§135.26: the meeting a stated check implies). Selecting
+   * this candidate runs `before` directly, then this candidate as the fresh read re-issues it. Never shown to Jev.
+   */
+  before?: Candidate;
+  /** Set on a carried step: the key of the candidate it was carried for, run next from the fresh read. */
+  then?: string;
 }
 export type Binding = 'none' | 'closed' | 'open';
 export function bindingOf(candidate: Candidate): Binding {
@@ -443,6 +450,8 @@ export function settleLlmProposal(view: RunView, step: number, item: PendingItem
 
 /** The items that carry one candidate: direct when bound, a Jev bind when closed, an LLM bind when open. */
 export function itemsFor(candidate: Candidate, reason?: string): PendingItem[] {
+  // A carried step runs first; the candidate it was carried for follows from the fresh read (settleExecute).
+  if (candidate.before) return itemsFor({...candidate.before, then: candidate.key}, reason);
   const binding = bindingOf(candidate);
   return binding === 'none' ? [{kind: 'direct', purpose: 'execute', candidate, ...(reason ? {reason} : {})}]
     : binding === 'closed' ? [{kind: 'decide', purpose: 'bind', candidate, ...(reason ? {reason} : {})}]
@@ -509,6 +518,9 @@ export function settleExecute(view: RunView, step: number, item: PendingItem, ex
     // A scene change invalidates the material the route was judged on (runs 11-13: the people at the morgue
     // were judged against the office's material). The next step reads the new scene before any route.
     if (executed.ok && fresh.context.scene !== before) { view.located = false; view.pending.unshift({kind: 'direct', purpose: 'read'}); }
+    // §135.26: a carried step that landed hands on to the candidate it was carried for, as the fresh read issues it now.
+    const follow = executed.ok && !item.call && item.candidate?.then ? view.candidates.find(value => value.key === item.candidate!.then) : undefined;
+    if (follow) view.pending.unshift(...itemsFor(follow));
   }
   if (item.call) {
     observe(view, {kind: 'direct', purpose: 'execute', status: executed.ok ? 'ok' : 'refused', choice: item.call.label, summary: {...(executed.summary as Row), params: item.call.params} as Json});

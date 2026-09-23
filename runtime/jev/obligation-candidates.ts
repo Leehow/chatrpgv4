@@ -5,10 +5,13 @@
  * Everything here is read from that one issued list and its sibling rows -- the same projection the Keeper's capsule
  * compacts -- and nothing classifies text:
  *
- * - an `open` obligation's next `meet` step becomes the stated person candidate (it replaces the roster candidate for
- *   that person; its name binds exactly as the roster's does: the table's own label, else the LLM's to fill);
- * - its next `check` step becomes an `obligation_check` candidate with a closed binder: one available approach is
- *   bound, several are a closed Jev bind together with the ordinary binder's closed dice-modifier choice;
+ * - an `open` obligation's next `check` step becomes an `obligation_check` candidate with a closed binder: one available
+ *   approach is bound, several are a closed Jev bind together with the ordinary binder's closed dice-modifier choice;
+ * - a `meet` step the book puts before that check is carried by it (owner ruling 2026-09-23): the check is offered while
+ *   the meeting is still owed, and `now` on it runs the meeting directly first, then binds and rolls the check;
+ * - a `meet`-only obligation (the archivist) is the stated person candidate, routed like any person. A stated meeting
+ *   is data, not an open name (owner ruling 2026-09-23): the person is staged under the table's own label if the kernel
+ *   issued one, else under the book's name for them. Either way it replaces the roster candidate for that person;
  * - `blocked`, `settled` and `waived` obligations issue nothing;
  * - what an unsettled obligation guards is withheld from the clerk (the `guarded_by` rows, and the same clues, exits
  *   and people however else they would be offered), the hygiene of an exit whose `unlock_when.met` is false;
@@ -94,7 +97,11 @@ function afterName(reads: ObligationReads, row: Row): string {
 const basisOf = (row: Row, index: number, step: 'meet' | 'check'): Json =>
   ({read: 'table.apply.options', path: `obligations[${index}]`, row: row as Json, obligation: text(row.handle), step});
 
-/** The stated meeting: the roster candidate for the person the book puts here, marked as the book's (spec D6). */
+/**
+ * The stated meeting: the roster candidate for the person the book puts here, marked as the book's (spec D6). Its name
+ * is the table's own label when the kernel issued one, else the book's name for the person (the record's `name`): the
+ * book names who stands there, so no LLM step writes it (owner ruling 2026-09-23; §135.2's open name does not apply).
+ */
 function meeting(reads: ObligationReads, row: Row, index: number): Candidate | undefined {
   const next = object(row.next), name = text(next.person);
   const present = array(object(reads.capsule).present).map(object);
@@ -106,9 +113,9 @@ function meeting(reads: ObligationReads, row: Row, index: number): Candidate | u
   const where = words.length ? `in the way of "${text(row.name)}": whoever is after ${listed(words, 'or')} meets ${name} first`
     : after ? `for "${text(row.name)}" once "${after}" is settled: ${name} is met next` : `for "${text(row.name)}": ${name} is met first`;
   return {key: `apply:person:${name}`, verb: 'apply', family: 'person', source: 'table.apply.options',
-    label: `The book puts ${name}${role ? ` (${role})` : ''} here ${where}; put them on stage${label ? ` as "${label}"` : ' under what this table calls them'}`,
-    bound: {kind: 'person', who: name, ...(label ? {name: label} : {})},
-    unbound: [...(label ? [] : [{name: 'name', required: true, vocabulary: 'open' as const}]), {name: 'why', required: false, vocabulary: 'open' as const}],
+    label: `The book puts ${name}${role ? ` (${role})` : ''} here ${where}; put them on stage as "${label || name}"`,
+    bound: {kind: 'person', who: name, name: label || name},
+    unbound: [{name: 'why', required: false, vocabulary: 'open' as const}],
     detail: {demand: text(row.name), stated_by: 'the module', ...(detail.length ? {guards: detail} : {})} as Json,
     clerk: 'stated_obligation', basis: basisOf(row, index, 'meet')};
 }
@@ -125,8 +132,8 @@ function available(reads: ObligationReads, approaches: Row[], actor: string | un
 }
 
 /** The obligation check: the book's stated price, with the closed approach binder (spec D6, clerk authority (e)). */
-function check(reads: ObligationReads, row: Row, index: number, rawInput: string): Candidate | undefined {
-  const next = object(row.next), target = text(next.target);
+function check(reads: ObligationReads, row: Row, index: number, rawInput: string, step: Row = object(row.next), first?: Candidate): Candidate | undefined {
+  const next = step, target = text(next.target);
   // The Mod check that serves this step (§134.13) is its candidate; a step the page leaves unstated is the Keeper's.
   if (next.served_by || next.approaches_unstated === true || next.difficulty_unstated === true || !text(next.difficulty)) return undefined;
   if (target && !strings(object(object(reads.applyOptions).context).present).includes(target)) return undefined;
@@ -152,31 +159,37 @@ function check(reads: ObligationReads, row: Row, index: number, rawInput: string
   const {words, detail} = guarded(reads, row);
   const how = approach ? listed(skills, 'or') : `the higher of ${listed(skills, 'and')}`;
   return {key: `resolve:obligation:${text(row.handle)}`, verb: 'resolve', family: 'obligation_check', source: 'table.apply.options',
-    label: `The book's price of "${text(row.name)}": a ${text(next.difficulty)} ${how} check${target ? ` against ${target}` : ''}`
-      + `${words.length ? ` before anyone gets ${listed(words, 'or')}` : ''}`,
+    label: `The book's price of "${text(row.name)}": ${first ? `meet ${text(first.bound.who)} first, then ` : ''}a ${text(next.difficulty)} ${how} check`
+      + `${target ? ` against ${target}` : ''}${words.length ? ` before anyone gets ${listed(words, 'or')}` : ''}`,
     bound: {obligation: text(row.handle), ...(target ? {target} : {}), ...(actor ? {actor} : {}), ...(approach && skills.length === 1 ? {skill: skills[0]} : {}),
       goal: rawInput, method: rawInput},
     unbound,
     detail: {demand: text(row.name), stated_by: 'the module', difficulty: text(next.difficulty),
       approaches: approaches.map(value => ({skill: text(value.skill), ...(Number.isSafeInteger(value.minimum) ? {minimum: value.minimum} : {})})),
       ...(detail.length ? {guards: detail} : {})} as Json,
-    clerk: 'stated_obligation', basis: basisOf(row, index, 'check')};
+    clerk: 'stated_obligation', basis: basisOf(row, index, 'check'), ...(first ? {before: first} : {})};
 }
 function descriptors(name: 'intent' | 'bonus' | 'penalty'): Record<string, string> {
   return Object.fromEntries(Object.entries(ORDINARY_CHOICES[name].criteria).filter(([key]) => key !== 'unknown').map(([key, value]) => [key, String(value)]));
 }
 
 /**
- * The candidates an open obligation's next step issues, in the order the kernel lists the obligations: a stated
- * meeting (keyed like the roster candidate it replaces) or an obligation check. Blocked, settled and waived rows
- * issue nothing.
+ * The candidates an open obligation's next step issues, in the order the kernel lists the obligations: an obligation
+ * check (carrying the meeting the book puts before it, as `before`), or, for a meeting-only obligation, the stated
+ * meeting (keyed like the roster candidate it replaces), which is also what a meeting leading to a check the clerk may
+ * not roll (served by a Mod, or unstated) issues. Blocked, settled and waived rows issue nothing; a meeting whose person
+ * is not on the roster issues nothing, and neither does the check it leads to.
  */
 export function obligationCandidates(reads: ObligationReads, rawInput = ''): Candidate[] {
   const out: Candidate[] = [];
   for (const [index, row] of array(object(reads.applyOptions).obligations).map(object).entries()) {
     if (row.state !== 'open') continue;
-    const next = object(row.next);
-    const candidate = next.kind === 'meet' ? meeting(reads, row, index) : next.kind === 'check' ? check(reads, row, index, rawInput) : undefined;
+    const next = object(row.next), then = object(row.then);
+    // A meeting the book puts before a check is carried by that check (owner ruling 2026-09-23); a meeting alone is routed.
+    const first = next.kind === 'meet' ? meeting(reads, row, index) : undefined;
+    const candidate = next.kind === 'check' ? check(reads, row, index, rawInput)
+      : first && then.kind === 'check' ? check(reads, row, index, rawInput, then, first) ?? first
+        : first;
     if (candidate) out.push(candidate);
   }
   return out;
