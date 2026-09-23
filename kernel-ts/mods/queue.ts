@@ -1,6 +1,6 @@
 /** Registration the Keeper asked for and delivery did not wait on; pure marker reads and writes. */
 import { isJsonObject, jsonDigest } from '../json.js';
-import { normalize, row, string, truth, values, type Row } from '../read/values.js';
+import {clone, normalize, row, string, truth, values, type Row } from '../read/values.js';
 
 const key = (name: string, category: string): string => jsonDigest([normalize(name), category]);
 
@@ -11,7 +11,7 @@ export function queuedRegistrations(world: Row): Row[] {
 
 export function queuedDefinition(world: Row, name: any, category?: string): Row | null {
     if (typeof name !== 'string' || !name.trim()) return null;
-    return queuedRegistrations(world).find(entry => normalize(string(entry.name)) === normalize(name)
+    return queuedRegistrations(world).find(entry => [entry.name,row(entry.identity).name,row(entry.object).name].some(value=>normalize(string(value))===normalize(name))
         && (category === undefined || entry.category === category)) ?? null;
 }
 
@@ -32,16 +32,21 @@ export function queueRegistration(world: Row, mod: string, entry: Row): void {
  * whole effect is kept, not just the row name: it can carry a document seed, a quantity or a causal
  * why, and the resume replays it down the ordinary staging path rather than reimplementing adoption.
  */
-export function queueAdoption(world: Row, name: string, category: string, effect: Row): boolean {
+export function queueAdoption(world: Row, name: string, category: string, effect: Row,identity?:Row): boolean {
     const id = key(name, category);
     for (const state of values(row(row(world.mods).state))) {
         if (!isJsonObject(state)) continue;
         const own = row(state.queued), entry = own[id];
         if (!isJsonObject(entry)) continue;
-        own[id] = {...entry, adopt: string(effect.adopt), owner: string(effect.to), object: effect};
+        own[id] = {...entry, adopt: string(effect.adopt), owner: string(effect.to), object: effect,...(identity?{identity:clone(identity)}:{})};
         return true;
     }
     return false;
+}
+export function discardRegistrationByJob(world:Row,job:string):boolean {
+    let changed=false;for(const state of values(row(row(world.mods).state))){if(!isJsonObject(state))continue;const queued=row(state.queued);
+        for(const [id,entry] of Object.entries(queued))if(isJsonObject(entry)&&entry.job===job){delete queued[id];changed=true;}}
+    return changed;
 }
 
 export function clearRegistration(world: Row, mod: string, name: string, category: string): void {

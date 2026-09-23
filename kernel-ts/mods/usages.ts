@@ -3,6 +3,7 @@ import {RpcError} from '../errors.js';
 import {isJsonObject, jsonDigest} from '../json.js';
 import {clone, equal, normalize, row, string, truth, values, type Row} from '../read/values.js';
 import {validateDefinition} from './definition.js';
+import {queuedDefinition} from './queue.js';
 
 export const USAGE_CAPABILITY = 'objects.usages.v1';
 const fail = (message: string, details: Row = {}): never => { throw new RpcError('invalid_params', message, {details}); };
@@ -17,7 +18,9 @@ export function usageObject(world: Row, name: any): Row | null {
 }
 export function usagePhysicalBasis(world: Row, name: string | Row): Row {
     const item = typeof name === 'string' ? usageObject(world, name) : name;
-    if (!item) throw new RpcError('needs', 'Place or adopt this object before preparing its usage');
+    if (!item){const waiting=queuedDefinition(world,name);throw new RpcError('needs',waiting
+        ? 'This object is owned, but its executable definition is still being prepared'
+        : 'Place or adopt this object before preparing its usage',{details:{reason:waiting?'definition_pending':'object_unplaced'}});}
     const definition = row(row(row(world.objects).definitions)[item.definition]);
     return {object_id:item.id, definition:item.definition, definition_digest:definition.digest ?? jsonDigest(definition), condition:item.state.condition, capability:USAGE_CAPABILITY};
 }

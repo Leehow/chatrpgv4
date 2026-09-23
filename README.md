@@ -78,7 +78,7 @@ npm run test:electron        # 复制进来的 PipiUI 套件，比对已记录�
 真坏的用例在没人跟它抢资源的时候照样坏，所以这两道都藏不住确定性的失败。仍然翻来翻去的，按名字
 写进同一文件的 `flaky`，两个方向都不查——每条都要写明为什么钉不住（目前是空的）。
 
-真桌验收走 `tests/play/driver.py`，grok 当守秘人，Claude 当玩家，一回合一回；方法见 `docs/acceptance.md`。
+真桌验收走 `tests/play/driver.py`，默认 `grok-build/grok-4.7-build-fast`、`low` 当守秘人，本主会话当唯一玩家，一回合一回；历史基线对照可显式指定其他模型，方法见 `docs/acceptance.md`。
 
 ## PipiCOC 界面
 

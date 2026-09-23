@@ -63,6 +63,7 @@ export function createModRuntime(context: KernelContext, sources: ModSources = {
     return Object.freeze({
       ...createDocumentHandlers(writer, runtime),
       'mods.job': params => jobs.job(params),
+      'mods.identity.plan': params => jobs.identityPlan(params),
       'mods.accept': params => jobs.accept(params),
       'mods.prefetch.accept': params => jobs.acceptPrefetch(params),
       'mods.prefetch.targets': params => jobs.prefetchTargets(params),

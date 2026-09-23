@@ -7,7 +7,7 @@ import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
 import { agentExtensionManifests } from '../runtime/deployment.mjs';
-import { assemblySignals, createAssemblyWorkspace } from './assembly-workspace.mjs';
+import { assemblySignals, assemblyStagingRoots, createAssemblyWorkspace } from './assembly-workspace.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const MANIFEST = 'pipicoc/runtime-dependencies.json';
@@ -241,7 +241,8 @@ async function assemble({ repo = ROOT, output, nodeArchive, gitArchive, signal }
   repo = await realpath(resolve(repo));
   if (typeof output !== 'string' || !output) throw new Error('assembleRuntime requires an output staging path');
   output = resolve(repo, output);
-  if (![join(repo, '.build.noindex'), join(repo, '.tmp')].some(root => within(root, output)) || output === join(repo, '.tmp') || output === join(repo, '.build.noindex')) throw new Error('Runtime assembly output must be a dedicated .build.noindex or .tmp staging directory');
+  const stagingRoots = assemblyStagingRoots(repo);
+  if (!stagingRoots.some(root => within(root, output)) || stagingRoots.includes(output)) throw new Error('Runtime assembly output must be a dedicated build staging directory');
   if (await exists(output)) throw new Error(`Runtime output already exists; choose a fresh staging path: ${output}`);
   const manifest = await json(join(repo, MANIFEST));
   if (manifest.schemaVersion !== 1 || process.platform !== manifest.platform || process.arch !== manifest.architecture) throw new Error('This runtime assembler requires macOS arm64');
@@ -256,7 +257,7 @@ async function assemble({ repo = ROOT, output, nodeArchive, gitArchive, signal }
   if (missing.length) throw new Error(`Compiled runtime is incomplete:\n${missing.map(path => '  ' + path).join('\n')}`);
   await mkdir(dirname(output), { recursive: true });
   const parent = await realpath(dirname(output));
-  if (![join(repo, '.build.noindex'), join(repo, '.tmp')].some(root => within(root, parent))) throw new Error('Runtime staging parent resolves outside the repository staging roots');
+  if (!stagingRoots.some(root => within(root, parent))) throw new Error('Runtime staging parent resolves outside the allowed staging roots');
   const workspace = await createAssemblyWorkspace({ repo, output, signal });
   const { work, resource, cache } = workspace;
   let outputPublished = false;

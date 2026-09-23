@@ -8,7 +8,7 @@ const snapshot=name=>({name,scope:{worldline:'main',loop:0},view_revision:`view-
  authored_knowledge:[],knowledge_reports:[],relationships:[],commitments:[],recent_speech:[]});
 function answer(batch){
  const answers=Object.fromEntries(batch.questions.map(q=>[q.key,{status:'answered',type:q.type,
-   ...(q.type==='choice'?{choice:q.key==='choose'?'response:1':'supported'}:{score:3})}]));
+   ...(q.type==='choice'?{choice:q.key==='choose'?'response:1':q.key==='respond'?'respond':'supported'}:{score:3})}]));
  return {batchId:batch.id,status:'complete',answers,coverage:{required:batch.questions.map(q=>q.key),answered:batch.questions.map(q=>q.key),unknown:[]},issues:[],elapsedMs:1,attempts:1};
 }
 test('independent NPC requests start together, preserve separate perspectives and publish fast peers',async()=>{
@@ -63,4 +63,10 @@ test('NPC advice charges the actual parent budget and an exhausted parent preven
   assert.equal((await evaluateNpcResponses(options))[0].status,'unavailable');
   assert.equal(calls,1,'optional advice cannot create fresh independent capacity under an exhausted parent');
  }finally{parent.close();}
+});
+
+test('a present person can stay out of an exchange even when a compatible intention was speculatively chosen',async()=>{
+ const value=snapshot('Anna'),decision={decide:async batch=>{const result=answer(batch);result.answers.respond={status:'answered',type:'choice',choice:'quiet'};return result;}};
+ const result=await evaluateNpcResponses({campaign:'test',snapshots:[value],decision,signal:new AbortController().signal,current:async()=>value});
+ assert.equal(result[0].status,'unneeded');assert.equal(result[0].selected,undefined);
 });

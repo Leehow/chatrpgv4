@@ -1,13 +1,13 @@
 /** Stage existing Mod object effects in the shared apply batch. */
 import { RpcError } from '../errors.js';
-import { canonicalJson, isJsonObject, orderedObject } from '../json.js';
+import { canonicalJson, isJsonObject, orderedObject,jsonDigest } from '../json.js';
 import { actor as selectActor } from '../read/handlers.js';
 import { findNamedObject } from '../read/mods.js';
 import type { ModuleGraph } from '../read/module-graph.js';
 import { array, clone, entries, equal, integer, normalize, repr, row, string, truth, type Row } from '../read/values.js';
 import type { CampaignWritePort, DomainEvent } from '../transactions.js';
 import type { ApplyContext } from '../apply/index.js';
-import { stagedSheet } from '../apply/inventory.js';
+import {stagedSheet,stagePendingItemIdentity} from '../apply/inventory.js';
 import { required } from '../write/store.js';
 import { validateDefinition } from './definition.js';
 import { initializeDocument, ownershipChanged, writeDocument } from './documents.js';
@@ -60,6 +60,7 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
             if (!packageRow || packageRow.digest !== provenance.digest || !truth(packageRow.contributes.materializer))
                 throw new RpcError('invalid_params', 'Definition provenance is not an active materializer');
             queueRegistration(world, packageRow.id, {name, category, job: effect._queued, turn,
+                ...(effect._identity_defer===true?{optional_identity:true}:{}),
                 define: {kind: 'define', name, category, ...(truth(effect.description) ? {description: effect.description} : {}), ...(truth(effect.template) ? {template: effect.template} : {})},
                 adopt: null, owner: null, object: null});
             return {receipt: {id: mint(`definition:queued-${callId}`), kind: 'definition', name, category, queued: true, visibility: 'keeper', call_id: callId},
@@ -184,6 +185,17 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
                     event: {type: 'definition-queued', data: {name: string(waiting.name), category: string(waiting.category)}}};
             }
         }
+        if(effect._identity_defer===true&&!prior&&!Object.hasOwn(effect,'adopt')){
+            const waiting=queuedDefinition(world,truth(effect.definition)?effect.definition:name);
+            if(!waiting||waiting.optional_identity!==true||owner.kind!=='investigator'||division||Object.hasOwn(effect,'document')||Object.hasOwn(effect,'condition'))
+                throw new RpcError('invalid_params','This object transfer cannot use pending ordinary-item identity');
+            const staged=await stagePendingItemIdentity(context,effect,sheets),adoption={kind:'object',name,to:owner.name,adopt:name,
+                definition:string(waiting.name),quantity:staged.identity.quantity,why:effect.why??null,_pending_identity:staged.identity};
+            if(!queueAdoption(world,string(waiting.name),string(waiting.category),adoption,staged.identity))
+                throw new RpcError('invalid_params','The pending definition is no longer registered');
+            if(!staged.event)throw new RpcError('internal','The pending item identity produced no event');
+            return{receipt:staged.receipt,event:staged.event};
+        }
         if (!prior && !Object.hasOwn(effect, 'adopt') && owner.kind === 'investigator') {
             const sheet = sheets ? await stagedSheet(context, sheets, owner.name) : selectActor(await campaign.party() as Row[], owner.name);
             if (array(sheet.equipment).some(item => typeof item === 'string' ? item === name : isJsonObject(item) && item.name === name))
@@ -192,13 +204,16 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
         if (Object.hasOwn(effect, 'adopt')) {
             if (typeof effect.adopt !== 'string' || !effect.adopt.trim() || prior || source || owner.kind !== 'investigator' || !sheets)
                 throw new RpcError('invalid_params', 'Adopt needs an existing investigator equipment name, without from or an existing instance');
-            const sheet = await stagedSheet(context, sheets, owner.name), matches = array(sheet.equipment).flatMap((item, index) =>
-                typeof item === 'string' && item === effect.adopt || isJsonObject(item) && !truth(item.object_id) && item.name === effect.adopt ? [[index, item] as const] : []);
+            const sheet = await stagedSheet(context, sheets, owner.name),pending=row(effect._pending_identity),matches = array(sheet.equipment).flatMap((item, index) =>
+                (typeof item === 'string' && item === effect.adopt || isJsonObject(item) && !truth(item.object_id) && item.name === effect.adopt)
+                    &&(!truth(pending.token)||isJsonObject(item)&&item.pending_definition===pending.token)?[[index,item] as const]:[]);
             if (matches.length !== 1) throw new RpcError('invalid_params', 'Adoption must identify exactly one existing unmanaged equipment row');
             const [index, value] = matches[0]; adopted = value;
             if (array(sheet.weapons).some(weapon => isJsonObject(weapon) && normalize(string(weapon.name || weapon.display_name || '')) === normalize(effect.adopt)
                 && truth(weapon.weapon_id || weapon.damage || weapon.damage_die))) throw new RpcError('invalid_params', 'This equipment already has executable weapon parameters');
             const recorded = row(adopted), count = field(recorded, 'quantity', 1), condition = field(recorded, 'condition', 'intact');
+            if(truth(pending.token)&&jsonDigest(recorded)!==pending.row_digest)throw new RpcError('needs','The pending item identity changed before definition adoption',
+                {details:{reason:'pending_identity_stale'}});
             if (!equal(field(effect, 'quantity', count), count) || !equal(field(effect, 'condition', condition), condition)) throw new RpcError('invalid_params', 'Adoption preserves recorded quantity and condition');
             effect = {...effect, quantity: count, condition}; sheet.equipment.splice(index, 1);
         }

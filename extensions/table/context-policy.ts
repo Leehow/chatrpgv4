@@ -19,6 +19,7 @@ export const DIAGNOSTIC_TYPE = 'coc-context-status';
 /** Transport-only KIC workspace (contract §19.2): injected per request, never persisted. */
 export const WORKSPACE_TYPE = 'coc-workspace';
 export const PRESCREEN_TYPE = 'coc-prescreen';
+export const NPC_ADVICE_TYPE = 'coc-npc-advice';
 export const POLICY_VERSION = 2;
 export type Row = Record<string, any>;
 export interface ContextBinding {
@@ -184,7 +185,7 @@ function closedNoise(message: Row): boolean {
     if (message.role !== 'custom') return false;
     // A coc-workspace from an older binding is regenerated for the current request or omitted;
     // keeping one would let stale evidence ride every later turn as unclassified material.
-    if (['coc-capsule', HISTORY_TYPE, BRIEF_TYPE, DIAGNOSTIC_TYPE, WORKSPACE_TYPE, PRESCREEN_TYPE].includes(message.customType)) return true;
+    if (['coc-capsule', HISTORY_TYPE, BRIEF_TYPE, DIAGNOSTIC_TYPE, WORKSPACE_TYPE, PRESCREEN_TYPE, NPC_ADVICE_TYPE].includes(message.customType)) return true;
     const details = object(message.details);
     if (message.customType === 'coc-delivery' && details.coc_delivery === true && Number.isSafeInteger(details.turn)) return true;
     return message.customType === 'coc-host' && (details.kind === 'compacted'
@@ -194,6 +195,7 @@ function closedNoise(message: Row): boolean {
 export interface Projection {
     messages: Row[]; start: number; protectedBytes: number; unknownBytes: number;
     degraded?: string; droppedTail?: number; droppedUnknown?: number; overCeiling?: boolean; workspaceKept?: boolean; prescreenKept?: boolean;
+    npcKept?: boolean;
 }
 /**
  * The one request projection, and the one place the ceiling is enforced. Every exit fits
@@ -202,7 +204,7 @@ export interface Projection {
  */
 export function projectedMessages(input: {
     messages: Row[]; binding: ContextBinding; history: Row; brief?: Row; answering?: string[]; budget?: number;
-    workspace?: Row; prescreen?: Row;
+    workspace?: Row; prescreen?: Row; npc?:Row;
 }): Projection {
     const {messages, binding} = input, budget = input.budget ?? requestBudget();
     const fallback = (degraded: string): Projection => {
@@ -235,21 +237,21 @@ export function projectedMessages(input: {
     // Current capsule, the player's words, pending context, tool pairing and the ceiling all
     // precede it (contract §19.2); a missing workspace is a miss, never a degraded request.
     const optional: Row[] = [];
-    let workspaceKept = false, prescreenKept = false;
+    let workspaceKept = false, prescreenKept = false, npcKept=false;
     // Preselection may have excluded bodies supplied by the workspace. Reserve that dependency
     // first, so adding the supplement never removes evidence the ordinary request would retain.
-    for (const [kind, message] of [['workspace', input.workspace], ['prescreen', input.prescreen]] as const) {
+    for (const [kind, message] of [['workspace', input.workspace], ['prescreen', input.prescreen], ['npc',input.npc]] as const) {
         if (!message || cut.over || cut.dropped) continue;
         const widened = boundedTail(working, room([...optional, message]));
         if (!widened.over && !widened.dropped) {
             cut = widened; optional.push(message);
-            if (kind === 'prescreen') prescreenKept = true; else workspaceKept = true;
+            if (kind === 'prescreen') prescreenKept = true; else if(kind==='npc')npcKept=true;else workspaceKept = true;
         }
     }
     while (unknown.length && cut.over) {unknown = unknown.slice(1); droppedUnknown++; cut = boundedTail(working, room(optional));}
     const projected = [...fixed(optional), ...cut.messages];
     const over = cut.over || requestSize(projected) > budget;
-    return {messages: projected, start, ...(workspaceKept ? {workspaceKept} : {}), ...(prescreenKept ? {prescreenKept} : {}),
+    return {messages: projected, start, ...(workspaceKept ? {workspaceKept} : {}), ...(prescreenKept ? {prescreenKept} : {}), ...(npcKept?{npcKept}:{}),
         protectedBytes: requestSize(opening) + requestSize(cut.messages) + (brief.length ? requestSize(brief) : 0), unknownBytes: unknown.length ? requestSize(unknown) : 0,
         ...(cut.dropped ? {droppedTail: cut.dropped} : {}), ...(droppedUnknown ? {droppedUnknown} : {}),
         ...(over ? {overCeiling: true} : {}),

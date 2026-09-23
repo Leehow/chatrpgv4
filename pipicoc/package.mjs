@@ -9,7 +9,7 @@ import { assembleRuntime } from '../scripts/package-runtime.mjs';
 import { assemblySignals, removeAssemblyTreeSync } from '../scripts/assembly-workspace.mjs';
 import { createPackageRecipe } from './package-config.mjs';
 const repo=resolve(dirname(fileURLToPath(import.meta.url)),'..');
-const parent=join(repo,'.build.noindex/pipicoc');
+const parent=join(process.env.PIPICOC_APP_HOME||join(homedir(),'leehow/code/pipicoc-build'),'.staging');
 fs.mkdirSync(parent,{recursive:true});
 // The App has exactly one copy on disk and it lives in /Applications, because LaunchServices
 // refuses to register a symlink as a bundle: with the real bundle anywhere else, the App is

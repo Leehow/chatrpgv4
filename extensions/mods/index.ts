@@ -480,6 +480,7 @@ export default function modsExtension(pi: ExtensionAPI): void {
   };
 
   let outstanding: Promise<void> | undefined;
+  const optionalAttempts=new Set<string>();
 
   /**
    * Hand the batch to the kernel as markers so the turn is delivered without waiting, then generate the
@@ -511,23 +512,43 @@ export default function modsExtension(pi: ExtensionAPI): void {
     return true;
   }
 
+  async function deferOrdinaryIdentities(campaign:string,effects:Record<string,any>[]):Promise<Set<Record<string,any>>>{
+    const deferred=new Set<Record<string,any>>(),work:Record<string,any>[]=[];
+    for(const define of effects.filter(effect=>effect?.kind==='define')){
+      const defineKeys=new Set(['kind','name','category','description']),objectKeys=new Set(['kind','name','to','from','definition','handover','why','quantity','label']);
+      if(Object.keys(define).some(key=>!defineKeys.has(key))||(define.category??'item')!=='item'||effects.some(effect=>effect?.kind==='usage'))continue;
+      const objects=effects.filter(effect=>effect?.kind==='object'&&(effect.definition??effect.name)===define.name);
+      if(objects.length!==1||Object.keys(objects[0]).some(key=>!objectKeys.has(key)))continue;
+      const plan=await call?.('mods.identity.plan',{campaign,define,object:objects[0]});
+      if(plan?.eligible!==true||plan.accepted===true)continue;
+      define._queued=plan.job;define._provenance={mod:plan.mod,digest:plan.digest};define._identity_defer=true;
+      objects[0]._identity_defer=true;deferred.add(define);work.push({kind:'define',...plan.input});optionalAttempts.add(String(plan.job));
+    }
+    if(work.length){const prior=outstanding;outstanding=(async()=>{if(prior)await prior.catch(()=>undefined);
+      await materialize(campaign,work,undefined).catch(()=>undefined);})().finally(()=>{outstanding=undefined;});}
+    return deferred;
+  }
+
   /**
    * Complete deferred registrations at the top of the next turn, while it is open, through an ordinary
    * apply. One turn late is late; silently unregistered forever is a hole, so an entry whose parameters
    * never arrived is generated here rather than left behind a marker that hides its row from the audit.
    */
-  async function resume(campaign: string, signal?: AbortSignal, providerBudget?: TaskProviderBudget): Promise<void> {
+  async function resume(campaign: string, signal?: AbortSignal, providerBudget?: TaskProviderBudget,safeBoundary=false): Promise<void> {
     if (!call) return;
     const current = call;
     // Still generating beside the turn: there is nothing to complete yet, and waiting here would drag the
     // cost back onto the player's critical path, which is the whole reason the batch was deferred.
     if (outstanding) return;
-    let queued = await current("mods.queued", {campaign});
-    const unfinished: any[] = Array.isArray(queued?.unfinished) ? queued.unfinished : [];
-    if (unfinished.length) {
-      for (const input of unfinished) await task(campaign, "create", input, signal, undefined, undefined, providerBudget).catch(() => undefined);
-      queued = await current("mods.queued", {campaign});
-    }
+    let queued=await current('mods.queued',{campaign,publish_optional:safeBoundary});
+    const unfinished:any[]=Array.isArray(queued?.unfinished)?queued.unfinished:[],required=unfinished.filter(input=>input.optional!==true),
+      optional=unfinished.filter(input=>input.optional===true);
+    if(required.length){for(const input of required)await task(campaign,'create',input,signal,undefined,undefined,providerBudget).catch(()=>undefined);
+      queued=await current('mods.queued',{campaign,publish_optional:safeBoundary});}
+    if(safeBoundary&&optional.length&&!outstanding){const pending=optional.filter(input=>!optionalAttempts.has(String(input.job)));
+      for(const input of pending)optionalAttempts.add(String(input.job));
+      if(pending.length)outstanding=(async()=>{for(const input of pending)await task(campaign,'create',input,undefined).catch(()=>undefined);})()
+        .finally(()=>{outstanding=undefined;});}
     const effects: any[] = Array.isArray(queued?.effects) ? queued.effects : [];
     if (!effects.length) return;
     // The kernel extension owns the call ordinal, so the id is minted there. Inventing one here failed
@@ -607,13 +628,13 @@ export default function modsExtension(pi: ExtensionAPI): void {
       if (method === "apply") warm(payload.campaign, carriers(payload.effects ?? []));
       if (method !== "player_input") return;
       // Bookkeeping never costs a turn, so this reports rather than throws into the verb that just landed.
-      try { await resume(payload.campaign, signal); }
+      try { await resume(payload.campaign, signal,undefined,true); }
       catch (error) { void emitToPanel("coc-keeper", "mods-progress", {campaign: payload.campaign, done: 0, total: 0, deferred_failed: errorText(error)}); }
     },
     async prepare(method, payload, signal, providerBudget) {
       cancelPrefetch();
       if (["apply", "resolve", "narrate", "ask"].includes(method) && typeof payload.campaign === "string")
-        await resume(payload.campaign, signal, providerBudget);
+        await resume(payload.campaign, signal, providerBudget,false);
       if (method === "apply") {
         const effects: Record<string, any>[] = payload.effects ?? [];
         if (effects.some((effect: Record<string, any>) => effect?.kind === "usage")) {
@@ -629,8 +650,9 @@ export default function modsExtension(pi: ExtensionAPI): void {
           await materialize(payload.campaign, usages, signal, previews, providerBudget);
         } else {
           const defines = effects.filter((effect: Record<string, any>) => effect?.kind === "define");
-          if (defines.length && !(registrationOnly(effects) && await defer(payload.campaign, defines, signal)))
-            await materialize(payload.campaign, defines, signal, [], providerBudget);
+          const identities=await deferOrdinaryIdentities(payload.campaign,effects),remaining=defines.filter(effect=>!identities.has(effect));
+          if (remaining.length && !(registrationOnly(effects) && await defer(payload.campaign, remaining, signal)))
+            await materialize(payload.campaign, remaining, signal, [], providerBudget);
         }
       }
       if ((method === "narrate" || method === "ask") && payload.text) {

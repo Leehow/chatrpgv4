@@ -52,7 +52,8 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 PLAYTESTS_ROOT = REPO_ROOT / ".coc" / "playtests"
 CURRENT_RUN_FILE = PLAYTESTS_ROOT / ".current-run"
 DEFAULT_LAUNCHER = REPO_ROOT / "bin" / "pi-coc"
-DEFAULT_MODEL = "xai/grok-4.5"  # docs/kernel-rpc.md section 10: "缺省 xai/grok-4.5"
+DEFAULT_MODEL = "grok-build/grok-4.7-build-fast"
+DEFAULT_THINKING = "low"
 
 ACK_TIMEOUT = 10.0           # seconds to wait for pi's response to get_state/set_model/prompt-accept
 STOP_SETTLE_GRACE = 1.5      # seconds to wait for agent_settled after a terminal agent_end
@@ -375,10 +376,17 @@ class Daemon:
                 f"launcher not found: {launcher_path} "
                 f"(pass --launcher, set PI_COC_LAUNCHER, or wait for bin/pi-coc to exist)"
             )
-        self.log.write(f"spawning {launcher_path} --campaign {campaign} --mode rpc --no-session")
+        launch_args = ["--campaign", campaign, "--mode", "rpc", "--no-session",
+                       "--thinking", DEFAULT_THINKING]
+        if model:
+            if "/" not in model:
+                raise DriverError(f"--model must be 'provider/modelId', got {model!r}")
+            provider, model_id = model.split("/", 1)
+            launch_args += ["--provider", provider, "--model", model_id]
+        self.log.write(f"spawning {launcher_path} {' '.join(launch_args)}")
         self.pi = PiProcess(
             launcher_path,
-            ["--campaign", campaign, "--mode", "rpc", "--no-session"],
+            launch_args,
             self.dir / "pi-stderr.log",
             self.events_path,
             self.log,
@@ -1093,7 +1101,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--campaign", required=True)
     sp.add_argument("--run", default=None)
     sp.add_argument("--model", default=DEFAULT_MODEL,
-                     help="provider/modelId sent via set_model after start (default %(default)s)")
+                     help="provider/modelId selected before opening and confirmed via set_model (default %(default)s); thinking is low")
     sp.add_argument("--launcher", default=None,
                      help="path to bin/pi-coc-compatible launcher (default: env PI_COC_LAUNCHER, then bin/pi-coc)")
     sp.add_argument("--pregen", default=None, metavar="PREGEN",

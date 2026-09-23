@@ -1,6 +1,6 @@
 /** Staged legacy equipment and era-specific cash; managed instances keep their owner. */
 import {RpcError} from '../errors.js';
-import {isJsonObject,PythonFloat,compareUnicode} from '../json.js';
+import {isJsonObject,PythonFloat,compareUnicode,jsonDigest} from '../json.js';
 import {moduleDeclaration} from '../read/module-graph.js';
 import {findNamedObject} from '../read/mods.js';
 import {EntityIndex} from '../read/memory.js';
@@ -72,6 +72,16 @@ export async function stageItem(context:ApplyContext,effect:Row,staged:Map<strin
     else {if(before<negate(quantity))throw new RpcError('invalid_params',`${subject} holds ${before} × ${repr(name)}; cannot lose ${negate(quantity)}`,{fix:'an item leaves the sheet only if it is on it: apply the gain first, or a smaller loss',details:{name,held:before,quantity}});removeItem(sheet,name,negate(quantity));}
     const after=held(sheet,key),receipt={id:effectId(context,'item',name),kind:'item',call_id:context.callId,name,label:label||name,subject:id,subject_label:personLabel(context.world,id,subject),from:source,weapon:profile?string(profile.weapon_id):null,quantity,before,after,why,at:nowIso()};
     return {receipt,event:{type:'item-transferred',data:{name,to:id,quantity,...(source?{from:source}:{}),...(profile?{weapon:string(profile.weapon_id)}:{})}}};
+}
+export async function stagePendingItemIdentity(context:ApplyContext,effect:Row,staged:Map<string,Row>):Promise<StagedEffect&{identity:Row}>{
+    const sheet=await stagedSheet(context,staged,effect.to),name=string(effect.name),key=normalize(name);
+    if(array(sheet.equipment).some(entry=>itemMatches(entry,key)))throw new RpcError('invalid_params','A pending item identity must be a new equipment row');
+    const result=await stageItem(context,effect,staged,async()=>new Map()),token=string(result.receipt.id),
+        rowEntry=array(sheet.equipment).find(entry=>isJsonObject(entry)&&normalize(string(entry.name))===key&&number(entry.turn)===number(context.turn.turn));
+    if(!isJsonObject(rowEntry))throw new RpcError('internal','The pending item identity was not staged');
+    rowEntry.pending_definition=token;result.receipt.pending_definition=true;
+    const identity={token,owner:string(sheet.id),name,quantity:rowEntry.quantity??1,row_digest:jsonDigest(rowEntry)};
+    return{...result,identity};
 }
 const money=(value:any):any=>value instanceof PythonFloat&&Number.isInteger(number(value))?number(value):value;
 /**

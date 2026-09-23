@@ -86,7 +86,7 @@ PipiCOC 界面现已复制到本分支 `Electron/`，经 `pipicoc/rpc` 启动当
 **Pi-Coc 的验收 / 体验 / 开桌 / 实机测试 / 端到端只有一种方法**（用户说这些词就是在点这一条，不是在点建战役、pytest 或把命令行扔给用户）：
 
 1. 用 `tests/play/driver.py` 以 RPC 模式起 `bin/pi-coc`（建卡用 `--launcher bin/pi-coc-setup`）。驾驭器只做传输。
-2. **grok 当守秘人**（模型在 `.pi/coc-agent/settings.json` 里定），驱动全部判断、叙事、NPC、规则调用。
+2. **Grok Build 4.7 fast / low 默认当守秘人**（`grok-build/grok-4.7-build-fast`；2026-09-22 用户裁定），驱动全部判断、叙事、NPC、规则调用。源码游玩设置在 `.pi/coc-agent/settings.json`；驾驭器在进程启动时固定模型与 low，避免自动开场混用旧模型。历史基线对照可用 `--model` 显式指定 4.6 等模型，不改写旧测试证据。
 3. **本主会话就是唯一玩家。** 一次一句自然的话，一回合一回，从建卡/开场跑到结局或真阻断。不问「要我当玩家吗」——角色已定死。
 4. 沿途覆盖要测的能力点，不预设脚本，由守秘人正常推进。
 5. **慢可以，假不行。**

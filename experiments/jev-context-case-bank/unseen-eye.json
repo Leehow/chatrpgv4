@@ -1,0 +1,1130 @@
+{
+  "version": 1,
+  "id": "unseen-eye",
+  "sources": [
+    {
+      "id": "eye-broken-ward",
+      "kind": "pdf-visual",
+      "path": ".pi/prototypes/jev-pdf-player-bank/masks-global/cache/238a88664468b3f4ebbc1f996d4d7c4553ba4ad43b7e47c0ce6b1a939ce8da97.json",
+      "sha256": "1ef27fc1f9d3ec89e5f5a3851e28d95e844ddbee3cc2ea924a660429d8ac6aaa",
+      "document_sha256": "806966db20202a020af6213695dccc0b547fc998a73dd2f1344567e2579a1942",
+      "selector": {
+        "type": "pdf-image",
+        "page": 581
+      },
+      "quote": "If they question Brady further about the Eye of Light and Darkness, or tell or show him that they have the half that was left by the pyramid (Nuri of El Wasta, page 320, Egypt), Brady explains that the two halves might make nice bookends, seeing as they cannot be rejoined to form a functioning ward—from his and Mu’s research, once a ward is broken, it’s useless and a new one must be created from scratch. Only the Seven Cryptical Books of Hsan, which he liberated from Lin Yenyu, can help them create new ones (see Deciphering the Seven Cryptical Books, box nearby).",
+      "visual_review": {
+        "physical_page": 581,
+        "printed_page": "578",
+        "region": "Right column, A Real Eye Opener, complete paragraph below heading.",
+        "necessity": "A: old halves cannot be rejoined into a functioning ward; a broken ward requires a new creation. Appendix preparation alone does not settle repair of the old halves.",
+        "transcription": "Manually read from the original cached PNG; line wraps normalized. Image binding is not automatic quote verification."
+      }
+    },
+    {
+      "id": "eye-preparation",
+      "kind": "pdf-visual",
+      "path": ".pi/prototypes/jev-pdf-player-bank/masks-global/cache/d0d620413612c3a8a818419b72f15b6d469034b9007f5c9c4b20861a874dc097.json",
+      "sha256": "bf45f0883937670ecfcc1d8ce42653df2e6fb98b16a244d9446de459c1efca52",
+      "document_sha256": "806966db20202a020af6213695dccc0b547fc998a73dd2f1344567e2579a1942",
+      "selector": {
+        "type": "pdf-image",
+        "page": 637
+      },
+      "quote": "A powerful Elder spell that weakens many Mythos agents and servants. The spell requires a large sacrifice of POW (differing versions vary the amount required). A great sigil of the Eye is worked into a hard, natural substance, such as granite, and then fixed on a high place in the area to be warded. The Eye must be created in the afternoon before the full moon rises. At moonrise, the blood of an innocent (someone without Cthulhu Mythos knowledge) must be used to fill the pupil of the Eye once per hour until the dawn (only a few ounces of blood are actually needed).",
+      "visual_review": {
+        "physical_page": 637,
+        "printed_page": "634",
+        "region": "Right column, Eye of Light and Darkness, first complete prose paragraph.",
+        "necessity": "B: material, elevated placement, afternoon/full-moon timing, blood donor qualification and hourly blood schedule. A and C do not contain these preparation constraints.",
+        "transcription": "Manually read from the original cached PNG; line wraps normalized. Image binding is not automatic quote verification."
+      }
+    },
+    {
+      "id": "eye-chant-cost-start",
+      "kind": "pdf-visual",
+      "path": ".pi/prototypes/jev-pdf-player-bank/masks-global/cache/d0d620413612c3a8a818419b72f15b6d469034b9007f5c9c4b20861a874dc097.json",
+      "sha256": "bf45f0883937670ecfcc1d8ce42653df2e6fb98b16a244d9446de459c1efca52",
+      "document_sha256": "806966db20202a020af6213695dccc0b547fc998a73dd2f1344567e2579a1942",
+      "selector": {
+        "type": "pdf-image",
+        "page": 637
+      },
+      "quote": "The participants must chant as the first blood is given, repeating aloud a phrase that sounds something like, “SA-MA, SA-MA, TE-YO, SA-MA” till the dawn. The ward requires POW from the people chanting (not necessarily given with their knowledge). Each hour of the chant, the Eye leeches 5 POW from each participant until the exact",
+      "visual_review": {
+        "physical_page": 637,
+        "printed_page": "634",
+        "region": "Right column, final prose paragraph above illustration; continues onto physical page 638.",
+        "necessity": "C, first page: chanting begins with first blood and continues until dawn; each chanter loses 5 POW per hour, possibly without knowing. The unfinished sentence continues in eye-chant-cost-end.",
+        "transcription": "Manually read from the original cached PNG; line wraps normalized. Image binding is not automatic quote verification."
+      }
+    },
+    {
+      "id": "eye-chant-cost-end",
+      "kind": "pdf-visual",
+      "path": ".pi/prototypes/jev-pdf-player-bank/masks-global/cache/13a797734d843e77d8b26733e46f9cddd829d6e610c0f6ad4f1cec6284ab84be.json",
+      "sha256": "3cf640d01f4e25ee9df2d8d5b25c8cd2e590cbe7bebe40ae5c798c231eaa3918",
+      "document_sha256": "806966db20202a020af6213695dccc0b547fc998a73dd2f1344567e2579a1942",
+      "selector": {
+        "type": "pdf-image",
+        "page": 638
+      },
+      "quote": "amount of POW has been absorbed (100 POW for the standard version).\n\nThose losing all of their POW drop dead. If the POW is not accumulated before dawn the activation fails, all leeched energy is lost, and the procedure must be started again from scratch. The Keeper shouldn’t say what is happening until the creation of the ward has succeeded or failed; only then should the players be instructed to mark off the total losses (secretly recorded by the Keeper).",
+      "visual_review": {
+        "physical_page": 638,
+        "printed_page": "635",
+        "region": "Left column, top continuation and following complete paragraph; stops before If enough POW is gathered.",
+        "necessity": "C, second page: standard cumulative target 100 POW, death at zero POW, dawn failure with lost energy and restart; deferred disclosure is Keeper bookkeeping, not permission to expose hidden facts now.",
+        "transcription": "Manually read from the original cached PNG; line wraps normalized. Image binding is not automatic quote verification."
+      }
+    },
+    {
+      "id": "eye-assault-background",
+      "kind": "pdf-visual",
+      "path": ".pi/prototypes/jev-pdf-player-bank/masks-global/cache/238a88664468b3f4ebbc1f996d4d7c4553ba4ad43b7e47c0ce6b1a939ce8da97.json",
+      "sha256": "1ef27fc1f9d3ec89e5f5a3851e28d95e844ddbee3cc2ea924a660429d8ac6aaa",
+      "document_sha256": "806966db20202a020af6213695dccc0b547fc998a73dd2f1344567e2579a1942",
+      "selector": {
+        "type": "pdf-image",
+        "page": 581
+      },
+      "quote": "If the investigators have impressed Brady, either with their knowledge of what’s happening or through their ability to handle themselves, he explains the details of the armed assault he and Firm Action are planning against Gray Dragon Island (The New China Assault Force, page 586) and invites them to join the expedition. If they agree, Brady advises the investigators to find someplace safe to wait; someone will contact them when the moment comes. Time is of the essence and the bad things arranged by Roger’s crazy friends will happen soon if not stopped.",
+      "visual_review": {
+        "physical_page": 581,
+        "printed_page": "578",
+        "region": "Right column, Battle Plans, complete paragraph.",
+        "necessity": "Nonessential background: assault invitation and waiting arrangements answer none of the repair/preparation/cost/failure clauses.",
+        "transcription": "Manually read from the original cached PNG; line wraps normalized. Image binding is not automatic quote verification."
+      }
+    }
+  ],
+  "materials": [
+    {
+      "id": "eye-a",
+      "kind": "verbatim",
+      "source_refs": [
+        "eye-broken-ward"
+      ],
+      "text": "If they question Brady further about the Eye of Light and Darkness, or tell or show him that they have the half that was left by the pyramid (Nuri of El Wasta, page 320, Egypt), Brady explains that the two halves might make nice bookends, seeing as they cannot be rejoined to form a functioning ward—from his and Mu’s research, once a ward is broken, it’s useless and a new one must be created from scratch. Only the Seven Cryptical Books of Hsan, which he liberated from Lin Yenyu, can help them create new ones (see Deciphering the Seven Cryptical Books, box nearby)."
+    },
+    {
+      "id": "eye-b",
+      "kind": "verbatim",
+      "source_refs": [
+        "eye-preparation"
+      ],
+      "text": "A powerful Elder spell that weakens many Mythos agents and servants. The spell requires a large sacrifice of POW (differing versions vary the amount required). A great sigil of the Eye is worked into a hard, natural substance, such as granite, and then fixed on a high place in the area to be warded. The Eye must be created in the afternoon before the full moon rises. At moonrise, the blood of an innocent (someone without Cthulhu Mythos knowledge) must be used to fill the pupil of the Eye once per hour until the dawn (only a few ounces of blood are actually needed)."
+    },
+    {
+      "id": "eye-c",
+      "kind": "source-combination",
+      "source_refs": [
+        "eye-chant-cost-start",
+        "eye-chant-cost-end"
+      ],
+      "text": "The participants must chant as the first blood is given, repeating aloud a phrase that sounds something like, “SA-MA, SA-MA, TE-YO, SA-MA” till the dawn. The ward requires POW from the people chanting (not necessarily given with their knowledge). Each hour of the chant, the Eye leeches 5 POW from each participant until the exact\n\namount of POW has been absorbed (100 POW for the standard version).\n\nThose losing all of their POW drop dead. If the POW is not accumulated before dawn the activation fails, all leeched energy is lost, and the procedure must be started again from scratch. The Keeper shouldn’t say what is happening until the creation of the ward has succeeded or failed; only then should the players be instructed to mark off the total losses (secretly recorded by the Keeper)."
+    },
+    {
+      "id": "eye-a-duplicate",
+      "kind": "verbatim",
+      "source_refs": [
+        "eye-broken-ward"
+      ],
+      "text": "If they question Brady further about the Eye of Light and Darkness, or tell or show him that they have the half that was left by the pyramid (Nuri of El Wasta, page 320, Egypt), Brady explains that the two halves might make nice bookends, seeing as they cannot be rejoined to form a functioning ward—from his and Mu’s research, once a ward is broken, it’s useless and a new one must be created from scratch. Only the Seven Cryptical Books of Hsan, which he liberated from Lin Yenyu, can help them create new ones (see Deciphering the Seven Cryptical Books, box nearby)."
+    },
+    {
+      "id": "eye-a-report",
+      "kind": "faithful-paraphrase",
+      "source_refs": [
+        "eye-broken-ward"
+      ],
+      "text": "Brady and Mu’s research says that the broken Eye of Light and Darkness cannot be repaired into a working ward by joining its two halves. A broken ward is useless: another must be made from the beginning. Brady’s copy of the Seven Cryptical Books of Hsan, taken from Lin Yenyu, provides the means to make new ones."
+    },
+    {
+      "id": "eye-background",
+      "kind": "verbatim",
+      "source_refs": [
+        "eye-assault-background"
+      ],
+      "text": "If the investigators have impressed Brady, either with their knowledge of what’s happening or through their ability to handle themselves, he explains the details of the armed assault he and Firm Action are planning against Gray Dragon Island (The New China Assault Force, page 586) and invites them to join the expedition. If they agree, Brady advises the investigators to find someplace safe to wait; someone will contact them when the moment comes. Time is of the essence and the bad things arranged by Roger’s crazy friends will happen soon if not stopped."
+    },
+    {
+      "id": "eye-full-report",
+      "kind": "faithful-paraphrase",
+      "source_refs": [
+        "eye-broken-ward",
+        "eye-preparation",
+        "eye-chant-cost-start",
+        "eye-chant-cost-end"
+      ],
+      "text": "The old Eye of Light and Darkness cannot function again by rejoining its halves: once broken, it is useless and a new ward must be made from scratch. Brady and Mu established this in their research; the Seven Cryptical Books of Hsan taken by Brady from Lin Yenyu provide the means to make new ones. For a new Eye, work a large sigil into hard natural material such as granite and mount it high in the area to be warded. Make it during the afternoon preceding the rise of the full moon. Starting at moonrise, fill its pupil with the blood of someone with no Cthulhu Mythos knowledge, once an hour until dawn; only a few ounces are needed. With the first blood, participants begin chanting aloud until dawn, using a phrase approximately “SA-MA, SA-MA, TE-YO, SA-MA”. The chanting people supply POW, not necessarily knowingly: each hour the Eye drains 5 POW from each participant until the required amount has been collected. The standard version requires 100 POW in total; other versions may differ. Anyone who loses all their POW dies. If the required total is not collected before dawn, activation fails, all drained energy is lost, and the procedure must be restarted from scratch. The Keeper secretly tracks the losses and does not disclose what is happening until success or failure, then tells the players to mark off the totals. This report makes no claim about when a successful Eye becomes active."
+    },
+    {
+      "id": "eye-lossy-report",
+      "kind": "lossy-summary",
+      "source_refs": [
+        "eye-broken-ward",
+        "eye-preparation",
+        "eye-chant-cost-start",
+        "eye-chant-cost-end"
+      ],
+      "text": "Brady and Mu’s research says that the old Eye of Light and Darkness is useless once broken. Joining its halves will not restore a working ward; a new one has to be made from scratch. The Seven Cryptical Books of Hsan taken by Brady from Lin Yenyu can help create new ones. The new ward requires preparation and a ritual with blood, chanting and POW contributions; there are timing restrictions and risks."
+    }
+  ],
+  "cases": [
+    {
+      "id": "eye-repair-preparation-cost",
+      "title": "Broken Eye repair versus new ward preparation and dawn cost failure",
+      "dimensions": [
+        "distributed-evidence",
+        "context-fidelity",
+        "joint-deduplication"
+      ],
+      "origin": "authored-source-grounded",
+      "grounding": [
+        "eye-broken-ward",
+        "eye-preparation",
+        "eye-chant-cost-start",
+        "eye-chant-cost-end",
+        "eye-assault-background"
+      ],
+      "questions": {
+        "content": {
+          "type": "choice",
+          "instructions": "Does existing_material state all facts required by the player request, including its conditions and exceptions? Judge content completeness separately from source verification. A report may fully state the facts; a topic mention is not enough. Candidate text is not yet in the actor context.",
+          "criteria": {
+            "complete": "Every requested factual clause is present in existing_material.",
+            "missing": "At least one requested factual clause is not stated in existing_material."
+          }
+        },
+        "source_support": {
+          "type": "choice",
+          "instructions": "Do original source excerpts in existing_material substantiate every requested clause? A context report is not an original source excerpt, even when its content is complete.",
+          "criteria": {
+            "complete": "Original excerpts substantiate all requested clauses.",
+            "incomplete": "Original excerpt support is absent or incomplete."
+          }
+        },
+        "selection": {
+          "type": "choice",
+          "instructions": "Choose one listed candidate combination that supplies all currently missing requested facts without unnecessary repetition or unrelated material. If no factual content is missing, choose no additions. Assess factual content here; do not mistake a report for verified original text. The combinations refer to candidate aliases in state.",
+          "criteria": {
+            "set_0": "Candidate combination set_0; materialized with neutral aliases by buildInput.",
+            "set_1": "Candidate combination set_1; materialized with neutral aliases by buildInput.",
+            "set_2": "Candidate combination set_2; materialized with neutral aliases by buildInput.",
+            "set_3": "Candidate combination set_3; materialized with neutral aliases by buildInput.",
+            "set_4": "Candidate combination set_4; materialized with neutral aliases by buildInput.",
+            "set_5": "Candidate combination set_5; materialized with neutral aliases by buildInput.",
+            "set_6": "Candidate combination set_6; materialized with neutral aliases by buildInput.",
+            "set_7": "Candidate combination set_7; materialized with neutral aliases by buildInput.",
+            "set_8": "Candidate combination set_8; materialized with neutral aliases by buildInput.",
+            "set_9": "Candidate combination set_9; materialized with neutral aliases by buildInput.",
+            "set_10": "Candidate combination set_10; materialized with neutral aliases by buildInput.",
+            "set_11": "Candidate combination set_11; materialized with neutral aliases by buildInput.",
+            "set_12": "Candidate combination set_12; materialized with neutral aliases by buildInput.",
+            "set_13": "Candidate combination set_13; materialized with neutral aliases by buildInput.",
+            "set_14": "Candidate combination set_14; materialized with neutral aliases by buildInput.",
+            "set_15": "Candidate combination set_15; materialized with neutral aliases by buildInput.",
+            "set_16": "Candidate combination set_16; materialized with neutral aliases by buildInput.",
+            "set_17": "Candidate combination set_17; materialized with neutral aliases by buildInput.",
+            "set_18": "Candidate combination set_18; materialized with neutral aliases by buildInput.",
+            "set_19": "Candidate combination set_19; materialized with neutral aliases by buildInput.",
+            "set_20": "Candidate combination set_20; materialized with neutral aliases by buildInput.",
+            "set_21": "Candidate combination set_21; materialized with neutral aliases by buildInput.",
+            "set_22": "Candidate combination set_22; materialized with neutral aliases by buildInput.",
+            "set_23": "Candidate combination set_23; materialized with neutral aliases by buildInput.",
+            "set_24": "Candidate combination set_24; materialized with neutral aliases by buildInput.",
+            "set_25": "Candidate combination set_25; materialized with neutral aliases by buildInput.",
+            "set_26": "Candidate combination set_26; materialized with neutral aliases by buildInput.",
+            "set_27": "Candidate combination set_27; materialized with neutral aliases by buildInput.",
+            "set_28": "Candidate combination set_28; materialized with neutral aliases by buildInput.",
+            "set_29": "Candidate combination set_29; materialized with neutral aliases by buildInput.",
+            "set_30": "Candidate combination set_30; materialized with neutral aliases by buildInput.",
+            "set_31": "Candidate combination set_31; materialized with neutral aliases by buildInput.",
+            "set_32": "Candidate combination set_32; materialized with neutral aliases by buildInput.",
+            "set_33": "Candidate combination set_33; materialized with neutral aliases by buildInput.",
+            "set_34": "Candidate combination set_34; materialized with neutral aliases by buildInput.",
+            "set_35": "Candidate combination set_35; materialized with neutral aliases by buildInput.",
+            "set_36": "Candidate combination set_36; materialized with neutral aliases by buildInput.",
+            "set_37": "Candidate combination set_37; materialized with neutral aliases by buildInput.",
+            "set_38": "Candidate combination set_38; materialized with neutral aliases by buildInput.",
+            "set_39": "Candidate combination set_39; materialized with neutral aliases by buildInput.",
+            "set_40": "Candidate combination set_40; materialized with neutral aliases by buildInput.",
+            "set_41": "Candidate combination set_41; materialized with neutral aliases by buildInput.",
+            "set_42": "Candidate combination set_42; materialized with neutral aliases by buildInput.",
+            "set_43": "Candidate combination set_43; materialized with neutral aliases by buildInput.",
+            "set_44": "Candidate combination set_44; materialized with neutral aliases by buildInput.",
+            "set_45": "Candidate combination set_45; materialized with neutral aliases by buildInput.",
+            "set_46": "Candidate combination set_46; materialized with neutral aliases by buildInput.",
+            "set_47": "Candidate combination set_47; materialized with neutral aliases by buildInput.",
+            "set_48": "Candidate combination set_48; materialized with neutral aliases by buildInput.",
+            "set_49": "Candidate combination set_49; materialized with neutral aliases by buildInput.",
+            "set_50": "Candidate combination set_50; materialized with neutral aliases by buildInput.",
+            "set_51": "Candidate combination set_51; materialized with neutral aliases by buildInput.",
+            "set_52": "Candidate combination set_52; materialized with neutral aliases by buildInput.",
+            "set_53": "Candidate combination set_53; materialized with neutral aliases by buildInput.",
+            "set_54": "Candidate combination set_54; materialized with neutral aliases by buildInput.",
+            "set_55": "Candidate combination set_55; materialized with neutral aliases by buildInput.",
+            "set_56": "Candidate combination set_56; materialized with neutral aliases by buildInput.",
+            "set_57": "Candidate combination set_57; materialized with neutral aliases by buildInput.",
+            "set_58": "Candidate combination set_58; materialized with neutral aliases by buildInput.",
+            "set_59": "Candidate combination set_59; materialized with neutral aliases by buildInput.",
+            "set_60": "Candidate combination set_60; materialized with neutral aliases by buildInput.",
+            "set_61": "Candidate combination set_61; materialized with neutral aliases by buildInput.",
+            "set_62": "Candidate combination set_62; materialized with neutral aliases by buildInput.",
+            "set_63": "Candidate combination set_63; materialized with neutral aliases by buildInput."
+          }
+        }
+      },
+      "selection_options": [
+        {
+          "id": "set_0",
+          "materials": []
+        },
+        {
+          "id": "set_1",
+          "materials": [
+            "eye-a"
+          ]
+        },
+        {
+          "id": "set_2",
+          "materials": [
+            "eye-b"
+          ]
+        },
+        {
+          "id": "set_3",
+          "materials": [
+            "eye-a",
+            "eye-b"
+          ]
+        },
+        {
+          "id": "set_4",
+          "materials": [
+            "eye-c"
+          ]
+        },
+        {
+          "id": "set_5",
+          "materials": [
+            "eye-a",
+            "eye-c"
+          ]
+        },
+        {
+          "id": "set_6",
+          "materials": [
+            "eye-b",
+            "eye-c"
+          ]
+        },
+        {
+          "id": "set_7",
+          "materials": [
+            "eye-a",
+            "eye-b",
+            "eye-c"
+          ]
+        },
+        {
+          "id": "set_8",
+          "materials": [
+            "eye-a-duplicate"
+          ]
+        },
+        {
+          "id": "set_9",
+          "materials": [
+            "eye-a",
+            "eye-a-duplicate"
+          ]
+        },
+        {
+          "id": "set_10",
+          "materials": [
+            "eye-b",
+            "eye-a-duplicate"
+          ]
+        },
+        {
+          "id": "set_11",
+          "materials": [
+            "eye-a",
+            "eye-b",
+            "eye-a-duplicate"
+          ]
+        },
+        {
+          "id": "set_12",
+          "materials": [
+            "eye-c",
+            "eye-a-duplicate"
+          ]
+        },
+        {
+          "id": "set_13",
+          "materials": [
+            "eye-a",
+            "eye-c",
+            "eye-a-duplicate"
+          ]
+        },
+        {
+          "id": "set_14",
+          "materials": [
+            "eye-b",
+            "eye-c",
+            "eye-a-duplicate"
+          ]
+        },
+        {
+          "id": "set_15",
+          "materials": [
+            "eye-a",
+            "eye-b",
+            "eye-c",
+            "eye-a-duplicate"
+          ]
+        },
+        {
+          "id": "set_16",
+          "materials": [
+            "eye-a-report"
+          ]
+        },
+        {
+          "id": "set_17",
+          "materials": [
+            "eye-a",
+            "eye-a-report"
+          ]
+        },
+        {
+          "id": "set_18",
+          "materials": [
+            "eye-b",
+            "eye-a-report"
+          ]
+        },
+        {
+          "id": "set_19",
+          "materials": [
+            "eye-a",
+            "eye-b",
+            "eye-a-report"
+          ]
+        },
+        {
+          "id": "set_20",
+          "materials": [
+            "eye-c",
+            "eye-a-report"
+          ]
+        },
+        {
+          "id": "set_21",
+          "materials": [
+            "eye-a",
+            "eye-c",
+            "eye-a-report"
+          ]
+        },
+        {
+          "id": "set_22",
+          "materials": [
+            "eye-b",
+            "eye-c",
+            "eye-a-report"
+          ]
+        },
+        {
+          "id": "set_23",
+          "materials": [
+            "eye-a",
+            "eye-b",
+            "eye-c",
+            "eye-a-report"
+          ]
+        },
+        {
+          "id": "set_24",
+          "materials": [
+            "eye-a-duplicate",
+            "eye-a-report"
+          ]
+        },
+        {
+          "id": "set_25",
+          "materials": [
+            "eye-a",
+            "eye-a-duplicate",
+            "eye-a-report"
+          ]
+        },
+        {
+          "id": "set_26",
+          "materials": [
+            "eye-b",
+            "eye-a-duplicate",
+            "eye-a-report"
+          ]
+        },
+        {
+          "id": "set_27",
+          "materials": [
+            "eye-a",
+            "eye-b",
+            "eye-a-duplicate",
+            "eye-a-report"
+          ]
+        },
+        {
+          "id": "set_28",
+          "materials": [
+            "eye-c",
+            "eye-a-duplicate",
+            "eye-a-report"
+          ]
+        },
+        {
+          "id": "set_29",
+          "materials": [
+            "eye-a",
+            "eye-c",
+            "eye-a-duplicate",
+            "eye-a-report"
+          ]
+        },
+        {
+          "id": "set_30",
+          "materials": [
+            "eye-b",
+            "eye-c",
+            "eye-a-duplicate",
+            "eye-a-report"
+          ]
+        },
+        {
+          "id": "set_31",
+          "materials": [
+            "eye-a",
+            "eye-b",
+            "eye-c",
+            "eye-a-duplicate",
+            "eye-a-report"
+          ]
+        },
+        {
+          "id": "set_32",
+          "materials": [
+            "eye-background"
+          ]
+        },
+        {
+          "id": "set_33",
+          "materials": [
+            "eye-a",
+            "eye-background"
+          ]
+        },
+        {
+          "id": "set_34",
+          "materials": [
+            "eye-b",
+            "eye-background"
+          ]
+        },
+        {
+          "id": "set_35",
+          "materials": [
+            "eye-a",
+            "eye-b",
+            "eye-background"
+          ]
+        },
+        {
+          "id": "set_36",
+          "materials": [
+            "eye-c",
+            "eye-background"
+          ]
+        },
+        {
+          "id": "set_37",
+          "materials": [
+            "eye-a",
+            "eye-c",
+            "eye-background"
+          ]
+        },
+        {
+          "id": "set_38",
+          "materials": [
+            "eye-b",
+            "eye-c",
+            "eye-background"
+          ]
+        },
+        {
+          "id": "set_39",
+          "materials": [
+            "eye-a",
+            "eye-b",
+            "eye-c",
+            "eye-background"
+          ]
+        },
+        {
+          "id": "set_40",
+          "materials": [
+            "eye-a-duplicate",
+            "eye-background"
+          ]
+        },
+        {
+          "id": "set_41",
+          "materials": [
+            "eye-a",
+            "eye-a-duplicate",
+            "eye-background"
+          ]
+        },
+        {
+          "id": "set_42",
+          "materials": [
+            "eye-b",
+            "eye-a-duplicate",
+            "eye-background"
+          ]
+        },
+        {
+          "id": "set_43",
+          "materials": [
+            "eye-a",
+            "eye-b",
+            "eye-a-duplicate",
+            "eye-background"
+          ]
+        },
+        {
+          "id": "set_44",
+          "materials": [
+            "eye-c",
+            "eye-a-duplicate",
+            "eye-background"
+          ]
+        },
+        {
+          "id": "set_45",
+          "materials": [
+            "eye-a",
+            "eye-c",
+            "eye-a-duplicate",
+            "eye-background"
+          ]
+        },
+        {
+          "id": "set_46",
+          "materials": [
+            "eye-b",
+            "eye-c",
+            "eye-a-duplicate",
+            "eye-background"
+          ]
+        },
+        {
+          "id": "set_47",
+          "materials": [
+            "eye-a",
+            "eye-b",
+            "eye-c",
+            "eye-a-duplicate",
+            "eye-background"
+          ]
+        },
+        {
+          "id": "set_48",
+          "materials": [
+            "eye-a-report",
+            "eye-background"
+          ]
+        },
+        {
+          "id": "set_49",
+          "materials": [
+            "eye-a",
+            "eye-a-report",
+            "eye-background"
+          ]
+        },
+        {
+          "id": "set_50",
+          "materials": [
+            "eye-b",
+            "eye-a-report",
+            "eye-background"
+          ]
+        },
+        {
+          "id": "set_51",
+          "materials": [
+            "eye-a",
+            "eye-b",
+            "eye-a-report",
+            "eye-background"
+          ]
+        },
+        {
+          "id": "set_52",
+          "materials": [
+            "eye-c",
+            "eye-a-report",
+            "eye-background"
+          ]
+        },
+        {
+          "id": "set_53",
+          "materials": [
+            "eye-a",
+            "eye-c",
+            "eye-a-report",
+            "eye-background"
+          ]
+        },
+        {
+          "id": "set_54",
+          "materials": [
+            "eye-b",
+            "eye-c",
+            "eye-a-report",
+            "eye-background"
+          ]
+        },
+        {
+          "id": "set_55",
+          "materials": [
+            "eye-a",
+            "eye-b",
+            "eye-c",
+            "eye-a-report",
+            "eye-background"
+          ]
+        },
+        {
+          "id": "set_56",
+          "materials": [
+            "eye-a-duplicate",
+            "eye-a-report",
+            "eye-background"
+          ]
+        },
+        {
+          "id": "set_57",
+          "materials": [
+            "eye-a",
+            "eye-a-duplicate",
+            "eye-a-report",
+            "eye-background"
+          ]
+        },
+        {
+          "id": "set_58",
+          "materials": [
+            "eye-b",
+            "eye-a-duplicate",
+            "eye-a-report",
+            "eye-background"
+          ]
+        },
+        {
+          "id": "set_59",
+          "materials": [
+            "eye-a",
+            "eye-b",
+            "eye-a-duplicate",
+            "eye-a-report",
+            "eye-background"
+          ]
+        },
+        {
+          "id": "set_60",
+          "materials": [
+            "eye-c",
+            "eye-a-duplicate",
+            "eye-a-report",
+            "eye-background"
+          ]
+        },
+        {
+          "id": "set_61",
+          "materials": [
+            "eye-a",
+            "eye-c",
+            "eye-a-duplicate",
+            "eye-a-report",
+            "eye-background"
+          ]
+        },
+        {
+          "id": "set_62",
+          "materials": [
+            "eye-b",
+            "eye-c",
+            "eye-a-duplicate",
+            "eye-a-report",
+            "eye-background"
+          ]
+        },
+        {
+          "id": "set_63",
+          "materials": [
+            "eye-a",
+            "eye-b",
+            "eye-c",
+            "eye-a-duplicate",
+            "eye-a-report",
+            "eye-background"
+          ]
+        }
+      ],
+      "arms": [
+        {
+          "id": "empty",
+          "label": "No current material",
+          "intervention": "Baseline: no excerpts or reports in actor context.",
+          "input": {
+            "player_text": "那只光暗之眼的旧两半，粘回去还能当结界用吗？如果得重新做，材料、位置、月相和献血吟唱要怎样准备，每个人要付多少代价、总共要凑多少；有人耗尽力量，或者天亮前还凑不够，会怎样？",
+            "situation": "这是实验作者设计的假设性守秘人备料诊断，不是真实游玩逐字记录，也不声明调查员已经获知候选材料中的秘密。假设调查员正在询问光暗之眼旧两半能否复用，并考虑按标准版本从头制作；法术学习与译书过程不在本题范围。只检查回答所需事实是否已在当前材料中，不执行仪式、不承诺成功后的具体激活时刻或效果范围。玩家可见答复仍限于实际获知的信息；备料齐全不等于允许提前公开秘密，尤其不改变原文要求的损失记录与告知时机。这个公开边界同样是实验作者设计，不是战役实录。",
+            "existing_material": [],
+            "candidates": [
+              "eye-a",
+              "eye-b",
+              "eye-c",
+              "eye-a-duplicate",
+              "eye-a-report",
+              "eye-background"
+            ],
+            "cache_only": [],
+            "proposed_effects": []
+          },
+          "expected": {
+            "answers": {
+              "content": "missing",
+              "source_support": "incomplete",
+              "selection": [
+                "set_7",
+                "set_14",
+                "set_22"
+              ]
+            },
+            "source_refs": [
+              "eye-broken-ward",
+              "eye-preparation",
+              "eye-chant-cost-start",
+              "eye-chant-cost-end"
+            ],
+            "rationale": "当前没有A的不可修复事实、B的准备条件或C的按人按小时代价、累计目标和黎明失败后果。A原文、其逐字重复、忠实改写都能提供第一项；分别配B+C都是最小充分组合。",
+            "acceptable_additions": [
+              [
+                "eye-a",
+                "eye-b",
+                "eye-c"
+              ],
+              [
+                "eye-b",
+                "eye-c",
+                "eye-a-duplicate"
+              ],
+              [
+                "eye-b",
+                "eye-c",
+                "eye-a-report"
+              ]
+            ],
+            "forbidden_additions": [
+              "eye-background"
+            ]
+          }
+        },
+        {
+          "id": "first-only",
+          "label": "Only the broken-ward excerpt",
+          "intervention": "Supply A only, keeping the question and candidates unchanged.",
+          "input": {
+            "player_text": "那只光暗之眼的旧两半，粘回去还能当结界用吗？如果得重新做，材料、位置、月相和献血吟唱要怎样准备，每个人要付多少代价、总共要凑多少；有人耗尽力量，或者天亮前还凑不够，会怎样？",
+            "situation": "这是实验作者设计的假设性守秘人备料诊断，不是真实游玩逐字记录，也不声明调查员已经获知候选材料中的秘密。假设调查员正在询问光暗之眼旧两半能否复用，并考虑按标准版本从头制作；法术学习与译书过程不在本题范围。只检查回答所需事实是否已在当前材料中，不执行仪式、不承诺成功后的具体激活时刻或效果范围。玩家可见答复仍限于实际获知的信息；备料齐全不等于允许提前公开秘密，尤其不改变原文要求的损失记录与告知时机。这个公开边界同样是实验作者设计，不是战役实录。",
+            "existing_material": [
+              "eye-a"
+            ],
+            "candidates": [
+              "eye-a",
+              "eye-b",
+              "eye-c",
+              "eye-a-duplicate",
+              "eye-a-report",
+              "eye-background"
+            ],
+            "cache_only": [],
+            "proposed_effects": []
+          },
+          "expected": {
+            "answers": {
+              "content": "missing",
+              "source_support": "incomplete",
+              "selection": [
+                "set_6"
+              ]
+            },
+            "source_refs": [
+              "eye-broken-ward",
+              "eye-preparation",
+              "eye-chant-cost-start",
+              "eye-chant-cost-end"
+            ],
+            "rationale": "A仅回答不能拼回、必须新造；不能代替B的材料/高处/月相/献血条件与C的吟唱/5 POW每人每小时/100总额/耗尽死亡/黎明失败。只补B+C；A的重复及改写均不增加缺失事实。",
+            "acceptable_additions": [
+              [
+                "eye-b",
+                "eye-c"
+              ]
+            ],
+            "forbidden_additions": [
+              "eye-a",
+              "eye-a-duplicate",
+              "eye-a-report",
+              "eye-background"
+            ]
+          }
+        },
+        {
+          "id": "original-full",
+          "label": "All necessary original excerpts",
+          "intervention": "Supply A, B and the cross-page original C combination.",
+          "input": {
+            "player_text": "那只光暗之眼的旧两半，粘回去还能当结界用吗？如果得重新做，材料、位置、月相和献血吟唱要怎样准备，每个人要付多少代价、总共要凑多少；有人耗尽力量，或者天亮前还凑不够，会怎样？",
+            "situation": "这是实验作者设计的假设性守秘人备料诊断，不是真实游玩逐字记录，也不声明调查员已经获知候选材料中的秘密。假设调查员正在询问光暗之眼旧两半能否复用，并考虑按标准版本从头制作；法术学习与译书过程不在本题范围。只检查回答所需事实是否已在当前材料中，不执行仪式、不承诺成功后的具体激活时刻或效果范围。玩家可见答复仍限于实际获知的信息；备料齐全不等于允许提前公开秘密，尤其不改变原文要求的损失记录与告知时机。这个公开边界同样是实验作者设计，不是战役实录。",
+            "existing_material": [
+              "eye-a",
+              "eye-b",
+              "eye-c"
+            ],
+            "candidates": [
+              "eye-a",
+              "eye-b",
+              "eye-c",
+              "eye-a-duplicate",
+              "eye-a-report",
+              "eye-background"
+            ],
+            "cache_only": [],
+            "proposed_effects": []
+          },
+          "expected": {
+            "answers": {
+              "content": "complete",
+              "source_support": "complete",
+              "selection": [
+                "set_0"
+              ]
+            },
+            "source_refs": [
+              "eye-broken-ward",
+              "eye-preparation",
+              "eye-chant-cost-start",
+              "eye-chant-cost-end"
+            ],
+            "rationale": "A、B、C的原文已覆盖所有明确要求。C将跨页成本句和失败段如实相接；无需重复追加。背景袭击计划不属于本题。",
+            "acceptable_additions": [
+              []
+            ],
+            "forbidden_additions": [
+              "eye-a",
+              "eye-b",
+              "eye-c",
+              "eye-a-duplicate",
+              "eye-a-report",
+              "eye-background"
+            ]
+          }
+        },
+        {
+          "id": "faithful-full",
+          "label": "Complete authored context report",
+          "intervention": "Replace all originals with a complete faithful report; do not change question or candidates.",
+          "input": {
+            "player_text": "那只光暗之眼的旧两半，粘回去还能当结界用吗？如果得重新做，材料、位置、月相和献血吟唱要怎样准备，每个人要付多少代价、总共要凑多少；有人耗尽力量，或者天亮前还凑不够，会怎样？",
+            "situation": "这是实验作者设计的假设性守秘人备料诊断，不是真实游玩逐字记录，也不声明调查员已经获知候选材料中的秘密。假设调查员正在询问光暗之眼旧两半能否复用，并考虑按标准版本从头制作；法术学习与译书过程不在本题范围。只检查回答所需事实是否已在当前材料中，不执行仪式、不承诺成功后的具体激活时刻或效果范围。玩家可见答复仍限于实际获知的信息；备料齐全不等于允许提前公开秘密，尤其不改变原文要求的损失记录与告知时机。这个公开边界同样是实验作者设计，不是战役实录。",
+            "existing_material": [
+              "eye-full-report"
+            ],
+            "candidates": [
+              "eye-a",
+              "eye-b",
+              "eye-c",
+              "eye-a-duplicate",
+              "eye-a-report",
+              "eye-background"
+            ],
+            "cache_only": [],
+            "proposed_effects": []
+          },
+          "expected": {
+            "answers": {
+              "content": "complete",
+              "source_support": "incomplete",
+              "selection": [
+                "set_0"
+              ]
+            },
+            "source_refs": [
+              "eye-broken-ward",
+              "eye-preparation",
+              "eye-chant-cost-start",
+              "eye-chant-cost-end"
+            ],
+            "rationale": "忠实报告保留A的不可修复、B的全部准备约束、C的献血起唱至黎明、每人每小时5 POW、标准100总额、零POW死亡及黎明不足的失败/失去能量/从头开始，也保留原文延迟告知规则。事实齐全所以不追加；报告不是原文，所以来源支持不完整。",
+            "acceptable_additions": [
+              []
+            ],
+            "forbidden_additions": [
+              "eye-a",
+              "eye-b",
+              "eye-c",
+              "eye-a-duplicate",
+              "eye-a-report",
+              "eye-background"
+            ]
+          }
+        },
+        {
+          "id": "lossy",
+          "label": "Authored summary omitting constraints",
+          "intervention": "Keep the full A fact but omit the detailed B/C requirements.",
+          "input": {
+            "player_text": "那只光暗之眼的旧两半，粘回去还能当结界用吗？如果得重新做，材料、位置、月相和献血吟唱要怎样准备，每个人要付多少代价、总共要凑多少；有人耗尽力量，或者天亮前还凑不够，会怎样？",
+            "situation": "这是实验作者设计的假设性守秘人备料诊断，不是真实游玩逐字记录，也不声明调查员已经获知候选材料中的秘密。假设调查员正在询问光暗之眼旧两半能否复用，并考虑按标准版本从头制作；法术学习与译书过程不在本题范围。只检查回答所需事实是否已在当前材料中，不执行仪式、不承诺成功后的具体激活时刻或效果范围。玩家可见答复仍限于实际获知的信息；备料齐全不等于允许提前公开秘密，尤其不改变原文要求的损失记录与告知时机。这个公开边界同样是实验作者设计，不是战役实录。",
+            "existing_material": [
+              "eye-lossy-report"
+            ],
+            "candidates": [
+              "eye-a",
+              "eye-b",
+              "eye-c",
+              "eye-a-duplicate",
+              "eye-a-report",
+              "eye-background"
+            ],
+            "cache_only": [],
+            "proposed_effects": []
+          },
+          "expected": {
+            "answers": {
+              "content": "missing",
+              "source_support": "incomplete",
+              "selection": [
+                "set_6"
+              ]
+            },
+            "source_refs": [
+              "eye-broken-ward",
+              "eye-preparation",
+              "eye-chant-cost-start",
+              "eye-chant-cost-end"
+            ],
+            "rationale": "摘要完整保留A，但只有准备、血、吟唱和POW这些主题，没有B的具体条件及C的速率/总额/死亡/失败后果。必须补B+C；不能因为它叫摘要就把已经具备的A重复补回。",
+            "acceptable_additions": [
+              [
+                "eye-b",
+                "eye-c"
+              ]
+            ],
+            "forbidden_additions": [
+              "eye-a",
+              "eye-a-duplicate",
+              "eye-a-report",
+              "eye-background"
+            ]
+          }
+        },
+        {
+          "id": "cache-only",
+          "label": "Originals only in current-version cache",
+          "intervention": "Move the same complete original packet to cache_only; existing_material stays empty.",
+          "input": {
+            "player_text": "那只光暗之眼的旧两半，粘回去还能当结界用吗？如果得重新做，材料、位置、月相和献血吟唱要怎样准备，每个人要付多少代价、总共要凑多少；有人耗尽力量，或者天亮前还凑不够，会怎样？",
+            "situation": "这是实验作者设计的假设性守秘人备料诊断，不是真实游玩逐字记录，也不声明调查员已经获知候选材料中的秘密。假设调查员正在询问光暗之眼旧两半能否复用，并考虑按标准版本从头制作；法术学习与译书过程不在本题范围。只检查回答所需事实是否已在当前材料中，不执行仪式、不承诺成功后的具体激活时刻或效果范围。玩家可见答复仍限于实际获知的信息；备料齐全不等于允许提前公开秘密，尤其不改变原文要求的损失记录与告知时机。这个公开边界同样是实验作者设计，不是战役实录。",
+            "existing_material": [],
+            "candidates": [
+              "eye-a",
+              "eye-b",
+              "eye-c",
+              "eye-a-duplicate",
+              "eye-a-report",
+              "eye-background"
+            ],
+            "cache_only": [
+              "eye-a",
+              "eye-b",
+              "eye-c"
+            ],
+            "proposed_effects": []
+          },
+          "expected": {
+            "answers": {
+              "content": "missing",
+              "source_support": "incomplete",
+              "selection": [
+                "set_7",
+                "set_14",
+                "set_22"
+              ]
+            },
+            "source_refs": [
+              "eye-broken-ward",
+              "eye-preparation",
+              "eye-chant-cost-start",
+              "eye-chant-cost-end"
+            ],
+            "rationale": "缓存版本不变，但A/B/C均未进入当前上下文，不能计为已有。与empty相同，三种A等价材料各配B+C均可；缓存存在不改变内容或原文支持判定。",
+            "acceptable_additions": [
+              [
+                "eye-a",
+                "eye-b",
+                "eye-c"
+              ],
+              [
+                "eye-b",
+                "eye-c",
+                "eye-a-duplicate"
+              ],
+              [
+                "eye-b",
+                "eye-c",
+                "eye-a-report"
+              ]
+            ],
+            "forbidden_additions": [
+              "eye-background"
+            ]
+          }
+        }
+      ],
+      "review_notes": {
+        "evidence_units": "Three necessary material units A/B/C span China and Appendix B. C uses two page-bound sources because its cost sentence crosses physical pages 637–638. Thus four necessary sources, plus one nonessential background source, are bound; no bridging prose is inserted into original excerpts.",
+        "scope": "Authored hypothetical Keeper-preparation diagnostic only. No Jev call, actual player utterance, played scene, successful ritual, or independent training-data novelty is asserted.",
+        "ambiguity_exclusions": [
+          "The paragraph beginning If enough POW is gathered and its when the moon next rises wording are excluded; neither the question nor gold promises a successful activation time.",
+          "Standard version is explicit, avoiding the varying POW amounts of other versions.",
+          "No book acquisition, translation mechanics, destruction ritual, range, or enemy-specific ward effect is requested.",
+          "Source A contains contextual book and NPC references; these do not create extra answer requirements.",
+          "Source C retains the Keeper loss-disclosure instruction as source content, not a claim that the hypothetical player already knows the cost.",
+          "Line-wrap hyphenation in the chant is normalized to SA-MA; no new words or explanatory bridge are inserted."
+        ],
+        "minimum_sufficiency": "A repair conclusion, B preparation constraints, and C chant/contribution/death/dawn-failure constraints are all needed. No proper subset covers the request. A has three equivalent candidate realizations. first-only and lossy already cover A, so only B+C is accepted; complete originals or faithful-full require no additions.",
+        "review_status": "Writer has personally read all three original PNGs. Independent Boss visual review is required before freezing and calling Jev. Hashes bind metadata/image identity only and do not prove transcription accuracy."
+      }
+    }
+  ]
+}

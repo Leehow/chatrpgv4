@@ -311,7 +311,7 @@ ${PUBLISH}
 const diagnosticWriteCode=${JSON.stringify(diagnosticWriteCode)};
 const WRITER=${JSON.stringify(WRITER)};
 const workPath=()=>{
-  const parent=${JSON.stringify(route === 'packager')} ? join(repo,'.build.noindex/pipicoc',fs.readdirSync(join(repo,'.build.noindex/pipicoc'))[0]) : join(repo,'.tmp');
+  const parent=${JSON.stringify(route === 'packager')} ? join(repo,'package-home/.staging',fs.readdirSync(join(repo,'package-home/.staging'))[0]) : join(repo,'.tmp');
   return join(parent,fs.readdirSync(parent).find(name=>name.startsWith('.package-runtime-')));
 };
 cp.spawn=(command,args,options)=>{
@@ -411,7 +411,7 @@ for (const [route, orphan] of [['imported', false], ['cli', false], ['packager',
     assert.match((await json(join(repo, '.build.noindex', evidence[0], 'failure.json'))).message, new RegExp(signal));
     if (route === 'imported') { const { before, after } = JSON.parse(result.stdout.trim()); assert.deepEqual(after, before); }
     if (route === 'packager') {
-      assert.deepEqual(await readdir(join(repo, '.build.noindex/pipicoc')), []);
+      assert.deepEqual(await readdir(join(repo, 'package-home/.staging')), []);
       const receipt = await json(join(repo, 'outer-purged.json'));
       assert.equal(await present(join(receipt.evidence[0], 'failure.json')), true);
       assert.equal(await present(join(repo, 'unused-output.app')), false);

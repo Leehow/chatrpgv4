@@ -64,7 +64,7 @@ test('shared-auth typed advice enters current Keeper context once and expires af
   calls++;assert.equal(init.headers.Authorization,'Bearer test-only-credential');const body=JSON.parse(init.body);
   assert(!init.body.includes('test-only-credential'));
   const answers=Object.fromEntries(Object.entries(body.questions).map(([key,q])=>{
-   if(q.type==='choice'){const chosen=key==='choose'?'response:1':'supported';return [key,{type:'choice',choice:chosen,confidence:1,probabilities:Object.fromEntries(Object.keys(q.criteria).map(k=>[k,k===chosen?1:0]))}];}
+   if(q.type==='choice'){const chosen=key==='choose'?'response:1':key==='respond'?'respond':'supported';return [key,{type:'choice',choice:chosen,confidence:1,probabilities:Object.fromEntries(Object.keys(q.criteria).map(k=>[k,k===chosen?1:0]))}];}
    return [key,{type:'score',score:3,confidence:1,legend:Object.fromEntries(q.criteria.map((v,i)=>[String(i),v])),probabilities:Object.fromEntries(q.criteria.map((_,i)=>[String(i),i===3?1:0]))}];
   }));
   return new Response(JSON.stringify({model:body.model,answers,usage:{input_tokens:200,output_tokens:100}}));

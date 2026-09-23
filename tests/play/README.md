@@ -32,7 +32,7 @@ uv run --frozen python tests/play/driver.py stop
 ## Skipping character creation: a template sheet
 
 ```bash
-uv run --frozen python tests/play/driver.py start --campaign my-campaign-id --pregen thomas-hayes --model xai/grok-4.6
+uv run --frozen python tests/play/driver.py start --campaign my-campaign-id --pregen thomas-hayes
 ```
 
 `--pregen <name>` creates the campaign from a starter's pregenerated investigator
@@ -49,9 +49,11 @@ fabricates a turn.
 uv run --frozen python tests/play/driver.py start --campaign my-campaign-id --model xai/grok-4.5
 ```
 
-`--model` is `provider/modelId` and is sent via Pi's `set_model` command right
-after startup, with the response checked for success before the run is
-reported ready. Default is `xai/grok-4.5` per docs/kernel-rpc.md section 10.
+The default is `grok-build/grok-4.7-build-fast` with `low` thinking, per
+docs/kernel-rpc.md section 10. `--model provider/modelId` overrides the model
+for explicit comparisons. Provider, model and low thinking are passed on the
+launch command so the automatic opening uses them too. Pi's `set_model`
+response is also checked for success before the run is reported ready.
 
 ## Where the evidence lands
 

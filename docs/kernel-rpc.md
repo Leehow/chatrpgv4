@@ -6065,6 +6065,15 @@ The first three admit: the player's words in context chose it; it is a routine s
 requires; it is not the investigator's voluntary action at all. The last two refuse. A malformed answer
 is no answer (`bad_output`) and refuses like an outage.
 
+**Implementation clarification (2026-09-21): agency precedes consent.** First distinguish a
+voluntary investigator choice from genuine NPC initiative, environmental force, rules or settled
+consequences. Apply the choice test only to voluntary components. A concealed destination or time
+in an involuntary outcome is not something the player must first know or select. This does not
+license an invented voluntary route, method, purchase or cost disguised as an outcome; a mixed
+batch still requires authorization for each voluntary component. There is no `forced` bypass,
+scenario whitelist, new admitting verdict or fail-open path. Consequence truth and source support
+remain with their existing authorities rather than becoming a demand for player consent.
+
 A refusal reaches the Keeper as an ordinary tool refusal (§8's `code: message` / `fix` / named
 `details` lines), so nothing new has to be learned:
 
@@ -14996,6 +15005,28 @@ Explicit support lookup requires the existing configured and mounted Jev integra
 
 Acceptance follows an actual Pi tool call through the canonical dispatcher and the next converted provider request, including fresh query binding, a valid packet, private metadata exclusion, stale/cancelled refusal, and unchanged direct lookup/recall behavior. A module-level call alone is insufficient to prove this consumer.
 
+## 125. Shared foreground evidence and NPC preparation (#109)
+
+Specification: [NPC reactions in shared Keeper preparation](specs/npc-prescreen-integration.md). This integration preserves sections 123 and 124's authority and background owners. Its acceptance follows the actual Keeper provider request and real player interaction, not callback counts.
+
+### 125.1 One preparation owner, separate perspectives
+
+The existing host context owner may claim automatic NPC preparation through the private preparation-owner event. A claimed session does not also run the old standalone before-agent-start NPC wait. The NPC bridge retains explicit evaluate and adds prepare/finalize: prepare returns an advisory result plus a host-only NPC revision checkpoint; finalize rereads current limited perspectives and removes stale results before final request assembly. Neither checkpoint nor the supplied decision port enters Keeper content. Without the integrated owner the existing standalone NPC path remains compatible.
+
+The versioned workspace catalog may receive host-only npc_perspectives:true. It returns separate limited NPC views derived from the same authoritative world/graph/memory/record snapshot used for the catalog. This does not replace Keeper dossier material with a public view, or give an NPC the Keeper's private source context. The existing npc.perspectives read uses the same projection owner. Prepared views include canonical input/scope, availability, accepted personality/history and response-bank revision; source material relevance never establishes presence or perception.
+
+### 125.2 Concurrent work with a single allowance and capacity owner
+
+After mandatory baseline preparation, the accepted input has one absolute automatic deadline. Both enabled branches share at most the existing six-second material allowance; NPC-only uses its existing configured short allowance. NPC's shorter child deadline is inside the outer allowance, not added before it. Context repeats, tool results, retries and invalidation never reset the allowance. Completed independent work can reach finalization despite an unrelated child timeout; cancellation or stale binding cannot be converted to completion.
+
+One shared-auth adapter provides the combined foreground concurrency limit. The preparation owner reserves and settles every dispatched decision once in its shared allowance and, when present, once in the canonical parent provider budget. Branch limits remain subdivisions; an exhausted owner never creates a new independent fallback. Background tool-enabled authors and canonical publication keep their existing owners and never consume a mandatory foreground authoring round.
+
+### 125.3 Final handoff and compatibility
+
+The final context projection budgets evidence and NPC advice together, without promoting an intention to fact or allowing duplicate promises to crowd out their original attribution. Early NPC results are rechecked after material preparation, because memory, presence, personality or response banks may change while another branch runs. The real converted provider payload supplies delivery evidence. Prepared, retained, delivered and used remain distinct outcomes.
+
+Material preselection and NPC advice keep their independent enablement semantics. A dossier already supplied to the Keeper does not suppress an appropriate NPC response; a relevant absent person does not act remotely. The existing explicit response-evaluation read can reuse compatible results and retains its ordinary tool/task authority. No new public verb, perception parser, credential route or game mutation owner is introduced.
+
 ## 126. Prepare the current action without avoidable foreground work (2026-09-22)
 
 The user authorized wiring and refactoring after the real #108 comparison failed to improve player waiting. This section extends sections 124 and 125: the objective is fewer unnecessary serial Keeper/provider stages while preserving source fidelity, player agency, kernel settlement and useful incomplete results. It does not authorize a different model, synthetic play, skipped admission, unreviewed success claims or removal of retained failures. Primary acceptance remains actual converted Keeper requests and canonical live player turns.
@@ -15015,3 +15046,19 @@ When material preselection is enabled, the first eligible preparation for an acc
 The result distinguishes `ordinary`, `no_roll`, `incumbent`, `needs_player` and `unknown`. An ordinary suggestion names only an issued current actor/profile/decision and bounded difficulty/modifier choices. The raw player declaration and established public context own action selection; a private clue, predicted NPC response or optional plan never grants authorization. Unsupported specialized families, missing profiles, NPC executors, pending choices and uncertain parameters retain their existing owner or remain unknown. A suggested future check is not a rolled result.
 
 The host does not execute the suggested resolve. The Keeper may use or correct it and invokes the ordinary canonical tool; admission, Mod validation, arithmetic and transaction receipts remain in that existing path. No numerical result is predicted. Check advice carries private input/world/rules/profile bindings, is checked after parallel preparation and dropped if obsolete. It shares the existing preparation adapter, parent accounting, deadline and final request budget with evidence and NPC support. Optional check failure does not erase independently valid evidence. The public projection shows current semantic choices and unresolved needs, never private hashes, provider metadata or an assertion that a check already happened.
+
+### 126.3 Foreground item identity and background enrichment
+
+A requested item handover requires a real persistent identity, ownership and transaction receipt in this turn. Descriptive or usage enrichment that no current operation consumes must not automatically hold that transaction open. The implementation must separate those dependencies at the existing definition/object owners, retain unknown mechanics as unknown, and publish later enrichment through their revision/acceptance guards. It must not create a key-specific exception, infer ordinary status from an item-name list, turn absent mechanics into confirmed no-effects, or narrate an uncommitted handover.
+
+Fields needed to execute a current weapon, spell, document, resource effect or requested usage remain mandatory before that execution. Ordinary read/move/ownership operations must not implicitly acquire execution authority from a partial definition. Existing accepted compatible definitions and usages are reused. Background work is bounded, durable under the existing job owner, and cannot overwrite an object whose relevant basis changed or race a newer accepted enrichment.
+
+**Implementation decision: reuse existing inventory identity and queued adoption.** Do not invent an incomplete accepted definition or default unknown effects to an empty executable profile. A host-only `mods.identity.plan {campaign, define, object}` may prepare/reuse the existing create job and return eligibility, its existing job/provenance and a reason; it changes no game state and grants no handover authority. Eligibility is structural and tied to current operation dependencies: one ordinary `item` definition without a template and one investigator-bound identity transfer referring to it, with no same-batch execution, document, container, condition, weapon or spell dependency. Unsupported or ambiguous shapes retain the incumbent path. The transaction rechecks that eligibility and the existing giver/disposition/ownership rules rather than trusting a caller boolean.
+
+An eligible queued definition plus transfer atomically creates an ordinary inventory identity with the actual quantity, giver and owner, a truthful transfer receipt and `pending_definition:true`, and a retained adoption request bound to that acquisition and its relevant basis. This is owned equipment whose executable definition is unprepared, not a complete managed instance or a fictitious completed creator. Other authorized clue/cash/move effects in the transaction may finish. Creator work continues through the existing tool-enabled job, validation and acceptance path. At a safe boundary, a ready result is promoted through the existing queued definition/adoption transaction; the original handover is never replayed. Until then execution-dependent operations refuse or request preparation explicitly.
+
+An unfinished or failed optional creator must not be synchronously retried merely because `narrate`, an unrelated action or the next player input invokes queue reconciliation. Reconciliation publishes ready work and resumes eligible optional work in its background owner. A genuinely requested execution may join the existing job through the ordinary preparation gate. Removal, transfer, quantity/basis changes, cancellation, restart and same-name replacement must not let a late result resurrect or adopt a different acquisition; revalidation covers the claimed item, not unrelated world changes. Preserve failure evidence and a usable pending state. A complete player turn, including delivery, must remain unblocked while a test-held optional creator has not finished.
+
+### 126.4 Audit submission matches the existing validated protocol
+
+The observed live audit spent its only format repair on misplaced subreviews, then failed because a same-locus result supplied a locus where the existing protocol requires null. The private `submit_audit` tool schema and pinned instruction must express the same nesting and closed mode/field choices as the existing schema-2 validator. Required subreviews belong inside `continuity_review`; same-locus/transition null rules must be explicit. Host-owned source aliases remain references, not copied prose. Keep all reference, required-review, semantic finding and live-freshness checks; do not normalize a conflicting semantic judgment into pass, drop a required subreview, increase the repair allowance or treat unreviewed delivery as success. This is a producer/validator contract repair, not a new audit policy.

@@ -13,10 +13,8 @@ import {isJsonObject,jsonDigest} from '../json.js';
 import {array,clone,number,row,string,type Row} from '../read/values.js';
 import {readNpcLedger} from '../write/contributions.js';
 import {personalitySources,personalitySourceRevision,personalityView} from './material.js';
-import {npcPerspective} from './perspective.js';
-import {withPromiseFulfillment,canonicalMemoryReceipts} from '../read/memory.js';
-import {createResponseHandlers,responseBank} from './responses.js';
-import {incapacitatedBy} from '../healing/conditions.js';
+import {npcViews} from './read.js';
+import {createResponseHandlers} from './responses.js';
 
 const INSTRUCTION='Describe this person\'s stable values, habits of judgment and nuanced tradeoffs in two or three concise sentences. ' +
     'Use the supplied authored descriptions first. Where they are silent, a compatible personality supplement may add variety. ' +
@@ -50,23 +48,13 @@ export function createNpcHandlers(context:KernelContext,writer:ReturnType<typeof
     }
     async function perspectives(params:Row):Promise<Row[]> {
         const loaded=await load(params),{campaign,world,graph,scope}=loaded;
-        const nodes=params.name!=null?[graph.npc(required(params,'name')!)]:npcsPresent(graph,world,graph.scene(world.active_scene));
         const memoryPath=campaign.path('memory/candidates.jsonl');
         const memory=await context.snapshots.isFile(memoryPath)?(await context.snapshots.readJsonl(memoryPath)).map(row):[];
         const records=await campaign.records(),turn=await campaign.readTurn(),ledger=await readNpcLedger(campaign);
-        const projectedMemory=withPromiseFulfillment(memory,{campaign:campaign.id,world,receipts:canonicalMemoryReceipts(records,array(turn.receipts))});
-        return Promise.all(nodes.map(async node=>{
-            const projected=npcPerspective(graph,world,node,projectedMemory,records,scope);
-            const responses=await responseBank(loaded,node),input={turn:turn.turn,player_input:turn.player_text??null};
-            const present=row(world.npc_presence)[graph.handle(node)]===world.active_scene;
-            const conditions=row(row(world.npc_resources)[graph.handle(node)]).conditions;
-            const death=array(turn.receipts).filter(receipt=>receipt.kind==='npc'
-                &&[node.node_id,graph.handle(node)].includes(receipt.npc)&&typeof receipt.dead==='boolean').at(-1);
-            const dead=death?death.dead:Boolean(row(ledger[string(node.node_id)]).dead);
-            const availability={present,can_act:present&&!dead&&!incapacitatedBy(Array.isArray(conditions)?conditions.map(string):[]).length};
-            return {...projected.view,responses,input,scope,availability,view_revision:jsonDigest({view:projected.revision,responses,input,availability})};
-        }));
+        return npcViews({campaign:campaign.id,graph,world,meta:loaded.meta,turn,memory,records,ledger,
+            ...(params.name!=null?{name:required(params,'name')!}:{}),read:async file=>await context.snapshots.isFile(campaign.path(file))?campaign.read(file):null});
     }
+
     return {
         ...createResponseHandlers(load,readJob),
         'npc.perspectives':async params=>({views:await perspectives(params)}),

@@ -1,7 +1,7 @@
 // Offline fixture validation and input projection only. No model or kernel calls.
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
-import {readFileSync} from 'node:fs';
+import {readFileSync, realpathSync} from 'node:fs';
 import {isAbsolute, resolve, sep} from 'node:path';
 
 export const DIMENSIONS = [
@@ -48,14 +48,18 @@ export function validateDataset(data) {
   }
   const sources = new Map(data.sources.map(x => [x.id, x]));
   const materials = new Map(data.materials.map(x => [x.id, x]));
-  const sourceKinds = ['builtin-module', 'live-record', 'contract-fixture', 'research-report', 'pdf-native'];
+  const sourceKinds = ['builtin-module', 'live-record', 'contract-fixture', 'research-report', 'pdf-native', 'pdf-visual'];
   const materialKinds = ['verbatim', 'faithful-paraphrase', 'lossy-summary', 'test-claim', 'source-combination'];
   for (const s of data.sources) {
     nonempty(s.id, 'source id'); nonempty(s.path, s.id); nonempty(s.quote, s.id);
     assert.ok(sourceKinds.includes(s.kind), `${s.id}: source kind`);
     assert.match(s.sha256, /^[a-f0-9]{64}$/);
-    assert.ok(s.selector && ['text', 'json', 'pdf-page'].includes(s.selector.type), `${s.id}: selector`);
-    if (s.kind === 'pdf-native') assert.match(s.document_sha256, /^[a-f0-9]{64}$/);
+    assert.ok(s.selector && ['text', 'json', 'pdf-page', 'pdf-image'].includes(s.selector.type), `${s.id}: selector`);
+    if (['pdf-native', 'pdf-visual'].includes(s.kind)) assert.match(s.document_sha256, /^[a-f0-9]{64}$/);
+    if (s.kind === 'pdf-visual') {
+      assert.equal(s.selector.type, 'pdf-image');
+      assert.ok(Number.isSafeInteger(s.selector.page) && s.selector.page > 0);
+    } else assert.notEqual(s.selector.type, 'pdf-image', 'Image selectors require visual provenance');
   }
   for (const m of data.materials) {
     nonempty(m.id, 'material id'); nonempty(m.text, m.id);
@@ -123,13 +127,17 @@ export function validateDataset(data) {
   return {cases: data.cases.length, arms: data.cases.reduce((n, c) => n + c.arms.length, 0), sources: data.sources.length};
 }
 export function validateBindings(data, root, {allowMissing = false} = {}) {
-  const cache = new Map(), missing = [], checked = [];
+  const cache = new Map(), missing = [], checked = [], visual = [];
+  const realRoot = realpathSync(root);
   for (const source of data.sources) {
     assert.ok(!isAbsolute(source.path) && !source.path.split(/[\\/]/).includes('..'), 'Source path must stay within the repository');
     const path = resolve(root, source.path);
     assert.ok(path.startsWith(resolve(root) + sep), 'Source path escapes root');
     if (!cache.has(path)) {
-      try {cache.set(path, readFileSync(path));} catch (e) {
+      try {
+        assert.ok(realpathSync(path).startsWith(realRoot + sep), 'Source real path escapes root');
+        cache.set(path, readFileSync(path));
+      } catch (e) {
         if (!allowMissing || e.code !== 'ENOENT') throw e;
         cache.set(path, null);
       }
@@ -137,13 +145,33 @@ export function validateBindings(data, root, {allowMissing = false} = {}) {
     const bytes = cache.get(path);
     if (!bytes) {missing.push(source.id); continue;}
     assert.equal(digest(bytes), source.sha256, `${source.id}: source bytes changed`);
+    if (source.kind === 'pdf-visual') {
+      const record = JSON.parse(bytes);
+      assert.equal(record.file_sha256, source.document_sha256, `${source.id}: PDF identity mismatch`);
+      assert.equal(record.page, source.selector.page, `${source.id}: image page mismatch`);
+      assert.ok(typeof record.path === 'string', 'Missing image path');
+      const imagePath = resolve(root, record.path);
+      assert.ok(imagePath.startsWith(resolve(root) + sep), 'Image path escapes root');
+      let image;
+      try {
+        assert.ok(realpathSync(imagePath).startsWith(realRoot + sep), 'Image real path escapes root');
+        image = readFileSync(imagePath);
+      } catch (e) {
+        if (!allowMissing || e.code !== 'ENOENT') throw e;
+        missing.push(source.id); continue;
+      }
+      assert.equal(digest(image), record.image_sha256, `${source.id}: image bytes changed`);
+      // Binding to an authentic page image is NOT a text/OCR correctness check.
+      visual.push(source.id); checked.push(source.id); continue;
+    }
     if (source.kind === 'pdf-native') assert.equal(JSON.parse(bytes).sha256, source.document_sha256, `${source.id}: PDF identity mismatch`);
     const text = selectSource(bytes, source.selector), start = text.indexOf(source.quote);
     assert.ok(start >= 0, `${source.id}: exact quote absent`);
     assert.equal(text.indexOf(source.quote, start + 1), -1, `${source.id}: quote is not unique in selected source`);
     checked.push(source.id);
   }
-  return {checked: checked.length, unavailable: missing};
+  return {checked: checked.length, unavailable: missing, text_quotes_checked: checked.length - visual.length,
+    visual_review_required: visual};
 }
 export function buildInput(data, caseId, armId) {
   const c = data.cases.find(c => c.id === caseId);

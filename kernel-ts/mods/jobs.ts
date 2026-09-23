@@ -6,6 +6,7 @@ import { RpcError } from '../errors.js';
 import { writeJsonAtomic } from '../fileio.js';
 import { isJsonObject, jsonDigest } from '../json.js';
 import { loadCampaignModule } from '../read/campaign.js';
+import {actor as selectActor} from '../read/handlers.js';
 import { playLanguageOf } from '../read/languages.js';
 import { recordOf, type ModuleGraph } from '../read/module-graph.js';
 import { presentSection, whereSection } from '../read/capsule.js';
@@ -18,7 +19,7 @@ import {USAGE_CAPABILITY, findAcceptedUsage, registerUsage, usageObject, usagePh
 import {projectInventory} from './projection.js';
 import {stageModEffect} from './stage.js';
 import type {ApplyContext} from '../apply/index.js';
-import { claimedEquipment, queuedRegistrations } from './queue.js';
+import {claimedEquipment,discardRegistrationByJob,queuedRegistrations} from './queue.js';
 import type { ModRuntime } from './runtime.js';
 import {SOURCE_AUDIT, auditSourceEvidence, writeAuditSources, verifyAuditSources, validateSourceReview} from './audit-source.js';
 import {CONTINUITY_AUDIT, CONTINUITY_AUDIT_V2, AUDIT_LIMITS, continuityArtifactErrors} from './audit-result.js';
@@ -35,6 +36,25 @@ export class ModJobs {
         const transaction = await this.writer.transaction(params, {preload: false});
         const meta = await transaction.campaign.readCampaign(), module = await loadCampaignModule(this.context, string(meta.module_id), transaction.world, transaction.campaign.id);
         return {...transaction, meta, module, graph: module.graph};
+    }
+    async identityPlan(params:Row):Promise<Row>{
+        const allowedParams=new Set(['campaign','define','object']),define=row(params.define),object=row(params.object),
+            allowedDefine=new Set(['kind','name','category','description']),allowedObject=new Set(['kind','name','to','from','definition','handover','why','quantity','label']);
+        const refused=(reason:string):Row=>({eligible:false,reason});
+        if(Object.keys(params).some(key=>!allowedParams.has(key))||Object.keys(define).some(key=>!allowedDefine.has(key))
+            ||Object.keys(object).some(key=>!allowedObject.has(key)))return refused('unsupported_shape');
+        const category=define.category??'item';
+        if(define.kind!=='define'||category!=='item'||typeof define.name!=='string'||!define.name.trim()
+            ||typeof define.description!=='string'||!define.description.trim())return refused('ordinary_item_required');
+        if(object.kind!=='object'||typeof object.name!=='string'||!object.name.trim()||object.definition!==define.name
+            ||Object.hasOwn(object,'quantity')&&(!Number.isSafeInteger(object.quantity)||object.quantity<1))return refused('identity_transfer_required');
+        const loaded=await this.load(params),party=await loaded.campaign.party() as Row[];let owner:Row;
+        try{owner=selectActor(party,object.to);}catch{return refused('investigator_owner_required');}
+        const owned=array(owner.equipment).some(item=>normalize(typeof item==='string'?item:string(row(item).name))===normalize(string(object.name)));
+        if(owned||findNamedObject(row(row(loaded.world.objects).instances),object.name))return refused('identity_already_exists');
+        const input={name:define.name,category:'item',description:define.description},job=await this.job({campaign:params.campaign,role:'create',input});
+        if(job.enabled!==true||typeof job.job!=='string'||typeof job.mod!=='string'||typeof job.digest!=='string')return refused('materializer_unavailable');
+        return{eligible:true,input,job:job.job,mod:job.mod,digest:job.digest,cwd:job.cwd,accepted:job.accepted===true};
     }
     private reviewScope(campaign: string, meta: Row, turn: Row): string {
         return join(this.runtime.root, 'jobs', jsonDigest(['continuity-chain', campaign, meta.active_worldline ?? null, turn.turn, turn.opened_at ?? null]));
@@ -245,7 +265,8 @@ export class ModJobs {
      * of define or adopt; an entry whose job has not finished yet is simply left for the next turn.
      */
     async queued(params: Row): Promise<Row> {
-        const {campaign, world, turn} = await this.load(params), effects: Row[] = [], unfinished: Row[] = [];
+        const {campaign, world, turn} = await this.load(params), effects: Row[] = [], unfinished: Row[] = [],party=await campaign.party() as Row[];
+        let optionalReady=0,changed=false;
         // A registration the host could not complete falls back to the ordinary blocking path rather than
         // leaving a marker that hides its row from the audit: dropped here, the gear reads as unregistered
         // again on the next turn and the Keeper registers it the way it did before any of this existed.
@@ -260,19 +281,25 @@ export class ModJobs {
             // back where it was, one tool call later, which is exactly what the marker exists to avoid.
             if (equal(entry.turn, turn.turn)) continue;
             const define = clone(row(entry.define));
+            if(entry.optional_identity===true){const identity=row(entry.identity),sheet=party.find(value=>string(value.id)===identity.owner),
+                item=sheet?array(sheet.equipment).find(value=>isJsonObject(value)&&value.pending_definition===identity.token):undefined;
+                if(!isJsonObject(item)||jsonDigest(item)!==identity.row_digest){changed=discardRegistrationByJob(world,string(entry.job))||changed;continue;}}
             const accepted = join(this.runtime.root, 'jobs', string(entry.job), 'accepted.json');
             // A session that died between the marker and its parameters must not leave the row hidden from
             // the audit for good, so an unfinished entry is reported as work rather than silently skipped.
             if (!await this.context.snapshots.pathExists(accepted)) {
-                unfinished.push({name: define.name, category: define.category, ...(Object.hasOwn(define, 'description') ? {description: define.description} : {}),
+                unfinished.push({name: define.name, category: define.category,job:entry.job,...(entry.optional_identity===true?{optional:true}:{}),
+                    ...(Object.hasOwn(define, 'description') ? {description: define.description} : {}),
                     ...(Object.hasOwn(define, 'template') ? {template: define.template} : {})});
                 continue;
             }
+            if(entry.optional_identity===true&&params.publish_optional!==true){optionalReady++;continue;}
             const value = row(await this.context.snapshots.readJson(accepted));
             effects.push({...define, _definition: value.definition, _provenance: value.provenance});
             if (truth(entry.object)) effects.push(clone(row(entry.object)));
         }
-        return {effects, unfinished};
+        if(changed)await campaign.writeWorld(world);
+        return {effects, unfinished,...(optionalReady?{optional_ready:optionalReady}:{})};
     }
     private async checkedUsage(raw: any, name: string | null): Promise<Row> {
         const usage = validateUsage(raw,{name}), skills = await this.tables.skillsTable();

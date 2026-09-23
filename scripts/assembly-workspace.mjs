@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { constants, closeSync, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, renameSync, rmSync, chmodSync, writeSync } from 'node:fs';
 import { chmod, lstat, mkdir, mkdtemp, open, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve, sep } from 'node:path';
+import { homedir } from 'node:os';
 import { setTimeout as delay } from 'node:timers/promises';
 
 const DIAGNOSTIC_NAMES = [
@@ -13,6 +14,10 @@ const STOP_GRACE_MS = 2_000;
 const STOP_KILL_MS = 2_000;
 const SIGNALS = ['SIGINT', 'SIGTERM', 'SIGHUP'];
 const within = (root, path) => path === root || path.startsWith(root + sep);
+export const assemblyStagingRoots = repo => [
+  join(repo, '.build.noindex'), join(repo, '.tmp'),
+  join(process.env.PIPICOC_APP_HOME || join(homedir(), 'leehow/code/pipicoc-build'), '.staging'),
+];
 const dump = (path, value) => writeFile(path, JSON.stringify(value, null, 2) + '\n', { mode: 0o600 });
 
 // One removable subscription per operation, retained throughout asynchronous cleanup.
@@ -280,7 +285,7 @@ export async function createAssemblyWorkspace({ repo, output, signal } = {}) {
   if (typeof output !== 'string' || !output) throw new Error('Assembly workspace requires an output path');
   repo = await realpath(resolve(repo));
   output = resolve(repo, output);
-  const roots = [join(repo, '.build.noindex'), join(repo, '.tmp')];
+  const roots = assemblyStagingRoots(repo);
   if (!roots.some(root => output !== root && within(root, output))) throw new Error('Runtime assembly output must be a dedicated .build.noindex or .tmp staging directory');
   const outputParent = dirname(output), diagnosticsParent = join(repo, '.build.noindex');
   await mkdir(outputParent, { recursive: true });

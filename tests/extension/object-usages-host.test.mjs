@@ -7,6 +7,7 @@ import {join} from 'node:path';
 import modsExtension from '../../extensions/mods/index.ts';
 import {COC_TOOLS, COC_TOOL_NAMES} from '../../extensions/kernel/tools.ts';
 import {KernelError} from '../../extensions/kernel/client.ts';
+import {waitFor} from './wait.mjs';
 
 const usage = (name = 'Swing') => ({kind: 'usage', object: 'Held chair', name, description: 'Swing the held chair at the attacker'});
 const packet = name => ({usage: {name, description: 'A swing', basis: 'Intact wooden frame', mode: 'melee',
@@ -35,7 +36,10 @@ async function harness(t, options = {}) {
   }, async call(method, params) {
     operations.push(method);
     if (method === 'mods.queued') return {effects: [], unfinished: []};
+    if(method==='mods.identity.plan')return options.identityEligible?{eligible:true,accepted:false,input:{name:params.define.name,category:'item',description:params.define.description},
+      job:`job-${params.define.name}`,mod:'enhanced-items',digest:'package-digest'}:{eligible:false,reason:'fixture_ineligible'};
     if (method === 'mods.job') {
+      if(params.role==='audit'&&options.auditEnabled===false)return{enabled:false};
       const ordinal = jobs.length, key = params.preview ? `job-${params.input.name}-${ordinal}` : `job-${params.input.name}`;
       jobs.push(params); jobByKey.set(key, params);
       const cwd = join(home, params.input.name);
@@ -53,6 +57,20 @@ async function harness(t, options = {}) {
   }});
   return {bridge, home, operations, tasks, checks, jobs};
 }
+
+test('plain investigator item identity and delivery do not await the optional definition creator',async t=>{
+  const started=latch(),finish=latch(),h=await harness(t,{identityEligible:true,auditEnabled:false,
+    async run(){started.release();await finish.promise;return{ok:true};}}),define={kind:'define',name:'House key definition',description:'An ordinary house key.'},
+    object={kind:'object',name:'House key',definition:'House key definition',to:'Thomas Hayes',from:'Steven Knott',handover:'given',why:'Knott hands it over.'},
+    payload={campaign:'test-campaign',effects:[{kind:'clue',clue:'keys'},define,object,{kind:'move',to:'archive'}]};
+  await h.bridge.prepare('apply',payload);await started.promise;
+  assert.equal(define._identity_defer,true);assert.equal(object._identity_defer,true);assert.equal(typeof define._queued,'string');
+  let delivered=false;await h.bridge.prepare('narrate',{campaign:'test-campaign',text:'The investigator pockets the key and leaves.'}).then(()=>{delivered=true;});
+  assert.equal(delivered,true,'narration preparation must not join the held optional creator');
+  assert(h.operations.includes('mods.identity.plan'));assert.equal(h.operations.filter(value=>value==='run').length,1);
+  finish.release();await waitFor(()=>h.operations.includes('mods.accept'),{label:'optional definition acceptance'});
+  assert(h.operations.includes('mods.accept'));
+});
 
 test('usage preparation waits, repairs through object-usage check, and injects the complete accepted packet', async t => {
   const started = latch(), finish = latch();
