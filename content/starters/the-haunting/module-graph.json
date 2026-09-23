@@ -2370,22 +2370,7 @@
                     "page": 437,
                     "grep_anchor": "buried in his basement"
                   }
-                ],
-                "affordance": {
-                  "target_entities": [
-                    "walter-corbitt",
-                    "corbitt-house"
-                  ],
-                  "verbs": [
-                    "research",
-                    "read",
-                    "trace"
-                  ],
-                  "skills": [
-                    "Library Use",
-                    "History"
-                  ]
-                }
+                ]
               },
               {
                 "clue_id": "clue-will-executor-chapel",
@@ -2404,21 +2389,7 @@
                     "page": 438,
                     "grep_anchor": "Reverend Michael Thomas"
                   }
-                ],
-                "affordance": {
-                  "target_entities": [
-                    "chapel-of-contemplation",
-                    "walter-corbitt"
-                  ],
-                  "verbs": [
-                    "research",
-                    "trace"
-                  ],
-                  "skills": [
-                    "Library Use",
-                    "Law"
-                  ]
-                }
+                ]
               },
               {
                 "clue_id": "clue-chapel-journal-burial",
@@ -2663,22 +2634,7 @@
                     "page": 442,
                     "grep_anchor": "Corbitt Diaries"
                   }
-                ],
-                "affordance": {
-                  "target_entities": [
-                    "walter-corbitt",
-                    "diaries"
-                  ],
-                  "verbs": [
-                    "search",
-                    "read",
-                    "force"
-                  ],
-                  "skills": [
-                    "Spot Hidden",
-                    "Occult"
-                  ]
-                }
+                ]
               },
               {
                 "clue_id": "clue-police-raid-chapel",
@@ -2836,21 +2792,7 @@
                     "page": 437,
                     "grep_anchor": "Unpublished Story"
                   }
-                ],
-                "affordance": {
-                  "target_entities": [
-                    "corbitt-house",
-                    "macario-family"
-                  ],
-                  "verbs": [
-                    "research",
-                    "read"
-                  ],
-                  "skills": [
-                    "Library Use",
-                    "Persuade"
-                  ]
-                }
+                ]
               },
               {
                 "clue_id": "clue-dooley-macario-madness",
@@ -4207,7 +4149,9 @@
       "visibility": "keeper-only",
       "aliases": [],
       "summary": "Rat Pack",
-      "evidence_span_ids": [],
+      "evidence_span_ids": [
+        "span-page-455-anchor-2"
+      ],
       "properties": {
         "runtime_projection": {
           "document": "npc-agendas.json",
@@ -4223,8 +4167,6 @@
             "relationship_to_investigators": "adversary",
             "keeper_note": "Printed encounter in the cellar crawl space (page 457). As a pack they may Overwhelm a single investigator with the Fighting maneuver rules, gaining one bonus die for their numbers.",
             "mechanics": {
-              "status": "authored",
-              "subject_kind": "npc",
               "profile": {
                 "profile_kind": "actor",
                 "characteristic_scale": "percentile",
@@ -4246,63 +4188,26 @@
                   "Fighting": 40,
                   "Dodge": 42
                 },
-                "attacks": [
-                  "Fighting 40% (Hard 20/Extreme 8), damage 1D3 — rats attack with teeth and claws",
-                  "Overwhelm (fighting maneuver) damage 2D6 — as a pack they swarm a single target, gaining one bonus die on the attack because of their numbers"
-                ],
-                "attacks_per_round": 1
-              },
-              "source_refs": [
-                {
-                  "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
-                  "pdf_index": 457,
-                  "grep_anchor": "RAT PACK"
-                }
-              ],
-              "provenance": {
-                "authority": "source_authored",
-                "basis": "Stat block, combat lines and the Overwhelm maneuver are printed verbatim on page 457 (RAT PACK)."
-              },
-              "fields_observed": [
-                "attacks",
-                "attacks_per_round",
-                "characteristics.CON",
-                "characteristics.DEX",
-                "characteristics.POW",
-                "characteristics.SIZ",
-                "characteristics.STR",
-                "derived.Build",
-                "derived.DB",
-                "derived.HP",
-                "derived.MOV",
-                "skills"
-              ],
-              "fields_extracted": [
-                "attacks",
-                "attacks_per_round",
-                "characteristics.CON",
-                "characteristics.DEX",
-                "characteristics.POW",
-                "characteristics.SIZ",
-                "characteristics.STR",
-                "derived.Build",
-                "derived.DB",
-                "derived.HP",
-                "derived.MOV",
-                "skills"
-              ],
-              "fields_not_authored": [
-                "armor",
-                "armor_rule",
-                "characteristics.APP",
-                "characteristics.EDU",
-                "characteristics.INT",
-                "derived.MP",
-                "derived.SAN",
-                "san_loss_to_see",
-                "spells",
-                "weapons"
-              ]
+                "weapons": [
+                  {
+                    "weapon_id": "claws",
+                    "extends": "claws",
+                    "name": "Teeth and claws",
+                    "damage": "1D3",
+                    "uses_per_round": 1,
+                    "book": "The rats attack with teeth and claws."
+                  },
+                  {
+                    "weapon_id": "overwhelm",
+                    "name": "Overwhelm (fighting maneuver)",
+                    "skill": "Fighting",
+                    "damage": "2D6",
+                    "uses_per_round": 1,
+                    "impale_unstated": true,
+                    "book": "As a pack they swarm a single target, gaining one bonus die on the attack because of their numbers."
+                  }
+                ]
+              }
             }
           }
         },
@@ -4312,7 +4217,13 @@
         "voice": "No speech — squealing, scrabbling claws, and the press of bodies in the dark.",
         "relationship_to_investigators": "adversary"
       },
-      "source_refs": []
+      "source_refs": [
+        {
+          "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
+          "pdf_index": 457,
+          "grep_anchor": "RAT PACK"
+        }
+      ]
     },
     {
       "node_id": "npc-records-clerk",
@@ -4770,73 +4681,6 @@
               }
             ],
             "mechanics": {
-              "status": "authored",
-              "subject_kind": "npc",
-              "source_refs": [
-                {
-                  "pdf_index": 459,
-                  "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
-                  "grep_anchor": "Walter Corbitt, Undead Fiend"
-                },
-                {
-                  "pdf_index": 456,
-                  "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
-                  "grep_anchor": "Using a Fighting Maneuver to Grab the Knife"
-                }
-              ],
-              "provenance": {
-                "authority": "source_authored",
-                "basis": "Stat block, skills, spells, armor rule and Sanity loss are printed verbatim on page 459 (Walter Corbitt, Undead Fiend). The floating dagger's damage and impale line are printed on page 456. Printed armor rule (p.459): \"Each point of armor reduces the damage received by 1 point. Corbitt has cast Flesh Ward already: roll 2D6 for his armor. Reduce his armor by one point for each point of damage he suffers.\" — the per-damage degradation is the armor_rule enum; the 2D6 initial value is rolled by the flesh-ward preparation."
-              },
-              "fields_observed": [
-                "characteristics.STR",
-                "characteristics.CON",
-                "characteristics.SIZ",
-                "characteristics.DEX",
-                "characteristics.INT",
-                "characteristics.APP",
-                "characteristics.POW",
-                "characteristics.EDU",
-                "derived.HP",
-                "derived.MP",
-                "derived.SAN",
-                "derived.MOV",
-                "derived.Build",
-                "derived.DB",
-                "skills",
-                "weapons",
-                "attacks",
-                "attacks_per_round",
-                "spells",
-                "san_loss_to_see",
-                "armor_rule"
-              ],
-              "fields_extracted": [
-                "characteristics.STR",
-                "characteristics.CON",
-                "characteristics.SIZ",
-                "characteristics.DEX",
-                "characteristics.INT",
-                "characteristics.APP",
-                "characteristics.POW",
-                "characteristics.EDU",
-                "derived.HP",
-                "derived.MP",
-                "derived.SAN",
-                "derived.MOV",
-                "derived.Build",
-                "derived.DB",
-                "skills",
-                "weapons",
-                "attacks",
-                "attacks_per_round",
-                "spells",
-                "san_loss_to_see",
-                "armor_rule"
-              ],
-              "fields_not_authored": [
-                "armor"
-              ],
               "profile": {
                 "profile_kind": "actor",
                 "characteristic_scale": "percentile",
@@ -4873,36 +4717,30 @@
                     "weapon_id": "claws",
                     "extends": "claws",
                     "name": "Clawed fingernails (kick, punch, claw)",
-                    "note": "Page 459: Fighting 50% (Hard 25%/Extreme 10%), damage 1D3 + damage bonus (1D4) + possible infection."
+                    "damage": "1D3",
+                    "uses_per_round": 1,
+                    "adds_damage_bonus": true,
+                    "book": "A successful hit may infect the victim: a Luck roll, and on a failure delirium and lost CON a day later."
                   },
                   {
-                    "weapon_id": "floating-dagger",
-                    "extends": "knife_medium",
-                    "name": "Floating magical dagger",
-                    "note": "Page 456: resolved as 1D100 against Corbitt's POW opposed by the investigator's Dodge; 1D4+2 damage, 6+1D4+2 on an Extreme success (impale). Costs 1 Magic point per round and counts as Corbitt's action for that round."
+                    "weapon_id": "floating-knife",
+                    "skill_unstated": true,
+                    "damage": "1D4+2",
+                    "uses_per_round": 1,
+                    "impale": true,
+                    "adds_damage_bonus": false,
+                    "book": "Rolled as 1D100 against Corbitt's POW, opposed by the target's Dodge; an Extreme success impales for 6+1D4+2. Costs 1 Magic point per round, which covers all the knife's actions that round."
                   }
                 ],
-                "attacks": [
-                  {
-                    "attack_id": "corbitt-claws",
-                    "name": "Fighting attacks",
-                    "printed": "Fighting 50% (Hard 25%/Extreme 10%), damage 1D3 + damage bonus (1D4) + possible infection.",
-                    "rider": "On a successful attack the investigator makes a Luck roll. On failure, a day later the victim is delirious and must make a CON roll: failure = delirium 1D10 days and lose 1D10 CON; success = delirium 1D6 days, no further CON loss. Repeat until recovery or death. CON lost does not regenerate."
-                  },
-                  {
-                    "attack_id": "corbitt-floating-dagger",
-                    "name": "Floating knife",
-                    "printed": "Roll 1D100 against Corbitt's POW, opposed by the investigator's Dodge; compare levels of success. Regular or Hard success beating the Dodge inflicts 1D4+2. Extreme success impales for 6+1D4+2. Seeing the knife attack costs SAN 1/1D4.",
-                    "cost": "1 Magic point per round; that point covers all actions made with the knife during the round."
-                  }
-                ],
-                "attacks_per_round": 1,
                 "spells": [
                   "Dominate (variant)",
                   "Flesh Ward",
                   "Summon/Bind Dimensional Shambler"
                 ],
-                "san_loss_to_see": "1/1D8 Sanity points to see him move",
+                "sanity_loss": {
+                  "success": "1",
+                  "failure": "1D8"
+                },
                 "armor_rule": "degrades_1_per_damage"
               }
             }
@@ -4919,6 +4757,16 @@
           "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
           "pdf_index": 446,
           "grep_anchor": "Walter Corbitt"
+        },
+        {
+          "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
+          "pdf_index": 459,
+          "grep_anchor": "Walter Corbitt, Undead Fiend"
+        },
+        {
+          "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
+          "pdf_index": 456,
+          "grep_anchor": "Using a Fighting Maneuver to Grab the Knife"
         }
       ]
     },
@@ -5325,6 +5173,250 @@
       ]
     },
     {
+      "node_id": "rule-bed-attack",
+      "node_kind": "rule",
+      "name": "The bed attack",
+      "visibility": "keeper-only",
+      "aliases": [],
+      "summary": "Corbitt lures an investigator to the spare-bedroom window and flings the bed at them: Spot Hidden, then Dodge; a hit throws the victim through the window for 1D6+2 damage. Witnesses of the bed moving by itself lose 1/1D4 Sanity.",
+      "evidence_span_ids": [
+        "span-page-454-anchor-1"
+      ],
+      "properties": {
+        "mechanics": {
+          "hazard": {
+            "trigger": {
+              "kind": "keeper"
+            },
+            "steps": [
+              {
+                "scope": "actor",
+                "values": [
+                  {
+                    "path": "skills.Spot Hidden",
+                    "label": "Spot Hidden"
+                  }
+                ],
+                "selection": "maximum",
+                "difficulty_unstated": true,
+                "results": {
+                  "failure": {
+                    "effects": [
+                      {
+                        "kind": "next_step",
+                        "step": 1
+                      }
+                    ]
+                  },
+                  "fumble": {
+                    "effects": [
+                      {
+                        "kind": "next_step",
+                        "step": 1
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "scope": "actor",
+                "values": [
+                  {
+                    "path": "skills.Dodge",
+                    "label": "Dodge"
+                  }
+                ],
+                "selection": "maximum",
+                "difficulty_unstated": true,
+                "results": {
+                  "failure": {
+                    "effects": [
+                      {
+                        "kind": "damage",
+                        "dice": "1D6+2"
+                      }
+                    ]
+                  },
+                  "fumble": {
+                    "effects": [
+                      {
+                        "kind": "damage",
+                        "dice": "1D6+2"
+                      }
+                    ]
+                  }
+                }
+              }
+            ],
+            "book": "The target is chosen at random among those next to the window, or is the one with the lowest Luck."
+          },
+          "sanity_loss": {
+            "success": "1",
+            "failure": "1D4",
+            "book": "Witnessing the bed move of its own accord."
+          }
+        }
+      },
+      "source_refs": [
+        {
+          "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
+          "pdf_index": 454,
+          "grep_anchor": "Bed Attack"
+        }
+      ]
+    },
+    {
+      "node_id": "rule-chapel-floor-collapse",
+      "node_kind": "rule",
+      "name": "The chapel's weakened floor",
+      "visibility": "keeper-only",
+      "aliases": [],
+      "summary": "Earth hides weakened floorboards in the chapel ruins: a Luck roll, and on a failure a Jump roll, or a ten-foot fall into the sealed cellar for 1D6 damage. The Jump may be pushed; a failed push loses or breaks a personal possession.",
+      "evidence_span_ids": [
+        "span-page-451-anchor-4"
+      ],
+      "properties": {
+        "mechanics": {
+          "hazard": {
+            "trigger": {
+              "kind": "keeper"
+            },
+            "steps": [
+              {
+                "scope": "actor",
+                "values": [
+                  {
+                    "path": "characteristics.Luck",
+                    "label": "Luck"
+                  }
+                ],
+                "selection": "maximum",
+                "difficulty_unstated": true,
+                "results": {
+                  "failure": {
+                    "effects": [
+                      {
+                        "kind": "next_step",
+                        "step": 1
+                      }
+                    ]
+                  },
+                  "fumble": {
+                    "effects": [
+                      {
+                        "kind": "next_step",
+                        "step": 1
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "scope": "actor",
+                "values": [
+                  {
+                    "path": "skills.Jump",
+                    "label": "Jump"
+                  }
+                ],
+                "selection": "maximum",
+                "difficulty_unstated": true,
+                "results": {
+                  "failure": {
+                    "effects": [
+                      {
+                        "kind": "damage",
+                        "dice": "1D6"
+                      }
+                    ]
+                  },
+                  "fumble": {
+                    "effects": [
+                      {
+                        "kind": "damage",
+                        "dice": "1D6"
+                      }
+                    ]
+                  }
+                },
+                "push": {
+                  "allowed": true,
+                  "book": "A failed pushed Jump loses or breaks a personal possession."
+                }
+              }
+            ],
+            "book": "A ten-foot fall into the sealed cellar."
+          }
+        }
+      },
+      "source_refs": [
+        {
+          "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
+          "pdf_index": 451,
+          "grep_anchor": "Call for Luck rolls"
+        }
+      ]
+    },
+    {
+      "node_id": "rule-library-research",
+      "node_kind": "rule",
+      "name": "Research in the records",
+      "visibility": "keeper-only",
+      "aliases": [],
+      "summary": "Each Library Use search of the library's or the Hall of Records' files takes half a day.",
+      "evidence_span_ids": [
+        "span-page-448-anchor-6",
+        "span-page-449-anchor-2"
+      ],
+      "properties": {
+        "mechanics": {
+          "time_cost": {
+            "amount": 240,
+            "unit": "minute",
+            "book": "Each attempt takes half a day."
+          }
+        }
+      },
+      "source_refs": [
+        {
+          "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
+          "pdf_index": 448,
+          "grep_anchor": "The Central Library"
+        },
+        {
+          "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
+          "pdf_index": 449,
+          "grep_anchor": "Hall of Records"
+        }
+      ]
+    },
+    {
+      "node_id": "rule-victory-rewards",
+      "node_kind": "rule",
+      "name": "The reward for destroying Corbitt",
+      "visibility": "keeper-only",
+      "aliases": [],
+      "summary": "If Corbitt is conquered and destroyed, each participating investigator gains 1D6 Sanity.",
+      "evidence_span_ids": [
+        "span-page-456-anchor-1"
+      ],
+      "properties": {
+        "mechanics": {
+          "reward": {
+            "sanity": "1D6",
+            "book": "Each participating investigator, if Corbitt is conquered and destroyed."
+          }
+        }
+      },
+      "source_refs": [
+        {
+          "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
+          "pdf_index": 456,
+          "grep_anchor": "Corbitt's Hiding Place"
+        }
+      ]
+    },
+    {
       "node_id": "scene-basement-rites",
       "node_kind": "scene",
       "name": "scene basement rites",
@@ -5407,14 +5499,6 @@
               "invent rat-pack timing and tool-pile clutter",
               "never_invent that Corbitt's body is empty of will"
             ],
-            "on_enter": {
-              "clock_ticks": [
-                {
-                  "clock_id": "corbitt-awareness",
-                  "reason": "Corbitt feels them enter his buried domain"
-                }
-              ]
-            },
             "scene_edges": [
               {
                 "to": "corbitt-house-ground",
@@ -5511,11 +5595,6 @@
                 "id": "central-library-search-1835",
                 "cue": "Spend half a day using Library Use to trace the earliest surviving construction and transfer records by the house's address.",
                 "clue_id": "clue-house-built-1835",
-                "time_profile": {
-                  "mode": "elapsed",
-                  "category": "library_research",
-                  "delta_minutes": 240
-                },
                 "route_type": "investigative_lead",
                 "status": "open"
               },
@@ -5526,11 +5605,6 @@
                 "requires_discovered_clue_ids": [
                   "clue-house-built-1835"
                 ],
-                "time_profile": {
-                  "mode": "elapsed",
-                  "category": "library_research",
-                  "delta_minutes": 240
-                },
                 "route_type": "investigative_lead",
                 "status": "open"
               },
@@ -5541,11 +5615,6 @@
                 "requires_discovered_clue_ids": [
                   "clue-neighbor-lawsuit-1852"
                 ],
-                "time_profile": {
-                  "mode": "elapsed",
-                  "category": "library_research",
-                  "delta_minutes": 240
-                },
                 "route_type": "investigative_lead",
                 "status": "open"
               },
@@ -5556,11 +5625,6 @@
                 "requires_discovered_clue_ids": [
                   "clue-basement-burial-lawsuit"
                 ],
-                "time_profile": {
-                  "mode": "elapsed",
-                  "category": "library_research",
-                  "delta_minutes": 240
-                },
                 "route_type": "investigative_lead",
                 "status": "open"
               }
@@ -5717,16 +5781,6 @@
                 "id": "descend-ruined-chapel-cellar",
                 "cue": "After the weak floor collapses—or once you find a safe way down—enter the sealed ten-foot-deep cellar and examine the two skeletons in silk robes.",
                 "clue_id": "clue-chapel-cellar-remains",
-                "authored_operation": {
-                  "kind": "environmental_hazard",
-                  "payload": {
-                    "luck_skill": "Luck",
-                    "jump_skill": "Jump",
-                    "damage_expr": "1D6",
-                    "source": "chapel weakened floorboards, ten-foot fall",
-                    "rule_ref": "module.haunting.chapel_weakened_floor"
-                  }
-                },
                 "route_type": "environment",
                 "status": "open"
               },
@@ -5747,9 +5801,6 @@
                   "look under",
                   "inspect"
                 ],
-                "skills": [
-                  "Spot Hidden"
-                ],
                 "requires_discovered_clue_ids": [
                   "clue-chapel-cellar-remains"
                 ],
@@ -5767,24 +5818,9 @@
                   "read",
                   "translate"
                 ],
-                "skills": [
-                  "Read Latin"
-                ],
                 "requires_discovered_clue_ids": [
                   "clue-liber-ivonis-tome"
                 ],
-                "authored_operation": {
-                  "kind": "mythos_tome_study",
-                  "payload": {
-                    "tome_id": "haunting-damaged-liber-ivonis",
-                    "language_skill": "Read Latin",
-                    "language_threshold": 50,
-                    "duration_minutes": 180,
-                    "mythos_gain": 2,
-                    "max_san_reduction": 2,
-                    "rule_ref": "module.haunting.damaged_liber_ivonis_initial_read"
-                  }
-                },
                 "route_type": "mythos_tome",
                 "status": "open"
               }
@@ -5800,33 +5836,6 @@
               "never_invent legible Liber Ivonis sections beyond the authored fragment",
               "never_invent additional survivors of the 1912 raid"
             ],
-            "optional_rules": {
-              "weakened_floor": {
-                "sequence": [
-                  "Luck",
-                  "Jump_on_failed_Luck"
-                ],
-                "fall_distance_feet": 10,
-                "damage": "1D6",
-                "push_allowed": true,
-                "push_runtime_status": "NOT_IMPLEMENTED",
-                "pushed_failure_extra": "lose_or_break_personal_possession",
-                "source_ref": {
-                  "page": 440,
-                  "grep_anchor": "Call for Luck rolls"
-                }
-              },
-              "liber_ivonis_initial_read": {
-                "minimum_hours": 3,
-                "read_latin_threshold_or_roll": 50,
-                "cthulhu_mythos_gain": 2,
-                "maximum_sanity_reduction": 2,
-                "source_ref": {
-                  "page": 440,
-                  "grep_anchor": "minimum of three hours"
-                }
-              }
-            },
             "scene_edges": [
               {
                 "to": "neighborhood-gossip",
@@ -6267,10 +6276,6 @@
               "conclusion_id": "corbitt-destroyed",
               "requires_combat_outcome": "investigators_win",
               "player_visible_outcome": "Walter Corbitt's body crumbles to ash, and the will that haunted the old house finally dissipates.",
-              "sanity_reward": {
-                "die": "1D6",
-                "rule_ref": "module.haunting.conclusion_sanity_reward"
-              },
               "session_ending": true
             },
             "tone": [
@@ -6282,27 +6287,6 @@
               "invent the exact beat of ash or retreat",
               "never_invent a peaceful bargain that leaves Corbitt safely dormant forever without cost"
             ],
-            "on_enter": {
-              "san_triggers": [
-                {
-                  "trigger_id": "see-corbitt-body",
-                  "source": "seeing Walter Corbitt's animated corpse",
-                  "san_loss_success": 1,
-                  "san_loss_fail_expr": "1D8",
-                  "creature_type": "Walter Corbitt"
-                }
-              ],
-              "danger_attacks": [
-                {
-                  "danger_id": "walter-corbitt",
-                  "attack_name": "claws"
-                },
-                {
-                  "danger_id": "floating-knife",
-                  "attack_name": "stab"
-                }
-              ]
-            },
             "scene_edges": [],
             "source_refs": [
               {
@@ -6544,11 +6528,6 @@
                   "clue-will-executor-chapel",
                   "clue-chapel-closed-1912"
                 ],
-                "time_profile": {
-                  "mode": "elapsed",
-                  "category": "library_research",
-                  "delta_minutes": 240
-                },
                 "route_type": "investigative_lead",
                 "status": "open"
               },
@@ -7035,12 +7014,6 @@
                   "charm",
                   "fast-talk"
                 ],
-                "skills": [
-                  "Persuade",
-                  "Intimidate",
-                  "Charm",
-                  "Fast Talk"
-                ],
                 "route_type": "npc_question",
                 "status": "open"
               },
@@ -7066,11 +7039,6 @@
                   "charm",
                   "persuade",
                   "fast-talk"
-                ],
-                "skills": [
-                  "Charm",
-                  "Persuade",
-                  "Fast Talk"
                 ],
                 "npc_interaction": {
                   "npc_id": "npc-ruth-blake",
@@ -7364,17 +7332,6 @@
               "invent which investigator is nearest the window",
               "never_invent that ordinary prayer alone destroys Corbitt"
             ],
-            "on_enter": {
-              "san_triggers": [
-                {
-                  "trigger_id": "bed-moves",
-                  "source": "witnessing the bed move of its own accord",
-                  "san_loss_success": 1,
-                  "san_loss_fail_expr": "1D4",
-                  "tag": "unnatural"
-                }
-              ]
-            },
             "scene_edges": [
               {
                 "to": "corbitt-house-ground",
@@ -7701,18 +7658,6 @@
                   "Dominate a lone investigator",
                   "spend Magic Points on Flesh Ward",
                   "claw attack once animated (1D3+1D4+infection)"
-                ],
-                "attack_profiles": [
-                  {
-                    "name": "claws",
-                    "attack_skill": "Fighting",
-                    "attack_target_percent": 50,
-                    "reaction_kind": "dodge_or_fight_back",
-                    "resist_skill": "Dodge",
-                    "damage": "1D3+1D4",
-                    "lethality": null,
-                    "ignores_armor": false
-                  }
                 ]
               },
               {
@@ -7722,18 +7667,6 @@
                   "float and stab for 1 MP per round (1D4+2; Extreme may impale)",
                   "wrench itself free of a holder via opposed STR vs Corbitt POW",
                   "pursue the last person on the basement stairs if they flee"
-                ],
-                "attack_profiles": [
-                  {
-                    "name": "stab",
-                    "attack_skill": "POW",
-                    "attack_target_percent": 90,
-                    "reaction_kind": "dodge",
-                    "resist_skill": "Dodge",
-                    "damage": "1D4+2",
-                    "lethality": null,
-                    "ignores_armor": false
-                  }
                 ]
               }
             ],
@@ -7746,7 +7679,13 @@
                   "the reek thickens on the stair",
                   "something heavy shifts upstairs"
                 ],
-                "on_full": "Corbitt commits to murder rather than mere fright — bed attack or floating knife becomes likely on the next intrusion"
+                "on_full": "Corbitt commits to murder rather than mere fright — bed attack or floating knife becomes likely on the next intrusion",
+                "advances_on": [
+                  {
+                    "kind": "enter",
+                    "scene": "scene-basement-rites"
+                  }
+                ]
               },
               {
                 "clock_id": "landlord-impatience",
@@ -7825,14 +7764,45 @@
       "visibility": "revealable",
       "aliases": [],
       "summary": "A damaged Latin Mythos tome found with Chapel records; study grants Mythos knowledge at a Sanity cost.",
-      "evidence_span_ids": [],
+      "evidence_span_ids": [
+        "span-page-451-anchor-2"
+      ],
       "properties": {
-        "language": "Latin"
+        "language": "Latin",
+        "mechanics": {
+          "tome": {
+            "language": "skills.Language (Other: Latin)",
+            "read_check": {
+              "scope": "actor",
+              "values": [
+                {
+                  "path": "skills.Language (Other: Latin)",
+                  "label": "Language (Latin)"
+                }
+              ],
+              "selection": "maximum",
+              "difficulty_unstated": true
+            },
+            "read_without_roll_at": 50,
+            "initial_reading": {
+              "amount": 3,
+              "unit": "hour",
+              "minimum": true
+            },
+            "cthulhu_mythos_initial": 2,
+            "max_sanity_reduction": 2
+          }
+        }
       },
       "source_refs": [
         {
           "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
           "pdf_index": 451
+        },
+        {
+          "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
+          "pdf_index": 451,
+          "grep_anchor": "minimum of three hours"
         }
       ]
     }
@@ -21064,6 +21034,96 @@
       "reason": "Structured curated starter projection."
     },
     {
+      "claim_id": "claim-uses-rule-central-library-library-research",
+      "subject_id": "scene-central-library",
+      "predicate": "uses-rule",
+      "object": {
+        "node_id": "rule-library-research"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [
+        "span-page-448-anchor-6"
+      ],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": null,
+      "confidence": 1,
+      "reason": "Authored mechanical shape (contract section 136.28)."
+    },
+    {
+      "claim_id": "claim-uses-rule-chapel-of-contemplation-ruins-chapel-floor-collapse",
+      "subject_id": "scene-chapel-of-contemplation-ruins",
+      "predicate": "uses-rule",
+      "object": {
+        "node_id": "rule-chapel-floor-collapse"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [
+        "span-page-451-anchor-4"
+      ],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": null,
+      "confidence": 1,
+      "reason": "Authored mechanical shape (contract section 136.28)."
+    },
+    {
+      "claim_id": "claim-uses-rule-corbitt-confrontation-victory-rewards",
+      "subject_id": "scene-corbitt-confrontation",
+      "predicate": "uses-rule",
+      "object": {
+        "node_id": "rule-victory-rewards"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [
+        "span-page-456-anchor-1"
+      ],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": null,
+      "confidence": 1,
+      "reason": "Authored mechanical shape (contract section 136.28)."
+    },
+    {
+      "claim_id": "claim-uses-rule-hall-of-records-library-research",
+      "subject_id": "scene-hall-of-records",
+      "predicate": "uses-rule",
+      "object": {
+        "node_id": "rule-library-research"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [
+        "span-page-449-anchor-2"
+      ],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": null,
+      "confidence": 1,
+      "reason": "Authored mechanical shape (contract section 136.28)."
+    },
+    {
+      "claim_id": "claim-uses-rule-upper-floor-bedroom-bed-attack",
+      "subject_id": "scene-upper-floor-bedroom",
+      "predicate": "uses-rule",
+      "object": {
+        "node_id": "rule-bed-attack"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [
+        "span-page-454-anchor-1"
+      ],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": null,
+      "confidence": 1,
+      "reason": "Authored mechanical shape (contract section 136.28)."
+    },
+    {
       "claim_id": "claim-variant-of-255",
       "subject_id": "asset-player-chapel-symbol",
       "predicate": "variant-of",
@@ -24340,6 +24400,46 @@
       "from_node_id": "clue-chapel-eye-symbol",
       "to_node_id": "conclusion-corbitt-is-undead-sorcerer",
       "claim_id": "claim-supports-99",
+      "properties": {}
+    },
+    {
+      "relation_id": "relation-uses-rule-central-library-library-research",
+      "relation_kind": "uses-rule",
+      "from_node_id": "scene-central-library",
+      "to_node_id": "rule-library-research",
+      "claim_id": "claim-uses-rule-central-library-library-research",
+      "properties": {}
+    },
+    {
+      "relation_id": "relation-uses-rule-chapel-of-contemplation-ruins-chapel-floor-collapse",
+      "relation_kind": "uses-rule",
+      "from_node_id": "scene-chapel-of-contemplation-ruins",
+      "to_node_id": "rule-chapel-floor-collapse",
+      "claim_id": "claim-uses-rule-chapel-of-contemplation-ruins-chapel-floor-collapse",
+      "properties": {}
+    },
+    {
+      "relation_id": "relation-uses-rule-corbitt-confrontation-victory-rewards",
+      "relation_kind": "uses-rule",
+      "from_node_id": "scene-corbitt-confrontation",
+      "to_node_id": "rule-victory-rewards",
+      "claim_id": "claim-uses-rule-corbitt-confrontation-victory-rewards",
+      "properties": {}
+    },
+    {
+      "relation_id": "relation-uses-rule-hall-of-records-library-research",
+      "relation_kind": "uses-rule",
+      "from_node_id": "scene-hall-of-records",
+      "to_node_id": "rule-library-research",
+      "claim_id": "claim-uses-rule-hall-of-records-library-research",
+      "properties": {}
+    },
+    {
+      "relation_id": "relation-uses-rule-upper-floor-bedroom-bed-attack",
+      "relation_kind": "uses-rule",
+      "from_node_id": "scene-upper-floor-bedroom",
+      "to_node_id": "rule-bed-attack",
+      "claim_id": "claim-uses-rule-upper-floor-bedroom-bed-attack",
       "properties": {}
     },
     {

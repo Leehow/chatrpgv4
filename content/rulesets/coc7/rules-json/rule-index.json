@@ -453,8 +453,7 @@
       "source_table": "the-haunting.json",
       "source_note": "The solo Corbitt temporary-insanity playtest uses the summary bout table.",
       "numeric": {
-        "summary_table_roll": "1D10",
-        "playtest_summary_result": 4
+        "summary_table_roll": "1D10"
       }
     },
     {
@@ -475,8 +474,7 @@
       "source_table": "the-haunting.json",
       "source_note": "If Corbitt is conquered and destroyed, each participating investigator gains 1D6 Sanity points.",
       "numeric": {
-        "sanity_reward_die": "1D6",
-        "playtest_roll": 4
+        "sanity_reward_die": "1D6"
       }
     },
     {
@@ -486,11 +484,7 @@
       "source_table": "the-haunting.json",
       "source_note": "The Bed Attack damage in the playtest is 1D6+2 after a failed Dodge.",
       "numeric": {
-        "damage_die": "1D6+2",
-        "playtest_die_rolls": [
-          3
-        ],
-        "playtest_total": 5
+        "damage_die": "1D6+2"
       }
     },
     {
@@ -500,11 +494,7 @@
       "source_table": "the-haunting.json",
       "source_note": "The pushed basement search failure applies 1D4+2 HP damage from the possessed dagger or clutter consequence.",
       "numeric": {
-        "damage_die": "1D4+2",
-        "playtest_die_rolls": [
-          2
-        ],
-        "playtest_total": 4
+        "damage_die": "1D4+2"
       }
     },
     {

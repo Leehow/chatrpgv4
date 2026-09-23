@@ -25,8 +25,7 @@
       "source_rule_id": "module.haunting.corbitt_summary_bout",
       "summary_table": "table_viii_summary",
       "summary_table_roll": "1D10",
-      "alone_uses_summary_table": true,
-      "playtest_summary_result": 4
+      "alone_uses_summary_table": true
     },
     "corbitt_own_dagger": {
       "source_rule_id": "module.haunting.corbitt_own_dagger",
@@ -37,26 +36,17 @@
     "conclusion_sanity_reward": {
       "source_rule_id": "module.haunting.conclusion_sanity_reward",
       "requires_corbitt_destroyed": true,
-      "sanity_reward_die": "1D6",
-      "playtest_roll": 4
+      "sanity_reward_die": "1D6"
     },
     "bed_attack_damage": {
       "source_rule_id": "module.haunting.bed_attack_damage",
       "precondition": "failed_dodge_after_spot_hidden",
-      "damage_die": "1D6+2",
-      "playtest_die_rolls": [
-        3
-      ],
-      "playtest_total": 5
+      "damage_die": "1D6+2"
     },
     "basement_search_damage": {
       "source_rule_id": "module.haunting.basement_search_damage",
       "precondition": "failed_pushed_spot_hidden",
-      "damage_die": "1D4+2",
-      "playtest_die_rolls": [
-        2
-      ],
-      "playtest_total": 4
+      "damage_die": "1D4+2"
     }
   },
   "weapons": [
