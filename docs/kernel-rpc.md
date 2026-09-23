@@ -17440,7 +17440,7 @@ paragraph; English, no book- or language-specific wording): one paragraph for th
 node kinds of §136.1, one shape of each name per node, the two laws below, `book`, skill names), then one
 paragraph per shape — `check`, `hazard` (with the embedded `gate`), `damage`, `sanity_loss`, `time_cost`,
 `resource_cost`, `weapon`, the actor's `profile` with `weapons`, `armor`, `spells` and `sanity_loss`, the
-registered `tactic` seat `properties.combat.defense` on an `npc` or `creature`, `spell`, `tome`, `reward` — each
+registered `combat` seats on an `npc` or `creature` (`defense`, `action`, `disposition`, §11.5.2–§11.5.3, only what the page states), `spell`, `tome`, `reward` — each
 with its keys and one worked example. The two laws: *accounting* — a needed value the page leaves out is
 `<slot>_unstated: true`, never a value from habit, the core rules or what usually happens; *dice* — a dice slot
 holds the bare expression (`1D4+2`), never words or units (`1D4+2 hit points`) and never the damage bonus
@@ -17449,7 +17449,7 @@ enforce that (it would have to read prose), the instruction and the review do. T
 `advances_on` is not taught to the reader: the reader writes no threat clocks today.
 
 **The review instruction** (same file, Verify phase, one paragraph): every field under a node's `mechanics`, and
-an actor's `combat.defense`, is a mechanical statement to check against the page image — the value digit for
+every field of an actor's `combat`, is a mechanical statement to check against the page image — the value digit for
 digit, that it sits on the node that states it, each step's order and effects, and that a slot recorded
 `_unstated` really is not printed. A value filled in where the page prints none is contradicted; so is an
 `_unstated` flag where the page prints the value.

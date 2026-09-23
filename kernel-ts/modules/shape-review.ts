@@ -18,7 +18,8 @@ const token = (key: string): string => key.replace(/~/g, "~0").replace(/\//g, "~
 
 /**
  * The seats a drafted node states a shape in, as pointers under the node: the record view's
- * `mechanics` container (§136.1) and an actor's `combat` (the registered `tactic` seat). The record view
+ * `mechanics` container (§136.1) and an actor's `combat` (the registered seats `defense`, `action` and
+ * `disposition`, §11.5.2–§11.5.3). The record view
  * is `properties.runtime_projection.record` when the node has one, otherwise `properties` -- `recordOf`'s
  * rule, so these are the values the validator checks and the kernel reads.
  */

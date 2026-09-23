@@ -52,7 +52,7 @@ const EXAMPLES = {
     time: '{"amount":3,"unit":"hour"}',
     span: '{"amount_unstated":true,"book":"<the span>"}',
     weapon: '{"name":"Claw","skill":"Fighting (Brawl)","damage":"1D6","adds_damage_bonus":true,"uses_per_round_unstated":true,"impale_unstated":true}',
-    defense: '{"defense":"dodge"|"fight_back"|"none"}',
+    combat: '`"defense":"dodge"|"fight_back"|"none"` for how it defends, `"action":"attack"` only when the page says it always attacks, and `"disposition":"fights_to_the_end"|"fights_then_flees"|"avoids_fighting"|"surrenders"`',
     spell: '{"cost_mp":"1D6","cost_sanity":1,"casting_time":{"amount":1,"unit":"round"}}',
     tome: '{"language":"skills.Language (Other) (<that language>)","initial_reading":{"amount":2,"unit":"week"},"cthulhu_mythos_initial":2,"cthulhu_mythos_full":5}',
 };
@@ -70,7 +70,7 @@ function stated() {
             properties: {mechanics: {damage: shape('damage'), sanity_loss: shape('sanity'), resource_cost: {resource: 'mp', chosen: true, per: 'cast'}}}},
         {node_id: 'creature-ghoul', node_kind: 'creature', name: 'Ghoul', summary: 'A ghoul.', source_refs: page4,
             properties: {mechanics: {profile: {characteristics: {STR: 80, CON: 65}, derived: {HP: 13, DB: '+1D4'}, skills: {'Fighting (Brawl)': 45},
-                weapons: [shape('weapon')], armor_unstated: true, sanity_loss: {success: '0', failure: '1D6'}}}, combat: {defense: 'fight_back'}}},
+                weapons: [shape('weapon')], armor_unstated: true, sanity_loss: {success: '0', failure: '1D6'}}}, combat: {defense: 'fight_back', action: 'attack', disposition: 'fights_to_the_end'}}},
         {node_id: 'object-old-knife', node_kind: 'object', name: 'Old knife', summary: 'A knife.', source_refs: page4,
             properties: {mechanics: {weapon: {name: 'Knife', skill: 'Fighting (Brawl)', damage: '1D4', uses_per_round: 1, impale: true, adds_damage_bonus: true}}}},
         {node_id: 'spell-ward', node_kind: 'spell', name: 'Ward', summary: 'A ward.', source_refs: page4, properties: {mechanics: {spell: shape('spell')}}},
@@ -123,7 +123,7 @@ test('a draft stating every shape passes, and every shape leaf is required for r
     // The numericPaths gap: strings, flags and enums, none of them a number, are all required.
     for (const path of [at(GLASS, 'mechanics/damage/dice'), at(FLOOR, 'mechanics/hazard/steps/1/results/failure/effects/0/dice'),
         at(FLOOR, 'mechanics/hazard/steps/0/difficulty_unstated'), at(FLOOR, 'mechanics/time_cost/book'), at(GHOUL, 'mechanics/profile/derived/DB'),
-        at(GHOUL, 'mechanics/profile/weapons/0/skill'), at(GHOUL, 'combat/defense'), at(TOME, 'mechanics/tome/spells/0'), at(CLIMB, 'mechanics/check/difficulty')])
+        at(GHOUL, 'mechanics/profile/weapons/0/skill'), at(GHOUL, 'combat/defense'), at(GHOUL, 'combat/action'), at(GHOUL, 'combat/disposition'), at(TOME, 'mechanics/tome/spells/0'), at(CLIMB, 'mechanics/check/difficulty')])
         assert.ok(filled.required_review.includes(path), path);
 });
 
@@ -200,6 +200,16 @@ test('a shape on the wrong node kind is refused at its path', () => {
     assert.equal(refused.rule, 'mechanics_wrong_kind');
     assert.equal(refused.path, at(CLIMB, 'mechanics/weapon'));
     assert.match(refused.error.fix, /136\.1 admits/);
+});
+
+test("a combat word outside an actor's closed words is refused at its path", () => {
+    // SL-08 (§11.5.3): a book may author only that a creature always attacks.
+    const draft = stated();
+    draft.nodes[GHOUL].properties.combat.action = 'flee';
+    const refused = refusal(draft);
+    assert.ok(refused, 'the draft passed');
+    assert.equal(refused.rule, 'shape_prose');
+    assert.equal(refused.path, at(GHOUL, 'combat/action'));
 });
 
 test('a reader draft gets no legacy allowance', () => {
