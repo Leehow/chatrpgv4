@@ -458,7 +458,8 @@ function applyFresh(view: RunView, fresh: Fresh): void {
     view.pending.unshift(...itemsFor(candidate, 'forced'));
 }
 
-export interface ReadResult {materials: Material[]; located?: unknown; summary: Json; calls?: number; ms?: number}
+/** `bodies`: the issued candidates' bodies the read carried (§135.20); for the Keeper and the record, never the route question. */
+export interface ReadResult {materials: Material[]; located?: unknown; summary: Json; calls?: number; ms?: number; bodies?: import('./candidate-bodies.ts').CandidateBody[]}
 export interface Fresh {context: TurnContext; candidates: Candidate[]}
 export function settleRead(view: RunView, step: number, read: ReadResult, fresh: Fresh, ms: number): TelemetryRow {
   // A read that folds Jev locate/qualification calls into itself still spends the run's Jev budget.
