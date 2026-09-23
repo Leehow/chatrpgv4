@@ -16710,7 +16710,7 @@ The `resolve` tool's `action` gains the optional `obligation` field, and the bas
 sentence: scene obligations are what the book states this place demands; a step the clerk settled
 followed the book; to improvise instead, waive or reopen it with `apply flag`. The capsule's
 "clerk did" list, which would show a crossing beside the clerk's steps (Q5), belongs to the loop
-(SO-04); the kernel's half is the `obligation_open` key on the result and the receipt.
+(SO-04, §135.11); the kernel's half is the `obligation_open` key on the result and the receipt.
 
 ### 134.15 Tests (SO-02)
 
@@ -16863,9 +16863,9 @@ the path and the row itself. The kernel's own tags, such as `authority: availabl
 appear only inside `basis`. A key consumed this turn, whether the host or the Keeper carried it out, is never
 offered again.
 
-**SO-04 seam.** `obligationCandidates(reads)` returns nothing. The scene obligations of
-`docs/specs/scene-obligations-as-candidates.md` (clerk authority (e), `obligation_check` precedence, `guarded_by`
-withheld, `reaction: "preordained"`) join there in SO-04, not in SL-02.
+**SO-04 seam.** In SL-02 `obligationCandidates(reads)` returned nothing. SO-04 (2026-09-23) fills it: §135.11 says what
+the scene obligations of `docs/specs/scene-obligations-as-candidates.md` issue (clerk authority (e), `obligation_check`
+precedence, `guarded_by` withheld, `reaction: "preordained"`).
 
 ### 135.3 The clerk's authority is a closed list; everything else is the Keeper's
 
@@ -16880,6 +16880,8 @@ withheld, `reaction: "preordained"`) join there in SO-04, not in SL-02.
 - `disposition_inference` (the ruling "An NPC's fight behaviour follows the NPC's own parameters", §11.5.3): writing
   the combat disposition Jev inferred, once per campaign, for an NPC whose turn has come and who has none. The
   write carries the host-only `_inferred` marker; below the gate it is the Keeper's.
+- `stated_obligation` (e), SO-04: the next step of a scene obligation the module states, as `table.apply.options`
+  issues it — its meeting, or its check with a closed approach binder (§135.11).
 
 Ruling (d), fetching data, is the read step itself. The run executes a policy-origin write only for a candidate
 whose `clerk` is in this list. Anything else is refused with `not_clerk_authority` before it reaches the kernel.
@@ -16973,7 +16975,7 @@ and recovery by `call_status` across a restart, scope frames, and delivery evide
 implicit narrate. On the hybrid engine a prose-only compose still ends the run `undelivered` in the run events,
 although the table delivered. The compose step's raw-prose streaming with in-place card replacement is SL-03's
 and the UI's. SO-04 owns the obligation candidates (§135.2), and with them the rule that clerk-origin refusals
-stay off the Keeper's refusal budget (§67). Until then a clerk refusal is struck like any other.
+stay off the Keeper's refusal budget (§67). SO-04 landed both (§135.11).
 
 ### 135.10 The §32 research item (decided by measurement, not by ruling)
 
@@ -16981,6 +16983,70 @@ Whether a fully-bound, kernel-issued, Jev-selected operation still needs §32 ad
 typed admission (or none) is enough for policy-origin operations. The rows of §135.7 carry the measurement. The
 numbers from the SL-02 replays are recorded in `docs/specs/pi-native-single-loop-tickets/02-domain-policy.md`
 under Comments. Until the owner decides, a policy-origin write passes §32 exactly as a model-origin one does.
+
+### 135.11 Scene obligations become the clerk's candidates (2026-09-23, SO-04 of `docs/specs/scene-obligations-as-candidates.md`; amends §135.2, §135.3, §135.5, §135.8, §135.9)
+
+The builder reads a scene's obligations from one place, `table.apply.options.obligations` (§134.10): the same rows the
+Keeper's capsule compacts, so the clerk's view and the Keeper's cannot disagree. `runtime/jev/obligation-candidates.ts`
+holds it; `buildCandidates` calls it. Nothing is read from `on_enter`, a module's mechanics or any prose, so a hazard
+(owner ruling Q1) is never a candidate.
+
+- **An `open` obligation whose `next` is a `meet`** issues the *stated meeting*: the person candidate for that person,
+  under the roster candidate's own key (`apply:person:<name>`), which it replaces — never a second candidate. Only a
+  person on the roster (`capsule.present`, not yet `called`) gets one. Its label says the book puts the person here as
+  the first step of the demand and what it guards ("The book puts Arty Wilmot (gatekeeper) here as the first step of
+  "Access to the Globe clippings", before clue globe-unpublished-story and clue macario-tragedy; …"); its `detail`
+  carries the demand and the guarded clues' summaries. Its name binds exactly as the roster's (§135.2): the table's
+  own `untold.label`, else an open parameter only the LLM fills. The obligation does not supply a name.
+- **An `open` obligation whose `next` is a `check`** issues an `obligation_check` candidate, key
+  `resolve:obligation:<handle>`, verb `resolve`, bound `{obligation: <handle>, target?, actor?}`. Its closed binder:
+  the approaches the actor can take (a stated `minimum` above the actor's issued rating in `table.resolve.options`
+  rules one out); one approach of `selection: approach` is bound as `skill`; several are one closed Jev bind over
+  `skill` (the approaches), `bonus` and `penalty` (the ordinary binder's closed dice words `none`/`one`/`two`, with
+  its wording: `ORDINARY_CHOICES` in `runtime/jev/ordinary-resolve-domain.ts`); `selection: maximum` leaves the skill
+  to the kernel (§134.11). `intent` is always a closed bind over the ordinary binder's intents (`investigate`,
+  `social`, `move`): the resolve verb requires one and the kernel issues none, so a single-approach check is a
+  one-question Jev bind, never an invented intent. Below the gates the operation goes to the LLM (`infer(bind)`, the
+  Keeper fills it). The dice words become `modifiers.bonus_dice`/`penalty_dice`; a die carries `modifiers.reason` =
+  the player's declaration, as the ordinary binder's template does (§113). No candidate is issued for a step with
+  `served_by` (the Mod contact candidate is its candidate, §134.13), `approaches_unstated` or `difficulty_unstated`
+  (the Keeper's, §134.2), a target not in `context.present`, or no approach the actor can take.
+- **`blocked`, `settled` and `waived` obligations issue nothing.**
+- **Guards are withheld from the clerk.** An options row that carries `guarded_by` is not a candidate; nor is a located
+  clue, a roster person, or a Mod contact check against a person, that an unsettled (`open` or `blocked`) obligation's
+  `trigger.guards` names. Each returns as soon as the options stop naming the guard — the hygiene of an exit whose
+  `unlock_when.met` is false. The Keeper's capsule shows them as before.
+- **`reaction: "preordained"`** (owner ruling Q2): a Mod pending contact whose `target` is the obligation's `who` and whose
+  decision is one of the row's `mod_contact[].check` is not a candidate, whatever the obligation's state. The Mod's
+  declaration and the capsule's `pending_contacts` are unchanged, and the Keeper may still resolve it.
+- **Precedence** among steps judged `now` together: `person → mod_check → obligation_check → core-check → clue/handout
+  → move` (`PRECEDENCE` in `runtime/jev/step-policy.ts`; an unranked family ranks with `core-check`).
+- **Authority and basis.** Both candidates carry clerk authority `stated_obligation` (§135.3) and `basis: {read:
+  "table.apply.options", path: "obligations[<i>]", row, obligation: <handle>, step: "meet" | "check"}`, which the
+  tool row and every `lane: "admission"` row of the call carry (§135.7), so the §32 research reports obligation steps as
+  their own row. The resolve carries `action.obligation`; it passes §32 like any policy-origin operation (§135.10).
+- **Labels** carry the demand and what it guards. The page, the handle's source, `guarded_by`, `mod_contact`,
+  `authority` and `preordained` are never in a label or a `detail`; they stay in `basis`.
+- **"Clerk did"** (§135.8). A clerk step of an obligation adds `obligation`: one line naming the obligation, the step,
+  the receipt and the page, e.g. `obligation globe-clippings-access: Persuade (regular) passed, settled; receipt
+  <id>; pdf p.448` (a failed check says `still open` with the book's line). A clerk step whose result carries
+  `obligation_open` (§134.11–§134.12) adds `obligation_open`: one line naming the obligation it crossed; the note lists
+  those lines under its own `obligation_open` key, beside `clerk_did` (owner ruling Q5).
+- **A model-origin resolve that claims an obligation** consumes `resolve:obligation:<handle>` for the run, as a
+  model-origin apply consumes the keys it carried out (§135.5).
+- **Clerk refusals.** A refused clerk step (admission, `not_here`, a stale binding, the gateway) is dropped for the run
+  (its key is consumed) and the run's next step is the Keeper's (`infer(adjudicate)`, reason `clerk_refused`). The
+  kernel extension records it on the clerk's side — `lane: "refusals", origin: "policy", reason: "clerk_refusal",
+  counted: false`, with the run, step, authority, code and the kernel's `details.reason` — and never strikes it against
+  the Keeper's per-class or per-turn refusal budget, nor against the identical-resend guard (§67; the pre-tool gates'
+  own strikes as well). The Keeper's own refused `resolve` with `action.obligation` counts like any refusal of its class.
+
+*Three ends (§31).* Writer: the kernel (§134.9) and the clerk's obligation-bound `resolve` and `apply person`. Reader: the
+builder, from `table.apply.options.obligations`. Actor: the clerk (`stated_obligation`) and the Keeper, told through
+"clerk did" and the capsule row. *Tests:* `tests/extension/scene-obligation-candidates.test.mjs` (the builder and the
+policy over the emitted kernel's own reads at the morgue, and over stub reads for the variants the haunting does not
+state) and the clerk-refusal case at the extension seam; the mutation record is in the SO-04 ticket's Comments. The
+turn-3 replay on the obligation fixture variant is in `experiments/single-loop-routing/RESULTS-20260923.md`.
 
 ## 136. Rules are data: the closed catalog of mechanical shapes and its one validator (2026-09-23, RD-01 of `docs/specs/rules-as-data.md`; amends §26 and §134.2–§134.3)
 
